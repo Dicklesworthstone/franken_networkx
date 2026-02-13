@@ -1,0 +1,73 @@
+{
+  "suite": "graph_core_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "b",
+      "attrs": {
+        "weight": "1"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "c"
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "d"
+    },
+    {
+      "op": "add_edge",
+      "left": "c",
+      "right": "d"
+    },
+    {
+      "op": "shortest_path_query",
+      "source": "a",
+      "target": "d"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "a",
+        "b",
+        "c",
+        "d"
+      ],
+      "edges": [
+        {
+          "left": "a",
+          "right": "b",
+          "attrs": {
+            "weight": "1"
+          }
+        },
+        {
+          "left": "a",
+          "right": "c",
+          "attrs": {}
+        },
+        {
+          "left": "b",
+          "right": "d",
+          "attrs": {}
+        },
+        {
+          "left": "c",
+          "right": "d",
+          "attrs": {}
+        }
+      ]
+    },
+    "shortest_path_unweighted": [
+      "a",
+      "b",
+      "d"
+    ]
+  }
+}

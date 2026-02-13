@@ -1,0 +1,21 @@
+{
+  "suite": "dispatch_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "dispatch_resolve",
+      "operation": "shortest_path",
+      "required_features": [
+        "shortest_path"
+      ],
+      "risk_probability": 0.2,
+      "unknown_incompatible_feature": false
+    }
+  ],
+  "expected": {
+    "dispatch": {
+      "selected_backend": "native",
+      "action": "full_validate"
+    }
+  }
+}

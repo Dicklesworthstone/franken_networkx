@@ -1,0 +1,48 @@
+{
+  "suite": "centrality_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "b"
+    },
+    {
+      "op": "add_node",
+      "node": "c"
+    },
+    {
+      "op": "closeness_centrality_query"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "a",
+        "b",
+        "c"
+      ],
+      "edges": [
+        {
+          "left": "a",
+          "right": "b",
+          "attrs": {}
+        }
+      ]
+    },
+    "closeness_centrality": [
+      {
+        "node": "a",
+        "score": 0.5
+      },
+      {
+        "node": "b",
+        "score": 0.5
+      },
+      {
+        "node": "c",
+        "score": 0.0
+      }
+    ]
+  }
+}

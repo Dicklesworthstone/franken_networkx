@@ -1,0 +1,10 @@
+[package]
+name = "fnx-convert"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+fnx-classes = { path = "../fnx-classes" }
+fnx-dispatch = { path = "../fnx-dispatch" }
+fnx-runtime = { path = "../fnx-runtime" }
+serde = { version = "1.0.218", features = ["derive"] }

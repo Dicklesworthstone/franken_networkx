@@ -1,0 +1,8 @@
+[package]
+name = "fnx-dispatch"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+fnx-runtime = { path = "../fnx-runtime" }
+serde = { version = "1.0.218", features = ["derive"] }

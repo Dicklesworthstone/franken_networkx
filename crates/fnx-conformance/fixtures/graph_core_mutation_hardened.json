@@ -1,0 +1,51 @@
+{
+  "suite": "graph_core_v1",
+  "mode": "hardened",
+  "operations": [
+    {
+      "op": "add_edge",
+      "left": "x",
+      "right": "y",
+      "attrs": {
+        "weight": "2"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "x",
+      "right": "y",
+      "attrs": {
+        "color": "red"
+      }
+    },
+    {
+      "op": "add_node",
+      "node": "z",
+      "attrs": {
+        "kind": "isolated"
+      }
+    },
+    {
+      "op": "remove_node",
+      "node": "z"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "x",
+        "y"
+      ],
+      "edges": [
+        {
+          "left": "x",
+          "right": "y",
+          "attrs": {
+            "color": "red",
+            "weight": "2"
+          }
+        }
+      ]
+    }
+  }
+}

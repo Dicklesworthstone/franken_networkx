@@ -1,0 +1,21 @@
+/target
+/target-codex
+**/*.rs.bk
+
+# Python cache artifacts
+__pycache__/
+*.py[cod]
+
+# Editor and OS noise
+.DS_Store
+*.swp
+*.swo
+
+# Local agent/task metadata
+.bv/
+.beads/
+
+# Generated runtime artifacts
+artifacts/conformance/latest/
+artifacts/conformance/oracle_capture/
+artifacts/perf/latest/

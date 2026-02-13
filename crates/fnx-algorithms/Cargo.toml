@@ -1,0 +1,8 @@
+[package]
+name = "fnx-algorithms"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+fnx-classes = { path = "../fnx-classes" }
+serde = { version = "1.0.218", features = ["derive"] }

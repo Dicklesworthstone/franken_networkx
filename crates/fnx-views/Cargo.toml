@@ -1,0 +1,7 @@
+[package]
+name = "fnx-views"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+fnx-classes = { path = "../fnx-classes" }

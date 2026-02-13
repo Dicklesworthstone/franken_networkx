@@ -1,0 +1,5 @@
+{
+  "suite": "smoke",
+  "oracle": "legacy_networkx_code/networkx",
+  "notes": "Bootstrap fixture for first runnable conformance harness"
+}

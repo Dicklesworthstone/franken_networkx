@@ -1,0 +1,47 @@
+{
+  "suite": "generators_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "generate_path_graph",
+      "n": 5
+    },
+    {
+      "op": "number_connected_components_query"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "edges": [
+        {
+          "left": "0",
+          "right": "1",
+          "attrs": {}
+        },
+        {
+          "left": "1",
+          "right": "2",
+          "attrs": {}
+        },
+        {
+          "left": "2",
+          "right": "3",
+          "attrs": {}
+        },
+        {
+          "left": "3",
+          "right": "4",
+          "attrs": {}
+        }
+      ]
+    },
+    "number_connected_components": 1
+  }
+}

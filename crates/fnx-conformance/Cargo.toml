@@ -1,0 +1,16 @@
+[package]
+name = "fnx-conformance"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+fnx-algorithms = { path = "../fnx-algorithms" }
+fnx-classes = { path = "../fnx-classes" }
+fnx-convert = { path = "../fnx-convert" }
+fnx-dispatch = { path = "../fnx-dispatch" }
+fnx-generators = { path = "../fnx-generators" }
+fnx-readwrite = { path = "../fnx-readwrite" }
+fnx-runtime = { path = "../fnx-runtime" }
+fnx-views = { path = "../fnx-views" }
+serde = { version = "1.0.218", features = ["derive"] }
+serde_json = "1.0.139"

@@ -1,0 +1,45 @@
+{
+  "suite": "readwrite_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "read_edgelist",
+      "input": "a b\nb c"
+    },
+    {
+      "op": "write_edgelist"
+    },
+    {
+      "op": "shortest_path_query",
+      "source": "a",
+      "target": "c"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "a",
+        "b",
+        "c"
+      ],
+      "edges": [
+        {
+          "left": "a",
+          "right": "b",
+          "attrs": {}
+        },
+        {
+          "left": "b",
+          "right": "c",
+          "attrs": {}
+        }
+      ]
+    },
+    "shortest_path_unweighted": [
+      "a",
+      "b",
+      "c"
+    ],
+    "serialized_edgelist": "a b -\nb c -"
+  }
+}

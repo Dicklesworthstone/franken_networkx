@@ -1,0 +1,19 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/fnx-classes",
+  "crates/fnx-views",
+  "crates/fnx-dispatch",
+  "crates/fnx-convert",
+  "crates/fnx-algorithms",
+  "crates/fnx-generators",
+  "crates/fnx-readwrite",
+  "crates/fnx-durability",
+  "crates/fnx-conformance",
+  "crates/fnx-runtime",
+]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+license = "MIT"

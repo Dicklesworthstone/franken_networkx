@@ -1,0 +1,9 @@
+[package]
+name = "fnx-generators"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+fnx-classes = { path = "../fnx-classes" }
+fnx-runtime = { path = "../fnx-runtime" }
+rand = { version = "0.9.0", default-features = false, features = ["std", "std_rng"] }

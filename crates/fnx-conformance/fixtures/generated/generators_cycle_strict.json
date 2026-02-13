@@ -1,0 +1,60 @@
+{
+  "suite": "generators_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "generate_cycle_graph",
+      "n": 5
+    },
+    {
+      "op": "connected_components_query"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "edges": [
+        {
+          "left": "0",
+          "right": "1",
+          "attrs": {}
+        },
+        {
+          "left": "0",
+          "right": "4",
+          "attrs": {}
+        },
+        {
+          "left": "1",
+          "right": "2",
+          "attrs": {}
+        },
+        {
+          "left": "2",
+          "right": "3",
+          "attrs": {}
+        },
+        {
+          "left": "3",
+          "right": "4",
+          "attrs": {}
+        }
+      ]
+    },
+    "connected_components": [
+      [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4"
+      ]
+    ]
+  }
+}
