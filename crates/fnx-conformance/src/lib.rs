@@ -9,11 +9,15 @@ use fnx_convert::{AdjacencyPayload, EdgeListPayload, GraphConverter};
 use fnx_dispatch::{BackendRegistry, BackendSpec, DispatchDecision, DispatchRequest};
 use fnx_generators::GraphGenerator;
 use fnx_readwrite::EdgeListEngine;
-use fnx_runtime::{CompatibilityMode, DecisionAction};
+use fnx_runtime::{
+    CompatibilityMode, DecisionAction, FailureReproData, StructuredTestLog, TestKind, TestStatus,
+    unix_time_ms,
+};
 use fnx_views::GraphView;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
@@ -22,6 +26,8 @@ pub struct HarnessConfig {
     pub fixture_root: PathBuf,
     pub strict_mode: bool,
     pub report_root: Option<PathBuf>,
+    pub fixture_filter: Option<String>,
+    pub log_schema_version: String,
 }
 
 impl HarnessConfig {
@@ -33,6 +39,8 @@ impl HarnessConfig {
             fixture_root: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures"),
             strict_mode: true,
             report_root: Some(repo_root.join("artifacts/conformance/latest")),
+            fixture_filter: None,
+            log_schema_version: "1.0.0".to_owned(),
         }
     }
 }
@@ -53,6 +61,7 @@ pub struct Mismatch {
 pub struct FixtureReport {
     pub fixture_name: String,
     pub suite: String,
+    pub mode: CompatibilityMode,
     pub passed: bool,
     pub mismatches: Vec<Mismatch>,
     pub witness: Option<ComplexityWitness>,
@@ -65,6 +74,8 @@ pub struct HarnessReport {
     pub fixture_count: usize,
     pub strict_mode: bool,
     pub mismatch_count: usize,
+    pub structured_log_count: usize,
+    pub structured_log_path: Option<String>,
     pub fixture_reports: Vec<FixtureReport>,
 }
 
@@ -230,6 +241,12 @@ pub fn run_smoke(config: &HarnessConfig) -> HarnessReport {
     let mut fixture_reports = Vec::new();
 
     for path in fixture_paths_recursive(&config.fixture_root) {
+        if let Some(filter) = config.fixture_filter.as_deref() {
+            let fixture_name = fixture_name_for_path(&path);
+            if fixture_name != filter && !fixture_name.ends_with(filter) {
+                continue;
+            }
+        }
         fixture_reports.push(run_fixture(path, config.strict_mode));
     }
 
@@ -244,33 +261,209 @@ pub fn run_smoke(config: &HarnessConfig) -> HarnessReport {
         fixture_count: fixture_reports.len(),
         strict_mode: config.strict_mode,
         mismatch_count,
+        structured_log_count: fixture_reports.len(),
+        structured_log_path: config
+            .report_root
+            .as_ref()
+            .map(|root| root.join("structured_logs.jsonl").display().to_string()),
         fixture_reports,
     };
 
     if let Some(report_root) = &config.report_root {
-        let _ = write_artifacts(report_root, &report);
+        let _ = write_artifacts(report_root, &report, &config.log_schema_version);
     }
 
     report
 }
 
-fn write_artifacts(report_root: &Path, report: &HarnessReport) -> Result<(), std::io::Error> {
+fn write_artifacts(
+    report_root: &Path,
+    report: &HarnessReport,
+    log_schema_version: &str,
+) -> Result<(), io::Error> {
     fs::create_dir_all(report_root)?;
     let smoke_path = report_root.join("smoke_report.json");
     fs::write(
-        smoke_path,
+        &smoke_path,
         serde_json::to_string_pretty(report).unwrap_or_else(|_| "{}".to_owned()),
     )?;
 
+    let mut structured_logs = Vec::with_capacity(report.fixture_reports.len());
     for fixture in &report.fixture_reports {
         let sanitized = fixture.fixture_name.replace(['/', '\\', '.'], "_");
         let fixture_path = report_root.join(format!("{sanitized}.report.json"));
         fs::write(
-            fixture_path,
+            &fixture_path,
             serde_json::to_string_pretty(fixture).unwrap_or_else(|_| "{}".to_owned()),
         )?;
+        structured_logs.push(build_structured_log(
+            report,
+            fixture,
+            &smoke_path,
+            &fixture_path,
+            log_schema_version,
+        ));
     }
+
+    let mut jsonl = String::new();
+    for log in &structured_logs {
+        log.validate().map_err(io::Error::other)?;
+        let line = serde_json::to_string(log).map_err(io::Error::other)?;
+        jsonl.push_str(&line);
+        jsonl.push('\n');
+    }
+    fs::write(report_root.join("structured_logs.jsonl"), jsonl)?;
+    fs::write(
+        report_root.join("structured_logs.json"),
+        serde_json::to_string_pretty(&structured_logs).map_err(io::Error::other)?,
+    )?;
+
     Ok(())
+}
+
+fn build_structured_log(
+    report: &HarnessReport,
+    fixture: &FixtureReport,
+    smoke_report_path: &Path,
+    fixture_report_path: &Path,
+    log_schema_version: &str,
+) -> StructuredTestLog {
+    let mode_flag = match fixture.mode {
+        CompatibilityMode::Strict => "strict",
+        CompatibilityMode::Hardened => "hardened",
+    };
+    let packet_id = packet_id_for_fixture(&fixture.suite, &fixture.fixture_name);
+    let status = if fixture.passed {
+        TestStatus::Passed
+    } else {
+        TestStatus::Failed
+    };
+    let hash_id = stable_hash_hex(&format!(
+        "{}|{}|{}|{}|{}",
+        fixture.fixture_name,
+        fixture.suite,
+        mode_flag,
+        fixture.passed,
+        fixture.mismatches.len()
+    ));
+
+    let mut environment = BTreeMap::new();
+    environment.insert("os".to_owned(), std::env::consts::OS.to_owned());
+    environment.insert("arch".to_owned(), std::env::consts::ARCH.to_owned());
+    environment.insert("suite".to_owned(), report.suite.to_owned());
+    environment.insert(
+        "oracle_present".to_owned(),
+        report.oracle_present.to_string(),
+    );
+    environment.insert(
+        "strict_mode_default".to_owned(),
+        report.strict_mode.to_string(),
+    );
+
+    StructuredTestLog {
+        schema_version: log_schema_version.to_owned(),
+        ts_unix_ms: unix_time_ms(),
+        crate_name: "fnx-conformance".to_owned(),
+        packet_id,
+        test_name: format!("fixture::{}", fixture.fixture_name),
+        test_kind: TestKind::Differential,
+        mode: fixture.mode,
+        fixture_id: Some(fixture.fixture_name.clone()),
+        seed: None,
+        environment,
+        artifact_refs: vec![
+            smoke_report_path.display().to_string(),
+            fixture_report_path.display().to_string(),
+        ],
+        hash_id: hash_id.clone(),
+        status,
+        failure_repro: if fixture.passed {
+            None
+        } else {
+            Some(FailureReproData {
+                failure_message: fixture
+                    .mismatches
+                    .iter()
+                    .map(|mismatch| format!("{}: {}", mismatch.category, mismatch.message))
+                    .collect::<Vec<String>>()
+                    .join(" | "),
+                reproduction_command: reproduction_command_for_fixture(
+                    &fixture.fixture_name,
+                    fixture.mode,
+                ),
+                expected_behavior: "Fixture should match expected outputs with zero mismatches"
+                    .to_owned(),
+                observed_behavior: format!("{} mismatches reported", fixture.mismatches.len()),
+                seed: None,
+                fixture_id: Some(fixture.fixture_name.clone()),
+                artifact_hash_id: Some(hash_id),
+            })
+        },
+    }
+}
+
+fn packet_id_for_fixture(suite: &str, fixture_name: &str) -> String {
+    let key = format!(
+        "{} {}",
+        suite.to_ascii_lowercase(),
+        fixture_name.to_ascii_lowercase()
+    );
+    if key.contains("graph_core") {
+        "FNX-P2C-001".to_owned()
+    } else if key.contains("view") {
+        "FNX-P2C-002".to_owned()
+    } else if key.contains("dispatch") {
+        "FNX-P2C-003".to_owned()
+    } else if key.contains("convert") {
+        "FNX-P2C-004".to_owned()
+    } else if key.contains("shortest_path")
+        || key.contains("centrality")
+        || key.contains("component")
+    {
+        "FNX-P2C-005".to_owned()
+    } else if key.contains("readwrite") || key.contains("edgelist") || key.contains("json_graph") {
+        "FNX-P2C-006".to_owned()
+    } else if key.contains("generator")
+        || key.contains("generate_")
+        || key.contains("path_graph")
+        || key.contains("cycle_graph")
+        || key.contains("complete_graph")
+        || key.contains("empty_graph")
+    {
+        "FNX-P2C-007".to_owned()
+    } else if key.contains("runtime_config") || key.contains("optional") {
+        "FNX-P2C-008".to_owned()
+    } else if key.contains("conformance") || key.contains("harness") {
+        "FNX-P2C-009".to_owned()
+    } else {
+        "FNX-P2C-FOUNDATION".to_owned()
+    }
+}
+
+fn reproduction_command_for_fixture(fixture_name: &str, mode: CompatibilityMode) -> String {
+    let mode_flag = match mode {
+        CompatibilityMode::Strict => "strict",
+        CompatibilityMode::Hardened => "hardened",
+    };
+    format!(
+        "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture {fixture_name} --mode {mode_flag}"
+    )
+}
+
+fn stable_hash_hex(input: &str) -> String {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in input.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x00000100000001B3_u64);
+    }
+    format!("{hash:016x}")
+}
+
+fn fixture_name_for_path(path: &Path) -> String {
+    path.strip_prefix(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures"))
+        .unwrap_or(path)
+        .to_string_lossy()
+        .to_string()
 }
 
 fn fixture_paths_recursive(root: &Path) -> Vec<PathBuf> {
@@ -302,11 +495,7 @@ fn collect_fixture_paths(path: &Path, out: &mut Vec<PathBuf>) {
 }
 
 fn run_fixture(path: PathBuf, default_strict_mode: bool) -> FixtureReport {
-    let fixture_name = path
-        .strip_prefix(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures"))
-        .unwrap_or(&path)
-        .to_string_lossy()
-        .to_string();
+    let fixture_name = fixture_name_for_path(&path);
 
     let data = match fs::read_to_string(&path) {
         Ok(value) => value,
@@ -314,6 +503,11 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool) -> FixtureReport {
             return FixtureReport {
                 fixture_name,
                 suite: "read_error".to_owned(),
+                mode: if default_strict_mode {
+                    CompatibilityMode::Strict
+                } else {
+                    CompatibilityMode::Hardened
+                },
                 passed: false,
                 mismatches: vec![Mismatch {
                     category: "fixture_io".to_owned(),
@@ -330,6 +524,11 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool) -> FixtureReport {
             return FixtureReport {
                 fixture_name,
                 suite: "parse_error".to_owned(),
+                mode: if default_strict_mode {
+                    CompatibilityMode::Strict
+                } else {
+                    CompatibilityMode::Hardened
+                },
                 passed: false,
                 mismatches: vec![Mismatch {
                     category: "fixture_schema".to_owned(),
@@ -721,6 +920,7 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool) -> FixtureReport {
     FixtureReport {
         fixture_name,
         suite: fixture.suite,
+        mode,
         passed: mismatches.is_empty(),
         mismatches,
         witness: context.witness,
@@ -852,10 +1052,12 @@ mod tests {
 
     #[test]
     fn smoke_harness_reports_zero_drift_for_bootstrap_fixtures() {
-        let cfg = HarnessConfig::default_paths();
+        let mut cfg = HarnessConfig::default_paths();
+        cfg.report_root = None;
         let report = run_smoke(&cfg);
         assert!(report.oracle_present, "oracle repo should be present");
         assert!(report.fixture_count >= 1, "expected at least one fixture");
         assert_eq!(report.mismatch_count, 0, "fixtures should be drift-free");
+        assert_eq!(report.structured_log_count, report.fixture_count);
     }
 }

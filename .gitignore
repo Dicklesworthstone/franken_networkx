@@ -8,8 +8,12 @@ __pycache__/
 
 # Editor and OS noise
 .DS_Store
+._*
 *.swp
 *.swo
+
+# Local source image (converted to committed WebP artifact)
+franken_networkx_illustration.png
 
 # Local agent/task metadata
 .bv/

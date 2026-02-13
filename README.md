@@ -1,5 +1,9 @@
 # FrankenNetworkX
 
+<div align="center">
+  <img src="franken_networkx_illustration.webp" alt="FrankenNetworkX - clean-room memory-safe NetworkX reimplementation">
+</div>
+
 FrankenNetworkX is a clean-room Rust reimplementation targeting grand-scope excellence: semantic fidelity, mathematical rigor, operational safety, and profile-proven performance.
 
 ## What Makes This Project Special
