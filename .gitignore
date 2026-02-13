@@ -19,3 +19,4 @@ __pycache__/
 artifacts/conformance/latest/
 artifacts/conformance/oracle_capture/
 artifacts/perf/latest/
+artifacts/phase2c/latest_*.json

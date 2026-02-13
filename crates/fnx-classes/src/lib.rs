@@ -143,6 +143,18 @@ impl Graph {
     }
 
     #[must_use]
+    pub fn neighbors_iter(&self, node: &str) -> Option<impl Iterator<Item = &str> + '_> {
+        self.adjacency
+            .get(node)
+            .map(|neighbors| neighbors.iter().map(String::as_str))
+    }
+
+    #[must_use]
+    pub fn neighbor_count(&self, node: &str) -> usize {
+        self.adjacency.get(node).map_or(0, IndexSet::len)
+    }
+
+    #[must_use]
     pub fn node_attrs(&self, node: &str) -> Option<&AttrMap> {
         self.nodes.get(node)
     }
@@ -398,6 +410,29 @@ mod tests {
         assert_eq!(graph.edge_count(), 2);
         assert_eq!(graph.nodes_ordered(), vec!["a", "b", "c"]);
         assert_eq!(graph.neighbors("a"), Some(vec!["b", "c"]));
+    }
+
+    #[test]
+    fn neighbors_iter_preserves_deterministic_order() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("a", "c").expect("edge add should succeed");
+        graph.add_edge("a", "d").expect("edge add should succeed");
+
+        let neighbors = graph
+            .neighbors_iter("a")
+            .expect("neighbors should exist")
+            .collect::<Vec<&str>>();
+        assert_eq!(neighbors, vec!["b", "c", "d"]);
+    }
+
+    #[test]
+    fn neighbor_count_matches_neighbors_len() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("a", "c").expect("edge add should succeed");
+        assert_eq!(graph.neighbor_count("a"), 2);
+        assert_eq!(graph.neighbor_count("missing"), 0);
     }
 
     #[test]

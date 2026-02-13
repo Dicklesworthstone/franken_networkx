@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -16,6 +17,111 @@ pub enum DecisionAction {
     Allow,
     FullValidate,
     FailClosed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TestKind {
+    Unit,
+    Property,
+    Differential,
+    E2e,
+    Fuzz,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TestStatus {
+    Passed,
+    Failed,
+    Skipped,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FailureReproData {
+    pub failure_message: String,
+    pub reproduction_command: String,
+    pub expected_behavior: String,
+    pub observed_behavior: String,
+    pub seed: Option<u64>,
+    pub fixture_id: Option<String>,
+    pub artifact_hash_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StructuredTestLog {
+    pub schema_version: String,
+    pub ts_unix_ms: u128,
+    pub crate_name: String,
+    pub packet_id: String,
+    pub test_name: String,
+    pub test_kind: TestKind,
+    pub mode: CompatibilityMode,
+    pub fixture_id: Option<String>,
+    pub seed: Option<u64>,
+    pub environment: BTreeMap<String, String>,
+    pub artifact_refs: Vec<String>,
+    pub hash_id: String,
+    pub status: TestStatus,
+    pub failure_repro: Option<FailureReproData>,
+}
+
+impl StructuredTestLog {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.schema_version.trim().is_empty() {
+            return Err("schema_version must be non-empty".to_owned());
+        }
+        if self.crate_name.trim().is_empty() {
+            return Err("crate_name must be non-empty".to_owned());
+        }
+        if self.packet_id.trim().is_empty() {
+            return Err("packet_id must be non-empty".to_owned());
+        }
+        if self.test_name.trim().is_empty() {
+            return Err("test_name must be non-empty".to_owned());
+        }
+        if self.hash_id.trim().is_empty() {
+            return Err("hash_id must be non-empty".to_owned());
+        }
+        if self.environment.is_empty() {
+            return Err("environment must include at least one key".to_owned());
+        }
+        if self.artifact_refs.is_empty() {
+            return Err("artifact_refs must include at least one artifact path/ref".to_owned());
+        }
+
+        match self.status {
+            TestStatus::Failed => {
+                let Some(failure) = &self.failure_repro else {
+                    return Err("failure_repro is required when status=failed".to_owned());
+                };
+                if failure.failure_message.trim().is_empty() {
+                    return Err("failure_message must be non-empty for failed status".to_owned());
+                }
+                if failure.reproduction_command.trim().is_empty() {
+                    return Err(
+                        "reproduction_command must be non-empty for failed status".to_owned()
+                    );
+                }
+                if failure.seed.is_none() && failure.fixture_id.is_none() {
+                    return Err(
+                        "failed status requires seed or fixture_id for reproducibility".to_owned(),
+                    );
+                }
+            }
+            TestStatus::Passed | TestStatus::Skipped => {
+                if self.failure_repro.is_some() {
+                    return Err("failure_repro must be omitted unless status=failed".to_owned());
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn to_json_pretty(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string_pretty(self)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -161,7 +267,11 @@ pub mod ftui_bridge {
 
 #[cfg(test)]
 mod tests {
-    use super::{CompatibilityMode, DecisionAction, EvidenceLedger, decision_theoretic_action};
+    use super::{
+        CompatibilityMode, DecisionAction, EvidenceLedger, FailureReproData, StructuredTestLog,
+        TestKind, TestStatus, decision_theoretic_action,
+    };
+    use std::collections::BTreeMap;
 
     #[test]
     fn strict_mode_prefers_validation_for_uncertain_inputs() {
@@ -190,5 +300,68 @@ mod tests {
             .to_json_pretty()
             .expect("ledger json should serialize");
         assert!(json.contains("records"));
+    }
+
+    #[test]
+    fn structured_test_log_validates_passed_record() {
+        let mut env = BTreeMap::new();
+        env.insert("os".to_owned(), "linux".to_owned());
+
+        let log = StructuredTestLog {
+            schema_version: "1.0.0".to_owned(),
+            ts_unix_ms: 1,
+            crate_name: "fnx-runtime".to_owned(),
+            packet_id: "FNX-P2C-FOUNDATION".to_owned(),
+            test_name: "ledger_serializes_to_json".to_owned(),
+            test_kind: TestKind::Unit,
+            mode: CompatibilityMode::Strict,
+            fixture_id: None,
+            seed: Some(7),
+            environment: env,
+            artifact_refs: vec!["artifacts/conformance/latest/smoke_report.json".to_owned()],
+            hash_id: "sha256:abc123".to_owned(),
+            status: TestStatus::Passed,
+            failure_repro: None,
+        };
+
+        assert!(log.validate().is_ok());
+        let json = log.to_json_pretty().expect("log should serialize");
+        assert!(json.contains("ledger_serializes_to_json"));
+    }
+
+    #[test]
+    fn structured_test_log_failed_requires_repro_seed_or_fixture() {
+        let mut env = BTreeMap::new();
+        env.insert("os".to_owned(), "linux".to_owned());
+
+        let log = StructuredTestLog {
+            schema_version: "1.0.0".to_owned(),
+            ts_unix_ms: 1,
+            crate_name: "fnx-runtime".to_owned(),
+            packet_id: "FNX-P2C-FOUNDATION".to_owned(),
+            test_name: "failure_case".to_owned(),
+            test_kind: TestKind::Property,
+            mode: CompatibilityMode::Hardened,
+            fixture_id: None,
+            seed: None,
+            environment: env,
+            artifact_refs: vec!["artifacts/conformance/latest/smoke_report.json".to_owned()],
+            hash_id: "sha256:def456".to_owned(),
+            status: TestStatus::Failed,
+            failure_repro: Some(FailureReproData {
+                failure_message: "expected no mismatch".to_owned(),
+                reproduction_command: "cargo test -p fnx-conformance -- --nocapture".to_owned(),
+                expected_behavior: "zero drift".to_owned(),
+                observed_behavior: "mismatch_count=1".to_owned(),
+                seed: None,
+                fixture_id: None,
+                artifact_hash_id: Some("sha256:def456".to_owned()),
+            }),
+        };
+
+        let err = log
+            .validate()
+            .expect_err("failed status without seed/fixture should reject");
+        assert!(err.contains("seed or fixture_id"));
     }
 }

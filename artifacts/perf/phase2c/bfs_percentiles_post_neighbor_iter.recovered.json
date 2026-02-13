@@ -1,0 +1,25 @@
+{
+  "command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-algorithms --example bfs_baseline",
+  "runs": 7,
+  "times_ms": [
+    244.82444328,
+    243.96952328,
+    237.88817728,
+    243.40114928,
+    249.83198928000002,
+    241.10339728000002,
+    251.43879728000002
+  ],
+  "mean_ms": 244.63678242285715,
+  "p50_ms": 243.96952328,
+  "p95_ms": 250.95675488,
+  "p99_ms": 251.3423888,
+  "min_ms": 237.88817728,
+  "max_ms": 251.43879728000002,
+  "budgets": {
+    "p95_budget_ms": 500.0,
+    "p95_pass": true,
+    "p99_budget_ms": 700.0,
+    "p99_pass": true
+  }
+}

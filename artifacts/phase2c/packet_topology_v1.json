@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0.0",
+  "topology_id": "fnx-phase2c-topology-v1",
+  "artifact_contract_ref": "artifacts/phase2c/schema/v1/artifact_contract_schema_v1.json",
+  "packets": [
+    {
+      "packet_id": "FNX-P2C-FOUNDATION",
+      "path": "artifacts/phase2c/FNX-P2C-FOUNDATION",
+      "required_artifact_keys": [
+        "legacy_anchor_map",
+        "contract_table",
+        "fixture_manifest",
+        "parity_gate",
+        "risk_note",
+        "parity_report",
+        "raptorq_sidecar"
+      ]
+    }
+  ]
+}

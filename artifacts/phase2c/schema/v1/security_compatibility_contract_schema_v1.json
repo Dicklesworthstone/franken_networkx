@@ -1,0 +1,71 @@
+{
+  "schema_version": "1.0.0",
+  "contract_id": "fnx-phase2c-security-compat-contract-v1",
+  "required_matrix_keys": [
+    "schema_version",
+    "contract_id",
+    "generated_at_utc",
+    "packet_families"
+  ],
+  "required_allowlist_keys": [
+    "schema_version",
+    "contract_id",
+    "generated_at_utc",
+    "categories",
+    "packet_allowlist"
+  ],
+  "required_packet_ids": [
+    "FNX-P2C-001",
+    "FNX-P2C-002",
+    "FNX-P2C-003",
+    "FNX-P2C-004",
+    "FNX-P2C-005",
+    "FNX-P2C-006",
+    "FNX-P2C-007",
+    "FNX-P2C-008",
+    "FNX-P2C-009"
+  ],
+  "matrix_packet_required_keys": [
+    "packet_id",
+    "threats"
+  ],
+  "matrix_entry_required_keys": [
+    "threat_class",
+    "strict_mode_response",
+    "hardened_mode_response",
+    "mitigations",
+    "evidence_artifact",
+    "drift_gate"
+  ],
+  "required_threat_classes": [
+    "parser_abuse",
+    "metadata_ambiguity",
+    "version_skew",
+    "resource_exhaustion",
+    "state_corruption"
+  ],
+  "optional_threat_classes": [
+    "algorithmic_complexity_dos",
+    "attribute_confusion",
+    "backend_route_ambiguity"
+  ],
+  "hardened_deviation_allowlist_categories": [
+    "bounded_diagnostic_enrichment",
+    "defensive_parse_recovery",
+    "bounded_resource_clamp",
+    "deterministic_backend_fallback_with_audit",
+    "deterministic_tie_break_normalization",
+    "quarantine_of_unsupported_metadata"
+  ],
+  "allowlist_category_required_keys": [
+    "category",
+    "description",
+    "strict_mode_allowed",
+    "hardened_mode_allowed"
+  ],
+  "allowlist_packet_required_keys": [
+    "packet_id",
+    "allowed_categories",
+    "notes"
+  ]
+}

@@ -1,0 +1,92 @@
+{
+  "schema_version": "1.0.0",
+  "contract_id": "fnx-phase2c-artifact-contract-v1",
+  "artifacts": {
+    "legacy_anchor_map": {
+      "filename": "legacy_anchor_map.md",
+      "kind": "markdown_sections",
+      "required_sections": [
+        "Legacy Scope",
+        "Anchor Map",
+        "Behavior Notes",
+        "Compatibility Risk"
+      ]
+    },
+    "contract_table": {
+      "filename": "contract_table.md",
+      "kind": "markdown_sections",
+      "required_sections": [
+        "Input Contract",
+        "Output Contract",
+        "Error Contract",
+        "Strict/Hardened Divergence",
+        "Determinism Commitments"
+      ]
+    },
+    "fixture_manifest": {
+      "filename": "fixture_manifest.json",
+      "kind": "json_keys",
+      "required_keys": [
+        "schema_version",
+        "packet_id",
+        "fixture_ids",
+        "oracle_source",
+        "generated_at_utc"
+      ]
+    },
+    "parity_gate": {
+      "filename": "parity_gate.yaml",
+      "kind": "yaml_keys",
+      "required_keys": [
+        "schema_version",
+        "packet_id",
+        "mode_gates",
+        "required_commands",
+        "pass_criteria"
+      ]
+    },
+    "risk_note": {
+      "filename": "risk_note.md",
+      "kind": "markdown_sections",
+      "required_sections": [
+        "Risk Surface",
+        "Failure Modes",
+        "Mitigations",
+        "Residual Risk"
+      ]
+    },
+    "parity_report": {
+      "filename": "parity_report.json",
+      "kind": "json_keys",
+      "required_keys": [
+        "schema_version",
+        "packet_id",
+        "generated_at_utc",
+        "strict_mode",
+        "hardened_mode",
+        "mismatch_count",
+        "summary"
+      ]
+    },
+    "raptorq_sidecar": {
+      "filename": "parity_report.raptorq.json",
+      "kind": "json_keys",
+      "required_keys": [
+        "artifact_id",
+        "artifact_type",
+        "source_hash",
+        "raptorq",
+        "scrub"
+      ]
+    }
+  },
+  "required_artifact_keys": [
+    "legacy_anchor_map",
+    "contract_table",
+    "fixture_manifest",
+    "parity_gate",
+    "risk_note",
+    "parity_report",
+    "raptorq_sidecar"
+  ]
+}

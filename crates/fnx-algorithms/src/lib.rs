@@ -89,7 +89,7 @@ pub fn shortest_path_unweighted(graph: &Graph, source: &str, target: &str) -> Sh
     let mut queue_peak = 1;
 
     while let Some(current) = queue.pop_front() {
-        let Some(neighbors) = graph.neighbors(&current) else {
+        let Some(neighbors) = graph.neighbors_iter(&current) else {
             continue;
         };
 
@@ -154,7 +154,7 @@ pub fn connected_components(graph: &Graph) -> ComponentsResult {
         queue_peak = queue_peak.max(queue.len());
 
         while let Some(current) = queue.pop_front() {
-            let Some(neighbors) = graph.neighbors(&current) else {
+            let Some(neighbors) = graph.neighbors_iter(&current) else {
                 continue;
             };
 
@@ -221,9 +221,7 @@ pub fn degree_centrality(graph: &Graph) -> DegreeCentralityResult {
     let mut edges_scanned = 0usize;
     let mut scores = Vec::with_capacity(n);
     for node in nodes {
-        let neighbor_count = graph
-            .neighbors(node)
-            .map_or(0usize, |neighbors| neighbors.len());
+        let neighbor_count = graph.neighbor_count(node);
         // A self-loop contributes 2 to degree in simple NetworkX Graph semantics.
         let self_loop_extra = usize::from(graph.has_edge(node, node));
         let degree = neighbor_count + self_loop_extra;
@@ -281,7 +279,7 @@ pub fn closeness_centrality(graph: &Graph) -> ClosenessCentralityResult {
         queue_peak = queue_peak.max(queue.len());
 
         while let Some(current) = queue.pop_front() {
-            let Some(neighbors) = graph.neighbors(&current) else {
+            let Some(neighbors) = graph.neighbors_iter(&current) else {
                 continue;
             };
             let current_distance = *distance.get(&current).unwrap_or(&0usize);

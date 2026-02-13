@@ -28,11 +28,39 @@ For each ticket above, deliver all artifacts in the same PR:
 4. `parity_gate.yaml`: strict + hardened pass criteria.
 5. `risk_note.md`: boundary risks and mitigations.
 
+Schema lock for all packet artifacts is versioned at:
+- `artifacts/phase2c/schema/v1/artifact_contract_schema_v1.json`
+- `artifacts/phase2c/schema/v1/packet_topology_schema_v1.json`
+- `artifacts/phase2c/packet_topology_v1.json`
+
+Machine-check command:
+
+```bash
+./scripts/validate_phase2c_artifacts.py \
+  --topology artifacts/phase2c/packet_topology_v1.json \
+  --schema artifacts/phase2c/schema/v1/artifact_contract_schema_v1.json
+```
+
+Security/compatibility contract lock is versioned at:
+- `artifacts/phase2c/schema/v1/security_compatibility_contract_schema_v1.json`
+- `artifacts/phase2c/security/v1/security_compatibility_threat_matrix_v1.json`
+- `artifacts/phase2c/security/v1/hardened_mode_deviation_allowlist_v1.json`
+
+Machine-check command:
+
+```bash
+./scripts/validate_phase2c_security_contracts.py \
+  --contract artifacts/phase2c/schema/v1/security_compatibility_contract_schema_v1.json \
+  --matrix artifacts/phase2c/security/v1/security_compatibility_threat_matrix_v1.json \
+  --allowlist artifacts/phase2c/security/v1/hardened_mode_deviation_allowlist_v1.json
+```
+
 ## 3. Strict/Hardened Expectations per Packet
 
 - Strict mode: exact scoped NetworkX-observable behavior.
 - Hardened mode: same outward contract with bounded defensive checks for malformed inputs and backend ambiguity.
 - Unknown incompatible format/backend route: fail-closed.
+- Hardened-mode deviations must be explicitly allowlisted by category; ad hoc deviations are forbidden.
 
 ## 4. Immediate Execution Order
 
@@ -116,4 +144,8 @@ Packet is `READY_FOR_IMPL` only when:
 2. fixture manifest includes happy/edge/adversarial paths,
 3. strict/hardened gates are machine-checkable,
 4. risk note includes compatibility + security mitigations,
-5. parity report has RaptorQ sidecar + decode proof.
+5. parity report has RaptorQ sidecar + decode proof,
+6. packet threat coverage is present in `security_compatibility_threat_matrix_v1.json`,
+7. any hardened-mode deviation category appears in `hardened_mode_deviation_allowlist_v1.json`.
+
+Packet is `NOT READY` when any required artifact is missing OR any mandatory field/section is missing per schema v1.

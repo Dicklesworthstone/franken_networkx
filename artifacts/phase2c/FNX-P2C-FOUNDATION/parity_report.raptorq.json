@@ -1,0 +1,18 @@
+{
+  "artifact_id": "FNX-P2C-FOUNDATION-parity-report",
+  "artifact_type": "phase2c_parity_report",
+  "source_hash": "blake3:placeholder",
+  "raptorq": {
+    "k": 1,
+    "repair_symbols": 1,
+    "overhead_ratio": 1.0,
+    "symbol_hashes": [],
+    "oti_b64": "",
+    "packets_b64": []
+  },
+  "scrub": {
+    "last_ok_unix_ms": 0,
+    "status": "ok"
+  },
+  "decode_proofs": []
+}

@@ -1,0 +1,122 @@
+{
+  "schema_version": "1.0.0",
+  "contract_id": "fnx-phase2c-security-compat-contract-v1",
+  "generated_at_utc": "2026-02-13T20:23:00Z",
+  "categories": [
+    {
+      "category": "bounded_diagnostic_enrichment",
+      "description": "Adds deterministic bounded diagnostics while keeping outward API contract unchanged.",
+      "strict_mode_allowed": false,
+      "hardened_mode_allowed": true
+    },
+    {
+      "category": "defensive_parse_recovery",
+      "description": "Performs bounded parse recovery attempts before fail-closed decision.",
+      "strict_mode_allowed": false,
+      "hardened_mode_allowed": true
+    },
+    {
+      "category": "bounded_resource_clamp",
+      "description": "Applies explicit time/memory/input clamps with deterministic reject path.",
+      "strict_mode_allowed": false,
+      "hardened_mode_allowed": true
+    },
+    {
+      "category": "deterministic_backend_fallback_with_audit",
+      "description": "Allows deterministic fallback backend route only when explicitly allowlisted and audited.",
+      "strict_mode_allowed": false,
+      "hardened_mode_allowed": true
+    },
+    {
+      "category": "deterministic_tie_break_normalization",
+      "description": "Allows deterministic normalization of tie-break internals while preserving observable output contract.",
+      "strict_mode_allowed": false,
+      "hardened_mode_allowed": true
+    },
+    {
+      "category": "quarantine_of_unsupported_metadata",
+      "description": "Quarantines unsupported metadata and fails closed if compatibility impact cannot be proven safe.",
+      "strict_mode_allowed": false,
+      "hardened_mode_allowed": true
+    }
+  ],
+  "packet_allowlist": [
+    {
+      "packet_id": "FNX-P2C-001",
+      "allowed_categories": [
+        "bounded_diagnostic_enrichment",
+        "bounded_resource_clamp"
+      ],
+      "notes": "Graph-core hardened path allows bounded diagnostics and resource clamps only."
+    },
+    {
+      "packet_id": "FNX-P2C-002",
+      "allowed_categories": [
+        "bounded_diagnostic_enrichment",
+        "quarantine_of_unsupported_metadata"
+      ],
+      "notes": "View-layer hardened path may quarantine unsupported metadata; no strict-mode deviation."
+    },
+    {
+      "packet_id": "FNX-P2C-003",
+      "allowed_categories": [
+        "bounded_diagnostic_enrichment",
+        "deterministic_backend_fallback_with_audit",
+        "quarantine_of_unsupported_metadata"
+      ],
+      "notes": "Dispatch hardened mode permits deterministic fallback only with explicit audit evidence."
+    },
+    {
+      "packet_id": "FNX-P2C-004",
+      "allowed_categories": [
+        "bounded_diagnostic_enrichment",
+        "defensive_parse_recovery",
+        "quarantine_of_unsupported_metadata"
+      ],
+      "notes": "Conversion hardened mode may perform bounded parse recovery before fail-closed."
+    },
+    {
+      "packet_id": "FNX-P2C-005",
+      "allowed_categories": [
+        "bounded_diagnostic_enrichment",
+        "bounded_resource_clamp",
+        "deterministic_tie_break_normalization"
+      ],
+      "notes": "Shortest-path hardened mode may clamp hostile workloads and normalize internal tie-break mechanics deterministically."
+    },
+    {
+      "packet_id": "FNX-P2C-006",
+      "allowed_categories": [
+        "bounded_diagnostic_enrichment",
+        "defensive_parse_recovery",
+        "quarantine_of_unsupported_metadata"
+      ],
+      "notes": "Read/write hardened mode permits bounded parse recovery and metadata quarantine."
+    },
+    {
+      "packet_id": "FNX-P2C-007",
+      "allowed_categories": [
+        "bounded_diagnostic_enrichment",
+        "bounded_resource_clamp"
+      ],
+      "notes": "Generator hardened mode allows bounded parameter/resource clamps."
+    },
+    {
+      "packet_id": "FNX-P2C-008",
+      "allowed_categories": [
+        "bounded_diagnostic_enrichment",
+        "deterministic_backend_fallback_with_audit",
+        "quarantine_of_unsupported_metadata"
+      ],
+      "notes": "Runtime hardened mode may fall back deterministically for allowlisted dependency routes."
+    },
+    {
+      "packet_id": "FNX-P2C-009",
+      "allowed_categories": [
+        "bounded_diagnostic_enrichment",
+        "deterministic_tie_break_normalization"
+      ],
+      "notes": "Conformance hardened mode permits deterministic comparator normalization and bounded diagnostics."
+    }
+  ]
+}
