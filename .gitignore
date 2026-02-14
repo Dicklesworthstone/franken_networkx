@@ -11,6 +11,7 @@ __pycache__/
 ._*
 *.swp
 *.swo
+perf.data
 
 # Local source image (converted to committed WebP artifact)
 franken_networkx_illustration.png
