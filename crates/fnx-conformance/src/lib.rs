@@ -10,7 +10,8 @@ use fnx_dispatch::{BackendRegistry, BackendSpec, DispatchDecision, DispatchReque
 use fnx_generators::GraphGenerator;
 use fnx_readwrite::EdgeListEngine;
 use fnx_runtime::{
-    CompatibilityMode, DecisionAction, FailureReproData, StructuredTestLog, TestKind, TestStatus,
+    CompatibilityMode, DecisionAction, FailureReproData, ForensicsBundleIndex, StructuredTestLog,
+    TestKind, TestStatus, canonical_environment_fingerprint, structured_test_log_schema_version,
     unix_time_ms,
 };
 use fnx_views::GraphView;
@@ -19,6 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 #[derive(Debug, Clone)]
 pub struct HarnessConfig {
@@ -40,7 +42,7 @@ impl HarnessConfig {
             strict_mode: true,
             report_root: Some(repo_root.join("artifacts/conformance/latest")),
             fixture_filter: None,
-            log_schema_version: "1.0.0".to_owned(),
+            log_schema_version: structured_test_log_schema_version().to_owned(),
         }
     }
 }
@@ -63,6 +65,9 @@ pub struct FixtureReport {
     pub suite: String,
     pub mode: CompatibilityMode,
     pub passed: bool,
+    pub reason_code: Option<String>,
+    pub fixture_source_hash: String,
+    pub duration_ms: u128,
     pub mismatches: Vec<Mismatch>,
     pub witness: Option<ComplexityWitness>,
 }
@@ -77,6 +82,37 @@ pub struct HarnessReport {
     pub structured_log_count: usize,
     pub structured_log_path: Option<String>,
     pub fixture_reports: Vec<FixtureReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EmitterNormalizationReport {
+    pub schema_version: String,
+    pub generated_at_unix_ms: u128,
+    pub crate_name: String,
+    pub run_id: String,
+    pub suite: String,
+    pub fixture_count: usize,
+    pub valid_log_count: usize,
+    pub normalized_fields: Vec<String>,
+    pub findings: Vec<String>,
+    pub output_artifacts: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DependentUnblockRow {
+    pub blocked_bead_id: String,
+    pub required_artifacts: Vec<String>,
+    pub required_fields: Vec<String>,
+    pub evidence_paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DependentUnblockMatrix {
+    pub schema_version: String,
+    pub generated_at_unix_ms: u128,
+    pub source_bead_id: String,
+    pub run_id: String,
+    pub rows: Vec<DependentUnblockRow>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -239,6 +275,15 @@ struct ExecutionContext {
 #[must_use]
 pub fn run_smoke(config: &HarnessConfig) -> HarnessReport {
     let mut fixture_reports = Vec::new();
+    let run_id = format!(
+        "conformance-{}-{}",
+        unix_time_ms(),
+        if config.strict_mode {
+            "strict"
+        } else {
+            "hardened"
+        }
+    );
 
     for path in fixture_paths_recursive(&config.fixture_root) {
         if let Some(filter) = config.fixture_filter.as_deref() {
@@ -270,7 +315,7 @@ pub fn run_smoke(config: &HarnessConfig) -> HarnessReport {
     };
 
     if let Some(report_root) = &config.report_root {
-        let _ = write_artifacts(report_root, &report, &config.log_schema_version);
+        let _ = write_artifacts(report_root, &report, &config.log_schema_version, &run_id);
     }
 
     report
@@ -280,6 +325,7 @@ fn write_artifacts(
     report_root: &Path,
     report: &HarnessReport,
     log_schema_version: &str,
+    run_id: &str,
 ) -> Result<(), io::Error> {
     fs::create_dir_all(report_root)?;
     let smoke_path = report_root.join("smoke_report.json");
@@ -302,6 +348,7 @@ fn write_artifacts(
             &smoke_path,
             &fixture_path,
             log_schema_version,
+            run_id,
         ));
     }
 
@@ -317,8 +364,177 @@ fn write_artifacts(
         report_root.join("structured_logs.json"),
         serde_json::to_string_pretty(&structured_logs).map_err(io::Error::other)?,
     )?;
+    let normalization_report =
+        build_emitter_normalization_report(report_root, report, &structured_logs, run_id);
+    fs::write(
+        report_root.join("structured_log_emitter_normalization_report.json"),
+        serde_json::to_string_pretty(&normalization_report).map_err(io::Error::other)?,
+    )?;
+    let unblock_matrix = build_dependent_unblock_matrix(report_root, run_id);
+    fs::write(
+        report_root.join("telemetry_dependent_unblock_matrix_v1.json"),
+        serde_json::to_string_pretty(&unblock_matrix).map_err(io::Error::other)?,
+    )?;
 
     Ok(())
+}
+
+fn build_emitter_normalization_report(
+    report_root: &Path,
+    report: &HarnessReport,
+    structured_logs: &[StructuredTestLog],
+    run_id: &str,
+) -> EmitterNormalizationReport {
+    let normalized_fields = vec![
+        "schema_version",
+        "run_id",
+        "suite_id",
+        "test_id",
+        "test_kind",
+        "mode",
+        "environment",
+        "env_fingerprint",
+        "duration_ms",
+        "replay_command",
+        "artifact_refs",
+        "forensic_bundle_id",
+        "forensics_bundle_index",
+        "hash_id",
+        "status",
+        "reason_code",
+        "failure_repro",
+        "e2e_step_traces",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect::<Vec<String>>();
+    let valid_log_count = structured_logs
+        .iter()
+        .filter(|log| log.validate().is_ok())
+        .count();
+    let findings = if valid_log_count == structured_logs.len() {
+        vec!["all logs satisfy canonical emitter contract".to_owned()]
+    } else {
+        vec!["one or more logs failed canonical emitter contract".to_owned()]
+    };
+    let output_artifacts = vec![
+        report_root.join("smoke_report.json").display().to_string(),
+        report_root
+            .join("structured_logs.jsonl")
+            .display()
+            .to_string(),
+        report_root
+            .join("structured_logs.json")
+            .display()
+            .to_string(),
+        report_root
+            .join("structured_log_emitter_normalization_report.json")
+            .display()
+            .to_string(),
+        report_root
+            .join("telemetry_dependent_unblock_matrix_v1.json")
+            .display()
+            .to_string(),
+    ];
+
+    EmitterNormalizationReport {
+        schema_version: "1.0.0".to_owned(),
+        generated_at_unix_ms: unix_time_ms(),
+        crate_name: "fnx-conformance".to_owned(),
+        run_id: run_id.to_owned(),
+        suite: report.suite.to_owned(),
+        fixture_count: report.fixture_count,
+        valid_log_count,
+        normalized_fields,
+        findings,
+        output_artifacts,
+    }
+}
+
+fn build_dependent_unblock_matrix(report_root: &Path, run_id: &str) -> DependentUnblockMatrix {
+    let schema_artifact =
+        "artifacts/conformance/schema/v1/structured_test_log_schema_v1.json".to_owned();
+    let e2e_schema_artifact =
+        "artifacts/conformance/schema/v1/e2e_step_trace_schema_v1.json".to_owned();
+    let bundle_schema_artifact =
+        "artifacts/conformance/schema/v1/forensics_bundle_index_schema_v1.json".to_owned();
+    let normalization_report = report_root
+        .join("structured_log_emitter_normalization_report.json")
+        .display()
+        .to_string();
+    let log_jsonl = report_root
+        .join("structured_logs.jsonl")
+        .display()
+        .to_string();
+    let log_json = report_root
+        .join("structured_logs.json")
+        .display()
+        .to_string();
+    let smoke_report = report_root.join("smoke_report.json").display().to_string();
+    let matrix_rows = vec![
+        DependentUnblockRow {
+            blocked_bead_id: "bd-315.5.5".to_owned(),
+            required_artifacts: vec![
+                log_jsonl.clone(),
+                "artifacts/conformance/latest/structured_logs.raptorq.json".to_owned(),
+                "artifacts/conformance/latest/structured_logs.recovered.json".to_owned(),
+            ],
+            required_fields: vec![
+                "forensic_bundle_id".to_owned(),
+                "forensics_bundle_index.bundle_hash_id".to_owned(),
+                "forensics_bundle_index.artifact_refs".to_owned(),
+            ],
+            evidence_paths: vec![normalization_report.clone(), schema_artifact.clone()],
+        },
+        DependentUnblockRow {
+            blocked_bead_id: "bd-315.21".to_owned(),
+            required_artifacts: vec![log_json.clone(), smoke_report.clone()],
+            required_fields: vec![
+                "test_id".to_owned(),
+                "env_fingerprint".to_owned(),
+                "replay_command".to_owned(),
+                "reason_code".to_owned(),
+            ],
+            evidence_paths: vec![normalization_report.clone(), schema_artifact.clone()],
+        },
+        DependentUnblockRow {
+            blocked_bead_id: "bd-315.6.1".to_owned(),
+            required_artifacts: vec![log_jsonl.clone(), smoke_report.clone()],
+            required_fields: vec![
+                "mode".to_owned(),
+                "forensic_bundle_id".to_owned(),
+                "forensics_bundle_index.replay_ref".to_owned(),
+            ],
+            evidence_paths: vec![normalization_report.clone(), bundle_schema_artifact.clone()],
+        },
+        DependentUnblockRow {
+            blocked_bead_id: "bd-315.7.1".to_owned(),
+            required_artifacts: vec![log_jsonl.clone()],
+            required_fields: vec![
+                "e2e_step_traces".to_owned(),
+                "forensics_bundle_index.bundle_id".to_owned(),
+            ],
+            evidence_paths: vec![normalization_report.clone(), e2e_schema_artifact.clone()],
+        },
+        DependentUnblockRow {
+            blocked_bead_id: "bd-315.8.1".to_owned(),
+            required_artifacts: vec![log_jsonl, smoke_report],
+            required_fields: vec![
+                "schema_version".to_owned(),
+                "packet_id".to_owned(),
+                "hash_id".to_owned(),
+            ],
+            evidence_paths: vec![normalization_report, schema_artifact],
+        },
+    ];
+
+    DependentUnblockMatrix {
+        schema_version: "1.0.0".to_owned(),
+        generated_at_unix_ms: unix_time_ms(),
+        source_bead_id: "bd-315.5.4".to_owned(),
+        run_id: run_id.to_owned(),
+        rows: matrix_rows,
+    }
 }
 
 fn build_structured_log(
@@ -327,6 +543,7 @@ fn build_structured_log(
     smoke_report_path: &Path,
     fixture_report_path: &Path,
     log_schema_version: &str,
+    run_id: &str,
 ) -> StructuredTestLog {
     let mode_flag = match fixture.mode {
         CompatibilityMode::Strict => "strict",
@@ -338,13 +555,18 @@ fn build_structured_log(
     } else {
         TestStatus::Failed
     };
+    let test_id = format!("fixture::{}", fixture.fixture_name);
+    let replay_command = reproduction_command_for_fixture(&fixture.fixture_name, fixture.mode);
+    let sanitized_test_id = fixture.fixture_name.replace(['/', '\\'], "::");
+    let forensic_bundle_id = format!("forensics::{packet_id}::{sanitized_test_id}");
     let hash_id = stable_hash_hex(&format!(
-        "{}|{}|{}|{}|{}",
+        "{}|{}|{}|{}|{}|{}",
         fixture.fixture_name,
         fixture.suite,
         mode_flag,
         fixture.passed,
-        fixture.mismatches.len()
+        fixture.mismatches.len(),
+        fixture.fixture_source_hash,
     ));
 
     let mut environment = BTreeMap::new();
@@ -359,24 +581,52 @@ fn build_structured_log(
         "strict_mode_default".to_owned(),
         report.strict_mode.to_string(),
     );
+    environment.insert("run_id".to_owned(), run_id.to_owned());
+    let env_fingerprint = canonical_environment_fingerprint(&environment);
+    let artifact_refs = vec![
+        smoke_report_path.display().to_string(),
+        fixture_report_path.display().to_string(),
+    ];
+    let bundle_hash_id = stable_hash_hex(&format!(
+        "{}|{}|{}",
+        forensic_bundle_id,
+        hash_id,
+        artifact_refs.join("|")
+    ));
+    let forensics_bundle_index = ForensicsBundleIndex {
+        bundle_id: forensic_bundle_id.clone(),
+        run_id: run_id.to_owned(),
+        test_id: test_id.clone(),
+        bundle_hash_id,
+        captured_unix_ms: unix_time_ms(),
+        replay_ref: replay_command.clone(),
+        artifact_refs: artifact_refs.clone(),
+        raptorq_sidecar_refs: vec![],
+        decode_proof_refs: vec![],
+    };
 
     StructuredTestLog {
         schema_version: log_schema_version.to_owned(),
+        run_id: run_id.to_owned(),
         ts_unix_ms: unix_time_ms(),
         crate_name: "fnx-conformance".to_owned(),
+        suite_id: report.suite.to_owned(),
         packet_id,
-        test_name: format!("fixture::{}", fixture.fixture_name),
+        test_name: test_id.clone(),
+        test_id,
         test_kind: TestKind::Differential,
         mode: fixture.mode,
         fixture_id: Some(fixture.fixture_name.clone()),
         seed: None,
         environment,
-        artifact_refs: vec![
-            smoke_report_path.display().to_string(),
-            fixture_report_path.display().to_string(),
-        ],
+        env_fingerprint,
+        duration_ms: fixture.duration_ms,
+        replay_command: replay_command.clone(),
+        artifact_refs,
+        forensic_bundle_id: forensic_bundle_id.clone(),
         hash_id: hash_id.clone(),
         status,
+        reason_code: fixture.reason_code.clone(),
         failure_repro: if fixture.passed {
             None
         } else {
@@ -387,18 +637,18 @@ fn build_structured_log(
                     .map(|mismatch| format!("{}: {}", mismatch.category, mismatch.message))
                     .collect::<Vec<String>>()
                     .join(" | "),
-                reproduction_command: reproduction_command_for_fixture(
-                    &fixture.fixture_name,
-                    fixture.mode,
-                ),
+                reproduction_command: replay_command,
                 expected_behavior: "Fixture should match expected outputs with zero mismatches"
                     .to_owned(),
                 observed_behavior: format!("{} mismatches reported", fixture.mismatches.len()),
                 seed: None,
                 fixture_id: Some(fixture.fixture_name.clone()),
                 artifact_hash_id: Some(hash_id),
+                forensics_link: Some(fixture_report_path.display().to_string()),
             })
         },
+        e2e_step_traces: Vec::new(),
+        forensics_bundle_index: Some(forensics_bundle_index),
     }
 }
 
@@ -495,7 +745,9 @@ fn collect_fixture_paths(path: &Path, out: &mut Vec<PathBuf>) {
 }
 
 fn run_fixture(path: PathBuf, default_strict_mode: bool) -> FixtureReport {
+    let fixture_start = Instant::now();
     let fixture_name = fixture_name_for_path(&path);
+    let fallback_source_hash = stable_hash_hex(&fixture_name);
 
     let data = match fs::read_to_string(&path) {
         Ok(value) => value,
@@ -509,6 +761,9 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool) -> FixtureReport {
                     CompatibilityMode::Hardened
                 },
                 passed: false,
+                reason_code: Some("read_error".to_owned()),
+                fixture_source_hash: fallback_source_hash,
+                duration_ms: fixture_start.elapsed().as_millis(),
                 mismatches: vec![Mismatch {
                     category: "fixture_io".to_owned(),
                     message: format!("failed to read fixture: {err}"),
@@ -517,6 +772,7 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool) -> FixtureReport {
             };
         }
     };
+    let fixture_source_hash = stable_hash_hex(&data);
 
     let fixture = match serde_json::from_str::<ConformanceFixture>(&data) {
         Ok(value) => value,
@@ -530,6 +786,9 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool) -> FixtureReport {
                     CompatibilityMode::Hardened
                 },
                 passed: false,
+                reason_code: Some("parse_error".to_owned()),
+                fixture_source_hash,
+                duration_ms: fixture_start.elapsed().as_millis(),
                 mismatches: vec![Mismatch {
                     category: "fixture_schema".to_owned(),
                     message: format!("failed to parse fixture: {err}"),
@@ -922,6 +1181,13 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool) -> FixtureReport {
         suite: fixture.suite,
         mode,
         passed: mismatches.is_empty(),
+        reason_code: if mismatches.is_empty() {
+            None
+        } else {
+            Some("mismatch".to_owned())
+        },
+        fixture_source_hash,
+        duration_ms: fixture_start.elapsed().as_millis(),
         mismatches,
         witness: context.witness,
     }
