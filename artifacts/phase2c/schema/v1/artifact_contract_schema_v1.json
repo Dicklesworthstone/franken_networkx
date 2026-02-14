@@ -78,6 +78,19 @@
         "raptorq",
         "scrub"
       ]
+    },
+    "decode_proof": {
+      "filename": "parity_report.decode_proof.json",
+      "kind": "json_keys",
+      "required_keys": [
+        "schema_version",
+        "artifact_id",
+        "source_artifact",
+        "source_hash",
+        "recovered_hash",
+        "status",
+        "verified_at_utc"
+      ]
     }
   },
   "required_artifact_keys": [
@@ -87,6 +100,7 @@
     "parity_gate",
     "risk_note",
     "parity_report",
-    "raptorq_sidecar"
+    "raptorq_sidecar",
+    "decode_proof"
   ]
 }

@@ -31,7 +31,9 @@ For each ticket above, deliver all artifacts in the same PR:
 Schema lock for all packet artifacts is versioned at:
 - `artifacts/phase2c/schema/v1/artifact_contract_schema_v1.json`
 - `artifacts/phase2c/schema/v1/packet_topology_schema_v1.json`
+- `artifacts/phase2c/schema/v1/essence_extraction_ledger_schema_v1.json`
 - `artifacts/phase2c/packet_topology_v1.json`
+- `artifacts/phase2c/essence_extraction_ledger_v1.json`
 
 Machine-check command:
 
@@ -39,6 +41,14 @@ Machine-check command:
 ./scripts/validate_phase2c_artifacts.py \
   --topology artifacts/phase2c/packet_topology_v1.json \
   --schema artifacts/phase2c/schema/v1/artifact_contract_schema_v1.json
+```
+
+```bash
+./scripts/validate_phase2c_essence_ledger.py \
+  --ledger artifacts/phase2c/essence_extraction_ledger_v1.json \
+  --schema artifacts/phase2c/schema/v1/essence_extraction_ledger_schema_v1.json \
+  --topology artifacts/phase2c/packet_topology_v1.json \
+  --security-contract artifacts/phase2c/schema/v1/security_compatibility_contract_schema_v1.json
 ```
 
 Security/compatibility contract lock is versioned at:

@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0.0",
+  "artifact": "forensics_bundle_index",
+  "description": "Deterministic forensics bundle index schema for replay and durability linkage.",
+  "required_fields": [
+    "bundle_id",
+    "run_id",
+    "test_id",
+    "bundle_hash_id",
+    "captured_unix_ms",
+    "replay_ref",
+    "artifact_refs"
+  ],
+  "optional_fields": [
+    "raptorq_sidecar_refs",
+    "decode_proof_refs"
+  ],
+  "invariants": [
+    "bundle_id matches parent StructuredTestLog.forensic_bundle_id",
+    "run_id and test_id match parent StructuredTestLog",
+    "replay_ref matches parent StructuredTestLog.replay_command",
+    "artifact_refs must not be empty",
+    "bundle_hash_id must be non-empty"
+  ]
+}

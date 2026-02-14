@@ -1,0 +1,45 @@
+{
+  "schema_version": "1.0.0",
+  "schema_id": "doc-pass-00-gap-matrix-schema-v1",
+  "required_top_level_keys": [
+    "schema_version",
+    "report_id",
+    "generated_at_utc",
+    "baseline_comparator",
+    "target_docs",
+    "summary",
+    "alien_uplift_contract_card",
+    "profile_first_artifacts",
+    "decision_theoretic_runtime_contract",
+    "isomorphism_proof_artifacts",
+    "structured_logging_evidence",
+    "sections"
+  ],
+  "required_summary_keys": [
+    "section_count",
+    "high_risk_count",
+    "medium_risk_count",
+    "low_risk_count",
+    "average_expansion_multiplier",
+    "total_current_words",
+    "total_target_words"
+  ],
+  "required_section_keys": [
+    "section_id",
+    "doc_path",
+    "heading_path",
+    "heading_level",
+    "start_line",
+    "end_line",
+    "current_word_count",
+    "current_line_count",
+    "coverage_ratio",
+    "missing_topics",
+    "risk_tier",
+    "expansion_multiplier",
+    "target_min_words",
+    "priority_score",
+    "priority_rank",
+    "evidence_ref"
+  ]
+}

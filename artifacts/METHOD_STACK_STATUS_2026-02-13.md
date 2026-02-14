@@ -17,6 +17,10 @@ Produced:
   - `artifacts/phase2c/schema/v1/artifact_contract_schema_v1.json`
   - `artifacts/phase2c/packet_topology_v1.json`
   - `scripts/validate_phase2c_artifacts.py`
+- machine-auditable essence extraction ledger + schema validator:
+  - `artifacts/phase2c/essence_extraction_ledger_v1.json`
+  - `artifacts/phase2c/schema/v1/essence_extraction_ledger_schema_v1.json`
+  - `scripts/validate_phase2c_essence_ledger.py`
 
 ## 2. extreme-software-optimization
 
@@ -28,6 +32,7 @@ Produced:
 - behavior-isomorphism proof artifact:
   - `artifacts/proofs/ISOMORPHISM_PROOF_GRAPH_CORE_V1.md`
   - `artifacts/proofs/ISOMORPHISM_PROOF_NEIGHBOR_ITER_BFS_V2.md`
+  - `artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_001_V1.md` ... `artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_009_V1.md`
 - optimization harness extension:
   - `scripts/run_conformance_with_durability.sh`
 - percentile benchmark gate extension:
@@ -80,6 +85,9 @@ Produced:
   - `crates/fnx-generators/src/lib.rs`
 - packet readiness fail-closed gates for missing mandatory artifacts/fields:
   - `scripts/validate_phase2c_artifacts.py`
+- packet readiness decode-proof enforcement:
+  - `artifacts/phase2c/schema/v1/artifact_contract_schema_v1.json`
+  - `artifacts/phase2c/FNX-P2C-00X/parity_report.decode_proof.json`
 - packet-family threat matrix lock (parser abuse, metadata ambiguity, version skew, resource exhaustion, state corruption):
   - `artifacts/phase2c/schema/v1/security_compatibility_contract_schema_v1.json`
   - `artifacts/phase2c/security/v1/security_compatibility_threat_matrix_v1.json`

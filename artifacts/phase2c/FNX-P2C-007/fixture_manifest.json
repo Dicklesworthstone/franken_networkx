@@ -1,0 +1,52 @@
+{
+  "schema_version": "1.0.0",
+  "packet_id": "FNX-P2C-007",
+  "fixture_ids": [
+    "generated/generators_path_strict.json",
+    "generated/generators_cycle_strict.json",
+    "generated/generators_complete_strict.json"
+  ],
+  "oracle_source": "legacy_networkx",
+  "generated_at_utc": "2026-02-14T06:40:00Z",
+  "legacy_paths": [
+    "networkx/generators/"
+  ],
+  "legacy_symbols": [
+    "path_graph",
+    "cycle_graph",
+    "complete_graph",
+    "empty_graph"
+  ],
+  "graph_mutation_contract": "Primary graph mutation invariants enforced when packet touches graph state.",
+  "view_cache_contract": "View cache coherence must remain deterministic and revision-safe.",
+  "dispatch_backend_contract": "Backend routing must be deterministic and fail-closed on unknown incompatibility.",
+  "conversion_readwrite_contract": "Conversion and serialization outputs preserve scoped legacy semantics.",
+  "error_contract": "Strict fail-closed; hardened bounded defensive handling with audit.",
+  "strict_mode_policy": "Exact NetworkX-observable behavior for scoped APIs.",
+  "hardened_mode_policy": "Preserve API contract with bounded defensive controls and deterministic recovery evidence.",
+  "excluded_scope": [
+    "out-of-scope upstream API families not yet activated for this packet",
+    "unsafe non-clean-room implementation techniques"
+  ],
+  "oracle_tests": [
+    "networkx/generators/tests/"
+  ],
+  "performance_sentinels": [
+    "artifacts/perf/BASELINE_BFS_V1.md",
+    "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+  ],
+  "compatibility_risks": [
+    "seed interpretation drift",
+    "edge emission order drift"
+  ],
+  "raptorq_artifacts": {
+    "legacy_anchor_map": "artifacts/phase2c/FNX-P2C-007/legacy_anchor_map.md",
+    "contract_table": "artifacts/phase2c/FNX-P2C-007/contract_table.md",
+    "fixture_manifest": "artifacts/phase2c/FNX-P2C-007/fixture_manifest.json",
+    "parity_gate": "artifacts/phase2c/FNX-P2C-007/parity_gate.yaml",
+    "risk_note": "artifacts/phase2c/FNX-P2C-007/risk_note.md",
+    "parity_report": "artifacts/phase2c/FNX-P2C-007/parity_report.json",
+    "raptorq_sidecar": "artifacts/phase2c/FNX-P2C-007/parity_report.raptorq.json",
+    "decode_proof": "artifacts/phase2c/FNX-P2C-007/parity_report.decode_proof.json"
+  }
+}

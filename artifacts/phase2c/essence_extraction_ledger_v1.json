@@ -1,0 +1,1110 @@
+{
+  "schema_version": "1.0.0",
+  "ledger_id": "fnx-phase2c-essence-ledger-v1",
+  "generated_at_utc": "2026-02-14T06:40:00Z",
+  "baseline_comparator": "legacy_networkx/main@python3.12",
+  "goal": "Absolute drop-in parity with legacy NetworkX scoped behavior, plus proof-backed optimization and durability.",
+  "packets": [
+    {
+      "packet_id": "FNX-P2C-FOUNDATION",
+      "legacy_paths": [
+        "networkx/classes",
+        "networkx/algorithms",
+        "networkx/readwrite"
+      ],
+      "legacy_symbols": [
+        "phase2c packet readiness contracts"
+      ],
+      "graph_mutation_contract": "Mutations preserve deterministic adjacency semantics and observable output parity.",
+      "view_cache_contract": "View/cache interactions remain deterministic with explicit revision invalidation.",
+      "dispatch_backend_contract": "Backend route selection is deterministic and fail-closed for unknown incompatible features.",
+      "conversion_readwrite_contract": "Conversion/readwrite flows preserve scoped legacy contract across strict and hardened modes.",
+      "error_contract": "Strict fail-closed; hardened bounded recoveries only when allowlisted.",
+      "strict_mode_policy": "Exact scoped compatibility with legacy-observable outputs.",
+      "hardened_mode_policy": "Same API contract plus bounded defensive guards and deterministic recovery evidence.",
+      "excluded_scope": [
+        "legacy implementation reuse (clean-room enforcement)",
+        "unscoped upstream APIs not yet admitted by packet roadmap"
+      ],
+      "oracle_tests": [
+        "cross-family conformance smoke suite"
+      ],
+      "performance_sentinels": [
+        "artifacts/perf/BASELINE_BFS_V1.md",
+        "artifacts/perf/OPPORTUNITY_MATRIX.md",
+        "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+      ],
+      "compatibility_risks": [
+        "schema drift",
+        "packet omission"
+      ],
+      "raptorq_artifacts": {
+        "legacy_anchor_map": "artifacts/phase2c/FNX-P2C-FOUNDATION/legacy_anchor_map.md",
+        "contract_table": "artifacts/phase2c/FNX-P2C-FOUNDATION/contract_table.md",
+        "fixture_manifest": "artifacts/phase2c/FNX-P2C-FOUNDATION/fixture_manifest.json",
+        "parity_gate": "artifacts/phase2c/FNX-P2C-FOUNDATION/parity_gate.yaml",
+        "risk_note": "artifacts/phase2c/FNX-P2C-FOUNDATION/risk_note.md",
+        "parity_report": "artifacts/phase2c/FNX-P2C-FOUNDATION/parity_report.json",
+        "raptorq_sidecar": "artifacts/phase2c/FNX-P2C-FOUNDATION/parity_report.raptorq.json",
+        "decode_proof": "artifacts/phase2c/FNX-P2C-FOUNDATION/parity_report.decode_proof.json"
+      },
+      "invariants": [
+        {
+          "invariant_id": "FNX-P2C-FOUNDATION-I1",
+          "statement": "Phase2C governance foundation output contract is deterministic and parity-preserving.",
+          "behavioral_boundary": "FNX-P2C-FOUNDATION scoped APIs only.",
+          "legacy_ambiguity": "future packet schema evolution",
+          "policy_decision": "explicit version lock and migration gates",
+          "compatibility_rationale": "prevents hidden drift across packet families",
+          "verification_hooks": {
+            "unit": [
+              "unit::fnx-p2c-foundation::contract"
+            ],
+            "property": [
+              "property::fnx-p2c-foundation::invariants"
+            ],
+            "differential": [
+              "differential::fnx-p2c-foundation::fixtures"
+            ],
+            "adversarial": [
+              "adversarial::fnx-p2c-foundation::malformed_inputs"
+            ],
+            "e2e": [
+              "e2e::fnx-p2c-foundation::golden_journey"
+            ]
+          }
+        }
+      ],
+      "alien_uplift_contract_card": {
+        "ev_score": 2.4,
+        "baseline_comparator": "legacy_networkx/main@python3.12",
+        "optimization_lever": "validator single-pass artifact key dispatch",
+        "decision_hypothesis": "Apply one lever after profiling, then prove behavior isomorphic before retaining optimization."
+      },
+      "profile_first_artifacts": {
+        "baseline": "artifacts/perf/BASELINE_BFS_V1.md",
+        "hotspot": "artifacts/perf/OPPORTUNITY_MATRIX.md",
+        "delta": "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+      },
+      "decision_theoretic_runtime_contract": {
+        "states": [
+          "allow",
+          "full_validate",
+          "fail_closed"
+        ],
+        "actions": [
+          "allow",
+          "full_validate",
+          "fail_closed"
+        ],
+        "loss_model": "minimize compatibility drift + security risk under deterministic constraints",
+        "safe_mode_fallback": "fail_closed",
+        "fallback_thresholds": {
+          "unknown_incompatible_feature": true,
+          "risk_probability_full_validate_min": 0.25
+        }
+      },
+      "isomorphism_proof_artifacts": [
+        "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_FOUNDATION_V1.md"
+      ],
+      "structured_logging_evidence": [
+        "artifacts/conformance/latest/structured_logs.jsonl",
+        "artifacts/conformance/latest/structured_log_emitter_normalization_report.json",
+        "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json"
+      ]
+    },
+    {
+      "packet_id": "FNX-P2C-001",
+      "legacy_paths": [
+        "networkx/classes/graph.py",
+        "networkx/classes/digraph.py",
+        "networkx/classes/multigraph.py",
+        "networkx/classes/multidigraph.py"
+      ],
+      "legacy_symbols": [
+        "Graph",
+        "DiGraph",
+        "MultiGraph",
+        "MultiDiGraph",
+        "_CachedPropertyResetterAdj"
+      ],
+      "graph_mutation_contract": "Mutations preserve deterministic adjacency semantics and observable output parity.",
+      "view_cache_contract": "View/cache interactions remain deterministic with explicit revision invalidation.",
+      "dispatch_backend_contract": "Backend route selection is deterministic and fail-closed for unknown incompatible features.",
+      "conversion_readwrite_contract": "Conversion/readwrite flows preserve scoped legacy contract across strict and hardened modes.",
+      "error_contract": "Strict fail-closed; hardened bounded recoveries only when allowlisted.",
+      "strict_mode_policy": "Exact scoped compatibility with legacy-observable outputs.",
+      "hardened_mode_policy": "Same API contract plus bounded defensive guards and deterministic recovery evidence.",
+      "excluded_scope": [
+        "legacy implementation reuse (clean-room enforcement)",
+        "unscoped upstream APIs not yet admitted by packet roadmap"
+      ],
+      "oracle_tests": [
+        "networkx/classes/tests/test_graph.py",
+        "networkx/classes/tests/test_digraph.py",
+        "networkx/classes/tests/test_multigraph.py"
+      ],
+      "performance_sentinels": [
+        "artifacts/perf/BASELINE_BFS_V1.md",
+        "artifacts/perf/OPPORTUNITY_MATRIX.md",
+        "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+      ],
+      "compatibility_risks": [
+        "adjacency mutation drift",
+        "edge attribute merge precedence drift"
+      ],
+      "raptorq_artifacts": {
+        "legacy_anchor_map": "artifacts/phase2c/FNX-P2C-001/legacy_anchor_map.md",
+        "contract_table": "artifacts/phase2c/FNX-P2C-001/contract_table.md",
+        "fixture_manifest": "artifacts/phase2c/FNX-P2C-001/fixture_manifest.json",
+        "parity_gate": "artifacts/phase2c/FNX-P2C-001/parity_gate.yaml",
+        "risk_note": "artifacts/phase2c/FNX-P2C-001/risk_note.md",
+        "parity_report": "artifacts/phase2c/FNX-P2C-001/parity_report.json",
+        "raptorq_sidecar": "artifacts/phase2c/FNX-P2C-001/parity_report.raptorq.json",
+        "decode_proof": "artifacts/phase2c/FNX-P2C-001/parity_report.decode_proof.json"
+      },
+      "invariants": [
+        {
+          "invariant_id": "FNX-P2C-001-I1",
+          "statement": "Graph core semantics output contract is deterministic and parity-preserving.",
+          "behavioral_boundary": "FNX-P2C-001 scoped APIs only.",
+          "legacy_ambiguity": "implicit dict ordering interaction in mutation traces",
+          "policy_decision": "canonicalize by lexical endpoint order before emit",
+          "compatibility_rationale": "matches observable NetworkX edge ordering in scoped fixtures",
+          "verification_hooks": {
+            "unit": [
+              "unit::fnx-p2c-001::contract"
+            ],
+            "property": [
+              "property::fnx-p2c-001::invariants"
+            ],
+            "differential": [
+              "differential::fnx-p2c-001::fixtures"
+            ],
+            "adversarial": [
+              "adversarial::fnx-p2c-001::malformed_inputs"
+            ],
+            "e2e": [
+              "e2e::fnx-p2c-001::golden_journey"
+            ]
+          }
+        }
+      ],
+      "alien_uplift_contract_card": {
+        "ev_score": 2.4,
+        "baseline_comparator": "legacy_networkx/main@python3.12",
+        "optimization_lever": "neighbor iteration clone elision under witness checks",
+        "decision_hypothesis": "Apply one lever after profiling, then prove behavior isomorphic before retaining optimization."
+      },
+      "profile_first_artifacts": {
+        "baseline": "artifacts/perf/BASELINE_BFS_V1.md",
+        "hotspot": "artifacts/perf/OPPORTUNITY_MATRIX.md",
+        "delta": "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+      },
+      "decision_theoretic_runtime_contract": {
+        "states": [
+          "allow",
+          "full_validate",
+          "fail_closed"
+        ],
+        "actions": [
+          "allow",
+          "full_validate",
+          "fail_closed"
+        ],
+        "loss_model": "minimize compatibility drift + security risk under deterministic constraints",
+        "safe_mode_fallback": "fail_closed",
+        "fallback_thresholds": {
+          "unknown_incompatible_feature": true,
+          "risk_probability_full_validate_min": 0.25
+        }
+      },
+      "isomorphism_proof_artifacts": [
+        "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_001_V1.md"
+      ],
+      "structured_logging_evidence": [
+        "artifacts/conformance/latest/structured_logs.jsonl",
+        "artifacts/conformance/latest/structured_log_emitter_normalization_report.json",
+        "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json"
+      ]
+    },
+    {
+      "packet_id": "FNX-P2C-002",
+      "legacy_paths": [
+        "networkx/classes/coreviews.py",
+        "networkx/classes/graphviews.py"
+      ],
+      "legacy_symbols": [
+        "AtlasView",
+        "AdjacencyView",
+        "generic_graph_view",
+        "subgraph_view",
+        "reverse_view"
+      ],
+      "graph_mutation_contract": "Mutations preserve deterministic adjacency semantics and observable output parity.",
+      "view_cache_contract": "View/cache interactions remain deterministic with explicit revision invalidation.",
+      "dispatch_backend_contract": "Backend route selection is deterministic and fail-closed for unknown incompatible features.",
+      "conversion_readwrite_contract": "Conversion/readwrite flows preserve scoped legacy contract across strict and hardened modes.",
+      "error_contract": "Strict fail-closed; hardened bounded recoveries only when allowlisted.",
+      "strict_mode_policy": "Exact scoped compatibility with legacy-observable outputs.",
+      "hardened_mode_policy": "Same API contract plus bounded defensive guards and deterministic recovery evidence.",
+      "excluded_scope": [
+        "legacy implementation reuse (clean-room enforcement)",
+        "unscoped upstream APIs not yet admitted by packet roadmap"
+      ],
+      "oracle_tests": [
+        "networkx/classes/tests/test_coreviews.py",
+        "networkx/classes/tests/test_graphviews.py"
+      ],
+      "performance_sentinels": [
+        "artifacts/perf/BASELINE_BFS_V1.md",
+        "artifacts/perf/OPPORTUNITY_MATRIX.md",
+        "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+      ],
+      "compatibility_risks": [
+        "stale cache exposure",
+        "projection filter nondeterminism"
+      ],
+      "raptorq_artifacts": {
+        "legacy_anchor_map": "artifacts/phase2c/FNX-P2C-002/legacy_anchor_map.md",
+        "contract_table": "artifacts/phase2c/FNX-P2C-002/contract_table.md",
+        "fixture_manifest": "artifacts/phase2c/FNX-P2C-002/fixture_manifest.json",
+        "parity_gate": "artifacts/phase2c/FNX-P2C-002/parity_gate.yaml",
+        "risk_note": "artifacts/phase2c/FNX-P2C-002/risk_note.md",
+        "parity_report": "artifacts/phase2c/FNX-P2C-002/parity_report.json",
+        "raptorq_sidecar": "artifacts/phase2c/FNX-P2C-002/parity_report.raptorq.json",
+        "decode_proof": "artifacts/phase2c/FNX-P2C-002/parity_report.decode_proof.json"
+      },
+      "invariants": [
+        {
+          "invariant_id": "FNX-P2C-002-I1",
+          "statement": "View layer semantics output contract is deterministic and parity-preserving.",
+          "behavioral_boundary": "FNX-P2C-002 scoped APIs only.",
+          "legacy_ambiguity": "view refresh timing vs underlying graph mutation",
+          "policy_decision": "revision counter invalidates caches atomically",
+          "compatibility_rationale": "preserves observable neighbor sequences",
+          "verification_hooks": {
+            "unit": [
+              "unit::fnx-p2c-002::contract"
+            ],
+            "property": [
+              "property::fnx-p2c-002::invariants"
+            ],
+            "differential": [
+              "differential::fnx-p2c-002::fixtures"
+            ],
+            "adversarial": [
+              "adversarial::fnx-p2c-002::malformed_inputs"
+            ],
+            "e2e": [
+              "e2e::fnx-p2c-002::golden_journey"
+            ]
+          }
+        }
+      ],
+      "alien_uplift_contract_card": {
+        "ev_score": 2.4,
+        "baseline_comparator": "legacy_networkx/main@python3.12",
+        "optimization_lever": "single-pass cache invalidation scan with stable ordering",
+        "decision_hypothesis": "Apply one lever after profiling, then prove behavior isomorphic before retaining optimization."
+      },
+      "profile_first_artifacts": {
+        "baseline": "artifacts/perf/BASELINE_BFS_V1.md",
+        "hotspot": "artifacts/perf/OPPORTUNITY_MATRIX.md",
+        "delta": "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+      },
+      "decision_theoretic_runtime_contract": {
+        "states": [
+          "allow",
+          "full_validate",
+          "fail_closed"
+        ],
+        "actions": [
+          "allow",
+          "full_validate",
+          "fail_closed"
+        ],
+        "loss_model": "minimize compatibility drift + security risk under deterministic constraints",
+        "safe_mode_fallback": "fail_closed",
+        "fallback_thresholds": {
+          "unknown_incompatible_feature": true,
+          "risk_probability_full_validate_min": 0.25
+        }
+      },
+      "isomorphism_proof_artifacts": [
+        "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_002_V1.md"
+      ],
+      "structured_logging_evidence": [
+        "artifacts/conformance/latest/structured_logs.jsonl",
+        "artifacts/conformance/latest/structured_log_emitter_normalization_report.json",
+        "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json"
+      ]
+    },
+    {
+      "packet_id": "FNX-P2C-003",
+      "legacy_paths": [
+        "networkx/utils/backends.py"
+      ],
+      "legacy_symbols": [
+        "_dispatchable",
+        "_get_cache_key"
+      ],
+      "graph_mutation_contract": "Mutations preserve deterministic adjacency semantics and observable output parity.",
+      "view_cache_contract": "View/cache interactions remain deterministic with explicit revision invalidation.",
+      "dispatch_backend_contract": "Backend route selection is deterministic and fail-closed for unknown incompatible features.",
+      "conversion_readwrite_contract": "Conversion/readwrite flows preserve scoped legacy contract across strict and hardened modes.",
+      "error_contract": "Strict fail-closed; hardened bounded recoveries only when allowlisted.",
+      "strict_mode_policy": "Exact scoped compatibility with legacy-observable outputs.",
+      "hardened_mode_policy": "Same API contract plus bounded defensive guards and deterministic recovery evidence.",
+      "excluded_scope": [
+        "legacy implementation reuse (clean-room enforcement)",
+        "unscoped upstream APIs not yet admitted by packet roadmap"
+      ],
+      "oracle_tests": [
+        "networkx/classes/tests/dispatch_interface.py"
+      ],
+      "performance_sentinels": [
+        "artifacts/perf/BASELINE_BFS_V1.md",
+        "artifacts/perf/OPPORTUNITY_MATRIX.md",
+        "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+      ],
+      "compatibility_risks": [
+        "backend route ambiguity",
+        "unknown feature bypass risk"
+      ],
+      "raptorq_artifacts": {
+        "legacy_anchor_map": "artifacts/phase2c/FNX-P2C-003/legacy_anchor_map.md",
+        "contract_table": "artifacts/phase2c/FNX-P2C-003/contract_table.md",
+        "fixture_manifest": "artifacts/phase2c/FNX-P2C-003/fixture_manifest.json",
+        "parity_gate": "artifacts/phase2c/FNX-P2C-003/parity_gate.yaml",
+        "risk_note": "artifacts/phase2c/FNX-P2C-003/risk_note.md",
+        "parity_report": "artifacts/phase2c/FNX-P2C-003/parity_report.json",
+        "raptorq_sidecar": "artifacts/phase2c/FNX-P2C-003/parity_report.raptorq.json",
+        "decode_proof": "artifacts/phase2c/FNX-P2C-003/parity_report.decode_proof.json"
+      },
+      "invariants": [
+        {
+          "invariant_id": "FNX-P2C-003-I1",
+          "statement": "Dispatchable backend routing output contract is deterministic and parity-preserving.",
+          "behavioral_boundary": "FNX-P2C-003 scoped APIs only.",
+          "legacy_ambiguity": "backend selection tie among equal priority candidates",
+          "policy_decision": "tie-break by backend name lexical order",
+          "compatibility_rationale": "removes implementation-dependent selection drift",
+          "verification_hooks": {
+            "unit": [
+              "unit::fnx-p2c-003::contract"
+            ],
+            "property": [
+              "property::fnx-p2c-003::invariants"
+            ],
+            "differential": [
+              "differential::fnx-p2c-003::fixtures"
+            ],
+            "adversarial": [
+              "adversarial::fnx-p2c-003::malformed_inputs"
+            ],
+            "e2e": [
+              "e2e::fnx-p2c-003::golden_journey"
+            ]
+          }
+        }
+      ],
+      "alien_uplift_contract_card": {
+        "ev_score": 2.4,
+        "baseline_comparator": "legacy_networkx/main@python3.12",
+        "optimization_lever": "cache-compatible backend filter pruning",
+        "decision_hypothesis": "Apply one lever after profiling, then prove behavior isomorphic before retaining optimization."
+      },
+      "profile_first_artifacts": {
+        "baseline": "artifacts/perf/BASELINE_BFS_V1.md",
+        "hotspot": "artifacts/perf/OPPORTUNITY_MATRIX.md",
+        "delta": "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+      },
+      "decision_theoretic_runtime_contract": {
+        "states": [
+          "allow",
+          "full_validate",
+          "fail_closed"
+        ],
+        "actions": [
+          "allow",
+          "full_validate",
+          "fail_closed"
+        ],
+        "loss_model": "minimize compatibility drift + security risk under deterministic constraints",
+        "safe_mode_fallback": "fail_closed",
+        "fallback_thresholds": {
+          "unknown_incompatible_feature": true,
+          "risk_probability_full_validate_min": 0.25
+        }
+      },
+      "isomorphism_proof_artifacts": [
+        "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_003_V1.md"
+      ],
+      "structured_logging_evidence": [
+        "artifacts/conformance/latest/structured_logs.jsonl",
+        "artifacts/conformance/latest/structured_log_emitter_normalization_report.json",
+        "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json"
+      ]
+    },
+    {
+      "packet_id": "FNX-P2C-004",
+      "legacy_paths": [
+        "networkx/convert.py"
+      ],
+      "legacy_symbols": [
+        "to_networkx_graph",
+        "from_dict_of_lists",
+        "to_dict_of_dicts",
+        "from_dict_of_dicts",
+        "from_edgelist"
+      ],
+      "graph_mutation_contract": "Mutations preserve deterministic adjacency semantics and observable output parity.",
+      "view_cache_contract": "View/cache interactions remain deterministic with explicit revision invalidation.",
+      "dispatch_backend_contract": "Backend route selection is deterministic and fail-closed for unknown incompatible features.",
+      "conversion_readwrite_contract": "Conversion/readwrite flows preserve scoped legacy contract across strict and hardened modes.",
+      "error_contract": "Strict fail-closed; hardened bounded recoveries only when allowlisted.",
+      "strict_mode_policy": "Exact scoped compatibility with legacy-observable outputs.",
+      "hardened_mode_policy": "Same API contract plus bounded defensive guards and deterministic recovery evidence.",
+      "excluded_scope": [
+        "legacy implementation reuse (clean-room enforcement)",
+        "unscoped upstream APIs not yet admitted by packet roadmap"
+      ],
+      "oracle_tests": [
+        "networkx/tests/test_convert.py"
+      ],
+      "performance_sentinels": [
+        "artifacts/perf/BASELINE_BFS_V1.md",
+        "artifacts/perf/OPPORTUNITY_MATRIX.md",
+        "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+      ],
+      "compatibility_risks": [
+        "input precedence drift",
+        "relabel contract divergence"
+      ],
+      "raptorq_artifacts": {
+        "legacy_anchor_map": "artifacts/phase2c/FNX-P2C-004/legacy_anchor_map.md",
+        "contract_table": "artifacts/phase2c/FNX-P2C-004/contract_table.md",
+        "fixture_manifest": "artifacts/phase2c/FNX-P2C-004/fixture_manifest.json",
+        "parity_gate": "artifacts/phase2c/FNX-P2C-004/parity_gate.yaml",
+        "risk_note": "artifacts/phase2c/FNX-P2C-004/risk_note.md",
+        "parity_report": "artifacts/phase2c/FNX-P2C-004/parity_report.json",
+        "raptorq_sidecar": "artifacts/phase2c/FNX-P2C-004/parity_report.raptorq.json",
+        "decode_proof": "artifacts/phase2c/FNX-P2C-004/parity_report.decode_proof.json"
+      },
+      "invariants": [
+        {
+          "invariant_id": "FNX-P2C-004-I1",
+          "statement": "Conversion and relabel contracts output contract is deterministic and parity-preserving.",
+          "behavioral_boundary": "FNX-P2C-004 scoped APIs only.",
+          "legacy_ambiguity": "mixed-type attribute coercion on ingest",
+          "policy_decision": "strict fail-closed, hardened bounded coercion with audit",
+          "compatibility_rationale": "preserves strict parity while allowing bounded resilience in hardened mode",
+          "verification_hooks": {
+            "unit": [
+              "unit::fnx-p2c-004::contract"
+            ],
+            "property": [
+              "property::fnx-p2c-004::invariants"
+            ],
+            "differential": [
+              "differential::fnx-p2c-004::fixtures"
+            ],
+            "adversarial": [
+              "adversarial::fnx-p2c-004::malformed_inputs"
+            ],
+            "e2e": [
+              "e2e::fnx-p2c-004::golden_journey"
+            ]
+          }
+        }
+      ],
+      "alien_uplift_contract_card": {
+        "ev_score": 2.4,
+        "baseline_comparator": "legacy_networkx/main@python3.12",
+        "optimization_lever": "single-allocation conversion pipeline",
+        "decision_hypothesis": "Apply one lever after profiling, then prove behavior isomorphic before retaining optimization."
+      },
+      "profile_first_artifacts": {
+        "baseline": "artifacts/perf/BASELINE_BFS_V1.md",
+        "hotspot": "artifacts/perf/OPPORTUNITY_MATRIX.md",
+        "delta": "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+      },
+      "decision_theoretic_runtime_contract": {
+        "states": [
+          "allow",
+          "full_validate",
+          "fail_closed"
+        ],
+        "actions": [
+          "allow",
+          "full_validate",
+          "fail_closed"
+        ],
+        "loss_model": "minimize compatibility drift + security risk under deterministic constraints",
+        "safe_mode_fallback": "fail_closed",
+        "fallback_thresholds": {
+          "unknown_incompatible_feature": true,
+          "risk_probability_full_validate_min": 0.25
+        }
+      },
+      "isomorphism_proof_artifacts": [
+        "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_004_V1.md"
+      ],
+      "structured_logging_evidence": [
+        "artifacts/conformance/latest/structured_logs.jsonl",
+        "artifacts/conformance/latest/structured_log_emitter_normalization_report.json",
+        "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json"
+      ]
+    },
+    {
+      "packet_id": "FNX-P2C-005",
+      "legacy_paths": [
+        "networkx/algorithms/shortest_paths/weighted.py",
+        "networkx/algorithms/centrality/",
+        "networkx/algorithms/components/"
+      ],
+      "legacy_symbols": [
+        "_weight_function",
+        "dijkstra_path",
+        "bellman_ford_path",
+        "bidirectional_dijkstra"
+      ],
+      "graph_mutation_contract": "Mutations preserve deterministic adjacency semantics and observable output parity.",
+      "view_cache_contract": "View/cache interactions remain deterministic with explicit revision invalidation.",
+      "dispatch_backend_contract": "Backend route selection is deterministic and fail-closed for unknown incompatible features.",
+      "conversion_readwrite_contract": "Conversion/readwrite flows preserve scoped legacy contract across strict and hardened modes.",
+      "error_contract": "Strict fail-closed; hardened bounded recoveries only when allowlisted.",
+      "strict_mode_policy": "Exact scoped compatibility with legacy-observable outputs.",
+      "hardened_mode_policy": "Same API contract plus bounded defensive guards and deterministic recovery evidence.",
+      "excluded_scope": [
+        "legacy implementation reuse (clean-room enforcement)",
+        "unscoped upstream APIs not yet admitted by packet roadmap"
+      ],
+      "oracle_tests": [
+        "networkx/algorithms/shortest_paths/tests/test_weighted.py",
+        "networkx/algorithms/centrality/tests/",
+        "networkx/algorithms/components/tests/"
+      ],
+      "performance_sentinels": [
+        "artifacts/perf/BASELINE_BFS_V1.md",
+        "artifacts/perf/OPPORTUNITY_MATRIX.md",
+        "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+      ],
+      "compatibility_risks": [
+        "tie-break drift",
+        "algorithmic complexity DOS on hostile dense graphs"
+      ],
+      "raptorq_artifacts": {
+        "legacy_anchor_map": "artifacts/phase2c/FNX-P2C-005/legacy_anchor_map.md",
+        "contract_table": "artifacts/phase2c/FNX-P2C-005/contract_table.md",
+        "fixture_manifest": "artifacts/phase2c/FNX-P2C-005/fixture_manifest.json",
+        "parity_gate": "artifacts/phase2c/FNX-P2C-005/parity_gate.yaml",
+        "risk_note": "artifacts/phase2c/FNX-P2C-005/risk_note.md",
+        "parity_report": "artifacts/phase2c/FNX-P2C-005/parity_report.json",
+        "raptorq_sidecar": "artifacts/phase2c/FNX-P2C-005/parity_report.raptorq.json",
+        "decode_proof": "artifacts/phase2c/FNX-P2C-005/parity_report.decode_proof.json"
+      },
+      "invariants": [
+        {
+          "invariant_id": "FNX-P2C-005-I1",
+          "statement": "Shortest-path and algorithm wave output contract is deterministic and parity-preserving.",
+          "behavioral_boundary": "FNX-P2C-005 scoped APIs only.",
+          "legacy_ambiguity": "equal-weight multi-path tie-breaks",
+          "policy_decision": "canonical path comparison by lexical node sequence",
+          "compatibility_rationale": "locks observable results under adversarial equal-weight graphs",
+          "verification_hooks": {
+            "unit": [
+              "unit::fnx-p2c-005::contract"
+            ],
+            "property": [
+              "property::fnx-p2c-005::invariants"
+            ],
+            "differential": [
+              "differential::fnx-p2c-005::fixtures"
+            ],
+            "adversarial": [
+              "adversarial::fnx-p2c-005::malformed_inputs"
+            ],
+            "e2e": [
+              "e2e::fnx-p2c-005::golden_journey"
+            ]
+          }
+        }
+      ],
+      "alien_uplift_contract_card": {
+        "ev_score": 2.4,
+        "baseline_comparator": "legacy_networkx/main@python3.12",
+        "optimization_lever": "priority-queue hot loop allocation reduction",
+        "decision_hypothesis": "Apply one lever after profiling, then prove behavior isomorphic before retaining optimization."
+      },
+      "profile_first_artifacts": {
+        "baseline": "artifacts/perf/BASELINE_BFS_V1.md",
+        "hotspot": "artifacts/perf/OPPORTUNITY_MATRIX.md",
+        "delta": "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+      },
+      "decision_theoretic_runtime_contract": {
+        "states": [
+          "allow",
+          "full_validate",
+          "fail_closed"
+        ],
+        "actions": [
+          "allow",
+          "full_validate",
+          "fail_closed"
+        ],
+        "loss_model": "minimize compatibility drift + security risk under deterministic constraints",
+        "safe_mode_fallback": "fail_closed",
+        "fallback_thresholds": {
+          "unknown_incompatible_feature": true,
+          "risk_probability_full_validate_min": 0.25
+        }
+      },
+      "isomorphism_proof_artifacts": [
+        "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_005_V1.md"
+      ],
+      "structured_logging_evidence": [
+        "artifacts/conformance/latest/structured_logs.jsonl",
+        "artifacts/conformance/latest/structured_log_emitter_normalization_report.json",
+        "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json"
+      ]
+    },
+    {
+      "packet_id": "FNX-P2C-006",
+      "legacy_paths": [
+        "networkx/readwrite/edgelist.py",
+        "networkx/readwrite/json_graph/"
+      ],
+      "legacy_symbols": [
+        "generate_edgelist",
+        "write_edgelist",
+        "parse_edgelist",
+        "read_edgelist"
+      ],
+      "graph_mutation_contract": "Mutations preserve deterministic adjacency semantics and observable output parity.",
+      "view_cache_contract": "View/cache interactions remain deterministic with explicit revision invalidation.",
+      "dispatch_backend_contract": "Backend route selection is deterministic and fail-closed for unknown incompatible features.",
+      "conversion_readwrite_contract": "Conversion/readwrite flows preserve scoped legacy contract across strict and hardened modes.",
+      "error_contract": "Strict fail-closed; hardened bounded recoveries only when allowlisted.",
+      "strict_mode_policy": "Exact scoped compatibility with legacy-observable outputs.",
+      "hardened_mode_policy": "Same API contract plus bounded defensive guards and deterministic recovery evidence.",
+      "excluded_scope": [
+        "legacy implementation reuse (clean-room enforcement)",
+        "unscoped upstream APIs not yet admitted by packet roadmap"
+      ],
+      "oracle_tests": [
+        "networkx/readwrite/tests/test_edgelist.py"
+      ],
+      "performance_sentinels": [
+        "artifacts/perf/BASELINE_BFS_V1.md",
+        "artifacts/perf/OPPORTUNITY_MATRIX.md",
+        "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+      ],
+      "compatibility_risks": [
+        "parser ambiguity",
+        "serialization round-trip drift"
+      ],
+      "raptorq_artifacts": {
+        "legacy_anchor_map": "artifacts/phase2c/FNX-P2C-006/legacy_anchor_map.md",
+        "contract_table": "artifacts/phase2c/FNX-P2C-006/contract_table.md",
+        "fixture_manifest": "artifacts/phase2c/FNX-P2C-006/fixture_manifest.json",
+        "parity_gate": "artifacts/phase2c/FNX-P2C-006/parity_gate.yaml",
+        "risk_note": "artifacts/phase2c/FNX-P2C-006/risk_note.md",
+        "parity_report": "artifacts/phase2c/FNX-P2C-006/parity_report.json",
+        "raptorq_sidecar": "artifacts/phase2c/FNX-P2C-006/parity_report.raptorq.json",
+        "decode_proof": "artifacts/phase2c/FNX-P2C-006/parity_report.decode_proof.json"
+      },
+      "invariants": [
+        {
+          "invariant_id": "FNX-P2C-006-I1",
+          "statement": "Read/write edgelist and json graph output contract is deterministic and parity-preserving.",
+          "behavioral_boundary": "FNX-P2C-006 scoped APIs only.",
+          "legacy_ambiguity": "malformed token tolerance in edgelist parsing",
+          "policy_decision": "strict reject; hardened bounded recovery with warnings",
+          "compatibility_rationale": "strict keeps parity; hardened remains API-compatible and auditable",
+          "verification_hooks": {
+            "unit": [
+              "unit::fnx-p2c-006::contract"
+            ],
+            "property": [
+              "property::fnx-p2c-006::invariants"
+            ],
+            "differential": [
+              "differential::fnx-p2c-006::fixtures"
+            ],
+            "adversarial": [
+              "adversarial::fnx-p2c-006::malformed_inputs"
+            ],
+            "e2e": [
+              "e2e::fnx-p2c-006::golden_journey"
+            ]
+          }
+        }
+      ],
+      "alien_uplift_contract_card": {
+        "ev_score": 2.4,
+        "baseline_comparator": "legacy_networkx/main@python3.12",
+        "optimization_lever": "streaming parse buffer reuse",
+        "decision_hypothesis": "Apply one lever after profiling, then prove behavior isomorphic before retaining optimization."
+      },
+      "profile_first_artifacts": {
+        "baseline": "artifacts/perf/BASELINE_BFS_V1.md",
+        "hotspot": "artifacts/perf/OPPORTUNITY_MATRIX.md",
+        "delta": "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+      },
+      "decision_theoretic_runtime_contract": {
+        "states": [
+          "allow",
+          "full_validate",
+          "fail_closed"
+        ],
+        "actions": [
+          "allow",
+          "full_validate",
+          "fail_closed"
+        ],
+        "loss_model": "minimize compatibility drift + security risk under deterministic constraints",
+        "safe_mode_fallback": "fail_closed",
+        "fallback_thresholds": {
+          "unknown_incompatible_feature": true,
+          "risk_probability_full_validate_min": 0.25
+        }
+      },
+      "isomorphism_proof_artifacts": [
+        "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_006_V1.md"
+      ],
+      "structured_logging_evidence": [
+        "artifacts/conformance/latest/structured_logs.jsonl",
+        "artifacts/conformance/latest/structured_log_emitter_normalization_report.json",
+        "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json"
+      ]
+    },
+    {
+      "packet_id": "FNX-P2C-007",
+      "legacy_paths": [
+        "networkx/generators/"
+      ],
+      "legacy_symbols": [
+        "path_graph",
+        "cycle_graph",
+        "complete_graph",
+        "empty_graph"
+      ],
+      "graph_mutation_contract": "Mutations preserve deterministic adjacency semantics and observable output parity.",
+      "view_cache_contract": "View/cache interactions remain deterministic with explicit revision invalidation.",
+      "dispatch_backend_contract": "Backend route selection is deterministic and fail-closed for unknown incompatible features.",
+      "conversion_readwrite_contract": "Conversion/readwrite flows preserve scoped legacy contract across strict and hardened modes.",
+      "error_contract": "Strict fail-closed; hardened bounded recoveries only when allowlisted.",
+      "strict_mode_policy": "Exact scoped compatibility with legacy-observable outputs.",
+      "hardened_mode_policy": "Same API contract plus bounded defensive guards and deterministic recovery evidence.",
+      "excluded_scope": [
+        "legacy implementation reuse (clean-room enforcement)",
+        "unscoped upstream APIs not yet admitted by packet roadmap"
+      ],
+      "oracle_tests": [
+        "networkx/generators/tests/"
+      ],
+      "performance_sentinels": [
+        "artifacts/perf/BASELINE_BFS_V1.md",
+        "artifacts/perf/OPPORTUNITY_MATRIX.md",
+        "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+      ],
+      "compatibility_risks": [
+        "seed interpretation drift",
+        "edge emission order drift"
+      ],
+      "raptorq_artifacts": {
+        "legacy_anchor_map": "artifacts/phase2c/FNX-P2C-007/legacy_anchor_map.md",
+        "contract_table": "artifacts/phase2c/FNX-P2C-007/contract_table.md",
+        "fixture_manifest": "artifacts/phase2c/FNX-P2C-007/fixture_manifest.json",
+        "parity_gate": "artifacts/phase2c/FNX-P2C-007/parity_gate.yaml",
+        "risk_note": "artifacts/phase2c/FNX-P2C-007/risk_note.md",
+        "parity_report": "artifacts/phase2c/FNX-P2C-007/parity_report.json",
+        "raptorq_sidecar": "artifacts/phase2c/FNX-P2C-007/parity_report.raptorq.json",
+        "decode_proof": "artifacts/phase2c/FNX-P2C-007/parity_report.decode_proof.json"
+      },
+      "invariants": [
+        {
+          "invariant_id": "FNX-P2C-007-I1",
+          "statement": "Generator first wave output contract is deterministic and parity-preserving.",
+          "behavioral_boundary": "FNX-P2C-007 scoped APIs only.",
+          "legacy_ambiguity": "large-cycle edge emission ordering",
+          "policy_decision": "canonical cycle closure order",
+          "compatibility_rationale": "prevents output-order drift across environments",
+          "verification_hooks": {
+            "unit": [
+              "unit::fnx-p2c-007::contract"
+            ],
+            "property": [
+              "property::fnx-p2c-007::invariants"
+            ],
+            "differential": [
+              "differential::fnx-p2c-007::fixtures"
+            ],
+            "adversarial": [
+              "adversarial::fnx-p2c-007::malformed_inputs"
+            ],
+            "e2e": [
+              "e2e::fnx-p2c-007::golden_journey"
+            ]
+          }
+        }
+      ],
+      "alien_uplift_contract_card": {
+        "ev_score": 2.4,
+        "baseline_comparator": "legacy_networkx/main@python3.12",
+        "optimization_lever": "pre-sized edge emission buffers",
+        "decision_hypothesis": "Apply one lever after profiling, then prove behavior isomorphic before retaining optimization."
+      },
+      "profile_first_artifacts": {
+        "baseline": "artifacts/perf/BASELINE_BFS_V1.md",
+        "hotspot": "artifacts/perf/OPPORTUNITY_MATRIX.md",
+        "delta": "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+      },
+      "decision_theoretic_runtime_contract": {
+        "states": [
+          "allow",
+          "full_validate",
+          "fail_closed"
+        ],
+        "actions": [
+          "allow",
+          "full_validate",
+          "fail_closed"
+        ],
+        "loss_model": "minimize compatibility drift + security risk under deterministic constraints",
+        "safe_mode_fallback": "fail_closed",
+        "fallback_thresholds": {
+          "unknown_incompatible_feature": true,
+          "risk_probability_full_validate_min": 0.25
+        }
+      },
+      "isomorphism_proof_artifacts": [
+        "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_007_V1.md"
+      ],
+      "structured_logging_evidence": [
+        "artifacts/conformance/latest/structured_logs.jsonl",
+        "artifacts/conformance/latest/structured_log_emitter_normalization_report.json",
+        "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json"
+      ]
+    },
+    {
+      "packet_id": "FNX-P2C-008",
+      "legacy_paths": [
+        "networkx/utils/configs.py",
+        "networkx/lazy_imports.py"
+      ],
+      "legacy_symbols": [
+        "_dispatchable",
+        "config",
+        "lazy imports"
+      ],
+      "graph_mutation_contract": "Mutations preserve deterministic adjacency semantics and observable output parity.",
+      "view_cache_contract": "View/cache interactions remain deterministic with explicit revision invalidation.",
+      "dispatch_backend_contract": "Backend route selection is deterministic and fail-closed for unknown incompatible features.",
+      "conversion_readwrite_contract": "Conversion/readwrite flows preserve scoped legacy contract across strict and hardened modes.",
+      "error_contract": "Strict fail-closed; hardened bounded recoveries only when allowlisted.",
+      "strict_mode_policy": "Exact scoped compatibility with legacy-observable outputs.",
+      "hardened_mode_policy": "Same API contract plus bounded defensive guards and deterministic recovery evidence.",
+      "excluded_scope": [
+        "legacy implementation reuse (clean-room enforcement)",
+        "unscoped upstream APIs not yet admitted by packet roadmap"
+      ],
+      "oracle_tests": [
+        "utils/runtime behavior tests"
+      ],
+      "performance_sentinels": [
+        "artifacts/perf/BASELINE_BFS_V1.md",
+        "artifacts/perf/OPPORTUNITY_MATRIX.md",
+        "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+      ],
+      "compatibility_risks": [
+        "environment-based behavior skew",
+        "optional dependency fallback ambiguity"
+      ],
+      "raptorq_artifacts": {
+        "legacy_anchor_map": "artifacts/phase2c/FNX-P2C-008/legacy_anchor_map.md",
+        "contract_table": "artifacts/phase2c/FNX-P2C-008/contract_table.md",
+        "fixture_manifest": "artifacts/phase2c/FNX-P2C-008/fixture_manifest.json",
+        "parity_gate": "artifacts/phase2c/FNX-P2C-008/parity_gate.yaml",
+        "risk_note": "artifacts/phase2c/FNX-P2C-008/risk_note.md",
+        "parity_report": "artifacts/phase2c/FNX-P2C-008/parity_report.json",
+        "raptorq_sidecar": "artifacts/phase2c/FNX-P2C-008/parity_report.raptorq.json",
+        "decode_proof": "artifacts/phase2c/FNX-P2C-008/parity_report.decode_proof.json"
+      },
+      "invariants": [
+        {
+          "invariant_id": "FNX-P2C-008-I1",
+          "statement": "Runtime config and optional dependencies output contract is deterministic and parity-preserving.",
+          "behavioral_boundary": "FNX-P2C-008 scoped APIs only.",
+          "legacy_ambiguity": "optional dependency route preference",
+          "policy_decision": "deterministic route ordering plus fail-closed on unknown incompatibility",
+          "compatibility_rationale": "preserves safety and reproducibility",
+          "verification_hooks": {
+            "unit": [
+              "unit::fnx-p2c-008::contract"
+            ],
+            "property": [
+              "property::fnx-p2c-008::invariants"
+            ],
+            "differential": [
+              "differential::fnx-p2c-008::fixtures"
+            ],
+            "adversarial": [
+              "adversarial::fnx-p2c-008::malformed_inputs"
+            ],
+            "e2e": [
+              "e2e::fnx-p2c-008::golden_journey"
+            ]
+          }
+        }
+      ],
+      "alien_uplift_contract_card": {
+        "ev_score": 2.4,
+        "baseline_comparator": "legacy_networkx/main@python3.12",
+        "optimization_lever": "single-pass environment fingerprint canonicalization",
+        "decision_hypothesis": "Apply one lever after profiling, then prove behavior isomorphic before retaining optimization."
+      },
+      "profile_first_artifacts": {
+        "baseline": "artifacts/perf/BASELINE_BFS_V1.md",
+        "hotspot": "artifacts/perf/OPPORTUNITY_MATRIX.md",
+        "delta": "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+      },
+      "decision_theoretic_runtime_contract": {
+        "states": [
+          "allow",
+          "full_validate",
+          "fail_closed"
+        ],
+        "actions": [
+          "allow",
+          "full_validate",
+          "fail_closed"
+        ],
+        "loss_model": "minimize compatibility drift + security risk under deterministic constraints",
+        "safe_mode_fallback": "fail_closed",
+        "fallback_thresholds": {
+          "unknown_incompatible_feature": true,
+          "risk_probability_full_validate_min": 0.25
+        }
+      },
+      "isomorphism_proof_artifacts": [
+        "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_008_V1.md"
+      ],
+      "structured_logging_evidence": [
+        "artifacts/conformance/latest/structured_logs.jsonl",
+        "artifacts/conformance/latest/structured_log_emitter_normalization_report.json",
+        "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json"
+      ]
+    },
+    {
+      "packet_id": "FNX-P2C-009",
+      "legacy_paths": [
+        "networkx/tests/",
+        "networkx/algorithms/tests/"
+      ],
+      "legacy_symbols": [
+        "fixture normalization",
+        "differential comparison schema"
+      ],
+      "graph_mutation_contract": "Mutations preserve deterministic adjacency semantics and observable output parity.",
+      "view_cache_contract": "View/cache interactions remain deterministic with explicit revision invalidation.",
+      "dispatch_backend_contract": "Backend route selection is deterministic and fail-closed for unknown incompatible features.",
+      "conversion_readwrite_contract": "Conversion/readwrite flows preserve scoped legacy contract across strict and hardened modes.",
+      "error_contract": "Strict fail-closed; hardened bounded recoveries only when allowlisted.",
+      "strict_mode_policy": "Exact scoped compatibility with legacy-observable outputs.",
+      "hardened_mode_policy": "Same API contract plus bounded defensive guards and deterministic recovery evidence.",
+      "excluded_scope": [
+        "legacy implementation reuse (clean-room enforcement)",
+        "unscoped upstream APIs not yet admitted by packet roadmap"
+      ],
+      "oracle_tests": [
+        "cross-family differential suites"
+      ],
+      "performance_sentinels": [
+        "artifacts/perf/BASELINE_BFS_V1.md",
+        "artifacts/perf/OPPORTUNITY_MATRIX.md",
+        "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+      ],
+      "compatibility_risks": [
+        "fixture routing drift",
+        "log schema drift"
+      ],
+      "raptorq_artifacts": {
+        "legacy_anchor_map": "artifacts/phase2c/FNX-P2C-009/legacy_anchor_map.md",
+        "contract_table": "artifacts/phase2c/FNX-P2C-009/contract_table.md",
+        "fixture_manifest": "artifacts/phase2c/FNX-P2C-009/fixture_manifest.json",
+        "parity_gate": "artifacts/phase2c/FNX-P2C-009/parity_gate.yaml",
+        "risk_note": "artifacts/phase2c/FNX-P2C-009/risk_note.md",
+        "parity_report": "artifacts/phase2c/FNX-P2C-009/parity_report.json",
+        "raptorq_sidecar": "artifacts/phase2c/FNX-P2C-009/parity_report.raptorq.json",
+        "decode_proof": "artifacts/phase2c/FNX-P2C-009/parity_report.decode_proof.json"
+      },
+      "invariants": [
+        {
+          "invariant_id": "FNX-P2C-009-I1",
+          "statement": "Conformance harness corpus wiring output contract is deterministic and parity-preserving.",
+          "behavioral_boundary": "FNX-P2C-009 scoped APIs only.",
+          "legacy_ambiguity": "fixture family classification drift",
+          "policy_decision": "explicit deterministic packet routing table",
+          "compatibility_rationale": "ensures stable differential coverage attribution",
+          "verification_hooks": {
+            "unit": [
+              "unit::fnx-p2c-009::contract"
+            ],
+            "property": [
+              "property::fnx-p2c-009::invariants"
+            ],
+            "differential": [
+              "differential::fnx-p2c-009::fixtures"
+            ],
+            "adversarial": [
+              "adversarial::fnx-p2c-009::malformed_inputs"
+            ],
+            "e2e": [
+              "e2e::fnx-p2c-009::golden_journey"
+            ]
+          }
+        }
+      ],
+      "alien_uplift_contract_card": {
+        "ev_score": 2.4,
+        "baseline_comparator": "legacy_networkx/main@python3.12",
+        "optimization_lever": "single-pass fixture enumeration with stable sort",
+        "decision_hypothesis": "Apply one lever after profiling, then prove behavior isomorphic before retaining optimization."
+      },
+      "profile_first_artifacts": {
+        "baseline": "artifacts/perf/BASELINE_BFS_V1.md",
+        "hotspot": "artifacts/perf/OPPORTUNITY_MATRIX.md",
+        "delta": "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+      },
+      "decision_theoretic_runtime_contract": {
+        "states": [
+          "allow",
+          "full_validate",
+          "fail_closed"
+        ],
+        "actions": [
+          "allow",
+          "full_validate",
+          "fail_closed"
+        ],
+        "loss_model": "minimize compatibility drift + security risk under deterministic constraints",
+        "safe_mode_fallback": "fail_closed",
+        "fallback_thresholds": {
+          "unknown_incompatible_feature": true,
+          "risk_probability_full_validate_min": 0.25
+        }
+      },
+      "isomorphism_proof_artifacts": [
+        "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_009_V1.md"
+      ],
+      "structured_logging_evidence": [
+        "artifacts/conformance/latest/structured_logs.jsonl",
+        "artifacts/conformance/latest/structured_log_emitter_normalization_report.json",
+        "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json"
+      ]
+    }
+  ]
+}

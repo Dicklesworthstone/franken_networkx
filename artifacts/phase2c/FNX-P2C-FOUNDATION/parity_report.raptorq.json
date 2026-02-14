@@ -14,5 +14,7 @@
     "last_ok_unix_ms": 0,
     "status": "ok"
   },
-  "decode_proofs": []
+  "decode_proofs": [
+    "artifacts/phase2c/FNX-P2C-FOUNDATION/parity_report.decode_proof.json"
+  ]
 }

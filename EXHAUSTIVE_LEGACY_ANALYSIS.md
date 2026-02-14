@@ -272,3 +272,65 @@ Phase-2C is complete only when:
 4. High-risk packets include optimization proof artifacts.
 5. RaptorQ sidecars + decode proofs are scrub-clean.
 6. Governance backfill tasks are explicitly linked to packet outputs.
+
+## 18. Data Model and State Transition Ledger (DOC-PASS-03)
+
+### 18.1 Canonical component state models
+
+| Component | Legacy anchors | Rust ownership | Mutable fields | Invariant focus |
+|---|---|---|---|---|
+| Graph adjacency store | `classes/graph.py`, `digraph.py`, `multigraph.py` | `fnx-classes` | nodes, adjacency map, attrs, revision | adjacency integrity + revision monotonicity |
+| View cache/projection layer | `classes/coreviews.py`, `graphviews.py` | `fnx-views` + `fnx-classes` | cached snapshot, revision pointer, filters | view ordering parity + cache coherence |
+| Dispatch registry | `utils/backends.py` | `fnx-dispatch` + `fnx-runtime` | backend registry, decision ledger | deterministic route selection + fail-closed ambiguity handling |
+| Conversion/readwrite pipeline | `convert.py`, `readwrite/edgelist.py` | `fnx-convert` + `fnx-readwrite` | parser cursor, warnings, graph builder | deterministic conversion precedence + parse safety |
+| Algorithm + conformance surface | `algorithms/*`, `tests/*` | `fnx-algorithms` + `fnx-conformance` | work queue, witness, mismatch vector, structured logs | deterministic output/tie-break + replay-forensics integrity |
+
+### 18.2 Critical state transitions (explicit)
+
+1. Graph store:
+- `stable -> mutating` on any graph mutation request.
+- `mutating -> stable` only after invariant checks pass.
+- invariant failure -> `rollback -> fail_closed` (strict and hardened).
+2. View cache:
+- `cache_cold -> cache_hot` on first read.
+- `cache_hot -> cache_stale` when parent revision changes.
+- `cache_stale -> cache_hot` after deterministic rebuild and invariant pass; else `reset -> fail_closed`.
+3. Dispatch:
+- `registered -> resolved` when compatible backend exists and no unknown incompatible feature.
+- `registered -> rejected` on incompatible/ambiguous route; always fail-closed.
+4. Conversion/readwrite:
+- `parsing -> parsed` for valid rows.
+- `parsing -> recovered` only in hardened mode with bounded skip/warning.
+- strict malformed row or hardened budget exhaustion -> fail-closed.
+5. Conformance:
+- `fixture_loaded -> executing -> validated` for zero-drift result.
+- any mismatch -> failure report with deterministic replay command + forensics bundle references.
+
+### 18.3 Invariant violation matrix and recovery policy
+
+| Invariant family | Violation class | Strict mode | Hardened mode | Recovery behavior |
+|---|---|---|---|---|
+| Graph mutation invariants | adjacency asymmetry, revision drift | fail-closed | rollback then fail-closed with audit | restore last stable snapshot |
+| View invariants | stale cache read, ordering mismatch | fail-closed | cache reset then fail-closed | force snapshot rebuild |
+| Dispatch invariants | unknown incompatible feature, route ambiguity | fail-closed | fail-closed (diagnostics only) | deterministic decision ledger record |
+| Conversion/readwrite invariants | malformed parse, precedence drift | fail-closed | bounded recovery then fail-closed | warning ledger + reproduction artifact |
+| Conformance invariants | packet misrouting, replay metadata drift | fail-closed | fail-closed with forensic enrichment | regenerate logs and bundle index |
+
+### 18.4 Method-stack evidence bindings
+
+- Alien-uplift contract card:
+  - EV score `2.45`, baseline comparator `legacy_networkx/main@python3.12`.
+- Profile-first artifacts:
+  - `artifacts/perf/BASELINE_BFS_V1.md`
+  - `artifacts/perf/OPPORTUNITY_MATRIX.md`
+  - `artifacts/perf/phase2c/bfs_neighbor_iter_delta.json`
+- Decision-theoretic runtime contract:
+  - states/actions/loss/fallback in `artifacts/docs/v1/doc_pass03_data_model_state_invariant_v1.json`.
+- Isomorphism proof anchors:
+  - `artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_001_V1.md`
+  - `artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_005_V1.md`
+  - `artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_009_V1.md`
+- Structured logging evidence:
+  - `artifacts/conformance/latest/structured_logs.jsonl`
+  - `artifacts/conformance/latest/structured_log_emitter_normalization_report.json`
+  - `artifacts/phase2c/latest/phase2c_readiness_e2e_steps_v1.jsonl`

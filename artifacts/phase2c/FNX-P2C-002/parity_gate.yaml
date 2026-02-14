@@ -1,0 +1,19 @@
+schema_version: "1.0.0"
+packet_id: "FNX-P2C-002"
+mode_gates:
+  strict:
+    mismatch_budget: 0
+    unknown_incompatible_feature_policy: fail_closed
+  hardened:
+    mismatch_budget: 0
+    unknown_incompatible_feature_policy: fail_closed
+required_commands:
+  - cargo fmt --check
+  - cargo check --all-targets
+  - cargo clippy --all-targets -- -D warnings
+  - cargo test --workspace
+pass_criteria:
+  - "all mandatory artifacts present"
+  - "all mandatory fields/sections present"
+  - "mismatch budget respected"
+  - "view coherence witness gate"

@@ -20,8 +20,10 @@ A packet is `NOT READY` if any required artifact is missing or any mandatory fie
 
 - `schema/v1/artifact_contract_schema_v1.json`: canonical versioned artifact contract.
 - `schema/v1/packet_topology_schema_v1.json`: topology-manifest schema.
+- `schema/v1/essence_extraction_ledger_schema_v1.json`: machine-auditable extraction-ledger schema.
 - `schema/v1/security_compatibility_contract_schema_v1.json`: threat/allowlist contract schema.
 - `packet_topology_v1.json`: packet topology and required artifact mapping.
+- `essence_extraction_ledger_v1.json`: packet-by-packet invariant ledger with verification hooks.
 - `security/v1/security_compatibility_threat_matrix_v1.json`: packet-family threat classes + mitigations.
 - `security/v1/hardened_mode_deviation_allowlist_v1.json`: explicit hardened-mode deviation categories.
 - `templates/`: scaffold templates for required artifacts.
@@ -39,6 +41,17 @@ A packet is `NOT READY` if any required artifact is missing or any mandatory fie
   --contract artifacts/phase2c/schema/v1/security_compatibility_contract_schema_v1.json \
   --matrix artifacts/phase2c/security/v1/security_compatibility_threat_matrix_v1.json \
   --allowlist artifacts/phase2c/security/v1/hardened_mode_deviation_allowlist_v1.json
+```
+
+```bash
+./scripts/validate_phase2c_essence_ledger.py \
+  --ledger artifacts/phase2c/essence_extraction_ledger_v1.json \
+  --schema artifacts/phase2c/schema/v1/essence_extraction_ledger_schema_v1.json \
+  --topology artifacts/phase2c/packet_topology_v1.json
+```
+
+```bash
+./scripts/run_phase2c_readiness_e2e.sh
 ```
 
 Non-zero exit code indicates at least one packet is `NOT READY`.

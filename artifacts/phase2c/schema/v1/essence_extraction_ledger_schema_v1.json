@@ -1,0 +1,69 @@
+{
+  "schema_version": "1.0.0",
+  "schema_id": "fnx-phase2c-essence-ledger-schema-v1",
+  "required_top_level_keys": [
+    "schema_version",
+    "ledger_id",
+    "generated_at_utc",
+    "baseline_comparator",
+    "goal",
+    "packets"
+  ],
+  "required_packet_keys": [
+    "packet_id",
+    "legacy_paths",
+    "legacy_symbols",
+    "graph_mutation_contract",
+    "view_cache_contract",
+    "dispatch_backend_contract",
+    "conversion_readwrite_contract",
+    "error_contract",
+    "strict_mode_policy",
+    "hardened_mode_policy",
+    "excluded_scope",
+    "oracle_tests",
+    "performance_sentinels",
+    "compatibility_risks",
+    "raptorq_artifacts",
+    "invariants",
+    "alien_uplift_contract_card",
+    "profile_first_artifacts",
+    "decision_theoretic_runtime_contract",
+    "isomorphism_proof_artifacts",
+    "structured_logging_evidence"
+  ],
+  "required_invariant_keys": [
+    "invariant_id",
+    "statement",
+    "behavioral_boundary",
+    "legacy_ambiguity",
+    "policy_decision",
+    "compatibility_rationale",
+    "verification_hooks"
+  ],
+  "required_verification_hook_keys": [
+    "unit",
+    "property",
+    "differential",
+    "adversarial",
+    "e2e"
+  ],
+  "required_alien_card_keys": [
+    "ev_score",
+    "baseline_comparator",
+    "optimization_lever",
+    "decision_hypothesis"
+  ],
+  "required_profile_artifact_keys": [
+    "baseline",
+    "hotspot",
+    "delta"
+  ],
+  "required_runtime_contract_keys": [
+    "states",
+    "actions",
+    "loss_model",
+    "safe_mode_fallback",
+    "fallback_thresholds"
+  ]
+}

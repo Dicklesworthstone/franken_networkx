@@ -13,7 +13,134 @@
         "parity_gate",
         "risk_note",
         "parity_report",
-        "raptorq_sidecar"
+        "raptorq_sidecar",
+        "decode_proof"
+      ]
+    },
+    {
+      "packet_id": "FNX-P2C-001",
+      "path": "artifacts/phase2c/FNX-P2C-001",
+      "required_artifact_keys": [
+        "legacy_anchor_map",
+        "contract_table",
+        "fixture_manifest",
+        "parity_gate",
+        "risk_note",
+        "parity_report",
+        "raptorq_sidecar",
+        "decode_proof"
+      ]
+    },
+    {
+      "packet_id": "FNX-P2C-002",
+      "path": "artifacts/phase2c/FNX-P2C-002",
+      "required_artifact_keys": [
+        "legacy_anchor_map",
+        "contract_table",
+        "fixture_manifest",
+        "parity_gate",
+        "risk_note",
+        "parity_report",
+        "raptorq_sidecar",
+        "decode_proof"
+      ]
+    },
+    {
+      "packet_id": "FNX-P2C-003",
+      "path": "artifacts/phase2c/FNX-P2C-003",
+      "required_artifact_keys": [
+        "legacy_anchor_map",
+        "contract_table",
+        "fixture_manifest",
+        "parity_gate",
+        "risk_note",
+        "parity_report",
+        "raptorq_sidecar",
+        "decode_proof"
+      ]
+    },
+    {
+      "packet_id": "FNX-P2C-004",
+      "path": "artifacts/phase2c/FNX-P2C-004",
+      "required_artifact_keys": [
+        "legacy_anchor_map",
+        "contract_table",
+        "fixture_manifest",
+        "parity_gate",
+        "risk_note",
+        "parity_report",
+        "raptorq_sidecar",
+        "decode_proof"
+      ]
+    },
+    {
+      "packet_id": "FNX-P2C-005",
+      "path": "artifacts/phase2c/FNX-P2C-005",
+      "required_artifact_keys": [
+        "legacy_anchor_map",
+        "contract_table",
+        "fixture_manifest",
+        "parity_gate",
+        "risk_note",
+        "parity_report",
+        "raptorq_sidecar",
+        "decode_proof"
+      ]
+    },
+    {
+      "packet_id": "FNX-P2C-006",
+      "path": "artifacts/phase2c/FNX-P2C-006",
+      "required_artifact_keys": [
+        "legacy_anchor_map",
+        "contract_table",
+        "fixture_manifest",
+        "parity_gate",
+        "risk_note",
+        "parity_report",
+        "raptorq_sidecar",
+        "decode_proof"
+      ]
+    },
+    {
+      "packet_id": "FNX-P2C-007",
+      "path": "artifacts/phase2c/FNX-P2C-007",
+      "required_artifact_keys": [
+        "legacy_anchor_map",
+        "contract_table",
+        "fixture_manifest",
+        "parity_gate",
+        "risk_note",
+        "parity_report",
+        "raptorq_sidecar",
+        "decode_proof"
+      ]
+    },
+    {
+      "packet_id": "FNX-P2C-008",
+      "path": "artifacts/phase2c/FNX-P2C-008",
+      "required_artifact_keys": [
+        "legacy_anchor_map",
+        "contract_table",
+        "fixture_manifest",
+        "parity_gate",
+        "risk_note",
+        "parity_report",
+        "raptorq_sidecar",
+        "decode_proof"
+      ]
+    },
+    {
+      "packet_id": "FNX-P2C-009",
+      "path": "artifacts/phase2c/FNX-P2C-009",
+      "required_artifact_keys": [
+        "legacy_anchor_map",
+        "contract_table",
+        "fixture_manifest",
+        "parity_gate",
+        "risk_note",
+        "parity_report",
+        "raptorq_sidecar",
+        "decode_proof"
       ]
     }
   ]

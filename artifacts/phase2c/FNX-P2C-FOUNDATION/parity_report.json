@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "packet_id": "FNX-P2C-FOUNDATION",
-  "generated_at_utc": "2026-02-13T20:00:00Z",
+  "generated_at_utc": "2026-02-14T06:40:00Z",
   "strict_mode": {
     "status": "pass",
     "mismatch_count": 0
@@ -11,5 +11,5 @@
     "mismatch_count": 0
   },
   "mismatch_count": 0,
-  "summary": "Foundation schema lock packet artifacts validated"
+  "summary": "FNX-P2C-FOUNDATION packet parity contract validated against baseline comparator"
 }

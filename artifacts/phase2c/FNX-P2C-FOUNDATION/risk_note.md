@@ -1,17 +1,17 @@
 # Risk Note
 
 ## Risk Surface
-- parser/ingestion: malformed artifact payloads or schema shape drift
-- algorithmic denial vectors: oversized manifests with missing required anchors
+- parser/ingestion: malformed payloads for phase2c governance foundation.
+- algorithmic denial vectors: adversarial graph shapes designed to trigger tail latency spikes.
 
 ## Failure Modes
-- fail-closed triggers: missing required artifact, missing required field
-- degraded-mode triggers: none for mandatory readiness fields
+- fail-closed triggers: unknown incompatible feature, contract-breaking malformed inputs.
+- degraded-mode triggers: bounded hardened-mode recovery only when allowlisted and auditable.
 
 ## Mitigations
-- controls: versioned schema lock + deterministic validator
-- tests: validator pass/fail checks in CI and local workflow
+- controls: deterministic compatibility policy, strict/hardened split, packet-specific gate `topology schema lock`.
+- tests: unit/property/differential/adversarial/e2e coverage linked through fixture IDs.
 
 ## Residual Risk
-- unresolved risks: future schema evolution requires explicit version bump + migration policy
-- follow-up actions: add per-packet CI enforcement once packet corpus expands
+- unresolved risks: schema drift; packet omission.
+- follow-up actions: expand fixture diversity and maintain drift gates as packet scope grows.

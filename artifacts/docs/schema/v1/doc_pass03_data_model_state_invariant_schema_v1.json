@@ -1,0 +1,61 @@
+{
+  "schema_version": "1.0.0",
+  "schema_id": "doc-pass-03-data-model-state-invariant-schema-v1",
+  "required_top_level_keys": [
+    "schema_version",
+    "artifact_id",
+    "generated_at_utc",
+    "baseline_comparator",
+    "components",
+    "alien_uplift_contract_card",
+    "profile_first_artifacts",
+    "decision_theoretic_runtime_contract",
+    "isomorphism_proof_artifacts",
+    "structured_logging_evidence"
+  ],
+  "required_component_keys": [
+    "component_id",
+    "name",
+    "legacy_scope_paths",
+    "rust_crates",
+    "state_model",
+    "state_transitions",
+    "invariants",
+    "ambiguity_tags",
+    "verification_hooks"
+  ],
+  "required_state_model_keys": [
+    "states",
+    "mutable_fields",
+    "mutability_boundary"
+  ],
+  "required_transition_keys": [
+    "from_state",
+    "to_state",
+    "trigger",
+    "guards",
+    "action",
+    "failure_behavior"
+  ],
+  "required_invariant_keys": [
+    "invariant_id",
+    "statement",
+    "severity",
+    "strict_mode_response",
+    "hardened_mode_response",
+    "recovery_steps",
+    "test_hooks"
+  ],
+  "required_ambiguity_keys": [
+    "topic",
+    "policy_options",
+    "selected_policy",
+    "risk_note"
+  ],
+  "required_verification_hook_keys": [
+    "unit",
+    "property",
+    "differential",
+    "e2e"
+  ]
+}
