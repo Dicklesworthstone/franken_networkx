@@ -1,0 +1,902 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "doc-pass-01-module-cartography-v1",
+  "generated_at_utc": "2026-02-14T16:18:40.152003+00:00",
+  "baseline_comparator": "legacy_networkx/main@python3.12",
+  "workspace_summary": {
+    "crate_count": 10,
+    "layer_count": {
+      "runtime-policy": 1,
+      "graph-storage": 1,
+      "compat-dispatch": 1,
+      "graph-view-api": 1,
+      "algorithm-engine": 1,
+      "conversion-ingest": 1,
+      "graph-generators": 1,
+      "io-serialization": 1,
+      "durability-repair": 1,
+      "conformance-harness": 1
+    },
+    "dependency_edge_count": 20,
+    "hidden_coupling_count": 5,
+    "layering_violation_count": 0
+  },
+  "module_cartography": [
+    {
+      "crate_name": "fnx-runtime",
+      "manifest_path": "crates/fnx-runtime/Cargo.toml",
+      "source_root": "crates/fnx-runtime/src",
+      "layer": "runtime-policy",
+      "purpose": "Mode split types, decision-theoretic guards, evidence ledger, structured test logs.",
+      "legacy_scope_paths": [
+        "networkx/utils/backends.py",
+        "networkx/lazy_imports.py"
+      ],
+      "depends_on": [],
+      "external_dependencies": [
+        "asupersync=optional",
+        "ftui=optional",
+        "serde=1.0.218",
+        "serde_json=1.0.139"
+      ],
+      "public_contract_surface": [
+        "pub const STRUCTURED_TEST_LOG_SCHEMA_VERSION_V1: &str = \"1.0.0\";",
+        "pub fn structured_test_log_schema_version() -> &'static str",
+        "pub enum CompatibilityMode",
+        "pub enum DecisionAction",
+        "pub enum TestKind",
+        "pub enum TestStatus",
+        "pub enum E2eStepStatus",
+        "pub struct E2eStepTrace",
+        "pub struct ForensicsBundleIndex",
+        "pub struct FailureReproData",
+        "pub struct StructuredTestLog",
+        "pub fn validate(&self) -> Result<(), String>",
+        "pub fn to_json_pretty(&self) -> Result<String, serde_json::Error>",
+        "pub fn canonical_environment_fingerprint(environment: &BTreeMap<String, String>) -> String",
+        "pub struct EvidenceTerm",
+        "pub struct DecisionRecord"
+      ],
+      "ownership_boundaries": [
+        "Defines canonical `CompatibilityMode` and `DecisionAction` semantics.",
+        "Owns structured log schema and validation requirements."
+      ],
+      "strict_hardened_policy": {
+        "strict_mode": "Fail closed for unknown incompatible features or unsupported schema.",
+        "hardened_mode": "Bounded diagnostics with fail-closed terminal action when compatibility is uncertain."
+      },
+      "verification_hooks": {
+        "unit": [
+          "fnx_runtime::tests::structured_test_log_validates_passed_record"
+        ],
+        "property": [
+          "property::fnx_runtime::environment_fingerprint_stability"
+        ],
+        "differential": [
+          "fixture::generated/runtime_config_optional_strict"
+        ],
+        "e2e": [
+          "scripts/run_phase2c_readiness_e2e.sh"
+        ]
+      },
+      "known_hidden_couplings": [
+        "HC-002"
+      ]
+    },
+    {
+      "crate_name": "fnx-classes",
+      "manifest_path": "crates/fnx-classes/Cargo.toml",
+      "source_root": "crates/fnx-classes/src",
+      "layer": "graph-storage",
+      "purpose": "Deterministic graph storage and mutation contracts with revisioned snapshots.",
+      "legacy_scope_paths": [
+        "networkx/classes/graph.py",
+        "networkx/classes/digraph.py"
+      ],
+      "depends_on": [
+        "fnx-runtime"
+      ],
+      "external_dependencies": [
+        "indexmap=2.7.1",
+        "serde=1.0.218"
+      ],
+      "public_contract_surface": [
+        "pub type AttrMap = BTreeMap<String, String>;",
+        "pub enum GraphError",
+        "pub struct EdgeSnapshot",
+        "pub struct GraphSnapshot",
+        "pub struct Graph",
+        "pub fn new(mode: CompatibilityMode) -> Self",
+        "pub fn strict() -> Self",
+        "pub fn hardened() -> Self",
+        "pub fn mode(&self) -> CompatibilityMode",
+        "pub fn node_count(&self) -> usize",
+        "pub fn edge_count(&self) -> usize",
+        "pub fn revision(&self) -> u64",
+        "pub fn has_node(&self, node: &str) -> bool",
+        "pub fn has_edge(&self, left: &str, right: &str) -> bool",
+        "pub fn nodes_ordered(&self) -> Vec<&str>",
+        "pub fn neighbors(&self, node: &str) -> Option<Vec<&str>>"
+      ],
+      "ownership_boundaries": [
+        "Owns adjacency/node/edge mutation model and deterministic iteration order.",
+        "Must not encode serializer or fixture-routing policy."
+      ],
+      "strict_hardened_policy": {
+        "strict_mode": "Fail closed for incompatible/unknown behavior.",
+        "hardened_mode": "Bounded defensive recovery with deterministic diagnostics."
+      },
+      "verification_hooks": {
+        "unit": [
+          "fnx_classes::tests::add_edge_autocreates_nodes_and_preserves_order"
+        ],
+        "property": [
+          "property::fnx_classes::mutation_invariants"
+        ],
+        "differential": [
+          "fixture::graph_core_shortest_path_strict"
+        ],
+        "e2e": [
+          "cargo test -p fnx-conformance --test smoke"
+        ]
+      },
+      "known_hidden_couplings": [
+        "HC-004"
+      ]
+    },
+    {
+      "crate_name": "fnx-dispatch",
+      "manifest_path": "crates/fnx-dispatch/Cargo.toml",
+      "source_root": "crates/fnx-dispatch/src",
+      "layer": "compat-dispatch",
+      "purpose": "Backend selection and fail-closed compatibility routing.",
+      "legacy_scope_paths": [
+        "networkx/utils/backends.py"
+      ],
+      "depends_on": [
+        "fnx-runtime"
+      ],
+      "external_dependencies": [
+        "serde=1.0.218"
+      ],
+      "public_contract_surface": [
+        "pub struct BackendSpec",
+        "pub struct DispatchRequest",
+        "pub struct DispatchDecision",
+        "pub enum DispatchError",
+        "pub struct BackendRegistry",
+        "pub fn new(mode: CompatibilityMode) -> Self",
+        "pub fn strict() -> Self",
+        "pub fn hardened() -> Self",
+        "pub fn register_backend(&mut self, backend: BackendSpec)",
+        "pub fn evidence_ledger(&self) -> &EvidenceLedger",
+        "pub fn resolve("
+      ],
+      "ownership_boundaries": [
+        "Owns backend compatibility filtering and tie-break policy.",
+        "Must not implement conversion/readwrite parsing logic."
+      ],
+      "strict_hardened_policy": {
+        "strict_mode": "Reject unknown incompatible features and unavailable requested backends.",
+        "hardened_mode": "Validation action allowed for moderate risk, but unknown incompatibilities still fail closed."
+      },
+      "verification_hooks": {
+        "unit": [
+          "fnx_dispatch::tests::strict_mode_rejects_unknown_incompatible_request"
+        ],
+        "property": [
+          "property::fnx_dispatch::deterministic_selection"
+        ],
+        "differential": [
+          "fixture::generated/dispatch_route_strict"
+        ],
+        "e2e": [
+          "cargo test -p fnx-conformance --test smoke"
+        ]
+      },
+      "known_hidden_couplings": [
+        "HC-001"
+      ]
+    },
+    {
+      "crate_name": "fnx-views",
+      "manifest_path": "crates/fnx-views/Cargo.toml",
+      "source_root": "crates/fnx-views/src",
+      "layer": "graph-view-api",
+      "purpose": "Live and cached graph view semantics with deterministic ordering preservation.",
+      "legacy_scope_paths": [
+        "networkx/classes/coreviews.py",
+        "networkx/classes/graphviews.py",
+        "networkx/classes/reportviews.py"
+      ],
+      "depends_on": [
+        "fnx-classes"
+      ],
+      "external_dependencies": [],
+      "public_contract_surface": [
+        "pub struct GraphView<'a>",
+        "pub fn new(graph: &'a Graph) -> Self",
+        "pub fn revision(&self) -> u64",
+        "pub fn nodes(&self) -> Vec<&str>",
+        "pub fn edges(&self) -> Vec<EdgeSnapshot>",
+        "pub fn neighbors(&self, node: &str) -> Option<Vec<&str>>",
+        "pub fn snapshot(&self) -> GraphSnapshot",
+        "pub struct CachedSnapshotView",
+        "pub fn new(graph: &Graph) -> Self",
+        "pub fn cached_revision(&self) -> u64",
+        "pub fn snapshot(&self) -> &GraphSnapshot",
+        "pub fn is_stale(&self, graph: &Graph) -> bool",
+        "pub fn refresh_if_stale(&mut self, graph: &Graph) -> bool"
+      ],
+      "ownership_boundaries": [
+        "Owns read-only projection and cache staleness semantics.",
+        "Must not mutate graph storage directly."
+      ],
+      "strict_hardened_policy": {
+        "strict_mode": "Fail closed for incompatible/unknown behavior.",
+        "hardened_mode": "Bounded defensive recovery with deterministic diagnostics."
+      },
+      "verification_hooks": {
+        "unit": [
+          "fnx_views::tests::cached_snapshot_refreshes_on_revision_change"
+        ],
+        "property": [
+          "property::fnx_views::cache_coherence"
+        ],
+        "differential": [
+          "fixture::generated/view_neighbors_strict"
+        ],
+        "e2e": [
+          "cargo test -p fnx-conformance --test smoke"
+        ]
+      },
+      "known_hidden_couplings": [
+        "HC-004"
+      ]
+    },
+    {
+      "crate_name": "fnx-algorithms",
+      "manifest_path": "crates/fnx-algorithms/Cargo.toml",
+      "source_root": "crates/fnx-algorithms/src",
+      "layer": "algorithm-engine",
+      "purpose": "Shortest path, components, and centrality operations plus complexity witnesses.",
+      "legacy_scope_paths": [
+        "networkx/algorithms/shortest_paths/unweighted.py",
+        "networkx/algorithms/components/connected.py",
+        "networkx/algorithms/centrality"
+      ],
+      "depends_on": [
+        "fnx-classes"
+      ],
+      "external_dependencies": [
+        "serde=1.0.218"
+      ],
+      "public_contract_surface": [
+        "pub struct ComplexityWitness",
+        "pub struct ShortestPathResult",
+        "pub struct ComponentsResult",
+        "pub struct NumberConnectedComponentsResult",
+        "pub struct CentralityScore",
+        "pub struct DegreeCentralityResult",
+        "pub struct ClosenessCentralityResult",
+        "pub fn shortest_path_unweighted(graph: &Graph, source: &str, target: &str) -> ShortestPathResult",
+        "pub fn connected_components(graph: &Graph) -> ComponentsResult",
+        "pub fn number_connected_components(graph: &Graph) -> NumberConnectedComponentsResult",
+        "pub fn degree_centrality(graph: &Graph) -> DegreeCentralityResult",
+        "pub fn closeness_centrality(graph: &Graph) -> ClosenessCentralityResult"
+      ],
+      "ownership_boundaries": [
+        "Owns algorithm result semantics and witness accounting.",
+        "Must remain independent of fixture storage and artifact writes."
+      ],
+      "strict_hardened_policy": {
+        "strict_mode": "Fail closed for incompatible/unknown behavior.",
+        "hardened_mode": "Bounded defensive recovery with deterministic diagnostics."
+      },
+      "verification_hooks": {
+        "unit": [
+          "fnx_algorithms::tests::shortest_path_handles_unreachable"
+        ],
+        "property": [
+          "property::fnx_algorithms::component_partition_invariants"
+        ],
+        "differential": [
+          "fixture::generated/components_connected_strict"
+        ],
+        "e2e": [
+          "cargo test -p fnx-conformance --test smoke"
+        ]
+      },
+      "known_hidden_couplings": [
+        "HC-003",
+        "HC-004"
+      ]
+    },
+    {
+      "crate_name": "fnx-convert",
+      "manifest_path": "crates/fnx-convert/Cargo.toml",
+      "source_root": "crates/fnx-convert/src",
+      "layer": "conversion-ingest",
+      "purpose": "Ingestion/conversion entrypoints from edge-list and adjacency payloads.",
+      "legacy_scope_paths": [
+        "networkx/convert.py",
+        "networkx/convert_matrix.py",
+        "networkx/relabel.py"
+      ],
+      "depends_on": [
+        "fnx-classes",
+        "fnx-dispatch",
+        "fnx-runtime"
+      ],
+      "external_dependencies": [
+        "serde=1.0.218"
+      ],
+      "public_contract_surface": [
+        "pub struct EdgeRecord",
+        "pub struct EdgeListPayload",
+        "pub struct AdjacencyEntry",
+        "pub struct AdjacencyPayload",
+        "pub struct NormalizedGraphPayload",
+        "pub struct ConvertReport",
+        "pub enum ConvertError",
+        "pub struct GraphConverter",
+        "pub fn new(mode: CompatibilityMode) -> Self",
+        "pub fn strict() -> Self",
+        "pub fn hardened() -> Self",
+        "pub fn evidence_ledger(&self) -> &EvidenceLedger",
+        "pub fn from_edge_list(",
+        "pub fn from_adjacency(",
+        "pub fn to_normalized_payload(graph: &Graph) -> NormalizedGraphPayload"
+      ],
+      "ownership_boundaries": [
+        "Owns payload normalization and conversion warnings contract.",
+        "Must delegate backend policy decisions to `fnx-dispatch`."
+      ],
+      "strict_hardened_policy": {
+        "strict_mode": "Malformed node/edge payload rows are terminal failures.",
+        "hardened_mode": "Skip malformed entries with warning ledger until bounded recovery budget is exhausted."
+      },
+      "verification_hooks": {
+        "unit": [
+          "fnx_convert::tests::edge_list_conversion_is_deterministic"
+        ],
+        "property": [
+          "property::fnx_convert::normalized_payload_stability"
+        ],
+        "differential": [
+          "fixture::generated/convert_edge_list_strict"
+        ],
+        "e2e": [
+          "cargo test -p fnx-conformance --test smoke"
+        ]
+      },
+      "known_hidden_couplings": [
+        "HC-001"
+      ]
+    },
+    {
+      "crate_name": "fnx-generators",
+      "manifest_path": "crates/fnx-generators/Cargo.toml",
+      "source_root": "crates/fnx-generators/src",
+      "layer": "graph-generators",
+      "purpose": "Deterministic/seeded graph generators with bounded hardened recovery.",
+      "legacy_scope_paths": [
+        "networkx/generators/classic.py",
+        "networkx/generators/random_graphs.py"
+      ],
+      "depends_on": [
+        "fnx-classes",
+        "fnx-runtime"
+      ],
+      "external_dependencies": [
+        "rand=0.9.0"
+      ],
+      "public_contract_surface": [
+        "pub struct GenerationReport",
+        "pub enum GenerationError",
+        "pub struct GraphGenerator",
+        "pub fn new(mode: CompatibilityMode) -> Self",
+        "pub fn strict() -> Self",
+        "pub fn hardened() -> Self",
+        "pub fn evidence_ledger(&self) -> &EvidenceLedger",
+        "pub fn empty_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError>",
+        "pub fn path_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError>",
+        "pub fn cycle_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError>",
+        "pub fn complete_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError>",
+        "pub fn gnp_random_graph("
+      ],
+      "ownership_boundaries": [
+        "Owns deterministic graph construction and seeded stochastic generation.",
+        "Must not route through conformance harness internals."
+      ],
+      "strict_hardened_policy": {
+        "strict_mode": "Fail closed for incompatible/unknown behavior.",
+        "hardened_mode": "Bounded defensive recovery with deterministic diagnostics."
+      },
+      "verification_hooks": {
+        "unit": [
+          "fnx_generators::tests::cycle_graph_edge_order_matches_networkx_for_n_five"
+        ],
+        "property": [
+          "property::fnx_generators::seed_reproducibility"
+        ],
+        "differential": [
+          "fixture::generated/generators_cycle_strict"
+        ],
+        "e2e": [
+          "cargo test -p fnx-conformance --test smoke"
+        ]
+      },
+      "known_hidden_couplings": [
+        "HC-003"
+      ]
+    },
+    {
+      "crate_name": "fnx-readwrite",
+      "manifest_path": "crates/fnx-readwrite/Cargo.toml",
+      "source_root": "crates/fnx-readwrite/src",
+      "layer": "io-serialization",
+      "purpose": "Edgelist/JSON graph parsers and serializers with strict/hardened behaviors.",
+      "legacy_scope_paths": [
+        "networkx/readwrite/edgelist.py",
+        "networkx/readwrite/json_graph"
+      ],
+      "depends_on": [
+        "fnx-classes",
+        "fnx-dispatch",
+        "fnx-runtime"
+      ],
+      "external_dependencies": [
+        "serde=1.0.218",
+        "serde_json=1.0.139"
+      ],
+      "public_contract_surface": [
+        "pub struct ReadWriteReport",
+        "pub enum ReadWriteError",
+        "pub struct EdgeListEngine",
+        "pub fn new(mode: CompatibilityMode) -> Self",
+        "pub fn strict() -> Self",
+        "pub fn hardened() -> Self",
+        "pub fn evidence_ledger(&self) -> &EvidenceLedger",
+        "pub fn write_edgelist(&mut self, graph: &Graph) -> Result<String, ReadWriteError>",
+        "pub fn read_edgelist(&mut self, input: &str) -> Result<ReadWriteReport, ReadWriteError>",
+        "pub fn write_json_graph(&mut self, graph: &Graph) -> Result<String, ReadWriteError>",
+        "pub fn read_json_graph(&mut self, input: &str) -> Result<ReadWriteReport, ReadWriteError>"
+      ],
+      "ownership_boundaries": [
+        "Owns parser/serializer correctness and strict/hardened malformed-input behavior.",
+        "Must not alter graph algorithm semantics."
+      ],
+      "strict_hardened_policy": {
+        "strict_mode": "Malformed parse rows/JSON decode failures fail closed.",
+        "hardened_mode": "Return warnings and bounded recovery outputs; escalate to fail closed when required invariants break."
+      },
+      "verification_hooks": {
+        "unit": [
+          "fnx_readwrite::tests::strict_mode_fails_closed_for_malformed_line"
+        ],
+        "property": [
+          "property::fnx_readwrite::roundtrip_stability"
+        ],
+        "differential": [
+          "fixture::generated/readwrite_roundtrip_strict"
+        ],
+        "e2e": [
+          "cargo test -p fnx-conformance --test smoke"
+        ]
+      },
+      "known_hidden_couplings": [
+        "HC-001",
+        "HC-003"
+      ]
+    },
+    {
+      "crate_name": "fnx-durability",
+      "manifest_path": "crates/fnx-durability/Cargo.toml",
+      "source_root": "crates/fnx-durability/src",
+      "layer": "durability-repair",
+      "purpose": "RaptorQ sidecar generation, scrub, and decode-drill proof lifecycle.",
+      "legacy_scope_paths": [
+        "project durability contract (RaptorQ sidecar doctrine)"
+      ],
+      "depends_on": [],
+      "external_dependencies": [
+        "base64=0.22.1",
+        "blake3=1.5.5",
+        "raptorq=2.0.0",
+        "serde=1.0.218",
+        "serde_json=1.0.139",
+        "thiserror=2.0.11"
+      ],
+      "public_contract_surface": [
+        "pub enum ScrubState",
+        "pub struct ScrubStatus",
+        "pub struct DecodeProof",
+        "pub struct RaptorQSidecar",
+        "pub struct ArtifactEnvelope",
+        "pub enum DurabilityError",
+        "pub fn generate_sidecar_for_file(",
+        "pub fn scrub_artifact(",
+        "pub fn run_decode_drill(",
+        "pub fn read_envelope(path: &Path) -> Result<ArtifactEnvelope, DurabilityError>",
+        "pub fn write_envelope(path: &Path, envelope: &ArtifactEnvelope) -> Result<(), DurabilityError>"
+      ],
+      "ownership_boundaries": [
+        "Owns sidecar/scrub/decode proof artifact lifecycle.",
+        "Must stay generic and not embed algorithm-specific policy."
+      ],
+      "strict_hardened_policy": {
+        "strict_mode": "Fail closed for incompatible/unknown behavior.",
+        "hardened_mode": "Bounded defensive recovery with deterministic diagnostics."
+      },
+      "verification_hooks": {
+        "unit": [
+          "fnx_durability::tests::sidecar_generation_and_scrub_recovery_work"
+        ],
+        "property": [
+          "property::fnx_durability::decode_hash_preservation"
+        ],
+        "differential": [
+          "artifact::conformance/latest/*.raptorq.json"
+        ],
+        "e2e": [
+          "scripts/run_conformance_with_durability.sh"
+        ]
+      },
+      "known_hidden_couplings": [
+        "HC-005"
+      ]
+    },
+    {
+      "crate_name": "fnx-conformance",
+      "manifest_path": "crates/fnx-conformance/Cargo.toml",
+      "source_root": "crates/fnx-conformance/src",
+      "layer": "conformance-harness",
+      "purpose": "Fixture-driven differential harness and structured telemetry/artifact emission.",
+      "legacy_scope_paths": [
+        "networkx/tests/*",
+        "networkx/classes/tests/*",
+        "networkx/algorithms/tests/*"
+      ],
+      "depends_on": [
+        "fnx-algorithms",
+        "fnx-classes",
+        "fnx-convert",
+        "fnx-dispatch",
+        "fnx-generators",
+        "fnx-readwrite",
+        "fnx-runtime",
+        "fnx-views"
+      ],
+      "external_dependencies": [
+        "serde=1.0.218",
+        "serde_json=1.0.139"
+      ],
+      "public_contract_surface": [
+        "pub struct HarnessConfig",
+        "pub fn default_paths() -> Self",
+        "pub struct Mismatch",
+        "pub struct FixtureReport",
+        "pub struct HarnessReport",
+        "pub struct EmitterNormalizationReport",
+        "pub struct DependentUnblockRow",
+        "pub struct DependentUnblockMatrix",
+        "pub fn run_smoke(config: &HarnessConfig) -> HarnessReport"
+      ],
+      "ownership_boundaries": [
+        "Owns fixture execution orchestration, mismatch taxonomy, and telemetry artifacts.",
+        "Depends on lower layers, but must not become a source crate for them."
+      ],
+      "strict_hardened_policy": {
+        "strict_mode": "Fail closed for incompatible/unknown behavior.",
+        "hardened_mode": "Bounded defensive recovery with deterministic diagnostics."
+      },
+      "verification_hooks": {
+        "unit": [
+          "fnx_conformance::tests::smoke_report_is_stable"
+        ],
+        "property": [
+          "property::fnx_conformance::fixture_path_stability"
+        ],
+        "differential": [
+          "cargo run -p fnx-conformance --bin run_smoke"
+        ],
+        "e2e": [
+          "scripts/run_phase2c_readiness_e2e.sh"
+        ]
+      },
+      "known_hidden_couplings": [
+        "HC-001",
+        "HC-002",
+        "HC-003",
+        "HC-005"
+      ]
+    }
+  ],
+  "cross_module_dependency_map": [
+    {
+      "from_crate": "fnx-algorithms",
+      "to_crate": "fnx-classes",
+      "edge_type": "compile_time_dependency",
+      "justification": "fnx-algorithms Cargo dependency on fnx-classes"
+    },
+    {
+      "from_crate": "fnx-classes",
+      "to_crate": "fnx-runtime",
+      "edge_type": "compile_time_dependency",
+      "justification": "fnx-classes Cargo dependency on fnx-runtime"
+    },
+    {
+      "from_crate": "fnx-conformance",
+      "to_crate": "fnx-algorithms",
+      "edge_type": "compile_time_dependency",
+      "justification": "fnx-conformance Cargo dependency on fnx-algorithms"
+    },
+    {
+      "from_crate": "fnx-conformance",
+      "to_crate": "fnx-classes",
+      "edge_type": "compile_time_dependency",
+      "justification": "fnx-conformance Cargo dependency on fnx-classes"
+    },
+    {
+      "from_crate": "fnx-conformance",
+      "to_crate": "fnx-convert",
+      "edge_type": "compile_time_dependency",
+      "justification": "fnx-conformance Cargo dependency on fnx-convert"
+    },
+    {
+      "from_crate": "fnx-conformance",
+      "to_crate": "fnx-dispatch",
+      "edge_type": "compile_time_dependency",
+      "justification": "fnx-conformance Cargo dependency on fnx-dispatch"
+    },
+    {
+      "from_crate": "fnx-conformance",
+      "to_crate": "fnx-generators",
+      "edge_type": "compile_time_dependency",
+      "justification": "fnx-conformance Cargo dependency on fnx-generators"
+    },
+    {
+      "from_crate": "fnx-conformance",
+      "to_crate": "fnx-readwrite",
+      "edge_type": "compile_time_dependency",
+      "justification": "fnx-conformance Cargo dependency on fnx-readwrite"
+    },
+    {
+      "from_crate": "fnx-conformance",
+      "to_crate": "fnx-runtime",
+      "edge_type": "compile_time_dependency",
+      "justification": "fnx-conformance Cargo dependency on fnx-runtime"
+    },
+    {
+      "from_crate": "fnx-conformance",
+      "to_crate": "fnx-views",
+      "edge_type": "compile_time_dependency",
+      "justification": "fnx-conformance Cargo dependency on fnx-views"
+    },
+    {
+      "from_crate": "fnx-convert",
+      "to_crate": "fnx-classes",
+      "edge_type": "compile_time_dependency",
+      "justification": "fnx-convert Cargo dependency on fnx-classes"
+    },
+    {
+      "from_crate": "fnx-convert",
+      "to_crate": "fnx-dispatch",
+      "edge_type": "compile_time_dependency",
+      "justification": "fnx-convert Cargo dependency on fnx-dispatch"
+    },
+    {
+      "from_crate": "fnx-convert",
+      "to_crate": "fnx-runtime",
+      "edge_type": "compile_time_dependency",
+      "justification": "fnx-convert Cargo dependency on fnx-runtime"
+    },
+    {
+      "from_crate": "fnx-dispatch",
+      "to_crate": "fnx-runtime",
+      "edge_type": "compile_time_dependency",
+      "justification": "fnx-dispatch Cargo dependency on fnx-runtime"
+    },
+    {
+      "from_crate": "fnx-generators",
+      "to_crate": "fnx-classes",
+      "edge_type": "compile_time_dependency",
+      "justification": "fnx-generators Cargo dependency on fnx-classes"
+    },
+    {
+      "from_crate": "fnx-generators",
+      "to_crate": "fnx-runtime",
+      "edge_type": "compile_time_dependency",
+      "justification": "fnx-generators Cargo dependency on fnx-runtime"
+    },
+    {
+      "from_crate": "fnx-readwrite",
+      "to_crate": "fnx-classes",
+      "edge_type": "compile_time_dependency",
+      "justification": "fnx-readwrite Cargo dependency on fnx-classes"
+    },
+    {
+      "from_crate": "fnx-readwrite",
+      "to_crate": "fnx-dispatch",
+      "edge_type": "compile_time_dependency",
+      "justification": "fnx-readwrite Cargo dependency on fnx-dispatch"
+    },
+    {
+      "from_crate": "fnx-readwrite",
+      "to_crate": "fnx-runtime",
+      "edge_type": "compile_time_dependency",
+      "justification": "fnx-readwrite Cargo dependency on fnx-runtime"
+    },
+    {
+      "from_crate": "fnx-views",
+      "to_crate": "fnx-classes",
+      "edge_type": "compile_time_dependency",
+      "justification": "fnx-views Cargo dependency on fnx-classes"
+    }
+  ],
+  "layering_constraints": [
+    {
+      "constraint_id": "LC-001",
+      "description": "Runtime policy layer is foundational and must not depend on higher layers.",
+      "source_layer": "runtime-policy",
+      "allowed_target_layers": [
+        "runtime-policy"
+      ],
+      "fail_closed_on_violation": true
+    },
+    {
+      "constraint_id": "LC-002",
+      "description": "Storage/view/dispatch layers may depend only on runtime and same-layer support crates.",
+      "source_layer": "graph-storage|graph-view-api|compat-dispatch",
+      "allowed_target_layers": [
+        "runtime-policy",
+        "graph-storage",
+        "graph-view-api",
+        "compat-dispatch"
+      ],
+      "fail_closed_on_violation": true
+    },
+    {
+      "constraint_id": "LC-003",
+      "description": "Conversion/readwrite/generator/algorithm layers may depend on lower layers but not conformance.",
+      "source_layer": "conversion-ingest|io-serialization|graph-generators|algorithm-engine",
+      "allowed_target_layers": [
+        "runtime-policy",
+        "graph-storage",
+        "graph-view-api",
+        "compat-dispatch",
+        "conversion-ingest",
+        "io-serialization",
+        "graph-generators",
+        "algorithm-engine"
+      ],
+      "fail_closed_on_violation": true
+    },
+    {
+      "constraint_id": "LC-004",
+      "description": "Durability is support infrastructure and must not depend on conformance or algorithm internals.",
+      "source_layer": "durability-repair",
+      "allowed_target_layers": [
+        "durability-repair",
+        "runtime-policy"
+      ],
+      "fail_closed_on_violation": true
+    },
+    {
+      "constraint_id": "LC-005",
+      "description": "Conformance harness may depend downward on implementation layers.",
+      "source_layer": "conformance-harness",
+      "allowed_target_layers": [
+        "runtime-policy",
+        "graph-storage",
+        "graph-view-api",
+        "compat-dispatch",
+        "conversion-ingest",
+        "io-serialization",
+        "graph-generators",
+        "algorithm-engine",
+        "durability-repair",
+        "conformance-harness"
+      ],
+      "fail_closed_on_violation": true
+    }
+  ],
+  "layering_violations": [],
+  "hidden_coupling_hotspots": [
+    {
+      "coupling_id": "HC-001",
+      "crates_involved": [
+        "fnx-convert",
+        "fnx-readwrite",
+        "fnx-conformance",
+        "fnx-dispatch"
+      ],
+      "description": "Backend capability strings are duplicated across dispatch defaults and callsites, so feature-name drift can silently break route compatibility.",
+      "risk_level": "high",
+      "mitigation": "Generate capability constants from a single registry contract and assert parity in conformance gates."
+    },
+    {
+      "coupling_id": "HC-002",
+      "crates_involved": [
+        "fnx-runtime",
+        "fnx-conformance"
+      ],
+      "description": "Independent stable-hash implementations exist in both crates; accidental algorithm drift would fork artifact identity semantics.",
+      "risk_level": "medium",
+      "mitigation": "Centralize stable hash helper in `fnx-runtime` and consume from conformance crate."
+    },
+    {
+      "coupling_id": "HC-003",
+      "crates_involved": [
+        "fnx-conformance",
+        "fnx-algorithms",
+        "fnx-readwrite",
+        "fnx-generators"
+      ],
+      "description": "Packet routing relies on fixture filename heuristics (`packet_id_for_fixture`), coupling test naming conventions to release-gate accounting.",
+      "risk_level": "high",
+      "mitigation": "Move packet IDs into fixture schema fields and fail closed when absent."
+    },
+    {
+      "coupling_id": "HC-004",
+      "crates_involved": [
+        "fnx-classes",
+        "fnx-views",
+        "fnx-algorithms"
+      ],
+      "description": "Deterministic ordering depends on `IndexMap` insertion order assumptions propagated across view and algorithm callers.",
+      "risk_level": "medium",
+      "mitigation": "Keep explicit deterministic ordering invariants and differential fixture checks for every ordering-sensitive API."
+    },
+    {
+      "coupling_id": "HC-005",
+      "crates_involved": [
+        "fnx-durability",
+        "fnx-conformance"
+      ],
+      "description": "Durability sidecar/decode-proof lifecycle is tied to conformance artifact naming conventions, creating drift risk between payload and recovery metadata.",
+      "risk_level": "high",
+      "mitigation": "Define shared durability envelope schema in a single contract crate and validate conformance artifact names against it."
+    }
+  ],
+  "alien_uplift_contract_card": {
+    "ev_score": 2.61,
+    "baseline_comparator": "legacy_networkx/main@python3.12",
+    "optimization_lever": "workspace-cartography first to reduce integration rework probability",
+    "decision_hypothesis": "Explicit ownership and dependency graph lowers parity-drift incidence in downstream packet execution."
+  },
+  "profile_first_artifacts": {
+    "baseline": "artifacts/perf/BASELINE_BFS_V1.md",
+    "hotspot": "artifacts/perf/OPPORTUNITY_MATRIX.md",
+    "delta": "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+  },
+  "decision_theoretic_runtime_contract": {
+    "states": [
+      "unmapped",
+      "mapped",
+      "validated",
+      "blocked"
+    ],
+    "actions": [
+      "record_edge",
+      "flag_hidden_coupling",
+      "defer",
+      "fail_closed"
+    ],
+    "loss_model": "Minimize architecture ambiguity and downstream integration churn while preserving deterministic parity contracts.",
+    "safe_mode_fallback": "fail_closed",
+    "fallback_thresholds": {
+      "max_layering_violations": 0,
+      "min_hidden_coupling_inventory": 3
+    }
+  },
+  "isomorphism_proof_artifacts": [
+    "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_001_V1.md",
+    "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_009_V1.md"
+  ],
+  "structured_logging_evidence": [
+    "artifacts/conformance/latest/structured_logs.jsonl",
+    "artifacts/conformance/latest/structured_log_emitter_normalization_report.json"
+  ]
+}

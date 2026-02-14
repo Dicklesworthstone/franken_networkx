@@ -108,3 +108,37 @@ Exclude for V1:
 - Gate scripts:
   - `scripts/validate_doc_pass03_state_mapping.py`
   - `scripts/run_doc_pass03_state_mapping.sh`
+- DOC-PASS-01 module/package cartography coverage (workspace Rust implementation):
+  - `fnx-runtime` (runtime-policy layer) owns strict/hardened mode policy types, decision-theoretic action law, evidence ledger schema, and structured test-log contracts.
+  - `fnx-classes` (graph-storage layer) owns deterministic adjacency/node/edge mutation semantics, revision monotonicity, and snapshot contracts.
+  - `fnx-views` (graph-view-api layer) owns live and cached view semantics, stale-cache invalidation, and ordering parity with graph store.
+  - `fnx-dispatch` (compat-dispatch layer) owns backend registration, deterministic selection tie-break, and fail-closed incompatibility decisions.
+  - `fnx-convert` (conversion-ingest layer) owns edge-list/adjacency ingestion behavior and conversion warning/failure policies.
+  - `fnx-readwrite` (io-serialization layer) owns edgelist/json graph parser+serializer behavior and malformed-input handling split by mode.
+  - `fnx-generators` (graph-generators layer) owns deterministic graph family constructors plus seeded stochastic generation.
+  - `fnx-algorithms` (algorithm-engine layer) owns shortest-path/components/centrality output contracts and complexity witness fields.
+  - `fnx-durability` (durability-repair layer) owns RaptorQ sidecar generation, scrub integrity checks, and decode-proof drill artifacts.
+  - `fnx-conformance` (conformance-harness layer) owns fixture execution, mismatch taxonomy, packet routing, and structured telemetry artifact emission.
+- Explicit cross-module dependency direction map (compile-time):
+  - `fnx-classes -> fnx-runtime`
+  - `fnx-views -> fnx-classes`
+  - `fnx-dispatch -> fnx-runtime`
+  - `fnx-convert -> fnx-classes, fnx-dispatch, fnx-runtime`
+  - `fnx-readwrite -> fnx-classes, fnx-dispatch, fnx-runtime`
+  - `fnx-generators -> fnx-classes, fnx-runtime`
+  - `fnx-algorithms -> fnx-classes`
+  - `fnx-conformance -> fnx-algorithms, fnx-classes, fnx-convert, fnx-dispatch, fnx-generators, fnx-readwrite, fnx-runtime, fnx-views`
+  - `fnx-durability` is intentionally isolated from workspace crate dependencies to preserve artifact-layer portability.
+- Hidden/implicit coupling hotspots requiring drift gates:
+  - Backend capability string duplication across dispatch defaults and caller crates (`fnx-convert`, `fnx-readwrite`, `fnx-conformance`) can silently desynchronize route availability.
+  - Stable hash implementations currently exist in both `fnx-runtime` and `fnx-conformance`; algorithm drift would fork telemetry/artifact identity.
+  - Conformance packet routing currently infers packet ID from fixture naming heuristics; naming drift can corrupt release gate accounting without schema-level packet fields.
+  - Deterministic ordering guarantees in `fnx-views` and `fnx-algorithms` depend on `fnx-classes` insertion-order contracts and therefore require dedicated ordering parity fixtures.
+- Machine-auditable DOC-PASS-01 artifact and gates:
+  - `artifacts/docs/v1/doc_pass01_module_cartography_v1.json`
+  - `artifacts/docs/v1/doc_pass01_module_cartography_v1.md`
+  - `artifacts/docs/schema/v1/doc_pass01_module_cartography_schema_v1.json`
+  - `scripts/generate_doc_pass01_module_cartography.py`
+  - `scripts/validate_doc_pass01_module_cartography.py`
+  - `scripts/run_doc_pass01_module_cartography.sh`
+  - `crates/fnx-conformance/tests/doc_pass01_module_cartography_gate.rs`
