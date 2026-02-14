@@ -1,0 +1,1607 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "e2e-scenario-matrix-oracle-contract-v1",
+  "generated_at_utc": "2026-02-14T22:57:25.533189+00:00",
+  "baseline_comparator": "legacy_networkx/main@python3.12",
+  "journey_summary": {
+    "journey_count": 10,
+    "strict_journey_count": 10,
+    "hardened_journey_count": 10,
+    "fixture_inventory_count": 16,
+    "covered_fixture_count": 16,
+    "uncovered_fixture_count": 0
+  },
+  "deterministic_seed_policy": {
+    "seed_namespace": "fnx-e2e-scenario-matrix-v1",
+    "seed_algorithm": "fnv1a64(namespace|journey_id|mode|fixture_id)",
+    "seed_lock_version": "1.0.0",
+    "determinism_invariant": "same journey/mode/fixture tuple always yields identical u64 seed"
+  },
+  "replay_metadata_contract": {
+    "schema_refs": [
+      "artifacts/conformance/schema/v1/structured_test_log_schema_v1.json",
+      "artifacts/conformance/schema/v1/e2e_step_trace_schema_v1.json",
+      "artifacts/conformance/schema/v1/forensics_bundle_index_schema_v1.json"
+    ],
+    "structured_log_required_fields": [
+      "schema_version",
+      "run_id",
+      "ts_unix_ms",
+      "crate_name",
+      "suite_id",
+      "packet_id",
+      "test_name",
+      "test_id",
+      "test_kind",
+      "mode",
+      "environment",
+      "env_fingerprint",
+      "duration_ms",
+      "replay_command",
+      "artifact_refs",
+      "forensic_bundle_id",
+      "forensics_bundle_index",
+      "hash_id",
+      "status"
+    ],
+    "structured_log_replay_critical_fields": [
+      "run_id",
+      "suite_id",
+      "test_id",
+      "mode",
+      "fixture_id",
+      "seed",
+      "environment",
+      "env_fingerprint",
+      "duration_ms",
+      "replay_command",
+      "artifact_refs",
+      "forensic_bundle_id",
+      "forensics_bundle_index.bundle_id",
+      "forensics_bundle_index.run_id",
+      "forensics_bundle_index.test_id",
+      "forensics_bundle_index.bundle_hash_id",
+      "forensics_bundle_index.replay_ref",
+      "hash_id",
+      "reason_code",
+      "failure_repro.reproduction_command",
+      "failure_repro.artifact_hash_id",
+      "failure_repro.forensics_link"
+    ],
+    "e2e_step_required_fields": [
+      "run_id",
+      "test_id",
+      "step_id",
+      "step_label",
+      "phase",
+      "status",
+      "start_unix_ms",
+      "end_unix_ms",
+      "duration_ms",
+      "replay_command",
+      "forensic_bundle_id",
+      "artifact_refs",
+      "hash_id"
+    ],
+    "e2e_step_invariants": [
+      "start_unix_ms <= end_unix_ms",
+      "duration_ms == end_unix_ms - start_unix_ms",
+      "artifact_refs must not be empty",
+      "reason_code required for failed/skipped status",
+      "run_id/test_id/forensic_bundle_id/replay_command must match parent StructuredTestLog"
+    ],
+    "forensics_bundle_required_fields": [
+      "bundle_id",
+      "run_id",
+      "test_id",
+      "bundle_hash_id",
+      "captured_unix_ms",
+      "replay_ref",
+      "artifact_refs"
+    ],
+    "forensics_bundle_invariants": [
+      "bundle_id matches parent StructuredTestLog.forensic_bundle_id",
+      "run_id and test_id match parent StructuredTestLog",
+      "replay_ref matches parent StructuredTestLog.replay_command",
+      "artifact_refs must not be empty",
+      "bundle_hash_id must be non-empty"
+    ],
+    "validation_command": "./scripts/validate_e2e_scenario_matrix.py --artifact artifacts/e2e/v1/e2e_scenario_matrix_oracle_contract_v1.json"
+  },
+  "journeys": [
+    {
+      "journey_id": "J-GRAPH-CORE",
+      "scoped_api_journey": "graph_core_mutation_and_shortest_path",
+      "packet_id": "FNX-P2C-001",
+      "description": "Graph mutation semantics and shortest-path observable parity.",
+      "strict_path": {
+        "mode": "strict",
+        "mode_strategy": "native_fixture",
+        "fixture_id": "graph_core_shortest_path_strict.json",
+        "fixture_ids": [
+          "graph_core_shortest_path_strict.json"
+        ],
+        "deterministic_seed": 9158789141501386920,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture graph_core_shortest_path_strict.json --mode strict",
+        "step_contract": [
+          {
+            "step_id": "S01",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S02",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S03",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S04",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S05",
+            "operation": "shortest_path_query",
+            "expected_outputs": [
+              "expected.shortest_path_unweighted"
+            ],
+            "tie_break_behavior": "BFS predecessor choice follows deterministic neighbor insertion ordering.",
+            "failure_classes": [
+              "algorithm"
+            ]
+          }
+        ],
+        "oracle_assertions": [
+          {
+            "assertion_id": "A01",
+            "expected_ref": "expected.graph",
+            "contract": "Node and edge snapshots must match oracle values exactly (including deterministic order and attrs).",
+            "tie_break_behavior": "Node/edge ordering follows deterministic insertion order parity.",
+            "failure_class": "graph_mutation"
+          },
+          {
+            "assertion_id": "A02",
+            "expected_ref": "expected.shortest_path_unweighted",
+            "contract": "Shortest-path output node sequence must match oracle path exactly.",
+            "tie_break_behavior": "Equal-length path ties resolve via deterministic BFS neighbor ordering.",
+            "failure_class": "algorithm"
+          }
+        ],
+        "failure_classes": [
+          "algorithm",
+          "fixture_io",
+          "fixture_schema",
+          "graph_mutation"
+        ]
+      },
+      "hardened_path": {
+        "mode": "hardened",
+        "mode_strategy": "native_fixture",
+        "fixture_id": "graph_core_mutation_hardened.json",
+        "fixture_ids": [
+          "graph_core_mutation_hardened.json"
+        ],
+        "deterministic_seed": 18052166550771141043,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture graph_core_mutation_hardened.json --mode hardened",
+        "step_contract": [
+          {
+            "step_id": "S01",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S02",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S03",
+            "operation": "add_node",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Node insertion order is deterministic and preserved in snapshot iteration.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S04",
+            "operation": "remove_node",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Node deletion deterministically removes incident edges and retains remaining order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          }
+        ],
+        "oracle_assertions": [
+          {
+            "assertion_id": "A01",
+            "expected_ref": "expected.graph",
+            "contract": "Node and edge snapshots must match oracle values exactly (including deterministic order and attrs).",
+            "tie_break_behavior": "Node/edge ordering follows deterministic insertion order parity.",
+            "failure_class": "graph_mutation"
+          }
+        ],
+        "failure_classes": [
+          "fixture_io",
+          "fixture_schema",
+          "graph_mutation"
+        ]
+      }
+    },
+    {
+      "journey_id": "J-VIEWS",
+      "scoped_api_journey": "graph_view_neighbor_ordering",
+      "packet_id": "FNX-P2C-002",
+      "description": "View-layer neighbor ordering and cache-consistent traversal output.",
+      "strict_path": {
+        "mode": "strict",
+        "mode_strategy": "native_fixture",
+        "fixture_id": "generated/view_neighbors_strict.json",
+        "fixture_ids": [
+          "generated/view_neighbors_strict.json"
+        ],
+        "deterministic_seed": 4326461139333007120,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/view_neighbors_strict.json --mode strict",
+        "step_contract": [
+          {
+            "step_id": "S01",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S02",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S03",
+            "operation": "view_neighbors_query",
+            "expected_outputs": [
+              "expected.view_neighbors"
+            ],
+            "tie_break_behavior": "Neighbor view output preserves deterministic adjacency insertion ordering.",
+            "failure_classes": [
+              "views"
+            ]
+          }
+        ],
+        "oracle_assertions": [
+          {
+            "assertion_id": "A01",
+            "expected_ref": "expected.graph",
+            "contract": "Node and edge snapshots must match oracle values exactly (including deterministic order and attrs).",
+            "tie_break_behavior": "Node/edge ordering follows deterministic insertion order parity.",
+            "failure_class": "graph_mutation"
+          },
+          {
+            "assertion_id": "A02",
+            "expected_ref": "expected.view_neighbors",
+            "contract": "Neighbor view output must match oracle sequence exactly.",
+            "tie_break_behavior": "Neighbor ordering is deterministic via adjacency insertion order.",
+            "failure_class": "views"
+          }
+        ],
+        "failure_classes": [
+          "fixture_io",
+          "fixture_schema",
+          "graph_mutation",
+          "views"
+        ]
+      },
+      "hardened_path": {
+        "mode": "hardened",
+        "mode_strategy": "mode_override_fixture",
+        "fixture_id": "generated/view_neighbors_strict.json",
+        "fixture_ids": [
+          "generated/view_neighbors_strict.json"
+        ],
+        "deterministic_seed": 13174489023628099026,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/view_neighbors_strict.json --mode hardened",
+        "step_contract": [
+          {
+            "step_id": "S01",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S02",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S03",
+            "operation": "view_neighbors_query",
+            "expected_outputs": [
+              "expected.view_neighbors"
+            ],
+            "tie_break_behavior": "Neighbor view output preserves deterministic adjacency insertion ordering.",
+            "failure_classes": [
+              "views"
+            ]
+          }
+        ],
+        "oracle_assertions": [
+          {
+            "assertion_id": "A01",
+            "expected_ref": "expected.graph",
+            "contract": "Node and edge snapshots must match oracle values exactly (including deterministic order and attrs).",
+            "tie_break_behavior": "Node/edge ordering follows deterministic insertion order parity.",
+            "failure_class": "graph_mutation"
+          },
+          {
+            "assertion_id": "A02",
+            "expected_ref": "expected.view_neighbors",
+            "contract": "Neighbor view output must match oracle sequence exactly.",
+            "tie_break_behavior": "Neighbor ordering is deterministic via adjacency insertion order.",
+            "failure_class": "views"
+          }
+        ],
+        "failure_classes": [
+          "fixture_io",
+          "fixture_schema",
+          "graph_mutation",
+          "views"
+        ]
+      }
+    },
+    {
+      "journey_id": "J-DISPATCH",
+      "scoped_api_journey": "dispatch_routing_and_fail_closed_guarding",
+      "packet_id": "FNX-P2C-003",
+      "description": "Backend resolution and decision-theoretic compatibility routing.",
+      "strict_path": {
+        "mode": "strict",
+        "mode_strategy": "native_fixture",
+        "fixture_id": "generated/dispatch_route_strict.json",
+        "fixture_ids": [
+          "generated/dispatch_route_strict.json"
+        ],
+        "deterministic_seed": 4784356042096728017,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/dispatch_route_strict.json --mode strict",
+        "step_contract": [
+          {
+            "step_id": "S01",
+            "operation": "dispatch_resolve",
+            "expected_outputs": [
+              "expected.dispatch"
+            ],
+            "tie_break_behavior": "Backend selection ties are resolved deterministically by registry order and policy.",
+            "failure_classes": [
+              "dispatch"
+            ]
+          }
+        ],
+        "oracle_assertions": [
+          {
+            "assertion_id": "A01",
+            "expected_ref": "expected.dispatch",
+            "contract": "Selected backend/action pair must match oracle dispatch policy output.",
+            "tie_break_behavior": "Backend tie-breaking follows deterministic registry ordering and risk policy.",
+            "failure_class": "dispatch"
+          }
+        ],
+        "failure_classes": [
+          "dispatch",
+          "fixture_io",
+          "fixture_schema"
+        ]
+      },
+      "hardened_path": {
+        "mode": "hardened",
+        "mode_strategy": "mode_override_fixture",
+        "fixture_id": "generated/dispatch_route_strict.json",
+        "fixture_ids": [
+          "generated/dispatch_route_strict.json"
+        ],
+        "deterministic_seed": 7662178445688626843,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/dispatch_route_strict.json --mode hardened",
+        "step_contract": [
+          {
+            "step_id": "S01",
+            "operation": "dispatch_resolve",
+            "expected_outputs": [
+              "expected.dispatch"
+            ],
+            "tie_break_behavior": "Backend selection ties are resolved deterministically by registry order and policy.",
+            "failure_classes": [
+              "dispatch"
+            ]
+          }
+        ],
+        "oracle_assertions": [
+          {
+            "assertion_id": "A01",
+            "expected_ref": "expected.dispatch",
+            "contract": "Selected backend/action pair must match oracle dispatch policy output.",
+            "tie_break_behavior": "Backend tie-breaking follows deterministic registry ordering and risk policy.",
+            "failure_class": "dispatch"
+          }
+        ],
+        "failure_classes": [
+          "dispatch",
+          "fixture_io",
+          "fixture_schema"
+        ]
+      }
+    },
+    {
+      "journey_id": "J-CONVERT",
+      "scoped_api_journey": "edge_list_conversion_and_route_parity",
+      "packet_id": "FNX-P2C-004",
+      "description": "Conversion pipeline from edge-list payload to deterministic graph state.",
+      "strict_path": {
+        "mode": "strict",
+        "mode_strategy": "native_fixture",
+        "fixture_id": "generated/convert_edge_list_strict.json",
+        "fixture_ids": [
+          "generated/convert_edge_list_strict.json"
+        ],
+        "deterministic_seed": 9367603223771151118,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/convert_edge_list_strict.json --mode strict",
+        "step_contract": [
+          {
+            "step_id": "S01",
+            "operation": "convert_edge_list",
+            "expected_outputs": [
+              "expected.graph",
+              "expected.shortest_path_unweighted"
+            ],
+            "tie_break_behavior": "Edge-list row order deterministically maps to graph insertion and traversal order.",
+            "failure_classes": [
+              "convert"
+            ]
+          },
+          {
+            "step_id": "S02",
+            "operation": "shortest_path_query",
+            "expected_outputs": [
+              "expected.shortest_path_unweighted"
+            ],
+            "tie_break_behavior": "BFS predecessor choice follows deterministic neighbor insertion ordering.",
+            "failure_classes": [
+              "algorithm"
+            ]
+          }
+        ],
+        "oracle_assertions": [
+          {
+            "assertion_id": "A01",
+            "expected_ref": "expected.graph",
+            "contract": "Node and edge snapshots must match oracle values exactly (including deterministic order and attrs).",
+            "tie_break_behavior": "Node/edge ordering follows deterministic insertion order parity.",
+            "failure_class": "graph_mutation"
+          },
+          {
+            "assertion_id": "A02",
+            "expected_ref": "expected.shortest_path_unweighted",
+            "contract": "Shortest-path output node sequence must match oracle path exactly.",
+            "tie_break_behavior": "Equal-length path ties resolve via deterministic BFS neighbor ordering.",
+            "failure_class": "algorithm"
+          }
+        ],
+        "failure_classes": [
+          "algorithm",
+          "convert",
+          "fixture_io",
+          "fixture_schema",
+          "graph_mutation"
+        ]
+      },
+      "hardened_path": {
+        "mode": "hardened",
+        "mode_strategy": "mode_override_fixture",
+        "fixture_id": "generated/convert_edge_list_strict.json",
+        "fixture_ids": [
+          "generated/convert_edge_list_strict.json"
+        ],
+        "deterministic_seed": 1388759758847734300,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/convert_edge_list_strict.json --mode hardened",
+        "step_contract": [
+          {
+            "step_id": "S01",
+            "operation": "convert_edge_list",
+            "expected_outputs": [
+              "expected.graph",
+              "expected.shortest_path_unweighted"
+            ],
+            "tie_break_behavior": "Edge-list row order deterministically maps to graph insertion and traversal order.",
+            "failure_classes": [
+              "convert"
+            ]
+          },
+          {
+            "step_id": "S02",
+            "operation": "shortest_path_query",
+            "expected_outputs": [
+              "expected.shortest_path_unweighted"
+            ],
+            "tie_break_behavior": "BFS predecessor choice follows deterministic neighbor insertion ordering.",
+            "failure_classes": [
+              "algorithm"
+            ]
+          }
+        ],
+        "oracle_assertions": [
+          {
+            "assertion_id": "A01",
+            "expected_ref": "expected.graph",
+            "contract": "Node and edge snapshots must match oracle values exactly (including deterministic order and attrs).",
+            "tie_break_behavior": "Node/edge ordering follows deterministic insertion order parity.",
+            "failure_class": "graph_mutation"
+          },
+          {
+            "assertion_id": "A02",
+            "expected_ref": "expected.shortest_path_unweighted",
+            "contract": "Shortest-path output node sequence must match oracle path exactly.",
+            "tie_break_behavior": "Equal-length path ties resolve via deterministic BFS neighbor ordering.",
+            "failure_class": "algorithm"
+          }
+        ],
+        "failure_classes": [
+          "algorithm",
+          "convert",
+          "fixture_io",
+          "fixture_schema",
+          "graph_mutation"
+        ]
+      }
+    },
+    {
+      "journey_id": "J-SHORTEST-PATH-COMPONENTS",
+      "scoped_api_journey": "components_and_connectivity_queries",
+      "packet_id": "FNX-P2C-005",
+      "description": "Connected-components and component-count algorithm contracts.",
+      "strict_path": {
+        "mode": "strict",
+        "mode_strategy": "native_fixture",
+        "fixture_id": "generated/components_connected_strict.json",
+        "fixture_ids": [
+          "generated/components_connected_strict.json"
+        ],
+        "deterministic_seed": 12768501484240481578,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/components_connected_strict.json --mode strict",
+        "step_contract": [
+          {
+            "step_id": "S01",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S02",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S03",
+            "operation": "add_node",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Node insertion order is deterministic and preserved in snapshot iteration.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S04",
+            "operation": "connected_components_query",
+            "expected_outputs": [
+              "expected.connected_components"
+            ],
+            "tie_break_behavior": "Component enumeration follows deterministic first-seen traversal order.",
+            "failure_classes": [
+              "algorithm_components"
+            ]
+          },
+          {
+            "step_id": "S05",
+            "operation": "number_connected_components_query",
+            "expected_outputs": [
+              "expected.number_connected_components"
+            ],
+            "tie_break_behavior": "Connectivity count invariant is deterministic for identical input graphs.",
+            "failure_classes": [
+              "algorithm_components"
+            ]
+          }
+        ],
+        "oracle_assertions": [
+          {
+            "assertion_id": "A01",
+            "expected_ref": "expected.connected_components",
+            "contract": "Connected components listing must match oracle component partitioning and order.",
+            "tie_break_behavior": "Component order follows deterministic first-seen traversal order.",
+            "failure_class": "algorithm_components"
+          },
+          {
+            "assertion_id": "A02",
+            "expected_ref": "expected.graph",
+            "contract": "Node and edge snapshots must match oracle values exactly (including deterministic order and attrs).",
+            "tie_break_behavior": "Node/edge ordering follows deterministic insertion order parity.",
+            "failure_class": "graph_mutation"
+          },
+          {
+            "assertion_id": "A03",
+            "expected_ref": "expected.number_connected_components",
+            "contract": "Connected component count must match oracle scalar output exactly.",
+            "tie_break_behavior": "Deterministic component traversal ensures reproducible counts and witnesses.",
+            "failure_class": "algorithm_components"
+          }
+        ],
+        "failure_classes": [
+          "algorithm_components",
+          "fixture_io",
+          "fixture_schema",
+          "graph_mutation"
+        ]
+      },
+      "hardened_path": {
+        "mode": "hardened",
+        "mode_strategy": "mode_override_fixture",
+        "fixture_id": "generated/components_connected_strict.json",
+        "fixture_ids": [
+          "generated/components_connected_strict.json"
+        ],
+        "deterministic_seed": 4869112433215673836,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/components_connected_strict.json --mode hardened",
+        "step_contract": [
+          {
+            "step_id": "S01",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S02",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S03",
+            "operation": "add_node",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Node insertion order is deterministic and preserved in snapshot iteration.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S04",
+            "operation": "connected_components_query",
+            "expected_outputs": [
+              "expected.connected_components"
+            ],
+            "tie_break_behavior": "Component enumeration follows deterministic first-seen traversal order.",
+            "failure_classes": [
+              "algorithm_components"
+            ]
+          },
+          {
+            "step_id": "S05",
+            "operation": "number_connected_components_query",
+            "expected_outputs": [
+              "expected.number_connected_components"
+            ],
+            "tie_break_behavior": "Connectivity count invariant is deterministic for identical input graphs.",
+            "failure_classes": [
+              "algorithm_components"
+            ]
+          }
+        ],
+        "oracle_assertions": [
+          {
+            "assertion_id": "A01",
+            "expected_ref": "expected.connected_components",
+            "contract": "Connected components listing must match oracle component partitioning and order.",
+            "tie_break_behavior": "Component order follows deterministic first-seen traversal order.",
+            "failure_class": "algorithm_components"
+          },
+          {
+            "assertion_id": "A02",
+            "expected_ref": "expected.graph",
+            "contract": "Node and edge snapshots must match oracle values exactly (including deterministic order and attrs).",
+            "tie_break_behavior": "Node/edge ordering follows deterministic insertion order parity.",
+            "failure_class": "graph_mutation"
+          },
+          {
+            "assertion_id": "A03",
+            "expected_ref": "expected.number_connected_components",
+            "contract": "Connected component count must match oracle scalar output exactly.",
+            "tie_break_behavior": "Deterministic component traversal ensures reproducible counts and witnesses.",
+            "failure_class": "algorithm_components"
+          }
+        ],
+        "failure_classes": [
+          "algorithm_components",
+          "fixture_io",
+          "fixture_schema",
+          "graph_mutation"
+        ]
+      }
+    },
+    {
+      "journey_id": "J-CENTRALITY",
+      "scoped_api_journey": "degree_and_closeness_centrality_contracts",
+      "packet_id": "FNX-P2C-005",
+      "description": "Deterministic degree/closeness centrality scoring and ordering semantics.",
+      "strict_path": {
+        "mode": "strict",
+        "mode_strategy": "native_fixture",
+        "fixture_id": "generated/centrality_degree_strict.json",
+        "fixture_ids": [
+          "generated/centrality_degree_strict.json",
+          "generated/centrality_closeness_strict.json"
+        ],
+        "deterministic_seed": 11351190574352106388,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_degree_strict.json --mode strict",
+        "step_contract": [
+          {
+            "step_id": "S01",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S02",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S03",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S04",
+            "operation": "degree_centrality_query",
+            "expected_outputs": [
+              "expected.degree_centrality"
+            ],
+            "tie_break_behavior": "Centrality score ordering is deterministic for serialization and oracle diffs.",
+            "failure_classes": [
+              "algorithm_centrality"
+            ]
+          }
+        ],
+        "oracle_assertions": [
+          {
+            "assertion_id": "A01",
+            "expected_ref": "expected.degree_centrality",
+            "contract": "Degree centrality scores must match oracle values and deterministic node ordering.",
+            "tie_break_behavior": "Deterministic node ordering is used for equal-score serialization.",
+            "failure_class": "algorithm_centrality"
+          },
+          {
+            "assertion_id": "A02",
+            "expected_ref": "expected.graph",
+            "contract": "Node and edge snapshots must match oracle values exactly (including deterministic order and attrs).",
+            "tie_break_behavior": "Node/edge ordering follows deterministic insertion order parity.",
+            "failure_class": "graph_mutation"
+          }
+        ],
+        "failure_classes": [
+          "algorithm_centrality",
+          "fixture_io",
+          "fixture_schema",
+          "graph_mutation"
+        ]
+      },
+      "hardened_path": {
+        "mode": "hardened",
+        "mode_strategy": "mode_override_fixture",
+        "fixture_id": "generated/centrality_closeness_strict.json",
+        "fixture_ids": [
+          "generated/centrality_closeness_strict.json"
+        ],
+        "deterministic_seed": 9070744064313709177,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_closeness_strict.json --mode hardened",
+        "step_contract": [
+          {
+            "step_id": "S01",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S02",
+            "operation": "add_node",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Node insertion order is deterministic and preserved in snapshot iteration.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S03",
+            "operation": "closeness_centrality_query",
+            "expected_outputs": [
+              "expected.closeness_centrality"
+            ],
+            "tie_break_behavior": "WF-improved traversal order is deterministic for equal-distance handling.",
+            "failure_classes": [
+              "algorithm_centrality"
+            ]
+          }
+        ],
+        "oracle_assertions": [
+          {
+            "assertion_id": "A01",
+            "expected_ref": "expected.closeness_centrality",
+            "contract": "Closeness centrality scores must match oracle values under WF-improved semantics.",
+            "tie_break_behavior": "Deterministic traversal and node ordering govern equal-distance resolution.",
+            "failure_class": "algorithm_centrality"
+          },
+          {
+            "assertion_id": "A02",
+            "expected_ref": "expected.graph",
+            "contract": "Node and edge snapshots must match oracle values exactly (including deterministic order and attrs).",
+            "tie_break_behavior": "Node/edge ordering follows deterministic insertion order parity.",
+            "failure_class": "graph_mutation"
+          }
+        ],
+        "failure_classes": [
+          "algorithm_centrality",
+          "fixture_io",
+          "fixture_schema",
+          "graph_mutation"
+        ]
+      }
+    },
+    {
+      "journey_id": "J-READWRITE",
+      "scoped_api_journey": "readwrite_roundtrip_and_hardened_malformed_ingest",
+      "packet_id": "FNX-P2C-006",
+      "description": "Parser/serializer parity plus hardened malformed-input handling.",
+      "strict_path": {
+        "mode": "strict",
+        "mode_strategy": "native_fixture",
+        "fixture_id": "generated/readwrite_roundtrip_strict.json",
+        "fixture_ids": [
+          "generated/readwrite_roundtrip_strict.json",
+          "generated/readwrite_json_roundtrip_strict.json"
+        ],
+        "deterministic_seed": 5118099182707922283,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_roundtrip_strict.json --mode strict",
+        "step_contract": [
+          {
+            "step_id": "S01",
+            "operation": "read_edgelist",
+            "expected_outputs": [
+              "expected.graph"
+            ],
+            "tie_break_behavior": "Line-order ingest is deterministic; hardened malformed rows emit deterministic warnings.",
+            "failure_classes": [
+              "readwrite"
+            ]
+          },
+          {
+            "step_id": "S02",
+            "operation": "write_edgelist",
+            "expected_outputs": [
+              "expected.serialized_edgelist"
+            ],
+            "tie_break_behavior": "Serializer line ordering is deterministic from canonical edge iteration order.",
+            "failure_classes": [
+              "readwrite"
+            ]
+          },
+          {
+            "step_id": "S03",
+            "operation": "shortest_path_query",
+            "expected_outputs": [
+              "expected.shortest_path_unweighted"
+            ],
+            "tie_break_behavior": "BFS predecessor choice follows deterministic neighbor insertion ordering.",
+            "failure_classes": [
+              "algorithm"
+            ]
+          }
+        ],
+        "oracle_assertions": [
+          {
+            "assertion_id": "A01",
+            "expected_ref": "expected.graph",
+            "contract": "Node and edge snapshots must match oracle values exactly (including deterministic order and attrs).",
+            "tie_break_behavior": "Node/edge ordering follows deterministic insertion order parity.",
+            "failure_class": "graph_mutation"
+          },
+          {
+            "assertion_id": "A02",
+            "expected_ref": "expected.serialized_edgelist",
+            "contract": "Serialized edge-list payload must match oracle-normalized text output exactly.",
+            "tie_break_behavior": "Serializer emits deterministic edge order from canonical snapshot iteration.",
+            "failure_class": "readwrite"
+          },
+          {
+            "assertion_id": "A03",
+            "expected_ref": "expected.shortest_path_unweighted",
+            "contract": "Shortest-path output node sequence must match oracle path exactly.",
+            "tie_break_behavior": "Equal-length path ties resolve via deterministic BFS neighbor ordering.",
+            "failure_class": "algorithm"
+          }
+        ],
+        "failure_classes": [
+          "algorithm",
+          "fixture_io",
+          "fixture_schema",
+          "graph_mutation",
+          "readwrite"
+        ]
+      },
+      "hardened_path": {
+        "mode": "hardened",
+        "mode_strategy": "native_fixture",
+        "fixture_id": "generated/readwrite_hardened_malformed.json",
+        "fixture_ids": [
+          "generated/readwrite_hardened_malformed.json"
+        ],
+        "deterministic_seed": 15798793491341090845,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened",
+        "step_contract": [
+          {
+            "step_id": "S01",
+            "operation": "read_edgelist",
+            "expected_outputs": [
+              "expected.graph",
+              "expected.warnings_contains"
+            ],
+            "tie_break_behavior": "Line-order ingest is deterministic; hardened malformed rows emit deterministic warnings.",
+            "failure_classes": [
+              "readwrite"
+            ]
+          }
+        ],
+        "oracle_assertions": [
+          {
+            "assertion_id": "A01",
+            "expected_ref": "expected.graph",
+            "contract": "Node and edge snapshots must match oracle values exactly (including deterministic order and attrs).",
+            "tie_break_behavior": "Node/edge ordering follows deterministic insertion order parity.",
+            "failure_class": "graph_mutation"
+          },
+          {
+            "assertion_id": "A02",
+            "expected_ref": "expected.warnings_contains",
+            "contract": "Hardened-mode warning fragments must include documented malformed-input diagnostics.",
+            "tie_break_behavior": "Warning emission order follows deterministic parse-line progression.",
+            "failure_class": "readwrite"
+          }
+        ],
+        "failure_classes": [
+          "fixture_io",
+          "fixture_schema",
+          "graph_mutation",
+          "readwrite"
+        ]
+      }
+    },
+    {
+      "journey_id": "J-GENERATORS",
+      "scoped_api_journey": "path_cycle_complete_generator_contracts",
+      "packet_id": "FNX-P2C-007",
+      "description": "Deterministic graph generator edge/node ordering across classic families.",
+      "strict_path": {
+        "mode": "strict",
+        "mode_strategy": "native_fixture",
+        "fixture_id": "generated/generators_path_strict.json",
+        "fixture_ids": [
+          "generated/generators_path_strict.json",
+          "generated/generators_cycle_strict.json",
+          "generated/generators_complete_strict.json"
+        ],
+        "deterministic_seed": 15513759347474842719,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/generators_path_strict.json --mode strict",
+        "step_contract": [
+          {
+            "step_id": "S01",
+            "operation": "generate_path_graph",
+            "expected_outputs": [
+              "expected.graph",
+              "expected.number_connected_components"
+            ],
+            "tie_break_behavior": "Generator emits path nodes/edges in deterministic ascending order.",
+            "failure_classes": [
+              "generators"
+            ]
+          },
+          {
+            "step_id": "S02",
+            "operation": "number_connected_components_query",
+            "expected_outputs": [
+              "expected.number_connected_components"
+            ],
+            "tie_break_behavior": "Connectivity count invariant is deterministic for identical input graphs.",
+            "failure_classes": [
+              "algorithm_components"
+            ]
+          }
+        ],
+        "oracle_assertions": [
+          {
+            "assertion_id": "A01",
+            "expected_ref": "expected.graph",
+            "contract": "Node and edge snapshots must match oracle values exactly (including deterministic order and attrs).",
+            "tie_break_behavior": "Node/edge ordering follows deterministic insertion order parity.",
+            "failure_class": "graph_mutation"
+          },
+          {
+            "assertion_id": "A02",
+            "expected_ref": "expected.number_connected_components",
+            "contract": "Connected component count must match oracle scalar output exactly.",
+            "tie_break_behavior": "Deterministic component traversal ensures reproducible counts and witnesses.",
+            "failure_class": "algorithm_components"
+          }
+        ],
+        "failure_classes": [
+          "algorithm_components",
+          "fixture_io",
+          "fixture_schema",
+          "generators",
+          "graph_mutation"
+        ]
+      },
+      "hardened_path": {
+        "mode": "hardened",
+        "mode_strategy": "mode_override_fixture",
+        "fixture_id": "generated/generators_cycle_strict.json",
+        "fixture_ids": [
+          "generated/generators_cycle_strict.json"
+        ],
+        "deterministic_seed": 13332243272534235892,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/generators_cycle_strict.json --mode hardened",
+        "step_contract": [
+          {
+            "step_id": "S01",
+            "operation": "generate_cycle_graph",
+            "expected_outputs": [
+              "expected.connected_components",
+              "expected.graph"
+            ],
+            "tie_break_behavior": "Cycle closure edge placement is deterministic and fixture-locked.",
+            "failure_classes": [
+              "generators"
+            ]
+          },
+          {
+            "step_id": "S02",
+            "operation": "connected_components_query",
+            "expected_outputs": [
+              "expected.connected_components"
+            ],
+            "tie_break_behavior": "Component enumeration follows deterministic first-seen traversal order.",
+            "failure_classes": [
+              "algorithm_components"
+            ]
+          }
+        ],
+        "oracle_assertions": [
+          {
+            "assertion_id": "A01",
+            "expected_ref": "expected.connected_components",
+            "contract": "Connected components listing must match oracle component partitioning and order.",
+            "tie_break_behavior": "Component order follows deterministic first-seen traversal order.",
+            "failure_class": "algorithm_components"
+          },
+          {
+            "assertion_id": "A02",
+            "expected_ref": "expected.graph",
+            "contract": "Node and edge snapshots must match oracle values exactly (including deterministic order and attrs).",
+            "tie_break_behavior": "Node/edge ordering follows deterministic insertion order parity.",
+            "failure_class": "graph_mutation"
+          }
+        ],
+        "failure_classes": [
+          "algorithm_components",
+          "fixture_io",
+          "fixture_schema",
+          "generators",
+          "graph_mutation"
+        ]
+      }
+    },
+    {
+      "journey_id": "J-RUNTIME-OPTIONAL",
+      "scoped_api_journey": "runtime_optional_backend_policy",
+      "packet_id": "FNX-P2C-008",
+      "description": "Optional backend compatibility and risk-aware dispatch behavior.",
+      "strict_path": {
+        "mode": "strict",
+        "mode_strategy": "native_fixture",
+        "fixture_id": "generated/runtime_config_optional_strict.json",
+        "fixture_ids": [
+          "generated/runtime_config_optional_strict.json"
+        ],
+        "deterministic_seed": 7592963280906986520,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/runtime_config_optional_strict.json --mode strict",
+        "step_contract": [
+          {
+            "step_id": "S01",
+            "operation": "dispatch_resolve",
+            "expected_outputs": [
+              "expected.dispatch"
+            ],
+            "tie_break_behavior": "Backend selection ties are resolved deterministically by registry order and policy.",
+            "failure_classes": [
+              "dispatch"
+            ]
+          }
+        ],
+        "oracle_assertions": [
+          {
+            "assertion_id": "A01",
+            "expected_ref": "expected.dispatch",
+            "contract": "Selected backend/action pair must match oracle dispatch policy output.",
+            "tie_break_behavior": "Backend tie-breaking follows deterministic registry ordering and risk policy.",
+            "failure_class": "dispatch"
+          }
+        ],
+        "failure_classes": [
+          "dispatch",
+          "fixture_io",
+          "fixture_schema"
+        ]
+      },
+      "hardened_path": {
+        "mode": "hardened",
+        "mode_strategy": "mode_override_fixture",
+        "fixture_id": "generated/runtime_config_optional_strict.json",
+        "fixture_ids": [
+          "generated/runtime_config_optional_strict.json"
+        ],
+        "deterministic_seed": 1017954080714268602,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/runtime_config_optional_strict.json --mode hardened",
+        "step_contract": [
+          {
+            "step_id": "S01",
+            "operation": "dispatch_resolve",
+            "expected_outputs": [
+              "expected.dispatch"
+            ],
+            "tie_break_behavior": "Backend selection ties are resolved deterministically by registry order and policy.",
+            "failure_classes": [
+              "dispatch"
+            ]
+          }
+        ],
+        "oracle_assertions": [
+          {
+            "assertion_id": "A01",
+            "expected_ref": "expected.dispatch",
+            "contract": "Selected backend/action pair must match oracle dispatch policy output.",
+            "tie_break_behavior": "Backend tie-breaking follows deterministic registry ordering and risk policy.",
+            "failure_class": "dispatch"
+          }
+        ],
+        "failure_classes": [
+          "dispatch",
+          "fixture_io",
+          "fixture_schema"
+        ]
+      }
+    },
+    {
+      "journey_id": "J-CONFORMANCE-HARNESS",
+      "scoped_api_journey": "harness_execution_and_parity_snapshot",
+      "packet_id": "FNX-P2C-009",
+      "description": "Harness-level parity execution path and deterministic fixture replay contract.",
+      "strict_path": {
+        "mode": "strict",
+        "mode_strategy": "native_fixture",
+        "fixture_id": "generated/conformance_harness_strict.json",
+        "fixture_ids": [
+          "generated/conformance_harness_strict.json"
+        ],
+        "deterministic_seed": 14490479829320650303,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/conformance_harness_strict.json --mode strict",
+        "step_contract": [
+          {
+            "step_id": "S01",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S02",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S03",
+            "operation": "shortest_path_query",
+            "expected_outputs": [
+              "expected.shortest_path_unweighted"
+            ],
+            "tie_break_behavior": "BFS predecessor choice follows deterministic neighbor insertion ordering.",
+            "failure_classes": [
+              "algorithm"
+            ]
+          }
+        ],
+        "oracle_assertions": [
+          {
+            "assertion_id": "A01",
+            "expected_ref": "expected.graph",
+            "contract": "Node and edge snapshots must match oracle values exactly (including deterministic order and attrs).",
+            "tie_break_behavior": "Node/edge ordering follows deterministic insertion order parity.",
+            "failure_class": "graph_mutation"
+          },
+          {
+            "assertion_id": "A02",
+            "expected_ref": "expected.shortest_path_unweighted",
+            "contract": "Shortest-path output node sequence must match oracle path exactly.",
+            "tie_break_behavior": "Equal-length path ties resolve via deterministic BFS neighbor ordering.",
+            "failure_class": "algorithm"
+          }
+        ],
+        "failure_classes": [
+          "algorithm",
+          "fixture_io",
+          "fixture_schema",
+          "graph_mutation"
+        ]
+      },
+      "hardened_path": {
+        "mode": "hardened",
+        "mode_strategy": "mode_override_fixture",
+        "fixture_id": "generated/conformance_harness_strict.json",
+        "fixture_ids": [
+          "generated/conformance_harness_strict.json"
+        ],
+        "deterministic_seed": 16760608802675680113,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/conformance_harness_strict.json --mode hardened",
+        "step_contract": [
+          {
+            "step_id": "S01",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S02",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S03",
+            "operation": "shortest_path_query",
+            "expected_outputs": [
+              "expected.shortest_path_unweighted"
+            ],
+            "tie_break_behavior": "BFS predecessor choice follows deterministic neighbor insertion ordering.",
+            "failure_classes": [
+              "algorithm"
+            ]
+          }
+        ],
+        "oracle_assertions": [
+          {
+            "assertion_id": "A01",
+            "expected_ref": "expected.graph",
+            "contract": "Node and edge snapshots must match oracle values exactly (including deterministic order and attrs).",
+            "tie_break_behavior": "Node/edge ordering follows deterministic insertion order parity.",
+            "failure_class": "graph_mutation"
+          },
+          {
+            "assertion_id": "A02",
+            "expected_ref": "expected.shortest_path_unweighted",
+            "contract": "Shortest-path output node sequence must match oracle path exactly.",
+            "tie_break_behavior": "Equal-length path ties resolve via deterministic BFS neighbor ordering.",
+            "failure_class": "algorithm"
+          }
+        ],
+        "failure_classes": [
+          "algorithm",
+          "fixture_io",
+          "fixture_schema",
+          "graph_mutation"
+        ]
+      }
+    }
+  ],
+  "coverage_manifest": {
+    "fixture_inventory": [
+      "generated/centrality_closeness_strict.json",
+      "generated/centrality_degree_strict.json",
+      "generated/components_connected_strict.json",
+      "generated/conformance_harness_strict.json",
+      "generated/convert_edge_list_strict.json",
+      "generated/dispatch_route_strict.json",
+      "generated/generators_complete_strict.json",
+      "generated/generators_cycle_strict.json",
+      "generated/generators_path_strict.json",
+      "generated/readwrite_hardened_malformed.json",
+      "generated/readwrite_json_roundtrip_strict.json",
+      "generated/readwrite_roundtrip_strict.json",
+      "generated/runtime_config_optional_strict.json",
+      "generated/view_neighbors_strict.json",
+      "graph_core_mutation_hardened.json",
+      "graph_core_shortest_path_strict.json"
+    ],
+    "covered_fixture_ids": [
+      "generated/centrality_closeness_strict.json",
+      "generated/centrality_degree_strict.json",
+      "generated/components_connected_strict.json",
+      "generated/conformance_harness_strict.json",
+      "generated/convert_edge_list_strict.json",
+      "generated/dispatch_route_strict.json",
+      "generated/generators_complete_strict.json",
+      "generated/generators_cycle_strict.json",
+      "generated/generators_path_strict.json",
+      "generated/readwrite_hardened_malformed.json",
+      "generated/readwrite_json_roundtrip_strict.json",
+      "generated/readwrite_roundtrip_strict.json",
+      "generated/runtime_config_optional_strict.json",
+      "generated/view_neighbors_strict.json",
+      "graph_core_mutation_hardened.json",
+      "graph_core_shortest_path_strict.json"
+    ],
+    "uncovered_fixture_ids": []
+  },
+  "failure_class_taxonomy": [
+    {
+      "failure_class": "fixture_io",
+      "description": "Fixture file cannot be read from deterministic fixture inventory.",
+      "source": "fnx-conformance fixture loading"
+    },
+    {
+      "failure_class": "fixture_schema",
+      "description": "Fixture payload is malformed or violates expected operation schema.",
+      "source": "fnx-conformance fixture parsing"
+    },
+    {
+      "failure_class": "graph_mutation",
+      "description": "Graph mutation output diverges from expected nodes/edges/attrs parity.",
+      "source": "Graph operation execution"
+    },
+    {
+      "failure_class": "algorithm",
+      "description": "Algorithm output (e.g., shortest path) diverges from oracle expectation.",
+      "source": "fnx-algorithms parity checks"
+    },
+    {
+      "failure_class": "algorithm_centrality",
+      "description": "Centrality score/ordering output diverges from oracle expectation.",
+      "source": "fnx-algorithms centrality checks"
+    },
+    {
+      "failure_class": "algorithm_components",
+      "description": "Component partition/count output diverges from oracle expectation.",
+      "source": "fnx-algorithms components checks"
+    },
+    {
+      "failure_class": "dispatch",
+      "description": "Dispatch route/action does not match deterministic policy expectation.",
+      "source": "fnx-dispatch parity checks"
+    },
+    {
+      "failure_class": "convert",
+      "description": "Conversion pipeline output diverges from expected normalized graph state.",
+      "source": "fnx-convert parity checks"
+    },
+    {
+      "failure_class": "readwrite",
+      "description": "Read/write parser or serializer output diverges from oracle expectations.",
+      "source": "fnx-readwrite parity checks"
+    },
+    {
+      "failure_class": "views",
+      "description": "Graph view query output diverges from deterministic ordering expectations.",
+      "source": "fnx-views parity checks"
+    },
+    {
+      "failure_class": "generators",
+      "description": "Generator-produced graph structure/order diverges from oracle fixtures.",
+      "source": "fnx-generators parity checks"
+    }
+  ],
+  "alien_uplift_contract_card": {
+    "ev_score": 2.48,
+    "baseline_comparator": "legacy_networkx/main@python3.12",
+    "optimization_lever": "single canonical journey matrix for strict/hardened e2e orchestration planning",
+    "decision_hypothesis": "Explicit scenario/oracle contracts reduce parity drift and replay triage latency."
+  },
+  "profile_first_artifacts": {
+    "baseline": "artifacts/perf/BASELINE_BFS_V1.md",
+    "hotspot": "artifacts/perf/OPPORTUNITY_MATRIX.md",
+    "delta": "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+  },
+  "decision_theoretic_runtime_contract": {
+    "states": [
+      "scenario_declared",
+      "scenario_eligible",
+      "scenario_executed",
+      "scenario_blocked"
+    ],
+    "actions": [
+      "allow_run",
+      "full_validate",
+      "fail_closed"
+    ],
+    "loss_model": "Minimize oracle-parity loss and replay incompleteness while preserving deterministic strict/hardened behavior.",
+    "safe_mode_fallback": "fail_closed",
+    "fallback_thresholds": {
+      "max_uncovered_fixtures": 0,
+      "min_journey_count": 10,
+      "min_replay_schema_refs": 3
+    }
+  },
+  "isomorphism_proof_artifacts": [
+    "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_001_V1.md",
+    "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_005_V1.md",
+    "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_006_V1.md",
+    "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_007_V1.md"
+  ],
+  "structured_logging_evidence": [
+    "artifacts/conformance/latest/structured_logs.jsonl",
+    "artifacts/conformance/latest/structured_log_emitter_normalization_report.json",
+    "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json"
+  ]
+}

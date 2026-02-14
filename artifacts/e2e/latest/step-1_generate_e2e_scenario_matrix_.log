@@ -1,0 +1,8 @@
+{
+  "status": "ok",
+  "output_json": "/data/projects/franken_networkx/artifacts/e2e/v1/e2e_scenario_matrix_oracle_contract_v1.json",
+  "output_md": "/data/projects/franken_networkx/artifacts/e2e/v1/e2e_scenario_matrix_oracle_contract_v1.md",
+  "journey_count": 10,
+  "fixture_inventory_count": 16,
+  "uncovered_fixture_count": 0
+}

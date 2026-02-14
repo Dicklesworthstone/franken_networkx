@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0.0",
+  "report_id": "e2e-scenario-matrix-gate-report-v1",
+  "run_id": "e2e-scenario-matrix-20260214T225725Z",
+  "generated_at_utc": "2026-02-14T22:58:30.045158+00:00",
+  "step_count": 3,
+  "failed_step_count": 0,
+  "status": "pass",
+  "steps_log_path": "artifacts/e2e/latest/e2e_scenario_matrix_steps_v1.jsonl",
+  "failed_step_ids": []
+}

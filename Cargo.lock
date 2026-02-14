@@ -3,6 +3,19 @@
 version = 4
 
 [[package]]
+name = "ahash"
+version = "0.8.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a15f179cd60c4584b8a8c596927aadc462e27f2ca70c04e0071964a73ba7a75"
+dependencies = [
+ "cfg-if",
+ "getrandom 0.3.4",
+ "once_cell",
+ "version_check",
+ "zerocopy",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13,6 +26,15 @@ name = "anyhow"
 version = "1.0.101"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f0e0fee31ef5ed1ba1316088939cea399010ed7731dba877ed44aeb407a75ea"
+
+[[package]]
+name = "arc-swap"
+version = "1.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9f3647c145568cec02c42054e07bdf9a5a698e15b466fb2341bfc393cd24aa5"
+dependencies = [
+ "rustversion",
+]
 
 [[package]]
 name = "arrayref"
@@ -380,6 +402,8 @@ dependencies = [
 name = "ftui-core"
 version = "0.1.1"
 dependencies = [
+ "ahash",
+ "arc-swap",
  "bitflags 2.10.0",
  "signal-hook",
  "unicode-display-width",
@@ -401,6 +425,7 @@ dependencies = [
 name = "ftui-render"
 version = "0.1.1"
 dependencies = [
+ "ahash",
  "bitflags 2.10.0",
  "bumpalo",
  "ftui-core",
@@ -414,6 +439,8 @@ dependencies = [
 name = "ftui-style"
 version = "0.1.1"
 dependencies = [
+ "ahash",
+ "arc-swap",
  "ftui-render",
  "tracing",
 ]
@@ -438,6 +465,7 @@ dependencies = [
 name = "ftui-widgets"
 version = "0.1.1"
 dependencies = [
+ "ahash",
  "bitflags 2.10.0",
  "ftui-core",
  "ftui-layout",

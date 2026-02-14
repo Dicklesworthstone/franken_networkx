@@ -1,0 +1,102 @@
+{
+  "schema_version": "1.0.0",
+  "artifact": "e2e_scenario_matrix_oracle_contract",
+  "required_top_level_keys": [
+    "schema_version",
+    "artifact_id",
+    "generated_at_utc",
+    "baseline_comparator",
+    "journey_summary",
+    "deterministic_seed_policy",
+    "replay_metadata_contract",
+    "journeys",
+    "coverage_manifest",
+    "failure_class_taxonomy",
+    "alien_uplift_contract_card",
+    "profile_first_artifacts",
+    "decision_theoretic_runtime_contract",
+    "isomorphism_proof_artifacts",
+    "structured_logging_evidence"
+  ],
+  "required_journey_keys": [
+    "journey_id",
+    "scoped_api_journey",
+    "packet_id",
+    "description",
+    "strict_path",
+    "hardened_path"
+  ],
+  "required_path_keys": [
+    "mode",
+    "mode_strategy",
+    "fixture_id",
+    "fixture_ids",
+    "deterministic_seed",
+    "replay_command",
+    "step_contract",
+    "oracle_assertions",
+    "failure_classes"
+  ],
+  "required_step_keys": [
+    "step_id",
+    "operation",
+    "expected_outputs",
+    "tie_break_behavior",
+    "failure_classes"
+  ],
+  "required_oracle_assertion_keys": [
+    "assertion_id",
+    "expected_ref",
+    "contract",
+    "tie_break_behavior",
+    "failure_class"
+  ],
+  "required_seed_policy_keys": [
+    "seed_namespace",
+    "seed_algorithm",
+    "seed_lock_version",
+    "determinism_invariant"
+  ],
+  "required_replay_contract_keys": [
+    "schema_refs",
+    "structured_log_required_fields",
+    "structured_log_replay_critical_fields",
+    "e2e_step_required_fields",
+    "e2e_step_invariants",
+    "forensics_bundle_required_fields",
+    "forensics_bundle_invariants",
+    "validation_command"
+  ],
+  "required_profile_artifact_keys": [
+    "baseline",
+    "hotspot",
+    "delta"
+  ],
+  "required_mode_values": [
+    "strict",
+    "hardened"
+  ],
+  "required_failure_classes": [
+    "fixture_io",
+    "fixture_schema",
+    "graph_mutation",
+    "algorithm",
+    "algorithm_centrality",
+    "algorithm_components",
+    "dispatch",
+    "convert",
+    "readwrite",
+    "views",
+    "generators"
+  ],
+  "required_replay_schema_refs": [
+    "artifacts/conformance/schema/v1/structured_test_log_schema_v1.json",
+    "artifacts/conformance/schema/v1/e2e_step_trace_schema_v1.json",
+    "artifacts/conformance/schema/v1/forensics_bundle_index_schema_v1.json"
+  ],
+  "required_coverage_keys": [
+    "fixture_inventory",
+    "covered_fixture_ids",
+    "uncovered_fixture_ids"
+  ]
+}

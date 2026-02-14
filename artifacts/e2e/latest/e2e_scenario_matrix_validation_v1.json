@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0.0",
+  "report_id": "e2e-scenario-matrix-oracle-contract-validation-v1",
+  "artifact_path": "artifacts/e2e/v1/e2e_scenario_matrix_oracle_contract_v1.json",
+  "ready": true,
+  "error_count": 0,
+  "errors": [],
+  "summary": {
+    "journey_count": 10,
+    "fixture_inventory_count": 16,
+    "covered_fixture_count": 16,
+    "uncovered_fixture_count": 0
+  }
+}
