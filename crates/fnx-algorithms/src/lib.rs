@@ -77,30 +77,29 @@ pub fn shortest_path_unweighted(graph: &Graph, source: &str, target: &str) -> Sh
         };
     }
 
-    let mut visited: HashSet<String> = HashSet::new();
-    let mut predecessor: HashMap<String, String> = HashMap::new();
-    let mut queue: VecDeque<String> = VecDeque::new();
+    let mut visited: HashSet<&str> = HashSet::new();
+    let mut predecessor: HashMap<&str, &str> = HashMap::new();
+    let mut queue: VecDeque<&str> = VecDeque::new();
 
-    visited.insert(source.to_owned());
-    queue.push_back(source.to_owned());
+    visited.insert(source);
+    queue.push_back(source);
 
     let mut nodes_touched = 1;
     let mut edges_scanned = 0;
     let mut queue_peak = 1;
 
     while let Some(current) = queue.pop_front() {
-        let Some(neighbors) = graph.neighbors_iter(&current) else {
+        let Some(neighbors) = graph.neighbors_iter(current) else {
             continue;
         };
 
         for neighbor in neighbors {
             edges_scanned += 1;
-            if visited.contains(neighbor) {
+            if !visited.insert(neighbor) {
                 continue;
             }
-            visited.insert(neighbor.to_owned());
-            predecessor.insert(neighbor.to_owned(), current.clone());
-            queue.push_back(neighbor.to_owned());
+            predecessor.insert(neighbor, current);
+            queue.push_back(neighbor);
             nodes_touched += 1;
             queue_peak = queue_peak.max(queue.len());
 
@@ -134,7 +133,7 @@ pub fn shortest_path_unweighted(graph: &Graph, source: &str, target: &str) -> Sh
 
 #[must_use]
 pub fn connected_components(graph: &Graph) -> ComponentsResult {
-    let mut visited: HashSet<String> = HashSet::new();
+    let mut visited: HashSet<&str> = HashSet::new();
     let mut components = Vec::new();
     let mut nodes_touched = 0usize;
     let mut edges_scanned = 0usize;
@@ -145,24 +144,24 @@ pub fn connected_components(graph: &Graph) -> ComponentsResult {
             continue;
         }
 
-        let mut queue = VecDeque::new();
+        let mut queue: VecDeque<&str> = VecDeque::new();
         let mut component = Vec::new();
-        queue.push_back(node.to_owned());
-        visited.insert(node.to_owned());
-        component.push(node.to_owned());
+        queue.push_back(node);
+        visited.insert(node);
+        component.push(node);
         nodes_touched += 1;
         queue_peak = queue_peak.max(queue.len());
 
         while let Some(current) = queue.pop_front() {
-            let Some(neighbors) = graph.neighbors_iter(&current) else {
+            let Some(neighbors) = graph.neighbors_iter(current) else {
                 continue;
             };
 
             for neighbor in neighbors {
                 edges_scanned += 1;
-                if visited.insert(neighbor.to_owned()) {
-                    queue.push_back(neighbor.to_owned());
-                    component.push(neighbor.to_owned());
+                if visited.insert(neighbor) {
+                    queue.push_back(neighbor);
+                    component.push(neighbor);
                     nodes_touched += 1;
                     queue_peak = queue_peak.max(queue.len());
                 }
@@ -170,7 +169,7 @@ pub fn connected_components(graph: &Graph) -> ComponentsResult {
         }
 
         component.sort_unstable();
-        components.push(component);
+        components.push(component.into_iter().map(str::to_owned).collect());
     }
 
     ComponentsResult {
@@ -272,14 +271,14 @@ pub fn closeness_centrality(graph: &Graph) -> ClosenessCentralityResult {
     let mut queue_peak = 0usize;
 
     for source in &nodes {
-        let mut queue = VecDeque::new();
-        let mut distance: HashMap<String, usize> = HashMap::new();
-        queue.push_back((*source).to_owned());
-        distance.insert((*source).to_owned(), 0usize);
+        let mut queue: VecDeque<&str> = VecDeque::new();
+        let mut distance: HashMap<&str, usize> = HashMap::new();
+        queue.push_back(*source);
+        distance.insert(*source, 0usize);
         queue_peak = queue_peak.max(queue.len());
 
         while let Some(current) = queue.pop_front() {
-            let Some(neighbors) = graph.neighbors_iter(&current) else {
+            let Some(neighbors) = graph.neighbors_iter(current) else {
                 continue;
             };
             let current_distance = *distance.get(&current).unwrap_or(&0usize);
@@ -288,8 +287,8 @@ pub fn closeness_centrality(graph: &Graph) -> ClosenessCentralityResult {
                 if distance.contains_key(neighbor) {
                     continue;
                 }
-                distance.insert(neighbor.to_owned(), current_distance + 1);
-                queue.push_back(neighbor.to_owned());
+                distance.insert(neighbor, current_distance + 1);
+                queue.push_back(neighbor);
                 queue_peak = queue_peak.max(queue.len());
             }
         }
@@ -325,7 +324,7 @@ pub fn closeness_centrality(graph: &Graph) -> ClosenessCentralityResult {
     }
 }
 
-fn rebuild_path(predecessor: &HashMap<String, String>, source: &str, target: &str) -> Vec<String> {
+fn rebuild_path(predecessor: &HashMap<&str, &str>, source: &str, target: &str) -> Vec<String> {
     let mut path = vec![target.to_owned()];
     let mut cursor = target;
 
@@ -333,7 +332,7 @@ fn rebuild_path(predecessor: &HashMap<String, String>, source: &str, target: &st
         let Some(prev) = predecessor.get(cursor) else {
             break;
         };
-        path.push(prev.clone());
+        path.push((*prev).to_owned());
         cursor = prev;
     }
 

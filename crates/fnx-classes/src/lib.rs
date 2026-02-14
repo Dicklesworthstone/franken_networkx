@@ -262,17 +262,26 @@ impl Graph {
             });
         }
 
-        self.add_node(left.clone());
-        self.add_node(right.clone());
+        let mut left_autocreated = false;
+        if !self.nodes.contains_key(&left) {
+            let _ = self.add_node(left.clone());
+            left_autocreated = true;
+        }
+        let mut right_autocreated = false;
+        if left == right {
+            right_autocreated = left_autocreated;
+        } else if !self.nodes.contains_key(&right) {
+            let _ = self.add_node(right.clone());
+            right_autocreated = true;
+        }
 
         let edge_key = EdgeKey::new(&left, &right);
         let self_loop = left == right;
         let mut changed = !self.edges.contains_key(&edge_key);
-        let attrs_for_change_check = attrs.clone();
         let edge_attr_count = {
             let edge_attrs = self.edges.entry(edge_key).or_default();
-            if !attrs_for_change_check.is_empty()
-                && attrs_for_change_check
+            if !attrs.is_empty()
+                && attrs
                     .iter()
                     .any(|(key, value)| edge_attrs.get(key) != Some(value))
             {
@@ -308,6 +317,16 @@ impl Graph {
                     signal: "edge_attr_count".to_owned(),
                     observed_value: edge_attr_count.to_string(),
                     log_likelihood_ratio: -2.0,
+                },
+                EvidenceTerm {
+                    signal: "left_autocreated".to_owned(),
+                    observed_value: left_autocreated.to_string(),
+                    log_likelihood_ratio: -1.25,
+                },
+                EvidenceTerm {
+                    signal: "right_autocreated".to_owned(),
+                    observed_value: right_autocreated.to_string(),
+                    log_likelihood_ratio: -1.25,
                 },
             ],
         );
