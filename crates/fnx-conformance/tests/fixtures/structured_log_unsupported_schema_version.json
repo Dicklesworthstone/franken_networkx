@@ -1,0 +1,44 @@
+{
+  "schema_version": "9.9.9",
+  "run_id": "conformance-1-strict",
+  "ts_unix_ms": 1,
+  "crate_name": "fnx-conformance",
+  "suite_id": "smoke",
+  "packet_id": "FNX-P2C-005",
+  "test_name": "fixture::generated/example.json",
+  "test_id": "fixture::generated/example.json",
+  "test_kind": "differential",
+  "mode": "strict",
+  "fixture_id": "generated/example.json",
+  "seed": null,
+  "environment": {
+    "arch": "x86_64",
+    "os": "linux",
+    "suite": "smoke"
+  },
+  "env_fingerprint": "abc123",
+  "duration_ms": 1,
+  "replay_command": "cargo run -p fnx-conformance --bin run_smoke -- --fixture generated/example.json",
+  "artifact_refs": [
+    "artifacts/conformance/latest/smoke_report.json"
+  ],
+  "forensic_bundle_id": "forensics::FNX-P2C-005::generated::example.json",
+  "hash_id": "abcdef0123456789",
+  "status": "passed",
+  "reason_code": null,
+  "failure_repro": null,
+  "e2e_step_traces": [],
+  "forensics_bundle_index": {
+    "bundle_id": "forensics::FNX-P2C-005::generated::example.json",
+    "run_id": "conformance-1-strict",
+    "test_id": "fixture::generated/example.json",
+    "bundle_hash_id": "bundlehash-1",
+    "captured_unix_ms": 1,
+    "replay_ref": "cargo run -p fnx-conformance --bin run_smoke -- --fixture generated/example.json",
+    "artifact_refs": [
+      "artifacts/conformance/latest/smoke_report.json"
+    ],
+    "raptorq_sidecar_refs": [],
+    "decode_proof_refs": []
+  }
+}
