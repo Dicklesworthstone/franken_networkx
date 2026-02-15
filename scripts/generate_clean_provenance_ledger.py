@@ -536,11 +536,46 @@ def build_artifact() -> dict[str, Any]:
             "hotspot": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
             "delta": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
         },
+        "optimization_lever_policy": {
+            "policy": "exactly_one_optimization_lever_per_change",
+            "evidence_path": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+            "max_levers_per_change": 1
+        },
+        "drop_in_parity_contract": {
+            "legacy_feature_overlap_target": "100%",
+            "intentional_capability_gaps": [],
+            "contract_statement": "No reduced-scope compatibility mode is permitted; behavior coverage must match legacy NetworkX semantics for scoped APIs."
+        },
         "decision_theoretic_runtime_contract": {
             "states": ["extract_only", "implement_only", "review", "blocked"],
             "actions": ["handoff", "approve", "reject", "rework"],
             "loss_model": "cross-boundary contamination > missing lineage evidence > delayed handoff",
-            "safe_mode_fallback": "block promotion when provenance lineage is incomplete or signoff missing"
+            "safe_mode_fallback": "block promotion when provenance lineage is incomplete or signoff missing",
+            "safe_mode_budget": {
+                "max_blocked_promotions_per_run": 0,
+                "max_unsigned_records_before_halt": 0,
+                "max_unresolved_ambiguities_before_halt": 0
+            },
+            "trigger_thresholds": [
+                {
+                    "trigger_id": "TRIG-UNSIGNED-RECORD",
+                    "condition": "count(records where reviewer_signoff.status != approved) >= 1",
+                    "threshold": 1,
+                    "fallback_action": "enter blocked state and reject release promotion"
+                },
+                {
+                    "trigger_id": "TRIG-INCOMPLETE-LINEAGE",
+                    "condition": "count(records with missing legacy/implementation/conformance linkage) >= 1",
+                    "threshold": 1,
+                    "fallback_action": "halt handoff and require rework"
+                },
+                {
+                    "trigger_id": "TRIG-UNMAPPED-AMBIGUITY",
+                    "condition": "count(ambiguity_decisions where confidence_rating < 0.8) >= 1",
+                    "threshold": 1,
+                    "fallback_action": "require reviewer escalation before approval"
+                }
+            ]
         },
         "isomorphism_proof_artifacts": [
             "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_001_V1.md",
@@ -565,6 +600,14 @@ def render_markdown(artifact: dict[str, Any]) -> str:
     lines.append("")
     lines.append("## Scope")
     lines.append(artifact["scope_statement"])
+    lines.append("")
+    lines.append("## Parity + Optimization Contracts")
+    lines.append(
+        f"- drop-in parity target: `{artifact['drop_in_parity_contract']['legacy_feature_overlap_target']}`"
+    )
+    lines.append(
+        f"- optimization lever policy: `{artifact['optimization_lever_policy']['policy']}` (max={artifact['optimization_lever_policy']['max_levers_per_change']})"
+    )
     lines.append("")
 
     workflow = artifact["separation_workflow"]
@@ -614,6 +657,20 @@ def render_markdown(artifact: dict[str, Any]) -> str:
         lines.append(f"- `{row['query_id']}` {row['question']}")
         lines.append(f"  - record_path: {row['record_path']}")
         lines.append(f"  - expected_end_to_end_fields: {row['expected_end_to_end_fields']}")
+
+    lines.append("")
+    lines.append("## Runtime Contract")
+    runtime = artifact["decision_theoretic_runtime_contract"]
+    lines.append(f"- states: {runtime['states']}")
+    lines.append(f"- actions: {runtime['actions']}")
+    lines.append(f"- loss model: {runtime['loss_model']}")
+    lines.append(f"- safe mode fallback: {runtime['safe_mode_fallback']}")
+    lines.append(f"- safe mode budget: {runtime['safe_mode_budget']}")
+    lines.append("- trigger thresholds:")
+    for row in runtime["trigger_thresholds"]:
+        lines.append(
+            f"  - `{row['trigger_id']}` condition={row['condition']} threshold={row['threshold']} fallback={row['fallback_action']}"
+        )
 
     return "\n".join(lines) + "\n"
 

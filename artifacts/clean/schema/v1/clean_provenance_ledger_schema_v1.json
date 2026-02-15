@@ -13,6 +13,8 @@
     "audit_query_index",
     "alien_uplift_contract_card",
     "profile_first_artifacts",
+    "optimization_lever_policy",
+    "drop_in_parity_contract",
     "decision_theoretic_runtime_contract",
     "isomorphism_proof_artifacts",
     "structured_logging_evidence"
@@ -99,6 +101,36 @@
     "baseline",
     "hotspot",
     "delta"
+  ],
+  "required_optimization_policy_keys": [
+    "policy",
+    "evidence_path",
+    "max_levers_per_change"
+  ],
+  "required_drop_in_parity_keys": [
+    "legacy_feature_overlap_target",
+    "intentional_capability_gaps",
+    "contract_statement"
+  ],
+  "required_runtime_contract_keys": [
+    "states",
+    "actions",
+    "loss_model",
+    "safe_mode_fallback",
+    "safe_mode_budget",
+    "trigger_thresholds"
+  ],
+  "required_runtime_trigger_keys": [
+    "trigger_id",
+    "condition",
+    "threshold",
+    "fallback_action"
+  ],
+  "required_alien_contract_card_keys": [
+    "artifact_track",
+    "ev_score",
+    "baseline",
+    "notes"
   ],
   "allowed_signoff_status": [
     "approved",
