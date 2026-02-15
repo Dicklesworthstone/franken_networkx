@@ -28,6 +28,9 @@ a.out
 --graph-format.svg
 target_*/
 
+# Ephemeral execution tracker files
+TODO_*.md
+
 # Generated runtime artifacts
 artifacts/conformance/latest/
 artifacts/conformance/oracle_capture/
