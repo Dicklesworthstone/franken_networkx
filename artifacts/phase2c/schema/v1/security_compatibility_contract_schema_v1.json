@@ -14,6 +14,14 @@
     "categories",
     "packet_allowlist"
   ],
+  "required_adversarial_manifest_keys": [
+    "schema_version",
+    "contract_id",
+    "generated_at_utc",
+    "seed_policy",
+    "threat_taxonomy",
+    "high_risk_classes"
+  ],
   "required_packet_ids": [
     "FNX-P2C-001",
     "FNX-P2C-002",
@@ -67,5 +75,31 @@
     "packet_id",
     "allowed_categories",
     "notes"
+  ],
+  "adversarial_manifest_seed_policy_required_keys": [
+    "deterministic",
+    "strategy",
+    "packet_seed_offset_formula",
+    "replay_metadata_fields"
+  ],
+  "adversarial_manifest_entry_required_keys": [
+    "threat_class",
+    "security_focus",
+    "generator_profile",
+    "seed_policy",
+    "expected_failure_mode",
+    "packet_gate_mappings"
+  ],
+  "adversarial_manifest_mapping_required_keys": [
+    "packet_id",
+    "validation_gate",
+    "generator_variant",
+    "seed",
+    "expected_failure_mode"
+  ],
+  "required_high_risk_threat_classes": [
+    "algorithmic_complexity_dos",
+    "attribute_confusion",
+    "backend_route_ambiguity"
   ]
 }

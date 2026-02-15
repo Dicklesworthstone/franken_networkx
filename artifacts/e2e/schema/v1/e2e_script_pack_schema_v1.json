@@ -1,0 +1,80 @@
+{
+  "schema_version": "1.0.0",
+  "artifact": "e2e_script_pack",
+  "required_scenarios": [
+    "happy_path",
+    "edge_path",
+    "malformed_input"
+  ],
+  "required_pass_labels": [
+    "baseline",
+    "replay"
+  ],
+  "required_event_keys": [
+    "schema_version",
+    "run_id",
+    "scenario_id",
+    "scenario_kind",
+    "journey_id",
+    "packet_id",
+    "pass_label",
+    "fixture_id",
+    "mode",
+    "deterministic_seed",
+    "command",
+    "status",
+    "start_unix_ms",
+    "end_unix_ms",
+    "duration_ms",
+    "bundle_id",
+    "stable_fingerprint",
+    "bundle_manifest_path",
+    "artifact_refs"
+  ],
+  "required_bundle_manifest_keys": [
+    "schema_version",
+    "artifact_id",
+    "bundle_id",
+    "stable_fingerprint",
+    "scenario_id",
+    "scenario_kind",
+    "journey_id",
+    "packet_id",
+    "mode",
+    "fixture_id",
+    "deterministic_seed",
+    "replay_command",
+    "execution_metadata",
+    "forensics_links",
+    "artifact_refs"
+  ],
+  "required_execution_metadata_keys": [
+    "run_id",
+    "pass_label",
+    "status",
+    "start_unix_ms",
+    "end_unix_ms",
+    "duration_ms",
+    "generated_at_utc"
+  ],
+  "required_forensics_keys": [
+    "structured_log_hash_id",
+    "forensic_bundle_id",
+    "forensics_bundle_hash_id",
+    "forensics_bundle_replay_ref"
+  ],
+  "required_report_keys": [
+    "schema_version",
+    "artifact_id",
+    "run_id",
+    "generated_at_utc",
+    "pass_labels",
+    "required_scenarios",
+    "result_count",
+    "status",
+    "failures",
+    "scenario_checks",
+    "runs",
+    "events_path"
+  ]
+}
