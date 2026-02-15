@@ -1938,6 +1938,119 @@ mod tests {
     }
 
     #[test]
+    fn ftui_adapter_property_replay_mapping_is_deterministic_for_permuted_inputs() {
+        let adapter = FtuiTelemetryAdapter::strict_default();
+        let logs = vec![
+            base_ftui_log(
+                "run-a",
+                "tests::ftui_a",
+                "suite-a",
+                1_000,
+                TestStatus::Passed,
+                None,
+            ),
+            base_ftui_log(
+                "run-b",
+                "tests::ftui_b",
+                "suite-b",
+                2_000,
+                TestStatus::Failed,
+                Some("integrity_precheck_failed"),
+            ),
+            base_ftui_log(
+                "run-c",
+                "tests::ftui_c",
+                "suite-c",
+                3_000,
+                TestStatus::Skipped,
+                Some("skipped_by_policy"),
+            ),
+            base_ftui_log(
+                "run-d",
+                "tests::ftui_d",
+                "suite-d",
+                4_000,
+                TestStatus::Passed,
+                None,
+            ),
+        ];
+
+        let baseline = adapter
+            .build_artifact_index(&logs)
+            .expect("baseline artifact index should build");
+
+        for permutation in [[2_usize, 0, 3, 1], [1, 3, 0, 2], [3, 2, 1, 0]] {
+            let permuted_logs = permutation
+                .iter()
+                .map(|idx| logs[*idx].clone())
+                .collect::<Vec<_>>();
+            let candidate = adapter
+                .build_artifact_index(&permuted_logs)
+                .expect("permuted artifact index should build");
+            assert_eq!(
+                candidate, baseline,
+                "artifact index and replay mapping should be stable for permutation {permutation:?}"
+            );
+        }
+
+        for entry in &baseline.entries {
+            assert!(
+                entry.replay_ref.contains("rch exec --"),
+                "replay_ref should stay rch-offloaded"
+            );
+            assert!(
+                !entry.artifact_refs.is_empty(),
+                "artifact_refs should remain non-empty for replay mapping"
+            );
+            assert!(
+                entry
+                    .artifact_refs
+                    .iter()
+                    .all(|path| path.starts_with("artifacts/")),
+                "artifact_refs should remain workspace artifact paths"
+            );
+        }
+    }
+
+    #[test]
+    fn ftui_adapter_snapshot_artifact_index_entry_is_stable() {
+        let adapter = FtuiTelemetryAdapter::strict_default();
+        let log = base_ftui_log(
+            "run-snap",
+            "tests::ftui_snapshot",
+            "snapshot",
+            5_000,
+            TestStatus::Passed,
+            None,
+        );
+        let index = adapter
+            .build_artifact_index(&[log])
+            .expect("snapshot artifact index should build");
+        assert_eq!(index.entries.len(), 1, "snapshot expects one index entry");
+
+        let observed = serde_json::to_value(&index.entries[0])
+            .expect("snapshot entry should serialize to json value");
+        let expected = serde_json::json!({
+            "correlation_id": "ftui-corr-9d1b150a8730cdb8",
+            "bundle_id": "forensics::snapshot::tests::ftui_snapshot",
+            "run_id": "run-snap",
+            "test_id": "tests::ftui_snapshot",
+            "captured_unix_ms": 5000,
+            "replay_ref": "rch exec -- cargo test -p fnx-conformance -- --nocapture",
+            "artifact_refs": [
+                "artifacts/e2e/latest/e2e_scenario_matrix_steps_v1.jsonl",
+                "artifacts/conformance/latest/structured_logs.jsonl"
+            ],
+            "status": "passed",
+            "reason_code": null
+        });
+        assert_eq!(
+            observed, expected,
+            "snapshot entry should remain deterministic for canonical FTUI fixtures"
+        );
+    }
+
+    #[test]
     fn ftui_adapter_fails_closed_when_structured_log_is_incompatible() {
         let adapter = FtuiTelemetryAdapter::strict_default();
         let mut invalid = base_ftui_log(
