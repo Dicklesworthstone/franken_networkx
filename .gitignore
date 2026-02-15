@@ -20,6 +20,14 @@ franken_networkx_illustration.png
 .bv/
 .beads/
 
+# Ephemeral agent/runtime artifacts
+storage.sqlite3
+storage.sqlite3-*
+rustc-ice-*.txt
+a.out
+--graph-format.svg
+target_*/
+
 # Generated runtime artifacts
 artifacts/conformance/latest/
 artifacts/conformance/oracle_capture/
