@@ -10,6 +10,8 @@
     "deterministic_seed_policy",
     "replay_metadata_contract",
     "journeys",
+    "user_workflow_corpus",
+    "journey_coverage_hooks",
     "coverage_manifest",
     "failure_class_taxonomy",
     "alien_uplift_contract_card",
@@ -25,6 +27,28 @@
     "description",
     "strict_path",
     "hardened_path"
+  ],
+  "required_user_workflow_corpus_keys": [
+    "corpus_id",
+    "corpus_version",
+    "stability_policy",
+    "golden_journey_ids",
+    "required_categories",
+    "scenario_log_report"
+  ],
+  "required_journey_coverage_hook_keys": [
+    "journey_id",
+    "scenario_id",
+    "category",
+    "unit_hooks",
+    "differential_hooks",
+    "e2e_hooks",
+    "report_refs"
+  ],
+  "required_hook_entry_keys": [
+    "hook_id",
+    "command",
+    "artifact_ref"
   ],
   "required_path_keys": [
     "mode",
@@ -98,5 +122,11 @@
     "fixture_inventory",
     "covered_fixture_ids",
     "uncovered_fixture_ids"
+  ],
+  "required_workflow_categories": [
+    "happy_path",
+    "regression_path",
+    "malformed_input_path",
+    "degraded_environment_path"
   ]
 }
