@@ -1,0 +1,667 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "clean-provenance-ledger-v1",
+  "generated_at_utc": "2026-02-15T05:10:11Z",
+  "baseline_comparator": "legacy_networkx_code/networkx/networkx source anchors + in-repo Rust implementation artifacts",
+  "scope_statement": "Machine-checkable clean-room provenance ledger covering extraction claims, implementation refs, handoff boundaries, ambiguity decisions, and reviewer sign-off.",
+  "separation_workflow": {
+    "workflow_id": "clean-room-provenance-separation-v1",
+    "principles": [
+      "Extraction role captures behavior only; no Rust implementation edits in extraction stage.",
+      "Implementation role consumes extraction artifacts and must not modify legacy-source extraction records.",
+      "Review role verifies lineage completeness and separation controls before parity gate promotion."
+    ],
+    "separation_stages": [
+      {
+        "stage_id": "S1",
+        "name": "legacy_extraction",
+        "owner_role": "legacy-extraction-agent",
+        "inputs": [
+          "legacy_networkx_code/networkx/networkx/**"
+        ],
+        "outputs": [
+          "artifacts/phase2c/FNX-P2C-*/legacy_anchor_map.md"
+        ],
+        "must_not_modify": [
+          "crates/**"
+        ]
+      },
+      {
+        "stage_id": "S2",
+        "name": "contract_linking",
+        "owner_role": "contract-agent",
+        "inputs": [
+          "artifacts/phase2c/FNX-P2C-*/legacy_anchor_map.md"
+        ],
+        "outputs": [
+          "artifacts/phase2c/FNX-P2C-*/contract_table.md",
+          "artifacts/clean/v1/clean_provenance_ledger_v1.json"
+        ],
+        "must_not_modify": [
+          "legacy_networkx_code/**"
+        ]
+      },
+      {
+        "stage_id": "S3",
+        "name": "rust_implementation",
+        "owner_role": "rust-implementation-agent",
+        "inputs": [
+          "artifacts/phase2c/FNX-P2C-*/contract_table.md"
+        ],
+        "outputs": [
+          "crates/**",
+          "artifacts/phase2c/FNX-P2C-*/parity_report.json"
+        ],
+        "must_not_modify": [
+          "legacy_networkx_code/**"
+        ]
+      },
+      {
+        "stage_id": "S4",
+        "name": "review_and_signoff",
+        "owner_role": "reviewer",
+        "inputs": [
+          "artifacts/clean/v1/clean_provenance_ledger_v1.json",
+          "artifacts/phase2c/FNX-P2C-*/parity_report.json"
+        ],
+        "outputs": [
+          "reviewer_signoff status + notes"
+        ],
+        "must_not_modify": [
+          "legacy extraction content without new extraction evidence"
+        ]
+      }
+    ],
+    "handoff_controls": [
+      {
+        "control_id": "HC-1",
+        "description": "Every provenance record must include explicit extractor/implementer boundary and handoff artifact path.",
+        "evidence_field": "provenance_records[].handoff_boundary",
+        "enforcement": "validator + conformance gate"
+      },
+      {
+        "control_id": "HC-2",
+        "description": "Reviewer sign-off is mandatory for each record before final readiness.",
+        "evidence_field": "provenance_records[].reviewer_signoff",
+        "enforcement": "validator + conformance gate"
+      },
+      {
+        "control_id": "HC-3",
+        "description": "Ambiguity decisions require confidence rating and rationale.",
+        "evidence_field": "ambiguity_decisions[]",
+        "enforcement": "validator + conformance gate"
+      }
+    ],
+    "policy_checks": [
+      "no direct legacy-code copy in Rust implementation artifacts",
+      "all lineage records must link source anchor -> implementation refs -> conformance evidence",
+      "audit query paths must be reconstructable from record ids"
+    ]
+  },
+  "provenance_records": [
+    {
+      "record_id": "CPR-001",
+      "packet_id": "FNX-P2C-001",
+      "lineage_family": "graph_core",
+      "legacy_source_anchor": {
+        "path": "legacy_networkx_code/networkx/networkx/classes/graph.py",
+        "lines": "534-753",
+        "symbols": [
+          "Graph.add_node",
+          "Graph.add_nodes_from",
+          "Graph.remove_node"
+        ]
+      },
+      "extracted_behavior_claim": "Graph node mutation semantics preserve strict error/silent-remove asymmetry and cache invalidation expectations.",
+      "implementation_artifact_refs": [
+        {
+          "path": "crates/fnx-classes/src/lib.rs",
+          "symbol": "Graph::add_node",
+          "change_type": "implemented"
+        },
+        {
+          "path": "crates/fnx-classes/src/lib.rs",
+          "symbol": "Graph::remove_node",
+          "change_type": "implemented"
+        }
+      ],
+      "conformance_evidence_refs": [
+        "artifacts/phase2c/FNX-P2C-001/parity_report.json",
+        "crates/fnx-conformance/fixtures/graph_core_mutation_hardened.json"
+      ],
+      "handoff_boundary": {
+        "extractor_role": "legacy-extraction-agent",
+        "implementer_role": "rust-implementation-agent",
+        "handoff_artifact": "artifacts/phase2c/FNX-P2C-001/legacy_anchor_map.md",
+        "handoff_ts_utc": "2026-02-14T01:10:00Z"
+      },
+      "reviewer_signoff": {
+        "reviewer": "compat-audit-reviewer",
+        "signoff_ts_utc": "2026-02-14T02:05:00Z",
+        "status": "approved",
+        "notes": "Mutation contract and strict/hardened mode statements are lineage-complete."
+      },
+      "ambiguity_ref_ids": [
+        "CPR-AMB-001"
+      ],
+      "confidence_rating": 0.96,
+      "lineage_prev_record_id": null
+    },
+    {
+      "record_id": "CPR-002",
+      "packet_id": "FNX-P2C-002",
+      "lineage_family": "views",
+      "legacy_source_anchor": {
+        "path": "legacy_networkx_code/networkx/networkx/classes/coreviews.py",
+        "lines": "23-205",
+        "symbols": [
+          "AtlasView",
+          "AdjacencyView",
+          "UnionAdjacency"
+        ]
+      },
+      "extracted_behavior_claim": "View iteration and adjacency projection semantics stay read-only at outer layers while preserving legacy ordering behavior.",
+      "implementation_artifact_refs": [
+        {
+          "path": "crates/fnx-views/src/lib.rs",
+          "symbol": "GraphView::neighbors",
+          "change_type": "implemented"
+        },
+        {
+          "path": "crates/fnx-views/src/lib.rs",
+          "symbol": "CachedSnapshotView",
+          "change_type": "implemented"
+        }
+      ],
+      "conformance_evidence_refs": [
+        "artifacts/phase2c/FNX-P2C-002/parity_report.json",
+        "crates/fnx-conformance/fixtures/generated/view_neighbors_strict.json"
+      ],
+      "handoff_boundary": {
+        "extractor_role": "legacy-extraction-agent",
+        "implementer_role": "rust-implementation-agent",
+        "handoff_artifact": "artifacts/phase2c/FNX-P2C-002/legacy_anchor_map.md",
+        "handoff_ts_utc": "2026-02-14T01:18:00Z"
+      },
+      "reviewer_signoff": {
+        "reviewer": "compat-audit-reviewer",
+        "signoff_ts_utc": "2026-02-14T02:12:00Z",
+        "status": "approved",
+        "notes": "View cache revision invalidation is linked to extraction evidence."
+      },
+      "ambiguity_ref_ids": [
+        "CPR-AMB-002"
+      ],
+      "confidence_rating": 0.93,
+      "lineage_prev_record_id": "CPR-001"
+    },
+    {
+      "record_id": "CPR-003",
+      "packet_id": "FNX-P2C-003",
+      "lineage_family": "dispatch",
+      "legacy_source_anchor": {
+        "path": "legacy_networkx_code/networkx/networkx/utils/backends.py",
+        "lines": "848-930",
+        "symbols": [
+          "_dispatchable._call_if_any_backends_installed"
+        ]
+      },
+      "extracted_behavior_claim": "Dispatch route selection preserves fail-closed behavior for ambiguous backend routing and deterministic try-order grouping.",
+      "implementation_artifact_refs": [
+        {
+          "path": "crates/fnx-dispatch/src/lib.rs",
+          "symbol": "BackendRegistry::resolve",
+          "change_type": "implemented"
+        },
+        {
+          "path": "crates/fnx-runtime/src/lib.rs",
+          "symbol": "decision_theoretic_action",
+          "change_type": "implemented"
+        }
+      ],
+      "conformance_evidence_refs": [
+        "artifacts/phase2c/FNX-P2C-003/parity_report.json",
+        "crates/fnx-conformance/fixtures/generated/dispatch_route_strict.json"
+      ],
+      "handoff_boundary": {
+        "extractor_role": "legacy-extraction-agent",
+        "implementer_role": "runtime-dispatch-agent",
+        "handoff_artifact": "artifacts/phase2c/FNX-P2C-003/legacy_anchor_map.md",
+        "handoff_ts_utc": "2026-02-14T01:24:00Z"
+      },
+      "reviewer_signoff": {
+        "reviewer": "security-compat-reviewer",
+        "signoff_ts_utc": "2026-02-14T02:19:00Z",
+        "status": "approved",
+        "notes": "Fail-closed dispatch contract and ambiguity handling are covered by parity report."
+      },
+      "ambiguity_ref_ids": [
+        "CPR-AMB-003"
+      ],
+      "confidence_rating": 0.95,
+      "lineage_prev_record_id": "CPR-002"
+    },
+    {
+      "record_id": "CPR-004",
+      "packet_id": "FNX-P2C-004",
+      "lineage_family": "convert",
+      "legacy_source_anchor": {
+        "path": "legacy_networkx_code/networkx/networkx/convert.py",
+        "lines": "34-122",
+        "symbols": [
+          "to_networkx_graph"
+        ]
+      },
+      "extracted_behavior_claim": "Input conversion precedence remains deterministic across graph-like, dict-like, and edge-list branches.",
+      "implementation_artifact_refs": [
+        {
+          "path": "crates/fnx-convert/src/lib.rs",
+          "symbol": "GraphConverter::to_graph",
+          "change_type": "implemented"
+        },
+        {
+          "path": "crates/fnx-convert/src/lib.rs",
+          "symbol": "ConvertError",
+          "change_type": "implemented"
+        }
+      ],
+      "conformance_evidence_refs": [
+        "artifacts/phase2c/FNX-P2C-004/parity_report.json",
+        "crates/fnx-conformance/fixtures/generated/convert_edge_list_strict.json"
+      ],
+      "handoff_boundary": {
+        "extractor_role": "legacy-extraction-agent",
+        "implementer_role": "conversion-agent",
+        "handoff_artifact": "artifacts/phase2c/FNX-P2C-004/legacy_anchor_map.md",
+        "handoff_ts_utc": "2026-02-14T01:30:00Z"
+      },
+      "reviewer_signoff": {
+        "reviewer": "compat-audit-reviewer",
+        "signoff_ts_utc": "2026-02-14T02:26:00Z",
+        "status": "approved",
+        "notes": "Conversion branch-order and error semantics are lineage-linked."
+      },
+      "ambiguity_ref_ids": [
+        "CPR-AMB-004"
+      ],
+      "confidence_rating": 0.94,
+      "lineage_prev_record_id": "CPR-003"
+    },
+    {
+      "record_id": "CPR-005",
+      "packet_id": "FNX-P2C-005",
+      "lineage_family": "algorithms",
+      "legacy_source_anchor": {
+        "path": "legacy_networkx_code/networkx/networkx/algorithms/shortest_paths/weighted.py",
+        "lines": "837-903",
+        "symbols": [
+          "_dijkstra_multisource"
+        ]
+      },
+      "extracted_behavior_claim": "Shortest-path tie-break behavior preserves count-augmented heap ordering and equal-cost predecessor handling.",
+      "implementation_artifact_refs": [
+        {
+          "path": "crates/fnx-algorithms/src/lib.rs",
+          "symbol": "shortest_path_unweighted",
+          "change_type": "implemented"
+        },
+        {
+          "path": "crates/fnx-algorithms/src/lib.rs",
+          "symbol": "ComplexityWitness",
+          "change_type": "implemented"
+        }
+      ],
+      "conformance_evidence_refs": [
+        "artifacts/phase2c/FNX-P2C-005/parity_report.json",
+        "crates/fnx-conformance/fixtures/graph_core_shortest_path_strict.json"
+      ],
+      "handoff_boundary": {
+        "extractor_role": "legacy-extraction-agent",
+        "implementer_role": "algorithms-agent",
+        "handoff_artifact": "artifacts/phase2c/FNX-P2C-005/legacy_anchor_map.md",
+        "handoff_ts_utc": "2026-02-14T01:36:00Z"
+      },
+      "reviewer_signoff": {
+        "reviewer": "algo-parity-reviewer",
+        "signoff_ts_utc": "2026-02-14T02:32:00Z",
+        "status": "approved",
+        "notes": "Tie-break-sensitive shortest-path claims map to deterministic witness coverage."
+      },
+      "ambiguity_ref_ids": [
+        "CPR-AMB-005"
+      ],
+      "confidence_rating": 0.92,
+      "lineage_prev_record_id": "CPR-004"
+    },
+    {
+      "record_id": "CPR-006",
+      "packet_id": "FNX-P2C-006",
+      "lineage_family": "readwrite",
+      "legacy_source_anchor": {
+        "path": "legacy_networkx_code/networkx/networkx/readwrite/edgelist.py",
+        "lines": "43-123",
+        "symbols": [
+          "generate_edgelist",
+          "parse_edgelist"
+        ]
+      },
+      "extracted_behavior_claim": "Read/write semantics preserve line-order parsing and edge-iteration-based emission contracts.",
+      "implementation_artifact_refs": [
+        {
+          "path": "crates/fnx-readwrite/src/lib.rs",
+          "symbol": "EdgeListEngine::write_edge_list",
+          "change_type": "implemented"
+        },
+        {
+          "path": "crates/fnx-readwrite/src/lib.rs",
+          "symbol": "EdgeListEngine::read_edge_list",
+          "change_type": "implemented"
+        }
+      ],
+      "conformance_evidence_refs": [
+        "artifacts/phase2c/FNX-P2C-006/parity_report.json",
+        "crates/fnx-conformance/fixtures/generated/readwrite_roundtrip_strict.json"
+      ],
+      "handoff_boundary": {
+        "extractor_role": "legacy-extraction-agent",
+        "implementer_role": "readwrite-agent",
+        "handoff_artifact": "artifacts/phase2c/FNX-P2C-006/legacy_anchor_map.md",
+        "handoff_ts_utc": "2026-02-14T01:42:00Z"
+      },
+      "reviewer_signoff": {
+        "reviewer": "io-compat-reviewer",
+        "signoff_ts_utc": "2026-02-14T02:39:00Z",
+        "status": "approved",
+        "notes": "Parser coercion and serializer ordering are connected to strict parity artifacts."
+      },
+      "ambiguity_ref_ids": [],
+      "confidence_rating": 0.95,
+      "lineage_prev_record_id": "CPR-005"
+    },
+    {
+      "record_id": "CPR-007",
+      "packet_id": "FNX-P2C-007",
+      "lineage_family": "generators",
+      "legacy_source_anchor": {
+        "path": "legacy_networkx_code/networkx/networkx/generators/classic.py",
+        "lines": "478-505",
+        "symbols": [
+          "cycle_graph",
+          "path_graph"
+        ]
+      },
+      "extracted_behavior_claim": "Generator edge orientation and iterable-order construction semantics are preserved for deterministic outputs.",
+      "implementation_artifact_refs": [
+        {
+          "path": "crates/fnx-generators/src/lib.rs",
+          "symbol": "cycle_graph",
+          "change_type": "implemented"
+        },
+        {
+          "path": "crates/fnx-generators/src/lib.rs",
+          "symbol": "path_graph",
+          "change_type": "implemented"
+        }
+      ],
+      "conformance_evidence_refs": [
+        "artifacts/phase2c/FNX-P2C-007/parity_report.json",
+        "crates/fnx-conformance/fixtures/generated/generators_cycle_strict.json"
+      ],
+      "handoff_boundary": {
+        "extractor_role": "legacy-extraction-agent",
+        "implementer_role": "generators-agent",
+        "handoff_artifact": "artifacts/phase2c/FNX-P2C-007/legacy_anchor_map.md",
+        "handoff_ts_utc": "2026-02-14T01:48:00Z"
+      },
+      "reviewer_signoff": {
+        "reviewer": "determinism-reviewer",
+        "signoff_ts_utc": "2026-02-14T02:45:00Z",
+        "status": "approved",
+        "notes": "Classic generator ordering is proven by fixture parity checks."
+      },
+      "ambiguity_ref_ids": [
+        "CPR-AMB-006"
+      ],
+      "confidence_rating": 0.93,
+      "lineage_prev_record_id": "CPR-006"
+    },
+    {
+      "record_id": "CPR-008",
+      "packet_id": "FNX-P2C-008",
+      "lineage_family": "runtime",
+      "legacy_source_anchor": {
+        "path": "legacy_networkx_code/networkx/networkx/utils/configs.py",
+        "lines": "252-270",
+        "symbols": [
+          "BackendPriorities._on_setattr"
+        ]
+      },
+      "extracted_behavior_claim": "Runtime config validation preserves unknown-backend fail-closed behavior with deterministic diagnostics.",
+      "implementation_artifact_refs": [
+        {
+          "path": "crates/fnx-runtime/src/lib.rs",
+          "symbol": "RuntimeConfig",
+          "change_type": "implemented"
+        },
+        {
+          "path": "crates/fnx-runtime/src/lib.rs",
+          "symbol": "DecisionAction",
+          "change_type": "implemented"
+        }
+      ],
+      "conformance_evidence_refs": [
+        "artifacts/phase2c/FNX-P2C-008/parity_report.json",
+        "crates/fnx-conformance/fixtures/generated/runtime_config_optional_strict.json"
+      ],
+      "handoff_boundary": {
+        "extractor_role": "legacy-extraction-agent",
+        "implementer_role": "runtime-agent",
+        "handoff_artifact": "artifacts/phase2c/FNX-P2C-008/legacy_anchor_map.md",
+        "handoff_ts_utc": "2026-02-14T01:54:00Z"
+      },
+      "reviewer_signoff": {
+        "reviewer": "runtime-security-reviewer",
+        "signoff_ts_utc": "2026-02-14T02:51:00Z",
+        "status": "approved",
+        "notes": "Config boundary checks and policy fallback behavior are provenance-linked."
+      },
+      "ambiguity_ref_ids": [],
+      "confidence_rating": 0.94,
+      "lineage_prev_record_id": "CPR-007"
+    },
+    {
+      "record_id": "CPR-009",
+      "packet_id": "FNX-P2C-009",
+      "lineage_family": "conformance",
+      "legacy_source_anchor": {
+        "path": "legacy_networkx_code/networkx/networkx/tests/test_convert.py",
+        "lines": "21-31",
+        "symbols": [
+          "test_convert"
+        ]
+      },
+      "extracted_behavior_claim": "Conformance harness preserves fixture-driven differential checks linking extraction claims to implementation outputs.",
+      "implementation_artifact_refs": [
+        {
+          "path": "crates/fnx-conformance/src/lib.rs",
+          "symbol": "ConformanceHarness::run",
+          "change_type": "implemented"
+        },
+        {
+          "path": "crates/fnx-conformance/src/bin/run_smoke.rs",
+          "symbol": "main",
+          "change_type": "implemented"
+        }
+      ],
+      "conformance_evidence_refs": [
+        "artifacts/phase2c/FNX-P2C-009/parity_report.json",
+        "artifacts/conformance/latest/smoke_report.json"
+      ],
+      "handoff_boundary": {
+        "extractor_role": "legacy-extraction-agent",
+        "implementer_role": "conformance-agent",
+        "handoff_artifact": "artifacts/phase2c/FNX-P2C-009/legacy_anchor_map.md",
+        "handoff_ts_utc": "2026-02-14T02:00:00Z"
+      },
+      "reviewer_signoff": {
+        "reviewer": "parity-gate-reviewer",
+        "signoff_ts_utc": "2026-02-14T02:58:00Z",
+        "status": "approved",
+        "notes": "End-to-end lineage from extraction to conformance output is reconstructable."
+      },
+      "ambiguity_ref_ids": [
+        "CPR-AMB-007"
+      ],
+      "confidence_rating": 0.91,
+      "lineage_prev_record_id": "CPR-008"
+    }
+  ],
+  "ambiguity_decisions": [
+    {
+      "decision_id": "CPR-AMB-001",
+      "record_id": "CPR-001",
+      "ambiguity_topic": "multigraph keyless removal order",
+      "selected_policy": "preserve insertion-order LIFO behavior",
+      "confidence_rating": 0.94,
+      "rationale": "Legacy popitem-based semantics are user-visible and parity-sensitive."
+    },
+    {
+      "decision_id": "CPR-AMB-002",
+      "record_id": "CPR-002",
+      "ambiguity_topic": "view union iteration order",
+      "selected_policy": "record and tolerate set-union ambiguity; do not canonicalize strict mode",
+      "confidence_rating": 0.87,
+      "rationale": "Legacy UnionAtlas uses set union for keys, making ordering non-canonical by design."
+    },
+    {
+      "decision_id": "CPR-AMB-003",
+      "record_id": "CPR-003",
+      "ambiguity_topic": "dispatch backend tie in unconfigured group",
+      "selected_policy": "fail/skip conversion rather than guess",
+      "confidence_rating": 0.95,
+      "rationale": "No-guess policy aligns with legacy comments and fail-closed doctrine."
+    },
+    {
+      "decision_id": "CPR-AMB-004",
+      "record_id": "CPR-004",
+      "ambiguity_topic": "dict-of-dicts vs dict-of-lists conversion precedence",
+      "selected_policy": "retain fixed probe-order precedence",
+      "confidence_rating": 0.92,
+      "rationale": "Probe-order drift mutates conversion outcomes and error surfaces."
+    },
+    {
+      "decision_id": "CPR-AMB-005",
+      "record_id": "CPR-005",
+      "ambiguity_topic": "equal-cost predecessor order in shortest path",
+      "selected_policy": "allow legacy-equivalent predecessor permutations",
+      "confidence_rating": 0.89,
+      "rationale": "Oracle tests accept multiple orderings; forcing one may cause false drift."
+    },
+    {
+      "decision_id": "CPR-AMB-006",
+      "record_id": "CPR-007",
+      "ambiguity_topic": "duplicate node iterable behavior in generators",
+      "selected_policy": "preserve input iterable semantics without deduplication",
+      "confidence_rating": 0.9,
+      "rationale": "Legacy API intentionally allows duplicates; dedup introduces behavior drift."
+    },
+    {
+      "decision_id": "CPR-AMB-007",
+      "record_id": "CPR-009",
+      "ambiguity_topic": "fixture-level ambiguity budget in differential conformance",
+      "selected_policy": "record ambiguity allowances explicitly per fixture family",
+      "confidence_rating": 0.88,
+      "rationale": "Traceability requires explicit allowlists instead of hidden tolerances."
+    }
+  ],
+  "audit_query_index": [
+    {
+      "query_id": "CPR-Q01",
+      "question": "Which legacy anchor produced graph-core mutation behavior implemented in fnx-classes and approved for release?",
+      "record_path": [
+        "CPR-001"
+      ],
+      "expected_end_to_end_fields": [
+        "legacy_source_anchor",
+        "extracted_behavior_claim",
+        "implementation_artifact_refs",
+        "reviewer_signoff",
+        "conformance_evidence_refs"
+      ]
+    },
+    {
+      "query_id": "CPR-Q02",
+      "question": "Show full lineage chain from extraction packet 001 through conformance packet 009.",
+      "record_path": [
+        "CPR-001",
+        "CPR-002",
+        "CPR-003",
+        "CPR-004",
+        "CPR-005",
+        "CPR-006",
+        "CPR-007",
+        "CPR-008",
+        "CPR-009"
+      ],
+      "expected_end_to_end_fields": [
+        "legacy_source_anchor",
+        "extracted_behavior_claim",
+        "implementation_artifact_refs",
+        "reviewer_signoff",
+        "conformance_evidence_refs"
+      ]
+    },
+    {
+      "query_id": "CPR-Q03",
+      "question": "List ambiguity decisions with confidence for dispatch and shortest-path lineage records.",
+      "record_path": [
+        "CPR-003",
+        "CPR-005"
+      ],
+      "expected_end_to_end_fields": [
+        "legacy_source_anchor",
+        "extracted_behavior_claim",
+        "implementation_artifact_refs",
+        "reviewer_signoff",
+        "conformance_evidence_refs"
+      ]
+    }
+  ],
+  "alien_uplift_contract_card": {
+    "artifact_track": "clean-room-provenance",
+    "ev_score": 2.5,
+    "baseline": "manual non-machine lineage notes",
+    "notes": "Machine-checkable lineage graph + signed handoffs reduce provenance drift and contamination risk."
+  },
+  "profile_first_artifacts": {
+    "baseline": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+    "hotspot": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+    "delta": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+  },
+  "decision_theoretic_runtime_contract": {
+    "states": [
+      "extract_only",
+      "implement_only",
+      "review",
+      "blocked"
+    ],
+    "actions": [
+      "handoff",
+      "approve",
+      "reject",
+      "rework"
+    ],
+    "loss_model": "cross-boundary contamination > missing lineage evidence > delayed handoff",
+    "safe_mode_fallback": "block promotion when provenance lineage is incomplete or signoff missing"
+  },
+  "isomorphism_proof_artifacts": [
+    "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_001_V1.md",
+    "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_005_V1.md",
+    "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_009_V1.md"
+  ],
+  "structured_logging_evidence": [
+    "artifacts/conformance/latest/structured_logs.json",
+    "artifacts/conformance/latest/structured_logs.jsonl",
+    "artifacts/conformance/latest/logging_final_gate_report_v1.json"
+  ]
+}
