@@ -88,6 +88,18 @@
       "replay_command": "rch exec -- env CARGO_TARGET_DIR=target-codex-mossy cargo test -p fnx-conformance --test ftui_telemetry_adapter_gate -- --nocapture"
     },
     {
+      "test_id": "FTUI-D-PROP-001",
+      "layer": "property",
+      "artifact_path": "crates/fnx-runtime/src/lib.rs",
+      "replay_command": "rch exec -- env CARGO_TARGET_DIR=target-codex-mossy cargo test -p fnx-runtime ftui_adapter_property_replay_mapping_is_deterministic_for_permuted_inputs -- --nocapture"
+    },
+    {
+      "test_id": "FTUI-D-SNAP-001",
+      "layer": "snapshot",
+      "artifact_path": "crates/fnx-runtime/src/lib.rs",
+      "replay_command": "rch exec -- env CARGO_TARGET_DIR=target-codex-mossy cargo test -p fnx-runtime ftui_adapter_snapshot_artifact_index_entry_is_stable -- --nocapture"
+    },
+    {
       "test_id": "FTUI-B-E2E-001",
       "layer": "e2e",
       "artifact_path": "artifacts/e2e/latest/e2e_scenario_matrix_steps_v1.jsonl",

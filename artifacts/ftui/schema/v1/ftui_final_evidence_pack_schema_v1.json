@@ -1,0 +1,79 @@
+{
+  "schema_version": "1.0.0",
+  "artifact": "ftui_final_evidence_pack",
+  "required_top_level_keys": [
+    "schema_version",
+    "artifact_id",
+    "generated_at_utc",
+    "baseline_comparator",
+    "evidence_inventory",
+    "perf_impact_notes",
+    "ux_risk_gap_note",
+    "residual_ux_risk_register",
+    "audit_checklist",
+    "reviewer_validation_package"
+  ],
+  "required_evidence_inventory_keys": [
+    "contract_artifacts",
+    "implementation_artifacts",
+    "test_artifacts",
+    "artifact_bundle_paths"
+  ],
+  "required_test_artifact_keys": [
+    "unit",
+    "property",
+    "snapshot",
+    "e2e",
+    "conformance_gates"
+  ],
+  "required_test_entry_keys": [
+    "entry_id",
+    "evidence_path",
+    "replay_command"
+  ],
+  "required_perf_impact_keys": [
+    "baseline_artifact_paths",
+    "runtime_delta_summary",
+    "memory_delta_summary",
+    "regression_policy"
+  ],
+  "required_risk_keys": [
+    "risk_id",
+    "title",
+    "severity",
+    "priority_rank",
+    "affected_journey_ids",
+    "symptom",
+    "mitigation",
+    "verification_artifacts",
+    "status"
+  ],
+  "allowed_risk_severity": [
+    "high",
+    "medium",
+    "low"
+  ],
+  "allowed_risk_status": [
+    "open",
+    "mitigated",
+    "watch"
+  ],
+  "required_audit_checklist_keys": [
+    "check_id",
+    "requirement",
+    "status",
+    "evidence_refs"
+  ],
+  "required_audit_requirements": [
+    "deterministic_replay_proven",
+    "traceability_chain_complete",
+    "signoff_inputs_complete"
+  ],
+  "required_reviewer_package_keys": [
+    "signoff_ready",
+    "review_scope",
+    "independent_replay_command",
+    "independent_review_steps",
+    "traceability_proof_refs"
+  ]
+}

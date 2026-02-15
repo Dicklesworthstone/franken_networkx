@@ -101,6 +101,8 @@
   ],
   "required_test_layers": [
     "unit",
+    "property",
+    "snapshot",
     "differential",
     "e2e"
   ]

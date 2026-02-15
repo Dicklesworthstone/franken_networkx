@@ -10,12 +10,28 @@
     "event_contract",
     "state_machine",
     "traceability_map",
+    "journey_script_pack",
+    "final_evidence_pack",
     "accessibility_constraints",
     "decision_theoretic_runtime_contract",
     "profile_first_artifacts",
     "alien_uplift_contract_card",
     "isomorphism_proof_artifacts",
     "structured_logging_evidence"
+  ],
+  "required_journey_script_pack_keys": [
+    "artifact_path",
+    "schema_path",
+    "script_path",
+    "regression_harness_command",
+    "events_path",
+    "report_path"
+  ],
+  "required_final_evidence_pack_keys": [
+    "artifact_path",
+    "schema_path",
+    "review_command",
+    "signoff_gate"
   ],
   "required_workflow_map_keys": [
     "surface_id",

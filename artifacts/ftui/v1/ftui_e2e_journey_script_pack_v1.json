@@ -1,0 +1,71 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "ftui-e2e-journey-script-pack-v1",
+  "generated_at_utc": "2026-02-15T22:20:00+00:00",
+  "baseline_comparator": "legacy_networkx/main@python3.12 + frankentui@main",
+  "script_path": "scripts/run_ftui_e2e_journey_pack.sh",
+  "regression_harness_command": "./scripts/run_ftui_e2e_journey_pack.sh --journey-id all --non-interactive",
+  "non_interactive": true,
+  "journeys": [
+    {
+      "journey_id": "FTUI-JOURNEY-GOLDEN-001",
+      "path_kind": "golden",
+      "scenario_id": "FTUI-E2E-GOLDEN-001",
+      "deterministic_seed": 17001,
+      "replay_command": "./scripts/run_ftui_e2e_journey_pack.sh --journey-id FTUI-JOURNEY-GOLDEN-001 --non-interactive",
+      "transcript_path": "artifacts/ftui/latest/ftui_e2e_journey_golden_transcript_v1.jsonl",
+      "reason_codes": [
+        "none"
+      ],
+      "diagnosis_budget_ms": 120000,
+      "correctness_checks": [
+        "terminal_state_matches_expectation",
+        "event_order_matches_contract",
+        "artifact_refs_exist"
+      ],
+      "success_criteria": [
+        "operator_time_to_diagnosis_ms <= 120000",
+        "terminal_state == completed",
+        "all artifact refs resolve"
+      ]
+    },
+    {
+      "journey_id": "FTUI-JOURNEY-FAIL-001",
+      "path_kind": "failure",
+      "scenario_id": "FTUI-E2E-FAIL-001",
+      "deterministic_seed": 17002,
+      "replay_command": "./scripts/run_ftui_e2e_journey_pack.sh --journey-id FTUI-JOURNEY-FAIL-001 --non-interactive",
+      "transcript_path": "artifacts/ftui/latest/ftui_e2e_journey_failure_transcript_v1.jsonl",
+      "reason_codes": [
+        "integrity_precheck_failed"
+      ],
+      "diagnosis_budget_ms": 90000,
+      "correctness_checks": [
+        "terminal_state_matches_expectation",
+        "event_order_matches_contract",
+        "artifact_refs_exist"
+      ],
+      "success_criteria": [
+        "operator_time_to_diagnosis_ms <= 90000",
+        "terminal_state == failed_closed",
+        "reason_code includes integrity_precheck_failed"
+      ]
+    }
+  ],
+  "transcript_paths": {
+    "events": "artifacts/ftui/latest/ftui_e2e_journey_events_v1.jsonl",
+    "golden": "artifacts/ftui/latest/ftui_e2e_journey_golden_transcript_v1.jsonl",
+    "failure": "artifacts/ftui/latest/ftui_e2e_journey_failure_transcript_v1.jsonl"
+  },
+  "triage_report_path": "artifacts/ftui/latest/ftui_e2e_journey_report_v1.json",
+  "diagnosis_budget_policy": {
+    "default_budget_ms": 120000,
+    "failure_triage_budget_ms": 90000,
+    "budget_assertion": "time_to_diagnosis_ms must remain <= configured budget"
+  },
+  "structured_logging_evidence": [
+    "artifacts/conformance/latest/structured_logs.jsonl",
+    "artifacts/e2e/latest/e2e_scenario_matrix_steps_v1.jsonl",
+    "artifacts/ftui/latest/ftui_e2e_journey_events_v1.jsonl"
+  ]
+}

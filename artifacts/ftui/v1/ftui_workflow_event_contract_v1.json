@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "artifact_id": "ftui-workflow-event-contract-v1",
-  "generated_at_utc": "2026-02-15T20:26:00+00:00",
+  "generated_at_utc": "2026-02-15T22:30:00+00:00",
   "baseline_comparator": "legacy_networkx/main@python3.12 + frankentui@main",
   "workflow_map": {
     "surface_id": "frankentui-operator-surfaces-v1",
@@ -485,6 +485,20 @@
       ]
     }
   ],
+  "journey_script_pack": {
+    "artifact_path": "artifacts/ftui/v1/ftui_e2e_journey_script_pack_v1.json",
+    "schema_path": "artifacts/ftui/schema/v1/ftui_e2e_journey_script_pack_schema_v1.json",
+    "script_path": "scripts/run_ftui_e2e_journey_pack.sh",
+    "regression_harness_command": "./scripts/run_ftui_e2e_journey_pack.sh --journey-id all --non-interactive",
+    "events_path": "artifacts/ftui/latest/ftui_e2e_journey_events_v1.jsonl",
+    "report_path": "artifacts/ftui/latest/ftui_e2e_journey_report_v1.json"
+  },
+  "final_evidence_pack": {
+    "artifact_path": "artifacts/ftui/v1/ftui_final_evidence_pack_v1.json",
+    "schema_path": "artifacts/ftui/schema/v1/ftui_final_evidence_pack_schema_v1.json",
+    "review_command": "rch exec -- cargo test -p fnx-conformance --test ftui_workflow_event_contract_gate -- --nocapture",
+    "signoff_gate": "independent_reviewer_validation_required"
+  },
   "accessibility_constraints": {
     "keyboard_navigation": {
       "tab_order_deterministic": true,
