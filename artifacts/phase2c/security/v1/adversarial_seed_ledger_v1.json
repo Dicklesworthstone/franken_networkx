@@ -1,10 +1,10 @@
 {
   "schema_version": "1.0.0",
   "ledger_id": "adversarial-seed-ledger-v1",
-  "generated_at_utc": "2026-02-15T03:09:08.320768+00:00",
+  "generated_at_utc": "2026-02-15T22:33:59.271441+00:00",
   "source_manifest_path": "artifacts/phase2c/security/v1/adversarial_corpus_manifest_v1.json",
   "deterministic_seed_strategy": "class_seed_plus_packet_offset",
-  "entry_count": 50,
+  "entry_count": 53,
   "entries": [
     {
       "packet_id": "FNX-P2C-005",
@@ -398,6 +398,40 @@
       }
     },
     {
+      "packet_id": "FNX-P2C-003",
+      "threat_class": "policy_bypass",
+      "validation_gate": "dispatch-threat-gate",
+      "generator_variant": "dispatch_policy_override_injection",
+      "seed": 9203,
+      "class_seed": 9200,
+      "expected_failure_mode": "fail_closed_policy_bypass",
+      "failure_classification": "security",
+      "fixture_hash_id": "3ebd263fbaaebe3a",
+      "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class policy_bypass --packet-id FNX-P2C-003 --run-id replay-3ebd263fbaaebe3a",
+      "shrink_metadata": {
+        "strategy": "delta_debug_fixed_seed",
+        "minimized_counterexample_id": "min-3ebd263fbaae",
+        "shrink_steps": 0
+      }
+    },
+    {
+      "packet_id": "FNX-P2C-001",
+      "threat_class": "provenance_spoofing",
+      "validation_gate": "graph-core-threat-gate",
+      "generator_variant": "graph_core_forged_legacy_anchor_payload",
+      "seed": 9101,
+      "class_seed": 9100,
+      "expected_failure_mode": "fail_closed_provenance_spoofing",
+      "failure_classification": "security",
+      "fixture_hash_id": "154b0e06444432bc",
+      "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class provenance_spoofing --packet-id FNX-P2C-001 --run-id replay-154b0e06444432bc",
+      "shrink_metadata": {
+        "strategy": "delta_debug_fixed_seed",
+        "minimized_counterexample_id": "min-154b0e064444",
+        "shrink_steps": 0
+      }
+    },
+    {
       "packet_id": "FNX-P2C-001",
       "threat_class": "resource_exhaustion",
       "validation_gate": "graph-core-threat-gate",
@@ -547,6 +581,23 @@
       "shrink_metadata": {
         "strategy": "delta_debug_fixed_seed",
         "minimized_counterexample_id": "min-c099a6808d3d",
+        "shrink_steps": 0
+      }
+    },
+    {
+      "packet_id": "FNX-P2C-009",
+      "threat_class": "source_contamination_ambiguity",
+      "validation_gate": "conformance-threat-gate",
+      "generator_variant": "conformance_mixed_source_lineage_collision",
+      "seed": 9309,
+      "class_seed": 9300,
+      "expected_failure_mode": "fail_closed_source_contamination_ambiguity",
+      "failure_classification": "security",
+      "fixture_hash_id": "f21ddb104d1829b2",
+      "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class source_contamination_ambiguity --packet-id FNX-P2C-009 --run-id replay-f21ddb104d1829b2",
+      "shrink_metadata": {
+        "strategy": "delta_debug_fixed_seed",
+        "minimized_counterexample_id": "min-f21ddb104d18",
         "shrink_steps": 0
       }
     },

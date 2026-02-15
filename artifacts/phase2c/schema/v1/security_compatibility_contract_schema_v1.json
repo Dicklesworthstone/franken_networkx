@@ -55,7 +55,10 @@
   "optional_threat_classes": [
     "algorithmic_complexity_dos",
     "attribute_confusion",
-    "backend_route_ambiguity"
+    "backend_route_ambiguity",
+    "provenance_spoofing",
+    "policy_bypass",
+    "source_contamination_ambiguity"
   ],
   "hardened_deviation_allowlist_categories": [
     "bounded_diagnostic_enrichment",
@@ -100,6 +103,9 @@
   "required_high_risk_threat_classes": [
     "algorithmic_complexity_dos",
     "attribute_confusion",
-    "backend_route_ambiguity"
+    "backend_route_ambiguity",
+    "provenance_spoofing",
+    "policy_bypass",
+    "source_contamination_ambiguity"
   ]
 }

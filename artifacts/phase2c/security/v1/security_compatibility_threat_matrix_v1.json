@@ -65,6 +65,18 @@
           ],
           "evidence_artifact": "artifacts/phase2c/FNX-P2C-001/contract_table.md",
           "drift_gate": "graph-core-threat-gate"
+        },
+        {
+          "threat_class": "provenance_spoofing",
+          "strict_mode_response": "Fail-closed when provenance anchors, signer identity, or lineage links are forged.",
+          "hardened_mode_response": "Reject forged provenance claims, emit deterministic contamination incident report, and block execution.",
+          "mitigations": [
+            "signed lineage envelope verification",
+            "anchor hash validation against allowlisted source manifests",
+            "forged lineage adversarial replay fixtures"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-001/risk_note.md",
+          "drift_gate": "graph-core-threat-gate"
         }
       ]
     },
@@ -206,6 +218,18 @@
             "route drift tests"
           ],
           "evidence_artifact": "artifacts/phase2c/FNX-P2C-003/contract_table.md",
+          "drift_gate": "dispatch-threat-gate"
+        },
+        {
+          "threat_class": "policy_bypass",
+          "strict_mode_response": "Fail-closed on any attempt to bypass signed policy constraints or unsafe-code prohibitions.",
+          "hardened_mode_response": "Ignore unauthorized overrides, emit deterministic policy-bypass incident evidence, and halt route execution.",
+          "mitigations": [
+            "policy signature verification",
+            "immutable enforcement toggle registry",
+            "override injection adversarial fixtures"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-003/risk_note.md",
           "drift_gate": "dispatch-threat-gate"
         }
       ]
@@ -644,6 +668,18 @@
             "determinism verification tests"
           ],
           "evidence_artifact": "artifacts/phase2c/FNX-P2C-009/contract_table.md",
+          "drift_gate": "conformance-threat-gate"
+        },
+        {
+          "threat_class": "source_contamination_ambiguity",
+          "strict_mode_response": "Fail-closed on ambiguous or mixed-origin fixture/oracle lineage claims.",
+          "hardened_mode_response": "Quarantine contaminated fixture bundles, emit deterministic contamination proofs, and reject comparator execution.",
+          "mitigations": [
+            "source lineage envelope checks",
+            "fixture-oracle provenance pairing validation",
+            "mixed-lineage adversarial replay corpus"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-009/risk_note.md",
           "drift_gate": "conformance-threat-gate"
         }
       ]

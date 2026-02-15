@@ -18,7 +18,10 @@
   "high_risk_classes": [
     "algorithmic_complexity_dos",
     "attribute_confusion",
-    "backend_route_ambiguity"
+    "backend_route_ambiguity",
+    "provenance_spoofing",
+    "policy_bypass",
+    "source_contamination_ambiguity"
   ],
   "threat_taxonomy": [
     {
@@ -165,6 +168,45 @@
       "packet_gate_mappings": [
         { "packet_id": "FNX-P2C-005", "validation_gate": "shortest-path-threat-gate", "generator_variant": "shortest_path_lollipop_and_barbell_stressor", "seed": 8105, "expected_failure_mode": "fail_closed_complexity_budget_exceeded" },
         { "packet_id": "FNX-P2C-007", "validation_gate": "generator-threat-gate", "generator_variant": "generator_dense_random_stressor", "seed": 8107, "expected_failure_mode": "fail_closed_complexity_budget_exceeded" }
+      ]
+    },
+    {
+      "threat_class": "provenance_spoofing",
+      "security_focus": "provenance_integrity",
+      "generator_profile": "provenance_mutator::forged_anchor_and_lineage_claims",
+      "seed_policy": {
+        "class_seed": 9100,
+        "rotation": "fixed"
+      },
+      "expected_failure_mode": "fail_closed_on_forged_lineage_or_unsigned_anchor_claims",
+      "packet_gate_mappings": [
+        { "packet_id": "FNX-P2C-001", "validation_gate": "graph-core-threat-gate", "generator_variant": "graph_core_forged_legacy_anchor_payload", "seed": 9101, "expected_failure_mode": "fail_closed_provenance_spoofing" }
+      ]
+    },
+    {
+      "threat_class": "policy_bypass",
+      "security_focus": "policy_enforcement_integrity",
+      "generator_profile": "policy_mutator::unsafe_toggle_and_override_attempts",
+      "seed_policy": {
+        "class_seed": 9200,
+        "rotation": "fixed"
+      },
+      "expected_failure_mode": "fail_closed_on_policy_override_or_unauthorized_unsafe_enablement",
+      "packet_gate_mappings": [
+        { "packet_id": "FNX-P2C-003", "validation_gate": "dispatch-threat-gate", "generator_variant": "dispatch_policy_override_injection", "seed": 9203, "expected_failure_mode": "fail_closed_policy_bypass" }
+      ]
+    },
+    {
+      "threat_class": "source_contamination_ambiguity",
+      "security_focus": "clean_room_contamination_resistance",
+      "generator_profile": "lineage_mutator::mixed_source_and_oracle_crosslink_conflicts",
+      "seed_policy": {
+        "class_seed": 9300,
+        "rotation": "fixed"
+      },
+      "expected_failure_mode": "fail_closed_on_ambiguous_source_lineage_or_oracle_contamination",
+      "packet_gate_mappings": [
+        { "packet_id": "FNX-P2C-009", "validation_gate": "conformance-threat-gate", "generator_variant": "conformance_mixed_source_lineage_collision", "seed": 9309, "expected_failure_mode": "fail_closed_source_contamination_ambiguity" }
       ]
     }
   ]
