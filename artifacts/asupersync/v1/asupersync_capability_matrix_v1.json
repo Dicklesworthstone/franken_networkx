@@ -1,0 +1,481 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "asupersync-capability-matrix-v1",
+  "generated_at_utc": "2026-02-15T19:23:00+00:00",
+  "baseline_comparator": "legacy_networkx/main@python3.12 + asupersync@0.2.0",
+  "capability_summary": {
+    "operation_count": 5,
+    "artifact_class_count": 5,
+    "strict_fail_closed_default": true,
+    "hardened_fail_closed_default": true
+  },
+  "integration_boundaries": {
+    "owning_crate": "fnx-runtime",
+    "feature_gate": "asupersync-integration",
+    "allowed_runtime_crates": [
+      "fnx-runtime",
+      "fnx-durability",
+      "fnx-conformance"
+    ],
+    "forbidden_algorithm_crates": [
+      "fnx-classes",
+      "fnx-views",
+      "fnx-algorithms",
+      "fnx-dispatch",
+      "fnx-convert",
+      "fnx-generators",
+      "fnx-readwrite"
+    ],
+    "boundary_rule": "asupersync calls are isolated to runtime/durability surfaces; algorithm-family crates must not directly depend on asupersync primitives."
+  },
+  "capability_matrix": [
+    {
+      "operation_id": "ASUP-CAP-001",
+      "artifact_class": "conformance_fixture_bundle",
+      "description": "Replicate deterministic conformance fixture bundles and integrity metadata.",
+      "asupersync_primitives": [
+        "asupersync::remote::sync_manifest",
+        "asupersync::remote::resume_transfer",
+        "asupersync::checksum::verify_blake3"
+      ],
+      "strict_mode_behavior": {
+        "mode": "strict",
+        "execution_policy": "run deterministic manifest sync and abort on first unsupported capability.",
+        "unsupported_capability_policy": "fail_closed",
+        "deterministic_replay_requirement": "transfer_id + seed + replay_command must be emitted before remote side effects.",
+        "fallback_behavior": "abort_sync_with_reason_code"
+      },
+      "hardened_mode_behavior": {
+        "mode": "hardened",
+        "execution_policy": "allow bounded retry/resume for transient transport faults while preserving deterministic artifact identity.",
+        "unsupported_capability_policy": "fail_closed",
+        "deterministic_replay_requirement": "all retries must preserve transfer_id, artifact_id, and replay metadata.",
+        "fallback_behavior": "bounded_recovery_then_abort_sync_with_reason_code"
+      },
+      "fail_closed_contract": {
+        "default_action": "abort_sync",
+        "reason_codes": [
+          "unsupported_capability",
+          "capability_mismatch",
+          "integrity_precheck_failed"
+        ],
+        "escalation_path": "emit structured log + link forensics bundle + block promotion gates"
+      },
+      "integration_boundary": {
+        "owning_crate": "fnx-runtime",
+        "allowed_crates": [
+          "fnx-runtime",
+          "fnx-durability",
+          "fnx-conformance"
+        ],
+        "forbidden_crates": [
+          "fnx-classes",
+          "fnx-views",
+          "fnx-algorithms",
+          "fnx-dispatch",
+          "fnx-convert",
+          "fnx-generators",
+          "fnx-readwrite"
+        ],
+        "notes": "No algorithm crate is allowed to import asupersync directly."
+      },
+      "test_bindings": [
+        {
+          "test_id": "ASUP-TST-UNIT-001",
+          "layer": "unit",
+          "artifact_path": "crates/fnx-runtime/src/lib.rs",
+          "replay_command": "rch exec -- cargo test -p fnx-runtime -- --nocapture"
+        },
+        {
+          "test_id": "ASUP-TST-E2E-001",
+          "layer": "e2e",
+          "artifact_path": "crates/fnx-conformance/tests/e2e_scenario_matrix_gate.rs",
+          "replay_command": "rch exec -- cargo test -p fnx-conformance --test e2e_scenario_matrix_gate -- --nocapture"
+        }
+      ],
+      "telemetry_fields": [
+        "transfer_id",
+        "artifact_id",
+        "artifact_class",
+        "mode",
+        "primitive",
+        "attempt",
+        "outcome",
+        "reason_code",
+        "seed",
+        "replay_command",
+        "env_fingerprint",
+        "duration_ms"
+      ]
+    },
+    {
+      "operation_id": "ASUP-CAP-002",
+      "artifact_class": "benchmark_baseline_bundle",
+      "description": "Replicate benchmark baseline bundles used for perf regression decisions.",
+      "asupersync_primitives": [
+        "asupersync::remote::sync_manifest",
+        "asupersync::replication::reconcile_epoch",
+        "asupersync::checksum::verify_blake3"
+      ],
+      "strict_mode_behavior": {
+        "mode": "strict",
+        "execution_policy": "accept only epoch-consistent baseline upload/download and fail on any schema drift.",
+        "unsupported_capability_policy": "fail_closed",
+        "deterministic_replay_requirement": "replay metadata must pin baseline id, seed, and env fingerprint.",
+        "fallback_behavior": "abort_sync_with_reason_code"
+      },
+      "hardened_mode_behavior": {
+        "mode": "hardened",
+        "execution_policy": "perform bounded reconcile attempts before terminal fail-closed decision.",
+        "unsupported_capability_policy": "fail_closed",
+        "deterministic_replay_requirement": "reconcile attempts must preserve artifact identity and monotonic attempt index.",
+        "fallback_behavior": "bounded_recovery_then_abort_sync_with_reason_code"
+      },
+      "fail_closed_contract": {
+        "default_action": "abort_sync",
+        "reason_codes": [
+          "unsupported_capability",
+          "capability_mismatch",
+          "integrity_precheck_failed"
+        ],
+        "escalation_path": "emit structured log + block performance promotion + attach forensics index"
+      },
+      "integration_boundary": {
+        "owning_crate": "fnx-runtime",
+        "allowed_crates": [
+          "fnx-runtime",
+          "fnx-durability",
+          "fnx-conformance"
+        ],
+        "forbidden_crates": [
+          "fnx-classes",
+          "fnx-views",
+          "fnx-algorithms",
+          "fnx-dispatch",
+          "fnx-convert",
+          "fnx-generators",
+          "fnx-readwrite"
+        ],
+        "notes": "Perf baseline transport is runtime-owned and not algorithm-owned."
+      },
+      "test_bindings": [
+        {
+          "test_id": "ASUP-TST-DIFF-001",
+          "layer": "differential",
+          "artifact_path": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+          "replay_command": "rch exec -- cargo test -p fnx-conformance --test phase2c_packet_readiness_gate -- --nocapture"
+        },
+        {
+          "test_id": "ASUP-TST-E2E-002",
+          "layer": "e2e",
+          "artifact_path": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json",
+          "replay_command": "rch exec -- cargo test -p fnx-conformance --test e2e_scenario_matrix_gate -- --nocapture"
+        }
+      ],
+      "telemetry_fields": [
+        "transfer_id",
+        "artifact_id",
+        "artifact_class",
+        "mode",
+        "primitive",
+        "attempt",
+        "outcome",
+        "reason_code",
+        "seed",
+        "replay_command",
+        "env_fingerprint",
+        "duration_ms"
+      ]
+    },
+    {
+      "operation_id": "ASUP-CAP-003",
+      "artifact_class": "migration_manifest",
+      "description": "Replicate migration manifests that define deterministic upgrade/recovery ordering.",
+      "asupersync_primitives": [
+        "asupersync::remote::sync_manifest",
+        "asupersync::remote::resume_transfer",
+        "asupersync::checksum::verify_blake3"
+      ],
+      "strict_mode_behavior": {
+        "mode": "strict",
+        "execution_policy": "allow transfer only when manifest schema hash exactly matches expected contract.",
+        "unsupported_capability_policy": "fail_closed",
+        "deterministic_replay_requirement": "manifest hash and replay command must be logged before commit.",
+        "fallback_behavior": "abort_sync_with_reason_code"
+      },
+      "hardened_mode_behavior": {
+        "mode": "hardened",
+        "execution_policy": "bounded retry for transient transport while retaining strict schema hash acceptance.",
+        "unsupported_capability_policy": "fail_closed",
+        "deterministic_replay_requirement": "retry path cannot mutate manifest identity or schema hash.",
+        "fallback_behavior": "bounded_recovery_then_abort_sync_with_reason_code"
+      },
+      "fail_closed_contract": {
+        "default_action": "abort_sync",
+        "reason_codes": [
+          "unsupported_capability",
+          "capability_mismatch",
+          "integrity_precheck_failed"
+        ],
+        "escalation_path": "emit structured log + open migration incident bundle + gate deployment"
+      },
+      "integration_boundary": {
+        "owning_crate": "fnx-runtime",
+        "allowed_crates": [
+          "fnx-runtime",
+          "fnx-durability",
+          "fnx-conformance"
+        ],
+        "forbidden_crates": [
+          "fnx-classes",
+          "fnx-views",
+          "fnx-algorithms",
+          "fnx-dispatch",
+          "fnx-convert",
+          "fnx-generators",
+          "fnx-readwrite"
+        ],
+        "notes": "Migration policy remains outside algorithm crate call graphs."
+      },
+      "test_bindings": [
+        {
+          "test_id": "ASUP-TST-UNIT-002",
+          "layer": "unit",
+          "artifact_path": "artifacts/phase2c/schema/v1/artifact_contract_schema_v1.json",
+          "replay_command": "rch exec -- cargo test -p fnx-conformance --test phase2c_packet_readiness_gate -- --nocapture"
+        },
+        {
+          "test_id": "ASUP-TST-DIFF-002",
+          "layer": "differential",
+          "artifact_path": "artifacts/phase2c/latest/phase2c_security_contract_validation_v1.json",
+          "replay_command": "rch exec -- cargo test -p fnx-conformance --test phase2c_packet_readiness_gate -- --nocapture"
+        }
+      ],
+      "telemetry_fields": [
+        "transfer_id",
+        "artifact_id",
+        "artifact_class",
+        "mode",
+        "primitive",
+        "attempt",
+        "outcome",
+        "reason_code",
+        "seed",
+        "replay_command",
+        "env_fingerprint",
+        "duration_ms"
+      ]
+    },
+    {
+      "operation_id": "ASUP-CAP-004",
+      "artifact_class": "reproducibility_ledger",
+      "description": "Replicate reproducibility ledgers used by parity and security gates.",
+      "asupersync_primitives": [
+        "asupersync::remote::sync_manifest",
+        "asupersync::replication::reconcile_epoch",
+        "asupersync::checksum::verify_blake3"
+      ],
+      "strict_mode_behavior": {
+        "mode": "strict",
+        "execution_policy": "enforce strict hash equality and deterministic ordering of ledger shards.",
+        "unsupported_capability_policy": "fail_closed",
+        "deterministic_replay_requirement": "ledger hash id and replay command must be emitted atomically.",
+        "fallback_behavior": "abort_sync_with_reason_code"
+      },
+      "hardened_mode_behavior": {
+        "mode": "hardened",
+        "execution_policy": "allow bounded retry for transient network faults without changing ledger ordering.",
+        "unsupported_capability_policy": "fail_closed",
+        "deterministic_replay_requirement": "all retries preserve shard order and transfer identifiers.",
+        "fallback_behavior": "bounded_recovery_then_abort_sync_with_reason_code"
+      },
+      "fail_closed_contract": {
+        "default_action": "abort_sync",
+        "reason_codes": [
+          "unsupported_capability",
+          "capability_mismatch",
+          "integrity_precheck_failed"
+        ],
+        "escalation_path": "emit structured log + attach reproducibility failure bundle + hold release gate"
+      },
+      "integration_boundary": {
+        "owning_crate": "fnx-runtime",
+        "allowed_crates": [
+          "fnx-runtime",
+          "fnx-durability",
+          "fnx-conformance"
+        ],
+        "forbidden_crates": [
+          "fnx-classes",
+          "fnx-views",
+          "fnx-algorithms",
+          "fnx-dispatch",
+          "fnx-convert",
+          "fnx-generators",
+          "fnx-readwrite"
+        ],
+        "notes": "Ledger replication is observability infrastructure and must remain decoupled from algorithm implementation crates."
+      },
+      "test_bindings": [
+        {
+          "test_id": "ASUP-TST-DIFF-003",
+          "layer": "differential",
+          "artifact_path": "artifacts/conformance/latest/structured_logs.jsonl",
+          "replay_command": "rch exec -- cargo test -p fnx-conformance --test phase2c_packet_readiness_gate -- --nocapture"
+        },
+        {
+          "test_id": "ASUP-TST-E2E-003",
+          "layer": "e2e",
+          "artifact_path": "artifacts/e2e/latest/e2e_scenario_matrix_steps_v1.jsonl",
+          "replay_command": "rch exec -- cargo test -p fnx-conformance --test e2e_scenario_matrix_gate -- --nocapture"
+        }
+      ],
+      "telemetry_fields": [
+        "transfer_id",
+        "artifact_id",
+        "artifact_class",
+        "mode",
+        "primitive",
+        "attempt",
+        "outcome",
+        "reason_code",
+        "seed",
+        "replay_command",
+        "env_fingerprint",
+        "duration_ms"
+      ]
+    },
+    {
+      "operation_id": "ASUP-CAP-005",
+      "artifact_class": "long_lived_state_snapshot",
+      "description": "Replicate long-lived snapshots and prove deterministic decode/recovery handoff.",
+      "asupersync_primitives": [
+        "asupersync::remote::sync_manifest",
+        "asupersync::remote::resume_transfer",
+        "asupersync::raptorq::decode_proof"
+      ],
+      "strict_mode_behavior": {
+        "mode": "strict",
+        "execution_policy": "require decode-proof capability before accepting snapshot transfer.",
+        "unsupported_capability_policy": "fail_closed",
+        "deterministic_replay_requirement": "decode proof id + transfer metadata must be emitted for all successful recoveries.",
+        "fallback_behavior": "abort_sync_with_reason_code"
+      },
+      "hardened_mode_behavior": {
+        "mode": "hardened",
+        "execution_policy": "bounded retries for transport faults, but decode-proof capability remains mandatory.",
+        "unsupported_capability_policy": "fail_closed",
+        "deterministic_replay_requirement": "retry attempts must preserve snapshot lineage id and decode-proof references.",
+        "fallback_behavior": "bounded_recovery_then_abort_sync_with_reason_code"
+      },
+      "fail_closed_contract": {
+        "default_action": "abort_sync",
+        "reason_codes": [
+          "unsupported_capability",
+          "capability_mismatch",
+          "integrity_precheck_failed"
+        ],
+        "escalation_path": "emit structured log + attach decode-proof recovery artifact + block restoration promotion"
+      },
+      "integration_boundary": {
+        "owning_crate": "fnx-runtime",
+        "allowed_crates": [
+          "fnx-runtime",
+          "fnx-durability",
+          "fnx-conformance"
+        ],
+        "forbidden_crates": [
+          "fnx-classes",
+          "fnx-views",
+          "fnx-algorithms",
+          "fnx-dispatch",
+          "fnx-convert",
+          "fnx-generators",
+          "fnx-readwrite"
+        ],
+        "notes": "Snapshot durability path is runtime/durability concern only."
+      },
+      "test_bindings": [
+        {
+          "test_id": "ASUP-TST-UNIT-003",
+          "layer": "unit",
+          "artifact_path": "artifacts/conformance/latest/durability_pipeline_report.json",
+          "replay_command": "rch exec -- cargo test -p fnx-conformance --test asupersync_capability_matrix_gate -- --nocapture"
+        },
+        {
+          "test_id": "ASUP-TST-E2E-004",
+          "layer": "e2e",
+          "artifact_path": "artifacts/clean/latest/clean_compliance_audit_log_v1.json",
+          "replay_command": "rch exec -- cargo test -p fnx-conformance --test asupersync_capability_matrix_gate -- --nocapture"
+        }
+      ],
+      "telemetry_fields": [
+        "transfer_id",
+        "artifact_id",
+        "artifact_class",
+        "mode",
+        "primitive",
+        "attempt",
+        "outcome",
+        "reason_code",
+        "seed",
+        "replay_command",
+        "env_fingerprint",
+        "duration_ms"
+      ]
+    }
+  ],
+  "decision_theoretic_runtime_contract": {
+    "states": [
+      "idle",
+      "capability_check",
+      "syncing",
+      "verifying",
+      "recovering",
+      "failed_closed",
+      "completed"
+    ],
+    "actions": [
+      "start_sync",
+      "resume_sync",
+      "verify_integrity",
+      "emit_forensics",
+      "enter_safe_mode",
+      "abort_sync"
+    ],
+    "loss_model": "Minimize expected parity loss and unrecoverable artifact divergence while enforcing deterministic replay guarantees.",
+    "loss_budget": {
+      "max_expected_loss": 0.03,
+      "max_replay_loss": 0.0,
+      "max_data_loss": 0.0
+    },
+    "safe_mode_fallback": {
+      "trigger_thresholds": {
+        "max_retry_count": 2,
+        "max_checksum_failures": 1,
+        "max_clock_skew_ms": 250
+      },
+      "fallback_action": "switch to local read-only artifact path and fail-closed all remote writes",
+      "budgeted_recovery_window_ms": 30000
+    }
+  },
+  "profile_first_artifacts": {
+    "baseline": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+    "hotspot": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+    "delta": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+  },
+  "alien_uplift_contract_card": {
+    "ev_score": 2.37,
+    "chosen_baseline": "legacy_networkx/main@python3.12",
+    "expected_value_statement": "Explicit fail-closed capability contracts reduce integration drift risk while preserving deterministic recovery evidence."
+  },
+  "isomorphism_proof_artifacts": [
+    "artifacts/perf/phase2c/isomorphism_harness_report_v1.json",
+    "artifacts/perf/phase2c/isomorphism_golden_signatures_v1.json"
+  ],
+  "structured_logging_evidence": [
+    "artifacts/conformance/latest/structured_logs.jsonl",
+    "artifacts/e2e/latest/e2e_scenario_matrix_steps_v1.jsonl",
+    "artifacts/clean/latest/clean_compliance_audit_log_v1.json"
+  ]
+}
