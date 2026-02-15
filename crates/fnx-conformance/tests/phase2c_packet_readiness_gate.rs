@@ -731,3 +731,228 @@ fn adversarial_seed_ledger_is_deterministic_and_replayable() {
         );
     }
 }
+
+#[test]
+fn adversarial_crash_triage_and_promotion_pipeline_is_machine_auditable() {
+    let root = repo_root();
+    let seed_ledger =
+        load_json(&root.join("artifacts/phase2c/security/v1/adversarial_seed_ledger_v1.json"));
+    let triage_report =
+        load_json(&root.join("artifacts/phase2c/latest/adversarial_crash_triage_report_v1.json"));
+    let promotion_queue = load_json(
+        &root.join("artifacts/phase2c/latest/adversarial_regression_promotion_queue_v1.json"),
+    );
+    let fixture_bundle =
+        load_json(&root.join(
+            "crates/fnx-conformance/fixtures/generated/adversarial_regression_bundle_v1.json",
+        ));
+
+    assert_eq!(
+        triage_report["status"]
+            .as_str()
+            .expect("triage report status should be string"),
+        "pass"
+    );
+
+    let seed_entries = seed_ledger["entries"]
+        .as_array()
+        .expect("seed ledger entries should be array");
+    let seed_entry_count = seed_ledger["entry_count"]
+        .as_u64()
+        .expect("seed ledger entry_count should be u64") as usize;
+    assert_eq!(
+        seed_entry_count,
+        seed_entries.len(),
+        "seed ledger entry_count mismatch"
+    );
+
+    let triage_events_path =
+        root.join("artifacts/phase2c/latest/adversarial_crash_triage_events_v1.jsonl");
+    let triage_events_raw =
+        fs::read_to_string(&triage_events_path).expect("triage events jsonl should be readable");
+    let triage_events = triage_events_raw
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| serde_json::from_str::<Value>(line).expect("triage event row should be json"))
+        .collect::<Vec<_>>();
+    let triage_count = triage_report["triage_count"]
+        .as_u64()
+        .expect("triage report triage_count should be u64") as usize;
+    assert_eq!(
+        triage_count, seed_entry_count,
+        "triage count must match seed count"
+    );
+    assert_eq!(
+        triage_events.len(),
+        triage_count,
+        "triage events row count must match triage report"
+    );
+
+    let seed_fixture_hashes = seed_entries
+        .iter()
+        .map(|entry| {
+            entry["fixture_hash_id"]
+                .as_str()
+                .expect("seed entry fixture_hash_id should be string")
+                .to_owned()
+        })
+        .collect::<BTreeSet<_>>();
+
+    let mut triage_ids = BTreeSet::new();
+    let mut fixture_ids = BTreeSet::new();
+    for triage_event in &triage_events {
+        for key in [
+            "triage_id",
+            "packet_id",
+            "owner_bead_id",
+            "threat_class",
+            "severity_tag",
+            "failure_classification",
+            "fixture_hash_id",
+            "seed",
+            "validation_gate",
+            "generator_variant",
+            "triage_status",
+            "routing_tags",
+            "replay_command",
+            "regression_fixture_id",
+            "promotion_action",
+        ] {
+            assert!(
+                triage_event.get(key).is_some(),
+                "triage event missing key `{key}`"
+            );
+        }
+        let triage_id = triage_event["triage_id"]
+            .as_str()
+            .expect("triage_event triage_id should be string")
+            .to_owned();
+        let severity = triage_event["severity_tag"]
+            .as_str()
+            .expect("triage_event severity_tag should be string");
+        let owner_bead = triage_event["owner_bead_id"]
+            .as_str()
+            .expect("triage_event owner_bead_id should be string");
+        let fixture_hash_id = triage_event["fixture_hash_id"]
+            .as_str()
+            .expect("triage_event fixture_hash_id should be string");
+        let replay_command = triage_event["replay_command"]
+            .as_str()
+            .expect("triage_event replay_command should be string");
+        let regression_fixture_id = triage_event["regression_fixture_id"]
+            .as_str()
+            .expect("triage_event regression_fixture_id should be string")
+            .to_owned();
+
+        assert!(
+            ["critical", "high", "medium", "low"].contains(&severity),
+            "unsupported severity_tag `{severity}`"
+        );
+        assert!(
+            owner_bead.starts_with("bd-315."),
+            "triage_event owner_bead_id should route to packet owner bead"
+        );
+        assert_eq!(
+            triage_event["triage_status"]
+                .as_str()
+                .expect("triage_event triage_status should be string"),
+            "confirmed_regression_candidate"
+        );
+        assert!(
+            seed_fixture_hashes.contains(fixture_hash_id),
+            "triage_event fixture_hash_id must exist in seed ledger"
+        );
+        assert!(
+            replay_command.contains("run_adversarial_seed_harness.py"),
+            "triage_event replay_command should support single-command replay"
+        );
+
+        let routing_tags = triage_event["routing_tags"]
+            .as_array()
+            .expect("triage_event routing_tags should be array");
+        assert!(
+            !routing_tags.is_empty(),
+            "triage_event routing_tags should be non-empty"
+        );
+        triage_ids.insert(triage_id);
+        fixture_ids.insert(regression_fixture_id);
+    }
+
+    let promotion_entries = promotion_queue["entries"]
+        .as_array()
+        .expect("promotion queue entries should be array");
+    assert_eq!(
+        promotion_queue["entry_count"]
+            .as_u64()
+            .expect("promotion queue entry_count should be u64") as usize,
+        promotion_entries.len(),
+        "promotion queue entry_count mismatch"
+    );
+    assert_eq!(
+        promotion_entries.len(),
+        triage_count,
+        "promotion queue must include each triage row"
+    );
+    for promotion_entry in promotion_entries {
+        assert_eq!(
+            promotion_entry["promotion_status"]
+                .as_str()
+                .expect("promotion entry promotion_status should be string"),
+            "promoted"
+        );
+        assert!(
+            triage_ids.contains(
+                promotion_entry["source_triage_id"]
+                    .as_str()
+                    .expect("promotion entry source_triage_id should be string")
+            ),
+            "promotion entry must reference triage event source"
+        );
+        assert_eq!(
+            promotion_entry["target_fixture_bundle_path"]
+                .as_str()
+                .expect("promotion entry target fixture bundle path should be string"),
+            "crates/fnx-conformance/fixtures/generated/adversarial_regression_bundle_v1.json"
+        );
+    }
+
+    let fixtures = fixture_bundle["fixtures"]
+        .as_array()
+        .expect("fixture bundle fixtures should be array");
+    assert_eq!(
+        fixture_bundle["fixture_count"]
+            .as_u64()
+            .expect("fixture bundle fixture_count should be u64") as usize,
+        fixtures.len(),
+        "fixture bundle fixture_count mismatch"
+    );
+    assert_eq!(
+        fixtures.len(),
+        triage_count,
+        "fixture bundle must include one fixture per triage event"
+    );
+    for fixture in fixtures {
+        assert!(
+            fixture_ids.contains(
+                fixture["fixture_id"]
+                    .as_str()
+                    .expect("fixture bundle fixture_id should be string")
+            ),
+            "fixture bundle fixture_id must be sourced from triage"
+        );
+        assert!(
+            fixture["owner_bead_id"]
+                .as_str()
+                .expect("fixture bundle owner_bead_id should be string")
+                .starts_with("bd-315."),
+            "fixture bundle entries must link to packet owner beads"
+        );
+        assert!(
+            fixture["replay_command"]
+                .as_str()
+                .expect("fixture bundle replay_command should be string")
+                .contains("run_adversarial_seed_harness.py"),
+            "fixture bundle replay command must be deterministic and directly runnable"
+        );
+    }
+}
