@@ -309,7 +309,7 @@ fn e2e_scenario_matrix_oracle_contract_is_complete_and_replay_ready() {
             .as_str()
             .expect("journey_id should be string");
         assert!(
-            journey_ids.insert(journey_id),
+            journey_ids.insert(journey_id.to_owned()),
             "journey_id values should be unique"
         );
         for key in &required_journey_keys {
@@ -359,6 +359,12 @@ fn e2e_scenario_matrix_oracle_contract_is_complete_and_replay_ready() {
     let coverage = artifact["coverage_manifest"]
         .as_object()
         .expect("coverage_manifest should be object");
+    for key in required_string_array(&schema, "required_coverage_keys") {
+        assert!(
+            coverage.get(key).is_some(),
+            "coverage_manifest missing key `{key}`"
+        );
+    }
     let manifest_inventory = coverage["fixture_inventory"]
         .as_array()
         .expect("coverage_manifest.fixture_inventory should be array")
@@ -395,6 +401,344 @@ fn e2e_scenario_matrix_oracle_contract_is_complete_and_replay_ready() {
     assert!(
         manifest_uncovered.is_empty(),
         "coverage_manifest.uncovered_fixture_ids should be empty"
+    );
+
+    let required_workflow_categories =
+        required_string_array(&schema, "required_workflow_categories")
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<BTreeSet<_>>();
+    let user_workflow_corpus = artifact["user_workflow_corpus"]
+        .as_object()
+        .expect("user_workflow_corpus should be object");
+    for key in required_string_array(&schema, "required_user_workflow_corpus_keys") {
+        assert!(
+            user_workflow_corpus.get(key).is_some(),
+            "user_workflow_corpus missing key `{key}`"
+        );
+    }
+    let golden_journey_ids = user_workflow_corpus["golden_journey_ids"]
+        .as_array()
+        .expect("user_workflow_corpus.golden_journey_ids should be array")
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .expect("golden_journey_ids entry should be string")
+                .to_owned()
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        golden_journey_ids, journey_ids,
+        "user_workflow_corpus.golden_journey_ids should exactly match journey IDs"
+    );
+    let workflow_required_categories = user_workflow_corpus["required_categories"]
+        .as_array()
+        .expect("user_workflow_corpus.required_categories should be array")
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .expect("required_categories entry should be string")
+                .to_owned()
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        workflow_required_categories, required_workflow_categories,
+        "user_workflow_corpus.required_categories drifted from schema"
+    );
+    let scenario_log_report_path = user_workflow_corpus["scenario_log_report"]
+        .as_str()
+        .expect("user_workflow_corpus.scenario_log_report should be string");
+    assert_path(
+        scenario_log_report_path,
+        "user_workflow_corpus.scenario_log_report",
+        &root,
+    );
+
+    let journey_coverage_hooks = artifact["journey_coverage_hooks"]
+        .as_array()
+        .expect("journey_coverage_hooks should be array");
+    assert_eq!(
+        journey_coverage_hooks.len(),
+        journeys.len(),
+        "journey_coverage_hooks should have one entry per journey"
+    );
+    let required_journey_coverage_hook_keys =
+        required_string_array(&schema, "required_journey_coverage_hook_keys");
+    let required_hook_entry_keys = required_string_array(&schema, "required_hook_entry_keys");
+
+    let mut mapped_hook_journey_ids = BTreeSet::new();
+    let mut mapped_hook_scenario_ids = BTreeSet::new();
+    let mut observed_hook_categories = BTreeSet::new();
+    let mut observed_hook_report_refs = BTreeSet::new();
+
+    for (hook_idx, hook) in journey_coverage_hooks.iter().enumerate() {
+        for key in &required_journey_coverage_hook_keys {
+            assert!(
+                hook.get(*key).is_some(),
+                "journey_coverage_hooks[{hook_idx}] missing key `{key}`"
+            );
+        }
+        let journey_id = hook["journey_id"]
+            .as_str()
+            .expect("journey_coverage_hooks[].journey_id should be string");
+        assert!(
+            journey_ids.contains(journey_id),
+            "journey_coverage_hooks[{hook_idx}] references unknown journey_id {journey_id}"
+        );
+        assert!(
+            mapped_hook_journey_ids.insert(journey_id.to_owned()),
+            "duplicate journey_id in journey_coverage_hooks: {journey_id}"
+        );
+
+        let scenario_id = hook["scenario_id"]
+            .as_str()
+            .expect("journey_coverage_hooks[].scenario_id should be string");
+        assert!(
+            !scenario_id.trim().is_empty(),
+            "journey_coverage_hooks[{hook_idx}].scenario_id should be non-empty"
+        );
+        assert!(
+            scenario_id.starts_with("WF-"),
+            "journey_coverage_hooks[{hook_idx}].scenario_id should start with WF-"
+        );
+        assert!(
+            scenario_id
+                .chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '-'),
+            "journey_coverage_hooks[{hook_idx}].scenario_id should be stable ASCII token format"
+        );
+        assert!(
+            mapped_hook_scenario_ids.insert(scenario_id.to_owned()),
+            "duplicate scenario_id in journey_coverage_hooks: {scenario_id}"
+        );
+
+        let category = hook["category"]
+            .as_str()
+            .expect("journey_coverage_hooks[].category should be string");
+        assert!(
+            required_workflow_categories.contains(category),
+            "journey_coverage_hooks[{hook_idx}] category `{category}` outside required set"
+        );
+        observed_hook_categories.insert(category.to_owned());
+
+        for hook_set_key in ["unit_hooks", "differential_hooks", "e2e_hooks"] {
+            let hook_set = hook[hook_set_key].as_array().unwrap_or_else(|| {
+                panic!("journey_coverage_hooks[{hook_idx}].{hook_set_key} should be array")
+            });
+            assert!(
+                !hook_set.is_empty(),
+                "journey_coverage_hooks[{hook_idx}].{hook_set_key} should be non-empty"
+            );
+            for (entry_idx, entry) in hook_set.iter().enumerate() {
+                for key in &required_hook_entry_keys {
+                    assert!(
+                        entry.get(*key).is_some(),
+                        "journey_coverage_hooks[{hook_idx}].{hook_set_key}[{entry_idx}] missing key `{key}`"
+                    );
+                }
+                let hook_id = entry["hook_id"]
+                    .as_str()
+                    .expect("hook entry hook_id should be string");
+                assert!(
+                    !hook_id.trim().is_empty(),
+                    "journey_coverage_hooks[{hook_idx}].{hook_set_key}[{entry_idx}].hook_id should be non-empty"
+                );
+                let command = entry["command"]
+                    .as_str()
+                    .expect("hook entry command should be string");
+                assert!(
+                    !command.trim().is_empty(),
+                    "journey_coverage_hooks[{hook_idx}].{hook_set_key}[{entry_idx}].command should be non-empty"
+                );
+                assert!(
+                    command.contains("rch exec --"),
+                    "journey_coverage_hooks[{hook_idx}].{hook_set_key}[{entry_idx}] command should use rch offload"
+                );
+                let artifact_ref = entry["artifact_ref"]
+                    .as_str()
+                    .expect("hook entry artifact_ref should be string");
+                assert_path(
+                    artifact_ref,
+                    &format!(
+                        "journey_coverage_hooks[{hook_idx}].{hook_set_key}[{entry_idx}].artifact_ref"
+                    ),
+                    &root,
+                );
+            }
+        }
+
+        let report_refs = hook["report_refs"]
+            .as_array()
+            .expect("journey_coverage_hooks[].report_refs should be array");
+        assert!(
+            !report_refs.is_empty(),
+            "journey_coverage_hooks[{hook_idx}].report_refs should be non-empty"
+        );
+        for (report_idx, report_ref) in report_refs.iter().enumerate() {
+            let report_ref = report_ref.as_str().unwrap_or_else(|| {
+                panic!(
+                    "journey_coverage_hooks[{hook_idx}].report_refs[{report_idx}] should be string"
+                )
+            });
+            assert_path(
+                report_ref,
+                &format!("journey_coverage_hooks[{hook_idx}].report_refs[{report_idx}]"),
+                &root,
+            );
+            observed_hook_report_refs.insert(report_ref.to_owned());
+        }
+    }
+    assert_eq!(
+        mapped_hook_journey_ids, journey_ids,
+        "journey_coverage_hooks journey coverage must be complete"
+    );
+    assert_eq!(
+        observed_hook_categories, required_workflow_categories,
+        "journey_coverage_hooks categories must cover required workflow categories"
+    );
+    assert!(
+        observed_hook_report_refs.contains(scenario_log_report_path),
+        "scenario_log_report should be referenced by journey_coverage_hooks.report_refs"
+    );
+
+    let scenario_log_report = load_json(&root.join(scenario_log_report_path));
+    let scenario_log_report_obj = scenario_log_report
+        .as_object()
+        .expect("scenario_log_report should be object");
+    for key in [
+        "schema_version",
+        "report_id",
+        "generated_at_utc",
+        "source_matrix_contract",
+        "source_matrix_report",
+        "source_steps_log",
+        "scenario_records",
+    ] {
+        assert!(
+            scenario_log_report_obj.get(key).is_some(),
+            "scenario_log_report missing key `{key}`"
+        );
+    }
+    let source_matrix_contract = scenario_log_report["source_matrix_contract"]
+        .as_str()
+        .expect("scenario_log_report.source_matrix_contract should be string");
+    assert_path(
+        source_matrix_contract,
+        "scenario_log_report.source_matrix_contract",
+        &root,
+    );
+    let source_matrix_report = scenario_log_report["source_matrix_report"]
+        .as_str()
+        .expect("scenario_log_report.source_matrix_report should be string");
+    assert_path(
+        source_matrix_report,
+        "scenario_log_report.source_matrix_report",
+        &root,
+    );
+    let source_steps_log = scenario_log_report["source_steps_log"]
+        .as_str()
+        .expect("scenario_log_report.source_steps_log should be string");
+    assert_path(
+        source_steps_log,
+        "scenario_log_report.source_steps_log",
+        &root,
+    );
+
+    let matrix_report = load_json(&root.join(source_matrix_report));
+    let matrix_report_scenario_ids = matrix_report["scenario_ids"]
+        .as_array()
+        .expect("matrix report scenario_ids should be array")
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .expect("matrix report scenario_id entry should be string")
+                .to_owned()
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        matrix_report_scenario_ids, mapped_hook_scenario_ids,
+        "matrix report scenario_ids should match journey_coverage_hooks scenario IDs"
+    );
+    assert_eq!(
+        matrix_report["scenario_report_path"]
+            .as_str()
+            .expect("matrix report scenario_report_path should be string"),
+        scenario_log_report_path,
+        "matrix report should point to scenario log report"
+    );
+    assert_path(
+        matrix_report["steps_log_path"]
+            .as_str()
+            .expect("matrix report steps_log_path should be string"),
+        "matrix report steps_log_path",
+        &root,
+    );
+
+    let scenario_records = scenario_log_report["scenario_records"]
+        .as_array()
+        .expect("scenario_log_report.scenario_records should be array");
+    assert_eq!(
+        scenario_records.len(),
+        mapped_hook_scenario_ids.len(),
+        "scenario_log_report should contain one record per scenario"
+    );
+    let mut scenario_report_ids = BTreeSet::new();
+    for (record_idx, record) in scenario_records.iter().enumerate() {
+        for key in ["scenario_id", "journey_id", "category", "report_refs"] {
+            assert!(
+                record.get(key).is_some(),
+                "scenario_records[{record_idx}] missing key `{key}`"
+            );
+        }
+        let scenario_id = record["scenario_id"]
+            .as_str()
+            .expect("scenario_records[].scenario_id should be string");
+        assert!(
+            mapped_hook_scenario_ids.contains(scenario_id),
+            "scenario_records[{record_idx}] unknown scenario_id {scenario_id}"
+        );
+        assert!(
+            scenario_report_ids.insert(scenario_id.to_owned()),
+            "scenario_records duplicate scenario_id {scenario_id}"
+        );
+        let journey_id = record["journey_id"]
+            .as_str()
+            .expect("scenario_records[].journey_id should be string");
+        assert!(
+            journey_ids.contains(journey_id),
+            "scenario_records[{record_idx}] unknown journey_id {journey_id}"
+        );
+        let category = record["category"]
+            .as_str()
+            .expect("scenario_records[].category should be string");
+        assert!(
+            required_workflow_categories.contains(category),
+            "scenario_records[{record_idx}] category `{category}` outside required set"
+        );
+        let report_refs = record["report_refs"]
+            .as_array()
+            .expect("scenario_records[].report_refs should be array");
+        assert!(
+            !report_refs.is_empty(),
+            "scenario_records[{record_idx}].report_refs should be non-empty"
+        );
+        for (ref_idx, report_ref) in report_refs.iter().enumerate() {
+            let report_ref = report_ref.as_str().unwrap_or_else(|| {
+                panic!("scenario_records[{record_idx}].report_refs[{ref_idx}] should be string")
+            });
+            assert_path(
+                report_ref,
+                &format!("scenario_records[{record_idx}].report_refs[{ref_idx}]"),
+                &root,
+            );
+        }
+    }
+    assert_eq!(
+        scenario_report_ids, mapped_hook_scenario_ids,
+        "scenario_log_report scenario records should cover all scenario IDs"
     );
 
     assert_eq!(

@@ -22,6 +22,30 @@
 | `J-RUNTIME-OPTIONAL` | `FNX-P2C-008` | `generated/runtime_config_optional_strict.json` | `generated/runtime_config_optional_strict.json` | `mode_override_fixture` |
 | `J-CONFORMANCE-HARNESS` | `FNX-P2C-009` | `generated/conformance_harness_strict.json` | `generated/conformance_harness_strict.json` | `mode_override_fixture` |
 
+## User Workflow Corpus
+
+- corpus_id: `fnx-user-workflow-scenario-corpus-v1`
+- corpus_version: `1.0.0`
+- scenario_log_report: `artifacts/e2e/latest/e2e_user_workflow_scenario_report_v1.json`
+- required_categories:
+  - `happy_path`
+  - `regression_path`
+  - `malformed_input_path`
+  - `degraded_environment_path`
+
+| Journey | Scenario ID | Category |
+|---|---|---|
+| `J-GRAPH-CORE` | `WF-GRAPH-CORE-001` | `happy_path` |
+| `J-VIEWS` | `WF-VIEWS-001` | `regression_path` |
+| `J-DISPATCH` | `WF-DISPATCH-001` | `regression_path` |
+| `J-CONVERT` | `WF-CONVERT-001` | `regression_path` |
+| `J-SHORTEST-PATH-COMPONENTS` | `WF-SHORTEST-PATH-COMPONENTS-001` | `happy_path` |
+| `J-CENTRALITY` | `WF-CENTRALITY-001` | `regression_path` |
+| `J-READWRITE` | `WF-READWRITE-001` | `malformed_input_path` |
+| `J-GENERATORS` | `WF-GENERATORS-001` | `happy_path` |
+| `J-RUNTIME-OPTIONAL` | `WF-RUNTIME-OPTIONAL-001` | `degraded_environment_path` |
+| `J-CONFORMANCE-HARNESS` | `WF-CONFORMANCE-HARNESS-001` | `happy_path` |
+
 ## Replay Metadata Contract
 
 | Schema Ref |

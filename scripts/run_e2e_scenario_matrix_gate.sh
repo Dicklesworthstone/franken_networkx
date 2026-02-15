@@ -7,6 +7,8 @@ cd "$ROOT_DIR"
 OUT_DIR="artifacts/e2e/latest"
 STEPS_JSONL="$OUT_DIR/e2e_scenario_matrix_steps_v1.jsonl"
 REPORT_JSON="$OUT_DIR/e2e_scenario_matrix_report_v1.json"
+SCENARIO_REPORT_JSON="$OUT_DIR/e2e_user_workflow_scenario_report_v1.json"
+ORACLE_CONTRACT_JSON="artifacts/e2e/v1/e2e_scenario_matrix_oracle_contract_v1.json"
 
 mkdir -p "$OUT_DIR"
 : > "$STEPS_JSONL"
@@ -108,15 +110,37 @@ STEP=$((STEP + 1))
 echo "[$STEP/$TOTAL_STEPS] Running targeted E2E scenario matrix gate test..."
 run_step "step-$STEP" "cargo_test_e2e_scenario_matrix_gate" "rch exec -- cargo test -q -p fnx-conformance --test e2e_scenario_matrix_gate -- --nocapture"
 
-python3 - "$STEPS_JSONL" "$REPORT_JSON" "$RUN_ID" <<'PY'
+python3 - "$STEPS_JSONL" "$REPORT_JSON" "$SCENARIO_REPORT_JSON" "$RUN_ID" "$ORACLE_CONTRACT_JSON" <<'PY'
 import json
 import sys
 from datetime import datetime, timezone
 
-steps_path, report_path, run_id = sys.argv[1:]
+steps_path, report_path, scenario_report_path, run_id, contract_path = sys.argv[1:]
 with open(steps_path, "r", encoding="utf-8") as f:
     steps = [json.loads(line) for line in f if line.strip()]
 failed = [step for step in steps if step["status"] != "passed"]
+
+with open(contract_path, "r", encoding="utf-8") as f:
+    contract = json.load(f)
+
+scenario_records = []
+journey_ids = []
+scenario_ids = []
+for hook in contract.get("journey_coverage_hooks", []):
+    journey_id = hook["journey_id"]
+    scenario_id = hook["scenario_id"]
+    category = hook["category"]
+    report_refs = hook["report_refs"]
+    journey_ids.append(journey_id)
+    scenario_ids.append(scenario_id)
+    scenario_records.append(
+        {
+            "scenario_id": scenario_id,
+            "journey_id": journey_id,
+            "category": category,
+            "report_refs": report_refs,
+        }
+    )
 
 report = {
     "schema_version": "1.0.0",
@@ -127,13 +151,30 @@ report = {
     "failed_step_count": len(failed),
     "status": "pass" if not failed else "fail",
     "steps_log_path": steps_path,
+    "scenario_report_path": scenario_report_path,
+    "journey_ids": sorted(set(journey_ids)),
+    "scenario_ids": sorted(set(scenario_ids)),
     "failed_step_ids": [step["step_id"] for step in failed],
 }
 with open(report_path, "w", encoding="utf-8") as f:
     json.dump(report, f, indent=2)
+    f.write("\n")
+
+scenario_report = {
+    "schema_version": "1.0.0",
+    "report_id": "e2e-user-workflow-scenario-report-v1",
+    "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+    "source_matrix_contract": contract_path,
+    "source_matrix_report": report_path,
+    "source_steps_log": steps_path,
+    "scenario_records": scenario_records,
+}
+with open(scenario_report_path, "w", encoding="utf-8") as f:
+    json.dump(scenario_report, f, indent=2)
     f.write("\n")
 PY
 
 echo "E2E scenario matrix gate complete:"
 echo "  steps:  $STEPS_JSONL"
 echo "  report: $REPORT_JSON"
+echo "  scenario report: $SCENARIO_REPORT_JSON"
