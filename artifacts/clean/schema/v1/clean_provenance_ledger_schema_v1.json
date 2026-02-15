@@ -1,0 +1,122 @@
+{
+  "schema_version": "1.0.0",
+  "schema_id": "clean-provenance-ledger-schema-v1",
+  "required_top_level_keys": [
+    "schema_version",
+    "artifact_id",
+    "generated_at_utc",
+    "baseline_comparator",
+    "scope_statement",
+    "separation_workflow",
+    "provenance_records",
+    "ambiguity_decisions",
+    "audit_query_index",
+    "alien_uplift_contract_card",
+    "profile_first_artifacts",
+    "decision_theoretic_runtime_contract",
+    "isomorphism_proof_artifacts",
+    "structured_logging_evidence"
+  ],
+  "required_workflow_keys": [
+    "workflow_id",
+    "principles",
+    "separation_stages",
+    "handoff_controls",
+    "policy_checks"
+  ],
+  "required_stage_keys": [
+    "stage_id",
+    "name",
+    "owner_role",
+    "inputs",
+    "outputs",
+    "must_not_modify"
+  ],
+  "required_handoff_control_keys": [
+    "control_id",
+    "description",
+    "evidence_field",
+    "enforcement"
+  ],
+  "required_record_keys": [
+    "record_id",
+    "packet_id",
+    "lineage_family",
+    "legacy_source_anchor",
+    "extracted_behavior_claim",
+    "implementation_artifact_refs",
+    "conformance_evidence_refs",
+    "handoff_boundary",
+    "reviewer_signoff",
+    "ambiguity_ref_ids",
+    "confidence_rating",
+    "lineage_prev_record_id"
+  ],
+  "required_anchor_keys": [
+    "path",
+    "lines",
+    "symbols"
+  ],
+  "required_implementation_ref_keys": [
+    "path",
+    "symbol",
+    "change_type"
+  ],
+  "required_handoff_boundary_keys": [
+    "extractor_role",
+    "implementer_role",
+    "handoff_artifact",
+    "handoff_ts_utc"
+  ],
+  "required_signoff_keys": [
+    "reviewer",
+    "signoff_ts_utc",
+    "status",
+    "notes"
+  ],
+  "required_ambiguity_decision_keys": [
+    "decision_id",
+    "record_id",
+    "ambiguity_topic",
+    "selected_policy",
+    "confidence_rating",
+    "rationale"
+  ],
+  "required_audit_query_keys": [
+    "query_id",
+    "question",
+    "record_path",
+    "expected_end_to_end_fields"
+  ],
+  "required_audit_fields": [
+    "legacy_source_anchor",
+    "extracted_behavior_claim",
+    "implementation_artifact_refs",
+    "reviewer_signoff",
+    "conformance_evidence_refs"
+  ],
+  "required_profile_artifact_keys": [
+    "baseline",
+    "hotspot",
+    "delta"
+  ],
+  "allowed_signoff_status": [
+    "approved",
+    "needs_followup"
+  ],
+  "allowed_lineage_families": [
+    "graph_core",
+    "views",
+    "dispatch",
+    "convert",
+    "algorithms",
+    "readwrite",
+    "generators",
+    "runtime",
+    "conformance"
+  ],
+  "confidence_range": {
+    "min": 0.0,
+    "max": 1.0
+  }
+}
