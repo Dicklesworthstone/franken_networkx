@@ -236,6 +236,198 @@ def validate_allowlist(
     return {"packet_count": len(packet_seen), "category_count": len(category_names)}
 
 
+def validate_adversarial_manifest(
+    contract: dict[str, Any],
+    matrix: dict[str, Any],
+    manifest: dict[str, Any],
+    errors: list[str],
+) -> dict[str, Any]:
+    start_errors = len(errors)
+    require_keys(
+        manifest,
+        contract["required_adversarial_manifest_keys"],
+        "adversarial_manifest",
+        errors,
+    )
+    if len(errors) > start_errors:
+        return {"class_count": 0, "mapping_count": 0}
+
+    if manifest["contract_id"] != contract["contract_id"]:
+        errors.append(
+            "adversarial_manifest contract_id mismatch: "
+            f"{manifest['contract_id']} != {contract['contract_id']}"
+        )
+
+    seed_policy = manifest["seed_policy"]
+    if not isinstance(seed_policy, dict):
+        errors.append("adversarial_manifest.seed_policy must be an object")
+    else:
+        require_keys(
+            seed_policy,
+            contract["adversarial_manifest_seed_policy_required_keys"],
+            "adversarial_manifest.seed_policy",
+            errors,
+        )
+        if seed_policy.get("deterministic") is not True:
+            errors.append("adversarial_manifest.seed_policy.deterministic must be true")
+        replay_fields = seed_policy.get("replay_metadata_fields")
+        if not isinstance(replay_fields, list) or not replay_fields:
+            errors.append(
+                "adversarial_manifest.seed_policy.replay_metadata_fields must be a non-empty list"
+            )
+
+    matrix_rows = ensure_list(matrix.get("packet_families", []), "matrix.packet_families", errors)
+    matrix_pairs: dict[tuple[str, str], str] = {}
+    matrix_classes: set[str] = set()
+    for packet_row in matrix_rows:
+        if not isinstance(packet_row, dict):
+            continue
+        packet_id = packet_row.get("packet_id")
+        threat_rows = packet_row.get("threats", [])
+        if not isinstance(packet_id, str):
+            continue
+        if not isinstance(threat_rows, list):
+            continue
+        for threat_row in threat_rows:
+            if not isinstance(threat_row, dict):
+                continue
+            threat_class = threat_row.get("threat_class")
+            drift_gate = threat_row.get("drift_gate")
+            if not isinstance(threat_class, str) or not isinstance(drift_gate, str):
+                continue
+            matrix_classes.add(threat_class)
+            matrix_pairs[(packet_id, threat_class)] = drift_gate
+
+    taxonomy_rows = ensure_list(
+        manifest["threat_taxonomy"], "adversarial_manifest.threat_taxonomy", errors
+    )
+    entry_required_keys = contract["adversarial_manifest_entry_required_keys"]
+    mapping_required_keys = contract["adversarial_manifest_mapping_required_keys"]
+
+    seen_classes: set[str] = set()
+    manifest_pairs: set[tuple[str, str]] = set()
+    mapping_count = 0
+
+    for taxonomy_row in taxonomy_rows:
+        if not isinstance(taxonomy_row, dict):
+            errors.append("adversarial_manifest.threat_taxonomy row must be an object")
+            continue
+        require_keys(
+            taxonomy_row,
+            entry_required_keys,
+            "adversarial_manifest threat row",
+            errors,
+        )
+        if "threat_class" not in taxonomy_row or "packet_gate_mappings" not in taxonomy_row:
+            continue
+
+        threat_class = taxonomy_row["threat_class"]
+        seen_classes.add(threat_class)
+        if threat_class not in matrix_classes:
+            errors.append(
+                f"adversarial_manifest includes unknown threat_class `{threat_class}`"
+            )
+
+        local_seed_policy = taxonomy_row.get("seed_policy")
+        if not isinstance(local_seed_policy, dict):
+            errors.append(
+                f"adversarial_manifest threat `{threat_class}` seed_policy must be an object"
+            )
+        elif not isinstance(local_seed_policy.get("class_seed"), int):
+            errors.append(
+                f"adversarial_manifest threat `{threat_class}` seed_policy.class_seed must be integer"
+            )
+
+        mappings = ensure_list(
+            taxonomy_row["packet_gate_mappings"],
+            f"adversarial_manifest threat `{threat_class}` packet_gate_mappings",
+            errors,
+        )
+        if not mappings:
+            errors.append(
+                f"adversarial_manifest threat `{threat_class}` must map to at least one packet gate"
+            )
+            continue
+
+        for mapping_row in mappings:
+            if not isinstance(mapping_row, dict):
+                errors.append(
+                    f"adversarial_manifest threat `{threat_class}` mapping row must be an object"
+                )
+                continue
+            require_keys(
+                mapping_row,
+                mapping_required_keys,
+                f"adversarial_manifest threat `{threat_class}` mapping",
+                errors,
+            )
+            if "packet_id" not in mapping_row or "validation_gate" not in mapping_row:
+                continue
+
+            packet_id = mapping_row["packet_id"]
+            validation_gate = mapping_row["validation_gate"]
+            matrix_pair = (packet_id, threat_class)
+            manifest_pairs.add(matrix_pair)
+            mapping_count += 1
+
+            if not isinstance(mapping_row.get("seed"), int):
+                errors.append(
+                    f"adversarial_manifest threat `{threat_class}` mapping `{packet_id}` seed must be integer"
+                )
+
+            expected_gate = matrix_pairs.get(matrix_pair)
+            if expected_gate is None:
+                errors.append(
+                    f"adversarial_manifest mapping `{packet_id}` + `{threat_class}` is not present in threat matrix"
+                )
+            elif validation_gate != expected_gate:
+                errors.append(
+                    "adversarial_manifest gate mismatch for "
+                    f"`{packet_id}` + `{threat_class}`: {validation_gate} != {expected_gate}"
+                )
+
+    missing_classes = sorted(matrix_classes.difference(seen_classes))
+    extra_classes = sorted(seen_classes.difference(matrix_classes))
+    if missing_classes:
+        errors.append(
+            f"adversarial_manifest missing threat classes present in matrix: {missing_classes}"
+        )
+    if extra_classes:
+        errors.append(f"adversarial_manifest includes unknown threat classes: {extra_classes}")
+
+    missing_pairs = sorted(matrix_pairs.keys() - manifest_pairs)
+    extra_pairs = sorted(manifest_pairs - matrix_pairs.keys())
+    if missing_pairs:
+        compact = [f"{packet_id}:{threat_class}" for packet_id, threat_class in missing_pairs]
+        errors.append(
+            "adversarial_manifest missing packet/threat mappings required by matrix: "
+            f"{compact}"
+        )
+    if extra_pairs:
+        compact = [f"{packet_id}:{threat_class}" for packet_id, threat_class in extra_pairs]
+        errors.append(
+            "adversarial_manifest includes packet/threat mappings absent from matrix: "
+            f"{compact}"
+        )
+
+    high_risk_raw = ensure_list(
+        manifest["high_risk_classes"], "adversarial_manifest.high_risk_classes", errors
+    )
+    declared_high_risk = {value for value in high_risk_raw if isinstance(value, str)}
+    if len(declared_high_risk) != len(high_risk_raw):
+        errors.append("adversarial_manifest.high_risk_classes entries must all be strings")
+
+    required_high_risk = set(contract["required_high_risk_threat_classes"])
+    missing_high_risk = sorted(required_high_risk.difference(declared_high_risk))
+    if missing_high_risk:
+        errors.append(
+            "adversarial_manifest missing required high-risk classes: "
+            f"{missing_high_risk}"
+        )
+
+    return {"class_count": len(seen_classes), "mapping_count": mapping_count}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -254,6 +446,11 @@ def main() -> int:
         help="Path to hardened-mode allowlist artifact",
     )
     parser.add_argument(
+        "--manifest",
+        default="artifacts/phase2c/security/v1/adversarial_corpus_manifest_v1.json",
+        help="Path to adversarial corpus manifest artifact",
+    )
+    parser.add_argument(
         "--output",
         default="",
         help="Optional path for JSON report",
@@ -263,6 +460,7 @@ def main() -> int:
     contract = load_json(Path(args.contract))
     matrix = load_json(Path(args.matrix))
     allowlist = load_json(Path(args.allowlist))
+    manifest = load_json(Path(args.manifest))
 
     errors: list[str] = []
     contract_required_keys = [
@@ -278,15 +476,22 @@ def main() -> int:
         "hardened_deviation_allowlist_categories",
         "allowlist_category_required_keys",
         "allowlist_packet_required_keys",
+        "required_adversarial_manifest_keys",
+        "adversarial_manifest_seed_policy_required_keys",
+        "adversarial_manifest_entry_required_keys",
+        "adversarial_manifest_mapping_required_keys",
+        "required_high_risk_threat_classes",
     ]
     require_keys(contract, contract_required_keys, "contract", errors)
 
     matrix_summary = {"packet_count": 0, "entry_count": 0}
     allowlist_summary = {"packet_count": 0, "category_count": 0}
+    manifest_summary = {"class_count": 0, "mapping_count": 0}
 
     if not errors:
         matrix_summary = validate_matrix(contract, matrix, errors)
         allowlist_summary = validate_allowlist(contract, allowlist, errors)
+        manifest_summary = validate_adversarial_manifest(contract, matrix, manifest, errors)
 
     report = {
         "schema_version": "1.0.0",
@@ -300,6 +505,8 @@ def main() -> int:
             "matrix_entries_validated": matrix_summary["entry_count"],
             "allowlist_packets_validated": allowlist_summary["packet_count"],
             "allowlist_categories_validated": allowlist_summary["category_count"],
+            "manifest_threat_classes_validated": manifest_summary["class_count"],
+            "manifest_mappings_validated": manifest_summary["mapping_count"],
         },
     }
 

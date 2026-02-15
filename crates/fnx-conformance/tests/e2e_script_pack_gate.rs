@@ -48,7 +48,9 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
         );
     }
     assert_eq!(
-        report["status"].as_str().expect("report status should be string"),
+        report["status"]
+            .as_str()
+            .expect("report status should be string"),
         "pass"
     );
 
@@ -126,7 +128,9 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
             );
         }
         assert_eq!(
-            event["status"].as_str().expect("event status should be string"),
+            event["status"]
+                .as_str()
+                .expect("event status should be string"),
             "passed"
         );
         let start = event["start_unix_ms"]
@@ -164,7 +168,9 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
             "duplicate event for scenario/pass pair ({scenario}, {pass_label})"
         );
 
-        let bundle_id = event["bundle_id"].as_str().expect("bundle_id should be string");
+        let bundle_id = event["bundle_id"]
+            .as_str()
+            .expect("bundle_id should be string");
         let fingerprint = event["stable_fingerprint"]
             .as_str()
             .expect("stable_fingerprint should be string");
@@ -233,13 +239,20 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
         let artifact_refs = manifest["artifact_refs"]
             .as_array()
             .expect("artifact_refs should be array");
-        assert!(!artifact_refs.is_empty(), "artifact_refs should not be empty");
+        assert!(
+            !artifact_refs.is_empty(),
+            "artifact_refs should not be empty"
+        );
         for artifact_ref in artifact_refs {
             let rel = artifact_ref
                 .as_str()
                 .expect("artifact_ref entries should be strings");
             let full = root.join(rel);
-            assert!(full.exists(), "artifact reference missing: {}", full.display());
+            assert!(
+                full.exists(),
+                "artifact reference missing: {}",
+                full.display()
+            );
         }
     }
 

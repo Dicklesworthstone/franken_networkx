@@ -1,0 +1,171 @@
+{
+  "schema_version": "1.0.0",
+  "contract_id": "fnx-phase2c-security-compat-contract-v1",
+  "generated_at_utc": "2026-02-15T02:35:00Z",
+  "seed_policy": {
+    "deterministic": true,
+    "strategy": "class_seed_plus_packet_offset",
+    "packet_seed_offset_formula": "seed = class_seed + packet_numeric_suffix",
+    "replay_metadata_fields": [
+      "packet_id",
+      "threat_class",
+      "validation_gate",
+      "generator_variant",
+      "seed",
+      "expected_failure_mode"
+    ]
+  },
+  "high_risk_classes": [
+    "algorithmic_complexity_dos",
+    "attribute_confusion",
+    "backend_route_ambiguity"
+  ],
+  "threat_taxonomy": [
+    {
+      "threat_class": "parser_abuse",
+      "security_focus": "malformed_graph_ingestion",
+      "generator_profile": "payload_mutator::syntax_and_schema_breaks",
+      "seed_policy": {
+        "class_seed": 1100,
+        "rotation": "fixed"
+      },
+      "expected_failure_mode": "strict_fail_closed_or_hardened_fail_closed_with_bounded_diagnostics",
+      "packet_gate_mappings": [
+        { "packet_id": "FNX-P2C-001", "validation_gate": "graph-core-threat-gate", "generator_variant": "graph_core_malformed_payload", "seed": 1101, "expected_failure_mode": "fail_closed_malformed_payload" },
+        { "packet_id": "FNX-P2C-002", "validation_gate": "view-layer-threat-gate", "generator_variant": "view_input_malformed_payload", "seed": 1102, "expected_failure_mode": "fail_closed_malformed_payload" },
+        { "packet_id": "FNX-P2C-003", "validation_gate": "dispatch-threat-gate", "generator_variant": "dispatch_config_malformed_payload", "seed": 1103, "expected_failure_mode": "fail_closed_malformed_payload" },
+        { "packet_id": "FNX-P2C-004", "validation_gate": "convert-threat-gate", "generator_variant": "conversion_payload_malformed_shape", "seed": 1104, "expected_failure_mode": "fail_closed_malformed_payload" },
+        { "packet_id": "FNX-P2C-005", "validation_gate": "shortest-path-threat-gate", "generator_variant": "algorithm_request_malformed_payload", "seed": 1105, "expected_failure_mode": "fail_closed_malformed_payload" },
+        { "packet_id": "FNX-P2C-006", "validation_gate": "readwrite-threat-gate", "generator_variant": "io_payload_malformed_lines", "seed": 1106, "expected_failure_mode": "fail_closed_malformed_payload" },
+        { "packet_id": "FNX-P2C-007", "validation_gate": "generator-threat-gate", "generator_variant": "generator_param_malformed_payload", "seed": 1107, "expected_failure_mode": "fail_closed_malformed_payload" },
+        { "packet_id": "FNX-P2C-008", "validation_gate": "runtime-threat-gate", "generator_variant": "runtime_contract_malformed_payload", "seed": 1108, "expected_failure_mode": "fail_closed_malformed_payload" },
+        { "packet_id": "FNX-P2C-009", "validation_gate": "conformance-threat-gate", "generator_variant": "fixture_bundle_malformed_payload", "seed": 1109, "expected_failure_mode": "fail_closed_malformed_payload" }
+      ]
+    },
+    {
+      "threat_class": "metadata_ambiguity",
+      "security_focus": "attribute_confusion",
+      "generator_profile": "metadata_mutator::conflicting_keys_and_precedence",
+      "seed_policy": {
+        "class_seed": 2100,
+        "rotation": "fixed"
+      },
+      "expected_failure_mode": "fail_closed_on_ambiguous_metadata_or_quarantine_then_fail_closed",
+      "packet_gate_mappings": [
+        { "packet_id": "FNX-P2C-001", "validation_gate": "graph-core-threat-gate", "generator_variant": "graph_core_conflicting_metadata", "seed": 2101, "expected_failure_mode": "fail_closed_ambiguous_metadata" },
+        { "packet_id": "FNX-P2C-002", "validation_gate": "view-layer-threat-gate", "generator_variant": "view_conflicting_projection_metadata", "seed": 2102, "expected_failure_mode": "fail_closed_ambiguous_metadata" },
+        { "packet_id": "FNX-P2C-003", "validation_gate": "dispatch-threat-gate", "generator_variant": "dispatch_conflicting_backend_metadata", "seed": 2103, "expected_failure_mode": "fail_closed_ambiguous_metadata" },
+        { "packet_id": "FNX-P2C-004", "validation_gate": "convert-threat-gate", "generator_variant": "conversion_conflicting_attribute_metadata", "seed": 2104, "expected_failure_mode": "fail_closed_ambiguous_metadata" },
+        { "packet_id": "FNX-P2C-005", "validation_gate": "shortest-path-threat-gate", "generator_variant": "algorithm_conflicting_weight_metadata", "seed": 2105, "expected_failure_mode": "fail_closed_ambiguous_metadata" },
+        { "packet_id": "FNX-P2C-006", "validation_gate": "readwrite-threat-gate", "generator_variant": "readwrite_conflicting_header_metadata", "seed": 2106, "expected_failure_mode": "fail_closed_ambiguous_metadata" },
+        { "packet_id": "FNX-P2C-007", "validation_gate": "generator-threat-gate", "generator_variant": "generator_conflicting_param_metadata", "seed": 2107, "expected_failure_mode": "fail_closed_ambiguous_metadata" },
+        { "packet_id": "FNX-P2C-008", "validation_gate": "runtime-threat-gate", "generator_variant": "runtime_conflicting_mode_metadata", "seed": 2108, "expected_failure_mode": "fail_closed_ambiguous_metadata" },
+        { "packet_id": "FNX-P2C-009", "validation_gate": "conformance-threat-gate", "generator_variant": "conformance_conflicting_fixture_metadata", "seed": 2109, "expected_failure_mode": "fail_closed_ambiguous_metadata" }
+      ]
+    },
+    {
+      "threat_class": "version_skew",
+      "security_focus": "malformed_graph_ingestion",
+      "generator_profile": "version_mutator::unsupported_or_ambiguous_versions",
+      "seed_policy": {
+        "class_seed": 3100,
+        "rotation": "fixed"
+      },
+      "expected_failure_mode": "fail_closed_on_unsupported_version_or_upgrade_downgrade_ambiguity",
+      "packet_gate_mappings": [
+        { "packet_id": "FNX-P2C-001", "validation_gate": "graph-core-threat-gate", "generator_variant": "graph_core_unsupported_schema_version", "seed": 3101, "expected_failure_mode": "fail_closed_version_skew" },
+        { "packet_id": "FNX-P2C-002", "validation_gate": "view-layer-threat-gate", "generator_variant": "view_unsupported_contract_version", "seed": 3102, "expected_failure_mode": "fail_closed_version_skew" },
+        { "packet_id": "FNX-P2C-003", "validation_gate": "dispatch-threat-gate", "generator_variant": "dispatch_backend_api_version_skew", "seed": 3103, "expected_failure_mode": "fail_closed_version_skew" },
+        { "packet_id": "FNX-P2C-004", "validation_gate": "convert-threat-gate", "generator_variant": "conversion_schema_version_skew", "seed": 3104, "expected_failure_mode": "fail_closed_version_skew" },
+        { "packet_id": "FNX-P2C-005", "validation_gate": "shortest-path-threat-gate", "generator_variant": "algorithm_contract_version_skew", "seed": 3105, "expected_failure_mode": "fail_closed_version_skew" },
+        { "packet_id": "FNX-P2C-006", "validation_gate": "readwrite-threat-gate", "generator_variant": "io_format_version_skew", "seed": 3106, "expected_failure_mode": "fail_closed_version_skew" },
+        { "packet_id": "FNX-P2C-007", "validation_gate": "generator-threat-gate", "generator_variant": "generator_schema_version_skew", "seed": 3107, "expected_failure_mode": "fail_closed_version_skew" },
+        { "packet_id": "FNX-P2C-008", "validation_gate": "runtime-threat-gate", "generator_variant": "runtime_api_version_skew", "seed": 3108, "expected_failure_mode": "fail_closed_version_skew" },
+        { "packet_id": "FNX-P2C-009", "validation_gate": "conformance-threat-gate", "generator_variant": "fixture_contract_version_skew", "seed": 3109, "expected_failure_mode": "fail_closed_version_skew" }
+      ]
+    },
+    {
+      "threat_class": "resource_exhaustion",
+      "security_focus": "algorithmic_denial",
+      "generator_profile": "scale_mutator::input_and_state_budget_stress",
+      "seed_policy": {
+        "class_seed": 4100,
+        "rotation": "fixed"
+      },
+      "expected_failure_mode": "fail_closed_when_strict_budget_exceeded_or_hardened_clamp_budget_exhausted",
+      "packet_gate_mappings": [
+        { "packet_id": "FNX-P2C-001", "validation_gate": "graph-core-threat-gate", "generator_variant": "graph_core_dense_node_burst", "seed": 4101, "expected_failure_mode": "fail_closed_budget_exceeded" },
+        { "packet_id": "FNX-P2C-002", "validation_gate": "view-layer-threat-gate", "generator_variant": "view_materialization_blowup", "seed": 4102, "expected_failure_mode": "fail_closed_budget_exceeded" },
+        { "packet_id": "FNX-P2C-003", "validation_gate": "dispatch-threat-gate", "generator_variant": "dispatch_route_fanout_exhaustion", "seed": 4103, "expected_failure_mode": "fail_closed_budget_exceeded" },
+        { "packet_id": "FNX-P2C-004", "validation_gate": "convert-threat-gate", "generator_variant": "conversion_expansion_ratio_blowup", "seed": 4104, "expected_failure_mode": "fail_closed_budget_exceeded" },
+        { "packet_id": "FNX-P2C-005", "validation_gate": "shortest-path-threat-gate", "generator_variant": "shortest_path_frontier_blowup", "seed": 4105, "expected_failure_mode": "fail_closed_budget_exceeded" },
+        { "packet_id": "FNX-P2C-006", "validation_gate": "readwrite-threat-gate", "generator_variant": "io_line_count_and_attr_size_burst", "seed": 4106, "expected_failure_mode": "fail_closed_budget_exceeded" },
+        { "packet_id": "FNX-P2C-007", "validation_gate": "generator-threat-gate", "generator_variant": "generator_n_parameter_burst", "seed": 4107, "expected_failure_mode": "fail_closed_budget_exceeded" },
+        { "packet_id": "FNX-P2C-008", "validation_gate": "runtime-threat-gate", "generator_variant": "runtime_log_and_artifact_burst", "seed": 4108, "expected_failure_mode": "fail_closed_budget_exceeded" },
+        { "packet_id": "FNX-P2C-009", "validation_gate": "conformance-threat-gate", "generator_variant": "conformance_fixture_volume_burst", "seed": 4109, "expected_failure_mode": "fail_closed_budget_exceeded" }
+      ]
+    },
+    {
+      "threat_class": "state_corruption",
+      "security_focus": "attribute_confusion",
+      "generator_profile": "state_mutator::invariant_and_transition_violations",
+      "seed_policy": {
+        "class_seed": 5100,
+        "rotation": "fixed"
+      },
+      "expected_failure_mode": "fail_closed_on_invariant_break_with_deterministic_recovery_evidence",
+      "packet_gate_mappings": [
+        { "packet_id": "FNX-P2C-001", "validation_gate": "graph-core-threat-gate", "generator_variant": "graph_core_mutation_invariant_break", "seed": 5101, "expected_failure_mode": "fail_closed_invariant_break" },
+        { "packet_id": "FNX-P2C-002", "validation_gate": "view-layer-threat-gate", "generator_variant": "view_cache_invalidation_break", "seed": 5102, "expected_failure_mode": "fail_closed_invariant_break" },
+        { "packet_id": "FNX-P2C-003", "validation_gate": "dispatch-threat-gate", "generator_variant": "dispatch_cache_state_break", "seed": 5103, "expected_failure_mode": "fail_closed_invariant_break" },
+        { "packet_id": "FNX-P2C-004", "validation_gate": "convert-threat-gate", "generator_variant": "conversion_transaction_boundary_break", "seed": 5104, "expected_failure_mode": "fail_closed_invariant_break" },
+        { "packet_id": "FNX-P2C-005", "validation_gate": "shortest-path-threat-gate", "generator_variant": "shortest_path_witness_state_break", "seed": 5105, "expected_failure_mode": "fail_closed_invariant_break" },
+        { "packet_id": "FNX-P2C-006", "validation_gate": "readwrite-threat-gate", "generator_variant": "readwrite_roundtrip_state_break", "seed": 5106, "expected_failure_mode": "fail_closed_invariant_break" },
+        { "packet_id": "FNX-P2C-007", "validation_gate": "generator-threat-gate", "generator_variant": "generator_seed_state_break", "seed": 5107, "expected_failure_mode": "fail_closed_invariant_break" },
+        { "packet_id": "FNX-P2C-008", "validation_gate": "runtime-threat-gate", "generator_variant": "runtime_ledger_state_break", "seed": 5108, "expected_failure_mode": "fail_closed_invariant_break" },
+        { "packet_id": "FNX-P2C-009", "validation_gate": "conformance-threat-gate", "generator_variant": "conformance_report_state_break", "seed": 5109, "expected_failure_mode": "fail_closed_invariant_break" }
+      ]
+    },
+    {
+      "threat_class": "backend_route_ambiguity",
+      "security_focus": "attribute_confusion",
+      "generator_profile": "dispatch_mutator::equal_precedence_route_conflicts",
+      "seed_policy": {
+        "class_seed": 6100,
+        "rotation": "fixed"
+      },
+      "expected_failure_mode": "strict_fail_closed_or_deterministic_allowlisted_fallback_with_audit",
+      "packet_gate_mappings": [
+        { "packet_id": "FNX-P2C-003", "validation_gate": "dispatch-threat-gate", "generator_variant": "dispatch_equal_priority_route_collision", "seed": 6103, "expected_failure_mode": "fail_closed_or_audited_fallback" },
+        { "packet_id": "FNX-P2C-008", "validation_gate": "runtime-threat-gate", "generator_variant": "runtime_backend_route_collision", "seed": 6108, "expected_failure_mode": "fail_closed_or_audited_fallback" }
+      ]
+    },
+    {
+      "threat_class": "attribute_confusion",
+      "security_focus": "attribute_confusion",
+      "generator_profile": "attribute_mutator::namespace_and_precedence_collisions",
+      "seed_policy": {
+        "class_seed": 7100,
+        "rotation": "fixed"
+      },
+      "expected_failure_mode": "fail_closed_after_canonicalization_attempt_when_namespace_conflicts_persist",
+      "packet_gate_mappings": [
+        { "packet_id": "FNX-P2C-004", "validation_gate": "convert-threat-gate", "generator_variant": "conversion_attribute_namespace_collision", "seed": 7104, "expected_failure_mode": "fail_closed_namespace_conflict" }
+      ]
+    },
+    {
+      "threat_class": "algorithmic_complexity_dos",
+      "security_focus": "algorithmic_denial",
+      "generator_profile": "graph_shape_mutator::worst_case_topology_families",
+      "seed_policy": {
+        "class_seed": 8100,
+        "rotation": "fixed"
+      },
+      "expected_failure_mode": "fail_closed_when_complexity_budget_witness_threshold_exceeded",
+      "packet_gate_mappings": [
+        { "packet_id": "FNX-P2C-005", "validation_gate": "shortest-path-threat-gate", "generator_variant": "shortest_path_lollipop_and_barbell_stressor", "seed": 8105, "expected_failure_mode": "fail_closed_complexity_budget_exceeded" },
+        { "packet_id": "FNX-P2C-007", "validation_gate": "generator-threat-gate", "generator_variant": "generator_dense_random_stressor", "seed": 8107, "expected_failure_mode": "fail_closed_complexity_budget_exceeded" }
+      ]
+    }
+  ]
+}
