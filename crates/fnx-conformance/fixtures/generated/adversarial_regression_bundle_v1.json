@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0.0",
   "bundle_id": "adversarial-regression-bundle-v1",
-  "generated_at_utc": "2026-02-15T03:01:16.633122+00:00",
-  "run_id": "adversarial-crash-triage-1771124476633",
+  "generated_at_utc": "2026-02-15T03:04:41.661171+00:00",
+  "run_id": "adversarial-crash-triage-1771124681661",
   "fixture_count": 50,
   "fixtures": [
     {
@@ -11,10 +11,16 @@
       "owner_bead_id": "bd-315.12",
       "threat_class": "parser_abuse",
       "severity_tag": "critical",
+      "routing_policy": "bug",
       "seed": 1101,
       "fixture_hash_id": "75659e18dc002e84",
+      "stack_signature": "0e09aed820d9b982",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class parser_abuse --packet-id FNX-P2C-001 --run-id replay-75659e18dc002e84",
       "expected_failure_mode": "fail_closed_malformed_payload",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-d25df230d87953f7"
     },
     {
@@ -23,10 +29,16 @@
       "owner_bead_id": "bd-315.12",
       "threat_class": "state_corruption",
       "severity_tag": "critical",
+      "routing_policy": "bug",
       "seed": 5101,
       "fixture_hash_id": "f3fda66794b132c3",
+      "stack_signature": "4754306be17143f5",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class state_corruption --packet-id FNX-P2C-001 --run-id replay-f3fda66794b132c3",
       "expected_failure_mode": "fail_closed_invariant_break",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-e4d1e1ede9c59b34"
     },
     {
@@ -35,10 +47,16 @@
       "owner_bead_id": "bd-315.13",
       "threat_class": "parser_abuse",
       "severity_tag": "critical",
+      "routing_policy": "bug",
       "seed": 1102,
       "fixture_hash_id": "61f3ffae5aa15245",
+      "stack_signature": "ae6a2b85c8b0d576",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class parser_abuse --packet-id FNX-P2C-002 --run-id replay-61f3ffae5aa15245",
       "expected_failure_mode": "fail_closed_malformed_payload",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-43fcb01770ce2b3c"
     },
     {
@@ -47,10 +65,16 @@
       "owner_bead_id": "bd-315.13",
       "threat_class": "state_corruption",
       "severity_tag": "critical",
+      "routing_policy": "bug",
       "seed": 5102,
       "fixture_hash_id": "2282714c94ea09f0",
+      "stack_signature": "80653dc5cb30a20d",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class state_corruption --packet-id FNX-P2C-002 --run-id replay-2282714c94ea09f0",
       "expected_failure_mode": "fail_closed_invariant_break",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-13338e922f8e0c52"
     },
     {
@@ -59,10 +83,16 @@
       "owner_bead_id": "bd-315.14",
       "threat_class": "parser_abuse",
       "severity_tag": "critical",
+      "routing_policy": "bug",
       "seed": 1103,
       "fixture_hash_id": "a429e6e2e72cdb4b",
+      "stack_signature": "453d834fece68c8a",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class parser_abuse --packet-id FNX-P2C-003 --run-id replay-a429e6e2e72cdb4b",
       "expected_failure_mode": "fail_closed_malformed_payload",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-5ddfc11956b3d3a4"
     },
     {
@@ -71,10 +101,16 @@
       "owner_bead_id": "bd-315.14",
       "threat_class": "state_corruption",
       "severity_tag": "critical",
+      "routing_policy": "bug",
       "seed": 5103,
       "fixture_hash_id": "735897c04d14503d",
+      "stack_signature": "83bf0a026ed31351",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class state_corruption --packet-id FNX-P2C-003 --run-id replay-735897c04d14503d",
       "expected_failure_mode": "fail_closed_invariant_break",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-e8308b512ac1e837"
     },
     {
@@ -83,10 +119,16 @@
       "owner_bead_id": "bd-315.15",
       "threat_class": "parser_abuse",
       "severity_tag": "critical",
+      "routing_policy": "bug",
       "seed": 1104,
       "fixture_hash_id": "3ac6e964e5820337",
+      "stack_signature": "eaecf5f6e08cdd12",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class parser_abuse --packet-id FNX-P2C-004 --run-id replay-3ac6e964e5820337",
       "expected_failure_mode": "fail_closed_malformed_payload",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-12b01a69aac9bd88"
     },
     {
@@ -95,10 +137,16 @@
       "owner_bead_id": "bd-315.15",
       "threat_class": "state_corruption",
       "severity_tag": "critical",
+      "routing_policy": "bug",
       "seed": 5104,
       "fixture_hash_id": "9b49cd116e0f4261",
+      "stack_signature": "4763a7f717142da7",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class state_corruption --packet-id FNX-P2C-004 --run-id replay-9b49cd116e0f4261",
       "expected_failure_mode": "fail_closed_invariant_break",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-82d6cfeab842b1b0"
     },
     {
@@ -107,10 +155,16 @@
       "owner_bead_id": "bd-315.16",
       "threat_class": "parser_abuse",
       "severity_tag": "critical",
+      "routing_policy": "bug",
       "seed": 1105,
       "fixture_hash_id": "b01781bc8e169fd3",
+      "stack_signature": "de5c83289be1421a",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class parser_abuse --packet-id FNX-P2C-005 --run-id replay-b01781bc8e169fd3",
       "expected_failure_mode": "fail_closed_malformed_payload",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-9748f510191a282d"
     },
     {
@@ -119,10 +173,16 @@
       "owner_bead_id": "bd-315.16",
       "threat_class": "state_corruption",
       "severity_tag": "critical",
+      "routing_policy": "bug",
       "seed": 5105,
       "fixture_hash_id": "5b1c959e94f47726",
+      "stack_signature": "796a0b05a09bc567",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class state_corruption --packet-id FNX-P2C-005 --run-id replay-5b1c959e94f47726",
       "expected_failure_mode": "fail_closed_invariant_break",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-1997561bfd645494"
     },
     {
@@ -131,10 +191,16 @@
       "owner_bead_id": "bd-315.17",
       "threat_class": "parser_abuse",
       "severity_tag": "critical",
+      "routing_policy": "bug",
       "seed": 1106,
       "fixture_hash_id": "58924f396314ca85",
+      "stack_signature": "51b522b08fccc098",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class parser_abuse --packet-id FNX-P2C-006 --run-id replay-58924f396314ca85",
       "expected_failure_mode": "fail_closed_malformed_payload",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-9695dd80f2ca9e09"
     },
     {
@@ -143,10 +209,16 @@
       "owner_bead_id": "bd-315.17",
       "threat_class": "state_corruption",
       "severity_tag": "critical",
+      "routing_policy": "bug",
       "seed": 5106,
       "fixture_hash_id": "4740e058f5bc4ca8",
+      "stack_signature": "9e5976dab829fef1",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class state_corruption --packet-id FNX-P2C-006 --run-id replay-4740e058f5bc4ca8",
       "expected_failure_mode": "fail_closed_invariant_break",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-39fc9d78ed72e650"
     },
     {
@@ -155,10 +227,16 @@
       "owner_bead_id": "bd-315.18",
       "threat_class": "parser_abuse",
       "severity_tag": "critical",
+      "routing_policy": "bug",
       "seed": 1107,
       "fixture_hash_id": "5abceadd902f9a9e",
+      "stack_signature": "c5eecb8787449a17",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class parser_abuse --packet-id FNX-P2C-007 --run-id replay-5abceadd902f9a9e",
       "expected_failure_mode": "fail_closed_malformed_payload",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-9eb9d864c4e83075"
     },
     {
@@ -167,10 +245,16 @@
       "owner_bead_id": "bd-315.18",
       "threat_class": "state_corruption",
       "severity_tag": "critical",
+      "routing_policy": "bug",
       "seed": 5107,
       "fixture_hash_id": "a500b8cd94ac9112",
+      "stack_signature": "82df8556076333f2",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class state_corruption --packet-id FNX-P2C-007 --run-id replay-a500b8cd94ac9112",
       "expected_failure_mode": "fail_closed_invariant_break",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-030188c892e0d957"
     },
     {
@@ -179,10 +263,16 @@
       "owner_bead_id": "bd-315.19",
       "threat_class": "parser_abuse",
       "severity_tag": "critical",
+      "routing_policy": "bug",
       "seed": 1108,
       "fixture_hash_id": "db97fa096592304f",
+      "stack_signature": "656136de2509e435",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class parser_abuse --packet-id FNX-P2C-008 --run-id replay-db97fa096592304f",
       "expected_failure_mode": "fail_closed_malformed_payload",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-71bba8d4e932f345"
     },
     {
@@ -191,10 +281,16 @@
       "owner_bead_id": "bd-315.19",
       "threat_class": "state_corruption",
       "severity_tag": "critical",
+      "routing_policy": "bug",
       "seed": 5108,
       "fixture_hash_id": "0b260665b6134f30",
+      "stack_signature": "cd5a61c9bf3355d8",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class state_corruption --packet-id FNX-P2C-008 --run-id replay-0b260665b6134f30",
       "expected_failure_mode": "fail_closed_invariant_break",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-a0ad7a036386dcb1"
     },
     {
@@ -203,10 +299,16 @@
       "owner_bead_id": "bd-315.20",
       "threat_class": "parser_abuse",
       "severity_tag": "critical",
+      "routing_policy": "bug",
       "seed": 1109,
       "fixture_hash_id": "16d27f530d1c0103",
+      "stack_signature": "dba2996a8654d381",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class parser_abuse --packet-id FNX-P2C-009 --run-id replay-16d27f530d1c0103",
       "expected_failure_mode": "fail_closed_malformed_payload",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-9cf7a6ef2ab147db"
     },
     {
@@ -215,10 +317,16 @@
       "owner_bead_id": "bd-315.20",
       "threat_class": "state_corruption",
       "severity_tag": "critical",
+      "routing_policy": "bug",
       "seed": 5109,
       "fixture_hash_id": "4528a8c3fa1d3297",
+      "stack_signature": "00e30f320fe9a4fc",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class state_corruption --packet-id FNX-P2C-009 --run-id replay-4528a8c3fa1d3297",
       "expected_failure_mode": "fail_closed_invariant_break",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-9064172fe15fd959"
     },
     {
@@ -227,10 +335,16 @@
       "owner_bead_id": "bd-315.12",
       "threat_class": "metadata_ambiguity",
       "severity_tag": "high",
+      "routing_policy": "compatibility_exception",
       "seed": 2101,
       "fixture_hash_id": "0e2b4c4ce20bc116",
+      "stack_signature": "0b20c0beac116bc3",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class metadata_ambiguity --packet-id FNX-P2C-001 --run-id replay-0e2b4c4ce20bc116",
       "expected_failure_mode": "fail_closed_ambiguous_metadata",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-eb171d7488bb4d57"
     },
     {
@@ -239,10 +353,16 @@
       "owner_bead_id": "bd-315.12",
       "threat_class": "version_skew",
       "severity_tag": "high",
+      "routing_policy": "compatibility_exception",
       "seed": 3101,
       "fixture_hash_id": "5b4f2f44c300ffd4",
+      "stack_signature": "55fcba0dc96f7050",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class version_skew --packet-id FNX-P2C-001 --run-id replay-5b4f2f44c300ffd4",
       "expected_failure_mode": "fail_closed_version_skew",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-b419b03f97971b3d"
     },
     {
@@ -251,10 +371,16 @@
       "owner_bead_id": "bd-315.13",
       "threat_class": "metadata_ambiguity",
       "severity_tag": "high",
+      "routing_policy": "compatibility_exception",
       "seed": 2102,
       "fixture_hash_id": "ff75380056537eaa",
+      "stack_signature": "354680ee46c2c263",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class metadata_ambiguity --packet-id FNX-P2C-002 --run-id replay-ff75380056537eaa",
       "expected_failure_mode": "fail_closed_ambiguous_metadata",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-7ad47e6ab116eb7d"
     },
     {
@@ -263,10 +389,16 @@
       "owner_bead_id": "bd-315.13",
       "threat_class": "version_skew",
       "severity_tag": "high",
+      "routing_policy": "compatibility_exception",
       "seed": 3102,
       "fixture_hash_id": "528c16e08fb33323",
+      "stack_signature": "56b5caa66907ba0c",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class version_skew --packet-id FNX-P2C-002 --run-id replay-528c16e08fb33323",
       "expected_failure_mode": "fail_closed_version_skew",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-c0e695587d84970f"
     },
     {
@@ -275,10 +407,16 @@
       "owner_bead_id": "bd-315.14",
       "threat_class": "backend_route_ambiguity",
       "severity_tag": "high",
+      "routing_policy": "bug",
       "seed": 6103,
       "fixture_hash_id": "057337b451744e7c",
+      "stack_signature": "cdabd6a613250b9d",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class backend_route_ambiguity --packet-id FNX-P2C-003 --run-id replay-057337b451744e7c",
       "expected_failure_mode": "fail_closed_or_audited_fallback",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-aaafbb9df5045b66"
     },
     {
@@ -287,10 +425,16 @@
       "owner_bead_id": "bd-315.14",
       "threat_class": "metadata_ambiguity",
       "severity_tag": "high",
+      "routing_policy": "compatibility_exception",
       "seed": 2103,
       "fixture_hash_id": "fcd3c2f574073e1d",
+      "stack_signature": "bc0c9f9a5c29b713",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class metadata_ambiguity --packet-id FNX-P2C-003 --run-id replay-fcd3c2f574073e1d",
       "expected_failure_mode": "fail_closed_ambiguous_metadata",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-926fbf735976e399"
     },
     {
@@ -299,10 +443,16 @@
       "owner_bead_id": "bd-315.14",
       "threat_class": "version_skew",
       "severity_tag": "high",
+      "routing_policy": "compatibility_exception",
       "seed": 3103,
       "fixture_hash_id": "bebc972c9cc41509",
+      "stack_signature": "f7e552facd9ffb90",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class version_skew --packet-id FNX-P2C-003 --run-id replay-bebc972c9cc41509",
       "expected_failure_mode": "fail_closed_version_skew",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-55ae2162f71c282f"
     },
     {
@@ -311,10 +461,16 @@
       "owner_bead_id": "bd-315.15",
       "threat_class": "attribute_confusion",
       "severity_tag": "high",
+      "routing_policy": "compatibility_exception",
       "seed": 7104,
       "fixture_hash_id": "c075ce579760a7f3",
+      "stack_signature": "d555ac8dba34234f",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class attribute_confusion --packet-id FNX-P2C-004 --run-id replay-c075ce579760a7f3",
       "expected_failure_mode": "fail_closed_namespace_conflict",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-c7cdc4da052f929b"
     },
     {
@@ -323,10 +479,16 @@
       "owner_bead_id": "bd-315.15",
       "threat_class": "metadata_ambiguity",
       "severity_tag": "high",
+      "routing_policy": "compatibility_exception",
       "seed": 2104,
       "fixture_hash_id": "73614e1a9c55948e",
+      "stack_signature": "bced3fd3ba9146e9",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class metadata_ambiguity --packet-id FNX-P2C-004 --run-id replay-73614e1a9c55948e",
       "expected_failure_mode": "fail_closed_ambiguous_metadata",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-249aa3c3feebb54b"
     },
     {
@@ -335,10 +497,16 @@
       "owner_bead_id": "bd-315.15",
       "threat_class": "version_skew",
       "severity_tag": "high",
+      "routing_policy": "compatibility_exception",
       "seed": 3104,
       "fixture_hash_id": "04d533ed7363aa22",
+      "stack_signature": "ce540f6ab3eab932",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class version_skew --packet-id FNX-P2C-004 --run-id replay-04d533ed7363aa22",
       "expected_failure_mode": "fail_closed_version_skew",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-91698cf6397f241e"
     },
     {
@@ -347,10 +515,16 @@
       "owner_bead_id": "bd-315.16",
       "threat_class": "metadata_ambiguity",
       "severity_tag": "high",
+      "routing_policy": "compatibility_exception",
       "seed": 2105,
       "fixture_hash_id": "c1ad18906888c1d6",
+      "stack_signature": "e7bfd105eec43cdd",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class metadata_ambiguity --packet-id FNX-P2C-005 --run-id replay-c1ad18906888c1d6",
       "expected_failure_mode": "fail_closed_ambiguous_metadata",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-5a4b63f5e01014d3"
     },
     {
@@ -359,10 +533,16 @@
       "owner_bead_id": "bd-315.16",
       "threat_class": "version_skew",
       "severity_tag": "high",
+      "routing_policy": "compatibility_exception",
       "seed": 3105,
       "fixture_hash_id": "766f4a4e239ce08b",
+      "stack_signature": "f067cecb682dbca2",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class version_skew --packet-id FNX-P2C-005 --run-id replay-766f4a4e239ce08b",
       "expected_failure_mode": "fail_closed_version_skew",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-447630d0bf02d08b"
     },
     {
@@ -371,10 +551,16 @@
       "owner_bead_id": "bd-315.17",
       "threat_class": "metadata_ambiguity",
       "severity_tag": "high",
+      "routing_policy": "compatibility_exception",
       "seed": 2106,
       "fixture_hash_id": "61d8656bc0a368f2",
+      "stack_signature": "ba4066ef5447859f",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class metadata_ambiguity --packet-id FNX-P2C-006 --run-id replay-61d8656bc0a368f2",
       "expected_failure_mode": "fail_closed_ambiguous_metadata",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-63f4aaa2b8523902"
     },
     {
@@ -383,10 +569,16 @@
       "owner_bead_id": "bd-315.17",
       "threat_class": "version_skew",
       "severity_tag": "high",
+      "routing_policy": "compatibility_exception",
       "seed": 3106,
       "fixture_hash_id": "76a17e5777042cde",
+      "stack_signature": "d02c5025cf335ff0",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class version_skew --packet-id FNX-P2C-006 --run-id replay-76a17e5777042cde",
       "expected_failure_mode": "fail_closed_version_skew",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-d13950e8b7618d82"
     },
     {
@@ -395,10 +587,16 @@
       "owner_bead_id": "bd-315.18",
       "threat_class": "metadata_ambiguity",
       "severity_tag": "high",
+      "routing_policy": "compatibility_exception",
       "seed": 2107,
       "fixture_hash_id": "5883a12ae573f528",
+      "stack_signature": "5562e815d520faae",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class metadata_ambiguity --packet-id FNX-P2C-007 --run-id replay-5883a12ae573f528",
       "expected_failure_mode": "fail_closed_ambiguous_metadata",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-695a6029f9e407cc"
     },
     {
@@ -407,10 +605,16 @@
       "owner_bead_id": "bd-315.18",
       "threat_class": "version_skew",
       "severity_tag": "high",
+      "routing_policy": "compatibility_exception",
       "seed": 3107,
       "fixture_hash_id": "4499ce69d936cca3",
+      "stack_signature": "42b5afced78949c1",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class version_skew --packet-id FNX-P2C-007 --run-id replay-4499ce69d936cca3",
       "expected_failure_mode": "fail_closed_version_skew",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-797d2e892bd369b7"
     },
     {
@@ -419,10 +623,16 @@
       "owner_bead_id": "bd-315.19",
       "threat_class": "backend_route_ambiguity",
       "severity_tag": "high",
+      "routing_policy": "bug",
       "seed": 6108,
       "fixture_hash_id": "8c3beada3228841d",
+      "stack_signature": "070ca53bb4d3fa8c",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class backend_route_ambiguity --packet-id FNX-P2C-008 --run-id replay-8c3beada3228841d",
       "expected_failure_mode": "fail_closed_or_audited_fallback",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-6c29d7a103df6a43"
     },
     {
@@ -431,10 +641,16 @@
       "owner_bead_id": "bd-315.19",
       "threat_class": "metadata_ambiguity",
       "severity_tag": "high",
+      "routing_policy": "compatibility_exception",
       "seed": 2108,
       "fixture_hash_id": "875dc1bf8b6e3130",
+      "stack_signature": "c4215dbaf43e66e4",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class metadata_ambiguity --packet-id FNX-P2C-008 --run-id replay-875dc1bf8b6e3130",
       "expected_failure_mode": "fail_closed_ambiguous_metadata",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-e11951c17cf54cad"
     },
     {
@@ -443,10 +659,16 @@
       "owner_bead_id": "bd-315.19",
       "threat_class": "version_skew",
       "severity_tag": "high",
+      "routing_policy": "compatibility_exception",
       "seed": 3108,
       "fixture_hash_id": "c317729bb6da384c",
+      "stack_signature": "65835c14f46b67fb",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class version_skew --packet-id FNX-P2C-008 --run-id replay-c317729bb6da384c",
       "expected_failure_mode": "fail_closed_version_skew",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-f93bc64e9ca33400"
     },
     {
@@ -455,10 +677,16 @@
       "owner_bead_id": "bd-315.20",
       "threat_class": "metadata_ambiguity",
       "severity_tag": "high",
+      "routing_policy": "compatibility_exception",
       "seed": 2109,
       "fixture_hash_id": "42df61b2417bba78",
+      "stack_signature": "afc8655b9a75c8ac",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class metadata_ambiguity --packet-id FNX-P2C-009 --run-id replay-42df61b2417bba78",
       "expected_failure_mode": "fail_closed_ambiguous_metadata",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-234103ed5c8e204b"
     },
     {
@@ -467,10 +695,16 @@
       "owner_bead_id": "bd-315.20",
       "threat_class": "version_skew",
       "severity_tag": "high",
+      "routing_policy": "compatibility_exception",
       "seed": 3109,
       "fixture_hash_id": "dddcaed2205ea3f4",
+      "stack_signature": "46db6558e297312f",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class version_skew --packet-id FNX-P2C-009 --run-id replay-dddcaed2205ea3f4",
       "expected_failure_mode": "fail_closed_version_skew",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-68d7b636765467fd"
     },
     {
@@ -479,10 +713,16 @@
       "owner_bead_id": "bd-315.12",
       "threat_class": "resource_exhaustion",
       "severity_tag": "medium",
+      "routing_policy": "known_risk_allowlist",
       "seed": 4101,
       "fixture_hash_id": "11c8d1ae0766097e",
+      "stack_signature": "a1615c828e567db6",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class resource_exhaustion --packet-id FNX-P2C-001 --run-id replay-11c8d1ae0766097e",
       "expected_failure_mode": "fail_closed_budget_exceeded",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-916dd8659f935c3c"
     },
     {
@@ -491,10 +731,16 @@
       "owner_bead_id": "bd-315.13",
       "threat_class": "resource_exhaustion",
       "severity_tag": "medium",
+      "routing_policy": "known_risk_allowlist",
       "seed": 4102,
       "fixture_hash_id": "97db5bc3de9d2c7e",
+      "stack_signature": "79108f40a5315b70",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class resource_exhaustion --packet-id FNX-P2C-002 --run-id replay-97db5bc3de9d2c7e",
       "expected_failure_mode": "fail_closed_budget_exceeded",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-4179062c914d0d9f"
     },
     {
@@ -503,10 +749,16 @@
       "owner_bead_id": "bd-315.14",
       "threat_class": "resource_exhaustion",
       "severity_tag": "medium",
+      "routing_policy": "known_risk_allowlist",
       "seed": 4103,
       "fixture_hash_id": "ef9c7ce0ba5f7319",
+      "stack_signature": "29ed1db787b3dd0a",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class resource_exhaustion --packet-id FNX-P2C-003 --run-id replay-ef9c7ce0ba5f7319",
       "expected_failure_mode": "fail_closed_budget_exceeded",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-dd367cbaa37ed306"
     },
     {
@@ -515,10 +767,16 @@
       "owner_bead_id": "bd-315.15",
       "threat_class": "resource_exhaustion",
       "severity_tag": "medium",
+      "routing_policy": "known_risk_allowlist",
       "seed": 4104,
       "fixture_hash_id": "10c5dd2e4ef23791",
+      "stack_signature": "c8501a1b5f00deb6",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class resource_exhaustion --packet-id FNX-P2C-004 --run-id replay-10c5dd2e4ef23791",
       "expected_failure_mode": "fail_closed_budget_exceeded",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-e2749dfc1cc37c94"
     },
     {
@@ -527,10 +785,16 @@
       "owner_bead_id": "bd-315.16",
       "threat_class": "algorithmic_complexity_dos",
       "severity_tag": "medium",
+      "routing_policy": "known_risk_allowlist",
       "seed": 8105,
       "fixture_hash_id": "28083119ac158a8e",
+      "stack_signature": "6d554b5cfeec977d",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class algorithmic_complexity_dos --packet-id FNX-P2C-005 --run-id replay-28083119ac158a8e",
       "expected_failure_mode": "fail_closed_complexity_budget_exceeded",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-3c0d7118e498a0b4"
     },
     {
@@ -539,10 +803,16 @@
       "owner_bead_id": "bd-315.16",
       "threat_class": "resource_exhaustion",
       "severity_tag": "medium",
+      "routing_policy": "known_risk_allowlist",
       "seed": 4105,
       "fixture_hash_id": "d936ade98a274b92",
+      "stack_signature": "c2eaf72d6910e4e0",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class resource_exhaustion --packet-id FNX-P2C-005 --run-id replay-d936ade98a274b92",
       "expected_failure_mode": "fail_closed_budget_exceeded",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-15e33a2f9c051776"
     },
     {
@@ -551,10 +821,16 @@
       "owner_bead_id": "bd-315.17",
       "threat_class": "resource_exhaustion",
       "severity_tag": "medium",
+      "routing_policy": "known_risk_allowlist",
       "seed": 4106,
       "fixture_hash_id": "6ac1198170b6e319",
+      "stack_signature": "4b78919834313ec8",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class resource_exhaustion --packet-id FNX-P2C-006 --run-id replay-6ac1198170b6e319",
       "expected_failure_mode": "fail_closed_budget_exceeded",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-30fea4da703d1d40"
     },
     {
@@ -563,10 +839,16 @@
       "owner_bead_id": "bd-315.18",
       "threat_class": "algorithmic_complexity_dos",
       "severity_tag": "medium",
+      "routing_policy": "known_risk_allowlist",
       "seed": 8107,
       "fixture_hash_id": "ecad7d7bd416b907",
+      "stack_signature": "d8c8775ae9692f9a",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class algorithmic_complexity_dos --packet-id FNX-P2C-007 --run-id replay-ecad7d7bd416b907",
       "expected_failure_mode": "fail_closed_complexity_budget_exceeded",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-997eec31391484d8"
     },
     {
@@ -575,10 +857,16 @@
       "owner_bead_id": "bd-315.18",
       "threat_class": "resource_exhaustion",
       "severity_tag": "medium",
+      "routing_policy": "known_risk_allowlist",
       "seed": 4107,
       "fixture_hash_id": "c265fa7bbb39d5b4",
+      "stack_signature": "b0d2ec6da331b389",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class resource_exhaustion --packet-id FNX-P2C-007 --run-id replay-c265fa7bbb39d5b4",
       "expected_failure_mode": "fail_closed_budget_exceeded",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-10097551d040e8c5"
     },
     {
@@ -587,10 +875,16 @@
       "owner_bead_id": "bd-315.19",
       "threat_class": "resource_exhaustion",
       "severity_tag": "medium",
+      "routing_policy": "known_risk_allowlist",
       "seed": 4108,
       "fixture_hash_id": "720522d345ef4233",
+      "stack_signature": "1f514411a537b1d1",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class resource_exhaustion --packet-id FNX-P2C-008 --run-id replay-720522d345ef4233",
       "expected_failure_mode": "fail_closed_budget_exceeded",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-2c0c710a6564053c"
     },
     {
@@ -599,10 +893,16 @@
       "owner_bead_id": "bd-315.20",
       "threat_class": "resource_exhaustion",
       "severity_tag": "medium",
+      "routing_policy": "known_risk_allowlist",
       "seed": 4109,
       "fixture_hash_id": "c099a6808d3d82c6",
+      "stack_signature": "763ffe6b41b1048b",
+      "environment_fingerprint": "30800852818f9fdf",
       "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class resource_exhaustion --packet-id FNX-P2C-009 --run-id replay-c099a6808d3d82c6",
       "expected_failure_mode": "fail_closed_budget_exceeded",
+      "conformance_gate_ids": [
+        "phase2c_packet_readiness_gate"
+      ],
       "source_triage_id": "triage-f861c9aba5bb4ad0"
     }
   ]

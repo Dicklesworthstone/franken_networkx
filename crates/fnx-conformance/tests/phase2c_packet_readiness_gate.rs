@@ -753,6 +753,15 @@ fn adversarial_crash_triage_and_promotion_pipeline_is_machine_auditable() {
             .expect("triage report status should be string"),
         "pass"
     );
+    let routing_policy_counts = triage_report["routing_policy_counts"]
+        .as_object()
+        .expect("triage report routing_policy_counts should be object");
+    for policy in ["bug", "known_risk_allowlist", "compatibility_exception"] {
+        assert!(
+            routing_policy_counts.contains_key(policy),
+            "triage report routing_policy_counts missing `{policy}`"
+        );
+    }
 
     let seed_entries = seed_ledger["entries"]
         .as_array()
@@ -812,9 +821,16 @@ fn adversarial_crash_triage_and_promotion_pipeline_is_machine_auditable() {
             "seed",
             "validation_gate",
             "generator_variant",
+            "stack_signature",
+            "environment_fingerprint",
+            "environment",
+            "routing_policy",
             "triage_status",
             "routing_tags",
+            "minimal_reproducer",
             "replay_command",
+            "conformance_gate_ids",
+            "forensics_refs",
             "regression_fixture_id",
             "promotion_action",
         ] {
@@ -836,6 +852,15 @@ fn adversarial_crash_triage_and_promotion_pipeline_is_machine_auditable() {
         let fixture_hash_id = triage_event["fixture_hash_id"]
             .as_str()
             .expect("triage_event fixture_hash_id should be string");
+        let stack_signature = triage_event["stack_signature"]
+            .as_str()
+            .expect("triage_event stack_signature should be string");
+        let env_fingerprint = triage_event["environment_fingerprint"]
+            .as_str()
+            .expect("triage_event environment_fingerprint should be string");
+        let routing_policy = triage_event["routing_policy"]
+            .as_str()
+            .expect("triage_event routing_policy should be string");
         let replay_command = triage_event["replay_command"]
             .as_str()
             .expect("triage_event replay_command should be string");
@@ -866,6 +891,56 @@ fn adversarial_crash_triage_and_promotion_pipeline_is_machine_auditable() {
             replay_command.contains("run_adversarial_seed_harness.py"),
             "triage_event replay_command should support single-command replay"
         );
+        assert!(
+            stack_signature.len() >= 8,
+            "triage_event stack_signature should look like a stable hash"
+        );
+        assert!(
+            env_fingerprint.len() >= 8,
+            "triage_event environment_fingerprint should be non-empty hash"
+        );
+        assert!(
+            ["bug", "known_risk_allowlist", "compatibility_exception"].contains(&routing_policy),
+            "triage_event routing_policy `{routing_policy}` is unsupported"
+        );
+        let minimal_reproducer = triage_event["minimal_reproducer"]
+            .as_object()
+            .expect("triage_event minimal_reproducer should be object");
+        assert_eq!(
+            minimal_reproducer
+                .get("command")
+                .and_then(Value::as_str)
+                .expect("triage_event minimal_reproducer.command should be string"),
+            replay_command,
+            "triage_event minimal_reproducer.command should match replay_command"
+        );
+        assert!(
+            minimal_reproducer
+                .get("seed")
+                .and_then(Value::as_u64)
+                .is_some(),
+            "triage_event minimal_reproducer.seed should be u64"
+        );
+        assert!(
+            triage_event["conformance_gate_ids"]
+                .as_array()
+                .expect("triage_event conformance_gate_ids should be array")
+                .iter()
+                .any(|gate| gate.as_str() == Some("phase2c_packet_readiness_gate")),
+            "triage_event conformance gate linkage missing phase2c gate id"
+        );
+        for ref_path in triage_event["forensics_refs"]
+            .as_array()
+            .expect("triage_event forensics_refs should be array")
+        {
+            let rel = ref_path
+                .as_str()
+                .expect("triage_event forensics ref should be string");
+            assert!(
+                root.join(rel).exists(),
+                "triage_event forensics ref path missing: {rel}"
+            );
+        }
 
         let routing_tags = triage_event["routing_tags"]
             .as_array()
@@ -899,6 +974,14 @@ fn adversarial_crash_triage_and_promotion_pipeline_is_machine_auditable() {
                 .as_str()
                 .expect("promotion entry promotion_status should be string"),
             "promoted"
+        );
+        assert!(
+            ["bug", "known_risk_allowlist", "compatibility_exception"].contains(
+                &promotion_entry["routing_policy"]
+                    .as_str()
+                    .expect("promotion entry routing_policy should be string")
+            ),
+            "promotion entry routing_policy should be supported"
         );
         assert!(
             triage_ids.contains(
@@ -948,11 +1031,27 @@ fn adversarial_crash_triage_and_promotion_pipeline_is_machine_auditable() {
             "fixture bundle entries must link to packet owner beads"
         );
         assert!(
+            ["bug", "known_risk_allowlist", "compatibility_exception"].contains(
+                &fixture["routing_policy"]
+                    .as_str()
+                    .expect("fixture bundle routing_policy should be string")
+            ),
+            "fixture bundle routing_policy should be supported"
+        );
+        assert!(
             fixture["replay_command"]
                 .as_str()
                 .expect("fixture bundle replay_command should be string")
                 .contains("run_adversarial_seed_harness.py"),
             "fixture bundle replay command must be deterministic and directly runnable"
+        );
+        assert!(
+            fixture["conformance_gate_ids"]
+                .as_array()
+                .expect("fixture bundle conformance_gate_ids should be array")
+                .iter()
+                .any(|gate| gate.as_str() == Some("phase2c_packet_readiness_gate")),
+            "fixture bundle entries must link to conformance gate ids"
         );
     }
 }
