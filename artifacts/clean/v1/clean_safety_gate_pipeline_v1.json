@@ -1,0 +1,399 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "clean-safety-gate-pipeline-v1",
+  "generated_at_utc": "2026-02-15T16:38:00Z",
+  "gate_matrix": [
+    {
+      "gate_id": "GATE-STATIC-FMT",
+      "gate_type": "static",
+      "command": "rch exec -- cargo fmt --check",
+      "owner": "release-engineering",
+      "pass_condition": "rustfmt clean across workspace",
+      "fail_condition": "any formatting diff",
+      "output_artifact": "artifacts/clean/latest/clean_safety_gate_pipeline_validation_v1.json",
+      "reproducibility": {
+        "local": "rch exec -- cargo fmt --check",
+        "ci": "cargo fmt --check"
+      }
+    },
+    {
+      "gate_id": "GATE-STATIC-CLIPPY",
+      "gate_type": "static",
+      "command": "rch exec -- cargo clippy --workspace --all-targets -- -D warnings",
+      "owner": "quality-engineering",
+      "pass_condition": "no clippy warnings or lint denials",
+      "fail_condition": "any clippy warning/error",
+      "output_artifact": "artifacts/conformance/latest/logging_final_gate_report_v1.json",
+      "reproducibility": {
+        "local": "rch exec -- cargo clippy --workspace --all-targets -- -D warnings",
+        "ci": "cargo clippy --workspace --all-targets -- -D warnings"
+      }
+    },
+    {
+      "gate_id": "GATE-DYNAMIC-UNSAFE-POLICY",
+      "gate_type": "dynamic",
+      "command": "rch exec -- cargo test -p fnx-conformance clean_unsafe_policy_defaults_are_fail_closed -- --exact --nocapture",
+      "owner": "safety-audit",
+      "pass_condition": "unsafe policy gate passes with fail-closed defaults",
+      "fail_condition": "forbid coverage missing, unmapped unsafe, or invalid exception metadata",
+      "output_artifact": "artifacts/clean/latest/clean_unsafe_policy_validation_v1.json",
+      "reproducibility": {
+        "local": "rch exec -- cargo test -p fnx-conformance clean_unsafe_policy_defaults_are_fail_closed -- --exact --nocapture",
+        "ci": "cargo test -p fnx-conformance clean_unsafe_policy_defaults_are_fail_closed -- --exact --nocapture"
+      }
+    },
+    {
+      "gate_id": "GATE-DYNAMIC-PROVENANCE",
+      "gate_type": "dynamic",
+      "command": "rch exec -- cargo test -p fnx-conformance clean_provenance_ledger_is_lineage_complete_and_separated -- --exact --nocapture",
+      "owner": "compat-audit",
+      "pass_condition": "lineage + handoff + ambiguity contracts remain complete",
+      "fail_condition": "missing lineage links, invalid signoff, or unresolved ambiguities",
+      "output_artifact": "artifacts/clean/latest/clean_provenance_validation_v1.json",
+      "reproducibility": {
+        "local": "rch exec -- cargo test -p fnx-conformance clean_provenance_ledger_is_lineage_complete_and_separated -- --exact --nocapture",
+        "ci": "cargo test -p fnx-conformance clean_provenance_ledger_is_lineage_complete_and_separated -- --exact --nocapture"
+      }
+    },
+    {
+      "gate_id": "GATE-DYNAMIC-CLEAN-COMPLIANCE",
+      "gate_type": "dynamic",
+      "command": "rch exec -- cargo test -p fnx-conformance clean_safety_gate_pipeline_is_reproducible_and_artifact_indexed -- --exact --nocapture",
+      "owner": "compliance-audit",
+      "pass_condition": "unit + e2e compliance scenarios validate provenance/safety contracts and audit-log schema",
+      "fail_condition": "missing scenario coverage, incomplete audit fields, or non-deterministic replay metadata",
+      "output_artifact": "artifacts/clean/latest/clean_safety_gate_pipeline_validation_v1.json",
+      "reproducibility": {
+        "local": "rch exec -- cargo test -p fnx-conformance clean_safety_gate_pipeline_is_reproducible_and_artifact_indexed -- --exact --nocapture",
+        "ci": "cargo test -p fnx-conformance clean_safety_gate_pipeline_is_reproducible_and_artifact_indexed -- --exact --nocapture"
+      }
+    },
+    {
+      "gate_id": "GATE-DYNAMIC-READWRITE-PARSER",
+      "gate_type": "dynamic",
+      "command": "rch exec -- cargo test -p fnx-conformance --test smoke -- --nocapture",
+      "owner": "io-hardening",
+      "pass_condition": "read/write parser scenarios remain deterministic and fail-closed",
+      "fail_condition": "parser drift or malformed-input handling regressions",
+      "output_artifact": "artifacts/conformance/latest/generated_readwrite_roundtrip_strict_json.report.json",
+      "reproducibility": {
+        "local": "rch exec -- cargo test -p fnx-conformance --test smoke -- --nocapture",
+        "ci": "cargo test -p fnx-conformance --test smoke -- --nocapture"
+      }
+    },
+    {
+      "gate_id": "GATE-DYNAMIC-RUNTIME-STATE",
+      "gate_type": "dynamic",
+      "command": "rch exec -- cargo test -p fnx-conformance --test structured_log_gate -- --nocapture",
+      "owner": "runtime-safety",
+      "pass_condition": "state transitions + deterministic replay metadata remain intact",
+      "fail_condition": "missing replay metadata or state-transition invariants",
+      "output_artifact": "artifacts/conformance/latest/generated_runtime_config_optional_strict_json.report.json",
+      "reproducibility": {
+        "local": "rch exec -- cargo test -p fnx-conformance --test structured_log_gate -- --nocapture",
+        "ci": "cargo test -p fnx-conformance --test structured_log_gate -- --nocapture"
+      }
+    }
+  ],
+  "high_risk_coverage": [
+    {
+      "target_id": "HR-READWRITE-PARSER",
+      "category": "parser",
+      "risk_level": "high",
+      "coverage_modes": [
+        "unit",
+        "property",
+        "differential",
+        "e2e"
+      ],
+      "entrypoint_path": "crates/fnx-readwrite/src/lib.rs",
+      "fixtures": [
+        "crates/fnx-conformance/fixtures/generated/readwrite_roundtrip_strict.json",
+        "artifacts/conformance/latest/generated_readwrite_roundtrip_strict_json.report.json"
+      ],
+      "triage_bucket": "parser-malformed-input"
+    },
+    {
+      "target_id": "HR-RUNTIME-STATE",
+      "category": "state_transition",
+      "risk_level": "high",
+      "coverage_modes": [
+        "unit",
+        "property",
+        "differential",
+        "e2e"
+      ],
+      "entrypoint_path": "crates/fnx-runtime/src/lib.rs",
+      "fixtures": [
+        "crates/fnx-conformance/fixtures/generated/runtime_config_optional_strict.json",
+        "artifacts/conformance/latest/generated_runtime_config_optional_strict_json.report.json"
+      ],
+      "triage_bucket": "state-transition-invariant"
+    },
+    {
+      "target_id": "HR-UNSAFE-POLICY",
+      "category": "policy",
+      "risk_level": "high",
+      "coverage_modes": [
+        "unit",
+        "property",
+        "differential",
+        "e2e"
+      ],
+      "entrypoint_path": "crates/fnx-conformance/tests/clean_unsafe_policy_gate.rs",
+      "fixtures": [
+        "artifacts/clean/latest/clean_unsafe_policy_validation_v1.json",
+        "artifacts/conformance/latest/logging_final_gate_report_v1.json"
+      ],
+      "triage_bucket": "policy-regression"
+    },
+    {
+      "target_id": "HR-CLEAN-COMPLIANCE",
+      "category": "compliance_traceability",
+      "risk_level": "high",
+      "coverage_modes": [
+        "unit",
+        "property",
+        "differential",
+        "e2e"
+      ],
+      "entrypoint_path": "crates/fnx-conformance/tests/clean_safety_gate_pipeline.rs",
+      "fixtures": [
+        "artifacts/clean/latest/clean_compliance_audit_log_v1.json",
+        "artifacts/clean/latest/clean_safety_gate_pipeline_validation_v1.json"
+      ],
+      "triage_bucket": "policy-regression"
+    }
+  ],
+  "execution_workflows": {
+    "local_commands": [
+      "rch exec -- cargo fmt --check",
+      "rch exec -- cargo clippy --workspace --all-targets -- -D warnings",
+      "rch exec -- cargo test -p fnx-conformance clean_unsafe_policy_defaults_are_fail_closed -- --exact --nocapture",
+      "rch exec -- cargo test -p fnx-conformance clean_provenance_ledger_is_lineage_complete_and_separated -- --exact --nocapture",
+      "rch exec -- cargo test -p fnx-conformance clean_safety_gate_pipeline_is_reproducible_and_artifact_indexed -- --exact --nocapture"
+    ],
+    "ci_commands": [
+      "cargo fmt --check",
+      "cargo clippy --workspace --all-targets -- -D warnings",
+      "cargo test -p fnx-conformance --test clean_safety_gate_pipeline -- --nocapture",
+      "cargo test -p fnx-conformance --tests -- --nocapture"
+    ],
+    "determinism_notes": "All gate commands are stable, seedless checks against deterministic fixture artifacts and versioned reports."
+  },
+  "compliance_test_scenarios": [
+    {
+      "scenario_id": "CLEAN-COMP-UNIT-PROVENANCE-SAFETY",
+      "level": "unit",
+      "objective": "Validate provenance lineage and unsafe-policy fail-closed controls with deterministic replay commands.",
+      "controls_validated": [
+        "provenance_lineage",
+        "unsafe_policy_fail_closed"
+      ],
+      "command": "rch exec -- cargo test -p fnx-conformance clean_provenance_ledger_is_lineage_complete_and_separated -- --exact --nocapture",
+      "replay_command": "rch exec -- cargo test -p fnx-conformance clean_provenance_ledger_is_lineage_complete_and_separated -- --exact --nocapture",
+      "expected_outcome": "lineage records, handoff boundaries, and unsafe fail-closed defaults remain valid",
+      "evidence_paths": [
+        "artifacts/clean/latest/clean_provenance_validation_v1.json",
+        "artifacts/clean/latest/clean_unsafe_policy_validation_v1.json"
+      ],
+      "audit_log_path": "artifacts/clean/latest/clean_compliance_audit_log_v1.json",
+      "deterministic_seed": 0,
+      "triage_metadata": {
+        "bucket_id": "policy-regression",
+        "severity": "critical",
+        "owner_role": "safety-audit",
+        "replay_ref": "rch exec -- cargo test -p fnx-conformance clean_provenance_ledger_is_lineage_complete_and_separated -- --exact --nocapture"
+      }
+    },
+    {
+      "scenario_id": "CLEAN-COMP-E2E-TRACEABILITY",
+      "level": "e2e",
+      "objective": "Demonstrate extraction-to-implementation traceability and gate enforcement through deterministic conformance replay.",
+      "controls_validated": [
+        "provenance_lineage",
+        "safety_gate_reproducibility"
+      ],
+      "command": "rch exec -- cargo run -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_roundtrip_strict.json --mode strict",
+      "replay_command": "rch exec -- cargo run -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_roundtrip_strict.json --mode strict",
+      "expected_outcome": "structured conformance logs and clean-room audit events remain replayable with full provenance links",
+      "evidence_paths": [
+        "artifacts/clean/latest/clean_safety_gate_pipeline_validation_v1.json",
+        "artifacts/conformance/latest/structured_logs.json",
+        "artifacts/conformance/latest/structured_logs.jsonl"
+      ],
+      "audit_log_path": "artifacts/clean/latest/clean_compliance_audit_log_v1.json",
+      "deterministic_seed": 0,
+      "triage_metadata": {
+        "bucket_id": "state-transition-invariant",
+        "severity": "high",
+        "owner_role": "runtime-safety",
+        "replay_ref": "rch exec -- cargo run -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_roundtrip_strict.json --mode strict"
+      }
+    }
+  ],
+  "audit_logging_contract": {
+    "path": "artifacts/clean/latest/clean_compliance_audit_log_v1.json",
+    "schema_version": "1.0.0",
+    "required_fields": [
+      "claim_id",
+      "source_anchor",
+      "implementation_ref",
+      "reviewer_id",
+      "mode",
+      "outcome",
+      "replay_command",
+      "triage_metadata"
+    ],
+    "mode_values": [
+      "strict",
+      "hardened"
+    ],
+    "outcome_values": [
+      "pass",
+      "fail"
+    ],
+    "replay_key": "replay_command",
+    "triage_key": "triage_metadata"
+  },
+  "artifact_index": [
+    {
+      "artifact_id": "clean_unsafe_policy_validation",
+      "path": "artifacts/clean/latest/clean_unsafe_policy_validation_v1.json",
+      "producer_gate_id": "GATE-DYNAMIC-UNSAFE-POLICY"
+    },
+    {
+      "artifact_id": "clean_provenance_validation",
+      "path": "artifacts/clean/latest/clean_provenance_validation_v1.json",
+      "producer_gate_id": "GATE-DYNAMIC-PROVENANCE"
+    },
+    {
+      "artifact_id": "clean_compliance_audit_log",
+      "path": "artifacts/clean/latest/clean_compliance_audit_log_v1.json",
+      "producer_gate_id": "GATE-DYNAMIC-CLEAN-COMPLIANCE"
+    },
+    {
+      "artifact_id": "readwrite_roundtrip_report",
+      "path": "artifacts/conformance/latest/generated_readwrite_roundtrip_strict_json.report.json",
+      "producer_gate_id": "GATE-DYNAMIC-READWRITE-PARSER"
+    },
+    {
+      "artifact_id": "runtime_config_report",
+      "path": "artifacts/conformance/latest/generated_runtime_config_optional_strict_json.report.json",
+      "producer_gate_id": "GATE-DYNAMIC-RUNTIME-STATE"
+    },
+    {
+      "artifact_id": "structured_logging_gate_report",
+      "path": "artifacts/conformance/latest/logging_final_gate_report_v1.json",
+      "producer_gate_id": "GATE-STATIC-CLIPPY"
+    },
+    {
+      "artifact_id": "clean_safety_gate_pipeline_validation",
+      "path": "artifacts/clean/latest/clean_safety_gate_pipeline_validation_v1.json",
+      "producer_gate_id": "GATE-STATIC-FMT"
+    }
+  ],
+  "triage_taxonomy": [
+    {
+      "bucket_id": "parser-malformed-input",
+      "severity": "high",
+      "description": "Malformed-input parser failures, coercion drift, and fail-open regressions.",
+      "owner_role": "io-hardening",
+      "response_sla_hours": 8
+    },
+    {
+      "bucket_id": "state-transition-invariant",
+      "severity": "high",
+      "description": "Invalid runtime state transitions, invariant breaks, and replay mismatch.",
+      "owner_role": "runtime-safety",
+      "response_sla_hours": 8
+    },
+    {
+      "bucket_id": "policy-regression",
+      "severity": "critical",
+      "description": "Unsafe-policy regressions, exception metadata drift, or fail-open behavior.",
+      "owner_role": "safety-audit",
+      "response_sla_hours": 4
+    },
+    {
+      "bucket_id": "performance-guardrail",
+      "severity": "medium",
+      "description": "Unexpected gate-runtime or memory regressions that violate safety budget assumptions.",
+      "owner_role": "quality-engineering",
+      "response_sla_hours": 24
+    }
+  ],
+  "alien_uplift_contract_card": {
+    "artifact_track": "clean-safety-gate-pipeline",
+    "ev_score": 2.4,
+    "baseline": "ad hoc safety checks with weak ownership and artifact links",
+    "notes": "Gate matrix + risk-target taxonomy + artifact index improves reproducibility and safety triage quality."
+  },
+  "profile_first_artifacts": {
+    "baseline": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+    "hotspot": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+    "delta": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+  },
+  "optimization_lever_policy": {
+    "policy": "exactly_one_optimization_lever_per_change",
+    "evidence_path": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+    "max_levers_per_change": 1
+  },
+  "drop_in_parity_contract": {
+    "legacy_feature_overlap_target": "100%",
+    "intentional_capability_gaps": [],
+    "contract_statement": "Safety hardening must preserve scoped legacy-observable behavior and deterministic ties/output contracts."
+  },
+  "decision_theoretic_runtime_contract": {
+    "states": [
+      "green",
+      "yellow",
+      "red",
+      "blocked"
+    ],
+    "actions": [
+      "run_gate",
+      "escalate",
+      "triage",
+      "block_release"
+    ],
+    "loss_model": "missed high-risk regression > false-negative gate pass > delayed release",
+    "safe_mode_fallback": "block release when any required safety gate fails or artifact index cannot be reconstructed",
+    "safe_mode_budget": {
+      "max_failed_required_gates": 0,
+      "max_unmapped_high_risk_targets": 0,
+      "max_missing_artifact_links": 0
+    },
+    "trigger_thresholds": [
+      {
+        "trigger_id": "TRIG-FAILED-REQUIRED-GATE",
+        "condition": "count(required gates with failed status) >= 1",
+        "threshold": 1,
+        "fallback_action": "enter blocked state and deny promotion"
+      },
+      {
+        "trigger_id": "TRIG-MISSING-HIGH-RISK-COVERAGE",
+        "condition": "count(high-risk targets missing property/fuzz evidence) >= 1",
+        "threshold": 1,
+        "fallback_action": "enter blocked state and require coverage repair"
+      },
+      {
+        "trigger_id": "TRIG-MISSING-ARTIFACT-LINK",
+        "condition": "count(artifact index paths that do not resolve) >= 1",
+        "threshold": 1,
+        "fallback_action": "block release and force artifact regeneration"
+      }
+    ]
+  },
+  "isomorphism_proof_artifacts": [
+    "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_001_V1.md",
+    "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_005_V1.md",
+    "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_009_V1.md"
+  ],
+  "structured_logging_evidence": [
+    "artifacts/conformance/latest/structured_logs.json",
+    "artifacts/conformance/latest/structured_logs.jsonl",
+    "artifacts/conformance/latest/logging_final_gate_report_v1.json",
+    "artifacts/clean/latest/clean_compliance_audit_log_v1.json"
+  ]
+}

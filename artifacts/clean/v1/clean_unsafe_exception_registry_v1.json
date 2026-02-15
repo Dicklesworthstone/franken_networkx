@@ -1,0 +1,126 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "clean-unsafe-exception-registry-v1",
+  "generated_at_utc": "2026-02-15T05:21:46Z",
+  "policy_defaults": {
+    "workspace_default": "#![forbid(unsafe_code)] required in every workspace crate root",
+    "lint_gate": "cargo clippy --workspace --all-targets -- -D warnings",
+    "ci_enforcement": "deny release if forbid-missing or unresolved unsafe findings are present",
+    "unknown_unsafe_behavior": "fail_closed"
+  },
+  "coverage_snapshot": {
+    "workspace_crates": [
+      "crates/fnx-classes",
+      "crates/fnx-views",
+      "crates/fnx-dispatch",
+      "crates/fnx-convert",
+      "crates/fnx-algorithms",
+      "crates/fnx-generators",
+      "crates/fnx-readwrite",
+      "crates/fnx-durability",
+      "crates/fnx-conformance",
+      "crates/fnx-runtime"
+    ],
+    "forbid_unsafe_missing": [],
+    "unsafe_findings": []
+  },
+  "exception_registry": [],
+  "fail_closed_controls": [
+    {
+      "control_id": "UFC-1",
+      "description": "Unknown unsafe usage blocks promotion by default.",
+      "trigger": "unsafe_findings.count > approved_exceptions.count",
+      "action": "deny release and require explicit exception registration"
+    },
+    {
+      "control_id": "UFC-2",
+      "description": "Missing crate-level forbid attribute is treated as policy violation.",
+      "trigger": "forbid_unsafe_missing.count >= 1",
+      "action": "deny release and require crate-level policy restoration"
+    },
+    {
+      "control_id": "UFC-3",
+      "description": "Expired exception records are invalid without renewal.",
+      "trigger": "approved exception expires_at_utc < now",
+      "action": "deny release until renewal or revocation"
+    }
+  ],
+  "audit_enforcement": {
+    "scanner_command": "rg -n --glob 'crates/**/src/*.rs' '#![forbid(unsafe_code)]|unsafe\\s*\\{|unsafe\\s+fn|extern\\s+\"C\"'",
+    "ci_gate": "cargo clippy --workspace --all-targets -- -D warnings && cargo test -p fnx-conformance clean_unsafe_policy_defaults_are_fail_closed -- --exact --nocapture",
+    "renewal_command": "update exception status/expiry + link mitigation evidence before CI rerun",
+    "registry_policy": "exceptions must remain empty unless narrowly justified and fully reviewed"
+  },
+  "alien_uplift_contract_card": {
+    "artifact_track": "clean-room-unsafe-policy",
+    "ev_score": 2.3,
+    "baseline": "ad hoc unsafe review without machine-checkable registry",
+    "notes": "Fail-closed registry + conformance gate reduces accidental unsafe drift and ownership gaps."
+  },
+  "profile_first_artifacts": {
+    "baseline": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+    "hotspot": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+    "delta": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+  },
+  "optimization_lever_policy": {
+    "policy": "exactly_one_optimization_lever_per_change",
+    "evidence_path": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+    "max_levers_per_change": 1
+  },
+  "drop_in_parity_contract": {
+    "legacy_feature_overlap_target": "100%",
+    "intentional_capability_gaps": [],
+    "contract_statement": "No reduced-scope compatibility profile is permitted; safety hardening cannot alter observable scoped behavior."
+  },
+  "decision_theoretic_runtime_contract": {
+    "states": [
+      "clean",
+      "exception_pending",
+      "exception_approved",
+      "blocked"
+    ],
+    "actions": [
+      "scan",
+      "approve_exception",
+      "revoke_exception",
+      "block_release"
+    ],
+    "loss_model": "undocumented unsafe usage > expired exception usage > delayed release",
+    "safe_mode_fallback": "block release whenever scanner findings exceed approved exception budget",
+    "safe_mode_budget": {
+      "max_unmapped_unsafe_findings": 0,
+      "max_expired_approved_exceptions": 0,
+      "max_missing_forbid_crates": 0
+    },
+    "trigger_thresholds": [
+      {
+        "trigger_id": "TRIG-UNMAPPED-UNSAFE",
+        "condition": "unsafe_findings.count > approved_exceptions.count",
+        "threshold": 1,
+        "fallback_action": "enter blocked state and reject release"
+      },
+      {
+        "trigger_id": "TRIG-MISSING-FORBID",
+        "condition": "forbid_unsafe_missing.count >= 1",
+        "threshold": 1,
+        "fallback_action": "enter blocked state and require policy repair"
+      },
+      {
+        "trigger_id": "TRIG-EXPIRED-EXCEPTION",
+        "condition": "approved exception expires_at_utc < now",
+        "threshold": 1,
+        "fallback_action": "revoke exception and block release until renewed"
+      }
+    ]
+  },
+  "isomorphism_proof_artifacts": [
+    "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_001_V1.md",
+    "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_005_V1.md",
+    "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_009_V1.md"
+  ],
+  "structured_logging_evidence": [
+    "artifacts/conformance/latest/structured_logs.json",
+    "artifacts/conformance/latest/structured_logs.jsonl",
+    "artifacts/conformance/latest/logging_final_gate_report_v1.json"
+  ]
+}

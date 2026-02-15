@@ -1,0 +1,173 @@
+{
+  "schema_version": "1.0.0",
+  "schema_id": "clean-safety-gate-pipeline-schema-v1",
+  "required_top_level_keys": [
+    "schema_version",
+    "artifact_id",
+    "generated_at_utc",
+    "gate_matrix",
+    "high_risk_coverage",
+    "execution_workflows",
+    "compliance_test_scenarios",
+    "audit_logging_contract",
+    "artifact_index",
+    "triage_taxonomy",
+    "alien_uplift_contract_card",
+    "profile_first_artifacts",
+    "optimization_lever_policy",
+    "drop_in_parity_contract",
+    "decision_theoretic_runtime_contract",
+    "isomorphism_proof_artifacts",
+    "structured_logging_evidence"
+  ],
+  "required_gate_row_keys": [
+    "gate_id",
+    "gate_type",
+    "command",
+    "owner",
+    "pass_condition",
+    "fail_condition",
+    "output_artifact",
+    "reproducibility"
+  ],
+  "required_reproducibility_keys": [
+    "local",
+    "ci"
+  ],
+  "allowed_gate_types": [
+    "static",
+    "dynamic"
+  ],
+  "required_high_risk_entry_keys": [
+    "target_id",
+    "category",
+    "risk_level",
+    "coverage_modes",
+    "entrypoint_path",
+    "fixtures",
+    "triage_bucket"
+  ],
+  "required_execution_workflow_keys": [
+    "local_commands",
+    "ci_commands",
+    "determinism_notes"
+  ],
+  "required_compliance_scenario_keys": [
+    "scenario_id",
+    "level",
+    "objective",
+    "controls_validated",
+    "command",
+    "replay_command",
+    "expected_outcome",
+    "evidence_paths",
+    "audit_log_path",
+    "deterministic_seed",
+    "triage_metadata"
+  ],
+  "required_triage_metadata_keys": [
+    "bucket_id",
+    "severity",
+    "owner_role",
+    "replay_ref"
+  ],
+  "required_audit_log_contract_keys": [
+    "path",
+    "schema_version",
+    "required_fields",
+    "mode_values",
+    "outcome_values",
+    "replay_key",
+    "triage_key"
+  ],
+  "required_audit_log_fields": [
+    "claim_id",
+    "source_anchor",
+    "implementation_ref",
+    "reviewer_id",
+    "mode",
+    "outcome",
+    "replay_command",
+    "triage_metadata"
+  ],
+  "required_artifact_index_keys": [
+    "artifact_id",
+    "path",
+    "producer_gate_id"
+  ],
+  "required_triage_bucket_keys": [
+    "bucket_id",
+    "severity",
+    "description",
+    "owner_role",
+    "response_sla_hours"
+  ],
+  "required_profile_artifact_keys": [
+    "baseline",
+    "hotspot",
+    "delta"
+  ],
+  "required_optimization_policy_keys": [
+    "policy",
+    "evidence_path",
+    "max_levers_per_change"
+  ],
+  "required_drop_in_parity_keys": [
+    "legacy_feature_overlap_target",
+    "intentional_capability_gaps",
+    "contract_statement"
+  ],
+  "required_runtime_contract_keys": [
+    "states",
+    "actions",
+    "loss_model",
+    "safe_mode_fallback",
+    "safe_mode_budget",
+    "trigger_thresholds"
+  ],
+  "required_runtime_trigger_keys": [
+    "trigger_id",
+    "condition",
+    "threshold",
+    "fallback_action"
+  ],
+  "required_alien_contract_card_keys": [
+    "artifact_track",
+    "ev_score",
+    "baseline",
+    "notes"
+  ],
+  "required_coverage_modes": [
+    "unit",
+    "property",
+    "differential",
+    "e2e"
+  ],
+  "allowed_scenario_levels": [
+    "unit",
+    "e2e"
+  ],
+  "required_scenario_levels": [
+    "unit",
+    "e2e"
+  ],
+  "required_control_coverage": [
+    "provenance_lineage",
+    "unsafe_policy_fail_closed",
+    "safety_gate_reproducibility"
+  ],
+  "allowed_audit_modes": [
+    "strict",
+    "hardened"
+  ],
+  "allowed_audit_outcomes": [
+    "pass",
+    "fail"
+  ],
+  "required_triage_buckets": [
+    "parser-malformed-input",
+    "state-transition-invariant",
+    "policy-regression",
+    "performance-guardrail"
+  ]
+}

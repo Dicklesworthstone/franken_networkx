@@ -1,11 +1,15 @@
 # Clean-Room Provenance Ledger
 
 - artifact id: `clean-provenance-ledger-v1`
-- generated at (utc): `2026-02-15T05:10:11Z`
+- generated at (utc): `2026-02-15T05:14:27Z`
 - baseline comparator: `legacy_networkx_code/networkx/networkx source anchors + in-repo Rust implementation artifacts`
 
 ## Scope
 Machine-checkable clean-room provenance ledger covering extraction claims, implementation refs, handoff boundaries, ambiguity decisions, and reviewer sign-off.
+
+## Parity + Optimization Contracts
+- drop-in parity target: `100%`
+- optimization lever policy: `exactly_one_optimization_lever_per_change` (max=1)
 
 ## Separation Workflow
 - workflow id: `clean-room-provenance-separation-v1`
@@ -57,3 +61,14 @@ Machine-checkable clean-room provenance ledger covering extraction claims, imple
 - `CPR-Q03` List ambiguity decisions with confidence for dispatch and shortest-path lineage records.
   - record_path: ['CPR-003', 'CPR-005']
   - expected_end_to_end_fields: ['legacy_source_anchor', 'extracted_behavior_claim', 'implementation_artifact_refs', 'reviewer_signoff', 'conformance_evidence_refs']
+
+## Runtime Contract
+- states: ['extract_only', 'implement_only', 'review', 'blocked']
+- actions: ['handoff', 'approve', 'reject', 'rework']
+- loss model: cross-boundary contamination > missing lineage evidence > delayed handoff
+- safe mode fallback: block promotion when provenance lineage is incomplete or signoff missing
+- safe mode budget: {'max_blocked_promotions_per_run': 0, 'max_unsigned_records_before_halt': 0, 'max_unresolved_ambiguities_before_halt': 0}
+- trigger thresholds:
+  - `TRIG-UNSIGNED-RECORD` condition=count(records where reviewer_signoff.status != approved) >= 1 threshold=1 fallback=enter blocked state and reject release promotion
+  - `TRIG-INCOMPLETE-LINEAGE` condition=count(records with missing legacy/implementation/conformance linkage) >= 1 threshold=1 fallback=halt handoff and require rework
+  - `TRIG-UNMAPPED-AMBIGUITY` condition=count(ambiguity_decisions where confidence_rating < 0.8) >= 1 threshold=1 fallback=require reviewer escalation before approval

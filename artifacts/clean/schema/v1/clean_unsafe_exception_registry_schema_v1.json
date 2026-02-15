@@ -1,0 +1,103 @@
+{
+  "schema_version": "1.0.0",
+  "schema_id": "clean-unsafe-exception-registry-schema-v1",
+  "required_top_level_keys": [
+    "schema_version",
+    "artifact_id",
+    "generated_at_utc",
+    "policy_defaults",
+    "coverage_snapshot",
+    "exception_registry",
+    "fail_closed_controls",
+    "audit_enforcement",
+    "alien_uplift_contract_card",
+    "profile_first_artifacts",
+    "optimization_lever_policy",
+    "drop_in_parity_contract",
+    "decision_theoretic_runtime_contract",
+    "isomorphism_proof_artifacts",
+    "structured_logging_evidence"
+  ],
+  "required_policy_default_keys": [
+    "workspace_default",
+    "lint_gate",
+    "ci_enforcement",
+    "unknown_unsafe_behavior"
+  ],
+  "required_coverage_snapshot_keys": [
+    "workspace_crates",
+    "forbid_unsafe_missing",
+    "unsafe_findings"
+  ],
+  "required_exception_entry_keys": [
+    "exception_id",
+    "crate",
+    "path",
+    "symbol",
+    "rationale",
+    "owner",
+    "created_at_utc",
+    "review_every_days",
+    "expires_at_utc",
+    "mitigation_plan",
+    "threat_note",
+    "tests",
+    "status"
+  ],
+  "required_fail_closed_control_keys": [
+    "control_id",
+    "description",
+    "trigger",
+    "action"
+  ],
+  "required_audit_enforcement_keys": [
+    "scanner_command",
+    "ci_gate",
+    "renewal_command",
+    "registry_policy"
+  ],
+  "required_profile_artifact_keys": [
+    "baseline",
+    "hotspot",
+    "delta"
+  ],
+  "required_optimization_policy_keys": [
+    "policy",
+    "evidence_path",
+    "max_levers_per_change"
+  ],
+  "required_drop_in_parity_keys": [
+    "legacy_feature_overlap_target",
+    "intentional_capability_gaps",
+    "contract_statement"
+  ],
+  "required_runtime_contract_keys": [
+    "states",
+    "actions",
+    "loss_model",
+    "safe_mode_fallback",
+    "safe_mode_budget",
+    "trigger_thresholds"
+  ],
+  "required_runtime_trigger_keys": [
+    "trigger_id",
+    "condition",
+    "threshold",
+    "fallback_action"
+  ],
+  "required_alien_contract_card_keys": [
+    "artifact_track",
+    "ev_score",
+    "baseline",
+    "notes"
+  ],
+  "allowed_exception_status": [
+    "approved",
+    "expired",
+    "revoked"
+  ],
+  "confidence_range": {
+    "min": 0.0,
+    "max": 1.0
+  }
+}

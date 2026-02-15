@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0.0",
+  "report_id": "clean-safety-gate-pipeline-validation-v1",
+  "artifact": "artifacts/clean/v1/clean_safety_gate_pipeline_v1.json",
+  "schema": "artifacts/clean/schema/v1/clean_safety_gate_pipeline_schema_v1.json",
+  "ready": true,
+  "error_count": 0,
+  "errors": [],
+  "summary": {
+    "gate_count": 7,
+    "high_risk_target_count": 4,
+    "artifact_index_count": 7,
+    "triage_bucket_count": 4,
+    "compliance_scenario_count": 2,
+    "audit_record_count": 2
+  }
+}
