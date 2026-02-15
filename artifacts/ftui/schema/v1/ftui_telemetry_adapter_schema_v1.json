@@ -1,0 +1,107 @@
+{
+  "schema_version": "1.0.0",
+  "artifact": "ftui_telemetry_adapter",
+  "required_top_level_keys": [
+    "schema_version",
+    "artifact_id",
+    "generated_at_utc",
+    "baseline_comparator",
+    "adapter_interface",
+    "ingestion_contract",
+    "artifact_index_contract",
+    "failure_modes",
+    "test_bindings",
+    "decision_theoretic_runtime_contract",
+    "profile_first_artifacts",
+    "alien_uplift_contract_card",
+    "isomorphism_proof_artifacts",
+    "structured_logging_evidence"
+  ],
+  "required_adapter_interface_keys": [
+    "owning_crate",
+    "module_path",
+    "adapter_types",
+    "integration_seam",
+    "feature_gate"
+  ],
+  "required_ingestion_contract_keys": [
+    "source_schema",
+    "required_fields",
+    "correlation_key",
+    "ordering_key",
+    "unknown_field_policy",
+    "incompatible_payload_policy"
+  ],
+  "required_artifact_index_keys": [
+    "index_id",
+    "ordering_guarantee",
+    "row_keys",
+    "row_linkage"
+  ],
+  "required_failure_mode_keys": [
+    "reason_code",
+    "trigger",
+    "action",
+    "diagnostic"
+  ],
+  "required_test_binding_keys": [
+    "test_id",
+    "layer",
+    "artifact_path",
+    "replay_command"
+  ],
+  "required_decision_contract_keys": [
+    "states",
+    "actions",
+    "loss_model",
+    "loss_budget",
+    "safe_mode_fallback"
+  ],
+  "required_loss_budget_keys": [
+    "max_expected_loss",
+    "max_replay_loss",
+    "max_data_loss"
+  ],
+  "required_safe_mode_fallback_keys": [
+    "trigger_thresholds",
+    "fallback_action",
+    "budgeted_recovery_window_ms"
+  ],
+  "required_profile_artifact_keys": [
+    "baseline",
+    "hotspot",
+    "delta"
+  ],
+  "required_fields": [
+    "run_id",
+    "journey_id",
+    "event_id",
+    "state",
+    "seed",
+    "artifact_ref",
+    "test_id",
+    "replay_command",
+    "env_fingerprint",
+    "duration_ms"
+  ],
+  "required_row_keys": [
+    "correlation_id",
+    "bundle_id",
+    "run_id",
+    "test_id",
+    "captured_unix_ms",
+    "replay_ref",
+    "artifact_refs",
+    "status",
+    "reason_code"
+  ],
+  "required_failure_codes": [
+    "unknown_telemetry_field",
+    "incompatible_structured_log"
+  ],
+  "required_test_layers": [
+    "unit",
+    "differential",
+    "e2e"
+  ]
+}

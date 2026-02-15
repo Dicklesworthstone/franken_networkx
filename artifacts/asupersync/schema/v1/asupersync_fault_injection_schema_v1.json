@@ -1,0 +1,101 @@
+{
+  "schema_version": "1.0.0",
+  "artifact": "asupersync_fault_injection_suite",
+  "required_top_level_keys": [
+    "schema_version",
+    "artifact_id",
+    "generated_at_utc",
+    "baseline_comparator",
+    "suite_summary",
+    "fault_classes",
+    "structured_log_contract",
+    "repro_commands",
+    "test_bindings",
+    "decision_theoretic_runtime_contract",
+    "profile_first_artifacts",
+    "alien_uplift_contract_card",
+    "isomorphism_proof_artifacts",
+    "structured_logging_evidence"
+  ],
+  "required_suite_summary_keys": [
+    "unit_test_count",
+    "property_test_count",
+    "fault_class_count",
+    "deterministic_seed_policy"
+  ],
+  "required_fault_class_keys": [
+    "fault_id",
+    "fault_type",
+    "trigger",
+    "expected_reason_code",
+    "expected_terminal_state",
+    "invariant_checks",
+    "log_fields"
+  ],
+  "required_log_contract_keys": [
+    "required_fields",
+    "correlation_key",
+    "fail_closed_policy"
+  ],
+  "required_repro_command_keys": [
+    "fault_id",
+    "replay_command",
+    "expected_outcome"
+  ],
+  "required_test_binding_keys": [
+    "test_id",
+    "layer",
+    "artifact_path",
+    "replay_command"
+  ],
+  "required_decision_contract_keys": [
+    "states",
+    "actions",
+    "loss_model",
+    "loss_budget",
+    "safe_mode_fallback"
+  ],
+  "required_loss_budget_keys": [
+    "max_expected_loss",
+    "max_replay_loss",
+    "max_data_loss"
+  ],
+  "required_safe_mode_fallback_keys": [
+    "trigger_thresholds",
+    "fallback_action",
+    "budgeted_recovery_window_ms"
+  ],
+  "required_profile_artifact_keys": [
+    "baseline",
+    "hotspot",
+    "delta"
+  ],
+  "required_fault_types": [
+    "interruption",
+    "partial_write",
+    "checksum_mismatch",
+    "stale_metadata"
+  ],
+  "required_reason_codes": [
+    "retry_exhausted",
+    "conflict_detected",
+    "integrity_precheck_failed",
+    "resume_seed_mismatch"
+  ],
+  "required_log_fields": [
+    "transfer_id",
+    "artifact_id",
+    "retry_count",
+    "mode",
+    "seed",
+    "env_fingerprint",
+    "outcome_reason_code",
+    "replay_command"
+  ],
+  "required_test_layers": [
+    "unit",
+    "property",
+    "differential",
+    "e2e"
+  ]
+}

@@ -1,0 +1,208 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "asupersync-fault-injection-suite-v1",
+  "generated_at_utc": "2026-02-15T20:44:00+00:00",
+  "baseline_comparator": "legacy_networkx/main@python3.12 + asupersync@0.2.0",
+  "suite_summary": {
+    "unit_test_count": 8,
+    "property_test_count": 1,
+    "fault_class_count": 4,
+    "deterministic_seed_policy": "all fault scenarios pin deterministic seed and replay command for reproducibility"
+  },
+  "fault_classes": [
+    {
+      "fault_id": "ASUP-FAULT-001",
+      "fault_type": "interruption",
+      "trigger": "transport interruption count exceeds max_attempts",
+      "expected_reason_code": "retry_exhausted",
+      "expected_terminal_state": "failed_closed",
+      "invariant_checks": [
+        "retry counter is monotonic",
+        "terminal fail_closed transition emits retry_exhausted"
+      ],
+      "log_fields": [
+        "transfer_id",
+        "artifact_id",
+        "retry_count",
+        "mode",
+        "seed",
+        "env_fingerprint",
+        "outcome_reason_code",
+        "replay_command"
+      ]
+    },
+    {
+      "fault_id": "ASUP-FAULT-002",
+      "fault_type": "partial_write",
+      "trigger": "chunk cursor regresses after partial write sequence",
+      "expected_reason_code": "conflict_detected",
+      "expected_terminal_state": "failed_closed",
+      "invariant_checks": [
+        "committed cursor never decreases",
+        "cursor regression is fail-closed"
+      ],
+      "log_fields": [
+        "transfer_id",
+        "artifact_id",
+        "retry_count",
+        "mode",
+        "seed",
+        "env_fingerprint",
+        "outcome_reason_code",
+        "replay_command"
+      ]
+    },
+    {
+      "fault_id": "ASUP-FAULT-003",
+      "fault_type": "checksum_mismatch",
+      "trigger": "observed checksum differs from expected checksum at verification phase",
+      "expected_reason_code": "integrity_precheck_failed",
+      "expected_terminal_state": "failed_closed",
+      "invariant_checks": [
+        "checksum mismatch never transitions to completed",
+        "integrity_precheck_failed reason is preserved in transition log"
+      ],
+      "log_fields": [
+        "transfer_id",
+        "artifact_id",
+        "retry_count",
+        "mode",
+        "seed",
+        "env_fingerprint",
+        "outcome_reason_code",
+        "replay_command"
+      ]
+    },
+    {
+      "fault_id": "ASUP-FAULT-004",
+      "fault_type": "stale_metadata",
+      "trigger": "resume checkpoint seed does not match transfer intent seed",
+      "expected_reason_code": "resume_seed_mismatch",
+      "expected_terminal_state": "failed_closed",
+      "invariant_checks": [
+        "resume requires deterministic seed equality",
+        "stale metadata is rejected before side effects"
+      ],
+      "log_fields": [
+        "transfer_id",
+        "artifact_id",
+        "retry_count",
+        "mode",
+        "seed",
+        "env_fingerprint",
+        "outcome_reason_code",
+        "replay_command"
+      ]
+    }
+  ],
+  "structured_log_contract": {
+    "required_fields": [
+      "transfer_id",
+      "artifact_id",
+      "retry_count",
+      "mode",
+      "seed",
+      "env_fingerprint",
+      "outcome_reason_code",
+      "replay_command"
+    ],
+    "correlation_key": "transfer_id|seed|mode|fault_id",
+    "fail_closed_policy": "unknown or incompatible fields must fail closed with actionable diagnostics"
+  },
+  "repro_commands": [
+    {
+      "fault_id": "ASUP-FAULT-001",
+      "replay_command": "rch exec -- env CARGO_TARGET_DIR=target-codex-mossy cargo test -p fnx-runtime asupersync_adapter_retry_budget_exhaustion_fault_injection_is_fail_closed -- --nocapture",
+      "expected_outcome": "failed_closed with retry_exhausted reason"
+    },
+    {
+      "fault_id": "ASUP-FAULT-002",
+      "replay_command": "rch exec -- env CARGO_TARGET_DIR=target-codex-mossy cargo test -p fnx-runtime asupersync_adapter_partial_write_cursor_regression_is_fail_closed -- --nocapture",
+      "expected_outcome": "failed_closed with conflict_detected reason"
+    },
+    {
+      "fault_id": "ASUP-FAULT-003",
+      "replay_command": "rch exec -- env CARGO_TARGET_DIR=target-codex-mossy cargo test -p fnx-runtime asupersync_adapter_checksum_mismatch_is_fail_closed_and_audited -- --nocapture",
+      "expected_outcome": "failed_closed with integrity_precheck_failed reason"
+    },
+    {
+      "fault_id": "ASUP-FAULT-004",
+      "replay_command": "rch exec -- env CARGO_TARGET_DIR=target-codex-mossy cargo test -p fnx-runtime asupersync_adapter_stale_metadata_seed_mismatch_rejects_resume -- --nocapture",
+      "expected_outcome": "resume rejected with deterministic_seed mismatch diagnostic"
+    }
+  ],
+  "test_bindings": [
+    {
+      "test_id": "ASUP-C-UNIT-001",
+      "layer": "unit",
+      "artifact_path": "crates/fnx-runtime/src/lib.rs",
+      "replay_command": "rch exec -- env CARGO_TARGET_DIR=target-codex-mossy cargo test -p fnx-runtime asupersync_adapter_ -- --nocapture"
+    },
+    {
+      "test_id": "ASUP-C-PROP-001",
+      "layer": "property",
+      "artifact_path": "crates/fnx-runtime/src/lib.rs",
+      "replay_command": "rch exec -- env CARGO_TARGET_DIR=target-codex-mossy cargo test -p fnx-runtime asupersync_adapter_property_same_fault_sequence_has_identical_transitions -- --nocapture"
+    },
+    {
+      "test_id": "ASUP-C-DIFF-001",
+      "layer": "differential",
+      "artifact_path": "crates/fnx-conformance/tests/asupersync_fault_injection_gate.rs",
+      "replay_command": "rch exec -- env CARGO_TARGET_DIR=target-codex-mossy cargo test -p fnx-conformance --test asupersync_fault_injection_gate -- --nocapture"
+    },
+    {
+      "test_id": "ASUP-C-E2E-001",
+      "layer": "e2e",
+      "artifact_path": "artifacts/e2e/latest/e2e_scenario_matrix_steps_v1.jsonl",
+      "replay_command": "rch exec -- env CARGO_TARGET_DIR=target-codex-mossy cargo test -p fnx-conformance --test asupersync_fault_injection_gate -- --nocapture"
+    }
+  ],
+  "decision_theoretic_runtime_contract": {
+    "states": [
+      "syncing",
+      "verifying_checksum",
+      "failed_closed",
+      "completed"
+    ],
+    "actions": [
+      "record_interruption",
+      "record_chunk_commit",
+      "verify_checksum",
+      "fail_closed"
+    ],
+    "loss_model": "Minimize replay ambiguity and integrity risk while preserving deterministic fail-closed semantics.",
+    "loss_budget": {
+      "max_expected_loss": 0.02,
+      "max_replay_loss": 0.0,
+      "max_data_loss": 0.0
+    },
+    "safe_mode_fallback": {
+      "trigger_thresholds": {
+        "max_retry_count": 3,
+        "max_conflict_events": 1,
+        "max_checksum_mismatch": 1
+      },
+      "fallback_action": "halt sync path and emit fail-closed forensics packet",
+      "budgeted_recovery_window_ms": 30000
+    }
+  },
+  "profile_first_artifacts": {
+    "baseline": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+    "hotspot": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+    "delta": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+  },
+  "alien_uplift_contract_card": {
+    "ev_score": 2.34,
+    "chosen_baseline": "legacy_networkx/main@python3.12",
+    "expected_value_statement": "Fault-injection + property coverage reduces replay triage cost and hardens deterministic recovery behavior."
+  },
+  "isomorphism_proof_artifacts": [
+    "artifacts/perf/phase2c/isomorphism_harness_report_v1.json",
+    "artifacts/perf/phase2c/isomorphism_golden_signatures_v1.json"
+  ],
+  "structured_logging_evidence": [
+    "artifacts/conformance/latest/structured_logs.jsonl",
+    "artifacts/e2e/latest/e2e_scenario_matrix_steps_v1.jsonl",
+    "artifacts/clean/latest/clean_compliance_audit_log_v1.json"
+  ]
+}

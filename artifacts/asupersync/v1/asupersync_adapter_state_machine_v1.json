@@ -1,0 +1,258 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "asupersync-adapter-state-machine-v1",
+  "generated_at_utc": "2026-02-15T19:46:00+00:00",
+  "baseline_comparator": "legacy_networkx/main@python3.12 + asupersync@0.2.0",
+  "adapter_interface": {
+    "owning_crate": "fnx-runtime",
+    "module_path": "crates/fnx-runtime/src/lib.rs",
+    "adapter_types": [
+      "AsupersyncTransferIntent",
+      "AsupersyncAdapterMachine",
+      "AsupersyncAdapterCheckpoint",
+      "AsupersyncAdapterTransition",
+      "asupersync_bridge::ArtifactSyncAdapter"
+    ],
+    "isolation_boundary": "adapter types live in fnx-runtime and must not pull algorithm-family crates into sync state-machine control flow"
+  },
+  "state_machine": {
+    "states": [
+      "idle",
+      "capability_check",
+      "syncing",
+      "verifying_checksum",
+      "completed",
+      "failed_closed"
+    ],
+    "terminal_states": [
+      "completed",
+      "failed_closed"
+    ],
+    "events": [
+      "start",
+      "capability_accepted",
+      "capability_rejected",
+      "chunk_committed",
+      "resume_applied",
+      "transport_interrupted",
+      "checksum_verification_started",
+      "checksum_validated",
+      "checksum_mismatch",
+      "conflict_detected",
+      "retry_budget_exceeded"
+    ],
+    "reason_codes": [
+      "unsupported_capability",
+      "capability_mismatch",
+      "integrity_precheck_failed",
+      "conflict_detected",
+      "retry_exhausted",
+      "invalid_transition",
+      "resume_cursor_ahead",
+      "resume_transfer_mismatch",
+      "resume_seed_mismatch"
+    ],
+    "transition_table": [
+      {
+        "from_state": "idle",
+        "event": "start",
+        "to_state": "capability_check",
+        "reason_code": null,
+        "notes": "all flows begin with deterministic transfer intent validation"
+      },
+      {
+        "from_state": "capability_check",
+        "event": "capability_accepted",
+        "to_state": "syncing",
+        "reason_code": null,
+        "notes": "supported capability path enters syncing"
+      },
+      {
+        "from_state": "capability_check",
+        "event": "capability_rejected",
+        "to_state": "failed_closed",
+        "reason_code": "unsupported_capability",
+        "notes": "unsupported capability is terminal fail-closed in strict and hardened"
+      },
+      {
+        "from_state": "syncing",
+        "event": "chunk_committed",
+        "to_state": "syncing",
+        "reason_code": null,
+        "notes": "committed cursor is monotonic and explicit in transition log"
+      },
+      {
+        "from_state": "syncing",
+        "event": "resume_applied",
+        "to_state": "syncing",
+        "reason_code": null,
+        "notes": "resume cursor cannot exceed committed cursor"
+      },
+      {
+        "from_state": "syncing",
+        "event": "transport_interrupted",
+        "to_state": "syncing",
+        "reason_code": null,
+        "notes": "attempt counter increments deterministically up to max_attempts"
+      },
+      {
+        "from_state": "syncing",
+        "event": "retry_budget_exceeded",
+        "to_state": "failed_closed",
+        "reason_code": "retry_exhausted",
+        "notes": "retry overrun is terminal fail-closed"
+      },
+      {
+        "from_state": "syncing",
+        "event": "checksum_verification_started",
+        "to_state": "verifying_checksum",
+        "reason_code": null,
+        "notes": "checksum stage is explicit and isolated"
+      },
+      {
+        "from_state": "verifying_checksum",
+        "event": "checksum_validated",
+        "to_state": "completed",
+        "reason_code": null,
+        "notes": "completed only after expected checksum match"
+      },
+      {
+        "from_state": "verifying_checksum",
+        "event": "checksum_mismatch",
+        "to_state": "failed_closed",
+        "reason_code": "integrity_precheck_failed",
+        "notes": "checksum mismatch is terminal fail-closed"
+      },
+      {
+        "from_state": "syncing",
+        "event": "conflict_detected",
+        "to_state": "failed_closed",
+        "reason_code": "conflict_detected",
+        "notes": "explicit conflict detection route for epoch/cursor drift"
+      }
+    ]
+  },
+  "transition_invariants": [
+    "transition seq starts at 1 and is contiguous",
+    "no transitions after terminal states (completed, failed_closed)",
+    "attempt value is monotonic and bounded by max_attempts",
+    "committed_cursor is monotonic under chunk commit and bounded under resume",
+    "resume_from_checkpoint requires transfer_id and deterministic_seed equality"
+  ],
+  "conflict_policy": {
+    "strict_mode": "any transfer conflict triggers fail_closed",
+    "hardened_mode": "bounded retries allowed for transport interruption only; conflict still fail_closed",
+    "default_action": "fail_closed",
+    "reason_codes": [
+      "conflict_detected",
+      "resume_cursor_ahead",
+      "capability_mismatch"
+    ]
+  },
+  "checksum_policy": {
+    "strict_mode": "checksum mismatch terminates in failed_closed",
+    "hardened_mode": "checksum mismatch terminates in failed_closed after bounded transport retries",
+    "validation_state": "verifying_checksum",
+    "failure_reason_code": "integrity_precheck_failed"
+  },
+  "recovery_checkpoint_contract": {
+    "checkpoint_fields": [
+      "transfer_id",
+      "deterministic_seed",
+      "attempt",
+      "committed_cursor"
+    ],
+    "resume_invariants": [
+      "checkpoint.transfer_id must equal intent.transfer_id",
+      "checkpoint.deterministic_seed must equal intent.deterministic_seed",
+      "checkpoint.attempt must be <= intent.max_attempts",
+      "resume cursor must be <= committed_cursor"
+    ],
+    "deterministic_resume_rule": "same transfer intent + same checkpoint always reconstructs equivalent syncing state"
+  },
+  "test_bindings": [
+    {
+      "test_id": "ASUP-B-UNIT-001",
+      "layer": "unit",
+      "artifact_path": "crates/fnx-runtime/src/lib.rs",
+      "replay_command": "rch exec -- env CARGO_TARGET_DIR=target-codex-mossy cargo test -p fnx-runtime -- --nocapture"
+    },
+    {
+      "test_id": "ASUP-B-DIFF-001",
+      "layer": "differential",
+      "artifact_path": "artifacts/asupersync/v1/asupersync_adapter_state_machine_v1.json",
+      "replay_command": "rch exec -- env CARGO_TARGET_DIR=target-codex-mossy cargo test -p fnx-conformance --test asupersync_adapter_state_machine_gate -- --nocapture"
+    },
+    {
+      "test_id": "ASUP-B-E2E-001",
+      "layer": "e2e",
+      "artifact_path": "artifacts/e2e/latest/e2e_scenario_matrix_steps_v1.jsonl",
+      "replay_command": "rch exec -- env CARGO_TARGET_DIR=target-codex-mossy cargo test -p fnx-conformance --test asupersync_adapter_state_machine_gate -- --nocapture"
+    }
+  ],
+  "telemetry_fields": [
+    "transfer_id",
+    "artifact_id",
+    "mode",
+    "state",
+    "event",
+    "attempt",
+    "committed_cursor",
+    "reason_code",
+    "seed",
+    "replay_command",
+    "env_fingerprint",
+    "duration_ms"
+  ],
+  "decision_theoretic_runtime_contract": {
+    "states": [
+      "idle",
+      "capability_check",
+      "syncing",
+      "verifying_checksum",
+      "failed_closed",
+      "completed"
+    ],
+    "actions": [
+      "start_sync",
+      "resume_sync",
+      "commit_chunk",
+      "verify_checksum",
+      "fail_closed"
+    ],
+    "loss_model": "Minimize expected replay divergence and integrity loss while keeping state transitions deterministic and auditable.",
+    "loss_budget": {
+      "max_expected_loss": 0.02,
+      "max_replay_loss": 0.0,
+      "max_data_loss": 0.0
+    },
+    "safe_mode_fallback": {
+      "trigger_thresholds": {
+        "max_retry_count": 3,
+        "max_conflict_events": 1,
+        "max_checksum_mismatch": 1
+      },
+      "fallback_action": "halt remote sync path and emit fail-closed deterministic replay packet",
+      "budgeted_recovery_window_ms": 30000
+    }
+  },
+  "profile_first_artifacts": {
+    "baseline": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+    "hotspot": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+    "delta": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+  },
+  "alien_uplift_contract_card": {
+    "ev_score": 2.29,
+    "chosen_baseline": "legacy_networkx/main@python3.12",
+    "expected_value_statement": "Deterministic, audited retry/resume state transitions reduce failure triage cost while preserving fail-closed correctness."
+  },
+  "isomorphism_proof_artifacts": [
+    "artifacts/perf/phase2c/isomorphism_harness_report_v1.json",
+    "artifacts/perf/phase2c/isomorphism_golden_signatures_v1.json"
+  ],
+  "structured_logging_evidence": [
+    "artifacts/conformance/latest/structured_logs.jsonl",
+    "artifacts/e2e/latest/e2e_scenario_matrix_steps_v1.jsonl",
+    "artifacts/clean/latest/clean_compliance_audit_log_v1.json"
+  ]
+}

@@ -1,0 +1,563 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "ftui-workflow-event-contract-v1",
+  "generated_at_utc": "2026-02-15T20:26:00+00:00",
+  "baseline_comparator": "legacy_networkx/main@python3.12 + frankentui@main",
+  "workflow_map": {
+    "surface_id": "frankentui-operator-surfaces-v1",
+    "state_ordering_rule": "For a fixed seed and identical operator input, events must follow deterministic_index order and produce identical terminal state.",
+    "journeys": [
+      {
+        "journey_id": "FTUI-JOURNEY-GOLDEN-001",
+        "title": "Golden: deterministic replayable scenario execution",
+        "kind": "golden",
+        "persona": "operator",
+        "preconditions": [
+          "deterministic seed and fixture set are pinned",
+          "required artifact bundle is readable",
+          "compatibility mode is strict or hardened"
+        ],
+        "steps": [
+          {
+            "step_id": "FTUI-STEP-001",
+            "label": "Select workflow",
+            "event_id": "FTUI-EVT-001",
+            "expected_state": "workflow_selected",
+            "artifact_ref": "artifacts/e2e/latest/e2e_user_workflow_scenario_report_v1.json",
+            "test_id": "FTUI-A-E2E-001"
+          },
+          {
+            "step_id": "FTUI-STEP-002",
+            "label": "Begin deterministic execution",
+            "event_id": "FTUI-EVT-002",
+            "expected_state": "executing_step",
+            "artifact_ref": "artifacts/e2e/latest/e2e_scenario_matrix_report_v1.json",
+            "test_id": "FTUI-A-E2E-001"
+          },
+          {
+            "step_id": "FTUI-STEP-003",
+            "label": "Request commit confirmation",
+            "event_id": "FTUI-EVT-003",
+            "expected_state": "awaiting_confirmation",
+            "artifact_ref": "artifacts/conformance/latest/structured_logs.jsonl",
+            "test_id": "FTUI-A-UNIT-001"
+          },
+          {
+            "step_id": "FTUI-STEP-004",
+            "label": "Commit deterministic step",
+            "event_id": "FTUI-EVT-004",
+            "expected_state": "executing_step",
+            "artifact_ref": "artifacts/conformance/latest/logging_final_gate_report_v1.json",
+            "test_id": "FTUI-A-DIFF-001"
+          },
+          {
+            "step_id": "FTUI-STEP-005",
+            "label": "Finalize workflow",
+            "event_id": "FTUI-EVT-005",
+            "expected_state": "completed",
+            "artifact_ref": "artifacts/e2e/latest/e2e_scenario_matrix_validation_v1.json",
+            "test_id": "FTUI-A-DIFF-001"
+          }
+        ],
+        "outcome_contract": {
+          "terminal_state": "completed",
+          "forensics_requirement": "emit stable replay command and bundle IDs",
+          "parity_expectation": "journey output aligns with legacy-observable scenario ordering"
+        }
+      },
+      {
+        "journey_id": "FTUI-JOURNEY-FAIL-001",
+        "title": "Failure: checksum conflict fail-closed with deterministic forensics",
+        "kind": "failure",
+        "persona": "operator",
+        "preconditions": [
+          "deterministic seed and fixture set are pinned",
+          "injected checksum mismatch during confirmation phase"
+        ],
+        "steps": [
+          {
+            "step_id": "FTUI-STEP-101",
+            "label": "Select workflow",
+            "event_id": "FTUI-EVT-001",
+            "expected_state": "workflow_selected",
+            "artifact_ref": "artifacts/e2e/latest/e2e_user_workflow_scenario_report_v1.json",
+            "test_id": "FTUI-A-E2E-001"
+          },
+          {
+            "step_id": "FTUI-STEP-102",
+            "label": "Begin deterministic execution",
+            "event_id": "FTUI-EVT-002",
+            "expected_state": "executing_step",
+            "artifact_ref": "artifacts/e2e/latest/e2e_scenario_matrix_report_v1.json",
+            "test_id": "FTUI-A-E2E-001"
+          },
+          {
+            "step_id": "FTUI-STEP-103",
+            "label": "Request commit confirmation",
+            "event_id": "FTUI-EVT-003",
+            "expected_state": "awaiting_confirmation",
+            "artifact_ref": "artifacts/conformance/latest/structured_logs.jsonl",
+            "test_id": "FTUI-A-UNIT-001"
+          },
+          {
+            "step_id": "FTUI-STEP-104",
+            "label": "Detect checksum mismatch and fail closed",
+            "event_id": "FTUI-EVT-007",
+            "expected_state": "failed_closed",
+            "artifact_ref": "artifacts/clean/latest/clean_compliance_audit_log_v1.json",
+            "test_id": "FTUI-A-DIFF-001"
+          }
+        ],
+        "outcome_contract": {
+          "terminal_state": "failed_closed",
+          "forensics_requirement": "reason code and replay command are mandatory",
+          "parity_expectation": "fail-closed behavior is deterministic across strict and hardened modes"
+        }
+      }
+    ]
+  },
+  "event_contract": {
+    "event_schema_version": "1.0.0",
+    "deterministic_transition_rule": "Each (from_state, event_id) pair maps to exactly one transition and deterministic_index; no ambiguity is allowed.",
+    "invariant_checks": [
+      "deterministic_index is unique and contiguous",
+      "event_id set remains stable for schema version 1.0.0",
+      "terminal states accept no outgoing events in this contract"
+    ],
+    "events": [
+      {
+        "event_id": "FTUI-EVT-001",
+        "event_name": "select_workflow",
+        "from_state": "idle",
+        "to_state": "workflow_selected",
+        "kind": "operator_action",
+        "deterministic_index": 1,
+        "payload_contract": {
+          "required_fields": [
+            "workflow_id",
+            "mode",
+            "seed"
+          ],
+          "optional_fields": [
+            "operator_profile"
+          ]
+        },
+        "policy_on_invalid_input": "fail_closed",
+        "telemetry_event_name": "ftui.workflow.selected"
+      },
+      {
+        "event_id": "FTUI-EVT-002",
+        "event_name": "begin_execution",
+        "from_state": "workflow_selected",
+        "to_state": "executing_step",
+        "kind": "operator_action",
+        "deterministic_index": 2,
+        "payload_contract": {
+          "required_fields": [
+            "workflow_id",
+            "fixture_id",
+            "seed"
+          ],
+          "optional_fields": []
+        },
+        "policy_on_invalid_input": "fail_closed",
+        "telemetry_event_name": "ftui.workflow.execution_started"
+      },
+      {
+        "event_id": "FTUI-EVT-003",
+        "event_name": "request_commit_confirmation",
+        "from_state": "executing_step",
+        "to_state": "awaiting_confirmation",
+        "kind": "system_checkpoint",
+        "deterministic_index": 3,
+        "payload_contract": {
+          "required_fields": [
+            "step_id",
+            "artifact_ref"
+          ],
+          "optional_fields": [
+            "checkpoint_hash"
+          ]
+        },
+        "policy_on_invalid_input": "fail_closed",
+        "telemetry_event_name": "ftui.workflow.awaiting_confirmation"
+      },
+      {
+        "event_id": "FTUI-EVT-004",
+        "event_name": "commit_step",
+        "from_state": "awaiting_confirmation",
+        "to_state": "executing_step",
+        "kind": "operator_action",
+        "deterministic_index": 4,
+        "payload_contract": {
+          "required_fields": [
+            "step_id",
+            "confirmation_hash"
+          ],
+          "optional_fields": []
+        },
+        "policy_on_invalid_input": "fail_closed",
+        "telemetry_event_name": "ftui.workflow.step_committed"
+      },
+      {
+        "event_id": "FTUI-EVT-005",
+        "event_name": "finalize_workflow",
+        "from_state": "executing_step",
+        "to_state": "completed",
+        "kind": "operator_action",
+        "deterministic_index": 5,
+        "payload_contract": {
+          "required_fields": [
+            "workflow_id",
+            "result_artifact"
+          ],
+          "optional_fields": []
+        },
+        "policy_on_invalid_input": "fail_closed",
+        "telemetry_event_name": "ftui.workflow.completed"
+      },
+      {
+        "event_id": "FTUI-EVT-006",
+        "event_name": "operator_abort",
+        "from_state": "executing_step",
+        "to_state": "failed_closed",
+        "kind": "operator_action",
+        "deterministic_index": 6,
+        "payload_contract": {
+          "required_fields": [
+            "abort_reason"
+          ],
+          "optional_fields": [
+            "incident_id"
+          ]
+        },
+        "policy_on_invalid_input": "fail_closed",
+        "telemetry_event_name": "ftui.workflow.aborted"
+      },
+      {
+        "event_id": "FTUI-EVT-007",
+        "event_name": "checksum_mismatch",
+        "from_state": "awaiting_confirmation",
+        "to_state": "failed_closed",
+        "kind": "integrity_violation",
+        "deterministic_index": 7,
+        "payload_contract": {
+          "required_fields": [
+            "expected_checksum",
+            "observed_checksum"
+          ],
+          "optional_fields": []
+        },
+        "policy_on_invalid_input": "fail_closed",
+        "telemetry_event_name": "ftui.workflow.integrity_failed"
+      }
+    ]
+  },
+  "state_machine": {
+    "states": [
+      "idle",
+      "workflow_selected",
+      "executing_step",
+      "awaiting_confirmation",
+      "completed",
+      "failed_closed"
+    ],
+    "initial_state": "idle",
+    "terminal_states": [
+      "completed",
+      "failed_closed"
+    ],
+    "invariants": [
+      "no transitions are accepted from terminal states",
+      "every transition has a deterministic_index and stable event_id",
+      "for identical seed and operator actions, transition order is reproducible"
+    ],
+    "transitions": [
+      {
+        "from_state": "idle",
+        "event_id": "FTUI-EVT-001",
+        "to_state": "workflow_selected",
+        "reason_code": null,
+        "deterministic_index": 1
+      },
+      {
+        "from_state": "workflow_selected",
+        "event_id": "FTUI-EVT-002",
+        "to_state": "executing_step",
+        "reason_code": null,
+        "deterministic_index": 2
+      },
+      {
+        "from_state": "executing_step",
+        "event_id": "FTUI-EVT-003",
+        "to_state": "awaiting_confirmation",
+        "reason_code": null,
+        "deterministic_index": 3
+      },
+      {
+        "from_state": "awaiting_confirmation",
+        "event_id": "FTUI-EVT-004",
+        "to_state": "executing_step",
+        "reason_code": null,
+        "deterministic_index": 4
+      },
+      {
+        "from_state": "executing_step",
+        "event_id": "FTUI-EVT-005",
+        "to_state": "completed",
+        "reason_code": null,
+        "deterministic_index": 5
+      },
+      {
+        "from_state": "executing_step",
+        "event_id": "FTUI-EVT-006",
+        "to_state": "failed_closed",
+        "reason_code": "operator_abort",
+        "deterministic_index": 6
+      },
+      {
+        "from_state": "awaiting_confirmation",
+        "event_id": "FTUI-EVT-007",
+        "to_state": "failed_closed",
+        "reason_code": "integrity_precheck_failed",
+        "deterministic_index": 7
+      }
+    ]
+  },
+  "traceability_map": [
+    {
+      "ui_event_id": "FTUI-EVT-001",
+      "artifact_ids": [
+        "artifacts/ftui/v1/ftui_workflow_event_contract_v1.json",
+        "artifacts/e2e/latest/e2e_user_workflow_scenario_report_v1.json"
+      ],
+      "test_ids": [
+        "FTUI-A-DIFF-001",
+        "FTUI-A-E2E-001"
+      ],
+      "telemetry_fields": [
+        "run_id",
+        "journey_id",
+        "event_id",
+        "state",
+        "seed",
+        "artifact_ref",
+        "test_id",
+        "replay_command",
+        "env_fingerprint",
+        "duration_ms"
+      ]
+    },
+    {
+      "ui_event_id": "FTUI-EVT-002",
+      "artifact_ids": [
+        "artifacts/e2e/latest/e2e_scenario_matrix_report_v1.json",
+        "artifacts/conformance/latest/structured_logs.jsonl"
+      ],
+      "test_ids": [
+        "FTUI-A-DIFF-001",
+        "FTUI-A-E2E-001"
+      ],
+      "telemetry_fields": [
+        "run_id",
+        "journey_id",
+        "event_id",
+        "state",
+        "seed",
+        "artifact_ref",
+        "test_id",
+        "replay_command",
+        "env_fingerprint",
+        "duration_ms"
+      ]
+    },
+    {
+      "ui_event_id": "FTUI-EVT-003",
+      "artifact_ids": [
+        "artifacts/conformance/latest/logging_final_gate_report_v1.json",
+        "artifacts/conformance/latest/structured_logs.jsonl"
+      ],
+      "test_ids": [
+        "FTUI-A-UNIT-001",
+        "FTUI-A-DIFF-001"
+      ],
+      "telemetry_fields": [
+        "run_id",
+        "journey_id",
+        "event_id",
+        "state",
+        "seed",
+        "artifact_ref",
+        "test_id",
+        "replay_command",
+        "env_fingerprint",
+        "duration_ms"
+      ]
+    },
+    {
+      "ui_event_id": "FTUI-EVT-004",
+      "artifact_ids": [
+        "artifacts/e2e/latest/e2e_scenario_matrix_steps_v1.jsonl",
+        "artifacts/conformance/latest/structured_logs.jsonl"
+      ],
+      "test_ids": [
+        "FTUI-A-DIFF-001"
+      ],
+      "telemetry_fields": [
+        "run_id",
+        "journey_id",
+        "event_id",
+        "state",
+        "seed",
+        "artifact_ref",
+        "test_id",
+        "replay_command",
+        "env_fingerprint",
+        "duration_ms"
+      ]
+    },
+    {
+      "ui_event_id": "FTUI-EVT-005",
+      "artifact_ids": [
+        "artifacts/e2e/latest/e2e_scenario_matrix_validation_v1.json",
+        "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_005_V1.md"
+      ],
+      "test_ids": [
+        "FTUI-A-DIFF-001",
+        "FTUI-A-E2E-001"
+      ],
+      "telemetry_fields": [
+        "run_id",
+        "journey_id",
+        "event_id",
+        "state",
+        "seed",
+        "artifact_ref",
+        "test_id",
+        "replay_command",
+        "env_fingerprint",
+        "duration_ms"
+      ]
+    },
+    {
+      "ui_event_id": "FTUI-EVT-006",
+      "artifact_ids": [
+        "artifacts/clean/latest/clean_compliance_audit_log_v1.json",
+        "artifacts/conformance/latest/structured_logs.jsonl"
+      ],
+      "test_ids": [
+        "FTUI-A-DIFF-001"
+      ],
+      "telemetry_fields": [
+        "run_id",
+        "journey_id",
+        "event_id",
+        "state",
+        "seed",
+        "artifact_ref",
+        "test_id",
+        "replay_command",
+        "env_fingerprint",
+        "duration_ms"
+      ]
+    },
+    {
+      "ui_event_id": "FTUI-EVT-007",
+      "artifact_ids": [
+        "artifacts/clean/latest/clean_compliance_audit_log_v1.json",
+        "artifacts/conformance/latest/structured_logs.jsonl"
+      ],
+      "test_ids": [
+        "FTUI-A-DIFF-001",
+        "FTUI-A-E2E-001"
+      ],
+      "telemetry_fields": [
+        "run_id",
+        "journey_id",
+        "event_id",
+        "state",
+        "seed",
+        "artifact_ref",
+        "test_id",
+        "replay_command",
+        "env_fingerprint",
+        "duration_ms"
+      ]
+    }
+  ],
+  "accessibility_constraints": {
+    "keyboard_navigation": {
+      "tab_order_deterministic": true,
+      "required_shortcuts": [
+        "Ctrl+N",
+        "Ctrl+Enter",
+        "Esc"
+      ],
+      "focus_trap_policy": "modal confirmations must trap focus and provide deterministic escape route"
+    },
+    "screen_reader": {
+      "aria_labels_required": true,
+      "announce_state_transitions": true,
+      "live_region_policy": "polite"
+    },
+    "color_contrast": {
+      "minimum_ratio_wcag_aa": 4.5,
+      "status_encoding_policy": "status must be communicated by text + icon + color"
+    },
+    "ergonomics": {
+      "max_primary_actions_per_screen": 5,
+      "error_recovery_affordance": "single-key rollback hint + explicit confirmation summary before commit"
+    }
+  },
+  "decision_theoretic_runtime_contract": {
+    "states": [
+      "idle",
+      "workflow_selected",
+      "executing_step",
+      "awaiting_confirmation",
+      "failed_closed",
+      "completed"
+    ],
+    "actions": [
+      "render_workflow",
+      "accept_operator_event",
+      "checkpoint_for_confirmation",
+      "commit_step",
+      "fail_closed"
+    ],
+    "loss_model": "Minimize replay divergence and operator error while preserving deterministic transition semantics and fail-closed integrity.",
+    "loss_budget": {
+      "max_expected_loss": 0.03,
+      "max_replay_loss": 0.0,
+      "max_data_loss": 0.0
+    },
+    "safe_mode_fallback": {
+      "trigger_thresholds": {
+        "max_conflict_events": 1,
+        "max_checksum_mismatch": 1,
+        "max_unrecognized_events": 1
+      },
+      "fallback_action": "halt active workflow, enter failed_closed state, and emit deterministic replay packet",
+      "budgeted_recovery_window_ms": 30000
+    }
+  },
+  "profile_first_artifacts": {
+    "baseline": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+    "hotspot": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+    "delta": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+  },
+  "alien_uplift_contract_card": {
+    "ev_score": 2.31,
+    "chosen_baseline": "legacy_networkx/main@python3.12",
+    "expected_value_statement": "Deterministic FTUI workflow/event contracts reduce operator ambiguity while preserving replay and parity evidence quality."
+  },
+  "isomorphism_proof_artifacts": [
+    "artifacts/perf/phase2c/isomorphism_harness_report_v1.json",
+    "artifacts/perf/phase2c/isomorphism_golden_signatures_v1.json"
+  ],
+  "structured_logging_evidence": [
+    "artifacts/conformance/latest/structured_logs.jsonl",
+    "artifacts/e2e/latest/e2e_scenario_matrix_steps_v1.jsonl",
+    "artifacts/clean/latest/clean_compliance_audit_log_v1.json"
+  ]
+}

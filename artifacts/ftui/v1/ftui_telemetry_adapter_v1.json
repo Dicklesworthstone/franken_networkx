@@ -1,0 +1,144 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "ftui-telemetry-adapter-v1",
+  "generated_at_utc": "2026-02-15T20:34:00+00:00",
+  "baseline_comparator": "legacy_networkx/main@python3.12 + frankentui@main",
+  "adapter_interface": {
+    "owning_crate": "fnx-runtime",
+    "module_path": "crates/fnx-runtime/src/lib.rs",
+    "adapter_types": [
+      "FtuiTelemetryAdapter",
+      "FtuiTelemetryRecord",
+      "FtuiArtifactIndex",
+      "FtuiArtifactIndexEntry"
+    ],
+    "integration_seam": "ftui_bridge::TelemetryArtifactIndexAdapter",
+    "feature_gate": "ftui-integration"
+  },
+  "ingestion_contract": {
+    "source_schema": "StructuredTestLog@1.0.0",
+    "required_fields": [
+      "run_id",
+      "journey_id",
+      "event_id",
+      "state",
+      "seed",
+      "artifact_ref",
+      "test_id",
+      "replay_command",
+      "env_fingerprint",
+      "duration_ms"
+    ],
+    "correlation_key": "stable_hash(run_id|test_id|forensic_bundle_id|hash_id|env_fingerprint|duration_ms)",
+    "ordering_key": [
+      "captured_unix_ms",
+      "run_id",
+      "test_id",
+      "bundle_id",
+      "correlation_id"
+    ],
+    "unknown_field_policy": "fail_closed",
+    "incompatible_payload_policy": "fail_closed_with_diagnostics"
+  },
+  "artifact_index_contract": {
+    "index_id": "ftui-artifact-index-v1",
+    "ordering_guarantee": "rows are deterministically sorted by ordering_key for identical log sets",
+    "row_keys": [
+      "correlation_id",
+      "bundle_id",
+      "run_id",
+      "test_id",
+      "captured_unix_ms",
+      "replay_ref",
+      "artifact_refs",
+      "status",
+      "reason_code"
+    ],
+    "row_linkage": [
+      "correlation_id links UI telemetry rows to artifact index rows",
+      "bundle_id links to forensics bundle and replay references",
+      "test_id maps to gate evidence identifiers"
+    ]
+  },
+  "failure_modes": [
+    {
+      "reason_code": "unknown_telemetry_field",
+      "trigger": "ingestion row contains non-canonical key",
+      "action": "fail_closed",
+      "diagnostic": "return actionable message with allowed field list"
+    },
+    {
+      "reason_code": "incompatible_structured_log",
+      "trigger": "StructuredTestLog validation fails or forensics bundle index is missing",
+      "action": "fail_closed",
+      "diagnostic": "propagate structured validation error without lossy translation"
+    }
+  ],
+  "test_bindings": [
+    {
+      "test_id": "FTUI-B-UNIT-001",
+      "layer": "unit",
+      "artifact_path": "crates/fnx-runtime/src/lib.rs",
+      "replay_command": "rch exec -- env CARGO_TARGET_DIR=target-codex-mossy cargo test -p fnx-runtime ftui_adapter_ -- --nocapture"
+    },
+    {
+      "test_id": "FTUI-B-DIFF-001",
+      "layer": "differential",
+      "artifact_path": "crates/fnx-conformance/tests/ftui_telemetry_adapter_gate.rs",
+      "replay_command": "rch exec -- env CARGO_TARGET_DIR=target-codex-mossy cargo test -p fnx-conformance --test ftui_telemetry_adapter_gate -- --nocapture"
+    },
+    {
+      "test_id": "FTUI-B-E2E-001",
+      "layer": "e2e",
+      "artifact_path": "artifacts/e2e/latest/e2e_scenario_matrix_steps_v1.jsonl",
+      "replay_command": "rch exec -- env CARGO_TARGET_DIR=target-codex-mossy cargo test -p fnx-conformance --test ftui_telemetry_adapter_gate -- --nocapture"
+    }
+  ],
+  "decision_theoretic_runtime_contract": {
+    "states": [
+      "accept",
+      "validate",
+      "fail_closed"
+    ],
+    "actions": [
+      "ingest_row",
+      "build_record",
+      "build_index",
+      "fail_closed"
+    ],
+    "loss_model": "Minimize expected replay divergence and diagnostic ambiguity while preserving deterministic ordering.",
+    "loss_budget": {
+      "max_expected_loss": 0.02,
+      "max_replay_loss": 0.0,
+      "max_data_loss": 0.0
+    },
+    "safe_mode_fallback": {
+      "trigger_thresholds": {
+        "max_unknown_fields": 1,
+        "max_incompatible_payloads": 1,
+        "max_ordering_conflicts": 1
+      },
+      "fallback_action": "emit fail-closed diagnostic packet and halt adapter output publication",
+      "budgeted_recovery_window_ms": 30000
+    }
+  },
+  "profile_first_artifacts": {
+    "baseline": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+    "hotspot": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+    "delta": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+  },
+  "alien_uplift_contract_card": {
+    "ev_score": 2.22,
+    "chosen_baseline": "legacy_networkx/main@python3.12",
+    "expected_value_statement": "Canonical log ingestion + deterministic artifact index correlation materially reduces replay triage ambiguity."
+  },
+  "isomorphism_proof_artifacts": [
+    "artifacts/perf/phase2c/isomorphism_harness_report_v1.json",
+    "artifacts/perf/phase2c/isomorphism_golden_signatures_v1.json"
+  ],
+  "structured_logging_evidence": [
+    "artifacts/conformance/latest/structured_logs.jsonl",
+    "artifacts/e2e/latest/e2e_scenario_matrix_steps_v1.jsonl",
+    "artifacts/clean/latest/clean_compliance_audit_log_v1.json"
+  ]
+}

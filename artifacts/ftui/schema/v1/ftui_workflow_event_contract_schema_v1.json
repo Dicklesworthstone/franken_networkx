@@ -1,0 +1,144 @@
+{
+  "schema_version": "1.0.0",
+  "artifact": "ftui_workflow_event_contract",
+  "required_top_level_keys": [
+    "schema_version",
+    "artifact_id",
+    "generated_at_utc",
+    "baseline_comparator",
+    "workflow_map",
+    "event_contract",
+    "state_machine",
+    "traceability_map",
+    "accessibility_constraints",
+    "decision_theoretic_runtime_contract",
+    "profile_first_artifacts",
+    "alien_uplift_contract_card",
+    "isomorphism_proof_artifacts",
+    "structured_logging_evidence"
+  ],
+  "required_workflow_map_keys": [
+    "surface_id",
+    "journeys",
+    "state_ordering_rule"
+  ],
+  "required_journey_keys": [
+    "journey_id",
+    "title",
+    "kind",
+    "persona",
+    "preconditions",
+    "steps",
+    "outcome_contract"
+  ],
+  "required_step_keys": [
+    "step_id",
+    "label",
+    "event_id",
+    "expected_state",
+    "artifact_ref",
+    "test_id"
+  ],
+  "required_event_contract_keys": [
+    "event_schema_version",
+    "events",
+    "deterministic_transition_rule",
+    "invariant_checks"
+  ],
+  "required_event_keys": [
+    "event_id",
+    "event_name",
+    "from_state",
+    "to_state",
+    "kind",
+    "deterministic_index",
+    "payload_contract",
+    "policy_on_invalid_input",
+    "telemetry_event_name"
+  ],
+  "required_state_machine_keys": [
+    "states",
+    "initial_state",
+    "terminal_states",
+    "transitions",
+    "invariants"
+  ],
+  "required_transition_keys": [
+    "from_state",
+    "event_id",
+    "to_state",
+    "reason_code",
+    "deterministic_index"
+  ],
+  "required_traceability_keys": [
+    "ui_event_id",
+    "artifact_ids",
+    "test_ids",
+    "telemetry_fields"
+  ],
+  "required_accessibility_keys": [
+    "keyboard_navigation",
+    "screen_reader",
+    "color_contrast",
+    "ergonomics"
+  ],
+  "required_decision_contract_keys": [
+    "states",
+    "actions",
+    "loss_model",
+    "loss_budget",
+    "safe_mode_fallback"
+  ],
+  "required_loss_budget_keys": [
+    "max_expected_loss",
+    "max_replay_loss",
+    "max_data_loss"
+  ],
+  "required_safe_mode_fallback_keys": [
+    "trigger_thresholds",
+    "fallback_action",
+    "budgeted_recovery_window_ms"
+  ],
+  "required_profile_artifact_keys": [
+    "baseline",
+    "hotspot",
+    "delta"
+  ],
+  "required_journey_kinds": [
+    "golden",
+    "failure"
+  ],
+  "required_states": [
+    "idle",
+    "workflow_selected",
+    "executing_step",
+    "awaiting_confirmation",
+    "completed",
+    "failed_closed"
+  ],
+  "required_terminal_states": [
+    "completed",
+    "failed_closed"
+  ],
+  "required_event_ids": [
+    "FTUI-EVT-001",
+    "FTUI-EVT-002",
+    "FTUI-EVT-003",
+    "FTUI-EVT-004",
+    "FTUI-EVT-005",
+    "FTUI-EVT-006",
+    "FTUI-EVT-007"
+  ],
+  "required_telemetry_fields": [
+    "run_id",
+    "journey_id",
+    "event_id",
+    "state",
+    "seed",
+    "artifact_ref",
+    "test_id",
+    "replay_command",
+    "env_fingerprint",
+    "duration_ms"
+  ]
+}
