@@ -1,5 +1,6 @@
 /target
 /target-codex
+target-codex-*/
 **/*.rs.bk
 
 # Python cache artifacts
