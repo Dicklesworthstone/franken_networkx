@@ -25,6 +25,9 @@ FAILURE_CLASSIFICATION: dict[str, str] = {
     "backend_route_ambiguity": "determinism",
     "attribute_confusion": "compatibility",
     "algorithmic_complexity_dos": "performance_tail",
+    "provenance_spoofing": "security",
+    "policy_bypass": "security",
+    "source_contamination_ambiguity": "security",
 }
 
 

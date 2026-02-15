@@ -355,7 +355,7 @@ fn ftui_telemetry_adapter_contract_is_complete_and_fail_closed() {
     }
     assert_eq!(
         observed_layers, required_layers,
-        "test binding layers should cover unit/differential/e2e"
+        "test binding layers should cover required unit/property/snapshot/differential/e2e sets"
     );
 
     let decision_contract = artifact["decision_theoretic_runtime_contract"]
