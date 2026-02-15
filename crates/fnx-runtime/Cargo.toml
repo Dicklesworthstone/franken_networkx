@@ -12,4 +12,4 @@ ftui-integration = ["dep:ftui"]
 serde = { version = "1.0.218", features = ["derive"] }
 serde_json = "1.0.139"
 asupersync = { version = "0.2.0", path = "/dp/asupersync", optional = true, default-features = false }
-ftui = { path = "/dp/frankentui/crates/ftui", optional = true, default-features = false }
+ftui = { version = "0.2.0", path = "/dp/frankentui/crates/ftui", optional = true, default-features = false }
