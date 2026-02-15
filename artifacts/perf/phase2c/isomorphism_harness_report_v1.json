@@ -1,0 +1,48 @@
+{
+  "schema_version": "1.0.0",
+  "report_id": "phase2c-isomorphism-harness-report-v1",
+  "generated_at_utc": "2026-02-15T03:42:45.766795+00:00",
+  "source_matrix_path": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+  "golden_signatures_path": "artifacts/perf/phase2c/isomorphism_golden_signatures_v1.json",
+  "allowlist_path": "artifacts/perf/phase2c/isomorphism_divergence_allowlist_v1.json",
+  "divergence_policy": {
+    "blocking_default": true,
+    "requires_explicit_approval": true
+  },
+  "scenario_count": 5,
+  "observed": [
+    {
+      "scenario_id": "grid_80x80_seed1337",
+      "command": "CARGO_TARGET_DIR=target-codex rch exec -- cargo run -q -p fnx-algorithms --example bfs_baseline -- --topology grid --seed 1337 --width 80 --height 80",
+      "observable_output": "topology=grid path_len=159 nodes_touched=6400 edges_scanned=25275",
+      "signature": "fe05707b8a3bd9c60056f40b4ebed62e62745ea7dbf385b0068cd74a90127480"
+    },
+    {
+      "scenario_id": "line_15000_seed1337",
+      "command": "CARGO_TARGET_DIR=target-codex rch exec -- cargo run -q -p fnx-algorithms --example bfs_baseline -- --topology line --seed 1337 --nodes 15000",
+      "observable_output": "topology=line path_len=15000 nodes_touched=15000 edges_scanned=29997",
+      "signature": "6933191257ebb182068f6bc1f6cdea0b6b8828abfbc34c098a9107c016add7af"
+    },
+    {
+      "scenario_id": "star_15000_seed1337",
+      "command": "CARGO_TARGET_DIR=target-codex rch exec -- cargo run -q -p fnx-algorithms --example bfs_baseline -- --topology star --seed 1337 --nodes 15000",
+      "observable_output": "topology=star path_len=3 nodes_touched=15000 edges_scanned=15000",
+      "signature": "48f2d5c1a62ef4415d35744da5d59ce67481f3b4f999e6d9b007c7d6502f9a9a"
+    },
+    {
+      "scenario_id": "complete_700_seed1337",
+      "command": "CARGO_TARGET_DIR=target-codex rch exec -- cargo run -q -p fnx-algorithms --example bfs_baseline -- --topology complete --seed 1337 --nodes 700",
+      "observable_output": "topology=complete path_len=2 nodes_touched=700 edges_scanned=699",
+      "signature": "7b60f54b3ca9a7f5883c0b2037ea41d0c1f8e72f666864883274111e899dcfdb"
+    },
+    {
+      "scenario_id": "erdos_renyi_n2500_p001_seed1337",
+      "command": "CARGO_TARGET_DIR=target-codex rch exec -- cargo run -q -p fnx-algorithms --example bfs_baseline -- --topology erdos_renyi --seed 1337 --nodes 2500 --edge-prob 0.01",
+      "observable_output": "topology=erdos_renyi path_len=4 nodes_touched=1254 edges_scanned=1821",
+      "signature": "03424aa2fda30aabede35c49014cdb880616e95c01e6707e4e3bc0f9f76f8d15"
+    }
+  ],
+  "approved_divergences": [],
+  "failures": [],
+  "status": "pass"
+}

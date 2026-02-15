@@ -1,0 +1,347 @@
+{
+  "schema_version": "1.0.0",
+  "backlog_id": "phase2c-hotspot-one-lever-backlog-v1",
+  "generated_at_utc": "2026-02-15T03:35:08.120551+00:00",
+  "source_matrix_path": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+  "source_events_path": "artifacts/perf/phase2c/perf_baseline_matrix_events_v1.jsonl",
+  "optimization_protocol": {
+    "profile_first_required": true,
+    "one_lever_per_change": true,
+    "behavior_isomorphism_proof_required": true,
+    "minimum_ev_score": 2.0
+  },
+  "hotspot_profiles": [
+    {
+      "rank": 1,
+      "scenario_id": "complete_700_seed1337",
+      "topology": "complete",
+      "size_bucket": "small",
+      "density_class": "dense_complete",
+      "node_count": 700,
+      "edge_count_estimate": 244650,
+      "event_count": 5,
+      "latency_ms": {
+        "p50": 11757.326873019338,
+        "p95": 12181.132483982947,
+        "p99": 12233.275788787287
+      },
+      "memory_kb": {
+        "p50": 16648.0,
+        "p95": 16708.8,
+        "p99": 16711.36
+      },
+      "bottleneck_hypothesis": "bidirectional BFS early-stop policy for dense graphs (single lever: frontier meeting cutoff)",
+      "evidence_refs": [
+        "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+        "artifacts/perf/phase2c/perf_baseline_matrix_events_v1.jsonl"
+      ]
+    },
+    {
+      "rank": 2,
+      "scenario_id": "erdos_renyi_n2500_p001_seed1337",
+      "topology": "erdos_renyi",
+      "size_bucket": "medium",
+      "density_class": "medium_random",
+      "node_count": 2500,
+      "edge_count_estimate": 33712,
+      "event_count": 5,
+      "latency_ms": {
+        "p50": 8888.453282008413,
+        "p95": 10456.740197411273,
+        "p99": 10728.419188300613
+      },
+      "memory_kb": {
+        "p50": 14636.0,
+        "p95": 15415.2,
+        "p99": 15566.24
+      },
+      "bottleneck_hypothesis": "frontier bitmap de-duplication (single-pass membership marking to avoid repeated queue insertions)",
+      "evidence_refs": [
+        "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+        "artifacts/perf/phase2c/perf_baseline_matrix_events_v1.jsonl"
+      ]
+    },
+    {
+      "rank": 3,
+      "scenario_id": "grid_80x80_seed1337",
+      "topology": "grid",
+      "size_bucket": "medium",
+      "density_class": "sparse_lattice",
+      "node_count": 6400,
+      "edge_count_estimate": 12640,
+      "event_count": 5,
+      "latency_ms": {
+        "p50": 8921.689643990248,
+        "p95": 9624.04007401783,
+        "p99": 9704.588946015574
+      },
+      "memory_kb": {
+        "p50": 15592.0,
+        "p95": 15698.4,
+        "p99": 15706.08
+      },
+      "bottleneck_hypothesis": "borrowed-neighbor frontier iteration (remove transient frontier clone materialization)",
+      "evidence_refs": [
+        "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+        "artifacts/perf/phase2c/perf_baseline_matrix_events_v1.jsonl"
+      ]
+    },
+    {
+      "rank": 4,
+      "scenario_id": "star_15000_seed1337",
+      "topology": "star",
+      "size_bucket": "large",
+      "density_class": "hub_sparse",
+      "node_count": 15000,
+      "edge_count_estimate": 14999,
+      "event_count": 5,
+      "latency_ms": {
+        "p50": 8985.836312000174,
+        "p95": 9607.351024390664,
+        "p99": 9674.847282466944
+      },
+      "memory_kb": {
+        "p50": 15740.0,
+        "p95": 16743.2,
+        "p99": 16753.44
+      },
+      "bottleneck_hypothesis": "hub-degree short-circuit traversal path (single-pass hub expansion without extra frontier copy)",
+      "evidence_refs": [
+        "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+        "artifacts/perf/phase2c/perf_baseline_matrix_events_v1.jsonl"
+      ]
+    },
+    {
+      "rank": 5,
+      "scenario_id": "line_15000_seed1337",
+      "topology": "line",
+      "size_bucket": "large",
+      "density_class": "ultra_sparse",
+      "node_count": 15000,
+      "edge_count_estimate": 14999,
+      "event_count": 5,
+      "latency_ms": {
+        "p50": 9382.5669180369,
+        "p95": 9583.915884396993,
+        "p99": 9604.658280876465
+      },
+      "memory_kb": {
+        "p50": 15688.0,
+        "p95": 16716.0,
+        "p99": 16725.6
+      },
+      "bottleneck_hypothesis": "queue preallocation with stable index reuse (remove growth-induced realloc churn)",
+      "evidence_refs": [
+        "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+        "artifacts/perf/phase2c/perf_baseline_matrix_events_v1.jsonl"
+      ]
+    }
+  ],
+  "optimization_backlog": [
+    {
+      "entry_id": "perf-one-lever-01",
+      "rank": 1,
+      "target_scenario_id": "complete_700_seed1337",
+      "expected_value_score": 22.358,
+      "single_lever": "bidirectional BFS early-stop policy for dense graphs (single lever: frontier meeting cutoff)",
+      "lever_count": 1,
+      "baseline_comparator": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+      "fallback_trigger": "rollback if p95 or p99 regresses by >5% versus baseline for 2 consecutive gate runs",
+      "rollback_path": "git revert <optimization-commit-sha>",
+      "decision_contract": {
+        "states": [
+          "regression",
+          "parity_preserved_speedup"
+        ],
+        "actions": [
+          "ship_optimization",
+          "rollback"
+        ],
+        "loss_model": "regression_cost >> unrealized_speedup",
+        "safe_mode_budget_trigger": ">5% p95/p99 regression across 2 consecutive runs"
+      },
+      "isomorphism_proof_refs": [
+        "artifacts/proofs/ISOMORPHISM_PROOF_NEIGHBOR_ITER_BFS_V2.md",
+        "artifacts/perf/proof/golden_checksums.txt"
+      ],
+      "risk_note_refs": [
+        "artifacts/perf/proof/2026-02-14_graph_kernel_clone_elision.md"
+      ],
+      "linked_packet_optimization_beads": [
+        "bd-315.12.8",
+        "bd-315.13.8",
+        "bd-315.14.8",
+        "bd-315.15.8",
+        "bd-315.16.8",
+        "bd-315.17.8",
+        "bd-315.18.8",
+        "bd-315.19.8",
+        "bd-315.20.8"
+      ]
+    },
+    {
+      "entry_id": "perf-one-lever-02",
+      "rank": 2,
+      "target_scenario_id": "erdos_renyi_n2500_p001_seed1337",
+      "expected_value_score": 18.516,
+      "single_lever": "frontier bitmap de-duplication (single-pass membership marking to avoid repeated queue insertions)",
+      "lever_count": 1,
+      "baseline_comparator": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+      "fallback_trigger": "rollback if p95 or p99 regresses by >5% versus baseline for 2 consecutive gate runs",
+      "rollback_path": "git revert <optimization-commit-sha>",
+      "decision_contract": {
+        "states": [
+          "regression",
+          "parity_preserved_speedup"
+        ],
+        "actions": [
+          "ship_optimization",
+          "rollback"
+        ],
+        "loss_model": "regression_cost >> unrealized_speedup",
+        "safe_mode_budget_trigger": ">5% p95/p99 regression across 2 consecutive runs"
+      },
+      "isomorphism_proof_refs": [
+        "artifacts/proofs/ISOMORPHISM_PROOF_NEIGHBOR_ITER_BFS_V2.md",
+        "artifacts/perf/proof/golden_checksums.txt"
+      ],
+      "risk_note_refs": [
+        "artifacts/perf/proof/2026-02-14_graph_kernel_clone_elision.md"
+      ],
+      "linked_packet_optimization_beads": [
+        "bd-315.12.8",
+        "bd-315.13.8",
+        "bd-315.14.8",
+        "bd-315.15.8",
+        "bd-315.16.8",
+        "bd-315.17.8",
+        "bd-315.18.8",
+        "bd-315.19.8",
+        "bd-315.20.8"
+      ]
+    },
+    {
+      "entry_id": "perf-one-lever-03",
+      "rank": 3,
+      "target_scenario_id": "star_15000_seed1337",
+      "expected_value_score": 17.65,
+      "single_lever": "hub-degree short-circuit traversal path (single-pass hub expansion without extra frontier copy)",
+      "lever_count": 1,
+      "baseline_comparator": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+      "fallback_trigger": "rollback if p95 or p99 regresses by >5% versus baseline for 2 consecutive gate runs",
+      "rollback_path": "git revert <optimization-commit-sha>",
+      "decision_contract": {
+        "states": [
+          "regression",
+          "parity_preserved_speedup"
+        ],
+        "actions": [
+          "ship_optimization",
+          "rollback"
+        ],
+        "loss_model": "regression_cost >> unrealized_speedup",
+        "safe_mode_budget_trigger": ">5% p95/p99 regression across 2 consecutive runs"
+      },
+      "isomorphism_proof_refs": [
+        "artifacts/proofs/ISOMORPHISM_PROOF_NEIGHBOR_ITER_BFS_V2.md",
+        "artifacts/perf/proof/golden_checksums.txt"
+      ],
+      "risk_note_refs": [
+        "artifacts/perf/proof/2026-02-14_graph_kernel_clone_elision.md"
+      ],
+      "linked_packet_optimization_beads": [
+        "bd-315.12.8",
+        "bd-315.13.8",
+        "bd-315.14.8",
+        "bd-315.15.8",
+        "bd-315.16.8",
+        "bd-315.17.8",
+        "bd-315.18.8",
+        "bd-315.19.8",
+        "bd-315.20.8"
+      ]
+    },
+    {
+      "entry_id": "perf-one-lever-04",
+      "rank": 4,
+      "target_scenario_id": "line_15000_seed1337",
+      "expected_value_score": 17.594,
+      "single_lever": "queue preallocation with stable index reuse (remove growth-induced realloc churn)",
+      "lever_count": 1,
+      "baseline_comparator": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+      "fallback_trigger": "rollback if p95 or p99 regresses by >5% versus baseline for 2 consecutive gate runs",
+      "rollback_path": "git revert <optimization-commit-sha>",
+      "decision_contract": {
+        "states": [
+          "regression",
+          "parity_preserved_speedup"
+        ],
+        "actions": [
+          "ship_optimization",
+          "rollback"
+        ],
+        "loss_model": "regression_cost >> unrealized_speedup",
+        "safe_mode_budget_trigger": ">5% p95/p99 regression across 2 consecutive runs"
+      },
+      "isomorphism_proof_refs": [
+        "artifacts/proofs/ISOMORPHISM_PROOF_NEIGHBOR_ITER_BFS_V2.md",
+        "artifacts/perf/proof/golden_checksums.txt"
+      ],
+      "risk_note_refs": [
+        "artifacts/perf/proof/2026-02-14_graph_kernel_clone_elision.md"
+      ],
+      "linked_packet_optimization_beads": [
+        "bd-315.12.8",
+        "bd-315.13.8",
+        "bd-315.14.8",
+        "bd-315.15.8",
+        "bd-315.16.8",
+        "bd-315.17.8",
+        "bd-315.18.8",
+        "bd-315.19.8",
+        "bd-315.20.8"
+      ]
+    },
+    {
+      "entry_id": "perf-one-lever-05",
+      "rank": 5,
+      "target_scenario_id": "grid_80x80_seed1337",
+      "expected_value_score": 17.178,
+      "single_lever": "borrowed-neighbor frontier iteration (remove transient frontier clone materialization)",
+      "lever_count": 1,
+      "baseline_comparator": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+      "fallback_trigger": "rollback if p95 or p99 regresses by >5% versus baseline for 2 consecutive gate runs",
+      "rollback_path": "git revert <optimization-commit-sha>",
+      "decision_contract": {
+        "states": [
+          "regression",
+          "parity_preserved_speedup"
+        ],
+        "actions": [
+          "ship_optimization",
+          "rollback"
+        ],
+        "loss_model": "regression_cost >> unrealized_speedup",
+        "safe_mode_budget_trigger": ">5% p95/p99 regression across 2 consecutive runs"
+      },
+      "isomorphism_proof_refs": [
+        "artifacts/proofs/ISOMORPHISM_PROOF_NEIGHBOR_ITER_BFS_V2.md",
+        "artifacts/perf/proof/golden_checksums.txt"
+      ],
+      "risk_note_refs": [
+        "artifacts/perf/proof/2026-02-14_graph_kernel_clone_elision.md"
+      ],
+      "linked_packet_optimization_beads": [
+        "bd-315.12.8",
+        "bd-315.13.8",
+        "bd-315.14.8",
+        "bd-315.15.8",
+        "bd-315.16.8",
+        "bd-315.17.8",
+        "bd-315.18.8",
+        "bd-315.19.8",
+        "bd-315.20.8"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,104 @@
+{
+  "schema_version": "1.0.0",
+  "report_id": "phase2c-perf-regression-gate-v1",
+  "generated_at_utc": "2026-02-15T03:44:21.022510+00:00",
+  "baseline_path": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+  "candidate_path": "artifacts/perf/latest/perf_baseline_matrix_v1.json",
+  "hotspot_backlog_path": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+  "policy": {
+    "critical_latency_tail_pct_threshold": 5.0,
+    "critical_memory_pct_threshold": 5.0,
+    "noncritical_latency_tail_pct_threshold": 10.0,
+    "noncritical_memory_pct_threshold": 12.0,
+    "critical_fail_closed": true
+  },
+  "scenario_deltas": [
+    {
+      "scenario_id": "grid_80x80_seed1337",
+      "critical_path": false,
+      "baseline_comparator": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+      "hotspot_ref": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+      "delta_pct": {
+        "p95_ms": 0.0,
+        "p99_ms": 0.0,
+        "memory_p95_kb": 0.0
+      },
+      "threshold_pct": {
+        "latency_tail": 10.0,
+        "memory": 12.0
+      },
+      "regressed": false
+    },
+    {
+      "scenario_id": "line_15000_seed1337",
+      "critical_path": false,
+      "baseline_comparator": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+      "hotspot_ref": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+      "delta_pct": {
+        "p95_ms": 0.0,
+        "p99_ms": 0.0,
+        "memory_p95_kb": 0.0
+      },
+      "threshold_pct": {
+        "latency_tail": 10.0,
+        "memory": 12.0
+      },
+      "regressed": false
+    },
+    {
+      "scenario_id": "star_15000_seed1337",
+      "critical_path": false,
+      "baseline_comparator": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+      "hotspot_ref": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+      "delta_pct": {
+        "p95_ms": 0.0,
+        "p99_ms": 0.0,
+        "memory_p95_kb": 0.0
+      },
+      "threshold_pct": {
+        "latency_tail": 10.0,
+        "memory": 12.0
+      },
+      "regressed": false
+    },
+    {
+      "scenario_id": "complete_700_seed1337",
+      "critical_path": true,
+      "baseline_comparator": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+      "hotspot_ref": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+      "delta_pct": {
+        "p95_ms": 0.0,
+        "p99_ms": 0.0,
+        "memory_p95_kb": 0.0
+      },
+      "threshold_pct": {
+        "latency_tail": 5.0,
+        "memory": 5.0
+      },
+      "regressed": false
+    },
+    {
+      "scenario_id": "erdos_renyi_n2500_p001_seed1337",
+      "critical_path": true,
+      "baseline_comparator": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+      "hotspot_ref": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+      "delta_pct": {
+        "p95_ms": 0.0,
+        "p99_ms": 0.0,
+        "memory_p95_kb": 0.0
+      },
+      "threshold_pct": {
+        "latency_tail": 5.0,
+        "memory": 5.0
+      },
+      "regressed": false
+    }
+  ],
+  "regressions": [],
+  "summary": {
+    "scenario_count": 5,
+    "regression_count": 0,
+    "critical_regression_count": 0
+  },
+  "status": "pass"
+}

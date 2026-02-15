@@ -13,3 +13,12 @@ Only `score >= 2.0` is implementable.
 | full read/write parser hardening (`fnx-readwrite`) | 5 | 3 | 4 | 3.75 | queued |
 | backend dispatch matrix parity (`fnx-dispatch`) | 4 | 3 | 3 | 4.0 | queued |
 | RaptorQ sidecar pipeline (`fnx-conformance`) | 5 | 3 | 4 | 3.75 | queued |
+
+Protocol artifacts:
+
+- Baseline matrix: `artifacts/perf/phase2c/perf_baseline_matrix_v1.json`
+- Structured run logs: `artifacts/perf/phase2c/perf_baseline_matrix_events_v1.jsonl`
+- One-lever ranked backlog: `artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json`
+- Optimization playbook: `artifacts/perf/phase2c/optimization_playbook_v1.md`
+- Isomorphism harness report: `artifacts/perf/phase2c/isomorphism_harness_report_v1.json`
+- Regression gate report: `artifacts/perf/phase2c/perf_regression_gate_report_v1.json`
