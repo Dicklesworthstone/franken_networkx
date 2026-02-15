@@ -38,3 +38,8 @@ artifacts/perf/latest/
 artifacts/phase2c/latest_*.json
 artifacts/phase2c/latest/
 artifacts/docs/latest/
+
+# Ephemeral files (agent-generated, build artifacts, test detritus)
+ci-artifacts/
+proptest-regressions/
+test_meminfo
