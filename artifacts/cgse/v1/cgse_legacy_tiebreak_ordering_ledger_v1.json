@@ -1,0 +1,1080 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "cgse-legacy-tiebreak-ordering-ledger-v1",
+  "generated_at_utc": "2026-02-15T04:44:37Z",
+  "baseline_comparator": "legacy_networkx_code/networkx/networkx (repository checkout in current workspace)",
+  "scope_statement": "Source-anchored tie-break and ordering behavior ledger for legacy NetworkX surfaces used by FrankenNetworkX CGSE policy compilation.",
+  "rule_families": [
+    "graph_core_mutation",
+    "view_semantics",
+    "dispatch_routing",
+    "conversion_contracts",
+    "shortest_path_algorithms",
+    "readwrite_serialization",
+    "generator_semantics",
+    "runtime_config",
+    "oracle_test_surface"
+  ],
+  "rules": [
+    {
+      "rule_id": "CGSE-R01",
+      "operation_family": "graph_core_mutation",
+      "title": "MultiGraph auto-key allocation tie-break",
+      "behavior_claim": "Auto-generated edge keys choose the first unused integer based on existing keydict occupancy.",
+      "source_anchors": [
+        {
+          "path": "legacy_networkx_code/networkx/networkx/classes/multigraph.py",
+          "lines": "413-440",
+          "symbols": [
+            "MultiGraph.new_edge_key"
+          ],
+          "legacy_behavior": "New key starts at len(keydict) then increments until an unused key is found."
+        }
+      ],
+      "tie_break_policy": "first-unused-integer key scan",
+      "ordering_policy": "stable for fixed keydict state; gaps may be skipped after deletions",
+      "ambiguity_tags": [
+        {
+          "ambiguity_id": "CGSE-AMB-001",
+          "description": "Auto-key sequence may contain gaps after remove/reinsert cycles.",
+          "policy_options": [
+            "preserve first-unused scan exactly",
+            "normalize to contiguous sequence (rejected)"
+          ],
+          "selected_policy": "preserve first-unused scan exactly",
+          "risk_note": "Reindexing keys would alter observable MultiGraph edge-key contracts."
+        }
+      ],
+      "test_hooks": {
+        "unit": [
+          {
+            "hook_id": "CGSE-UT-R01",
+            "path": "legacy_networkx_code/networkx/networkx/classes/tests/test_multigraph.py",
+            "lines": "320-362",
+            "assertion": "Edge-key assignment semantics and multigraph constructor ingestion remain parity-safe."
+          }
+        ],
+        "property": [
+          {
+            "hook_id": "CGSE-PROP-BASE",
+            "path": "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs",
+            "lines": "51-187",
+            "assertion": "Phase2C readiness gate preserves deterministic + fail-closed invariants."
+          }
+        ],
+        "differential": [
+          {
+            "hook_id": "CGSE-DIFF-R01",
+            "path": "crates/fnx-conformance/fixtures/graph_core_mutation_hardened.json",
+            "lines": "1-200",
+            "assertion": "Graph mutation fixture bundle must preserve key behavior under strict/hardened paths."
+          }
+        ],
+        "e2e": [
+          {
+            "hook_id": "CGSE-E2E-BASE",
+            "path": "scripts/run_phase2c_readiness_e2e.sh",
+            "lines": "1-120",
+            "assertion": "End-to-end execution must keep replay metadata + deterministic ordering artifacts."
+          }
+        ]
+      },
+      "compatibility_risk": "critical"
+    },
+    {
+      "rule_id": "CGSE-R02",
+      "operation_family": "graph_core_mutation",
+      "title": "Keyless multiedge removal ordering",
+      "behavior_claim": "When key is omitted, multiedge removal is LIFO by insertion order via popitem().",
+      "source_anchors": [
+        {
+          "path": "legacy_networkx_code/networkx/networkx/classes/multigraph.py",
+          "lines": "635-700",
+          "symbols": [
+            "MultiGraph.remove_edge"
+          ],
+          "legacy_behavior": "Docs and implementation specify reverse insertion-order deletion for key=None."
+        },
+        {
+          "path": "legacy_networkx_code/networkx/networkx/classes/multidigraph.py",
+          "lines": "525-587",
+          "symbols": [
+            "MultiDiGraph.remove_edge"
+          ],
+          "legacy_behavior": "Directed multigraph path mirrors keyless LIFO removal semantics."
+        }
+      ],
+      "tie_break_policy": "remove newest edge first when key=None",
+      "ordering_policy": "LIFO across multiedges between same endpoints",
+      "ambiguity_tags": [
+        {
+          "ambiguity_id": "CGSE-AMB-002",
+          "description": "Behavior depends on dict insertion-order guarantees backing popitem().",
+          "policy_options": [
+            "enforce insertion-order LIFO behavior",
+            "choose arbitrary key removal (rejected)"
+          ],
+          "selected_policy": "enforce insertion-order LIFO behavior",
+          "risk_note": "Changing keyless removal order mutates user-visible edge deletion outcomes."
+        }
+      ],
+      "test_hooks": {
+        "unit": [
+          {
+            "hook_id": "CGSE-UT-R02A",
+            "path": "legacy_networkx_code/networkx/networkx/classes/tests/test_multigraph.py",
+            "lines": "363-406",
+            "assertion": "Keyed and keyless remove_edge branches remain behavior-compatible."
+          },
+          {
+            "hook_id": "CGSE-UT-R02B",
+            "path": "legacy_networkx_code/networkx/networkx/classes/tests/test_multidigraph.py",
+            "lines": "329-392",
+            "assertion": "MultiDiGraph keyless removal and silent bulk-removal behavior remain parity-safe."
+          }
+        ],
+        "property": [
+          {
+            "hook_id": "CGSE-PROP-BASE",
+            "path": "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs",
+            "lines": "51-187",
+            "assertion": "Phase2C readiness gate preserves deterministic + fail-closed invariants."
+          }
+        ],
+        "differential": [
+          {
+            "hook_id": "CGSE-DIFF-R02",
+            "path": "crates/fnx-conformance/fixtures/graph_core_mutation_hardened.json",
+            "lines": "1-200",
+            "assertion": "Differential fixture validates multiedge mutation behavior under hardened mode."
+          }
+        ],
+        "e2e": [
+          {
+            "hook_id": "CGSE-E2E-BASE",
+            "path": "scripts/run_phase2c_readiness_e2e.sh",
+            "lines": "1-120",
+            "assertion": "End-to-end execution must keep replay metadata + deterministic ordering artifacts."
+          }
+        ]
+      },
+      "compatibility_risk": "critical"
+    },
+    {
+      "rule_id": "CGSE-R03",
+      "operation_family": "graph_core_mutation",
+      "title": "Directed-to-undirected attribute conflict ordering",
+      "behavior_claim": "When opposing directed edges disagree on attributes, to_undirected keeps one using encounter-order-dependent merge behavior.",
+      "source_anchors": [
+        {
+          "path": "legacy_networkx_code/networkx/networkx/classes/digraph.py",
+          "lines": "1264-1295",
+          "symbols": [
+            "DiGraph.to_undirected"
+          ],
+          "legacy_behavior": "Docs explicitly call attr choice arbitrary and encounter-order dependent."
+        },
+        {
+          "path": "legacy_networkx_code/networkx/networkx/classes/multidigraph.py",
+          "lines": "879-897",
+          "symbols": [
+            "MultiDiGraph.to_undirected"
+          ],
+          "legacy_behavior": "MultiDiGraph path carries same arbitrary-choice warning for conflicting attrs."
+        }
+      ],
+      "tie_break_policy": "preserve encounter-order attr selection",
+      "ordering_policy": "directed edge traversal order determines conflict winner",
+      "ambiguity_tags": [
+        {
+          "ambiguity_id": "CGSE-AMB-003",
+          "description": "Legacy contract marks conflict resolution as arbitrary.",
+          "policy_options": [
+            "preserve encounter-order semantics",
+            "canonicalize by lexical node ordering (rejected)"
+          ],
+          "selected_policy": "preserve encounter-order semantics",
+          "risk_note": "Canonicalization would intentionally diverge from legacy observable payload selection."
+        }
+      ],
+      "test_hooks": {
+        "unit": [
+          {
+            "hook_id": "CGSE-UT-R03A",
+            "path": "legacy_networkx_code/networkx/networkx/classes/tests/test_digraph.py",
+            "lines": "101-123",
+            "assertion": "Reciprocal to_undirected behavior and reverse view interactions remain compatible."
+          },
+          {
+            "hook_id": "CGSE-UT-R03B",
+            "path": "legacy_networkx_code/networkx/networkx/classes/tests/test_multidigraph.py",
+            "lines": "223-244",
+            "assertion": "Multidigraph reciprocal filtering and attribute conflict surfaces remain compatible."
+          }
+        ],
+        "property": [
+          {
+            "hook_id": "CGSE-PROP-BASE",
+            "path": "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs",
+            "lines": "51-187",
+            "assertion": "Phase2C readiness gate preserves deterministic + fail-closed invariants."
+          }
+        ],
+        "differential": [
+          {
+            "hook_id": "CGSE-DIFF-R03",
+            "path": "crates/fnx-conformance/fixtures/graph_core_shortest_path_strict.json",
+            "lines": "1-220",
+            "assertion": "Strict fixture corpus catches drift in graph transformation semantics that affect algorithm output."
+          }
+        ],
+        "e2e": [
+          {
+            "hook_id": "CGSE-E2E-BASE",
+            "path": "scripts/run_phase2c_readiness_e2e.sh",
+            "lines": "1-120",
+            "assertion": "End-to-end execution must keep replay metadata + deterministic ordering artifacts."
+          }
+        ]
+      },
+      "compatibility_risk": "critical"
+    },
+    {
+      "rule_id": "CGSE-R04",
+      "operation_family": "view_semantics",
+      "title": "Core view iteration order and union ambiguity",
+      "behavior_claim": "AtlasView delegates directly to backing dict iteration, while UnionAtlas combines keys via set union with undefined ordering.",
+      "source_anchors": [
+        {
+          "path": "legacy_networkx_code/networkx/networkx/classes/coreviews.py",
+          "lines": "23-53",
+          "symbols": [
+            "AtlasView.__iter__"
+          ],
+          "legacy_behavior": "AtlasView iteration returns iter(self._atlas), inheriting dict insertion order."
+        },
+        {
+          "path": "legacy_networkx_code/networkx/networkx/classes/coreviews.py",
+          "lines": "137-143",
+          "symbols": [
+            "UnionAtlas.__iter__"
+          ],
+          "legacy_behavior": "UnionAtlas iterates set(self._succ.keys()) | set(self._pred.keys()), exposing set-order ambiguity."
+        }
+      ],
+      "tie_break_policy": "prefer direct dict-order surfaces; treat set-union surfaces as ambiguity hotspots",
+      "ordering_policy": "deterministic for pure dict proxies; ambiguous for set-union composites",
+      "ambiguity_tags": [
+        {
+          "ambiguity_id": "CGSE-AMB-004",
+          "description": "UnionAtlas key iteration uses set union and may vary by hash-seed/process state.",
+          "policy_options": [
+            "document and preserve legacy ambiguity",
+            "force sorted order in engine (rejected for strict mode)"
+          ],
+          "selected_policy": "document and preserve legacy ambiguity",
+          "risk_note": "Imposing sorted iteration in strict mode would alter observable legacy traversal order."
+        }
+      ],
+      "test_hooks": {
+        "unit": [
+          {
+            "hook_id": "CGSE-UT-R04",
+            "path": "legacy_networkx_code/networkx/networkx/classes/tests/test_coreviews.py",
+            "lines": "26-81",
+            "assertion": "AtlasView/AdjacencyView iteration parity and view semantics must remain stable."
+          }
+        ],
+        "property": [
+          {
+            "hook_id": "CGSE-PROP-BASE",
+            "path": "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs",
+            "lines": "51-187",
+            "assertion": "Phase2C readiness gate preserves deterministic + fail-closed invariants."
+          }
+        ],
+        "differential": [
+          {
+            "hook_id": "CGSE-DIFF-R04",
+            "path": "crates/fnx-conformance/fixtures/generated/view_neighbors_strict.json",
+            "lines": "1-220",
+            "assertion": "View neighbor-order fixture validates deterministic strict-mode view behavior."
+          }
+        ],
+        "e2e": [
+          {
+            "hook_id": "CGSE-E2E-BASE",
+            "path": "scripts/run_phase2c_readiness_e2e.sh",
+            "lines": "1-120",
+            "assertion": "End-to-end execution must keep replay metadata + deterministic ordering artifacts."
+          }
+        ]
+      },
+      "compatibility_risk": "high"
+    },
+    {
+      "rule_id": "CGSE-R05",
+      "operation_family": "dispatch_routing",
+      "title": "Backend-priority environment normalization",
+      "behavior_claim": "Backend-priority environment keys are normalized and remaining suffix keys are applied in sorted order.",
+      "source_anchors": [
+        {
+          "path": "legacy_networkx_code/networkx/networkx/utils/backends.py",
+          "lines": "164-183",
+          "symbols": [
+            "_set_configs_from_environment"
+          ],
+          "legacy_behavior": "Priority suffixes are processed with sorted(priorities) for deterministic assignment order."
+        }
+      ],
+      "tie_break_policy": "sorted-key application for unknown priority categories",
+      "ordering_policy": "stable env-variable fold order after normalization",
+      "ambiguity_tags": [
+        {
+          "ambiguity_id": "CGSE-AMB-005",
+          "description": "Conflicting priority sources (NETWORKX_BACKEND_PRIORITY vs suffix variants) can shadow values.",
+          "policy_options": [
+            "preserve legacy precedence exactly",
+            "merge all priority lists (rejected)"
+          ],
+          "selected_policy": "preserve legacy precedence exactly",
+          "risk_note": "Merging would change backend dispatch routing expectations."
+        }
+      ],
+      "test_hooks": {
+        "unit": [
+          {
+            "hook_id": "CGSE-UT-R05",
+            "path": "legacy_networkx_code/networkx/networkx/utils/tests/test_backends.py",
+            "lines": "217-218",
+            "assertion": "Configured backend-priority contexts drive dispatch behavior deterministically."
+          }
+        ],
+        "property": [
+          {
+            "hook_id": "CGSE-PROP-BASE",
+            "path": "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs",
+            "lines": "51-187",
+            "assertion": "Phase2C readiness gate preserves deterministic + fail-closed invariants."
+          }
+        ],
+        "differential": [
+          {
+            "hook_id": "CGSE-DIFF-R05",
+            "path": "crates/fnx-conformance/fixtures/generated/dispatch_route_strict.json",
+            "lines": "1-220",
+            "assertion": "Dispatch route fixture confirms route-selection behavior and fail-closed outcomes."
+          }
+        ],
+        "e2e": [
+          {
+            "hook_id": "CGSE-E2E-BASE",
+            "path": "scripts/run_phase2c_readiness_e2e.sh",
+            "lines": "1-120",
+            "assertion": "End-to-end execution must keep replay metadata + deterministic ordering artifacts."
+          }
+        ]
+      },
+      "compatibility_risk": "high"
+    },
+    {
+      "rule_id": "CGSE-R06",
+      "operation_family": "dispatch_routing",
+      "title": "Dispatch try-order grouping and no-guess rule",
+      "behavior_claim": "Dispatch ordering is derived from five priority groups and explicitly avoids guessing tie-breaks for multiple unspecified backends.",
+      "source_anchors": [
+        {
+          "path": "legacy_networkx_code/networkx/networkx/utils/backends.py",
+          "lines": "848-930",
+          "symbols": [
+            "_dispatchable._call_if_any_backends_installed"
+          ],
+          "legacy_behavior": "Group1..5 ordering and explicit refusal to guess when len(group3)>1 are hard-coded."
+        }
+      ],
+      "tie_break_policy": "grouped-priority try-order with no implicit alphabetical fallback for ambiguous group3",
+      "ordering_policy": "group1 -> group2 -> group3 -> group4 -> group5",
+      "ambiguity_tags": [
+        {
+          "ambiguity_id": "CGSE-AMB-006",
+          "description": "Multiple unspecified backend inputs create unresolved tie in group3.",
+          "policy_options": [
+            "fail/skip conversions rather than guess",
+            "alphabetical fallback ordering (rejected)"
+          ],
+          "selected_policy": "fail/skip conversions rather than guess",
+          "risk_note": "Guessing a backend can silently alter output/backend type semantics."
+        }
+      ],
+      "test_hooks": {
+        "unit": [
+          {
+            "hook_id": "CGSE-UT-R06",
+            "path": "legacy_networkx_code/networkx/networkx/utils/tests/test_backends.py",
+            "lines": "136-158",
+            "assertion": "Mixing backend graphs should follow configured routing behavior and conversion boundaries."
+          }
+        ],
+        "property": [
+          {
+            "hook_id": "CGSE-PROP-BASE",
+            "path": "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs",
+            "lines": "51-187",
+            "assertion": "Phase2C readiness gate preserves deterministic + fail-closed invariants."
+          }
+        ],
+        "differential": [
+          {
+            "hook_id": "CGSE-DIFF-R06",
+            "path": "crates/fnx-conformance/fixtures/generated/dispatch_route_strict.json",
+            "lines": "1-220",
+            "assertion": "Dispatch differential fixture captures routing + fallback outputs."
+          }
+        ],
+        "e2e": [
+          {
+            "hook_id": "CGSE-E2E-BASE",
+            "path": "scripts/run_phase2c_readiness_e2e.sh",
+            "lines": "1-120",
+            "assertion": "End-to-end execution must keep replay metadata + deterministic ordering artifacts."
+          }
+        ]
+      },
+      "compatibility_risk": "high"
+    },
+    {
+      "rule_id": "CGSE-R07",
+      "operation_family": "conversion_contracts",
+      "title": "to_networkx_graph conversion precedence",
+      "behavior_claim": "Conversion probes input types in fixed order: NX graph-like, dict, edgelist-like, then specialized adapters.",
+      "source_anchors": [
+        {
+          "path": "legacy_networkx_code/networkx/networkx/convert.py",
+          "lines": "34-122",
+          "symbols": [
+            "to_networkx_graph"
+          ],
+          "legacy_behavior": "Control flow enforces deterministic conversion precedence with fallback chain and mode-sensitive dict handling."
+        }
+      ],
+      "tie_break_policy": "fixed probe-order precedence",
+      "ordering_policy": "first successful conversion branch wins",
+      "ambiguity_tags": [
+        {
+          "ambiguity_id": "CGSE-AMB-007",
+          "description": "Dict inputs may satisfy multiple representations (dict-of-dicts vs dict-of-lists).",
+          "policy_options": [
+            "preserve dict-of-dicts attempt before dict-of-lists",
+            "auto-score/guess structure by content (rejected)"
+          ],
+          "selected_policy": "preserve dict-of-dicts attempt before dict-of-lists",
+          "risk_note": "Changing precedence can alter graph type/edge payload interpretation."
+        }
+      ],
+      "test_hooks": {
+        "unit": [
+          {
+            "hook_id": "CGSE-UT-R07",
+            "path": "legacy_networkx_code/networkx/networkx/tests/test_convert.py",
+            "lines": "21-31",
+            "assertion": "Convert tests validate dict/list/graph conversion precedence contracts."
+          }
+        ],
+        "property": [
+          {
+            "hook_id": "CGSE-PROP-BASE",
+            "path": "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs",
+            "lines": "51-187",
+            "assertion": "Phase2C readiness gate preserves deterministic + fail-closed invariants."
+          }
+        ],
+        "differential": [
+          {
+            "hook_id": "CGSE-DIFF-R07",
+            "path": "crates/fnx-conformance/fixtures/generated/convert_edge_list_strict.json",
+            "lines": "1-220",
+            "assertion": "Conversion fixture ensures strict conversion semantics remain parity-safe."
+          }
+        ],
+        "e2e": [
+          {
+            "hook_id": "CGSE-E2E-BASE",
+            "path": "scripts/run_phase2c_readiness_e2e.sh",
+            "lines": "1-120",
+            "assertion": "End-to-end execution must keep replay metadata + deterministic ordering artifacts."
+          }
+        ]
+      },
+      "compatibility_risk": "critical"
+    },
+    {
+      "rule_id": "CGSE-R08",
+      "operation_family": "shortest_path_algorithms",
+      "title": "Dijkstra fringe tie-break and predecessor selection",
+      "behavior_claim": "Dijkstra heap entries include a monotonic counter and path reconstruction chooses the first predecessor in stored order.",
+      "source_anchors": [
+        {
+          "path": "legacy_networkx_code/networkx/networkx/algorithms/shortest_paths/weighted.py",
+          "lines": "837-903",
+          "symbols": [
+            "_dijkstra_multisource"
+          ],
+          "legacy_behavior": "Heap uses (distance, next(count), node); path reconstruction selects pred_dict[v][0]."
+        }
+      ],
+      "tie_break_policy": "distance then insertion counter then predecessor-list first element",
+      "ordering_policy": "equal-weight predecessors tracked in encounter order",
+      "ambiguity_tags": [
+        {
+          "ambiguity_id": "CGSE-AMB-008",
+          "description": "Equal-cost predecessor lists may contain multiple valid orderings.",
+          "policy_options": [
+            "preserve predecessor encounter order",
+            "lexicographically sort predecessors (rejected)"
+          ],
+          "selected_policy": "preserve predecessor encounter order",
+          "risk_note": "Sorting predecessors changes returned path for equal-cost alternatives."
+        }
+      ],
+      "test_hooks": {
+        "unit": [
+          {
+            "hook_id": "CGSE-UT-R08",
+            "path": "legacy_networkx_code/networkx/networkx/algorithms/shortest_paths/tests/test_weighted.py",
+            "lines": "271-286",
+            "assertion": "Predecessor and distance tests allow documented equal-cost ordering variants."
+          }
+        ],
+        "property": [
+          {
+            "hook_id": "CGSE-PROP-BASE",
+            "path": "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs",
+            "lines": "51-187",
+            "assertion": "Phase2C readiness gate preserves deterministic + fail-closed invariants."
+          }
+        ],
+        "differential": [
+          {
+            "hook_id": "CGSE-DIFF-R08",
+            "path": "crates/fnx-conformance/fixtures/graph_core_shortest_path_strict.json",
+            "lines": "1-220",
+            "assertion": "Shortest-path fixture validates deterministic path outputs under strict mode."
+          }
+        ],
+        "e2e": [
+          {
+            "hook_id": "CGSE-E2E-BASE",
+            "path": "scripts/run_phase2c_readiness_e2e.sh",
+            "lines": "1-120",
+            "assertion": "End-to-end execution must keep replay metadata + deterministic ordering artifacts."
+          }
+        ]
+      },
+      "compatibility_risk": "critical"
+    },
+    {
+      "rule_id": "CGSE-R09",
+      "operation_family": "shortest_path_algorithms",
+      "title": "Bidirectional Dijkstra queue ordering",
+      "behavior_claim": "Bidirectional Dijkstra alternates direction and uses counter-augmented heaps to avoid node-comparison tie breaks.",
+      "source_anchors": [
+        {
+          "path": "legacy_networkx_code/networkx/networkx/algorithms/shortest_paths/weighted.py",
+          "lines": "2398-2453",
+          "symbols": [
+            "bidirectional_dijkstra"
+          ],
+          "legacy_behavior": "Forward/backward fringes use (distance, next(count), node) and alternate expansion direction."
+        }
+      ],
+      "tie_break_policy": "alternating direction + monotonic fringe counter",
+      "ordering_policy": "first discovered best meet-node wins unless shorter path found",
+      "ambiguity_tags": [],
+      "test_hooks": {
+        "unit": [
+          {
+            "hook_id": "CGSE-UT-R09",
+            "path": "legacy_networkx_code/networkx/networkx/algorithms/shortest_paths/tests/test_weighted.py",
+            "lines": "165-182",
+            "assertion": "Bidirectional shortest-path tests verify distance/path parity for representative graph families."
+          }
+        ],
+        "property": [
+          {
+            "hook_id": "CGSE-PROP-BASE",
+            "path": "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs",
+            "lines": "51-187",
+            "assertion": "Phase2C readiness gate preserves deterministic + fail-closed invariants."
+          }
+        ],
+        "differential": [
+          {
+            "hook_id": "CGSE-DIFF-R09",
+            "path": "crates/fnx-conformance/fixtures/graph_core_shortest_path_strict.json",
+            "lines": "1-220",
+            "assertion": "Bidirectional behavior contributes to strict shortest-path fixture parity."
+          }
+        ],
+        "e2e": [
+          {
+            "hook_id": "CGSE-E2E-BASE",
+            "path": "scripts/run_phase2c_readiness_e2e.sh",
+            "lines": "1-120",
+            "assertion": "End-to-end execution must keep replay metadata + deterministic ordering artifacts."
+          }
+        ]
+      },
+      "compatibility_risk": "high"
+    },
+    {
+      "rule_id": "CGSE-R10",
+      "operation_family": "readwrite_serialization",
+      "title": "Edgelist emission ordering",
+      "behavior_claim": "generate_edgelist emits lines in G.edges iteration order and preserves encountered edge-data key/value projection behavior.",
+      "source_anchors": [
+        {
+          "path": "legacy_networkx_code/networkx/networkx/readwrite/edgelist.py",
+          "lines": "43-123",
+          "symbols": [
+            "generate_edgelist"
+          ],
+          "legacy_behavior": "Emission loops directly over G.edges(data=...), inheriting graph iteration order."
+        }
+      ],
+      "tie_break_policy": "graph-edge iteration order",
+      "ordering_policy": "output row order follows edge iterator traversal",
+      "ambiguity_tags": [
+        {
+          "ambiguity_id": "CGSE-AMB-009",
+          "description": "Stringified dict payload order depends on underlying dict key order.",
+          "policy_options": [
+            "preserve native dict order in strict mode",
+            "sort edge-attribute keys before stringify (hardened optional)"
+          ],
+          "selected_policy": "preserve native dict order in strict mode",
+          "risk_note": "Forced key sorting alters textual output parity for write_edgelist snapshots."
+        }
+      ],
+      "test_hooks": {
+        "unit": [
+          {
+            "hook_id": "CGSE-UT-R10",
+            "path": "legacy_networkx_code/networkx/networkx/readwrite/tests/test_edgelist.py",
+            "lines": "187-217",
+            "assertion": "write_edgelist variants validate no-data/data/key-filter serialization behavior."
+          }
+        ],
+        "property": [
+          {
+            "hook_id": "CGSE-PROP-BASE",
+            "path": "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs",
+            "lines": "51-187",
+            "assertion": "Phase2C readiness gate preserves deterministic + fail-closed invariants."
+          }
+        ],
+        "differential": [
+          {
+            "hook_id": "CGSE-DIFF-R10",
+            "path": "crates/fnx-conformance/fixtures/generated/readwrite_roundtrip_strict.json",
+            "lines": "1-220",
+            "assertion": "Read/write strict roundtrip fixture checks serialized edge-order stability."
+          }
+        ],
+        "e2e": [
+          {
+            "hook_id": "CGSE-E2E-BASE",
+            "path": "scripts/run_phase2c_readiness_e2e.sh",
+            "lines": "1-120",
+            "assertion": "End-to-end execution must keep replay metadata + deterministic ordering artifacts."
+          }
+        ]
+      },
+      "compatibility_risk": "high"
+    },
+    {
+      "rule_id": "CGSE-R11",
+      "operation_family": "readwrite_serialization",
+      "title": "Edgelist parse sequencing and coercion",
+      "behavior_claim": "parse_edgelist consumes input lines sequentially and applies node/data type coercions before add_edge insertion.",
+      "source_anchors": [
+        {
+          "path": "legacy_networkx_code/networkx/networkx/readwrite/edgelist.py",
+          "lines": "249-296",
+          "symbols": [
+            "parse_edgelist"
+          ],
+          "legacy_behavior": "Line splitting, coercion, and add_edge happen in stream order; conversion errors are fail-fast."
+        }
+      ],
+      "tie_break_policy": "first-seen line order for duplicate/same-endpoint edges",
+      "ordering_policy": "edge insertion order matches parsed line order",
+      "ambiguity_tags": [],
+      "test_hooks": {
+        "unit": [
+          {
+            "hook_id": "CGSE-UT-R11",
+            "path": "legacy_networkx_code/networkx/networkx/readwrite/tests/test_edgelist.py",
+            "lines": "117-170",
+            "assertion": "parse_edgelist variants validate typed coercion, delimiter, and malformed input handling."
+          }
+        ],
+        "property": [
+          {
+            "hook_id": "CGSE-PROP-BASE",
+            "path": "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs",
+            "lines": "51-187",
+            "assertion": "Phase2C readiness gate preserves deterministic + fail-closed invariants."
+          }
+        ],
+        "differential": [
+          {
+            "hook_id": "CGSE-DIFF-R11",
+            "path": "crates/fnx-conformance/fixtures/generated/readwrite_json_roundtrip_strict.json",
+            "lines": "1-220",
+            "assertion": "JSON/edgelist roundtrip fixture captures parse + serialization sequencing invariants."
+          }
+        ],
+        "e2e": [
+          {
+            "hook_id": "CGSE-E2E-BASE",
+            "path": "scripts/run_phase2c_readiness_e2e.sh",
+            "lines": "1-120",
+            "assertion": "End-to-end execution must keep replay metadata + deterministic ordering artifacts."
+          }
+        ]
+      },
+      "compatibility_risk": "high"
+    },
+    {
+      "rule_id": "CGSE-R12",
+      "operation_family": "generator_semantics",
+      "title": "Classic generator ordering contracts",
+      "behavior_claim": "cycle_graph enforces increasing directed edge orientation and path_graph preserves iterable node order for edge construction.",
+      "source_anchors": [
+        {
+          "path": "legacy_networkx_code/networkx/networkx/generators/classic.py",
+          "lines": "478-505",
+          "symbols": [
+            "cycle_graph"
+          ],
+          "legacy_behavior": "Directed cycle orientation is documented as increasing order and built via pairwise(nodes, cyclic=True)."
+        },
+        {
+          "path": "legacy_networkx_code/networkx/networkx/generators/classic.py",
+          "lines": "788-808",
+          "symbols": [
+            "path_graph"
+          ],
+          "legacy_behavior": "Path edges are built in the iterable order provided by caller."
+        }
+      ],
+      "tie_break_policy": "input-iterable order and documented directed orientation",
+      "ordering_policy": "generator edge emission follows pairwise traversal",
+      "ambiguity_tags": [
+        {
+          "ambiguity_id": "CGSE-AMB-010",
+          "description": "Duplicate nodes in iterable input are accepted and can create surprising structures.",
+          "policy_options": [
+            "preserve legacy duplicate-node behavior",
+            "deduplicate input iterable (rejected)"
+          ],
+          "selected_policy": "preserve legacy duplicate-node behavior",
+          "risk_note": "Deduplication changes graph topology for user-supplied repeated nodes."
+        }
+      ],
+      "test_hooks": {
+        "unit": [
+          {
+            "hook_id": "CGSE-UT-R12",
+            "path": "legacy_networkx_code/networkx/networkx/generators/tests/test_classic.py",
+            "lines": "212-232",
+            "assertion": "cycle_graph directed ordering and duplicate iterable behavior remain covered."
+          },
+          {
+            "hook_id": "CGSE-UT-R12B",
+            "path": "legacy_networkx_code/networkx/networkx/generators/tests/test_classic.py",
+            "lines": "409-442",
+            "assertion": "path_graph iterable-order semantics remain parity-safe."
+          }
+        ],
+        "property": [
+          {
+            "hook_id": "CGSE-PROP-BASE",
+            "path": "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs",
+            "lines": "51-187",
+            "assertion": "Phase2C readiness gate preserves deterministic + fail-closed invariants."
+          }
+        ],
+        "differential": [
+          {
+            "hook_id": "CGSE-DIFF-R12",
+            "path": "crates/fnx-conformance/fixtures/generated/generators_cycle_strict.json",
+            "lines": "1-220",
+            "assertion": "Generator cycle fixture validates deterministic construction order."
+          }
+        ],
+        "e2e": [
+          {
+            "hook_id": "CGSE-E2E-BASE",
+            "path": "scripts/run_phase2c_readiness_e2e.sh",
+            "lines": "1-120",
+            "assertion": "End-to-end execution must keep replay metadata + deterministic ordering artifacts."
+          }
+        ]
+      },
+      "compatibility_risk": "high"
+    },
+    {
+      "rule_id": "CGSE-R13",
+      "operation_family": "runtime_config",
+      "title": "Config validation ordering and unknown-backend reporting",
+      "behavior_claim": "Runtime config validation sorts unknown backend names before rendering error messages for deterministic diagnostics.",
+      "source_anchors": [
+        {
+          "path": "legacy_networkx_code/networkx/networkx/utils/configs.py",
+          "lines": "252-270",
+          "symbols": [
+            "BackendPriorities._on_setattr"
+          ],
+          "legacy_behavior": "Unknown backend list is rendered via sorted(missing), stabilizing diagnostics."
+        },
+        {
+          "path": "legacy_networkx_code/networkx/networkx/utils/configs.py",
+          "lines": "366-381",
+          "symbols": [
+            "NetworkXConfig._on_setattr"
+          ],
+          "legacy_behavior": "Backends config validation also sorts missing backend names before raising."
+        }
+      ],
+      "tie_break_policy": "deterministic sorted error-report ordering",
+      "ordering_policy": "stable validation message ordering across runs",
+      "ambiguity_tags": [],
+      "test_hooks": {
+        "unit": [
+          {
+            "hook_id": "CGSE-UT-R13",
+            "path": "legacy_networkx_code/networkx/networkx/utils/tests/test_config.py",
+            "lines": "120-169",
+            "assertion": "Config tests assert backend-priority typing and unknown-backend error behavior."
+          }
+        ],
+        "property": [
+          {
+            "hook_id": "CGSE-PROP-BASE",
+            "path": "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs",
+            "lines": "51-187",
+            "assertion": "Phase2C readiness gate preserves deterministic + fail-closed invariants."
+          }
+        ],
+        "differential": [
+          {
+            "hook_id": "CGSE-DIFF-R13",
+            "path": "crates/fnx-conformance/fixtures/generated/runtime_config_optional_strict.json",
+            "lines": "1-220",
+            "assertion": "Runtime optional-config fixture validates strict-mode config resolution paths."
+          }
+        ],
+        "e2e": [
+          {
+            "hook_id": "CGSE-E2E-BASE",
+            "path": "scripts/run_phase2c_readiness_e2e.sh",
+            "lines": "1-120",
+            "assertion": "End-to-end execution must keep replay metadata + deterministic ordering artifacts."
+          }
+        ]
+      },
+      "compatibility_risk": "medium"
+    },
+    {
+      "rule_id": "CGSE-R14",
+      "operation_family": "oracle_test_surface",
+      "title": "Legacy oracle acceptance of equal-cost predecessor ordering",
+      "behavior_claim": "Legacy weighted shortest-path tests explicitly accept either predecessor ordering for equal-cost paths.",
+      "source_anchors": [
+        {
+          "path": "legacy_networkx_code/networkx/networkx/algorithms/shortest_paths/tests/test_weighted.py",
+          "lines": "271-286",
+          "symbols": [
+            "test_dijkstra_predecessor2"
+          ],
+          "legacy_behavior": "Oracle test permits pred[2] in [[1, 3], [3, 1]], confirming intentional ambiguity envelope."
+        }
+      ],
+      "tie_break_policy": "accept multiple equivalent predecessor orderings where legacy oracle permits",
+      "ordering_policy": "maintain compatibility allowlist for equal-cost ambiguity",
+      "ambiguity_tags": [
+        {
+          "ambiguity_id": "CGSE-AMB-011",
+          "description": "Equal-cost predecessor ordering is intentionally non-unique in oracle contract.",
+          "policy_options": [
+            "allow documented permutation set",
+            "force single canonical predecessor sequence (rejected)"
+          ],
+          "selected_policy": "allow documented permutation set",
+          "risk_note": "Over-canonicalization risks false negative drift findings in differential conformance."
+        }
+      ],
+      "test_hooks": {
+        "unit": [
+          {
+            "hook_id": "CGSE-UT-R14",
+            "path": "legacy_networkx_code/networkx/networkx/algorithms/shortest_paths/tests/test_weighted.py",
+            "lines": "271-286",
+            "assertion": "Oracle test itself encodes allowed predecessor-order permutations."
+          }
+        ],
+        "property": [
+          {
+            "hook_id": "CGSE-PROP-BASE",
+            "path": "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs",
+            "lines": "51-187",
+            "assertion": "Phase2C readiness gate preserves deterministic + fail-closed invariants."
+          }
+        ],
+        "differential": [
+          {
+            "hook_id": "CGSE-DIFF-R14",
+            "path": "crates/fnx-conformance/fixtures/generated/conformance_harness_strict.json",
+            "lines": "1-220",
+            "assertion": "Harness fixture tracks expected outputs and ambiguity-tolerant comparison semantics."
+          }
+        ],
+        "e2e": [
+          {
+            "hook_id": "CGSE-E2E-BASE",
+            "path": "scripts/run_phase2c_readiness_e2e.sh",
+            "lines": "1-120",
+            "assertion": "End-to-end execution must keep replay metadata + deterministic ordering artifacts."
+          }
+        ]
+      },
+      "compatibility_risk": "high"
+    }
+  ],
+  "ambiguity_register": [
+    {
+      "ambiguity_id": "CGSE-AMB-001",
+      "rule_id": "CGSE-R01",
+      "operation_family": "graph_core_mutation",
+      "description": "Auto-key sequence may contain gaps after remove/reinsert cycles.",
+      "selected_policy": "preserve first-unused scan exactly",
+      "risk_note": "Reindexing keys would alter observable MultiGraph edge-key contracts."
+    },
+    {
+      "ambiguity_id": "CGSE-AMB-002",
+      "rule_id": "CGSE-R02",
+      "operation_family": "graph_core_mutation",
+      "description": "Behavior depends on dict insertion-order guarantees backing popitem().",
+      "selected_policy": "enforce insertion-order LIFO behavior",
+      "risk_note": "Changing keyless removal order mutates user-visible edge deletion outcomes."
+    },
+    {
+      "ambiguity_id": "CGSE-AMB-003",
+      "rule_id": "CGSE-R03",
+      "operation_family": "graph_core_mutation",
+      "description": "Legacy contract marks conflict resolution as arbitrary.",
+      "selected_policy": "preserve encounter-order semantics",
+      "risk_note": "Canonicalization would intentionally diverge from legacy observable payload selection."
+    },
+    {
+      "ambiguity_id": "CGSE-AMB-004",
+      "rule_id": "CGSE-R04",
+      "operation_family": "view_semantics",
+      "description": "UnionAtlas key iteration uses set union and may vary by hash-seed/process state.",
+      "selected_policy": "document and preserve legacy ambiguity",
+      "risk_note": "Imposing sorted iteration in strict mode would alter observable legacy traversal order."
+    },
+    {
+      "ambiguity_id": "CGSE-AMB-005",
+      "rule_id": "CGSE-R05",
+      "operation_family": "dispatch_routing",
+      "description": "Conflicting priority sources (NETWORKX_BACKEND_PRIORITY vs suffix variants) can shadow values.",
+      "selected_policy": "preserve legacy precedence exactly",
+      "risk_note": "Merging would change backend dispatch routing expectations."
+    },
+    {
+      "ambiguity_id": "CGSE-AMB-006",
+      "rule_id": "CGSE-R06",
+      "operation_family": "dispatch_routing",
+      "description": "Multiple unspecified backend inputs create unresolved tie in group3.",
+      "selected_policy": "fail/skip conversions rather than guess",
+      "risk_note": "Guessing a backend can silently alter output/backend type semantics."
+    },
+    {
+      "ambiguity_id": "CGSE-AMB-007",
+      "rule_id": "CGSE-R07",
+      "operation_family": "conversion_contracts",
+      "description": "Dict inputs may satisfy multiple representations (dict-of-dicts vs dict-of-lists).",
+      "selected_policy": "preserve dict-of-dicts attempt before dict-of-lists",
+      "risk_note": "Changing precedence can alter graph type/edge payload interpretation."
+    },
+    {
+      "ambiguity_id": "CGSE-AMB-008",
+      "rule_id": "CGSE-R08",
+      "operation_family": "shortest_path_algorithms",
+      "description": "Equal-cost predecessor lists may contain multiple valid orderings.",
+      "selected_policy": "preserve predecessor encounter order",
+      "risk_note": "Sorting predecessors changes returned path for equal-cost alternatives."
+    },
+    {
+      "ambiguity_id": "CGSE-AMB-009",
+      "rule_id": "CGSE-R10",
+      "operation_family": "readwrite_serialization",
+      "description": "Stringified dict payload order depends on underlying dict key order.",
+      "selected_policy": "preserve native dict order in strict mode",
+      "risk_note": "Forced key sorting alters textual output parity for write_edgelist snapshots."
+    },
+    {
+      "ambiguity_id": "CGSE-AMB-010",
+      "rule_id": "CGSE-R12",
+      "operation_family": "generator_semantics",
+      "description": "Duplicate nodes in iterable input are accepted and can create surprising structures.",
+      "selected_policy": "preserve legacy duplicate-node behavior",
+      "risk_note": "Deduplication changes graph topology for user-supplied repeated nodes."
+    },
+    {
+      "ambiguity_id": "CGSE-AMB-011",
+      "rule_id": "CGSE-R14",
+      "operation_family": "oracle_test_surface",
+      "description": "Equal-cost predecessor ordering is intentionally non-unique in oracle contract.",
+      "selected_policy": "allow documented permutation set",
+      "risk_note": "Over-canonicalization risks false negative drift findings in differential conformance."
+    }
+  ],
+  "alien_uplift_contract_card": {
+    "artifact_track": "cgse",
+    "ev_score": 2.6,
+    "baseline": "Direct parity extraction from legacy source anchors without heuristic reinterpretation.",
+    "notes": "Focuses on deterministic policy compilation inputs and ambiguity containment for strict/hardened splits."
+  },
+  "profile_first_artifacts": {
+    "baseline": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+    "hotspot": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+    "delta": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+  },
+  "decision_theoretic_runtime_contract": {
+    "states": [
+      "strict",
+      "hardened",
+      "fail_closed"
+    ],
+    "actions": [
+      "preserve_legacy_order",
+      "allow_ambiguity_register",
+      "reject_incompatible"
+    ],
+    "loss_model": "behavioral-drift-major > deterministic-noise-minor > diagnostic-verbosity",
+    "safe_mode_fallback": "reject unknown incompatible ordering surfaces and emit audit-ready ambiguity tags"
+  },
+  "isomorphism_proof_artifacts": [
+    "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_001_V1.md",
+    "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_005_V1.md",
+    "artifacts/proofs/ISOMORPHISM_PROOF_NEIGHBOR_ITER_BFS_V2.md"
+  ],
+  "structured_logging_evidence": [
+    "artifacts/conformance/latest/structured_logs.json",
+    "artifacts/conformance/latest/structured_logs.jsonl",
+    "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json"
+  ]
+}

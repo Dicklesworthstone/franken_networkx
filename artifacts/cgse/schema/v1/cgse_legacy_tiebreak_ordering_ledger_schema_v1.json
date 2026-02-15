@@ -1,0 +1,72 @@
+{
+  "schema_version": "1.0.0",
+  "schema_id": "cgse-legacy-tiebreak-ordering-ledger-schema-v1",
+  "required_top_level_keys": [
+    "schema_version",
+    "artifact_id",
+    "generated_at_utc",
+    "baseline_comparator",
+    "scope_statement",
+    "rule_families",
+    "rules",
+    "ambiguity_register",
+    "alien_uplift_contract_card",
+    "profile_first_artifacts",
+    "decision_theoretic_runtime_contract",
+    "isomorphism_proof_artifacts",
+    "structured_logging_evidence"
+  ],
+  "required_rule_keys": [
+    "rule_id",
+    "operation_family",
+    "title",
+    "behavior_claim",
+    "source_anchors",
+    "tie_break_policy",
+    "ordering_policy",
+    "ambiguity_tags",
+    "test_hooks",
+    "compatibility_risk"
+  ],
+  "required_anchor_keys": [
+    "path",
+    "lines",
+    "symbols",
+    "legacy_behavior"
+  ],
+  "required_ambiguity_keys": [
+    "ambiguity_id",
+    "description",
+    "policy_options",
+    "selected_policy",
+    "risk_note"
+  ],
+  "required_test_hook_channels": [
+    "unit",
+    "property",
+    "differential",
+    "e2e"
+  ],
+  "required_test_hook_keys": [
+    "hook_id",
+    "path",
+    "lines",
+    "assertion"
+  ],
+  "required_profile_artifact_keys": [
+    "baseline",
+    "hotspot",
+    "delta"
+  ],
+  "required_operation_families": [
+    "graph_core_mutation",
+    "view_semantics",
+    "dispatch_routing",
+    "conversion_contracts",
+    "shortest_path_algorithms",
+    "readwrite_serialization",
+    "generator_semantics",
+    "runtime_config",
+    "oracle_test_surface"
+  ]
+}
