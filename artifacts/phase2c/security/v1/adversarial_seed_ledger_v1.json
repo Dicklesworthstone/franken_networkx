@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "ledger_id": "adversarial-seed-ledger-v1",
-  "generated_at_utc": "2026-02-15T03:04:41.626926+00:00",
+  "generated_at_utc": "2026-02-15T03:09:08.320768+00:00",
   "source_manifest_path": "artifacts/phase2c/security/v1/adversarial_corpus_manifest_v1.json",
   "deterministic_seed_strategy": "class_seed_plus_packet_offset",
   "entry_count": 50,

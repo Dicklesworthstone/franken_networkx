@@ -312,6 +312,634 @@ fn essence_ledger_is_machine_auditable_and_cross_linked() {
 }
 
 #[test]
+fn performance_baseline_matrix_is_reproducible_and_complete() {
+    let root = repo_root();
+    let matrix = load_json(&root.join("artifacts/perf/phase2c/perf_baseline_matrix_v1.json"));
+
+    for key in [
+        "schema_version",
+        "matrix_id",
+        "measurement_protocol",
+        "environment",
+        "environment_fingerprint",
+        "events_path",
+        "scenario_count",
+        "scenarios",
+        "summary",
+    ] {
+        assert!(
+            matrix.get(key).is_some(),
+            "baseline matrix missing key `{key}`"
+        );
+    }
+
+    let protocol = matrix["measurement_protocol"]
+        .as_object()
+        .expect("measurement_protocol should be object");
+    let runs = protocol["runs"]
+        .as_u64()
+        .expect("measurement_protocol.runs should be u64");
+    let warmup_runs = protocol["warmup_runs"]
+        .as_u64()
+        .expect("measurement_protocol.warmup_runs should be u64");
+    assert!(runs >= 3, "measurement protocol runs should be >= 3");
+    assert!(
+        protocol["fixed_seed_policy"]
+            .as_str()
+            .expect("fixed_seed_policy should be string")
+            .contains("seed"),
+        "measurement protocol must document deterministic seed policy"
+    );
+    assert!(
+        warmup_runs >= 1,
+        "measurement protocol warmup_runs should be at least 1"
+    );
+
+    let scenarios = matrix["scenarios"]
+        .as_array()
+        .expect("scenarios should be array");
+    assert_eq!(
+        scenarios.len(),
+        matrix["scenario_count"]
+            .as_u64()
+            .expect("scenario_count should be u64") as usize,
+        "scenario_count should match scenario rows"
+    );
+    assert!(
+        !scenarios.is_empty(),
+        "scenarios should include representative topology matrix rows"
+    );
+
+    let mut topologies = BTreeSet::new();
+    let mut size_buckets = BTreeSet::new();
+    let mut density_classes = BTreeSet::new();
+    let mut measurement_event_expectations = BTreeMap::new();
+    for scenario in scenarios {
+        for key in [
+            "scenario_id",
+            "topology",
+            "size_bucket",
+            "density_class",
+            "seed",
+            "command",
+            "node_count",
+            "edge_count_estimate",
+            "density_estimate",
+            "sample_count",
+            "time_ms",
+            "max_rss_kb",
+        ] {
+            assert!(
+                scenario.get(key).is_some(),
+                "scenario row missing key `{key}`"
+            );
+        }
+
+        let topology = scenario["topology"]
+            .as_str()
+            .expect("scenario topology should be string");
+        let size_bucket = scenario["size_bucket"]
+            .as_str()
+            .expect("scenario size_bucket should be string");
+        let density_class = scenario["density_class"]
+            .as_str()
+            .expect("scenario density_class should be string");
+        let command = scenario["command"]
+            .as_str()
+            .expect("scenario command should be string");
+        let node_count = scenario["node_count"]
+            .as_u64()
+            .expect("scenario node_count should be u64");
+        let sample_count = scenario["sample_count"]
+            .as_u64()
+            .expect("scenario sample_count should be u64") as usize;
+        let density_estimate = scenario["density_estimate"]
+            .as_f64()
+            .expect("scenario density_estimate should be f64");
+        assert!(
+            command.contains("--topology") && command.contains("--seed"),
+            "scenario command must carry deterministic topology/seed selectors"
+        );
+        assert!(node_count >= 2, "scenario node_count should be >= 2");
+        assert_eq!(
+            sample_count, runs as usize,
+            "scenario sample_count should match measurement protocol runs"
+        );
+        assert!(
+            (0.0..=1.0).contains(&density_estimate),
+            "scenario density_estimate should be in [0.0, 1.0]"
+        );
+
+        let time_ms = scenario["time_ms"]
+            .as_object()
+            .expect("scenario time_ms should be object");
+        let max_rss_kb = scenario["max_rss_kb"]
+            .as_object()
+            .expect("scenario max_rss_kb should be object");
+        for key in ["mean", "p50", "p95", "p99", "min", "max"] {
+            let time_value = time_ms[key]
+                .as_f64()
+                .unwrap_or_else(|| panic!("scenario time_ms.{key} should be f64"));
+            let mem_value = max_rss_kb[key]
+                .as_f64()
+                .unwrap_or_else(|| panic!("scenario max_rss_kb.{key} should be f64"));
+            assert!(
+                time_value >= 0.0,
+                "scenario time_ms.{key} must be non-negative"
+            );
+            assert!(
+                mem_value >= 0.0,
+                "scenario max_rss_kb.{key} must be non-negative"
+            );
+        }
+        assert!(
+            time_ms["p99"].as_f64().expect("time_ms.p99 should be f64")
+                >= time_ms["p95"].as_f64().expect("time_ms.p95 should be f64")
+                && time_ms["p95"].as_f64().expect("time_ms.p95 should be f64")
+                    >= time_ms["p50"].as_f64().expect("time_ms.p50 should be f64"),
+            "scenario runtime percentile ordering must be monotonic (p50 <= p95 <= p99)"
+        );
+        assert!(
+            max_rss_kb["p99"]
+                .as_f64()
+                .expect("max_rss_kb.p99 should be f64")
+                >= max_rss_kb["p95"]
+                    .as_f64()
+                    .expect("max_rss_kb.p95 should be f64")
+                && max_rss_kb["p95"]
+                    .as_f64()
+                    .expect("max_rss_kb.p95 should be f64")
+                    >= max_rss_kb["p50"]
+                        .as_f64()
+                        .expect("max_rss_kb.p50 should be f64"),
+            "scenario memory percentile ordering must be monotonic (p50 <= p95 <= p99)"
+        );
+
+        topologies.insert(topology.to_owned());
+        size_buckets.insert(size_bucket.to_owned());
+        density_classes.insert(density_class.to_owned());
+        measurement_event_expectations.insert(
+            scenario["scenario_id"]
+                .as_str()
+                .expect("scenario_id should be string")
+                .to_owned(),
+            sample_count,
+        );
+    }
+
+    assert_eq!(
+        topologies,
+        BTreeSet::from([
+            "complete".to_owned(),
+            "erdos_renyi".to_owned(),
+            "grid".to_owned(),
+            "line".to_owned(),
+            "star".to_owned(),
+        ]),
+        "topology matrix coverage drifted"
+    );
+    assert!(
+        size_buckets.contains("small")
+            && size_buckets.contains("medium")
+            && size_buckets.contains("large"),
+        "size bucket coverage should include small/medium/large"
+    );
+    assert!(
+        density_classes.len() >= 3,
+        "density classes should include multiple representative classes"
+    );
+
+    let summary = matrix["summary"]
+        .as_object()
+        .expect("summary should be object");
+    let summary_topologies = summary["topology_classes"]
+        .as_array()
+        .expect("summary.topology_classes should be array")
+        .iter()
+        .map(|entry| entry.as_str().expect("summary topology should be string"))
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        summary_topologies,
+        BTreeSet::from(["complete", "erdos_renyi", "grid", "line", "star"]),
+        "summary topology_classes drifted from scenario rows"
+    );
+    assert!(
+        summary["max_p95_ms"]
+            .as_f64()
+            .expect("summary.max_p95_ms should be f64")
+            >= 0.0
+            && summary["max_memory_p95_kb"]
+                .as_f64()
+                .expect("summary.max_memory_p95_kb should be f64")
+                >= 0.0,
+        "summary performance/memory tails should be non-negative"
+    );
+
+    let environment = matrix["environment"]
+        .as_object()
+        .expect("environment should be object");
+    for key in [
+        "hostname",
+        "os",
+        "cpu_model",
+        "python_version",
+        "cargo_version",
+        "rustc_version",
+        "git_commit",
+    ] {
+        assert!(
+            environment[key]
+                .as_str()
+                .unwrap_or_else(|| panic!("environment.{key} should be string"))
+                .trim()
+                .len()
+                >= 4,
+            "environment field `{key}` should be non-empty"
+        );
+    }
+    let env_fingerprint = matrix["environment_fingerprint"]
+        .as_str()
+        .expect("environment_fingerprint should be string");
+    assert!(
+        env_fingerprint.len() >= 16,
+        "environment_fingerprint should look like a stable hash"
+    );
+
+    let events_path = root.join(
+        matrix["events_path"]
+            .as_str()
+            .expect("events_path should be string"),
+    );
+    assert!(
+        events_path.exists(),
+        "baseline matrix events_path should exist: {}",
+        events_path.display()
+    );
+    let events_raw =
+        fs::read_to_string(&events_path).expect("baseline matrix events jsonl should be readable");
+    let event_rows = events_raw
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| serde_json::from_str::<Value>(line).expect("event row should be valid json"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        event_rows.len(),
+        scenarios.len() * (runs as usize + warmup_runs as usize),
+        "events row count should match scenarios * (warmup + measured runs)"
+    );
+
+    let mut observed_measurement_counts = BTreeMap::new();
+    for event in event_rows {
+        for key in [
+            "phase",
+            "scenario_id",
+            "topology",
+            "run_index",
+            "seed",
+            "node_count",
+            "edge_count_estimate",
+            "replay_command",
+            "elapsed_ms",
+            "max_rss_kb",
+        ] {
+            assert!(event.get(key).is_some(), "event row missing key `{key}`");
+        }
+        let phase = event["phase"]
+            .as_str()
+            .expect("event phase should be string");
+        let scenario_id = event["scenario_id"]
+            .as_str()
+            .expect("event scenario_id should be string");
+        let replay_command = event["replay_command"]
+            .as_str()
+            .expect("event replay_command should be string");
+        assert!(
+            replay_command.contains("--topology") && replay_command.contains("--seed"),
+            "event replay_command should include deterministic topology/seed selectors"
+        );
+        assert!(
+            event["elapsed_ms"]
+                .as_f64()
+                .expect("event elapsed_ms should be f64")
+                >= 0.0
+                && event["max_rss_kb"]
+                    .as_u64()
+                    .expect("event max_rss_kb should be u64")
+                    >= 1,
+            "event timing/memory fields should be non-negative"
+        );
+
+        match phase {
+            "warmup" => {}
+            "measurement" => {
+                *observed_measurement_counts
+                    .entry(scenario_id.to_owned())
+                    .or_insert(0usize) += 1;
+            }
+            other => panic!("unsupported event phase `{other}`"),
+        }
+    }
+    assert_eq!(
+        observed_measurement_counts, measurement_event_expectations,
+        "event measurement coverage should match scenario sample counts"
+    );
+
+    let hotspot_backlog =
+        load_json(&root.join("artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json"));
+    for key in [
+        "schema_version",
+        "backlog_id",
+        "source_matrix_path",
+        "source_events_path",
+        "optimization_protocol",
+        "hotspot_profiles",
+        "optimization_backlog",
+    ] {
+        assert!(
+            hotspot_backlog.get(key).is_some(),
+            "hotspot backlog missing key `{key}`"
+        );
+    }
+    assert_eq!(
+        hotspot_backlog["source_matrix_path"]
+            .as_str()
+            .expect("source_matrix_path should be string"),
+        "artifacts/perf/phase2c/perf_baseline_matrix_v1.json"
+    );
+    assert_eq!(
+        hotspot_backlog["source_events_path"]
+            .as_str()
+            .expect("source_events_path should be string"),
+        "artifacts/perf/phase2c/perf_baseline_matrix_events_v1.jsonl"
+    );
+
+    let optimization_protocol = hotspot_backlog["optimization_protocol"]
+        .as_object()
+        .expect("optimization_protocol should be object");
+    assert!(
+        optimization_protocol["one_lever_per_change"]
+            .as_bool()
+            .expect("one_lever_per_change should be bool"),
+        "optimization protocol must enforce one-lever-per-change"
+    );
+    assert!(
+        optimization_protocol["minimum_ev_score"]
+            .as_f64()
+            .expect("minimum_ev_score should be f64")
+            >= 2.0,
+        "optimization protocol minimum EV should be >= 2.0"
+    );
+
+    let hotspot_profiles = hotspot_backlog["hotspot_profiles"]
+        .as_array()
+        .expect("hotspot_profiles should be array");
+    assert!(
+        !hotspot_profiles.is_empty(),
+        "hotspot_profiles should contain ranked bottlenecks"
+    );
+    let backlog_entries = hotspot_backlog["optimization_backlog"]
+        .as_array()
+        .expect("optimization_backlog should be array");
+    assert_eq!(
+        backlog_entries.len(),
+        hotspot_profiles.len(),
+        "optimization_backlog should mirror hotspot profile coverage"
+    );
+
+    let mut previous_ev = f64::INFINITY;
+    for entry in backlog_entries {
+        for key in [
+            "entry_id",
+            "rank",
+            "target_scenario_id",
+            "expected_value_score",
+            "single_lever",
+            "lever_count",
+            "baseline_comparator",
+            "fallback_trigger",
+            "rollback_path",
+            "decision_contract",
+            "isomorphism_proof_refs",
+            "risk_note_refs",
+            "linked_packet_optimization_beads",
+        ] {
+            assert!(
+                entry.get(key).is_some(),
+                "optimization_backlog entry missing key `{key}`"
+            );
+        }
+        assert_eq!(
+            entry["lever_count"]
+                .as_u64()
+                .expect("lever_count should be u64"),
+            1,
+            "optimization backlog entry must be single-lever"
+        );
+        assert!(
+            entry["single_lever"]
+                .as_str()
+                .expect("single_lever should be string")
+                .trim()
+                .len()
+                >= 12,
+            "single_lever should contain concrete lever details"
+        );
+        assert!(
+            entry["fallback_trigger"]
+                .as_str()
+                .expect("fallback_trigger should be string")
+                .contains("5%"),
+            "fallback_trigger should include explicit regression threshold"
+        );
+        assert!(
+            entry["rollback_path"]
+                .as_str()
+                .expect("rollback_path should be string")
+                .contains("git revert"),
+            "rollback_path should specify concrete rollback command"
+        );
+        let ev = entry["expected_value_score"]
+            .as_f64()
+            .expect("expected_value_score should be f64");
+        assert!(
+            ev >= 2.0,
+            "optimization backlog entry expected_value_score should be >= 2.0"
+        );
+        assert!(
+            ev <= previous_ev,
+            "optimization backlog should be sorted by descending EV score"
+        );
+        previous_ev = ev;
+
+        let baseline_ref = entry["baseline_comparator"]
+            .as_str()
+            .expect("baseline_comparator should be string");
+        assert!(
+            root.join(baseline_ref).exists(),
+            "baseline comparator reference should exist: {baseline_ref}"
+        );
+        for proof_ref in entry["isomorphism_proof_refs"]
+            .as_array()
+            .expect("isomorphism_proof_refs should be array")
+        {
+            let path = proof_ref
+                .as_str()
+                .expect("isomorphism proof ref should be string");
+            assert!(
+                root.join(path).exists(),
+                "isomorphism proof ref should exist: {path}"
+            );
+        }
+        for risk_ref in entry["risk_note_refs"]
+            .as_array()
+            .expect("risk_note_refs should be array")
+        {
+            let path = risk_ref.as_str().expect("risk note ref should be string");
+            assert!(
+                root.join(path).exists(),
+                "risk note ref should exist: {path}"
+            );
+        }
+        assert!(
+            !entry["linked_packet_optimization_beads"]
+                .as_array()
+                .expect("linked_packet_optimization_beads should be array")
+                .is_empty(),
+            "linked packet optimization beads should be non-empty"
+        );
+    }
+
+    let playbook_path = root.join("artifacts/perf/phase2c/optimization_playbook_v1.md");
+    let playbook =
+        fs::read_to_string(&playbook_path).expect("optimization playbook should be readable");
+    for section in [
+        "## One-Lever Rule",
+        "## Behavior-Isomorphism Obligations",
+        "## Divergence Policy",
+    ] {
+        assert!(
+            playbook.contains(section),
+            "optimization playbook missing section `{section}`"
+        );
+    }
+
+    let golden_signatures =
+        load_json(&root.join("artifacts/perf/phase2c/isomorphism_golden_signatures_v1.json"));
+    let divergence_allowlist =
+        load_json(&root.join("artifacts/perf/phase2c/isomorphism_divergence_allowlist_v1.json"));
+    let harness_report =
+        load_json(&root.join("artifacts/perf/phase2c/isomorphism_harness_report_v1.json"));
+    assert_eq!(
+        harness_report["status"]
+            .as_str()
+            .expect("isomorphism harness report status should be string"),
+        "pass",
+        "isomorphism harness must pass under default fail-closed policy"
+    );
+    assert!(
+        harness_report["divergence_policy"]["blocking_default"]
+            .as_bool()
+            .expect("divergence_policy.blocking_default should be bool"),
+        "divergence policy should be fail-closed by default"
+    );
+    assert_eq!(
+        harness_report["scenario_count"]
+            .as_u64()
+            .expect("isomorphism harness scenario_count should be u64") as usize,
+        scenarios.len(),
+        "isomorphism harness coverage should match baseline matrix scenario count"
+    );
+    let golden_map = golden_signatures["signatures"]
+        .as_object()
+        .expect("isomorphism golden signatures map should be object");
+    assert_eq!(
+        golden_map.len(),
+        scenarios.len(),
+        "isomorphism golden signatures should cover every baseline scenario"
+    );
+    assert!(
+        divergence_allowlist["approved_divergences"]
+            .as_array()
+            .expect("approved_divergences should be array")
+            .is_empty(),
+        "allowlist should remain empty when no approved divergence exists"
+    );
+
+    let regression_report =
+        load_json(&root.join("artifacts/perf/phase2c/perf_regression_gate_report_v1.json"));
+    for key in [
+        "schema_version",
+        "report_id",
+        "baseline_path",
+        "candidate_path",
+        "hotspot_backlog_path",
+        "policy",
+        "scenario_deltas",
+        "regressions",
+        "summary",
+        "status",
+    ] {
+        assert!(
+            regression_report.get(key).is_some(),
+            "regression report missing key `{key}`"
+        );
+    }
+    assert!(
+        regression_report["policy"]["critical_fail_closed"]
+            .as_bool()
+            .expect("policy.critical_fail_closed should be bool"),
+        "regression policy must be fail-closed for critical paths"
+    );
+    assert_eq!(
+        regression_report["summary"]["scenario_count"]
+            .as_u64()
+            .expect("summary.scenario_count should be u64") as usize,
+        scenarios.len(),
+        "regression report scenario coverage should match matrix scenarios"
+    );
+    assert_eq!(
+        regression_report["status"]
+            .as_str()
+            .expect("regression report status should be string"),
+        "pass",
+        "regression report should pass for current candidate matrix"
+    );
+    for delta in regression_report["scenario_deltas"]
+        .as_array()
+        .expect("scenario_deltas should be array")
+    {
+        for key in [
+            "scenario_id",
+            "critical_path",
+            "baseline_comparator",
+            "hotspot_ref",
+            "delta_pct",
+            "threshold_pct",
+            "regressed",
+        ] {
+            assert!(
+                delta.get(key).is_some(),
+                "scenario_deltas row missing key `{key}`"
+            );
+        }
+        let baseline_ref = delta["baseline_comparator"]
+            .as_str()
+            .expect("baseline_comparator should be string");
+        let hotspot_ref = delta["hotspot_ref"]
+            .as_str()
+            .expect("hotspot_ref should be string");
+        assert!(
+            root.join(baseline_ref).exists(),
+            "scenario delta baseline comparator should exist: {baseline_ref}"
+        );
+        assert!(
+            root.join(hotspot_ref).exists(),
+            "scenario delta hotspot ref should exist: {hotspot_ref}"
+        );
+    }
+}
+
+#[test]
 fn adversarial_manifest_is_complete_and_gate_linked() {
     let root = repo_root();
     let contract = load_json(
