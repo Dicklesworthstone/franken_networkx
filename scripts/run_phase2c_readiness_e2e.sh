@@ -134,7 +134,7 @@ run_step "step-$STEP" "cargo_test_phase2c_gate" "rch exec -- cargo test -q -p fn
 STEP=$((STEP + 1))
 
 echo "[$STEP/$TOTAL_STEPS] Running smoke harness to emit deterministic packet logs..."
-run_step "step-$STEP" "run_smoke_harness" "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke"
+run_step "step-$STEP" "run_smoke_harness" "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/conformance_harness_strict.json --mode strict"
 
 python3 - "$STEPS_JSONL" "$REPORT_JSON" "$RUN_ID" <<'PY'
 import json
