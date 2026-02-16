@@ -1,0 +1,37 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "e2e-script-pack-bundle-manifest-v1",
+  "bundle_id": "e2e-bundle-3c9beaf0964ef3c8",
+  "stable_fingerprint": "004320406d37f2ee",
+  "scenario_id": "edge_path",
+  "scenario_kind": "edge_path",
+  "journey_id": "J-CENTRALITY",
+  "packet_id": "FNX-P2C-005",
+  "mode": "strict",
+  "fixture_id": "generated/centrality_closeness_strict.json",
+  "deterministic_seed": 11351190574352106388,
+  "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_closeness_strict.json --mode strict",
+  "execution_metadata": {
+    "run_id": "e2e-script-pack-20260216T020701Z",
+    "pass_label": "baseline",
+    "status": "passed",
+    "reason_code": null,
+    "start_unix_ms": 1771207627741,
+    "end_unix_ms": 1771207633567,
+    "duration_ms": 5826,
+    "generated_at_utc": "2026-02-16T02:07:13.568948+00:00"
+  },
+  "forensics_links": {
+    "structured_log_hash_id": "55b9688b9697632e",
+    "forensic_bundle_id": "forensics::FNX-P2C-005::generated::centrality_closeness_strict.json",
+    "forensics_bundle_hash_id": "90affdb2182b6037",
+    "forensics_bundle_replay_ref": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_closeness_strict.json --mode strict"
+  },
+  "artifact_refs": [
+    "artifacts/e2e/latest/bundles/edge_path/baseline/smoke_report.json",
+    "artifacts/e2e/latest/bundles/edge_path/baseline/fixture_report.json",
+    "artifacts/e2e/latest/bundles/edge_path/baseline/structured_logs.jsonl",
+    "artifacts/e2e/latest/bundles/edge_path/baseline/command.log",
+    "artifacts/e2e/latest/bundles/edge_path/baseline/selected_structured_log.json"
+  ]
+}

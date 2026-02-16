@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0.0",
+  "report_id": "e2e-script-pack-validation-v1",
+  "events_path": "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl",
+  "determinism_report_path": "artifacts/e2e/latest/e2e_script_pack_determinism_report_v1.json",
+  "ready": true,
+  "error_count": 0,
+  "errors": [],
+  "summary": {
+    "event_count": 6,
+    "required_scenario_count": 3,
+    "required_pass_count": 2
+  }
+}

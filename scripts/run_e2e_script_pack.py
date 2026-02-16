@@ -122,6 +122,15 @@ def copy_if_exists(source: Path, target: Path) -> None:
         shutil.copy2(source, target)
 
 
+def repo_relative(path: Path) -> str:
+    if not path.is_absolute():
+        return path.as_posix()
+    try:
+        return path.relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
 def parse_structured_logs() -> list[dict[str, Any]]:
     path = CONFORMANCE_LATEST / "structured_logs.jsonl"
     if not path.exists():
@@ -257,11 +266,11 @@ def run_scenario(
             else log_row.get("forensics_bundle_index", {}).get("replay_ref"),
         },
         "artifact_refs": [
-            copied_smoke.as_posix(),
-            copied_fixture_report.as_posix(),
-            copied_structured_logs.as_posix(),
-            command_log_path.as_posix(),
-            selected_log_path.as_posix(),
+            repo_relative(copied_smoke),
+            repo_relative(copied_fixture_report),
+            repo_relative(copied_structured_logs),
+            repo_relative(command_log_path),
+            repo_relative(selected_log_path),
         ],
     }
     manifest_path = scenario_dir / "bundle_manifest_v1.json"
@@ -286,7 +295,7 @@ def run_scenario(
         "duration_ms": duration_ms,
         "bundle_id": bundle_id,
         "stable_fingerprint": stable_fingerprint,
-        "bundle_manifest_path": manifest_path.as_posix(),
+        "bundle_manifest_path": repo_relative(manifest_path),
         "artifact_refs": manifest["artifact_refs"],
     }
     append_jsonl(events_path, event)
@@ -298,7 +307,7 @@ def run_scenario(
         "reason_code": reason_code,
         "bundle_id": bundle_id,
         "stable_fingerprint": stable_fingerprint,
-        "bundle_manifest_path": manifest_path.as_posix(),
+        "bundle_manifest_path": repo_relative(manifest_path),
     }
 
 
@@ -358,7 +367,7 @@ def determinism_report(
         "failures": failures,
         "scenario_checks": checks,
         "runs": run_results,
-        "events_path": (output_dir / "e2e_script_pack_events_v1.jsonl").as_posix(),
+        "events_path": repo_relative(output_dir / "e2e_script_pack_events_v1.jsonl"),
     }
     write_json(output_dir / "e2e_script_pack_determinism_report_v1.json", report)
     return report
@@ -462,10 +471,10 @@ def main() -> int:
             {
                 "status": report["status"],
                 "run_id": run_id,
-                "events_path": events_path.as_posix(),
-                "determinism_report_path": (
+                "events_path": repo_relative(events_path),
+                "determinism_report_path": repo_relative(
                     output_dir / "e2e_script_pack_determinism_report_v1.json"
-                ).as_posix(),
+                ),
                 "scenario_count": len(scenarios),
                 "passes": pass_labels,
             },

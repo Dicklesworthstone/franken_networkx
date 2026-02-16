@@ -1,0 +1,17 @@
+{
+  "fixture_name": "graph_core_shortest_path_strict.json",
+  "suite": "graph_core_v1",
+  "mode": "strict",
+  "passed": true,
+  "reason_code": null,
+  "fixture_source_hash": "94a940bc56a49781",
+  "duration_ms": 0,
+  "mismatches": [],
+  "witness": {
+    "algorithm": "bfs_shortest_path",
+    "complexity_claim": "O(|V| + |E|)",
+    "nodes_touched": 4,
+    "edges_scanned": 4,
+    "queue_peak": 2
+  }
+}
