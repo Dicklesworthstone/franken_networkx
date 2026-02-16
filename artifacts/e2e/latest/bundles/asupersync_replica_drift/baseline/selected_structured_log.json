@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
-  "run_id": "e2e-script-pack-20260216T211259Z",
-  "ts_unix_ms": 1771276472926,
+  "run_id": "e2e-script-pack-20260216T211718Z",
+  "ts_unix_ms": 1771276718783,
   "crate_name": "fnx-conformance",
   "suite_id": "smoke",
   "packet_id": "FNX-P2C-008",
@@ -36,10 +36,10 @@
   "e2e_step_traces": [],
   "forensics_bundle_index": {
     "bundle_id": "forensics::FNX-P2C-008::generated::runtime_config_optional_strict.json",
-    "run_id": "e2e-script-pack-20260216T211259Z",
+    "run_id": "e2e-script-pack-20260216T211718Z",
     "test_id": "fixture::generated/runtime_config_optional_strict.json",
     "bundle_hash_id": "8a59a233df6170d6",
-    "captured_unix_ms": 1771276472926,
+    "captured_unix_ms": 1771276718783,
     "replay_ref": "rch exec -- cargo test -q -p fnx-runtime asupersync_adapter_partial_write_cursor_regression_is_fail_closed -- --exact --nocapture",
     "artifact_refs": [
       "artifacts/e2e/latest/bundles/asupersync_replica_drift/baseline/smoke_report.json",

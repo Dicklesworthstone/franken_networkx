@@ -13,15 +13,15 @@
   "deterministic_seed": 7592963280906986520,
   "replay_command": "rch exec -- cargo test -q -p fnx-runtime asupersync_adapter_resume_is_deterministic_across_checkpoint_restart -- --exact --nocapture",
   "execution_metadata": {
-    "run_id": "e2e-script-pack-20260216T211259Z",
+    "run_id": "e2e-script-pack-20260216T211718Z",
     "pass_label": "baseline",
     "gate_step_id": "step-1",
     "status": "passed",
     "reason_code": null,
-    "start_unix_ms": 1771276437444,
-    "end_unix_ms": 1771276451212,
-    "duration_ms": 13768,
-    "generated_at_utc": "2026-02-16T21:14:11.214624+00:00",
+    "start_unix_ms": 1771276684556,
+    "end_unix_ms": 1771276695772,
+    "duration_ms": 11216,
+    "generated_at_utc": "2026-02-16T21:18:15.774749+00:00",
     "forensics_source": "synthesized_fallback"
   },
   "forensics_links": {

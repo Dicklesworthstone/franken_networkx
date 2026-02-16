@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "artifact_id": "e2e-script-pack-replay-report-v1",
-  "generated_at_utc": "2026-02-16T21:12:16.256657+00:00",
+  "generated_at_utc": "2026-02-16T21:20:53.465439+00:00",
   "status": "passed",
   "reason_code": null,
   "scenario_id": "asupersync_sidecar_mismatch",
@@ -47,9 +47,9 @@
     ],
     "baseline_comparator": "legacy_networkx/main@python3.12"
   },
-  "start_unix_ms": 1771276325268,
-  "end_unix_ms": 1771276336256,
-  "duration_ms": 10988,
+  "start_unix_ms": 1771276842244,
+  "end_unix_ms": 1771276853465,
+  "duration_ms": 11221,
   "forensics_links_expected": {
     "structured_log_hash_id": "ccc83807fd70cab4",
     "forensic_bundle_id": "forensics::FNX-P2C-008::generated::runtime_config_optional_strict.json",

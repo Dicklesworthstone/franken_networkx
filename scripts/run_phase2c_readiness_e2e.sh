@@ -118,7 +118,7 @@ run_step "step-$STEP" "validate_essence_ledger" "./scripts/validate_phase2c_esse
 STEP=$((STEP + 1))
 
 echo "[$STEP/$TOTAL_STEPS] Running deterministic E2E script pack gate (includes asupersync recovery/fault scenarios)..."
-run_step "step-$STEP" "run_e2e_script_pack_gate" "./scripts/run_e2e_script_pack_gate.sh"
+run_step "step-$STEP" "run_e2e_script_pack_gate" "bash ./scripts/run_e2e_script_pack_gate.sh"
 STEP=$((STEP + 1))
 
 echo "[$STEP/$TOTAL_STEPS] Running asupersync fault-injection contract gate..."
