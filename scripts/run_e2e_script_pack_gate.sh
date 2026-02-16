@@ -7,6 +7,7 @@ cd "$ROOT_DIR"
 OUT_DIR="artifacts/e2e/latest"
 STEPS_JSONL="$OUT_DIR/e2e_script_pack_steps_v1.jsonl"
 REPORT_JSON="$OUT_DIR/e2e_script_pack_gate_report_v1.json"
+BUNDLE_INDEX_JSON="$OUT_DIR/e2e_script_pack_bundle_index_v1.json"
 
 mkdir -p "$OUT_DIR"
 : > "$STEPS_JSONL"
@@ -109,15 +110,53 @@ echo "[$STEP/$TOTAL_STEPS] Running replay drill from baseline bundle manifest...
 run_step "step-$STEP" "replay_e2e_bundle_manifest" "python3 ./scripts/run_e2e_script_pack.py --replay-manifest $OUT_DIR/bundles/malformed_input/baseline/bundle_manifest_v1.json --output-dir $OUT_DIR"
 STEP=$((STEP + 1))
 
-echo "[$STEP/$TOTAL_STEPS] Running targeted E2E script pack gate test..."
-run_step "step-$STEP" "cargo_test_e2e_script_pack_gate" "rch exec -- cargo test -q -p fnx-conformance --test e2e_script_pack_gate -- --nocapture"
-
-python3 - "$STEPS_JSONL" "$REPORT_JSON" "$RUN_ID" <<'PY'
+echo "Preparing bundle index artifact for gate assertions..."
+python3 - "$OUT_DIR/e2e_script_pack_events_v1.jsonl" "$BUNDLE_INDEX_JSON" "$RUN_ID" <<'PY'
 import json
 import sys
 from datetime import datetime, timezone
 
-steps_path, report_path, run_id = sys.argv[1:]
+events_path, bundle_index_path, run_id = sys.argv[1:]
+with open(events_path, "r", encoding="utf-8") as f:
+    events = [json.loads(line) for line in f if line.strip()]
+
+index_rows = {}
+for row in events:
+    scenario_id = row["scenario_id"]
+    pass_label = row["pass_label"]
+    index_rows.setdefault(
+        scenario_id,
+        {
+            "scenario_id": scenario_id,
+            "bundle_id": row["bundle_id"],
+            "stable_fingerprint": row["stable_fingerprint"],
+            "manifests": {},
+        },
+    )
+    index_rows[scenario_id]["manifests"][pass_label] = row["bundle_manifest_path"]
+
+bundle_index = {
+    "schema_version": "1.0.0",
+    "artifact_id": "e2e-script-pack-bundle-index-v1",
+    "run_id": run_id,
+    "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+    "scenario_count": len(index_rows),
+    "rows": sorted(index_rows.values(), key=lambda row: row["scenario_id"]),
+}
+with open(bundle_index_path, "w", encoding="utf-8") as f:
+    json.dump(bundle_index, f, indent=2)
+    f.write("\n")
+PY
+
+echo "[$STEP/$TOTAL_STEPS] Running targeted E2E script pack gate test..."
+run_step "step-$STEP" "cargo_test_e2e_script_pack_gate" "rch exec -- cargo test -q -p fnx-conformance --test e2e_script_pack_gate -- --nocapture"
+
+python3 - "$STEPS_JSONL" "$REPORT_JSON" "$BUNDLE_INDEX_JSON" "$RUN_ID" <<'PY'
+import json
+import sys
+from datetime import datetime, timezone
+
+steps_path, report_path, bundle_index_path, run_id = sys.argv[1:]
 with open(steps_path, "r", encoding="utf-8") as f:
     steps = [json.loads(line) for line in f if line.strip()]
 failed = [step for step in steps if step["status"] != "passed"]
@@ -131,6 +170,7 @@ report = {
     "failed_step_count": len(failed),
     "status": "pass" if not failed else "fail",
     "steps_log_path": steps_path,
+    "bundle_index_path": bundle_index_path,
     "failed_step_ids": [step["step_id"] for step in failed],
 }
 with open(report_path, "w", encoding="utf-8") as f:
@@ -141,3 +181,4 @@ PY
 echo "E2E script pack gate complete:"
 echo "  steps:  $STEPS_JSONL"
 echo "  report: $REPORT_JSON"
+echo "  bundles: $BUNDLE_INDEX_JSON"

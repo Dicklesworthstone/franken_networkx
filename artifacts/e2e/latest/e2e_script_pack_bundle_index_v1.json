@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "e2e-script-pack-bundle-index-v1",
+  "run_id": "e2e-script-pack-gate-20260216T034927Z",
+  "generated_at_utc": "2026-02-16T03:50:12.872937+00:00",
+  "scenario_count": 3,
+  "rows": [
+    {
+      "scenario_id": "edge_path",
+      "bundle_id": "e2e-bundle-3c9beaf0964ef3c8",
+      "stable_fingerprint": "004320406d37f2ee",
+      "manifests": {
+        "baseline": "artifacts/e2e/latest/bundles/edge_path/baseline/bundle_manifest_v1.json",
+        "replay": "artifacts/e2e/latest/bundles/edge_path/replay/bundle_manifest_v1.json"
+      }
+    },
+    {
+      "scenario_id": "happy_path",
+      "bundle_id": "e2e-bundle-3acfb1d1f035bdf5",
+      "stable_fingerprint": "ae36a376be507091",
+      "manifests": {
+        "baseline": "artifacts/e2e/latest/bundles/happy_path/baseline/bundle_manifest_v1.json",
+        "replay": "artifacts/e2e/latest/bundles/happy_path/replay/bundle_manifest_v1.json"
+      }
+    },
+    {
+      "scenario_id": "malformed_input",
+      "bundle_id": "e2e-bundle-8812fedc0fe47217",
+      "stable_fingerprint": "04f4b92eac1f9d6b",
+      "manifests": {
+        "baseline": "artifacts/e2e/latest/bundles/malformed_input/baseline/bundle_manifest_v1.json",
+        "replay": "artifacts/e2e/latest/bundles/malformed_input/replay/bundle_manifest_v1.json"
+      }
+    }
+  ]
+}

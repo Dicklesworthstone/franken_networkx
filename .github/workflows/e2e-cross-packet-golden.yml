@@ -1,0 +1,45 @@
+name: E2E Cross-Packet Golden Journeys
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "scripts/**"
+      - "crates/fnx-conformance/**"
+      - "artifacts/e2e/schema/**"
+      - "artifacts/e2e/v1/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+  push:
+    branches:
+      - main
+    paths:
+      - "scripts/**"
+      - "crates/fnx-conformance/**"
+      - "artifacts/e2e/schema/**"
+      - "artifacts/e2e/v1/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+
+jobs:
+  e2e-cross-packet-golden:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+
+      - name: Run cross-packet golden journey gate
+        run: bash ./scripts/e2e/run_cross_packet_golden.sh
+
+      - name: Upload E2E latest artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-cross-packet-latest
+          path: artifacts/e2e/latest/

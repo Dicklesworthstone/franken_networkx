@@ -33,9 +33,12 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
     let schema = load_json(&root.join("artifacts/e2e/schema/v1/e2e_script_pack_schema_v1.json"));
     let report =
         load_json(&root.join("artifacts/e2e/latest/e2e_script_pack_determinism_report_v1.json"));
+    let gate_report =
+        load_json(&root.join("artifacts/e2e/latest/e2e_script_pack_gate_report_v1.json"));
     let events = load_jsonl(&root.join("artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"));
     let replay_report =
         load_json(&root.join("artifacts/e2e/latest/e2e_script_pack_replay_report_v1.json"));
+    let bundle_index = load_json(&root.join("artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json"));
 
     let required_report_keys = schema["required_report_keys"]
         .as_array()
@@ -74,6 +77,22 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
         0,
         "replay diagnostics should be empty on pass"
     );
+    assert_eq!(
+        gate_report["status"]
+            .as_str()
+            .expect("gate report status should be string"),
+        "pass"
+    );
+    let bundle_index_path = gate_report["bundle_index_path"]
+        .as_str()
+        .expect("gate report bundle_index_path should be string");
+    assert_eq!(
+        root.join(bundle_index_path),
+        root.join("artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json")
+    );
+    let bundle_rows = bundle_index["rows"]
+        .as_array()
+        .expect("bundle index rows should be array");
 
     let required_scenarios = schema["required_scenarios"]
         .as_array()
@@ -302,6 +321,19 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
     }
 
     for scenario in &required_scenarios {
+        let bundle_row = bundle_rows
+            .iter()
+            .find(|row| row["scenario_id"].as_str() == Some(scenario.as_str()))
+            .unwrap_or_else(|| panic!("missing bundle index row for scenario {scenario}"));
+        let manifests = bundle_row["manifests"]
+            .as_object()
+            .expect("bundle index manifests should be object");
+        for pass_label in &required_pass_labels {
+            assert!(
+                manifests.get(pass_label).is_some(),
+                "bundle index missing manifest entry for scenario/pass ({scenario}, {pass_label})"
+            );
+        }
         for pass_label in &required_pass_labels {
             assert!(
                 seen_pairs.contains(&(scenario.clone(), pass_label.clone())),
