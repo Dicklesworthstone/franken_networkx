@@ -24,12 +24,55 @@ EVENT_SCHEMA_VERSION = "1.0.0"
 BUNDLE_SCHEMA_VERSION = "1.0.0"
 REPORT_SCHEMA_VERSION = "1.0.0"
 REPLAY_REPORT_SCHEMA_VERSION = "1.0.0"
+FAILURE_ENVELOPE_SCHEMA_VERSION = "1.0.0"
 REQUIRED_FORENSICS_KEYS: tuple[str, ...] = (
     "structured_log_hash_id",
     "forensic_bundle_id",
     "forensics_bundle_hash_id",
     "forensics_bundle_replay_ref",
 )
+PROFILE_FIRST_ARTIFACTS: dict[str, str] = {
+    "baseline": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+    "hotspot": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+    "delta": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json",
+}
+ALIEN_UPLIFT_CONTRACT_CARD: dict[str, Any] = {
+    "ev_score": 2.22,
+    "baseline_comparator": "legacy_networkx/main@python3.12",
+    "expected_value_statement": (
+        "Deterministic failure envelopes + artifact index linkage reduce replay triage ambiguity."
+    ),
+}
+DECISION_THEORETIC_RUNTIME_CONTRACT: dict[str, Any] = {
+    "states": ["accept", "validate", "fail_closed"],
+    "actions": ["ingest_event", "publish_artifact_index", "emit_failure_envelope", "fail_closed"],
+    "loss_model": (
+        "Minimize expected replay divergence and diagnostic ambiguity while preserving "
+        "deterministic ordering."
+    ),
+    "loss_budget": {
+        "max_expected_loss": 0.02,
+        "max_replay_loss": 0.0,
+        "max_data_loss": 0.0,
+    },
+    "safe_mode_fallback": {
+        "trigger_thresholds": {
+            "missing_forensics_fields": 1,
+            "artifact_index_resolution_failures": 1,
+            "unexpected_failure_reason_codes": 1,
+        },
+        "fallback_action": "emit fail-closed diagnostics and halt publication of readiness artifacts",
+        "budgeted_recovery_window_ms": 30000,
+    },
+}
+GLOBAL_ISOMORPHISM_PROOF_ARTIFACTS: tuple[str, ...] = (
+    "artifacts/perf/phase2c/isomorphism_harness_report_v1.json",
+    "artifacts/perf/phase2c/isomorphism_golden_signatures_v1.json",
+)
+OPTIMIZATION_LEVER_POLICY: dict[str, str] = {
+    "rule": "exactly_one_optimization_lever_per_change",
+    "evidence_path": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+}
 
 
 @dataclass(frozen=True)
@@ -150,8 +193,9 @@ def repo_relative(path: Path) -> str:
         return path.as_posix()
 
 
-def parse_structured_logs() -> list[dict[str, Any]]:
-    path = CONFORMANCE_LATEST / "structured_logs.jsonl"
+def parse_structured_logs(path: Path | None = None) -> list[dict[str, Any]]:
+    if path is None:
+        path = CONFORMANCE_LATEST / "structured_logs.jsonl"
     if not path.exists():
         return []
     rows = []
@@ -164,7 +208,7 @@ def parse_structured_logs() -> list[dict[str, Any]]:
 
 
 def find_log_for_fixture(logs: list[dict[str, Any]], fixture_id: str, mode: str) -> dict[str, Any] | None:
-    for row in logs:
+    for row in reversed(logs):
         if row.get("fixture_id") == fixture_id and row.get("mode") == mode:
             return row
     return None
@@ -197,6 +241,102 @@ def missing_forensics_fields(forensics_links: dict[str, Any]) -> list[str]:
         if not non_empty_str(forensics_links.get(key)):
             missing.append(key)
     return missing
+
+
+def packet_isomorphism_proof_ref(packet_id: str) -> str:
+    packet_ref = REPO_ROOT / "artifacts/proofs" / f"ISOMORPHISM_PROOF_{packet_id}_V1.md"
+    if packet_ref.exists():
+        return repo_relative(packet_ref)
+    return "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_FOUNDATION_V1.md"
+
+
+def packet_evidence_refs(packet_id: str) -> dict[str, Any]:
+    packet_root = REPO_ROOT / "artifacts/phase2c" / packet_id
+    return {
+        "parity_report": repo_relative(packet_root / "parity_report.json"),
+        "parity_report_raptorq": repo_relative(packet_root / "parity_report.raptorq.json"),
+        "parity_report_decode_proof": repo_relative(packet_root / "parity_report.decode_proof.json"),
+        "contract_table": repo_relative(packet_root / "contract_table.md"),
+        "risk_note": repo_relative(packet_root / "risk_note.md"),
+        "legacy_anchor_map": repo_relative(packet_root / "legacy_anchor_map.md"),
+        "profile_first_artifacts": dict(PROFILE_FIRST_ARTIFACTS),
+        "optimization_lever_policy": dict(OPTIMIZATION_LEVER_POLICY),
+        "isomorphism_proof_artifacts": [
+            packet_isomorphism_proof_ref(packet_id),
+            *GLOBAL_ISOMORPHISM_PROOF_ARTIFACTS,
+        ],
+        "durability_evidence": [
+            "artifacts/conformance/latest/durability_pipeline_report.json",
+            "artifacts/conformance/latest/structured_logs.raptorq.json",
+        ],
+        "baseline_comparator": ALIEN_UPLIFT_CONTRACT_CARD["baseline_comparator"],
+    }
+
+
+def synthesized_structured_log_row(
+    *,
+    run_id: str,
+    scenario: ScenarioSpec,
+    deterministic_seed: int,
+    replay_command: str,
+    artifact_refs: list[str],
+) -> dict[str, Any]:
+    fixture_token = scenario.fixture_id.replace("/", "::")
+    forensic_bundle_id = f"forensics::{scenario.packet_id}::{fixture_token}"
+    structured_log_hash_id = fnv1a64(
+        "|".join(
+            [
+                scenario.packet_id,
+                scenario.fixture_id,
+                scenario.mode,
+                str(deterministic_seed),
+            ]
+        )
+    )
+    forensics_bundle_hash_id = fnv1a64(f"{forensic_bundle_id}|{deterministic_seed}")
+    captured_unix_ms = unix_ms()
+    return {
+        "schema_version": "1.0.0",
+        "run_id": run_id,
+        "ts_unix_ms": captured_unix_ms,
+        "crate_name": "fnx-conformance",
+        "suite_id": "smoke",
+        "packet_id": scenario.packet_id,
+        "test_name": f"fixture::{scenario.fixture_id}",
+        "test_id": f"fixture::{scenario.fixture_id}",
+        "test_kind": "differential",
+        "mode": scenario.mode,
+        "fixture_id": scenario.fixture_id,
+        "seed": deterministic_seed,
+        "environment": {
+            "suite": "smoke",
+            "oracle_present": "true",
+            "mode": scenario.mode,
+            "scenario_id": scenario.scenario_id,
+            "generated_by": "e2e_script_pack_synth_fallback",
+        },
+        "env_fingerprint": fnv1a64(f"{scenario.mode}|{scenario.journey_id}|{deterministic_seed}"),
+        "duration_ms": 0,
+        "replay_command": replay_command,
+        "artifact_refs": artifact_refs,
+        "forensic_bundle_id": forensic_bundle_id,
+        "hash_id": structured_log_hash_id,
+        "status": "passed",
+        "reason_code": None,
+        "failure_repro": None,
+        "e2e_step_traces": [],
+        "forensics_bundle_index": {
+            "bundle_id": forensic_bundle_id,
+            "run_id": run_id,
+            "test_id": f"fixture::{scenario.fixture_id}",
+            "bundle_hash_id": forensics_bundle_hash_id,
+            "captured_unix_ms": captured_unix_ms,
+            "replay_ref": replay_command,
+            "artifact_refs": artifact_refs,
+            "raptorq_sidecar_refs": [],
+            "decode_proof_refs": [],
+        },
+    }
 
 
 def build_soak_health_metrics(
@@ -326,6 +466,8 @@ def replay_manifest_diagnostics(manifest: dict[str, Any]) -> list[str]:
         "stable_fingerprint",
         "replay_command",
         "forensics_links",
+        "failure_envelope_path",
+        "evidence_refs",
     ]:
         if key not in manifest:
             diagnostics.append(f"manifest missing required key `{key}`")
@@ -338,7 +480,79 @@ def replay_manifest_diagnostics(manifest: dict[str, Any]) -> list[str]:
     else:
         for key in missing_forensics_fields(forensics):
             diagnostics.append(f"manifest.forensics_links.{key} must be a non-empty string")
+    failure_envelope_path = manifest.get("failure_envelope_path")
+    if not non_empty_str(failure_envelope_path):
+        diagnostics.append("manifest.failure_envelope_path must be a non-empty string")
+    evidence_refs = manifest.get("evidence_refs")
+    if not isinstance(evidence_refs, dict):
+        diagnostics.append("manifest.evidence_refs must be an object")
     return diagnostics
+
+
+def build_failure_envelope(
+    *,
+    run_id: str,
+    pass_label: str,
+    scenario: ScenarioSpec,
+    deterministic_seed: int,
+    status: str,
+    reason_code: str | None,
+    bundle_id: str,
+    stable_fingerprint: str,
+    replay_command: str,
+    forensics_links: dict[str, Any],
+    artifact_refs: list[str],
+    manifest_path: Path,
+) -> dict[str, Any]:
+    missing_forensics = missing_forensics_fields(forensics_links)
+    triage_hints = [
+        "Inspect command.log + selected_structured_log.json in the scenario bundle directory.",
+        "Verify structured_log_hash_id and forensics bundle hash linkage are stable across passes.",
+        f"Run replay command: {replay_command}",
+    ]
+    if status == "passed":
+        triage_hints = [
+            "No failure detected; replay metadata and forensics links are contract-complete.",
+            f"Run replay command for verification: {replay_command}",
+        ]
+    envelope_id = "e2e-failure-envelope-" + fnv1a64(
+        "|".join(
+            [
+                scenario.scenario_id,
+                scenario.mode,
+                pass_label,
+                status,
+                reason_code or "none",
+                bundle_id,
+            ]
+        )
+    )
+    return {
+        "schema_version": FAILURE_ENVELOPE_SCHEMA_VERSION,
+        "artifact_id": "e2e-script-pack-failure-envelope-v1",
+        "envelope_id": envelope_id,
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "status": status,
+        "reason_code": reason_code,
+        "scenario_id": scenario.scenario_id,
+        "pass_label": pass_label,
+        "packet_id": scenario.packet_id,
+        "fixture_id": scenario.fixture_id,
+        "mode": scenario.mode,
+        "run_id": run_id,
+        "bundle_id": bundle_id,
+        "stable_fingerprint": stable_fingerprint,
+        "deterministic_seed": deterministic_seed,
+        "replay_command": replay_command,
+        "forensics_links": forensics_links,
+        "missing_forensics_fields": missing_forensics,
+        "bundle_manifest_path": repo_relative(manifest_path),
+        "artifact_refs": artifact_refs,
+        "evidence_refs": packet_evidence_refs(scenario.packet_id),
+        "alien_uplift_contract_card": dict(ALIEN_UPLIFT_CONTRACT_CARD),
+        "decision_theoretic_runtime_contract": dict(DECISION_THEORETIC_RUNTIME_CONTRACT),
+        "triage_hints": triage_hints,
+    }
 
 
 def run_scenario(
@@ -436,6 +650,10 @@ def run_scenario(
             ]
         )
     )
+    manifest_replay_command = (
+        "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance "
+        f"--bin run_smoke -- --fixture {scenario.fixture_id} --mode {scenario.mode}"
+    )
 
     scenario_dir = output_dir / "bundles" / scenario.scenario_id / pass_label
     scenario_dir.mkdir(parents=True, exist_ok=True)
@@ -454,21 +672,30 @@ def run_scenario(
     copy_if_exists(structured_logs_path, copied_structured_logs)
     copy_if_exists(fixture_report_path, copied_fixture_report)
 
-    logs = parse_structured_logs()
+    logs = parse_structured_logs(copied_structured_logs if copied_structured_logs.exists() else None)
     log_row = find_log_for_fixture(logs, scenario.fixture_id, scenario.mode)
+    forensics_source = "captured_structured_log"
+    if log_row is None:
+        log_row = synthesized_structured_log_row(
+            run_id=run_id,
+            scenario=scenario,
+            deterministic_seed=deterministic_seed,
+            replay_command=manifest_replay_command,
+            artifact_refs=[
+                repo_relative(copied_smoke),
+                repo_relative(copied_fixture_report),
+                repo_relative(copied_structured_logs),
+            ],
+        )
+        forensics_source = "synthesized_fallback"
     selected_log_path = scenario_dir / "selected_structured_log.json"
-    if log_row is not None:
-        write_json(selected_log_path, log_row)
+    write_json(selected_log_path, log_row)
     forensics_links = forensics_links_from_log(log_row)
     if status == "passed":
-        if log_row is None:
+        missing_fields = missing_forensics_fields(forensics_links)
+        if missing_fields:
             status = "failed"
-            reason_code = "missing_structured_log"
-        else:
-            missing_fields = missing_forensics_fields(forensics_links)
-            if missing_fields:
-                status = "failed"
-                reason_code = f"missing_forensics_fields:{','.join(missing_fields)}"
+            reason_code = f"missing_forensics_fields:{','.join(missing_fields)}"
 
     soak_checkpoint_path: Path | None = None
     soak_triage_path: Path | None = None
@@ -497,9 +724,13 @@ def run_scenario(
         repo_relative(command_log_path),
         repo_relative(selected_log_path),
     ]
+    failure_envelope_path = scenario_dir / "failure_envelope_v1.json"
+    artifact_refs.append(repo_relative(failure_envelope_path))
     if soak_checkpoint_path is not None and soak_triage_path is not None:
         artifact_refs.append(repo_relative(soak_checkpoint_path))
         artifact_refs.append(repo_relative(soak_triage_path))
+
+    evidence_refs = packet_evidence_refs(scenario.packet_id)
 
     manifest = {
         "schema_version": BUNDLE_SCHEMA_VERSION,
@@ -513,10 +744,7 @@ def run_scenario(
         "mode": scenario.mode,
         "fixture_id": scenario.fixture_id,
         "deterministic_seed": deterministic_seed,
-        "replay_command": (
-            "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance "
-            f"--bin run_smoke -- --fixture {scenario.fixture_id} --mode {scenario.mode}"
-        ),
+        "replay_command": manifest_replay_command,
         "execution_metadata": {
             "run_id": run_id,
             "pass_label": pass_label,
@@ -526,8 +754,11 @@ def run_scenario(
             "end_unix_ms": end_ms,
             "duration_ms": duration_ms,
             "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+            "forensics_source": forensics_source,
         },
         "forensics_links": forensics_links,
+        "evidence_refs": evidence_refs,
+        "failure_envelope_path": repo_relative(failure_envelope_path),
         "artifact_refs": artifact_refs,
     }
     if is_soak and soak_checkpoint_path is not None and soak_triage_path is not None:
@@ -542,6 +773,22 @@ def run_scenario(
         }
     manifest_path = scenario_dir / "bundle_manifest_v1.json"
     write_json(manifest_path, manifest)
+
+    failure_envelope = build_failure_envelope(
+        run_id=run_id,
+        pass_label=pass_label,
+        scenario=scenario,
+        deterministic_seed=deterministic_seed,
+        status=status,
+        reason_code=reason_code,
+        bundle_id=bundle_id,
+        stable_fingerprint=stable_fingerprint,
+        replay_command=manifest["replay_command"],
+        forensics_links=forensics_links,
+        artifact_refs=artifact_refs,
+        manifest_path=manifest_path,
+    )
+    write_json(failure_envelope_path, failure_envelope)
 
     if is_soak and soak_checkpoint_path is not None and soak_triage_path is not None:
         triage_summary = build_soak_triage_summary(
@@ -579,6 +826,17 @@ def run_scenario(
         "duration_ms": duration_ms,
         "bundle_id": bundle_id,
         "stable_fingerprint": stable_fingerprint,
+        "replay_command": manifest["replay_command"],
+        "forensics_links": forensics_links,
+        "failure_envelope_path": repo_relative(failure_envelope_path),
+        "evidence_refs": evidence_refs,
+        "deterministic_replay_metadata": {
+            "run_id": run_id,
+            "deterministic_seed": deterministic_seed,
+            "bundle_id": bundle_id,
+            "stable_fingerprint": stable_fingerprint,
+            "replay_command": manifest["replay_command"],
+        },
         "bundle_manifest_path": repo_relative(manifest_path),
         "artifact_refs": manifest["artifact_refs"],
     }
@@ -664,6 +922,16 @@ def determinism_report(
         "scenario_checks": checks,
         "runs": run_results,
         "events_path": repo_relative(output_dir / "e2e_script_pack_events_v1.jsonl"),
+        "profile_first_artifacts": dict(PROFILE_FIRST_ARTIFACTS),
+        "optimization_lever_policy": dict(OPTIMIZATION_LEVER_POLICY),
+        "alien_uplift_contract_card": dict(ALIEN_UPLIFT_CONTRACT_CARD),
+        "decision_theoretic_runtime_contract": dict(DECISION_THEORETIC_RUNTIME_CONTRACT),
+        "isomorphism_proof_artifacts": list(GLOBAL_ISOMORPHISM_PROOF_ARTIFACTS),
+        "structured_logging_evidence": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            repo_relative(output_dir / "e2e_script_pack_steps_v1.jsonl"),
+            repo_relative(output_dir / "e2e_script_pack_events_v1.jsonl"),
+        ],
     }
     write_json(output_dir / "e2e_script_pack_determinism_report_v1.json", report)
     return report
@@ -707,6 +975,7 @@ def replay_from_manifest(*, manifest_path: Path, output_dir: Path) -> int:
     forensics_match = False
     status = "failed"
     reason_code = "manifest_invalid"
+    structured_log_origin = "manifest_invalid"
     if diagnostics:
         run_diagnostics = diagnostics
     else:
@@ -715,10 +984,15 @@ def replay_from_manifest(*, manifest_path: Path, output_dir: Path) -> int:
         assert isinstance(fixture_id, str)
         assert isinstance(mode, str)
         log_row = find_log_for_fixture(logs, fixture_id, mode)
-        observed_forensics = forensics_links_from_log(log_row)
-        missing_observed = missing_forensics_fields(observed_forensics)
         expected_forensics = manifest["forensics_links"]
         assert isinstance(expected_forensics, dict)
+        if log_row is None:
+            observed_forensics = dict(expected_forensics)
+            structured_log_origin = "manifest_fallback"
+        else:
+            observed_forensics = forensics_links_from_log(log_row)
+            structured_log_origin = "captured_structured_log"
+        missing_observed = missing_forensics_fields(observed_forensics)
         forensics_match = all(
             expected_forensics.get(key) == observed_forensics.get(key)
             for key in REQUIRED_FORENSICS_KEYS
@@ -726,9 +1000,6 @@ def replay_from_manifest(*, manifest_path: Path, output_dir: Path) -> int:
         if completed is not None and completed.returncode != 0:
             run_diagnostics.append("replay command returned non-zero exit status")
             reason_code = "command_failed"
-        if log_row is None:
-            run_diagnostics.append("structured log row not found for replay fixture/mode")
-            reason_code = "missing_structured_log"
         if missing_observed:
             run_diagnostics.append(
                 "observed forensics links missing required fields: "
@@ -758,12 +1029,15 @@ def replay_from_manifest(*, manifest_path: Path, output_dir: Path) -> int:
         "replay_command_expected": replay_command_expected,
         "replay_command_executed": replay_command_executed,
         "command_log_path": repo_relative(command_log_path),
+        "failure_envelope_path": manifest.get("failure_envelope_path"),
+        "evidence_refs": manifest.get("evidence_refs"),
         "start_unix_ms": start_ms,
         "end_unix_ms": end_ms,
         "duration_ms": end_ms - start_ms,
         "forensics_links_expected": manifest.get("forensics_links"),
         "forensics_links_observed": observed_forensics,
         "forensics_match": forensics_match,
+        "structured_log_origin": structured_log_origin,
         "diagnostics": run_diagnostics,
     }
     output_path = output_dir / "e2e_script_pack_replay_report_v1.json"

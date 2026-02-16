@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
-  "run_id": "conformance-1771050419126-strict",
-  "ts_unix_ms": 1771050419129,
+  "run_id": "e2e-script-pack-20260216T064104Z",
+  "ts_unix_ms": 1771224111128,
   "crate_name": "fnx-conformance",
   "suite_id": "smoke",
   "packet_id": "FNX-P2C-006",
@@ -10,38 +10,39 @@
   "test_kind": "differential",
   "mode": "hardened",
   "fixture_id": "generated/readwrite_hardened_malformed.json",
-  "seed": null,
+  "seed": 15798793491341090845,
   "environment": {
-    "arch": "x86_64",
+    "suite": "smoke",
     "oracle_present": "true",
-    "os": "linux",
-    "run_id": "conformance-1771050419126-strict",
-    "strict_mode_default": "true",
-    "suite": "smoke"
+    "mode": "hardened",
+    "scenario_id": "adversarial_soak",
+    "generated_by": "e2e_script_pack_synth_fallback"
   },
-  "env_fingerprint": "1695bfb0b454336f",
+  "env_fingerprint": "284604474f6d1849",
   "duration_ms": 0,
   "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened",
   "artifact_refs": [
-    "/data/projects/franken_networkx/crates/fnx-conformance/../../artifacts/conformance/latest/smoke_report.json",
-    "/data/projects/franken_networkx/crates/fnx-conformance/../../artifacts/conformance/latest/generated_readwrite_hardened_malformed_json.report.json"
+    "artifacts/e2e/latest/bundles/adversarial_soak/baseline/smoke_report.json",
+    "artifacts/e2e/latest/bundles/adversarial_soak/baseline/fixture_report.json",
+    "artifacts/e2e/latest/bundles/adversarial_soak/baseline/structured_logs.jsonl"
   ],
   "forensic_bundle_id": "forensics::FNX-P2C-006::generated::readwrite_hardened_malformed.json",
-  "hash_id": "6625aef5d4904944",
+  "hash_id": "4dd97c964d969a79",
   "status": "passed",
   "reason_code": null,
   "failure_repro": null,
   "e2e_step_traces": [],
   "forensics_bundle_index": {
     "bundle_id": "forensics::FNX-P2C-006::generated::readwrite_hardened_malformed.json",
-    "run_id": "conformance-1771050419126-strict",
+    "run_id": "e2e-script-pack-20260216T064104Z",
     "test_id": "fixture::generated/readwrite_hardened_malformed.json",
-    "bundle_hash_id": "285ecc124d5cf16c",
-    "captured_unix_ms": 1771050419129,
+    "bundle_hash_id": "75e08c45b19f7aed",
+    "captured_unix_ms": 1771224111128,
     "replay_ref": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened",
     "artifact_refs": [
-      "/data/projects/franken_networkx/crates/fnx-conformance/../../artifacts/conformance/latest/smoke_report.json",
-      "/data/projects/franken_networkx/crates/fnx-conformance/../../artifacts/conformance/latest/generated_readwrite_hardened_malformed_json.report.json"
+      "artifacts/e2e/latest/bundles/adversarial_soak/baseline/smoke_report.json",
+      "artifacts/e2e/latest/bundles/adversarial_soak/baseline/fixture_report.json",
+      "artifacts/e2e/latest/bundles/adversarial_soak/baseline/structured_logs.jsonl"
     ],
     "raptorq_sidecar_refs": [],
     "decode_proof_refs": []

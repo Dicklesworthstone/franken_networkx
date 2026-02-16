@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
-  "run_id": "conformance-1771050419126-strict",
-  "ts_unix_ms": 1771050419130,
+  "run_id": "conformance-1771223884309-strict",
+  "ts_unix_ms": 1771223884461,
   "crate_name": "fnx-conformance",
   "suite_id": "smoke",
   "packet_id": "FNX-P2C-001",
@@ -15,11 +15,11 @@
     "arch": "x86_64",
     "oracle_present": "true",
     "os": "linux",
-    "run_id": "conformance-1771050419126-strict",
+    "run_id": "conformance-1771223884309-strict",
     "strict_mode_default": "true",
     "suite": "smoke"
   },
-  "env_fingerprint": "1695bfb0b454336f",
+  "env_fingerprint": "dbfe78f96c356b3c",
   "duration_ms": 0,
   "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture graph_core_shortest_path_strict.json --mode strict",
   "artifact_refs": [
@@ -34,10 +34,10 @@
   "e2e_step_traces": [],
   "forensics_bundle_index": {
     "bundle_id": "forensics::FNX-P2C-001::graph_core_shortest_path_strict.json",
-    "run_id": "conformance-1771050419126-strict",
+    "run_id": "conformance-1771223884309-strict",
     "test_id": "fixture::graph_core_shortest_path_strict.json",
     "bundle_hash_id": "9c67f73088edeaed",
-    "captured_unix_ms": 1771050419130,
+    "captured_unix_ms": 1771223884461,
     "replay_ref": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture graph_core_shortest_path_strict.json --mode strict",
     "artifact_refs": [
       "/data/projects/franken_networkx/crates/fnx-conformance/../../artifacts/conformance/latest/smoke_report.json",

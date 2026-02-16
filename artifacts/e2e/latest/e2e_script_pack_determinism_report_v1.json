@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0.0",
   "artifact_id": "e2e-script-pack-determinism-report-v1",
-  "run_id": "e2e-script-pack-20260216T044845Z",
-  "generated_at_utc": "2026-02-16T04:50:42.129939+00:00",
+  "run_id": "e2e-script-pack-20260216T064104Z",
+  "generated_at_utc": "2026-02-16T06:42:33.066317+00:00",
   "pass_labels": [
     "baseline",
     "replay"
@@ -132,5 +132,56 @@
       "bundle_manifest_path": "artifacts/e2e/latest/bundles/adversarial_soak/replay/bundle_manifest_v1.json"
     }
   ],
-  "events_path": "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"
+  "events_path": "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl",
+  "profile_first_artifacts": {
+    "baseline": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+    "hotspot": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+    "delta": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+  },
+  "optimization_lever_policy": {
+    "rule": "exactly_one_optimization_lever_per_change",
+    "evidence_path": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json"
+  },
+  "alien_uplift_contract_card": {
+    "ev_score": 2.22,
+    "baseline_comparator": "legacy_networkx/main@python3.12",
+    "expected_value_statement": "Deterministic failure envelopes + artifact index linkage reduce replay triage ambiguity."
+  },
+  "decision_theoretic_runtime_contract": {
+    "states": [
+      "accept",
+      "validate",
+      "fail_closed"
+    ],
+    "actions": [
+      "ingest_event",
+      "publish_artifact_index",
+      "emit_failure_envelope",
+      "fail_closed"
+    ],
+    "loss_model": "Minimize expected replay divergence and diagnostic ambiguity while preserving deterministic ordering.",
+    "loss_budget": {
+      "max_expected_loss": 0.02,
+      "max_replay_loss": 0.0,
+      "max_data_loss": 0.0
+    },
+    "safe_mode_fallback": {
+      "trigger_thresholds": {
+        "missing_forensics_fields": 1,
+        "artifact_index_resolution_failures": 1,
+        "unexpected_failure_reason_codes": 1
+      },
+      "fallback_action": "emit fail-closed diagnostics and halt publication of readiness artifacts",
+      "budgeted_recovery_window_ms": 30000
+    }
+  },
+  "isomorphism_proof_artifacts": [
+    "artifacts/perf/phase2c/isomorphism_harness_report_v1.json",
+    "artifacts/perf/phase2c/isomorphism_golden_signatures_v1.json"
+  ],
+  "structured_logging_evidence": [
+    "artifacts/conformance/latest/structured_logs.jsonl",
+    "artifacts/e2e/latest/e2e_script_pack_steps_v1.jsonl",
+    "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"
+  ]
 }

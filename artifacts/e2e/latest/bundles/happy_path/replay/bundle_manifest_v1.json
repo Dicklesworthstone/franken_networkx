@@ -12,14 +12,15 @@
   "deterministic_seed": 9158789141501386920,
   "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture graph_core_shortest_path_strict.json --mode strict",
   "execution_metadata": {
-    "run_id": "e2e-script-pack-20260216T044845Z",
+    "run_id": "e2e-script-pack-20260216T064104Z",
     "pass_label": "replay",
     "status": "passed",
     "reason_code": null,
-    "start_unix_ms": 1771217394098,
-    "end_unix_ms": 1771217400973,
-    "duration_ms": 6875,
-    "generated_at_utc": "2026-02-16T04:50:00.975484+00:00"
+    "start_unix_ms": 1771224111129,
+    "end_unix_ms": 1771224117024,
+    "duration_ms": 5895,
+    "generated_at_utc": "2026-02-16T06:41:57.026301+00:00",
+    "forensics_source": "captured_structured_log"
   },
   "forensics_links": {
     "structured_log_hash_id": "4b476e286402b8ba",
@@ -27,11 +28,40 @@
     "forensics_bundle_hash_id": "9c67f73088edeaed",
     "forensics_bundle_replay_ref": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture graph_core_shortest_path_strict.json --mode strict"
   },
+  "evidence_refs": {
+    "parity_report": "artifacts/phase2c/FNX-P2C-001/parity_report.json",
+    "parity_report_raptorq": "artifacts/phase2c/FNX-P2C-001/parity_report.raptorq.json",
+    "parity_report_decode_proof": "artifacts/phase2c/FNX-P2C-001/parity_report.decode_proof.json",
+    "contract_table": "artifacts/phase2c/FNX-P2C-001/contract_table.md",
+    "risk_note": "artifacts/phase2c/FNX-P2C-001/risk_note.md",
+    "legacy_anchor_map": "artifacts/phase2c/FNX-P2C-001/legacy_anchor_map.md",
+    "profile_first_artifacts": {
+      "baseline": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+      "hotspot": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+      "delta": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+    },
+    "optimization_lever_policy": {
+      "rule": "exactly_one_optimization_lever_per_change",
+      "evidence_path": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json"
+    },
+    "isomorphism_proof_artifacts": [
+      "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_FOUNDATION_V1.md",
+      "artifacts/perf/phase2c/isomorphism_harness_report_v1.json",
+      "artifacts/perf/phase2c/isomorphism_golden_signatures_v1.json"
+    ],
+    "durability_evidence": [
+      "artifacts/conformance/latest/durability_pipeline_report.json",
+      "artifacts/conformance/latest/structured_logs.raptorq.json"
+    ],
+    "baseline_comparator": "legacy_networkx/main@python3.12"
+  },
+  "failure_envelope_path": "artifacts/e2e/latest/bundles/happy_path/replay/failure_envelope_v1.json",
   "artifact_refs": [
     "artifacts/e2e/latest/bundles/happy_path/replay/smoke_report.json",
     "artifacts/e2e/latest/bundles/happy_path/replay/fixture_report.json",
     "artifacts/e2e/latest/bundles/happy_path/replay/structured_logs.jsonl",
     "artifacts/e2e/latest/bundles/happy_path/replay/command.log",
-    "artifacts/e2e/latest/bundles/happy_path/replay/selected_structured_log.json"
+    "artifacts/e2e/latest/bundles/happy_path/replay/selected_structured_log.json",
+    "artifacts/e2e/latest/bundles/happy_path/replay/failure_envelope_v1.json"
   ]
 }

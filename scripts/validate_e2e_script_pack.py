@@ -40,6 +40,62 @@ def ensure_path(path_str: str, ctx: str, errors: list[str]) -> None:
         errors.append(f"{ctx} path does not exist: {path_str}")
 
 
+def ensure_evidence_refs(
+    refs: Any,
+    schema: dict[str, Any],
+    ctx: str,
+    errors: list[str],
+) -> None:
+    if not isinstance(refs, dict):
+        errors.append(f"{ctx} must be object")
+        return
+    ensure_keys(refs, schema["required_evidence_ref_keys"], ctx, errors)
+    for key in [
+        "parity_report",
+        "parity_report_raptorq",
+        "parity_report_decode_proof",
+        "contract_table",
+        "risk_note",
+        "legacy_anchor_map",
+    ]:
+        ensure_path(refs.get(key, ""), f"{ctx}.{key}", errors)
+
+    profile = refs.get("profile_first_artifacts")
+    if isinstance(profile, dict):
+        for key in ["baseline", "hotspot", "delta"]:
+            ensure_path(profile.get(key, ""), f"{ctx}.profile_first_artifacts.{key}", errors)
+    else:
+        errors.append(f"{ctx}.profile_first_artifacts must be object")
+
+    optimization = refs.get("optimization_lever_policy")
+    if isinstance(optimization, dict):
+        ensure_path(
+            optimization.get("evidence_path", ""),
+            f"{ctx}.optimization_lever_policy.evidence_path",
+            errors,
+        )
+    else:
+        errors.append(f"{ctx}.optimization_lever_policy must be object")
+
+    isomorphism_refs = refs.get("isomorphism_proof_artifacts")
+    if isinstance(isomorphism_refs, list) and isomorphism_refs:
+        for idx, proof_path in enumerate(isomorphism_refs):
+            ensure_path(proof_path, f"{ctx}.isomorphism_proof_artifacts[{idx}]", errors)
+    else:
+        errors.append(f"{ctx}.isomorphism_proof_artifacts must be non-empty array")
+
+    durability_refs = refs.get("durability_evidence")
+    if isinstance(durability_refs, list) and durability_refs:
+        for idx, durability_path in enumerate(durability_refs):
+            ensure_path(durability_path, f"{ctx}.durability_evidence[{idx}]", errors)
+    else:
+        errors.append(f"{ctx}.durability_evidence must be non-empty array")
+
+    baseline_comparator = refs.get("baseline_comparator")
+    if not isinstance(baseline_comparator, str) or not baseline_comparator.strip():
+        errors.append(f"{ctx}.baseline_comparator must be non-empty string")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -53,6 +109,11 @@ def main() -> int:
         help="Path to determinism report JSON",
     )
     parser.add_argument(
+        "--bundle-index",
+        default="artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json",
+        help="Path to artifact index JSON",
+    )
+    parser.add_argument(
         "--schema",
         default="artifacts/e2e/schema/v1/e2e_script_pack_schema_v1.json",
         help="Path to schema JSON",
@@ -63,8 +124,10 @@ def main() -> int:
     schema = load_json(REPO_ROOT / args.schema)
     events_path = REPO_ROOT / args.events
     report_path = REPO_ROOT / args.report
+    bundle_index_path = REPO_ROOT / args.bundle_index
     events = load_jsonl(events_path)
     report = load_json(report_path)
+    bundle_index = load_json(bundle_index_path)
 
     errors: list[str] = []
     required_scenarios = schema["required_scenarios"]
@@ -124,6 +187,97 @@ def main() -> int:
         if isinstance(fingerprint, str):
             fingerprint_by_scenario.setdefault(scenario_id, set()).add(fingerprint)
 
+        replay_command = event.get("replay_command")
+        if not isinstance(replay_command, str) or not replay_command.strip():
+            errors.append(f"event {key} replay_command must be non-empty string")
+
+        event_forensics = event.get("forensics_links")
+        if isinstance(event_forensics, dict):
+            ensure_keys(
+                event_forensics,
+                schema["required_forensics_keys"],
+                f"event {key}.forensics_links",
+                errors,
+            )
+            for forensics_key in schema["required_forensics_keys"]:
+                value = event_forensics.get(forensics_key)
+                if not isinstance(value, str) or not value.strip():
+                    errors.append(
+                        f"event {key}.forensics_links.{forensics_key} must be non-empty string"
+                    )
+        else:
+            errors.append(f"event {key}.forensics_links must be object")
+
+        ensure_evidence_refs(event.get("evidence_refs"), schema, f"event {key}.evidence_refs", errors)
+
+        replay_metadata = event.get("deterministic_replay_metadata")
+        if isinstance(replay_metadata, dict):
+            ensure_keys(
+                replay_metadata,
+                schema["required_deterministic_replay_metadata_keys"],
+                f"event {key}.deterministic_replay_metadata",
+                errors,
+            )
+            if replay_metadata.get("run_id") != event.get("run_id"):
+                errors.append(f"event {key}.deterministic_replay_metadata.run_id mismatch event")
+            if replay_metadata.get("deterministic_seed") != event.get("deterministic_seed"):
+                errors.append(
+                    f"event {key}.deterministic_replay_metadata.deterministic_seed mismatch event"
+                )
+            if replay_metadata.get("bundle_id") != bundle_id:
+                errors.append(f"event {key}.deterministic_replay_metadata.bundle_id mismatch event")
+            if replay_metadata.get("stable_fingerprint") != fingerprint:
+                errors.append(
+                    f"event {key}.deterministic_replay_metadata.stable_fingerprint mismatch event"
+                )
+            if replay_metadata.get("replay_command") != replay_command:
+                errors.append(
+                    f"event {key}.deterministic_replay_metadata.replay_command mismatch event"
+                )
+        else:
+            errors.append(f"event {key}.deterministic_replay_metadata must be object")
+
+        failure_envelope_path = event.get("failure_envelope_path", "")
+        ensure_path(failure_envelope_path, f"event {key} failure_envelope_path", errors)
+        failure_envelope_abs = REPO_ROOT / failure_envelope_path
+        if failure_envelope_abs.exists():
+            failure_envelope = load_json(failure_envelope_abs)
+            ensure_keys(
+                failure_envelope,
+                schema["required_failure_envelope_keys"],
+                f"failure_envelope {key}",
+                errors,
+            )
+            if failure_envelope.get("scenario_id") != scenario_id:
+                errors.append(f"failure_envelope {key} scenario_id mismatch event")
+            if failure_envelope.get("pass_label") != pass_label:
+                errors.append(f"failure_envelope {key} pass_label mismatch event")
+            if failure_envelope.get("bundle_id") != bundle_id:
+                errors.append(f"failure_envelope {key} bundle_id mismatch event")
+            if failure_envelope.get("stable_fingerprint") != fingerprint:
+                errors.append(f"failure_envelope {key} stable_fingerprint mismatch event")
+            if failure_envelope.get("replay_command") != replay_command:
+                errors.append(f"failure_envelope {key} replay_command mismatch event")
+            if failure_envelope.get("status") not in ("passed", "failed"):
+                errors.append(f"failure_envelope {key} status must be `passed` or `failed`")
+            if failure_envelope.get("status") == "failed" and not isinstance(
+                failure_envelope.get("reason_code"), str
+            ):
+                errors.append(f"failure_envelope {key} failed status requires reason_code string")
+            if failure_envelope.get("status") == "passed" and failure_envelope.get("reason_code") not in (
+                None,
+                "",
+            ):
+                errors.append(
+                    f"failure_envelope {key} passed status should not carry reason_code value"
+                )
+            ensure_evidence_refs(
+                failure_envelope.get("evidence_refs"),
+                schema,
+                f"failure_envelope {key}.evidence_refs",
+                errors,
+            )
+
         manifest_path = event.get("bundle_manifest_path", "")
         ensure_path(manifest_path, f"event {key} bundle_manifest_path", errors)
         manifest_abs = REPO_ROOT / manifest_path
@@ -170,6 +324,22 @@ def main() -> int:
             else:
                 for index, path in enumerate(artifact_refs):
                     ensure_path(path, f"bundle_manifest {key}.artifact_refs[{index}]", errors)
+            ensure_evidence_refs(
+                manifest.get("evidence_refs"),
+                schema,
+                f"bundle_manifest {key}.evidence_refs",
+                errors,
+            )
+            manifest_failure_envelope_path = manifest.get("failure_envelope_path", "")
+            ensure_path(
+                manifest_failure_envelope_path,
+                f"bundle_manifest {key}.failure_envelope_path",
+                errors,
+            )
+            if manifest_failure_envelope_path != failure_envelope_path:
+                errors.append(
+                    f"bundle_manifest {key}.failure_envelope_path mismatch event failure_envelope_path"
+                )
             if manifest.get("bundle_id") != bundle_id:
                 errors.append(f"bundle_manifest {key} bundle_id mismatch event")
             if manifest.get("stable_fingerprint") != fingerprint:
@@ -215,11 +385,245 @@ def main() -> int:
             if row.get("status_ok") is not True:
                 errors.append(f"scenario_checks status_ok false for {row.get('scenario_id')}")
 
+    profile_first_artifacts = report.get("profile_first_artifacts")
+    if isinstance(profile_first_artifacts, dict):
+        for profile_key in ["baseline", "hotspot", "delta"]:
+            ensure_path(
+                profile_first_artifacts.get(profile_key, ""),
+                f"report.profile_first_artifacts.{profile_key}",
+                errors,
+            )
+    else:
+        errors.append("report.profile_first_artifacts must be object")
+
+    optimization_policy = report.get("optimization_lever_policy")
+    if isinstance(optimization_policy, dict):
+        rule = optimization_policy.get("rule")
+        if rule != "exactly_one_optimization_lever_per_change":
+            errors.append("report.optimization_lever_policy.rule mismatch expected policy")
+        ensure_path(
+            optimization_policy.get("evidence_path", ""),
+            "report.optimization_lever_policy.evidence_path",
+            errors,
+        )
+    else:
+        errors.append("report.optimization_lever_policy must be object")
+
+    alien_uplift = report.get("alien_uplift_contract_card")
+    if isinstance(alien_uplift, dict):
+        ev_score = alien_uplift.get("ev_score")
+        if not isinstance(ev_score, (int, float)) or float(ev_score) < 2.0:
+            errors.append("report.alien_uplift_contract_card.ev_score must be >= 2.0")
+        baseline_comparator = alien_uplift.get("baseline_comparator")
+        if not isinstance(baseline_comparator, str) or not baseline_comparator.strip():
+            errors.append(
+                "report.alien_uplift_contract_card.baseline_comparator must be non-empty string"
+            )
+    else:
+        errors.append("report.alien_uplift_contract_card must be object")
+
+    decision_contract = report.get("decision_theoretic_runtime_contract")
+    if isinstance(decision_contract, dict):
+        ensure_keys(
+            decision_contract,
+            ["states", "actions", "loss_model", "loss_budget", "safe_mode_fallback"],
+            "report.decision_theoretic_runtime_contract",
+            errors,
+        )
+        safe_mode = decision_contract.get("safe_mode_fallback")
+        if isinstance(safe_mode, dict):
+            trigger_thresholds = safe_mode.get("trigger_thresholds")
+            if not isinstance(trigger_thresholds, dict) or not trigger_thresholds:
+                errors.append(
+                    "report.decision_theoretic_runtime_contract.safe_mode_fallback.trigger_thresholds must be non-empty object"
+                )
+        else:
+            errors.append("report.decision_theoretic_runtime_contract.safe_mode_fallback must be object")
+    else:
+        errors.append("report.decision_theoretic_runtime_contract must be object")
+
+    isomorphism_artifacts = report.get("isomorphism_proof_artifacts")
+    if isinstance(isomorphism_artifacts, list) and isomorphism_artifacts:
+        for idx, proof_path in enumerate(isomorphism_artifacts):
+            ensure_path(proof_path, f"report.isomorphism_proof_artifacts[{idx}]", errors)
+    else:
+        errors.append("report.isomorphism_proof_artifacts must be non-empty array")
+
+    structured_logging_evidence = report.get("structured_logging_evidence")
+    if isinstance(structured_logging_evidence, list) and structured_logging_evidence:
+        for idx, evidence_path in enumerate(structured_logging_evidence):
+            ensure_path(evidence_path, f"report.structured_logging_evidence[{idx}]", errors)
+    else:
+        errors.append("report.structured_logging_evidence must be non-empty array")
+
+    ensure_keys(bundle_index, schema["required_bundle_index_keys"], "bundle_index", errors)
+    if bundle_index.get("scenario_count") != len(required_scenarios):
+        errors.append("bundle_index.scenario_count mismatch required scenario count")
+    if bundle_index.get("failure_count") != len(bundle_index.get("failure_index", [])):
+        errors.append("bundle_index.failure_count must equal len(failure_index)")
+
+    bundle_rows = bundle_index.get("rows")
+    if not isinstance(bundle_rows, list) or len(bundle_rows) != len(required_scenarios):
+        errors.append("bundle_index.rows must include one row per required scenario")
+        bundle_rows = []
+
+    seen_bundle_scenarios: set[str] = set()
+    for row in bundle_rows:
+        if not isinstance(row, dict):
+            errors.append("bundle_index.rows entries must be objects")
+            continue
+        ensure_keys(row, schema["required_bundle_index_row_keys"], "bundle_index.row", errors)
+        scenario_id = row.get("scenario_id")
+        if scenario_id not in required_scenarios:
+            errors.append(f"bundle_index row has unexpected scenario_id `{scenario_id}`")
+            continue
+        if scenario_id in seen_bundle_scenarios:
+            errors.append(f"bundle_index duplicate scenario row `{scenario_id}`")
+        seen_bundle_scenarios.add(scenario_id)
+
+        manifests = row.get("manifests")
+        failure_envelopes = row.get("failure_envelopes")
+        if isinstance(manifests, dict):
+            for pass_label in required_pass_labels:
+                manifest_path = manifests.get(pass_label, "")
+                ensure_path(
+                    manifest_path,
+                    f"bundle_index.rows[{scenario_id}].manifests.{pass_label}",
+                    errors,
+                )
+                event_row = by_scenario_pass.get((scenario_id, pass_label))
+                if event_row and manifest_path != event_row.get("bundle_manifest_path"):
+                    errors.append(
+                        f"bundle_index row `{scenario_id}` manifest for `{pass_label}` mismatches event bundle_manifest_path"
+                    )
+        else:
+            errors.append(f"bundle_index.rows[{scenario_id}].manifests must be object")
+        if isinstance(failure_envelopes, dict):
+            for pass_label in required_pass_labels:
+                envelope_path = failure_envelopes.get(pass_label, "")
+                ensure_path(
+                    envelope_path,
+                    f"bundle_index.rows[{scenario_id}].failure_envelopes.{pass_label}",
+                    errors,
+                )
+                event_row = by_scenario_pass.get((scenario_id, pass_label))
+                if event_row and envelope_path != event_row.get("failure_envelope_path"):
+                    errors.append(
+                        f"bundle_index row `{scenario_id}` envelope for `{pass_label}` mismatches event failure_envelope_path"
+                    )
+        else:
+            errors.append(f"bundle_index.rows[{scenario_id}].failure_envelopes must be object")
+
+        ensure_evidence_refs(
+            row.get("parity_perf_raptorq_evidence"),
+            schema,
+            f"bundle_index.rows[{scenario_id}].parity_perf_raptorq_evidence",
+            errors,
+        )
+
+    for scenario_id in required_scenarios:
+        if scenario_id not in seen_bundle_scenarios:
+            errors.append(f"bundle_index missing row for scenario `{scenario_id}`")
+
+    failure_index = bundle_index.get("failure_index")
+    if not isinstance(failure_index, list):
+        errors.append("bundle_index.failure_index must be array")
+        failure_index = []
+    for idx, failure_row in enumerate(failure_index):
+        if not isinstance(failure_row, dict):
+            errors.append(f"bundle_index.failure_index[{idx}] must be object")
+            continue
+        ensure_keys(
+            failure_row,
+            schema["required_bundle_index_failure_keys"],
+            f"bundle_index.failure_index[{idx}]",
+            errors,
+        )
+        ensure_path(
+            failure_row.get("failure_envelope_path", ""),
+            f"bundle_index.failure_index[{idx}].failure_envelope_path",
+            errors,
+        )
+        replay_command = failure_row.get("replay_command")
+        if not isinstance(replay_command, str) or not replay_command.strip():
+            errors.append(f"bundle_index.failure_index[{idx}].replay_command must be non-empty string")
+        forensics = failure_row.get("forensics_links")
+        if isinstance(forensics, dict):
+            ensure_keys(
+                forensics,
+                schema["required_forensics_keys"],
+                f"bundle_index.failure_index[{idx}].forensics_links",
+                errors,
+            )
+        else:
+            errors.append(f"bundle_index.failure_index[{idx}].forensics_links must be object")
+        ensure_evidence_refs(
+            failure_row.get("parity_perf_raptorq_evidence"),
+            schema,
+            f"bundle_index.failure_index[{idx}].parity_perf_raptorq_evidence",
+            errors,
+        )
+
+    bundle_profile = bundle_index.get("profile_first_artifacts")
+    if isinstance(bundle_profile, dict):
+        for profile_key in ["baseline", "hotspot", "delta"]:
+            ensure_path(
+                bundle_profile.get(profile_key, ""),
+                f"bundle_index.profile_first_artifacts.{profile_key}",
+                errors,
+            )
+    else:
+        errors.append("bundle_index.profile_first_artifacts must be object")
+
+    bundle_optimization = bundle_index.get("optimization_lever_policy")
+    if isinstance(bundle_optimization, dict):
+        ensure_path(
+            bundle_optimization.get("evidence_path", ""),
+            "bundle_index.optimization_lever_policy.evidence_path",
+            errors,
+        )
+    else:
+        errors.append("bundle_index.optimization_lever_policy must be object")
+
+    bundle_alien = bundle_index.get("alien_uplift_contract_card")
+    if isinstance(bundle_alien, dict):
+        bundle_ev = bundle_alien.get("ev_score")
+        if not isinstance(bundle_ev, (int, float)) or float(bundle_ev) < 2.0:
+            errors.append("bundle_index.alien_uplift_contract_card.ev_score must be >= 2.0")
+    else:
+        errors.append("bundle_index.alien_uplift_contract_card must be object")
+
+    bundle_decision = bundle_index.get("decision_theoretic_runtime_contract")
+    if isinstance(bundle_decision, dict):
+        ensure_keys(
+            bundle_decision,
+            ["states", "actions", "loss_model", "loss_budget", "safe_mode_fallback"],
+            "bundle_index.decision_theoretic_runtime_contract",
+            errors,
+        )
+    else:
+        errors.append("bundle_index.decision_theoretic_runtime_contract must be object")
+
+    bundle_isomorphism = bundle_index.get("isomorphism_proof_artifacts")
+    if isinstance(bundle_isomorphism, list) and bundle_isomorphism:
+        for idx, proof_path in enumerate(bundle_isomorphism):
+            ensure_path(proof_path, f"bundle_index.isomorphism_proof_artifacts[{idx}]", errors)
+    else:
+        errors.append("bundle_index.isomorphism_proof_artifacts must be non-empty array")
+
+    bundle_logs = bundle_index.get("structured_logging_evidence")
+    if isinstance(bundle_logs, list) and bundle_logs:
+        for idx, evidence_path in enumerate(bundle_logs):
+            ensure_path(evidence_path, f"bundle_index.structured_logging_evidence[{idx}]", errors)
+    else:
+        errors.append("bundle_index.structured_logging_evidence must be non-empty array")
+
     report_data = {
         "schema_version": "1.0.0",
         "report_id": "e2e-script-pack-validation-v1",
         "events_path": args.events,
         "determinism_report_path": args.report,
+        "bundle_index_path": args.bundle_index,
         "ready": len(errors) == 0,
         "error_count": len(errors),
         "errors": errors,
@@ -227,6 +631,12 @@ def main() -> int:
             "event_count": len(events),
             "required_scenario_count": len(required_scenarios),
             "required_pass_count": len(required_pass_labels),
+            "bundle_row_count": len(bundle_index.get("rows", []))
+            if isinstance(bundle_index.get("rows"), list)
+            else 0,
+            "failure_index_count": len(bundle_index.get("failure_index", []))
+            if isinstance(bundle_index.get("failure_index"), list)
+            else 0,
         },
     }
 

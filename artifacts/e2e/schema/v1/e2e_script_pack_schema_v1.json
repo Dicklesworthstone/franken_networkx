@@ -29,6 +29,11 @@
     "duration_ms",
     "bundle_id",
     "stable_fingerprint",
+    "replay_command",
+    "forensics_links",
+    "failure_envelope_path",
+    "evidence_refs",
+    "deterministic_replay_metadata",
     "bundle_manifest_path",
     "artifact_refs"
   ],
@@ -56,6 +61,8 @@
     "replay_command",
     "execution_metadata",
     "forensics_links",
+    "evidence_refs",
+    "failure_envelope_path",
     "artifact_refs"
   ],
   "optional_bundle_manifest_keys": [
@@ -76,6 +83,86 @@
     "forensics_bundle_hash_id",
     "forensics_bundle_replay_ref"
   ],
+  "required_evidence_ref_keys": [
+    "parity_report",
+    "parity_report_raptorq",
+    "parity_report_decode_proof",
+    "contract_table",
+    "risk_note",
+    "legacy_anchor_map",
+    "profile_first_artifacts",
+    "optimization_lever_policy",
+    "isomorphism_proof_artifacts",
+    "durability_evidence",
+    "baseline_comparator"
+  ],
+  "required_deterministic_replay_metadata_keys": [
+    "run_id",
+    "deterministic_seed",
+    "bundle_id",
+    "stable_fingerprint",
+    "replay_command"
+  ],
+  "required_failure_envelope_keys": [
+    "schema_version",
+    "artifact_id",
+    "envelope_id",
+    "generated_at_utc",
+    "status",
+    "reason_code",
+    "scenario_id",
+    "pass_label",
+    "packet_id",
+    "fixture_id",
+    "mode",
+    "run_id",
+    "bundle_id",
+    "stable_fingerprint",
+    "deterministic_seed",
+    "replay_command",
+    "forensics_links",
+    "missing_forensics_fields",
+    "bundle_manifest_path",
+    "artifact_refs",
+    "evidence_refs",
+    "alien_uplift_contract_card",
+    "decision_theoretic_runtime_contract",
+    "triage_hints"
+  ],
+  "required_bundle_index_keys": [
+    "schema_version",
+    "artifact_id",
+    "run_id",
+    "generated_at_utc",
+    "scenario_count",
+    "rows",
+    "failure_count",
+    "failure_index",
+    "profile_first_artifacts",
+    "optimization_lever_policy",
+    "alien_uplift_contract_card",
+    "decision_theoretic_runtime_contract",
+    "isomorphism_proof_artifacts",
+    "structured_logging_evidence"
+  ],
+  "required_bundle_index_row_keys": [
+    "scenario_id",
+    "packet_id",
+    "bundle_id",
+    "stable_fingerprint",
+    "manifests",
+    "failure_envelopes",
+    "parity_perf_raptorq_evidence"
+  ],
+  "required_bundle_index_failure_keys": [
+    "scenario_id",
+    "pass_label",
+    "reason_code",
+    "failure_envelope_path",
+    "replay_command",
+    "forensics_links",
+    "parity_perf_raptorq_evidence"
+  ],
   "required_report_keys": [
     "schema_version",
     "artifact_id",
@@ -88,6 +175,12 @@
     "failures",
     "scenario_checks",
     "runs",
-    "events_path"
+    "events_path",
+    "profile_first_artifacts",
+    "optimization_lever_policy",
+    "alien_uplift_contract_card",
+    "decision_theoretic_runtime_contract",
+    "isomorphism_proof_artifacts",
+    "structured_logging_evidence"
   ]
 }

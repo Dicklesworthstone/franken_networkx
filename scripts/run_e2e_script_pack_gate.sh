@@ -102,14 +102,6 @@ echo "[$STEP/$TOTAL_STEPS] Running deterministic E2E script pack (happy/edge/mal
 run_step "step-$STEP" "run_e2e_script_pack" "python3 ./scripts/run_e2e_script_pack.py --scenario all --passes 2 --clear-output"
 STEP=$((STEP + 1))
 
-echo "[$STEP/$TOTAL_STEPS] Validating E2E script pack artifacts..."
-run_step "step-$STEP" "validate_e2e_script_pack" "python3 ./scripts/validate_e2e_script_pack.py --output $OUT_DIR/e2e_script_pack_validation_v1.json"
-STEP=$((STEP + 1))
-
-echo "[$STEP/$TOTAL_STEPS] Running replay drill from adversarial soak baseline bundle manifest..."
-run_step "step-$STEP" "replay_e2e_bundle_manifest" "python3 ./scripts/run_e2e_script_pack.py --replay-manifest $OUT_DIR/bundles/adversarial_soak/baseline/bundle_manifest_v1.json --output-dir $OUT_DIR"
-STEP=$((STEP + 1))
-
 echo "Preparing bundle index artifact for gate assertions..."
 python3 - "$OUT_DIR/e2e_script_pack_events_v1.jsonl" "$BUNDLE_INDEX_JSON" "$RUN_ID" <<'PY'
 import json
@@ -120,20 +112,106 @@ events_path, bundle_index_path, run_id = sys.argv[1:]
 with open(events_path, "r", encoding="utf-8") as f:
     events = [json.loads(line) for line in f if line.strip()]
 
+PROFILE_FIRST_ARTIFACTS = {
+    "baseline": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+    "hotspot": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+    "delta": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json",
+}
+OPTIMIZATION_LEVER_POLICY = {
+    "rule": "exactly_one_optimization_lever_per_change",
+    "evidence_path": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+}
+ALIEN_UPLIFT_CONTRACT_CARD = {
+    "ev_score": 2.22,
+    "baseline_comparator": "legacy_networkx/main@python3.12",
+    "expected_value_statement": (
+        "Deterministic failure envelopes + artifact index linkage reduce replay triage ambiguity."
+    ),
+}
+DECISION_THEORETIC_RUNTIME_CONTRACT = {
+    "states": ["accept", "validate", "fail_closed"],
+    "actions": ["ingest_event", "publish_artifact_index", "emit_failure_envelope", "fail_closed"],
+    "loss_model": (
+        "Minimize expected replay divergence and diagnostic ambiguity while preserving deterministic ordering."
+    ),
+    "loss_budget": {
+        "max_expected_loss": 0.02,
+        "max_replay_loss": 0.0,
+        "max_data_loss": 0.0,
+    },
+    "safe_mode_fallback": {
+        "trigger_thresholds": {
+            "missing_forensics_fields": 1,
+            "artifact_index_resolution_failures": 1,
+            "unexpected_failure_reason_codes": 1,
+        },
+        "fallback_action": "emit fail-closed diagnostics and halt publication of readiness artifacts",
+        "budgeted_recovery_window_ms": 30000,
+    },
+}
+ISOMORPHISM_PROOF_ARTIFACTS = [
+    "artifacts/perf/phase2c/isomorphism_harness_report_v1.json",
+    "artifacts/perf/phase2c/isomorphism_golden_signatures_v1.json",
+]
+STRUCTURED_LOGGING_EVIDENCE = [
+    "artifacts/conformance/latest/structured_logs.jsonl",
+    "artifacts/e2e/latest/e2e_script_pack_steps_v1.jsonl",
+    "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl",
+]
+
+
+def load_json(path: str) -> dict:
+    with open(path, "r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
 index_rows = {}
+failure_index = []
 for row in events:
     scenario_id = row["scenario_id"]
     pass_label = row["pass_label"]
+    packet_id = row["packet_id"]
+    evidence_refs = row.get("evidence_refs", {})
     index_rows.setdefault(
         scenario_id,
         {
             "scenario_id": scenario_id,
+            "packet_id": packet_id,
             "bundle_id": row["bundle_id"],
             "stable_fingerprint": row["stable_fingerprint"],
             "manifests": {},
+            "failure_envelopes": {},
+            "parity_perf_raptorq_evidence": evidence_refs,
         },
     )
     index_rows[scenario_id]["manifests"][pass_label] = row["bundle_manifest_path"]
+    index_rows[scenario_id]["failure_envelopes"][pass_label] = row["failure_envelope_path"]
+
+    failure_envelope = load_json(row["failure_envelope_path"])
+    if failure_envelope.get("status") == "failed":
+        failure_index.append(
+            {
+                "scenario_id": scenario_id,
+                "pass_label": pass_label,
+                "reason_code": failure_envelope.get("reason_code"),
+                "failure_envelope_path": row["failure_envelope_path"],
+                "replay_command": failure_envelope.get("replay_command"),
+                "forensics_links": failure_envelope.get("forensics_links"),
+                "parity_perf_raptorq_evidence": evidence_refs,
+            }
+        )
+
+rows = []
+for scenario_id in sorted(index_rows):
+    row = index_rows[scenario_id]
+    row["manifests"] = {
+        pass_label: row["manifests"][pass_label] for pass_label in sorted(row["manifests"])
+    }
+    row["failure_envelopes"] = {
+        pass_label: row["failure_envelopes"][pass_label]
+        for pass_label in sorted(row["failure_envelopes"])
+    }
+    rows.append(row)
 
 bundle_index = {
     "schema_version": "1.0.0",
@@ -141,12 +219,31 @@ bundle_index = {
     "run_id": run_id,
     "generated_at_utc": datetime.now(timezone.utc).isoformat(),
     "scenario_count": len(index_rows),
-    "rows": sorted(index_rows.values(), key=lambda row: row["scenario_id"]),
+    "rows": rows,
+    "failure_count": len(failure_index),
+    "failure_index": sorted(
+        failure_index,
+        key=lambda row: (row["scenario_id"], row["pass_label"]),
+    ),
+    "profile_first_artifacts": PROFILE_FIRST_ARTIFACTS,
+    "optimization_lever_policy": OPTIMIZATION_LEVER_POLICY,
+    "alien_uplift_contract_card": ALIEN_UPLIFT_CONTRACT_CARD,
+    "decision_theoretic_runtime_contract": DECISION_THEORETIC_RUNTIME_CONTRACT,
+    "isomorphism_proof_artifacts": ISOMORPHISM_PROOF_ARTIFACTS,
+    "structured_logging_evidence": STRUCTURED_LOGGING_EVIDENCE,
 }
 with open(bundle_index_path, "w", encoding="utf-8") as f:
     json.dump(bundle_index, f, indent=2)
     f.write("\n")
 PY
+
+echo "[$STEP/$TOTAL_STEPS] Validating E2E script pack artifacts..."
+run_step "step-$STEP" "validate_e2e_script_pack" "python3 ./scripts/validate_e2e_script_pack.py --output $OUT_DIR/e2e_script_pack_validation_v1.json"
+STEP=$((STEP + 1))
+
+echo "[$STEP/$TOTAL_STEPS] Running replay drill from adversarial soak baseline bundle manifest..."
+run_step "step-$STEP" "replay_e2e_bundle_manifest" "python3 ./scripts/run_e2e_script_pack.py --replay-manifest $OUT_DIR/bundles/adversarial_soak/baseline/bundle_manifest_v1.json --output-dir $OUT_DIR"
+STEP=$((STEP + 1))
 
 echo "[$STEP/$TOTAL_STEPS] Running targeted E2E script pack gate test..."
 run_step "step-$STEP" "cargo_test_e2e_script_pack_gate" "rch exec -- cargo test -q -p fnx-conformance --test e2e_script_pack_gate -- --nocapture"
