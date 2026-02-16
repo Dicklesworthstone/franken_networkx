@@ -98,7 +98,7 @@ run_step() {
   fi
 }
 
-TOTAL_STEPS=6
+TOTAL_STEPS=9
 STEP=1
 
 echo "[$STEP/$TOTAL_STEPS] Regenerating deterministic Phase2C packet artifacts..."
@@ -117,12 +117,24 @@ echo "[$STEP/$TOTAL_STEPS] Validating essence extraction ledger..."
 run_step "step-$STEP" "validate_essence_ledger" "./scripts/validate_phase2c_essence_ledger.py --output $OUT_DIR/phase2c_essence_ledger_validation_v1.json"
 STEP=$((STEP + 1))
 
-echo "[$STEP/$TOTAL_STEPS] Running focused readiness gate tests..."
-run_step "step-$STEP" "cargo_test_phase2c_gate" "CARGO_TARGET_DIR=target-codex cargo test -q -p fnx-conformance --test phase2c_packet_readiness_gate -- --nocapture"
+echo "[$STEP/$TOTAL_STEPS] Running deterministic E2E script pack gate (includes asupersync recovery/fault scenarios)..."
+run_step "step-$STEP" "run_e2e_script_pack_gate" "./scripts/run_e2e_script_pack_gate.sh"
+STEP=$((STEP + 1))
+
+echo "[$STEP/$TOTAL_STEPS] Running asupersync fault-injection contract gate..."
+run_step "step-$STEP" "cargo_test_asupersync_fault_injection_gate" "rch exec -- cargo test -q -p fnx-conformance --test asupersync_fault_injection_gate -- --nocapture"
+STEP=$((STEP + 1))
+
+echo "[$STEP/$TOTAL_STEPS] Running asupersync adapter state-machine contract gate..."
+run_step "step-$STEP" "cargo_test_asupersync_state_machine_gate" "rch exec -- cargo test -q -p fnx-conformance --test asupersync_adapter_state_machine_gate -- --nocapture"
+STEP=$((STEP + 1))
+
+echo "[$STEP/$TOTAL_STEPS] Running focused readiness packet gate tests..."
+run_step "step-$STEP" "cargo_test_phase2c_gate" "rch exec -- cargo test -q -p fnx-conformance --test phase2c_packet_readiness_gate -- --nocapture"
 STEP=$((STEP + 1))
 
 echo "[$STEP/$TOTAL_STEPS] Running smoke harness to emit deterministic packet logs..."
-run_step "step-$STEP" "run_smoke_harness" "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke"
+run_step "step-$STEP" "run_smoke_harness" "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke"
 
 python3 - "$STEPS_JSONL" "$REPORT_JSON" "$RUN_ID" <<'PY'
 import json

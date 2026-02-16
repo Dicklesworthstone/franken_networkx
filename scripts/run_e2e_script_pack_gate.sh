@@ -98,7 +98,7 @@ run_step() {
 TOTAL_STEPS=4
 STEP=1
 
-echo "[$STEP/$TOTAL_STEPS] Running deterministic E2E script pack (happy/edge/malformed/adversarial_soak)..."
+echo "[$STEP/$TOTAL_STEPS] Running deterministic E2E script pack (core + asupersync recovery/fault scenarios)..."
 run_step "step-$STEP" "run_e2e_script_pack" "python3 ./scripts/run_e2e_script_pack.py --scenario all --passes 2 --clear-output --gate-step-id step-1"
 STEP=$((STEP + 1))
 
@@ -282,8 +282,8 @@ echo "[$STEP/$TOTAL_STEPS] Validating E2E script pack artifacts..."
 run_step "step-$STEP" "validate_e2e_script_pack" "python3 ./scripts/validate_e2e_script_pack.py --output $OUT_DIR/e2e_script_pack_validation_v1.json"
 STEP=$((STEP + 1))
 
-echo "[$STEP/$TOTAL_STEPS] Running replay drill from adversarial soak baseline bundle manifest..."
-run_step "step-$STEP" "replay_e2e_bundle_manifest" "python3 ./scripts/run_e2e_script_pack.py --replay-manifest $OUT_DIR/bundles/adversarial_soak/baseline/bundle_manifest_v1.json --output-dir $OUT_DIR"
+echo "[$STEP/$TOTAL_STEPS] Running replay drill from asupersync sidecar-mismatch baseline bundle manifest..."
+run_step "step-$STEP" "replay_e2e_bundle_manifest" "python3 ./scripts/run_e2e_script_pack.py --replay-manifest $OUT_DIR/bundles/asupersync_sidecar_mismatch/baseline/bundle_manifest_v1.json --output-dir $OUT_DIR"
 STEP=$((STEP + 1))
 
 echo "[$STEP/$TOTAL_STEPS] Running targeted E2E script pack gate test..."

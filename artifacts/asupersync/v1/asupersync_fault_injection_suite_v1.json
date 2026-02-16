@@ -153,8 +153,8 @@
     {
       "test_id": "ASUP-C-E2E-001",
       "layer": "e2e",
-      "artifact_path": "artifacts/e2e/latest/e2e_scenario_matrix_steps_v1.jsonl",
-      "replay_command": "rch exec -- env CARGO_TARGET_DIR=target-codex-mossy cargo test -p fnx-conformance --test asupersync_fault_injection_gate -- --nocapture"
+      "artifact_path": "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl",
+      "replay_command": "rch exec -- cargo test -q -p fnx-conformance --test e2e_script_pack_gate -- --nocapture"
     }
   ],
   "decision_theoretic_runtime_contract": {
@@ -202,7 +202,7 @@
   ],
   "structured_logging_evidence": [
     "artifacts/conformance/latest/structured_logs.jsonl",
-    "artifacts/e2e/latest/e2e_scenario_matrix_steps_v1.jsonl",
+    "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl",
     "artifacts/clean/latest/clean_compliance_audit_log_v1.json"
   ]
 }

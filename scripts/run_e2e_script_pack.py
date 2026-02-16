@@ -88,6 +88,8 @@ class ScenarioSpec:
     mode: str
     fixture_id: str
     packet_id: str
+    command: str | None = None
+    replay_command: str | None = None
     soak_profile: str = ""
     soak_threat_class: str = ""
 
@@ -126,6 +128,71 @@ SCENARIOS: tuple[ScenarioSpec, ...] = (
         packet_id="FNX-P2C-006",
         soak_profile="long_tail_stability",
         soak_threat_class="algorithmic_denial",
+    ),
+    ScenarioSpec(
+        scenario_id="asupersync_recovery_success",
+        scenario_kind="asupersync_recovery_success",
+        journey_id="J-RUNTIME-OPTIONAL",
+        mode="strict",
+        fixture_id="generated/runtime_config_optional_strict.json",
+        packet_id="FNX-P2C-008",
+        command=(
+            "rch exec -- cargo test -q -p fnx-runtime "
+            "asupersync_adapter_resume_is_deterministic_across_checkpoint_restart "
+            "-- --exact --nocapture"
+        ),
+    ),
+    ScenarioSpec(
+        scenario_id="asupersync_interruption_resume",
+        scenario_kind="asupersync_fault_injection",
+        journey_id="J-RUNTIME-OPTIONAL",
+        mode="hardened",
+        fixture_id="generated/runtime_config_optional_strict.json",
+        packet_id="FNX-P2C-008",
+        command=(
+            "rch exec -- cargo test -q -p fnx-runtime "
+            "asupersync_adapter_retry_budget_exhaustion_fault_injection_is_fail_closed "
+            "-- --exact --nocapture"
+        ),
+    ),
+    ScenarioSpec(
+        scenario_id="asupersync_replica_drift",
+        scenario_kind="asupersync_fault_injection",
+        journey_id="J-RUNTIME-OPTIONAL",
+        mode="hardened",
+        fixture_id="generated/runtime_config_optional_strict.json",
+        packet_id="FNX-P2C-008",
+        command=(
+            "rch exec -- cargo test -q -p fnx-runtime "
+            "asupersync_adapter_partial_write_cursor_regression_is_fail_closed "
+            "-- --exact --nocapture"
+        ),
+    ),
+    ScenarioSpec(
+        scenario_id="asupersync_sidecar_mismatch",
+        scenario_kind="asupersync_fault_injection",
+        journey_id="J-RUNTIME-OPTIONAL",
+        mode="hardened",
+        fixture_id="generated/runtime_config_optional_strict.json",
+        packet_id="FNX-P2C-008",
+        command=(
+            "rch exec -- cargo test -q -p fnx-runtime "
+            "asupersync_adapter_checksum_mismatch_is_fail_closed_and_audited "
+            "-- --exact --nocapture"
+        ),
+    ),
+    ScenarioSpec(
+        scenario_id="asupersync_stale_metadata_resume",
+        scenario_kind="asupersync_fault_injection",
+        journey_id="J-RUNTIME-OPTIONAL",
+        mode="strict",
+        fixture_id="generated/runtime_config_optional_strict.json",
+        packet_id="FNX-P2C-008",
+        command=(
+            "rch exec -- cargo test -q -p fnx-runtime "
+            "asupersync_adapter_stale_metadata_seed_mismatch_rejects_resume "
+            "-- --exact --nocapture"
+        ),
     ),
 )
 
@@ -278,6 +345,55 @@ def packet_evidence_refs(packet_id: str) -> dict[str, Any]:
     }
 
 
+def packet_decode_proof_ref(packet_id: str) -> str:
+    return repo_relative(REPO_ROOT / "artifacts/phase2c" / packet_id / "parity_report.decode_proof.json")
+
+
+def packet_raptorq_ref(packet_id: str) -> str:
+    return repo_relative(REPO_ROOT / "artifacts/phase2c" / packet_id / "parity_report.raptorq.json")
+
+
+def ensure_log_row_recovery_links(
+    log_row: dict[str, Any], packet_id: str, replay_command: str
+) -> dict[str, Any]:
+    if not isinstance(log_row, dict):
+        return log_row
+
+    decode_ref = packet_decode_proof_ref(packet_id)
+    raptorq_ref = packet_raptorq_ref(packet_id)
+    if non_empty_str(replay_command):
+        log_row["replay_command"] = replay_command
+    artifact_refs = log_row.get("artifact_refs")
+    if isinstance(artifact_refs, list):
+        if decode_ref not in artifact_refs:
+            artifact_refs.append(decode_ref)
+        if raptorq_ref not in artifact_refs:
+            artifact_refs.append(raptorq_ref)
+
+    forensics_bundle = log_row.get("forensics_bundle_index")
+    if not isinstance(forensics_bundle, dict):
+        return log_row
+
+    if non_empty_str(replay_command):
+        forensics_bundle["replay_ref"] = replay_command
+
+    decode_refs = forensics_bundle.get("decode_proof_refs")
+    if not isinstance(decode_refs, list):
+        decode_refs = []
+        forensics_bundle["decode_proof_refs"] = decode_refs
+    if decode_ref not in decode_refs:
+        decode_refs.append(decode_ref)
+
+    raptorq_refs = forensics_bundle.get("raptorq_sidecar_refs")
+    if not isinstance(raptorq_refs, list):
+        raptorq_refs = []
+        forensics_bundle["raptorq_sidecar_refs"] = raptorq_refs
+    if raptorq_ref not in raptorq_refs:
+        raptorq_refs.append(raptorq_ref)
+
+    return log_row
+
+
 def synthesized_structured_log_row(
     *,
     run_id: str,
@@ -338,8 +454,8 @@ def synthesized_structured_log_row(
             "captured_unix_ms": captured_unix_ms,
             "replay_ref": replay_command,
             "artifact_refs": artifact_refs,
-            "raptorq_sidecar_refs": [],
-            "decode_proof_refs": [],
+            "raptorq_sidecar_refs": [packet_raptorq_ref(scenario.packet_id)],
+            "decode_proof_refs": [packet_decode_proof_ref(scenario.packet_id)],
         },
     }
 
@@ -482,6 +598,8 @@ def replay_manifest_diagnostics(manifest: dict[str, Any]) -> list[str]:
     replay_command = manifest.get("replay_command")
     if not non_empty_str(replay_command):
         diagnostics.append("manifest.replay_command must be a non-empty string")
+    elif "cargo " in replay_command and "rch exec --" not in replay_command:
+        diagnostics.append("manifest.replay_command must use `rch exec --` for cargo commands")
     forensics = manifest.get("forensics_links")
     if not isinstance(forensics, dict):
         diagnostics.append("manifest.forensics_links must be an object")
@@ -599,7 +717,7 @@ def run_scenario(
     output_dir: Path,
     events_path: Path,
 ) -> dict[str, Any]:
-    command = conformance_command(scenario.fixture_id, scenario.mode)
+    command = scenario.command or conformance_command(scenario.fixture_id, scenario.mode)
     is_soak = bool(scenario.soak_profile)
     cycle_target = soak_cycles if is_soak else 1
     checkpoint_interval_ms = soak_checkpoint_interval_ms if is_soak else 0
@@ -683,10 +801,7 @@ def run_scenario(
             ]
         )
     )
-    manifest_replay_command = (
-        "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance "
-        f"--bin run_smoke -- --fixture {scenario.fixture_id} --mode {scenario.mode}"
-    )
+    manifest_replay_command = scenario.replay_command or command
 
     scenario_dir = output_dir / "bundles" / scenario.scenario_id / pass_label
     scenario_dir.mkdir(parents=True, exist_ok=True)
@@ -721,6 +836,7 @@ def run_scenario(
             ],
         )
         forensics_source = "synthesized_fallback"
+    log_row = ensure_log_row_recovery_links(log_row, scenario.packet_id, manifest_replay_command)
     selected_log_path = scenario_dir / "selected_structured_log.json"
     write_json(selected_log_path, log_row)
     forensics_links = forensics_links_from_log(log_row)
@@ -756,6 +872,8 @@ def run_scenario(
         repo_relative(copied_structured_logs),
         repo_relative(command_log_path),
         repo_relative(selected_log_path),
+        packet_decode_proof_ref(scenario.packet_id),
+        packet_raptorq_ref(scenario.packet_id),
     ]
     failure_envelope_path = scenario_dir / "failure_envelope_v1.json"
     artifact_refs.append(repo_relative(failure_envelope_path))
@@ -1018,8 +1136,8 @@ def replay_from_manifest(*, manifest_path: Path, output_dir: Path) -> int:
     scenario_id = manifest.get("scenario_id")
     replay_command_expected = manifest.get("replay_command")
 
-    if not diagnostics and isinstance(fixture_id, str) and isinstance(mode, str):
-        replay_command_executed = conformance_command(fixture_id, mode)
+    if not diagnostics and isinstance(replay_command_expected, str):
+        replay_command_executed = replay_command_expected
     else:
         replay_command_executed = ""
 
@@ -1052,9 +1170,10 @@ def replay_from_manifest(*, manifest_path: Path, output_dir: Path) -> int:
     else:
         run_diagnostics = []
         logs = parse_structured_logs()
-        assert isinstance(fixture_id, str)
-        assert isinstance(mode, str)
-        log_row = find_log_for_fixture(logs, fixture_id, mode)
+        if isinstance(fixture_id, str) and isinstance(mode, str):
+            log_row = find_log_for_fixture(logs, fixture_id, mode)
+        else:
+            log_row = None
         expected_forensics = manifest["forensics_links"]
         assert isinstance(expected_forensics, dict)
         if log_row is None:
@@ -1131,10 +1250,11 @@ def selected_scenarios(selected_id: str) -> list[ScenarioSpec]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    scenario_names = ", ".join(["all", *[scenario.scenario_id for scenario in SCENARIOS]])
     parser.add_argument(
         "--scenario",
         default="all",
-        help="Scenario to run: all | happy_path | edge_path | malformed_input | adversarial_soak",
+        help=f"Scenario to run: {scenario_names}",
     )
     parser.add_argument(
         "--passes",

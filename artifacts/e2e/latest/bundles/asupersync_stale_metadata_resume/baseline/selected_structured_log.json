@@ -1,0 +1,58 @@
+{
+  "schema_version": "1.0.0",
+  "run_id": "e2e-script-pack-20260216T211259Z",
+  "ts_unix_ms": 1771276495006,
+  "crate_name": "fnx-conformance",
+  "suite_id": "smoke",
+  "packet_id": "FNX-P2C-008",
+  "test_name": "fixture::generated/runtime_config_optional_strict.json",
+  "test_id": "fixture::generated/runtime_config_optional_strict.json",
+  "test_kind": "differential",
+  "mode": "strict",
+  "fixture_id": "generated/runtime_config_optional_strict.json",
+  "seed": 7592963280906986520,
+  "environment": {
+    "suite": "smoke",
+    "oracle_present": "true",
+    "mode": "strict",
+    "scenario_id": "asupersync_stale_metadata_resume",
+    "generated_by": "e2e_script_pack_synth_fallback"
+  },
+  "env_fingerprint": "03ff0c94f80ee2be",
+  "duration_ms": 0,
+  "replay_command": "rch exec -- cargo test -q -p fnx-runtime asupersync_adapter_stale_metadata_seed_mismatch_rejects_resume -- --exact --nocapture",
+  "artifact_refs": [
+    "artifacts/e2e/latest/bundles/asupersync_stale_metadata_resume/baseline/smoke_report.json",
+    "artifacts/e2e/latest/bundles/asupersync_stale_metadata_resume/baseline/fixture_report.json",
+    "artifacts/e2e/latest/bundles/asupersync_stale_metadata_resume/baseline/structured_logs.jsonl",
+    "artifacts/phase2c/FNX-P2C-008/parity_report.decode_proof.json",
+    "artifacts/phase2c/FNX-P2C-008/parity_report.raptorq.json"
+  ],
+  "forensic_bundle_id": "forensics::FNX-P2C-008::generated::runtime_config_optional_strict.json",
+  "hash_id": "33cb8105790429af",
+  "status": "passed",
+  "reason_code": null,
+  "failure_repro": null,
+  "e2e_step_traces": [],
+  "forensics_bundle_index": {
+    "bundle_id": "forensics::FNX-P2C-008::generated::runtime_config_optional_strict.json",
+    "run_id": "e2e-script-pack-20260216T211259Z",
+    "test_id": "fixture::generated/runtime_config_optional_strict.json",
+    "bundle_hash_id": "db5baf283c83b9eb",
+    "captured_unix_ms": 1771276495006,
+    "replay_ref": "rch exec -- cargo test -q -p fnx-runtime asupersync_adapter_stale_metadata_seed_mismatch_rejects_resume -- --exact --nocapture",
+    "artifact_refs": [
+      "artifacts/e2e/latest/bundles/asupersync_stale_metadata_resume/baseline/smoke_report.json",
+      "artifacts/e2e/latest/bundles/asupersync_stale_metadata_resume/baseline/fixture_report.json",
+      "artifacts/e2e/latest/bundles/asupersync_stale_metadata_resume/baseline/structured_logs.jsonl",
+      "artifacts/phase2c/FNX-P2C-008/parity_report.decode_proof.json",
+      "artifacts/phase2c/FNX-P2C-008/parity_report.raptorq.json"
+    ],
+    "raptorq_sidecar_refs": [
+      "artifacts/phase2c/FNX-P2C-008/parity_report.raptorq.json"
+    ],
+    "decode_proof_refs": [
+      "artifacts/phase2c/FNX-P2C-008/parity_report.decode_proof.json"
+    ]
+  }
+}

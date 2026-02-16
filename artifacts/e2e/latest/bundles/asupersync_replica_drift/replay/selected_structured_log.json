@@ -1,0 +1,58 @@
+{
+  "schema_version": "1.0.0",
+  "run_id": "e2e-script-pack-20260216T210817Z",
+  "ts_unix_ms": 1771276302926,
+  "crate_name": "fnx-conformance",
+  "suite_id": "smoke",
+  "packet_id": "FNX-P2C-008",
+  "test_name": "fixture::generated/runtime_config_optional_strict.json",
+  "test_id": "fixture::generated/runtime_config_optional_strict.json",
+  "test_kind": "differential",
+  "mode": "hardened",
+  "fixture_id": "generated/runtime_config_optional_strict.json",
+  "seed": 1017954080714268602,
+  "environment": {
+    "suite": "smoke",
+    "oracle_present": "true",
+    "mode": "hardened",
+    "scenario_id": "asupersync_replica_drift",
+    "generated_by": "e2e_script_pack_synth_fallback"
+  },
+  "env_fingerprint": "0fac1e41f03a725d",
+  "duration_ms": 0,
+  "replay_command": "rch exec -- cargo test -q -p fnx-runtime asupersync_adapter_partial_write_cursor_regression_is_fail_closed -- --exact --nocapture",
+  "artifact_refs": [
+    "artifacts/e2e/latest/bundles/asupersync_replica_drift/replay/smoke_report.json",
+    "artifacts/e2e/latest/bundles/asupersync_replica_drift/replay/fixture_report.json",
+    "artifacts/e2e/latest/bundles/asupersync_replica_drift/replay/structured_logs.jsonl",
+    "artifacts/phase2c/FNX-P2C-008/parity_report.decode_proof.json",
+    "artifacts/phase2c/FNX-P2C-008/parity_report.raptorq.json"
+  ],
+  "forensic_bundle_id": "forensics::FNX-P2C-008::generated::runtime_config_optional_strict.json",
+  "hash_id": "ccc83807fd70cab4",
+  "status": "passed",
+  "reason_code": null,
+  "failure_repro": null,
+  "e2e_step_traces": [],
+  "forensics_bundle_index": {
+    "bundle_id": "forensics::FNX-P2C-008::generated::runtime_config_optional_strict.json",
+    "run_id": "e2e-script-pack-20260216T210817Z",
+    "test_id": "fixture::generated/runtime_config_optional_strict.json",
+    "bundle_hash_id": "8a59a233df6170d6",
+    "captured_unix_ms": 1771276302926,
+    "replay_ref": "rch exec -- cargo test -q -p fnx-runtime asupersync_adapter_partial_write_cursor_regression_is_fail_closed -- --exact --nocapture",
+    "artifact_refs": [
+      "artifacts/e2e/latest/bundles/asupersync_replica_drift/replay/smoke_report.json",
+      "artifacts/e2e/latest/bundles/asupersync_replica_drift/replay/fixture_report.json",
+      "artifacts/e2e/latest/bundles/asupersync_replica_drift/replay/structured_logs.jsonl",
+      "artifacts/phase2c/FNX-P2C-008/parity_report.decode_proof.json",
+      "artifacts/phase2c/FNX-P2C-008/parity_report.raptorq.json"
+    ],
+    "raptorq_sidecar_refs": [
+      "artifacts/phase2c/FNX-P2C-008/parity_report.raptorq.json"
+    ],
+    "decode_proof_refs": [
+      "artifacts/phase2c/FNX-P2C-008/parity_report.decode_proof.json"
+    ]
+  }
+}

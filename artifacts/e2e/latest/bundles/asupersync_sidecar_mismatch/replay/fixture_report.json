@@ -1,0 +1,11 @@
+{
+  "fixture_name": "generated/runtime_config_optional_strict.json",
+  "suite": "runtime_config_optional_v1",
+  "mode": "strict",
+  "passed": true,
+  "reason_code": null,
+  "fixture_source_hash": "58c45c1c3bbc000b",
+  "duration_ms": 0,
+  "mismatches": [],
+  "witness": null
+}

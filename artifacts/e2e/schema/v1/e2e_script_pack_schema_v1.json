@@ -5,7 +5,12 @@
     "happy_path",
     "edge_path",
     "malformed_input",
-    "adversarial_soak"
+    "adversarial_soak",
+    "asupersync_recovery_success",
+    "asupersync_interruption_resume",
+    "asupersync_replica_drift",
+    "asupersync_sidecar_mismatch",
+    "asupersync_stale_metadata_resume"
   ],
   "required_pass_labels": [
     "baseline",
@@ -14,7 +19,8 @@
   "required_packet_ids": [
     "FNX-P2C-001",
     "FNX-P2C-005",
-    "FNX-P2C-006"
+    "FNX-P2C-006",
+    "FNX-P2C-008"
   ],
   "required_gate_step_prefix": "step-",
   "required_event_keys": [

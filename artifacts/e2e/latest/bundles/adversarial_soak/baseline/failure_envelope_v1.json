@@ -2,7 +2,7 @@
   "schema_version": "1.0.0",
   "artifact_id": "e2e-script-pack-failure-envelope-v1",
   "envelope_id": "e2e-failure-envelope-22c294bddba59da8",
-  "generated_at_utc": "2026-02-16T20:39:34.719933+00:00",
+  "generated_at_utc": "2026-02-16T21:13:57.443545+00:00",
   "status": "passed",
   "reason_code": null,
   "scenario_id": "adversarial_soak",
@@ -11,16 +11,16 @@
   "packet_id": "FNX-P2C-006",
   "fixture_id": "generated/readwrite_hardened_malformed.json",
   "mode": "hardened",
-  "run_id": "e2e-script-pack-20260216T203841Z",
+  "run_id": "e2e-script-pack-20260216T211259Z",
   "bundle_id": "e2e-bundle-6d7e041ad44a0f50",
   "stable_fingerprint": "ad1995178992eaf5",
   "deterministic_seed": 15798793491341090845,
-  "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened",
+  "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened",
   "forensics_links": {
     "structured_log_hash_id": "4dd97c964d969a79",
     "forensic_bundle_id": "forensics::FNX-P2C-006::generated::readwrite_hardened_malformed.json",
     "forensics_bundle_hash_id": "75e08c45b19f7aed",
-    "forensics_bundle_replay_ref": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened"
+    "forensics_bundle_replay_ref": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened"
   },
   "missing_forensics_fields": [],
   "bundle_manifest_path": "artifacts/e2e/latest/bundles/adversarial_soak/baseline/bundle_manifest_v1.json",
@@ -32,6 +32,8 @@
     "artifacts/e2e/latest/bundles/adversarial_soak/baseline/structured_logs.jsonl",
     "artifacts/e2e/latest/bundles/adversarial_soak/baseline/command.log",
     "artifacts/e2e/latest/bundles/adversarial_soak/baseline/selected_structured_log.json",
+    "artifacts/phase2c/FNX-P2C-006/parity_report.decode_proof.json",
+    "artifacts/phase2c/FNX-P2C-006/parity_report.raptorq.json",
     "artifacts/e2e/latest/bundles/adversarial_soak/baseline/failure_envelope_v1.json",
     "artifacts/e2e/latest/bundles/adversarial_soak/baseline/soak_health_checkpoints_v1.json",
     "artifacts/e2e/latest/bundles/adversarial_soak/baseline/soak_triage_summary_v1.json"
@@ -104,6 +106,6 @@
   "triage_hints": [
     "No failure detected; replay metadata and forensics links are contract-complete.",
     "Gate stage: step-1",
-    "Run replay command for verification: CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened"
+    "Run replay command for verification: rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened"
   ]
 }

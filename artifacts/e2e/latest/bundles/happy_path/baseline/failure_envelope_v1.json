@@ -2,7 +2,7 @@
   "schema_version": "1.0.0",
   "artifact_id": "e2e-script-pack-failure-envelope-v1",
   "envelope_id": "e2e-failure-envelope-447e31e71fde0b5d",
-  "generated_at_utc": "2026-02-16T20:38:58.549773+00:00",
+  "generated_at_utc": "2026-02-16T21:13:21.130343+00:00",
   "status": "passed",
   "reason_code": null,
   "scenario_id": "happy_path",
@@ -11,16 +11,16 @@
   "packet_id": "FNX-P2C-001",
   "fixture_id": "graph_core_shortest_path_strict.json",
   "mode": "strict",
-  "run_id": "e2e-script-pack-20260216T203841Z",
+  "run_id": "e2e-script-pack-20260216T211259Z",
   "bundle_id": "e2e-bundle-3acfb1d1f035bdf5",
   "stable_fingerprint": "ae36a376be507091",
   "deterministic_seed": 9158789141501386920,
-  "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture graph_core_shortest_path_strict.json --mode strict",
+  "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture graph_core_shortest_path_strict.json --mode strict",
   "forensics_links": {
     "structured_log_hash_id": "4b476e286402b8ba",
     "forensic_bundle_id": "forensics::FNX-P2C-001::graph_core_shortest_path_strict.json",
     "forensics_bundle_hash_id": "9c67f73088edeaed",
-    "forensics_bundle_replay_ref": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture graph_core_shortest_path_strict.json --mode strict"
+    "forensics_bundle_replay_ref": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture graph_core_shortest_path_strict.json --mode strict"
   },
   "missing_forensics_fields": [],
   "bundle_manifest_path": "artifacts/e2e/latest/bundles/happy_path/baseline/bundle_manifest_v1.json",
@@ -32,6 +32,8 @@
     "artifacts/e2e/latest/bundles/happy_path/baseline/structured_logs.jsonl",
     "artifacts/e2e/latest/bundles/happy_path/baseline/command.log",
     "artifacts/e2e/latest/bundles/happy_path/baseline/selected_structured_log.json",
+    "artifacts/phase2c/FNX-P2C-001/parity_report.decode_proof.json",
+    "artifacts/phase2c/FNX-P2C-001/parity_report.raptorq.json",
     "artifacts/e2e/latest/bundles/happy_path/baseline/failure_envelope_v1.json"
   ],
   "retention_policy": {
@@ -102,6 +104,6 @@
   "triage_hints": [
     "No failure detected; replay metadata and forensics links are contract-complete.",
     "Gate stage: step-1",
-    "Run replay command for verification: CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture graph_core_shortest_path_strict.json --mode strict"
+    "Run replay command for verification: rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture graph_core_shortest_path_strict.json --mode strict"
   ]
 }
