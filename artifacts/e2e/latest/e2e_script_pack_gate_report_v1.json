@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0.0",
   "report_id": "e2e-script-pack-gate-report-v1",
-  "run_id": "e2e-script-pack-gate-20260216T020701Z",
-  "generated_at_utc": "2026-02-16T02:07:48.906595+00:00",
-  "step_count": 3,
+  "run_id": "e2e-script-pack-gate-20260216T021222Z",
+  "generated_at_utc": "2026-02-16T02:15:49.301238+00:00",
+  "step_count": 4,
   "failed_step_count": 0,
   "status": "pass",
   "steps_log_path": "artifacts/e2e/latest/e2e_script_pack_steps_v1.jsonl",

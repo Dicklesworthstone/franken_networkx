@@ -34,6 +34,8 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
     let report =
         load_json(&root.join("artifacts/e2e/latest/e2e_script_pack_determinism_report_v1.json"));
     let events = load_jsonl(&root.join("artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"));
+    let replay_report =
+        load_json(&root.join("artifacts/e2e/latest/e2e_script_pack_replay_report_v1.json"));
 
     let required_report_keys = schema["required_report_keys"]
         .as_array()
@@ -52,6 +54,25 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
             .as_str()
             .expect("report status should be string"),
         "pass"
+    );
+    assert_eq!(
+        replay_report["status"]
+            .as_str()
+            .expect("replay report status should be string"),
+        "passed"
+    );
+    assert!(
+        replay_report["forensics_match"]
+            .as_bool()
+            .expect("replay report forensics_match should be bool")
+    );
+    assert_eq!(
+        replay_report["diagnostics"]
+            .as_array()
+            .expect("replay report diagnostics should be array")
+            .len(),
+        0,
+        "replay diagnostics should be empty on pass"
     );
 
     let required_scenarios = schema["required_scenarios"]
@@ -207,6 +228,13 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
         }
         assert_eq!(manifest["bundle_id"].as_str(), Some(bundle_id));
         assert_eq!(manifest["stable_fingerprint"].as_str(), Some(fingerprint));
+        let replay_command = manifest["replay_command"]
+            .as_str()
+            .expect("replay_command should be string");
+        assert!(
+            !replay_command.trim().is_empty(),
+            "replay_command should be non-empty"
+        );
         let execution = manifest["execution_metadata"]
             .as_object()
             .expect("execution_metadata should be object");
@@ -234,7 +262,24 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
                 forensics.get(key).is_some(),
                 "forensics_links missing key `{key}`"
             );
+            let value = forensics
+                .get(key)
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim()
+                .to_owned();
+            assert!(
+                !value.is_empty(),
+                "forensics_links field `{key}` should be non-empty string"
+            );
         }
+        assert_eq!(
+            forensics
+                .get("forensics_bundle_replay_ref")
+                .and_then(Value::as_str),
+            Some(replay_command),
+            "forensics replay reference should match replay_command"
+        );
 
         let artifact_refs = manifest["artifact_refs"]
             .as_array()

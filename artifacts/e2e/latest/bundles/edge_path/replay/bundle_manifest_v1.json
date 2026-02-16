@@ -12,14 +12,14 @@
   "deterministic_seed": 11351190574352106388,
   "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_closeness_strict.json --mode strict",
   "execution_metadata": {
-    "run_id": "e2e-script-pack-20260216T020701Z",
+    "run_id": "e2e-script-pack-20260216T021222Z",
     "pass_label": "replay",
     "status": "passed",
     "reason_code": null,
-    "start_unix_ms": 1771207645895,
-    "end_unix_ms": 1771207651866,
-    "duration_ms": 5971,
-    "generated_at_utc": "2026-02-16T02:07:31.867819+00:00"
+    "start_unix_ms": 1771207968370,
+    "end_unix_ms": 1771207975094,
+    "duration_ms": 6724,
+    "generated_at_utc": "2026-02-16T02:12:55.096309+00:00"
   },
   "forensics_links": {
     "structured_log_hash_id": "55b9688b9697632e",

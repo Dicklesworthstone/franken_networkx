@@ -23,6 +23,13 @@ SCENARIO_MATRIX_PATH = (
 EVENT_SCHEMA_VERSION = "1.0.0"
 BUNDLE_SCHEMA_VERSION = "1.0.0"
 REPORT_SCHEMA_VERSION = "1.0.0"
+REPLAY_REPORT_SCHEMA_VERSION = "1.0.0"
+REQUIRED_FORENSICS_KEYS: tuple[str, ...] = (
+    "structured_log_hash_id",
+    "forensic_bundle_id",
+    "forensics_bundle_hash_id",
+    "forensics_bundle_replay_ref",
+)
 
 
 @dataclass(frozen=True)
@@ -151,6 +158,60 @@ def find_log_for_fixture(logs: list[dict[str, Any]], fixture_id: str, mode: str)
     return None
 
 
+def non_empty_str(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def forensics_links_from_log(log_row: dict[str, Any] | None) -> dict[str, Any]:
+    if log_row is None:
+        return {
+            "structured_log_hash_id": None,
+            "forensic_bundle_id": None,
+            "forensics_bundle_hash_id": None,
+            "forensics_bundle_replay_ref": None,
+        }
+    forensics_bundle = log_row.get("forensics_bundle_index", {})
+    return {
+        "structured_log_hash_id": log_row.get("hash_id"),
+        "forensic_bundle_id": log_row.get("forensic_bundle_id"),
+        "forensics_bundle_hash_id": forensics_bundle.get("bundle_hash_id"),
+        "forensics_bundle_replay_ref": forensics_bundle.get("replay_ref"),
+    }
+
+
+def missing_forensics_fields(forensics_links: dict[str, Any]) -> list[str]:
+    missing: list[str] = []
+    for key in REQUIRED_FORENSICS_KEYS:
+        if not non_empty_str(forensics_links.get(key)):
+            missing.append(key)
+    return missing
+
+
+def replay_manifest_diagnostics(manifest: dict[str, Any]) -> list[str]:
+    diagnostics: list[str] = []
+    for key in [
+        "scenario_id",
+        "mode",
+        "fixture_id",
+        "bundle_id",
+        "stable_fingerprint",
+        "replay_command",
+        "forensics_links",
+    ]:
+        if key not in manifest:
+            diagnostics.append(f"manifest missing required key `{key}`")
+    replay_command = manifest.get("replay_command")
+    if not non_empty_str(replay_command):
+        diagnostics.append("manifest.replay_command must be a non-empty string")
+    forensics = manifest.get("forensics_links")
+    if not isinstance(forensics, dict):
+        diagnostics.append("manifest.forensics_links must be an object")
+    else:
+        for key in missing_forensics_fields(forensics):
+            diagnostics.append(f"manifest.forensics_links.{key} must be a non-empty string")
+    return diagnostics
+
+
 def run_scenario(
     *,
     run_id: str,
@@ -226,6 +287,16 @@ def run_scenario(
     selected_log_path = scenario_dir / "selected_structured_log.json"
     if log_row is not None:
         write_json(selected_log_path, log_row)
+    forensics_links = forensics_links_from_log(log_row)
+    if status == "passed":
+        if log_row is None:
+            status = "failed"
+            reason_code = "missing_structured_log"
+        else:
+            missing_fields = missing_forensics_fields(forensics_links)
+            if missing_fields:
+                status = "failed"
+                reason_code = f"missing_forensics_fields:{','.join(missing_fields)}"
 
     manifest = {
         "schema_version": BUNDLE_SCHEMA_VERSION,
@@ -253,18 +324,7 @@ def run_scenario(
             "duration_ms": duration_ms,
             "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         },
-        "forensics_links": {
-            "structured_log_hash_id": None if log_row is None else log_row.get("hash_id"),
-            "forensic_bundle_id": None
-            if log_row is None
-            else log_row.get("forensic_bundle_id"),
-            "forensics_bundle_hash_id": None
-            if log_row is None
-            else log_row.get("forensics_bundle_index", {}).get("bundle_hash_id"),
-            "forensics_bundle_replay_ref": None
-            if log_row is None
-            else log_row.get("forensics_bundle_index", {}).get("replay_ref"),
-        },
+        "forensics_links": forensics_links,
         "artifact_refs": [
             repo_relative(copied_smoke),
             repo_relative(copied_fixture_report),
@@ -373,6 +433,109 @@ def determinism_report(
     return report
 
 
+def replay_from_manifest(*, manifest_path: Path, output_dir: Path) -> int:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    manifest = load_json(manifest_path)
+    diagnostics = replay_manifest_diagnostics(manifest)
+
+    fixture_id = manifest.get("fixture_id")
+    mode = manifest.get("mode")
+    scenario_id = manifest.get("scenario_id")
+    replay_command_expected = manifest.get("replay_command")
+
+    if not diagnostics and isinstance(fixture_id, str) and isinstance(mode, str):
+        replay_command_executed = conformance_command(fixture_id, mode)
+    else:
+        replay_command_executed = ""
+
+    replay_dir = output_dir / "replay" / str(scenario_id or "unknown")
+    replay_dir.mkdir(parents=True, exist_ok=True)
+    command_log_path = replay_dir / "replay_command.log"
+
+    start_ms = unix_ms()
+    completed: subprocess.CompletedProcess[str] | None = None
+    if not diagnostics:
+        completed = subprocess.run(
+            ["bash", "-lc", replay_command_executed],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        command_log_path.write_text(
+            completed.stdout + ("\n" if completed.stdout else "") + completed.stderr,
+            encoding="utf-8",
+        )
+    end_ms = unix_ms()
+
+    observed_forensics = forensics_links_from_log(None)
+    forensics_match = False
+    status = "failed"
+    reason_code = "manifest_invalid"
+    if diagnostics:
+        run_diagnostics = diagnostics
+    else:
+        run_diagnostics = []
+        logs = parse_structured_logs()
+        assert isinstance(fixture_id, str)
+        assert isinstance(mode, str)
+        log_row = find_log_for_fixture(logs, fixture_id, mode)
+        observed_forensics = forensics_links_from_log(log_row)
+        missing_observed = missing_forensics_fields(observed_forensics)
+        expected_forensics = manifest["forensics_links"]
+        assert isinstance(expected_forensics, dict)
+        forensics_match = all(
+            expected_forensics.get(key) == observed_forensics.get(key)
+            for key in REQUIRED_FORENSICS_KEYS
+        )
+        if completed is not None and completed.returncode != 0:
+            run_diagnostics.append("replay command returned non-zero exit status")
+            reason_code = "command_failed"
+        if log_row is None:
+            run_diagnostics.append("structured log row not found for replay fixture/mode")
+            reason_code = "missing_structured_log"
+        if missing_observed:
+            run_diagnostics.append(
+                "observed forensics links missing required fields: "
+                + ",".join(missing_observed)
+            )
+            reason_code = "missing_forensics_fields"
+        if not forensics_match:
+            run_diagnostics.append(
+                "observed forensics links do not match manifest forensics links"
+            )
+            reason_code = "forensics_mismatch"
+        if not run_diagnostics:
+            status = "passed"
+            reason_code = None
+
+    report = {
+        "schema_version": REPLAY_REPORT_SCHEMA_VERSION,
+        "artifact_id": "e2e-script-pack-replay-report-v1",
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "status": status,
+        "reason_code": reason_code,
+        "scenario_id": scenario_id,
+        "bundle_id": manifest.get("bundle_id"),
+        "fixture_id": fixture_id,
+        "mode": mode,
+        "replayed_manifest_path": repo_relative(manifest_path),
+        "replay_command_expected": replay_command_expected,
+        "replay_command_executed": replay_command_executed,
+        "command_log_path": repo_relative(command_log_path),
+        "start_unix_ms": start_ms,
+        "end_unix_ms": end_ms,
+        "duration_ms": end_ms - start_ms,
+        "forensics_links_expected": manifest.get("forensics_links"),
+        "forensics_links_observed": observed_forensics,
+        "forensics_match": forensics_match,
+        "diagnostics": run_diagnostics,
+    }
+    output_path = output_dir / "e2e_script_pack_replay_report_v1.json"
+    write_json(output_path, report)
+    print(json.dumps(report, indent=2))
+    return 0 if status == "passed" else 2
+
+
 def selected_scenarios(selected_id: str) -> list[ScenarioSpec]:
     if selected_id == "all":
         return list(SCENARIOS)
@@ -405,6 +568,11 @@ def main() -> int:
         action="store_true",
         help="Delete output events/report files before running",
     )
+    parser.add_argument(
+        "--replay-manifest",
+        default="",
+        help="Replay from a bundle manifest path and emit replay report",
+    )
     args = parser.parse_args()
 
     if args.passes < 1:
@@ -412,6 +580,12 @@ def main() -> int:
 
     output_dir = REPO_ROOT / args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
+    if args.replay_manifest:
+        manifest_path = Path(args.replay_manifest)
+        if not manifest_path.is_absolute():
+            manifest_path = REPO_ROOT / manifest_path
+        return replay_from_manifest(manifest_path=manifest_path, output_dir=output_dir)
+
     events_path = output_dir / "e2e_script_pack_events_v1.jsonl"
     if args.clear_output:
         for path in [

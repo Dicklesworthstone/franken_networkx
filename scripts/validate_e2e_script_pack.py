@@ -135,6 +135,9 @@ def main() -> int:
                 f"bundle_manifest {key}",
                 errors,
             )
+            replay_command = manifest.get("replay_command")
+            if not isinstance(replay_command, str) or not replay_command.strip():
+                errors.append(f"bundle_manifest {key}.replay_command must be non-empty string")
             execution_metadata = manifest.get("execution_metadata")
             if isinstance(execution_metadata, dict):
                 ensure_keys(
@@ -153,6 +156,12 @@ def main() -> int:
                     f"bundle_manifest {key}.forensics_links",
                     errors,
                 )
+                for replay_field in schema["required_forensics_keys"]:
+                    value = forensics.get(replay_field)
+                    if not isinstance(value, str) or not value.strip():
+                        errors.append(
+                            f"bundle_manifest {key}.forensics_links.{replay_field} must be non-empty string"
+                        )
             else:
                 errors.append(f"bundle_manifest {key}.forensics_links must be object")
             artifact_refs = manifest.get("artifact_refs")
