@@ -295,16 +295,26 @@ Optimization acceptance rule:
 
 ## 18. CI Gate Topology (Release-Critical)
 
-| Gate | Name | Blocking | Output Artifact |
-|---|---|---|---|
-| G1 | format + lint | yes | lint report |
-| G2 | unit + integration | yes | junit report |
-| G3 | differential conformance | yes | parity report JSON + markdown summary |
-| G4 | adversarial + property tests | yes | minimized counterexample corpus |
-| G5 | benchmark regression | yes | baseline delta report |
-| G6 | RaptorQ scrub + recovery drill | yes | scrub report + decode proof sample |
+Canonical machine-checkable contract:
+- `artifacts/conformance/v1/ci_gate_topology_v1.json`
+- `artifacts/conformance/schema/v1/ci_gate_topology_schema_v1.json`
+- `crates/fnx-conformance/tests/ci_gate_topology_gate.rs`
 
-Release cannot proceed unless all gates pass on the same commit.
+| Gate | Scope | Blocking | Primary Inputs | Primary Outputs | Policy IDs |
+|---|---|---|---|---|---|
+| G1 | format + lint discipline | yes | workspace manifests + crate source set | lint/diagnostic artifacts | `CI-POL-FAIL-CLOSED-001`, `CI-POL-SECURITY-DRIFT-001` |
+| G2 | unit + integration suites | yes | crate test targets + conformance smoke harness | smoke + structured log artifacts | `CI-POL-FAIL-CLOSED-001`, `CI-POL-COMPAT-DRIFT-001` |
+| G3 | differential conformance | yes | fixtures + oracle capture | parity fixture reports | `CI-POL-FAIL-CLOSED-001`, `CI-POL-COMPAT-DRIFT-001` |
+| G4 | adversarial + property contract guards | yes | adversarial scripts + telemetry contract gates | normalization + unblock telemetry artifacts | `CI-POL-FAIL-CLOSED-001`, `CI-POL-SECURITY-DRIFT-001` |
+| G5 | e2e + failure forensics | yes | script-pack + scenario-matrix contracts | e2e gate reports + deterministic replay logs | `CI-POL-FAIL-CLOSED-001`, `CI-POL-BUDGET-ENVELOPE-001` |
+| G6 | perf regression + isomorphism | yes | perf/isomorphism harnesses + allowlist | perf regression + isomorphism reports | `CI-POL-FAIL-CLOSED-001`, `CI-POL-COMPAT-DRIFT-001` |
+| G7 | artifact schema + reliability budgets | yes | reliability schemas/specs + gate validator | reliability budget report + validation artifact | `CI-POL-FAIL-CLOSED-001`, `CI-POL-BUDGET-ENVELOPE-001` |
+| G8 | durability scrub + decode proof | yes | durability pipeline + packet readiness gate | durability report + recovered payload/decode proof linkage | `CI-POL-FAIL-CLOSED-001`, `CI-POL-DURABILITY-001` |
+
+Ordering + short-circuit semantics:
+1. Gate order is strictly `G1 -> G2 -> G3 -> G4 -> G5 -> G6 -> G7 -> G8`.
+2. Every gate is fail-closed and release-blocking.
+3. First failing gate short-circuits downstream gates and must emit a budget/policy-linked failure envelope with deterministic replay command(s).
 
 ## 19. RaptorQ Artifact Envelope (Project-Wide)
 
@@ -361,7 +371,7 @@ Weeks 9-10:
 - finalize strict/hardened policy transitions and audit trails
 
 Weeks 11-12:
-- enforce full gate topology G1-G6 in CI
+- enforce full gate topology G1-G8 in CI
 - run release-candidate drill with complete artifact envelope
 
 ## 21. Porting Artifact Index

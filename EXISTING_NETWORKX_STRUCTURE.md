@@ -232,3 +232,16 @@ Canonical source:
   - `rch exec -- cargo test -q -p fnx-conformance --test smoke -- --nocapture`
   - `rch exec -- cargo test -q -p fnx-conformance --test structured_log_gate -- --nocapture`
   - `rch exec -- cargo test -q -p fnx-conformance --test phase2c_packet_readiness_gate -- --nocapture`
+
+## 16. CI Gate Topology Contract Index (bd-315.10.1)
+
+Canonical lock artifacts:
+- `artifacts/conformance/v1/ci_gate_topology_v1.json`
+- `artifacts/conformance/schema/v1/ci_gate_topology_schema_v1.json`
+- `crates/fnx-conformance/tests/ci_gate_topology_gate.rs`
+
+Operational invariants:
+1. Gate order is deterministic: `G1 -> G2 -> G3 -> G4 -> G5 -> G6 -> G7 -> G8`.
+2. Every gate is blocking and fail-closed.
+3. The first gate failure short-circuits downstream gates and must emit policy/budget-scoped remediation metadata.
+4. Compatibility and security drift checks are encoded via deterministic rule IDs rather than ad-hoc prose in CI output.

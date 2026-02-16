@@ -424,7 +424,7 @@ XW-010,"RaptorQ sidecar generation/scrub/decode proof for long-lived evidence bu
 | GAP-02 | `XW-006`, `XW-007`, `XW-008` | P0 | `bd-315.16`, `bd-315.18.6`, `bd-315.18.7` | extend differential/metamorphic/adversarial coverage for weighted shortest-path and centrality/generator families; emit mismatch taxonomy with replay artifacts |
 | GAP-03 | `XW-009` | P1 | `bd-315.26.4` | complete deterministic e2e recovery scenarios for interruption/resume/conflict/checksum mismatch with decode-proof-linked logs |
 | GAP-04 | `XW-010` | P1 | `bd-315.26` | route all long-lived artifact classes through asupersync + durability pipeline; enforce scrub/decode proofs in packet readiness gates |
-| GAP-05 | `XW-001..XW-010` | P1 | `bd-315.10.1`, `bd-315.10` | promote this crosswalk schema into CI gate contract (G1..G8 mapping + machine-checkable doc/test contract matrix) |
+| GAP-05 | `XW-001..XW-010` | P1 | `bd-315.10.1`, `bd-315.10` | gate mapping is codified in `artifacts/conformance/v1/ci_gate_topology_v1.json` + schema/test lock; remaining closure is wiring full automated CI execution for every gate command path |
 
 ### 20.4 Canonical replay command templates
 
@@ -483,3 +483,40 @@ Normative output behavior:
 | `bd-315.12.5`, `bd-315.13.5`, `bd-315.14.5`, `bd-315.15.5`, `bd-315.16.5`, `bd-315.17.5`, `bd-315.18.5`, `bd-315.19.5`, `bd-315.20.5` | packet-level unit/property reliability budgets are now explicit and packet-scoped | implement budget evaluator + flake/quarantine artifact emission in CI gate topology (`bd-315.10`) |
 | `bd-315.10`, `bd-315.10.1` | gate-level budget IDs and envelope schema are now specified | wire automated checks so failures print budget-specific remediation hints from schema fields |
 | `bd-315.11` | readiness drill now has explicit reliability SLO set and flake thresholds | run full readiness drill with budget breach report and quarantine ledger outputs |
+
+## 22. CI Gate Topology Contract Matrix (bd-315.10.1)
+
+Canonical machine-checkable assets:
+- `artifacts/conformance/v1/ci_gate_topology_v1.json`
+- `artifacts/conformance/schema/v1/ci_gate_topology_schema_v1.json`
+- `crates/fnx-conformance/tests/ci_gate_topology_gate.rs`
+
+### 22.1 Deterministic gate order and fail-closed short-circuit
+
+1. Ordered topology: `G1 -> G2 -> G3 -> G4 -> G5 -> G6 -> G7 -> G8`.
+2. Every gate is explicitly blocking and release-critical.
+3. Short-circuit policy: first failing gate halts all downstream gates and emits policy/budget linked failure envelope fields (`budget_id`, replay command, artifact refs, owner bead linkage).
+4. Override policy remains explicit and auditable (`CI-POL-OVERRIDE-001`), never implicit.
+
+### 22.2 Compatibility/security drift policy IDs
+
+| Drift rule ID | Domain | Deterministic threshold | Violation action |
+|---|---|---|---|
+| `DRIFT-COMPAT-STRICT-000` | compatibility | strict critical drift must equal `0` | fail-closed |
+| `DRIFT-COMPAT-HARDENED-001` | compatibility | hardened allowlisted divergence must remain `<= 1.00%` | fail-closed when exceeded |
+| `DRIFT-SEC-INVARIANT-000` | security | zero tolerance for unsafe/unknown-incompatible behavior | fail-closed |
+| `DRIFT-TELEMETRY-CONTRACT-000` | security/telemetry | zero missing replay-critical fields | fail-closed |
+| `DRIFT-DURABILITY-DECODE-000` | durability | decode-proof artifacts required for recovery paths | fail-closed |
+
+### 22.3 Gate I/O contract summary
+
+| Gate | Input contract family | Output artifact family | Policy + budget linkage |
+|---|---|---|---|
+| `G1` | workspace manifests + lint surfaces | lint diagnostics | fail-closed + security drift |
+| `G2` | unit/integration test targets | smoke + structured logs | fail-closed + compatibility drift (`REL-BUD-001/002`) |
+| `G3` | differential fixtures + oracle capture | parity fixture reports | fail-closed + compatibility drift |
+| `G4` | adversarial/property harness + telemetry gates | normalization + unblock matrix | fail-closed + security drift |
+| `G5` | e2e script-pack + scenario matrix contracts | e2e gate reports + replay logs | fail-closed + envelope policy |
+| `G6` | perf/isomorphism harnesses | perf regression + isomorphism reports | fail-closed + compatibility drift (`REL-BUD-003/004`) |
+| `G7` | reliability schema/spec + validator | reliability report + gate validation artifact | fail-closed + envelope policy (`REL-BUD-001..006`) |
+| `G8` | durability pipeline + packet readiness contract | durability report + recovered artifacts/decode proof linkage | fail-closed + durability policy |
