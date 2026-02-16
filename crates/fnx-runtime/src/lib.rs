@@ -158,13 +158,14 @@ pub struct AsupersyncAdapterMachine {
 impl AsupersyncAdapterMachine {
     pub fn start(intent: AsupersyncTransferIntent) -> Result<Self, String> {
         intent.validate()?;
+        let transition_capacity = Self::transition_capacity(intent.max_attempts);
 
         let mut machine = Self {
             intent,
             state: AsupersyncAdapterState::Idle,
             attempt: 0,
             committed_cursor: 0,
-            transitions: Vec::new(),
+            transitions: Vec::with_capacity(transition_capacity),
         };
         machine.transition(
             AsupersyncAdapterEventType::Start,
@@ -179,6 +180,7 @@ impl AsupersyncAdapterMachine {
         checkpoint: AsupersyncAdapterCheckpoint,
     ) -> Result<Self, String> {
         intent.validate()?;
+        let transition_capacity = Self::transition_capacity(intent.max_attempts);
         if checkpoint.transfer_id != intent.transfer_id {
             return Err("checkpoint transfer_id does not match intent transfer_id".to_owned());
         }
@@ -196,7 +198,7 @@ impl AsupersyncAdapterMachine {
             state: AsupersyncAdapterState::Syncing,
             attempt: checkpoint.attempt,
             committed_cursor: checkpoint.committed_cursor,
-            transitions: Vec::new(),
+            transitions: Vec::with_capacity(transition_capacity),
         };
         machine.append_transition(
             AsupersyncAdapterState::Syncing,
@@ -470,6 +472,10 @@ impl AsupersyncAdapterMachine {
             committed_cursor: self.committed_cursor,
             reason_code,
         });
+    }
+
+    fn transition_capacity(max_attempts: u8) -> usize {
+        usize::from(max_attempts).saturating_add(6)
     }
 }
 

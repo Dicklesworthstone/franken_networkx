@@ -1,0 +1,11 @@
+{
+  "status": "pass",
+  "run_id": "e2e-script-pack-20260216T212220Z",
+  "events_path": "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl",
+  "determinism_report_path": "artifacts/e2e/latest/e2e_script_pack_determinism_report_v1.json",
+  "scenario_count": 9,
+  "passes": [
+    "baseline",
+    "replay"
+  ]
+}

@@ -98,7 +98,7 @@ run_step() {
   fi
 }
 
-TOTAL_STEPS=9
+TOTAL_STEPS=10
 STEP=1
 
 echo "[$STEP/$TOTAL_STEPS] Regenerating deterministic Phase2C packet artifacts..."
@@ -127,6 +127,10 @@ STEP=$((STEP + 1))
 
 echo "[$STEP/$TOTAL_STEPS] Running asupersync adapter state-machine contract gate..."
 run_step "step-$STEP" "cargo_test_asupersync_state_machine_gate" "rch exec -- cargo test -q -p fnx-conformance --test asupersync_adapter_state_machine_gate -- --nocapture"
+STEP=$((STEP + 1))
+
+echo "[$STEP/$TOTAL_STEPS] Running asupersync performance characterization gate..."
+run_step "step-$STEP" "cargo_test_asupersync_performance_gate" "rch exec -- cargo test -q -p fnx-conformance --test asupersync_performance_gate -- --nocapture"
 STEP=$((STEP + 1))
 
 echo "[$STEP/$TOTAL_STEPS] Running focused readiness packet gate tests..."
