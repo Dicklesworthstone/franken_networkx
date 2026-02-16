@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-TOTAL_STEPS=15
+TOTAL_STEPS=17
 step=1
 
 echo "[$step/$TOTAL_STEPS] Capturing oracle-backed fixtures..."
@@ -12,7 +12,7 @@ echo "[$step/$TOTAL_STEPS] Capturing oracle-backed fixtures..."
 step=$((step + 1))
 
 echo "[$step/$TOTAL_STEPS] Running conformance harness..."
-CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke
+rch exec -- env CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke
 step=$((step + 1))
 
 REPORT_PATH="artifacts/conformance/latest/smoke_report.json"
@@ -28,6 +28,9 @@ LOG_RECOVERED_PATH="artifacts/conformance/latest/structured_logs.recovered.json"
 NORMALIZATION_RECOVERED_PATH="artifacts/conformance/latest/structured_log_emitter_normalization_report.recovered.json"
 MATRIX_RECOVERED_PATH="artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.recovered.json"
 PIPELINE_REPORT_PATH="artifacts/conformance/latest/durability_pipeline_report.json"
+RELIABILITY_REPORT_PATH="artifacts/conformance/latest/reliability_budget_report_v1.json"
+FLAKE_QUARANTINE_PATH="artifacts/conformance/latest/flake_quarantine_v1.json"
+RELIABILITY_VALIDATION_PATH="artifacts/conformance/latest/reliability_budget_gate_validation_v1.json"
 FINAL_GATE_REPORT_PATH="artifacts/conformance/latest/logging_final_gate_report_v1.json"
 FINAL_CHECKLIST_PATH="artifacts/conformance/latest/logging_release_checklist_v1.md"
 
@@ -41,7 +44,7 @@ ARTIFACT_SPECS=(
 for spec in "${ARTIFACT_SPECS[@]}"; do
   IFS='|' read -r artifact_path sidecar_path _recovered_path artifact_id artifact_type <<< "$spec"
   echo "[$step/$TOTAL_STEPS] Generating durability sidecar for $artifact_id..."
-  CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-durability --bin fnx-durability -- \
+  rch exec -- env CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-durability --bin fnx-durability -- \
     generate "$artifact_path" "$sidecar_path" "$artifact_id" "$artifact_type" 1400 6
   step=$((step + 1))
 done
@@ -49,7 +52,7 @@ done
 for spec in "${ARTIFACT_SPECS[@]}"; do
   IFS='|' read -r artifact_path sidecar_path _recovered_path artifact_id _artifact_type <<< "$spec"
   echo "[$step/$TOTAL_STEPS] Running scrub verification for $artifact_id..."
-  CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-durability --bin fnx-durability -- \
+  rch exec -- env CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-durability --bin fnx-durability -- \
     scrub "$artifact_path" "$sidecar_path"
   step=$((step + 1))
 done
@@ -57,7 +60,7 @@ done
 for spec in "${ARTIFACT_SPECS[@]}"; do
   IFS='|' read -r _artifact_path sidecar_path recovered_path artifact_id _artifact_type <<< "$spec"
   echo "[$step/$TOTAL_STEPS] Running decode drill for $artifact_id..."
-  CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-durability --bin fnx-durability -- \
+  rch exec -- env CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-durability --bin fnx-durability -- \
     decode-drill "$sidecar_path" "$recovered_path"
   step=$((step + 1))
 done
@@ -116,6 +119,14 @@ report_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 print(f"  durability_report:{report_path}")
 PY
 
+echo "[$step/$TOTAL_STEPS] Generating reliability budget gate artifacts..."
+python3 ./scripts/generate_reliability_budget_gate_report.py
+step=$((step + 1))
+
+echo "[$step/$TOTAL_STEPS] Validating reliability budget gate artifacts..."
+python3 ./scripts/validate_reliability_budget_gate.py --output "$RELIABILITY_VALIDATION_PATH"
+step=$((step + 1))
+
 echo "[$step/$TOTAL_STEPS] Generating final logging gate report..."
 python3 ./scripts/generate_logging_gate_report.py
 
@@ -133,5 +144,8 @@ echo "  log_recovered:$LOG_RECOVERED_PATH"
 echo "  normalization_recovered:$NORMALIZATION_RECOVERED_PATH"
 echo "  unblock_matrix_recovered:$MATRIX_RECOVERED_PATH"
 echo "  durability_report:$PIPELINE_REPORT_PATH"
+echo "  reliability_report:$RELIABILITY_REPORT_PATH"
+echo "  flake_quarantine:$FLAKE_QUARANTINE_PATH"
+echo "  reliability_validation:$RELIABILITY_VALIDATION_PATH"
 echo "  final_gate_report:$FINAL_GATE_REPORT_PATH"
 echo "  final_release_checklist:$FINAL_CHECKLIST_PATH"
