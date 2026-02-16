@@ -1,0 +1,81 @@
+{
+  "schema_version": "1.0.0",
+  "schema_id": "reliability-budget-gate-schema-v1",
+  "required_top_level_keys": [
+    "schema_version",
+    "artifact_id",
+    "generated_at_utc",
+    "source_bead_id",
+    "budget_definitions",
+    "flake_policy",
+    "ci_failure_envelope_contract",
+    "packet_family_mapping",
+    "evidence_index"
+  ],
+  "required_budget_keys": [
+    "budget_id",
+    "packet_family",
+    "coverage_floor",
+    "property_floor",
+    "e2e_replay_pass_floor",
+    "flake_ceiling_pct_7d",
+    "runtime_guardrail",
+    "gate_command",
+    "evidence_paths"
+  ],
+  "required_coverage_floor_keys": [
+    "unit_line_pct",
+    "branch_pct"
+  ],
+  "required_runtime_guardrail_keys": [
+    "metric",
+    "threshold"
+  ],
+  "required_flake_policy_keys": [
+    "warn_threshold_pct",
+    "fail_threshold_pct",
+    "quarantine_enter",
+    "quarantine_exit"
+  ],
+  "required_quarantine_enter_keys": [
+    "flakes_in_window",
+    "window_hours"
+  ],
+  "required_quarantine_exit_keys": [
+    "consecutive_passes"
+  ],
+  "required_failure_envelope_fields": [
+    "budget_id",
+    "packet_scope",
+    "observed_value",
+    "threshold_value",
+    "status",
+    "failing_test_groups",
+    "artifact_paths",
+    "replay_commands",
+    "owner_bead_id",
+    "remediation_hint"
+  ],
+  "required_packet_family_mapping_keys": [
+    "packet_id",
+    "budget_id",
+    "owning_bead"
+  ],
+  "required_evidence_index_keys": [
+    "artifact_id",
+    "path"
+  ],
+  "allowed_status_values": [
+    "pass",
+    "warn",
+    "fail"
+  ],
+  "required_budget_ids": [
+    "REL-BUD-001",
+    "REL-BUD-002",
+    "REL-BUD-003",
+    "REL-BUD-004",
+    "REL-BUD-005",
+    "REL-BUD-006"
+  ]
+}

@@ -1,0 +1,170 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "reliability-budget-gate-v1",
+  "generated_at_utc": "2026-02-16T00:00:00Z",
+  "source_bead_id": "bd-315.23",
+  "budget_definitions": [
+    {
+      "budget_id": "REL-BUD-001",
+      "packet_family": "FNX-P2C-001/FNX-P2C-002",
+      "coverage_floor": {
+        "unit_line_pct": 90,
+        "branch_pct": 80
+      },
+      "property_floor": 5,
+      "e2e_replay_pass_floor": 1.0,
+      "flake_ceiling_pct_7d": 0.5,
+      "runtime_guardrail": {
+        "metric": "p95",
+        "threshold": "<= baseline + 10%"
+      },
+      "gate_command": "rch exec -- cargo test -q -p fnx-conformance --test smoke -- --nocapture",
+      "evidence_paths": [
+        "artifacts/conformance/latest/smoke_report.json",
+        "artifacts/conformance/latest/structured_logs.jsonl"
+      ]
+    },
+    {
+      "budget_id": "REL-BUD-002",
+      "packet_family": "FNX-P2C-004",
+      "coverage_floor": {
+        "unit_line_pct": 90,
+        "branch_pct": 80
+      },
+      "property_floor": 5,
+      "e2e_replay_pass_floor": 1.0,
+      "flake_ceiling_pct_7d": 0.5,
+      "runtime_guardrail": {
+        "metric": "p95",
+        "threshold": "<= baseline + 10%"
+      },
+      "gate_command": "rch exec -- cargo test -q -p fnx-conformance --test smoke -- --nocapture",
+      "evidence_paths": [
+        "artifacts/conformance/latest/generated_convert_edge_list_strict_json.report.json",
+        "artifacts/conformance/latest/generated_readwrite_roundtrip_strict_json.report.json"
+      ]
+    },
+    {
+      "budget_id": "REL-BUD-003",
+      "packet_family": "FNX-P2C-005",
+      "coverage_floor": {
+        "unit_line_pct": 92,
+        "branch_pct": 82
+      },
+      "property_floor": 6,
+      "e2e_replay_pass_floor": 1.0,
+      "flake_ceiling_pct_7d": 0.25,
+      "runtime_guardrail": {
+        "metric": "p99",
+        "threshold": "<= baseline + 10%"
+      },
+      "gate_command": "rch exec -- cargo test -q -p fnx-algorithms -- --nocapture",
+      "evidence_paths": [
+        "artifacts/perf/BASELINE_BFS_V1.md",
+        "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+      ]
+    },
+    {
+      "budget_id": "REL-BUD-004",
+      "packet_family": "FNX-P2C-007",
+      "coverage_floor": {
+        "unit_line_pct": 90,
+        "branch_pct": 80
+      },
+      "property_floor": 5,
+      "e2e_replay_pass_floor": 1.0,
+      "flake_ceiling_pct_7d": 0.5,
+      "runtime_guardrail": {
+        "metric": "p95",
+        "threshold": "<= baseline + 10%"
+      },
+      "gate_command": "rch exec -- cargo test -q -p fnx-conformance --test phase2c_packet_readiness_gate -- --nocapture",
+      "evidence_paths": [
+        "artifacts/conformance/latest/generated_centrality_degree_strict_json.report.json",
+        "artifacts/conformance/latest/generated_generators_cycle_strict_json.report.json"
+      ]
+    },
+    {
+      "budget_id": "REL-BUD-005",
+      "packet_family": "FNX-P2C-008",
+      "coverage_floor": {
+        "unit_line_pct": 92,
+        "branch_pct": 85
+      },
+      "property_floor": 6,
+      "e2e_replay_pass_floor": 1.0,
+      "flake_ceiling_pct_7d": 0.25,
+      "runtime_guardrail": {
+        "metric": "telemetry_contract",
+        "threshold": "fail_closed"
+      },
+      "gate_command": "rch exec -- cargo test -q -p fnx-conformance --test structured_log_gate -- --nocapture",
+      "evidence_paths": [
+        "artifacts/conformance/latest/structured_log_emitter_normalization_report.json",
+        "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json"
+      ]
+    },
+    {
+      "budget_id": "REL-BUD-006",
+      "packet_family": "FNX-P2C-009",
+      "coverage_floor": {
+        "unit_line_pct": 90,
+        "branch_pct": 80
+      },
+      "property_floor": 4,
+      "e2e_replay_pass_floor": 1.0,
+      "flake_ceiling_pct_7d": 0.5,
+      "runtime_guardrail": {
+        "metric": "decode_proof",
+        "threshold": "required"
+      },
+      "gate_command": "rch exec -- cargo test -q -p fnx-conformance --test phase2c_packet_readiness_gate -- --nocapture",
+      "evidence_paths": [
+        "artifacts/conformance/latest/structured_logs.raptorq.json",
+        "artifacts/conformance/latest/structured_logs.recovered.json",
+        "artifacts/phase2c/latest/phase2c_readiness_e2e_report_v1.json"
+      ]
+    }
+  ],
+  "flake_policy": {
+    "warn_threshold_pct": 0.25,
+    "fail_threshold_pct": 1.0,
+    "quarantine_enter": {
+      "flakes_in_window": 3,
+      "window_hours": 24
+    },
+    "quarantine_exit": {
+      "consecutive_passes": 20
+    }
+  },
+  "ci_failure_envelope_contract": {
+    "required_fields": [
+      "budget_id",
+      "packet_scope",
+      "observed_value",
+      "threshold_value",
+      "status",
+      "failing_test_groups",
+      "artifact_paths",
+      "replay_commands",
+      "owner_bead_id",
+      "remediation_hint"
+    ]
+  },
+  "packet_family_mapping": [
+    {"packet_id": "FNX-P2C-001", "budget_id": "REL-BUD-001", "owning_bead": "bd-315.12.5"},
+    {"packet_id": "FNX-P2C-002", "budget_id": "REL-BUD-001", "owning_bead": "bd-315.13.5"},
+    {"packet_id": "FNX-P2C-004", "budget_id": "REL-BUD-002", "owning_bead": "bd-315.15.5"},
+    {"packet_id": "FNX-P2C-005", "budget_id": "REL-BUD-003", "owning_bead": "bd-315.16.5"},
+    {"packet_id": "FNX-P2C-007", "budget_id": "REL-BUD-004", "owning_bead": "bd-315.18.5"},
+    {"packet_id": "FNX-P2C-008", "budget_id": "REL-BUD-005", "owning_bead": "bd-315.19.5"},
+    {"packet_id": "FNX-P2C-009", "budget_id": "REL-BUD-006", "owning_bead": "bd-315.20.5"}
+  ],
+  "evidence_index": [
+    {"artifact_id": "smoke_report", "path": "artifacts/conformance/latest/smoke_report.json"},
+    {"artifact_id": "structured_logs", "path": "artifacts/conformance/latest/structured_logs.jsonl"},
+    {"artifact_id": "normalization_report", "path": "artifacts/conformance/latest/structured_log_emitter_normalization_report.json"},
+    {"artifact_id": "durability_pipeline", "path": "artifacts/conformance/latest/durability_pipeline_report.json"},
+    {"artifact_id": "phase2c_readiness_e2e", "path": "artifacts/phase2c/latest/phase2c_readiness_e2e_report_v1.json"}
+  ]
+}
