@@ -1,232 +1,232 @@
 ### cycle 01/04
-start_unix_ms=1771217005471
-end_unix_ms=1771217012167
-duration_ms=6696
+start_unix_ms=1771217366397
+end_unix_ms=1771217373354
+duration_ms=6957
 return_code=0
 
 
-  [2m2026-02-16T04:43:25.506415Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSelected worker: vmi1264463 at ubuntu@38.242.209.154 (2 slots, speed 50.0)[0m
+  [2m2026-02-16T04:49:26.434541Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSelected worker: vmi1156319 at ubuntu@178.18.254.243 (2 slots, speed 50.0)[0m
     [2;3mat[0m rch/src/hook.rs:256 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:25.506482Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mStarting remote compilation pipeline for franken_networkx (hash: 166cc52d5d9b158c)[0m
+  [2m2026-02-16T04:49:26.434610Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mStarting remote compilation pipeline for franken_networkx (hash: 166cc52d5d9b158c)[0m
     [2;3mat[0m rch/src/hook.rs:2299 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:25.506489Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSyncing project to worker vmi1264463...[0m
+  [2m2026-02-16T04:49:26.434619Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSyncing project to worker vmi1156319...[0m
     [2;3mat[0m rch/src/hook.rs:2335 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:25.506501Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx -> /tmp/rch/franken_networkx/166cc52d5d9b158c on vmi1264463[0m
+  [2m2026-02-16T04:49:26.434633Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx -> /tmp/rch/franken_networkx/166cc52d5d9b158c on vmi1156319[0m
     [2;3mat[0m rch/src/transfer.rs:714 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:27.914082Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 2407ms[0m
+  [2m2026-02-16T04:49:29.030792Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 2596ms[0m
     [2;3mat[0m rch/src/transfer.rs:783 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:27.914101Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSync complete: 0 files, 0 bytes in 2407ms[0m
+  [2m2026-02-16T04:49:29.030814Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSync complete: 0 files, 0 bytes in 2596ms[0m
     [2;3mat[0m rch/src/hook.rs:2354 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:27.914111Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mExecuting command remotely: cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened[0m
+  [2m2026-02-16T04:49:29.030825Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mExecuting command remotely: cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened[0m
     [2;3mat[0m rch/src/hook.rs:2370 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:27.914119Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mWrapping command with external timeout protection, [1;32mkind[0m[32m: cargo build, [1;32mtimeout_secs[0m[32m: 300[0m
+  [2m2026-02-16T04:49:29.030835Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mWrapping command with external timeout protection, [1;32mkind[0m[32m: cargo build, [1;32mtimeout_secs[0m[32m: 300[0m
     [2;3mat[0m rch/src/transfer.rs:476 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:28.930748Z[0m [32m INFO[0m [1;32mrch_common::ssh[0m[32m: [32mConnected to vmi1264463 (38.242.209.154)[0m
+  [2m2026-02-16T04:49:30.253115Z[0m [32m INFO[0m [1;32mrch_common::ssh[0m[32m: [32mConnected to vmi1156319 (178.18.254.243)[0m
     [2;3mat[0m rch-common/src/ssh.rs:239 [2;3mon[0m ThreadId(1)
 
 suite=smoke fixtures=1 mismatches=0 oracle_present=true structured_logs=1
-  [2m2026-02-16T04:43:29.760814Z[0m [32m INFO[0m [1;32mrch_common::ssh[0m[32m: [32mDisconnected from vmi1264463[0m
+  [2m2026-02-16T04:49:30.962608Z[0m [32m INFO[0m [1;32mrch_common::ssh[0m[32m: [32mDisconnected from vmi1156319[0m
     [2;3mat[0m rch-common/src/ssh.rs:249 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:29.760838Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRemote command finished: exit=0 in 824ms[0m
+  [2m2026-02-16T04:49:30.962633Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRemote command finished: exit=0 in 703ms[0m
     [2;3mat[0m rch/src/hook.rs:2479 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:29.760845Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRetrieving build artifacts...[0m
+  [2m2026-02-16T04:49:30.962641Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRetrieving build artifacts...[0m
     [2;3mat[0m rch/src/hook.rs:2521 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:29.760856Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRetrieving artifacts from /tmp/rch/franken_networkx/166cc52d5d9b158c on vmi1264463[0m
+  [2m2026-02-16T04:49:30.962653Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRetrieving artifacts from /tmp/rch/franken_networkx/166cc52d5d9b158c on vmi1156319[0m
     [2;3mat[0m rch/src/transfer.rs:1180 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:32.165774Z[0m [33m WARN[0m [1;33mrch::transfer[0m[33m: [33mNo artifacts retrieved from vmi1264463 - build may have failed or artifact patterns may be misconfigured[0m
+  [2m2026-02-16T04:49:33.352292Z[0m [33m WARN[0m [1;33mrch::transfer[0m[33m: [33mNo artifacts retrieved from vmi1156319 - build may have failed or artifact patterns may be misconfigured[0m
     [2;3mat[0m rch/src/transfer.rs:1212 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:32.165790Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mArtifacts retrieved in 2404ms (0 files, 0 bytes)[0m
+  [2m2026-02-16T04:49:33.352310Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mArtifacts retrieved in 2389ms (0 files, 0 bytes)[0m
     [2;3mat[0m rch/src/transfer.rs:1219 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:32.165794Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mArtifacts retrieved: 0 files, 0 bytes in 2404ms[0m
+  [2m2026-02-16T04:49:33.352315Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mArtifacts retrieved: 0 files, 0 bytes in 2389ms[0m
     [2;3mat[0m rch/src/hook.rs:2548 [2;3mon[0m ThreadId(1)
 
-[RCH] remote vmi1264463 (6.7s)
+[RCH] remote vmi1156319 (6.9s)
 
 ### cycle 02/04
-start_unix_ms=1771217012167
-end_unix_ms=1771217018766
-duration_ms=6599
+start_unix_ms=1771217373354
+end_unix_ms=1771217380209
+duration_ms=6855
 return_code=0
 
 
-  [2m2026-02-16T04:43:32.200900Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSelected worker: vmi1264463 at ubuntu@38.242.209.154 (2 slots, speed 50.0)[0m
+  [2m2026-02-16T04:49:33.389410Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSelected worker: vmi1156319 at ubuntu@178.18.254.243 (2 slots, speed 50.0)[0m
     [2;3mat[0m rch/src/hook.rs:256 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:32.200977Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mStarting remote compilation pipeline for franken_networkx (hash: 166cc52d5d9b158c)[0m
+  [2m2026-02-16T04:49:33.389475Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mStarting remote compilation pipeline for franken_networkx (hash: 166cc52d5d9b158c)[0m
     [2;3mat[0m rch/src/hook.rs:2299 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:32.200986Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSyncing project to worker vmi1264463...[0m
+  [2m2026-02-16T04:49:33.389483Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSyncing project to worker vmi1156319...[0m
     [2;3mat[0m rch/src/hook.rs:2335 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:32.201000Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx -> /tmp/rch/franken_networkx/166cc52d5d9b158c on vmi1264463[0m
+  [2m2026-02-16T04:49:33.389496Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx -> /tmp/rch/franken_networkx/166cc52d5d9b158c on vmi1156319[0m
     [2;3mat[0m rch/src/transfer.rs:714 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:34.790477Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 2589ms[0m
+  [2m2026-02-16T04:49:35.921471Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 2531ms[0m
     [2;3mat[0m rch/src/transfer.rs:783 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:34.790498Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSync complete: 0 files, 0 bytes in 2589ms[0m
+  [2m2026-02-16T04:49:35.921491Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSync complete: 0 files, 0 bytes in 2531ms[0m
     [2;3mat[0m rch/src/hook.rs:2354 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:34.790510Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mExecuting command remotely: cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened[0m
+  [2m2026-02-16T04:49:35.921501Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mExecuting command remotely: cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened[0m
     [2;3mat[0m rch/src/hook.rs:2370 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:34.790520Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mWrapping command with external timeout protection, [1;32mkind[0m[32m: cargo build, [1;32mtimeout_secs[0m[32m: 300[0m
+  [2m2026-02-16T04:49:35.921512Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mWrapping command with external timeout protection, [1;32mkind[0m[32m: cargo build, [1;32mtimeout_secs[0m[32m: 300[0m
     [2;3mat[0m rch/src/transfer.rs:476 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:35.868131Z[0m [32m INFO[0m [1;32mrch_common::ssh[0m[32m: [32mConnected to vmi1264463 (38.242.209.154)[0m
+  [2m2026-02-16T04:49:36.951154Z[0m [32m INFO[0m [1;32mrch_common::ssh[0m[32m: [32mConnected to vmi1156319 (178.18.254.243)[0m
     [2;3mat[0m rch-common/src/ssh.rs:239 [2;3mon[0m ThreadId(1)
 
 suite=smoke fixtures=1 mismatches=0 oracle_present=true structured_logs=1
-  [2m2026-02-16T04:43:36.540420Z[0m [32m INFO[0m [1;32mrch_common::ssh[0m[32m: [32mDisconnected from vmi1264463[0m
+  [2m2026-02-16T04:49:37.611859Z[0m [32m INFO[0m [1;32mrch_common::ssh[0m[32m: [32mDisconnected from vmi1156319[0m
     [2;3mat[0m rch-common/src/ssh.rs:249 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:36.540442Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRemote command finished: exit=0 in 666ms[0m
+  [2m2026-02-16T04:49:37.611879Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRemote command finished: exit=0 in 655ms[0m
     [2;3mat[0m rch/src/hook.rs:2479 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:36.540449Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRetrieving build artifacts...[0m
+  [2m2026-02-16T04:49:37.611886Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRetrieving build artifacts...[0m
     [2;3mat[0m rch/src/hook.rs:2521 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:36.540459Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRetrieving artifacts from /tmp/rch/franken_networkx/166cc52d5d9b158c on vmi1264463[0m
+  [2m2026-02-16T04:49:37.611894Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRetrieving artifacts from /tmp/rch/franken_networkx/166cc52d5d9b158c on vmi1156319[0m
     [2;3mat[0m rch/src/transfer.rs:1180 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:38.764172Z[0m [33m WARN[0m [1;33mrch::transfer[0m[33m: [33mNo artifacts retrieved from vmi1264463 - build may have failed or artifact patterns may be misconfigured[0m
+  [2m2026-02-16T04:49:40.207886Z[0m [33m WARN[0m [1;33mrch::transfer[0m[33m: [33mNo artifacts retrieved from vmi1156319 - build may have failed or artifact patterns may be misconfigured[0m
     [2;3mat[0m rch/src/transfer.rs:1212 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:38.764193Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mArtifacts retrieved in 2223ms (0 files, 0 bytes)[0m
+  [2m2026-02-16T04:49:40.207903Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mArtifacts retrieved in 2595ms (0 files, 0 bytes)[0m
     [2;3mat[0m rch/src/transfer.rs:1219 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:38.764199Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mArtifacts retrieved: 0 files, 0 bytes in 2223ms[0m
+  [2m2026-02-16T04:49:40.207909Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mArtifacts retrieved: 0 files, 0 bytes in 2595ms[0m
     [2;3mat[0m rch/src/hook.rs:2548 [2;3mon[0m ThreadId(1)
 
-[RCH] remote vmi1264463 (6.6s)
+[RCH] remote vmi1156319 (6.8s)
 
 ### cycle 03/04
-start_unix_ms=1771217018766
-end_unix_ms=1771217025897
-duration_ms=7131
+start_unix_ms=1771217380209
+end_unix_ms=1771217387084
+duration_ms=6875
 return_code=0
 
 
-  [2m2026-02-16T04:43:38.801302Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSelected worker: vmi1264463 at ubuntu@38.242.209.154 (2 slots, speed 50.0)[0m
+  [2m2026-02-16T04:49:40.247391Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSelected worker: vmi1156319 at ubuntu@178.18.254.243 (2 slots, speed 50.0)[0m
     [2;3mat[0m rch/src/hook.rs:256 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:38.801357Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mStarting remote compilation pipeline for franken_networkx (hash: 166cc52d5d9b158c)[0m
+  [2m2026-02-16T04:49:40.247471Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mStarting remote compilation pipeline for franken_networkx (hash: 166cc52d5d9b158c)[0m
     [2;3mat[0m rch/src/hook.rs:2299 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:38.801364Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSyncing project to worker vmi1264463...[0m
+  [2m2026-02-16T04:49:40.247481Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSyncing project to worker vmi1156319...[0m
     [2;3mat[0m rch/src/hook.rs:2335 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:38.801376Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx -> /tmp/rch/franken_networkx/166cc52d5d9b158c on vmi1264463[0m
+  [2m2026-02-16T04:49:40.247508Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx -> /tmp/rch/franken_networkx/166cc52d5d9b158c on vmi1156319[0m
     [2;3mat[0m rch/src/transfer.rs:714 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:41.682004Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 2880ms[0m
+  [2m2026-02-16T04:49:42.749029Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 2501ms[0m
     [2;3mat[0m rch/src/transfer.rs:783 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:41.682027Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSync complete: 0 files, 0 bytes in 2880ms[0m
+  [2m2026-02-16T04:49:42.749078Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSync complete: 0 files, 0 bytes in 2501ms[0m
     [2;3mat[0m rch/src/hook.rs:2354 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:41.682039Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mExecuting command remotely: cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened[0m
+  [2m2026-02-16T04:49:42.749091Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mExecuting command remotely: cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened[0m
     [2;3mat[0m rch/src/hook.rs:2370 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:41.682087Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mWrapping command with external timeout protection, [1;32mkind[0m[32m: cargo build, [1;32mtimeout_secs[0m[32m: 300[0m
+  [2m2026-02-16T04:49:42.749100Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mWrapping command with external timeout protection, [1;32mkind[0m[32m: cargo build, [1;32mtimeout_secs[0m[32m: 300[0m
     [2;3mat[0m rch/src/transfer.rs:476 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:42.654140Z[0m [32m INFO[0m [1;32mrch_common::ssh[0m[32m: [32mConnected to vmi1264463 (38.242.209.154)[0m
+  [2m2026-02-16T04:49:43.784133Z[0m [32m INFO[0m [1;32mrch_common::ssh[0m[32m: [32mConnected to vmi1156319 (178.18.254.243)[0m
     [2;3mat[0m rch-common/src/ssh.rs:239 [2;3mon[0m ThreadId(1)
 
 suite=smoke fixtures=1 mismatches=0 oracle_present=true structured_logs=1
-  [2m2026-02-16T04:43:43.505468Z[0m [32m INFO[0m [1;32mrch_common::ssh[0m[32m: [32mDisconnected from vmi1264463[0m
+  [2m2026-02-16T04:49:44.585814Z[0m [32m INFO[0m [1;32mrch_common::ssh[0m[32m: [32mDisconnected from vmi1156319[0m
     [2;3mat[0m rch-common/src/ssh.rs:249 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:43.505487Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRemote command finished: exit=0 in 845ms[0m
+  [2m2026-02-16T04:49:44.585834Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRemote command finished: exit=0 in 795ms[0m
     [2;3mat[0m rch/src/hook.rs:2479 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:43.505493Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRetrieving build artifacts...[0m
+  [2m2026-02-16T04:49:44.585840Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRetrieving build artifacts...[0m
     [2;3mat[0m rch/src/hook.rs:2521 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:43.505502Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRetrieving artifacts from /tmp/rch/franken_networkx/166cc52d5d9b158c on vmi1264463[0m
+  [2m2026-02-16T04:49:44.585848Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRetrieving artifacts from /tmp/rch/franken_networkx/166cc52d5d9b158c on vmi1156319[0m
     [2;3mat[0m rch/src/transfer.rs:1180 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:45.895794Z[0m [33m WARN[0m [1;33mrch::transfer[0m[33m: [33mNo artifacts retrieved from vmi1264463 - build may have failed or artifact patterns may be misconfigured[0m
+  [2m2026-02-16T04:49:47.081509Z[0m [33m WARN[0m [1;33mrch::transfer[0m[33m: [33mNo artifacts retrieved from vmi1156319 - build may have failed or artifact patterns may be misconfigured[0m
     [2;3mat[0m rch/src/transfer.rs:1212 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:45.895814Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mArtifacts retrieved in 2390ms (0 files, 0 bytes)[0m
+  [2m2026-02-16T04:49:47.081525Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mArtifacts retrieved in 2495ms (0 files, 0 bytes)[0m
     [2;3mat[0m rch/src/transfer.rs:1219 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:45.895820Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mArtifacts retrieved: 0 files, 0 bytes in 2390ms[0m
+  [2m2026-02-16T04:49:47.081529Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mArtifacts retrieved: 0 files, 0 bytes in 2495ms[0m
     [2;3mat[0m rch/src/hook.rs:2548 [2;3mon[0m ThreadId(1)
 
-[RCH] remote vmi1264463 (7.1s)
+[RCH] remote vmi1156319 (6.8s)
 
 ### cycle 04/04
-start_unix_ms=1771217025897
-end_unix_ms=1771217032153
-duration_ms=6256
+start_unix_ms=1771217387084
+end_unix_ms=1771217394095
+duration_ms=7011
 return_code=0
 
 
-  [2m2026-02-16T04:43:45.932514Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSelected worker: vmi1264463 at ubuntu@38.242.209.154 (2 slots, speed 50.0)[0m
+  [2m2026-02-16T04:49:47.119025Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSelected worker: vmi1156319 at ubuntu@178.18.254.243 (2 slots, speed 50.0)[0m
     [2;3mat[0m rch/src/hook.rs:256 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:45.932601Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mStarting remote compilation pipeline for franken_networkx (hash: 166cc52d5d9b158c)[0m
+  [2m2026-02-16T04:49:47.119101Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mStarting remote compilation pipeline for franken_networkx (hash: 166cc52d5d9b158c)[0m
     [2;3mat[0m rch/src/hook.rs:2299 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:45.932611Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSyncing project to worker vmi1264463...[0m
+  [2m2026-02-16T04:49:47.119109Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSyncing project to worker vmi1156319...[0m
     [2;3mat[0m rch/src/hook.rs:2335 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:45.932632Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx -> /tmp/rch/franken_networkx/166cc52d5d9b158c on vmi1264463[0m
+  [2m2026-02-16T04:49:47.119122Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx -> /tmp/rch/franken_networkx/166cc52d5d9b158c on vmi1156319[0m
     [2;3mat[0m rch/src/transfer.rs:714 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:48.374640Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 2441ms[0m
+  [2m2026-02-16T04:49:49.711297Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 2592ms[0m
     [2;3mat[0m rch/src/transfer.rs:783 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:48.374660Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSync complete: 0 files, 0 bytes in 2441ms[0m
+  [2m2026-02-16T04:49:49.711316Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSync complete: 0 files, 0 bytes in 2592ms[0m
     [2;3mat[0m rch/src/hook.rs:2354 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:48.374670Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mExecuting command remotely: cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened[0m
+  [2m2026-02-16T04:49:49.711326Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mExecuting command remotely: cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened[0m
     [2;3mat[0m rch/src/hook.rs:2370 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:48.374679Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mWrapping command with external timeout protection, [1;32mkind[0m[32m: cargo build, [1;32mtimeout_secs[0m[32m: 300[0m
+  [2m2026-02-16T04:49:49.711335Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mWrapping command with external timeout protection, [1;32mkind[0m[32m: cargo build, [1;32mtimeout_secs[0m[32m: 300[0m
     [2;3mat[0m rch/src/transfer.rs:476 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:49.288936Z[0m [32m INFO[0m [1;32mrch_common::ssh[0m[32m: [32mConnected to vmi1264463 (38.242.209.154)[0m
+  [2m2026-02-16T04:49:50.825811Z[0m [32m INFO[0m [1;32mrch_common::ssh[0m[32m: [32mConnected to vmi1156319 (178.18.254.243)[0m
     [2;3mat[0m rch-common/src/ssh.rs:239 [2;3mon[0m ThreadId(1)
 
 suite=smoke fixtures=1 mismatches=0 oracle_present=true structured_logs=1
-  [2m2026-02-16T04:43:49.937512Z[0m [32m INFO[0m [1;32mrch_common::ssh[0m[32m: [32mDisconnected from vmi1264463[0m
+  [2m2026-02-16T04:49:51.509155Z[0m [32m INFO[0m [1;32mrch_common::ssh[0m[32m: [32mDisconnected from vmi1156319[0m
     [2;3mat[0m rch-common/src/ssh.rs:249 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:49.937531Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRemote command finished: exit=0 in 642ms[0m
+  [2m2026-02-16T04:49:51.509176Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRemote command finished: exit=0 in 677ms[0m
     [2;3mat[0m rch/src/hook.rs:2479 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:49.937536Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRetrieving build artifacts...[0m
+  [2m2026-02-16T04:49:51.509182Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRetrieving build artifacts...[0m
     [2;3mat[0m rch/src/hook.rs:2521 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:49.937545Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRetrieving artifacts from /tmp/rch/franken_networkx/166cc52d5d9b158c on vmi1264463[0m
+  [2m2026-02-16T04:49:51.509191Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRetrieving artifacts from /tmp/rch/franken_networkx/166cc52d5d9b158c on vmi1156319[0m
     [2;3mat[0m rch/src/transfer.rs:1180 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:52.150997Z[0m [33m WARN[0m [1;33mrch::transfer[0m[33m: [33mNo artifacts retrieved from vmi1264463 - build may have failed or artifact patterns may be misconfigured[0m
+  [2m2026-02-16T04:49:54.093344Z[0m [33m WARN[0m [1;33mrch::transfer[0m[33m: [33mNo artifacts retrieved from vmi1156319 - build may have failed or artifact patterns may be misconfigured[0m
     [2;3mat[0m rch/src/transfer.rs:1212 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:52.151012Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mArtifacts retrieved in 2213ms (0 files, 0 bytes)[0m
+  [2m2026-02-16T04:49:54.093362Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mArtifacts retrieved in 2584ms (0 files, 0 bytes)[0m
     [2;3mat[0m rch/src/transfer.rs:1219 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:43:52.151017Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mArtifacts retrieved: 0 files, 0 bytes in 2213ms[0m
+  [2m2026-02-16T04:49:54.093367Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mArtifacts retrieved: 0 files, 0 bytes in 2584ms[0m
     [2;3mat[0m rch/src/hook.rs:2548 [2;3mon[0m ThreadId(1)
 
-[RCH] remote vmi1264463 (6.2s)
+[RCH] remote vmi1156319 (7.0s)
 

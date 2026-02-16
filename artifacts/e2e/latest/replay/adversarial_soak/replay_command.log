@@ -1,50 +1,50 @@
-  [2m2026-02-16T04:44:37.784873Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSelected worker: vmi1264463 at ubuntu@38.242.209.154 (2 slots, speed 50.0)[0m
+  [2m2026-02-16T04:50:42.500328Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSelected worker: vmi1156319 at ubuntu@178.18.254.243 (2 slots, speed 50.0)[0m
     [2;3mat[0m rch/src/hook.rs:256 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:44:37.784924Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mStarting remote compilation pipeline for franken_networkx (hash: 166cc52d5d9b158c)[0m
+  [2m2026-02-16T04:50:42.500424Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mStarting remote compilation pipeline for franken_networkx (hash: 166cc52d5d9b158c)[0m
     [2;3mat[0m rch/src/hook.rs:2299 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:44:37.784931Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSyncing project to worker vmi1264463...[0m
+  [2m2026-02-16T04:50:42.500436Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSyncing project to worker vmi1156319...[0m
     [2;3mat[0m rch/src/hook.rs:2335 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:44:37.784945Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx -> /tmp/rch/franken_networkx/166cc52d5d9b158c on vmi1264463[0m
+  [2m2026-02-16T04:50:42.500453Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx -> /tmp/rch/franken_networkx/166cc52d5d9b158c on vmi1156319[0m
     [2;3mat[0m rch/src/transfer.rs:714 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:44:40.132220Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 2347ms[0m
+  [2m2026-02-16T04:50:44.912521Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 2412ms[0m
     [2;3mat[0m rch/src/transfer.rs:783 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:44:40.132240Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSync complete: 0 files, 0 bytes in 2347ms[0m
+  [2m2026-02-16T04:50:44.912541Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSync complete: 0 files, 0 bytes in 2412ms[0m
     [2;3mat[0m rch/src/hook.rs:2354 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:44:40.132251Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mExecuting command remotely: cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened[0m
+  [2m2026-02-16T04:50:44.912551Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mExecuting command remotely: cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened[0m
     [2;3mat[0m rch/src/hook.rs:2370 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:44:40.132261Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mWrapping command with external timeout protection, [1;32mkind[0m[32m: cargo build, [1;32mtimeout_secs[0m[32m: 300[0m
+  [2m2026-02-16T04:50:44.912561Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mWrapping command with external timeout protection, [1;32mkind[0m[32m: cargo build, [1;32mtimeout_secs[0m[32m: 300[0m
     [2;3mat[0m rch/src/transfer.rs:476 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:44:41.164684Z[0m [32m INFO[0m [1;32mrch_common::ssh[0m[32m: [32mConnected to vmi1264463 (38.242.209.154)[0m
+  [2m2026-02-16T04:50:46.043136Z[0m [32m INFO[0m [1;32mrch_common::ssh[0m[32m: [32mConnected to vmi1156319 (178.18.254.243)[0m
     [2;3mat[0m rch-common/src/ssh.rs:239 [2;3mon[0m ThreadId(1)
 
 suite=smoke fixtures=1 mismatches=0 oracle_present=true structured_logs=1
-  [2m2026-02-16T04:44:42.531925Z[0m [32m INFO[0m [1;32mrch_common::ssh[0m[32m: [32mDisconnected from vmi1264463[0m
+  [2m2026-02-16T04:50:46.728014Z[0m [32m INFO[0m [1;32mrch_common::ssh[0m[32m: [32mDisconnected from vmi1156319[0m
     [2;3mat[0m rch-common/src/ssh.rs:249 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:44:42.531945Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRemote command finished: exit=0 in 1362ms[0m
+  [2m2026-02-16T04:50:46.728033Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRemote command finished: exit=0 in 679ms[0m
     [2;3mat[0m rch/src/hook.rs:2479 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:44:42.531951Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRetrieving build artifacts...[0m
+  [2m2026-02-16T04:50:46.728039Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRetrieving build artifacts...[0m
     [2;3mat[0m rch/src/hook.rs:2521 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:44:42.531960Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRetrieving artifacts from /tmp/rch/franken_networkx/166cc52d5d9b158c on vmi1264463[0m
+  [2m2026-02-16T04:50:46.728056Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRetrieving artifacts from /tmp/rch/franken_networkx/166cc52d5d9b158c on vmi1156319[0m
     [2;3mat[0m rch/src/transfer.rs:1180 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:44:45.022553Z[0m [33m WARN[0m [1;33mrch::transfer[0m[33m: [33mNo artifacts retrieved from vmi1264463 - build may have failed or artifact patterns may be misconfigured[0m
+  [2m2026-02-16T04:50:49.072748Z[0m [33m WARN[0m [1;33mrch::transfer[0m[33m: [33mNo artifacts retrieved from vmi1156319 - build may have failed or artifact patterns may be misconfigured[0m
     [2;3mat[0m rch/src/transfer.rs:1212 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:44:45.022572Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mArtifacts retrieved in 2490ms (0 files, 0 bytes)[0m
+  [2m2026-02-16T04:50:49.072768Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mArtifacts retrieved in 2344ms (0 files, 0 bytes)[0m
     [2;3mat[0m rch/src/transfer.rs:1219 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T04:44:45.022578Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mArtifacts retrieved: 0 files, 0 bytes in 2490ms[0m
+  [2m2026-02-16T04:50:49.072776Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mArtifacts retrieved: 0 files, 0 bytes in 2344ms[0m
     [2;3mat[0m rch/src/hook.rs:2548 [2;3mon[0m ThreadId(1)
 
-[RCH] remote vmi1264463 (7.2s)
+[RCH] remote vmi1156319 (6.6s)

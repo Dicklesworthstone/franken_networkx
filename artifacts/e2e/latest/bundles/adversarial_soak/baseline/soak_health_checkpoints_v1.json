@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0.0",
   "artifact_id": "adversarial-soak-health-checkpoints-v1",
-  "generated_at_utc": "2026-02-16T04:43:52.154605+00:00",
-  "run_id": "e2e-script-pack-20260216T044236Z",
+  "generated_at_utc": "2026-02-16T04:49:54.097632+00:00",
+  "run_id": "e2e-script-pack-20260216T044845Z",
   "pass_label": "baseline",
   "scenario_id": "adversarial_soak",
   "soak_profile": "long_tail_stability",
@@ -13,9 +13,9 @@
   "target_cycle_count": 4,
   "realized_cycle_count": 4,
   "checkpoint_interval_ms": 15000,
-  "start_unix_ms": 1771217005471,
-  "end_unix_ms": 1771217032153,
-  "duration_ms": 26682,
+  "start_unix_ms": 1771217366397,
+  "end_unix_ms": 1771217394095,
+  "duration_ms": 27698,
   "deterministic_checkpoints": [
     {
       "checkpoint_id": "soak-checkpoint-01",
@@ -50,9 +50,9 @@
       "synthetic_memory_mb": 3058,
       "synthetic_queue_depth": 18,
       "cycle_status": "passed",
-      "cycle_duration_ms": 6696,
-      "cycle_start_unix_ms": 1771217005471,
-      "cycle_end_unix_ms": 1771217012167
+      "cycle_duration_ms": 6957,
+      "cycle_start_unix_ms": 1771217366397,
+      "cycle_end_unix_ms": 1771217373354
     },
     {
       "checkpoint_id": "soak-checkpoint-02",
@@ -61,9 +61,9 @@
       "synthetic_memory_mb": 2623,
       "synthetic_queue_depth": 31,
       "cycle_status": "passed",
-      "cycle_duration_ms": 6599,
-      "cycle_start_unix_ms": 1771217012167,
-      "cycle_end_unix_ms": 1771217018766
+      "cycle_duration_ms": 6855,
+      "cycle_start_unix_ms": 1771217373354,
+      "cycle_end_unix_ms": 1771217380209
     },
     {
       "checkpoint_id": "soak-checkpoint-03",
@@ -72,9 +72,9 @@
       "synthetic_memory_mb": 2188,
       "synthetic_queue_depth": 12,
       "cycle_status": "passed",
-      "cycle_duration_ms": 7131,
-      "cycle_start_unix_ms": 1771217018766,
-      "cycle_end_unix_ms": 1771217025897
+      "cycle_duration_ms": 6875,
+      "cycle_start_unix_ms": 1771217380209,
+      "cycle_end_unix_ms": 1771217387084
     },
     {
       "checkpoint_id": "soak-checkpoint-04",
@@ -83,9 +83,9 @@
       "synthetic_memory_mb": 1753,
       "synthetic_queue_depth": 25,
       "cycle_status": "passed",
-      "cycle_duration_ms": 6256,
-      "cycle_start_unix_ms": 1771217025897,
-      "cycle_end_unix_ms": 1771217032153
+      "cycle_duration_ms": 7011,
+      "cycle_start_unix_ms": 1771217387084,
+      "cycle_end_unix_ms": 1771217394095
     }
   ]
 }
