@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "artifact_id": "clean-unsafe-exception-registry-v1",
-  "generated_at_utc": "2026-02-15T05:21:46Z",
+  "generated_at_utc": "2026-02-16T04:53:46Z",
   "policy_defaults": {
     "workspace_default": "#![forbid(unsafe_code)] required in every workspace crate root",
     "lint_gate": "cargo clippy --workspace --all-targets -- -D warnings",

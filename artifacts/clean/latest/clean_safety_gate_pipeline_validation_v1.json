@@ -7,11 +7,9 @@
   "error_count": 0,
   "errors": [],
   "summary": {
-    "gate_count": 7,
-    "high_risk_target_count": 4,
-    "artifact_index_count": 7,
-    "triage_bucket_count": 4,
-    "compliance_scenario_count": 2,
-    "audit_record_count": 2
+    "gate_count": 6,
+    "high_risk_target_count": 3,
+    "artifact_index_count": 6,
+    "triage_bucket_count": 4
   }
 }

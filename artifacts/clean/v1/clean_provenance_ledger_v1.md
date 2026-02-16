@@ -1,7 +1,7 @@
 # Clean-Room Provenance Ledger
 
 - artifact id: `clean-provenance-ledger-v1`
-- generated at (utc): `2026-02-15T05:14:27Z`
+- generated at (utc): `2026-02-16T04:53:46Z`
 - baseline comparator: `legacy_networkx_code/networkx/networkx source anchors + in-repo Rust implementation artifacts`
 
 ## Scope

@@ -1,7 +1,7 @@
 # Clean Unsafe Policy + Exception Registry
 
 - artifact id: `clean-unsafe-exception-registry-v1`
-- generated at (utc): `2026-02-15T05:21:46Z`
+- generated at (utc): `2026-02-16T04:53:46Z`
 
 ## Policy Defaults
 - workspace default: #![forbid(unsafe_code)] required in every workspace crate root

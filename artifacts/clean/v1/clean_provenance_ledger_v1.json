@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "artifact_id": "clean-provenance-ledger-v1",
-  "generated_at_utc": "2026-02-15T05:14:27Z",
+  "generated_at_utc": "2026-02-16T04:53:46Z",
   "baseline_comparator": "legacy_networkx_code/networkx/networkx source anchors + in-repo Rust implementation artifacts",
   "scope_statement": "Machine-checkable clean-room provenance ledger covering extraction claims, implementation refs, handoff boundaries, ambiguity decisions, and reviewer sign-off.",
   "separation_workflow": {

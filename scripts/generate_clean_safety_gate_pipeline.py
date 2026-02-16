@@ -154,6 +154,81 @@ def build_artifact() -> dict[str, Any]:
             ],
             "determinism_notes": "All gate commands are stable, seedless checks against deterministic fixture artifacts and versioned reports."
         },
+        "compliance_test_scenarios": [
+            {
+                "scenario_id": "CLEAN-COMP-UNIT-PROVENANCE-SAFETY",
+                "level": "unit",
+                "objective": "Validate provenance lineage and unsafe-policy fail-closed controls with deterministic replay commands.",
+                "controls_validated": [
+                    "provenance_lineage",
+                    "unsafe_policy_fail_closed"
+                ],
+                "command": "rch exec -- cargo test -p fnx-conformance clean_provenance_ledger_is_lineage_complete_and_separated -- --exact --nocapture",
+                "replay_command": "rch exec -- cargo test -p fnx-conformance clean_provenance_ledger_is_lineage_complete_and_separated -- --exact --nocapture",
+                "expected_outcome": "lineage records, handoff boundaries, and unsafe fail-closed defaults remain valid",
+                "evidence_paths": [
+                    "artifacts/clean/latest/clean_provenance_validation_v1.json",
+                    "artifacts/clean/latest/clean_unsafe_policy_validation_v1.json"
+                ],
+                "audit_log_path": "artifacts/clean/latest/clean_compliance_audit_log_v1.json",
+                "deterministic_seed": 0,
+                "triage_metadata": {
+                    "bucket_id": "policy-regression",
+                    "severity": "critical",
+                    "owner_role": "safety-audit",
+                    "replay_ref": "rch exec -- cargo test -p fnx-conformance clean_provenance_ledger_is_lineage_complete_and_separated -- --exact --nocapture"
+                }
+            },
+            {
+                "scenario_id": "CLEAN-COMP-E2E-TRACEABILITY",
+                "level": "e2e",
+                "objective": "Demonstrate extraction-to-implementation traceability and gate enforcement through deterministic conformance replay.",
+                "controls_validated": [
+                    "provenance_lineage",
+                    "safety_gate_reproducibility"
+                ],
+                "command": "rch exec -- cargo run -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_roundtrip_strict.json --mode strict",
+                "replay_command": "rch exec -- cargo run -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_roundtrip_strict.json --mode strict",
+                "expected_outcome": "structured conformance logs and clean-room audit events remain replayable with full provenance links",
+                "evidence_paths": [
+                    "artifacts/clean/latest/clean_safety_gate_pipeline_validation_v1.json",
+                    "artifacts/conformance/latest/structured_logs.json",
+                    "artifacts/conformance/latest/structured_logs.jsonl"
+                ],
+                "audit_log_path": "artifacts/clean/latest/clean_compliance_audit_log_v1.json",
+                "deterministic_seed": 0,
+                "triage_metadata": {
+                    "bucket_id": "state-transition-invariant",
+                    "severity": "high",
+                    "owner_role": "runtime-safety",
+                    "replay_ref": "rch exec -- cargo run -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_roundtrip_strict.json --mode strict"
+                }
+            }
+        ],
+        "audit_logging_contract": {
+            "path": "artifacts/clean/latest/clean_compliance_audit_log_v1.json",
+            "schema_version": "1.0.0",
+            "required_fields": [
+                "claim_id",
+                "source_anchor",
+                "implementation_ref",
+                "reviewer_id",
+                "mode",
+                "outcome",
+                "replay_command",
+                "triage_metadata"
+            ],
+            "mode_values": [
+                "strict",
+                "hardened"
+            ],
+            "outcome_values": [
+                "pass",
+                "fail"
+            ],
+            "replay_key": "replay_command",
+            "triage_key": "triage_metadata"
+        },
         "artifact_index": [
             {
                 "artifact_id": "clean_unsafe_policy_validation",

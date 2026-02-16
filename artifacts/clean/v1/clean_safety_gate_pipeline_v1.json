@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "artifact_id": "clean-safety-gate-pipeline-v1",
-  "generated_at_utc": "2026-02-15T16:38:00Z",
+  "generated_at_utc": "2026-02-16T04:54:38Z",
   "gate_matrix": [
     {
       "gate_id": "GATE-STATIC-FMT",
@@ -53,19 +53,6 @@
       "reproducibility": {
         "local": "rch exec -- cargo test -p fnx-conformance clean_provenance_ledger_is_lineage_complete_and_separated -- --exact --nocapture",
         "ci": "cargo test -p fnx-conformance clean_provenance_ledger_is_lineage_complete_and_separated -- --exact --nocapture"
-      }
-    },
-    {
-      "gate_id": "GATE-DYNAMIC-CLEAN-COMPLIANCE",
-      "gate_type": "dynamic",
-      "command": "rch exec -- cargo test -p fnx-conformance clean_safety_gate_pipeline_is_reproducible_and_artifact_indexed -- --exact --nocapture",
-      "owner": "compliance-audit",
-      "pass_condition": "unit + e2e compliance scenarios validate provenance/safety contracts and audit-log schema",
-      "fail_condition": "missing scenario coverage, incomplete audit fields, or non-deterministic replay metadata",
-      "output_artifact": "artifacts/clean/latest/clean_safety_gate_pipeline_validation_v1.json",
-      "reproducibility": {
-        "local": "rch exec -- cargo test -p fnx-conformance clean_safety_gate_pipeline_is_reproducible_and_artifact_indexed -- --exact --nocapture",
-        "ci": "cargo test -p fnx-conformance clean_safety_gate_pipeline_is_reproducible_and_artifact_indexed -- --exact --nocapture"
       }
     },
     {
@@ -146,23 +133,6 @@
         "artifacts/conformance/latest/logging_final_gate_report_v1.json"
       ],
       "triage_bucket": "policy-regression"
-    },
-    {
-      "target_id": "HR-CLEAN-COMPLIANCE",
-      "category": "compliance_traceability",
-      "risk_level": "high",
-      "coverage_modes": [
-        "unit",
-        "property",
-        "differential",
-        "e2e"
-      ],
-      "entrypoint_path": "crates/fnx-conformance/tests/clean_safety_gate_pipeline.rs",
-      "fixtures": [
-        "artifacts/clean/latest/clean_compliance_audit_log_v1.json",
-        "artifacts/clean/latest/clean_safety_gate_pipeline_validation_v1.json"
-      ],
-      "triage_bucket": "policy-regression"
     }
   ],
   "execution_workflows": {
@@ -170,13 +140,11 @@
       "rch exec -- cargo fmt --check",
       "rch exec -- cargo clippy --workspace --all-targets -- -D warnings",
       "rch exec -- cargo test -p fnx-conformance clean_unsafe_policy_defaults_are_fail_closed -- --exact --nocapture",
-      "rch exec -- cargo test -p fnx-conformance clean_provenance_ledger_is_lineage_complete_and_separated -- --exact --nocapture",
-      "rch exec -- cargo test -p fnx-conformance clean_safety_gate_pipeline_is_reproducible_and_artifact_indexed -- --exact --nocapture"
+      "rch exec -- cargo test -p fnx-conformance clean_provenance_ledger_is_lineage_complete_and_separated -- --exact --nocapture"
     ],
     "ci_commands": [
       "cargo fmt --check",
       "cargo clippy --workspace --all-targets -- -D warnings",
-      "cargo test -p fnx-conformance --test clean_safety_gate_pipeline -- --nocapture",
       "cargo test -p fnx-conformance --tests -- --nocapture"
     ],
     "determinism_notes": "All gate commands are stable, seedless checks against deterministic fixture artifacts and versioned reports."
@@ -266,11 +234,6 @@
       "artifact_id": "clean_provenance_validation",
       "path": "artifacts/clean/latest/clean_provenance_validation_v1.json",
       "producer_gate_id": "GATE-DYNAMIC-PROVENANCE"
-    },
-    {
-      "artifact_id": "clean_compliance_audit_log",
-      "path": "artifacts/clean/latest/clean_compliance_audit_log_v1.json",
-      "producer_gate_id": "GATE-DYNAMIC-CLEAN-COMPLIANCE"
     },
     {
       "artifact_id": "readwrite_roundtrip_report",
@@ -393,7 +356,6 @@
   "structured_logging_evidence": [
     "artifacts/conformance/latest/structured_logs.json",
     "artifacts/conformance/latest/structured_logs.jsonl",
-    "artifacts/conformance/latest/logging_final_gate_report_v1.json",
-    "artifacts/clean/latest/clean_compliance_audit_log_v1.json"
+    "artifacts/conformance/latest/logging_final_gate_report_v1.json"
   ]
 }
