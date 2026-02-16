@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "artifact_id": "e2e-script-pack-replay-report-v1",
-  "generated_at_utc": "2026-02-16T04:09:55.942470+00:00",
+  "generated_at_utc": "2026-02-16T04:44:45.025245+00:00",
   "status": "passed",
   "reason_code": null,
   "scenario_id": "adversarial_soak",
@@ -12,9 +12,9 @@
   "replay_command_expected": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened",
   "replay_command_executed": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened",
   "command_log_path": "artifacts/e2e/latest/replay/adversarial_soak/replay_command.log",
-  "start_unix_ms": 1771214989996,
-  "end_unix_ms": 1771214995942,
-  "duration_ms": 5946,
+  "start_unix_ms": 1771217077750,
+  "end_unix_ms": 1771217085024,
+  "duration_ms": 7274,
   "forensics_links_expected": {
     "structured_log_hash_id": "6625aef5d4904944",
     "forensic_bundle_id": "forensics::FNX-P2C-006::generated::readwrite_hardened_malformed.json",

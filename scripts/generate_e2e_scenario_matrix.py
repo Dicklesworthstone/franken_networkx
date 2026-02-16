@@ -113,11 +113,91 @@ JOURNEY_SPECS: list[dict[str, Any]] = [
         "scoped_api_journey": "harness_execution_and_parity_snapshot",
         "packet_id": "FNX-P2C-009",
         "description": "Harness-level parity execution path and deterministic fixture replay contract.",
-        "strict_fixture_ids": ["generated/conformance_harness_strict.json"],
-        "hardened_fixture_ids": ["generated/conformance_harness_strict.json"],
+        "strict_fixture_ids": [
+            "generated/conformance_harness_strict.json",
+            "generated/adversarial_regression_bundle_v1.json",
+        ],
+        "hardened_fixture_ids": [
+            "generated/conformance_harness_strict.json",
+            "generated/adversarial_regression_bundle_v1.json",
+        ],
         "hardened_mode_strategy": "mode_override_fixture",
     },
 ]
+
+REQUIRED_WORKFLOW_CATEGORIES = [
+    "happy_path",
+    "regression_path",
+    "malformed_input_path",
+    "degraded_environment_path",
+]
+
+WORKFLOW_CATEGORY_BY_JOURNEY = {
+    "J-GRAPH-CORE": "happy_path",
+    "J-VIEWS": "regression_path",
+    "J-DISPATCH": "regression_path",
+    "J-CONVERT": "regression_path",
+    "J-SHORTEST-PATH-COMPONENTS": "happy_path",
+    "J-CENTRALITY": "regression_path",
+    "J-READWRITE": "malformed_input_path",
+    "J-GENERATORS": "happy_path",
+    "J-RUNTIME-OPTIONAL": "degraded_environment_path",
+    "J-CONFORMANCE-HARNESS": "happy_path",
+}
+
+UNIT_HOOK_TARGET_BY_JOURNEY = {
+    "J-GRAPH-CORE": {
+        "crate": "fnx-classes",
+        "artifact_ref": "crates/fnx-classes/src/lib.rs",
+    },
+    "J-VIEWS": {
+        "crate": "fnx-views",
+        "artifact_ref": "crates/fnx-views/src/lib.rs",
+    },
+    "J-DISPATCH": {
+        "crate": "fnx-dispatch",
+        "artifact_ref": "crates/fnx-dispatch/src/lib.rs",
+    },
+    "J-CONVERT": {
+        "crate": "fnx-convert",
+        "artifact_ref": "crates/fnx-convert/src/lib.rs",
+    },
+    "J-SHORTEST-PATH-COMPONENTS": {
+        "crate": "fnx-algorithms",
+        "artifact_ref": "crates/fnx-algorithms/src/lib.rs",
+    },
+    "J-CENTRALITY": {
+        "crate": "fnx-algorithms",
+        "artifact_ref": "crates/fnx-algorithms/src/lib.rs",
+    },
+    "J-READWRITE": {
+        "crate": "fnx-readwrite",
+        "artifact_ref": "crates/fnx-readwrite/src/lib.rs",
+    },
+    "J-GENERATORS": {
+        "crate": "fnx-generators",
+        "artifact_ref": "crates/fnx-generators/src/lib.rs",
+    },
+    "J-RUNTIME-OPTIONAL": {
+        "crate": "fnx-runtime",
+        "artifact_ref": "crates/fnx-runtime/src/lib.rs",
+    },
+    "J-CONFORMANCE-HARNESS": {
+        "crate": "fnx-conformance",
+        "artifact_ref": "crates/fnx-conformance/src/lib.rs",
+    },
+}
+
+DIFFERENTIAL_HOOK_OVERRIDE_BY_JOURNEY = {
+    "J-READWRITE": {
+        "fixture_id": "generated/readwrite_hardened_malformed.json",
+        "mode": "hardened",
+    },
+    "J-RUNTIME-OPTIONAL": {
+        "fixture_id": "generated/runtime_config_optional_strict.json",
+        "mode": "hardened",
+    },
+}
 
 TIE_BREAK_BY_OPERATION = {
     "add_node": "Node insertion order is deterministic and preserved in snapshot iteration.",
@@ -428,6 +508,76 @@ def replay_command(fixture_id: str, mode: str) -> str:
         "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- "
         f"--fixture {fixture_id} --mode {mode}"
     )
+
+
+def journey_token(journey_id: str) -> str:
+    return journey_id.removeprefix("J-")
+
+
+def journey_slug(journey_id: str) -> str:
+    return journey_token(journey_id).lower()
+
+
+def workflow_scenario_id(journey_id: str) -> str:
+    return f"WF-{journey_token(journey_id)}-001"
+
+
+def build_journey_coverage_hooks(journeys: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    matrix_report_ref = "artifacts/e2e/latest/e2e_scenario_matrix_report_v1.json"
+    scenario_report_ref = "artifacts/e2e/latest/e2e_user_workflow_scenario_report_v1.json"
+    hooks: list[dict[str, Any]] = []
+
+    for journey in journeys:
+        journey_id = journey["journey_id"]
+        slug = journey_slug(journey_id)
+        scenario_id = workflow_scenario_id(journey_id)
+        category = WORKFLOW_CATEGORY_BY_JOURNEY[journey_id]
+
+        unit_target = UNIT_HOOK_TARGET_BY_JOURNEY[journey_id]
+        unit_hook = {
+            "hook_id": f"unit-{slug}",
+            "command": f"rch exec -- cargo test -p {unit_target['crate']} -- --nocapture",
+            "artifact_ref": unit_target["artifact_ref"],
+        }
+
+        diff_override = DIFFERENTIAL_HOOK_OVERRIDE_BY_JOURNEY.get(journey_id)
+        if diff_override is None:
+            diff_fixture_id = journey["strict_path"]["fixture_id"]
+            diff_mode = "strict"
+        else:
+            diff_fixture_id = diff_override["fixture_id"]
+            diff_mode = diff_override["mode"]
+        differential_hook = {
+            "hook_id": f"diff-{slug}",
+            "command": (
+                "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- "
+                f"--fixture {diff_fixture_id} --mode {diff_mode}"
+            ),
+            "artifact_ref": f"crates/fnx-conformance/fixtures/{diff_fixture_id}",
+        }
+
+        e2e_hook = {
+            "hook_id": f"e2e-{slug}",
+            "command": (
+                "rch exec -- cargo test -q -p fnx-conformance "
+                "--test e2e_scenario_matrix_gate -- --nocapture"
+            ),
+            "artifact_ref": matrix_report_ref,
+        }
+
+        hooks.append(
+            {
+                "journey_id": journey_id,
+                "scenario_id": scenario_id,
+                "category": category,
+                "unit_hooks": [unit_hook],
+                "differential_hooks": [differential_hook],
+                "e2e_hooks": [e2e_hook],
+                "report_refs": [matrix_report_ref, scenario_report_ref],
+            }
+        )
+
+    return hooks
 
 
 def build_path(

@@ -1,10 +1,10 @@
 # E2E Scenario Matrix + Oracle Contract (V1)
 
-- generated_at_utc: 2026-02-14T22:57:25.533189+00:00
+- generated_at_utc: 2026-02-16T04:45:53.721344+00:00
 - baseline_comparator: legacy_networkx/main@python3.12
 - journey_count: 10
-- fixture_inventory_count: 16
-- covered_fixture_count: 16
+- fixture_inventory_count: 17
+- covered_fixture_count: 17
 - uncovered_fixture_count: 0
 
 ## Journey Coverage
@@ -21,30 +21,6 @@
 | `J-GENERATORS` | `FNX-P2C-007` | `generated/generators_path_strict.json` | `generated/generators_cycle_strict.json` | `mode_override_fixture` |
 | `J-RUNTIME-OPTIONAL` | `FNX-P2C-008` | `generated/runtime_config_optional_strict.json` | `generated/runtime_config_optional_strict.json` | `mode_override_fixture` |
 | `J-CONFORMANCE-HARNESS` | `FNX-P2C-009` | `generated/conformance_harness_strict.json` | `generated/conformance_harness_strict.json` | `mode_override_fixture` |
-
-## User Workflow Corpus
-
-- corpus_id: `fnx-user-workflow-scenario-corpus-v1`
-- corpus_version: `1.0.0`
-- scenario_log_report: `artifacts/e2e/latest/e2e_user_workflow_scenario_report_v1.json`
-- required_categories:
-  - `happy_path`
-  - `regression_path`
-  - `malformed_input_path`
-  - `degraded_environment_path`
-
-| Journey | Scenario ID | Category |
-|---|---|---|
-| `J-GRAPH-CORE` | `WF-GRAPH-CORE-001` | `happy_path` |
-| `J-VIEWS` | `WF-VIEWS-001` | `regression_path` |
-| `J-DISPATCH` | `WF-DISPATCH-001` | `regression_path` |
-| `J-CONVERT` | `WF-CONVERT-001` | `regression_path` |
-| `J-SHORTEST-PATH-COMPONENTS` | `WF-SHORTEST-PATH-COMPONENTS-001` | `happy_path` |
-| `J-CENTRALITY` | `WF-CENTRALITY-001` | `regression_path` |
-| `J-READWRITE` | `WF-READWRITE-001` | `malformed_input_path` |
-| `J-GENERATORS` | `WF-GENERATORS-001` | `happy_path` |
-| `J-RUNTIME-OPTIONAL` | `WF-RUNTIME-OPTIONAL-001` | `degraded_environment_path` |
-| `J-CONFORMANCE-HARNESS` | `WF-CONFORMANCE-HARNESS-001` | `happy_path` |
 
 ## Replay Metadata Contract
 
