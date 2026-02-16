@@ -31,6 +31,14 @@ def ensure_keys(payload: dict[str, Any], keys: list[str], ctx: str, errors: list
             errors.append(f"{ctx} missing key `{key}`")
 
 
+def ensure_gate_step_id(value: Any, prefix: str, ctx: str, errors: list[str]) -> None:
+    if not isinstance(value, str) or not value.strip():
+        errors.append(f"{ctx} must be non-empty string")
+        return
+    if prefix and not value.startswith(prefix):
+        errors.append(f"{ctx} must start with `{prefix}`")
+
+
 def ensure_path(path_str: str, ctx: str, errors: list[str]) -> None:
     if not isinstance(path_str, str) or not path_str:
         errors.append(f"{ctx} must be non-empty path string")
@@ -38,6 +46,25 @@ def ensure_path(path_str: str, ctx: str, errors: list[str]) -> None:
     abs_path = REPO_ROOT / path_str
     if not abs_path.exists():
         errors.append(f"{ctx} path does not exist: {path_str}")
+
+
+def ensure_retention_policy(
+    policy: Any,
+    schema: dict[str, Any],
+    ctx: str,
+    errors: list[str],
+) -> None:
+    if not isinstance(policy, dict):
+        errors.append(f"{ctx} must be object")
+        return
+    ensure_keys(policy, schema["required_retention_policy_keys"], ctx, errors)
+    policy_id = policy.get("policy_id")
+    if not isinstance(policy_id, str) or not policy_id.strip():
+        errors.append(f"{ctx}.policy_id must be non-empty string")
+    min_days = policy.get("min_retention_days")
+    if not isinstance(min_days, int) or min_days < 1:
+        errors.append(f"{ctx}.min_retention_days must be integer >= 1")
+    ensure_path(policy.get("storage_root", ""), f"{ctx}.storage_root", errors)
 
 
 def ensure_evidence_refs(
@@ -132,6 +159,8 @@ def main() -> int:
     errors: list[str] = []
     required_scenarios = schema["required_scenarios"]
     required_pass_labels = schema["required_pass_labels"]
+    required_packet_ids = schema["required_packet_ids"]
+    required_gate_step_prefix = schema.get("required_gate_step_prefix", "step-")
 
     ensure_keys(report, schema["required_report_keys"], "report", errors)
     if report.get("status") != "pass":
@@ -139,8 +168,34 @@ def main() -> int:
 
     if report.get("required_scenarios") != required_scenarios:
         errors.append("report.required_scenarios mismatch schema")
+    if report.get("required_packet_ids") != required_packet_ids:
+        errors.append("report.required_packet_ids mismatch schema")
     if report.get("pass_labels") != required_pass_labels:
         errors.append("report.pass_labels mismatch schema")
+    ensure_gate_step_id(report.get("gate_step_id"), required_gate_step_prefix, "report.gate_step_id", errors)
+    ensure_path(report.get("forensics_index_path", ""), "report.forensics_index_path", errors)
+    ensure_retention_policy(report.get("retention_policy"), schema, "report.retention_policy", errors)
+
+    packet_coverage = report.get("packet_coverage")
+    if isinstance(packet_coverage, dict):
+        ensure_keys(
+            packet_coverage,
+            ["required_packet_ids", "observed_packet_ids", "missing_packet_ids", "coverage_ok"],
+            "report.packet_coverage",
+            errors,
+        )
+        if packet_coverage.get("required_packet_ids") != required_packet_ids:
+            errors.append("report.packet_coverage.required_packet_ids mismatch schema")
+        observed_packet_ids = packet_coverage.get("observed_packet_ids")
+        if not isinstance(observed_packet_ids, list):
+            errors.append("report.packet_coverage.observed_packet_ids must be array")
+        missing_packet_ids = packet_coverage.get("missing_packet_ids")
+        if not isinstance(missing_packet_ids, list):
+            errors.append("report.packet_coverage.missing_packet_ids must be array")
+        if packet_coverage.get("coverage_ok") is not True:
+            errors.append("report.packet_coverage.coverage_ok must be true")
+    else:
+        errors.append("report.packet_coverage must be object")
 
     if not isinstance(events, list) or not events:
         errors.append("events JSONL must contain at least one row")
@@ -149,6 +204,7 @@ def main() -> int:
     by_scenario_pass: dict[tuple[str, str], dict[str, Any]] = {}
     bundle_by_scenario: dict[str, set[str]] = {}
     fingerprint_by_scenario: dict[str, set[str]] = {}
+    seen_packet_ids: set[str] = set()
     for event in events:
         if not isinstance(event, dict):
             errors.append("event row must be object")
@@ -166,6 +222,9 @@ def main() -> int:
         if key in by_scenario_pass:
             errors.append(f"duplicate event for scenario/pass {key}")
         by_scenario_pass[key] = event
+        packet_id = event.get("packet_id")
+        if isinstance(packet_id, str):
+            seen_packet_ids.add(packet_id)
 
         if event.get("status") != "passed":
             errors.append(f"event {key} has non-passed status `{event.get('status')}`")
@@ -190,6 +249,14 @@ def main() -> int:
         replay_command = event.get("replay_command")
         if not isinstance(replay_command, str) or not replay_command.strip():
             errors.append(f"event {key} replay_command must be non-empty string")
+        ensure_gate_step_id(
+            event.get("gate_step_id"),
+            required_gate_step_prefix,
+            f"event {key}.gate_step_id",
+            errors,
+        )
+        ensure_path(event.get("forensics_index_path", ""), f"event {key}.forensics_index_path", errors)
+        ensure_retention_policy(event.get("retention_policy"), schema, f"event {key}.retention_policy", errors)
 
         event_forensics = event.get("forensics_links")
         if isinstance(event_forensics, dict):
@@ -252,12 +319,43 @@ def main() -> int:
                 errors.append(f"failure_envelope {key} scenario_id mismatch event")
             if failure_envelope.get("pass_label") != pass_label:
                 errors.append(f"failure_envelope {key} pass_label mismatch event")
+            ensure_gate_step_id(
+                failure_envelope.get("gate_step_id"),
+                required_gate_step_prefix,
+                f"failure_envelope {key}.gate_step_id",
+                errors,
+            )
+            if failure_envelope.get("gate_step_id") != event.get("gate_step_id"):
+                errors.append(f"failure_envelope {key} gate_step_id mismatch event")
             if failure_envelope.get("bundle_id") != bundle_id:
                 errors.append(f"failure_envelope {key} bundle_id mismatch event")
             if failure_envelope.get("stable_fingerprint") != fingerprint:
                 errors.append(f"failure_envelope {key} stable_fingerprint mismatch event")
             if failure_envelope.get("replay_command") != replay_command:
                 errors.append(f"failure_envelope {key} replay_command mismatch event")
+            ensure_path(
+                failure_envelope.get("forensics_index_path", ""),
+                f"failure_envelope {key}.forensics_index_path",
+                errors,
+            )
+            if failure_envelope.get("forensics_index_path") != event.get("forensics_index_path"):
+                errors.append(f"failure_envelope {key} forensics_index_path mismatch event")
+            replay_bundle_manifest_path = failure_envelope.get("replay_bundle_manifest_path", "")
+            ensure_path(
+                replay_bundle_manifest_path,
+                f"failure_envelope {key}.replay_bundle_manifest_path",
+                errors,
+            )
+            if replay_bundle_manifest_path != event.get("bundle_manifest_path"):
+                errors.append(f"failure_envelope {key} replay_bundle_manifest_path mismatch event")
+            ensure_retention_policy(
+                failure_envelope.get("retention_policy"),
+                schema,
+                f"failure_envelope {key}.retention_policy",
+                errors,
+            )
+            if failure_envelope.get("retention_policy") != event.get("retention_policy"):
+                errors.append(f"failure_envelope {key} retention_policy mismatch event")
             if failure_envelope.get("status") not in ("passed", "failed"):
                 errors.append(f"failure_envelope {key} status must be `passed` or `failed`")
             if failure_envelope.get("status") == "failed" and not isinstance(
@@ -300,6 +398,10 @@ def main() -> int:
                     f"bundle_manifest {key}.execution_metadata",
                     errors,
                 )
+                if execution_metadata.get("gate_step_id") != manifest.get("gate_step_id"):
+                    errors.append(
+                        f"bundle_manifest {key}.execution_metadata.gate_step_id mismatch manifest gate_step_id"
+                    )
             else:
                 errors.append(f"bundle_manifest {key}.execution_metadata must be object")
             forensics = manifest.get("forensics_links")
@@ -344,6 +446,29 @@ def main() -> int:
                 errors.append(f"bundle_manifest {key} bundle_id mismatch event")
             if manifest.get("stable_fingerprint") != fingerprint:
                 errors.append(f"bundle_manifest {key} stable_fingerprint mismatch event")
+            ensure_gate_step_id(
+                manifest.get("gate_step_id"),
+                required_gate_step_prefix,
+                f"bundle_manifest {key}.gate_step_id",
+                errors,
+            )
+            if manifest.get("gate_step_id") != event.get("gate_step_id"):
+                errors.append(f"bundle_manifest {key}.gate_step_id mismatch event")
+            ensure_path(
+                manifest.get("forensics_index_path", ""),
+                f"bundle_manifest {key}.forensics_index_path",
+                errors,
+            )
+            if manifest.get("forensics_index_path") != event.get("forensics_index_path"):
+                errors.append(f"bundle_manifest {key}.forensics_index_path mismatch event")
+            ensure_retention_policy(
+                manifest.get("retention_policy"),
+                schema,
+                f"bundle_manifest {key}.retention_policy",
+                errors,
+            )
+            if manifest.get("retention_policy") != event.get("retention_policy"):
+                errors.append(f"bundle_manifest {key}.retention_policy mismatch event")
 
     for scenario_id in required_scenarios:
         for pass_label in required_pass_labels:
@@ -353,6 +478,9 @@ def main() -> int:
             errors.append(f"bundle_id must be stable across passes for {scenario_id}")
         if fingerprint_by_scenario.get(scenario_id, set()) and len(fingerprint_by_scenario[scenario_id]) != 1:
             errors.append(f"stable_fingerprint must be stable across passes for {scenario_id}")
+    for packet_id in required_packet_ids:
+        if packet_id not in seen_packet_ids:
+            errors.append(f"missing packet coverage for `{packet_id}`")
 
     report_runs = report.get("runs", [])
     if not isinstance(report_runs, list) or len(report_runs) != len(required_scenarios) * len(
@@ -457,6 +585,20 @@ def main() -> int:
         errors.append("report.structured_logging_evidence must be non-empty array")
 
     ensure_keys(bundle_index, schema["required_bundle_index_keys"], "bundle_index", errors)
+    ensure_gate_step_id(
+        bundle_index.get("gate_step_id"),
+        required_gate_step_prefix,
+        "bundle_index.gate_step_id",
+        errors,
+    )
+    ensure_path(
+        bundle_index.get("forensics_index_path", ""),
+        "bundle_index.forensics_index_path",
+        errors,
+    )
+    ensure_retention_policy(bundle_index.get("retention_policy"), schema, "bundle_index.retention_policy", errors)
+    if bundle_index.get("forensics_index_path") != args.bundle_index:
+        errors.append("bundle_index.forensics_index_path must match bundle-index artifact path")
     if bundle_index.get("scenario_count") != len(required_scenarios):
         errors.append("bundle_index.scenario_count mismatch required scenario count")
     if bundle_index.get("failure_count") != len(bundle_index.get("failure_index", [])):
@@ -480,6 +622,25 @@ def main() -> int:
         if scenario_id in seen_bundle_scenarios:
             errors.append(f"bundle_index duplicate scenario row `{scenario_id}`")
         seen_bundle_scenarios.add(scenario_id)
+        ensure_gate_step_id(
+            row.get("gate_step_id"),
+            required_gate_step_prefix,
+            f"bundle_index.rows[{scenario_id}].gate_step_id",
+            errors,
+        )
+        ensure_path(
+            row.get("forensics_index_path", ""),
+            f"bundle_index.rows[{scenario_id}].forensics_index_path",
+            errors,
+        )
+        ensure_retention_policy(
+            row.get("retention_policy"),
+            schema,
+            f"bundle_index.rows[{scenario_id}].retention_policy",
+            errors,
+        )
+        if row.get("forensics_index_path") != bundle_index.get("forensics_index_path"):
+            errors.append(f"bundle_index row `{scenario_id}` forensics_index_path mismatch bundle_index")
 
         manifests = row.get("manifests")
         failure_envelopes = row.get("failure_envelopes")
@@ -510,6 +671,14 @@ def main() -> int:
                 if event_row and envelope_path != event_row.get("failure_envelope_path"):
                     errors.append(
                         f"bundle_index row `{scenario_id}` envelope for `{pass_label}` mismatches event failure_envelope_path"
+                    )
+                if event_row and row.get("gate_step_id") != event_row.get("gate_step_id"):
+                    errors.append(
+                        f"bundle_index row `{scenario_id}` gate_step_id mismatch event for pass `{pass_label}`"
+                    )
+                if event_row and row.get("retention_policy") != event_row.get("retention_policy"):
+                    errors.append(
+                        f"bundle_index row `{scenario_id}` retention_policy mismatch event for pass `{pass_label}`"
                     )
         else:
             errors.append(f"bundle_index.rows[{scenario_id}].failure_envelopes must be object")
@@ -547,6 +716,44 @@ def main() -> int:
         replay_command = failure_row.get("replay_command")
         if not isinstance(replay_command, str) or not replay_command.strip():
             errors.append(f"bundle_index.failure_index[{idx}].replay_command must be non-empty string")
+        scenario_id = failure_row.get("scenario_id")
+        pass_label = failure_row.get("pass_label")
+        ensure_gate_step_id(
+            failure_row.get("gate_step_id"),
+            required_gate_step_prefix,
+            f"bundle_index.failure_index[{idx}].gate_step_id",
+            errors,
+        )
+        ensure_path(
+            failure_row.get("forensics_index_path", ""),
+            f"bundle_index.failure_index[{idx}].forensics_index_path",
+            errors,
+        )
+        ensure_path(
+            failure_row.get("replay_bundle_manifest_path", ""),
+            f"bundle_index.failure_index[{idx}].replay_bundle_manifest_path",
+            errors,
+        )
+        ensure_retention_policy(
+            failure_row.get("retention_policy"),
+            schema,
+            f"bundle_index.failure_index[{idx}].retention_policy",
+            errors,
+        )
+        if failure_row.get("forensics_index_path") != bundle_index.get("forensics_index_path"):
+            errors.append(f"bundle_index.failure_index[{idx}] forensics_index_path mismatch bundle_index")
+        event_row = None
+        if isinstance(scenario_id, str) and isinstance(pass_label, str):
+            event_row = by_scenario_pass.get((scenario_id, pass_label))
+        if event_row:
+            if failure_row.get("replay_bundle_manifest_path") != event_row.get("bundle_manifest_path"):
+                errors.append(
+                    f"bundle_index.failure_index[{idx}].replay_bundle_manifest_path mismatch event bundle_manifest_path"
+                )
+            if failure_row.get("gate_step_id") != event_row.get("gate_step_id"):
+                errors.append(f"bundle_index.failure_index[{idx}].gate_step_id mismatch event")
+            if failure_row.get("retention_policy") != event_row.get("retention_policy"):
+                errors.append(f"bundle_index.failure_index[{idx}].retention_policy mismatch event")
         forensics = failure_row.get("forensics_links")
         if isinstance(forensics, dict):
             ensure_keys(

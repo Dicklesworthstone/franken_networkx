@@ -12,6 +12,9 @@
     "audit_logging_contract",
     "artifact_index",
     "triage_taxonomy",
+    "fail_closed_policy_enforcement",
+    "operator_triage_playbook",
+    "gate_dashboard_contract",
     "alien_uplift_contract_card",
     "profile_first_artifacts",
     "optimization_lever_policy",
@@ -101,6 +104,60 @@
     "description",
     "owner_role",
     "response_sla_hours"
+  ],
+  "required_fail_closed_policy_keys": [
+    "unknown_incompatible_feature_policy",
+    "missing_artifact_link_policy",
+    "policy_scope",
+    "enforcement_triggers",
+    "violation_action",
+    "audit_log_path"
+  ],
+  "required_fail_closed_trigger_keys": [
+    "trigger_id",
+    "condition",
+    "threshold",
+    "fallback_action",
+    "reason_code"
+  ],
+  "required_operator_playbook_keys": [
+    "primary_oncall_role",
+    "first_response_flow",
+    "escalation_rules",
+    "audit_trail_requirements"
+  ],
+  "required_playbook_step_keys": [
+    "step_id",
+    "action",
+    "owner_role",
+    "max_response_minutes"
+  ],
+  "required_escalation_rule_keys": [
+    "rule_id",
+    "condition",
+    "escalate_to",
+    "max_minutes",
+    "severity_floor"
+  ],
+  "required_dashboard_contract_keys": [
+    "path",
+    "schema_version",
+    "required_fields",
+    "deterministic_sort_keys",
+    "deterministic_ordering",
+    "audit_mode"
+  ],
+  "required_dashboard_fields": [
+    "report_id",
+    "generated_at_utc",
+    "run_id",
+    "status",
+    "gate_summary",
+    "fail_closed_summary",
+    "triage_summary",
+    "artifact_health",
+    "audit_friendly",
+    "deterministic"
   ],
   "required_profile_artifact_keys": [
     "baseline",

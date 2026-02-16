@@ -7,19 +7,21 @@
   "scenario_kind": "happy_path",
   "journey_id": "J-GRAPH-CORE",
   "packet_id": "FNX-P2C-001",
+  "gate_step_id": "step-1",
   "mode": "strict",
   "fixture_id": "graph_core_shortest_path_strict.json",
   "deterministic_seed": 9158789141501386920,
   "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture graph_core_shortest_path_strict.json --mode strict",
   "execution_metadata": {
-    "run_id": "e2e-script-pack-20260216T064104Z",
+    "run_id": "e2e-script-pack-20260216T203841Z",
     "pass_label": "replay",
+    "gate_step_id": "step-1",
     "status": "passed",
     "reason_code": null,
-    "start_unix_ms": 1771224111129,
-    "end_unix_ms": 1771224117024,
-    "duration_ms": 5895,
-    "generated_at_utc": "2026-02-16T06:41:57.026301+00:00",
+    "start_unix_ms": 1771274374720,
+    "end_unix_ms": 1771274381937,
+    "duration_ms": 7217,
+    "generated_at_utc": "2026-02-16T20:39:41.938968+00:00",
     "forensics_source": "captured_structured_log"
   },
   "forensics_links": {
@@ -28,6 +30,7 @@
     "forensics_bundle_hash_id": "9c67f73088edeaed",
     "forensics_bundle_replay_ref": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture graph_core_shortest_path_strict.json --mode strict"
   },
+  "forensics_index_path": "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json",
   "evidence_refs": {
     "parity_report": "artifacts/phase2c/FNX-P2C-001/parity_report.json",
     "parity_report_raptorq": "artifacts/phase2c/FNX-P2C-001/parity_report.raptorq.json",
@@ -63,5 +66,10 @@
     "artifacts/e2e/latest/bundles/happy_path/replay/command.log",
     "artifacts/e2e/latest/bundles/happy_path/replay/selected_structured_log.json",
     "artifacts/e2e/latest/bundles/happy_path/replay/failure_envelope_v1.json"
-  ]
+  ],
+  "retention_policy": {
+    "policy_id": "e2e-latest-retention-v1",
+    "min_retention_days": 14,
+    "storage_root": "artifacts/e2e/latest"
+  }
 }

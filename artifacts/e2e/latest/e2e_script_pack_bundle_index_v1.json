@@ -1,8 +1,15 @@
 {
   "schema_version": "1.0.0",
   "artifact_id": "e2e-script-pack-bundle-index-v1",
-  "run_id": "e2e-script-pack-gate-20260216T064104Z",
-  "generated_at_utc": "2026-02-16T06:42:33.128967+00:00",
+  "run_id": "e2e-script-pack-gate-20260216T203840Z",
+  "generated_at_utc": "2026-02-16T20:40:20.390761+00:00",
+  "gate_step_id": "step-1",
+  "forensics_index_path": "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json",
+  "retention_policy": {
+    "min_retention_days": 14,
+    "policy_id": "e2e-latest-retention-v1",
+    "storage_root": "artifacts/e2e/latest"
+  },
   "scenario_count": 4,
   "rows": [
     {
@@ -10,6 +17,13 @@
       "packet_id": "FNX-P2C-006",
       "bundle_id": "e2e-bundle-6d7e041ad44a0f50",
       "stable_fingerprint": "ad1995178992eaf5",
+      "gate_step_id": "step-1",
+      "forensics_index_path": "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json",
+      "retention_policy": {
+        "min_retention_days": 14,
+        "policy_id": "e2e-latest-retention-v1",
+        "storage_root": "artifacts/e2e/latest"
+      },
       "manifests": {
         "baseline": "artifacts/e2e/latest/bundles/adversarial_soak/baseline/bundle_manifest_v1.json",
         "replay": "artifacts/e2e/latest/bundles/adversarial_soak/replay/bundle_manifest_v1.json"
@@ -51,6 +65,13 @@
       "packet_id": "FNX-P2C-005",
       "bundle_id": "e2e-bundle-3c9beaf0964ef3c8",
       "stable_fingerprint": "004320406d37f2ee",
+      "gate_step_id": "step-1",
+      "forensics_index_path": "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json",
+      "retention_policy": {
+        "min_retention_days": 14,
+        "policy_id": "e2e-latest-retention-v1",
+        "storage_root": "artifacts/e2e/latest"
+      },
       "manifests": {
         "baseline": "artifacts/e2e/latest/bundles/edge_path/baseline/bundle_manifest_v1.json",
         "replay": "artifacts/e2e/latest/bundles/edge_path/replay/bundle_manifest_v1.json"
@@ -92,6 +113,13 @@
       "packet_id": "FNX-P2C-001",
       "bundle_id": "e2e-bundle-3acfb1d1f035bdf5",
       "stable_fingerprint": "ae36a376be507091",
+      "gate_step_id": "step-1",
+      "forensics_index_path": "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json",
+      "retention_policy": {
+        "min_retention_days": 14,
+        "policy_id": "e2e-latest-retention-v1",
+        "storage_root": "artifacts/e2e/latest"
+      },
       "manifests": {
         "baseline": "artifacts/e2e/latest/bundles/happy_path/baseline/bundle_manifest_v1.json",
         "replay": "artifacts/e2e/latest/bundles/happy_path/replay/bundle_manifest_v1.json"
@@ -133,6 +161,13 @@
       "packet_id": "FNX-P2C-006",
       "bundle_id": "e2e-bundle-8812fedc0fe47217",
       "stable_fingerprint": "04f4b92eac1f9d6b",
+      "gate_step_id": "step-1",
+      "forensics_index_path": "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json",
+      "retention_policy": {
+        "min_retention_days": 14,
+        "policy_id": "e2e-latest-retention-v1",
+        "storage_root": "artifacts/e2e/latest"
+      },
       "manifests": {
         "baseline": "artifacts/e2e/latest/bundles/malformed_input/baseline/bundle_manifest_v1.json",
         "replay": "artifacts/e2e/latest/bundles/malformed_input/replay/bundle_manifest_v1.json"

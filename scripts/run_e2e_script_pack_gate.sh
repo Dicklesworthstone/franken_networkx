@@ -99,7 +99,7 @@ TOTAL_STEPS=4
 STEP=1
 
 echo "[$STEP/$TOTAL_STEPS] Running deterministic E2E script pack (happy/edge/malformed/adversarial_soak)..."
-run_step "step-$STEP" "run_e2e_script_pack" "python3 ./scripts/run_e2e_script_pack.py --scenario all --passes 2 --clear-output"
+run_step "step-$STEP" "run_e2e_script_pack" "python3 ./scripts/run_e2e_script_pack.py --scenario all --passes 2 --clear-output --gate-step-id step-1"
 STEP=$((STEP + 1))
 
 echo "Preparing bundle index artifact for gate assertions..."
@@ -158,6 +158,11 @@ STRUCTURED_LOGGING_EVIDENCE = [
     "artifacts/e2e/latest/e2e_script_pack_steps_v1.jsonl",
     "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl",
 ]
+DEFAULT_RETENTION_POLICY = {
+    "policy_id": "e2e-latest-retention-v1",
+    "min_retention_days": 14,
+    "storage_root": "artifacts/e2e/latest",
+}
 
 
 def load_json(path: str) -> dict:
@@ -167,6 +172,26 @@ def load_json(path: str) -> dict:
 
 index_rows = {}
 failure_index = []
+gate_step_id = next(
+    (
+        row.get("gate_step_id")
+        for row in events
+        if isinstance(row.get("gate_step_id"), str) and row["gate_step_id"].strip()
+    ),
+    "step-1",
+)
+forensics_index_path = next(
+    (
+        row.get("forensics_index_path")
+        for row in events
+        if isinstance(row.get("forensics_index_path"), str) and row["forensics_index_path"].strip()
+    ),
+    bundle_index_path,
+)
+retention_policy = next(
+    (row.get("retention_policy") for row in events if isinstance(row.get("retention_policy"), dict)),
+    DEFAULT_RETENTION_POLICY,
+)
 for row in events:
     scenario_id = row["scenario_id"]
     pass_label = row["pass_label"]
@@ -179,6 +204,9 @@ for row in events:
             "packet_id": packet_id,
             "bundle_id": row["bundle_id"],
             "stable_fingerprint": row["stable_fingerprint"],
+            "gate_step_id": row.get("gate_step_id"),
+            "forensics_index_path": row.get("forensics_index_path"),
+            "retention_policy": row.get("retention_policy"),
             "manifests": {},
             "failure_envelopes": {},
             "parity_perf_raptorq_evidence": evidence_refs,
@@ -195,6 +223,16 @@ for row in events:
                 "pass_label": pass_label,
                 "reason_code": failure_envelope.get("reason_code"),
                 "failure_envelope_path": row["failure_envelope_path"],
+                "replay_bundle_manifest_path": failure_envelope.get(
+                    "replay_bundle_manifest_path", row["bundle_manifest_path"]
+                ),
+                "gate_step_id": failure_envelope.get("gate_step_id", row.get("gate_step_id")),
+                "forensics_index_path": failure_envelope.get(
+                    "forensics_index_path", row.get("forensics_index_path")
+                ),
+                "retention_policy": failure_envelope.get(
+                    "retention_policy", row.get("retention_policy")
+                ),
                 "replay_command": failure_envelope.get("replay_command"),
                 "forensics_links": failure_envelope.get("forensics_links"),
                 "parity_perf_raptorq_evidence": evidence_refs,
@@ -218,6 +256,9 @@ bundle_index = {
     "artifact_id": "e2e-script-pack-bundle-index-v1",
     "run_id": run_id,
     "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+    "gate_step_id": gate_step_id,
+    "forensics_index_path": forensics_index_path,
+    "retention_policy": retention_policy,
     "scenario_count": len(index_rows),
     "rows": rows,
     "failure_count": len(failure_index),

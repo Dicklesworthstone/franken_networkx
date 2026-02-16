@@ -11,6 +11,12 @@
     "baseline",
     "replay"
   ],
+  "required_packet_ids": [
+    "FNX-P2C-001",
+    "FNX-P2C-005",
+    "FNX-P2C-006"
+  ],
+  "required_gate_step_prefix": "step-",
   "required_event_keys": [
     "schema_version",
     "run_id",
@@ -19,6 +25,7 @@
     "journey_id",
     "packet_id",
     "pass_label",
+    "gate_step_id",
     "fixture_id",
     "mode",
     "deterministic_seed",
@@ -32,10 +39,12 @@
     "replay_command",
     "forensics_links",
     "failure_envelope_path",
+    "forensics_index_path",
     "evidence_refs",
     "deterministic_replay_metadata",
     "bundle_manifest_path",
-    "artifact_refs"
+    "artifact_refs",
+    "retention_policy"
   ],
   "optional_event_keys": [
     "soak_profile",
@@ -55,15 +64,18 @@
     "scenario_kind",
     "journey_id",
     "packet_id",
+    "gate_step_id",
     "mode",
     "fixture_id",
     "deterministic_seed",
     "replay_command",
     "execution_metadata",
     "forensics_links",
+    "forensics_index_path",
     "evidence_refs",
     "failure_envelope_path",
-    "artifact_refs"
+    "artifact_refs",
+    "retention_policy"
   ],
   "optional_bundle_manifest_keys": [
     "soak_telemetry"
@@ -71,6 +83,7 @@
   "required_execution_metadata_keys": [
     "run_id",
     "pass_label",
+    "gate_step_id",
     "status",
     "start_unix_ms",
     "end_unix_ms",
@@ -82,6 +95,11 @@
     "forensic_bundle_id",
     "forensics_bundle_hash_id",
     "forensics_bundle_replay_ref"
+  ],
+  "required_retention_policy_keys": [
+    "policy_id",
+    "min_retention_days",
+    "storage_root"
   ],
   "required_evidence_ref_keys": [
     "parity_report",
@@ -112,6 +130,7 @@
     "reason_code",
     "scenario_id",
     "pass_label",
+    "gate_step_id",
     "packet_id",
     "fixture_id",
     "mode",
@@ -123,7 +142,10 @@
     "forensics_links",
     "missing_forensics_fields",
     "bundle_manifest_path",
+    "replay_bundle_manifest_path",
+    "forensics_index_path",
     "artifact_refs",
+    "retention_policy",
     "evidence_refs",
     "alien_uplift_contract_card",
     "decision_theoretic_runtime_contract",
@@ -134,6 +156,9 @@
     "artifact_id",
     "run_id",
     "generated_at_utc",
+    "gate_step_id",
+    "forensics_index_path",
+    "retention_policy",
     "scenario_count",
     "rows",
     "failure_count",
@@ -150,6 +175,9 @@
     "packet_id",
     "bundle_id",
     "stable_fingerprint",
+    "gate_step_id",
+    "forensics_index_path",
+    "retention_policy",
     "manifests",
     "failure_envelopes",
     "parity_perf_raptorq_evidence"
@@ -157,8 +185,12 @@
   "required_bundle_index_failure_keys": [
     "scenario_id",
     "pass_label",
+    "gate_step_id",
     "reason_code",
     "failure_envelope_path",
+    "replay_bundle_manifest_path",
+    "forensics_index_path",
+    "retention_policy",
     "replay_command",
     "forensics_links",
     "parity_perf_raptorq_evidence"
@@ -168,8 +200,13 @@
     "artifact_id",
     "run_id",
     "generated_at_utc",
+    "gate_step_id",
+    "forensics_index_path",
+    "retention_policy",
     "pass_labels",
     "required_scenarios",
+    "required_packet_ids",
+    "packet_coverage",
     "result_count",
     "status",
     "failures",

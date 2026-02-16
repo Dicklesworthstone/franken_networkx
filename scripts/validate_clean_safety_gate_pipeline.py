@@ -386,6 +386,306 @@ def main() -> int:
             f"high_risk_coverage references undefined triage buckets: {', '.join(missing_high_risk_buckets)}"
         )
 
+    fail_closed = ensure_dict(
+        artifact.get("fail_closed_policy_enforcement"),
+        "artifact.fail_closed_policy_enforcement",
+        errors,
+    )
+    require_keys(
+        fail_closed,
+        schema["required_fail_closed_policy_keys"],
+        "artifact.fail_closed_policy_enforcement",
+        errors,
+    )
+    unknown_policy = ensure_non_empty_string(
+        fail_closed.get("unknown_incompatible_feature_policy"),
+        "artifact.fail_closed_policy_enforcement.unknown_incompatible_feature_policy",
+        errors,
+    )
+    if unknown_policy and unknown_policy != "fail_closed":
+        errors.append(
+            "artifact.fail_closed_policy_enforcement.unknown_incompatible_feature_policy must equal `fail_closed`"
+        )
+    missing_artifact_policy = ensure_non_empty_string(
+        fail_closed.get("missing_artifact_link_policy"),
+        "artifact.fail_closed_policy_enforcement.missing_artifact_link_policy",
+        errors,
+    )
+    if missing_artifact_policy and missing_artifact_policy != "fail_closed":
+        errors.append(
+            "artifact.fail_closed_policy_enforcement.missing_artifact_link_policy must equal `fail_closed`"
+        )
+    ensure_non_empty_string(
+        fail_closed.get("policy_scope"),
+        "artifact.fail_closed_policy_enforcement.policy_scope",
+        errors,
+    )
+    ensure_non_empty_string(
+        fail_closed.get("violation_action"),
+        "artifact.fail_closed_policy_enforcement.violation_action",
+        errors,
+    )
+    fail_closed_audit_log_path = ensure_non_empty_string(
+        fail_closed.get("audit_log_path"),
+        "artifact.fail_closed_policy_enforcement.audit_log_path",
+        errors,
+    )
+    ensure_existing_path(
+        fail_closed_audit_log_path,
+        "artifact.fail_closed_policy_enforcement.audit_log_path",
+        root,
+        errors,
+    )
+    enforcement_triggers = ensure_list(
+        fail_closed.get("enforcement_triggers"),
+        "artifact.fail_closed_policy_enforcement.enforcement_triggers",
+        errors,
+    )
+    if not enforcement_triggers:
+        errors.append("artifact.fail_closed_policy_enforcement.enforcement_triggers must be non-empty")
+    observed_fail_closed_reason_codes: set[str] = set()
+    for idx, trigger in enumerate(enforcement_triggers):
+        if not isinstance(trigger, dict):
+            errors.append(
+                f"artifact.fail_closed_policy_enforcement.enforcement_triggers[{idx}] must be object"
+            )
+            continue
+        require_keys(
+            trigger,
+            schema["required_fail_closed_trigger_keys"],
+            f"artifact.fail_closed_policy_enforcement.enforcement_triggers[{idx}]",
+            errors,
+        )
+        ensure_non_empty_string(
+            trigger.get("trigger_id"),
+            f"artifact.fail_closed_policy_enforcement.enforcement_triggers[{idx}].trigger_id",
+            errors,
+        )
+        ensure_non_empty_string(
+            trigger.get("condition"),
+            f"artifact.fail_closed_policy_enforcement.enforcement_triggers[{idx}].condition",
+            errors,
+        )
+        threshold = trigger.get("threshold")
+        if not isinstance(threshold, int) or threshold < 1:
+            errors.append(
+                f"artifact.fail_closed_policy_enforcement.enforcement_triggers[{idx}].threshold must be integer >= 1"
+            )
+        fallback_action = ensure_non_empty_string(
+            trigger.get("fallback_action"),
+            f"artifact.fail_closed_policy_enforcement.enforcement_triggers[{idx}].fallback_action",
+            errors,
+        )
+        if fallback_action and "fail_closed" not in fallback_action:
+            errors.append(
+                f"artifact.fail_closed_policy_enforcement.enforcement_triggers[{idx}].fallback_action must include `fail_closed`"
+            )
+        reason_code = ensure_non_empty_string(
+            trigger.get("reason_code"),
+            f"artifact.fail_closed_policy_enforcement.enforcement_triggers[{idx}].reason_code",
+            errors,
+        )
+        if reason_code:
+            observed_fail_closed_reason_codes.add(reason_code)
+    for reason_code in ["unknown_incompatible_feature", "missing_artifact_link"]:
+        if reason_code not in observed_fail_closed_reason_codes:
+            errors.append(
+                f"artifact.fail_closed_policy_enforcement.enforcement_triggers missing reason_code `{reason_code}`"
+            )
+
+    playbook = ensure_dict(
+        artifact.get("operator_triage_playbook"),
+        "artifact.operator_triage_playbook",
+        errors,
+    )
+    require_keys(
+        playbook,
+        schema["required_operator_playbook_keys"],
+        "artifact.operator_triage_playbook",
+        errors,
+    )
+    ensure_non_empty_string(
+        playbook.get("primary_oncall_role"),
+        "artifact.operator_triage_playbook.primary_oncall_role",
+        errors,
+    )
+    first_response_flow = ensure_list(
+        playbook.get("first_response_flow"),
+        "artifact.operator_triage_playbook.first_response_flow",
+        errors,
+    )
+    if not first_response_flow:
+        errors.append("artifact.operator_triage_playbook.first_response_flow must be non-empty")
+    for idx, step in enumerate(first_response_flow):
+        if not isinstance(step, dict):
+            errors.append(f"artifact.operator_triage_playbook.first_response_flow[{idx}] must be object")
+            continue
+        require_keys(
+            step,
+            schema["required_playbook_step_keys"],
+            f"artifact.operator_triage_playbook.first_response_flow[{idx}]",
+            errors,
+        )
+        for key in ["step_id", "action", "owner_role"]:
+            ensure_non_empty_string(
+                step.get(key),
+                f"artifact.operator_triage_playbook.first_response_flow[{idx}].{key}",
+                errors,
+            )
+        max_response = step.get("max_response_minutes")
+        if not isinstance(max_response, int) or max_response < 1:
+            errors.append(
+                f"artifact.operator_triage_playbook.first_response_flow[{idx}].max_response_minutes must be integer >= 1"
+            )
+    escalation_rules = ensure_list(
+        playbook.get("escalation_rules"),
+        "artifact.operator_triage_playbook.escalation_rules",
+        errors,
+    )
+    if not escalation_rules:
+        errors.append("artifact.operator_triage_playbook.escalation_rules must be non-empty")
+    for idx, rule in enumerate(escalation_rules):
+        if not isinstance(rule, dict):
+            errors.append(f"artifact.operator_triage_playbook.escalation_rules[{idx}] must be object")
+            continue
+        require_keys(
+            rule,
+            schema["required_escalation_rule_keys"],
+            f"artifact.operator_triage_playbook.escalation_rules[{idx}]",
+            errors,
+        )
+        for key in ["rule_id", "condition", "escalate_to", "severity_floor"]:
+            ensure_non_empty_string(
+                rule.get(key),
+                f"artifact.operator_triage_playbook.escalation_rules[{idx}].{key}",
+                errors,
+            )
+        max_minutes = rule.get("max_minutes")
+        if not isinstance(max_minutes, int) or max_minutes < 1:
+            errors.append(
+                f"artifact.operator_triage_playbook.escalation_rules[{idx}].max_minutes must be integer >= 1"
+            )
+    audit_trail_requirements = ensure_string_list(
+        playbook.get("audit_trail_requirements"),
+        "artifact.operator_triage_playbook.audit_trail_requirements",
+        errors,
+    )
+    if not audit_trail_requirements:
+        errors.append("artifact.operator_triage_playbook.audit_trail_requirements must be non-empty")
+
+    dashboard_contract = ensure_dict(
+        artifact.get("gate_dashboard_contract"),
+        "artifact.gate_dashboard_contract",
+        errors,
+    )
+    require_keys(
+        dashboard_contract,
+        schema["required_dashboard_contract_keys"],
+        "artifact.gate_dashboard_contract",
+        errors,
+    )
+    dashboard_path = ensure_non_empty_string(
+        dashboard_contract.get("path"),
+        "artifact.gate_dashboard_contract.path",
+        errors,
+    )
+    ensure_existing_path(dashboard_path, "artifact.gate_dashboard_contract.path", root, errors)
+    ensure_non_empty_string(
+        dashboard_contract.get("schema_version"),
+        "artifact.gate_dashboard_contract.schema_version",
+        errors,
+    )
+    dashboard_required_fields = ensure_string_list(
+        dashboard_contract.get("required_fields"),
+        "artifact.gate_dashboard_contract.required_fields",
+        errors,
+    )
+    if set(dashboard_required_fields) != set(schema["required_dashboard_fields"]):
+        errors.append(
+            "artifact.gate_dashboard_contract.required_fields must match schema.required_dashboard_fields"
+        )
+    dashboard_sort_keys = ensure_string_list(
+        dashboard_contract.get("deterministic_sort_keys"),
+        "artifact.gate_dashboard_contract.deterministic_sort_keys",
+        errors,
+    )
+    if not dashboard_sort_keys:
+        errors.append("artifact.gate_dashboard_contract.deterministic_sort_keys must be non-empty")
+    deterministic_ordering = ensure_non_empty_string(
+        dashboard_contract.get("deterministic_ordering"),
+        "artifact.gate_dashboard_contract.deterministic_ordering",
+        errors,
+    )
+    if deterministic_ordering and deterministic_ordering != "lexicographic":
+        errors.append("artifact.gate_dashboard_contract.deterministic_ordering must equal `lexicographic`")
+    ensure_non_empty_string(
+        dashboard_contract.get("audit_mode"),
+        "artifact.gate_dashboard_contract.audit_mode",
+        errors,
+    )
+
+    if dashboard_path and (root / dashboard_path).exists():
+        dashboard = load_json(root / dashboard_path)
+        for key in schema["required_dashboard_fields"]:
+            if key not in dashboard:
+                errors.append(f"dashboard missing required key `{key}`")
+        if dashboard.get("status") != "pass":
+            errors.append("dashboard.status must be `pass`")
+        if dashboard.get("audit_friendly") is not True:
+            errors.append("dashboard.audit_friendly must be true")
+        if dashboard.get("deterministic") is not True:
+            errors.append("dashboard.deterministic must be true")
+        gate_summary = ensure_dict(dashboard.get("gate_summary"), "dashboard.gate_summary", errors)
+        if gate_summary.get("total_gates") != len(gate_matrix):
+            errors.append("dashboard.gate_summary.total_gates mismatch gate_matrix size")
+        required_gate_ids = gate_summary.get("required_gate_ids")
+        if isinstance(required_gate_ids, list):
+            observed_required_gate_ids = sorted(
+                gate_id for gate_id in required_gate_ids if isinstance(gate_id, str)
+            )
+            if observed_required_gate_ids != sorted(gate_ids):
+                errors.append("dashboard.gate_summary.required_gate_ids mismatch gate_matrix gate IDs")
+        else:
+            errors.append("dashboard.gate_summary.required_gate_ids must be array")
+        fail_closed_summary = ensure_dict(
+            dashboard.get("fail_closed_summary"),
+            "dashboard.fail_closed_summary",
+            errors,
+        )
+        if fail_closed_summary.get("unknown_incompatible_feature_policy") != unknown_policy:
+            errors.append(
+                "dashboard.fail_closed_summary.unknown_incompatible_feature_policy mismatch artifact contract"
+            )
+        if fail_closed_summary.get("missing_artifact_link_policy") != missing_artifact_policy:
+            errors.append("dashboard.fail_closed_summary.missing_artifact_link_policy mismatch artifact contract")
+        triage_summary = ensure_dict(
+            dashboard.get("triage_summary"),
+            "dashboard.triage_summary",
+            errors,
+        )
+        if triage_summary.get("bucket_count") != len(triage_taxonomy):
+            errors.append("dashboard.triage_summary.bucket_count mismatch triage_taxonomy size")
+        bucket_ids = triage_summary.get("bucket_ids")
+        if isinstance(bucket_ids, list):
+            observed_bucket_ids = sorted(bucket_id for bucket_id in bucket_ids if isinstance(bucket_id, str))
+            if observed_bucket_ids != sorted(required_triage_buckets):
+                errors.append("dashboard.triage_summary.bucket_ids mismatch required triage buckets")
+        else:
+            errors.append("dashboard.triage_summary.bucket_ids must be array")
+        if triage_summary.get("primary_oncall_role") != playbook.get("primary_oncall_role"):
+            errors.append("dashboard.triage_summary.primary_oncall_role mismatch operator_triage_playbook")
+        artifact_health = ensure_dict(
+            dashboard.get("artifact_health"),
+            "dashboard.artifact_health",
+            errors,
+        )
+        if artifact_health.get("artifact_index_count") != len(artifact_index):
+            errors.append("dashboard.artifact_health.artifact_index_count mismatch artifact_index size")
+        if artifact_health.get("missing_artifact_links") != 0:
+            errors.append("dashboard.artifact_health.missing_artifact_links must equal 0")
+        if artifact_health.get("audit_log_path") != fail_closed_audit_log_path:
+            errors.append("dashboard.artifact_health.audit_log_path mismatch fail_closed audit log path")
+
     alien = ensure_dict(artifact.get("alien_uplift_contract_card"), "artifact.alien_uplift_contract_card", errors)
     require_keys(alien, schema["required_alien_contract_card_keys"], "artifact.alien_uplift_contract_card", errors)
     ev_score = alien.get("ev_score")

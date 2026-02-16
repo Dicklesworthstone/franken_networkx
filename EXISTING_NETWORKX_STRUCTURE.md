@@ -245,3 +245,107 @@ Operational invariants:
 2. Every gate is blocking and fail-closed.
 3. The first gate failure short-circuits downstream gates and must emit policy/budget-scoped remediation metadata.
 4. Compatibility and security drift checks are encoded via deterministic rule IDs rather than ad-hoc prose in CI output.
+
+## 17. Concurrency/Lifecycle Semantics and Ordering Guarantees (DOC-PASS-06)
+
+### 17.1 Legacy anchor points to preserve
+
+- Graph mutation is in-place over shared adjacency dictionaries (`legacy_networkx_code/networkx/networkx/classes/graph.py`, `digraph.py`), with explicit list materialization in removal loops to avoid iterator invalidation.
+- Node/edge/adjacency views are live wrappers (`legacy_networkx_code/networkx/networkx/classes/coreviews.py`, `reportviews.py`) and therefore reflect current backing-map state, not snapshot-isolated state.
+- Dispatch backend resolution is driven by global backend registries and backend-priority policy (`legacy_networkx_code/networkx/networkx/utils/backends.py`), making route choice deterministic only when config and backend availability are held constant.
+- Traversal output order in shortest-path routines inherits adjacency iteration order (`legacy_networkx_code/networkx/networkx/algorithms/shortest_paths/unweighted.py`).
+- Random generator reproducibility depends on explicit seed handling via `@py_random_state` (`legacy_networkx_code/networkx/networkx/generators/random_graphs.py`).
+- Read/write parsing is sequential and line-ordered (`legacy_networkx_code/networkx/networkx/readwrite/edgelist.py`, `adjlist.py`), so warning/failure order is part of observable behavior.
+
+### 17.2 Rust-port hazard matrix and containment
+
+| Hazard | Observable regression | Required containment in FrankenNetworkX |
+|---|---|---|
+| mutation while iterating views/neighbors | non-deterministic edge order, stale reads, replay mismatch | revision-gated mutation commits plus deterministic view invalidation/rebuild |
+| stale cache served after parent mutation | strict/hardened parity drift | enforce monotonic revision checks; fail-closed on stale-cache detection |
+| backend registry/config drift during dispatch | backend route flaps across runs | capture deterministic dispatch decision ledgers (policy IDs + selected backend + conversion path) |
+| parser parallelization/reordering | unstable warning vectors and first-failure positions | preserve deterministic input order and canonical warning ordering |
+| shared RNG streams across scenarios | seed replay instability | isolate RNG per scenario and persist replay seeds in structured telemetry |
+
+### 17.3 Mandatory parity assertions for this pass
+
+1. Neighbor/view iteration order remains stable after scripted mutation sequences.
+2. Cached view refresh behavior is deterministic and never silently serves stale state.
+3. Dispatch decisions are replay-identical under fixed inputs, mode, and backend config.
+4. Parse-warning and fail-row ordering are deterministic for malformed fixture corpora.
+5. Seeded generator runs are replay-identical across reruns and linked to e2e replay metadata.
+
+## 18. Security/Compatibility Edge Cases and Undefined Zones (DOC-PASS-08)
+
+### 18.1 Undefined-zone inventory
+
+| Zone | Legacy anchor | Required policy |
+|---|---|---|
+| mutable-but-hashable node identity drift | `legacy_networkx_code/networkx/networkx/classes/graph.py` hashability notes (`565-570`) | treat identity instability as incompatible input; fail-closed |
+| `None` node admission | `graph.py` / `digraph.py` node validation paths | hard fail-closed in strict and hardened |
+| live-view mutation during iteration | `graph.py` list-materialized removal loops + `coreviews.py` live wrappers | deterministic rollback/rebuild or fail-closed; never serve partially-mutated state |
+| multi-edge key allocation/reuse subtleties | `multigraph.py::new_edge_key`, `multidigraph.py::add_edge/remove_edge` | preserve deterministic key semantics; never rewrite keys heuristically |
+| backend-route ambiguity and unsupported conversion | `utils/backends.py` dispatch/convert gates | fail-closed with deterministic route evidence |
+| delimiter and literal-parse ambiguities in ingest | `readwrite/adjlist.py`, `readwrite/edgelist.py` | strict fail-closed; hardened bounded warning-only recovery with budgets |
+
+### 18.2 Hardened-mode rationale (non-negotiable)
+
+1. Hardened recovery is allowed only for bounded, row-local parse anomalies with deterministic warning artifacts.
+2. Unknown incompatible features, telemetry schema violations, and route ambiguity remain fail-closed in both modes.
+3. Any hardened recovery must emit policy ID, reason code, replay command, and artifact links; otherwise gate failure.
+
+## 19. Pass-A Topology and Ownership Closure Map
+
+### 19.1 Subsystem ownership matrix (legacy -> Rust -> evidence)
+
+| Legacy subsystem anchor | Rust owner(s) | Dependency position | Primary evidence / gate surface |
+|---|---|---|---|
+| `networkx/classes/graph.py`, `digraph.py`, `multigraph.py`, `multidigraph.py` | `crates/fnx-classes` | foundational storage/mutation layer | `crates/fnx-classes` unit tests + conformance fixtures (`graph_core_*`) |
+| `networkx/classes/coreviews.py`, `reportviews.py`, `graphviews.py` | `crates/fnx-views` (+ `fnx-classes`) | projection/view layer over graph store | `crates/fnx-conformance/fixtures/generated/view_neighbors_strict.json` |
+| `networkx/utils/backends.py` | `crates/fnx-dispatch` (+ `fnx-runtime`) | dispatch/routing compatibility boundary | dispatch strict fixtures + decision-ledger checks |
+| `networkx/convert.py` and conversion helpers | `crates/fnx-convert` | ingest/transform boundary before algorithm execution | conversion fixtures (`convert_edge_list_strict.json`) + malformed-input e2e |
+| `networkx/readwrite/*` | `crates/fnx-readwrite` | serialization and parser boundary | read/write round-trip + malformed fixture suites |
+| `networkx/algorithms/*` (shortest path, components, centrality, etc.) | `crates/fnx-algorithms` | deterministic algorithm core | algorithm parity fixtures + complexity witness artifacts |
+| `networkx/generators/*` | `crates/fnx-generators` | graph-construction boundary feeding tests and workloads | seeded generator fixtures + adversarial/happy-path e2e scripts |
+| `networkx/tests/*` parity/oracle behavior | `crates/fnx-conformance` | top-level behavior verification and mismatch taxonomy | smoke + packet gates + structured log contracts |
+| durability/recovery adjunct (FrankenNetworkX addition) | `crates/fnx-durability`, `crates/fnx-runtime` | artifact integrity and fail-closed recovery boundary | decode-proof artifacts + readiness/durability gates |
+
+### 19.2 Dependency narrative (ordered and explicit)
+
+1. Graph API enters through `fnx-classes` (state source of truth).
+2. Views (`fnx-views`) and dispatch (`fnx-dispatch`) consume graph/runtime contracts without mutating policy law.
+3. Conversion and read/write (`fnx-convert`, `fnx-readwrite`) normalize ingress/egress while preserving strict/hardened mode contracts.
+4. Algorithms and generators (`fnx-algorithms`, `fnx-generators`) consume deterministic graph semantics and emit witness-compatible outputs.
+5. Conformance (`fnx-conformance`) validates behavior parity and forensics telemetry across all packets.
+6. Durability/runtime (`fnx-durability`, `fnx-runtime`) seal artifact integrity, state-machine safety, and replay guarantees.
+
+### 19.3 Reviewer traceability checklist
+
+1. Every topology claim maps to a legacy path plus a Rust crate owner.
+2. Every owner row has at least one concrete fixture/test/gate evidence hook.
+3. Every cross-layer dependency has an explicit failure boundary (fail-closed, bounded hardened recovery, or deterministic witness requirement).
+4. No structure claim depends on undocumented implicit behavior.
+
+## 20. Structure Specialist Review Artifact (bd-315.24.15)
+
+### 20.1 Corrections and enrichments applied
+
+1. Added explicit concurrency/lifecycle ordering contracts with legacy anchors (`section 17`) where the prior draft had only high-level state language.
+2. Added security/compatibility undefined-zone register and hardened rationale boundaries (`section 18`) to remove ambiguity around fail-closed vs bounded recovery.
+3. Added subsystem ownership/evidence topology map and ordered dependency narrative (`section 19`) to make structural decomposition reviewer-verifiable.
+
+### 20.2 Section-level confidence annotations
+
+| Section range | Scope | Confidence | Basis |
+|---|---|---|---|
+| `1-8` | legacy oracle framing, scope, subsystem map | High | aligns with workspace crate topology and documented project charter files |
+| `9-12` | data model, transitions, invariants, ownership artifacts | High | cross-referenced against `fnx-*` crate boundaries and machine-auditable artifact paths |
+| `13-16` | error taxonomy, verification index, reliability, CI topology | High | linked to concrete gate schemas/tests/scripts already present in repo |
+| `17` | concurrency/lifecycle ordering guarantees | Medium-High | source anchors are explicit; deeper algorithm-family-by-family ordering notes remain future pass material |
+| `18` | security/compat edge cases and undefined zones | Medium-High | fail-closed boundaries are explicit; additional adversarial examples can be expanded in later review passes |
+| `19` | pass-A topology/ownership closure map | High | legacy->Rust ownership and dependency ordering are directly traceable to file paths and crate responsibilities |
+
+### 20.3 Residual structural risks for next pass
+
+1. Expand algorithm-family-specific ordering/tie-break notes (beyond shortest-path/generator anchors) as packet-level implementations land.
+2. Add per-section backlinks into `EXHAUSTIVE_LEGACY_ANALYSIS.md` to tighten bidirectional traceability.

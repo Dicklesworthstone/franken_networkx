@@ -141,15 +141,35 @@
     "required_fields": [
       "budget_id",
       "packet_scope",
+      "run_id",
       "observed_value",
       "threshold_value",
       "status",
       "failing_test_groups",
       "artifact_paths",
       "replay_commands",
+      "replay_metadata",
       "owner_bead_id",
       "remediation_hint"
+    ],
+    "required_replay_metadata_fields": [
+      "run_id",
+      "deterministic_seed",
+      "gate_command",
+      "failing_stage_ids",
+      "failed_stage_count"
     ]
+  },
+  "gate_stage_contract": {
+    "required_stage_ids": [
+      "coverage",
+      "property",
+      "e2e_replay",
+      "flake",
+      "runtime_guardrail",
+      "evidence_presence"
+    ],
+    "run_id_prefix": "reliability-gate-"
   },
   "packet_family_mapping": [
     {"packet_id": "FNX-P2C-001", "budget_id": "REL-BUD-001", "owning_bead": "bd-315.12.5"},

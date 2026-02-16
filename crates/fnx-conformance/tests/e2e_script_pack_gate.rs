@@ -65,6 +65,54 @@ fn assert_forensics_links(schema: &Value, links: &Value, ctx: &str) {
     }
 }
 
+fn assert_gate_step_id(value: &Value, required_prefix: &str, ctx: &str) -> String {
+    let gate_step_id = value
+        .as_str()
+        .unwrap_or_else(|| panic!("{ctx} should be non-empty string"));
+    assert!(
+        !gate_step_id.trim().is_empty(),
+        "{ctx} should be non-empty string"
+    );
+    assert!(
+        gate_step_id.starts_with(required_prefix),
+        "{ctx} should start with `{required_prefix}`"
+    );
+    gate_step_id.to_owned()
+}
+
+fn assert_retention_policy(root: &Path, schema: &Value, policy: &Value, ctx: &str) {
+    let object = policy
+        .as_object()
+        .unwrap_or_else(|| panic!("{ctx} should be object"));
+    for key in required_string_array(schema, "required_retention_policy_keys") {
+        assert!(
+            object.contains_key(key),
+            "{ctx} missing required key `{key}`"
+        );
+    }
+    let policy_id = object
+        .get("policy_id")
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| panic!("{ctx}.policy_id should be non-empty string"));
+    assert!(
+        !policy_id.trim().is_empty(),
+        "{ctx}.policy_id should be non-empty string"
+    );
+    let min_retention_days = object
+        .get("min_retention_days")
+        .and_then(Value::as_u64)
+        .unwrap_or_else(|| panic!("{ctx}.min_retention_days should be integer >= 1"));
+    assert!(
+        min_retention_days >= 1,
+        "{ctx}.min_retention_days should be >= 1"
+    );
+    let storage_root = object
+        .get("storage_root")
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| panic!("{ctx}.storage_root should be string"));
+    assert_path_exists(root, storage_root, &format!("{ctx}.storage_root"));
+}
+
 fn assert_evidence_refs(root: &Path, schema: &Value, refs: &Value, ctx: &str) {
     let object = refs
         .as_object()
@@ -362,10 +410,17 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
         .iter()
         .map(|value| (*value).to_owned())
         .collect::<BTreeSet<_>>();
+    let required_packet_ids = required_string_array(&schema, "required_packet_ids")
+        .iter()
+        .map(|value| (*value).to_owned())
+        .collect::<BTreeSet<_>>();
     let required_pass_labels = required_string_array(&schema, "required_pass_labels")
         .iter()
         .map(|value| (*value).to_owned())
         .collect::<BTreeSet<_>>();
+    let required_gate_step_prefix = schema["required_gate_step_prefix"]
+        .as_str()
+        .expect("required_gate_step_prefix should be string");
 
     let report_required_scenarios = report["required_scenarios"]
         .as_array()
@@ -379,6 +434,79 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
         })
         .collect::<BTreeSet<_>>();
     assert_eq!(report_required_scenarios, required_scenarios);
+    let report_required_packet_ids = report["required_packet_ids"]
+        .as_array()
+        .expect("report.required_packet_ids should be array")
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .expect("report required packet id should be string")
+                .to_owned()
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(report_required_packet_ids, required_packet_ids);
+    assert_gate_step_id(
+        &report["gate_step_id"],
+        required_gate_step_prefix,
+        "report.gate_step_id",
+    );
+    let report_forensics_index_path = report["forensics_index_path"]
+        .as_str()
+        .expect("report.forensics_index_path should be string");
+    assert_path_exists(
+        root.as_path(),
+        report_forensics_index_path,
+        "report.forensics_index_path",
+    );
+    assert_retention_policy(
+        root.as_path(),
+        &schema,
+        &report["retention_policy"],
+        "report.retention_policy",
+    );
+    let packet_coverage = report["packet_coverage"]
+        .as_object()
+        .expect("report.packet_coverage should be object");
+    let coverage_required_packet_ids = packet_coverage
+        .get("required_packet_ids")
+        .and_then(Value::as_array)
+        .expect("report.packet_coverage.required_packet_ids should be array")
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .expect("report.packet_coverage.required_packet_ids entries should be string")
+                .to_owned()
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(coverage_required_packet_ids, required_packet_ids);
+    let coverage_observed_packet_ids = packet_coverage
+        .get("observed_packet_ids")
+        .and_then(Value::as_array)
+        .expect("report.packet_coverage.observed_packet_ids should be array")
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .expect("report.packet_coverage.observed_packet_ids entries should be string")
+                .to_owned()
+        })
+        .collect::<BTreeSet<_>>();
+    assert_eq!(coverage_observed_packet_ids, required_packet_ids);
+    assert!(
+        packet_coverage
+            .get("missing_packet_ids")
+            .and_then(Value::as_array)
+            .expect("report.packet_coverage.missing_packet_ids should be array")
+            .is_empty(),
+        "report.packet_coverage.missing_packet_ids should be empty"
+    );
+    assert_eq!(
+        packet_coverage.get("coverage_ok").and_then(Value::as_bool),
+        Some(true),
+        "report.packet_coverage.coverage_ok should be true"
+    );
 
     let report_pass_labels = report["pass_labels"]
         .as_array()
@@ -392,10 +520,37 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
         })
         .collect::<BTreeSet<_>>();
     assert_eq!(report_pass_labels, required_pass_labels);
+    let bundle_gate_step_id = assert_gate_step_id(
+        &bundle_index["gate_step_id"],
+        required_gate_step_prefix,
+        "bundle_index.gate_step_id",
+    );
     assert_eq!(
         bundle_index["scenario_count"].as_u64(),
         Some(required_scenarios.len() as u64),
         "bundle index scenario_count should match required_scenarios"
+    );
+    let bundle_forensics_index_path = bundle_index["forensics_index_path"]
+        .as_str()
+        .expect("bundle_index.forensics_index_path should be string");
+    assert_path_exists(
+        root.as_path(),
+        bundle_forensics_index_path,
+        "bundle_index.forensics_index_path",
+    );
+    assert_eq!(
+        bundle_forensics_index_path, "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json",
+        "bundle_index.forensics_index_path should point at canonical bundle index artifact"
+    );
+    assert_eq!(
+        bundle_forensics_index_path, report_forensics_index_path,
+        "bundle_index.forensics_index_path should match determinism report"
+    );
+    assert_retention_policy(
+        root.as_path(),
+        &schema,
+        &bundle_index["retention_policy"],
+        "bundle_index.retention_policy",
     );
     let failure_index = bundle_index["failure_index"]
         .as_array()
@@ -521,6 +676,7 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
     );
 
     let mut seen_pairs = BTreeSet::new();
+    let mut seen_packet_ids = BTreeSet::new();
     let mut bundle_ids_by_scenario: std::collections::BTreeMap<String, BTreeSet<String>> =
         std::collections::BTreeMap::new();
     let mut fingerprints_by_scenario: std::collections::BTreeMap<String, BTreeSet<String>> =
@@ -558,6 +714,9 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
         let scenario = event["scenario_id"]
             .as_str()
             .expect("scenario_id should be string");
+        let packet_id = event["packet_id"]
+            .as_str()
+            .expect("packet_id should be string");
         let pass_label = event["pass_label"]
             .as_str()
             .expect("pass_label should be string");
@@ -573,6 +732,7 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
             seen_pairs.insert((scenario.to_owned(), pass_label.to_owned())),
             "duplicate event for scenario/pass pair ({scenario}, {pass_label})"
         );
+        seen_packet_ids.insert(packet_id.to_owned());
 
         let bundle_id = event["bundle_id"]
             .as_str()
@@ -586,6 +746,33 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
         assert!(
             !event_replay_command.trim().is_empty(),
             "event replay_command should be non-empty"
+        );
+        let event_gate_step_id = assert_gate_step_id(
+            &event["gate_step_id"],
+            required_gate_step_prefix,
+            &format!("event[{scenario}/{pass_label}].gate_step_id"),
+        );
+        assert_eq!(
+            event_gate_step_id, bundle_gate_step_id,
+            "event gate_step_id should match bundle_index gate_step_id"
+        );
+        let event_forensics_index_path = event["forensics_index_path"]
+            .as_str()
+            .expect("event forensics_index_path should be string");
+        assert_eq!(
+            event_forensics_index_path, bundle_forensics_index_path,
+            "event forensics_index_path should match bundle index path"
+        );
+        assert_path_exists(
+            root.as_path(),
+            event_forensics_index_path,
+            &format!("event[{scenario}/{pass_label}].forensics_index_path"),
+        );
+        assert_retention_policy(
+            root.as_path(),
+            &schema,
+            &event["retention_policy"],
+            &format!("event[{scenario}/{pass_label}].retention_policy"),
         );
         assert_forensics_links(
             &schema,
@@ -670,6 +857,20 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
             "failure envelope pass_label should match event"
         );
         assert_eq!(
+            failure_envelope["packet_id"].as_str(),
+            Some(packet_id),
+            "failure envelope packet_id should match event"
+        );
+        let envelope_gate_step_id = assert_gate_step_id(
+            &failure_envelope["gate_step_id"],
+            required_gate_step_prefix,
+            &format!("failure_envelope[{scenario}/{pass_label}].gate_step_id"),
+        );
+        assert_eq!(
+            envelope_gate_step_id, event_gate_step_id,
+            "failure envelope gate_step_id should match event"
+        );
+        assert_eq!(
             failure_envelope["bundle_id"].as_str(),
             Some(bundle_id),
             "failure envelope bundle_id should match event"
@@ -710,6 +911,43 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
             &failure_envelope["forensics_links"],
             &format!("failure_envelope[{scenario}/{pass_label}].forensics_links"),
         );
+        let failure_forensics_index_path = failure_envelope["forensics_index_path"]
+            .as_str()
+            .expect("failure envelope forensics_index_path should be string");
+        assert_eq!(
+            failure_forensics_index_path, event_forensics_index_path,
+            "failure envelope forensics_index_path should match event"
+        );
+        assert_path_exists(
+            root.as_path(),
+            failure_forensics_index_path,
+            &format!("failure_envelope[{scenario}/{pass_label}].forensics_index_path"),
+        );
+        let replay_bundle_manifest_path = failure_envelope["replay_bundle_manifest_path"]
+            .as_str()
+            .expect("failure envelope replay_bundle_manifest_path should be string");
+        assert_path_exists(
+            root.as_path(),
+            replay_bundle_manifest_path,
+            &format!("failure_envelope[{scenario}/{pass_label}].replay_bundle_manifest_path"),
+        );
+        assert_eq!(
+            replay_bundle_manifest_path,
+            event["bundle_manifest_path"]
+                .as_str()
+                .expect("event bundle_manifest_path should be string"),
+            "failure envelope replay_bundle_manifest_path should match event bundle_manifest_path"
+        );
+        assert_retention_policy(
+            root.as_path(),
+            &schema,
+            &failure_envelope["retention_policy"],
+            &format!("failure_envelope[{scenario}/{pass_label}].retention_policy"),
+        );
+        assert_eq!(
+            failure_envelope["retention_policy"], event["retention_policy"],
+            "failure envelope retention_policy should match event"
+        );
         assert_evidence_refs(
             root.as_path(),
             &schema,
@@ -741,6 +979,15 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
         }
         assert_eq!(manifest["bundle_id"].as_str(), Some(bundle_id));
         assert_eq!(manifest["stable_fingerprint"].as_str(), Some(fingerprint));
+        let manifest_gate_step_id = assert_gate_step_id(
+            &manifest["gate_step_id"],
+            required_gate_step_prefix,
+            &format!("manifest[{scenario}/{pass_label}].gate_step_id"),
+        );
+        assert_eq!(
+            manifest_gate_step_id, event_gate_step_id,
+            "manifest gate_step_id should match event"
+        );
         let replay_command = manifest["replay_command"]
             .as_str()
             .expect("replay_command should be string");
@@ -779,6 +1026,33 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
         assert_eq!(
             replay_command, event_replay_command,
             "manifest replay_command should match event replay_command"
+        );
+        let manifest_forensics_index_path = manifest["forensics_index_path"]
+            .as_str()
+            .expect("manifest forensics_index_path should be string");
+        assert_eq!(
+            manifest_forensics_index_path, event_forensics_index_path,
+            "manifest forensics_index_path should match event"
+        );
+        assert_path_exists(
+            root.as_path(),
+            manifest_forensics_index_path,
+            &format!("manifest[{scenario}/{pass_label}].forensics_index_path"),
+        );
+        assert_retention_policy(
+            root.as_path(),
+            &schema,
+            &manifest["retention_policy"],
+            &format!("manifest[{scenario}/{pass_label}].retention_policy"),
+        );
+        assert_eq!(
+            manifest["retention_policy"], event["retention_policy"],
+            "manifest retention_policy should match event"
+        );
+        assert_eq!(
+            execution.get("gate_step_id").and_then(Value::as_str),
+            Some(event_gate_step_id.as_str()),
+            "execution_metadata.gate_step_id should match event gate_step_id"
         );
         let manifest_failure_envelope = manifest["failure_envelope_path"]
             .as_str()
@@ -954,6 +1228,11 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
         }
     }
 
+    assert_eq!(
+        seen_packet_ids, required_packet_ids,
+        "event packet coverage should match required packet ids"
+    );
+
     for scenario in &required_scenarios {
         let bundle_row = bundle_rows
             .iter()
@@ -965,6 +1244,33 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
                 "bundle index row missing required key `{key}`"
             );
         }
+        let bundle_row_gate_step_id = assert_gate_step_id(
+            &bundle_row["gate_step_id"],
+            required_gate_step_prefix,
+            &format!("bundle_index.rows[{scenario}].gate_step_id"),
+        );
+        assert_eq!(
+            bundle_row_gate_step_id, bundle_gate_step_id,
+            "bundle row gate_step_id should match bundle index gate_step_id"
+        );
+        let bundle_row_forensics_index_path = bundle_row["forensics_index_path"]
+            .as_str()
+            .expect("bundle index row forensics_index_path should be string");
+        assert_eq!(
+            bundle_row_forensics_index_path, bundle_forensics_index_path,
+            "bundle row forensics_index_path should match bundle index"
+        );
+        assert_path_exists(
+            root.as_path(),
+            bundle_row_forensics_index_path,
+            &format!("bundle_index.rows[{scenario}].forensics_index_path"),
+        );
+        assert_retention_policy(
+            root.as_path(),
+            &schema,
+            &bundle_row["retention_policy"],
+            &format!("bundle_index.rows[{scenario}].retention_policy"),
+        );
         let manifests = bundle_row["manifests"]
             .as_object()
             .expect("bundle index manifests should be object");
@@ -1025,6 +1331,15 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
                 Some(failure_envelope_rel),
                 "bundle index failure envelope entry should match event failure_envelope_path"
             );
+            assert_eq!(
+                event_row["gate_step_id"].as_str(),
+                Some(bundle_row_gate_step_id.as_str()),
+                "bundle row gate_step_id should match event gate_step_id"
+            );
+            assert_eq!(
+                event_row["retention_policy"], bundle_row["retention_policy"],
+                "bundle row retention_policy should match event retention_policy"
+            );
         }
         assert_evidence_refs(
             root.as_path(),
@@ -1064,6 +1379,41 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
             !replay_command.trim().is_empty(),
             "bundle_index.failure_index replay_command should be non-empty"
         );
+        let failure_gate_step_id = assert_gate_step_id(
+            &failure_row["gate_step_id"],
+            required_gate_step_prefix,
+            &format!("bundle_index.failure_index[{idx}].gate_step_id"),
+        );
+        assert_eq!(
+            failure_gate_step_id, bundle_gate_step_id,
+            "failure_index gate_step_id should match bundle index gate_step_id"
+        );
+        let failure_forensics_index_path = failure_row["forensics_index_path"]
+            .as_str()
+            .expect("bundle_index.failure_index forensics_index_path should be string");
+        assert_eq!(
+            failure_forensics_index_path, bundle_forensics_index_path,
+            "failure_index forensics_index_path should match bundle index path"
+        );
+        assert_path_exists(
+            root.as_path(),
+            failure_forensics_index_path,
+            &format!("bundle_index.failure_index[{idx}].forensics_index_path"),
+        );
+        let replay_bundle_manifest_path = failure_row["replay_bundle_manifest_path"]
+            .as_str()
+            .expect("bundle_index.failure_index replay_bundle_manifest_path should be string");
+        assert_path_exists(
+            root.as_path(),
+            replay_bundle_manifest_path,
+            &format!("bundle_index.failure_index[{idx}].replay_bundle_manifest_path"),
+        );
+        assert_retention_policy(
+            root.as_path(),
+            &schema,
+            &failure_row["retention_policy"],
+            &format!("bundle_index.failure_index[{idx}].retention_policy"),
+        );
         let failure_envelope_rel = failure_row["failure_envelope_path"]
             .as_str()
             .expect("bundle_index.failure_index failure_envelope_path should be string");
@@ -1082,6 +1432,30 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
             &schema,
             &failure_row["forensics_links"],
             &format!("bundle_index.failure_index[{idx}].forensics_links"),
+        );
+        let scenario = failure_row["scenario_id"]
+            .as_str()
+            .expect("bundle_index.failure_index scenario_id should be string");
+        let pass_label = failure_row["pass_label"]
+            .as_str()
+            .expect("bundle_index.failure_index pass_label should be string");
+        let matching_event = events
+            .iter()
+            .find(|row| {
+                row["scenario_id"].as_str() == Some(scenario)
+                    && row["pass_label"].as_str() == Some(pass_label)
+            })
+            .unwrap_or_else(|| {
+                panic!("missing matching event row for bundle_index.failure_index[{idx}]")
+            });
+        assert_eq!(
+            matching_event["bundle_manifest_path"].as_str(),
+            Some(replay_bundle_manifest_path),
+            "failure_index replay_bundle_manifest_path should match event bundle_manifest_path"
+        );
+        assert_eq!(
+            matching_event["retention_policy"], failure_row["retention_policy"],
+            "failure_index retention_policy should match event retention_policy"
         );
         assert_evidence_refs(
             root.as_path(),

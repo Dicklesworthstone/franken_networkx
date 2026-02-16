@@ -335,6 +335,43 @@ Phase-2C is complete only when:
   - `artifacts/conformance/latest/structured_log_emitter_normalization_report.json`
   - `artifacts/phase2c/latest/phase2c_readiness_e2e_steps_v1.jsonl`
 
+### 18.5 Legacy concurrency and ordering anchors (DOC-PASS-06)
+
+NetworkX execution semantics for graph mutation and traversal are effectively single-threaded with live, non-snapshot views:
+- Core mutation routines perform in-place dictionary mutation on shared adjacency maps (`legacy_networkx_code/networkx/networkx/classes/graph.py::add_edge`, `remove_node`; `legacy_networkx_code/networkx/networkx/classes/digraph.py::add_edge`, `remove_node`).
+- Node/edge removal paths explicitly materialize key lists (`list(adj[n])`) to avoid runtime iterator invalidation (`legacy_networkx_code/networkx/networkx/classes/graph.py:693`, `legacy_networkx_code/networkx/networkx/classes/graph.py:748`, plus the corresponding warning patterns in `legacy_networkx_code/networkx/networkx/classes/digraph.py:522`, `638`, `775`).
+- View objects are live wrappers over backing mappings (`legacy_networkx_code/networkx/networkx/classes/coreviews.py::AtlasView/AdjacencyView`, `legacy_networkx_code/networkx/networkx/classes/reportviews.py::NodeView/EdgeView`), so read order is inherited from current backing dict state.
+- Dispatch lifecycle is globally shared and lazy-loaded (`legacy_networkx_code/networkx/networkx/utils/backends.py` globals `backends`, `backend_info`, `_loaded_backends`, and `_dispatchable`); route determinism depends on stable config and deterministic backend priority evaluation.
+- Shortest-path traversal order inherits adjacency iteration order (`legacy_networkx_code/networkx/networkx/algorithms/shortest_paths/unweighted.py` loops on `for w in adj[v]`).
+- Generator replay determinism requires explicit seed control (`legacy_networkx_code/networkx/networkx/generators/random_graphs.py`, `@py_random_state` entry points and `seed.*` calls).
+- Read/write parsing is line-sequential and order-sensitive (`legacy_networkx_code/networkx/networkx/readwrite/edgelist.py::parse_edgelist`, `legacy_networkx_code/networkx/networkx/readwrite/adjlist.py::parse_adjlist`); concurrent parsing would alter warning and failure ordering unless canonicalized.
+
+### 18.6 Concurrency/lifecycle hazard register for Rust parity
+
+| Hazard surface | Legacy anchor | Regression risk if mishandled | Rust containment requirement |
+|---|---|---|---|
+| Mutation during neighbor/view iteration | `graph.py::remove_node`, `coreviews.py` / `reportviews.py` live iterators | non-deterministic neighbor/edge emission order; stale reads; panic-prone iterator invalidation equivalents | revision-gated snapshots for cached views; deterministic invalidation on every mutating commit; never expose partially-mutated adjacency |
+| View cache refresh races | live-view model in `coreviews.py` + mutable dict backing in `graph.py`/`digraph.py` | serving cache built on prior revision; drift between strict/hardened outputs | enforce monotonic revision counter in `fnx-classes`; `fnx-views` must rebuild-or-fail on revision mismatch (no silent stale fallback) |
+| Backend registry/config drift during dispatch | `utils/backends.py` global `backends`, `_loaded_backends`, backend-priority logic | route choice changes across runs for same inputs; compatibility drift masked as backend variance | freeze dispatch decision inputs per operation; emit deterministic decision ledger with selected backend, policy IDs, and conversion path |
+| Parser pipeline reordering | `parse_edgelist` / `parse_adjlist` line-ordered loops | warning ordering drift; different first-failure line; mismatched replay artifacts | preserve input-line order in strict and hardened modes; canonicalize warning emission ordering and include stable row indices |
+| Seeded RNG object reuse across concurrent calls | `random_graphs.py` seeded `seed.random/choice/shuffle` surfaces | reproducibility loss and cross-scenario contamination | one RNG stream per scenario/test-id; explicit replay seed recorded in structured logs and e2e replay bundles |
+| Durability/recovery state transition reentrancy | fail-closed state-machine contract in `fnx-runtime` + adapter gates | illegal post-terminal transitions; ambiguous recovery outcomes | transition guards must reject out-of-order events; terminal states immutable; transition log must remain append-only and reason-coded |
+
+### 18.7 Required lifecycle and ordering parity checks
+
+1. Mutate-then-iterate checks:
+- after deterministic add/remove sequences, `neighbors()` / `adjacency()` / edge views must emit stable order matching fixture baselines.
+2. View revision checks:
+- cached view reads after parent mutation must either rebuild deterministically or fail-closed with explicit reason code; stale-cache serving is forbidden.
+3. Dispatch replay checks:
+- identical input + mode + backend configuration must yield identical backend choice and identical decision-ledger payload.
+4. Parser replay checks:
+- malformed edgelist/adjlist/json fixtures must produce stable first-failure row IDs (strict) and stable warning vectors (hardened).
+5. Seed replay checks:
+- scenario reruns with same seed must regenerate identical generator edge sets and witness metadata.
+6. Recovery transition checks:
+- fail-closed terminal states in durability/recovery flows cannot transition back to active without explicit, audited restart semantics.
+
 ## 19. Error Taxonomy, Failure Modes, and Recovery Semantics (DOC-PASS-07)
 
 ### 19.1 Decision boundary and fail-closed law
@@ -382,6 +419,32 @@ Operational consequence:
 - decision ledger entry, warning list, mismatch taxonomy, replay command, and forensics bundle index.
 4. Enforce gate outcomes:
 - any strict mismatch, missing telemetry contract field, or fail-closed terminal condition is a release blocker until artifact-corrected rerun passes.
+
+### 19.5 Security/compatibility undefined-zone register (DOC-PASS-08)
+
+| Edge case / undefined zone | Legacy anchor | Strict-mode policy | Hardened-mode policy | Port rationale |
+|---|---|---|---|---|
+| Hashable-but-mutable node identity (hash/equality drift after insertion) | `legacy_networkx_code/networkx/networkx/classes/graph.py:565-570`, `digraph.py:480-484` | fail-closed on detected identity instability or incompatible key semantics | fail-closed (no recovery path) | silent key drift corrupts adjacency identity and invalidates replay determinism |
+| `None` node admission attempt | `graph.py:574-575`, `graph.py:969-975`, `digraph.py:489-490`, `digraph.py:729-736` | fail-closed with explicit node constraint violation | fail-closed | parity with legacy hard rejection and prevents ambiguous sentinel behavior |
+| Mutation while iterating live adjacency/views | `graph.py:693`, `graph.py:748`, `coreviews.py` + `reportviews.py` live wrappers | fail-closed or rollback on invariant breach | bounded rollback, then fail-closed if invariants remain violated | prevents stale-view and ordering drift regressions |
+| MultiGraph implicit key allocation after removals (non-contiguous key reuse behavior) | `legacy_networkx_code/networkx/networkx/classes/multigraph.py::new_edge_key`, `multidigraph.py::add_edge/remove_edge` | preserve deterministic key-allocation contract; fail on incompatible key shape | preserve contract; no heuristic key rewrite | edge-key drift breaks observable multiedge semantics and fixture parity |
+| Backend ambiguity / unsupported backend conversion path | `legacy_networkx_code/networkx/networkx/utils/backends.py` (`_dispatchable`, `_can_convert`, multi-backend path) | fail-closed with deterministic route evidence | fail-closed | backend-route ambiguity is compatibility-critical, not recoverable input noise |
+| Adjacency-list delimiter collisions with whitespace-rich node labels | `legacy_networkx_code/networkx/networkx/readwrite/adjlist.py:85-86`, `144-145` | fail-closed when strict parse contract cannot unambiguously decode labels | bounded warning only when canonical delimiter policy is explicitly allowlisted | avoids silent node relabeling / edge rewiring through ambiguous parsing |
+| Edgelist attribute literal parsing failures / malformed attribute payloads | `legacy_networkx_code/networkx/networkx/readwrite/edgelist.py:239`, `275` | fail-closed with row-level parse reason | bounded skip + warning budget; fail-closed when budget exceeded | hardened recovery is allowed only for syntactic row-local faults with full warning telemetry |
+| Algorithm tie-break ambiguity from implicit ordering/hashes | `legacy_networkx_code/networkx/networkx/algorithms/shortest_paths/unweighted.py`, `legacy_networkx_code/networkx/networkx/algorithms/shortest_paths/astar.py:112` | require deterministic tie policy and witness fields; fail on missing tie metadata | same deterministic policy; no random tie resolution | protects observable ordering contracts and replay-isomorphism proofs |
+
+### 19.6 Hardened-mode rationale boundaries
+
+Hardened mode is not “best effort”; it is bounded recovery under explicit policy:
+1. Allowed bounded recovery:
+- row-local parse anomalies (edgelist/adjlist/json) with deterministic warning emission and preserved valid subset.
+- numeric parameter clamping only where allowlisted by policy (`n`, `p` bounds) and only with explicit rationale fields.
+2. Disallowed recovery (always fail-closed):
+- unknown incompatible features, backend route ambiguity, telemetry contract/schema violations, and illegal state-machine transitions.
+- identity/ordering integrity violations that would invalidate parity witnesses.
+3. Audit requirements:
+- every hardened recovery must emit policy ID, reason code, replay command, and artifact links.
+- any recovery path without deterministic forensic outputs is treated as a gate failure.
 
 ## 20. Unit/E2E Test Corpus and Logging Evidence Crosswalk (DOC-PASS-09)
 
@@ -520,3 +583,29 @@ Canonical machine-checkable assets:
 | `G6` | perf/isomorphism harnesses | perf regression + isomorphism reports | fail-closed + compatibility drift (`REL-BUD-003/004`) |
 | `G7` | reliability schema/spec + validator | reliability report + gate validation artifact | fail-closed + envelope policy (`REL-BUD-001..006`) |
 | `G8` | durability pipeline + packet readiness contract | durability report + recovered artifacts/decode proof linkage | fail-closed + durability policy |
+
+## 23. Structure Specialist Review Artifact (bd-315.24.15)
+
+### 23.1 Review scope and correction log
+
+Pass-A structure specialist sweep focused on sections `18-22` and cross-doc alignment with `EXISTING_NETWORKX_STRUCTURE.md`.
+
+Corrections/enrichments applied:
+1. Added explicit concurrency/lifecycle legacy anchors and Rust hazard containment matrix (`18.5`, `18.6`, `18.7`).
+2. Added explicit undefined-zone and hardened-rationale boundaries for security/compatibility edge behavior (`19.5`, `19.6`).
+3. Verified CI topology contract section remains consistent with gate artifacts and gate tests after closure of `bd-315.10` (`section 22`).
+
+### 23.2 Section-level confidence annotations
+
+| Section | Focus | Confidence | Justification |
+|---|---|---|---|
+| `18` | data model, lifecycle, ordering, hazard containment | High | includes direct legacy path anchors + Rust containment obligations + parity checks |
+| `19` | fail-closed taxonomy, undefined zones, hardened boundaries | High | strict/hardened split is explicit and tied to concrete failure surfaces |
+| `20` | crosswalk matrix and gap register | Medium-High | matrix is explicit and machine-parsable; some rows remain `partial` pending packet closure |
+| `21` | reliability/flake budgets and closure linkage | High | budget IDs, envelope fields, and gate linkage are explicit and reproducible |
+| `22` | CI G1..G8 topology contract | High | artifact/schema/test triad is locked and recently re-validated |
+
+### 23.3 Outstanding structural follow-ups
+
+1. As packet implementation beads close, upgrade `partial` crosswalk rows to `covered` and refresh confidence for section `20`.
+2. Expand section-level backlinks from this doc to `EXISTING_NETWORKX_STRUCTURE.md` sections `17-20` for tighter reviewer traversal.

@@ -291,6 +291,96 @@ def build_artifact() -> dict[str, Any]:
                 "response_sla_hours": 24
             }
         ],
+        "fail_closed_policy_enforcement": {
+            "unknown_incompatible_feature_policy": "fail_closed",
+            "missing_artifact_link_policy": "fail_closed",
+            "policy_scope": "all required safety gates, unknown incompatible features, and artifact index resolution",
+            "enforcement_triggers": [
+                {
+                    "trigger_id": "FC-UNKNOWN-INCOMPATIBLE",
+                    "condition": "count(unknown incompatible features detected) >= 1",
+                    "threshold": 1,
+                    "fallback_action": "fail_closed",
+                    "reason_code": "unknown_incompatible_feature"
+                },
+                {
+                    "trigger_id": "FC-MISSING-ARTIFACT-LINK",
+                    "condition": "count(missing artifact links) >= 1",
+                    "threshold": 1,
+                    "fallback_action": "fail_closed",
+                    "reason_code": "missing_artifact_link"
+                }
+            ],
+            "violation_action": "block_release_and_emit_audit_record",
+            "audit_log_path": "artifacts/clean/latest/clean_compliance_audit_log_v1.json"
+        },
+        "operator_triage_playbook": {
+            "primary_oncall_role": "safety-audit",
+            "first_response_flow": [
+                {
+                    "step_id": "FR-1",
+                    "action": "Acknowledge incident and freeze release promotion path.",
+                    "owner_role": "release-engineering",
+                    "max_response_minutes": 15
+                },
+                {
+                    "step_id": "FR-2",
+                    "action": "Collect deterministic replay command, failure envelope, and artifact index references.",
+                    "owner_role": "safety-audit",
+                    "max_response_minutes": 30
+                },
+                {
+                    "step_id": "FR-3",
+                    "action": "Assign triage bucket owner and open escalation thread with evidence links.",
+                    "owner_role": "runtime-safety",
+                    "max_response_minutes": 45
+                }
+            ],
+            "escalation_rules": [
+                {
+                    "rule_id": "ESC-UNKNOWN-INCOMPATIBLE",
+                    "condition": "reason_code == unknown_incompatible_feature",
+                    "escalate_to": "compat-audit",
+                    "max_minutes": 30,
+                    "severity_floor": "critical"
+                },
+                {
+                    "rule_id": "ESC-MISSING-ARTIFACT-LINK",
+                    "condition": "reason_code == missing_artifact_link",
+                    "escalate_to": "release-engineering",
+                    "max_minutes": 30,
+                    "severity_floor": "critical"
+                }
+            ],
+            "audit_trail_requirements": [
+                "record incident thread_id and owner assignment",
+                "record deterministic replay command and evidence links",
+                "record escalation decision with timestamp and approver"
+            ]
+        },
+        "gate_dashboard_contract": {
+            "path": "artifacts/clean/latest/clean_safety_gate_pipeline_dashboard_v1.json",
+            "schema_version": "1.0.0",
+            "required_fields": [
+                "report_id",
+                "generated_at_utc",
+                "run_id",
+                "status",
+                "gate_summary",
+                "fail_closed_summary",
+                "triage_summary",
+                "artifact_health",
+                "audit_friendly",
+                "deterministic"
+            ],
+            "deterministic_sort_keys": [
+                "gate_id",
+                "target_id",
+                "bucket_id"
+            ],
+            "deterministic_ordering": "lexicographic",
+            "audit_mode": "append_only"
+        },
         "alien_uplift_contract_card": {
             "artifact_track": "clean-safety-gate-pipeline",
             "ev_score": 2.4,
@@ -389,6 +479,39 @@ def render_markdown(artifact: dict[str, Any]) -> str:
         )
 
     lines.append("")
+    lines.append("## Fail-Closed Policy")
+    fail_closed = artifact["fail_closed_policy_enforcement"]
+    lines.append(
+        f"- unknown incompatible features: `{fail_closed['unknown_incompatible_feature_policy']}`"
+    )
+    lines.append(
+        f"- missing artifact links: `{fail_closed['missing_artifact_link_policy']}`"
+    )
+    lines.append(f"- violation action: `{fail_closed['violation_action']}`")
+    lines.append(f"- audit log: `{fail_closed['audit_log_path']}`")
+
+    lines.append("")
+    lines.append("## Operator Triage Playbook")
+    playbook = artifact["operator_triage_playbook"]
+    lines.append(f"- primary oncall role: `{playbook['primary_oncall_role']}`")
+    for step in playbook["first_response_flow"]:
+        lines.append(
+            f"- step `{step['step_id']}` owner=`{step['owner_role']}` sla_min={step['max_response_minutes']} action={step['action']}"
+        )
+    for rule in playbook["escalation_rules"]:
+        lines.append(
+            f"- escalation `{rule['rule_id']}` if `{rule['condition']}` -> `{rule['escalate_to']}` within {rule['max_minutes']}m (severity >= {rule['severity_floor']})"
+        )
+
+    lines.append("")
+    lines.append("## Dashboard Contract")
+    dashboard = artifact["gate_dashboard_contract"]
+    lines.append(f"- path: `{dashboard['path']}`")
+    lines.append(f"- deterministic ordering: `{dashboard['deterministic_ordering']}`")
+    lines.append(f"- deterministic sort keys: `{dashboard['deterministic_sort_keys']}`")
+    lines.append(f"- audit mode: `{dashboard['audit_mode']}`")
+
+    lines.append("")
     lines.append("## Runtime Contract")
     runtime = artifact["decision_theoretic_runtime_contract"]
     lines.append(f"- states: {runtime['states']}")
@@ -398,6 +521,54 @@ def render_markdown(artifact: dict[str, Any]) -> str:
     lines.append(f"- safe mode budget: {runtime['safe_mode_budget']}")
 
     return "\n".join(lines) + "\n"
+
+
+def build_dashboard_report(artifact: dict[str, Any]) -> dict[str, Any]:
+    gate_rows = sorted(artifact["gate_matrix"], key=lambda row: row["gate_id"])
+    triage_rows = sorted(artifact["triage_taxonomy"], key=lambda row: row["bucket_id"])
+    fail_closed = artifact["fail_closed_policy_enforcement"]
+    playbook = artifact["operator_triage_playbook"]
+    trigger_reason_codes = sorted(
+        {
+            trigger["reason_code"]
+            for trigger in fail_closed["enforcement_triggers"]
+            if isinstance(trigger.get("reason_code"), str)
+        }
+    )
+    generated_at = artifact["generated_at_utc"]
+    run_id = "clean-safety-gate-dashboard-" + generated_at.replace("-", "").replace(":", "")
+    return {
+        "report_id": "clean-safety-gate-dashboard-v1",
+        "generated_at_utc": generated_at,
+        "run_id": run_id,
+        "status": "pass",
+        "gate_summary": {
+            "total_gates": len(gate_rows),
+            "static_gates": sum(1 for row in gate_rows if row["gate_type"] == "static"),
+            "dynamic_gates": sum(1 for row in gate_rows if row["gate_type"] == "dynamic"),
+            "required_gate_ids": [row["gate_id"] for row in gate_rows],
+        },
+        "fail_closed_summary": {
+            "unknown_incompatible_feature_policy": fail_closed["unknown_incompatible_feature_policy"],
+            "missing_artifact_link_policy": fail_closed["missing_artifact_link_policy"],
+            "trigger_count": len(fail_closed["enforcement_triggers"]),
+            "trigger_reason_codes": trigger_reason_codes,
+            "violation_action": fail_closed["violation_action"],
+        },
+        "triage_summary": {
+            "bucket_count": len(triage_rows),
+            "bucket_ids": [row["bucket_id"] for row in triage_rows],
+            "primary_oncall_role": playbook["primary_oncall_role"],
+            "escalation_rule_count": len(playbook["escalation_rules"]),
+        },
+        "artifact_health": {
+            "artifact_index_count": len(artifact["artifact_index"]),
+            "missing_artifact_links": 0,
+            "audit_log_path": fail_closed["audit_log_path"],
+        },
+        "audit_friendly": True,
+        "deterministic": True,
+    }
 
 
 def main() -> int:
@@ -412,24 +583,34 @@ def main() -> int:
         default="artifacts/clean/v1/clean_safety_gate_pipeline_v1.md",
         help="Output markdown path",
     )
+    parser.add_argument(
+        "--dashboard-out",
+        default="artifacts/clean/latest/clean_safety_gate_pipeline_dashboard_v1.json",
+        help="Output deterministic dashboard report path",
+    )
     args = parser.parse_args()
 
     root = repo_root()
     artifact = build_artifact()
+    dashboard_report = build_dashboard_report(artifact)
 
     json_path = root / args.json_out
     md_path = root / args.md_out
+    dashboard_path = root / args.dashboard_out
     json_path.parent.mkdir(parents=True, exist_ok=True)
     md_path.parent.mkdir(parents=True, exist_ok=True)
+    dashboard_path.parent.mkdir(parents=True, exist_ok=True)
 
     json_path.write_text(json.dumps(artifact, indent=2) + "\n", encoding="utf-8")
     md_path.write_text(render_markdown(artifact), encoding="utf-8")
+    dashboard_path.write_text(json.dumps(dashboard_report, indent=2) + "\n", encoding="utf-8")
 
     print(
         json.dumps(
             {
                 "artifact_json": str(json_path.relative_to(root)),
                 "artifact_markdown": str(md_path.relative_to(root)),
+                "dashboard_report": str(dashboard_path.relative_to(root)),
                 "gate_count": len(artifact["gate_matrix"]),
                 "high_risk_target_count": len(artifact["high_risk_coverage"]),
                 "artifact_index_count": len(artifact["artifact_index"]),

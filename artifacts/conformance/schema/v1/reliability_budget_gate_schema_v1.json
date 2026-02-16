@@ -47,14 +47,23 @@
   "required_failure_envelope_fields": [
     "budget_id",
     "packet_scope",
+    "run_id",
     "observed_value",
     "threshold_value",
     "status",
     "failing_test_groups",
     "artifact_paths",
     "replay_commands",
+    "replay_metadata",
     "owner_bead_id",
     "remediation_hint"
+  ],
+  "required_failure_replay_metadata_keys": [
+    "run_id",
+    "deterministic_seed",
+    "gate_command",
+    "failing_stage_ids",
+    "failed_stage_count"
   ],
   "required_packet_family_mapping_keys": [
     "packet_id",
@@ -64,6 +73,72 @@
   "required_evidence_index_keys": [
     "artifact_id",
     "path"
+  ],
+  "required_report_top_level_keys": [
+    "schema_version",
+    "report_id",
+    "generated_at_utc",
+    "run_id",
+    "deterministic_seed",
+    "source_bead_id",
+    "status",
+    "flake_summary",
+    "budgets",
+    "failure_envelopes",
+    "artifact_refs"
+  ],
+  "required_report_budget_keys": [
+    "budget_id",
+    "packet_family",
+    "run_id",
+    "status",
+    "failing_test_groups",
+    "missing_evidence_paths",
+    "observed",
+    "thresholds",
+    "stage_results",
+    "gate_command",
+    "artifact_paths",
+    "owner_bead_id"
+  ],
+  "required_stage_result_keys": [
+    "stage_id",
+    "run_id",
+    "status",
+    "observed_value",
+    "threshold_value",
+    "replay_command",
+    "artifact_refs"
+  ],
+  "required_stage_ids": [
+    "coverage",
+    "property",
+    "e2e_replay",
+    "flake",
+    "runtime_guardrail",
+    "evidence_presence"
+  ],
+  "required_quarantine_top_level_keys": [
+    "schema_version",
+    "artifact_id",
+    "generated_at_utc",
+    "run_id",
+    "source_bead_id",
+    "status",
+    "policy",
+    "rolling_flake_rate_pct_7d",
+    "quarantined_tests",
+    "evidence_paths"
+  ],
+  "required_quarantine_test_keys": [
+    "test_id",
+    "flake_events",
+    "observation_count",
+    "status",
+    "owner_bead_id",
+    "run_id",
+    "replay_command",
+    "artifact_refs"
   ],
   "allowed_status_values": [
     "pass",

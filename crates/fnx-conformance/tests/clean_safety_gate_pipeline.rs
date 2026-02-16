@@ -637,6 +637,221 @@ fn clean_safety_gate_pipeline_is_reproducible_and_artifact_indexed() {
         );
     }
 
+    let fail_closed = artifact["fail_closed_policy_enforcement"]
+        .as_object()
+        .expect("fail_closed_policy_enforcement should be object");
+    for key in required_string_array(&schema, "required_fail_closed_policy_keys") {
+        assert!(
+            fail_closed.get(key).is_some(),
+            "fail_closed_policy_enforcement missing `{key}`"
+        );
+    }
+    assert_eq!(
+        fail_closed["unknown_incompatible_feature_policy"].as_str(),
+        Some("fail_closed"),
+        "unknown_incompatible_feature_policy should be fail_closed"
+    );
+    assert_eq!(
+        fail_closed["missing_artifact_link_policy"].as_str(),
+        Some("fail_closed"),
+        "missing_artifact_link_policy should be fail_closed"
+    );
+    let fail_closed_audit_log_path = fail_closed["audit_log_path"]
+        .as_str()
+        .expect("fail_closed_policy_enforcement.audit_log_path should be string");
+    assert_path(
+        fail_closed_audit_log_path,
+        "fail_closed_policy_enforcement.audit_log_path",
+        &root,
+    );
+    let fail_closed_triggers = fail_closed["enforcement_triggers"]
+        .as_array()
+        .expect("fail_closed_policy_enforcement.enforcement_triggers should be array");
+    assert!(
+        !fail_closed_triggers.is_empty(),
+        "fail_closed_policy_enforcement.enforcement_triggers should be non-empty"
+    );
+    let required_fail_closed_trigger_keys =
+        required_string_array(&schema, "required_fail_closed_trigger_keys");
+    let mut observed_fail_closed_reason_codes = BTreeSet::new();
+    for (idx, trigger) in fail_closed_triggers.iter().enumerate() {
+        for key in &required_fail_closed_trigger_keys {
+            assert!(
+                trigger.get(*key).is_some(),
+                "fail_closed_policy_enforcement.enforcement_triggers[{idx}] missing `{key}`"
+            );
+        }
+        let threshold = trigger["threshold"]
+            .as_i64()
+            .expect("fail_closed trigger threshold should be integer");
+        assert!(
+            threshold >= 1,
+            "fail_closed_policy_enforcement.enforcement_triggers[{idx}].threshold must be >= 1"
+        );
+        let reason_code = trigger["reason_code"]
+            .as_str()
+            .expect("fail_closed trigger reason_code should be string");
+        observed_fail_closed_reason_codes.insert(reason_code);
+    }
+    for reason_code in ["unknown_incompatible_feature", "missing_artifact_link"] {
+        assert!(
+            observed_fail_closed_reason_codes.contains(reason_code),
+            "fail_closed_policy_enforcement must include reason_code `{reason_code}`"
+        );
+    }
+
+    let playbook = artifact["operator_triage_playbook"]
+        .as_object()
+        .expect("operator_triage_playbook should be object");
+    for key in required_string_array(&schema, "required_operator_playbook_keys") {
+        assert!(
+            playbook.get(key).is_some(),
+            "operator_triage_playbook missing `{key}`"
+        );
+    }
+    let primary_oncall_role = playbook["primary_oncall_role"]
+        .as_str()
+        .expect("operator_triage_playbook.primary_oncall_role should be string");
+    assert!(
+        !primary_oncall_role.trim().is_empty(),
+        "operator_triage_playbook.primary_oncall_role should be non-empty"
+    );
+    let first_response_flow = playbook["first_response_flow"]
+        .as_array()
+        .expect("operator_triage_playbook.first_response_flow should be array");
+    assert!(
+        !first_response_flow.is_empty(),
+        "operator_triage_playbook.first_response_flow should be non-empty"
+    );
+    let required_playbook_step_keys = required_string_array(&schema, "required_playbook_step_keys");
+    for (idx, step) in first_response_flow.iter().enumerate() {
+        for key in &required_playbook_step_keys {
+            assert!(
+                step.get(*key).is_some(),
+                "operator_triage_playbook.first_response_flow[{idx}] missing `{key}`"
+            );
+        }
+        let max_response_minutes = step["max_response_minutes"].as_i64().expect(
+            "operator_triage_playbook.first_response_flow max_response_minutes should be integer",
+        );
+        assert!(
+            max_response_minutes >= 1,
+            "operator_triage_playbook.first_response_flow[{idx}].max_response_minutes must be >= 1"
+        );
+    }
+    let escalation_rules = playbook["escalation_rules"]
+        .as_array()
+        .expect("operator_triage_playbook.escalation_rules should be array");
+    assert!(
+        !escalation_rules.is_empty(),
+        "operator_triage_playbook.escalation_rules should be non-empty"
+    );
+    let required_escalation_rule_keys =
+        required_string_array(&schema, "required_escalation_rule_keys");
+    for (idx, rule) in escalation_rules.iter().enumerate() {
+        for key in &required_escalation_rule_keys {
+            assert!(
+                rule.get(*key).is_some(),
+                "operator_triage_playbook.escalation_rules[{idx}] missing `{key}`"
+            );
+        }
+        let max_minutes = rule["max_minutes"]
+            .as_i64()
+            .expect("operator_triage_playbook.escalation_rules max_minutes should be integer");
+        assert!(
+            max_minutes >= 1,
+            "operator_triage_playbook.escalation_rules[{idx}].max_minutes must be >= 1"
+        );
+    }
+    let audit_trail_requirements = playbook["audit_trail_requirements"]
+        .as_array()
+        .expect("operator_triage_playbook.audit_trail_requirements should be array");
+    assert!(
+        !audit_trail_requirements.is_empty(),
+        "operator_triage_playbook.audit_trail_requirements should be non-empty"
+    );
+
+    let dashboard_contract = artifact["gate_dashboard_contract"]
+        .as_object()
+        .expect("gate_dashboard_contract should be object");
+    for key in required_string_array(&schema, "required_dashboard_contract_keys") {
+        assert!(
+            dashboard_contract.get(key).is_some(),
+            "gate_dashboard_contract missing `{key}`"
+        );
+    }
+    let dashboard_path = dashboard_contract["path"]
+        .as_str()
+        .expect("gate_dashboard_contract.path should be string");
+    assert_path(dashboard_path, "gate_dashboard_contract.path", &root);
+    assert_eq!(
+        dashboard_contract["deterministic_ordering"].as_str(),
+        Some("lexicographic"),
+        "gate_dashboard_contract.deterministic_ordering should be lexicographic"
+    );
+    let dashboard_required_fields = dashboard_contract["required_fields"]
+        .as_array()
+        .expect("gate_dashboard_contract.required_fields should be array")
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .expect("gate_dashboard_contract.required_fields entries should be string")
+        })
+        .collect::<BTreeSet<_>>();
+    let expected_dashboard_fields = required_string_array(&schema, "required_dashboard_fields")
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        dashboard_required_fields, expected_dashboard_fields,
+        "gate_dashboard_contract.required_fields should match schema.required_dashboard_fields"
+    );
+    let dashboard = load_json(&root.join(dashboard_path));
+    for key in required_string_array(&schema, "required_dashboard_fields") {
+        assert!(
+            dashboard.get(key).is_some(),
+            "dashboard missing required key `{key}`"
+        );
+    }
+    assert_eq!(dashboard["status"].as_str(), Some("pass"));
+    assert_eq!(dashboard["audit_friendly"].as_bool(), Some(true));
+    assert_eq!(dashboard["deterministic"].as_bool(), Some(true));
+    assert_eq!(
+        dashboard["gate_summary"]["total_gates"].as_u64(),
+        Some(gate_matrix.len() as u64),
+        "dashboard.gate_summary.total_gates should match gate_matrix size"
+    );
+    assert_eq!(
+        dashboard["triage_summary"]["bucket_count"].as_u64(),
+        Some(triage_taxonomy.len() as u64),
+        "dashboard.triage_summary.bucket_count should match triage_taxonomy size"
+    );
+    assert_eq!(
+        dashboard["artifact_health"]["artifact_index_count"].as_u64(),
+        Some(
+            artifact["artifact_index"]
+                .as_array()
+                .expect("artifact_index should be array")
+                .len() as u64,
+        ),
+        "dashboard.artifact_health.artifact_index_count should match artifact_index size"
+    );
+    assert_eq!(
+        dashboard["artifact_health"]["missing_artifact_links"].as_u64(),
+        Some(0),
+        "dashboard.artifact_health.missing_artifact_links should be 0"
+    );
+    assert_eq!(
+        dashboard["artifact_health"]["audit_log_path"].as_str(),
+        Some(fail_closed_audit_log_path),
+        "dashboard.artifact_health.audit_log_path should match fail_closed_policy_enforcement.audit_log_path"
+    );
+    assert_eq!(
+        dashboard["triage_summary"]["primary_oncall_role"].as_str(),
+        Some(primary_oncall_role),
+        "dashboard.triage_summary.primary_oncall_role should match operator_triage_playbook.primary_oncall_role"
+    );
+
     let alien = artifact["alien_uplift_contract_card"]
         .as_object()
         .expect("alien_uplift_contract_card should be object");

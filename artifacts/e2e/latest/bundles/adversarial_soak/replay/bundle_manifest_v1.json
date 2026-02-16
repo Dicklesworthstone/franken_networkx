@@ -7,19 +7,21 @@
   "scenario_kind": "adversarial_soak",
   "journey_id": "J-READWRITE",
   "packet_id": "FNX-P2C-006",
+  "gate_step_id": "step-1",
   "mode": "hardened",
   "fixture_id": "generated/readwrite_hardened_malformed.json",
   "deterministic_seed": 15798793491341090845,
   "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened",
   "execution_metadata": {
-    "run_id": "e2e-script-pack-20260216T064104Z",
+    "run_id": "e2e-script-pack-20260216T203841Z",
     "pass_label": "replay",
+    "gate_step_id": "step-1",
     "status": "passed",
     "reason_code": null,
-    "start_unix_ms": 1771224129017,
-    "end_unix_ms": 1771224153063,
-    "duration_ms": 24046,
-    "generated_at_utc": "2026-02-16T06:42:33.064789+00:00",
+    "start_unix_ms": 1771274394829,
+    "end_unix_ms": 1771274420323,
+    "duration_ms": 25494,
+    "generated_at_utc": "2026-02-16T20:40:20.325275+00:00",
     "forensics_source": "synthesized_fallback"
   },
   "forensics_links": {
@@ -28,6 +30,7 @@
     "forensics_bundle_hash_id": "75e08c45b19f7aed",
     "forensics_bundle_replay_ref": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened"
   },
+  "forensics_index_path": "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json",
   "evidence_refs": {
     "parity_report": "artifacts/phase2c/FNX-P2C-006/parity_report.json",
     "parity_report_raptorq": "artifacts/phase2c/FNX-P2C-006/parity_report.raptorq.json",
@@ -66,6 +69,11 @@
     "artifacts/e2e/latest/bundles/adversarial_soak/replay/soak_health_checkpoints_v1.json",
     "artifacts/e2e/latest/bundles/adversarial_soak/replay/soak_triage_summary_v1.json"
   ],
+  "retention_policy": {
+    "policy_id": "e2e-latest-retention-v1",
+    "min_retention_days": 14,
+    "storage_root": "artifacts/e2e/latest"
+  },
   "soak_telemetry": {
     "soak_profile": "long_tail_stability",
     "soak_threat_class": "algorithmic_denial",

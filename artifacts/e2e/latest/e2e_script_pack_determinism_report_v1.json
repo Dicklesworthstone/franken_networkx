@@ -1,8 +1,15 @@
 {
   "schema_version": "1.0.0",
   "artifact_id": "e2e-script-pack-determinism-report-v1",
-  "run_id": "e2e-script-pack-20260216T064104Z",
-  "generated_at_utc": "2026-02-16T06:42:33.066317+00:00",
+  "run_id": "e2e-script-pack-20260216T203841Z",
+  "generated_at_utc": "2026-02-16T20:40:20.326879+00:00",
+  "gate_step_id": "step-1",
+  "forensics_index_path": "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json",
+  "retention_policy": {
+    "policy_id": "e2e-latest-retention-v1",
+    "min_retention_days": 14,
+    "storage_root": "artifacts/e2e/latest"
+  },
   "pass_labels": [
     "baseline",
     "replay"
@@ -13,6 +20,25 @@
     "malformed_input",
     "adversarial_soak"
   ],
+  "required_packet_ids": [
+    "FNX-P2C-001",
+    "FNX-P2C-005",
+    "FNX-P2C-006"
+  ],
+  "packet_coverage": {
+    "required_packet_ids": [
+      "FNX-P2C-001",
+      "FNX-P2C-005",
+      "FNX-P2C-006"
+    ],
+    "observed_packet_ids": [
+      "FNX-P2C-001",
+      "FNX-P2C-005",
+      "FNX-P2C-006"
+    ],
+    "missing_packet_ids": [],
+    "coverage_ok": true
+  },
   "result_count": 8,
   "status": "pass",
   "failures": [],
@@ -64,6 +90,7 @@
       "pass_label": "baseline",
       "status": "passed",
       "reason_code": null,
+      "packet_id": "FNX-P2C-001",
       "bundle_id": "e2e-bundle-3acfb1d1f035bdf5",
       "stable_fingerprint": "ae36a376be507091",
       "bundle_manifest_path": "artifacts/e2e/latest/bundles/happy_path/baseline/bundle_manifest_v1.json"
@@ -73,6 +100,7 @@
       "pass_label": "baseline",
       "status": "passed",
       "reason_code": null,
+      "packet_id": "FNX-P2C-005",
       "bundle_id": "e2e-bundle-3c9beaf0964ef3c8",
       "stable_fingerprint": "004320406d37f2ee",
       "bundle_manifest_path": "artifacts/e2e/latest/bundles/edge_path/baseline/bundle_manifest_v1.json"
@@ -82,6 +110,7 @@
       "pass_label": "baseline",
       "status": "passed",
       "reason_code": null,
+      "packet_id": "FNX-P2C-006",
       "bundle_id": "e2e-bundle-8812fedc0fe47217",
       "stable_fingerprint": "04f4b92eac1f9d6b",
       "bundle_manifest_path": "artifacts/e2e/latest/bundles/malformed_input/baseline/bundle_manifest_v1.json"
@@ -91,6 +120,7 @@
       "pass_label": "baseline",
       "status": "passed",
       "reason_code": null,
+      "packet_id": "FNX-P2C-006",
       "bundle_id": "e2e-bundle-6d7e041ad44a0f50",
       "stable_fingerprint": "ad1995178992eaf5",
       "bundle_manifest_path": "artifacts/e2e/latest/bundles/adversarial_soak/baseline/bundle_manifest_v1.json"
@@ -100,6 +130,7 @@
       "pass_label": "replay",
       "status": "passed",
       "reason_code": null,
+      "packet_id": "FNX-P2C-001",
       "bundle_id": "e2e-bundle-3acfb1d1f035bdf5",
       "stable_fingerprint": "ae36a376be507091",
       "bundle_manifest_path": "artifacts/e2e/latest/bundles/happy_path/replay/bundle_manifest_v1.json"
@@ -109,6 +140,7 @@
       "pass_label": "replay",
       "status": "passed",
       "reason_code": null,
+      "packet_id": "FNX-P2C-005",
       "bundle_id": "e2e-bundle-3c9beaf0964ef3c8",
       "stable_fingerprint": "004320406d37f2ee",
       "bundle_manifest_path": "artifacts/e2e/latest/bundles/edge_path/replay/bundle_manifest_v1.json"
@@ -118,6 +150,7 @@
       "pass_label": "replay",
       "status": "passed",
       "reason_code": null,
+      "packet_id": "FNX-P2C-006",
       "bundle_id": "e2e-bundle-8812fedc0fe47217",
       "stable_fingerprint": "04f4b92eac1f9d6b",
       "bundle_manifest_path": "artifacts/e2e/latest/bundles/malformed_input/replay/bundle_manifest_v1.json"
@@ -127,6 +160,7 @@
       "pass_label": "replay",
       "status": "passed",
       "reason_code": null,
+      "packet_id": "FNX-P2C-006",
       "bundle_id": "e2e-bundle-6d7e041ad44a0f50",
       "stable_fingerprint": "ad1995178992eaf5",
       "bundle_manifest_path": "artifacts/e2e/latest/bundles/adversarial_soak/replay/bundle_manifest_v1.json"

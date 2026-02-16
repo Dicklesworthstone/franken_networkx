@@ -1,7 +1,7 @@
 # Clean Safety Gate Pipeline
 
 - artifact id: `clean-safety-gate-pipeline-v1`
-- generated at (utc): `2026-02-16T04:54:38Z`
+- generated at (utc): `2026-02-16T20:45:36Z`
 
 ## Gate Matrix
 | gate id | type | owner | output artifact |
@@ -27,6 +27,26 @@
 - `runtime_config_report` path=`artifacts/conformance/latest/generated_runtime_config_optional_strict_json.report.json` producer=`GATE-DYNAMIC-RUNTIME-STATE`
 - `structured_logging_gate_report` path=`artifacts/conformance/latest/logging_final_gate_report_v1.json` producer=`GATE-STATIC-CLIPPY`
 - `clean_safety_gate_pipeline_validation` path=`artifacts/clean/latest/clean_safety_gate_pipeline_validation_v1.json` producer=`GATE-STATIC-FMT`
+
+## Fail-Closed Policy
+- unknown incompatible features: `fail_closed`
+- missing artifact links: `fail_closed`
+- violation action: `block_release_and_emit_audit_record`
+- audit log: `artifacts/clean/latest/clean_compliance_audit_log_v1.json`
+
+## Operator Triage Playbook
+- primary oncall role: `safety-audit`
+- step `FR-1` owner=`release-engineering` sla_min=15 action=Acknowledge incident and freeze release promotion path.
+- step `FR-2` owner=`safety-audit` sla_min=30 action=Collect deterministic replay command, failure envelope, and artifact index references.
+- step `FR-3` owner=`runtime-safety` sla_min=45 action=Assign triage bucket owner and open escalation thread with evidence links.
+- escalation `ESC-UNKNOWN-INCOMPATIBLE` if `reason_code == unknown_incompatible_feature` -> `compat-audit` within 30m (severity >= critical)
+- escalation `ESC-MISSING-ARTIFACT-LINK` if `reason_code == missing_artifact_link` -> `release-engineering` within 30m (severity >= critical)
+
+## Dashboard Contract
+- path: `artifacts/clean/latest/clean_safety_gate_pipeline_dashboard_v1.json`
+- deterministic ordering: `lexicographic`
+- deterministic sort keys: `['gate_id', 'target_id', 'bucket_id']`
+- audit mode: `append_only`
 
 ## Runtime Contract
 - states: ['green', 'yellow', 'red', 'blocked']

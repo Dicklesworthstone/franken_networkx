@@ -1,0 +1,47 @@
+{
+  "report_id": "clean-safety-gate-dashboard-v1",
+  "generated_at_utc": "2026-02-16T20:45:36Z",
+  "run_id": "clean-safety-gate-dashboard-20260216T204536Z",
+  "status": "pass",
+  "gate_summary": {
+    "total_gates": 6,
+    "static_gates": 2,
+    "dynamic_gates": 4,
+    "required_gate_ids": [
+      "GATE-DYNAMIC-PROVENANCE",
+      "GATE-DYNAMIC-READWRITE-PARSER",
+      "GATE-DYNAMIC-RUNTIME-STATE",
+      "GATE-DYNAMIC-UNSAFE-POLICY",
+      "GATE-STATIC-CLIPPY",
+      "GATE-STATIC-FMT"
+    ]
+  },
+  "fail_closed_summary": {
+    "unknown_incompatible_feature_policy": "fail_closed",
+    "missing_artifact_link_policy": "fail_closed",
+    "trigger_count": 2,
+    "trigger_reason_codes": [
+      "missing_artifact_link",
+      "unknown_incompatible_feature"
+    ],
+    "violation_action": "block_release_and_emit_audit_record"
+  },
+  "triage_summary": {
+    "bucket_count": 4,
+    "bucket_ids": [
+      "parser-malformed-input",
+      "performance-guardrail",
+      "policy-regression",
+      "state-transition-invariant"
+    ],
+    "primary_oncall_role": "safety-audit",
+    "escalation_rule_count": 2
+  },
+  "artifact_health": {
+    "artifact_index_count": 6,
+    "missing_artifact_links": 0,
+    "audit_log_path": "artifacts/clean/latest/clean_compliance_audit_log_v1.json"
+  },
+  "audit_friendly": true,
+  "deterministic": true
+}

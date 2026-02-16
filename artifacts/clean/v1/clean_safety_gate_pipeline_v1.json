@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "artifact_id": "clean-safety-gate-pipeline-v1",
-  "generated_at_utc": "2026-02-16T04:54:38Z",
+  "generated_at_utc": "2026-02-16T20:45:36Z",
   "gate_matrix": [
     {
       "gate_id": "GATE-STATIC-FMT",
@@ -286,6 +286,96 @@
       "response_sla_hours": 24
     }
   ],
+  "fail_closed_policy_enforcement": {
+    "unknown_incompatible_feature_policy": "fail_closed",
+    "missing_artifact_link_policy": "fail_closed",
+    "policy_scope": "all required safety gates, unknown incompatible features, and artifact index resolution",
+    "enforcement_triggers": [
+      {
+        "trigger_id": "FC-UNKNOWN-INCOMPATIBLE",
+        "condition": "count(unknown incompatible features detected) >= 1",
+        "threshold": 1,
+        "fallback_action": "fail_closed",
+        "reason_code": "unknown_incompatible_feature"
+      },
+      {
+        "trigger_id": "FC-MISSING-ARTIFACT-LINK",
+        "condition": "count(missing artifact links) >= 1",
+        "threshold": 1,
+        "fallback_action": "fail_closed",
+        "reason_code": "missing_artifact_link"
+      }
+    ],
+    "violation_action": "block_release_and_emit_audit_record",
+    "audit_log_path": "artifacts/clean/latest/clean_compliance_audit_log_v1.json"
+  },
+  "operator_triage_playbook": {
+    "primary_oncall_role": "safety-audit",
+    "first_response_flow": [
+      {
+        "step_id": "FR-1",
+        "action": "Acknowledge incident and freeze release promotion path.",
+        "owner_role": "release-engineering",
+        "max_response_minutes": 15
+      },
+      {
+        "step_id": "FR-2",
+        "action": "Collect deterministic replay command, failure envelope, and artifact index references.",
+        "owner_role": "safety-audit",
+        "max_response_minutes": 30
+      },
+      {
+        "step_id": "FR-3",
+        "action": "Assign triage bucket owner and open escalation thread with evidence links.",
+        "owner_role": "runtime-safety",
+        "max_response_minutes": 45
+      }
+    ],
+    "escalation_rules": [
+      {
+        "rule_id": "ESC-UNKNOWN-INCOMPATIBLE",
+        "condition": "reason_code == unknown_incompatible_feature",
+        "escalate_to": "compat-audit",
+        "max_minutes": 30,
+        "severity_floor": "critical"
+      },
+      {
+        "rule_id": "ESC-MISSING-ARTIFACT-LINK",
+        "condition": "reason_code == missing_artifact_link",
+        "escalate_to": "release-engineering",
+        "max_minutes": 30,
+        "severity_floor": "critical"
+      }
+    ],
+    "audit_trail_requirements": [
+      "record incident thread_id and owner assignment",
+      "record deterministic replay command and evidence links",
+      "record escalation decision with timestamp and approver"
+    ]
+  },
+  "gate_dashboard_contract": {
+    "path": "artifacts/clean/latest/clean_safety_gate_pipeline_dashboard_v1.json",
+    "schema_version": "1.0.0",
+    "required_fields": [
+      "report_id",
+      "generated_at_utc",
+      "run_id",
+      "status",
+      "gate_summary",
+      "fail_closed_summary",
+      "triage_summary",
+      "artifact_health",
+      "audit_friendly",
+      "deterministic"
+    ],
+    "deterministic_sort_keys": [
+      "gate_id",
+      "target_id",
+      "bucket_id"
+    ],
+    "deterministic_ordering": "lexicographic",
+    "audit_mode": "append_only"
+  },
   "alien_uplift_contract_card": {
     "artifact_track": "clean-safety-gate-pipeline",
     "ev_score": 2.4,

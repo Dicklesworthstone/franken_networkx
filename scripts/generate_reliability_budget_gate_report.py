@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from collections import defaultdict
 from dataclasses import dataclass
@@ -122,6 +123,31 @@ def in_budget(packet_id: str, budget_packet_ids: set[str]) -> bool:
     return packet_id in budget_packet_ids
 
 
+def deterministic_seed_for_run(
+    spec: dict[str, Any], observations: list[Observation], smoke_report: dict[str, Any], normalization_report: dict[str, Any]
+) -> str:
+    serializable_observations = [
+        {
+            "packet_id": obs.packet_id,
+            "test_id": obs.test_id,
+            "status": obs.status,
+            "ts_unix_ms": obs.ts_unix_ms,
+        }
+        for obs in observations
+    ]
+    seed_payload = {
+        "artifact_id": spec.get("artifact_id"),
+        "budget_definitions": spec.get("budget_definitions", []),
+        "flake_policy": spec.get("flake_policy", {}),
+        "gate_stage_contract": spec.get("gate_stage_contract", {}),
+        "observations": serializable_observations,
+        "smoke_fixture_count": smoke_report.get("fixture_count"),
+        "normalization_fixture_count": normalization_report.get("fixture_count"),
+    }
+    canonical = json.dumps(seed_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
 def runtime_guardrail_ok(metric: str, perf_report: dict[str, Any], normalization_report: dict[str, Any], durability_report: dict[str, Any]) -> bool:
     if metric in {"p95", "p99"}:
         return perf_report.get("status") == "pass"
@@ -166,8 +192,21 @@ def main() -> int:
     phase2c_report = read_json_or_empty(REPO_ROOT / args.phase2c_e2e_report)
 
     now_utc = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    stage_contract = (
+        spec.get("gate_stage_contract", {}) if isinstance(spec.get("gate_stage_contract"), dict) else {}
+    )
+    required_stage_ids = stage_contract.get(
+        "required_stage_ids",
+        ["coverage", "property", "e2e_replay", "flake", "runtime_guardrail", "evidence_presence"],
+    )
+    required_stage_ids = [stage for stage in required_stage_ids if isinstance(stage, str) and stage]
+    run_id_prefix = stage_contract.get("run_id_prefix", "reliability-gate-")
+    if not isinstance(run_id_prefix, str) or not run_id_prefix.strip():
+        run_id_prefix = "reliability-gate-"
 
     observations = collect_observations(structured_logs, e2e_events)
+    deterministic_seed = deterministic_seed_for_run(spec, observations, smoke_report, normalization_report)
+    run_id = f"{run_id_prefix}{deterministic_seed[:16]}"
     per_test_flakes, per_test_total = flake_transitions(observations)
 
     total_observations = len(observations)
@@ -231,6 +270,93 @@ def main() -> int:
         else:
             status = "pass"
 
+        coverage_stage_status = "pass" if coverage_pass else "fail"
+        property_stage_status = "pass" if property_pass else "fail"
+        e2e_stage_status = "pass" if e2e_pass else "fail"
+        runtime_stage_status = "pass" if runtime_guardrail_pass else "fail"
+        evidence_stage_status = "pass" if not missing_evidence else "fail"
+        if budget_flake_rate > fail_threshold:
+            flake_stage_status = "fail"
+        elif budget_flake_rate > warn_threshold or not flake_pass:
+            flake_stage_status = "warn"
+        else:
+            flake_stage_status = "pass"
+
+        stage_catalog: dict[str, dict[str, Any]] = {
+            "coverage": {
+                "status": coverage_stage_status,
+                "observed_value": {
+                    "unit_line_pct_proxy": round(proxy_unit_line_pct, 3),
+                    "branch_pct_proxy": round(proxy_branch_pct, 3),
+                },
+                "threshold_value": {
+                    "unit_line_pct_floor": required_unit_line,
+                    "branch_pct_floor": required_branch,
+                },
+            },
+            "property": {
+                "status": property_stage_status,
+                "observed_value": {"property_count": property_observed},
+                "threshold_value": {"property_floor": property_floor},
+            },
+            "e2e_replay": {
+                "status": e2e_stage_status,
+                "observed_value": {"e2e_replay_pass_ratio": round(e2e_pass_ratio, 3)},
+                "threshold_value": {"e2e_replay_pass_floor": float(row.get("e2e_replay_pass_floor", 1.0))},
+            },
+            "flake": {
+                "status": flake_stage_status,
+                "observed_value": {"flake_rate_pct_7d": round(budget_flake_rate, 3)},
+                "threshold_value": {
+                    "warn_threshold_pct": warn_threshold,
+                    "fail_threshold_pct": fail_threshold,
+                    "flake_ceiling_pct_7d": float(row.get("flake_ceiling_pct_7d", 0.0)),
+                },
+            },
+            "runtime_guardrail": {
+                "status": runtime_stage_status,
+                "observed_value": {"runtime_guardrail_pass": runtime_guardrail_pass},
+                "threshold_value": {"runtime_guardrail": runtime_guardrail},
+            },
+            "evidence_presence": {
+                "status": evidence_stage_status,
+                "observed_value": {
+                    "missing_evidence_count": len(missing_evidence),
+                    "missing_evidence_paths": missing_evidence,
+                },
+                "threshold_value": {"missing_evidence_count": 0},
+            },
+        }
+
+        stage_results: list[dict[str, Any]] = []
+        gate_command = str(row.get("gate_command", ""))
+        for stage_id in required_stage_ids:
+            stage_data = stage_catalog.get(stage_id)
+            if stage_data is None:
+                stage_results.append(
+                    {
+                        "stage_id": stage_id,
+                        "run_id": f"{run_id}::{budget_id}::{stage_id}",
+                        "status": "fail",
+                        "observed_value": {"error": "stage_id not implemented in gate runner"},
+                        "threshold_value": {"required": "implemented"},
+                        "replay_command": gate_command,
+                        "artifact_refs": evidence_paths,
+                    }
+                )
+                continue
+            stage_results.append(
+                {
+                    "stage_id": stage_id,
+                    "run_id": f"{run_id}::{budget_id}::{stage_id}",
+                    "status": stage_data["status"],
+                    "observed_value": stage_data["observed_value"],
+                    "threshold_value": stage_data["threshold_value"],
+                    "replay_command": gate_command,
+                    "artifact_refs": evidence_paths,
+                }
+            )
+
         observed = {
             "unit_line_pct_proxy": round(proxy_unit_line_pct, 3),
             "branch_pct_proxy": round(proxy_branch_pct, 3),
@@ -254,31 +380,42 @@ def main() -> int:
             {
                 "budget_id": budget_id,
                 "packet_family": packet_family,
+                "run_id": run_id,
                 "status": status,
                 "failing_test_groups": failing_test_groups,
                 "missing_evidence_paths": missing_evidence,
                 "observed": observed,
                 "thresholds": thresholds,
-                "gate_command": row.get("gate_command"),
+                "stage_results": stage_results,
+                "gate_command": gate_command,
                 "artifact_paths": evidence_paths,
                 "owner_bead_id": "bd-315.23",
             }
         )
 
         if status in {"warn", "fail"}:
+            failing_stage_ids = [stage["stage_id"] for stage in stage_results if stage.get("status") != "pass"]
             remediation_hint = (
-                f"Investigate budget `{budget_id}` using gate command, then inspect artifact paths and replay commands."
+                f"Investigate budget `{budget_id}` stage(s) {failing_stage_ids}, then inspect artifact paths and replay commands."
             )
             failure_envelopes.append(
                 {
                     "budget_id": budget_id,
                     "packet_scope": packet_family,
+                    "run_id": run_id,
                     "observed_value": observed,
                     "threshold_value": thresholds,
                     "status": status,
                     "failing_test_groups": failing_test_groups,
                     "artifact_paths": evidence_paths,
-                    "replay_commands": [str(row.get("gate_command", ""))],
+                    "replay_commands": [gate_command],
+                    "replay_metadata": {
+                        "run_id": run_id,
+                        "deterministic_seed": deterministic_seed,
+                        "gate_command": gate_command,
+                        "failing_stage_ids": failing_stage_ids,
+                        "failed_stage_count": len(failing_stage_ids),
+                    },
                     "owner_bead_id": "bd-315.23",
                     "remediation_hint": remediation_hint,
                 }
@@ -301,6 +438,7 @@ def main() -> int:
             "observation_count": per_test_total.get(test_id, 0),
             "status": "quarantined",
             "owner_bead_id": "bd-315.23",
+            "run_id": run_id,
             "replay_command": "rch exec -- cargo test -q -p fnx-conformance --tests -- --nocapture",
             "artifact_refs": [
                 "artifacts/conformance/latest/structured_logs.jsonl",
@@ -315,6 +453,8 @@ def main() -> int:
         "schema_version": "1.0.0",
         "report_id": "reliability-budget-report-v1",
         "generated_at_utc": now_utc,
+        "run_id": run_id,
+        "deterministic_seed": deterministic_seed,
         "source_bead_id": "bd-315.23",
         "status": overall_status,
         "flake_summary": {
@@ -338,6 +478,7 @@ def main() -> int:
         "schema_version": "1.0.0",
         "artifact_id": "flake-quarantine-v1",
         "generated_at_utc": now_utc,
+        "run_id": run_id,
         "source_bead_id": "bd-315.23",
         "status": "active" if quarantine_tests else "clear",
         "policy": {

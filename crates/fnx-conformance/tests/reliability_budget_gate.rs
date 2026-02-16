@@ -52,6 +52,19 @@ fn reliability_budget_artifacts_are_complete_and_gate_passes() {
     let allowed_status_values = required_string_array(&schema, "allowed_status_values")
         .into_iter()
         .collect::<BTreeSet<_>>();
+    let required_report_top_level_keys =
+        required_string_array(&schema, "required_report_top_level_keys");
+    let required_report_budget_keys = required_string_array(&schema, "required_report_budget_keys");
+    let required_stage_result_keys = required_string_array(&schema, "required_stage_result_keys");
+    let required_stage_ids = required_string_array(&schema, "required_stage_ids")
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    let required_failure_replay_metadata_keys =
+        required_string_array(&schema, "required_failure_replay_metadata_keys");
+    let required_quarantine_top_level_keys =
+        required_string_array(&schema, "required_quarantine_top_level_keys");
+    let required_quarantine_test_keys =
+        required_string_array(&schema, "required_quarantine_test_keys");
 
     let required_budget_keys = required_string_array(&schema, "required_budget_keys");
     let spec_budgets = spec["budget_definitions"]
@@ -83,6 +96,27 @@ fn reliability_budget_artifacts_are_complete_and_gate_passes() {
         Some("bd-315.23"),
         "reliability report must point to bd-315.23"
     );
+    for key in &required_report_top_level_keys {
+        assert!(
+            report.get(key).is_some(),
+            "reliability report missing top-level key `{key}`"
+        );
+    }
+    let report_run_id = report["run_id"]
+        .as_str()
+        .expect("report.run_id should be string")
+        .to_owned();
+    assert!(
+        !report_run_id.trim().is_empty(),
+        "report.run_id should be non-empty"
+    );
+    let report_seed = report["deterministic_seed"]
+        .as_str()
+        .expect("report.deterministic_seed should be string");
+    assert!(
+        report_seed.len() >= 16,
+        "report.deterministic_seed should be hash-like"
+    );
     let report_status = report["status"]
         .as_str()
         .expect("report.status should be string");
@@ -101,20 +135,11 @@ fn reliability_budget_artifacts_are_complete_and_gate_passes() {
 
     let mut observed_report_budget_ids = BTreeSet::new();
     let mut status_by_budget: Vec<(String, String)> = Vec::new();
+    let mut non_pass_stage_ids_by_budget: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
 
     for (idx, budget) in report_budgets.iter().enumerate() {
-        for key in [
-            "budget_id",
-            "packet_family",
-            "status",
-            "failing_test_groups",
-            "missing_evidence_paths",
-            "observed",
-            "thresholds",
-            "gate_command",
-            "artifact_paths",
-            "owner_bead_id",
-        ] {
+        for key in &required_report_budget_keys {
             assert!(
                 budget.get(key).is_some(),
                 "report.budgets[{idx}] missing key `{key}`"
@@ -125,6 +150,14 @@ fn reliability_budget_artifacts_are_complete_and_gate_passes() {
             .as_str()
             .expect("report budget_id should be string")
             .to_owned();
+        let budget_run_id = budget["run_id"]
+            .as_str()
+            .expect("report budget run_id should be string");
+        assert_eq!(
+            budget_run_id, report_run_id,
+            "report.budgets[{idx}].run_id must match report.run_id"
+        );
+
         let status = budget["status"]
             .as_str()
             .expect("report status should be string")
@@ -203,6 +236,88 @@ fn reliability_budget_artifacts_are_complete_and_gate_passes() {
             );
         }
 
+        let stage_results = budget["stage_results"]
+            .as_array()
+            .expect("report stage_results should be array");
+        assert!(
+            !stage_results.is_empty(),
+            "report.budgets[{idx}].stage_results must be non-empty"
+        );
+        let mut observed_stage_ids = BTreeSet::new();
+        let mut non_pass_stage_ids = Vec::new();
+        for (stage_idx, stage) in stage_results.iter().enumerate() {
+            for key in &required_stage_result_keys {
+                assert!(
+                    stage.get(key).is_some(),
+                    "report.budgets[{idx}].stage_results[{stage_idx}] missing key `{key}`"
+                );
+            }
+            let stage_id = stage["stage_id"]
+                .as_str()
+                .expect("stage_id should be string")
+                .to_owned();
+            assert!(
+                observed_stage_ids.insert(stage_id.clone()),
+                "report.budgets[{idx}] duplicate stage_id `{stage_id}`"
+            );
+            let stage_status = stage["status"]
+                .as_str()
+                .expect("stage status should be string")
+                .to_owned();
+            assert!(
+                allowed_status_values.contains(stage_status.as_str()),
+                "report.budgets[{idx}].stage_results[{stage_idx}].status `{stage_status}` outside allowed set"
+            );
+            if stage_status != "pass" {
+                non_pass_stage_ids.push(stage_id.clone());
+            }
+            let stage_run_id = stage["run_id"]
+                .as_str()
+                .expect("stage run_id should be string");
+            assert!(
+                stage_run_id.starts_with(&format!("{report_run_id}::{budget_id}::")),
+                "report.budgets[{idx}].stage_results[{stage_idx}].run_id not namespaced by report/budget run_id"
+            );
+            let stage_replay_command = stage["replay_command"]
+                .as_str()
+                .expect("stage replay_command should be string");
+            if stage_replay_command.contains("cargo ") {
+                assert!(
+                    stage_replay_command.contains("rch exec --"),
+                    "report.budgets[{idx}].stage_results[{stage_idx}] cargo replay must use rch"
+                );
+            }
+            assert!(
+                stage["observed_value"].is_object(),
+                "report.budgets[{idx}].stage_results[{stage_idx}].observed_value should be object"
+            );
+            assert!(
+                stage["threshold_value"].is_object(),
+                "report.budgets[{idx}].stage_results[{stage_idx}].threshold_value should be object"
+            );
+            let stage_artifact_refs = stage["artifact_refs"]
+                .as_array()
+                .expect("stage artifact_refs should be array");
+            assert!(
+                !stage_artifact_refs.is_empty(),
+                "report.budgets[{idx}].stage_results[{stage_idx}].artifact_refs must be non-empty"
+            );
+            for (art_idx, art_value) in stage_artifact_refs.iter().enumerate() {
+                let path = art_value
+                    .as_str()
+                    .expect("stage artifact ref should be string");
+                assert!(
+                    root.join(path).exists(),
+                    "report.budgets[{idx}].stage_results[{stage_idx}].artifact_refs[{art_idx}] missing `{path}`"
+                );
+            }
+        }
+        assert_eq!(
+            observed_stage_ids, required_stage_ids,
+            "report.budgets[{idx}] stage ID coverage drifted"
+        );
+        non_pass_stage_ids_by_budget.insert(budget_id.clone(), non_pass_stage_ids.clone());
+
         if status == "pass" {
             let failing_test_groups = budget["failing_test_groups"]
                 .as_array()
@@ -227,6 +342,15 @@ fn reliability_budget_artifacts_are_complete_and_gate_passes() {
                 observed["missing_evidence_count"].as_u64(),
                 Some(0),
                 "pass budget `{budget_id}` must have missing_evidence_count=0"
+            );
+            assert!(
+                non_pass_stage_ids.is_empty(),
+                "pass budget `{budget_id}` cannot have non-pass stage results"
+            );
+        } else {
+            assert!(
+                !non_pass_stage_ids.is_empty(),
+                "non-pass budget `{budget_id}` must have at least one non-pass stage result"
             );
         }
 
@@ -254,12 +378,74 @@ fn reliability_budget_artifacts_are_complete_and_gate_passes() {
         let budget_id = envelope["budget_id"]
             .as_str()
             .expect("failure envelope budget_id should be string");
+        assert_eq!(
+            envelope["run_id"].as_str(),
+            Some(report_run_id.as_str()),
+            "failure envelope run_id must match report.run_id"
+        );
         let status = envelope["status"]
             .as_str()
             .expect("failure envelope status should be string");
         assert!(
             matches!(status, "warn" | "fail"),
             "failure envelope status must be warn|fail; got `{status}`"
+        );
+        let replay_metadata = envelope["replay_metadata"]
+            .as_object()
+            .expect("failure envelope replay_metadata should be object");
+        for key in &required_failure_replay_metadata_keys {
+            assert!(
+                replay_metadata.contains_key(key),
+                "failure envelope replay_metadata missing key `{key}`"
+            );
+        }
+        assert_eq!(
+            replay_metadata["run_id"].as_str(),
+            Some(report_run_id.as_str()),
+            "failure envelope replay_metadata.run_id must match report.run_id"
+        );
+        assert_eq!(
+            replay_metadata["deterministic_seed"].as_str(),
+            Some(report_seed),
+            "failure envelope replay_metadata.deterministic_seed must match report.deterministic_seed"
+        );
+        let replay_gate_command = replay_metadata["gate_command"]
+            .as_str()
+            .expect("failure envelope replay_metadata.gate_command should be string");
+        assert!(
+            replay_gate_command.contains("rch exec --"),
+            "failure envelope replay_metadata.gate_command must use rch"
+        );
+        let failing_stage_ids = replay_metadata["failing_stage_ids"]
+            .as_array()
+            .expect("failure envelope replay_metadata.failing_stage_ids should be array")
+            .iter()
+            .map(|value| {
+                value
+                    .as_str()
+                    .expect("failure envelope replay_metadata.failing_stage_ids entries should be strings")
+                    .to_owned()
+            })
+            .collect::<Vec<_>>();
+        let failed_stage_count = replay_metadata["failed_stage_count"]
+            .as_u64()
+            .expect("failure envelope replay_metadata.failed_stage_count should be integer")
+            as usize;
+        assert_eq!(
+            failed_stage_count,
+            failing_stage_ids.len(),
+            "failure envelope replay_metadata.failed_stage_count must match failing_stage_ids length"
+        );
+        let budget_non_pass_stages = non_pass_stage_ids_by_budget
+            .get(budget_id)
+            .cloned()
+            .unwrap_or_default();
+        let failing_stage_ids_set = failing_stage_ids.into_iter().collect::<BTreeSet<_>>();
+        let budget_non_pass_stages_set =
+            budget_non_pass_stages.into_iter().collect::<BTreeSet<_>>();
+        assert_eq!(
+            failing_stage_ids_set, budget_non_pass_stages_set,
+            "failure envelope replay metadata stage failures must match budget stage_results"
         );
         envelope_budget_ids.insert(budget_id.to_owned());
         assert_eq!(
@@ -301,10 +487,21 @@ fn reliability_budget_artifacts_are_complete_and_gate_passes() {
         "report.status must match derived aggregate budget status"
     );
 
+    for key in &required_quarantine_top_level_keys {
+        assert!(
+            quarantine.get(key).is_some(),
+            "quarantine artifact missing top-level key `{key}`"
+        );
+    }
     assert_eq!(
         quarantine["source_bead_id"].as_str(),
         Some("bd-315.23"),
         "quarantine artifact must point to bd-315.23"
+    );
+    assert_eq!(
+        quarantine["run_id"].as_str(),
+        Some(report_run_id.as_str()),
+        "quarantine.run_id must match report.run_id"
     );
     let quarantine_status = quarantine["status"]
         .as_str()
@@ -344,15 +541,7 @@ fn reliability_budget_artifacts_are_complete_and_gate_passes() {
     }
 
     for (idx, test) in quarantined_tests.iter().enumerate() {
-        for key in [
-            "test_id",
-            "flake_events",
-            "observation_count",
-            "status",
-            "owner_bead_id",
-            "replay_command",
-            "artifact_refs",
-        ] {
+        for key in &required_quarantine_test_keys {
             assert!(
                 test.get(key).is_some(),
                 "quarantine.quarantined_tests[{idx}] missing key `{key}`"
@@ -367,6 +556,11 @@ fn reliability_budget_artifacts_are_complete_and_gate_passes() {
             test["owner_bead_id"].as_str(),
             Some("bd-315.23"),
             "quarantine.quarantined_tests[{idx}].owner_bead_id must be bd-315.23"
+        );
+        assert_eq!(
+            test["run_id"].as_str(),
+            Some(report_run_id.as_str()),
+            "quarantine.quarantined_tests[{idx}].run_id must match report.run_id"
         );
         let replay_command = test["replay_command"]
             .as_str()

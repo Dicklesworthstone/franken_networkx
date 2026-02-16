@@ -73,6 +73,11 @@ OPTIMIZATION_LEVER_POLICY: dict[str, str] = {
     "rule": "exactly_one_optimization_lever_per_change",
     "evidence_path": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
 }
+ARTIFACT_RETENTION_POLICY: dict[str, Any] = {
+    "policy_id": "e2e-latest-retention-v1",
+    "min_retention_days": 14,
+    "storage_root": "artifacts/e2e/latest",
+}
 
 
 @dataclass(frozen=True)
@@ -465,7 +470,10 @@ def replay_manifest_diagnostics(manifest: dict[str, Any]) -> list[str]:
         "bundle_id",
         "stable_fingerprint",
         "replay_command",
+        "gate_step_id",
         "forensics_links",
+        "forensics_index_path",
+        "retention_policy",
         "failure_envelope_path",
         "evidence_refs",
     ]:
@@ -483,6 +491,19 @@ def replay_manifest_diagnostics(manifest: dict[str, Any]) -> list[str]:
     failure_envelope_path = manifest.get("failure_envelope_path")
     if not non_empty_str(failure_envelope_path):
         diagnostics.append("manifest.failure_envelope_path must be a non-empty string")
+    forensics_index_path = manifest.get("forensics_index_path")
+    if not non_empty_str(forensics_index_path):
+        diagnostics.append("manifest.forensics_index_path must be a non-empty string")
+    gate_step_id = manifest.get("gate_step_id")
+    if not non_empty_str(gate_step_id):
+        diagnostics.append("manifest.gate_step_id must be a non-empty string")
+    retention_policy = manifest.get("retention_policy")
+    if not isinstance(retention_policy, dict):
+        diagnostics.append("manifest.retention_policy must be an object")
+    else:
+        for key in ("policy_id", "min_retention_days", "storage_root"):
+            if key not in retention_policy:
+                diagnostics.append(f"manifest.retention_policy missing required key `{key}`")
     evidence_refs = manifest.get("evidence_refs")
     if not isinstance(evidence_refs, dict):
         diagnostics.append("manifest.evidence_refs must be an object")
@@ -495,17 +516,22 @@ def build_failure_envelope(
     pass_label: str,
     scenario: ScenarioSpec,
     deterministic_seed: int,
+    gate_step_id: str,
     status: str,
     reason_code: str | None,
     bundle_id: str,
     stable_fingerprint: str,
     replay_command: str,
     forensics_links: dict[str, Any],
+    forensics_index_path: str,
+    retention_policy: dict[str, Any],
     artifact_refs: list[str],
     manifest_path: Path,
 ) -> dict[str, Any]:
     missing_forensics = missing_forensics_fields(forensics_links)
     triage_hints = [
+        f"Gate stage: {gate_step_id}",
+        f"Forensics index artifact: {forensics_index_path}",
         "Inspect command.log + selected_structured_log.json in the scenario bundle directory.",
         "Verify structured_log_hash_id and forensics bundle hash linkage are stable across passes.",
         f"Run replay command: {replay_command}",
@@ -513,8 +539,10 @@ def build_failure_envelope(
     if status == "passed":
         triage_hints = [
             "No failure detected; replay metadata and forensics links are contract-complete.",
+            f"Gate stage: {gate_step_id}",
             f"Run replay command for verification: {replay_command}",
         ]
+    bundle_manifest_rel = repo_relative(manifest_path)
     envelope_id = "e2e-failure-envelope-" + fnv1a64(
         "|".join(
             [
@@ -536,6 +564,7 @@ def build_failure_envelope(
         "reason_code": reason_code,
         "scenario_id": scenario.scenario_id,
         "pass_label": pass_label,
+        "gate_step_id": gate_step_id,
         "packet_id": scenario.packet_id,
         "fixture_id": scenario.fixture_id,
         "mode": scenario.mode,
@@ -546,8 +575,11 @@ def build_failure_envelope(
         "replay_command": replay_command,
         "forensics_links": forensics_links,
         "missing_forensics_fields": missing_forensics,
-        "bundle_manifest_path": repo_relative(manifest_path),
+        "bundle_manifest_path": bundle_manifest_rel,
+        "replay_bundle_manifest_path": bundle_manifest_rel,
+        "forensics_index_path": forensics_index_path,
         "artifact_refs": artifact_refs,
+        "retention_policy": retention_policy,
         "evidence_refs": packet_evidence_refs(scenario.packet_id),
         "alien_uplift_contract_card": dict(ALIEN_UPLIFT_CONTRACT_CARD),
         "decision_theoretic_runtime_contract": dict(DECISION_THEORETIC_RUNTIME_CONTRACT),
@@ -559,6 +591,7 @@ def run_scenario(
     *,
     run_id: str,
     pass_label: str,
+    gate_step_id: str,
     scenario: ScenarioSpec,
     deterministic_seed: int,
     soak_cycles: int,
@@ -731,6 +764,8 @@ def run_scenario(
         artifact_refs.append(repo_relative(soak_triage_path))
 
     evidence_refs = packet_evidence_refs(scenario.packet_id)
+    forensics_index_path = repo_relative(output_dir / "e2e_script_pack_bundle_index_v1.json")
+    retention_policy = dict(ARTIFACT_RETENTION_POLICY)
 
     manifest = {
         "schema_version": BUNDLE_SCHEMA_VERSION,
@@ -741,6 +776,7 @@ def run_scenario(
         "scenario_kind": scenario.scenario_kind,
         "journey_id": scenario.journey_id,
         "packet_id": scenario.packet_id,
+        "gate_step_id": gate_step_id,
         "mode": scenario.mode,
         "fixture_id": scenario.fixture_id,
         "deterministic_seed": deterministic_seed,
@@ -748,6 +784,7 @@ def run_scenario(
         "execution_metadata": {
             "run_id": run_id,
             "pass_label": pass_label,
+            "gate_step_id": gate_step_id,
             "status": status,
             "reason_code": reason_code,
             "start_unix_ms": start_ms,
@@ -757,9 +794,11 @@ def run_scenario(
             "forensics_source": forensics_source,
         },
         "forensics_links": forensics_links,
+        "forensics_index_path": forensics_index_path,
         "evidence_refs": evidence_refs,
         "failure_envelope_path": repo_relative(failure_envelope_path),
         "artifact_refs": artifact_refs,
+        "retention_policy": retention_policy,
     }
     if is_soak and soak_checkpoint_path is not None and soak_triage_path is not None:
         manifest["soak_telemetry"] = {
@@ -779,12 +818,15 @@ def run_scenario(
         pass_label=pass_label,
         scenario=scenario,
         deterministic_seed=deterministic_seed,
+        gate_step_id=gate_step_id,
         status=status,
         reason_code=reason_code,
         bundle_id=bundle_id,
         stable_fingerprint=stable_fingerprint,
         replay_command=manifest["replay_command"],
         forensics_links=forensics_links,
+        forensics_index_path=forensics_index_path,
+        retention_policy=retention_policy,
         artifact_refs=artifact_refs,
         manifest_path=manifest_path,
     )
@@ -815,6 +857,7 @@ def run_scenario(
         "journey_id": scenario.journey_id,
         "packet_id": scenario.packet_id,
         "pass_label": pass_label,
+        "gate_step_id": gate_step_id,
         "fixture_id": scenario.fixture_id,
         "mode": scenario.mode,
         "deterministic_seed": deterministic_seed,
@@ -829,6 +872,7 @@ def run_scenario(
         "replay_command": manifest["replay_command"],
         "forensics_links": forensics_links,
         "failure_envelope_path": repo_relative(failure_envelope_path),
+        "forensics_index_path": forensics_index_path,
         "evidence_refs": evidence_refs,
         "deterministic_replay_metadata": {
             "run_id": run_id,
@@ -839,6 +883,7 @@ def run_scenario(
         },
         "bundle_manifest_path": repo_relative(manifest_path),
         "artifact_refs": manifest["artifact_refs"],
+        "retention_policy": retention_policy,
     }
     if is_soak and soak_checkpoint_path is not None and soak_triage_path is not None:
         event.update(
@@ -859,6 +904,7 @@ def run_scenario(
         "pass_label": pass_label,
         "status": status,
         "reason_code": reason_code,
+        "packet_id": scenario.packet_id,
         "bundle_id": bundle_id,
         "stable_fingerprint": stable_fingerprint,
         "bundle_manifest_path": repo_relative(manifest_path),
@@ -872,6 +918,9 @@ def determinism_report(
     run_results: list[dict[str, Any]],
     expected_passes: list[str],
     expected_scenarios: list[str],
+    expected_packet_ids: list[str],
+    gate_step_id: str,
+    forensics_index_path: str,
 ) -> dict[str, Any]:
     by_scenario: dict[str, dict[str, dict[str, Any]]] = {}
     for row in run_results:
@@ -908,14 +957,36 @@ def determinism_report(
                 "status_ok": status_ok,
             }
         )
+    observed_packet_ids = sorted(
+        {
+            packet_id
+            for row in run_results
+            for packet_id in [row.get("packet_id")]
+            if isinstance(packet_id, str)
+        }
+    )
+    missing_packet_ids = [packet_id for packet_id in expected_packet_ids if packet_id not in observed_packet_ids]
+    if missing_packet_ids:
+        failures.append(f"missing required packet coverage: {missing_packet_ids}")
+    packet_coverage = {
+        "required_packet_ids": expected_packet_ids,
+        "observed_packet_ids": observed_packet_ids,
+        "missing_packet_ids": missing_packet_ids,
+        "coverage_ok": len(missing_packet_ids) == 0,
+    }
 
     report = {
         "schema_version": REPORT_SCHEMA_VERSION,
         "artifact_id": "e2e-script-pack-determinism-report-v1",
         "run_id": run_id,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "gate_step_id": gate_step_id,
+        "forensics_index_path": forensics_index_path,
+        "retention_policy": dict(ARTIFACT_RETENTION_POLICY),
         "pass_labels": expected_passes,
         "required_scenarios": expected_scenarios,
+        "required_packet_ids": expected_packet_ids,
+        "packet_coverage": packet_coverage,
         "result_count": len(run_results),
         "status": "pass" if not failures else "fail",
         "failures": failures,
@@ -1022,6 +1093,7 @@ def replay_from_manifest(*, manifest_path: Path, output_dir: Path) -> int:
         "status": status,
         "reason_code": reason_code,
         "scenario_id": scenario_id,
+        "gate_step_id": manifest.get("gate_step_id"),
         "bundle_id": manifest.get("bundle_id"),
         "fixture_id": fixture_id,
         "mode": mode,
@@ -1030,6 +1102,8 @@ def replay_from_manifest(*, manifest_path: Path, output_dir: Path) -> int:
         "replay_command_executed": replay_command_executed,
         "command_log_path": repo_relative(command_log_path),
         "failure_envelope_path": manifest.get("failure_envelope_path"),
+        "forensics_index_path": manifest.get("forensics_index_path"),
+        "retention_policy": manifest.get("retention_policy"),
         "evidence_refs": manifest.get("evidence_refs"),
         "start_unix_ms": start_ms,
         "end_unix_ms": end_ms,
@@ -1095,6 +1169,11 @@ def main() -> int:
         default=15000,
         help="Deterministic checkpoint interval in ms for adversarial_soak (default: 15000)",
     )
+    parser.add_argument(
+        "--gate-step-id",
+        default="step-local",
+        help="Gate step identifier for traceability (default: step-local)",
+    )
     args = parser.parse_args()
 
     if args.passes < 1:
@@ -1103,6 +1182,10 @@ def main() -> int:
         raise SystemExit("--soak-cycles must be >= 1")
     if args.soak_checkpoint_interval_ms < 1:
         raise SystemExit("--soak-checkpoint-interval-ms must be >= 1")
+    if not non_empty_str(args.gate_step_id):
+        raise SystemExit("--gate-step-id must be a non-empty string")
+    if not args.gate_step_id.startswith("step-"):
+        raise SystemExit("--gate-step-id must start with `step-`")
 
     output_dir = REPO_ROOT / args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1130,6 +1213,8 @@ def main() -> int:
         else [f"pass_{index + 1:02d}" for index in range(args.passes)]
     )
     run_id = f"e2e-script-pack-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+    forensics_index_path = repo_relative(output_dir / "e2e_script_pack_bundle_index_v1.json")
+    expected_packet_ids = sorted({scenario.packet_id for scenario in scenarios})
 
     run_results: list[dict[str, Any]] = []
     for pass_label in pass_labels:
@@ -1142,6 +1227,7 @@ def main() -> int:
             result = run_scenario(
                 run_id=run_id,
                 pass_label=pass_label,
+                gate_step_id=args.gate_step_id,
                 scenario=scenario,
                 deterministic_seed=seed,
                 soak_cycles=args.soak_cycles,
@@ -1157,6 +1243,9 @@ def main() -> int:
                     run_results=run_results,
                     expected_passes=pass_labels,
                     expected_scenarios=[scenario.scenario_id for scenario in scenarios],
+                    expected_packet_ids=expected_packet_ids,
+                    gate_step_id=args.gate_step_id,
+                    forensics_index_path=forensics_index_path,
                 )
                 print(json.dumps(report, indent=2))
                 return 2
@@ -1167,6 +1256,9 @@ def main() -> int:
         run_results=run_results,
         expected_passes=pass_labels,
         expected_scenarios=[scenario.scenario_id for scenario in scenarios],
+        expected_packet_ids=expected_packet_ids,
+        gate_step_id=args.gate_step_id,
+        forensics_index_path=forensics_index_path,
     )
     print(
         json.dumps(
