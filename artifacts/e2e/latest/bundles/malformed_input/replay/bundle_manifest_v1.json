@@ -12,14 +12,14 @@
   "deterministic_seed": 15798793491341090845,
   "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened",
   "execution_metadata": {
-    "run_id": "e2e-script-pack-20260216T034927Z",
+    "run_id": "e2e-script-pack-20260216T035233Z",
     "pass_label": "replay",
     "status": "passed",
     "reason_code": null,
-    "start_unix_ms": 1771213799625,
-    "end_unix_ms": 1771213806105,
-    "duration_ms": 6480,
-    "generated_at_utc": "2026-02-16T03:50:06.106523+00:00"
+    "start_unix_ms": 1771213990416,
+    "end_unix_ms": 1771213996306,
+    "duration_ms": 5890,
+    "generated_at_utc": "2026-02-16T03:53:16.308333+00:00"
   },
   "forensics_links": {
     "structured_log_hash_id": "6625aef5d4904944",

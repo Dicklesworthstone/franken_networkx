@@ -1,0 +1,107 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "e2e-script-pack-determinism-report-v1",
+  "run_id": "e2e-script-pack-20260216T035233Z",
+  "generated_at_utc": "2026-02-16T03:53:16.308719+00:00",
+  "pass_labels": [
+    "baseline",
+    "replay"
+  ],
+  "required_scenarios": [
+    "happy_path",
+    "edge_path",
+    "malformed_input"
+  ],
+  "result_count": 6,
+  "status": "pass",
+  "failures": [],
+  "scenario_checks": [
+    {
+      "scenario_id": "happy_path",
+      "bundle_id_pass_a": "e2e-bundle-3acfb1d1f035bdf5",
+      "bundle_id_pass_b": "e2e-bundle-3acfb1d1f035bdf5",
+      "stable_fingerprint_pass_a": "ae36a376be507091",
+      "stable_fingerprint_pass_b": "ae36a376be507091",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "edge_path",
+      "bundle_id_pass_a": "e2e-bundle-3c9beaf0964ef3c8",
+      "bundle_id_pass_b": "e2e-bundle-3c9beaf0964ef3c8",
+      "stable_fingerprint_pass_a": "004320406d37f2ee",
+      "stable_fingerprint_pass_b": "004320406d37f2ee",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "malformed_input",
+      "bundle_id_pass_a": "e2e-bundle-8812fedc0fe47217",
+      "bundle_id_pass_b": "e2e-bundle-8812fedc0fe47217",
+      "stable_fingerprint_pass_a": "04f4b92eac1f9d6b",
+      "stable_fingerprint_pass_b": "04f4b92eac1f9d6b",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    }
+  ],
+  "runs": [
+    {
+      "scenario_id": "happy_path",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "bundle_id": "e2e-bundle-3acfb1d1f035bdf5",
+      "stable_fingerprint": "ae36a376be507091",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/happy_path/baseline/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "edge_path",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "bundle_id": "e2e-bundle-3c9beaf0964ef3c8",
+      "stable_fingerprint": "004320406d37f2ee",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/edge_path/baseline/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "malformed_input",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "bundle_id": "e2e-bundle-8812fedc0fe47217",
+      "stable_fingerprint": "04f4b92eac1f9d6b",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/malformed_input/baseline/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "happy_path",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "bundle_id": "e2e-bundle-3acfb1d1f035bdf5",
+      "stable_fingerprint": "ae36a376be507091",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/happy_path/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "edge_path",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "bundle_id": "e2e-bundle-3c9beaf0964ef3c8",
+      "stable_fingerprint": "004320406d37f2ee",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/edge_path/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "malformed_input",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "bundle_id": "e2e-bundle-8812fedc0fe47217",
+      "stable_fingerprint": "04f4b92eac1f9d6b",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/malformed_input/replay/bundle_manifest_v1.json"
+    }
+  ],
+  "events_path": "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"
+}

@@ -1,23 +1,54 @@
-  [2m2026-02-16T03:50:42.939193Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mFailed to query daemon: Daemon response timed out after 30s, running locally[0m
-    [2;3mat[0m rch/src/hook.rs:205 [2;3mon[0m ThreadId(1)
+  [2m2026-02-16T03:53:23.060939Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSelected worker: vmi1227854 at ubuntu@109.123.245.77 (0 slots, speed 50.0)[0m
+    [2;3mat[0m rch/src/hook.rs:256 [2;3mon[0m ThreadId(1)
 
-  [2m2026-02-16T03:50:42.939224Z[0m [32m INFO[0m [1;32mrch::hook::autostart[0m[32m: [32mDaemon unavailable, attempting auto-start[0m
-    [2;3mat[0m rch/src/hook.rs:862 [2;3mon[0m ThreadId(1)
+  [2m2026-02-16T03:53:23.061008Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mStarting remote compilation pipeline for franken_networkx (hash: 166cc52d5d9b158c)[0m
+    [2;3mat[0m rch/src/hook.rs:2299 [2;3mon[0m ThreadId(1)
 
-[RCH] local (daemon unavailable)
+  [2m2026-02-16T03:53:23.061028Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSyncing project to worker vmi1227854...[0m
+    [2;3mat[0m rch/src/hook.rs:2335 [2;3mon[0m ThreadId(1)
+
+  [2m2026-02-16T03:53:23.061043Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx -> /tmp/rch/franken_networkx/166cc52d5d9b158c on vmi1227854[0m
+    [2;3mat[0m rch/src/transfer.rs:714 [2;3mon[0m ThreadId(1)
+
+  [2m2026-02-16T03:53:25.411642Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 2350ms[0m
+    [2;3mat[0m rch/src/transfer.rs:783 [2;3mon[0m ThreadId(1)
+
+  [2m2026-02-16T03:53:25.411692Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSync complete: 0 files, 0 bytes in 2350ms[0m
+    [2;3mat[0m rch/src/hook.rs:2354 [2;3mon[0m ThreadId(1)
+
+  [2m2026-02-16T03:53:25.411712Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mExecuting command remotely: cargo test -q -p fnx-conformance --test e2e_script_pack_gate -- --nocapture[0m
+    [2;3mat[0m rch/src/hook.rs:2370 [2;3mon[0m ThreadId(1)
+
+  [2m2026-02-16T03:53:25.411727Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mWrapping command with external timeout protection, [1;32mkind[0m[32m: cargo test, [1;32mtimeout_secs[0m[32m: 1800[0m
+    [2;3mat[0m rch/src/transfer.rs:476 [2;3mon[0m ThreadId(1)
+
+  [2m2026-02-16T03:53:26.390601Z[0m [32m INFO[0m [1;32mrch_common::ssh[0m[32m: [32mConnected to vmi1227854 (109.123.245.77)[0m
+    [2;3mat[0m rch-common/src/ssh.rs:239 [2;3mon[0m ThreadId(1)
+
 
 running 1 test
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
-thread 'e2e_script_pack_artifacts_are_complete_and_deterministic' (1153873) panicked at crates/fnx-conformance/tests/e2e_script_pack_gate.rs:88:10:
-gate report bundle_index_path should be string
-note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
-e2e_script_pack_artifacts_are_complete_and_deterministic --- FAILED
+  [2m2026-02-16T03:53:27.306209Z[0m [32m INFO[0m [1;32mrch_common::ssh[0m[32m: [32mDisconnected from vmi1227854[0m
+    [2;3mat[0m rch-common/src/ssh.rs:249 [2;3mon[0m ThreadId(1)
 
-failures:
+  [2m2026-02-16T03:53:27.306236Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRemote command finished: exit=0 in 909ms[0m
+    [2;3mat[0m rch/src/hook.rs:2479 [2;3mon[0m ThreadId(1)
 
-failures:
-    e2e_script_pack_artifacts_are_complete_and_deterministic
+  [2m2026-02-16T03:53:27.306247Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRetrieving build artifacts...[0m
+    [2;3mat[0m rch/src/hook.rs:2521 [2;3mon[0m ThreadId(1)
 
-test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  [2m2026-02-16T03:53:27.306260Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRetrieving artifacts from /tmp/rch/franken_networkx/166cc52d5d9b158c on vmi1227854[0m
+    [2;3mat[0m rch/src/transfer.rs:1180 [2;3mon[0m ThreadId(1)
 
-error: test failed, to rerun pass `-p fnx-conformance --test e2e_script_pack_gate`
+  [2m2026-02-16T03:53:29.384138Z[0m [33m WARN[0m [1;33mrch::transfer[0m[33m: [33mNo artifacts retrieved from vmi1227854 - build may have failed or artifact patterns may be misconfigured[0m
+    [2;3mat[0m rch/src/transfer.rs:1212 [2;3mon[0m ThreadId(1)
+
+  [2m2026-02-16T03:53:29.384160Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mArtifacts retrieved in 2077ms (0 files, 0 bytes)[0m
+    [2;3mat[0m rch/src/transfer.rs:1219 [2;3mon[0m ThreadId(1)
+
+  [2m2026-02-16T03:53:29.384168Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mArtifacts retrieved: 0 files, 0 bytes in 2077ms[0m
+    [2;3mat[0m rch/src/hook.rs:2548 [2;3mon[0m ThreadId(1)
+
+[RCH] remote vmi1227854 (11.3s)

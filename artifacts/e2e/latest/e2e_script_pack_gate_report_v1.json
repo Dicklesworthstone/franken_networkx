@@ -1,11 +1,12 @@
 {
   "schema_version": "1.0.0",
   "report_id": "e2e-script-pack-gate-report-v1",
-  "run_id": "e2e-script-pack-gate-20260216T021222Z",
-  "generated_at_utc": "2026-02-16T02:15:49.301238+00:00",
+  "run_id": "e2e-script-pack-gate-20260216T035232Z",
+  "generated_at_utc": "2026-02-16T03:53:34.438421+00:00",
   "step_count": 4,
   "failed_step_count": 0,
   "status": "pass",
   "steps_log_path": "artifacts/e2e/latest/e2e_script_pack_steps_v1.jsonl",
+  "bundle_index_path": "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json",
   "failed_step_ids": []
 }
