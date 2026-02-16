@@ -4,7 +4,8 @@
   "required_scenarios": [
     "happy_path",
     "edge_path",
-    "malformed_input"
+    "malformed_input",
+    "adversarial_soak"
   ],
   "required_pass_labels": [
     "baseline",
@@ -31,6 +32,15 @@
     "bundle_manifest_path",
     "artifact_refs"
   ],
+  "optional_event_keys": [
+    "soak_profile",
+    "soak_threat_class",
+    "soak_cycle_count",
+    "soak_realized_cycle_count",
+    "soak_checkpoint_interval_ms",
+    "soak_checkpoint_artifact_path",
+    "soak_triage_summary_path"
+  ],
   "required_bundle_manifest_keys": [
     "schema_version",
     "artifact_id",
@@ -47,6 +57,9 @@
     "execution_metadata",
     "forensics_links",
     "artifact_refs"
+  ],
+  "optional_bundle_manifest_keys": [
+    "soak_telemetry"
   ],
   "required_execution_metadata_keys": [
     "run_id",

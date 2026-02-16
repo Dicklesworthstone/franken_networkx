@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "adversarial-soak-triage-summary-v1",
+  "generated_at_utc": "2026-02-16T04:09:49.725584+00:00",
+  "run_id": "e2e-script-pack-20260216T040814Z",
+  "pass_label": "replay",
+  "scenario_id": "adversarial_soak",
+  "soak_profile": "long_tail_stability",
+  "soak_threat_class": "algorithmic_denial",
+  "status": "passed",
+  "reason_code": null,
+  "decode_ready_replay_bundle": true,
+  "replay_manifest_path": "artifacts/e2e/latest/bundles/adversarial_soak/replay/bundle_manifest_v1.json",
+  "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened",
+  "forensics_links": {
+    "structured_log_hash_id": "6625aef5d4904944",
+    "forensic_bundle_id": "forensics::FNX-P2C-006::generated::readwrite_hardened_malformed.json",
+    "forensics_bundle_hash_id": "285ecc124d5cf16c",
+    "forensics_bundle_replay_ref": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened"
+  },
+  "missing_forensics_fields": [],
+  "target_cycle_count": 4,
+  "realized_cycle_count": 4,
+  "checkpoint_artifact_path": "artifacts/e2e/latest/bundles/adversarial_soak/replay/soak_health_checkpoints_v1.json",
+  "recommended_actions": [
+    "python3 ./scripts/run_e2e_script_pack.py --replay-manifest artifacts/e2e/latest/bundles/adversarial_soak/replay/bundle_manifest_v1.json --output-dir artifacts/e2e/latest",
+    "cat artifacts/e2e/latest/bundles/adversarial_soak/replay/soak_health_checkpoints_v1.json"
+  ]
+}

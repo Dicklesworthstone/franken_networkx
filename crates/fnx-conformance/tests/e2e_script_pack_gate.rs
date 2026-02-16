@@ -314,6 +314,146 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
                 full.display()
             );
         }
+
+        if scenario == "adversarial_soak" {
+            assert_eq!(
+                event["soak_profile"].as_str(),
+                Some("long_tail_stability"),
+                "adversarial_soak should set soak_profile"
+            );
+            assert_eq!(
+                event["soak_threat_class"].as_str(),
+                Some("algorithmic_denial"),
+                "adversarial_soak should set soak_threat_class"
+            );
+            let soak_cycle_count = event["soak_cycle_count"]
+                .as_u64()
+                .expect("soak_cycle_count should be integer");
+            let soak_realized_cycle_count = event["soak_realized_cycle_count"]
+                .as_u64()
+                .expect("soak_realized_cycle_count should be integer");
+            assert!(
+                soak_cycle_count >= 1,
+                "soak_cycle_count should be >= 1 for adversarial_soak"
+            );
+            assert_eq!(
+                soak_realized_cycle_count, soak_cycle_count,
+                "adversarial_soak should execute all configured cycles"
+            );
+            let checkpoint_interval = event["soak_checkpoint_interval_ms"]
+                .as_u64()
+                .expect("soak_checkpoint_interval_ms should be integer");
+            assert!(
+                checkpoint_interval >= 1,
+                "soak_checkpoint_interval_ms should be >= 1"
+            );
+
+            let checkpoint_rel = event["soak_checkpoint_artifact_path"]
+                .as_str()
+                .expect("soak_checkpoint_artifact_path should be string");
+            let checkpoint_path = root.join(checkpoint_rel);
+            assert!(
+                checkpoint_path.exists(),
+                "soak checkpoint artifact missing: {}",
+                checkpoint_path.display()
+            );
+            let checkpoint = load_json(&checkpoint_path);
+            assert_eq!(
+                checkpoint["status"].as_str(),
+                Some("passed"),
+                "soak checkpoint report should pass"
+            );
+            assert_eq!(
+                checkpoint["target_cycle_count"].as_u64(),
+                Some(soak_cycle_count),
+                "checkpoint target_cycle_count should match event"
+            );
+            assert_eq!(
+                checkpoint["realized_cycle_count"].as_u64(),
+                Some(soak_realized_cycle_count),
+                "checkpoint realized_cycle_count should match event"
+            );
+            let deterministic_checkpoints = checkpoint["deterministic_checkpoints"]
+                .as_array()
+                .expect("deterministic_checkpoints should be array");
+            assert_eq!(
+                deterministic_checkpoints.len(),
+                soak_cycle_count as usize,
+                "deterministic checkpoint count should match cycle count"
+            );
+            let health_samples = checkpoint["health_samples"]
+                .as_array()
+                .expect("health_samples should be array");
+            assert_eq!(
+                health_samples.len(),
+                soak_cycle_count as usize,
+                "health sample count should match cycle count"
+            );
+
+            let triage_rel = event["soak_triage_summary_path"]
+                .as_str()
+                .expect("soak_triage_summary_path should be string");
+            let triage_path = root.join(triage_rel);
+            assert!(
+                triage_path.exists(),
+                "soak triage summary missing: {}",
+                triage_path.display()
+            );
+            let triage = load_json(&triage_path);
+            assert_eq!(
+                triage["status"].as_str(),
+                Some("passed"),
+                "soak triage summary should pass"
+            );
+            assert_eq!(
+                triage["decode_ready_replay_bundle"].as_bool(),
+                Some(true),
+                "soak triage summary should confirm decode-ready replay bundle"
+            );
+            assert_eq!(
+                triage["replay_manifest_path"].as_str(),
+                Some(manifest_rel),
+                "soak triage summary should point to current manifest"
+            );
+
+            let soak_telemetry = manifest["soak_telemetry"]
+                .as_object()
+                .expect("adversarial_soak manifest should include soak_telemetry");
+            assert_eq!(
+                soak_telemetry.get("soak_profile").and_then(Value::as_str),
+                Some("long_tail_stability")
+            );
+            assert_eq!(
+                soak_telemetry
+                    .get("soak_threat_class")
+                    .and_then(Value::as_str),
+                Some("algorithmic_denial")
+            );
+            assert_eq!(
+                soak_telemetry
+                    .get("target_cycle_count")
+                    .and_then(Value::as_u64),
+                Some(soak_cycle_count)
+            );
+            assert_eq!(
+                soak_telemetry
+                    .get("realized_cycle_count")
+                    .and_then(Value::as_u64),
+                Some(soak_realized_cycle_count)
+            );
+            assert_eq!(
+                soak_telemetry
+                    .get("checkpoint_artifact_path")
+                    .and_then(Value::as_str),
+                Some(checkpoint_rel)
+            );
+            assert_eq!(
+                soak_telemetry
+                    .get("triage_summary_path")
+                    .and_then(Value::as_str),
+                Some(triage_rel)
+            );
+        }
     }
 
     for scenario in &required_scenarios {

@@ -40,6 +40,8 @@ class ScenarioSpec:
     mode: str
     fixture_id: str
     packet_id: str
+    soak_profile: str = ""
+    soak_threat_class: str = ""
 
 
 SCENARIOS: tuple[ScenarioSpec, ...] = (
@@ -66,6 +68,16 @@ SCENARIOS: tuple[ScenarioSpec, ...] = (
         mode="hardened",
         fixture_id="generated/readwrite_hardened_malformed.json",
         packet_id="FNX-P2C-006",
+    ),
+    ScenarioSpec(
+        scenario_id="adversarial_soak",
+        scenario_kind="adversarial_soak",
+        journey_id="J-READWRITE",
+        mode="hardened",
+        fixture_id="generated/readwrite_hardened_malformed.json",
+        packet_id="FNX-P2C-006",
+        soak_profile="long_tail_stability",
+        soak_threat_class="algorithmic_denial",
     ),
 )
 
@@ -187,6 +199,123 @@ def missing_forensics_fields(forensics_links: dict[str, Any]) -> list[str]:
     return missing
 
 
+def build_soak_health_metrics(
+    *,
+    run_id: str,
+    pass_label: str,
+    scenario: ScenarioSpec,
+    deterministic_seed: int,
+    cycle_results: list[dict[str, Any]],
+    cycle_target: int,
+    checkpoint_interval_ms: int,
+    start_ms: int,
+    end_ms: int,
+    status: str,
+    reason_code: str | None,
+) -> dict[str, Any]:
+    checkpoints: list[dict[str, Any]] = []
+    health_samples: list[dict[str, Any]] = []
+    for cycle_index in range(cycle_target):
+        checkpoint_hash_id = fnv1a64(
+            f"{scenario.scenario_id}|{deterministic_seed}|{checkpoint_interval_ms}|{cycle_index + 1}"
+        )
+        hash_value = int(checkpoint_hash_id, 16)
+        cycle = cycle_results[cycle_index] if cycle_index < len(cycle_results) else None
+        checkpoints.append(
+            {
+                "checkpoint_id": f"soak-checkpoint-{cycle_index + 1:02d}",
+                "cycle_index": cycle_index + 1,
+                "offset_ms": cycle_index * checkpoint_interval_ms,
+                "checkpoint_hash_id": checkpoint_hash_id,
+            }
+        )
+        health_samples.append(
+            {
+                "checkpoint_id": f"soak-checkpoint-{cycle_index + 1:02d}",
+                "cycle_index": cycle_index + 1,
+                "synthetic_cpu_load_pct": round(20.0 + float(hash_value % 700) / 10.0, 1),
+                "synthetic_memory_mb": 256 + (hash_value % 4096),
+                "synthetic_queue_depth": hash_value % 32,
+                "cycle_status": cycle["status"] if cycle else "not_executed",
+                "cycle_duration_ms": cycle["duration_ms"] if cycle else None,
+                "cycle_start_unix_ms": cycle["start_unix_ms"] if cycle else None,
+                "cycle_end_unix_ms": cycle["end_unix_ms"] if cycle else None,
+            }
+        )
+    return {
+        "schema_version": "1.0.0",
+        "artifact_id": "adversarial-soak-health-checkpoints-v1",
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "run_id": run_id,
+        "pass_label": pass_label,
+        "scenario_id": scenario.scenario_id,
+        "soak_profile": scenario.soak_profile,
+        "soak_threat_class": scenario.soak_threat_class,
+        "deterministic_seed": deterministic_seed,
+        "status": status,
+        "reason_code": reason_code,
+        "target_cycle_count": cycle_target,
+        "realized_cycle_count": len(cycle_results),
+        "checkpoint_interval_ms": checkpoint_interval_ms,
+        "start_unix_ms": start_ms,
+        "end_unix_ms": end_ms,
+        "duration_ms": end_ms - start_ms,
+        "deterministic_checkpoints": checkpoints,
+        "health_samples": health_samples,
+    }
+
+
+def build_soak_triage_summary(
+    *,
+    run_id: str,
+    pass_label: str,
+    scenario: ScenarioSpec,
+    status: str,
+    reason_code: str | None,
+    manifest_path: Path,
+    replay_command: str,
+    forensics_links: dict[str, Any],
+    missing_forensics: list[str],
+    checkpoint_path: Path,
+    cycle_target: int,
+    cycle_results: list[dict[str, Any]],
+) -> dict[str, Any]:
+    replay_manifest_rel = repo_relative(manifest_path)
+    replay_invocation = (
+        "python3 ./scripts/run_e2e_script_pack.py "
+        f"--replay-manifest {replay_manifest_rel} --output-dir artifacts/e2e/latest"
+    )
+    recommended_actions = [
+        replay_invocation,
+        f"cat {repo_relative(checkpoint_path)}",
+    ]
+    if status != "passed":
+        recommended_actions.append(
+            "Inspect command.log + selected_structured_log.json in the same bundle directory."
+        )
+    return {
+        "schema_version": "1.0.0",
+        "artifact_id": "adversarial-soak-triage-summary-v1",
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "run_id": run_id,
+        "pass_label": pass_label,
+        "scenario_id": scenario.scenario_id,
+        "soak_profile": scenario.soak_profile,
+        "soak_threat_class": scenario.soak_threat_class,
+        "status": status,
+        "reason_code": reason_code,
+        "decode_ready_replay_bundle": len(missing_forensics) == 0,
+        "replay_manifest_path": replay_manifest_rel,
+        "replay_command": replay_command,
+        "forensics_links": forensics_links,
+        "missing_forensics_fields": missing_forensics,
+        "target_cycle_count": cycle_target,
+        "realized_cycle_count": len(cycle_results),
+        "checkpoint_artifact_path": repo_relative(checkpoint_path),
+        "recommended_actions": recommended_actions,
+    }
+
+
 def replay_manifest_diagnostics(manifest: dict[str, Any]) -> list[str]:
     diagnostics: list[str] = []
     for key in [
@@ -218,20 +347,66 @@ def run_scenario(
     pass_label: str,
     scenario: ScenarioSpec,
     deterministic_seed: int,
+    soak_cycles: int,
+    soak_checkpoint_interval_ms: int,
     output_dir: Path,
     events_path: Path,
 ) -> dict[str, Any]:
     command = conformance_command(scenario.fixture_id, scenario.mode)
+    is_soak = bool(scenario.soak_profile)
+    cycle_target = soak_cycles if is_soak else 1
+    checkpoint_interval_ms = soak_checkpoint_interval_ms if is_soak else 0
+
     start_ms = unix_ms()
-    completed = subprocess.run(
-        ["bash", "-lc", command],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-    )
+    cycle_results: list[dict[str, Any]] = []
+    command_log_sections: list[str] = []
+    for cycle_index in range(cycle_target):
+        cycle_start_ms = unix_ms()
+        completed = subprocess.run(
+            ["bash", "-lc", command],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        cycle_end_ms = unix_ms()
+        cycle_status = "passed" if completed.returncode == 0 else "failed"
+        cycle_results.append(
+            {
+                "cycle_index": cycle_index + 1,
+                "status": cycle_status,
+                "return_code": completed.returncode,
+                "start_unix_ms": cycle_start_ms,
+                "end_unix_ms": cycle_end_ms,
+                "duration_ms": cycle_end_ms - cycle_start_ms,
+            }
+        )
+        command_log_sections.append(
+            "\n".join(
+                [
+                    f"### cycle {cycle_index + 1:02d}/{cycle_target:02d}",
+                    f"start_unix_ms={cycle_start_ms}",
+                    f"end_unix_ms={cycle_end_ms}",
+                    f"duration_ms={cycle_end_ms - cycle_start_ms}",
+                    f"return_code={completed.returncode}",
+                    "",
+                    completed.stdout,
+                    completed.stderr,
+                    "",
+                ]
+            )
+        )
+        if completed.returncode != 0:
+            break
+
     end_ms = unix_ms()
     duration_ms = end_ms - start_ms
-    status = "passed" if completed.returncode == 0 else "failed"
+    status = (
+        "passed"
+        if cycle_results
+        and len(cycle_results) == cycle_target
+        and all(row["status"] == "passed" for row in cycle_results)
+        else "failed"
+    )
     reason_code = None if status == "passed" else "command_failed"
 
     bundle_id = (
@@ -265,10 +440,7 @@ def run_scenario(
     scenario_dir = output_dir / "bundles" / scenario.scenario_id / pass_label
     scenario_dir.mkdir(parents=True, exist_ok=True)
     command_log_path = scenario_dir / "command.log"
-    command_log_path.write_text(
-        completed.stdout + ("\n" if completed.stdout else "") + completed.stderr,
-        encoding="utf-8",
-    )
+    command_log_path.write_text("".join(command_log_sections), encoding="utf-8")
 
     smoke_report_path = CONFORMANCE_LATEST / "smoke_report.json"
     structured_logs_path = CONFORMANCE_LATEST / "structured_logs.jsonl"
@@ -298,6 +470,37 @@ def run_scenario(
                 status = "failed"
                 reason_code = f"missing_forensics_fields:{','.join(missing_fields)}"
 
+    soak_checkpoint_path: Path | None = None
+    soak_triage_path: Path | None = None
+    if is_soak:
+        soak_checkpoint_path = scenario_dir / "soak_health_checkpoints_v1.json"
+        soak_metrics = build_soak_health_metrics(
+            run_id=run_id,
+            pass_label=pass_label,
+            scenario=scenario,
+            deterministic_seed=deterministic_seed,
+            cycle_results=cycle_results,
+            cycle_target=cycle_target,
+            checkpoint_interval_ms=checkpoint_interval_ms,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            status=status,
+            reason_code=reason_code,
+        )
+        write_json(soak_checkpoint_path, soak_metrics)
+        soak_triage_path = scenario_dir / "soak_triage_summary_v1.json"
+
+    artifact_refs = [
+        repo_relative(copied_smoke),
+        repo_relative(copied_fixture_report),
+        repo_relative(copied_structured_logs),
+        repo_relative(command_log_path),
+        repo_relative(selected_log_path),
+    ]
+    if soak_checkpoint_path is not None and soak_triage_path is not None:
+        artifact_refs.append(repo_relative(soak_checkpoint_path))
+        artifact_refs.append(repo_relative(soak_triage_path))
+
     manifest = {
         "schema_version": BUNDLE_SCHEMA_VERSION,
         "artifact_id": "e2e-script-pack-bundle-manifest-v1",
@@ -325,16 +528,37 @@ def run_scenario(
             "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         },
         "forensics_links": forensics_links,
-        "artifact_refs": [
-            repo_relative(copied_smoke),
-            repo_relative(copied_fixture_report),
-            repo_relative(copied_structured_logs),
-            repo_relative(command_log_path),
-            repo_relative(selected_log_path),
-        ],
+        "artifact_refs": artifact_refs,
     }
+    if is_soak and soak_checkpoint_path is not None and soak_triage_path is not None:
+        manifest["soak_telemetry"] = {
+            "soak_profile": scenario.soak_profile,
+            "soak_threat_class": scenario.soak_threat_class,
+            "target_cycle_count": cycle_target,
+            "realized_cycle_count": len(cycle_results),
+            "checkpoint_interval_ms": checkpoint_interval_ms,
+            "checkpoint_artifact_path": repo_relative(soak_checkpoint_path),
+            "triage_summary_path": repo_relative(soak_triage_path),
+        }
     manifest_path = scenario_dir / "bundle_manifest_v1.json"
     write_json(manifest_path, manifest)
+
+    if is_soak and soak_checkpoint_path is not None and soak_triage_path is not None:
+        triage_summary = build_soak_triage_summary(
+            run_id=run_id,
+            pass_label=pass_label,
+            scenario=scenario,
+            status=status,
+            reason_code=reason_code,
+            manifest_path=manifest_path,
+            replay_command=manifest["replay_command"],
+            forensics_links=forensics_links,
+            missing_forensics=missing_forensics_fields(forensics_links),
+            checkpoint_path=soak_checkpoint_path,
+            cycle_target=cycle_target,
+            cycle_results=cycle_results,
+        )
+        write_json(soak_triage_path, triage_summary)
 
     event = {
         "schema_version": EVENT_SCHEMA_VERSION,
@@ -358,6 +582,18 @@ def run_scenario(
         "bundle_manifest_path": repo_relative(manifest_path),
         "artifact_refs": manifest["artifact_refs"],
     }
+    if is_soak and soak_checkpoint_path is not None and soak_triage_path is not None:
+        event.update(
+            {
+                "soak_profile": scenario.soak_profile,
+                "soak_threat_class": scenario.soak_threat_class,
+                "soak_cycle_count": cycle_target,
+                "soak_realized_cycle_count": len(cycle_results),
+                "soak_checkpoint_interval_ms": checkpoint_interval_ms,
+                "soak_checkpoint_artifact_path": repo_relative(soak_checkpoint_path),
+                "soak_triage_summary_path": repo_relative(soak_triage_path),
+            }
+        )
     append_jsonl(events_path, event)
 
     return {
@@ -550,7 +786,7 @@ def main() -> int:
     parser.add_argument(
         "--scenario",
         default="all",
-        help="Scenario to run: all | happy_path | edge_path | malformed_input",
+        help="Scenario to run: all | happy_path | edge_path | malformed_input | adversarial_soak",
     )
     parser.add_argument(
         "--passes",
@@ -573,10 +809,26 @@ def main() -> int:
         default="",
         help="Replay from a bundle manifest path and emit replay report",
     )
+    parser.add_argument(
+        "--soak-cycles",
+        type=int,
+        default=4,
+        help="Cycle count for adversarial_soak scenario per pass (default: 4)",
+    )
+    parser.add_argument(
+        "--soak-checkpoint-interval-ms",
+        type=int,
+        default=15000,
+        help="Deterministic checkpoint interval in ms for adversarial_soak (default: 15000)",
+    )
     args = parser.parse_args()
 
     if args.passes < 1:
         raise SystemExit("--passes must be >= 1")
+    if args.soak_cycles < 1:
+        raise SystemExit("--soak-cycles must be >= 1")
+    if args.soak_checkpoint_interval_ms < 1:
+        raise SystemExit("--soak-checkpoint-interval-ms must be >= 1")
 
     output_dir = REPO_ROOT / args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -618,6 +870,8 @@ def main() -> int:
                 pass_label=pass_label,
                 scenario=scenario,
                 deterministic_seed=seed,
+                soak_cycles=args.soak_cycles,
+                soak_checkpoint_interval_ms=args.soak_checkpoint_interval_ms,
                 output_dir=output_dir,
                 events_path=events_path,
             )

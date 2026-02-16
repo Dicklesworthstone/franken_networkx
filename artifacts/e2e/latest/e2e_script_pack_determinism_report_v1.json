@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0.0",
   "artifact_id": "e2e-script-pack-determinism-report-v1",
-  "run_id": "e2e-script-pack-20260216T035233Z",
-  "generated_at_utc": "2026-02-16T03:53:16.308719+00:00",
+  "run_id": "e2e-script-pack-20260216T040814Z",
+  "generated_at_utc": "2026-02-16T04:09:49.725965+00:00",
   "pass_labels": [
     "baseline",
     "replay"
@@ -10,9 +10,10 @@
   "required_scenarios": [
     "happy_path",
     "edge_path",
-    "malformed_input"
+    "malformed_input",
+    "adversarial_soak"
   ],
-  "result_count": 6,
+  "result_count": 8,
   "status": "pass",
   "failures": [],
   "scenario_checks": [
@@ -42,6 +43,16 @@
       "bundle_id_pass_b": "e2e-bundle-8812fedc0fe47217",
       "stable_fingerprint_pass_a": "04f4b92eac1f9d6b",
       "stable_fingerprint_pass_b": "04f4b92eac1f9d6b",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "adversarial_soak",
+      "bundle_id_pass_a": "e2e-bundle-6d7e041ad44a0f50",
+      "bundle_id_pass_b": "e2e-bundle-6d7e041ad44a0f50",
+      "stable_fingerprint_pass_a": "ad1995178992eaf5",
+      "stable_fingerprint_pass_b": "ad1995178992eaf5",
       "bundle_id_match": true,
       "stable_fingerprint_match": true,
       "status_ok": true
@@ -76,6 +87,15 @@
       "bundle_manifest_path": "artifacts/e2e/latest/bundles/malformed_input/baseline/bundle_manifest_v1.json"
     },
     {
+      "scenario_id": "adversarial_soak",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "bundle_id": "e2e-bundle-6d7e041ad44a0f50",
+      "stable_fingerprint": "ad1995178992eaf5",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/adversarial_soak/baseline/bundle_manifest_v1.json"
+    },
+    {
       "scenario_id": "happy_path",
       "pass_label": "replay",
       "status": "passed",
@@ -101,6 +121,15 @@
       "bundle_id": "e2e-bundle-8812fedc0fe47217",
       "stable_fingerprint": "04f4b92eac1f9d6b",
       "bundle_manifest_path": "artifacts/e2e/latest/bundles/malformed_input/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "adversarial_soak",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "bundle_id": "e2e-bundle-6d7e041ad44a0f50",
+      "stable_fingerprint": "ad1995178992eaf5",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/adversarial_soak/replay/bundle_manifest_v1.json"
     }
   ],
   "events_path": "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"

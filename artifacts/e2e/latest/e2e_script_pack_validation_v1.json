@@ -7,8 +7,8 @@
   "error_count": 0,
   "errors": [],
   "summary": {
-    "event_count": 6,
-    "required_scenario_count": 3,
+    "event_count": 8,
+    "required_scenario_count": 4,
     "required_pass_count": 2
   }
 }

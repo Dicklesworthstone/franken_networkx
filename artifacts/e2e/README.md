@@ -21,6 +21,8 @@ The cross-packet script-pack gate emits:
 - `latest/e2e_script_pack_replay_report_v1.json`: replay-drill result with expected vs observed forensics links.
 - `latest/e2e_script_pack_events_v1.jsonl`: per-run event stream.
 - `latest/e2e_script_pack_steps_v1.jsonl`: per-step gate execution stream.
+- `latest/bundles/adversarial_soak/<pass>/soak_health_checkpoints_v1.json`: periodic health telemetry + deterministic checkpoint ledger.
+- `latest/bundles/adversarial_soak/<pass>/soak_triage_summary_v1.json`: decode-ready replay triage summary for soak runs.
 
 ## Local Entrypoints
 
@@ -42,6 +44,7 @@ Per-scenario wrappers:
 bash ./scripts/e2e/run_happy_path.sh
 bash ./scripts/e2e/run_edge_path.sh
 bash ./scripts/e2e/run_malformed_input.sh
+bash ./scripts/e2e/run_adversarial_soak.sh
 ```
 
 Replay drill (single manifest):
@@ -72,7 +75,7 @@ When cross-packet gate fails in CI or local:
    - `artifacts/e2e/latest/e2e_script_pack_gate_report_v1.json`
    - `artifacts/e2e/latest/e2e_script_pack_steps_v1.jsonl`
 2. Quarantine the flaking scenario by isolating it to wrapper replay:
-   - `bash ./scripts/e2e/run_happy_path.sh` or edge/malformed equivalent.
+   - `bash ./scripts/e2e/run_happy_path.sh` or edge/malformed/adversarial-soak equivalent.
 3. Mandatory replay proof:
    - run `--replay-manifest` for the failing scenario bundle manifest.
    - require `e2e_script_pack_replay_report_v1.json` with `"status": "passed"` and `"forensics_match": true` before unquarantine.

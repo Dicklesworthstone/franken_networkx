@@ -1,10 +1,19 @@
 {
   "schema_version": "1.0.0",
   "artifact_id": "e2e-script-pack-bundle-index-v1",
-  "run_id": "e2e-script-pack-gate-20260216T035232Z",
-  "generated_at_utc": "2026-02-16T03:53:22.998710+00:00",
-  "scenario_count": 3,
+  "run_id": "e2e-script-pack-gate-20260216T040814Z",
+  "generated_at_utc": "2026-02-16T04:09:56.001039+00:00",
+  "scenario_count": 4,
   "rows": [
+    {
+      "scenario_id": "adversarial_soak",
+      "bundle_id": "e2e-bundle-6d7e041ad44a0f50",
+      "stable_fingerprint": "ad1995178992eaf5",
+      "manifests": {
+        "baseline": "artifacts/e2e/latest/bundles/adversarial_soak/baseline/bundle_manifest_v1.json",
+        "replay": "artifacts/e2e/latest/bundles/adversarial_soak/replay/bundle_manifest_v1.json"
+      }
+    },
     {
       "scenario_id": "edge_path",
       "bundle_id": "e2e-bundle-3c9beaf0964ef3c8",

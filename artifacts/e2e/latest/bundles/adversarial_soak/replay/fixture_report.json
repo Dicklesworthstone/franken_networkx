@@ -1,0 +1,11 @@
+{
+  "fixture_name": "generated/readwrite_hardened_malformed.json",
+  "suite": "readwrite_v1",
+  "mode": "hardened",
+  "passed": true,
+  "reason_code": null,
+  "fixture_source_hash": "c9e3bdf7fab00534",
+  "duration_ms": 0,
+  "mismatches": [],
+  "witness": null
+}
