@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0.0",
+  "report_id": "clean-final-compliance-attestation-validation-v1",
+  "artifact": "artifacts/clean/v1/clean_final_compliance_attestation_v1.json",
+  "schema": "artifacts/clean/schema/v1/clean_final_compliance_attestation_schema_v1.json",
+  "ready": true,
+  "error_count": 0,
+  "errors": [],
+  "summary": {
+    "risk_count": 2,
+    "cadence_entry_count": 2,
+    "checklist_count": 5,
+    "durability_sidecar_count": 3
+  }
+}

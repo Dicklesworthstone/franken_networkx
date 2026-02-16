@@ -1,0 +1,78 @@
+{
+  "schema_version": "1.0.0",
+  "artifact": "clean_final_compliance_attestation",
+  "required_top_level_keys": [
+    "schema_version",
+    "artifact_id",
+    "generated_at_utc",
+    "scope",
+    "compliance_inputs",
+    "durability_evidence",
+    "residual_risk_register",
+    "review_cadence",
+    "audit_checklist",
+    "reviewer_signoff_package"
+  ],
+  "required_compliance_input_keys": [
+    "provenance_ledger",
+    "unsafe_policy_registry",
+    "safety_gate_pipeline",
+    "compliance_audit_log",
+    "validation_reports",
+    "conformance_traceability",
+    "isomorphism_proofs"
+  ],
+  "required_durability_keys": [
+    "raptorq_sidecars",
+    "decode_proofs",
+    "integrity_scrub_reports"
+  ],
+  "required_risk_keys": [
+    "risk_id",
+    "title",
+    "severity",
+    "status",
+    "owner_role",
+    "mitigation",
+    "evidence_refs"
+  ],
+  "allowed_risk_severity": [
+    "critical",
+    "high",
+    "medium",
+    "low"
+  ],
+  "allowed_risk_status": [
+    "open",
+    "watch",
+    "mitigated",
+    "accepted"
+  ],
+  "required_review_cadence_keys": [
+    "cadence_id",
+    "interval",
+    "owner_role",
+    "required_inputs",
+    "exit_criteria"
+  ],
+  "required_audit_checklist_keys": [
+    "check_id",
+    "requirement",
+    "status",
+    "evidence_refs"
+  ],
+  "required_audit_requirements": [
+    "clean_room_lineage_complete",
+    "unsafe_policy_fail_closed",
+    "safety_gate_reproducible",
+    "durability_sidecars_verified",
+    "independent_signoff_ready"
+  ],
+  "required_signoff_keys": [
+    "signoff_ready",
+    "reviewers",
+    "independent_replay_commands",
+    "review_steps",
+    "traceability_refs"
+  ]
+}

@@ -1,0 +1,176 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "clean-final-compliance-attestation-v1",
+  "generated_at_utc": "2026-02-16T00:30:00Z",
+  "scope": "Final clean-room and memory-safety attestation bundle for FOUNDATION CLEAN-F. This package consolidates provenance lineage, unsafe-policy fail-closed enforcement, safety-gate reproducibility evidence, and independent signoff inputs for release governance.",
+  "compliance_inputs": {
+    "provenance_ledger": "artifacts/clean/v1/clean_provenance_ledger_v1.json",
+    "unsafe_policy_registry": "artifacts/clean/v1/clean_unsafe_exception_registry_v1.json",
+    "safety_gate_pipeline": "artifacts/clean/v1/clean_safety_gate_pipeline_v1.json",
+    "compliance_audit_log": "artifacts/clean/latest/clean_compliance_audit_log_v1.json",
+    "validation_reports": [
+      "artifacts/clean/latest/clean_provenance_validation_v1.json",
+      "artifacts/clean/latest/clean_unsafe_policy_validation_v1.json",
+      "artifacts/clean/latest/clean_safety_gate_pipeline_validation_v1.json",
+      "artifacts/clean/latest/clean_final_compliance_attestation_validation_v1.json"
+    ],
+    "conformance_traceability": [
+      "crates/fnx-conformance/tests/clean_provenance_gate.rs",
+      "crates/fnx-conformance/tests/clean_unsafe_policy_gate.rs",
+      "crates/fnx-conformance/tests/clean_safety_gate_pipeline.rs",
+      "crates/fnx-conformance/tests/clean_final_compliance_attestation_gate.rs",
+      "artifacts/conformance/latest/structured_logs.jsonl",
+      "artifacts/conformance/latest/structured_log_emitter_normalization_report.json"
+    ],
+    "isomorphism_proofs": [
+      "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_001_V1.md",
+      "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_005_V1.md",
+      "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_009_V1.md"
+    ]
+  },
+  "durability_evidence": {
+    "raptorq_sidecars": [
+      "artifacts/conformance/latest/structured_logs.raptorq.json",
+      "artifacts/conformance/latest/smoke_report.raptorq.json",
+      "artifacts/perf/latest/bfs_percentiles.raptorq.json"
+    ],
+    "decode_proofs": [
+      "artifacts/phase2c/FNX-P2C-001/parity_report.decode_proof.json",
+      "artifacts/phase2c/FNX-P2C-005/parity_report.decode_proof.json"
+    ],
+    "integrity_scrub_reports": [
+      "artifacts/conformance/latest/durability_pipeline_report.json",
+      "artifacts/perf/latest/durability_pipeline_report.json"
+    ]
+  },
+  "residual_risk_register": [
+    {
+      "risk_id": "CLEAN-RISK-001",
+      "title": "Cross-artifact drift from stale latest reports",
+      "severity": "medium",
+      "status": "watch",
+      "owner_role": "compliance-audit",
+      "mitigation": "Gate signoff on synchronized refresh of clean validation reports and rerun deterministic conformance log normalization before release.",
+      "evidence_refs": [
+        "artifacts/clean/latest/clean_provenance_validation_v1.json",
+        "artifacts/clean/latest/clean_unsafe_policy_validation_v1.json",
+        "artifacts/clean/latest/clean_safety_gate_pipeline_validation_v1.json"
+      ]
+    },
+    {
+      "risk_id": "CLEAN-RISK-002",
+      "title": "Durability sidecar verification gaps during future artifact expansion",
+      "severity": "low",
+      "status": "watch",
+      "owner_role": "durability-engineering",
+      "mitigation": "Require sidecar + decode-proof coverage for any newly promoted clean-track artifact and block release when scrub report references are missing.",
+      "evidence_refs": [
+        "artifacts/conformance/latest/structured_logs.raptorq.json",
+        "artifacts/conformance/latest/durability_pipeline_report.json",
+        "artifacts/perf/latest/durability_pipeline_report.json"
+      ]
+    }
+  ],
+  "review_cadence": [
+    {
+      "cadence_id": "CLEAN-REVIEW-WEEKLY",
+      "interval": "weekly",
+      "owner_role": "compliance-audit",
+      "required_inputs": [
+        "artifacts/clean/latest/clean_provenance_validation_v1.json",
+        "artifacts/clean/latest/clean_unsafe_policy_validation_v1.json",
+        "artifacts/clean/latest/clean_safety_gate_pipeline_validation_v1.json",
+        "artifacts/clean/latest/clean_final_compliance_attestation_validation_v1.json"
+      ],
+      "exit_criteria": "All clean-track validation reports remain ready=true and error_count=0."
+    },
+    {
+      "cadence_id": "CLEAN-REVIEW-RELEASE",
+      "interval": "pre-release",
+      "owner_role": "release-governor",
+      "required_inputs": [
+        "artifacts/clean/v1/clean_final_compliance_attestation_v1.json",
+        "artifacts/clean/schema/v1/clean_final_compliance_attestation_schema_v1.json",
+        "artifacts/conformance/latest/structured_logs.raptorq.json",
+        "artifacts/conformance/latest/durability_pipeline_report.json"
+      ],
+      "exit_criteria": "Independent replay commands succeed and audit checklist stays fully pass."
+    }
+  ],
+  "audit_checklist": [
+    {
+      "check_id": "CLEAN-AUDIT-001",
+      "requirement": "clean_room_lineage_complete",
+      "status": "pass",
+      "evidence_refs": [
+        "artifacts/clean/v1/clean_provenance_ledger_v1.json",
+        "artifacts/clean/latest/clean_provenance_validation_v1.json"
+      ]
+    },
+    {
+      "check_id": "CLEAN-AUDIT-002",
+      "requirement": "unsafe_policy_fail_closed",
+      "status": "pass",
+      "evidence_refs": [
+        "artifacts/clean/v1/clean_unsafe_exception_registry_v1.json",
+        "artifacts/clean/latest/clean_unsafe_policy_validation_v1.json"
+      ]
+    },
+    {
+      "check_id": "CLEAN-AUDIT-003",
+      "requirement": "safety_gate_reproducible",
+      "status": "pass",
+      "evidence_refs": [
+        "artifacts/clean/v1/clean_safety_gate_pipeline_v1.json",
+        "artifacts/clean/latest/clean_safety_gate_pipeline_validation_v1.json"
+      ]
+    },
+    {
+      "check_id": "CLEAN-AUDIT-004",
+      "requirement": "durability_sidecars_verified",
+      "status": "pass",
+      "evidence_refs": [
+        "artifacts/conformance/latest/structured_logs.raptorq.json",
+        "artifacts/conformance/latest/durability_pipeline_report.json",
+        "artifacts/perf/latest/durability_pipeline_report.json"
+      ]
+    },
+    {
+      "check_id": "CLEAN-AUDIT-005",
+      "requirement": "independent_signoff_ready",
+      "status": "pass",
+      "evidence_refs": [
+        "artifacts/clean/v1/clean_final_compliance_attestation_v1.json",
+        "artifacts/clean/schema/v1/clean_final_compliance_attestation_schema_v1.json",
+        "artifacts/clean/latest/clean_final_compliance_attestation_validation_v1.json"
+      ]
+    }
+  ],
+  "reviewer_signoff_package": {
+    "signoff_ready": true,
+    "reviewers": [
+      "compat-audit-reviewer",
+      "runtime-safety-reviewer",
+      "release-governor"
+    ],
+    "independent_replay_commands": [
+      "rch exec -- cargo test -p fnx-conformance clean_provenance_ledger_is_lineage_complete_and_separated -- --exact --nocapture",
+      "rch exec -- cargo test -p fnx-conformance clean_unsafe_policy_defaults_are_fail_closed -- --exact --nocapture",
+      "rch exec -- cargo test -p fnx-conformance clean_safety_gate_pipeline_is_reproducible_and_artifact_indexed -- --exact --nocapture",
+      "rch exec -- cargo test -p fnx-conformance clean_final_compliance_attestation_is_complete_and_signoff_ready -- --exact --nocapture"
+    ],
+    "review_steps": [
+      "Run each independent replay command and confirm all tests pass.",
+      "Verify every checklist row remains status=pass with resolvable evidence paths.",
+      "Verify durability sidecar/decode-proof/scrub report references are present and current.",
+      "Approve signoff only if validation report remains ready=true with zero errors."
+    ],
+    "traceability_refs": [
+      "artifacts/clean/v1/clean_final_compliance_attestation_v1.json",
+      "artifacts/clean/schema/v1/clean_final_compliance_attestation_schema_v1.json",
+      "artifacts/clean/latest/clean_final_compliance_attestation_validation_v1.json",
+      "artifacts/clean/latest/clean_compliance_audit_log_v1.json",
+      "crates/fnx-conformance/tests/clean_final_compliance_attestation_gate.rs"
+    ]
+  }
+}
