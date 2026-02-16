@@ -662,6 +662,10 @@ def build_payload() -> dict[str, Any]:
         )
 
     uncovered_fixture_ids = sorted(set(fixture_ids) - covered_fixture_ids)
+    journey_ids = [journey["journey_id"] for journey in journeys]
+    journey_coverage_hooks = build_journey_coverage_hooks(journeys)
+    scenario_log_report = "artifacts/e2e/latest/e2e_user_workflow_scenario_report_v1.json"
+    matrix_report_ref = "artifacts/e2e/latest/e2e_scenario_matrix_report_v1.json"
 
     payload = {
         "schema_version": "1.0.0",
@@ -700,6 +704,18 @@ def build_payload() -> dict[str, Any]:
             ),
         },
         "journeys": journeys,
+        "user_workflow_corpus": {
+            "corpus_id": "fnx-user-workflow-scenario-corpus-v1",
+            "corpus_version": "1.0.0",
+            "stability_policy": (
+                "scenario_id values are immutable once published; "
+                "replacements require explicit new ids and mapping notes"
+            ),
+            "golden_journey_ids": journey_ids,
+            "required_categories": REQUIRED_WORKFLOW_CATEGORIES,
+            "scenario_log_report": scenario_log_report,
+        },
+        "journey_coverage_hooks": journey_coverage_hooks,
         "coverage_manifest": {
             "fixture_inventory": fixture_ids,
             "covered_fixture_ids": sorted(covered_fixture_ids),
@@ -745,6 +761,8 @@ def build_payload() -> dict[str, Any]:
             "artifacts/conformance/latest/structured_logs.jsonl",
             "artifacts/conformance/latest/structured_log_emitter_normalization_report.json",
             "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json",
+            matrix_report_ref,
+            scenario_log_report,
         ],
     }
     return payload

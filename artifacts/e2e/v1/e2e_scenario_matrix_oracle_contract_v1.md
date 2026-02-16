@@ -1,6 +1,6 @@
 # E2E Scenario Matrix + Oracle Contract (V1)
 
-- generated_at_utc: 2026-02-16T04:45:53.721344+00:00
+- generated_at_utc: 2026-02-16T04:47:19.477502+00:00
 - baseline_comparator: legacy_networkx/main@python3.12
 - journey_count: 10
 - fixture_inventory_count: 17

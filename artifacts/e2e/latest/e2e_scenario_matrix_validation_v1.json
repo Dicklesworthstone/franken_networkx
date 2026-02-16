@@ -2,12 +2,9 @@
   "schema_version": "1.0.0",
   "report_id": "e2e-scenario-matrix-oracle-contract-validation-v1",
   "artifact_path": "artifacts/e2e/v1/e2e_scenario_matrix_oracle_contract_v1.json",
-  "ready": false,
-  "error_count": 2,
-  "errors": [
-    "artifact missing key `user_workflow_corpus`",
-    "artifact missing key `journey_coverage_hooks`"
-  ],
+  "ready": true,
+  "error_count": 0,
+  "errors": [],
   "summary": {
     "journey_count": 10,
     "fixture_inventory_count": 17,
