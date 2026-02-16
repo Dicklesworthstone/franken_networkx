@@ -142,3 +142,93 @@ Exclude for V1:
   - `scripts/validate_doc_pass01_module_cartography.py`
   - `scripts/run_doc_pass01_module_cartography.sh`
   - `crates/fnx-conformance/tests/doc_pass01_module_cartography_gate.rs`
+
+## 13. Error Taxonomy and Recovery Operations (DOC-PASS-07)
+
+### 13.1 Operational failure matrix
+
+| Domain surface | Trigger | Strict response | Hardened response | Recovery artifact |
+|---|---|---|---|---|
+| dispatch (`fnx-dispatch`) | unknown incompatible feature / unsupported backend route | fail-closed | fail-closed | deterministic dispatch decision ledger |
+| graph mutation (`fnx-classes`) | incompatible edge metadata (`__fnx_incompatible*`) | fail-closed | fail-closed | edge mutation decision record |
+| convert ingestion (`fnx-convert`) | empty node IDs / malformed endpoints | fail-closed | bounded skip + warning | conversion warning ledger + normalized graph |
+| readwrite ingestion (`fnx-readwrite`) | malformed edgelist/json payload | fail-closed | bounded recovery with warning (including empty-graph fallback for malformed JSON root) | warning list + replayable parse context |
+| generators (`fnx-generators`) | oversize `n`, out-of-range `p` | fail-closed | clamp with warning when allowed, else fail-closed | generator rationale evidence term |
+| runtime sync (`fnx-runtime`) | capability mismatch, checksum mismatch, cursor conflict, retry exhaustion | fail-closed terminal state | fail-closed terminal state | reason-coded transition log |
+| conformance (`fnx-conformance`) | fixture mismatch / expected warning not observed | fail gate | fail gate | mismatch taxonomy + deterministic replay command + forensics bundle index |
+
+### 13.2 User-visible error contract
+
+- Explicit typed failures are surfaced as:
+  - `GraphError::FailClosed`
+  - `DispatchError::{FailClosed, NoCompatibleBackend}`
+  - `ConvertError::FailClosed`
+  - `ReadWriteError::FailClosed`
+  - `GenerationError::FailClosed`
+- Hardened-mode non-fatal degradations are surfaced as warning vectors (`warnings: Vec<String>`) in conversion/readwrite/generator reports and are required conformance signals, not optional debug text.
+- Structured telemetry validation failures in `fnx-runtime` are hard errors (missing replay, reason code, or forensic index fields cannot be tolerated in release evidence).
+
+### 13.3 Deterministic escalation and containment
+
+1. classify the failure (`compatibility`, `parse`, `resource guard`, `telemetry contract`, `parity mismatch`).
+2. apply mode law from `decision_theoretic_action` (`fnx-runtime`) with unknown incompatible features always fail-closed.
+3. emit canonical forensic payloads (decision ledger, warning fragments, mismatch records, replay command, bundle index).
+4. rerun only after correction; strict parity drift and telemetry contract violations remain hard blockers.
+
+## 14. Verification Crosswalk Index (DOC-PASS-09)
+
+Canonical source:
+- `EXHAUSTIVE_LEGACY_ANALYSIS.md` section `20` (machine-parsable CSV matrix + explicit gap register).
+
+### 14.1 Fast index by subsystem
+
+| Subsystem family | Crosswalk IDs | Primary verification assets |
+|---|---|---|
+| graph/view core | `XW-001`, `XW-002` | `fnx-classes` + `fnx-views` unit tests, `graph_core_mutation_hardened.json`, `view_neighbors_strict.json`, `scripts/e2e/run_happy_path.sh` |
+| dispatch/convert/readwrite | `XW-003`, `XW-004`, `XW-005` | dispatch/convert/readwrite unit tests, `dispatch_route_strict.json`, `convert_edge_list_strict.json`, readwrite fixture set, malformed-input e2e scripts |
+| algorithms/generators | `XW-006`, `XW-007`, `XW-008` | algorithm/generator unit suites, shortest/components/centrality/generator fixtures, path/adversarial e2e scripts |
+| runtime/conformance telemetry | `XW-009` | `structured_log_gate.rs`, asupersync gates, `structured_logs.jsonl`, normalization report, replay metadata checks |
+| durability/evidence lifecycle | `XW-010` | `fnx-durability` unit tests, `phase2c_packet_readiness_gate.rs`, durability run scripts and decode-proof artifacts |
+
+### 14.2 Priority gap queue (linked to beads)
+
+| Priority | Gap ID | Bead links | Immediate closure target |
+|---|---|---|---|
+| P0 | `GAP-02` | `bd-315.16`, `bd-315.18.6`, `bd-315.18.7` | weighted shortest-path + centrality/generator differential/adversarial parity expansion |
+| P1 | `GAP-01` | `bd-315.23` | reliability/flake budget closure for graph/view/convert/readwrite verification families |
+| P1 | `GAP-03` | `bd-315.26.4` | deterministic recovery e2e scenarios with decode-proof and replay-linked telemetry |
+| P1 | `GAP-04` | `bd-315.26` | asupersync-backed durability replication across long-lived artifact classes |
+| P1 | `GAP-05` | `bd-315.10.1`, `bd-315.10` | CI gate topology promotion of crosswalk schema (G1..G8 contract matrix) |
+
+## 15. Reliability Gate Operations (bd-315.23 baseline)
+
+### 15.1 Budget keys to enforce in CI
+
+| Budget key | Scope | Gate expectation |
+|---|---|---|
+| `REL-BUD-001` | graph/view core packets | maintain coverage floors + deterministic smoke/e2e replay success |
+| `REL-BUD-002` | convert/readwrite packet family | enforce malformed-input robustness without strict-mode drift |
+| `REL-BUD-003` | shortest-path critical family | enforce tighter p99 and flake ceiling for critical path correctness |
+| `REL-BUD-004` | centrality/generator family | enforce parity + runtime-tail guardrails across generated fixtures |
+| `REL-BUD-005` | runtime/dispatch/log schema family | enforce fail-closed telemetry contract and structured log completeness |
+| `REL-BUD-006` | conformance/durability family | enforce decode-proof and evidence bundle recovery invariants |
+
+### 15.2 Flake/quarantine state machine (operational)
+
+1. detect:
+- identify `fail -> pass` on immediate deterministic rerun for same `test_id` + `packet_id` + `mode`.
+2. classify:
+- `warn` when rolling flake rate exceeds `0.25%`.
+- `fail` when rolling flake rate exceeds `1.00%`.
+3. quarantine:
+- enter after 3 flakes in 24h.
+- exit after 20 consecutive deterministic passes.
+4. report:
+- gate output must include `budget_id`, failing test groups, artifact refs, replay commands, and owner bead linkage.
+
+### 15.3 Command discipline
+
+- CPU-heavy gate commands must run offloaded, e.g.:
+  - `rch exec -- cargo test -q -p fnx-conformance --test smoke -- --nocapture`
+  - `rch exec -- cargo test -q -p fnx-conformance --test structured_log_gate -- --nocapture`
+  - `rch exec -- cargo test -q -p fnx-conformance --test phase2c_packet_readiness_gate -- --nocapture`

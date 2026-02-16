@@ -334,3 +334,152 @@ Phase-2C is complete only when:
   - `artifacts/conformance/latest/structured_logs.jsonl`
   - `artifacts/conformance/latest/structured_log_emitter_normalization_report.json`
   - `artifacts/phase2c/latest/phase2c_readiness_e2e_steps_v1.jsonl`
+
+## 19. Error Taxonomy, Failure Modes, and Recovery Semantics (DOC-PASS-07)
+
+### 19.1 Decision boundary and fail-closed law
+
+Runtime guardrail (normative): `decision_theoretic_action(mode, p, unknown_feature)` in `crates/fnx-runtime/src/lib.rs:1140` decides `{allow, full_validate, fail_closed}` and forces `FailClosed` whenever `unknown_incompatible_feature=true`.
+
+Operational consequence:
+- strict mode defaults to immediate fail-closed for malformed or incompatible inputs across graph, dispatch, conversion, and read/write surfaces.
+- hardened mode may perform bounded recovery (`warning + continue`) only where code paths explicitly allow it; unknown incompatible features still fail-closed.
+
+### 19.2 Failure taxonomy matrix (trigger/impact/recovery)
+
+| Failure family | Trigger + detection signal | User-facing semantics | Strict mode | Hardened mode | Recovery + evidence artifacts |
+|---|---|---|---|---|---|
+| Dispatch incompatibility | `unknown_incompatible_feature` or unsupported route in `BackendRegistry::resolve` (`crates/fnx-dispatch/src/lib.rs:103`) | `DispatchError::FailClosed` or `DispatchError::NoCompatibleBackend` | fail-closed | fail-closed | deterministic dispatch decision ledger entry with operation, mode, selected backend signal |
+| Graph metadata incompatibility | edge attrs include `__fnx_incompatible*` in `Graph::add_edge_with_attrs` (`crates/fnx-classes/src/lib.rs:221`) | `GraphError::FailClosed { operation: \"add_edge\" }` | fail-closed | fail-closed | abort mutation; decision record with incompatibility probability and evidence terms |
+| Conversion payload malformation | empty node IDs / malformed endpoints in `GraphConverter::{from_edge_list,from_adjacency}` (`crates/fnx-convert/src/lib.rs:136`) | `ConvertError::FailClosed` (strict) or warning stream in `ConvertReport.warnings` (hardened) | fail-closed | bounded skip + warning | preserve valid rows, emit warning ledger, continue deterministic conversion |
+| Edgelist parse failure | malformed line/endpoint/attr pair in `EdgeListEngine::read_edgelist` and `decode_attrs` (`crates/fnx-readwrite/src/lib.rs:127`, `crates/fnx-readwrite/src/lib.rs:346`) | `ReadWriteError::FailClosed` (strict) or warnings (hardened) | fail-closed | bounded skip + warning | keep valid edges, collect warning fragments for conformance assertion |
+| JSON graph parse/schema failure | invalid JSON or empty node/edge endpoint in `EdgeListEngine::read_json_graph` (`crates/fnx-readwrite/src/lib.rs:219`) | strict returns `ReadWriteError::FailClosed`; hardened returns empty graph + warning on parse errors | fail-closed | bounded recovery path for parse failure; malformed elements skipped with warnings | return deterministic empty graph for malformed top-level JSON, preserve parse warning and ledger decision |
+| Generator parameter abuse | `n > max_allowed` / `p` outside `[0,1]` in `GraphGenerator::{validate_n,validate_probability}` (`crates/fnx-generators/src/lib.rs:225`) | `GenerationError::FailClosed` or hardened clamp warning | fail-closed | clamp + warning when explicitly allowlisted; otherwise fail-closed | bounded clamping with rationale signal, or immediate fail-closed on strict/high-risk |
+| Artifact sync integrity failure | unsupported capability, cursor regression, retry exhaustion, checksum mismatch in `AsupersyncAdapterMachine` (`crates/fnx-runtime/src/lib.rs:245`) | terminal `FailedClosed` state with reason codes (`UnsupportedCapability`, `ConflictDetected`, `RetryExhausted`, etc.) | fail-closed | fail-closed | deterministic transition log + reason code chain; no post-terminal transitions |
+| Structured log contract violations | missing required fields (`reason_code`, replay metadata, forensic bundle links) in `StructuredTestLog::validate` (`crates/fnx-runtime/src/lib.rs:782`) | validation `Err(String)`; conformance gating failure | fail-closed | fail-closed | reject artifact; regenerate telemetry row with full canonical field set |
+| Conformance behavior drift | fixture mismatches/warning expectation misses in `execute_fixture` (`crates/fnx-conformance/src/lib.rs:824`) | `FixtureReport { passed=false, reason_code=\"mismatch\" }` | fail gate | fail gate | emit mismatch taxonomy + deterministic replay command + forensics bundle index |
+
+### 19.3 User-facing error semantics by crate boundary
+
+| Boundary | Primary external surface | Error/warning contract | Recovery contract |
+|---|---|---|---|
+| `fnx-classes` | graph mutation APIs | returns `GraphError::FailClosed` on incompatible edge metadata | no silent mutation; edge add aborted, node/edge ordering remains deterministic |
+| `fnx-dispatch` | backend route resolution | returns `DispatchError::{FailClosed,NoCompatibleBackend}` with operation context | deterministic backend fallback is never implicit; caller must handle explicit failure |
+| `fnx-convert` | edge-list/adjacency ingestion | strict returns `ConvertError::FailClosed`; hardened records warnings for skipped malformed records | bounded row-skip recovery only; malformed data never rewritten into strict output |
+| `fnx-readwrite` | edgelist/json parse+serialize | strict fail-closed on malformed input; hardened keeps valid subset and reports warning fragments | parser warnings are first-class outputs and must flow to conformance comparisons |
+| `fnx-generators` | graph family constructors | strict rejects invalid `n`/`p`; hardened may clamp with warning depending on risk action | clamping is deterministic and logged; overflow/resource-amplification requests can still fail-closed |
+| `fnx-runtime` | policy + telemetry + sync state machine | explicit reason-coded fail-closed transitions; structured log schema validation errors are hard failures | transition/telemetry contracts enforce reproducible replay metadata and forensic bundle integrity |
+| `fnx-conformance` | fixture and gate execution | mismatch taxonomy + `reason_code` + packet-level replay command | gate failure is non-recovering in-run; recovery is rerun after fixture or implementation correction |
+
+### 19.4 Recovery escalation workflow (deterministic)
+
+1. Detect category:
+- parse/validation failure, compatibility-route failure, state-machine integrity failure, or parity mismatch.
+2. Apply mode policy:
+- strict: immediate fail-closed return.
+- hardened: attempt only explicitly coded bounded recovery; otherwise fail-closed.
+3. Persist forensic evidence:
+- decision ledger entry, warning list, mismatch taxonomy, replay command, and forensics bundle index.
+4. Enforce gate outcomes:
+- any strict mismatch, missing telemetry contract field, or fail-closed terminal condition is a release blocker until artifact-corrected rerun passes.
+
+## 20. Unit/E2E Test Corpus and Logging Evidence Crosswalk (DOC-PASS-09)
+
+### 20.1 Canonical crosswalk schema
+
+Required columns for every crosswalk row:
+- `crosswalk_id`
+- `behavior_or_invariant`
+- `packet_id`
+- `owning_bead`
+- `unit_property_assets`
+- `differential_fixture_assets`
+- `e2e_script_assets`
+- `required_structured_log_fields`
+- `artifact_bundle_paths`
+- `replay_command_template`
+- `coverage_status`
+
+### 20.2 Machine-parsable behavior-to-verification matrix
+
+```csv
+crosswalk_id,behavior_or_invariant,packet_id,owning_bead,unit_property_assets,differential_fixture_assets,e2e_script_assets,required_structured_log_fields,artifact_bundle_paths,replay_command_template,coverage_status
+XW-001,"graph adjacency integrity + deterministic mutation ordering",FNX-P2C-001,bd-315.12.1,"crates/fnx-classes/src/lib.rs::add_edge_autocreates_nodes_and_preserves_order|neighbors_iter_preserves_deterministic_order|strict_mode_fails_closed_for_unknown_incompatible_feature","crates/fnx-conformance/fixtures/graph_core_mutation_hardened.json|crates/fnx-conformance/fixtures/generated/conformance_harness_strict.json","scripts/e2e/run_happy_path.sh|scripts/e2e/run_edge_path.sh","schema_version|run_id|suite_id|packet_id|test_id|mode|status|reason_code|replay_command|forensic_bundle_id|forensics_bundle_index.bundle_hash_id|artifact_refs|env_fingerprint","artifacts/conformance/latest/smoke_report.json|artifacts/conformance/latest/structured_logs.jsonl|artifacts/conformance/latest/structured_logs.json","CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture graph_core_mutation_hardened.json --mode hardened",covered
+XW-002,"view cache staleness invalidation + ordering parity",FNX-P2C-002,bd-315.24.11,"crates/fnx-views/src/lib.rs::live_view_observes_graph_mutations|cached_snapshot_refreshes_on_revision_change|view_preserves_deterministic_ordering","crates/fnx-conformance/fixtures/generated/view_neighbors_strict.json","scripts/e2e/run_cross_packet_golden.sh","schema_version|packet_id|test_id|mode|status|replay_command|forensic_bundle_id|artifact_refs|env_fingerprint","artifacts/conformance/latest/smoke_report.json|artifacts/phase2c/latest/phase2c_readiness_e2e_steps_v1.jsonl","CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/view_neighbors_strict.json --mode strict",partial
+XW-003,"dispatch deterministic backend selection + fail-closed incompatibility handling",FNX-P2C-008,bd-315.19.1,"crates/fnx-dispatch/src/lib.rs::strict_mode_rejects_unknown_incompatible_request|hardened_mode_uses_validation_action_for_moderate_risk|deterministic_priority_selects_highest_then_name","crates/fnx-conformance/fixtures/generated/dispatch_route_strict.json","scripts/e2e/run_cross_packet_golden.sh","schema_version|packet_id|test_id|mode|status|reason_code|replay_command|forensic_bundle_id|artifact_refs","artifacts/conformance/latest/smoke_report.json|artifacts/conformance/latest/structured_log_emitter_normalization_report.json","CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/dispatch_route_strict.json --mode strict",covered
+XW-004,"conversion precedence + malformed payload handling (strict fail-closed / hardened warning)",FNX-P2C-004,bd-315.15.5,"crates/fnx-convert/src/lib.rs::edge_list_conversion_is_deterministic|strict_mode_fails_closed_for_malformed_edge|hardened_mode_skips_malformed_and_keeps_good_edges","crates/fnx-conformance/fixtures/generated/convert_edge_list_strict.json","scripts/e2e/run_malformed_input.sh|scripts/e2e/run_happy_path.sh","schema_version|packet_id|test_id|mode|status|reason_code|replay_command|forensic_bundle_id|forensics_bundle_index.bundle_id|artifact_refs","artifacts/conformance/latest/smoke_report.json|artifacts/conformance/latest/structured_logs.jsonl","CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/convert_edge_list_strict.json --mode strict",partial
+XW-005,"readwrite round-trip determinism + malformed edgelist/json recovery policy",FNX-P2C-004,bd-315.15.6,"crates/fnx-readwrite/src/lib.rs::round_trip_is_deterministic|strict_mode_fails_closed_for_malformed_line|hardened_mode_keeps_valid_lines_with_warnings|strict_mode_fails_closed_for_malformed_json|hardened_mode_warns_and_recovers_for_malformed_json","crates/fnx-conformance/fixtures/generated/readwrite_roundtrip_strict.json|crates/fnx-conformance/fixtures/generated/readwrite_json_roundtrip_strict.json|crates/fnx-conformance/fixtures/generated/readwrite_hardened_malformed.json","scripts/e2e/run_malformed_input.sh|scripts/e2e/run_edge_path.sh","schema_version|packet_id|test_id|mode|status|reason_code|replay_command|forensic_bundle_id|forensics_bundle_index.replay_ref|artifact_refs|env_fingerprint","artifacts/conformance/latest/smoke_report.json|artifacts/conformance/latest/structured_logs.json|artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json","CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened",covered
+XW-006,"shortest-path deterministic output + complexity witness integrity",FNX-P2C-005,bd-315.16,"crates/fnx-algorithms/src/lib.rs::bfs_shortest_path_uses_deterministic_neighbor_order|returns_none_when_nodes_are_missing","crates/fnx-conformance/fixtures/graph_core_shortest_path_strict.json","scripts/e2e/run_edge_path.sh","schema_version|packet_id|test_id|mode|status|replay_command|forensic_bundle_id|artifact_refs|env_fingerprint","artifacts/conformance/latest/smoke_report.json|artifacts/perf/BASELINE_BFS_V1.md|artifacts/perf/phase2c/bfs_neighbor_iter_delta.json","CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture graph_core_shortest_path_strict.json --mode strict",partial
+XW-007,"connected-components + centrality parity (degree/closeness) with deterministic ordering",FNX-P2C-007,bd-315.18.5,"crates/fnx-algorithms/src/lib.rs::connected_components_are_deterministic_and_partitioned|number_connected_components_matches_components_len|degree_centrality_matches_expected_values_and_order|closeness_centrality_matches_expected_values_and_order","crates/fnx-conformance/fixtures/generated/components_connected_strict.json|crates/fnx-conformance/fixtures/generated/centrality_degree_strict.json|crates/fnx-conformance/fixtures/generated/centrality_closeness_strict.json","scripts/e2e/run_cross_packet_golden.sh","schema_version|packet_id|test_id|mode|status|reason_code|replay_command|forensic_bundle_id|artifact_refs","artifacts/conformance/latest/smoke_report.json|artifacts/conformance/latest/structured_logs.jsonl","CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_closeness_strict.json --mode strict",partial
+XW-008,"generator determinism + hardened guardrails for resource/parameter abuse",FNX-P2C-007,bd-315.18.5,"crates/fnx-generators/src/lib.rs::cycle_graph_edge_order_matches_networkx_for_n_five|gnp_random_graph_is_seed_reproducible|strict_mode_fails_for_invalid_probability|hardened_mode_clamps_invalid_probability_with_warning","crates/fnx-conformance/fixtures/generated/generators_path_strict.json|crates/fnx-conformance/fixtures/generated/generators_cycle_strict.json|crates/fnx-conformance/fixtures/generated/generators_complete_strict.json","scripts/e2e/run_happy_path.sh|scripts/e2e/run_adversarial_soak.sh","schema_version|packet_id|test_id|mode|status|reason_code|replay_command|forensic_bundle_id|artifact_refs","artifacts/conformance/latest/smoke_report.json|artifacts/phase2c/latest/phase2c_adversarial_manifest_v1.json","CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/generators_cycle_strict.json --mode strict",partial
+XW-009,"structured logging schema + replay/forensics contract + asupersync fail-closed state machine",FNX-P2C-008,bd-315.26.4,"crates/fnx-runtime/src/lib.rs::structured_test_log_validates_passed_record|structured_test_log_failed_requires_repro_seed_or_fixture|structured_test_log_skipped_requires_reason_code|asupersync_adapter_checksum_mismatch_is_fail_closed_and_audited|asupersync_adapter_retry_budget_exhaustion_fault_injection_is_fail_closed","crates/fnx-conformance/tests/structured_log_gate.rs|crates/fnx-conformance/tests/asupersync_adapter_state_machine_gate.rs|crates/fnx-conformance/tests/asupersync_fault_injection_gate.rs","scripts/run_e2e_script_pack.py|scripts/run_phase2c_readiness_e2e.sh","schema_version|run_id|suite_id|packet_id|test_id|mode|status|reason_code|failure_repro|replay_command|forensic_bundle_id|forensics_bundle_index.bundle_hash_id|forensics_bundle_index.replay_ref|artifact_refs|env_fingerprint|e2e_step_traces","artifacts/conformance/latest/structured_logs.jsonl|artifacts/conformance/latest/structured_log_emitter_normalization_report.json|artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json","cargo test -p fnx-conformance structured_log_gate -- --nocapture",covered
+XW-010,"RaptorQ sidecar generation/scrub/decode proof for long-lived evidence bundles",FNX-P2C-009,bd-315.26,"crates/fnx-durability/src/lib.rs::sidecar_generation_and_scrub_recovery_work|decode_drill_emits_recovered_output|crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs::topology_and_packet_artifacts_are_complete_and_decode_proof_enforced","crates/fnx-conformance/fixtures/generated/adversarial_regression_bundle_v1.json","scripts/run_conformance_with_durability.sh|scripts/e2e/run_adversarial_soak.sh","schema_version|packet_id|test_id|mode|status|reason_code|replay_command|forensic_bundle_id|artifact_refs","artifacts/conformance/latest/structured_logs.raptorq.json|artifacts/conformance/latest/structured_logs.recovered.json|artifacts/phase2c/FNX-P2C-009","cargo test -p fnx-durability -- --nocapture",partial
+```
+
+### 20.3 Explicit coverage gaps, priority, and closure mapping
+
+| Gap ID | Impacted crosswalk IDs | Priority | Linked bead IDs | Closure criteria |
+|---|---|---|---|---|
+| GAP-01 | `XW-001`, `XW-002`, `XW-004`, `XW-005` | P1 | `bd-315.23` | add property/invariant families and flake budgets for graph/view/convert/readwrite; wire into reliability gate outputs |
+| GAP-02 | `XW-006`, `XW-007`, `XW-008` | P0 | `bd-315.16`, `bd-315.18.6`, `bd-315.18.7` | extend differential/metamorphic/adversarial coverage for weighted shortest-path and centrality/generator families; emit mismatch taxonomy with replay artifacts |
+| GAP-03 | `XW-009` | P1 | `bd-315.26.4` | complete deterministic e2e recovery scenarios for interruption/resume/conflict/checksum mismatch with decode-proof-linked logs |
+| GAP-04 | `XW-010` | P1 | `bd-315.26` | route all long-lived artifact classes through asupersync + durability pipeline; enforce scrub/decode proofs in packet readiness gates |
+| GAP-05 | `XW-001..XW-010` | P1 | `bd-315.10.1`, `bd-315.10` | promote this crosswalk schema into CI gate contract (G1..G8 mapping + machine-checkable doc/test contract matrix) |
+
+### 20.4 Canonical replay command templates
+
+- Conformance fixture replay template:
+  - `CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture <fixture_name> --mode <strict|hardened>`
+- E2E script-pack replay template:
+  - `python3 scripts/run_e2e_script_pack.py --scenario <scenario_id> --emit-json`
+- Packet readiness replay template:
+  - `bash scripts/run_phase2c_readiness_e2e.sh`
+
+## 21. Coverage/Flake Budgets and Reliability Gate Baseline (bd-315.23)
+
+### 21.1 Reliability budget matrix (packet-family SLOs)
+
+| Budget ID | Packet family scope | Unit line floor | Branch floor | Property invariant floor | E2E replay pass floor | Flake ceiling (7d) | Runtime guardrail | Evidence artifacts | Primary gate command (offloaded) |
+|---|---|---:|---:|---:|---:|---:|---|---|---|
+| `REL-BUD-001` | core graph + view (`FNX-P2C-001`, `FNX-P2C-002`) | 90% | 80% | 5 families | 100% | 0.50% | p95 <= baseline + 10% | `artifacts/conformance/latest/smoke_report.json`, `artifacts/conformance/latest/structured_logs.jsonl` | `rch exec -- cargo test -q -p fnx-conformance --test smoke -- --nocapture` |
+| `REL-BUD-002` | convert/readwrite (`FNX-P2C-004`) | 90% | 80% | 5 families | 100% | 0.50% | p95 <= baseline + 10% | `artifacts/conformance/latest/generated_convert_edge_list_strict_json.report.json`, `artifacts/conformance/latest/generated_readwrite_roundtrip_strict_json.report.json` | `rch exec -- cargo test -q -p fnx-conformance --bin run_smoke -- --nocapture` |
+| `REL-BUD-003` | shortest-path critical (`FNX-P2C-005`) | 92% | 82% | 6 families | 100% | 0.25% | p99 <= baseline + 10% | `artifacts/perf/BASELINE_BFS_V1.md`, `artifacts/perf/phase2c/perf_regression_gate_report_v1.json` | `rch exec -- cargo test -q -p fnx-algorithms -- --nocapture` |
+| `REL-BUD-004` | centrality + generators (`FNX-P2C-007`) | 90% | 80% | 5 families | 100% | 0.50% | p95 <= baseline + 10% | `artifacts/conformance/latest/generated_centrality_degree_strict_json.report.json`, `artifacts/conformance/latest/generated_generators_cycle_strict_json.report.json` | `rch exec -- cargo test -q -p fnx-conformance --test phase2c_packet_readiness_gate -- --nocapture` |
+| `REL-BUD-005` | runtime/dispatch/log schema (`FNX-P2C-008`) | 92% | 85% | 6 families | 100% | 0.25% | fail-closed telemetry contract | `artifacts/conformance/latest/structured_log_emitter_normalization_report.json`, `artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json` | `rch exec -- cargo test -q -p fnx-conformance --test structured_log_gate -- --nocapture` |
+| `REL-BUD-006` | conformance + durability lifecycle (`FNX-P2C-009`) | 90% | 80% | 4 families | 100% | 0.50% | decode-proof required | `artifacts/conformance/latest/structured_logs.raptorq.json`, `artifacts/conformance/latest/structured_logs.recovered.json`, `artifacts/phase2c/latest/phase2c_readiness_e2e_report_v1.json` | `rch exec -- cargo test -q -p fnx-conformance --test phase2c_packet_readiness_gate -- --nocapture` |
+
+### 21.2 Flake detection and quarantine policy
+
+| Policy key | Rule | Trigger | Action | Required artifact |
+|---|---|---|---|---|
+| `FLK-DET-001` | classify flaky when first failure passes on immediate deterministic rerun | fail -> pass sequence on same `test_id` + `packet_id` + `mode` | mark as flaky event, increment rolling flake counter | `artifacts/conformance/latest/structured_logs.jsonl` with shared replay metadata |
+| `FLK-DET-002` | warn threshold | rolling flake rate `> 0.25%` and `<= 1.00%` | soft warning in gate summary with top offending test groups | `artifacts/conformance/latest/logging_final_gate_report_v1.json` |
+| `FLK-DET-003` | hard-fail threshold | rolling flake rate `> 1.00%` | fail reliability gate and emit explicit budget breach | `artifacts/conformance/latest/smoke_report.json` + budget breach report |
+| `FLK-QUA-001` | quarantine admission | same test flakes >= 3 times in 24h | move test to quarantine roster; block release path until owner assigned | `artifacts/conformance/latest/flake_quarantine_v1.json` (to be generated by gate automation bead) |
+| `FLK-QUA-002` | quarantine exit | 20 consecutive deterministic passes with zero flakes | auto-remove from quarantine and close incident | `artifacts/conformance/latest/flake_quarantine_v1.json` + pass streak ledger |
+
+### 21.3 CI failure envelope contract (budget-specific remediation)
+
+Every reliability gate failure must emit a machine-readable envelope with:
+- `budget_id`
+- `packet_scope`
+- `observed_value`
+- `threshold_value`
+- `status` (`warn` or `fail`)
+- `failing_test_groups` (stable test IDs)
+- `artifact_paths` (primary evidence refs)
+- `replay_commands` (one-command reproduction)
+- `owner_bead_id`
+- `remediation_hint`
+
+Normative output behavior:
+- failure text must name the exact `budget_id` and include direct artifact/replay pointers.
+- no generic “tests failed” output is acceptable for reliability gates.
+
+### 21.4 Closure linkage for bd-315.23 dependents
+
+| Dependent bead family | Reliability dependency unlocked by this baseline | Remaining closure step |
+|---|---|---|
+| `bd-315.12.5`, `bd-315.13.5`, `bd-315.14.5`, `bd-315.15.5`, `bd-315.16.5`, `bd-315.17.5`, `bd-315.18.5`, `bd-315.19.5`, `bd-315.20.5` | packet-level unit/property reliability budgets are now explicit and packet-scoped | implement budget evaluator + flake/quarantine artifact emission in CI gate topology (`bd-315.10`) |
+| `bd-315.10`, `bd-315.10.1` | gate-level budget IDs and envelope schema are now specified | wire automated checks so failures print budget-specific remediation hints from schema fields |
+| `bd-315.11` | readiness drill now has explicit reliability SLO set and flake thresholds | run full readiness drill with budget breach report and quarantine ledger outputs |
