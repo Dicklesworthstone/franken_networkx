@@ -30,18 +30,20 @@ Important specification gap:
 
 ## 2. Quantitative Legacy Inventory (Measured)
 
-- Total files: `996`
+- Total files: `1247`
 - Python: `687`
 - Native code: negligible for core graph logic
 - Test-like files: `307`
 
-High-density zones:
-- `networkx/algorithms` (401 files)
-- `networkx/generators` (60)
+High-density zones (`*.py` files):
+- `networkx/algorithms` (393 files)
+- `networkx/generators` (59)
 - `networkx/readwrite` (35)
 - `networkx/classes` (26)
 
 ## 3. Subsystem Extraction Matrix (Legacy -> Rust)
+
+Path namespace rule for this section: unless an absolute repo path is shown, legacy module paths are relative to `legacy_networkx_code/networkx/networkx/`.
 
 | Legacy locus | Non-negotiable behavior to preserve | Target crates | Primary oracles | Phase-2 extraction deliverables |
 |---|---|---|---|---|
@@ -178,8 +180,8 @@ Definition of done for Phase-2:
 ## 12. Deep-Pass Hotspot Inventory (Measured)
 
 Measured from `/data/projects/franken_networkx/legacy_networkx_code/networkx`:
-- file count: `996`
-- concentration: `networkx/algorithms` (`401` files), `networkx/generators` (`60`), `networkx/readwrite` (`35`), `networkx/classes` (`26`)
+- file count: `1247` total files (`687` Python files)
+- concentration (`*.py` files): `networkx/algorithms` (`393`), `networkx/generators` (`59`), `networkx/readwrite` (`35`), `networkx/classes` (`26`)
 
 Top source hotspots by line count (first-wave extraction anchors):
 1. `networkx/algorithms/shortest_paths/weighted.py` (`2542`)
@@ -351,8 +353,8 @@ NetworkX execution semantics for graph mutation and traversal are effectively si
 | Hazard surface | Legacy anchor | Regression risk if mishandled | Rust containment requirement |
 |---|---|---|---|
 | Mutation during neighbor/view iteration | `graph.py::remove_node`, `coreviews.py` / `reportviews.py` live iterators | non-deterministic neighbor/edge emission order; stale reads; panic-prone iterator invalidation equivalents | revision-gated snapshots for cached views; deterministic invalidation on every mutating commit; never expose partially-mutated adjacency |
-| View cache refresh races | live-view model in `coreviews.py` + mutable dict backing in `graph.py`/`digraph.py` | serving cache built on prior revision; drift between strict/hardened outputs | enforce monotonic revision counter in `fnx-classes`; `fnx-views` must rebuild-or-fail on revision mismatch (no silent stale fallback) |
-| Backend registry/config drift during dispatch | `utils/backends.py` global `backends`, `_loaded_backends`, backend-priority logic | route choice changes across runs for same inputs; compatibility drift masked as backend variance | freeze dispatch decision inputs per operation; emit deterministic decision ledger with selected backend, policy IDs, and conversion path |
+| View cache refresh races | live-view model in `coreviews.py` + mutable dict backing in `graph.py`/`digraph.py` | serving cache built on prior revision; drift between strict/hardened outputs | enforce monotonic revision counter in `fnx-classes`; `fnx-views` callers must run `refresh_if_stale()` before consuming cached snapshots and treat unrefreshed stale reads as contract violations |
+| Backend registry/config drift during dispatch | `utils/backends.py` global `backends`, `_loaded_backends`, backend-priority logic | route choice changes across runs for same inputs; compatibility drift masked as backend variance | freeze dispatch decision inputs per operation; preserve deterministic backend sort (`priority` desc then `name` asc); emit decision ledger with selected backend and policy IDs |
 | Parser pipeline reordering | `parse_edgelist` / `parse_adjlist` line-ordered loops | warning ordering drift; different first-failure line; mismatched replay artifacts | preserve input-line order in strict and hardened modes; canonicalize warning emission ordering and include stable row indices |
 | Seeded RNG object reuse across concurrent calls | `random_graphs.py` seeded `seed.random/choice/shuffle` surfaces | reproducibility loss and cross-scenario contamination | one RNG stream per scenario/test-id; explicit replay seed recorded in structured logs and e2e replay bundles |
 | Durability/recovery state transition reentrancy | fail-closed state-machine contract in `fnx-runtime` + adapter gates | illegal post-terminal transitions; ambiguous recovery outcomes | transition guards must reject out-of-order events; terminal states immutable; transition log must remain append-only and reason-coded |
@@ -362,7 +364,7 @@ NetworkX execution semantics for graph mutation and traversal are effectively si
 1. Mutate-then-iterate checks:
 - after deterministic add/remove sequences, `neighbors()` / `adjacency()` / edge views must emit stable order matching fixture baselines.
 2. View revision checks:
-- cached view reads after parent mutation must either rebuild deterministically or fail-closed with explicit reason code; stale-cache serving is forbidden.
+- cached view consumers must call `refresh_if_stale()` before reading `snapshot()`; stale-cache serving without refresh is forbidden and treated as a conformance failure.
 3. Dispatch replay checks:
 - identical input + mode + backend configuration must yield identical backend choice and identical decision-ledger payload.
 4. Parser replay checks:
@@ -387,7 +389,7 @@ Operational consequence:
 | Failure family | Trigger + detection signal | User-facing semantics | Strict mode | Hardened mode | Recovery + evidence artifacts |
 |---|---|---|---|---|---|
 | Dispatch incompatibility | `unknown_incompatible_feature` or unsupported route in `BackendRegistry::resolve` (`crates/fnx-dispatch/src/lib.rs:103`) | `DispatchError::FailClosed` or `DispatchError::NoCompatibleBackend` | fail-closed | fail-closed | deterministic dispatch decision ledger entry with operation, mode, selected backend signal |
-| Graph metadata incompatibility | edge attrs include `__fnx_incompatible*` in `Graph::add_edge_with_attrs` (`crates/fnx-classes/src/lib.rs:221`) | `GraphError::FailClosed { operation: \"add_edge\" }` | fail-closed | fail-closed | abort mutation; decision record with incompatibility probability and evidence terms |
+| Graph metadata incompatibility | edge attrs include `__fnx_incompatible*` in `Graph::add_edge_with_attrs` (`crates/fnx-classes/src/lib.rs:225`) and policy gate evaluates `decision_theoretic_action` (`crates/fnx-runtime/src/lib.rs:1146`) | either `GraphError::FailClosed` or accepted mutation with recorded `DecisionAction` | fail-closed when action resolves to `FailClosed`; otherwise allow/full-validate with ledger evidence | fail-closed for unknown incompatible feature; otherwise allow/full-validate according to loss-based policy | decision record must include incompatibility probability, action, and evidence terms; mutation only proceeds on non-fail-closed action |
 | Conversion payload malformation | empty node IDs / malformed endpoints in `GraphConverter::{from_edge_list,from_adjacency}` (`crates/fnx-convert/src/lib.rs:136`) | `ConvertError::FailClosed` (strict) or warning stream in `ConvertReport.warnings` (hardened) | fail-closed | bounded skip + warning | preserve valid rows, emit warning ledger, continue deterministic conversion |
 | Edgelist parse failure | malformed line/endpoint/attr pair in `EdgeListEngine::read_edgelist` and `decode_attrs` (`crates/fnx-readwrite/src/lib.rs:127`, `crates/fnx-readwrite/src/lib.rs:346`) | `ReadWriteError::FailClosed` (strict) or warnings (hardened) | fail-closed | bounded skip + warning | keep valid edges, collect warning fragments for conformance assertion |
 | JSON graph parse/schema failure | invalid JSON or empty node/edge endpoint in `EdgeListEngine::read_json_graph` (`crates/fnx-readwrite/src/lib.rs:219`) | strict returns `ReadWriteError::FailClosed`; hardened returns empty graph + warning on parse errors | fail-closed | bounded recovery path for parse failure; malformed elements skipped with warnings | return deterministic empty graph for malformed top-level JSON, preserve parse warning and ledger decision |
@@ -687,3 +689,307 @@ The DOC-PASS-05 run path and gate linkage are now deterministic and reproducible
 5. `cargo fmt --check`
 
 This closes DOC-PASS-05 and unblocks `bd-315.24.12` and its downstream pass-B expansion chain (`bd-315.24.13`, `bd-315.24.16`, `bd-315.24.17`).
+
+## 25. Pass-B Expansion: Source-Anchored Behavioral Contract and Risk Topology (DOC-PASS-11)
+
+This section is the explicit Pass-B deepening layer for `bd-315.24.12`: it binds concrete crate entry points, failure semantics, and evidence obligations into one execution-facing map that downstream reviewers can audit without reopening archaeology notes.
+
+### 25.1 Crate execution map (source-anchored)
+
+| Crate | Primary source anchors | Normal-path contract | Edge/adversarial contract | Required evidence/logging linkage |
+|---|---|---|---|---|
+| `fnx-classes` | `crates/fnx-classes/src/lib.rs:71-170`, `crates/fnx-classes/src/lib.rs:172-334` | deterministic graph storage and ordered traversal via insertion-ordered maps/sets; revision increments on mutating change | edge mutation routes through decision-theoretic guard; unknown incompatible attrs force fail-closed while non-terminal actions may allow/full-validate with evidence | decision records in graph `EvidenceLedger`; crosswalk coverage in section `20` rows `XW-001`/`XW-005` |
+| `fnx-runtime` | `crates/fnx-runtime/src/lib.rs:758-930`, `crates/fnx-runtime/src/lib.rs:1061-1172` | canonical structured test telemetry schema and decision-theoretic policy action selection | missing replay/forensics metadata or schema drift is validation-fatal; unknown incompatible feature bit is immediate `FailClosed` | `artifacts/conformance/latest/structured_logs.jsonl`, `artifacts/conformance/latest/structured_log_emitter_normalization_report.json` |
+| `fnx-dispatch` | `crates/fnx-dispatch/src/lib.rs:60-166` | deterministic backend selection by descending priority then backend name | no compatible backend or unavailable requested backend returns fail-closed error paths | dispatch decision ledger + conformance dispatch fixture (`XW-003`) |
+| `fnx-convert` | `crates/fnx-convert/src/lib.rs:90-250` | edge-list/adjacency payload conversion into canonical `Graph` state | strict mode fails on empty/malformed node/edge surfaces; hardened records warnings and continues within bounded recovery | conversion warnings + ledger + fixture reports in `artifacts/conformance/latest/*.report.json` |
+| `fnx-readwrite` | `crates/fnx-readwrite/src/lib.rs:54-240` | deterministic edge-list and JSON graph read/write using dispatch-gated backend route | malformed line/JSON branches are strict fail-closed; hardened path records warnings and salvages valid rows | `artifacts/conformance/latest/smoke_report.json` + `artifacts/conformance/latest/structured_logs.jsonl`; crosswalk rows `XW-005`/gap matrix in section `20.3` |
+| `fnx-algorithms` | `crates/fnx-algorithms/src/lib.rs:53-320` | deterministic BFS shortest-path/components and deterministic degree/closeness centrality outputs with complexity witnesses | shortest-path tie behavior inherits deterministic neighbor insertion order from `Graph::neighbors_iter`; missing endpoints return `None`/empty-safe outputs rather than panic | perf + parity evidence in `artifacts/perf/*` and conformance fixture outputs (`XW-006`, `XW-007`) |
+| `fnx-generators` | `crates/fnx-generators/src/lib.rs:42-272` | deterministic classic graph generators; seeded `gnp_random_graph` reproducibility | strict rejects out-of-range `n`/`p`; hardened clamps with explicit warning and `FullValidate` decision trace | generator warnings + policy evidence, linked to section `21` reliability budgets |
+| `fnx-views` | `crates/fnx-views/src/lib.rs:6-80` | live view and cached snapshot semantics preserve deterministic ordering and revision alignment | stale cache is explicitly detectable and refreshable; stale reads are contained by revision check | view fixture parity + replay coverage (`XW-002`) |
+| `fnx-durability` | `crates/fnx-durability/src/lib.rs:70-219` | sidecar generation, scrub, and decode drill produce deterministic envelope/proof artifacts | source hash mismatch triggers recovery or hard failure; decode failure paths are explicit and auditable | sidecar/decode proof artifacts in durability pipeline (`XW-010`) |
+| `fnx-conformance` | `crates/fnx-conformance/src/lib.rs:276-380`, `crates/fnx-conformance/src/lib.rs:790-980` | fixture-driven orchestration writes smoke + per-fixture + structured-log artifacts deterministically | parser errors, operation failures, and mismatch conditions are normalized into typed mismatch categories | canonical CI gate inputs/outputs in sections `21` and `22`; dependent-unblock matrix artifact emitted by harness |
+
+### 25.2 Behavior-risk matrix (normal/edge/adversarial pathways)
+
+| Behavior family | Trigger / observable signal | Strict-mode contract | Hardened-mode contract | Evidence + replay obligations |
+|---|---|---|---|---|
+| Graph mutation compatibility | incompatible edge metadata key prefix (`__fnx_incompatible*`) plus policy outcome from `decision_theoretic_action` | fail-closed when policy resolves `FailClosed`; otherwise mutation proceeds with recorded `DecisionAction` | fail-closed for unknown incompatible feature; otherwise policy may select `FullValidate`/`Allow` with evidence | graph decision ledger + fixture replay command with mutation op |
+| Read/parse boundary | malformed edge-list row or malformed JSON payload | immediate fail-closed read error | bounded salvage with warning emission and deterministic warning order | warning rows in fixture report + structured logs + replay command |
+| Generator safety boundary | `n` above family cap or `p` outside `[0,1]` | fail-closed generation error | clamp + warning when permitted by policy; otherwise fail-closed | generator ledger records + adversarial fixture artifacts |
+| Dispatch compatibility boundary | no compatible backend for required feature set | fail-closed dispatch error | fail-closed dispatch error (compatibility-critical) | dispatch mismatch rows + decision record terms |
+| Telemetry contract boundary | missing structured-log required fields or invalid bundle index coupling | fail gate and reject artifact | fail gate and reject artifact | `artifacts/conformance/latest/structured_log_emitter_normalization_report.json` + schema-linked gate failures |
+| Durability integrity boundary | artifact hash mismatch after recovery attempt | fail scrub/decode path | fail scrub/decode path | decode proof hashes + scrub status in envelope |
+
+### 25.3 Explicit Pass-B parity gap register (current code vs required full overlap)
+
+The current Rust surface is strong on deterministic graph core, dispatch, conversion/readwrite, durability, conformance orchestration, and first-wave algorithms; however, full drop-in overlap requirements still include unclosed families:
+
+1. Flow and matching algorithm families are not yet present in `fnx-algorithms` (no corresponding implementations discovered in `crates/fnx-algorithms/src/lib.rs`).
+2. Read/write format breadth beyond edge-list/JSON remains open for scoped formats called out in roadmap work (e.g., adjlist/GraphML entry points are not yet represented in `crates/fnx-readwrite/src/lib.rs`).
+3. Crosswalk rows marked `partial` in section `20.2` remain release-relevant until packet beads close and artifacts are promoted to `covered`.
+
+This gap register is intentionally explicit so downstream review beads (`bd-315.24.13`, `bd-315.24.16`, `bd-315.24.17`) can challenge contradictions against named source anchors instead of narrative summaries.
+
+### 25.4 Pass-B closure binding to downstream review beads
+
+`bd-315.24.12` Pass-B deepening is now represented as:
+
+1. Source-anchored crate execution map with normal/edge/adversarial contracts (`25.1` + `25.2`).
+2. Direct linkage to test/logging crosswalk and CI topology contracts (sections `20`, `21`, `22`).
+3. Explicit residual parity gaps and closure routing (`25.3`).
+4. Deterministic audit path for reviewers:
+   - run conformance smoke and structured-log checks with offloaded commands in sections `21.1`, `24.4`;
+   - verify artifacts listed in sections `20.2`, `21.1`, and `22.3`;
+   - validate no contradiction between crate source anchors and gate-policy mappings.
+
+This section is the direct execution artifact for Pass-B and is the handoff substrate for contradiction/completeness review in `bd-315.24.13` and specialist deep passes `bd-315.24.16`/`bd-315.24.17`.
+
+## 26. DOC-PASS-12 Red-Team Contradiction and Completeness Log (`bd-315.24.13`)
+
+### 26.1 Findings and resolutions
+
+| Finding ID | Red-team finding | Risk if uncorrected | Resolution applied in this pass |
+|---|---|---|---|
+| `RT-001` | quantitative inventory counts in sections `2` and `12` were stale | reviewers could challenge credibility of measured inventory basis | updated counts to current measured totals (`1247` total, `687` Python; hotspot family counts `393/59/35/26`) |
+| `RT-002` | section-3 legacy path references mixed shorthand and absolute forms without namespace rule | ambiguous interpretation of anchors during follow-on reviews | added explicit path namespace rule: shorthand legacy modules are relative to `legacy_networkx_code/networkx/networkx/` |
+| `RT-003` | some Pass-B evidence links used basename-only artifacts (`smoke_report.json`, `structured_logs.jsonl`) | artifact lookup ambiguity and potential false contradiction reports | normalized these references to full project-relative artifact paths under `artifacts/conformance/latest/` |
+| `RT-004` | telemetry boundary row referenced normalization report without path root | weakens reproducibility of risk/test assertions | normalized to `artifacts/conformance/latest/structured_log_emitter_normalization_report.json` |
+
+### 26.2 Bounded residual uncertainty (explicit)
+
+1. Section `20.2` still contains rows intentionally marked `partial`; this is not a contradiction, but a declared closure dependency on packet implementation beads.
+2. Full drop-in overlap remains open for flow/matching families and broader read/write formats; this is documented as an explicit parity gap in section `25.3`.
+3. No unresolved direct contradiction remains between sections `18-25` and currently inspected crate entry points (`fnx-classes`, `fnx-runtime`, `fnx-dispatch`, `fnx-convert`, `fnx-readwrite`, `fnx-algorithms`, `fnx-generators`, `fnx-views`, `fnx-durability`, `fnx-conformance`).
+
+## 27. DOC-PASS-15 Behavior Specialist Deep-Pass Log (`bd-315.24.16`)
+
+### 27.1 Findings and applied clarifications
+
+| Finding ID | Behavior review finding | Applied clarification |
+|---|---|---|
+| `BH-001` | stale-cache handling text implied automatic rebuild-or-fail in `fnx-views`, but implementation requires explicit caller refresh (`refresh_if_stale`) before consuming `snapshot()` | sections `18.6` and `18.7` now state caller-side refresh contract explicitly and classify unrefreshed stale reads as conformance failures |
+| `BH-002` | graph metadata incompatibility was documented as always fail-closed, but runtime policy gate may return `Allow`/`FullValidate` for non-terminal cases | sections `19.2`, `25.1`, and `25.2` now describe policy-driven outcomes and preserve explicit fail-closed conditions |
+| `BH-003` | deterministic ordering/tie-break behavior needed tighter linkage to concrete mechanisms | section `25.1` now binds determinism to insertion-ordered graph storage and BFS neighbor iteration; section `18.6` now explicitly captures dispatch backend sort rule (`priority`, then `name`) |
+
+### 27.2 Behavior validation anchors
+
+1. View cache behavior: `crates/fnx-views/src/lib.rs:63-79`.
+2. Graph edge-policy gate and evidence recording: `crates/fnx-classes/src/lib.rs:225-334`, `crates/fnx-runtime/src/lib.rs:1146-1171`.
+3. Dispatch deterministic ordering: `crates/fnx-dispatch/src/lib.rs:86-92`.
+4. BFS tie behavior through neighbor iteration: `crates/fnx-algorithms/src/lib.rs:91-121`, `crates/fnx-classes/src/lib.rs:146-150`.
+
+### 27.3 Residual bounded uncertainty
+
+1. Directed and multigraph deep semantics are still tracked as packet-level follow-on work and are not fully closed by this docs pass.
+2. Flow/matching family tie-break semantics remain open until those implementations land and are fixture-anchored.
+
+## 28. DOC-PASS-16 Risk/Perf/Test Specialist Deep-Pass Log (`bd-315.24.17`)
+
+### 28.1 Critical behavior-surface coverage audit
+
+| Critical surface | Crosswalk IDs | Replay command baseline (offloaded) | Forensics/logging artifacts | Current status |
+|---|---|---|---|---|
+| Graph mutation + view lifecycle | `XW-001`, `XW-002` | `rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture graph_core_mutation_hardened.json --mode hardened` | `artifacts/conformance/latest/smoke_report.json`, `artifacts/conformance/latest/structured_logs.jsonl` | `XW-001=covered`, `XW-002=partial` |
+| Conversion + read/write parser safety | `XW-004`, `XW-005` | `rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened` | fixture report JSON + structured logs + replay metadata | `XW-004=partial`, `XW-005=covered` |
+| Algorithm parity + complexity witnesses | `XW-006`, `XW-007` | `rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture graph_core_shortest_path_strict.json --mode strict` | witness-linked smoke outputs + perf artifacts | partial |
+| Generator determinism + abuse guards | `XW-008` | `rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/generators_cycle_strict.json --mode strict` | structured logs + adversarial manifest linkage | partial |
+| Telemetry schema + replay/forensics integrity | `XW-009` | `rch exec -- cargo test -q -p fnx-conformance structured_log_gate -- --nocapture` | `structured_logs.jsonl`, emitter normalization report, unblock matrix | covered |
+| Durability scrub/decode proofs | `XW-010` | `rch exec -- cargo test -q -p fnx-durability -- --nocapture` | `structured_logs.raptorq.json`, `structured_logs.recovered.json`, decode proofs | partial |
+
+### 28.2 Missing mapping resolution (no orphan critical surfaces)
+
+All currently partial critical surfaces are explicitly mapped to existing closure beads and therefore are not orphaned:
+
+1. `XW-001`, `XW-002`, `XW-004`, `XW-005` -> `GAP-01` -> `bd-315.23`.
+2. `XW-006`, `XW-007`, `XW-008` -> `GAP-02` -> `bd-315.16`, `bd-315.18.6`, `bd-315.18.7`.
+3. `XW-010` -> `GAP-04` -> `bd-315.26`.
+4. Gate automation and CI wiring for all crosswalk IDs remains bound to `GAP-05` -> `bd-315.10.1`, `bd-315.10`.
+
+### 28.3 Risk taxonomy tightening (specialist corrections)
+
+1. Critical (`P0`) behavior surfaces now require an explicit tuple: replay command + structured log references + forensic artifact bundle links.
+2. Any row that lacks either replay command determinism or forensic artifact linkage must be converted to a blocking gap row before release review.
+3. Performance claims remain bounded by section `24` one-lever optimization law; no optimization acceptance without parity witness continuity and replayability.
+
+### 28.4 Specialist pass verdict
+
+`bd-315.24.17` criterion is satisfied in documentation form: no critical behavior surface is left without replayable test/logging mapping. Surfaces not yet fully covered are explicitly bounded as `partial` with named closure beads and fail-closed gate linkage.
+
+## 29. FNX-P2C-001 Legacy Anchor Map + Extraction Ledger (`bd-315.12.1`)
+
+### 29.1 Legacy anchor map (normal/edge/adversarial pathways)
+
+| Anchor ID | Legacy source anchor | Symbol / behavior locus | Normal-path behavior to preserve | Edge/adversarial behavior + policy |
+|---|---|---|---|---|
+| `LM-001` | `legacy_networkx_code/networkx/networkx/classes/graph.py::add_edge` | undirected adjacency mutation and node auto-creation | endpoint insertion mutates adjacency deterministically with attribute merge semantics | unknown incompatible metadata routes through policy gate; fail-closed when incompatibility action resolves to terminal reject |
+| `LM-002` | `legacy_networkx_code/networkx/networkx/classes/graph.py:693`, `legacy_networkx_code/networkx/networkx/classes/graph.py:748` | list-materialized neighbor iteration during removals | mutation/removal loops avoid in-loop iterator corruption by materializing neighbor lists | iteration/mutation race analogs are treated as invariant violations; stale or partial state exposure is forbidden |
+| `LM-003` | `legacy_networkx_code/networkx/networkx/classes/digraph.py:522`, `legacy_networkx_code/networkx/networkx/classes/digraph.py:638`, `legacy_networkx_code/networkx/networkx/classes/digraph.py:775` | directed mutation/removal boundary behavior | directed adjacency updates preserve endpoint semantics and deterministic container order | malformed identity or incompatible key semantics are escalated to fail-closed compatibility outcomes |
+| `LM-004` | `legacy_networkx_code/networkx/networkx/classes/coreviews.py::AtlasView/AdjacencyView`, `legacy_networkx_code/networkx/networkx/classes/reportviews.py::NodeView/EdgeView` | live view projection contract | view traversal reflects current backing mapping order | cached stale-read without refresh is treated as a conformance failure in Rust parity layer |
+| `LM-005` | `legacy_networkx_code/networkx/networkx/utils/backends.py` (`_dispatchable`, `_can_convert`) | backend dispatch/convert route arbitration | backend route choice is deterministic under fixed capability/prioritization inputs | ambiguous/unsupported route selection is compatibility-critical and fail-closed in strict/hardened |
+| `LM-006` | `legacy_networkx_code/networkx/networkx/algorithms/shortest_paths/unweighted.py` (`for w in adj[v]`) | shortest-path traversal tie-break source | traversal order inherits adjacency iteration order | tie-break drift is treated as behavior drift and must fail parity gates |
+| `LM-007` | `legacy_networkx_code/networkx/networkx/readwrite/edgelist.py:239`, `legacy_networkx_code/networkx/networkx/readwrite/edgelist.py:275` | edgelist parse/literal handling | line-sequential parser accepts valid rows deterministically | strict mode fail-closed on malformed rows; hardened bounded skip + warning with deterministic warning order |
+| `LM-008` | `legacy_networkx_code/networkx/networkx/readwrite/adjlist.py:85-86`, `legacy_networkx_code/networkx/networkx/readwrite/adjlist.py:144-145` | adjacency-list delimiter and token boundaries | canonical delimiter policy yields stable decode behavior | ambiguous delimiter/label collisions are strict fail-closed unless explicitly allowlisted recovery policy exists |
+
+### 29.2 Ambiguous/undefined legacy behavior decisions (explicitly bounded)
+
+| Decision ID | Ambiguity / undefined zone | Chosen compatibility policy | Rationale |
+|---|---|---|---|
+| `DEC-001` | mutable-but-hashable node identity drift after insertion | fail-closed in strict and hardened | silent key drift corrupts adjacency identity and invalidates replay determinism |
+| `DEC-002` | incompatible metadata attached to edge mutation | policy-driven action (`Allow`/`FullValidate`/`FailClosed`) with unknown incompatible feature forced fail-closed | aligns with explicit decision-theoretic guard while preserving terminal safety for incompatible features |
+| `DEC-003` | cached view consumed after parent revision change | mandatory caller refresh; stale read without refresh is conformance failure | implementation contract is explicit (`refresh_if_stale`) and avoids silent stale serving |
+| `DEC-004` | parser ambiguity for malformed rows / delimiter collisions | strict fail-closed, hardened bounded warning-recovery only | preserves deterministic output while allowing bounded hardened salvage for row-local syntax faults |
+| `DEC-005` | backend route ambiguity across capability sets | fail-closed in both modes | backend-route ambiguity is compatibility-critical and not recoverable noise |
+
+### 29.3 Extraction ledger: behavior region -> contract rows -> oracle tests
+
+| Ledger ID | Anchor IDs | Downstream contract rows | Planned/linked oracle tests and fixtures | Implementation target surface |
+|---|---|---|---|---|
+| `LED-001` | `LM-001`, `LM-002`, `LM-004` | `XW-001`, `XW-002` | `graph_core_mutation_hardened.json`, `view_neighbors_strict.json`, `fnx-classes` + `fnx-views` unit suites | `fnx-classes`, `fnx-views` |
+| `LED-002` | `LM-005` | `XW-003` | `dispatch_route_strict.json`, dispatch selection tests, decision-ledger assertions | `fnx-dispatch`, `fnx-runtime` |
+| `LED-003` | `LM-007`, `LM-008` | `XW-004`, `XW-005` | conversion/readwrite strict+hardened malformed fixtures, parser warning-order assertions | `fnx-convert`, `fnx-readwrite` |
+| `LED-004` | `LM-006` | `XW-006`, `XW-007` | shortest-path/components/centrality parity fixtures and witness checks | `fnx-algorithms`, `fnx-conformance` |
+| `LED-005` | `LM-005`, `LM-007`, `LM-008` | `XW-009`, `XW-010` | structured-log gate + durability scrub/decode proof gates and adversarial regression bundle | `fnx-runtime`, `fnx-conformance`, `fnx-durability` |
+
+### 29.4 FNX-P2C-001 completion criterion verdict
+
+`bd-315.12.1` deliverable is now explicit in-document: source-path anchors, bounded ambiguity decisions, and extraction-ledger mapping to downstream contract rows and oracle evidence are all codified in this section.
+
+## 30. FNX-P2C-001 Contract Table + Strict/Hardened Invariant Spec (`bd-315.12.2`)
+
+### 30.1 Machine-checkable contract table
+
+| Contract ID | API / behavior surface | Preconditions (machine-checkable) | Postconditions (machine-checkable) | Preservation invariants | Strict policy | Hardened policy | Legacy anchor + validation linkage |
+|---|---|---|---|---|---|---|---|
+| `CT-001` | node insertion (`Graph::add_node_with_attrs`) | `node_id != ""` | node exists; attrs merged; revision increments iff semantic change | insertion order preserved; revision monotonic | allow unless incompatible feature gate triggers fail-closed | same; no unbounded recovery | `LM-001`; `XW-001`; `fnx-classes` unit tests |
+| `CT-002` | edge insertion (`Graph::add_edge_with_attrs`) | endpoints non-empty; metadata parse succeeds | edge exists or fail-closed error returned; ledger decision recorded | undirected adjacency symmetry; deterministic neighbor order | fail-closed when action=`FailClosed`; unknown incompatible feature always terminal | may allow/full-validate when policy permits, but unknown incompatible feature remains terminal | `LM-001`, `LM-002`; `XW-001`; conformance mutation fixtures |
+| `CT-003` | node/edge removal lifecycle | target entity exists or no-op | incident edges removed deterministically; revision increments on mutation | no dangling adjacency entries; deterministic post-removal order | fail-closed on invariant breach | rollback then fail-closed on invariant breach | `LM-002`, `LM-003`; `XW-001`, `XW-002` |
+| `CT-004` | cached view consumption (`CachedSnapshotView`) | caller checks staleness before snapshot consumption | refreshed snapshot aligns with graph revision | stale snapshot cannot be treated as valid parity output | stale read without refresh is contract failure | same | `LM-004`; `XW-002`; view refresh tests |
+| `CT-005` | dispatch route resolution (`BackendRegistry::resolve`) | required features set + mode + risk inputs provided | deterministic backend selected or fail-closed/no-compatible error | backend tie-break is stable (`priority` desc then `name` asc) | unknown incompatible feature and route ambiguity fail-closed | same fail-closed boundary | `LM-005`; `XW-003`; dispatch fixtures |
+| `CT-006` | conversion/readwrite parse surfaces | payload line/token schema satisfies parser contract | deterministic graph output or typed fail-closed/warning outcome | warning ordering deterministic; replay metadata retained | malformed payload is fail-closed | bounded row-local recovery allowlisted; budget overflow fail-closed | `LM-007`, `LM-008`; `XW-004`, `XW-005` |
+| `CT-007` | algorithm tie-break + witness emission | source/target or operation inputs valid per API | output ordering deterministic; witness populated | tie-break derives from deterministic neighbor order | parity drift is gate-fail | parity drift is gate-fail | `LM-006`; `XW-006`, `XW-007` |
+| `CT-008` | telemetry + durability evidence pipeline | required structured-log fields + bundle index present | artifact accepted only when schema-valid and replayable | forensics linkage and decode proofs remain consistent | schema violation/durability mismatch fail-closed | schema violation/durability mismatch fail-closed | `LM-005`, `LED-005`; `XW-009`, `XW-010` |
+
+### 30.2 Explicit allowlisted divergence classes
+
+Only the following hardened-mode divergences are allowlisted; all others default to fail-closed:
+
+1. Row-local malformed parse recovery with deterministic warning emission (`CT-006`).
+2. Parameter clamping for bounded generator guards where policy explicitly permits recovery.
+3. Non-terminal policy outcomes (`FullValidate`) that preserve output contract and emit evidence ledger rows.
+
+Unknown incompatible features/metadata are not an allowlisted divergence class and remain fail-closed by default.
+
+### 30.3 Contract-to-validation bindings (forward + backward traceability)
+
+| Contract ID range | Backward link (legacy anchor) | Forward link (validation assets) |
+|---|---|---|
+| `CT-001..CT-004` | `LM-001..LM-004` | `XW-001`, `XW-002`, graph/view unit suites, smoke fixtures |
+| `CT-005` | `LM-005` | `XW-003`, dispatch strict fixture + decision-ledger checks |
+| `CT-006` | `LM-007`, `LM-008` | `XW-004`, `XW-005`, malformed-input conformance fixtures/e2e scripts |
+| `CT-007` | `LM-006` | `XW-006`, `XW-007`, witness-bearing parity fixtures |
+| `CT-008` | `LM-005` + durability anchors | `XW-009`, `XW-010`, structured-log/durability gate tests |
+
+### 30.4 FNX-P2C-001-B completion verdict
+
+`bd-315.12.2` contract deliverable is now explicit: strict/hardened boundaries, machine-checkable pre/post/invariant rows, allowlisted divergence classes, and bidirectional traceability to legacy anchors and validation assets are all codified.
+
+## 31. FNX-P2C-001 Security + Compatibility Threat Model (`bd-315.12.3`)
+
+### 31.1 Packet-boundary threat matrix
+
+| Threat class | Typical trigger vector | Strict-mode response | Hardened-mode response | Required mitigation controls | Required evidence artifacts |
+|---|---|---|---|---|---|
+| Parser abuse | malformed edge-list/adjlist/json payloads, delimiter ambiguity, hostile literal payloads | fail-closed on first terminal parse violation | bounded row-local recovery only for allowlisted syntax faults; otherwise fail-closed | deterministic parser ordering, warning-budget caps, explicit row-index diagnostics | malformed fixture reports + structured logs + replay commands (`XW-004`, `XW-005`) |
+| Metadata ambiguity | unknown/incompatible feature keys, ambiguous attr schemas | fail-closed when policy action resolves terminal reject; unknown incompatible features default terminal | identical terminal default for unknown incompatibles; non-terminal policy outcomes require full evidence | policy gate with explicit incompatibility probability/action, no silent metadata coercion | graph/dispatch decision ledgers (`XW-001`, `XW-003`) |
+| Version/schema skew | stale telemetry schema, artifact envelope incompatibility | fail-closed on schema mismatch or missing required fields | fail-closed (diagnostic enrichment only) | canonical schema version checks + forensics index coupling validation | `structured_log_emitter_normalization_report.json`, gate failures (`XW-009`) |
+| Resource exhaustion | oversized `n`, dense generation requests, pathological fixture bundles | fail-closed at guard threshold | clamp only where allowlisted; otherwise fail-closed | hard caps + deterministic clamp policy + explicit rationale emission | generator warnings, guardrail logs, adversarial manifests (`XW-008`) |
+| State corruption/recovery drift | checksum mismatch, decode inconsistency, illegal state transitions | fail-closed terminal state | fail-closed terminal state | immutable terminal states, append-only transition log, decode-proof verification | durability scrub/decode proofs + transition logs (`XW-009`, `XW-010`) |
+
+### 31.2 Hardened-mode allowlist (ad hoc deviations forbidden)
+
+Allowed hardened deviations:
+
+1. Row-local parse recovery with deterministic warning output and replay metadata.
+2. Guardrail clamping for explicitly allowlisted parameter bounds (e.g., generator probability/size caps).
+3. Non-terminal decision-theoretic `FullValidate` outcomes that preserve output contract and emit full evidence terms.
+
+Forbidden hardened deviations:
+
+1. Unknown incompatible features/metadata bypass.
+2. Backend route ambiguity fallback.
+3. Telemetry schema relaxation.
+4. Durability decode-proof bypass.
+
+### 31.3 Compatibility boundary matrix (strict obligations vs hardened allowlisted deviations)
+
+| Boundary | Strict-mode parity obligation | Hardened-mode allowlisted deviation | Default for unknown incompatible features |
+|---|---|---|---|
+| Graph mutation/metadata | preserve deterministic mutation semantics or fail-closed | only policy-approved non-terminal action with evidence | fail-closed |
+| Dispatch/backend selection | deterministic route or fail-closed | none for ambiguity; diagnostics only | fail-closed |
+| Conversion/readwrite parsing | fail-closed on malformed critical rows | bounded row-local skip+warning within budget | fail-closed |
+| Telemetry contract | schema-complete, replayable, forensics-linked logs required | none; hardened cannot weaken schema | fail-closed |
+| Durability recovery | checksum/decode proof required for acceptance | none; hardened cannot bypass proof | fail-closed |
+
+### 31.4 Adversarial fixture/fuzz/crash triage mapping
+
+| Threat class | Adversarial fixtures / fuzz entrypoints | Crash triage taxonomy key |
+|---|---|---|
+| Parser abuse | `generated/readwrite_hardened_malformed.json`, malformed edgelist fixtures, parser fuzz seeds from `scripts/e2e/run_malformed_input.sh` | `TRIAGE-PARSE-*` (tokenization, delimiter, literal decode, warning-budget overflow) |
+| Metadata ambiguity | graph/dispatch incompatibility fixtures (`graph_core_mutation_hardened.json`, `dispatch_route_strict.json`) | `TRIAGE-COMPAT-*` (unknown feature, route ambiguity, metadata contract mismatch) |
+| Version/schema skew | structured log gate + schema validator paths (`structured_log_gate.rs`) | `TRIAGE-SCHEMA-*` (version mismatch, missing replay field, forensic index divergence) |
+| Resource exhaustion | generator adversarial e2e (`scripts/e2e/run_adversarial_soak.sh`) and large-parameter guard fixtures | `TRIAGE-RESOURCE-*` (cap breach, clamp policy violation, memory/runtime envelope breach) |
+| State corruption/recovery drift | durability decode drills and packet readiness gates | `TRIAGE-DURABILITY-*` (checksum mismatch, decode failure, illegal terminal transition) |
+
+### 31.5 FNX-P2C-001-C completion verdict
+
+`bd-315.12.3` threat-model deliverable is now explicit: threat classes, strict/hardened responses, allowlisted deviations, compatibility boundaries, and adversarial triage mappings are codified with fail-closed defaults for unknown incompatible features.
+
+## 32. FNX-P2C-001 Rust Implementation Plan + Module Boundary Skeleton (`bd-315.12.4`)
+
+### 32.1 Compile-checkable module boundary skeleton
+
+| Boundary ID | Crate/module seam | Compile-checkable public surface (current) | Ownership/state boundary | Legacy compatibility surface |
+|---|---|---|---|---|
+| `MB-001` | graph storage core (`fnx-classes`) | `Graph`, `GraphError`, `add_node_with_attrs`, `add_edge_with_attrs`, `remove_node`, `snapshot` | canonical ownership of adjacency/node/edge/revision state | `graph.py`/`digraph.py` mutation and ordering semantics |
+| `MB-002` | runtime policy + telemetry (`fnx-runtime`) | `CompatibilityMode`, `DecisionAction`, `decision_theoretic_action`, `StructuredTestLog::validate`, `EvidenceLedger` | canonical ownership of policy action law, telemetry schema, decision records | strict/hardened policy envelope + replay/forensics contract |
+| `MB-003` | dispatch routing (`fnx-dispatch`) | `BackendRegistry`, `DispatchRequest`, `DispatchDecision`, `resolve` | ownership of backend capability arbitration and deterministic selection | `_dispatchable` / backend priority behavior |
+| `MB-004` | conversion ingress (`fnx-convert`) | `GraphConverter::from_edge_list`, `GraphConverter::from_adjacency`, `ConvertReport`, `ConvertError` | ownership of conversion warning/fail paths and payload normalization | `convert.py`/`convert_matrix.py` behavior surfaces |
+| `MB-005` | read/write parser+serializer (`fnx-readwrite`) | `EdgeListEngine::{read_edgelist,write_edgelist,read_json_graph,write_json_graph}` | ownership of parser lifecycle and warning ordering | `readwrite/edgelist.py` + `readwrite/adjlist.py` semantics |
+| `MB-006` | algorithm deterministic core (`fnx-algorithms`) | `shortest_path_unweighted`, `connected_components`, `degree_centrality`, `closeness_centrality`, `ComplexityWitness` | ownership of tie-break and witness emission semantics | unweighted shortest-path + centrality parity surfaces |
+| `MB-007` | generator boundary (`fnx-generators`) | `GraphGenerator::{path_graph,cycle_graph,complete_graph,gnp_random_graph}` | ownership of deterministic generation and guardrail policy outcomes | `generators/random_graphs.py` seeded behavior class |
+| `MB-008` | view projection layer (`fnx-views`) | `GraphView`, `CachedSnapshotView::{is_stale,refresh_if_stale}` | ownership of live/cached read behavior and stale handling contract | `coreviews.py`/`reportviews.py` live view behavior |
+| `MB-009` | conformance harness orchestrator (`fnx-conformance`) | `HarnessConfig`, `run_smoke`, `FixtureReport`, `HarnessReport` | ownership of fixture execution, mismatch taxonomy, artifact emission | oracle-driven parity gating and replay command surfaces |
+| `MB-010` | durability envelope layer (`fnx-durability`) | `generate_sidecar_for_file`, `scrub_artifact`, `run_decode_drill`, `ArtifactEnvelope` | ownership of sidecar integrity, scrub/decode-proof lifecycle | RaptorQ-everywhere artifact durability contract |
+
+### 32.2 Dependency-aware implementation sequence and checkpoints
+
+| Checkpoint | Ordered implementation scope | Dependency rationale | Semantic-risk control | Required verification entrypoint (offloaded) |
+|---|---|---|---|---|
+| `CP-001` | lock graph/runtime boundary (`MB-001`, `MB-002`) | all downstream crates depend on graph state + policy law | freeze invariants and fail-closed defaults first | `rch exec -- cargo check -q -p fnx-classes -p fnx-runtime` |
+| `CP-002` | lock dispatch/ingress boundaries (`MB-003`, `MB-004`, `MB-005`) | parsing and routing semantics feed all algorithm/generator paths | eliminate silent route/parse drift before algorithm expansion | `rch exec -- cargo check -q -p fnx-dispatch -p fnx-convert -p fnx-readwrite` |
+| `CP-003` | lock algorithm/view/generator boundaries (`MB-006`, `MB-007`, `MB-008`) | tie-break/order semantics depend on prior boundaries | enforce deterministic ordering + witness continuity | `rch exec -- cargo check -q -p fnx-algorithms -p fnx-generators -p fnx-views` |
+| `CP-004` | lock conformance/durability boundaries (`MB-009`, `MB-010`) | top-level parity and artifact integrity are release gates | enforce replayable mismatch and decode-proof evidence | `rch exec -- cargo check -q -p fnx-conformance -p fnx-durability` |
+| `CP-005` | workspace integration freeze | prevents hidden cross-crate coupling drift | one-pass compile + lint + format gate | `rch exec -- cargo check --workspace --all-targets`, `rch exec -- cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --check` |
+
+### 32.3 Instrumentation hooks and verification stage map
+
+| Stage | Hook location(s) | Required structured evidence fields | Verification assets |
+|---|---|---|---|
+| unit/property | `fnx-classes`, `fnx-convert`, `fnx-readwrite`, `fnx-generators`, `fnx-algorithms` unit surfaces | `schema_version`, `packet_id`, `test_id`, `mode`, `status`, `replay_command`, `forensic_bundle_id` | per-crate tests + crosswalk rows `XW-001..XW-008` |
+| differential/conformance | `fnx-conformance::run_smoke`, fixture operation executor paths | full `StructuredTestLog` contract including `forensics_bundle_index` and `artifact_refs` | smoke reports, per-fixture reports, normalization report |
+| e2e recovery | script pack and conformance/durability gate runners | deterministic replay seed/fixture IDs + reason codes + forensics links | e2e scripts listed in section `20.2`, readiness reports |
+| durability proofs | `fnx-durability::{scrub_artifact,run_decode_drill}` | decode proof hashes + scrub status + artifact identity linkage | `XW-010` artifacts and packet readiness gates |
+
+### 32.4 Public/internal API boundary and state ownership transitions
+
+| Transition ID | Inbound owner -> outbound owner | Public API seam | Internal state handoff rule |
+|---|---|---|---|
+| `TR-001` | readwrite/convert -> graph core | `GraphConverter`, `EdgeListEngine` mutation calls | only validated/allowlisted records may mutate graph state in target mode |
+| `TR-002` | graph core -> algorithms/views | `Graph` read APIs (`neighbors_iter`, `nodes_ordered`, snapshots) | consumers are read-only with deterministic ordering derived from graph storage |
+| `TR-003` | runtime policy -> graph/dispatch/generator guards | `decision_theoretic_action` and mode enums | action choice must be recorded before terminal/allow outcomes are exposed |
+| `TR-004` | harness -> telemetry artifacts | `run_smoke` + structured log builders | fixture execution results become immutable artifact records after validation |
+| `TR-005` | telemetry/conformance -> durability | artifact file paths and envelope APIs | only schema-valid artifacts enter durability sidecar pipeline |
+
+### 32.5 FNX-P2C-001-D completion verdict
+
+`bd-315.12.4` deliverable is now explicit: module boundaries are compile-checkable via concrete public seams, implementation order is dependency-aware with risk checkpoints, instrumentation hooks and verification entrypoints are mapped, and API/state ownership transitions are sufficiently explicit for parallel contributors.

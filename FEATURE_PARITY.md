@@ -7,6 +7,13 @@
 - parity_green
 - parity_gap
 
+## Porting-to-Rust Phase Status
+
+- phase 4 (implementation from spec): active
+- phase 5 (conformance + QA): active
+
+Rule: parity status can move to `parity_green` only with fixture-backed conformance evidence, not implementation completion alone.
+
 ## Parity Matrix
 
 | Feature Family | Status | Notes |
@@ -28,3 +35,22 @@
 2. Edge-case/adversarial test results.
 3. Benchmark delta (when performance-sensitive).
 4. Documented compatibility exceptions (if any).
+
+## Conformance Gate Checklist (Phase 5)
+
+All CPU-heavy checks must be offloaded using `rch`.
+
+```bash
+rch exec -- cargo test -p fnx-conformance --test smoke -- --nocapture
+rch exec -- cargo test -p fnx-conformance --test phase2c_packet_readiness_gate -- --nocapture
+rch exec -- cargo test --workspace
+rch exec -- cargo clippy --workspace --all-targets -- -D warnings
+rch exec -- cargo fmt --check
+```
+
+Parity release condition:
+
+1. no strict-mode drift on scoped fixtures.
+2. hardened divergences explicitly allowlisted and evidence-linked.
+3. replay metadata and forensics links present in structured logs.
+4. durability artifacts (sidecar/scrub/decode-proof) verified for long-lived evidence sets.

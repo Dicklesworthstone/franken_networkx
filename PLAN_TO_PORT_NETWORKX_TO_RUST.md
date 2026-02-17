@@ -1,52 +1,119 @@
 # PLAN_TO_PORT_NETWORKX_TO_RUST
 
-## 1. Porting Methodology (Mandatory)
+## 1. Purpose
 
-This project follows the spec-first porting-to-rust method:
+Apply a strict spec-first Rust porting workflow for FrankenNetworkX:
 
-1. Extract legacy behavior into executable specs.
-2. Implement from spec, not line-by-line translation.
-3. Use differential conformance to prove parity.
-4. Gate optimizations behind behavior-isomorphism checks.
+1. Legacy -> executable spec extraction
+2. Rust implementation from spec
+3. Differential conformance against legacy oracle
+4. Performance tuning only after behavior-isomorphism proof
 
-## 2. Legacy Oracle
+Line-by-line translation is forbidden.
 
-- Path: /dp/franken_networkx/legacy_networkx_code/networkx
+## 2. Non-Negotiable Method
 
-## 3. Scope for V1
+1. Extract behavior from legacy into `EXISTING_NETWORKX_STRUCTURE.md`.
+2. Design crate/module boundaries in `PROPOSED_ARCHITECTURE.md`.
+3. Implement only from those docs and packet artifacts.
+4. Prove parity with conformance fixtures and deterministic replay metadata.
+5. Track completion in `FEATURE_PARITY.md`.
 
-- graph class semantics and mutable views\n- high-value algorithm families (flow, shortest paths, components)\n- conversion/relabel/readwrite core paths and backend dispatch
+## 3. Legacy Oracle
 
-## 4. Explicit Exclusions for V1
+- path: `/dp/franken_networkx/legacy_networkx_code/networkx`
+- upstream: `networkx/networkx`
 
-- drawing/matplotlib and heavy optional linalg paths in V1\n- full optional backend plugin ecosystem before core parity\n- docs/examples/tooling outside runtime scope
+## 4. Scope and Explicit Exclusions
 
-## 5. Phase Plan
+### In scope
+
+- graph class semantics and mutable views
+- high-value algorithm families (shortest path, components, centrality, flow-increment)
+- conversion/relabel/readwrite core paths and backend dispatch
+- deterministic conformance evidence + durability artifacts
+
+### Explicit exclusions (current V1 boundary)
+
+- drawing/matplotlib ecosystem and visualization integrations
+- optional heavy linalg/scientific dependency pathways not yet admitted by packet roadmap
+- full backend plugin ecosystem breadth before core parity closure
+- non-runtime niceties (tutorial UX/docs polish) that do not affect behavior parity
+
+## 5. Phase Detection and Current State
+
+Decision tree:
+
+- no docs -> phase 1
+- spec incomplete -> phase 2
+- no architecture doc -> phase 3
+- spec complete and coding active -> phase 4
+- implementation active with parity verification -> phase 5
+
+Current project state: **Phase 4 + Phase 5 in parallel**.
+
+- phase 4 evidence: implemented crates and packet execution artifacts
+- phase 5 evidence: conformance harness, packet readiness gate, structured replay artifacts
+
+## 6. Phase Plan (Entry/Exit Criteria)
 
 ### Phase 1: Bootstrap + Planning
-- finalize scope and exclusions
-- freeze compatibility contract
+
+- entry: missing scope/exclusion contract
+- exit: scope/exclusions and success criteria frozen in this file
 
 ### Phase 2: Deep Structure Extraction
-- complete EXISTING_NETWORKX_STRUCTURE.md
-- enumerate invariants and failure modes
+
+- entry: unresolved legacy behavior contracts
+- exit: `EXISTING_NETWORKX_STRUCTURE.md` contains behavior, invariants, edge zones, and verification crosswalk
 
 ### Phase 3: Architecture Synthesis
-- produce crate-level design and boundaries
-- define strict/hardened mode behavior
 
-### Phase 4: Implementation
-- build smallest end-to-end vertical slice
-- expand by feature family with parity checks
+- entry: no stable Rust boundary map from spec
+- exit: `PROPOSED_ARCHITECTURE.md` defines module seams, strict/hardened policy boundaries, and test strategy
+
+### Phase 4: Implementation from Spec
+
+- entry: spec + architecture complete for target packet/family
+- exit: implementation artifacts and packet docs map to spec rows without legacy line-translation dependency
 
 ### Phase 5: Conformance and QA
-- run differential suites
-- run adversarial/fuzz/property tests
-- run benchmark and regression gates
 
-## 6. Mandatory Exit Criteria
+- entry: packet implementation complete enough for parity execution
+- exit: differential parity, adversarial coverage, structured replay metadata, and durability evidence gates are green
+
+## 7. Implementation-from-Spec Protocol
+
+1. Identify packet/family and target section in `EXISTING_NETWORKX_STRUCTURE.md`.
+2. Implement using `PROPOSED_ARCHITECTURE.md` seams.
+3. Do not consult legacy code for implementation mechanics once spec section is complete.
+4. Preserve strict-mode fail-closed defaults; hardened-mode deviations must be explicit and allowlisted.
+5. Record deterministic replay evidence for all non-trivial validation paths.
+
+## 8. Conformance and QA Protocol
+
+All CPU-heavy commands are offloaded with `rch`.
+
+```bash
+rch exec -- cargo test -p fnx-conformance --test smoke -- --nocapture
+rch exec -- cargo test -p fnx-conformance --test phase2c_packet_readiness_gate -- --nocapture
+rch exec -- cargo test --workspace
+rch exec -- cargo clippy --workspace --all-targets -- -D warnings
+rch exec -- cargo fmt --check
+```
+
+## 9. Session Checklist
+
+1. Re-read `AGENTS.md` and `README.md`.
+2. Use `br ready --json` / `bv --robot-*` to choose work.
+3. Reserve files and announce start in Agent Mail.
+4. Implement from spec docs + packet artifacts.
+5. Validate with offloaded conformance/quality gates.
+6. Close/update beads, sync, release reservations, and hand off.
+
+## 10. Exit Criteria
 
 1. Differential parity green for scoped APIs.
 2. No critical unresolved semantic drift.
 3. Performance gates pass without correctness regressions.
-4. RaptorQ sidecar artifacts validated for conformance + benchmark evidence.
+4. RaptorQ sidecar + decode-proof artifacts validated for conformance and benchmark evidence.

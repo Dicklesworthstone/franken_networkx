@@ -5,6 +5,27 @@
 - Root: /dp/franken_networkx/legacy_networkx_code/networkx
 - Upstream: networkx/networkx
 
+## 1.1 Spec-First Contract
+
+This document is the implementation source-of-truth for Rust behavior parity.
+
+Rules:
+
+1. Implement from this spec and packet artifacts, not by translating legacy files line-by-line.
+2. If behavior is missing here, perform extraction first; do not guess and do not silently diverge.
+3. Preserve strict-mode fail-closed compatibility defaults for unknown incompatible behavior.
+
+## 1.2 Extraction Coverage Matrix
+
+| Extraction category | Coverage status | Primary anchors |
+|---|---|---|
+| data models and mutability | complete for active packet families | sections 9, 10, 17 |
+| validation and failure rules | complete for strict/hardened contract surfaces | sections 11, 13, 18 |
+| dispatch/conversion/readwrite behavior | complete for scoped V1 packet families | sections 2-8, 14, 19 |
+| deterministic ordering/tie-break semantics | complete for implemented families; expands per new packet | sections 3, 8, 17 |
+| conformance and replay evidence crosswalk | complete for active gates and artifacts | sections 14-16, 21 |
+| unresolved extraction backlog | tracked via gap queue and linked beads | section 14.2 |
+
 ## 2. Subsystem Map
 
 - networkx/classes: Graph, DiGraph, MultiGraph classes and views.
@@ -349,3 +370,22 @@ Operational invariants:
 
 1. Expand algorithm-family-specific ordering/tie-break notes (beyond shortest-path/generator anchors) as packet-level implementations land.
 2. Add per-section backlinks into `EXHAUSTIVE_LEGACY_ANALYSIS.md` to tighten bidirectional traceability.
+
+## 21. Final Integrated Consistency Sweep and Sign-off (DOC-PASS-13)
+
+### 21.1 Cross-document synchronization ledger
+
+| Integrated topic | `EXISTING_NETWORKX_STRUCTURE.md` anchor | `EXHAUSTIVE_LEGACY_ANALYSIS.md` anchor | Consistency verdict |
+|---|---|---|---|
+| Legacy inventory counts + hotspot concentration | sections `2`, `3`, `8` | sections `2`, `12`, `26.1` | aligned to current measured totals and hotspot families |
+| Path-anchor namespace clarity | sections `2`, `17`, `18` | sections `3`, `26.1` (`RT-002`) | shorthand/absolute path semantics explicitly disambiguated |
+| Behavior-invariant deep pass | sections `9`, `10`, `17`, `18` | sections `18.6`, `18.7`, `19.2`, `25.1`, `25.2`, `27` | contradictions reconciled; policy-driven edge behavior clarified |
+| Verification/replay/logging topology | sections `14`, `15`, `16` | sections `20`, `21`, `22`, `28` | replay commands, artifact contracts, and gap routing are cross-linked |
+| Risk/perf/test closure mapping | sections `14.2`, `15` | sections `24`, `25.3`, `28.2` | no orphan critical surface: partial rows map to explicit closure beads |
+
+### 21.2 Final sign-off assertions for DOC-PASS-13
+
+1. Both docs are source-anchored and execution-facing rather than narrative-only summaries.
+2. Red-team and behavior-specialist contradictions are explicitly logged and resolved (`RT-*`, `BH-*`).
+3. Risk/perf/test specialist pass confirms all critical behavior surfaces are either covered or explicitly mapped to closure beads with replay + forensic requirements.
+4. Remaining uncertainty is bounded and documented as explicit follow-up work, not hidden assumptions.
