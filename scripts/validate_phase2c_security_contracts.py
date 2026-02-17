@@ -49,6 +49,8 @@ P2C003_BOUNDARY_ROW_KEYS = [
     "fail_closed_default",
     "evidence_hooks",
 ]
+PACKETS_REQUIRE_MATRIX_ENRICHED_KEYS = {"FNX-P2C-003", "FNX-P2C-004"}
+PACKETS_REQUIRE_ALLOWLIST_ENRICHED_KEYS = {"FNX-P2C-003", "FNX-P2C-004"}
 
 
 def validate_matrix(
@@ -130,7 +132,7 @@ def validate_matrix(
                     f"matrix packet `{packet_id}` threat `{threat_class}` strict response must state fail-closed behavior"
                 )
 
-            if packet_id == "FNX-P2C-003":
+            if packet_id in PACKETS_REQUIRE_MATRIX_ENRICHED_KEYS:
                 require_keys(
                     entry,
                     P2C003_MATRIX_EXTRA_KEYS,
@@ -297,7 +299,7 @@ def validate_allowlist(
                     f"allowlist packet `{packet_id}` uses unknown category `{category}`"
                 )
 
-        if packet_id == "FNX-P2C-003":
+        if packet_id in PACKETS_REQUIRE_ALLOWLIST_ENRICHED_KEYS:
             require_keys(
                 row,
                 P2C003_ALLOWLIST_EXTRA_KEYS,

@@ -19,7 +19,7 @@
 |---|---|---|---|---|---|---|
 | P2C004-EC-1 | unknown or malformed to_networkx_graph input type | raise NetworkXError/TypeError per legacy branch semantics (fail-closed) | same fail-closed default; attach deterministic diagnostics only | bounded_diagnostic_enrichment | P2C004-R3 | networkx/tests/test_convert.py:45-69; networkx/tests/test_convert.py:318-321 |
 | P2C004-EC-2 | relabel copy=False circular overlap without topological ordering | raise NetworkXUnfeasible and preserve source graph state | same exception path; no implicit copy=True fallback | none | P2C004-R5 | networkx/tests/test_relabel.py:312-317 |
-| P2C004-EC-3 | multigraph relabel key collision during merge | deterministically re-key to lowest available non-negative integer when collisions occur | same deterministic re-key; bounded collision diagnostics are allowlisted | bounded_relabel_collision_rekey_with_audit | P2C004-R5 | networkx/tests/test_relabel.py:230-295; networkx/tests/test_relabel.py:296-310 |
+| P2C004-EC-3 | multigraph relabel key collision during merge | deterministically re-key to lowest available non-negative integer when collisions occur | same deterministic re-key; bounded collision diagnostics are allowlisted | deterministic_tie_break_normalization | P2C004-R5 | networkx/tests/test_relabel.py:230-295; networkx/tests/test_relabel.py:296-310 |
 | P2C004-EC-4 | incompatible conversion metadata payload in strict mode | raise fail-closed conversion error and emit no repaired output | quarantine unsupported metadata then fail closed if parity proof is absent | quarantine_of_unsupported_metadata | P2C004-R2; P2C004-R3 | networkx/tests/test_convert.py:134-210; networkx/tests/test_convert.py:45-69 |
 
 ## Strict/Hardened Divergence

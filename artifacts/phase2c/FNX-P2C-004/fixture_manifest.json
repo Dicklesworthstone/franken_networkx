@@ -57,8 +57,9 @@
   },
   "hardened_allowlisted_categories": [
     "bounded_diagnostic_enrichment",
-    "bounded_attribute_coercion_with_audit",
-    "bounded_relabel_collision_rekey_with_audit",
+    "defensive_parse_recovery",
+    "bounded_resource_clamp",
+    "deterministic_tie_break_normalization",
     "quarantine_of_unsupported_metadata"
   ],
   "strict_divergence_note": "strict: fail-closed on unknown incompatible input/metadata paths with zero mismatch budget for conversion and relabel outputs",
@@ -192,7 +193,7 @@
       "trigger": "multigraph relabel key collision during merge",
       "strict_behavior": "deterministically re-key to lowest available non-negative integer when collisions occur",
       "hardened_behavior": "same deterministic re-key; bounded collision diagnostics are allowlisted",
-      "allowlisted_divergence_category": "bounded_relabel_collision_rekey_with_audit",
+      "allowlisted_divergence_category": "deterministic_tie_break_normalization",
       "anchor_regions": [
         "P2C004-R5"
       ],

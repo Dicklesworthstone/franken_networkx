@@ -319,72 +319,142 @@
       "threats": [
         {
           "threat_class": "parser_abuse",
-          "strict_mode_response": "Fail-closed on malformed conversion payload structures.",
-          "hardened_mode_response": "Fail-closed with bounded diagnostics and conversion incident ledger.",
+          "strict_mode_response": "Fail-closed on malformed conversion payload structures and invalid edge-list coercion.",
+          "hardened_mode_response": "Fail-closed with bounded diagnostics and defensive parse recovery before deterministic abort.",
           "mitigations": [
             "payload schema checks",
             "field cardinality validation",
             "malformed payload fixtures"
+          ],
+          "compatibility_boundary": "conversion parse boundary",
+          "adversarial_fixture_hooks": [
+            "conversion_payload_malformed_shape"
+          ],
+          "crash_triage_taxonomy": [
+            "convert.parse.malformed_payload",
+            "convert.parse.field_cardinality_invalid"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "defensive_parse_recovery"
           ],
           "evidence_artifact": "artifacts/phase2c/FNX-P2C-004/risk_note.md",
           "drift_gate": "convert-threat-gate"
         },
         {
           "threat_class": "metadata_ambiguity",
-          "strict_mode_response": "Fail-closed on ambiguous node/edge attribute precedence.",
-          "hardened_mode_response": "Quarantine unsupported metadata and preserve deterministic precedence order.",
+          "strict_mode_response": "Fail-closed on ambiguous node/edge attribute precedence and conflicting metadata envelopes.",
+          "hardened_mode_response": "Quarantine unsupported metadata and preserve deterministic precedence ordering.",
           "mitigations": [
             "attribute precedence table",
             "metadata allowlist",
             "attribute drift report"
+          ],
+          "compatibility_boundary": "attribute precedence normalization boundary",
+          "adversarial_fixture_hooks": [
+            "conversion_conflicting_attribute_metadata"
+          ],
+          "crash_triage_taxonomy": [
+            "convert.metadata.ambiguous_precedence",
+            "convert.metadata.conflicting_attribute_source"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "quarantine_of_unsupported_metadata"
           ],
           "evidence_artifact": "artifacts/phase2c/FNX-P2C-004/contract_table.md",
           "drift_gate": "convert-threat-gate"
         },
         {
           "threat_class": "version_skew",
-          "strict_mode_response": "Fail-closed on unsupported conversion schema versions.",
+          "strict_mode_response": "Fail-closed on unsupported conversion schema versions or contract envelopes.",
           "hardened_mode_response": "Reject incompatible schema versions with deterministic diagnostics.",
           "mitigations": [
             "schema version pinning",
             "compatibility probes",
             "version skew fixtures"
           ],
+          "compatibility_boundary": "conversion schema version envelope boundary",
+          "adversarial_fixture_hooks": [
+            "conversion_schema_version_skew"
+          ],
+          "crash_triage_taxonomy": [
+            "convert.version.unsupported_schema",
+            "convert.version.contract_mismatch"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment"
+          ],
           "evidence_artifact": "artifacts/phase2c/FNX-P2C-004/parity_gate.yaml",
           "drift_gate": "convert-threat-gate"
         },
         {
           "threat_class": "resource_exhaustion",
-          "strict_mode_response": "Fail-closed on conversion expansion above strict budget.",
-          "hardened_mode_response": "Bound conversion memory/time costs and reject when clamps are exhausted.",
+          "strict_mode_response": "Fail-closed on conversion expansion above strict complexity or memory budget.",
+          "hardened_mode_response": "Apply bounded resource clamps and reject once deterministic thresholds are exceeded.",
           "mitigations": [
             "bounded conversion passes",
             "memory budget guards",
             "expansion ratio checks"
+          ],
+          "compatibility_boundary": "conversion expansion budget boundary",
+          "adversarial_fixture_hooks": [
+            "conversion_expansion_ratio_blowup"
+          ],
+          "crash_triage_taxonomy": [
+            "convert.resource.expansion_ratio_exceeded",
+            "convert.resource.budget_threshold_exceeded"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "bounded_resource_clamp"
           ],
           "evidence_artifact": "artifacts/phase2c/FNX-P2C-004/parity_gate.yaml",
           "drift_gate": "convert-threat-gate"
         },
         {
           "threat_class": "state_corruption",
-          "strict_mode_response": "Fail-closed when conversion mutates graph state outside contract.",
-          "hardened_mode_response": "Rollback conversion transaction and emit deterministic audit record.",
+          "strict_mode_response": "Fail-closed when conversion/relabel mutates graph state outside declared transaction boundary.",
+          "hardened_mode_response": "Rollback conversion transaction and emit deterministic incident evidence before fail-closed exit.",
           "mitigations": [
             "mutation boundary checks",
             "transaction rollback points",
             "round-trip invariants"
+          ],
+          "compatibility_boundary": "conversion transaction boundary",
+          "adversarial_fixture_hooks": [
+            "conversion_transaction_boundary_break"
+          ],
+          "crash_triage_taxonomy": [
+            "convert.state.transaction_boundary_break",
+            "convert.state.roundtrip_invariant_break"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment"
           ],
           "evidence_artifact": "artifacts/phase2c/FNX-P2C-004/contract_table.md",
           "drift_gate": "convert-threat-gate"
         },
         {
           "threat_class": "attribute_confusion",
-          "strict_mode_response": "Fail-closed on duplicate/conflicting attribute namespaces.",
-          "hardened_mode_response": "Reject conflicting namespaces after deterministic canonicalization attempt.",
+          "strict_mode_response": "Fail-closed on duplicate/conflicting attribute namespaces and ambiguous relabel collisions.",
+          "hardened_mode_response": "Apply deterministic namespace canonicalization policy and reject unresolved conflicts.",
           "mitigations": [
             "attribute namespace validation",
             "canonicalization policy",
             "conflict fixtures"
+          ],
+          "compatibility_boundary": "attribute namespace canonicalization boundary",
+          "adversarial_fixture_hooks": [
+            "conversion_attribute_namespace_collision"
+          ],
+          "crash_triage_taxonomy": [
+            "convert.metadata.namespace_collision",
+            "convert.metadata.canonicalization_conflict"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "deterministic_tie_break_normalization"
           ],
           "evidence_artifact": "artifacts/phase2c/FNX-P2C-004/risk_note.md",
           "drift_gate": "convert-threat-gate"

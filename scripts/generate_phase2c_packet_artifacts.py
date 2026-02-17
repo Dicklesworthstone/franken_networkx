@@ -864,8 +864,9 @@ PACKET_SPECS: list[dict[str, Any]] = [
         ),
         "hardened_allowlisted_categories": [
             "bounded_diagnostic_enrichment",
-            "bounded_attribute_coercion_with_audit",
-            "bounded_relabel_collision_rekey_with_audit",
+            "defensive_parse_recovery",
+            "bounded_resource_clamp",
+            "deterministic_tie_break_normalization",
             "quarantine_of_unsupported_metadata",
         ],
         "legacy_anchor_regions": [
@@ -1139,7 +1140,7 @@ PACKET_SPECS: list[dict[str, Any]] = [
                     "deterministically re-key to lowest available non-negative integer when collisions occur"
                 ),
                 "hardened_behavior": "same deterministic re-key; bounded collision diagnostics are allowlisted",
-                "allowlisted_divergence_category": "bounded_relabel_collision_rekey_with_audit",
+                "allowlisted_divergence_category": "deterministic_tie_break_normalization",
                 "anchor_regions": ["P2C004-R5"],
                 "validation_refs": [
                     "networkx/tests/test_relabel.py:230-295",
@@ -1229,6 +1230,208 @@ PACKET_SPECS: list[dict[str, Any]] = [
                 "validation_refs": [
                     "adversarial::fnx-p2c-004::malformed_inputs",
                     "e2e::fnx-p2c-004::golden_journey",
+                ],
+            },
+        ],
+        "threat_model_rows": [
+            {
+                "threat_id": "P2C004-TM-1",
+                "threat_class": "parser_abuse",
+                "strict_mode_response": "Fail-closed on malformed conversion payload structures and invalid edge-list coercion.",
+                "hardened_mode_response": "Fail-closed with bounded diagnostics and defensive parse recovery before deterministic abort.",
+                "mitigations": [
+                    "payload schema checks",
+                    "field cardinality validation",
+                    "malformed payload fixtures",
+                ],
+                "evidence_artifact": "artifacts/phase2c/FNX-P2C-004/risk_note.md",
+                "adversarial_fixture_hooks": ["conversion_payload_malformed_shape"],
+                "crash_triage_taxonomy": [
+                    "convert.parse.malformed_payload",
+                    "convert.parse.field_cardinality_invalid",
+                ],
+                "hardened_allowlisted_categories": [
+                    "bounded_diagnostic_enrichment",
+                    "defensive_parse_recovery",
+                ],
+                "compatibility_boundary": "conversion parse boundary",
+            },
+            {
+                "threat_id": "P2C004-TM-2",
+                "threat_class": "metadata_ambiguity",
+                "strict_mode_response": "Fail-closed on ambiguous node/edge attribute precedence and conflicting metadata envelopes.",
+                "hardened_mode_response": "Quarantine unsupported metadata and preserve deterministic precedence ordering.",
+                "mitigations": [
+                    "attribute precedence table",
+                    "metadata allowlist",
+                    "attribute drift report",
+                ],
+                "evidence_artifact": "artifacts/phase2c/FNX-P2C-004/contract_table.md",
+                "adversarial_fixture_hooks": ["conversion_conflicting_attribute_metadata"],
+                "crash_triage_taxonomy": [
+                    "convert.metadata.ambiguous_precedence",
+                    "convert.metadata.conflicting_attribute_source",
+                ],
+                "hardened_allowlisted_categories": [
+                    "bounded_diagnostic_enrichment",
+                    "quarantine_of_unsupported_metadata",
+                ],
+                "compatibility_boundary": "attribute precedence normalization boundary",
+            },
+            {
+                "threat_id": "P2C004-TM-3",
+                "threat_class": "version_skew",
+                "strict_mode_response": "Fail-closed on unsupported conversion schema versions or contract envelopes.",
+                "hardened_mode_response": "Reject incompatible schema versions with deterministic remediation diagnostics.",
+                "mitigations": [
+                    "schema version pinning",
+                    "compatibility probes",
+                    "version skew fixtures",
+                ],
+                "evidence_artifact": "artifacts/phase2c/FNX-P2C-004/parity_gate.yaml",
+                "adversarial_fixture_hooks": ["conversion_schema_version_skew"],
+                "crash_triage_taxonomy": [
+                    "convert.version.unsupported_schema",
+                    "convert.version.contract_mismatch",
+                ],
+                "hardened_allowlisted_categories": ["bounded_diagnostic_enrichment"],
+                "compatibility_boundary": "conversion schema version envelope boundary",
+            },
+            {
+                "threat_id": "P2C004-TM-4",
+                "threat_class": "resource_exhaustion",
+                "strict_mode_response": "Fail-closed on conversion expansion above strict complexity or memory budget.",
+                "hardened_mode_response": "Apply bounded resource clamps and reject once deterministic thresholds are exceeded.",
+                "mitigations": [
+                    "bounded conversion passes",
+                    "memory budget guards",
+                    "expansion ratio checks",
+                ],
+                "evidence_artifact": "artifacts/phase2c/FNX-P2C-004/parity_gate.yaml",
+                "adversarial_fixture_hooks": ["conversion_expansion_ratio_blowup"],
+                "crash_triage_taxonomy": [
+                    "convert.resource.expansion_ratio_exceeded",
+                    "convert.resource.budget_threshold_exceeded",
+                ],
+                "hardened_allowlisted_categories": [
+                    "bounded_diagnostic_enrichment",
+                    "bounded_resource_clamp",
+                ],
+                "compatibility_boundary": "conversion expansion budget boundary",
+            },
+            {
+                "threat_id": "P2C004-TM-5",
+                "threat_class": "state_corruption",
+                "strict_mode_response": "Fail-closed when conversion/relabel mutates graph state outside declared transaction boundary.",
+                "hardened_mode_response": "Rollback conversion transaction and emit deterministic incident evidence before fail-closed exit.",
+                "mitigations": [
+                    "mutation boundary checks",
+                    "transaction rollback points",
+                    "round-trip invariants",
+                ],
+                "evidence_artifact": "artifacts/phase2c/FNX-P2C-004/contract_table.md",
+                "adversarial_fixture_hooks": ["conversion_transaction_boundary_break"],
+                "crash_triage_taxonomy": [
+                    "convert.state.transaction_boundary_break",
+                    "convert.state.roundtrip_invariant_break",
+                ],
+                "hardened_allowlisted_categories": ["bounded_diagnostic_enrichment"],
+                "compatibility_boundary": "conversion transaction boundary",
+            },
+            {
+                "threat_id": "P2C004-TM-6",
+                "threat_class": "attribute_confusion",
+                "strict_mode_response": "Fail-closed on duplicate/conflicting attribute namespaces and ambiguous relabel collisions.",
+                "hardened_mode_response": "Apply deterministic namespace canonicalization policy and reject unresolved conflicts.",
+                "mitigations": [
+                    "attribute namespace validation",
+                    "canonicalization policy",
+                    "conflict fixtures",
+                ],
+                "evidence_artifact": "artifacts/phase2c/FNX-P2C-004/risk_note.md",
+                "adversarial_fixture_hooks": ["conversion_attribute_namespace_collision"],
+                "crash_triage_taxonomy": [
+                    "convert.metadata.namespace_collision",
+                    "convert.metadata.canonicalization_conflict",
+                ],
+                "hardened_allowlisted_categories": [
+                    "bounded_diagnostic_enrichment",
+                    "deterministic_tie_break_normalization",
+                ],
+                "compatibility_boundary": "attribute namespace canonicalization boundary",
+            },
+        ],
+        "compatibility_boundary_rows": [
+            {
+                "boundary_id": "P2C004-CB-1",
+                "strict_parity_obligation": "Malformed conversion payloads never yield repaired outputs in strict mode.",
+                "hardened_allowlisted_deviation_categories": [
+                    "bounded_diagnostic_enrichment",
+                    "defensive_parse_recovery",
+                ],
+                "fail_closed_default": "fail_closed_on_malformed_conversion_payload",
+                "evidence_hooks": [
+                    "networkx/tests/test_convert.py:45-69",
+                    "artifacts/phase2c/FNX-P2C-004/risk_note.md#packet-threat-matrix",
+                ],
+            },
+            {
+                "boundary_id": "P2C004-CB-2",
+                "strict_parity_obligation": "Attribute metadata precedence remains deterministic and parity-preserving.",
+                "hardened_allowlisted_deviation_categories": [
+                    "bounded_diagnostic_enrichment",
+                    "quarantine_of_unsupported_metadata",
+                ],
+                "fail_closed_default": "fail_closed_on_ambiguous_metadata",
+                "evidence_hooks": [
+                    "networkx/tests/test_convert.py:134-210",
+                    "artifacts/phase2c/FNX-P2C-004/contract_table.md#input-contract",
+                ],
+            },
+            {
+                "boundary_id": "P2C004-CB-3",
+                "strict_parity_obligation": "Unsupported schema/version envelopes are rejected deterministically.",
+                "hardened_allowlisted_deviation_categories": ["bounded_diagnostic_enrichment"],
+                "fail_closed_default": "fail_closed_on_version_skew",
+                "evidence_hooks": [
+                    "networkx/tests/test_convert.py:45-69",
+                    "artifacts/phase2c/FNX-P2C-004/parity_gate.yaml",
+                ],
+            },
+            {
+                "boundary_id": "P2C004-CB-4",
+                "strict_parity_obligation": "Conversion expansion must stay within strict complexity budgets.",
+                "hardened_allowlisted_deviation_categories": [
+                    "bounded_diagnostic_enrichment",
+                    "bounded_resource_clamp",
+                ],
+                "fail_closed_default": "fail_closed_when_conversion_budget_exhausted",
+                "evidence_hooks": [
+                    "artifacts/phase2c/FNX-P2C-004/parity_gate.yaml",
+                    "artifacts/perf/phase2c/perf_regression_gate_report_v1.json",
+                ],
+            },
+            {
+                "boundary_id": "P2C004-CB-5",
+                "strict_parity_obligation": "Conversion transaction boundaries preserve graph-state invariants exactly.",
+                "hardened_allowlisted_deviation_categories": ["bounded_diagnostic_enrichment"],
+                "fail_closed_default": "fail_closed_on_conversion_state_invariant_break",
+                "evidence_hooks": [
+                    "networkx/tests/test_relabel.py:208-317",
+                    "artifacts/phase2c/FNX-P2C-004/contract_table.md#machine-checkable-invariant-matrix",
+                ],
+            },
+            {
+                "boundary_id": "P2C004-CB-6",
+                "strict_parity_obligation": "Attribute namespace conflicts fail closed without hidden key rewrites.",
+                "hardened_allowlisted_deviation_categories": [
+                    "bounded_diagnostic_enrichment",
+                    "deterministic_tie_break_normalization",
+                ],
+                "fail_closed_default": "fail_closed_on_attribute_namespace_conflict",
+                "evidence_hooks": [
+                    "networkx/tests/test_relabel.py:296-310",
+                    "artifacts/phase2c/FNX-P2C-004/risk_note.md#compatibility-boundary-matrix",
                 ],
             },
         ],
