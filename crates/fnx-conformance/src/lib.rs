@@ -59,16 +59,38 @@ pub struct Mismatch {
     pub message: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MismatchClassification {
+    StrictViolation,
+    HardenedAllowlisted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaxonomyMismatch {
+    pub category: String,
+    pub message: String,
+    pub classification: MismatchClassification,
+    pub allowlisted_in_hardened: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FixtureReport {
+    pub fixture_id: String,
     pub fixture_name: String,
     pub suite: String,
     pub mode: CompatibilityMode,
+    pub seed: Option<u64>,
+    pub threat_class: Option<String>,
+    pub replay_command: String,
     pub passed: bool,
     pub reason_code: Option<String>,
     pub fixture_source_hash: String,
     pub duration_ms: u128,
+    pub strict_violation_count: usize,
+    pub hardened_allowlisted_count: usize,
     pub mismatches: Vec<Mismatch>,
+    pub mismatch_taxonomy: Vec<TaxonomyMismatch>,
     pub witness: Option<ComplexityWitness>,
 }
 
@@ -79,9 +101,52 @@ pub struct HarnessReport {
     pub fixture_count: usize,
     pub strict_mode: bool,
     pub mismatch_count: usize,
+    pub hardened_allowlisted_count: usize,
     pub structured_log_count: usize,
     pub structured_log_path: Option<String>,
     pub fixture_reports: Vec<FixtureReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriftTaxonomyFixtureRow {
+    pub fixture_id: String,
+    pub fixture_name: String,
+    pub packet_id: String,
+    pub mode: CompatibilityMode,
+    pub seed: Option<u64>,
+    pub threat_class: Option<String>,
+    pub replay_command: String,
+    pub strict_violation_count: usize,
+    pub hardened_allowlisted_count: usize,
+    pub mismatches: Vec<TaxonomyMismatch>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DriftTaxonomyReport {
+    pub schema_version: String,
+    pub generated_at_unix_ms: u128,
+    pub run_id: String,
+    pub strict_violation_count: usize,
+    pub hardened_allowlisted_count: usize,
+    pub fixtures: Vec<DriftTaxonomyFixtureRow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FailureArtifactEnvelope {
+    pub schema_version: String,
+    pub generated_at_unix_ms: u128,
+    pub fixture_id: String,
+    pub fixture_name: String,
+    pub packet_id: String,
+    pub mode: CompatibilityMode,
+    pub seed: Option<u64>,
+    pub threat_class: Option<String>,
+    pub replay_command: String,
+    pub strict_violation_count: usize,
+    pub hardened_allowlisted_count: usize,
+    pub reason_code: Option<String>,
+    pub mismatches: Vec<TaxonomyMismatch>,
+    pub artifact_refs: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -120,6 +185,16 @@ struct ConformanceFixture {
     suite: String,
     #[serde(default)]
     mode: Option<ModeValue>,
+    #[serde(default)]
+    fixture_id: Option<String>,
+    #[serde(default)]
+    seed: Option<u64>,
+    #[serde(default)]
+    threat_class: Option<String>,
+    #[serde(default)]
+    hardened_allowlisted_categories: Vec<String>,
+    #[serde(default)]
+    replay_command: Option<String>,
     operations: Vec<Operation>,
     expected: ExpectedState,
 }
@@ -287,17 +362,21 @@ pub fn run_smoke(config: &HarnessConfig) -> HarnessReport {
 
     for path in fixture_paths_recursive(&config.fixture_root) {
         if let Some(filter) = config.fixture_filter.as_deref() {
-            let fixture_name = fixture_name_for_path(&path);
+            let fixture_name = fixture_name_for_path(&path, &config.fixture_root);
             if fixture_name != filter && !fixture_name.ends_with(filter) {
                 continue;
             }
         }
-        fixture_reports.push(run_fixture(path, config.strict_mode));
+        fixture_reports.push(run_fixture(path, config.strict_mode, &config.fixture_root));
     }
 
     let mismatch_count = fixture_reports
         .iter()
-        .map(|report| report.mismatches.len())
+        .map(|report| report.strict_violation_count)
+        .sum();
+    let hardened_allowlisted_count = fixture_reports
+        .iter()
+        .map(|report| report.hardened_allowlisted_count)
         .sum();
 
     let report = HarnessReport {
@@ -306,6 +385,7 @@ pub fn run_smoke(config: &HarnessConfig) -> HarnessReport {
         fixture_count: fixture_reports.len(),
         strict_mode: config.strict_mode,
         mismatch_count,
+        hardened_allowlisted_count,
         structured_log_count: fixture_reports.len(),
         structured_log_path: config
             .report_root
@@ -342,6 +422,26 @@ fn write_artifacts(
             &fixture_path,
             serde_json::to_string_pretty(fixture).unwrap_or_else(|_| "{}".to_owned()),
         )?;
+        let failure_envelope_path =
+            if fixture.strict_violation_count > 0 || fixture.hardened_allowlisted_count > 0 {
+                Some(report_root.join(format!("{sanitized}.failure_envelope.json")))
+            } else {
+                None
+            };
+        if let Some(envelope_path) = &failure_envelope_path {
+            let envelope = build_failure_envelope(
+                fixture,
+                packet_id_for_fixture(&fixture.suite, &fixture.fixture_name),
+                vec![
+                    smoke_path.display().to_string(),
+                    fixture_path.display().to_string(),
+                ],
+            );
+            fs::write(
+                envelope_path,
+                serde_json::to_string_pretty(&envelope).map_err(io::Error::other)?,
+            )?;
+        }
         structured_logs.push(build_structured_log(
             report,
             fixture,
@@ -349,6 +449,7 @@ fn write_artifacts(
             &fixture_path,
             log_schema_version,
             run_id,
+            failure_envelope_path.as_deref(),
         ));
     }
 
@@ -374,6 +475,11 @@ fn write_artifacts(
     fs::write(
         report_root.join("telemetry_dependent_unblock_matrix_v1.json"),
         serde_json::to_string_pretty(&unblock_matrix).map_err(io::Error::other)?,
+    )?;
+    let drift_taxonomy_report = build_drift_taxonomy_report(report, run_id);
+    fs::write(
+        report_root.join("mismatch_taxonomy_report.json"),
+        serde_json::to_string_pretty(&drift_taxonomy_report).map_err(io::Error::other)?,
     )?;
 
     Ok(())
@@ -435,6 +541,10 @@ fn build_emitter_normalization_report(
             .join("telemetry_dependent_unblock_matrix_v1.json")
             .display()
             .to_string(),
+        report_root
+            .join("mismatch_taxonomy_report.json")
+            .display()
+            .to_string(),
     ];
 
     EmitterNormalizationReport {
@@ -491,6 +601,8 @@ fn build_dependent_unblock_matrix(report_root: &Path, run_id: &str) -> Dependent
             required_artifacts: vec![log_json.clone(), smoke_report.clone()],
             required_fields: vec![
                 "test_id".to_owned(),
+                "fixture_id".to_owned(),
+                "seed".to_owned(),
                 "env_fingerprint".to_owned(),
                 "replay_command".to_owned(),
                 "reason_code".to_owned(),
@@ -537,6 +649,81 @@ fn build_dependent_unblock_matrix(report_root: &Path, run_id: &str) -> Dependent
     }
 }
 
+fn classify_mismatch_taxonomy(
+    mode: CompatibilityMode,
+    mismatches: &[Mismatch],
+    hardened_allowlisted_categories: &BTreeSet<String>,
+) -> Vec<TaxonomyMismatch> {
+    mismatches
+        .iter()
+        .map(|mismatch| {
+            let allowlisted_in_hardened =
+                hardened_allowlisted_categories.contains(&mismatch.category.to_ascii_lowercase());
+            let classification = if mode == CompatibilityMode::Hardened && allowlisted_in_hardened {
+                MismatchClassification::HardenedAllowlisted
+            } else {
+                MismatchClassification::StrictViolation
+            };
+            TaxonomyMismatch {
+                category: mismatch.category.clone(),
+                message: mismatch.message.clone(),
+                classification,
+                allowlisted_in_hardened,
+            }
+        })
+        .collect()
+}
+
+fn build_drift_taxonomy_report(report: &HarnessReport, run_id: &str) -> DriftTaxonomyReport {
+    let fixtures = report
+        .fixture_reports
+        .iter()
+        .map(|fixture| DriftTaxonomyFixtureRow {
+            fixture_id: fixture.fixture_id.clone(),
+            fixture_name: fixture.fixture_name.clone(),
+            packet_id: packet_id_for_fixture(&fixture.suite, &fixture.fixture_name),
+            mode: fixture.mode,
+            seed: fixture.seed,
+            threat_class: fixture.threat_class.clone(),
+            replay_command: fixture.replay_command.clone(),
+            strict_violation_count: fixture.strict_violation_count,
+            hardened_allowlisted_count: fixture.hardened_allowlisted_count,
+            mismatches: fixture.mismatch_taxonomy.clone(),
+        })
+        .collect();
+    DriftTaxonomyReport {
+        schema_version: "1.0.0".to_owned(),
+        generated_at_unix_ms: unix_time_ms(),
+        run_id: run_id.to_owned(),
+        strict_violation_count: report.mismatch_count,
+        hardened_allowlisted_count: report.hardened_allowlisted_count,
+        fixtures,
+    }
+}
+
+fn build_failure_envelope(
+    fixture: &FixtureReport,
+    packet_id: String,
+    artifact_refs: Vec<String>,
+) -> FailureArtifactEnvelope {
+    FailureArtifactEnvelope {
+        schema_version: "1.0.0".to_owned(),
+        generated_at_unix_ms: unix_time_ms(),
+        fixture_id: fixture.fixture_id.clone(),
+        fixture_name: fixture.fixture_name.clone(),
+        packet_id,
+        mode: fixture.mode,
+        seed: fixture.seed,
+        threat_class: fixture.threat_class.clone(),
+        replay_command: fixture.replay_command.clone(),
+        strict_violation_count: fixture.strict_violation_count,
+        hardened_allowlisted_count: fixture.hardened_allowlisted_count,
+        reason_code: fixture.reason_code.clone(),
+        mismatches: fixture.mismatch_taxonomy.clone(),
+        artifact_refs,
+    }
+}
+
 fn build_structured_log(
     report: &HarnessReport,
     fixture: &FixtureReport,
@@ -544,6 +731,7 @@ fn build_structured_log(
     fixture_report_path: &Path,
     log_schema_version: &str,
     run_id: &str,
+    failure_envelope_path: Option<&Path>,
 ) -> StructuredTestLog {
     let mode_flag = match fixture.mode {
         CompatibilityMode::Strict => "strict",
@@ -555,18 +743,21 @@ fn build_structured_log(
     } else {
         TestStatus::Failed
     };
-    let test_id = format!("fixture::{}", fixture.fixture_name);
-    let replay_command = reproduction_command_for_fixture(&fixture.fixture_name, fixture.mode);
-    let sanitized_test_id = fixture.fixture_name.replace(['/', '\\'], "::");
+    let test_id = format!("fixture::{}", fixture.fixture_id);
+    let replay_command = fixture.replay_command.clone();
+    let sanitized_test_id = fixture.fixture_id.replace(['/', '\\'], "::");
     let forensic_bundle_id = format!("forensics::{packet_id}::{sanitized_test_id}");
     let hash_id = stable_hash_hex(&format!(
-        "{}|{}|{}|{}|{}|{}",
+        "{}|{}|{}|{}|{}|{}|{}|{}|{}",
+        fixture.fixture_id,
         fixture.fixture_name,
         fixture.suite,
         mode_flag,
         fixture.passed,
         fixture.mismatches.len(),
         fixture.fixture_source_hash,
+        fixture.strict_violation_count,
+        fixture.hardened_allowlisted_count,
     ));
 
     let mut environment = BTreeMap::new();
@@ -582,11 +773,26 @@ fn build_structured_log(
         report.strict_mode.to_string(),
     );
     environment.insert("run_id".to_owned(), run_id.to_owned());
+    environment.insert("fixture_id".to_owned(), fixture.fixture_id.clone());
+    environment.insert(
+        "strict_violation_count".to_owned(),
+        fixture.strict_violation_count.to_string(),
+    );
+    environment.insert(
+        "hardened_allowlisted_count".to_owned(),
+        fixture.hardened_allowlisted_count.to_string(),
+    );
+    if let Some(threat_class) = &fixture.threat_class {
+        environment.insert("threat_class".to_owned(), threat_class.clone());
+    }
     let env_fingerprint = canonical_environment_fingerprint(&environment);
-    let artifact_refs = vec![
+    let mut artifact_refs = vec![
         smoke_report_path.display().to_string(),
         fixture_report_path.display().to_string(),
     ];
+    if let Some(path) = failure_envelope_path {
+        artifact_refs.push(path.display().to_string());
+    }
     let bundle_hash_id = stable_hash_hex(&format!(
         "{}|{}|{}",
         forensic_bundle_id,
@@ -616,8 +822,8 @@ fn build_structured_log(
         test_id,
         test_kind: TestKind::Differential,
         mode: fixture.mode,
-        fixture_id: Some(fixture.fixture_name.clone()),
-        seed: None,
+        fixture_id: Some(fixture.fixture_id.clone()),
+        seed: fixture.seed,
         environment,
         env_fingerprint,
         duration_ms: fixture.duration_ms,
@@ -641,10 +847,13 @@ fn build_structured_log(
                 expected_behavior: "Fixture should match expected outputs with zero mismatches"
                     .to_owned(),
                 observed_behavior: format!("{} mismatches reported", fixture.mismatches.len()),
-                seed: None,
-                fixture_id: Some(fixture.fixture_name.clone()),
+                seed: fixture.seed,
+                fixture_id: Some(fixture.fixture_id.clone()),
                 artifact_hash_id: Some(hash_id),
-                forensics_link: Some(fixture_report_path.display().to_string()),
+                forensics_link: Some(failure_envelope_path.map_or_else(
+                    || fixture_report_path.display().to_string(),
+                    |path| path.display().to_string(),
+                )),
             })
         },
         e2e_step_traces: Vec::new(),
@@ -696,7 +905,7 @@ fn reproduction_command_for_fixture(fixture_name: &str, mode: CompatibilityMode)
         CompatibilityMode::Hardened => "hardened",
     };
     format!(
-        "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture {fixture_name} --mode {mode_flag}"
+        "rch exec -- CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture {fixture_name} --mode {mode_flag}"
     )
 }
 
@@ -709,8 +918,8 @@ fn stable_hash_hex(input: &str) -> String {
     format!("{hash:016x}")
 }
 
-fn fixture_name_for_path(path: &Path) -> String {
-    path.strip_prefix(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures"))
+fn fixture_name_for_path(path: &Path, fixture_root: &Path) -> String {
+    path.strip_prefix(fixture_root)
         .unwrap_or(path)
         .to_string_lossy()
         .to_string()
@@ -737,36 +946,57 @@ fn collect_fixture_paths(path: &Path, out: &mut Vec<PathBuf>) {
         if p.extension().and_then(|ext| ext.to_str()) != Some("json") {
             continue;
         }
-        if p.file_name().and_then(|name| name.to_str()) == Some("smoke_case.json") {
+        let Some(file_name) = p.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if file_name == "smoke_case.json" {
+            continue;
+        }
+        if !(file_name.contains("_strict") || file_name.contains("_hardened")) {
             continue;
         }
         out.push(p);
     }
 }
 
-fn run_fixture(path: PathBuf, default_strict_mode: bool) -> FixtureReport {
+fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) -> FixtureReport {
     let fixture_start = Instant::now();
-    let fixture_name = fixture_name_for_path(&path);
+    let fixture_name = fixture_name_for_path(&path, fixture_root);
     let fallback_source_hash = stable_hash_hex(&fixture_name);
 
     let data = match fs::read_to_string(&path) {
         Ok(value) => value,
         Err(err) => {
+            let mode = if default_strict_mode {
+                CompatibilityMode::Strict
+            } else {
+                CompatibilityMode::Hardened
+            };
+            let replay_command = reproduction_command_for_fixture(&fixture_name, mode);
+            let mismatch = Mismatch {
+                category: "fixture_io".to_owned(),
+                message: format!("failed to read fixture: {err}"),
+            };
             return FixtureReport {
+                fixture_id: fixture_name.clone(),
                 fixture_name,
                 suite: "read_error".to_owned(),
-                mode: if default_strict_mode {
-                    CompatibilityMode::Strict
-                } else {
-                    CompatibilityMode::Hardened
-                },
+                mode,
+                seed: None,
+                threat_class: None,
+                replay_command,
                 passed: false,
                 reason_code: Some("read_error".to_owned()),
                 fixture_source_hash: fallback_source_hash,
                 duration_ms: fixture_start.elapsed().as_millis(),
-                mismatches: vec![Mismatch {
-                    category: "fixture_io".to_owned(),
-                    message: format!("failed to read fixture: {err}"),
+                strict_violation_count: 1,
+                hardened_allowlisted_count: 0,
+                mismatches: vec![mismatch.clone()],
+                mismatch_taxonomy: vec![TaxonomyMismatch {
+                    category: mismatch.category,
+                    message: mismatch.message,
+                    classification: MismatchClassification::StrictViolation,
+                    allowlisted_in_hardened: false,
                 }],
                 witness: None,
             };
@@ -777,21 +1007,36 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool) -> FixtureReport {
     let fixture = match serde_json::from_str::<ConformanceFixture>(&data) {
         Ok(value) => value,
         Err(err) => {
+            let mode = if default_strict_mode {
+                CompatibilityMode::Strict
+            } else {
+                CompatibilityMode::Hardened
+            };
+            let replay_command = reproduction_command_for_fixture(&fixture_name, mode);
+            let mismatch = Mismatch {
+                category: "fixture_schema".to_owned(),
+                message: format!("failed to parse fixture: {err}"),
+            };
             return FixtureReport {
+                fixture_id: fixture_name.clone(),
                 fixture_name,
                 suite: "parse_error".to_owned(),
-                mode: if default_strict_mode {
-                    CompatibilityMode::Strict
-                } else {
-                    CompatibilityMode::Hardened
-                },
+                mode,
+                seed: None,
+                threat_class: None,
+                replay_command,
                 passed: false,
                 reason_code: Some("parse_error".to_owned()),
                 fixture_source_hash,
                 duration_ms: fixture_start.elapsed().as_millis(),
-                mismatches: vec![Mismatch {
-                    category: "fixture_schema".to_owned(),
-                    message: format!("failed to parse fixture: {err}"),
+                strict_violation_count: 1,
+                hardened_allowlisted_count: 0,
+                mismatches: vec![mismatch.clone()],
+                mismatch_taxonomy: vec![TaxonomyMismatch {
+                    category: mismatch.category,
+                    message: mismatch.message,
+                    classification: MismatchClassification::StrictViolation,
+                    allowlisted_in_hardened: false,
                 }],
                 witness: None,
             };
@@ -808,6 +1053,21 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool) -> FixtureReport {
         },
         ModeValue::as_mode,
     );
+    let fixture_id = fixture
+        .fixture_id
+        .clone()
+        .unwrap_or_else(|| fixture_name.clone());
+    let seed = fixture.seed;
+    let threat_class = fixture.threat_class.clone();
+    let replay_command = fixture
+        .replay_command
+        .clone()
+        .unwrap_or_else(|| reproduction_command_for_fixture(&fixture_name, mode));
+    let hardened_allowlisted_categories = fixture
+        .hardened_allowlisted_categories
+        .iter()
+        .map(|category| category.to_ascii_lowercase())
+        .collect::<BTreeSet<String>>();
 
     let mut context = ExecutionContext {
         graph: Graph::new(mode),
@@ -1176,19 +1436,41 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool) -> FixtureReport {
         }
     }
 
+    let mismatch_taxonomy =
+        classify_mismatch_taxonomy(mode, &mismatches, &hardened_allowlisted_categories);
+    let strict_violation_count = mismatch_taxonomy
+        .iter()
+        .filter(|row| row.classification == MismatchClassification::StrictViolation)
+        .count();
+    let hardened_allowlisted_count = mismatch_taxonomy
+        .iter()
+        .filter(|row| row.classification == MismatchClassification::HardenedAllowlisted)
+        .count();
+    let passed = strict_violation_count == 0;
+    let reason_code = if strict_violation_count > 0 {
+        Some("mismatch".to_owned())
+    } else if hardened_allowlisted_count > 0 {
+        Some("hardened_allowlisted_mismatch".to_owned())
+    } else {
+        None
+    };
+
     FixtureReport {
+        fixture_id,
         fixture_name,
         suite: fixture.suite,
         mode,
-        passed: mismatches.is_empty(),
-        reason_code: if mismatches.is_empty() {
-            None
-        } else {
-            Some("mismatch".to_owned())
-        },
+        seed,
+        threat_class,
+        replay_command,
+        passed,
+        reason_code,
         fixture_source_hash,
         duration_ms: fixture_start.elapsed().as_millis(),
+        strict_violation_count,
+        hardened_allowlisted_count,
         mismatches,
+        mismatch_taxonomy,
         witness: context.witness,
     }
 }

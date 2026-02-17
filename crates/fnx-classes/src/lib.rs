@@ -414,6 +414,53 @@ impl Graph {
 #[cfg(test)]
 mod tests {
     use super::{AttrMap, Graph, GraphError};
+    use fnx_runtime::{CompatibilityMode, DecisionAction, DecisionRecord};
+    use proptest::prelude::*;
+    use std::collections::BTreeSet;
+
+    fn node_name(id: u8) -> String {
+        format!("n{}", id % 8)
+    }
+
+    fn canonical_edge(left: &str, right: &str) -> (String, String) {
+        if left <= right {
+            (left.to_owned(), right.to_owned())
+        } else {
+            (right.to_owned(), left.to_owned())
+        }
+    }
+
+    fn assert_graph_core_invariants(graph: &Graph) {
+        let mut unique_edges = BTreeSet::new();
+        for node in graph.nodes_ordered() {
+            let neighbors = graph
+                .neighbors(node)
+                .expect("graph nodes should always have adjacency buckets");
+            for neighbor in neighbors {
+                assert!(graph.has_node(neighbor));
+                assert!(graph.has_edge(node, neighbor));
+                let reverse_neighbors = graph
+                    .neighbors(neighbor)
+                    .expect("neighbor should always have adjacency bucket");
+                assert!(reverse_neighbors.contains(&node));
+                unique_edges.insert(canonical_edge(node, neighbor));
+            }
+        }
+        assert_eq!(graph.edge_count(), unique_edges.len());
+    }
+
+    fn assert_decision_record_schema(record: &DecisionRecord, expected_mode: CompatibilityMode) {
+        assert!(record.ts_unix_ms > 0);
+        assert!(!record.operation.trim().is_empty());
+        assert_eq!(record.mode, expected_mode);
+        assert!((0.0..=1.0).contains(&record.incompatibility_probability));
+        assert!(!record.rationale.trim().is_empty());
+        assert!(!record.evidence.is_empty());
+        for term in &record.evidence {
+            assert!(!term.signal.trim().is_empty());
+            assert!(!term.observed_value.trim().is_empty());
+        }
+    }
 
     #[test]
     fn add_edge_autocreates_nodes_and_preserves_order() {
@@ -503,6 +550,21 @@ mod tests {
                 reason: "incompatible edge metadata".to_owned(),
             }
         );
+
+        let last_record = graph
+            .evidence_ledger()
+            .records()
+            .last()
+            .expect("strict fail-closed path should emit a ledger row");
+        assert_decision_record_schema(last_record, CompatibilityMode::Strict);
+        assert_eq!(last_record.operation, "add_edge");
+        assert_eq!(last_record.action, DecisionAction::FailClosed);
+        assert!(
+            last_record
+                .evidence
+                .iter()
+                .any(|term| term.signal == "unknown_incompatible_feature")
+        );
     }
 
     #[test]
@@ -520,5 +582,219 @@ mod tests {
         let _ = graph.remove_edge("a", "b");
         let r3 = graph.revision();
         assert!(r3 > r2);
+    }
+
+    #[test]
+    fn hardened_self_loop_records_full_validate_decision() {
+        let mut graph = Graph::hardened();
+        graph
+            .add_edge("loop", "loop")
+            .expect("hardened self-loop edge should be accepted");
+
+        let add_edge_record = graph
+            .evidence_ledger()
+            .records()
+            .iter()
+            .rev()
+            .find(|record| record.operation == "add_edge")
+            .expect("add_edge operation should emit ledger row");
+        assert_decision_record_schema(add_edge_record, CompatibilityMode::Hardened);
+        assert_eq!(add_edge_record.action, DecisionAction::FullValidate);
+        assert!(
+            add_edge_record
+                .evidence
+                .iter()
+                .any(|term| term.signal == "self_loop" && term.observed_value == "true")
+        );
+    }
+
+    #[test]
+    fn snapshot_roundtrip_replays_to_identical_state() {
+        let mut graph = Graph::strict();
+
+        let mut first_attrs = AttrMap::new();
+        first_attrs.insert("weight".to_owned(), "7".to_owned());
+        graph
+            .add_edge_with_attrs("a", "b", first_attrs)
+            .expect("edge insert should succeed");
+
+        let mut second_attrs = AttrMap::new();
+        second_attrs.insert("color".to_owned(), "green".to_owned());
+        graph
+            .add_edge_with_attrs("b", "c", second_attrs)
+            .expect("edge insert should succeed");
+
+        let snapshot = graph.snapshot();
+        let mut replayed = Graph::new(snapshot.mode);
+        for node in &snapshot.nodes {
+            let _ = replayed.add_node(node.clone());
+        }
+        for edge in &snapshot.edges {
+            replayed
+                .add_edge_with_attrs(edge.left.clone(), edge.right.clone(), edge.attrs.clone())
+                .expect("snapshot replay should be valid");
+        }
+
+        assert_eq!(replayed.snapshot(), snapshot);
+        assert_graph_core_invariants(&replayed);
+    }
+
+    proptest! {
+        #[test]
+        fn prop_core_invariants_hold_for_mixed_edge_mutations(
+            ops in prop::collection::vec((0_u8..8, 0_u8..8, any::<bool>()), 1..80),
+        ) {
+            let mut graph = Graph::strict();
+            let mut last_revision = graph.revision();
+
+            for (left_id, right_id, is_add) in ops {
+                let left = node_name(left_id);
+                let right = node_name(right_id);
+                if is_add {
+                    prop_assert!(graph.add_edge(left.clone(), right.clone()).is_ok());
+                } else {
+                    let _ = graph.remove_edge(&left, &right);
+                }
+                let revision = graph.revision();
+                prop_assert!(revision >= last_revision);
+                last_revision = revision;
+                assert_graph_core_invariants(&graph);
+            }
+        }
+
+        #[test]
+        fn prop_snapshot_is_deterministic_for_same_operation_stream(
+            ops in prop::collection::vec((0_u8..8, 0_u8..8, 0_u8..3), 0..64),
+        ) {
+            let mut graph_left = Graph::hardened();
+            let mut graph_right = Graph::hardened();
+
+            for (left_id, right_id, attrs_variant) in ops {
+                let left = node_name(left_id);
+                let right = node_name(right_id);
+                let mut attrs = AttrMap::new();
+                if attrs_variant == 1 {
+                    attrs.insert("weight".to_owned(), (left_id % 5).to_string());
+                } else if attrs_variant == 2 {
+                    attrs.insert("tag".to_owned(), format!("k{}", right_id % 4));
+                }
+                prop_assert!(
+                    graph_left
+                        .add_edge_with_attrs(left.clone(), right.clone(), attrs.clone())
+                        .is_ok()
+                );
+                prop_assert!(
+                    graph_right
+                        .add_edge_with_attrs(left, right, attrs)
+                        .is_ok()
+                );
+            }
+
+            prop_assert_eq!(graph_left.snapshot(), graph_right.snapshot());
+            prop_assert_eq!(graph_left.snapshot(), graph_left.snapshot());
+        }
+
+        #[test]
+        fn prop_reapplying_identical_edge_attrs_is_revision_stable(
+            left_id in 0_u8..8,
+            right_id in 0_u8..8,
+            weight in 0_u16..5000,
+        ) {
+            let mut graph = Graph::strict();
+            let left = node_name(left_id);
+            let right = node_name(right_id);
+            let mut attrs = AttrMap::new();
+            attrs.insert("weight".to_owned(), weight.to_string());
+
+            prop_assert!(
+                graph
+                    .add_edge_with_attrs(left.clone(), right.clone(), attrs.clone())
+                    .is_ok()
+            );
+            let revision_after_first = graph.revision();
+            prop_assert!(
+                graph
+                    .add_edge_with_attrs(left, right, attrs)
+                    .is_ok()
+            );
+            prop_assert_eq!(graph.revision(), revision_after_first);
+        }
+
+        #[test]
+        fn prop_remove_node_clears_incident_edges(
+            ops in prop::collection::vec((0_u8..8, 0_u8..8), 1..64),
+            target_id in 0_u8..8,
+        ) {
+            let mut graph = Graph::strict();
+            for (left_id, right_id) in ops {
+                let left = node_name(left_id);
+                let right = node_name(right_id);
+                prop_assert!(graph.add_edge(left, right).is_ok());
+            }
+
+            let target = node_name(target_id);
+            let removed = graph.remove_node(&target);
+            if removed {
+                prop_assert!(!graph.has_node(&target));
+                for node in graph.nodes_ordered() {
+                    let neighbors = graph
+                        .neighbors(node)
+                        .expect("graph nodes should always have adjacency buckets");
+                    prop_assert!(!neighbors.contains(&target.as_str()));
+                    prop_assert!(!graph.has_edge(node, &target));
+                }
+            }
+            assert_graph_core_invariants(&graph);
+        }
+
+        #[test]
+        fn prop_decision_ledger_records_follow_schema(
+            ops in prop::collection::vec((0_u8..8, 0_u8..8, 0_u8..4), 1..72),
+        ) {
+            let mut graph = Graph::strict();
+            for (left_id, right_id, attrs_kind) in ops {
+                let left = node_name(left_id);
+                let right = node_name(right_id);
+                let mut attrs = AttrMap::new();
+                match attrs_kind {
+                    0 => {}
+                    1 => {
+                        attrs.insert("weight".to_owned(), (left_id % 9).to_string());
+                    }
+                    2 => {
+                        attrs.insert("color".to_owned(), format!("c{}", right_id % 6));
+                    }
+                    _ => {
+                        attrs.insert("__fnx_incompatible_decoder".to_owned(), "v2".to_owned());
+                    }
+                }
+                let _ = graph.add_edge_with_attrs(left, right, attrs);
+            }
+
+            let records = graph.evidence_ledger().records();
+            prop_assert!(!records.is_empty());
+            for record in records {
+                assert_decision_record_schema(record, CompatibilityMode::Strict);
+                if record.operation == "add_node" {
+                    prop_assert_eq!(record.action, DecisionAction::Allow);
+                    prop_assert!(record.evidence.iter().any(|term| term.signal == "node_preexisting"));
+                    prop_assert!(record.evidence.iter().any(|term| term.signal == "attrs_count"));
+                } else {
+                    prop_assert_eq!(&record.operation, "add_edge");
+                    if record.action == DecisionAction::FailClosed {
+                        prop_assert!(
+                            record
+                                .evidence
+                                .iter()
+                                .any(|term| term.signal == "unknown_incompatible_feature")
+                        );
+                    } else {
+                        prop_assert_eq!(record.action, DecisionAction::FullValidate);
+                        prop_assert!(record.evidence.iter().any(|term| term.signal == "edge_attr_count"));
+                        prop_assert!(record.evidence.iter().any(|term| term.signal == "self_loop"));
+                    }
+                }
+            }
+        }
     }
 }
