@@ -115,15 +115,176 @@ PACKET_SPECS: list[dict[str, Any]] = [
         "packet_id": "FNX-P2C-003",
         "subsystem": "Dispatchable backend routing",
         "target_crates": ["fnx-dispatch", "fnx-runtime"],
-        "legacy_paths": ["networkx/utils/backends.py"],
-        "legacy_symbols": ["_dispatchable", "_get_cache_key"],
-        "oracle_tests": ["networkx/classes/tests/dispatch_interface.py"],
+        "legacy_paths": [
+            "networkx/utils/backends.py",
+            "networkx/utils/tests/test_backends.py",
+            "networkx/classes/tests/dispatch_interface.py",
+            "networkx/utils/tests/test_config.py",
+        ],
+        "legacy_symbols": [
+            "_dispatchable._call_if_any_backends_installed",
+            "_dispatchable._can_backend_run",
+            "_dispatchable._should_backend_run",
+            "_dispatchable._will_call_mutate_input",
+            "_get_cache_key",
+            "_get_from_cache",
+            "_load_backend",
+        ],
+        "oracle_tests": [
+            "networkx/utils/tests/test_backends.py",
+            "networkx/classes/tests/dispatch_interface.py",
+            "networkx/utils/tests/test_config.py",
+        ],
         "fixture_ids": ["generated/dispatch_route_strict.json"],
         "risk_tier": "high",
         "extra_gate": "dispatch route lock",
         "deterministic_constraints": [
             "Backend priority sort is deterministic",
             "Requested-backend override resolves deterministically",
+        ],
+        "legacy_anchor_regions": [
+            {
+                "region_id": "P2C003-R1",
+                "pathway": "normal",
+                "anchor_refs": [
+                    {
+                        "path": "networkx/utils/backends.py",
+                        "start_line": 553,
+                        "end_line": 716,
+                    },
+                    {
+                        "path": "networkx/utils/backends.py",
+                        "start_line": 1099,
+                        "end_line": 1146,
+                    },
+                ],
+                "symbols": [
+                    "_dispatchable._call_if_any_backends_installed",
+                    "_dispatchable._can_backend_run",
+                    "_dispatchable._should_backend_run",
+                ],
+                "behavior_note": (
+                    "Backend keyword override, can_run/should_run probes, and conversion eligibility "
+                    "produce deterministic backend selection with explicit failure paths."
+                ),
+                "compatibility_policy": "strict parity in route selection; hardened still fail-closed on incompatibility",
+                "downstream_contract_rows": [
+                    "Input Contract: compatibility mode",
+                    "Output Contract: algorithm/state result",
+                    "Error Contract: unknown incompatible feature",
+                ],
+                "planned_oracle_tests": [
+                    "networkx/utils/tests/test_backends.py:44-95",
+                    "networkx/utils/tests/test_backends.py:101-129",
+                ],
+            },
+            {
+                "region_id": "P2C003-R2",
+                "pathway": "edge",
+                "anchor_refs": [
+                    {
+                        "path": "networkx/utils/backends.py",
+                        "start_line": 717,
+                        "end_line": 760,
+                    },
+                    {
+                        "path": "networkx/utils/backends.py",
+                        "start_line": 1052,
+                        "end_line": 1075,
+                    },
+                ],
+                "symbols": [
+                    "_dispatchable._will_call_mutate_input",
+                    "_dispatchable._call_if_any_backends_installed",
+                ],
+                "behavior_note": (
+                    "Mutating calls suppress automatic backend conversion and only fall back when "
+                    "input graph classes are compatible with NetworkX semantics."
+                ),
+                "compatibility_policy": (
+                    "prefer non-conversion for mutating operations to preserve observable mutation contract"
+                ),
+                "downstream_contract_rows": [
+                    "Input Contract: packet operations",
+                    "Strict/Hardened Divergence: strict no repair heuristics",
+                    "Determinism Commitments: stable traversal ordering",
+                ],
+                "planned_oracle_tests": [
+                    "networkx/utils/tests/test_backends.py:135-160",
+                    "networkx/utils/tests/test_backends.py:194-225",
+                ],
+            },
+            {
+                "region_id": "P2C003-R3",
+                "pathway": "adversarial",
+                "anchor_refs": [
+                    {
+                        "path": "networkx/utils/backends.py",
+                        "start_line": 202,
+                        "end_line": 212,
+                    },
+                    {
+                        "path": "networkx/utils/backends.py",
+                        "start_line": 561,
+                        "end_line": 563,
+                    },
+                    {
+                        "path": "networkx/utils/backends.py",
+                        "start_line": 640,
+                        "end_line": 715,
+                    },
+                ],
+                "symbols": [
+                    "_load_backend",
+                    "_dispatchable._call_if_any_backends_installed",
+                ],
+                "behavior_note": (
+                    "Unknown backend names, missing implementations, and incompatible conversion paths "
+                    "must fail closed with explicit ImportError/TypeError semantics."
+                ),
+                "compatibility_policy": "fail-closed default for unknown or unsupported backend routes",
+                "downstream_contract_rows": [
+                    "Error Contract: unknown incompatible feature",
+                    "Error Contract: malformed input affecting compatibility",
+                    "Strict/Hardened Divergence: hardened bounded recovery only when allowlisted",
+                ],
+                "planned_oracle_tests": [
+                    "networkx/utils/tests/test_backends.py:162-168",
+                    "networkx/utils/tests/test_backends.py:170-187",
+                ],
+            },
+            {
+                "region_id": "P2C003-R4",
+                "pathway": "deterministic-cache",
+                "anchor_refs": [
+                    {
+                        "path": "networkx/utils/backends.py",
+                        "start_line": 1989,
+                        "end_line": 2010,
+                    },
+                    {
+                        "path": "networkx/utils/backends.py",
+                        "start_line": 2041,
+                        "end_line": 2093,
+                    },
+                ],
+                "symbols": ["_get_cache_key", "_get_from_cache"],
+                "behavior_note": (
+                    "Cache key canonicalization and FAILED_TO_CONVERT sentinel behavior keep route "
+                    "resolution deterministic and prevent repeated incompatible conversion churn."
+                ),
+                "compatibility_policy": "cache lookup order remains deterministic before fallback/retry",
+                "downstream_contract_rows": [
+                    "Determinism Commitments: stable traversal and output ordering",
+                    "Output Contract: evidence artifacts are replayable",
+                    "Error Contract: bounded hardened behavior with audit",
+                ],
+                "planned_oracle_tests": [
+                    "networkx/classes/tests/dispatch_interface.py:52-78",
+                    "networkx/classes/tests/dispatch_interface.py:186-190",
+                    "networkx/utils/tests/test_config.py:120-170",
+                ],
+            },
         ],
         "ambiguities": [
             {
@@ -137,37 +298,961 @@ PACKET_SPECS: list[dict[str, Any]] = [
             "unknown feature bypass risk",
         ],
         "optimization_lever": "cache-compatible backend filter pruning",
+        "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "bounded_resource_clamp",
+            "deterministic_backend_fallback_with_audit",
+            "quarantine_of_unsupported_metadata",
+        ],
+        "input_contract_rows": [
+            {
+                "row_id": "P2C003-IC-1",
+                "api_behavior": "explicit backend kwarg resolution (`backend=...`)",
+                "preconditions": "backend name is `None`, `networkx`, or installed backend identifier",
+                "strict_policy": "fail-closed on unknown backend; no implicit route repair",
+                "hardened_policy": "same fail-closed behavior unless category is allowlisted + audited",
+                "anchor_regions": ["P2C003-R1", "P2C003-R3"],
+                "validation_refs": [
+                    "networkx/utils/tests/test_backends.py:44-95",
+                    "networkx/utils/tests/test_backends.py:162-168",
+                ],
+            },
+            {
+                "row_id": "P2C003-IC-2",
+                "api_behavior": "mutation-aware route eligibility",
+                "preconditions": "mutates_input predicate resolved from args/kwargs before backend conversion",
+                "strict_policy": "block auto-conversion for mutating calls unless safe native route exists",
+                "hardened_policy": "same blocking default; allowlisted fallback requires deterministic audit trail",
+                "anchor_regions": ["P2C003-R2"],
+                "validation_refs": [
+                    "networkx/utils/tests/test_backends.py:135-160",
+                    "networkx/utils/tests/test_backends.py:194-225",
+                ],
+            },
+            {
+                "row_id": "P2C003-IC-3",
+                "api_behavior": "backend priority route selection",
+                "preconditions": "backend_priority config is defined and normalized",
+                "strict_policy": "deterministic backend ordering and tie-breaks only",
+                "hardened_policy": "deterministic ordering unchanged; diagnostics may be enriched",
+                "anchor_regions": ["P2C003-R1", "P2C003-R4"],
+                "validation_refs": [
+                    "networkx/utils/tests/test_config.py:120-170",
+                    "networkx/utils/tests/test_backends.py:101-129",
+                ],
+            },
+        ],
+        "output_contract_rows": [
+            {
+                "row_id": "P2C003-OC-1",
+                "output_behavior": "selected backend implementation identity",
+                "postconditions": "chosen backend is deterministic for same args/config/graph backend provenance",
+                "strict_policy": "zero mismatch budget for route identity drift",
+                "hardened_policy": "same route identity unless deterministic fallback category is allowlisted",
+                "anchor_regions": ["P2C003-R1"],
+                "validation_refs": [
+                    "networkx/utils/tests/test_backends.py:101-129",
+                    "networkx/classes/tests/dispatch_interface.py:52-78",
+                ],
+            },
+            {
+                "row_id": "P2C003-OC-2",
+                "output_behavior": "conversion/cache reuse semantics",
+                "postconditions": "cache key + cache hit behavior is deterministic and replayable",
+                "strict_policy": "no silent cache mutation outside declared key compatibility logic",
+                "hardened_policy": "same key semantics; only bounded diagnostic enrichment allowed",
+                "anchor_regions": ["P2C003-R4"],
+                "validation_refs": [
+                    "networkx/classes/tests/dispatch_interface.py:67-78",
+                    "networkx/classes/tests/dispatch_interface.py:186-190",
+                ],
+            },
+        ],
+        "error_contract_rows": [
+            {
+                "row_id": "P2C003-EC-1",
+                "trigger": "unknown backend identifier",
+                "strict_behavior": "raise ImportError (fail-closed)",
+                "hardened_behavior": "raise ImportError unless deterministic fallback category is allowlisted and audited",
+                "allowlisted_divergence_category": "deterministic_backend_fallback_with_audit",
+                "anchor_regions": ["P2C003-R3"],
+                "validation_refs": ["networkx/utils/tests/test_backends.py:162-168"],
+            },
+            {
+                "row_id": "P2C003-EC-2",
+                "trigger": "backend lacks dispatchable implementation for algorithm",
+                "strict_behavior": "raise NotImplementedError with route context",
+                "hardened_behavior": "same default; no opaque fallback",
+                "allowlisted_divergence_category": "none",
+                "anchor_regions": ["P2C003-R1", "P2C003-R3"],
+                "validation_refs": ["networkx/utils/tests/test_backends.py:170-187"],
+            },
+            {
+                "row_id": "P2C003-EC-3",
+                "trigger": "incompatible backend conversion graph provenance",
+                "strict_behavior": "raise TypeError (fail-closed conversion boundary)",
+                "hardened_behavior": "quarantine unsupported metadata then fail closed if parity proof absent",
+                "allowlisted_divergence_category": "quarantine_of_unsupported_metadata",
+                "anchor_regions": ["P2C003-R3"],
+                "validation_refs": ["networkx/utils/tests/test_backends.py:135-160"],
+            },
+        ],
+        "determinism_rows": [
+            {
+                "row_id": "P2C003-DC-1",
+                "commitment": "backend priority tie-break is lexical + stable",
+                "tie_break_rule": "equal-priority backend candidates ordered by backend name",
+                "anchor_regions": ["P2C003-R1"],
+                "validation_refs": ["networkx/utils/tests/test_config.py:120-170"],
+            },
+            {
+                "row_id": "P2C003-DC-2",
+                "commitment": "cache key canonicalization is deterministic",
+                "tie_break_rule": "edge/node key sets normalized before lookup",
+                "anchor_regions": ["P2C003-R4"],
+                "validation_refs": [
+                    "networkx/classes/tests/dispatch_interface.py:67-78",
+                    "networkx/classes/tests/dispatch_interface.py:186-190",
+                ],
+            },
+        ],
+        "invariant_rows": [
+            {
+                "row_id": "P2C003-IV-1",
+                "precondition": "dispatch inputs are signature-valid and backend metadata is loaded",
+                "postcondition": "route selection is deterministic for identical inputs",
+                "preservation_obligation": "no mutation of route semantics across strict/hardened except allowlisted categories",
+                "anchor_regions": ["P2C003-R1", "P2C003-R2"],
+                "validation_refs": [
+                    "unit::fnx-p2c-003::contract",
+                    "property::fnx-p2c-003::invariants",
+                ],
+            },
+            {
+                "row_id": "P2C003-IV-2",
+                "precondition": "cache key derivation receives explicit attr-preservation flags",
+                "postcondition": "cache lookup outcome is replayable and deterministic",
+                "preservation_obligation": "FAILED_TO_CONVERT sentinel must prevent repeated unsafe conversion attempts",
+                "anchor_regions": ["P2C003-R4"],
+                "validation_refs": [
+                    "differential::fnx-p2c-003::fixtures",
+                    "e2e::fnx-p2c-003::golden_journey",
+                ],
+            },
+        ],
+        "threat_model_rows": [
+            {
+                "threat_id": "P2C003-TM-1",
+                "threat_class": "parser_abuse",
+                "strict_mode_response": "Fail-closed on malformed backend configuration payloads and route signatures.",
+                "hardened_mode_response": "Fail-closed with bounded deterministic diagnostics; no permissive parse fallback.",
+                "mitigations": [
+                    "backend config schema checks",
+                    "route signature validation",
+                    "deterministic parse error taxonomy",
+                ],
+                "evidence_artifact": "artifacts/phase2c/FNX-P2C-003/risk_note.md",
+                "adversarial_fixture_hooks": ["dispatch_config_malformed_payload"],
+                "crash_triage_taxonomy": [
+                    "dispatch.parse.malformed_payload",
+                    "dispatch.parse.signature_mismatch",
+                ],
+                "hardened_allowlisted_categories": ["bounded_diagnostic_enrichment"],
+                "compatibility_boundary": "backend config parse boundary",
+            },
+            {
+                "threat_id": "P2C003-TM-2",
+                "threat_class": "metadata_ambiguity",
+                "strict_mode_response": "Fail-closed on ambiguous backend metadata and conflicting routing hints.",
+                "hardened_mode_response": "Quarantine unsupported metadata and fail-closed when parity impact is not provably safe.",
+                "mitigations": [
+                    "backend metadata allowlist",
+                    "deterministic route ranking",
+                    "metadata drift ledger",
+                ],
+                "evidence_artifact": "artifacts/phase2c/FNX-P2C-003/risk_note.md",
+                "adversarial_fixture_hooks": ["dispatch_conflicting_backend_metadata"],
+                "crash_triage_taxonomy": [
+                    "dispatch.metadata.ambiguous_hint",
+                    "dispatch.metadata.conflicting_source",
+                ],
+                "hardened_allowlisted_categories": [
+                    "bounded_diagnostic_enrichment",
+                    "quarantine_of_unsupported_metadata",
+                ],
+                "compatibility_boundary": "metadata normalization boundary",
+            },
+            {
+                "threat_id": "P2C003-TM-3",
+                "threat_class": "version_skew",
+                "strict_mode_response": "Fail-closed on unsupported backend API versions or incompatible route contracts.",
+                "hardened_mode_response": "Reject incompatible versions with deterministic remediation diagnostics.",
+                "mitigations": [
+                    "version envelope lock",
+                    "backend feature compatibility matrix",
+                    "upgrade gate checks",
+                ],
+                "evidence_artifact": "artifacts/phase2c/FNX-P2C-003/parity_gate.yaml",
+                "adversarial_fixture_hooks": ["dispatch_backend_api_version_skew"],
+                "crash_triage_taxonomy": [
+                    "dispatch.version.unsupported_backend_api",
+                    "dispatch.version.contract_mismatch",
+                ],
+                "hardened_allowlisted_categories": ["bounded_diagnostic_enrichment"],
+                "compatibility_boundary": "backend API version envelope boundary",
+            },
+            {
+                "threat_id": "P2C003-TM-4",
+                "threat_class": "resource_exhaustion",
+                "strict_mode_response": "Fail-closed on route-search or dispatch costs above strict policy budgets.",
+                "hardened_mode_response": "Apply bounded dispatch clamps and reject when budget thresholds are exhausted.",
+                "mitigations": [
+                    "dispatch budget caps",
+                    "timeout guards",
+                    "tail latency monitoring",
+                ],
+                "evidence_artifact": "artifacts/phase2c/FNX-P2C-003/parity_gate.yaml",
+                "adversarial_fixture_hooks": ["dispatch_route_fanout_exhaustion"],
+                "crash_triage_taxonomy": [
+                    "dispatch.resource.route_fanout_exhaustion",
+                    "dispatch.resource.budget_threshold_exceeded",
+                ],
+                "hardened_allowlisted_categories": [
+                    "bounded_diagnostic_enrichment",
+                    "bounded_resource_clamp",
+                ],
+                "compatibility_boundary": "dispatch budget boundary",
+            },
+            {
+                "threat_id": "P2C003-TM-5",
+                "threat_class": "state_corruption",
+                "strict_mode_response": "Fail-closed when dispatch cache state violates deterministic invariants.",
+                "hardened_mode_response": "Reset dispatch cache state and fail-closed with deterministic incident evidence.",
+                "mitigations": [
+                    "cache key determinism tests",
+                    "route state checksums",
+                    "cache rollback hooks",
+                ],
+                "evidence_artifact": "artifacts/phase2c/FNX-P2C-003/contract_table.md",
+                "adversarial_fixture_hooks": ["dispatch_cache_state_break"],
+                "crash_triage_taxonomy": [
+                    "dispatch.state.cache_invariant_break",
+                    "dispatch.state.replay_mismatch",
+                ],
+                "hardened_allowlisted_categories": ["bounded_diagnostic_enrichment"],
+                "compatibility_boundary": "dispatch cache determinism boundary",
+            },
+            {
+                "threat_id": "P2C003-TM-6",
+                "threat_class": "backend_route_ambiguity",
+                "strict_mode_response": "Fail-closed on equal-precedence competing backend routes.",
+                "hardened_mode_response": "Apply deterministic allowlisted fallback route with full audit trace or fail-closed.",
+                "mitigations": [
+                    "explicit route priority matrix",
+                    "tie-break policy witness",
+                    "route drift tests",
+                ],
+                "evidence_artifact": "artifacts/phase2c/FNX-P2C-003/contract_table.md",
+                "adversarial_fixture_hooks": ["dispatch_equal_priority_route_collision"],
+                "crash_triage_taxonomy": [
+                    "dispatch.route.equal_precedence_collision",
+                    "dispatch.route.fallback_audit_required",
+                ],
+                "hardened_allowlisted_categories": [
+                    "bounded_diagnostic_enrichment",
+                    "deterministic_backend_fallback_with_audit",
+                ],
+                "compatibility_boundary": "backend route priority boundary",
+            },
+            {
+                "threat_id": "P2C003-TM-7",
+                "threat_class": "policy_bypass",
+                "strict_mode_response": "Fail-closed on any policy override or unsafe enforcement bypass attempt.",
+                "hardened_mode_response": "Ignore unauthorized overrides, emit deterministic bypass evidence, and halt route execution.",
+                "mitigations": [
+                    "policy signature verification",
+                    "immutable enforcement toggle registry",
+                    "override injection adversarial fixtures",
+                ],
+                "evidence_artifact": "artifacts/phase2c/FNX-P2C-003/risk_note.md",
+                "adversarial_fixture_hooks": ["dispatch_policy_override_injection"],
+                "crash_triage_taxonomy": [
+                    "dispatch.policy.unauthorized_override",
+                    "dispatch.policy.signature_verification_failed",
+                ],
+                "hardened_allowlisted_categories": ["bounded_diagnostic_enrichment"],
+                "compatibility_boundary": "policy enforcement boundary",
+            },
+        ],
+        "compatibility_boundary_rows": [
+            {
+                "boundary_id": "P2C003-CB-1",
+                "strict_parity_obligation": "Backend override and selection remain deterministic and parity-preserving.",
+                "hardened_allowlisted_deviation_categories": [
+                    "bounded_diagnostic_enrichment",
+                    "deterministic_backend_fallback_with_audit",
+                ],
+                "fail_closed_default": "fail_closed_on_unknown_or_unsupported_backend",
+                "evidence_hooks": [
+                    "networkx/utils/tests/test_backends.py:44-95",
+                    "artifacts/phase2c/FNX-P2C-003/contract_table.md#input-contract",
+                ],
+            },
+            {
+                "boundary_id": "P2C003-CB-2",
+                "strict_parity_obligation": "Unsupported metadata never changes observable route identity.",
+                "hardened_allowlisted_deviation_categories": [
+                    "bounded_diagnostic_enrichment",
+                    "quarantine_of_unsupported_metadata",
+                ],
+                "fail_closed_default": "fail_closed_on_unproven_metadata_safety",
+                "evidence_hooks": [
+                    "networkx/utils/tests/test_backends.py:135-160",
+                    "artifacts/phase2c/FNX-P2C-003/risk_note.md#packet-threat-matrix",
+                ],
+            },
+            {
+                "boundary_id": "P2C003-CB-3",
+                "strict_parity_obligation": "Unsupported backend API envelopes are rejected with deterministic errors.",
+                "hardened_allowlisted_deviation_categories": ["bounded_diagnostic_enrichment"],
+                "fail_closed_default": "fail_closed_on_version_skew",
+                "evidence_hooks": [
+                    "networkx/utils/tests/test_config.py:120-170",
+                    "artifacts/phase2c/FNX-P2C-003/parity_gate.yaml",
+                ],
+            },
+            {
+                "boundary_id": "P2C003-CB-4",
+                "strict_parity_obligation": "Dispatch search does not exceed strict complexity budgets.",
+                "hardened_allowlisted_deviation_categories": [
+                    "bounded_diagnostic_enrichment",
+                    "bounded_resource_clamp",
+                ],
+                "fail_closed_default": "fail_closed_when_budget_exhausted",
+                "evidence_hooks": [
+                    "artifacts/phase2c/FNX-P2C-003/parity_gate.yaml",
+                    "artifacts/perf/phase2c/perf_regression_gate_report_v1.json",
+                ],
+            },
+            {
+                "boundary_id": "P2C003-CB-5",
+                "strict_parity_obligation": "Dispatch cache semantics remain deterministic and replayable.",
+                "hardened_allowlisted_deviation_categories": ["bounded_diagnostic_enrichment"],
+                "fail_closed_default": "fail_closed_on_cache_invariant_break",
+                "evidence_hooks": [
+                    "networkx/classes/tests/dispatch_interface.py:186-190",
+                    "artifacts/phase2c/FNX-P2C-003/contract_table.md#machine-checkable-invariant-matrix",
+                ],
+            },
+            {
+                "boundary_id": "P2C003-CB-6",
+                "strict_parity_obligation": "Unknown incompatible feature paths fail closed with no implicit repair.",
+                "hardened_allowlisted_deviation_categories": ["bounded_diagnostic_enrichment"],
+                "fail_closed_default": "fail_closed_on_unknown_incompatible_feature",
+                "evidence_hooks": [
+                    "networkx/utils/tests/test_backends.py:162-168",
+                    "artifacts/phase2c/FNX-P2C-003/risk_note.md#compatibility-boundary-matrix",
+                ],
+            },
+        ],
+        "module_boundary_rows": [
+            {
+                "boundary_id": "P2C003-MB-1",
+                "crate": "fnx-dispatch",
+                "module_path": "crates/fnx-dispatch/src/route_policy.rs",
+                "public_seam": "pub trait DispatchRoutePlanner",
+                "internal_ownership": "route candidate ranking and compatibility preflight policy",
+                "legacy_compat_surface": "_dispatchable._can_backend_run / _should_backend_run",
+                "threat_boundary_refs": ["P2C003-CB-1", "P2C003-CB-2"],
+                "compile_check": "cargo check -p fnx-dispatch",
+                "parallel_owner_scope": "routing policy and candidate ordering only",
+            },
+            {
+                "boundary_id": "P2C003-MB-2",
+                "crate": "fnx-runtime",
+                "module_path": "crates/fnx-runtime/src/backend_probe.rs",
+                "public_seam": "pub trait BackendProbeRegistry",
+                "internal_ownership": "backend discovery/version envelope checks and strict fail-closed decisions",
+                "legacy_compat_surface": "_load_backend / backend API version checks",
+                "threat_boundary_refs": ["P2C003-CB-3", "P2C003-CB-6"],
+                "compile_check": "cargo check -p fnx-runtime",
+                "parallel_owner_scope": "backend probe + version compatibility only",
+            },
+            {
+                "boundary_id": "P2C003-MB-3",
+                "crate": "fnx-dispatch",
+                "module_path": "crates/fnx-dispatch/src/cache_key.rs",
+                "public_seam": "pub struct DispatchCacheKey + pub fn canonicalize_cache_key",
+                "internal_ownership": "cache-key normalization and FAILED_TO_CONVERT sentinel management",
+                "legacy_compat_surface": "_get_cache_key / _get_from_cache",
+                "threat_boundary_refs": ["P2C003-CB-4", "P2C003-CB-5"],
+                "compile_check": "cargo test -p fnx-dispatch dispatch_cache -- --nocapture",
+                "parallel_owner_scope": "cache-key derivation and cache state transitions only",
+            },
+            {
+                "boundary_id": "P2C003-MB-4",
+                "crate": "fnx-runtime",
+                "module_path": "crates/fnx-runtime/src/hardened_guardrails.rs",
+                "public_seam": "pub struct HardenedDispatchGuardrails",
+                "internal_ownership": "allowlisted hardened deviations, audit envelopes, and deterministic policy bypass rejection",
+                "legacy_compat_surface": "strict/hardened divergence envelope for dispatch paths",
+                "threat_boundary_refs": ["P2C003-CB-1", "P2C003-CB-2", "P2C003-CB-6"],
+                "compile_check": "cargo check -p fnx-runtime --all-targets",
+                "parallel_owner_scope": "hardened diagnostics/audit policy only",
+            },
+        ],
+        "implementation_sequence_rows": [
+            {
+                "checkpoint_id": "P2C003-SEQ-1",
+                "order": 1,
+                "depends_on": [],
+                "objective": "Land compile-checkable route policy and backend probe seams before behavior changes.",
+                "modules_touched": [
+                    "crates/fnx-dispatch/src/route_policy.rs",
+                    "crates/fnx-runtime/src/backend_probe.rs",
+                ],
+                "verification_entrypoints": [
+                    "unit::fnx-p2c-003::route_policy_shape",
+                    "cargo check -p fnx-dispatch",
+                ],
+                "structured_log_hooks": ["dispatch.route.policy_selected", "dispatch.backend_probe.result"],
+                "risk_checkpoint": "fail if public/internal seam ownership is ambiguous",
+            },
+            {
+                "checkpoint_id": "P2C003-SEQ-2",
+                "order": 2,
+                "depends_on": ["P2C003-SEQ-1"],
+                "objective": "Implement strict-mode route selection parity and unknown-feature fail-closed handling.",
+                "modules_touched": [
+                    "crates/fnx-dispatch/src/route_policy.rs",
+                    "crates/fnx-runtime/src/policy.rs",
+                ],
+                "verification_entrypoints": [
+                    "networkx/utils/tests/test_backends.py:44-95",
+                    "differential::fnx-p2c-003::fixtures",
+                ],
+                "structured_log_hooks": ["dispatch.route.strict_decision", "dispatch.fail_closed.trigger"],
+                "risk_checkpoint": "halt if strict mismatch budget deviates from zero",
+            },
+            {
+                "checkpoint_id": "P2C003-SEQ-3",
+                "order": 3,
+                "depends_on": ["P2C003-SEQ-2"],
+                "objective": "Implement deterministic cache-key canonicalization and sentinel-safe cache transitions.",
+                "modules_touched": [
+                    "crates/fnx-dispatch/src/cache_key.rs",
+                    "crates/fnx-dispatch/src/cache_store.rs",
+                ],
+                "verification_entrypoints": [
+                    "networkx/classes/tests/dispatch_interface.py:186-190",
+                    "property::fnx-p2c-003::cache_invariants",
+                ],
+                "structured_log_hooks": ["dispatch.cache.key_canonicalized", "dispatch.cache.sentinel_transition"],
+                "risk_checkpoint": "fail on replay-metadata drift in cache traces",
+            },
+            {
+                "checkpoint_id": "P2C003-SEQ-4",
+                "order": 4,
+                "depends_on": ["P2C003-SEQ-2", "P2C003-SEQ-3"],
+                "objective": "Layer hardened allowlisted controls with deterministic audit envelopes.",
+                "modules_touched": [
+                    "crates/fnx-runtime/src/hardened_guardrails.rs",
+                    "crates/fnx-runtime/src/structured_logging.rs",
+                ],
+                "verification_entrypoints": [
+                    "adversarial::fnx-p2c-003::policy_bypass",
+                    "adversarial::fnx-p2c-003::resource_exhaustion",
+                ],
+                "structured_log_hooks": ["dispatch.hardened.allowlisted_category", "dispatch.audit.envelope_emitted"],
+                "risk_checkpoint": "reject any non-allowlisted hardened deviation",
+            },
+            {
+                "checkpoint_id": "P2C003-SEQ-5",
+                "order": 5,
+                "depends_on": ["P2C003-SEQ-4"],
+                "objective": "Run end-to-end differential/e2e/perf readiness gates and finalize packet evidence.",
+                "modules_touched": [
+                    "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs",
+                    "scripts/run_phase2c_readiness_e2e.sh",
+                ],
+                "verification_entrypoints": [
+                    "e2e::fnx-p2c-003::golden_journey",
+                    "cargo test -p fnx-conformance --test phase2c_packet_readiness_gate",
+                ],
+                "structured_log_hooks": ["dispatch.e2e.replay_bundle", "dispatch.readiness.gate_result"],
+                "risk_checkpoint": "stop on any strict/hardened parity gate mismatch",
+            },
+        ],
+        "verification_entrypoint_rows": [
+            {
+                "stage": "unit",
+                "harness": "unit::fnx-p2c-003::contract",
+                "structured_log_hook": "dispatch.unit.contract_asserted",
+                "replay_metadata_fields": ["packet_id", "route_id", "backend_name", "strict_mode"],
+                "failure_forensics_artifact": "artifacts/conformance/latest/structured_logs.jsonl",
+            },
+            {
+                "stage": "property",
+                "harness": "property::fnx-p2c-003::invariants",
+                "structured_log_hook": "dispatch.property.invariant_checkpoint",
+                "replay_metadata_fields": ["seed", "graph_fingerprint", "cache_key_digest", "invariant_id"],
+                "failure_forensics_artifact": "artifacts/conformance/latest/structured_log_emitter_normalization_report.json",
+            },
+            {
+                "stage": "differential",
+                "harness": "differential::fnx-p2c-003::fixtures",
+                "structured_log_hook": "dispatch.diff.oracle_comparison",
+                "replay_metadata_fields": ["fixture_id", "oracle_ref", "route_signature", "mismatch_count"],
+                "failure_forensics_artifact": "artifacts/phase2c/FNX-P2C-003/parity_report.json",
+            },
+            {
+                "stage": "e2e",
+                "harness": "e2e::fnx-p2c-003::golden_journey",
+                "structured_log_hook": "dispatch.e2e.replay_emitted",
+                "replay_metadata_fields": ["scenario_id", "thread_id", "trace_id", "forensics_bundle"],
+                "failure_forensics_artifact": "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json",
+            },
+        ],
     },
     {
         "packet_id": "FNX-P2C-004",
         "subsystem": "Conversion and relabel contracts",
         "target_crates": ["fnx-convert"],
-        "legacy_paths": ["networkx/convert.py"],
+        "legacy_paths": [
+            "networkx/convert.py",
+            "networkx/relabel.py",
+            "networkx/tests/test_convert.py",
+            "networkx/tests/test_relabel.py",
+        ],
         "legacy_symbols": [
             "to_networkx_graph",
             "from_dict_of_lists",
             "to_dict_of_dicts",
             "from_dict_of_dicts",
             "from_edgelist",
+            "relabel_nodes",
+            "convert_node_labels_to_integers",
         ],
-        "oracle_tests": ["networkx/tests/test_convert.py"],
+        "oracle_tests": [
+            "networkx/tests/test_convert.py",
+            "networkx/tests/test_relabel.py",
+        ],
         "fixture_ids": ["generated/convert_edge_list_strict.json"],
         "risk_tier": "critical",
         "extra_gate": "conversion matrix gate",
         "deterministic_constraints": [
-            "Conversion precedence is deterministic across input forms",
-            "Attribute coercion behavior is deterministic by mode",
+            (
+                "Input-form dispatch precedence remains deterministic across graph, dict, "
+                "and edge-list ingestion"
+            ),
+            (
+                "Relabel copy/in-place ordering policy and multigraph key collision behavior "
+                "remain deterministic by mode"
+            ),
+        ],
+        "strict_divergence_note": (
+            "strict: fail-closed on unknown incompatible input/metadata paths with zero mismatch "
+            "budget for conversion and relabel outputs"
+        ),
+        "hardened_divergence_note": (
+            "hardened: divergence allowed only in allowlisted categories with deterministic "
+            "audit evidence and explicit compatibility boundary traces"
+        ),
+        "unknown_incompatibility_note": (
+            "unknown incompatible feature/metadata paths fail closed unless an allowlisted "
+            "category + deterministic audit evidence is present"
+        ),
+        "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "bounded_attribute_coercion_with_audit",
+            "bounded_relabel_collision_rekey_with_audit",
+            "quarantine_of_unsupported_metadata",
+        ],
+        "legacy_anchor_regions": [
+            {
+                "region_id": "P2C004-R1",
+                "pathway": "normal",
+                "anchor_refs": [
+                    {"path": "networkx/convert.py", "start_line": 34, "end_line": 108},
+                    {"path": "networkx/convert.py", "start_line": 173, "end_line": 183},
+                ],
+                "symbols": ["to_networkx_graph", "from_edgelist"],
+                "behavior_note": (
+                    "Conversion dispatch follows stable precedence (existing NetworkX graph, "
+                    "dict forms, edge-list forms, then optional integrations) before final "
+                    "edge-list collection fallback."
+                ),
+                "compatibility_policy": (
+                    "strict mode preserves dispatch precedence and observable output shape exactly"
+                ),
+                "downstream_contract_rows": [
+                    "Input Contract: packet operations",
+                    "Output Contract: algorithm/state result",
+                    "Determinism Commitments: stable traversal and output ordering",
+                ],
+                "planned_oracle_tests": [
+                    "networkx/tests/test_convert.py:19-44",
+                    "networkx/tests/test_convert.py:71-101",
+                    "networkx/tests/test_convert.py:212-230",
+                ],
+            },
+            {
+                "region_id": "P2C004-R2",
+                "pathway": "edge",
+                "anchor_refs": [
+                    {"path": "networkx/convert.py", "start_line": 213, "end_line": 250},
+                    {"path": "networkx/convert.py", "start_line": 253, "end_line": 370},
+                    {"path": "networkx/convert.py", "start_line": 374, "end_line": 457},
+                ],
+                "symbols": ["from_dict_of_lists", "to_dict_of_dicts", "from_dict_of_dicts"],
+                "behavior_note": (
+                    "Dict conversion pathways preserve NetworkX-observable multigraph and "
+                    "undirected de-duplication semantics, including edge-data overwrite rules "
+                    "for explicit edge_data values."
+                ),
+                "compatibility_policy": (
+                    "retain legacy multigraph_input branch behavior and dict/list data-loss semantics"
+                ),
+                "downstream_contract_rows": [
+                    "Input Contract: compatibility mode",
+                    "Conversion/Readwrite Contract: scoped parity",
+                    "Strict/Hardened Divergence: strict no repair heuristics",
+                ],
+                "planned_oracle_tests": [
+                    "networkx/tests/test_convert.py:102-133",
+                    "networkx/tests/test_convert.py:134-210",
+                    "networkx/tests/test_convert.py:292-315",
+                ],
+            },
+            {
+                "region_id": "P2C004-R3",
+                "pathway": "adversarial",
+                "anchor_refs": [
+                    {"path": "networkx/convert.py", "start_line": 90, "end_line": 107},
+                    {"path": "networkx/convert.py", "start_line": 123, "end_line": 171},
+                    {"path": "networkx/convert.py", "start_line": 177, "end_line": 183},
+                ],
+                "symbols": ["to_networkx_graph"],
+                "behavior_note": (
+                    "Unknown inputs, malformed dict forms, and invalid edge-list containers "
+                    "must fail closed via explicit TypeError/NetworkXError paths with no silent "
+                    "coercion in strict mode."
+                ),
+                "compatibility_policy": (
+                    "strict fail-closed on unknown incompatible feature; hardened bounded recovery with audit"
+                ),
+                "downstream_contract_rows": [
+                    "Error Contract: malformed input affecting compatibility",
+                    "Error Contract: unknown incompatible feature",
+                    "Strict/Hardened Divergence: hardened bounded recovery only when allowlisted",
+                ],
+                "planned_oracle_tests": [
+                    "networkx/tests/test_convert.py:45-69",
+                    "networkx/tests/test_convert.py:318-321",
+                ],
+            },
+            {
+                "region_id": "P2C004-R4",
+                "pathway": "relabel-determinism",
+                "anchor_refs": [
+                    {"path": "networkx/relabel.py", "start_line": 9, "end_line": 157},
+                    {"path": "networkx/relabel.py", "start_line": 227, "end_line": 285},
+                ],
+                "symbols": ["relabel_nodes", "convert_node_labels_to_integers"],
+                "behavior_note": (
+                    "Relabel copy/in-place branches preserve API contract while order-sensitive "
+                    "behavior follows explicit topological or insertion-driven mapping strategy."
+                ),
+                "compatibility_policy": (
+                    "preserve legacy ordering semantics for copy=True and documented copy=False caveats"
+                ),
+                "downstream_contract_rows": [
+                    "Output Contract: algorithm/state result",
+                    "Determinism Commitments: stable traversal and output ordering",
+                    "Input Contract: packet operations",
+                ],
+                "planned_oracle_tests": [
+                    "networkx/tests/test_relabel.py:9-90",
+                    "networkx/tests/test_relabel.py:188-207",
+                    "networkx/tests/test_relabel.py:319-349",
+                ],
+            },
+            {
+                "region_id": "P2C004-R5",
+                "pathway": "adversarial-relabel-collision",
+                "anchor_refs": [
+                    {"path": "networkx/relabel.py", "start_line": 130, "end_line": 190},
+                    {"path": "networkx/relabel.py", "start_line": 193, "end_line": 223},
+                ],
+                "symbols": ["relabel_nodes", "_relabel_inplace", "_relabel_copy"],
+                "behavior_note": (
+                    "Overlapping mappings, circular relabel cycles, and multigraph key collisions "
+                    "trigger deterministic key remapping or explicit NetworkXUnfeasible failures."
+                ),
+                "compatibility_policy": (
+                    "enforce deterministic collision handling; reject unresolved cycles in copy=False"
+                ),
+                "downstream_contract_rows": [
+                    "Error Contract: malformed input affecting compatibility",
+                    "Output Contract: algorithm/state result",
+                    "Determinism Commitments: stable traversal and output ordering",
+                ],
+                "planned_oracle_tests": [
+                    "networkx/tests/test_relabel.py:208-317",
+                    "networkx/tests/test_relabel.py:296-310",
+                ],
+            },
+        ],
+        "input_contract_rows": [
+            {
+                "row_id": "P2C004-IC-1",
+                "api_behavior": "to_networkx_graph input-form dispatch precedence",
+                "preconditions": (
+                    "input candidate may satisfy multiple adapters (graph/dict/collection); "
+                    "legacy branch evaluation order is fixed"
+                ),
+                "strict_policy": (
+                    "evaluate conversion branches in legacy order and fail closed when branch validation fails"
+                ),
+                "hardened_policy": (
+                    "preserve branch order; allow only bounded diagnostic enrichment before fail-closed exit"
+                ),
+                "anchor_regions": ["P2C004-R1", "P2C004-R3"],
+                "validation_refs": [
+                    "networkx/tests/test_convert.py:19-44",
+                    "networkx/tests/test_convert.py:45-69",
+                    "networkx/tests/test_convert.py:318-321",
+                ],
+            },
+            {
+                "row_id": "P2C004-IC-2",
+                "api_behavior": "dict-of-lists/dicts conversion and multigraph_input semantics",
+                "preconditions": (
+                    "dict payload shape, create_using graph kind, and multigraph_input flag are explicit"
+                ),
+                "strict_policy": (
+                    "preserve undirected seen-edge dedupe and edge_data overwrite semantics exactly"
+                ),
+                "hardened_policy": (
+                    "same defaults; bounded attribute coercion allowed only under allowlisted audited paths"
+                ),
+                "anchor_regions": ["P2C004-R2", "P2C004-R3"],
+                "validation_refs": [
+                    "networkx/tests/test_convert.py:102-133",
+                    "networkx/tests/test_convert.py:134-210",
+                    "networkx/tests/test_convert.py:292-315",
+                ],
+            },
+            {
+                "row_id": "P2C004-IC-3",
+                "api_behavior": "relabel mapping and copy-mode semantics",
+                "preconditions": "mapping is callable/mapping and copy flag is explicit",
+                "strict_policy": (
+                    "copy=False follows topological/insertion ordering semantics; unresolved cycles fail closed"
+                ),
+                "hardened_policy": (
+                    "same ordering semantics; diagnostics may be enriched but no implicit copy-mode rewrite"
+                ),
+                "anchor_regions": ["P2C004-R4", "P2C004-R5"],
+                "validation_refs": [
+                    "networkx/tests/test_relabel.py:91-140",
+                    "networkx/tests/test_relabel.py:188-207",
+                    "networkx/tests/test_relabel.py:312-349",
+                ],
+            },
+        ],
+        "output_contract_rows": [
+            {
+                "row_id": "P2C004-OC-1",
+                "output_behavior": "conversion output graph class and edge payload shape",
+                "postconditions": (
+                    "node/edge membership and edge-data projection match legacy semantics for selected branch"
+                ),
+                "strict_policy": "zero mismatch budget for conversion output drift",
+                "hardened_policy": (
+                    "same output contract unless bounded attribute-coercion category is allowlisted and audited"
+                ),
+                "anchor_regions": ["P2C004-R1", "P2C004-R2"],
+                "validation_refs": [
+                    "networkx/tests/test_convert.py:102-133",
+                    "networkx/tests/test_convert.py:134-210",
+                ],
+            },
+            {
+                "row_id": "P2C004-OC-2",
+                "output_behavior": "relabel output ordering and attribute preservation",
+                "postconditions": (
+                    "node/edge attributes remain preserved and ordering semantics follow copy/order mode contract"
+                ),
+                "strict_policy": "no hidden reordering beyond documented legacy behavior",
+                "hardened_policy": (
+                    "same output contract with deterministic audit envelopes for allowlisted deviations"
+                ),
+                "anchor_regions": ["P2C004-R4", "P2C004-R5"],
+                "validation_refs": [
+                    "networkx/tests/test_relabel.py:91-140",
+                    "networkx/tests/test_relabel.py:319-349",
+                ],
+            },
+            {
+                "row_id": "P2C004-OC-3",
+                "output_behavior": "convert_node_labels_to_integers label_attribute mapping",
+                "postconditions": (
+                    "integer label assignment and optional reverse-label attribute mapping are deterministic"
+                ),
+                "strict_policy": "ordering selector fully determines label mapping",
+                "hardened_policy": "same mapping contract; only bounded diagnostics are allowlisted",
+                "anchor_regions": ["P2C004-R4"],
+                "validation_refs": [
+                    "networkx/tests/test_relabel.py:9-90",
+                ],
+            },
+        ],
+        "error_contract_rows": [
+            {
+                "row_id": "P2C004-EC-1",
+                "trigger": "unknown or malformed to_networkx_graph input type",
+                "strict_behavior": "raise NetworkXError/TypeError per legacy branch semantics (fail-closed)",
+                "hardened_behavior": "same fail-closed default; attach deterministic diagnostics only",
+                "allowlisted_divergence_category": "bounded_diagnostic_enrichment",
+                "anchor_regions": ["P2C004-R3"],
+                "validation_refs": [
+                    "networkx/tests/test_convert.py:45-69",
+                    "networkx/tests/test_convert.py:318-321",
+                ],
+            },
+            {
+                "row_id": "P2C004-EC-2",
+                "trigger": "relabel copy=False circular overlap without topological ordering",
+                "strict_behavior": "raise NetworkXUnfeasible and preserve source graph state",
+                "hardened_behavior": "same exception path; no implicit copy=True fallback",
+                "allowlisted_divergence_category": "none",
+                "anchor_regions": ["P2C004-R5"],
+                "validation_refs": [
+                    "networkx/tests/test_relabel.py:312-317",
+                ],
+            },
+            {
+                "row_id": "P2C004-EC-3",
+                "trigger": "multigraph relabel key collision during merge",
+                "strict_behavior": (
+                    "deterministically re-key to lowest available non-negative integer when collisions occur"
+                ),
+                "hardened_behavior": "same deterministic re-key; bounded collision diagnostics are allowlisted",
+                "allowlisted_divergence_category": "bounded_relabel_collision_rekey_with_audit",
+                "anchor_regions": ["P2C004-R5"],
+                "validation_refs": [
+                    "networkx/tests/test_relabel.py:230-295",
+                    "networkx/tests/test_relabel.py:296-310",
+                ],
+            },
+            {
+                "row_id": "P2C004-EC-4",
+                "trigger": "incompatible conversion metadata payload in strict mode",
+                "strict_behavior": "raise fail-closed conversion error and emit no repaired output",
+                "hardened_behavior": "quarantine unsupported metadata then fail closed if parity proof is absent",
+                "allowlisted_divergence_category": "quarantine_of_unsupported_metadata",
+                "anchor_regions": ["P2C004-R2", "P2C004-R3"],
+                "validation_refs": [
+                    "networkx/tests/test_convert.py:134-210",
+                    "networkx/tests/test_convert.py:45-69",
+                ],
+            },
+        ],
+        "determinism_rows": [
+            {
+                "row_id": "P2C004-DC-1",
+                "commitment": "input-form branch selection is deterministic",
+                "tie_break_rule": (
+                    "legacy branch order is fixed: graph -> dict_of_dicts -> dict_of_lists -> edge-list -> adapters"
+                ),
+                "anchor_regions": ["P2C004-R1"],
+                "validation_refs": [
+                    "networkx/tests/test_convert.py:19-44",
+                    "networkx/tests/test_convert.py:45-69",
+                ],
+            },
+            {
+                "row_id": "P2C004-DC-2",
+                "commitment": "dict conversion undirected dedupe is deterministic",
+                "tie_break_rule": "first-seen orientation wins via explicit seen-set suppression",
+                "anchor_regions": ["P2C004-R2"],
+                "validation_refs": [
+                    "networkx/tests/test_convert.py:134-210",
+                ],
+            },
+            {
+                "row_id": "P2C004-DC-3",
+                "commitment": "relabel ordering is deterministic per copy/order mode",
+                "tie_break_rule": (
+                    "copy=False uses topological/insertion order rules; convert_node_labels_to_integers "
+                    "honors declared ordering selector"
+                ),
+                "anchor_regions": ["P2C004-R4", "P2C004-R5"],
+                "validation_refs": [
+                    "networkx/tests/test_relabel.py:188-207",
+                    "networkx/tests/test_relabel.py:319-349",
+                ],
+            },
+        ],
+        "invariant_rows": [
+            {
+                "row_id": "P2C004-IV-1",
+                "precondition": "create_using/multigraph_input are explicit with syntactically valid payloads",
+                "postcondition": "result graph preserves legacy-observable node/edge set and attribute projection",
+                "preservation_obligation": "strict mode forbids silent coercion that changes observable contract",
+                "anchor_regions": ["P2C004-R1", "P2C004-R2", "P2C004-R3"],
+                "validation_refs": [
+                    "unit::fnx-p2c-004::contract",
+                    "differential::fnx-p2c-004::fixtures",
+                ],
+            },
+            {
+                "row_id": "P2C004-IV-2",
+                "precondition": "relabel mapping may overlap and merge endpoints",
+                "postcondition": "all intended edges are retained with deterministic key strategy and ordering semantics",
+                "preservation_obligation": "copy=False cycle conflicts must fail closed with NetworkXUnfeasible",
+                "anchor_regions": ["P2C004-R4", "P2C004-R5"],
+                "validation_refs": [
+                    "networkx/tests/test_relabel.py:208-317",
+                    "property::fnx-p2c-004::invariants",
+                ],
+            },
+            {
+                "row_id": "P2C004-IV-3",
+                "precondition": "strict/hardened mode and allowlist category are fixed for execution",
+                "postcondition": "strict and hardened outputs remain isomorphic unless explicit allowlisted divergence exists",
+                "preservation_obligation": (
+                    "unknown incompatible features/metadata paths fail closed with replayable evidence"
+                ),
+                "anchor_regions": ["P2C004-R3", "P2C004-R4", "P2C004-R5"],
+                "validation_refs": [
+                    "adversarial::fnx-p2c-004::malformed_inputs",
+                    "e2e::fnx-p2c-004::golden_journey",
+                ],
+            },
         ],
         "ambiguities": [
             {
                 "legacy_region": "mixed-type attribute coercion on ingest",
                 "policy_decision": "strict fail-closed, hardened bounded coercion with audit",
                 "compatibility_rationale": "preserves strict parity while allowing bounded resilience in hardened mode",
+            },
+            {
+                "legacy_region": "partial in-place relabel ordering under overlapping key spaces",
+                "policy_decision": (
+                    "preserve legacy copy=False behavior with explicit deterministic audit note "
+                    "rather than forcing copy=True normalization"
+                ),
+                "compatibility_rationale": (
+                    "matches observable NetworkX semantics while keeping strict behavior-isomorphism"
+                ),
             }
         ],
         "compatibility_risks": [
             "input precedence drift",
             "relabel contract divergence",
+            "multigraph key collision drift",
         ],
         "optimization_lever": "single-allocation conversion pipeline",
     },
@@ -408,12 +1493,10 @@ def artifact_paths_for(packet_id: str) -> dict[str, str]:
     }
 
 
-def write_packet_artifacts(spec: dict[str, Any]) -> None:
-    packet_id = spec["packet_id"]
-    packet_path = packet_dir(packet_id)
-    paths = artifact_paths_for(packet_id)
-
-    legacy_anchor = f"""# Legacy Anchor Map
+def render_legacy_anchor_markdown(spec: dict[str, Any], packet_id: str) -> str:
+    regions = spec.get("legacy_anchor_regions", [])
+    if not regions:
+        return f"""# Legacy Anchor Map
 
 ## Legacy Scope
 - packet id: {packet_id}
@@ -422,11 +1505,11 @@ def write_packet_artifacts(spec: dict[str, Any]) -> None:
 
 ## Anchor Map
 """ + "\n".join(
-        [
-            f"- path: {path}\n  - lines: extracted during clean-room analysis pass\n  - behavior: deterministic observable contract for {spec['subsystem'].lower()}"
-            for path in spec["legacy_paths"]
-        ]
-    ) + f"""
+            [
+                f"- path: {path}\n  - lines: extracted during clean-room analysis pass\n  - behavior: deterministic observable contract for {spec['subsystem'].lower()}"
+                for path in spec["legacy_paths"]
+            ]
+        ) + f"""
 
 ## Behavior Notes
 - deterministic constraints: {"; ".join(spec["deterministic_constraints"])}
@@ -436,9 +1519,81 @@ def write_packet_artifacts(spec: dict[str, Any]) -> None:
 - risk level: {spec["risk_tier"]}
 - rationale: {spec["extra_gate"]} is required to guard compatibility-sensitive behavior.
 """
-    text_dump(packet_path / "legacy_anchor_map.md", legacy_anchor)
 
-    contract_table = f"""# Contract Table
+    anchor_lines = []
+    crosswalk_rows = []
+    for region in regions:
+        refs = [
+            f"{ref['path']}:{ref['start_line']}-{ref['end_line']}"
+            for ref in region.get("anchor_refs", [])
+        ]
+        anchors = "; ".join(refs)
+        symbols = ", ".join(region.get("symbols", []))
+        contracts = "; ".join(region.get("downstream_contract_rows", []))
+        tests = "; ".join(region.get("planned_oracle_tests", []))
+        anchor_lines.append(
+            "\n".join(
+                [
+                    f"- region: {region['region_id']}",
+                    f"  - pathway: {region['pathway']}",
+                    f"  - source anchors: {anchors}",
+                    f"  - symbols: {symbols}",
+                    f"  - behavior note: {region['behavior_note']}",
+                    f"  - compatibility policy: {region['compatibility_policy']}",
+                    f"  - downstream contract rows: {contracts}",
+                    f"  - planned oracle tests: {tests}",
+                ]
+            )
+        )
+        crosswalk_rows.append(
+            f"| {region['region_id']} | {region['pathway']} | {contracts} | {tests} |"
+        )
+
+    ambiguity_rows = "\n".join(
+        [
+            (
+                f"- legacy ambiguity: {item['legacy_region']}\n"
+                f"  - policy decision: {item['policy_decision']}\n"
+                f"  - rationale: {item['compatibility_rationale']}"
+            )
+            for item in spec.get("ambiguities", [])
+        ]
+    )
+    if not ambiguity_rows:
+        ambiguity_rows = "- legacy ambiguity: none documented"
+
+    return f"""# Legacy Anchor Map
+
+## Legacy Scope
+- packet id: {packet_id}
+- subsystem: {spec["subsystem"]}
+- legacy module paths: {", ".join(spec["legacy_paths"])}
+- legacy symbols: {", ".join(spec["legacy_symbols"])}
+
+## Anchor Map
+{chr(10).join(anchor_lines)}
+
+## Behavior Notes
+- deterministic constraints: {"; ".join(spec["deterministic_constraints"])}
+- compatibility-sensitive edge cases: {"; ".join(spec["compatibility_risks"])}
+- ambiguity resolution:
+{ambiguity_rows}
+
+## Extraction Ledger Crosswalk
+| region id | pathway | downstream contract rows | planned oracle tests |
+|---|---|---|---|
+{chr(10).join(crosswalk_rows)}
+
+## Compatibility Risk
+- risk level: {spec["risk_tier"]}
+- rationale: {spec["extra_gate"]} is required to guard compatibility-sensitive behavior.
+"""
+
+
+def render_contract_table_markdown(spec: dict[str, Any], packet_id: str) -> str:
+    input_rows = spec.get("input_contract_rows", [])
+    if not input_rows:
+        return f"""# Contract Table
 
 ## Input Contract
 | input | type | constraints |
@@ -467,6 +1622,269 @@ def write_packet_artifacts(spec: dict[str, Any]) -> None:
 - tie-break policy: lexical canonical ordering for equal-priority outcomes.
 - ordering policy: stable traversal and output ordering under identical inputs/seeds.
 """
+
+    input_lines = "\n".join(
+        [
+            (
+                f"| {row['row_id']} | {row['api_behavior']} | {row['preconditions']} | "
+                f"{row['strict_policy']} | {row['hardened_policy']} | "
+                f"{'; '.join(row['anchor_regions'])} | {'; '.join(row['validation_refs'])} |"
+            )
+            for row in input_rows
+        ]
+    )
+    output_lines = "\n".join(
+        [
+            (
+                f"| {row['row_id']} | {row['output_behavior']} | {row['postconditions']} | "
+                f"{row['strict_policy']} | {row['hardened_policy']} | "
+                f"{'; '.join(row['anchor_regions'])} | {'; '.join(row['validation_refs'])} |"
+            )
+            for row in spec.get("output_contract_rows", [])
+        ]
+    )
+    error_lines = "\n".join(
+        [
+            (
+                f"| {row['row_id']} | {row['trigger']} | {row['strict_behavior']} | "
+                f"{row['hardened_behavior']} | {row['allowlisted_divergence_category']} | "
+                f"{'; '.join(row['anchor_regions'])} | {'; '.join(row['validation_refs'])} |"
+            )
+            for row in spec.get("error_contract_rows", [])
+        ]
+    )
+    determinism_lines = "\n".join(
+        [
+            (
+                f"| {row['row_id']} | {row['commitment']} | {row['tie_break_rule']} | "
+                f"{'; '.join(row['anchor_regions'])} | {'; '.join(row['validation_refs'])} |"
+            )
+            for row in spec.get("determinism_rows", [])
+        ]
+    )
+    invariant_lines = "\n".join(
+        [
+            (
+                f"| {row['row_id']} | {row['precondition']} | {row['postcondition']} | "
+                f"{row['preservation_obligation']} | {'; '.join(row['anchor_regions'])} | "
+                f"{'; '.join(row['validation_refs'])} |"
+            )
+            for row in spec.get("invariant_rows", [])
+        ]
+    )
+    hardened_categories = "; ".join(spec.get("hardened_allowlisted_categories", [])) or "none"
+    strict_divergence_note = spec.get(
+        "strict_divergence_note",
+        "strict: fail-closed for unknown backend/features/metadata paths and zero mismatch budget for route identity.",
+    )
+    hardened_divergence_note = spec.get(
+        "hardened_divergence_note",
+        f"hardened: divergence allowed only in allowlisted categories: {hardened_categories}.",
+    )
+    unknown_incompatibility_note = spec.get(
+        "unknown_incompatibility_note",
+        (
+            "unknown incompatible features/metadata paths: fail-closed unless allowlist "
+            "category + deterministic audit evidence is present."
+        ),
+    )
+    module_rows = spec.get("module_boundary_rows", [])
+    sequence_rows = spec.get("implementation_sequence_rows", [])
+    verification_rows = spec.get("verification_entrypoint_rows", [])
+
+    module_section = ""
+    if module_rows:
+        module_lines = "\n".join(
+            [
+                (
+                    f"| {row['boundary_id']} | {row['crate']} | {row['module_path']} | {row['public_seam']} | "
+                    f"{row['internal_ownership']} | {row['legacy_compat_surface']} | "
+                    f"{'; '.join(row['threat_boundary_refs'])} | {row['compile_check']} | "
+                    f"{row['parallel_owner_scope']} |"
+                )
+                for row in module_rows
+            ]
+        )
+        module_section = f"""
+
+## Rust Module Boundary Skeleton
+| boundary id | crate | module path | public seam | internal ownership | legacy compatibility surface | threat boundary refs | compile-check proof | parallel contributor scope |
+|---|---|---|---|---|---|---|---|---|
+{module_lines}
+"""
+
+    sequence_section = ""
+    if sequence_rows:
+        sequence_lines = "\n".join(
+            [
+                (
+                    f"| {row['checkpoint_id']} | {row['order']} | {('; '.join(row['depends_on']) or 'none')} | "
+                    f"{row['objective']} | {('; '.join(row['modules_touched']))} | "
+                    f"{('; '.join(row['verification_entrypoints']))} | "
+                    f"{('; '.join(row['structured_log_hooks']))} | {row['risk_checkpoint']} |"
+                )
+                for row in sequence_rows
+            ]
+        )
+        sequence_section = f"""
+
+## Dependency-Aware Implementation Sequence
+| checkpoint id | order | depends on | objective | modules touched | verification entrypoints | structured logging hooks | risk checkpoint |
+|---|---|---|---|---|---|---|---|
+{sequence_lines}
+"""
+
+    verification_section = ""
+    if verification_rows:
+        verification_lines = "\n".join(
+            [
+                (
+                    f"| {row['stage']} | {row['harness']} | {row['structured_log_hook']} | "
+                    f"{'; '.join(row['replay_metadata_fields'])} | {row['failure_forensics_artifact']} |"
+                )
+                for row in verification_rows
+            ]
+        )
+        verification_section = f"""
+
+## Structured Logging + Verification Entry Points
+| stage | harness | structured log hook | replay metadata fields | failure forensics artifact |
+|---|---|---|---|---|
+{verification_lines}
+"""
+
+    base = f"""# Contract Table
+
+## Input Contract
+| row id | API/behavior | preconditions | strict policy | hardened policy | legacy anchor regions | required validations |
+|---|---|---|---|---|---|---|
+{input_lines}
+
+## Output Contract
+| row id | output behavior | postconditions | strict policy | hardened policy | legacy anchor regions | required validations |
+|---|---|---|---|---|---|---|
+{output_lines}
+
+## Error Contract
+| row id | trigger | strict behavior | hardened behavior | allowlisted divergence category | legacy anchor regions | required validations |
+|---|---|---|---|---|---|---|
+{error_lines}
+
+## Strict/Hardened Divergence
+- {strict_divergence_note}
+- {hardened_divergence_note}
+- {unknown_incompatibility_note}
+
+## Determinism Commitments
+| row id | commitment | tie-break rule | legacy anchor regions | required validations |
+|---|---|---|---|---|
+{determinism_lines}
+
+### Machine-Checkable Invariant Matrix
+| invariant id | precondition | postcondition | preservation obligation | legacy anchor regions | required validations |
+|---|---|---|---|---|---|
+{invariant_lines}
+"""
+    return base + module_section + sequence_section + verification_section
+
+
+def render_risk_note_markdown(spec: dict[str, Any], packet_id: str) -> str:
+    threat_rows = spec.get("threat_model_rows", [])
+    if not threat_rows:
+        return f"""# Risk Note
+
+## Risk Surface
+- parser/ingestion: malformed payloads for {spec["subsystem"].lower()}.
+- algorithmic denial vectors: adversarial graph shapes designed to trigger tail latency spikes.
+
+## Failure Modes
+- fail-closed triggers: unknown incompatible feature, contract-breaking malformed inputs.
+- degraded-mode triggers: bounded hardened-mode recovery only when allowlisted and auditable.
+
+## Mitigations
+- controls: deterministic compatibility policy, strict/hardened split, packet-specific gate `{spec["extra_gate"]}`.
+- tests: unit/property/differential/adversarial/e2e coverage linked through fixture IDs.
+
+## Residual Risk
+- unresolved risks: {"; ".join(spec["compatibility_risks"])}.
+- follow-up actions: expand fixture diversity and maintain drift gates as packet scope grows.
+"""
+
+    threat_lines = "\n".join(
+        [
+            (
+                f"| {row['threat_id']} | {row['threat_class']} | {row['strict_mode_response']} | "
+                f"{row['hardened_mode_response']} | {'; '.join(row['mitigations'])} | "
+                f"{row['evidence_artifact']} | {'; '.join(row['adversarial_fixture_hooks'])} | "
+                f"{'; '.join(row['crash_triage_taxonomy'])} | "
+                f"{'; '.join(row['hardened_allowlisted_categories'])} | {row['compatibility_boundary']} |"
+            )
+            for row in threat_rows
+        ]
+    )
+
+    boundary_rows = spec.get("compatibility_boundary_rows", [])
+    boundary_lines = "\n".join(
+        [
+            (
+                f"| {row['boundary_id']} | {row['strict_parity_obligation']} | "
+                f"{'; '.join(row['hardened_allowlisted_deviation_categories'])} | "
+                f"{row['fail_closed_default']} | {'; '.join(row['evidence_hooks'])} |"
+            )
+            for row in boundary_rows
+        ]
+    )
+    if not boundary_lines:
+        boundary_lines = "| none | none | none | fail_closed | none |"
+
+    hardened_categories = "; ".join(spec.get("hardened_allowlisted_categories", [])) or "none"
+
+    return f"""# Risk Note
+
+## Risk Surface
+- parser/ingestion: malformed payloads for {spec["subsystem"].lower()}.
+- algorithmic denial vectors: adversarial graph shapes designed to trigger tail latency spikes.
+- packet gate: `{spec["extra_gate"]}`.
+
+## Failure Modes
+- fail-closed triggers: unknown incompatible feature, unsupported backend/version paths, contract-breaking malformed inputs.
+- hardened degraded-mode triggers: allowlisted bounded controls only, with deterministic audit evidence.
+
+## Mitigations
+- controls: strict/hardened split, compatibility boundary matrix, and deterministic crash taxonomy.
+- evidence coupling: threat rows map directly to adversarial fixture hooks and packet validation gates.
+- policy: ad hoc hardened deviations are forbidden; unknown incompatible feature paths fail closed.
+
+## Packet Threat Matrix
+| threat id | threat class | strict mode response | hardened mode response | mitigations | evidence artifact | adversarial fixture / fuzz entrypoint | crash triage taxonomy | hardened allowlisted categories | compatibility boundary |
+|---|---|---|---|---|---|---|---|---|---|
+{threat_lines}
+
+## Compatibility Boundary Matrix
+| boundary id | strict parity obligation | hardened allowlisted deviation categories | fail-closed default | evidence hooks |
+|---|---|---|---|---|
+{boundary_lines}
+
+## Hardened Deviation Guardrails
+- allowlisted categories only: {hardened_categories}.
+- ad hoc hardened deviations: forbidden.
+- unknown incompatible feature policy: fail_closed.
+
+## Residual Risk
+- unresolved risks: {"; ".join(spec["compatibility_risks"])}.
+- follow-up actions: expand adversarial fixture diversity and keep crash triage mappings deterministic.
+"""
+
+
+def write_packet_artifacts(spec: dict[str, Any]) -> None:
+    packet_id = spec["packet_id"]
+    packet_path = packet_dir(packet_id)
+    paths = artifact_paths_for(packet_id)
+
+    legacy_anchor = render_legacy_anchor_markdown(spec, packet_id)
+    text_dump(packet_path / "legacy_anchor_map.md", legacy_anchor)
+
+    contract_table = render_contract_table_markdown(spec, packet_id)
     text_dump(packet_path / "contract_table.md", contract_table)
 
     fixture_manifest = {
@@ -500,6 +1918,30 @@ def write_packet_artifacts(spec: dict[str, Any]) -> None:
         "compatibility_risks": spec["compatibility_risks"],
         "raptorq_artifacts": paths,
     }
+    if spec.get("module_boundary_rows"):
+        fixture_manifest["module_boundary_skeleton"] = spec["module_boundary_rows"]
+    if spec.get("implementation_sequence_rows"):
+        fixture_manifest["implementation_sequence"] = spec["implementation_sequence_rows"]
+    if spec.get("verification_entrypoint_rows"):
+        fixture_manifest["verification_entrypoints"] = spec["verification_entrypoint_rows"]
+    if spec.get("hardened_allowlisted_categories"):
+        fixture_manifest["hardened_allowlisted_categories"] = spec["hardened_allowlisted_categories"]
+    if spec.get("strict_divergence_note"):
+        fixture_manifest["strict_divergence_note"] = spec["strict_divergence_note"]
+    if spec.get("hardened_divergence_note"):
+        fixture_manifest["hardened_divergence_note"] = spec["hardened_divergence_note"]
+    if spec.get("unknown_incompatibility_note"):
+        fixture_manifest["unknown_incompatibility_note"] = spec["unknown_incompatibility_note"]
+    if spec.get("input_contract_rows"):
+        fixture_manifest["input_contract_rows"] = spec["input_contract_rows"]
+    if spec.get("output_contract_rows"):
+        fixture_manifest["output_contract_rows"] = spec["output_contract_rows"]
+    if spec.get("error_contract_rows"):
+        fixture_manifest["error_contract_rows"] = spec["error_contract_rows"]
+    if spec.get("determinism_rows"):
+        fixture_manifest["determinism_rows"] = spec["determinism_rows"]
+    if spec.get("invariant_rows"):
+        fixture_manifest["invariant_rows"] = spec["invariant_rows"]
     json_dump(packet_path / "fixture_manifest.json", fixture_manifest)
 
     parity_gate = f"""schema_version: "{SCHEMA_VERSION}"
@@ -524,24 +1966,7 @@ pass_criteria:
 """
     text_dump(packet_path / "parity_gate.yaml", parity_gate)
 
-    risk_note = f"""# Risk Note
-
-## Risk Surface
-- parser/ingestion: malformed payloads for {spec["subsystem"].lower()}.
-- algorithmic denial vectors: adversarial graph shapes designed to trigger tail latency spikes.
-
-## Failure Modes
-- fail-closed triggers: unknown incompatible feature, contract-breaking malformed inputs.
-- degraded-mode triggers: bounded hardened-mode recovery only when allowlisted and auditable.
-
-## Mitigations
-- controls: deterministic compatibility policy, strict/hardened split, packet-specific gate `{spec["extra_gate"]}`.
-- tests: unit/property/differential/adversarial/e2e coverage linked through fixture IDs.
-
-## Residual Risk
-- unresolved risks: {"; ".join(spec["compatibility_risks"])}.
-- follow-up actions: expand fixture diversity and maintain drift gates as packet scope grows.
-"""
+    risk_note = render_risk_note_markdown(spec, packet_id)
     text_dump(packet_path / "risk_note.md", risk_note)
 
     parity_report = {
@@ -640,7 +2065,23 @@ def build_topology(specs: list[dict[str, Any]]) -> dict[str, Any]:
 
 def build_essence_packet_entry(spec: dict[str, Any]) -> dict[str, Any]:
     paths = artifact_paths_for(spec["packet_id"])
-    return {
+    behavior_region_map = [
+        {
+            "region_id": region["region_id"],
+            "pathway": region["pathway"],
+            "legacy_anchor_refs": [
+                f"{ref['path']}:{ref['start_line']}-{ref['end_line']}"
+                for ref in region.get("anchor_refs", [])
+            ],
+            "symbols": region.get("symbols", []),
+            "behavior_note": region.get("behavior_note", ""),
+            "compatibility_policy": region.get("compatibility_policy", ""),
+            "downstream_contract_rows": region.get("downstream_contract_rows", []),
+            "planned_oracle_tests": region.get("planned_oracle_tests", []),
+        }
+        for region in spec.get("legacy_anchor_regions", [])
+    ]
+    entry = {
         "packet_id": spec["packet_id"],
         "legacy_paths": spec["legacy_paths"],
         "legacy_symbols": spec["legacy_symbols"],
@@ -672,6 +2113,7 @@ def build_essence_packet_entry(spec: dict[str, Any]) -> dict[str, Any]:
             "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json",
         ],
         "compatibility_risks": spec["compatibility_risks"],
+        "behavior_region_map": behavior_region_map,
         "raptorq_artifacts": paths,
         "invariants": [
             {
@@ -720,6 +2162,19 @@ def build_essence_packet_entry(spec: dict[str, Any]) -> dict[str, Any]:
             "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json",
         ],
     }
+
+    if spec.get("threat_model_rows"):
+        entry["packet_boundary_threat_matrix"] = spec["threat_model_rows"]
+    if spec.get("compatibility_boundary_rows"):
+        entry["compatibility_boundary_matrix"] = spec["compatibility_boundary_rows"]
+    if spec.get("module_boundary_rows"):
+        entry["module_boundary_skeleton"] = spec["module_boundary_rows"]
+    if spec.get("implementation_sequence_rows"):
+        entry["implementation_sequence"] = spec["implementation_sequence_rows"]
+    if spec.get("verification_entrypoint_rows"):
+        entry["verification_entrypoints"] = spec["verification_entrypoint_rows"]
+
+    return entry
 
 
 def build_essence_ledger(specs: list[dict[str, Any]]) -> dict[str, Any]:

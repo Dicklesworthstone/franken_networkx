@@ -7,14 +7,19 @@
   "oracle_source": "legacy_networkx",
   "generated_at_utc": "2026-02-14T06:40:00Z",
   "legacy_paths": [
-    "networkx/convert.py"
+    "networkx/convert.py",
+    "networkx/relabel.py",
+    "networkx/tests/test_convert.py",
+    "networkx/tests/test_relabel.py"
   ],
   "legacy_symbols": [
     "to_networkx_graph",
     "from_dict_of_lists",
     "to_dict_of_dicts",
     "from_dict_of_dicts",
-    "from_edgelist"
+    "from_edgelist",
+    "relabel_nodes",
+    "convert_node_labels_to_integers"
   ],
   "graph_mutation_contract": "Primary graph mutation invariants enforced when packet touches graph state.",
   "view_cache_contract": "View cache coherence must remain deterministic and revision-safe.",
@@ -28,7 +33,8 @@
     "unsafe non-clean-room implementation techniques"
   ],
   "oracle_tests": [
-    "networkx/tests/test_convert.py"
+    "networkx/tests/test_convert.py",
+    "networkx/tests/test_relabel.py"
   ],
   "performance_sentinels": [
     "artifacts/perf/BASELINE_BFS_V1.md",
@@ -36,7 +42,8 @@
   ],
   "compatibility_risks": [
     "input precedence drift",
-    "relabel contract divergence"
+    "relabel contract divergence",
+    "multigraph key collision drift"
   ],
   "raptorq_artifacts": {
     "legacy_anchor_map": "artifacts/phase2c/FNX-P2C-004/legacy_anchor_map.md",
@@ -47,5 +54,251 @@
     "parity_report": "artifacts/phase2c/FNX-P2C-004/parity_report.json",
     "raptorq_sidecar": "artifacts/phase2c/FNX-P2C-004/parity_report.raptorq.json",
     "decode_proof": "artifacts/phase2c/FNX-P2C-004/parity_report.decode_proof.json"
-  }
+  },
+  "hardened_allowlisted_categories": [
+    "bounded_diagnostic_enrichment",
+    "bounded_attribute_coercion_with_audit",
+    "bounded_relabel_collision_rekey_with_audit",
+    "quarantine_of_unsupported_metadata"
+  ],
+  "strict_divergence_note": "strict: fail-closed on unknown incompatible input/metadata paths with zero mismatch budget for conversion and relabel outputs",
+  "hardened_divergence_note": "hardened: divergence allowed only in allowlisted categories with deterministic audit evidence and explicit compatibility boundary traces",
+  "unknown_incompatibility_note": "unknown incompatible feature/metadata paths fail closed unless an allowlisted category + deterministic audit evidence is present",
+  "input_contract_rows": [
+    {
+      "row_id": "P2C004-IC-1",
+      "api_behavior": "to_networkx_graph input-form dispatch precedence",
+      "preconditions": "input candidate may satisfy multiple adapters (graph/dict/collection); legacy branch evaluation order is fixed",
+      "strict_policy": "evaluate conversion branches in legacy order and fail closed when branch validation fails",
+      "hardened_policy": "preserve branch order; allow only bounded diagnostic enrichment before fail-closed exit",
+      "anchor_regions": [
+        "P2C004-R1",
+        "P2C004-R3"
+      ],
+      "validation_refs": [
+        "networkx/tests/test_convert.py:19-44",
+        "networkx/tests/test_convert.py:45-69",
+        "networkx/tests/test_convert.py:318-321"
+      ]
+    },
+    {
+      "row_id": "P2C004-IC-2",
+      "api_behavior": "dict-of-lists/dicts conversion and multigraph_input semantics",
+      "preconditions": "dict payload shape, create_using graph kind, and multigraph_input flag are explicit",
+      "strict_policy": "preserve undirected seen-edge dedupe and edge_data overwrite semantics exactly",
+      "hardened_policy": "same defaults; bounded attribute coercion allowed only under allowlisted audited paths",
+      "anchor_regions": [
+        "P2C004-R2",
+        "P2C004-R3"
+      ],
+      "validation_refs": [
+        "networkx/tests/test_convert.py:102-133",
+        "networkx/tests/test_convert.py:134-210",
+        "networkx/tests/test_convert.py:292-315"
+      ]
+    },
+    {
+      "row_id": "P2C004-IC-3",
+      "api_behavior": "relabel mapping and copy-mode semantics",
+      "preconditions": "mapping is callable/mapping and copy flag is explicit",
+      "strict_policy": "copy=False follows topological/insertion ordering semantics; unresolved cycles fail closed",
+      "hardened_policy": "same ordering semantics; diagnostics may be enriched but no implicit copy-mode rewrite",
+      "anchor_regions": [
+        "P2C004-R4",
+        "P2C004-R5"
+      ],
+      "validation_refs": [
+        "networkx/tests/test_relabel.py:91-140",
+        "networkx/tests/test_relabel.py:188-207",
+        "networkx/tests/test_relabel.py:312-349"
+      ]
+    }
+  ],
+  "output_contract_rows": [
+    {
+      "row_id": "P2C004-OC-1",
+      "output_behavior": "conversion output graph class and edge payload shape",
+      "postconditions": "node/edge membership and edge-data projection match legacy semantics for selected branch",
+      "strict_policy": "zero mismatch budget for conversion output drift",
+      "hardened_policy": "same output contract unless bounded attribute-coercion category is allowlisted and audited",
+      "anchor_regions": [
+        "P2C004-R1",
+        "P2C004-R2"
+      ],
+      "validation_refs": [
+        "networkx/tests/test_convert.py:102-133",
+        "networkx/tests/test_convert.py:134-210"
+      ]
+    },
+    {
+      "row_id": "P2C004-OC-2",
+      "output_behavior": "relabel output ordering and attribute preservation",
+      "postconditions": "node/edge attributes remain preserved and ordering semantics follow copy/order mode contract",
+      "strict_policy": "no hidden reordering beyond documented legacy behavior",
+      "hardened_policy": "same output contract with deterministic audit envelopes for allowlisted deviations",
+      "anchor_regions": [
+        "P2C004-R4",
+        "P2C004-R5"
+      ],
+      "validation_refs": [
+        "networkx/tests/test_relabel.py:91-140",
+        "networkx/tests/test_relabel.py:319-349"
+      ]
+    },
+    {
+      "row_id": "P2C004-OC-3",
+      "output_behavior": "convert_node_labels_to_integers label_attribute mapping",
+      "postconditions": "integer label assignment and optional reverse-label attribute mapping are deterministic",
+      "strict_policy": "ordering selector fully determines label mapping",
+      "hardened_policy": "same mapping contract; only bounded diagnostics are allowlisted",
+      "anchor_regions": [
+        "P2C004-R4"
+      ],
+      "validation_refs": [
+        "networkx/tests/test_relabel.py:9-90"
+      ]
+    }
+  ],
+  "error_contract_rows": [
+    {
+      "row_id": "P2C004-EC-1",
+      "trigger": "unknown or malformed to_networkx_graph input type",
+      "strict_behavior": "raise NetworkXError/TypeError per legacy branch semantics (fail-closed)",
+      "hardened_behavior": "same fail-closed default; attach deterministic diagnostics only",
+      "allowlisted_divergence_category": "bounded_diagnostic_enrichment",
+      "anchor_regions": [
+        "P2C004-R3"
+      ],
+      "validation_refs": [
+        "networkx/tests/test_convert.py:45-69",
+        "networkx/tests/test_convert.py:318-321"
+      ]
+    },
+    {
+      "row_id": "P2C004-EC-2",
+      "trigger": "relabel copy=False circular overlap without topological ordering",
+      "strict_behavior": "raise NetworkXUnfeasible and preserve source graph state",
+      "hardened_behavior": "same exception path; no implicit copy=True fallback",
+      "allowlisted_divergence_category": "none",
+      "anchor_regions": [
+        "P2C004-R5"
+      ],
+      "validation_refs": [
+        "networkx/tests/test_relabel.py:312-317"
+      ]
+    },
+    {
+      "row_id": "P2C004-EC-3",
+      "trigger": "multigraph relabel key collision during merge",
+      "strict_behavior": "deterministically re-key to lowest available non-negative integer when collisions occur",
+      "hardened_behavior": "same deterministic re-key; bounded collision diagnostics are allowlisted",
+      "allowlisted_divergence_category": "bounded_relabel_collision_rekey_with_audit",
+      "anchor_regions": [
+        "P2C004-R5"
+      ],
+      "validation_refs": [
+        "networkx/tests/test_relabel.py:230-295",
+        "networkx/tests/test_relabel.py:296-310"
+      ]
+    },
+    {
+      "row_id": "P2C004-EC-4",
+      "trigger": "incompatible conversion metadata payload in strict mode",
+      "strict_behavior": "raise fail-closed conversion error and emit no repaired output",
+      "hardened_behavior": "quarantine unsupported metadata then fail closed if parity proof is absent",
+      "allowlisted_divergence_category": "quarantine_of_unsupported_metadata",
+      "anchor_regions": [
+        "P2C004-R2",
+        "P2C004-R3"
+      ],
+      "validation_refs": [
+        "networkx/tests/test_convert.py:134-210",
+        "networkx/tests/test_convert.py:45-69"
+      ]
+    }
+  ],
+  "determinism_rows": [
+    {
+      "row_id": "P2C004-DC-1",
+      "commitment": "input-form branch selection is deterministic",
+      "tie_break_rule": "legacy branch order is fixed: graph -> dict_of_dicts -> dict_of_lists -> edge-list -> adapters",
+      "anchor_regions": [
+        "P2C004-R1"
+      ],
+      "validation_refs": [
+        "networkx/tests/test_convert.py:19-44",
+        "networkx/tests/test_convert.py:45-69"
+      ]
+    },
+    {
+      "row_id": "P2C004-DC-2",
+      "commitment": "dict conversion undirected dedupe is deterministic",
+      "tie_break_rule": "first-seen orientation wins via explicit seen-set suppression",
+      "anchor_regions": [
+        "P2C004-R2"
+      ],
+      "validation_refs": [
+        "networkx/tests/test_convert.py:134-210"
+      ]
+    },
+    {
+      "row_id": "P2C004-DC-3",
+      "commitment": "relabel ordering is deterministic per copy/order mode",
+      "tie_break_rule": "copy=False uses topological/insertion order rules; convert_node_labels_to_integers honors declared ordering selector",
+      "anchor_regions": [
+        "P2C004-R4",
+        "P2C004-R5"
+      ],
+      "validation_refs": [
+        "networkx/tests/test_relabel.py:188-207",
+        "networkx/tests/test_relabel.py:319-349"
+      ]
+    }
+  ],
+  "invariant_rows": [
+    {
+      "row_id": "P2C004-IV-1",
+      "precondition": "create_using/multigraph_input are explicit with syntactically valid payloads",
+      "postcondition": "result graph preserves legacy-observable node/edge set and attribute projection",
+      "preservation_obligation": "strict mode forbids silent coercion that changes observable contract",
+      "anchor_regions": [
+        "P2C004-R1",
+        "P2C004-R2",
+        "P2C004-R3"
+      ],
+      "validation_refs": [
+        "unit::fnx-p2c-004::contract",
+        "differential::fnx-p2c-004::fixtures"
+      ]
+    },
+    {
+      "row_id": "P2C004-IV-2",
+      "precondition": "relabel mapping may overlap and merge endpoints",
+      "postcondition": "all intended edges are retained with deterministic key strategy and ordering semantics",
+      "preservation_obligation": "copy=False cycle conflicts must fail closed with NetworkXUnfeasible",
+      "anchor_regions": [
+        "P2C004-R4",
+        "P2C004-R5"
+      ],
+      "validation_refs": [
+        "networkx/tests/test_relabel.py:208-317",
+        "property::fnx-p2c-004::invariants"
+      ]
+    },
+    {
+      "row_id": "P2C004-IV-3",
+      "precondition": "strict/hardened mode and allowlist category are fixed for execution",
+      "postcondition": "strict and hardened outputs remain isomorphic unless explicit allowlisted divergence exists",
+      "preservation_obligation": "unknown incompatible features/metadata paths fail closed with replayable evidence",
+      "anchor_regions": [
+        "P2C004-R3",
+        "P2C004-R4",
+        "P2C004-R5"
+      ],
+      "validation_refs": [
+        "adversarial::fnx-p2c-004::malformed_inputs",
+        "e2e::fnx-p2c-004::golden_journey"
+      ]
+    }
+  ]
 }

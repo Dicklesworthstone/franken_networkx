@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "backlog_id": "phase2c-hotspot-one-lever-backlog-v1",
-  "generated_at_utc": "2026-02-17T07:38:52.300361+00:00",
+  "generated_at_utc": "2026-02-17T21:14:28.902642+00:00",
   "source_matrix_path": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
   "source_events_path": "artifacts/perf/phase2c/perf_baseline_matrix_events_v1.jsonl",
   "optimization_protocol": {
@@ -13,31 +13,6 @@
   "hotspot_profiles": [
     {
       "rank": 1,
-      "scenario_id": "line_15000_seed1337",
-      "topology": "line",
-      "size_bucket": "large",
-      "density_class": "ultra_sparse",
-      "node_count": 15000,
-      "edge_count_estimate": 14999,
-      "event_count": 5,
-      "latency_ms": {
-        "p50": 11208.963440032676,
-        "p95": 17438.01999494899,
-        "p99": 18658.295758129098
-      },
-      "memory_kb": {
-        "p50": 41092.0,
-        "p95": 41168.8,
-        "p99": 41177.76
-      },
-      "bottleneck_hypothesis": "queue preallocation with stable index reuse (remove growth-induced realloc churn)",
-      "evidence_refs": [
-        "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
-        "artifacts/perf/phase2c/perf_baseline_matrix_events_v1.jsonl"
-      ]
-    },
-    {
-      "rank": 2,
       "scenario_id": "complete_700_seed1337",
       "topology": "complete",
       "size_bucket": "small",
@@ -46,14 +21,14 @@
       "edge_count_estimate": 244650,
       "event_count": 5,
       "latency_ms": {
-        "p50": 10605.16336094588,
-        "p95": 10997.227982478216,
-        "p99": 11001.392658958212
+        "p50": 10519.93112906348,
+        "p95": 12298.124372540042,
+        "p99": 12636.889397641644
       },
       "memory_kb": {
-        "p50": 41120.0,
-        "p95": 42785.6,
-        "p99": 43117.12
+        "p50": 41132.0,
+        "p95": 43805.6,
+        "p99": 44140.32
       },
       "bottleneck_hypothesis": "bidirectional BFS early-stop policy for dense graphs (single lever: frontier meeting cutoff)",
       "evidence_refs": [
@@ -62,57 +37,7 @@
       ]
     },
     {
-      "rank": 3,
-      "scenario_id": "grid_80x80_seed1337",
-      "topology": "grid",
-      "size_bucket": "medium",
-      "density_class": "sparse_lattice",
-      "node_count": 6400,
-      "edge_count_estimate": 12640,
-      "event_count": 5,
-      "latency_ms": {
-        "p50": 10296.220922959037,
-        "p95": 10858.693314972334,
-        "p99": 10871.744238170795
-      },
-      "memory_kb": {
-        "p50": 41144.0,
-        "p95": 42972.8,
-        "p99": 43144.96
-      },
-      "bottleneck_hypothesis": "borrowed-neighbor frontier iteration (remove transient frontier clone materialization)",
-      "evidence_refs": [
-        "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
-        "artifacts/perf/phase2c/perf_baseline_matrix_events_v1.jsonl"
-      ]
-    },
-    {
-      "rank": 4,
-      "scenario_id": "star_15000_seed1337",
-      "topology": "star",
-      "size_bucket": "large",
-      "density_class": "hub_sparse",
-      "node_count": 15000,
-      "edge_count_estimate": 14999,
-      "event_count": 5,
-      "latency_ms": {
-        "p50": 9274.216133984737,
-        "p95": 9768.075997033156,
-        "p99": 9856.455425829627
-      },
-      "memory_kb": {
-        "p50": 39136.0,
-        "p95": 44071.2,
-        "p99": 44238.24
-      },
-      "bottleneck_hypothesis": "hub-degree short-circuit traversal path (single-pass hub expansion without extra frontier copy)",
-      "evidence_refs": [
-        "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
-        "artifacts/perf/phase2c/perf_baseline_matrix_events_v1.jsonl"
-      ]
-    },
-    {
-      "rank": 5,
+      "rank": 2,
       "scenario_id": "erdos_renyi_n2500_p001_seed1337",
       "topology": "erdos_renyi",
       "size_bucket": "medium",
@@ -121,16 +46,91 @@
       "edge_count_estimate": 33712,
       "event_count": 5,
       "latency_ms": {
-        "p50": 9102.852189913392,
-        "p95": 9347.991794184782,
-        "p99": 9390.429511633702
+        "p50": 9265.375185990706,
+        "p95": 9560.939273564145,
+        "p99": 9612.235563481227
       },
       "memory_kb": {
-        "p50": 41116.0,
-        "p95": 44002.4,
-        "p99": 44160.48
+        "p50": 41036.0,
+        "p95": 44454.4,
+        "p99": 45121.28
       },
       "bottleneck_hypothesis": "frontier bitmap de-duplication (single-pass membership marking to avoid repeated queue insertions)",
+      "evidence_refs": [
+        "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+        "artifacts/perf/phase2c/perf_baseline_matrix_events_v1.jsonl"
+      ]
+    },
+    {
+      "rank": 3,
+      "scenario_id": "star_15000_seed1337",
+      "topology": "star",
+      "size_bucket": "large",
+      "density_class": "hub_sparse",
+      "node_count": 15000,
+      "edge_count_estimate": 14999,
+      "event_count": 5,
+      "latency_ms": {
+        "p50": 9318.232564022765,
+        "p95": 9462.659557419829,
+        "p99": 9488.61039310228
+      },
+      "memory_kb": {
+        "p50": 42144.0,
+        "p95": 44896.8,
+        "p99": 45241.76
+      },
+      "bottleneck_hypothesis": "hub-degree short-circuit traversal path (single-pass hub expansion without extra frontier copy)",
+      "evidence_refs": [
+        "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+        "artifacts/perf/phase2c/perf_baseline_matrix_events_v1.jsonl"
+      ]
+    },
+    {
+      "rank": 4,
+      "scenario_id": "line_15000_seed1337",
+      "topology": "line",
+      "size_bucket": "large",
+      "density_class": "ultra_sparse",
+      "node_count": 15000,
+      "edge_count_estimate": 14999,
+      "event_count": 5,
+      "latency_ms": {
+        "p50": 9348.587444983423,
+        "p95": 9424.128087610006,
+        "p99": 9430.766866337508
+      },
+      "memory_kb": {
+        "p50": 41288.0,
+        "p95": 44624.0,
+        "p99": 45113.6
+      },
+      "bottleneck_hypothesis": "queue preallocation with stable index reuse (remove growth-induced realloc churn)",
+      "evidence_refs": [
+        "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+        "artifacts/perf/phase2c/perf_baseline_matrix_events_v1.jsonl"
+      ]
+    },
+    {
+      "rank": 5,
+      "scenario_id": "grid_80x80_seed1337",
+      "topology": "grid",
+      "size_bucket": "medium",
+      "density_class": "sparse_lattice",
+      "node_count": 6400,
+      "edge_count_estimate": 12640,
+      "event_count": 5,
+      "latency_ms": {
+        "p50": 9166.38209298253,
+        "p95": 9378.324544220231,
+        "p99": 9386.472490462475
+      },
+      "memory_kb": {
+        "p50": 42204.0,
+        "p95": 43209.6,
+        "p99": 43211.52
+      },
+      "bottleneck_hypothesis": "borrowed-neighbor frontier iteration (remove transient frontier clone materialization)",
       "evidence_refs": [
         "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
         "artifacts/perf/phase2c/perf_baseline_matrix_events_v1.jsonl"
@@ -141,9 +141,9 @@
     {
       "entry_id": "perf-one-lever-01",
       "rank": 1,
-      "target_scenario_id": "line_15000_seed1337",
-      "expected_value_score": 53.333,
-      "single_lever": "queue preallocation with stable index reuse (remove growth-induced realloc churn)",
+      "target_scenario_id": "complete_700_seed1337",
+      "expected_value_score": 39.234,
+      "single_lever": "bidirectional BFS early-stop policy for dense graphs (single lever: frontier meeting cutoff)",
       "lever_count": 1,
       "baseline_comparator": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
       "fallback_trigger": "rollback if p95 or p99 regresses by >5% versus baseline for 2 consecutive gate runs",
@@ -182,9 +182,9 @@
     {
       "entry_id": "perf-one-lever-02",
       "rank": 2,
-      "target_scenario_id": "complete_700_seed1337",
-      "expected_value_score": 34.523,
-      "single_lever": "bidirectional BFS early-stop policy for dense graphs (single lever: frontier meeting cutoff)",
+      "target_scenario_id": "erdos_renyi_n2500_p001_seed1337",
+      "expected_value_score": 30.812,
+      "single_lever": "frontier bitmap de-duplication (single-pass membership marking to avoid repeated queue insertions)",
       "lever_count": 1,
       "baseline_comparator": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
       "fallback_trigger": "rollback if p95 or p99 regresses by >5% versus baseline for 2 consecutive gate runs",
@@ -223,9 +223,9 @@
     {
       "entry_id": "perf-one-lever-03",
       "rank": 3,
-      "target_scenario_id": "grid_80x80_seed1337",
-      "expected_value_score": 34.19,
-      "single_lever": "borrowed-neighbor frontier iteration (remove transient frontier clone materialization)",
+      "target_scenario_id": "star_15000_seed1337",
+      "expected_value_score": 30.705,
+      "single_lever": "hub-degree short-circuit traversal path (single-pass hub expansion without extra frontier copy)",
       "lever_count": 1,
       "baseline_comparator": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
       "fallback_trigger": "rollback if p95 or p99 regresses by >5% versus baseline for 2 consecutive gate runs",
@@ -264,9 +264,9 @@
     {
       "entry_id": "perf-one-lever-04",
       "rank": 4,
-      "target_scenario_id": "star_15000_seed1337",
-      "expected_value_score": 31.293,
-      "single_lever": "hub-degree short-circuit traversal path (single-pass hub expansion without extra frontier copy)",
+      "target_scenario_id": "line_15000_seed1337",
+      "expected_value_score": 30.451,
+      "single_lever": "queue preallocation with stable index reuse (remove growth-induced realloc churn)",
       "lever_count": 1,
       "baseline_comparator": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
       "fallback_trigger": "rollback if p95 or p99 regresses by >5% versus baseline for 2 consecutive gate runs",
@@ -305,9 +305,9 @@
     {
       "entry_id": "perf-one-lever-05",
       "rank": 5,
-      "target_scenario_id": "erdos_renyi_n2500_p001_seed1337",
-      "expected_value_score": 29.915,
-      "single_lever": "frontier bitmap de-duplication (single-pass membership marking to avoid repeated queue insertions)",
+      "target_scenario_id": "grid_80x80_seed1337",
+      "expected_value_score": 29.64,
+      "single_lever": "borrowed-neighbor frontier iteration (remove transient frontier clone materialization)",
       "lever_count": 1,
       "baseline_comparator": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
       "fallback_trigger": "rollback if p95 or p99 regresses by >5% versus baseline for 2 consecutive gate runs",

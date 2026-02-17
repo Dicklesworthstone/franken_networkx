@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0.0",
   "artifact_id": "e2e-script-pack-determinism-report-v1",
-  "run_id": "e2e-script-pack-20260217T192145Z",
-  "generated_at_utc": "2026-02-17T19:26:46.815016+00:00",
+  "run_id": "e2e-script-pack-20260217T205938Z",
+  "generated_at_utc": "2026-02-17T21:05:25.287581+00:00",
   "gate_step_id": "step-1",
   "forensics_index_path": "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json",
   "retention_policy": {
@@ -18,6 +18,8 @@
     "happy_path",
     "view_neighbors_strict",
     "view_neighbors_hardened",
+    "dispatch_route_strict",
+    "dispatch_route_hardened",
     "edge_path",
     "malformed_input",
     "adversarial_soak",
@@ -30,6 +32,7 @@
   "required_packet_ids": [
     "FNX-P2C-001",
     "FNX-P2C-002",
+    "FNX-P2C-003",
     "FNX-P2C-005",
     "FNX-P2C-006",
     "FNX-P2C-008"
@@ -38,6 +41,7 @@
     "required_packet_ids": [
       "FNX-P2C-001",
       "FNX-P2C-002",
+      "FNX-P2C-003",
       "FNX-P2C-005",
       "FNX-P2C-006",
       "FNX-P2C-008"
@@ -45,6 +49,7 @@
     "observed_packet_ids": [
       "FNX-P2C-001",
       "FNX-P2C-002",
+      "FNX-P2C-003",
       "FNX-P2C-005",
       "FNX-P2C-006",
       "FNX-P2C-008"
@@ -52,7 +57,7 @@
     "missing_packet_ids": [],
     "coverage_ok": true
   },
-  "result_count": 22,
+  "result_count": 26,
   "status": "pass",
   "failures": [],
   "scenario_checks": [
@@ -82,6 +87,26 @@
       "bundle_id_pass_b": "e2e-bundle-f2e091333103f31d",
       "stable_fingerprint_pass_a": "3c3c3c77c53a3b9f",
       "stable_fingerprint_pass_b": "3c3c3c77c53a3b9f",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "dispatch_route_strict",
+      "bundle_id_pass_a": "e2e-bundle-61aaf4bb145189cc",
+      "bundle_id_pass_b": "e2e-bundle-61aaf4bb145189cc",
+      "stable_fingerprint_pass_a": "e843452eacfb9e13",
+      "stable_fingerprint_pass_b": "e843452eacfb9e13",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "dispatch_route_hardened",
+      "bundle_id_pass_a": "e2e-bundle-03b0c6b9dceb17d2",
+      "bundle_id_pass_b": "e2e-bundle-03b0c6b9dceb17d2",
+      "stable_fingerprint_pass_a": "0309e5aaa8e8355d",
+      "stable_fingerprint_pass_b": "0309e5aaa8e8355d",
       "bundle_id_match": true,
       "stable_fingerprint_match": true,
       "status_ok": true
@@ -199,6 +224,26 @@
       "bundle_manifest_path": "artifacts/e2e/latest/bundles/view_neighbors_hardened/baseline/bundle_manifest_v1.json"
     },
     {
+      "scenario_id": "dispatch_route_strict",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-003",
+      "bundle_id": "e2e-bundle-61aaf4bb145189cc",
+      "stable_fingerprint": "e843452eacfb9e13",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/dispatch_route_strict/baseline/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "dispatch_route_hardened",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-003",
+      "bundle_id": "e2e-bundle-03b0c6b9dceb17d2",
+      "stable_fingerprint": "0309e5aaa8e8355d",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/dispatch_route_hardened/baseline/bundle_manifest_v1.json"
+    },
+    {
       "scenario_id": "edge_path",
       "pass_label": "baseline",
       "status": "passed",
@@ -307,6 +352,26 @@
       "bundle_id": "e2e-bundle-f2e091333103f31d",
       "stable_fingerprint": "3c3c3c77c53a3b9f",
       "bundle_manifest_path": "artifacts/e2e/latest/bundles/view_neighbors_hardened/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "dispatch_route_strict",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-003",
+      "bundle_id": "e2e-bundle-61aaf4bb145189cc",
+      "stable_fingerprint": "e843452eacfb9e13",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/dispatch_route_strict/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "dispatch_route_hardened",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-003",
+      "bundle_id": "e2e-bundle-03b0c6b9dceb17d2",
+      "stable_fingerprint": "0309e5aaa8e8355d",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/dispatch_route_hardened/replay/bundle_manifest_v1.json"
     },
     {
       "scenario_id": "edge_path",

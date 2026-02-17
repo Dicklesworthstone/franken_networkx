@@ -785,6 +785,64 @@ pub struct StructuredTestLog {
 }
 
 impl StructuredTestLog {
+    fn require_non_empty_fixture_id(&self, context: &str) -> Result<(), String> {
+        if self
+            .fixture_id
+            .as_deref()
+            .is_none_or(|value| value.trim().is_empty())
+        {
+            return Err(format!(
+                "{context} requires fixture_id for deterministic replay"
+            ));
+        }
+        Ok(())
+    }
+
+    fn require_environment_key(&self, key: &str, context: &str) -> Result<(), String> {
+        if self
+            .environment
+            .get(key)
+            .is_none_or(|value| value.trim().is_empty())
+        {
+            return Err(format!(
+                "{context} missing required environment key `{key}`"
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_packet_003_replay_metadata(&self) -> Result<(), String> {
+        if self.packet_id != "FNX-P2C-003" {
+            return Ok(());
+        }
+
+        match self.test_id.as_str() {
+            "unit::fnx-p2c-003::contract" => {
+                let context = "packet-003 unit contract telemetry";
+                self.require_non_empty_fixture_id(context)?;
+                for key in ["route_id", "backend_name", "strict_mode"] {
+                    self.require_environment_key(key, context)?;
+                }
+            }
+            "property::fnx-p2c-003::invariants" => {
+                let context = "packet-003 property invariant telemetry";
+                self.require_non_empty_fixture_id(context)?;
+                if self.seed.is_none() {
+                    return Err(
+                        "packet-003 property invariant telemetry requires deterministic seed"
+                            .to_owned(),
+                    );
+                }
+                for key in ["graph_fingerprint", "cache_key_digest", "invariant_id"] {
+                    self.require_environment_key(key, context)?;
+                }
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version.trim().is_empty() {
             return Err("schema_version must be non-empty".to_owned());
@@ -877,6 +935,7 @@ impl StructuredTestLog {
         if bundle_index.replay_ref != self.replay_command {
             return Err("forensics_bundle_index.replay_ref must match replay_command".to_owned());
         }
+        self.validate_packet_003_replay_metadata()?;
 
         match self.status {
             TestStatus::Failed => {
@@ -1589,6 +1648,141 @@ mod tests {
             .validate()
             .expect_err("unsupported schema version should fail closed");
         assert!(err.contains("unsupported schema_version"));
+    }
+
+    #[test]
+    fn structured_test_log_packet_003_unit_contract_requires_route_metadata() {
+        let mut env = base_env();
+        env.insert("route_id".to_owned(), "dispatch::shortest_path".to_owned());
+        env.insert("backend_name".to_owned(), "alpha-backend".to_owned());
+        env.insert("strict_mode".to_owned(), "true".to_owned());
+
+        let replay = "rch exec -- cargo test -p fnx-dispatch unit_packet_003_contract_asserted -- --nocapture";
+        let log = StructuredTestLog {
+            schema_version: structured_test_log_schema_version().to_owned(),
+            run_id: "run-p2c003-unit".to_owned(),
+            ts_unix_ms: 1,
+            crate_name: "fnx-dispatch".to_owned(),
+            suite_id: "unit".to_owned(),
+            packet_id: "FNX-P2C-003".to_owned(),
+            test_name: "unit_packet_003_contract_asserted".to_owned(),
+            test_id: "unit::fnx-p2c-003::contract".to_owned(),
+            test_kind: TestKind::Unit,
+            mode: CompatibilityMode::Strict,
+            fixture_id: Some("dispatch::contract::strict".to_owned()),
+            seed: Some(7103),
+            env_fingerprint: canonical_environment_fingerprint(&env),
+            environment: env,
+            duration_ms: 3,
+            replay_command: replay.to_owned(),
+            artifact_refs: vec!["artifacts/conformance/latest/structured_logs.jsonl".to_owned()],
+            forensic_bundle_id: "forensics::dispatch::unit::contract".to_owned(),
+            hash_id: "sha256:p2c003-unit".to_owned(),
+            status: TestStatus::Passed,
+            reason_code: None,
+            failure_repro: None,
+            e2e_step_traces: Vec::new(),
+            forensics_bundle_index: Some(base_forensics_bundle(
+                "run-p2c003-unit",
+                "unit::fnx-p2c-003::contract",
+                replay,
+                "forensics::dispatch::unit::contract",
+                vec!["artifacts/conformance/latest/structured_logs.jsonl".to_owned()],
+            )),
+        };
+        log.validate()
+            .expect("packet-003 unit contract log should satisfy metadata schema");
+
+        let mut missing_backend = log.clone();
+        missing_backend.environment.remove("backend_name");
+        let err = missing_backend
+            .validate()
+            .expect_err("missing backend_name metadata must fail closed");
+        assert!(err.contains("backend_name"));
+
+        let mut missing_fixture = log;
+        missing_fixture.fixture_id = None;
+        let err = missing_fixture
+            .validate()
+            .expect_err("packet-003 unit contract should require fixture_id");
+        assert!(err.contains("fixture_id"));
+    }
+
+    #[test]
+    fn structured_test_log_packet_003_property_invariants_require_seed_and_digest() {
+        let mut env = base_env();
+        env.insert("graph_fingerprint".to_owned(), "graph-fp-003".to_owned());
+        env.insert("cache_key_digest".to_owned(), "cache-digest-003".to_owned());
+        env.insert("invariant_id".to_owned(), "P2C003-IV-1".to_owned());
+
+        let replay =
+            "rch exec -- cargo test -p fnx-dispatch property_packet_003_invariants -- --nocapture";
+        let log = StructuredTestLog {
+            schema_version: structured_test_log_schema_version().to_owned(),
+            run_id: "run-p2c003-property".to_owned(),
+            ts_unix_ms: 2,
+            crate_name: "fnx-dispatch".to_owned(),
+            suite_id: "property".to_owned(),
+            packet_id: "FNX-P2C-003".to_owned(),
+            test_name: "property_packet_003_invariants".to_owned(),
+            test_id: "property::fnx-p2c-003::invariants".to_owned(),
+            test_kind: TestKind::Property,
+            mode: CompatibilityMode::Hardened,
+            fixture_id: Some("dispatch::property::matrix".to_owned()),
+            seed: Some(7203),
+            env_fingerprint: canonical_environment_fingerprint(&env),
+            environment: env,
+            duration_ms: 9,
+            replay_command: replay.to_owned(),
+            artifact_refs: vec![
+                "artifacts/conformance/latest/structured_log_emitter_normalization_report.json"
+                    .to_owned(),
+            ],
+            forensic_bundle_id: "forensics::dispatch::property::invariants".to_owned(),
+            hash_id: "sha256:p2c003-property".to_owned(),
+            status: TestStatus::Failed,
+            reason_code: Some("mismatch".to_owned()),
+            failure_repro: Some(FailureReproData {
+                failure_message: "deterministic replay mismatch".to_owned(),
+                reproduction_command: replay.to_owned(),
+                expected_behavior: "replay-stable dispatch decision".to_owned(),
+                observed_behavior: "decision diverged".to_owned(),
+                seed: Some(7203),
+                fixture_id: Some("dispatch::property::matrix".to_owned()),
+                artifact_hash_id: Some("sha256:p2c003-property".to_owned()),
+                forensics_link: Some(
+                    "artifacts/conformance/latest/structured_log_emitter_normalization_report.json"
+                        .to_owned(),
+                ),
+            }),
+            e2e_step_traces: Vec::new(),
+            forensics_bundle_index: Some(base_forensics_bundle(
+                "run-p2c003-property",
+                "property::fnx-p2c-003::invariants",
+                replay,
+                "forensics::dispatch::property::invariants",
+                vec![
+                    "artifacts/conformance/latest/structured_log_emitter_normalization_report.json"
+                        .to_owned(),
+                ],
+            )),
+        };
+        log.validate()
+            .expect("packet-003 property log should satisfy metadata schema");
+
+        let mut missing_seed = log.clone();
+        missing_seed.seed = None;
+        let err = missing_seed
+            .validate()
+            .expect_err("packet-003 property log should require deterministic seed");
+        assert!(err.contains("deterministic seed"));
+
+        let mut missing_digest = log;
+        missing_digest.environment.remove("cache_key_digest");
+        let err = missing_digest
+            .validate()
+            .expect_err("packet-003 property log should require cache digest metadata");
+        assert!(err.contains("cache_key_digest"));
     }
 
     fn base_transfer_intent() -> AsupersyncTransferIntent {

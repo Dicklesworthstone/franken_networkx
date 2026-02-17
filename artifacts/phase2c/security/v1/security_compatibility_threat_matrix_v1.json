@@ -157,6 +157,17 @@
             "route signature validation",
             "adversarial backend fixtures"
           ],
+          "compatibility_boundary": "backend config parse boundary",
+          "adversarial_fixture_hooks": [
+            "dispatch_config_malformed_payload"
+          ],
+          "crash_triage_taxonomy": [
+            "dispatch.parse.malformed_payload",
+            "dispatch.parse.signature_mismatch"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment"
+          ],
           "evidence_artifact": "artifacts/phase2c/FNX-P2C-003/risk_note.md",
           "drift_gate": "dispatch-threat-gate"
         },
@@ -168,6 +179,18 @@
             "backend metadata allowlist",
             "deterministic route ranking",
             "route evidence ledger"
+          ],
+          "compatibility_boundary": "metadata normalization boundary",
+          "adversarial_fixture_hooks": [
+            "dispatch_conflicting_backend_metadata"
+          ],
+          "crash_triage_taxonomy": [
+            "dispatch.metadata.ambiguous_hint",
+            "dispatch.metadata.conflicting_source"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "quarantine_of_unsupported_metadata"
           ],
           "evidence_artifact": "artifacts/phase2c/FNX-P2C-003/risk_note.md",
           "drift_gate": "dispatch-threat-gate"
@@ -181,6 +204,17 @@
             "backend feature compatibility matrix",
             "upgrade gate checks"
           ],
+          "compatibility_boundary": "backend API version envelope boundary",
+          "adversarial_fixture_hooks": [
+            "dispatch_backend_api_version_skew"
+          ],
+          "crash_triage_taxonomy": [
+            "dispatch.version.unsupported_backend_api",
+            "dispatch.version.contract_mismatch"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment"
+          ],
           "evidence_artifact": "artifacts/phase2c/FNX-P2C-003/parity_gate.yaml",
           "drift_gate": "dispatch-threat-gate"
         },
@@ -192,6 +226,18 @@
             "dispatch budget caps",
             "timeout guards",
             "tail latency monitoring"
+          ],
+          "compatibility_boundary": "dispatch budget boundary",
+          "adversarial_fixture_hooks": [
+            "dispatch_route_fanout_exhaustion"
+          ],
+          "crash_triage_taxonomy": [
+            "dispatch.resource.route_fanout_exhaustion",
+            "dispatch.resource.budget_threshold_exceeded"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "bounded_resource_clamp"
           ],
           "evidence_artifact": "artifacts/phase2c/FNX-P2C-003/parity_gate.yaml",
           "drift_gate": "dispatch-threat-gate"
@@ -205,6 +251,17 @@
             "route state checksums",
             "cache rollback hooks"
           ],
+          "compatibility_boundary": "dispatch cache determinism boundary",
+          "adversarial_fixture_hooks": [
+            "dispatch_cache_state_break"
+          ],
+          "crash_triage_taxonomy": [
+            "dispatch.state.cache_invariant_break",
+            "dispatch.state.replay_mismatch"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment"
+          ],
           "evidence_artifact": "artifacts/phase2c/FNX-P2C-003/contract_table.md",
           "drift_gate": "dispatch-threat-gate"
         },
@@ -217,6 +274,18 @@
             "tie-break policy witness",
             "route drift tests"
           ],
+          "compatibility_boundary": "backend route priority boundary",
+          "adversarial_fixture_hooks": [
+            "dispatch_equal_priority_route_collision"
+          ],
+          "crash_triage_taxonomy": [
+            "dispatch.route.equal_precedence_collision",
+            "dispatch.route.fallback_audit_required"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "deterministic_backend_fallback_with_audit"
+          ],
           "evidence_artifact": "artifacts/phase2c/FNX-P2C-003/contract_table.md",
           "drift_gate": "dispatch-threat-gate"
         },
@@ -228,6 +297,17 @@
             "policy signature verification",
             "immutable enforcement toggle registry",
             "override injection adversarial fixtures"
+          ],
+          "compatibility_boundary": "policy enforcement boundary",
+          "adversarial_fixture_hooks": [
+            "dispatch_policy_override_injection"
+          ],
+          "crash_triage_taxonomy": [
+            "dispatch.policy.unauthorized_override",
+            "dispatch.policy.signature_verification_failed"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment"
           ],
           "evidence_artifact": "artifacts/phase2c/FNX-P2C-003/risk_note.md",
           "drift_gate": "dispatch-threat-gate"

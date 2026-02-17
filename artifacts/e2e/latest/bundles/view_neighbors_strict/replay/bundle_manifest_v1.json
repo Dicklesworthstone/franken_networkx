@@ -13,15 +13,15 @@
   "deterministic_seed": 4326461139333007120,
   "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/view_neighbors_strict.json --mode strict",
   "execution_metadata": {
-    "run_id": "e2e-script-pack-20260217T192145Z",
+    "run_id": "e2e-script-pack-20260217T205938Z",
     "pass_label": "replay",
     "gate_step_id": "step-1",
     "status": "passed",
     "reason_code": null,
-    "start_unix_ms": 1771356265880,
-    "end_unix_ms": 1771356274692,
-    "duration_ms": 8812,
-    "generated_at_utc": "2026-02-17T19:24:34.694124+00:00",
+    "start_unix_ms": 1771362164830,
+    "end_unix_ms": 1771362173995,
+    "duration_ms": 9165,
+    "generated_at_utc": "2026-02-17T21:02:53.997390+00:00",
     "forensics_source": "synthesized_fallback"
   },
   "forensics_links": {

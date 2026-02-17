@@ -61,10 +61,98 @@
       "packet_id": "FNX-P2C-003",
       "allowed_categories": [
         "bounded_diagnostic_enrichment",
+        "bounded_resource_clamp",
         "deterministic_backend_fallback_with_audit",
         "quarantine_of_unsupported_metadata"
       ],
-      "notes": "Dispatch hardened mode permits deterministic fallback only with explicit audit evidence."
+      "notes": "Dispatch hardened mode permits deterministic fallback only with explicit audit evidence.",
+      "fail_closed_default": "unknown_incompatible_feature",
+      "threat_taxonomy": [
+        "parser_abuse",
+        "metadata_ambiguity",
+        "version_skew",
+        "resource_exhaustion",
+        "state_corruption",
+        "backend_route_ambiguity",
+        "policy_bypass"
+      ],
+      "compatibility_boundary_matrix": [
+        {
+          "boundary_id": "P2C003-CB-1",
+          "strict_parity_obligation": "Backend override and selection remain deterministic and parity-preserving.",
+          "hardened_allowlisted_deviation_categories": [
+            "bounded_diagnostic_enrichment",
+            "deterministic_backend_fallback_with_audit"
+          ],
+          "fail_closed_default": "fail_closed_on_unknown_or_unsupported_backend",
+          "evidence_hooks": [
+            "networkx/utils/tests/test_backends.py:44-95",
+            "artifacts/phase2c/FNX-P2C-003/contract_table.md#input-contract"
+          ]
+        },
+        {
+          "boundary_id": "P2C003-CB-2",
+          "strict_parity_obligation": "Unsupported metadata never changes observable route identity.",
+          "hardened_allowlisted_deviation_categories": [
+            "bounded_diagnostic_enrichment",
+            "quarantine_of_unsupported_metadata"
+          ],
+          "fail_closed_default": "fail_closed_on_unproven_metadata_safety",
+          "evidence_hooks": [
+            "networkx/utils/tests/test_backends.py:135-160",
+            "artifacts/phase2c/FNX-P2C-003/risk_note.md#packet-threat-matrix"
+          ]
+        },
+        {
+          "boundary_id": "P2C003-CB-3",
+          "strict_parity_obligation": "Unsupported backend API envelopes are rejected with deterministic errors.",
+          "hardened_allowlisted_deviation_categories": [
+            "bounded_diagnostic_enrichment"
+          ],
+          "fail_closed_default": "fail_closed_on_version_skew",
+          "evidence_hooks": [
+            "networkx/utils/tests/test_config.py:120-170",
+            "artifacts/phase2c/FNX-P2C-003/parity_gate.yaml"
+          ]
+        },
+        {
+          "boundary_id": "P2C003-CB-4",
+          "strict_parity_obligation": "Dispatch search does not exceed strict complexity budgets.",
+          "hardened_allowlisted_deviation_categories": [
+            "bounded_diagnostic_enrichment",
+            "bounded_resource_clamp"
+          ],
+          "fail_closed_default": "fail_closed_when_budget_exhausted",
+          "evidence_hooks": [
+            "artifacts/phase2c/FNX-P2C-003/parity_gate.yaml",
+            "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+          ]
+        },
+        {
+          "boundary_id": "P2C003-CB-5",
+          "strict_parity_obligation": "Dispatch cache semantics remain deterministic and replayable.",
+          "hardened_allowlisted_deviation_categories": [
+            "bounded_diagnostic_enrichment"
+          ],
+          "fail_closed_default": "fail_closed_on_cache_invariant_break",
+          "evidence_hooks": [
+            "networkx/classes/tests/dispatch_interface.py:186-190",
+            "artifacts/phase2c/FNX-P2C-003/contract_table.md#machine-checkable-invariant-matrix"
+          ]
+        },
+        {
+          "boundary_id": "P2C003-CB-6",
+          "strict_parity_obligation": "Unknown incompatible feature paths fail closed with no implicit repair.",
+          "hardened_allowlisted_deviation_categories": [
+            "bounded_diagnostic_enrichment"
+          ],
+          "fail_closed_default": "fail_closed_on_unknown_incompatible_feature",
+          "evidence_hooks": [
+            "networkx/utils/tests/test_backends.py:162-168",
+            "artifacts/phase2c/FNX-P2C-003/risk_note.md#compatibility-boundary-matrix"
+          ]
+        }
+      ]
     },
     {
       "packet_id": "FNX-P2C-004",

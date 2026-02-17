@@ -13,5 +13,5 @@
 - tests: unit/property/differential/adversarial/e2e coverage linked through fixture IDs.
 
 ## Residual Risk
-- unresolved risks: input precedence drift; relabel contract divergence.
+- unresolved risks: input precedence drift; relabel contract divergence; multigraph key collision drift.
 - follow-up actions: expand fixture diversity and maintain drift gates as packet scope grows.

@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "report_id": "phase2c-isomorphism-harness-report-v1",
-  "generated_at_utc": "2026-02-17T07:39:43.516340+00:00",
+  "generated_at_utc": "2026-02-17T21:15:35.619029+00:00",
   "source_matrix_path": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
   "golden_signatures_path": "artifacts/perf/phase2c/isomorphism_golden_signatures_v1.json",
   "allowlist_path": "artifacts/perf/phase2c/isomorphism_divergence_allowlist_v1.json",

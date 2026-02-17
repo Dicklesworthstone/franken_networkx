@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
-  "run_id": "e2e-script-pack-20260217T192145Z",
-  "ts_unix_ms": 1771356292477,
+  "run_id": "e2e-script-pack-20260217T205938Z",
+  "ts_unix_ms": 1771362210280,
   "crate_name": "fnx-conformance",
   "suite_id": "smoke",
   "packet_id": "FNX-P2C-005",
@@ -36,10 +36,10 @@
   "e2e_step_traces": [],
   "forensics_bundle_index": {
     "bundle_id": "forensics::FNX-P2C-005::generated::centrality_closeness_strict.json",
-    "run_id": "e2e-script-pack-20260217T192145Z",
+    "run_id": "e2e-script-pack-20260217T205938Z",
     "test_id": "fixture::generated/centrality_closeness_strict.json",
     "bundle_hash_id": "54805d2e3fb9bea8",
-    "captured_unix_ms": 1771356292477,
+    "captured_unix_ms": 1771362210280,
     "replay_ref": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_closeness_strict.json --mode strict",
     "artifact_refs": [
       "artifacts/e2e/latest/bundles/edge_path/replay/smoke_report.json",

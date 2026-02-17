@@ -80,6 +80,46 @@ def validate_artifact(
     return errors
 
 
+def validate_packet_003_impl_plan(packet_path: Path) -> list[str]:
+    errors: list[str] = []
+
+    contract_path = packet_path / "contract_table.md"
+    if not contract_path.exists():
+        errors.append("missing packet-003 implementation skeleton source: contract_table.md")
+        return errors
+
+    contract_text = contract_path.read_text(encoding="utf-8")
+    for section in [
+        "Rust Module Boundary Skeleton",
+        "Dependency-Aware Implementation Sequence",
+        "Structured Logging + Verification Entry Points",
+    ]:
+        if not has_markdown_section(contract_text, section):
+            errors.append(f"missing packet-003 implementation section `{section}` in contract_table.md")
+
+    manifest_path = packet_path / "fixture_manifest.json"
+    if not manifest_path.exists():
+        errors.append("missing packet-003 implementation skeleton source: fixture_manifest.json")
+        return errors
+
+    try:
+        manifest = load_json(manifest_path)
+    except json.JSONDecodeError as err:
+        errors.append(f"invalid json in fixture_manifest.json: {err}")
+        return errors
+
+    for key in [
+        "module_boundary_skeleton",
+        "implementation_sequence",
+        "verification_entrypoints",
+    ]:
+        value = manifest.get(key)
+        if not isinstance(value, list) or not value:
+            errors.append(f"fixture_manifest.json missing non-empty packet-003 key `{key}`")
+
+    return errors
+
+
 def validate_topology_shape(topology: dict[str, Any], schema: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     req_top = set(schema["required_topology_keys"])
@@ -117,6 +157,9 @@ def validate_packets(topology: dict[str, Any], contract: dict[str, Any]) -> dict
                 packet_errors.append(f"unknown artifact key `{artifact_key}`")
                 continue
             packet_errors.extend(validate_artifact(packet_path, artifact_key, contract))
+
+        if packet_id == "FNX-P2C-003":
+            packet_errors.extend(validate_packet_003_impl_plan(packet_path))
 
         ready = not packet_errors
         if ready:

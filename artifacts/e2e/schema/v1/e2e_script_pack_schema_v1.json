@@ -5,6 +5,8 @@
     "happy_path",
     "view_neighbors_strict",
     "view_neighbors_hardened",
+    "dispatch_route_strict",
+    "dispatch_route_hardened",
     "edge_path",
     "malformed_input",
     "adversarial_soak",
@@ -21,6 +23,7 @@
   "required_packet_ids": [
     "FNX-P2C-001",
     "FNX-P2C-002",
+    "FNX-P2C-003",
     "FNX-P2C-005",
     "FNX-P2C-006",
     "FNX-P2C-008"

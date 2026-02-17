@@ -31,6 +31,26 @@ def ensure_list(value: Any, context: str, errors: list[str]) -> list[Any]:
     return []
 
 
+P2C003_MATRIX_EXTRA_KEYS = [
+    "compatibility_boundary",
+    "adversarial_fixture_hooks",
+    "crash_triage_taxonomy",
+    "hardened_allowlisted_categories",
+]
+P2C003_ALLOWLIST_EXTRA_KEYS = [
+    "compatibility_boundary_matrix",
+    "fail_closed_default",
+    "threat_taxonomy",
+]
+P2C003_BOUNDARY_ROW_KEYS = [
+    "boundary_id",
+    "strict_parity_obligation",
+    "hardened_allowlisted_deviation_categories",
+    "fail_closed_default",
+    "evidence_hooks",
+]
+
+
 def validate_matrix(
     contract: dict[str, Any],
     matrix: dict[str, Any],
@@ -54,6 +74,7 @@ def validate_matrix(
     all_threat_classes = set(contract["required_threat_classes"]) | set(
         contract["optional_threat_classes"]
     )
+    all_allowlist_categories = set(contract["hardened_deviation_allowlist_categories"])
     entry_required_keys = contract["matrix_entry_required_keys"]
     packet_required_keys = contract["matrix_packet_required_keys"]
 
@@ -108,6 +129,56 @@ def validate_matrix(
                 errors.append(
                     f"matrix packet `{packet_id}` threat `{threat_class}` strict response must state fail-closed behavior"
                 )
+
+            if packet_id == "FNX-P2C-003":
+                require_keys(
+                    entry,
+                    P2C003_MATRIX_EXTRA_KEYS,
+                    f"matrix packet `{packet_id}` threat `{threat_class}`",
+                    errors,
+                )
+                boundary = entry.get("compatibility_boundary")
+                if not isinstance(boundary, str) or not boundary.strip():
+                    errors.append(
+                        f"matrix packet `{packet_id}` threat `{threat_class}` compatibility_boundary must be non-empty string"
+                    )
+                hooks = ensure_list(
+                    entry.get("adversarial_fixture_hooks"),
+                    f"matrix packet `{packet_id}` threat `{threat_class}` adversarial_fixture_hooks",
+                    errors,
+                )
+                if not hooks:
+                    errors.append(
+                        f"matrix packet `{packet_id}` threat `{threat_class}` adversarial_fixture_hooks must be non-empty"
+                    )
+                triage = ensure_list(
+                    entry.get("crash_triage_taxonomy"),
+                    f"matrix packet `{packet_id}` threat `{threat_class}` crash_triage_taxonomy",
+                    errors,
+                )
+                if not triage:
+                    errors.append(
+                        f"matrix packet `{packet_id}` threat `{threat_class}` crash_triage_taxonomy must be non-empty"
+                    )
+                allowlisted_categories = ensure_list(
+                    entry.get("hardened_allowlisted_categories"),
+                    f"matrix packet `{packet_id}` threat `{threat_class}` hardened_allowlisted_categories",
+                    errors,
+                )
+                if not allowlisted_categories:
+                    errors.append(
+                        f"matrix packet `{packet_id}` threat `{threat_class}` hardened_allowlisted_categories must be non-empty"
+                    )
+                for category in allowlisted_categories:
+                    if not isinstance(category, str):
+                        errors.append(
+                            f"matrix packet `{packet_id}` threat `{threat_class}` hardened category `{category}` is not a string"
+                        )
+                        continue
+                    if category not in all_allowlist_categories:
+                        errors.append(
+                            f"matrix packet `{packet_id}` threat `{threat_class}` uses unknown hardened category `{category}`"
+                        )
 
         missing_required_classes = sorted(required_classes.difference(seen_classes))
         if missing_required_classes:
@@ -225,6 +296,99 @@ def validate_allowlist(
                 errors.append(
                     f"allowlist packet `{packet_id}` uses unknown category `{category}`"
                 )
+
+        if packet_id == "FNX-P2C-003":
+            require_keys(
+                row,
+                P2C003_ALLOWLIST_EXTRA_KEYS,
+                f"allowlist packet `{packet_id}`",
+                errors,
+            )
+            fail_closed_default = row.get("fail_closed_default")
+            if fail_closed_default != "unknown_incompatible_feature":
+                errors.append(
+                    f"allowlist packet `{packet_id}` fail_closed_default must be `unknown_incompatible_feature`"
+                )
+
+            threat_taxonomy = ensure_list(
+                row.get("threat_taxonomy"),
+                f"allowlist packet `{packet_id}` threat_taxonomy",
+                errors,
+            )
+            for threat_value in threat_taxonomy:
+                if not isinstance(threat_value, str):
+                    errors.append(
+                        f"allowlist packet `{packet_id}` threat_taxonomy value `{threat_value}` is not a string"
+                    )
+            for threat_class in contract["required_threat_classes"]:
+                if threat_class not in threat_taxonomy:
+                    errors.append(
+                        f"allowlist packet `{packet_id}` threat_taxonomy missing required class `{threat_class}`"
+                    )
+
+            boundary_rows = ensure_list(
+                row.get("compatibility_boundary_matrix"),
+                f"allowlist packet `{packet_id}` compatibility_boundary_matrix",
+                errors,
+            )
+            if not boundary_rows:
+                errors.append(
+                    f"allowlist packet `{packet_id}` compatibility_boundary_matrix must be non-empty"
+                )
+            boundary_ids_seen: set[str] = set()
+            for boundary_row in boundary_rows:
+                if not isinstance(boundary_row, dict):
+                    errors.append(
+                        f"allowlist packet `{packet_id}` compatibility boundary row must be an object"
+                    )
+                    continue
+                require_keys(
+                    boundary_row,
+                    P2C003_BOUNDARY_ROW_KEYS,
+                    f"allowlist packet `{packet_id}` compatibility boundary row",
+                    errors,
+                )
+                boundary_id = boundary_row.get("boundary_id")
+                if not isinstance(boundary_id, str) or not boundary_id:
+                    errors.append(
+                        f"allowlist packet `{packet_id}` compatibility boundary row has invalid boundary_id"
+                    )
+                elif boundary_id in boundary_ids_seen:
+                    errors.append(
+                        f"allowlist packet `{packet_id}` duplicates compatibility boundary_id `{boundary_id}`"
+                    )
+                else:
+                    boundary_ids_seen.add(boundary_id)
+
+                deviation_categories = ensure_list(
+                    boundary_row.get("hardened_allowlisted_deviation_categories"),
+                    f"allowlist packet `{packet_id}` boundary `{boundary_id}` hardened_allowlisted_deviation_categories",
+                    errors,
+                )
+                if not deviation_categories:
+                    errors.append(
+                        f"allowlist packet `{packet_id}` boundary `{boundary_id}` must include at least one hardened category"
+                    )
+                for category in deviation_categories:
+                    if not isinstance(category, str):
+                        errors.append(
+                            f"allowlist packet `{packet_id}` boundary `{boundary_id}` category `{category}` is not a string"
+                        )
+                        continue
+                    if category not in expected_categories:
+                        errors.append(
+                            f"allowlist packet `{packet_id}` boundary `{boundary_id}` uses unknown hardened category `{category}`"
+                        )
+
+                evidence_hooks = ensure_list(
+                    boundary_row.get("evidence_hooks"),
+                    f"allowlist packet `{packet_id}` boundary `{boundary_id}` evidence_hooks",
+                    errors,
+                )
+                if not evidence_hooks:
+                    errors.append(
+                        f"allowlist packet `{packet_id}` boundary `{boundary_id}` evidence_hooks must be non-empty"
+                    )
 
     missing_packets = sorted(required_packets.difference(packet_seen))
     extra_packets = sorted(packet_seen.difference(required_packets))
