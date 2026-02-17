@@ -13,15 +13,15 @@
   "deterministic_seed": 1017954080714268602,
   "replay_command": "rch exec -- cargo test -q -p fnx-runtime asupersync_adapter_checksum_mismatch_is_fail_closed_and_audited -- --exact --nocapture",
   "execution_metadata": {
-    "run_id": "e2e-script-pack-20260216T212220Z",
+    "run_id": "e2e-script-pack-20260217T072450Z",
     "pass_label": "baseline",
     "gate_step_id": "step-1",
     "status": "passed",
     "reason_code": null,
-    "start_unix_ms": 1771277016429,
-    "end_unix_ms": 1771277027434,
-    "duration_ms": 11005,
-    "generated_at_utc": "2026-02-16T21:23:47.435844+00:00",
+    "start_unix_ms": 1771313201254,
+    "end_unix_ms": 1771313215258,
+    "duration_ms": 14004,
+    "generated_at_utc": "2026-02-17T07:26:55.259920+00:00",
     "forensics_source": "synthesized_fallback"
   },
   "forensics_links": {

@@ -1,11 +1,18 @@
 {
+  "fixture_id": "generated/readwrite_hardened_malformed.json",
   "fixture_name": "generated/readwrite_hardened_malformed.json",
   "suite": "readwrite_v1",
   "mode": "hardened",
+  "seed": null,
+  "threat_class": null,
+  "replay_command": "rch exec -- CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened",
   "passed": true,
   "reason_code": null,
   "fixture_source_hash": "c9e3bdf7fab00534",
   "duration_ms": 0,
+  "strict_violation_count": 0,
+  "hardened_allowlisted_count": 0,
   "mismatches": [],
+  "mismatch_taxonomy": [],
   "witness": null
 }

@@ -98,7 +98,7 @@ run_step() {
   fi
 }
 
-TOTAL_STEPS=10
+TOTAL_STEPS=11
 STEP=1
 
 echo "[$STEP/$TOTAL_STEPS] Regenerating deterministic Phase2C packet artifacts..."
@@ -119,6 +119,10 @@ STEP=$((STEP + 1))
 
 echo "[$STEP/$TOTAL_STEPS] Running deterministic E2E script pack gate (includes asupersync recovery/fault scenarios)..."
 run_step "step-$STEP" "run_e2e_script_pack_gate" "bash ./scripts/run_e2e_script_pack_gate.sh"
+STEP=$((STEP + 1))
+
+echo "[$STEP/$TOTAL_STEPS] Running scenario matrix contract gate for workflow coverage evidence..."
+run_step "step-$STEP" "run_e2e_scenario_matrix_gate" "bash ./scripts/run_e2e_scenario_matrix_gate.sh"
 STEP=$((STEP + 1))
 
 echo "[$STEP/$TOTAL_STEPS] Running asupersync fault-injection contract gate..."

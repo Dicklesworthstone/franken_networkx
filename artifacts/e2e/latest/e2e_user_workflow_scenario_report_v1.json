@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "report_id": "e2e-user-workflow-scenario-report-v1",
-  "generated_at_utc": "2026-02-15T19:06:00+00:00",
+  "generated_at_utc": "2026-02-17T07:30:14.227780+00:00",
   "source_matrix_contract": "artifacts/e2e/v1/e2e_scenario_matrix_oracle_contract_v1.json",
   "source_matrix_report": "artifacts/e2e/latest/e2e_scenario_matrix_report_v1.json",
   "source_steps_log": "artifacts/e2e/latest/e2e_scenario_matrix_steps_v1.jsonl",

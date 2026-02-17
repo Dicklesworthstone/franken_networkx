@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "artifact_id": "e2e-scenario-matrix-oracle-contract-v1",
-  "generated_at_utc": "2026-02-16T04:47:19.477502+00:00",
+  "generated_at_utc": "2026-02-17T07:29:58.201073+00:00",
   "baseline_comparator": "legacy_networkx/main@python3.12",
   "journey_summary": {
     "journey_count": 10,

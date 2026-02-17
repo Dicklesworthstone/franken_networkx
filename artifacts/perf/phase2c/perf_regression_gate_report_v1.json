@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "report_id": "phase2c-perf-regression-gate-v1",
-  "generated_at_utc": "2026-02-15T03:44:21.022510+00:00",
+  "generated_at_utc": "2026-02-17T07:39:47.783434+00:00",
   "baseline_path": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
   "candidate_path": "artifacts/perf/latest/perf_baseline_matrix_v1.json",
   "hotspot_backlog_path": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
@@ -31,7 +31,7 @@
     },
     {
       "scenario_id": "line_15000_seed1337",
-      "critical_path": false,
+      "critical_path": true,
       "baseline_comparator": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
       "hotspot_ref": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
       "delta_pct": {
@@ -40,8 +40,8 @@
         "memory_p95_kb": 0.0
       },
       "threshold_pct": {
-        "latency_tail": 10.0,
-        "memory": 12.0
+        "latency_tail": 5.0,
+        "memory": 5.0
       },
       "regressed": false
     },
@@ -79,7 +79,7 @@
     },
     {
       "scenario_id": "erdos_renyi_n2500_p001_seed1337",
-      "critical_path": true,
+      "critical_path": false,
       "baseline_comparator": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
       "hotspot_ref": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
       "delta_pct": {
@@ -88,8 +88,8 @@
         "memory_p95_kb": 0.0
       },
       "threshold_pct": {
-        "latency_tail": 5.0,
-        "memory": 5.0
+        "latency_tail": 10.0,
+        "memory": 12.0
       },
       "regressed": false
     }

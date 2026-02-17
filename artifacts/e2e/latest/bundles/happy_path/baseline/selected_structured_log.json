@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
-  "run_id": "conformance-1771223884309-strict",
-  "ts_unix_ms": 1771223884461,
+  "run_id": "conformance-1771311862008-strict",
+  "ts_unix_ms": 1771311862009,
   "crate_name": "fnx-conformance",
   "suite_id": "smoke",
   "packet_id": "FNX-P2C-001",
@@ -13,13 +13,16 @@
   "seed": null,
   "environment": {
     "arch": "x86_64",
+    "fixture_id": "graph_core_shortest_path_strict.json",
+    "hardened_allowlisted_count": "0",
     "oracle_present": "true",
     "os": "linux",
-    "run_id": "conformance-1771223884309-strict",
+    "run_id": "conformance-1771311862008-strict",
     "strict_mode_default": "true",
+    "strict_violation_count": "0",
     "suite": "smoke"
   },
-  "env_fingerprint": "dbfe78f96c356b3c",
+  "env_fingerprint": "1db800568e9b6c24",
   "duration_ms": 0,
   "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture graph_core_shortest_path_strict.json --mode strict",
   "artifact_refs": [
@@ -29,17 +32,17 @@
     "artifacts/phase2c/FNX-P2C-001/parity_report.raptorq.json"
   ],
   "forensic_bundle_id": "forensics::FNX-P2C-001::graph_core_shortest_path_strict.json",
-  "hash_id": "4b476e286402b8ba",
+  "hash_id": "83291b6cb14ce7f5",
   "status": "passed",
   "reason_code": null,
   "failure_repro": null,
   "e2e_step_traces": [],
   "forensics_bundle_index": {
     "bundle_id": "forensics::FNX-P2C-001::graph_core_shortest_path_strict.json",
-    "run_id": "conformance-1771223884309-strict",
+    "run_id": "conformance-1771311862008-strict",
     "test_id": "fixture::graph_core_shortest_path_strict.json",
-    "bundle_hash_id": "9c67f73088edeaed",
-    "captured_unix_ms": 1771223884461,
+    "bundle_hash_id": "1259f05cde8b6d4f",
+    "captured_unix_ms": 1771311862009,
     "replay_ref": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture graph_core_shortest_path_strict.json --mode strict",
     "artifact_refs": [
       "/data/projects/franken_networkx/crates/fnx-conformance/../../artifacts/conformance/latest/smoke_report.json",

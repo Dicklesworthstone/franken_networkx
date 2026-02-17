@@ -7,8 +7,8 @@
   "errors": [],
   "summary": {
     "journey_count": 10,
-    "fixture_inventory_count": 16,
-    "covered_fixture_count": 16,
+    "fixture_inventory_count": 17,
+    "covered_fixture_count": 17,
     "uncovered_fixture_count": 0
   }
 }
