@@ -1,0 +1,36 @@
+{
+  "suite": "smoke",
+  "oracle_present": true,
+  "fixture_count": 1,
+  "strict_mode": true,
+  "mismatch_count": 0,
+  "hardened_allowlisted_count": 0,
+  "structured_log_count": 1,
+  "structured_log_path": "/data/projects/franken_networkx/crates/fnx-conformance/../../artifacts/conformance/latest/structured_logs.jsonl",
+  "fixture_reports": [
+    {
+      "fixture_id": "graph_core_shortest_path_strict.json",
+      "fixture_name": "graph_core_shortest_path_strict.json",
+      "suite": "graph_core_v1",
+      "mode": "strict",
+      "seed": null,
+      "threat_class": null,
+      "replay_command": "rch exec -- CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture graph_core_shortest_path_strict.json --mode strict",
+      "passed": true,
+      "reason_code": null,
+      "fixture_source_hash": "94a940bc56a49781",
+      "duration_ms": 0,
+      "strict_violation_count": 0,
+      "hardened_allowlisted_count": 0,
+      "mismatches": [],
+      "mismatch_taxonomy": [],
+      "witness": {
+        "algorithm": "bfs_shortest_path",
+        "complexity_claim": "O(|V| + |E|)",
+        "nodes_touched": 4,
+        "edges_scanned": 4,
+        "queue_peak": 2
+      }
+    }
+  ]
+}

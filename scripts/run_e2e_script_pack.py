@@ -104,6 +104,22 @@ SCENARIOS: tuple[ScenarioSpec, ...] = (
         packet_id="FNX-P2C-001",
     ),
     ScenarioSpec(
+        scenario_id="view_neighbors_strict",
+        scenario_kind="regression_path",
+        journey_id="J-VIEWS",
+        mode="strict",
+        fixture_id="generated/view_neighbors_strict.json",
+        packet_id="FNX-P2C-002",
+    ),
+    ScenarioSpec(
+        scenario_id="view_neighbors_hardened",
+        scenario_kind="regression_path",
+        journey_id="J-VIEWS",
+        mode="hardened",
+        fixture_id="generated/view_neighbors_strict.json",
+        packet_id="FNX-P2C-002",
+    ),
+    ScenarioSpec(
         scenario_id="edge_path",
         scenario_kind="edge_path",
         journey_id="J-CENTRALITY",
