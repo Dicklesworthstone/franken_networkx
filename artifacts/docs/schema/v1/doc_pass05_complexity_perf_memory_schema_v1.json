@@ -1,0 +1,94 @@
+{
+  "schema_version": "1.0.0",
+  "schema_id": "doc-pass-05-complexity-perf-memory-schema-v1",
+  "required_top_level_keys": [
+    "schema_version",
+    "artifact_id",
+    "generated_at_utc",
+    "baseline_comparator",
+    "characterization_summary",
+    "operation_families",
+    "hotspot_hypotheses",
+    "optimization_risk_notes",
+    "verification_bead_crosswalk",
+    "alien_uplift_contract_card",
+    "profile_first_artifacts",
+    "optimization_lever_policy",
+    "decision_theoretic_runtime_contract",
+    "isomorphism_proof_artifacts",
+    "structured_logging_evidence"
+  ],
+  "required_summary_keys": [
+    "family_count",
+    "operation_count",
+    "high_risk_operation_count",
+    "hotspot_hypothesis_count",
+    "optimization_risk_note_count"
+  ],
+  "required_family_keys": [
+    "family_id",
+    "name",
+    "legacy_scope_paths",
+    "rust_crates",
+    "operations"
+  ],
+  "required_anchor_keys": [
+    "crate_name",
+    "file_path",
+    "symbol",
+    "line_start"
+  ],
+  "required_operation_keys": [
+    "operation_id",
+    "symbol",
+    "code_anchor",
+    "complexity_time",
+    "complexity_space",
+    "memory_growth_driver",
+    "hotspot_signals",
+    "parity_constraints",
+    "validation_hooks",
+    "replay_command",
+    "risk_tier",
+    "optimization_risk_note_ids"
+  ],
+  "required_validation_hook_keys": [
+    "unit",
+    "property",
+    "differential",
+    "e2e"
+  ],
+  "required_hotspot_keys": [
+    "hypothesis_id",
+    "operation_id",
+    "statement",
+    "evidence_refs",
+    "test_plan",
+    "expected_signal",
+    "linked_bead_ids"
+  ],
+  "required_risk_note_keys": [
+    "risk_note_id",
+    "operation_id",
+    "parity_constraint",
+    "risk_statement",
+    "allowed_optimization_levers",
+    "forbidden_changes",
+    "rollback_trigger",
+    "verification_requirements"
+  ],
+  "required_crosswalk_keys": [
+    "bead_id",
+    "title",
+    "linked_operation_ids",
+    "status",
+    "closure_signal"
+  ],
+  "required_decision_contract_keys": [
+    "states",
+    "actions",
+    "loss_model",
+    "loss_budget",
+    "safe_mode_fallback"
+  ]
+}

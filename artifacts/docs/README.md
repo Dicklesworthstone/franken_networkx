@@ -14,6 +14,12 @@ This directory contains machine-auditable planning artifacts for documentation e
 - `v1/doc_pass03_data_model_state_invariant_v1.md`: compact component/invariant summary.
 - `schema/v1/doc_pass03_data_model_state_invariant_schema_v1.json`: schema contract for DOC-PASS-03 artifact.
 
+## DOC-PASS-05 Outputs
+
+- `v1/doc_pass05_complexity_perf_memory_v1.json`: operation-level complexity, memory-growth, hotspot hypotheses, and optimization parity risk notes.
+- `v1/doc_pass05_complexity_perf_memory_v1.md`: compact family/operation complexity summary.
+- `schema/v1/doc_pass05_complexity_perf_memory_schema_v1.json`: schema contract for DOC-PASS-05 artifact.
+
 ## Commands
 
 ```bash
@@ -42,4 +48,18 @@ This directory contains machine-auditable planning artifacts for documentation e
 
 ```bash
 ./scripts/run_doc_pass03_state_mapping.sh
+```
+
+```bash
+./scripts/generate_doc_pass05_complexity_perf_memory.py
+```
+
+```bash
+./scripts/validate_doc_pass05_complexity_perf_memory.py \
+  --artifact artifacts/docs/v1/doc_pass05_complexity_perf_memory_v1.json \
+  --schema artifacts/docs/schema/v1/doc_pass05_complexity_perf_memory_schema_v1.json
+```
+
+```bash
+./scripts/run_doc_pass05_complexity_perf_memory.sh
 ```

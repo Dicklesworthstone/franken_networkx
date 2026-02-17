@@ -609,3 +609,81 @@ Corrections/enrichments applied:
 
 1. As packet implementation beads close, upgrade `partial` crosswalk rows to `covered` and refresh confidence for section `20`.
 2. Expand section-level backlinks from this doc to `EXISTING_NETWORKX_STRUCTURE.md` sections `17-20` for tighter reviewer traversal.
+
+## 24. Complexity/Performance/Memory Characterization Contract (DOC-PASS-05)
+
+DOC-PASS-05 is now codified as a machine-auditable artifact set:
+
+- `artifacts/docs/v1/doc_pass05_complexity_perf_memory_v1.json`
+- `artifacts/docs/v1/doc_pass05_complexity_perf_memory_v1.md`
+- `artifacts/docs/schema/v1/doc_pass05_complexity_perf_memory_schema_v1.json`
+- `scripts/generate_doc_pass05_complexity_perf_memory.py`
+- `scripts/validate_doc_pass05_complexity_perf_memory.py`
+- `scripts/run_doc_pass05_complexity_perf_memory.sh`
+- `crates/fnx-conformance/tests/doc_pass05_complexity_perf_memory_gate.rs`
+
+### 24.1 Family-level envelope summary
+
+Artifact summary (`characterization_summary`) currently reports:
+
+- `family_count = 6`
+- `operation_count = 20`
+- `high_risk_operation_count = 13`
+- `hotspot_hypothesis_count = 8`
+- `optimization_risk_note_count = 20`
+
+Family distribution:
+
+| Family ID | Operation Count | High-Risk Ops | Dominant Runtime Envelope | Dominant Memory Growth Driver |
+|---|---:|---:|---|---|
+| `graph_storage_semantics` | 4 | 2 | `O(1)` mutation; `O(deg(v))` adjacency operations | node/adjacency map expansion and neighbor materialization |
+| `algorithmic_core` | 4 | 3 | `O(V+E)` traversals; `O(V*(V+E))` for closeness | frontier/visited maps and all-source traversal accumulation |
+| `generator_workloads` | 3 | 1 | `O(V)` / `O(V^2)` depending on topology density | dense edge materialization and seeded edge sampling state |
+| `conversion_and_io` | 5 | 4 | `O(V+E)` / `O(L)` parse-and-build pipelines | parser token buffers, warning queues, graph builder state |
+| `dispatch_runtime_policy` | 2 | 1 | `O(B*F)` backend filtering + `O(1)` runtime policy decisions | candidate backend sets and decision ledger records |
+| `conformance_execution` | 2 | 2 | `O(F*(V+E))` harness sweeps and fixture replay | mismatch vectors, witness bundles, structured log payloads |
+
+### 24.2 Hotspot hypotheses (explicit + testable)
+
+DOC-PASS-05 records eight testable hotspot hypotheses (`HS-001..HS-008`) tied to concrete operation IDs and expected observable signals:
+
+| Hypothesis | Operation ID | Testable Expected Signal |
+|---|---|---|
+| `HS-001` | `algo_shortest_path_unweighted` | queue push/pop hotspots exceed 30% inclusive CPU time |
+| `HS-002` | `algo_connected_components` | visited-state allocations dominate retained bytes at p99 |
+| `HS-003` | `algo_closeness_centrality` | one-lever memoization lowers p95 with parity unchanged |
+| `HS-004` | `rw_read_edgelist` | malformed-row branch cost exceeds nominal parse path on adversarial fixtures |
+| `HS-005` | `convert_from_adjacency` | fan-out-heavy payloads show superlinear allocation peaks without pre-sizing |
+| `HS-006` | `gen_gnp_random_graph` | edge-sampling loop dominates runtime above density threshold |
+| `HS-007` | `dispatch_backend_resolve` | resolve latency scales linearly with backend and feature cardinality |
+| `HS-008` | `conformance_run_fixture` | log serialization + mismatch formatting dominate post-execution time |
+
+Each hypothesis is evidence-linked to performance and replay artifacts and mapped to closure-related beads (notably `bd-315.24.6`, `bd-315.8.1`, `bd-315.8.2`, `bd-315.8.4`, `bd-315.6`, `bd-315.10`).
+
+### 24.3 Optimization risk note binding to parity constraints
+
+Every operation in DOC-PASS-05 is bound to at least one explicit optimization risk note (`risk::<operation_id>`), with:
+
+1. A parity constraint lifted directly from operation-level deterministic behavior requirements.
+2. Allowed one-lever optimization classes only (allocation pre-sizing, branch hoisting, single-lever data-structure tuning).
+3. Forbidden changes that would induce semantic drift:
+   - non-deterministic iteration/tie-break behavior,
+   - strict/hardened policy collapse,
+   - output-schema mutation without contract updates.
+4. A fail-closed rollback trigger:
+   - any strict-mode parity mismatch, or
+   - missing replay metadata in gate outputs.
+
+This section is the explicit linkage requested by `bd-315.24.6` acceptance criteria: optimization risk notes are now concretely attached to behavior-parity constraints rather than left as narrative guidance.
+
+### 24.4 Verification and gate linkage
+
+The DOC-PASS-05 run path and gate linkage are now deterministic and reproducible:
+
+1. `./scripts/run_doc_pass05_complexity_perf_memory.sh`
+2. `rch exec -- cargo test -q -p fnx-conformance --test doc_pass05_complexity_perf_memory_gate -- --nocapture`
+3. `rch exec -- cargo check --workspace --all-targets`
+4. `rch exec -- cargo clippy --workspace --all-targets -- -D warnings`
+5. `cargo fmt --check`
+
+This closes DOC-PASS-05 and unblocks `bd-315.24.12` and its downstream pass-B expansion chain (`bd-315.24.13`, `bd-315.24.16`, `bd-315.24.17`).
