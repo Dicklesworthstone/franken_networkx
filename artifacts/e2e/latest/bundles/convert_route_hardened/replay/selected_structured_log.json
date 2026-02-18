@@ -1,0 +1,58 @@
+{
+  "schema_version": "1.0.0",
+  "run_id": "e2e-script-pack-20260218T005438Z",
+  "ts_unix_ms": 1771376342552,
+  "crate_name": "fnx-conformance",
+  "suite_id": "smoke",
+  "packet_id": "FNX-P2C-004",
+  "test_name": "fixture::generated/convert_edge_list_strict.json",
+  "test_id": "fixture::generated/convert_edge_list_strict.json",
+  "test_kind": "differential",
+  "mode": "hardened",
+  "fixture_id": "generated/convert_edge_list_strict.json",
+  "seed": 1388759758847734300,
+  "environment": {
+    "suite": "smoke",
+    "oracle_present": "true",
+    "mode": "hardened",
+    "scenario_id": "convert_route_hardened",
+    "generated_by": "e2e_script_pack_synth_fallback"
+  },
+  "env_fingerprint": "575643b766baae0b",
+  "duration_ms": 0,
+  "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/convert_edge_list_strict.json --mode hardened",
+  "artifact_refs": [
+    "artifacts/e2e/latest/bundles/convert_route_hardened/replay/smoke_report.json",
+    "artifacts/e2e/latest/bundles/convert_route_hardened/replay/fixture_report.json",
+    "artifacts/e2e/latest/bundles/convert_route_hardened/replay/structured_logs.jsonl",
+    "artifacts/phase2c/FNX-P2C-004/parity_report.decode_proof.json",
+    "artifacts/phase2c/FNX-P2C-004/parity_report.raptorq.json"
+  ],
+  "forensic_bundle_id": "forensics::FNX-P2C-004::generated::convert_edge_list_strict.json",
+  "hash_id": "b3c0e1904b4d8776",
+  "status": "passed",
+  "reason_code": null,
+  "failure_repro": null,
+  "e2e_step_traces": [],
+  "forensics_bundle_index": {
+    "bundle_id": "forensics::FNX-P2C-004::generated::convert_edge_list_strict.json",
+    "run_id": "e2e-script-pack-20260218T005438Z",
+    "test_id": "fixture::generated/convert_edge_list_strict.json",
+    "bundle_hash_id": "f55603aea7c7fc88",
+    "captured_unix_ms": 1771376342552,
+    "replay_ref": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/convert_edge_list_strict.json --mode hardened",
+    "artifact_refs": [
+      "artifacts/e2e/latest/bundles/convert_route_hardened/replay/smoke_report.json",
+      "artifacts/e2e/latest/bundles/convert_route_hardened/replay/fixture_report.json",
+      "artifacts/e2e/latest/bundles/convert_route_hardened/replay/structured_logs.jsonl",
+      "artifacts/phase2c/FNX-P2C-004/parity_report.decode_proof.json",
+      "artifacts/phase2c/FNX-P2C-004/parity_report.raptorq.json"
+    ],
+    "raptorq_sidecar_refs": [
+      "artifacts/phase2c/FNX-P2C-004/parity_report.raptorq.json"
+    ],
+    "decode_proof_refs": [
+      "artifacts/phase2c/FNX-P2C-004/parity_report.decode_proof.json"
+    ]
+  }
+}

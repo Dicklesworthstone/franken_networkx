@@ -1475,6 +1475,224 @@
             "artifacts/phase2c/FNX-P2C-004/risk_note.md#compatibility-boundary-matrix"
           ]
         }
+      ],
+      "module_boundary_skeleton": [
+        {
+          "boundary_id": "P2C004-MB-1",
+          "crate": "fnx-convert",
+          "module_path": "crates/fnx-convert/src/input_classifier.rs",
+          "public_seam": "pub trait ConversionInputClassifier",
+          "internal_ownership": "input-shape classification and create_using/multigraph dispatch preflight",
+          "legacy_compat_surface": "to_networkx_graph / _prep_create_using",
+          "threat_boundary_refs": [
+            "P2C004-CB-1",
+            "P2C004-CB-2",
+            "P2C004-CB-3"
+          ],
+          "compile_check": "cargo check -p fnx-convert",
+          "parallel_owner_scope": "input dispatch policy and validation preflight only"
+        },
+        {
+          "boundary_id": "P2C004-MB-2",
+          "crate": "fnx-convert",
+          "module_path": "crates/fnx-convert/src/edge_projection.rs",
+          "public_seam": "pub struct EdgeProjectionEngine",
+          "internal_ownership": "dict/list/edge-list projection with deterministic attribute and key normalization",
+          "legacy_compat_surface": "from_dict_of_lists / from_dict_of_dicts / from_edgelist",
+          "threat_boundary_refs": [
+            "P2C004-CB-2",
+            "P2C004-CB-4",
+            "P2C004-CB-6"
+          ],
+          "compile_check": "cargo test -p fnx-convert convert_projection -- --nocapture",
+          "parallel_owner_scope": "edge projection + attribute precedence only"
+        },
+        {
+          "boundary_id": "P2C004-MB-3",
+          "crate": "fnx-convert",
+          "module_path": "crates/fnx-convert/src/relabel_policy.rs",
+          "public_seam": "pub trait RelabelPlanner",
+          "internal_ownership": "copy/in-place relabel planning, cycle detection, and multigraph key collision policy",
+          "legacy_compat_surface": "relabel_nodes / convert_node_labels_to_integers",
+          "threat_boundary_refs": [
+            "P2C004-CB-5",
+            "P2C004-CB-6"
+          ],
+          "compile_check": "cargo test -p fnx-convert relabel -- --nocapture",
+          "parallel_owner_scope": "relabel ordering and collision semantics only"
+        },
+        {
+          "boundary_id": "P2C004-MB-4",
+          "crate": "fnx-runtime",
+          "module_path": "crates/fnx-runtime/src/hardened_guardrails.rs",
+          "public_seam": "pub struct HardenedConversionGuardrails",
+          "internal_ownership": "allowlisted hardened deviations, audit envelopes, and fail-closed policy override rejection",
+          "legacy_compat_surface": "strict/hardened compatibility envelope for conversion and relabel paths",
+          "threat_boundary_refs": [
+            "P2C004-CB-1",
+            "P2C004-CB-4",
+            "P2C004-CB-6"
+          ],
+          "compile_check": "cargo check -p fnx-runtime --all-targets",
+          "parallel_owner_scope": "hardened diagnostics/audit policy only"
+        }
+      ],
+      "implementation_sequence": [
+        {
+          "checkpoint_id": "P2C004-SEQ-1",
+          "order": 1,
+          "depends_on": [],
+          "objective": "Land compile-checkable conversion/relabel boundary seams before behavior changes.",
+          "modules_touched": [
+            "crates/fnx-convert/src/input_classifier.rs",
+            "crates/fnx-convert/src/relabel_policy.rs"
+          ],
+          "verification_entrypoints": [
+            "unit::fnx-p2c-004::boundary_shape",
+            "cargo check -p fnx-convert"
+          ],
+          "structured_log_hooks": [
+            "convert.boundary.input_classifier_ready",
+            "convert.boundary.relabel_policy_ready"
+          ],
+          "risk_checkpoint": "fail if public/internal ownership boundaries are ambiguous"
+        },
+        {
+          "checkpoint_id": "P2C004-SEQ-2",
+          "order": 2,
+          "depends_on": [
+            "P2C004-SEQ-1"
+          ],
+          "objective": "Implement strict-mode conversion input dispatch parity and malformed-input fail-closed behavior.",
+          "modules_touched": [
+            "crates/fnx-convert/src/input_classifier.rs",
+            "crates/fnx-convert/src/lib.rs"
+          ],
+          "verification_entrypoints": [
+            "networkx/tests/test_convert.py:45-133",
+            "differential::fnx-p2c-004::convert_dispatch"
+          ],
+          "structured_log_hooks": [
+            "convert.strict.dispatch_decision",
+            "convert.fail_closed.malformed_input"
+          ],
+          "risk_checkpoint": "halt if strict mismatch budget deviates from zero"
+        },
+        {
+          "checkpoint_id": "P2C004-SEQ-3",
+          "order": 3,
+          "depends_on": [
+            "P2C004-SEQ-2"
+          ],
+          "objective": "Implement deterministic edge projection and relabel collision semantics for multi-graph pathways.",
+          "modules_touched": [
+            "crates/fnx-convert/src/edge_projection.rs",
+            "crates/fnx-convert/src/relabel_policy.rs"
+          ],
+          "verification_entrypoints": [
+            "networkx/tests/test_convert.py:134-210",
+            "networkx/tests/test_relabel.py:188-317",
+            "property::fnx-p2c-004::invariants"
+          ],
+          "structured_log_hooks": [
+            "convert.edge_projection.normalized",
+            "convert.relabel.collision_strategy_selected"
+          ],
+          "risk_checkpoint": "fail on relabel ordering drift or non-deterministic multigraph key remapping"
+        },
+        {
+          "checkpoint_id": "P2C004-SEQ-4",
+          "order": 4,
+          "depends_on": [
+            "P2C004-SEQ-2",
+            "P2C004-SEQ-3"
+          ],
+          "objective": "Layer hardened allowlisted controls with deterministic audit envelopes for conversion threats.",
+          "modules_touched": [
+            "crates/fnx-runtime/src/hardened_guardrails.rs",
+            "crates/fnx-runtime/src/structured_logging.rs"
+          ],
+          "verification_entrypoints": [
+            "adversarial::fnx-p2c-004::malformed_inputs",
+            "adversarial::fnx-p2c-004::attribute_confusion"
+          ],
+          "structured_log_hooks": [
+            "convert.hardened.allowlisted_category",
+            "convert.audit.envelope_emitted"
+          ],
+          "risk_checkpoint": "reject any non-allowlisted hardened deviation"
+        },
+        {
+          "checkpoint_id": "P2C004-SEQ-5",
+          "order": 5,
+          "depends_on": [
+            "P2C004-SEQ-4"
+          ],
+          "objective": "Run differential/e2e readiness gates and finalize packet evidence artifacts.",
+          "modules_touched": [
+            "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs",
+            "scripts/run_phase2c_readiness_e2e.sh"
+          ],
+          "verification_entrypoints": [
+            "e2e::fnx-p2c-004::golden_journey",
+            "cargo test -p fnx-conformance --test phase2c_packet_readiness_gate"
+          ],
+          "structured_log_hooks": [
+            "convert.e2e.replay_bundle",
+            "convert.readiness.gate_result"
+          ],
+          "risk_checkpoint": "stop on any strict/hardened parity gate mismatch"
+        }
+      ],
+      "verification_entrypoints": [
+        {
+          "stage": "unit",
+          "harness": "unit::fnx-p2c-004::contract",
+          "structured_log_hook": "convert.unit.contract_asserted",
+          "replay_metadata_fields": [
+            "packet_id",
+            "conversion_path",
+            "input_shape",
+            "strict_mode"
+          ],
+          "failure_forensics_artifact": "artifacts/conformance/latest/structured_logs.jsonl"
+        },
+        {
+          "stage": "property",
+          "harness": "property::fnx-p2c-004::invariants",
+          "structured_log_hook": "convert.property.invariant_checkpoint",
+          "replay_metadata_fields": [
+            "seed",
+            "graph_fingerprint",
+            "relabel_mode",
+            "invariant_id"
+          ],
+          "failure_forensics_artifact": "artifacts/conformance/latest/structured_log_emitter_normalization_report.json"
+        },
+        {
+          "stage": "differential",
+          "harness": "differential::fnx-p2c-004::fixtures",
+          "structured_log_hook": "convert.diff.oracle_comparison",
+          "replay_metadata_fields": [
+            "fixture_id",
+            "oracle_ref",
+            "conversion_signature",
+            "mismatch_count"
+          ],
+          "failure_forensics_artifact": "artifacts/phase2c/FNX-P2C-004/parity_report.json"
+        },
+        {
+          "stage": "e2e",
+          "harness": "e2e::fnx-p2c-004::golden_journey",
+          "structured_log_hook": "convert.e2e.replay_emitted",
+          "replay_metadata_fields": [
+            "scenario_id",
+            "thread_id",
+            "trace_id",
+            "forensics_bundle"
+          ],
+          "failure_forensics_artifact": "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json"
+        }
       ]
     },
     {
@@ -1515,7 +1733,137 @@
         "tie-break drift",
         "algorithmic complexity DOS on hostile dense graphs"
       ],
-      "behavior_region_map": [],
+      "behavior_region_map": [
+        {
+          "region_id": "P2C005-R1",
+          "pathway": "normal",
+          "legacy_anchor_refs": [
+            "networkx/algorithms/shortest_paths/weighted.py:41-123",
+            "networkx/algorithms/shortest_paths/weighted.py:393-430",
+            "networkx/algorithms/shortest_paths/weighted.py:784-907"
+          ],
+          "symbols": [
+            "_weight_function",
+            "dijkstra_path",
+            "single_source_dijkstra",
+            "_dijkstra_multisource"
+          ],
+          "behavior_note": "Weighted shortest-path entrypoints and multisource queue expansion preserve deterministic distance/path behavior, including stable predecessor-path reconstruction for equal-cost frontier expansion.",
+          "compatibility_policy": "strict mode preserves weighted shortest-path outputs and tie-break ordering exactly",
+          "downstream_contract_rows": [
+            "Input Contract: packet operations",
+            "Output Contract: algorithm/state result",
+            "Determinism Commitments: stable traversal and output ordering"
+          ],
+          "planned_oracle_tests": [
+            "networkx/algorithms/shortest_paths/tests/test_weighted.py:113-198",
+            "networkx/algorithms/shortest_paths/tests/test_weighted.py:271-330"
+          ]
+        },
+        {
+          "region_id": "P2C005-R2",
+          "pathway": "edge",
+          "legacy_anchor_refs": [
+            "networkx/algorithms/shortest_paths/weighted.py:41-78",
+            "networkx/algorithms/shortest_paths/weighted.py:862-885",
+            "networkx/algorithms/shortest_paths/weighted.py:2310-2380"
+          ],
+          "symbols": [
+            "_weight_function",
+            "_dijkstra_multisource",
+            "bidirectional_dijkstra"
+          ],
+          "behavior_note": "Multigraph weight selection uses minimum parallel-edge cost and hidden-edge semantics (weight callback returns None) are handled deterministically without accidental frontier drift.",
+          "compatibility_policy": "retain legacy multigraph minimum-weight and hidden-edge semantics across all weighted APIs",
+          "downstream_contract_rows": [
+            "Input Contract: compatibility mode",
+            "Output Contract: algorithm/state result",
+            "Strict/Hardened Divergence: strict no repair heuristics"
+          ],
+          "planned_oracle_tests": [
+            "networkx/algorithms/shortest_paths/tests/test_weighted.py:199-241",
+            "networkx/algorithms/shortest_paths/tests/test_weighted.py:316-329",
+            "networkx/algorithms/shortest_paths/tests/test_weighted.py:358-388"
+          ]
+        },
+        {
+          "region_id": "P2C005-R3",
+          "pathway": "adversarial",
+          "legacy_anchor_refs": [
+            "networkx/algorithms/shortest_paths/weighted.py:1493-1510",
+            "networkx/algorithms/shortest_paths/weighted.py:1514-1640",
+            "networkx/algorithms/shortest_paths/weighted.py:2280-2306"
+          ],
+          "symbols": [
+            "bellman_ford_path",
+            "single_source_bellman_ford",
+            "negative_edge_cycle",
+            "bidirectional_dijkstra"
+          ],
+          "behavior_note": "Negative-cycle detection, contradictory-path guards, and unreachable/absent-node pathways must fail closed with explicit ValueError/NodeNotFound/NetworkXUnbounded envelopes.",
+          "compatibility_policy": "strict fail-closed on negative-cycle and malformed-source conditions; no silent repair",
+          "downstream_contract_rows": [
+            "Error Contract: malformed input affecting compatibility",
+            "Error Contract: unknown incompatible feature",
+            "Strict/Hardened Divergence: hardened bounded recovery only when allowlisted"
+          ],
+          "planned_oracle_tests": [
+            "networkx/algorithms/shortest_paths/tests/test_weighted.py:245-347",
+            "networkx/algorithms/shortest_paths/tests/test_weighted.py:533-610",
+            "networkx/algorithms/shortest_paths/tests/test_weighted.py:872-889"
+          ]
+        },
+        {
+          "region_id": "P2C005-R4",
+          "pathway": "centrality-components",
+          "legacy_anchor_refs": [
+            "networkx/algorithms/centrality/degree_alg.py:10-50",
+            "networkx/algorithms/centrality/closeness.py:14-136",
+            "networkx/algorithms/components/connected.py:18-149"
+          ],
+          "symbols": [
+            "degree_centrality",
+            "closeness_centrality",
+            "connected_components",
+            "number_connected_components"
+          ],
+          "behavior_note": "Degree/closeness/component calculations keep deterministic normalization and traversal semantics, including closeness inward-distance policy for directed graphs and stable component partition outputs.",
+          "compatibility_policy": "preserve legacy normalization and directed-distance orientation semantics exactly",
+          "downstream_contract_rows": [
+            "Output Contract: algorithm/state result",
+            "Determinism Commitments: stable traversal and output ordering",
+            "Input Contract: packet operations"
+          ],
+          "planned_oracle_tests": [
+            "networkx/algorithms/centrality/tests/test_degree_centrality.py:50-102",
+            "networkx/algorithms/centrality/tests/test_closeness_centrality.py:18-37",
+            "networkx/algorithms/centrality/tests/test_closeness_centrality.py:178-197",
+            "networkx/algorithms/components/tests/test_connected.py:64-111"
+          ]
+        },
+        {
+          "region_id": "P2C005-R5",
+          "pathway": "adversarial-dispatch-loopback",
+          "legacy_anchor_refs": [
+            "networkx/algorithms/components/connected.py:16-47",
+            "networkx/algorithms/components/tests/test_connected.py:75-97"
+          ],
+          "symbols": [
+            "connected_components"
+          ],
+          "behavior_note": "Dispatchable-loopback execution for connected-components raises deterministic import failures when unknown backends are configured, preventing ambiguous backend fallback.",
+          "compatibility_policy": "fail closed for unregistered backends while preserving loopback fast-path determinism",
+          "downstream_contract_rows": [
+            "Error Contract: unknown incompatible feature",
+            "Input Contract: compatibility mode",
+            "Determinism Commitments: stable traversal and output ordering"
+          ],
+          "planned_oracle_tests": [
+            "networkx/algorithms/components/tests/test_connected.py:75-97",
+            "networkx/algorithms/components/tests/test_connected.py:124-130"
+          ]
+        }
+      ],
       "raptorq_artifacts": {
         "legacy_anchor_map": "artifacts/phase2c/FNX-P2C-005/legacy_anchor_map.md",
         "contract_table": "artifacts/phase2c/FNX-P2C-005/contract_table.md",
@@ -1589,6 +1937,448 @@
         "artifacts/conformance/latest/structured_logs.jsonl",
         "artifacts/conformance/latest/structured_log_emitter_normalization_report.json",
         "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json"
+      ],
+      "packet_boundary_threat_matrix": [
+        {
+          "threat_id": "P2C005-TM-1",
+          "threat_class": "parser_abuse",
+          "strict_mode_response": "Fail-closed on malformed weighted-path request payloads and invalid source/target selectors.",
+          "hardened_mode_response": "Fail-closed with bounded diagnostics and defensive parse recovery before deterministic abort.",
+          "mitigations": [
+            "weighted request schema checks",
+            "source/target existence guards",
+            "malformed payload fixtures"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-005/risk_note.md",
+          "adversarial_fixture_hooks": [
+            "algorithm_request_malformed_payload"
+          ],
+          "crash_triage_taxonomy": [
+            "shortest_path.parse.malformed_payload",
+            "shortest_path.parse.invalid_source_target"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "defensive_parse_recovery"
+          ],
+          "compatibility_boundary": "weighted request parse boundary"
+        },
+        {
+          "threat_id": "P2C005-TM-2",
+          "threat_class": "metadata_ambiguity",
+          "strict_mode_response": "Fail-closed on ambiguous weight metadata, hidden-edge callbacks, or conflicting route hints.",
+          "hardened_mode_response": "Quarantine unsupported metadata and preserve deterministic weighted-route semantics.",
+          "mitigations": [
+            "weight metadata precedence table",
+            "hidden-edge callback contract checks",
+            "metadata drift classification"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-005/contract_table.md",
+          "adversarial_fixture_hooks": [
+            "algorithm_conflicting_weight_metadata"
+          ],
+          "crash_triage_taxonomy": [
+            "shortest_path.metadata.ambiguous_weight_selector",
+            "shortest_path.metadata.hidden_edge_callback_conflict"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "quarantine_of_unsupported_metadata"
+          ],
+          "compatibility_boundary": "weighted metadata normalization boundary"
+        },
+        {
+          "threat_id": "P2C005-TM-3",
+          "threat_class": "version_skew",
+          "strict_mode_response": "Fail-closed on unsupported algorithm contract versions.",
+          "hardened_mode_response": "Reject incompatible version envelopes with deterministic compatibility diagnostics.",
+          "mitigations": [
+            "algorithm contract version pinning",
+            "versioned fixture bundle checks",
+            "compatibility matrix probes"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-005/parity_gate.yaml",
+          "adversarial_fixture_hooks": [
+            "algorithm_contract_version_skew"
+          ],
+          "crash_triage_taxonomy": [
+            "shortest_path.version.unsupported_contract_envelope",
+            "shortest_path.version.contract_mismatch"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment"
+          ],
+          "compatibility_boundary": "algorithm contract version envelope boundary"
+        },
+        {
+          "threat_id": "P2C005-TM-4",
+          "threat_class": "resource_exhaustion",
+          "strict_mode_response": "Fail-closed when weighted frontier expansion exceeds strict complexity budgets.",
+          "hardened_mode_response": "Apply bounded resource clamps and reject once deterministic thresholds are exceeded.",
+          "mitigations": [
+            "frontier expansion ratio guards",
+            "priority-queue work caps",
+            "runtime tail budget sentinels"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-005/parity_gate.yaml",
+          "adversarial_fixture_hooks": [
+            "shortest_path_frontier_blowup"
+          ],
+          "crash_triage_taxonomy": [
+            "shortest_path.resource.frontier_budget_exceeded",
+            "shortest_path.resource.priority_queue_cap_exceeded"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "bounded_resource_clamp"
+          ],
+          "compatibility_boundary": "weighted frontier expansion budget boundary"
+        },
+        {
+          "threat_id": "P2C005-TM-5",
+          "threat_class": "state_corruption",
+          "strict_mode_response": "Fail-closed when path witness, predecessor state, or component route invariants drift.",
+          "hardened_mode_response": "Reset transient route state and fail-closed with deterministic incident evidence.",
+          "mitigations": [
+            "witness invariant checkpoints",
+            "predecessor map consistency checks",
+            "state-reset replay hooks"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-005/contract_table.md",
+          "adversarial_fixture_hooks": [
+            "shortest_path_witness_state_break"
+          ],
+          "crash_triage_taxonomy": [
+            "shortest_path.state.witness_invariant_break",
+            "shortest_path.state.predecessor_state_mismatch"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment"
+          ],
+          "compatibility_boundary": "path witness and route-state determinism boundary"
+        },
+        {
+          "threat_id": "P2C005-TM-6",
+          "threat_class": "algorithmic_complexity_dos",
+          "strict_mode_response": "Fail-closed on adversarial graph classes outside strict complexity envelopes.",
+          "hardened_mode_response": "Apply bounded admission checks and deterministic tie-break normalization before rejection.",
+          "mitigations": [
+            "adversarial graph taxonomy gates",
+            "complexity witness artifacts",
+            "runtime tail regression sentinels"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-005/risk_note.md",
+          "adversarial_fixture_hooks": [
+            "shortest_path_lollipop_and_barbell_stressor"
+          ],
+          "crash_triage_taxonomy": [
+            "shortest_path.complexity.hostile_graph_class",
+            "shortest_path.complexity.tail_budget_exceeded"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "bounded_resource_clamp",
+            "deterministic_tie_break_normalization"
+          ],
+          "compatibility_boundary": "hostile graph complexity admission boundary"
+        }
+      ],
+      "compatibility_boundary_matrix": [
+        {
+          "boundary_id": "P2C005-CB-1",
+          "strict_parity_obligation": "Malformed weighted request payloads and invalid source/target selectors fail closed.",
+          "hardened_allowlisted_deviation_categories": [
+            "bounded_diagnostic_enrichment",
+            "defensive_parse_recovery"
+          ],
+          "fail_closed_default": "fail_closed_on_malformed_weighted_request",
+          "evidence_hooks": [
+            "networkx/algorithms/shortest_paths/tests/test_weighted.py:156-170",
+            "artifacts/phase2c/FNX-P2C-005/risk_note.md#packet-threat-matrix"
+          ]
+        },
+        {
+          "boundary_id": "P2C005-CB-2",
+          "strict_parity_obligation": "Weight metadata precedence and hidden-edge callback semantics remain deterministic.",
+          "hardened_allowlisted_deviation_categories": [
+            "bounded_diagnostic_enrichment",
+            "quarantine_of_unsupported_metadata"
+          ],
+          "fail_closed_default": "fail_closed_on_ambiguous_weight_metadata",
+          "evidence_hooks": [
+            "networkx/algorithms/shortest_paths/tests/test_weighted.py:199-241",
+            "artifacts/phase2c/FNX-P2C-005/contract_table.md#input-contract"
+          ]
+        },
+        {
+          "boundary_id": "P2C005-CB-3",
+          "strict_parity_obligation": "Unsupported algorithm contract/version envelopes are rejected deterministically.",
+          "hardened_allowlisted_deviation_categories": [
+            "bounded_diagnostic_enrichment"
+          ],
+          "fail_closed_default": "fail_closed_on_algorithm_version_skew",
+          "evidence_hooks": [
+            "networkx/algorithms/shortest_paths/tests/test_weighted.py:331-347",
+            "artifacts/phase2c/FNX-P2C-005/parity_gate.yaml"
+          ]
+        },
+        {
+          "boundary_id": "P2C005-CB-4",
+          "strict_parity_obligation": "Weighted frontier growth remains within strict complexity budgets.",
+          "hardened_allowlisted_deviation_categories": [
+            "bounded_diagnostic_enrichment",
+            "bounded_resource_clamp",
+            "deterministic_tie_break_normalization"
+          ],
+          "fail_closed_default": "fail_closed_when_weighted_frontier_budget_exhausted",
+          "evidence_hooks": [
+            "artifacts/phase2c/FNX-P2C-005/parity_gate.yaml",
+            "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+          ]
+        },
+        {
+          "boundary_id": "P2C005-CB-5",
+          "strict_parity_obligation": "Negative-cycle and contradictory-path states never emit finite shortest-path witnesses.",
+          "hardened_allowlisted_deviation_categories": [
+            "bounded_diagnostic_enrichment"
+          ],
+          "fail_closed_default": "fail_closed_on_negative_cycle_or_contradictory_path",
+          "evidence_hooks": [
+            "networkx/algorithms/shortest_paths/tests/test_weighted.py:533-620",
+            "artifacts/phase2c/FNX-P2C-005/contract_table.md#machine-checkable-invariant-matrix"
+          ]
+        },
+        {
+          "boundary_id": "P2C005-CB-6",
+          "strict_parity_obligation": "Connected-components backend loopback and directed-input boundaries fail closed.",
+          "hardened_allowlisted_deviation_categories": [
+            "bounded_diagnostic_enrichment"
+          ],
+          "fail_closed_default": "fail_closed_on_components_backend_or_graph_type_violation",
+          "evidence_hooks": [
+            "networkx/algorithms/components/tests/test_connected.py:75-130",
+            "artifacts/phase2c/FNX-P2C-005/risk_note.md#compatibility-boundary-matrix"
+          ]
+        }
+      ],
+      "module_boundary_skeleton": [
+        {
+          "boundary_id": "P2C005-MB-1",
+          "crate": "fnx-algorithms",
+          "module_path": "crates/fnx-algorithms/src/weighted_route_policy.rs",
+          "public_seam": "pub trait WeightedRoutePlanner",
+          "internal_ownership": "weighted-route dispatch preflight, source/target existence checks, and weight-selector normalization",
+          "legacy_compat_surface": "_weight_function / dijkstra_path / single_source_dijkstra",
+          "threat_boundary_refs": [
+            "P2C005-CB-1",
+            "P2C005-CB-2",
+            "P2C005-CB-3"
+          ],
+          "compile_check": "cargo check -p fnx-algorithms",
+          "parallel_owner_scope": "weighted-route preflight and selector policy only"
+        },
+        {
+          "boundary_id": "P2C005-MB-2",
+          "crate": "fnx-algorithms",
+          "module_path": "crates/fnx-algorithms/src/weighted_frontier_engine.rs",
+          "public_seam": "pub struct WeightedFrontierEngine",
+          "internal_ownership": "priority-queue frontier expansion, predecessor reconstruction, multigraph min-edge selection, and deterministic tie-break ordering",
+          "legacy_compat_surface": "_dijkstra_multisource / bidirectional_dijkstra / predecessor maps",
+          "threat_boundary_refs": [
+            "P2C005-CB-2",
+            "P2C005-CB-4",
+            "P2C005-CB-5"
+          ],
+          "compile_check": "cargo test -p fnx-algorithms weighted_shortest_paths -- --nocapture",
+          "parallel_owner_scope": "frontier expansion and tie-break semantics only"
+        },
+        {
+          "boundary_id": "P2C005-MB-3",
+          "crate": "fnx-algorithms",
+          "module_path": "crates/fnx-algorithms/src/centrality_components_kernel.rs",
+          "public_seam": "pub trait CentralityComponentsKernel",
+          "internal_ownership": "degree/closeness normalization, directed-orientation semantics, and connected-components boundary enforcement",
+          "legacy_compat_surface": "degree_centrality / closeness_centrality / connected_components",
+          "threat_boundary_refs": [
+            "P2C005-CB-5",
+            "P2C005-CB-6"
+          ],
+          "compile_check": "cargo check -p fnx-algorithms --all-targets",
+          "parallel_owner_scope": "centrality/components semantics only"
+        },
+        {
+          "boundary_id": "P2C005-MB-4",
+          "crate": "fnx-runtime",
+          "module_path": "crates/fnx-runtime/src/hardened_guardrails.rs",
+          "public_seam": "pub struct HardenedAlgorithmGuardrails",
+          "internal_ownership": "allowlisted hardened deviations, deterministic audit envelopes, and fail-closed policy override rejection",
+          "legacy_compat_surface": "strict/hardened compatibility envelope for weighted shortest-path, centrality, and components pathways",
+          "threat_boundary_refs": [
+            "P2C005-CB-1",
+            "P2C005-CB-4",
+            "P2C005-CB-6"
+          ],
+          "compile_check": "cargo check -p fnx-runtime --all-targets",
+          "parallel_owner_scope": "hardened diagnostics/audit policy only"
+        }
+      ],
+      "implementation_sequence": [
+        {
+          "checkpoint_id": "P2C005-SEQ-1",
+          "order": 1,
+          "depends_on": [],
+          "objective": "Land compile-checkable weighted-route and centrality/components seams before behavior changes.",
+          "modules_touched": [
+            "crates/fnx-algorithms/src/weighted_route_policy.rs",
+            "crates/fnx-algorithms/src/centrality_components_kernel.rs"
+          ],
+          "verification_entrypoints": [
+            "unit::fnx-p2c-005::boundary_shape",
+            "cargo check -p fnx-algorithms"
+          ],
+          "structured_log_hooks": [
+            "algorithms.boundary.weighted_route_ready",
+            "algorithms.boundary.centrality_components_ready"
+          ],
+          "risk_checkpoint": "fail if module seam ownership is ambiguous"
+        },
+        {
+          "checkpoint_id": "P2C005-SEQ-2",
+          "order": 2,
+          "depends_on": [
+            "P2C005-SEQ-1"
+          ],
+          "objective": "Implement strict weighted-route dispatch parity and malformed-input/source fail-closed boundaries.",
+          "modules_touched": [
+            "crates/fnx-algorithms/src/weighted_route_policy.rs",
+            "crates/fnx-algorithms/src/lib.rs"
+          ],
+          "verification_entrypoints": [
+            "networkx/algorithms/shortest_paths/tests/test_weighted.py:113-241",
+            "differential::fnx-p2c-005::weighted_dispatch"
+          ],
+          "structured_log_hooks": [
+            "algorithms.strict.route_decision",
+            "algorithms.fail_closed.weighted_input"
+          ],
+          "risk_checkpoint": "halt if strict mismatch budget deviates from zero"
+        },
+        {
+          "checkpoint_id": "P2C005-SEQ-3",
+          "order": 3,
+          "depends_on": [
+            "P2C005-SEQ-2"
+          ],
+          "objective": "Implement deterministic frontier expansion, tie-break policy, and negative-cycle fail-closed envelopes.",
+          "modules_touched": [
+            "crates/fnx-algorithms/src/weighted_frontier_engine.rs",
+            "crates/fnx-algorithms/src/bellman_ford_guard.rs"
+          ],
+          "verification_entrypoints": [
+            "networkx/algorithms/shortest_paths/tests/test_weighted.py:271-347",
+            "networkx/algorithms/shortest_paths/tests/test_weighted.py:533-620",
+            "property::fnx-p2c-005::invariants"
+          ],
+          "structured_log_hooks": [
+            "algorithms.frontier.tie_break_selected",
+            "algorithms.fail_closed.negative_cycle"
+          ],
+          "risk_checkpoint": "fail on path witness mismatch or non-deterministic predecessor ordering"
+        },
+        {
+          "checkpoint_id": "P2C005-SEQ-4",
+          "order": 4,
+          "depends_on": [
+            "P2C005-SEQ-2",
+            "P2C005-SEQ-3"
+          ],
+          "objective": "Lock centrality/components semantics, directed-orientation rules, and backend loopback failure boundaries.",
+          "modules_touched": [
+            "crates/fnx-algorithms/src/centrality_components_kernel.rs",
+            "crates/fnx-algorithms/src/components_dispatch_bridge.rs"
+          ],
+          "verification_entrypoints": [
+            "networkx/algorithms/centrality/tests/test_closeness_centrality.py:18-197",
+            "networkx/algorithms/components/tests/test_connected.py:64-130"
+          ],
+          "structured_log_hooks": [
+            "algorithms.centrality.orientation_locked",
+            "algorithms.components.backend_guard"
+          ],
+          "risk_checkpoint": "reject directed/backend bypass paths that violate fail-closed policy"
+        },
+        {
+          "checkpoint_id": "P2C005-SEQ-5",
+          "order": 5,
+          "depends_on": [
+            "P2C005-SEQ-4"
+          ],
+          "objective": "Layer hardened allowlisted controls and run readiness/e2e/perf gates to finalize packet evidence.",
+          "modules_touched": [
+            "crates/fnx-runtime/src/hardened_guardrails.rs",
+            "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs",
+            "scripts/run_phase2c_readiness_e2e.sh"
+          ],
+          "verification_entrypoints": [
+            "adversarial::fnx-p2c-005::algorithmic_complexity",
+            "cargo test -p fnx-conformance --test phase2c_packet_readiness_gate"
+          ],
+          "structured_log_hooks": [
+            "algorithms.hardened.allowlisted_category",
+            "algorithms.readiness.gate_result"
+          ],
+          "risk_checkpoint": "stop on any strict/hardened parity gate mismatch"
+        }
+      ],
+      "verification_entrypoints": [
+        {
+          "stage": "unit",
+          "harness": "unit::fnx-p2c-005::contract",
+          "structured_log_hook": "algorithms.unit.contract_asserted",
+          "replay_metadata_fields": [
+            "packet_id",
+            "algorithm_family",
+            "source_target_pair",
+            "strict_mode"
+          ],
+          "failure_forensics_artifact": "artifacts/conformance/latest/structured_logs.jsonl"
+        },
+        {
+          "stage": "property",
+          "harness": "property::fnx-p2c-005::invariants",
+          "structured_log_hook": "algorithms.property.invariant_checkpoint",
+          "replay_metadata_fields": [
+            "seed",
+            "graph_fingerprint",
+            "tie_break_policy",
+            "invariant_id"
+          ],
+          "failure_forensics_artifact": "artifacts/conformance/latest/structured_log_emitter_normalization_report.json"
+        },
+        {
+          "stage": "differential",
+          "harness": "differential::fnx-p2c-005::fixtures",
+          "structured_log_hook": "algorithms.diff.oracle_comparison",
+          "replay_metadata_fields": [
+            "fixture_id",
+            "oracle_ref",
+            "algorithm_signature",
+            "mismatch_count"
+          ],
+          "failure_forensics_artifact": "artifacts/phase2c/FNX-P2C-005/parity_report.json"
+        },
+        {
+          "stage": "e2e",
+          "harness": "e2e::fnx-p2c-005::golden_journey",
+          "structured_log_hook": "algorithms.e2e.replay_emitted",
+          "replay_metadata_fields": [
+            "scenario_id",
+            "thread_id",
+            "trace_id",
+            "forensics_bundle"
+          ],
+          "failure_forensics_artifact": "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json"
+        }
       ]
     },
     {

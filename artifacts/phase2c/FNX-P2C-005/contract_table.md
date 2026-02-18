@@ -1,28 +1,71 @@
 # Contract Table
 
 ## Input Contract
-| input | type | constraints |
-|---|---|---|
-| packet operations | structured args | must preserve NetworkX-observable contract for FNX-P2C-005 |
-| compatibility mode | enum | strict and hardened behavior split with fail-closed handling |
+| row id | API/behavior | preconditions | strict policy | hardened policy | legacy anchor regions | required validations |
+|---|---|---|---|---|---|---|
+| P2C005-IC-1 | weighted shortest-path dispatch and weight callback handling | source/target nodes and weight selector (attribute key or callback) are explicitly provided | preserve legacy `_weight_function` semantics and fail closed on invalid source/target | same dispatch semantics; bounded diagnostics allowed for malformed weight metadata only | P2C005-R1; P2C005-R2 | networkx/algorithms/shortest_paths/tests/test_weighted.py:113-198; networkx/algorithms/shortest_paths/tests/test_weighted.py:199-241; networkx/algorithms/shortest_paths/tests/test_weighted.py:252-270 |
+| P2C005-IC-2 | bellman-ford and negative-cycle sensitive weighted traversals | graph edge weights may include negative values and cycle structure may be adversarial | raise explicit cycle/error envelopes for contradictory or unbounded shortest-path states | same failure defaults; bounded diagnostics only, no silent path repair or fallback routing | P2C005-R3 | networkx/algorithms/shortest_paths/tests/test_weighted.py:331-347; networkx/algorithms/shortest_paths/tests/test_weighted.py:533-610; networkx/algorithms/shortest_paths/tests/test_weighted.py:872-889 |
+| P2C005-IC-3 | closeness/degree centrality orientation and normalization semantics | graph directionality and optional distance key are explicit, wf_improved policy selected | preserve inward-distance closeness semantics and legacy normalization constants | same numeric contracts; bounded diagnostics allowed when distance metadata is malformed | P2C005-R4 | networkx/algorithms/centrality/tests/test_closeness_centrality.py:18-37; networkx/algorithms/centrality/tests/test_closeness_centrality.py:178-197; networkx/algorithms/centrality/tests/test_degree_centrality.py:50-102 |
+| P2C005-IC-4 | connected-components dispatchability and backend-loopback handling | graph is undirected for component APIs; backend registration is explicit | reject unsupported directed/backend paths via explicit fail-closed errors | same API contract and fail-closed boundaries with deterministic audit metadata | P2C005-R4; P2C005-R5 | networkx/algorithms/components/tests/test_connected.py:64-111; networkx/algorithms/components/tests/test_connected.py:75-97; networkx/algorithms/components/tests/test_connected.py:124-130 |
 
 ## Output Contract
-| output | type | semantics |
-|---|---|---|
-| algorithm/state result | graph data or query payload | deterministic tie-break and ordering guarantees |
-| evidence artifacts | structured files | replayable and machine-auditable |
+| row id | output behavior | postconditions | strict policy | hardened policy | legacy anchor regions | required validations |
+|---|---|---|---|---|---|---|
+| P2C005-OC-1 | weighted shortest-path path/length output determinism | path node sequence and path length are deterministic for fixed graph + seed inputs | zero mismatch budget for path or distance drift versus legacy oracle | same outputs unless allowlisted bounded diagnostics are appended outside API payloads | P2C005-R1; P2C005-R2 | networkx/algorithms/shortest_paths/tests/test_weighted.py:113-198; networkx/algorithms/shortest_paths/tests/test_weighted.py:316-329; networkx/algorithms/shortest_paths/tests/test_weighted.py:744-777 |
+| P2C005-OC-2 | centrality and connected-components result shape/order | node centrality values and component partitions preserve legacy normalization/order behavior | no output reordering beyond documented traversal semantics | same output contract with deterministic audit envelopes for deviations | P2C005-R4 | networkx/algorithms/centrality/tests/test_degree_centrality.py:50-102; networkx/algorithms/centrality/tests/test_closeness_centrality.py:18-37; networkx/algorithms/components/tests/test_connected.py:64-111 |
+| P2C005-OC-3 | predecessor/equal-cost path tie representation | predecessor lists and tie paths remain stable and reproducible under equal-cost expansions | tie outputs follow canonical lexical ordering policy without hidden mutation | same tie policy; only bounded diagnostics are allowlisted | P2C005-R1; P2C005-R2 | networkx/algorithms/shortest_paths/tests/test_weighted.py:271-309; networkx/algorithms/shortest_paths/tests/test_weighted.py:848-870 |
 
 ## Error Contract
-| condition | mode | behavior |
-|---|---|---|
-| unknown incompatible feature | strict/hardened | fail-closed |
-| malformed input affecting compatibility | strict | fail-closed |
-| malformed input within allowlist budget | hardened | bounded defensive recovery + deterministic audit |
+| row id | trigger | strict behavior | hardened behavior | allowlisted divergence category | legacy anchor regions | required validations |
+|---|---|---|---|---|---|---|
+| P2C005-EC-1 | absent source/target nodes or unreachable weighted target | raise NodeNotFound or NetworkXNoPath exactly per legacy semantics | same fail-closed errors with deterministic diagnostic context only | bounded_diagnostic_enrichment | P2C005-R1; P2C005-R3 | networkx/algorithms/shortest_paths/tests/test_weighted.py:156-170; networkx/algorithms/shortest_paths/tests/test_weighted.py:252-270; networkx/algorithms/shortest_paths/tests/test_weighted.py:513-527 |
+| P2C005-EC-2 | negative cycle / contradictory-path detection | raise ValueError or NetworkXUnbounded fail-closed envelopes | same fail-closed defaults; no optimistic recovery from negative-cycle conditions | bounded_diagnostic_enrichment | P2C005-R3 | networkx/algorithms/shortest_paths/tests/test_weighted.py:331-347; networkx/algorithms/shortest_paths/tests/test_weighted.py:533-610; networkx/algorithms/shortest_paths/tests/test_weighted.py:612-620 |
+| P2C005-EC-3 | unsupported backend loopback dispatch path for components | raise deterministic ImportError for unregistered backend | same fail-closed backend contract with structured audit metadata | bounded_diagnostic_enrichment | P2C005-R5 | networkx/algorithms/components/tests/test_connected.py:75-97; networkx/algorithms/components/tests/test_connected.py:124-130 |
+| P2C005-EC-4 | directed-graph calls into undirected connected-component APIs | raise NetworkXNotImplemented and halt contract-unsafe execution | same fail-closed API boundary; no implicit graph conversion | bounded_diagnostic_enrichment | P2C005-R4 | networkx/algorithms/components/tests/test_connected.py:124-130 |
 
 ## Strict/Hardened Divergence
-- strict: exact compatibility mode with zero behavior-repair heuristics.
-- hardened: bounded, allowlisted defensive recovery while preserving outward API contract.
+- strict: fail-closed on unknown incompatible weighted-path/centrality/component semantics with zero mismatch budget for deterministic outputs
+- hardened: bounded divergence only for allowlisted diagnostic/recovery categories with deterministic audit evidence and explicit compatibility-boundary records
+- unknown incompatible feature/metadata paths fail closed unless an allowlisted category and deterministic audit trail are present
 
 ## Determinism Commitments
-- tie-break policy: lexical canonical ordering for equal-priority outcomes.
-- ordering policy: stable traversal and output ordering under identical inputs/seeds.
+| row id | commitment | tie-break rule | legacy anchor regions | required validations |
+|---|---|---|---|---|
+| P2C005-DC-1 | equal-cost shortest-path tie handling remains deterministic | canonical lexical node-sequence comparison | P2C005-R1; P2C005-R2 | networkx/algorithms/shortest_paths/tests/test_weighted.py:271-309; networkx/algorithms/shortest_paths/tests/test_weighted.py:848-870 |
+| P2C005-DC-2 | multigraph parallel-edge weight selection remains deterministic | minimum-edge-weight branch with stable predecessor update ordering | P2C005-R2 | networkx/algorithms/shortest_paths/tests/test_weighted.py:316-329; networkx/algorithms/shortest_paths/tests/test_weighted.py:744-777 |
+| P2C005-DC-3 | component partition and centrality iteration outputs remain stable | traversal order is deterministic for identical graph state | P2C005-R4 | networkx/algorithms/centrality/tests/test_degree_centrality.py:50-102; networkx/algorithms/centrality/tests/test_closeness_centrality.py:18-37; networkx/algorithms/components/tests/test_connected.py:64-111 |
+
+### Machine-Checkable Invariant Matrix
+| invariant id | precondition | postcondition | preservation obligation | legacy anchor regions | required validations |
+|---|---|---|---|---|---|
+| P2C005-INV-1 | weighted graph input satisfies declared node/edge contracts | shortest-path length equals accumulated edge-weight sum of emitted path | path witness and distance witness remain isomorphic to oracle | P2C005-R1; P2C005-R2 | networkx/algorithms/shortest_paths/tests/test_weighted.py:113-198; networkx/algorithms/shortest_paths/tests/test_weighted.py:744-777 |
+| P2C005-INV-2 | graph has negative-cycle exposure or contradictory relaxation state | no finite shortest-path witness is emitted under fail-closed semantics | negative-cycle envelopes are deterministic and replayable | P2C005-R3 | networkx/algorithms/shortest_paths/tests/test_weighted.py:533-610; networkx/algorithms/shortest_paths/tests/test_weighted.py:612-620 |
+| P2C005-INV-3 | centrality/components APIs execute under documented graph-type constraints | normalization factors and component partition semantics match legacy outputs | strict/hardened modes preserve outward API contract and ordering | P2C005-R4; P2C005-R5 | networkx/algorithms/centrality/tests/test_closeness_centrality.py:18-37; networkx/algorithms/centrality/tests/test_degree_centrality.py:50-102; networkx/algorithms/components/tests/test_connected.py:64-111 |
+
+
+## Rust Module Boundary Skeleton
+| boundary id | crate | module path | public seam | internal ownership | legacy compatibility surface | threat boundary refs | compile-check proof | parallel contributor scope |
+|---|---|---|---|---|---|---|---|---|
+| P2C005-MB-1 | fnx-algorithms | crates/fnx-algorithms/src/weighted_route_policy.rs | pub trait WeightedRoutePlanner | weighted-route dispatch preflight, source/target existence checks, and weight-selector normalization | _weight_function / dijkstra_path / single_source_dijkstra | P2C005-CB-1; P2C005-CB-2; P2C005-CB-3 | cargo check -p fnx-algorithms | weighted-route preflight and selector policy only |
+| P2C005-MB-2 | fnx-algorithms | crates/fnx-algorithms/src/weighted_frontier_engine.rs | pub struct WeightedFrontierEngine | priority-queue frontier expansion, predecessor reconstruction, multigraph min-edge selection, and deterministic tie-break ordering | _dijkstra_multisource / bidirectional_dijkstra / predecessor maps | P2C005-CB-2; P2C005-CB-4; P2C005-CB-5 | cargo test -p fnx-algorithms weighted_shortest_paths -- --nocapture | frontier expansion and tie-break semantics only |
+| P2C005-MB-3 | fnx-algorithms | crates/fnx-algorithms/src/centrality_components_kernel.rs | pub trait CentralityComponentsKernel | degree/closeness normalization, directed-orientation semantics, and connected-components boundary enforcement | degree_centrality / closeness_centrality / connected_components | P2C005-CB-5; P2C005-CB-6 | cargo check -p fnx-algorithms --all-targets | centrality/components semantics only |
+| P2C005-MB-4 | fnx-runtime | crates/fnx-runtime/src/hardened_guardrails.rs | pub struct HardenedAlgorithmGuardrails | allowlisted hardened deviations, deterministic audit envelopes, and fail-closed policy override rejection | strict/hardened compatibility envelope for weighted shortest-path, centrality, and components pathways | P2C005-CB-1; P2C005-CB-4; P2C005-CB-6 | cargo check -p fnx-runtime --all-targets | hardened diagnostics/audit policy only |
+
+
+## Dependency-Aware Implementation Sequence
+| checkpoint id | order | depends on | objective | modules touched | verification entrypoints | structured logging hooks | risk checkpoint |
+|---|---|---|---|---|---|---|---|
+| P2C005-SEQ-1 | 1 | none | Land compile-checkable weighted-route and centrality/components seams before behavior changes. | crates/fnx-algorithms/src/weighted_route_policy.rs; crates/fnx-algorithms/src/centrality_components_kernel.rs | unit::fnx-p2c-005::boundary_shape; cargo check -p fnx-algorithms | algorithms.boundary.weighted_route_ready; algorithms.boundary.centrality_components_ready | fail if module seam ownership is ambiguous |
+| P2C005-SEQ-2 | 2 | P2C005-SEQ-1 | Implement strict weighted-route dispatch parity and malformed-input/source fail-closed boundaries. | crates/fnx-algorithms/src/weighted_route_policy.rs; crates/fnx-algorithms/src/lib.rs | networkx/algorithms/shortest_paths/tests/test_weighted.py:113-241; differential::fnx-p2c-005::weighted_dispatch | algorithms.strict.route_decision; algorithms.fail_closed.weighted_input | halt if strict mismatch budget deviates from zero |
+| P2C005-SEQ-3 | 3 | P2C005-SEQ-2 | Implement deterministic frontier expansion, tie-break policy, and negative-cycle fail-closed envelopes. | crates/fnx-algorithms/src/weighted_frontier_engine.rs; crates/fnx-algorithms/src/bellman_ford_guard.rs | networkx/algorithms/shortest_paths/tests/test_weighted.py:271-347; networkx/algorithms/shortest_paths/tests/test_weighted.py:533-620; property::fnx-p2c-005::invariants | algorithms.frontier.tie_break_selected; algorithms.fail_closed.negative_cycle | fail on path witness mismatch or non-deterministic predecessor ordering |
+| P2C005-SEQ-4 | 4 | P2C005-SEQ-2; P2C005-SEQ-3 | Lock centrality/components semantics, directed-orientation rules, and backend loopback failure boundaries. | crates/fnx-algorithms/src/centrality_components_kernel.rs; crates/fnx-algorithms/src/components_dispatch_bridge.rs | networkx/algorithms/centrality/tests/test_closeness_centrality.py:18-197; networkx/algorithms/components/tests/test_connected.py:64-130 | algorithms.centrality.orientation_locked; algorithms.components.backend_guard | reject directed/backend bypass paths that violate fail-closed policy |
+| P2C005-SEQ-5 | 5 | P2C005-SEQ-4 | Layer hardened allowlisted controls and run readiness/e2e/perf gates to finalize packet evidence. | crates/fnx-runtime/src/hardened_guardrails.rs; crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs; scripts/run_phase2c_readiness_e2e.sh | adversarial::fnx-p2c-005::algorithmic_complexity; cargo test -p fnx-conformance --test phase2c_packet_readiness_gate | algorithms.hardened.allowlisted_category; algorithms.readiness.gate_result | stop on any strict/hardened parity gate mismatch |
+
+
+## Structured Logging + Verification Entry Points
+| stage | harness | structured log hook | replay metadata fields | failure forensics artifact |
+|---|---|---|---|---|
+| unit | unit::fnx-p2c-005::contract | algorithms.unit.contract_asserted | packet_id; algorithm_family; source_target_pair; strict_mode | artifacts/conformance/latest/structured_logs.jsonl |
+| property | property::fnx-p2c-005::invariants | algorithms.property.invariant_checkpoint | seed; graph_fingerprint; tie_break_policy; invariant_id | artifacts/conformance/latest/structured_log_emitter_normalization_report.json |
+| differential | differential::fnx-p2c-005::fixtures | algorithms.diff.oracle_comparison | fixture_id; oracle_ref; algorithm_signature; mismatch_count | artifacts/phase2c/FNX-P2C-005/parity_report.json |
+| e2e | e2e::fnx-p2c-005::golden_journey | algorithms.e2e.replay_emitted | scenario_id; thread_id; trace_id; forensics_bundle | artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json |

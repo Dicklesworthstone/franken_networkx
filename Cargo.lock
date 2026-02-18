@@ -269,6 +269,8 @@ name = "fnx-algorithms"
 version = "0.1.0"
 dependencies = [
  "fnx-classes",
+ "fnx-runtime",
+ "proptest",
  "serde",
 ]
 
@@ -306,6 +308,7 @@ dependencies = [
  "fnx-classes",
  "fnx-dispatch",
  "fnx-runtime",
+ "proptest",
  "serde",
 ]
 

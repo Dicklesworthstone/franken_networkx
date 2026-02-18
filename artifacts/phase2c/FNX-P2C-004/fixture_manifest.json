@@ -55,6 +55,224 @@
     "raptorq_sidecar": "artifacts/phase2c/FNX-P2C-004/parity_report.raptorq.json",
     "decode_proof": "artifacts/phase2c/FNX-P2C-004/parity_report.decode_proof.json"
   },
+  "module_boundary_skeleton": [
+    {
+      "boundary_id": "P2C004-MB-1",
+      "crate": "fnx-convert",
+      "module_path": "crates/fnx-convert/src/input_classifier.rs",
+      "public_seam": "pub trait ConversionInputClassifier",
+      "internal_ownership": "input-shape classification and create_using/multigraph dispatch preflight",
+      "legacy_compat_surface": "to_networkx_graph / _prep_create_using",
+      "threat_boundary_refs": [
+        "P2C004-CB-1",
+        "P2C004-CB-2",
+        "P2C004-CB-3"
+      ],
+      "compile_check": "cargo check -p fnx-convert",
+      "parallel_owner_scope": "input dispatch policy and validation preflight only"
+    },
+    {
+      "boundary_id": "P2C004-MB-2",
+      "crate": "fnx-convert",
+      "module_path": "crates/fnx-convert/src/edge_projection.rs",
+      "public_seam": "pub struct EdgeProjectionEngine",
+      "internal_ownership": "dict/list/edge-list projection with deterministic attribute and key normalization",
+      "legacy_compat_surface": "from_dict_of_lists / from_dict_of_dicts / from_edgelist",
+      "threat_boundary_refs": [
+        "P2C004-CB-2",
+        "P2C004-CB-4",
+        "P2C004-CB-6"
+      ],
+      "compile_check": "cargo test -p fnx-convert convert_projection -- --nocapture",
+      "parallel_owner_scope": "edge projection + attribute precedence only"
+    },
+    {
+      "boundary_id": "P2C004-MB-3",
+      "crate": "fnx-convert",
+      "module_path": "crates/fnx-convert/src/relabel_policy.rs",
+      "public_seam": "pub trait RelabelPlanner",
+      "internal_ownership": "copy/in-place relabel planning, cycle detection, and multigraph key collision policy",
+      "legacy_compat_surface": "relabel_nodes / convert_node_labels_to_integers",
+      "threat_boundary_refs": [
+        "P2C004-CB-5",
+        "P2C004-CB-6"
+      ],
+      "compile_check": "cargo test -p fnx-convert relabel -- --nocapture",
+      "parallel_owner_scope": "relabel ordering and collision semantics only"
+    },
+    {
+      "boundary_id": "P2C004-MB-4",
+      "crate": "fnx-runtime",
+      "module_path": "crates/fnx-runtime/src/hardened_guardrails.rs",
+      "public_seam": "pub struct HardenedConversionGuardrails",
+      "internal_ownership": "allowlisted hardened deviations, audit envelopes, and fail-closed policy override rejection",
+      "legacy_compat_surface": "strict/hardened compatibility envelope for conversion and relabel paths",
+      "threat_boundary_refs": [
+        "P2C004-CB-1",
+        "P2C004-CB-4",
+        "P2C004-CB-6"
+      ],
+      "compile_check": "cargo check -p fnx-runtime --all-targets",
+      "parallel_owner_scope": "hardened diagnostics/audit policy only"
+    }
+  ],
+  "implementation_sequence": [
+    {
+      "checkpoint_id": "P2C004-SEQ-1",
+      "order": 1,
+      "depends_on": [],
+      "objective": "Land compile-checkable conversion/relabel boundary seams before behavior changes.",
+      "modules_touched": [
+        "crates/fnx-convert/src/input_classifier.rs",
+        "crates/fnx-convert/src/relabel_policy.rs"
+      ],
+      "verification_entrypoints": [
+        "unit::fnx-p2c-004::boundary_shape",
+        "cargo check -p fnx-convert"
+      ],
+      "structured_log_hooks": [
+        "convert.boundary.input_classifier_ready",
+        "convert.boundary.relabel_policy_ready"
+      ],
+      "risk_checkpoint": "fail if public/internal ownership boundaries are ambiguous"
+    },
+    {
+      "checkpoint_id": "P2C004-SEQ-2",
+      "order": 2,
+      "depends_on": [
+        "P2C004-SEQ-1"
+      ],
+      "objective": "Implement strict-mode conversion input dispatch parity and malformed-input fail-closed behavior.",
+      "modules_touched": [
+        "crates/fnx-convert/src/input_classifier.rs",
+        "crates/fnx-convert/src/lib.rs"
+      ],
+      "verification_entrypoints": [
+        "networkx/tests/test_convert.py:45-133",
+        "differential::fnx-p2c-004::convert_dispatch"
+      ],
+      "structured_log_hooks": [
+        "convert.strict.dispatch_decision",
+        "convert.fail_closed.malformed_input"
+      ],
+      "risk_checkpoint": "halt if strict mismatch budget deviates from zero"
+    },
+    {
+      "checkpoint_id": "P2C004-SEQ-3",
+      "order": 3,
+      "depends_on": [
+        "P2C004-SEQ-2"
+      ],
+      "objective": "Implement deterministic edge projection and relabel collision semantics for multi-graph pathways.",
+      "modules_touched": [
+        "crates/fnx-convert/src/edge_projection.rs",
+        "crates/fnx-convert/src/relabel_policy.rs"
+      ],
+      "verification_entrypoints": [
+        "networkx/tests/test_convert.py:134-210",
+        "networkx/tests/test_relabel.py:188-317",
+        "property::fnx-p2c-004::invariants"
+      ],
+      "structured_log_hooks": [
+        "convert.edge_projection.normalized",
+        "convert.relabel.collision_strategy_selected"
+      ],
+      "risk_checkpoint": "fail on relabel ordering drift or non-deterministic multigraph key remapping"
+    },
+    {
+      "checkpoint_id": "P2C004-SEQ-4",
+      "order": 4,
+      "depends_on": [
+        "P2C004-SEQ-2",
+        "P2C004-SEQ-3"
+      ],
+      "objective": "Layer hardened allowlisted controls with deterministic audit envelopes for conversion threats.",
+      "modules_touched": [
+        "crates/fnx-runtime/src/hardened_guardrails.rs",
+        "crates/fnx-runtime/src/structured_logging.rs"
+      ],
+      "verification_entrypoints": [
+        "adversarial::fnx-p2c-004::malformed_inputs",
+        "adversarial::fnx-p2c-004::attribute_confusion"
+      ],
+      "structured_log_hooks": [
+        "convert.hardened.allowlisted_category",
+        "convert.audit.envelope_emitted"
+      ],
+      "risk_checkpoint": "reject any non-allowlisted hardened deviation"
+    },
+    {
+      "checkpoint_id": "P2C004-SEQ-5",
+      "order": 5,
+      "depends_on": [
+        "P2C004-SEQ-4"
+      ],
+      "objective": "Run differential/e2e readiness gates and finalize packet evidence artifacts.",
+      "modules_touched": [
+        "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs",
+        "scripts/run_phase2c_readiness_e2e.sh"
+      ],
+      "verification_entrypoints": [
+        "e2e::fnx-p2c-004::golden_journey",
+        "cargo test -p fnx-conformance --test phase2c_packet_readiness_gate"
+      ],
+      "structured_log_hooks": [
+        "convert.e2e.replay_bundle",
+        "convert.readiness.gate_result"
+      ],
+      "risk_checkpoint": "stop on any strict/hardened parity gate mismatch"
+    }
+  ],
+  "verification_entrypoints": [
+    {
+      "stage": "unit",
+      "harness": "unit::fnx-p2c-004::contract",
+      "structured_log_hook": "convert.unit.contract_asserted",
+      "replay_metadata_fields": [
+        "packet_id",
+        "conversion_path",
+        "input_shape",
+        "strict_mode"
+      ],
+      "failure_forensics_artifact": "artifacts/conformance/latest/structured_logs.jsonl"
+    },
+    {
+      "stage": "property",
+      "harness": "property::fnx-p2c-004::invariants",
+      "structured_log_hook": "convert.property.invariant_checkpoint",
+      "replay_metadata_fields": [
+        "seed",
+        "graph_fingerprint",
+        "relabel_mode",
+        "invariant_id"
+      ],
+      "failure_forensics_artifact": "artifacts/conformance/latest/structured_log_emitter_normalization_report.json"
+    },
+    {
+      "stage": "differential",
+      "harness": "differential::fnx-p2c-004::fixtures",
+      "structured_log_hook": "convert.diff.oracle_comparison",
+      "replay_metadata_fields": [
+        "fixture_id",
+        "oracle_ref",
+        "conversion_signature",
+        "mismatch_count"
+      ],
+      "failure_forensics_artifact": "artifacts/phase2c/FNX-P2C-004/parity_report.json"
+    },
+    {
+      "stage": "e2e",
+      "harness": "e2e::fnx-p2c-004::golden_journey",
+      "structured_log_hook": "convert.e2e.replay_emitted",
+      "replay_metadata_fields": [
+        "scenario_id",
+        "thread_id",
+        "trace_id",
+        "forensics_bundle"
+      ],
+      "failure_forensics_artifact": "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json"
+    }
+  ],
   "hardened_allowlisted_categories": [
     "bounded_diagnostic_enrichment",
     "defensive_parse_recovery",

@@ -466,24 +466,48 @@
       "threats": [
         {
           "threat_class": "parser_abuse",
-          "strict_mode_response": "Fail-closed on malformed weighted shortest-path inputs.",
-          "hardened_mode_response": "Fail-closed with bounded diagnostics on malformed algorithm inputs.",
+          "strict_mode_response": "Fail-closed on malformed weighted-path request payloads and invalid source/target selectors.",
+          "hardened_mode_response": "Fail-closed with bounded diagnostics and defensive parse recovery before deterministic abort.",
           "mitigations": [
-            "weight/input validation",
-            "invalid graph fixture coverage",
-            "deterministic failure taxonomy"
+            "weighted request schema checks",
+            "source/target existence guards",
+            "malformed payload fixtures"
+          ],
+          "compatibility_boundary": "weighted request parse boundary",
+          "adversarial_fixture_hooks": [
+            "algorithm_request_malformed_payload"
+          ],
+          "crash_triage_taxonomy": [
+            "shortest_path.parse.malformed_payload",
+            "shortest_path.parse.invalid_source_target"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "defensive_parse_recovery"
           ],
           "evidence_artifact": "artifacts/phase2c/FNX-P2C-005/risk_note.md",
           "drift_gate": "shortest-path-threat-gate"
         },
         {
           "threat_class": "metadata_ambiguity",
-          "strict_mode_response": "Fail-closed on ambiguous weight metadata or route hints.",
-          "hardened_mode_response": "Quarantine unsupported metadata and preserve deterministic route semantics.",
+          "strict_mode_response": "Fail-closed on ambiguous weight metadata, hidden-edge callbacks, or conflicting route hints.",
+          "hardened_mode_response": "Quarantine unsupported metadata and preserve deterministic weighted-route semantics.",
           "mitigations": [
-            "weight-key allowlist",
-            "tie-break determinism witness",
+            "weight metadata precedence table",
+            "hidden-edge callback contract checks",
             "metadata drift classification"
+          ],
+          "compatibility_boundary": "weighted metadata normalization boundary",
+          "adversarial_fixture_hooks": [
+            "algorithm_conflicting_weight_metadata"
+          ],
+          "crash_triage_taxonomy": [
+            "shortest_path.metadata.ambiguous_weight_selector",
+            "shortest_path.metadata.hidden_edge_callback_conflict"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "quarantine_of_unsupported_metadata"
           ],
           "evidence_artifact": "artifacts/phase2c/FNX-P2C-005/contract_table.md",
           "drift_gate": "shortest-path-threat-gate"
@@ -491,47 +515,94 @@
         {
           "threat_class": "version_skew",
           "strict_mode_response": "Fail-closed on unsupported algorithm contract versions.",
-          "hardened_mode_response": "Reject incompatible versions with deterministic remediation diagnostics.",
+          "hardened_mode_response": "Reject incompatible version envelopes with deterministic compatibility diagnostics.",
           "mitigations": [
-            "algorithm contract pinning",
-            "versioned fixture bundles",
-            "compatibility matrix checks"
+            "algorithm contract version pinning",
+            "versioned fixture bundle checks",
+            "compatibility matrix probes"
+          ],
+          "compatibility_boundary": "algorithm contract version envelope boundary",
+          "adversarial_fixture_hooks": [
+            "algorithm_contract_version_skew"
+          ],
+          "crash_triage_taxonomy": [
+            "shortest_path.version.unsupported_contract_envelope",
+            "shortest_path.version.contract_mismatch"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment"
           ],
           "evidence_artifact": "artifacts/phase2c/FNX-P2C-005/parity_gate.yaml",
           "drift_gate": "shortest-path-threat-gate"
         },
         {
           "threat_class": "resource_exhaustion",
-          "strict_mode_response": "Fail-closed when path search exceeds strict complexity budgets.",
-          "hardened_mode_response": "Bound expansion work and abort once bounded clamps are exhausted.",
+          "strict_mode_response": "Fail-closed when weighted frontier expansion exceeds strict complexity budgets.",
+          "hardened_mode_response": "Apply bounded resource clamps and reject once deterministic thresholds are exceeded.",
           "mitigations": [
-            "complexity admission gates",
-            "work-queue caps",
-            "p95/p99 runtime sentinels"
+            "frontier expansion ratio guards",
+            "priority-queue work caps",
+            "runtime tail budget sentinels"
+          ],
+          "compatibility_boundary": "weighted frontier expansion budget boundary",
+          "adversarial_fixture_hooks": [
+            "shortest_path_frontier_blowup"
+          ],
+          "crash_triage_taxonomy": [
+            "shortest_path.resource.frontier_budget_exceeded",
+            "shortest_path.resource.priority_queue_cap_exceeded"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "bounded_resource_clamp"
           ],
           "evidence_artifact": "artifacts/phase2c/FNX-P2C-005/parity_gate.yaml",
           "drift_gate": "shortest-path-threat-gate"
         },
         {
           "threat_class": "state_corruption",
-          "strict_mode_response": "Fail-closed when path state cache/invariants diverge from contract.",
-          "hardened_mode_response": "Reset path state and fail-closed with deterministic incident report.",
+          "strict_mode_response": "Fail-closed when path witness, predecessor state, or component route invariants drift.",
+          "hardened_mode_response": "Reset transient route state and fail-closed with deterministic incident evidence.",
           "mitigations": [
-            "invariant checkpoints",
-            "cache reset hooks",
-            "path witness regression tests"
+            "witness invariant checkpoints",
+            "predecessor map consistency checks",
+            "state-reset replay hooks"
+          ],
+          "compatibility_boundary": "path witness and route-state determinism boundary",
+          "adversarial_fixture_hooks": [
+            "shortest_path_witness_state_break"
+          ],
+          "crash_triage_taxonomy": [
+            "shortest_path.state.witness_invariant_break",
+            "shortest_path.state.predecessor_state_mismatch"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment"
           ],
           "evidence_artifact": "artifacts/phase2c/FNX-P2C-005/contract_table.md",
           "drift_gate": "shortest-path-threat-gate"
         },
         {
           "threat_class": "algorithmic_complexity_dos",
-          "strict_mode_response": "Fail-closed on adversarial graph classes outside strict budget envelope.",
-          "hardened_mode_response": "Apply bounded admission checks and reject hostile graph classes.",
+          "strict_mode_response": "Fail-closed on adversarial graph classes outside strict complexity envelopes.",
+          "hardened_mode_response": "Apply bounded admission checks and deterministic tie-break normalization before rejection.",
           "mitigations": [
             "adversarial graph taxonomy",
             "complexity witness artifacts",
-            "runtime tail gates"
+            "runtime tail regression sentinels"
+          ],
+          "compatibility_boundary": "hostile graph complexity admission boundary",
+          "adversarial_fixture_hooks": [
+            "shortest_path_lollipop_and_barbell_stressor"
+          ],
+          "crash_triage_taxonomy": [
+            "shortest_path.complexity.hostile_graph_class",
+            "shortest_path.complexity.tail_budget_exceeded"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "bounded_resource_clamp",
+            "deterministic_tie_break_normalization"
           ],
           "evidence_artifact": "artifacts/phase2c/FNX-P2C-005/risk_note.md",
           "drift_gate": "shortest-path-threat-gate"

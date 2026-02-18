@@ -256,10 +256,99 @@
       "packet_id": "FNX-P2C-005",
       "allowed_categories": [
         "bounded_diagnostic_enrichment",
+        "defensive_parse_recovery",
         "bounded_resource_clamp",
-        "deterministic_tie_break_normalization"
+        "deterministic_tie_break_normalization",
+        "quarantine_of_unsupported_metadata"
       ],
-      "notes": "Shortest-path hardened mode may clamp hostile workloads and normalize internal tie-break mechanics deterministically."
+      "notes": "Shortest-path hardened mode allows bounded parse recovery, metadata quarantine, complexity clamps, and deterministic tie-break normalization with explicit audit evidence.",
+      "fail_closed_default": "unknown_incompatible_feature",
+      "threat_taxonomy": [
+        "parser_abuse",
+        "metadata_ambiguity",
+        "version_skew",
+        "resource_exhaustion",
+        "state_corruption",
+        "algorithmic_complexity_dos"
+      ],
+      "compatibility_boundary_matrix": [
+        {
+          "boundary_id": "P2C005-CB-1",
+          "strict_parity_obligation": "Malformed weighted requests and invalid source/target selectors always fail closed.",
+          "hardened_allowlisted_deviation_categories": [
+            "bounded_diagnostic_enrichment",
+            "defensive_parse_recovery"
+          ],
+          "fail_closed_default": "fail_closed_on_malformed_weighted_request",
+          "evidence_hooks": [
+            "networkx/algorithms/shortest_paths/tests/test_weighted.py:156-170",
+            "artifacts/phase2c/FNX-P2C-005/risk_note.md#packet-threat-matrix"
+          ]
+        },
+        {
+          "boundary_id": "P2C005-CB-2",
+          "strict_parity_obligation": "Weight metadata precedence and hidden-edge callback semantics remain deterministic and parity-preserving.",
+          "hardened_allowlisted_deviation_categories": [
+            "bounded_diagnostic_enrichment",
+            "quarantine_of_unsupported_metadata"
+          ],
+          "fail_closed_default": "fail_closed_on_ambiguous_weight_metadata",
+          "evidence_hooks": [
+            "networkx/algorithms/shortest_paths/tests/test_weighted.py:199-241",
+            "artifacts/phase2c/FNX-P2C-005/contract_table.md#input-contract"
+          ]
+        },
+        {
+          "boundary_id": "P2C005-CB-3",
+          "strict_parity_obligation": "Unsupported algorithm contract/version envelopes are rejected deterministically.",
+          "hardened_allowlisted_deviation_categories": [
+            "bounded_diagnostic_enrichment"
+          ],
+          "fail_closed_default": "fail_closed_on_algorithm_version_skew",
+          "evidence_hooks": [
+            "networkx/algorithms/shortest_paths/tests/test_weighted.py:331-347",
+            "artifacts/phase2c/FNX-P2C-005/parity_gate.yaml"
+          ]
+        },
+        {
+          "boundary_id": "P2C005-CB-4",
+          "strict_parity_obligation": "Weighted frontier growth stays inside strict complexity budgets.",
+          "hardened_allowlisted_deviation_categories": [
+            "bounded_diagnostic_enrichment",
+            "bounded_resource_clamp",
+            "deterministic_tie_break_normalization"
+          ],
+          "fail_closed_default": "fail_closed_when_weighted_frontier_budget_exhausted",
+          "evidence_hooks": [
+            "artifacts/phase2c/FNX-P2C-005/parity_gate.yaml",
+            "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+          ]
+        },
+        {
+          "boundary_id": "P2C005-CB-5",
+          "strict_parity_obligation": "Negative-cycle and contradictory-path states never emit finite shortest-path witnesses.",
+          "hardened_allowlisted_deviation_categories": [
+            "bounded_diagnostic_enrichment"
+          ],
+          "fail_closed_default": "fail_closed_on_negative_cycle_or_contradictory_path",
+          "evidence_hooks": [
+            "networkx/algorithms/shortest_paths/tests/test_weighted.py:533-620",
+            "artifacts/phase2c/FNX-P2C-005/contract_table.md#machine-checkable-invariant-matrix"
+          ]
+        },
+        {
+          "boundary_id": "P2C005-CB-6",
+          "strict_parity_obligation": "Connected-components backend loopback and directed-input boundaries fail closed deterministically.",
+          "hardened_allowlisted_deviation_categories": [
+            "bounded_diagnostic_enrichment"
+          ],
+          "fail_closed_default": "fail_closed_on_components_backend_or_graph_type_violation",
+          "evidence_hooks": [
+            "networkx/algorithms/components/tests/test_connected.py:75-130",
+            "artifacts/phase2c/FNX-P2C-005/risk_note.md#compatibility-boundary-matrix"
+          ]
+        }
+      ]
     },
     {
       "packet_id": "FNX-P2C-006",

@@ -80,12 +80,20 @@ def validate_artifact(
     return errors
 
 
-def validate_packet_003_impl_plan(packet_path: Path) -> list[str]:
+PACKETS_REQUIRE_IMPL_PLAN = {
+    "FNX-P2C-003",
+    "FNX-P2C-004",
+    "FNX-P2C-005",
+}
+
+
+def validate_packet_impl_plan(packet_id: str, packet_path: Path) -> list[str]:
     errors: list[str] = []
+    packet_tag = packet_id.lower()
 
     contract_path = packet_path / "contract_table.md"
     if not contract_path.exists():
-        errors.append("missing packet-003 implementation skeleton source: contract_table.md")
+        errors.append(f"missing {packet_tag} implementation skeleton source: contract_table.md")
         return errors
 
     contract_text = contract_path.read_text(encoding="utf-8")
@@ -95,11 +103,13 @@ def validate_packet_003_impl_plan(packet_path: Path) -> list[str]:
         "Structured Logging + Verification Entry Points",
     ]:
         if not has_markdown_section(contract_text, section):
-            errors.append(f"missing packet-003 implementation section `{section}` in contract_table.md")
+            errors.append(
+                f"missing {packet_tag} implementation section `{section}` in contract_table.md"
+            )
 
     manifest_path = packet_path / "fixture_manifest.json"
     if not manifest_path.exists():
-        errors.append("missing packet-003 implementation skeleton source: fixture_manifest.json")
+        errors.append(f"missing {packet_tag} implementation skeleton source: fixture_manifest.json")
         return errors
 
     try:
@@ -115,7 +125,7 @@ def validate_packet_003_impl_plan(packet_path: Path) -> list[str]:
     ]:
         value = manifest.get(key)
         if not isinstance(value, list) or not value:
-            errors.append(f"fixture_manifest.json missing non-empty packet-003 key `{key}`")
+            errors.append(f"fixture_manifest.json missing non-empty {packet_tag} key `{key}`")
 
     return errors
 
@@ -158,8 +168,8 @@ def validate_packets(topology: dict[str, Any], contract: dict[str, Any]) -> dict
                 continue
             packet_errors.extend(validate_artifact(packet_path, artifact_key, contract))
 
-        if packet_id == "FNX-P2C-003":
-            packet_errors.extend(validate_packet_003_impl_plan(packet_path))
+        if packet_id in PACKETS_REQUIRE_IMPL_PLAN:
+            packet_errors.extend(validate_packet_impl_plan(packet_id, packet_path))
 
         ready = not packet_errors
         if ready:

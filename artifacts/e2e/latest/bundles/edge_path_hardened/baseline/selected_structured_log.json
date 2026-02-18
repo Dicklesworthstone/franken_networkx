@@ -1,0 +1,58 @@
+{
+  "schema_version": "1.0.0",
+  "run_id": "e2e-script-pack-20260218T005438Z",
+  "ts_unix_ms": 1771376163029,
+  "crate_name": "fnx-conformance",
+  "suite_id": "smoke",
+  "packet_id": "FNX-P2C-005",
+  "test_name": "fixture::generated/centrality_closeness_strict.json",
+  "test_id": "fixture::generated/centrality_closeness_strict.json",
+  "test_kind": "differential",
+  "mode": "hardened",
+  "fixture_id": "generated/centrality_closeness_strict.json",
+  "seed": 9070744064313709177,
+  "environment": {
+    "suite": "smoke",
+    "oracle_present": "true",
+    "mode": "hardened",
+    "scenario_id": "edge_path_hardened",
+    "generated_by": "e2e_script_pack_synth_fallback"
+  },
+  "env_fingerprint": "6ccf70bbc209b497",
+  "duration_ms": 0,
+  "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_closeness_strict.json --mode hardened",
+  "artifact_refs": [
+    "artifacts/e2e/latest/bundles/edge_path_hardened/baseline/smoke_report.json",
+    "artifacts/e2e/latest/bundles/edge_path_hardened/baseline/fixture_report.json",
+    "artifacts/e2e/latest/bundles/edge_path_hardened/baseline/structured_logs.jsonl",
+    "artifacts/phase2c/FNX-P2C-005/parity_report.decode_proof.json",
+    "artifacts/phase2c/FNX-P2C-005/parity_report.raptorq.json"
+  ],
+  "forensic_bundle_id": "forensics::FNX-P2C-005::generated::centrality_closeness_strict.json",
+  "hash_id": "4127bb640e493c90",
+  "status": "passed",
+  "reason_code": null,
+  "failure_repro": null,
+  "e2e_step_traces": [],
+  "forensics_bundle_index": {
+    "bundle_id": "forensics::FNX-P2C-005::generated::centrality_closeness_strict.json",
+    "run_id": "e2e-script-pack-20260218T005438Z",
+    "test_id": "fixture::generated/centrality_closeness_strict.json",
+    "bundle_hash_id": "7c700f059df2075c",
+    "captured_unix_ms": 1771376163029,
+    "replay_ref": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_closeness_strict.json --mode hardened",
+    "artifact_refs": [
+      "artifacts/e2e/latest/bundles/edge_path_hardened/baseline/smoke_report.json",
+      "artifacts/e2e/latest/bundles/edge_path_hardened/baseline/fixture_report.json",
+      "artifacts/e2e/latest/bundles/edge_path_hardened/baseline/structured_logs.jsonl",
+      "artifacts/phase2c/FNX-P2C-005/parity_report.decode_proof.json",
+      "artifacts/phase2c/FNX-P2C-005/parity_report.raptorq.json"
+    ],
+    "raptorq_sidecar_refs": [
+      "artifacts/phase2c/FNX-P2C-005/parity_report.raptorq.json"
+    ],
+    "decode_proof_refs": [
+      "artifacts/phase2c/FNX-P2C-005/parity_report.decode_proof.json"
+    ]
+  }
+}

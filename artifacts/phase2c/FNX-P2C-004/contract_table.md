@@ -40,3 +40,31 @@
 | P2C004-IV-1 | create_using/multigraph_input are explicit with syntactically valid payloads | result graph preserves legacy-observable node/edge set and attribute projection | strict mode forbids silent coercion that changes observable contract | P2C004-R1; P2C004-R2; P2C004-R3 | unit::fnx-p2c-004::contract; differential::fnx-p2c-004::fixtures |
 | P2C004-IV-2 | relabel mapping may overlap and merge endpoints | all intended edges are retained with deterministic key strategy and ordering semantics | copy=False cycle conflicts must fail closed with NetworkXUnfeasible | P2C004-R4; P2C004-R5 | networkx/tests/test_relabel.py:208-317; property::fnx-p2c-004::invariants |
 | P2C004-IV-3 | strict/hardened mode and allowlist category are fixed for execution | strict and hardened outputs remain isomorphic unless explicit allowlisted divergence exists | unknown incompatible features/metadata paths fail closed with replayable evidence | P2C004-R3; P2C004-R4; P2C004-R5 | adversarial::fnx-p2c-004::malformed_inputs; e2e::fnx-p2c-004::golden_journey |
+
+
+## Rust Module Boundary Skeleton
+| boundary id | crate | module path | public seam | internal ownership | legacy compatibility surface | threat boundary refs | compile-check proof | parallel contributor scope |
+|---|---|---|---|---|---|---|---|---|
+| P2C004-MB-1 | fnx-convert | crates/fnx-convert/src/input_classifier.rs | pub trait ConversionInputClassifier | input-shape classification and create_using/multigraph dispatch preflight | to_networkx_graph / _prep_create_using | P2C004-CB-1; P2C004-CB-2; P2C004-CB-3 | cargo check -p fnx-convert | input dispatch policy and validation preflight only |
+| P2C004-MB-2 | fnx-convert | crates/fnx-convert/src/edge_projection.rs | pub struct EdgeProjectionEngine | dict/list/edge-list projection with deterministic attribute and key normalization | from_dict_of_lists / from_dict_of_dicts / from_edgelist | P2C004-CB-2; P2C004-CB-4; P2C004-CB-6 | cargo test -p fnx-convert convert_projection -- --nocapture | edge projection + attribute precedence only |
+| P2C004-MB-3 | fnx-convert | crates/fnx-convert/src/relabel_policy.rs | pub trait RelabelPlanner | copy/in-place relabel planning, cycle detection, and multigraph key collision policy | relabel_nodes / convert_node_labels_to_integers | P2C004-CB-5; P2C004-CB-6 | cargo test -p fnx-convert relabel -- --nocapture | relabel ordering and collision semantics only |
+| P2C004-MB-4 | fnx-runtime | crates/fnx-runtime/src/hardened_guardrails.rs | pub struct HardenedConversionGuardrails | allowlisted hardened deviations, audit envelopes, and fail-closed policy override rejection | strict/hardened compatibility envelope for conversion and relabel paths | P2C004-CB-1; P2C004-CB-4; P2C004-CB-6 | cargo check -p fnx-runtime --all-targets | hardened diagnostics/audit policy only |
+
+
+## Dependency-Aware Implementation Sequence
+| checkpoint id | order | depends on | objective | modules touched | verification entrypoints | structured logging hooks | risk checkpoint |
+|---|---|---|---|---|---|---|---|
+| P2C004-SEQ-1 | 1 | none | Land compile-checkable conversion/relabel boundary seams before behavior changes. | crates/fnx-convert/src/input_classifier.rs; crates/fnx-convert/src/relabel_policy.rs | unit::fnx-p2c-004::boundary_shape; cargo check -p fnx-convert | convert.boundary.input_classifier_ready; convert.boundary.relabel_policy_ready | fail if public/internal ownership boundaries are ambiguous |
+| P2C004-SEQ-2 | 2 | P2C004-SEQ-1 | Implement strict-mode conversion input dispatch parity and malformed-input fail-closed behavior. | crates/fnx-convert/src/input_classifier.rs; crates/fnx-convert/src/lib.rs | networkx/tests/test_convert.py:45-133; differential::fnx-p2c-004::convert_dispatch | convert.strict.dispatch_decision; convert.fail_closed.malformed_input | halt if strict mismatch budget deviates from zero |
+| P2C004-SEQ-3 | 3 | P2C004-SEQ-2 | Implement deterministic edge projection and relabel collision semantics for multi-graph pathways. | crates/fnx-convert/src/edge_projection.rs; crates/fnx-convert/src/relabel_policy.rs | networkx/tests/test_convert.py:134-210; networkx/tests/test_relabel.py:188-317; property::fnx-p2c-004::invariants | convert.edge_projection.normalized; convert.relabel.collision_strategy_selected | fail on relabel ordering drift or non-deterministic multigraph key remapping |
+| P2C004-SEQ-4 | 4 | P2C004-SEQ-2; P2C004-SEQ-3 | Layer hardened allowlisted controls with deterministic audit envelopes for conversion threats. | crates/fnx-runtime/src/hardened_guardrails.rs; crates/fnx-runtime/src/structured_logging.rs | adversarial::fnx-p2c-004::malformed_inputs; adversarial::fnx-p2c-004::attribute_confusion | convert.hardened.allowlisted_category; convert.audit.envelope_emitted | reject any non-allowlisted hardened deviation |
+| P2C004-SEQ-5 | 5 | P2C004-SEQ-4 | Run differential/e2e readiness gates and finalize packet evidence artifacts. | crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs; scripts/run_phase2c_readiness_e2e.sh | e2e::fnx-p2c-004::golden_journey; cargo test -p fnx-conformance --test phase2c_packet_readiness_gate | convert.e2e.replay_bundle; convert.readiness.gate_result | stop on any strict/hardened parity gate mismatch |
+
+
+## Structured Logging + Verification Entry Points
+| stage | harness | structured log hook | replay metadata fields | failure forensics artifact |
+|---|---|---|---|---|
+| unit | unit::fnx-p2c-004::contract | convert.unit.contract_asserted | packet_id; conversion_path; input_shape; strict_mode | artifacts/conformance/latest/structured_logs.jsonl |
+| property | property::fnx-p2c-004::invariants | convert.property.invariant_checkpoint | seed; graph_fingerprint; relabel_mode; invariant_id | artifacts/conformance/latest/structured_log_emitter_normalization_report.json |
+| differential | differential::fnx-p2c-004::fixtures | convert.diff.oracle_comparison | fixture_id; oracle_ref; conversion_signature; mismatch_count | artifacts/phase2c/FNX-P2C-004/parity_report.json |
+| e2e | e2e::fnx-p2c-004::golden_journey | convert.e2e.replay_emitted | scenario_id; thread_id; trace_id; forensics_bundle | artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json |

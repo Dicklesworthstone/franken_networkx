@@ -1,24 +1,24 @@
 {
-  "fixture_id": "generated/centrality_closeness_strict.json",
-  "fixture_name": "generated/centrality_closeness_strict.json",
+  "fixture_id": "generated/centrality_degree_strict.json",
+  "fixture_name": "generated/centrality_degree_strict.json",
   "suite": "centrality_v1",
   "mode": "strict",
   "seed": null,
   "threat_class": null,
-  "replay_command": "rch exec -- CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_closeness_strict.json --mode strict",
+  "replay_command": "rch exec -- CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_degree_strict.json --mode strict",
   "passed": true,
   "reason_code": null,
-  "fixture_source_hash": "cdda09abe3117b81",
+  "fixture_source_hash": "8e5e7c8e0642dfb3",
   "duration_ms": 0,
   "strict_violation_count": 0,
   "hardened_allowlisted_count": 0,
   "mismatches": [],
   "mismatch_taxonomy": [],
   "witness": {
-    "algorithm": "closeness_centrality",
-    "complexity_claim": "O(|V| * (|V| + |E|))",
-    "nodes_touched": 5,
-    "edges_scanned": 4,
-    "queue_peak": 1
+    "algorithm": "degree_centrality",
+    "complexity_claim": "O(|V| + |E|)",
+    "nodes_touched": 4,
+    "edges_scanned": 6,
+    "queue_peak": 0
   }
 }

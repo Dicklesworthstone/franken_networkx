@@ -7,7 +7,10 @@
     "view_neighbors_hardened",
     "dispatch_route_strict",
     "dispatch_route_hardened",
+    "convert_route_strict",
+    "convert_route_hardened",
     "edge_path",
+    "edge_path_hardened",
     "malformed_input",
     "adversarial_soak",
     "asupersync_recovery_success",
@@ -24,6 +27,7 @@
     "FNX-P2C-001",
     "FNX-P2C-002",
     "FNX-P2C-003",
+    "FNX-P2C-004",
     "FNX-P2C-005",
     "FNX-P2C-006",
     "FNX-P2C-008"
