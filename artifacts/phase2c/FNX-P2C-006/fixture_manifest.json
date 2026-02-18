@@ -49,5 +49,499 @@
     "parity_report": "artifacts/phase2c/FNX-P2C-006/parity_report.json",
     "raptorq_sidecar": "artifacts/phase2c/FNX-P2C-006/parity_report.raptorq.json",
     "decode_proof": "artifacts/phase2c/FNX-P2C-006/parity_report.decode_proof.json"
-  }
+  },
+  "module_boundary_skeleton": [
+    {
+      "boundary_id": "P2C006-MB-1",
+      "crate": "fnx-readwrite",
+      "module_path": "crates/fnx-readwrite/src/edgelist_emit.rs",
+      "public_seam": "pub trait EdgeListEmitter",
+      "internal_ownership": "deterministic edge-line emission, delimiter/encoding policy, and edge-data projection for strict/hardened round-trip parity",
+      "legacy_compat_surface": "generate_edgelist / write_edgelist",
+      "threat_boundary_refs": [
+        "P2C006-CB-1",
+        "P2C006-CB-4"
+      ],
+      "compile_check": "cargo check -p fnx-readwrite",
+      "parallel_owner_scope": "edgelist emit pathway only"
+    },
+    {
+      "boundary_id": "P2C006-MB-2",
+      "crate": "fnx-readwrite",
+      "module_path": "crates/fnx-readwrite/src/edgelist_parse.rs",
+      "public_seam": "pub struct EdgeListParser",
+      "internal_ownership": "parse tokenization, nodetype/typed-data coercion, malformed-input fail-closed envelopes, and deterministic comment/short-line policy",
+      "legacy_compat_surface": "parse_edgelist / read_edgelist / read_weighted_edgelist",
+      "threat_boundary_refs": [
+        "P2C006-CB-1",
+        "P2C006-CB-3",
+        "P2C006-CB-4"
+      ],
+      "compile_check": "cargo test -p fnx-readwrite -- --nocapture",
+      "parallel_owner_scope": "edgelist parse semantics and error boundaries only"
+    },
+    {
+      "boundary_id": "P2C006-MB-3",
+      "crate": "fnx-readwrite",
+      "module_path": "crates/fnx-readwrite/src/json_graph_codec.rs",
+      "public_seam": "pub trait JsonGraphCodec",
+      "internal_ownership": "adjacency/node-link encode/decode, tuple-node restoration, and json attribute namespace compatibility boundaries",
+      "legacy_compat_surface": "adjacency_data / adjacency_graph / node_link_data / node_link_graph",
+      "threat_boundary_refs": [
+        "P2C006-CB-2",
+        "P2C006-CB-5"
+      ],
+      "compile_check": "cargo check -p fnx-readwrite --all-targets",
+      "parallel_owner_scope": "json_graph schema/reconstruction pathway only"
+    },
+    {
+      "boundary_id": "P2C006-MB-4",
+      "crate": "fnx-runtime",
+      "module_path": "crates/fnx-runtime/src/hardened_guardrails.rs",
+      "public_seam": "pub struct HardenedReadwriteGuardrails",
+      "internal_ownership": "allowlisted hardened deviation controls, deterministic audit envelopes, and policy enforcement for readwrite packet boundaries",
+      "legacy_compat_surface": "strict/hardened compatibility envelope for edgelist and json_graph contract surfaces",
+      "threat_boundary_refs": [
+        "P2C006-CB-1",
+        "P2C006-CB-2",
+        "P2C006-CB-4",
+        "P2C006-CB-5"
+      ],
+      "compile_check": "cargo check -p fnx-runtime --all-targets",
+      "parallel_owner_scope": "hardened diagnostics/policy guardrails only"
+    }
+  ],
+  "implementation_sequence": [
+    {
+      "checkpoint_id": "P2C006-SEQ-1",
+      "order": 1,
+      "depends_on": [],
+      "objective": "Establish compile-checkable readwrite module seams and ownership boundaries before behavioral changes.",
+      "modules_touched": [
+        "crates/fnx-readwrite/src/edgelist_emit.rs",
+        "crates/fnx-readwrite/src/edgelist_parse.rs",
+        "crates/fnx-readwrite/src/json_graph_codec.rs"
+      ],
+      "verification_entrypoints": [
+        "unit::fnx-p2c-006::boundary_shape",
+        "cargo check -p fnx-readwrite"
+      ],
+      "structured_log_hooks": [
+        "readwrite.boundary.edgelist_emit_ready",
+        "readwrite.boundary.edgelist_parse_ready",
+        "readwrite.boundary.json_graph_ready"
+      ],
+      "risk_checkpoint": "fail if module seam ownership or packet boundary mapping is ambiguous"
+    },
+    {
+      "checkpoint_id": "P2C006-SEQ-2",
+      "order": 2,
+      "depends_on": [
+        "P2C006-SEQ-1"
+      ],
+      "objective": "Lock strict-mode edgelist emit/read parity and typed parse semantics with deterministic error envelopes.",
+      "modules_touched": [
+        "crates/fnx-readwrite/src/edgelist_emit.rs",
+        "crates/fnx-readwrite/src/edgelist_parse.rs"
+      ],
+      "verification_entrypoints": [
+        "networkx/readwrite/tests/test_edgelist.py:80-173",
+        "differential::fnx-p2c-006::fixtures"
+      ],
+      "structured_log_hooks": [
+        "readwrite.strict.emit_policy",
+        "readwrite.strict.parse_fail_closed"
+      ],
+      "risk_checkpoint": "halt if strict round-trip mismatch budget deviates from zero"
+    },
+    {
+      "checkpoint_id": "P2C006-SEQ-3",
+      "order": 3,
+      "depends_on": [
+        "P2C006-SEQ-2"
+      ],
+      "objective": "Implement json_graph adjacency/node-link compatibility boundaries and tuple-node identity reconstruction rules.",
+      "modules_touched": [
+        "crates/fnx-readwrite/src/json_graph_codec.rs",
+        "crates/fnx-readwrite/src/lib.rs"
+      ],
+      "verification_entrypoints": [
+        "networkx/readwrite/json_graph/tests/test_adjacency.py:12-78",
+        "networkx/readwrite/json_graph/tests/test_node_link.py:10-109"
+      ],
+      "structured_log_hooks": [
+        "readwrite.json_graph.schema_validated",
+        "readwrite.json_graph.identity_restored"
+      ],
+      "risk_checkpoint": "reject any json_graph attribute-namespace ambiguity bypass"
+    },
+    {
+      "checkpoint_id": "P2C006-SEQ-4",
+      "order": 4,
+      "depends_on": [
+        "P2C006-SEQ-2",
+        "P2C006-SEQ-3"
+      ],
+      "objective": "Layer hardened allowlisted guardrails and crash-taxonomy instrumentation for readwrite threat classes.",
+      "modules_touched": [
+        "crates/fnx-runtime/src/hardened_guardrails.rs",
+        "crates/fnx-runtime/src/lib.rs"
+      ],
+      "verification_entrypoints": [
+        "adversarial::fnx-p2c-006::malformed_inputs",
+        "adversarial::fnx-p2c-006::metadata_confusion"
+      ],
+      "structured_log_hooks": [
+        "readwrite.hardened.allowlisted_category",
+        "readwrite.hardened.crash_taxonomy_emitted"
+      ],
+      "risk_checkpoint": "fail on any non-allowlisted hardened deviation"
+    },
+    {
+      "checkpoint_id": "P2C006-SEQ-5",
+      "order": 5,
+      "depends_on": [
+        "P2C006-SEQ-4"
+      ],
+      "objective": "Run readiness/e2e/perf gates and finalize packet evidence artifacts for handoff to test implementation beads.",
+      "modules_touched": [
+        "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs",
+        "scripts/run_phase2c_readiness_e2e.sh",
+        "artifacts/phase2c/FNX-P2C-006/"
+      ],
+      "verification_entrypoints": [
+        "cargo test -p fnx-conformance --test phase2c_packet_readiness_gate",
+        "cargo test -p fnx-conformance --test e2e_script_pack_gate"
+      ],
+      "structured_log_hooks": [
+        "readwrite.readiness.gate_result",
+        "readwrite.e2e.replay_bundle"
+      ],
+      "risk_checkpoint": "stop on any strict/hardened parity or security gate mismatch"
+    }
+  ],
+  "verification_entrypoints": [
+    {
+      "stage": "unit",
+      "harness": "unit::fnx-p2c-006::contract",
+      "structured_log_hook": "readwrite.unit.contract_asserted",
+      "replay_metadata_fields": [
+        "packet_id",
+        "io_path",
+        "strict_mode",
+        "fixture_id"
+      ],
+      "failure_forensics_artifact": "artifacts/conformance/latest/structured_logs.jsonl"
+    },
+    {
+      "stage": "property",
+      "harness": "property::fnx-p2c-006::invariants",
+      "structured_log_hook": "readwrite.property.invariant_checkpoint",
+      "replay_metadata_fields": [
+        "seed",
+        "graph_fingerprint",
+        "mode_policy",
+        "invariant_id"
+      ],
+      "failure_forensics_artifact": "artifacts/conformance/latest/structured_log_emitter_normalization_report.json"
+    },
+    {
+      "stage": "differential",
+      "harness": "differential::fnx-p2c-006::fixtures",
+      "structured_log_hook": "readwrite.diff.oracle_comparison",
+      "replay_metadata_fields": [
+        "fixture_id",
+        "oracle_ref",
+        "io_signature",
+        "mismatch_count"
+      ],
+      "failure_forensics_artifact": "artifacts/phase2c/FNX-P2C-006/parity_report.json"
+    },
+    {
+      "stage": "e2e",
+      "harness": "e2e::fnx-p2c-006::golden_journey",
+      "structured_log_hook": "readwrite.e2e.replay_emitted",
+      "replay_metadata_fields": [
+        "scenario_id",
+        "thread_id",
+        "trace_id",
+        "forensics_bundle"
+      ],
+      "failure_forensics_artifact": "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json"
+    }
+  ],
+  "hardened_allowlisted_categories": [
+    "bounded_diagnostic_enrichment",
+    "defensive_parse_recovery",
+    "bounded_resource_clamp",
+    "deterministic_tie_break_normalization",
+    "quarantine_of_unsupported_metadata"
+  ],
+  "strict_divergence_note": "strict: fail-closed on malformed parse payloads, ambiguous json_graph attribute naming, and unknown readwrite metadata with zero mismatch budget for round-trip outputs",
+  "hardened_divergence_note": "hardened: bounded divergence only in allowlisted diagnostic/recovery categories with deterministic audit evidence and no outward API-shape drift",
+  "unknown_incompatibility_note": "unknown incompatible readwrite features/metadata paths fail closed unless an allowlisted category and deterministic audit trail are present",
+  "input_contract_rows": [
+    {
+      "row_id": "P2C006-IC-1",
+      "api_behavior": "edgelist write/read round-trip contract",
+      "preconditions": "graph edge endpoints/data selectors, delimiter, and encoding are explicit for generation and ingest pathways",
+      "strict_policy": "preserve generate/write/read edgelist semantics with no hidden edge-data coercion",
+      "hardened_policy": "same serialization contract; bounded diagnostics allowed without output-shape drift",
+      "anchor_regions": [
+        "P2C006-R1",
+        "P2C006-R2"
+      ],
+      "validation_refs": [
+        "networkx/readwrite/tests/test_edgelist.py:80-107",
+        "networkx/readwrite/tests/test_edgelist.py:187-220",
+        "networkx/readwrite/tests/test_edgelist.py:251-302"
+      ]
+    },
+    {
+      "row_id": "P2C006-IC-2",
+      "api_behavior": "parse_edgelist typed conversion and weighted tuple semantics",
+      "preconditions": "nodetype and data tuple schema are explicit; delimiter/comment policy is fixed",
+      "strict_policy": "preserve literal_eval/typed conversion semantics and fail closed on malformed inputs",
+      "hardened_policy": "same conversion semantics; bounded recovery only for allowlisted malformed-line categories",
+      "anchor_regions": [
+        "P2C006-R2",
+        "P2C006-R3"
+      ],
+      "validation_refs": [
+        "networkx/readwrite/tests/test_edgelist.py:117-173",
+        "networkx/readwrite/tests/test_edgelist.py:304-318",
+        "networkx/readwrite/tests/test_edgelist.py:86-90"
+      ]
+    },
+    {
+      "row_id": "P2C006-IC-3",
+      "api_behavior": "json_graph adjacency/node-link attribute mapping and reconstruction",
+      "preconditions": "directed/multigraph flags and attrs id/source/target/key names are explicit and unique",
+      "strict_policy": "preserve adjacency/node-link payload schema and tuple-node restoration semantics exactly",
+      "hardened_policy": "same schema contract; incompatible metadata is quarantined and then fail-closed if unresolved",
+      "anchor_regions": [
+        "P2C006-R4",
+        "P2C006-R5"
+      ],
+      "validation_refs": [
+        "networkx/readwrite/json_graph/tests/test_adjacency.py:12-75",
+        "networkx/readwrite/json_graph/tests/test_node_link.py:10-50",
+        "networkx/readwrite/json_graph/tests/test_node_link.py:52-109"
+      ]
+    },
+    {
+      "row_id": "P2C006-IC-4",
+      "api_behavior": "comment stripping and short-line handling in edgelist parsing",
+      "preconditions": "comments marker and delimiter policy are fixed by caller",
+      "strict_policy": "ignore comment-only/short lines deterministically while preserving parse-failure envelopes",
+      "hardened_policy": "same baseline with deterministic audit metadata for recovered malformed-line pathways",
+      "anchor_regions": [
+        "P2C006-R2",
+        "P2C006-R3"
+      ],
+      "validation_refs": [
+        "networkx/readwrite/tests/test_edgelist.py:142-165",
+        "networkx/readwrite/tests/test_edgelist.py:167-173",
+        "networkx/readwrite/tests/test_edgelist.py:304-318"
+      ]
+    }
+  ],
+  "output_contract_rows": [
+    {
+      "row_id": "P2C006-OC-1",
+      "output_behavior": "edgelist serialization line format and edge-data projection",
+      "postconditions": "serialized lines and reloaded graph topology/edge attributes remain parity-preserving",
+      "strict_policy": "zero mismatch budget for edgelist round-trip drift",
+      "hardened_policy": "same outward output contract; bounded diagnostics must remain out-of-band and deterministic",
+      "anchor_regions": [
+        "P2C006-R1",
+        "P2C006-R2"
+      ],
+      "validation_refs": [
+        "networkx/readwrite/tests/test_edgelist.py:187-220",
+        "networkx/readwrite/tests/test_edgelist.py:251-302",
+        "generated/readwrite_roundtrip_strict.json"
+      ]
+    },
+    {
+      "row_id": "P2C006-OC-2",
+      "output_behavior": "typed weighted-edgelist parse output",
+      "postconditions": "weight/data fields are typed as requested and graph edge set matches parsed payload",
+      "strict_policy": "typed edge-data conversion must match legacy parse contract exactly",
+      "hardened_policy": "same typed-output contract with deterministic audit envelopes only",
+      "anchor_regions": [
+        "P2C006-R2",
+        "P2C006-R3"
+      ],
+      "validation_refs": [
+        "networkx/readwrite/tests/test_edgelist.py:86-90",
+        "networkx/readwrite/tests/test_edgelist.py:117-140",
+        "generated/readwrite_hardened_malformed.json"
+      ]
+    },
+    {
+      "row_id": "P2C006-OC-3",
+      "output_behavior": "json_graph adjacency/node-link round-trip reconstruction",
+      "postconditions": "directed/multigraph flags, attrs, and tuple-node identity are preserved across JSON round-trip",
+      "strict_policy": "no payload/key renaming outside documented legacy behavior",
+      "hardened_policy": "same payload contract; allowlisted metadata quarantine cannot alter returned graph semantics",
+      "anchor_regions": [
+        "P2C006-R4",
+        "P2C006-R5"
+      ],
+      "validation_refs": [
+        "networkx/readwrite/json_graph/tests/test_adjacency.py:12-75",
+        "networkx/readwrite/json_graph/tests/test_node_link.py:52-109",
+        "generated/readwrite_json_roundtrip_strict.json"
+      ]
+    }
+  ],
+  "error_contract_rows": [
+    {
+      "row_id": "P2C006-EC-1",
+      "trigger": "node token conversion fails under nodetype coercion",
+      "strict_behavior": "raise deterministic TypeError (fail-closed) with no partial edge insertion",
+      "hardened_behavior": "same fail-closed default; bounded diagnostics only",
+      "allowlisted_divergence_category": "bounded_diagnostic_enrichment",
+      "anchor_regions": [
+        "P2C006-R3"
+      ],
+      "validation_refs": [
+        "networkx/readwrite/tests/test_edgelist.py:147-151",
+        "networkx/readwrite/tests/test_edgelist.py:142-165"
+      ]
+    },
+    {
+      "row_id": "P2C006-EC-2",
+      "trigger": "edge data arity mismatch against declared data tuple schema",
+      "strict_behavior": "raise deterministic IndexError and halt parse",
+      "hardened_behavior": "same fail-closed default; no implicit schema padding",
+      "allowlisted_divergence_category": "none",
+      "anchor_regions": [
+        "P2C006-R3"
+      ],
+      "validation_refs": [
+        "networkx/readwrite/tests/test_edgelist.py:155-160"
+      ]
+    },
+    {
+      "row_id": "P2C006-EC-3",
+      "trigger": "edge data literal cannot be interpreted as dictionary/typed value",
+      "strict_behavior": "raise deterministic TypeError with fail-closed parser exit",
+      "hardened_behavior": "allow bounded defensive parse recovery only for allowlisted malformed-line categories",
+      "allowlisted_divergence_category": "defensive_parse_recovery",
+      "anchor_regions": [
+        "P2C006-R2",
+        "P2C006-R3"
+      ],
+      "validation_refs": [
+        "networkx/readwrite/tests/test_edgelist.py:152-154",
+        "networkx/readwrite/tests/test_edgelist.py:162-165"
+      ]
+    },
+    {
+      "row_id": "P2C006-EC-4",
+      "trigger": "json_graph attribute names are non-unique for id/source/target/key",
+      "strict_behavior": "raise deterministic NetworkXError and reject ambiguous payload schema",
+      "hardened_behavior": "same fail-closed attribute-boundary enforcement with audit metadata",
+      "allowlisted_divergence_category": "bounded_diagnostic_enrichment",
+      "anchor_regions": [
+        "P2C006-R5"
+      ],
+      "validation_refs": [
+        "networkx/readwrite/json_graph/tests/test_adjacency.py:74-78",
+        "networkx/readwrite/json_graph/tests/test_node_link.py:10-14",
+        "networkx/readwrite/json_graph/tests/test_node_link.py:72-77"
+      ]
+    }
+  ],
+  "determinism_rows": [
+    {
+      "row_id": "P2C006-DC-1",
+      "commitment": "edgelist line emission and reload ordering are deterministic",
+      "tie_break_rule": "graph traversal order drives line order with stable encoding/newline policy",
+      "anchor_regions": [
+        "P2C006-R1"
+      ],
+      "validation_refs": [
+        "networkx/readwrite/tests/test_edgelist.py:187-220",
+        "networkx/readwrite/tests/test_edgelist.py:251-302"
+      ]
+    },
+    {
+      "row_id": "P2C006-DC-2",
+      "commitment": "comment stripping and short-line handling are deterministic",
+      "tie_break_rule": "comment-only or underspecified rows are consistently ignored before token coercion",
+      "anchor_regions": [
+        "P2C006-R2",
+        "P2C006-R3"
+      ],
+      "validation_refs": [
+        "networkx/readwrite/tests/test_edgelist.py:142-147",
+        "networkx/readwrite/tests/test_edgelist.py:167-173",
+        "networkx/readwrite/tests/test_edgelist.py:304-318"
+      ]
+    },
+    {
+      "row_id": "P2C006-DC-3",
+      "commitment": "json_graph reconstruction is deterministic for node/edge identity",
+      "tie_break_rule": "adjacency index mapping and node-link tuple restoration preserve stable node/edge identity",
+      "anchor_regions": [
+        "P2C006-R4",
+        "P2C006-R5"
+      ],
+      "validation_refs": [
+        "networkx/readwrite/json_graph/tests/test_adjacency.py:12-67",
+        "networkx/readwrite/json_graph/tests/test_node_link.py:52-89"
+      ]
+    }
+  ],
+  "invariant_rows": [
+    {
+      "row_id": "P2C006-IV-1",
+      "precondition": "edgelist write/read invoked with explicit mode parameters",
+      "postcondition": "round-tripped graph topology and typed edge data remain parity-preserving",
+      "preservation_obligation": "strict mode forbids silent repair that changes observable readwrite outputs",
+      "anchor_regions": [
+        "P2C006-R1",
+        "P2C006-R2",
+        "P2C006-R3"
+      ],
+      "validation_refs": [
+        "unit::fnx-p2c-006::contract",
+        "differential::fnx-p2c-006::fixtures",
+        "generated/readwrite_roundtrip_strict.json"
+      ]
+    },
+    {
+      "row_id": "P2C006-IV-2",
+      "precondition": "parse payload includes malformed rows or coercion hazards",
+      "postcondition": "fail-closed envelopes are deterministic and replayable by mode policy",
+      "preservation_obligation": "hardened recoveries must be allowlisted, bounded, and auditable without API-shape drift",
+      "anchor_regions": [
+        "P2C006-R2",
+        "P2C006-R3"
+      ],
+      "validation_refs": [
+        "networkx/readwrite/tests/test_edgelist.py:142-165",
+        "adversarial::fnx-p2c-006::malformed_inputs",
+        "generated/readwrite_hardened_malformed.json"
+      ]
+    },
+    {
+      "row_id": "P2C006-IV-3",
+      "precondition": "json_graph attrs and graph-mode flags are supplied by caller",
+      "postcondition": "adjacency/node-link reconstruction preserves directed/multigraph semantics and tuple nodes",
+      "preservation_obligation": "non-unique attribute naming fails closed and unknown metadata paths remain compatibility-bounded",
+      "anchor_regions": [
+        "P2C006-R4",
+        "P2C006-R5"
+      ],
+      "validation_refs": [
+        "networkx/readwrite/json_graph/tests/test_adjacency.py:12-75",
+        "networkx/readwrite/json_graph/tests/test_node_link.py:10-109",
+        "e2e::fnx-p2c-006::golden_journey"
+      ]
+    }
+  ]
 }
