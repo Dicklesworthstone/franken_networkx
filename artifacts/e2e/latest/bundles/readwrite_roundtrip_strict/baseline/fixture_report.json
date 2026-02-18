@@ -1,0 +1,24 @@
+{
+  "fixture_id": "generated/readwrite_roundtrip_strict.json",
+  "fixture_name": "generated/readwrite_roundtrip_strict.json",
+  "suite": "readwrite_v1",
+  "mode": "strict",
+  "seed": null,
+  "threat_class": null,
+  "replay_command": "rch exec -- CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_roundtrip_strict.json --mode strict",
+  "passed": true,
+  "reason_code": null,
+  "fixture_source_hash": "2893c0dbc20ed6bf",
+  "duration_ms": 0,
+  "strict_violation_count": 0,
+  "hardened_allowlisted_count": 0,
+  "mismatches": [],
+  "mismatch_taxonomy": [],
+  "witness": {
+    "algorithm": "bfs_shortest_path",
+    "complexity_claim": "O(|V| + |E|)",
+    "nodes_touched": 3,
+    "edges_scanned": 3,
+    "queue_peak": 1
+  }
+}

@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
-  "run_id": "e2e-script-pack-20260218T005438Z",
-  "ts_unix_ms": 1771376424517,
+  "run_id": "e2e-script-pack-20260218T052924Z",
+  "ts_unix_ms": 1771392950633,
   "crate_name": "fnx-conformance",
   "suite_id": "smoke",
   "packet_id": "FNX-P2C-008",
@@ -36,10 +36,10 @@
   "e2e_step_traces": [],
   "forensics_bundle_index": {
     "bundle_id": "forensics::FNX-P2C-008::generated::runtime_config_optional_strict.json",
-    "run_id": "e2e-script-pack-20260218T005438Z",
+    "run_id": "e2e-script-pack-20260218T052924Z",
     "test_id": "fixture::generated/runtime_config_optional_strict.json",
     "bundle_hash_id": "db5baf283c83b9eb",
-    "captured_unix_ms": 1771376424517,
+    "captured_unix_ms": 1771392950633,
     "replay_ref": "rch exec -- cargo test -q -p fnx-runtime asupersync_adapter_resume_is_deterministic_across_checkpoint_restart -- --exact --nocapture",
     "artifact_refs": [
       "artifacts/e2e/latest/bundles/asupersync_recovery_success/replay/smoke_report.json",

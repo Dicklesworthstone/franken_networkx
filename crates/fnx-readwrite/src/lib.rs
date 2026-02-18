@@ -142,8 +142,13 @@ impl EdgeListEngine {
                 continue;
             }
 
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() < 2 || parts.len() > 3 {
+            // Optimization lever: parse tokens in a streaming fashion to avoid per-line Vec allocation.
+            let mut parts = line.split_whitespace();
+            let left = parts.next();
+            let right = parts.next();
+            let attrs = parts.next();
+            let extra = parts.next();
+            if left.is_none() || right.is_none() || extra.is_some() {
                 let warning = format!(
                     "line {} malformed: expected `left right [attrs]`",
                     line_no + 1
@@ -160,8 +165,8 @@ impl EdgeListEngine {
                 continue;
             }
 
-            let left = parts[0];
-            let right = parts[1];
+            let left = left.expect("left token should be present after malformed check");
+            let right = right.expect("right token should be present after malformed check");
             if left.is_empty() || right.is_empty() {
                 let warning = format!("line {} malformed endpoints", line_no + 1);
                 if self.mode == CompatibilityMode::Strict {
@@ -176,7 +181,7 @@ impl EdgeListEngine {
                 continue;
             }
 
-            let attrs_encoded = if parts.len() == 3 { parts[2] } else { "-" };
+            let attrs_encoded = attrs.unwrap_or("-");
             let attrs = decode_attrs(attrs_encoded, self.mode, &mut warnings, line_no + 1)?;
             graph.add_edge_with_attrs(left.to_owned(), right.to_owned(), attrs)?;
         }
@@ -380,7 +385,104 @@ fn set<const N: usize>(values: [&str; N]) -> BTreeSet<String> {
 #[cfg(test)]
 mod tests {
     use super::{EdgeListEngine, ReadWriteError};
-    use fnx_classes::Graph;
+    use fnx_classes::{Graph, GraphSnapshot};
+    use fnx_runtime::{
+        CompatibilityMode, DecisionAction, ForensicsBundleIndex, StructuredTestLog, TestKind,
+        TestStatus, canonical_environment_fingerprint, structured_test_log_schema_version,
+    };
+    use proptest::prelude::*;
+    use std::collections::BTreeMap;
+
+    fn packet_006_forensics_bundle(
+        run_id: &str,
+        test_id: &str,
+        replay_ref: &str,
+        bundle_id: &str,
+        artifact_refs: Vec<String>,
+    ) -> ForensicsBundleIndex {
+        ForensicsBundleIndex {
+            bundle_id: bundle_id.to_owned(),
+            run_id: run_id.to_owned(),
+            test_id: test_id.to_owned(),
+            bundle_hash_id: "bundle-hash-p2c006".to_owned(),
+            captured_unix_ms: 1,
+            replay_ref: replay_ref.to_owned(),
+            artifact_refs,
+            raptorq_sidecar_refs: Vec::new(),
+            decode_proof_refs: Vec::new(),
+        }
+    }
+
+    fn stable_digest_hex(input: &str) -> String {
+        let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+        for byte in input.as_bytes() {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01B3_u64);
+        }
+        format!("sha256:{hash:016x}")
+    }
+
+    fn snapshot_digest(snapshot: &GraphSnapshot) -> String {
+        let canonical = serde_json::to_string(snapshot).expect("snapshot json should serialize");
+        stable_digest_hex(&canonical)
+    }
+
+    fn graph_fingerprint(graph: &Graph) -> String {
+        let snapshot = graph.snapshot();
+        let mode = match snapshot.mode {
+            CompatibilityMode::Strict => "strict",
+            CompatibilityMode::Hardened => "hardened",
+        };
+        let mut edge_signature = snapshot
+            .edges
+            .iter()
+            .map(|edge| {
+                let attrs = edge
+                    .attrs
+                    .iter()
+                    .map(|(key, value)| format!("{key}={value}"))
+                    .collect::<Vec<String>>()
+                    .join(";");
+                format!("{}>{}[{attrs}]", edge.left, edge.right)
+            })
+            .collect::<Vec<String>>();
+        edge_signature.sort();
+        format!(
+            "mode:{mode};nodes:{};edges:{};sig:{}",
+            snapshot.nodes.join(","),
+            snapshot.edges.len(),
+            edge_signature.join("|")
+        )
+    }
+
+    fn packet_006_contract_graph() -> Graph {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs(
+                "a".to_owned(),
+                "b".to_owned(),
+                BTreeMap::from([("weight".to_owned(), "1".to_owned())]),
+            )
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs(
+                "a".to_owned(),
+                "c".to_owned(),
+                BTreeMap::from([("label".to_owned(), "blue".to_owned())]),
+            )
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs(
+                "b".to_owned(),
+                "d".to_owned(),
+                BTreeMap::from([
+                    ("weight".to_owned(), "3".to_owned()),
+                    ("capacity".to_owned(), "7".to_owned()),
+                ]),
+            )
+            .expect("edge add should succeed");
+        graph
+    }
 
     #[test]
     fn round_trip_is_deterministic() {
@@ -454,5 +556,325 @@ mod tests {
         assert!(!report.warnings.is_empty());
         assert_eq!(report.graph.node_count(), 0);
         assert_eq!(report.graph.edge_count(), 0);
+    }
+
+    #[test]
+    fn unit_packet_006_contract_asserted() {
+        let graph = packet_006_contract_graph();
+        let expected_snapshot = graph.snapshot();
+
+        let mut engine = EdgeListEngine::strict();
+        let edgelist = engine
+            .write_edgelist(&graph)
+            .expect("packet-006 unit contract edgelist write should succeed");
+        let parsed_edgelist = engine
+            .read_edgelist(&edgelist)
+            .expect("packet-006 unit contract edgelist read should succeed");
+        assert!(
+            parsed_edgelist.warnings.is_empty(),
+            "strict edgelist path must stay warning-free for valid fixture"
+        );
+        assert_eq!(parsed_edgelist.graph.snapshot(), expected_snapshot);
+
+        let json_payload = engine
+            .write_json_graph(&graph)
+            .expect("packet-006 unit contract json write should succeed");
+        let parsed_json = engine
+            .read_json_graph(&json_payload)
+            .expect("packet-006 unit contract json read should succeed");
+        assert!(
+            parsed_json.warnings.is_empty(),
+            "strict json path must stay warning-free for valid fixture"
+        );
+        assert_eq!(parsed_json.graph.snapshot(), expected_snapshot);
+
+        let records = engine.evidence_ledger().records();
+        assert_eq!(records.len(), 4, "unit contract should emit four decisions");
+        let expected_operations = [
+            "write_edgelist",
+            "read_edgelist",
+            "write_json_graph",
+            "read_json_graph",
+        ];
+        for (index, record) in records.iter().enumerate() {
+            assert_eq!(
+                record.operation, expected_operations[index],
+                "decision order drifted at index {index}"
+            );
+            assert_eq!(
+                record.action,
+                DecisionAction::Allow,
+                "valid fixture should remain allow-only"
+            );
+        }
+
+        let mut adversarial_engine = EdgeListEngine::strict();
+        let err = adversarial_engine
+            .read_edgelist("malformed")
+            .expect_err("strict mode should fail closed for malformed packet-006 input");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+
+        let mut environment = BTreeMap::new();
+        environment.insert("os".to_owned(), std::env::consts::OS.to_owned());
+        environment.insert("arch".to_owned(), std::env::consts::ARCH.to_owned());
+        environment.insert("io_path".to_owned(), "edgelist+json_graph".to_owned());
+        environment.insert("strict_mode".to_owned(), "true".to_owned());
+        environment.insert("input_digest".to_owned(), stable_digest_hex(&edgelist));
+        environment.insert(
+            "output_digest".to_owned(),
+            snapshot_digest(&parsed_json.graph.snapshot()),
+        );
+
+        let replay_command = "rch exec -- cargo test -p fnx-readwrite unit_packet_006_contract_asserted -- --nocapture";
+        let artifact_refs = vec!["artifacts/conformance/latest/structured_logs.jsonl".to_owned()];
+        let log = StructuredTestLog {
+            schema_version: structured_test_log_schema_version().to_owned(),
+            run_id: "readwrite-p2c006-unit".to_owned(),
+            ts_unix_ms: 1,
+            crate_name: "fnx-readwrite".to_owned(),
+            suite_id: "unit".to_owned(),
+            packet_id: "FNX-P2C-006".to_owned(),
+            test_name: "unit_packet_006_contract_asserted".to_owned(),
+            test_id: "unit::fnx-p2c-006::contract".to_owned(),
+            test_kind: TestKind::Unit,
+            mode: CompatibilityMode::Strict,
+            fixture_id: Some("readwrite::contract::edgelist_json_roundtrip".to_owned()),
+            seed: Some(7106),
+            env_fingerprint: canonical_environment_fingerprint(&environment),
+            environment,
+            duration_ms: 9,
+            replay_command: replay_command.to_owned(),
+            artifact_refs: artifact_refs.clone(),
+            forensic_bundle_id: "forensics::readwrite::unit::contract".to_owned(),
+            hash_id: "sha256:readwrite-p2c006-unit".to_owned(),
+            status: TestStatus::Passed,
+            reason_code: None,
+            failure_repro: None,
+            e2e_step_traces: Vec::new(),
+            forensics_bundle_index: Some(packet_006_forensics_bundle(
+                "readwrite-p2c006-unit",
+                "unit::fnx-p2c-006::contract",
+                replay_command,
+                "forensics::readwrite::unit::contract",
+                artifact_refs,
+            )),
+        };
+        log.validate()
+            .expect("unit packet-006 telemetry log should satisfy strict schema");
+    }
+
+    proptest! {
+        #[test]
+        fn property_packet_006_invariants(edges in prop::collection::vec((0_u8..8, 0_u8..8), 1..40)) {
+            let mut graph = Graph::strict();
+            for (left, right) in &edges {
+                let left_node = format!("n{left}");
+                let right_node = format!("n{right}");
+                graph
+                    .add_edge_with_attrs(
+                        left_node,
+                        right_node,
+                        BTreeMap::from([(
+                            "weight".to_owned(),
+                            ((u16::from(*left) + u16::from(*right)) + 1).to_string(),
+                        )]),
+                    )
+                    .expect("generated edge insertion should succeed");
+            }
+            prop_assume!(graph.edge_count() > 0);
+
+            let mut strict_a = EdgeListEngine::strict();
+            let mut strict_b = EdgeListEngine::strict();
+
+            let edgelist_a = strict_a
+                .write_edgelist(&graph)
+                .expect("strict edgelist emit should succeed");
+            let edgelist_b = strict_b
+                .write_edgelist(&graph)
+                .expect("strict edgelist replay emit should succeed");
+
+            // Invariant family 1: strict edgelist emission is deterministic.
+            prop_assert_eq!(
+                &edgelist_a,
+                &edgelist_b,
+                "P2C006-IV-1 strict edgelist emission drifted"
+            );
+
+            let strict_parsed_a = strict_a
+                .read_edgelist(&edgelist_a)
+                .expect("strict edgelist parse should succeed");
+            let strict_parsed_b = strict_b
+                .read_edgelist(&edgelist_b)
+                .expect("strict edgelist replay parse should succeed");
+
+            // Invariant family 2: strict round-trip topology/data is deterministic and warning-free.
+            prop_assert_eq!(
+                &strict_parsed_a.graph.snapshot(),
+                &strict_parsed_b.graph.snapshot(),
+                "P2C006-IV-2 strict round-trip snapshot drifted"
+            );
+            prop_assert!(
+                strict_parsed_a.warnings.is_empty() && strict_parsed_b.warnings.is_empty(),
+                "P2C006-IV-2 strict round-trip should not emit warnings for valid generated payloads"
+            );
+
+            let json_a = strict_a
+                .write_json_graph(&graph)
+                .expect("strict json emit should succeed");
+            let json_b = strict_b
+                .write_json_graph(&graph)
+                .expect("strict json replay emit should succeed");
+
+            // Invariant family 3: strict json emission is deterministic.
+            prop_assert_eq!(
+                &json_a,
+                &json_b,
+                "P2C006-IV-3 strict json emission drifted"
+            );
+
+            let strict_json_a = strict_a
+                .read_json_graph(&json_a)
+                .expect("strict json parse should succeed");
+            let strict_json_b = strict_b
+                .read_json_graph(&json_b)
+                .expect("strict json replay parse should succeed");
+
+            // Invariant family 4: strict json reconstruction is deterministic and warning-free.
+            prop_assert_eq!(
+                &strict_json_a.graph.snapshot(),
+                &strict_json_b.graph.snapshot(),
+                "P2C006-IV-3 strict json reconstruction drifted"
+            );
+            prop_assert!(
+                strict_json_a.warnings.is_empty() && strict_json_b.warnings.is_empty(),
+                "P2C006-IV-3 strict json reconstruction should not emit warnings for valid payloads"
+            );
+
+            let malformed_payload = format!(
+                "{edgelist_a}\nmalformed\n# comment only\ninvalid_attr_line x y z\na\n"
+            );
+            let mut hardened_a = EdgeListEngine::hardened();
+            let mut hardened_b = EdgeListEngine::hardened();
+            let hardened_report_a = hardened_a
+                .read_edgelist(&malformed_payload)
+                .expect("hardened parse should recover deterministically");
+            let hardened_report_b = hardened_b
+                .read_edgelist(&malformed_payload)
+                .expect("hardened replay parse should recover deterministically");
+
+            // Invariant family 5: hardened malformed-input recovery is deterministic and auditable.
+            prop_assert_eq!(
+                &hardened_report_a.graph.snapshot(),
+                &hardened_report_b.graph.snapshot(),
+                "P2C006-IV-2 hardened recovery snapshot drifted"
+            );
+            prop_assert_eq!(
+                &hardened_report_a.warnings,
+                &hardened_report_b.warnings,
+                "P2C006-IV-2 hardened recovery warning envelope drifted"
+            );
+            prop_assert!(
+                !hardened_report_a.warnings.is_empty(),
+                "P2C006-IV-2 adversarial malformed payload should emit deterministic warnings"
+            );
+
+            for strict_engine in [&strict_a, &strict_b] {
+                let records = strict_engine.evidence_ledger().records();
+                prop_assert_eq!(
+                    records.len(),
+                    4,
+                    "strict replay ledger should contain exactly write/read decisions for edgelist+json"
+                );
+                prop_assert!(
+                    records.iter().all(|record| {
+                        record.action == DecisionAction::Allow
+                            && matches!(
+                                record.operation.as_str(),
+                                "write_edgelist"
+                                    | "read_edgelist"
+                                    | "write_json_graph"
+                                    | "read_json_graph"
+                            )
+                    }),
+                    "strict replay ledger should remain allow-only for valid generated payloads"
+                );
+            }
+
+            for hardened_engine in [&hardened_a, &hardened_b] {
+                let records = hardened_engine.evidence_ledger().records();
+                prop_assert!(
+                    records
+                        .iter()
+                        .any(|record| record.action == DecisionAction::FullValidate),
+                    "hardened malformed replay should include a full-validate decision"
+                );
+                prop_assert_eq!(
+                    records.last().map(|record| record.action),
+                    Some(DecisionAction::Allow),
+                    "hardened malformed replay should end with allow after bounded recovery"
+                );
+            }
+
+            let deterministic_seed = edges.iter().fold(7206_u64, |acc, (left, right)| {
+                acc.wrapping_mul(131)
+                    .wrapping_add((u64::from(*left)) << 8)
+                    .wrapping_add(u64::from(*right))
+            });
+
+            let mut environment = BTreeMap::new();
+            environment.insert("os".to_owned(), std::env::consts::OS.to_owned());
+            environment.insert("arch".to_owned(), std::env::consts::ARCH.to_owned());
+            environment.insert("graph_fingerprint".to_owned(), graph_fingerprint(&graph));
+            environment.insert("mode_policy".to_owned(), "strict_and_hardened".to_owned());
+            environment.insert("invariant_id".to_owned(), "P2C006-IV-1".to_owned());
+            environment.insert("input_digest".to_owned(), stable_digest_hex(&malformed_payload));
+            environment.insert(
+                "output_digest".to_owned(),
+                snapshot_digest(&strict_json_a.graph.snapshot()),
+            );
+
+            let replay_command =
+                "rch exec -- cargo test -p fnx-readwrite property_packet_006_invariants -- --nocapture";
+            let artifact_refs = vec![
+                "artifacts/conformance/latest/structured_log_emitter_normalization_report.json"
+                    .to_owned(),
+            ];
+            let log = StructuredTestLog {
+                schema_version: structured_test_log_schema_version().to_owned(),
+                run_id: "readwrite-p2c006-property".to_owned(),
+                ts_unix_ms: 2,
+                crate_name: "fnx-readwrite".to_owned(),
+                suite_id: "property".to_owned(),
+                packet_id: "FNX-P2C-006".to_owned(),
+                test_name: "property_packet_006_invariants".to_owned(),
+                test_id: "property::fnx-p2c-006::invariants".to_owned(),
+                test_kind: TestKind::Property,
+                mode: CompatibilityMode::Hardened,
+                fixture_id: Some("readwrite::property::roundtrip_recovery_matrix".to_owned()),
+                seed: Some(deterministic_seed),
+                env_fingerprint: canonical_environment_fingerprint(&environment),
+                environment,
+                duration_ms: 15,
+                replay_command: replay_command.to_owned(),
+                artifact_refs: artifact_refs.clone(),
+                forensic_bundle_id: "forensics::readwrite::property::invariants".to_owned(),
+                hash_id: "sha256:readwrite-p2c006-property".to_owned(),
+                status: TestStatus::Passed,
+                reason_code: None,
+                failure_repro: None,
+                e2e_step_traces: Vec::new(),
+                forensics_bundle_index: Some(packet_006_forensics_bundle(
+                    "readwrite-p2c006-property",
+                    "property::fnx-p2c-006::invariants",
+                    replay_command,
+                    "forensics::readwrite::property::invariants",
+                    artifact_refs,
+                )),
+            };
+            prop_assert!(
+                log.validate().is_ok(),
+                "packet-006 property telemetry log should satisfy strict schema"
+            );
+        }
     }
 }

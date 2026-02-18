@@ -11,6 +11,8 @@
     "convert_route_hardened",
     "edge_path",
     "edge_path_hardened",
+    "readwrite_roundtrip_strict",
+    "readwrite_json_roundtrip_strict",
     "malformed_input",
     "adversarial_soak",
     "asupersync_recovery_success",

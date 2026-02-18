@@ -1,0 +1,109 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "e2e-script-pack-failure-envelope-v1",
+  "envelope_id": "e2e-failure-envelope-6b4172214c05b837",
+  "generated_at_utc": "2026-02-18T05:34:38.863423+00:00",
+  "status": "passed",
+  "reason_code": null,
+  "scenario_id": "readwrite_roundtrip_strict",
+  "pass_label": "replay",
+  "gate_step_id": "step-1",
+  "packet_id": "FNX-P2C-006",
+  "fixture_id": "generated/readwrite_roundtrip_strict.json",
+  "mode": "strict",
+  "run_id": "e2e-script-pack-20260218T052924Z",
+  "bundle_id": "e2e-bundle-e378ddfa33e68d51",
+  "stable_fingerprint": "823ec5f4409a29ea",
+  "deterministic_seed": 5118099182707922283,
+  "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_roundtrip_strict.json --mode strict",
+  "forensics_links": {
+    "structured_log_hash_id": "5204127741fd6d02",
+    "forensic_bundle_id": "forensics::FNX-P2C-006::generated::readwrite_roundtrip_strict.json",
+    "forensics_bundle_hash_id": "68ab4f73ef9ad378",
+    "forensics_bundle_replay_ref": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_roundtrip_strict.json --mode strict"
+  },
+  "missing_forensics_fields": [],
+  "bundle_manifest_path": "artifacts/e2e/latest/bundles/readwrite_roundtrip_strict/replay/bundle_manifest_v1.json",
+  "replay_bundle_manifest_path": "artifacts/e2e/latest/bundles/readwrite_roundtrip_strict/replay/bundle_manifest_v1.json",
+  "forensics_index_path": "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json",
+  "artifact_refs": [
+    "artifacts/e2e/latest/bundles/readwrite_roundtrip_strict/replay/smoke_report.json",
+    "artifacts/e2e/latest/bundles/readwrite_roundtrip_strict/replay/fixture_report.json",
+    "artifacts/e2e/latest/bundles/readwrite_roundtrip_strict/replay/structured_logs.jsonl",
+    "artifacts/e2e/latest/bundles/readwrite_roundtrip_strict/replay/command.log",
+    "artifacts/e2e/latest/bundles/readwrite_roundtrip_strict/replay/selected_structured_log.json",
+    "artifacts/phase2c/FNX-P2C-006/parity_report.decode_proof.json",
+    "artifacts/phase2c/FNX-P2C-006/parity_report.raptorq.json",
+    "artifacts/e2e/latest/bundles/readwrite_roundtrip_strict/replay/failure_envelope_v1.json"
+  ],
+  "retention_policy": {
+    "policy_id": "e2e-latest-retention-v1",
+    "min_retention_days": 14,
+    "storage_root": "artifacts/e2e/latest"
+  },
+  "evidence_refs": {
+    "parity_report": "artifacts/phase2c/FNX-P2C-006/parity_report.json",
+    "parity_report_raptorq": "artifacts/phase2c/FNX-P2C-006/parity_report.raptorq.json",
+    "parity_report_decode_proof": "artifacts/phase2c/FNX-P2C-006/parity_report.decode_proof.json",
+    "contract_table": "artifacts/phase2c/FNX-P2C-006/contract_table.md",
+    "risk_note": "artifacts/phase2c/FNX-P2C-006/risk_note.md",
+    "legacy_anchor_map": "artifacts/phase2c/FNX-P2C-006/legacy_anchor_map.md",
+    "profile_first_artifacts": {
+      "baseline": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+      "hotspot": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+      "delta": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+    },
+    "optimization_lever_policy": {
+      "rule": "exactly_one_optimization_lever_per_change",
+      "evidence_path": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json"
+    },
+    "isomorphism_proof_artifacts": [
+      "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_FOUNDATION_V1.md",
+      "artifacts/perf/phase2c/isomorphism_harness_report_v1.json",
+      "artifacts/perf/phase2c/isomorphism_golden_signatures_v1.json"
+    ],
+    "durability_evidence": [
+      "artifacts/conformance/latest/durability_pipeline_report.json",
+      "artifacts/conformance/latest/structured_logs.raptorq.json"
+    ],
+    "baseline_comparator": "legacy_networkx/main@python3.12"
+  },
+  "alien_uplift_contract_card": {
+    "ev_score": 2.22,
+    "baseline_comparator": "legacy_networkx/main@python3.12",
+    "expected_value_statement": "Deterministic failure envelopes + artifact index linkage reduce replay triage ambiguity."
+  },
+  "decision_theoretic_runtime_contract": {
+    "states": [
+      "accept",
+      "validate",
+      "fail_closed"
+    ],
+    "actions": [
+      "ingest_event",
+      "publish_artifact_index",
+      "emit_failure_envelope",
+      "fail_closed"
+    ],
+    "loss_model": "Minimize expected replay divergence and diagnostic ambiguity while preserving deterministic ordering.",
+    "loss_budget": {
+      "max_expected_loss": 0.02,
+      "max_replay_loss": 0.0,
+      "max_data_loss": 0.0
+    },
+    "safe_mode_fallback": {
+      "trigger_thresholds": {
+        "missing_forensics_fields": 1,
+        "artifact_index_resolution_failures": 1,
+        "unexpected_failure_reason_codes": 1
+      },
+      "fallback_action": "emit fail-closed diagnostics and halt publication of readiness artifacts",
+      "budgeted_recovery_window_ms": 30000
+    }
+  },
+  "triage_hints": [
+    "No failure detected; replay metadata and forensics links are contract-complete.",
+    "Gate stage: step-1",
+    "Run replay command for verification: rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_roundtrip_strict.json --mode strict"
+  ]
+}

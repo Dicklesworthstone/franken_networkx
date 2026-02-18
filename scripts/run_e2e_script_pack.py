@@ -168,6 +168,22 @@ SCENARIOS: tuple[ScenarioSpec, ...] = (
         packet_id="FNX-P2C-005",
     ),
     ScenarioSpec(
+        scenario_id="readwrite_roundtrip_strict",
+        scenario_kind="regression_path",
+        journey_id="J-READWRITE",
+        mode="strict",
+        fixture_id="generated/readwrite_roundtrip_strict.json",
+        packet_id="FNX-P2C-006",
+    ),
+    ScenarioSpec(
+        scenario_id="readwrite_json_roundtrip_strict",
+        scenario_kind="regression_path",
+        journey_id="J-READWRITE",
+        mode="strict",
+        fixture_id="generated/readwrite_json_roundtrip_strict.json",
+        packet_id="FNX-P2C-006",
+    ),
+    ScenarioSpec(
         scenario_id="malformed_input",
         scenario_kind="malformed_input",
         journey_id="J-READWRITE",

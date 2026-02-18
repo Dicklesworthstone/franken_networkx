@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0.0",
   "artifact_id": "e2e-script-pack-determinism-report-v1",
-  "run_id": "e2e-script-pack-20260218T005438Z",
-  "generated_at_utc": "2026-02-18T01:01:21.375003+00:00",
+  "run_id": "e2e-script-pack-20260218T052924Z",
+  "generated_at_utc": "2026-02-18T05:36:48.566107+00:00",
   "gate_step_id": "step-1",
   "forensics_index_path": "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json",
   "retention_policy": {
@@ -24,6 +24,8 @@
     "convert_route_hardened",
     "edge_path",
     "edge_path_hardened",
+    "readwrite_roundtrip_strict",
+    "readwrite_json_roundtrip_strict",
     "malformed_input",
     "adversarial_soak",
     "asupersync_recovery_success",
@@ -63,7 +65,7 @@
     "missing_packet_ids": [],
     "coverage_ok": true
   },
-  "result_count": 32,
+  "result_count": 36,
   "status": "pass",
   "failures": [],
   "scenario_checks": [
@@ -153,6 +155,26 @@
       "bundle_id_pass_b": "e2e-bundle-5f65c26eec1a6596",
       "stable_fingerprint_pass_a": "ac0f2907b50ec556",
       "stable_fingerprint_pass_b": "ac0f2907b50ec556",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "readwrite_roundtrip_strict",
+      "bundle_id_pass_a": "e2e-bundle-e378ddfa33e68d51",
+      "bundle_id_pass_b": "e2e-bundle-e378ddfa33e68d51",
+      "stable_fingerprint_pass_a": "823ec5f4409a29ea",
+      "stable_fingerprint_pass_b": "823ec5f4409a29ea",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "readwrite_json_roundtrip_strict",
+      "bundle_id_pass_a": "e2e-bundle-3659a3df82c9b9d7",
+      "bundle_id_pass_b": "e2e-bundle-3659a3df82c9b9d7",
+      "stable_fingerprint_pass_a": "20c04aa28cedb63c",
+      "stable_fingerprint_pass_b": "20c04aa28cedb63c",
       "bundle_id_match": true,
       "stable_fingerprint_match": true,
       "status_ok": true
@@ -320,6 +342,26 @@
       "bundle_manifest_path": "artifacts/e2e/latest/bundles/edge_path_hardened/baseline/bundle_manifest_v1.json"
     },
     {
+      "scenario_id": "readwrite_roundtrip_strict",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-006",
+      "bundle_id": "e2e-bundle-e378ddfa33e68d51",
+      "stable_fingerprint": "823ec5f4409a29ea",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/readwrite_roundtrip_strict/baseline/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "readwrite_json_roundtrip_strict",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-006",
+      "bundle_id": "e2e-bundle-3659a3df82c9b9d7",
+      "stable_fingerprint": "20c04aa28cedb63c",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/readwrite_json_roundtrip_strict/baseline/bundle_manifest_v1.json"
+    },
+    {
       "scenario_id": "malformed_input",
       "pass_label": "baseline",
       "status": "passed",
@@ -478,6 +520,26 @@
       "bundle_id": "e2e-bundle-5f65c26eec1a6596",
       "stable_fingerprint": "ac0f2907b50ec556",
       "bundle_manifest_path": "artifacts/e2e/latest/bundles/edge_path_hardened/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "readwrite_roundtrip_strict",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-006",
+      "bundle_id": "e2e-bundle-e378ddfa33e68d51",
+      "stable_fingerprint": "823ec5f4409a29ea",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/readwrite_roundtrip_strict/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "readwrite_json_roundtrip_strict",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-006",
+      "bundle_id": "e2e-bundle-3659a3df82c9b9d7",
+      "stable_fingerprint": "20c04aa28cedb63c",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/readwrite_json_roundtrip_strict/replay/bundle_manifest_v1.json"
     },
     {
       "scenario_id": "malformed_input",

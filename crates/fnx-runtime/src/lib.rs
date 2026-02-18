@@ -907,6 +907,44 @@ impl StructuredTestLog {
         Ok(())
     }
 
+    fn validate_packet_006_replay_metadata(&self) -> Result<(), String> {
+        if self.packet_id != "FNX-P2C-006" {
+            return Ok(());
+        }
+
+        match self.test_id.as_str() {
+            "unit::fnx-p2c-006::contract" => {
+                let context = "packet-006 unit contract telemetry";
+                self.require_non_empty_fixture_id(context)?;
+                for key in ["io_path", "strict_mode", "input_digest", "output_digest"] {
+                    self.require_environment_key(key, context)?;
+                }
+            }
+            "property::fnx-p2c-006::invariants" => {
+                let context = "packet-006 property invariant telemetry";
+                self.require_non_empty_fixture_id(context)?;
+                if self.seed.is_none() {
+                    return Err(
+                        "packet-006 property invariant telemetry requires deterministic seed"
+                            .to_owned(),
+                    );
+                }
+                for key in [
+                    "graph_fingerprint",
+                    "mode_policy",
+                    "invariant_id",
+                    "input_digest",
+                    "output_digest",
+                ] {
+                    self.require_environment_key(key, context)?;
+                }
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version.trim().is_empty() {
             return Err("schema_version must be non-empty".to_owned());
@@ -1002,6 +1040,7 @@ impl StructuredTestLog {
         self.validate_packet_003_replay_metadata()?;
         self.validate_packet_004_replay_metadata()?;
         self.validate_packet_005_replay_metadata()?;
+        self.validate_packet_006_replay_metadata()?;
 
         match self.status {
             TestStatus::Failed => {
@@ -2104,6 +2143,155 @@ mod tests {
             .validate()
             .expect_err("packet-005 property log should require tie_break_policy metadata");
         assert!(err.contains("tie_break_policy"));
+    }
+
+    #[test]
+    fn structured_test_log_packet_006_unit_contract_requires_readwrite_metadata() {
+        let mut env = base_env();
+        env.insert("io_path".to_owned(), "edgelist+json_graph".to_owned());
+        env.insert("strict_mode".to_owned(), "true".to_owned());
+        env.insert("input_digest".to_owned(), "sha256:input-p2c006".to_owned());
+        env.insert(
+            "output_digest".to_owned(),
+            "sha256:output-p2c006".to_owned(),
+        );
+
+        let replay = "rch exec -- cargo test -p fnx-readwrite unit_packet_006_contract_asserted -- --nocapture";
+        let log = StructuredTestLog {
+            schema_version: structured_test_log_schema_version().to_owned(),
+            run_id: "run-p2c006-unit".to_owned(),
+            ts_unix_ms: 7,
+            crate_name: "fnx-readwrite".to_owned(),
+            suite_id: "unit".to_owned(),
+            packet_id: "FNX-P2C-006".to_owned(),
+            test_name: "unit_packet_006_contract_asserted".to_owned(),
+            test_id: "unit::fnx-p2c-006::contract".to_owned(),
+            test_kind: TestKind::Unit,
+            mode: CompatibilityMode::Strict,
+            fixture_id: Some("readwrite::contract::edgelist_json_roundtrip".to_owned()),
+            seed: Some(7106),
+            env_fingerprint: canonical_environment_fingerprint(&env),
+            environment: env,
+            duration_ms: 8,
+            replay_command: replay.to_owned(),
+            artifact_refs: vec!["artifacts/conformance/latest/structured_logs.jsonl".to_owned()],
+            forensic_bundle_id: "forensics::readwrite::unit::contract".to_owned(),
+            hash_id: "sha256:p2c006-unit".to_owned(),
+            status: TestStatus::Passed,
+            reason_code: None,
+            failure_repro: None,
+            e2e_step_traces: Vec::new(),
+            forensics_bundle_index: Some(base_forensics_bundle(
+                "run-p2c006-unit",
+                "unit::fnx-p2c-006::contract",
+                replay,
+                "forensics::readwrite::unit::contract",
+                vec!["artifacts/conformance/latest/structured_logs.jsonl".to_owned()],
+            )),
+        };
+        log.validate()
+            .expect("packet-006 unit contract log should satisfy metadata schema");
+
+        let mut missing_io_path = log.clone();
+        missing_io_path.environment.remove("io_path");
+        let err = missing_io_path
+            .validate()
+            .expect_err("packet-006 unit log should require io_path metadata");
+        assert!(err.contains("io_path"));
+
+        let mut missing_output_digest = log.clone();
+        missing_output_digest.environment.remove("output_digest");
+        let err = missing_output_digest
+            .validate()
+            .expect_err("packet-006 unit log should require output_digest metadata");
+        assert!(err.contains("output_digest"));
+
+        let mut missing_fixture = log;
+        missing_fixture.fixture_id = None;
+        let err = missing_fixture
+            .validate()
+            .expect_err("packet-006 unit contract should require fixture_id");
+        assert!(err.contains("fixture_id"));
+    }
+
+    #[test]
+    fn structured_test_log_packet_006_property_invariants_require_seed_and_mode_policy_metadata() {
+        let mut env = base_env();
+        env.insert("graph_fingerprint".to_owned(), "graph-fp-006".to_owned());
+        env.insert("mode_policy".to_owned(), "strict_and_hardened".to_owned());
+        env.insert("invariant_id".to_owned(), "P2C006-IV-1".to_owned());
+        env.insert(
+            "input_digest".to_owned(),
+            "sha256:input-prop-p2c006".to_owned(),
+        );
+        env.insert(
+            "output_digest".to_owned(),
+            "sha256:output-prop-p2c006".to_owned(),
+        );
+
+        let replay =
+            "rch exec -- cargo test -p fnx-readwrite property_packet_006_invariants -- --nocapture";
+        let log = StructuredTestLog {
+            schema_version: structured_test_log_schema_version().to_owned(),
+            run_id: "run-p2c006-property".to_owned(),
+            ts_unix_ms: 8,
+            crate_name: "fnx-readwrite".to_owned(),
+            suite_id: "property".to_owned(),
+            packet_id: "FNX-P2C-006".to_owned(),
+            test_name: "property_packet_006_invariants".to_owned(),
+            test_id: "property::fnx-p2c-006::invariants".to_owned(),
+            test_kind: TestKind::Property,
+            mode: CompatibilityMode::Hardened,
+            fixture_id: Some("readwrite::property::roundtrip_recovery_matrix".to_owned()),
+            seed: Some(7206),
+            env_fingerprint: canonical_environment_fingerprint(&env),
+            environment: env,
+            duration_ms: 12,
+            replay_command: replay.to_owned(),
+            artifact_refs: vec![
+                "artifacts/conformance/latest/structured_log_emitter_normalization_report.json"
+                    .to_owned(),
+            ],
+            forensic_bundle_id: "forensics::readwrite::property::invariants".to_owned(),
+            hash_id: "sha256:p2c006-property".to_owned(),
+            status: TestStatus::Passed,
+            reason_code: None,
+            failure_repro: None,
+            e2e_step_traces: Vec::new(),
+            forensics_bundle_index: Some(base_forensics_bundle(
+                "run-p2c006-property",
+                "property::fnx-p2c-006::invariants",
+                replay,
+                "forensics::readwrite::property::invariants",
+                vec![
+                    "artifacts/conformance/latest/structured_log_emitter_normalization_report.json"
+                        .to_owned(),
+                ],
+            )),
+        };
+        log.validate()
+            .expect("packet-006 property log should satisfy metadata schema");
+
+        let mut missing_seed = log.clone();
+        missing_seed.seed = None;
+        let err = missing_seed
+            .validate()
+            .expect_err("packet-006 property log should require deterministic seed");
+        assert!(err.contains("deterministic seed"));
+
+        let mut missing_mode_policy = log.clone();
+        missing_mode_policy.environment.remove("mode_policy");
+        let err = missing_mode_policy
+            .validate()
+            .expect_err("packet-006 property log should require mode_policy metadata");
+        assert!(err.contains("mode_policy"));
+
+        let mut missing_input_digest = log;
+        missing_input_digest.environment.remove("input_digest");
+        let err = missing_input_digest
+            .validate()
+            .expect_err("packet-006 property log should require input_digest metadata");
+        assert!(err.contains("input_digest"));
     }
 
     fn base_transfer_intent() -> AsupersyncTransferIntent {

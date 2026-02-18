@@ -50,7 +50,7 @@ checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 
 [[package]]
 name = "asupersync"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "base64",
  "bincode",
@@ -349,6 +349,7 @@ dependencies = [
  "fnx-classes",
  "fnx-dispatch",
  "fnx-runtime",
+ "proptest",
  "serde",
  "serde_json",
 ]
