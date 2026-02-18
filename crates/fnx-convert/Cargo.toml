@@ -8,3 +8,6 @@ fnx-classes = { path = "../fnx-classes" }
 fnx-dispatch = { path = "../fnx-dispatch" }
 fnx-runtime = { path = "../fnx-runtime" }
 serde = { version = "1.0.218", features = ["derive"] }
+
+[dev-dependencies]
+proptest = "1.6.0"

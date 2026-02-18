@@ -1483,6 +1483,889 @@ fn packet_003_differential_metamorphic_and_adversarial_taxonomy_is_deterministic
     }
 }
 
+#[test]
+fn packet_004_differential_metamorphic_and_adversarial_taxonomy_is_deterministic() {
+    let fixture_root = unique_fixture_root();
+    write_fixture(
+        &fixture_root,
+        "convert_metamorphic_edge_list_strict.json",
+        r#"{
+  "suite": "convert_v1",
+  "mode": "strict",
+  "fixture_id": "convert::metamorphic_edge_list_shape",
+  "seed": 6404,
+  "threat_class": "metamorphic_conversion_shape_idempotence",
+  "operations": [
+    {
+      "op": "convert_edge_list",
+      "payload": {
+        "nodes": ["a", "b", "c"],
+        "edges": [
+          { "left": "a", "right": "b", "attrs": { "weight": "1" } },
+          { "left": "b", "right": "c", "attrs": {} }
+        ]
+      }
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["a", "b", "c"],
+      "edges": [
+        { "left": "a", "right": "b", "attrs": { "weight": "1" } },
+        { "left": "b", "right": "c", "attrs": {} }
+      ]
+    }
+  }
+}"#,
+    );
+    write_fixture(
+        &fixture_root,
+        "convert_metamorphic_adjacency_strict.json",
+        r#"{
+  "suite": "convert_v1",
+  "mode": "strict",
+  "fixture_id": "convert::metamorphic_adjacency_shape",
+  "seed": 6404,
+  "threat_class": "metamorphic_conversion_shape_idempotence",
+  "operations": [
+    {
+      "op": "convert_adjacency",
+      "payload": {
+        "adjacency": {
+          "a": [{ "to": "b", "attrs": { "weight": "1" } }],
+          "b": [{ "to": "c", "attrs": {} }],
+          "c": []
+        }
+      }
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["a", "b", "c"],
+      "edges": [
+        { "left": "a", "right": "b", "attrs": { "weight": "1" } },
+        { "left": "b", "right": "c", "attrs": {} }
+      ]
+    }
+  }
+}"#,
+    );
+    write_fixture(
+        &fixture_root,
+        "convert_adversarial_parser_abuse_strict.json",
+        r#"{
+  "suite": "convert_v1",
+  "mode": "strict",
+  "fixture_id": "convert::adversarial_parser_abuse",
+  "seed": 1104,
+  "threat_class": "parser_abuse",
+  "operations": [
+    {
+      "op": "convert_edge_list",
+      "payload": {
+        "nodes": [],
+        "edges": [{ "left": "", "right": "b", "attrs": {} }]
+      }
+    }
+  ],
+  "expected": {}
+}"#,
+    );
+    write_fixture(
+        &fixture_root,
+        "convert_adversarial_version_skew_strict.json",
+        r#"{
+  "suite": "convert_v1",
+  "mode": "strict",
+  "fixture_id": "convert::adversarial_version_skew",
+  "seed": 3104,
+  "threat_class": "version_skew",
+  "operations": [
+    {
+      "op": "convert_edge_list",
+      "payload": {
+        "nodes": ["a", "b"],
+        "edges": [
+          {
+            "left": "a",
+            "right": "b",
+            "attrs": { "__fnx_incompatible_version": "v2" }
+          }
+        ]
+      }
+    }
+  ],
+  "expected": {}
+}"#,
+    );
+    write_fixture(
+        &fixture_root,
+        "convert_adversarial_resource_exhaustion_strict.json",
+        r#"{
+  "suite": "convert_v1",
+  "mode": "strict",
+  "fixture_id": "convert::adversarial_resource_exhaustion",
+  "seed": 4104,
+  "threat_class": "resource_exhaustion",
+  "operations": [
+    {
+      "op": "convert_edge_list",
+      "payload": {
+        "nodes": ["a", "b"],
+        "edges": [
+          {
+            "left": "a",
+            "right": "b",
+            "attrs": { "__fnx_incompatible_resource_budget": "overflow" }
+          }
+        ]
+      }
+    }
+  ],
+  "expected": {}
+}"#,
+    );
+    write_fixture(
+        &fixture_root,
+        "convert_adversarial_state_corruption_strict.json",
+        r#"{
+  "suite": "convert_v1",
+  "mode": "strict",
+  "fixture_id": "convert::adversarial_state_corruption",
+  "seed": 5104,
+  "threat_class": "state_corruption",
+  "operations": [
+    {
+      "op": "convert_edge_list",
+      "payload": {
+        "nodes": ["a", "b"],
+        "edges": [
+          {
+            "left": "a",
+            "right": "b",
+            "attrs": { "__fnx_incompatible_state_tx": "broken" }
+          }
+        ]
+      }
+    }
+  ],
+  "expected": {}
+}"#,
+    );
+    write_fixture(
+        &fixture_root,
+        "convert_adversarial_attribute_confusion_strict.json",
+        r#"{
+  "suite": "convert_v1",
+  "mode": "strict",
+  "fixture_id": "convert::adversarial_attribute_confusion",
+  "seed": 6104,
+  "threat_class": "attribute_confusion",
+  "operations": [
+    {
+      "op": "convert_edge_list",
+      "payload": {
+        "nodes": ["a", "b"],
+        "edges": [
+          {
+            "left": "a",
+            "right": "b",
+            "attrs": { "__fnx_incompatible_attr_namespace": "collision" }
+          }
+        ]
+      }
+    }
+  ],
+  "expected": {}
+}"#,
+    );
+    write_fixture(
+        &fixture_root,
+        "convert_adversarial_metadata_ambiguity_hardened.json",
+        r#"{
+  "suite": "convert_v1",
+  "mode": "hardened",
+  "fixture_id": "convert::adversarial_metadata_ambiguity_hardened",
+  "seed": 2204,
+  "threat_class": "metadata_ambiguity",
+  "hardened_allowlisted_categories": ["convert"],
+  "operations": [
+    {
+      "op": "convert_edge_list",
+      "payload": {
+        "nodes": ["a", "b"],
+        "edges": [
+          {
+            "left": "a",
+            "right": "b",
+            "attrs": { "__fnx_incompatible_metadata": "ambiguous" }
+          }
+        ]
+      }
+    }
+  ],
+  "expected": {}
+}"#,
+    );
+
+    let mut cfg = HarnessConfig::default_paths();
+    let report_root = unique_report_root();
+    cfg.fixture_root = fixture_root;
+    cfg.report_root = Some(report_root.clone());
+
+    let report = run_smoke(&cfg);
+    assert!(
+        report.oracle_present,
+        "legacy oracle root should be present"
+    );
+    assert_eq!(report.fixture_count, 8);
+    assert_eq!(report.mismatch_count, 5);
+    assert_eq!(report.hardened_allowlisted_count, 1);
+
+    let metamorphic_edge_list = report
+        .fixture_reports
+        .iter()
+        .find(|fixture| fixture.fixture_id == "convert::metamorphic_edge_list_shape")
+        .expect("metamorphic edge-list fixture should exist");
+    let metamorphic_adjacency = report
+        .fixture_reports
+        .iter()
+        .find(|fixture| fixture.fixture_id == "convert::metamorphic_adjacency_shape")
+        .expect("metamorphic adjacency fixture should exist");
+    assert!(metamorphic_edge_list.passed);
+    assert!(metamorphic_adjacency.passed);
+    assert_eq!(metamorphic_edge_list.seed, Some(6404));
+    assert_eq!(metamorphic_adjacency.seed, Some(6404));
+    assert_eq!(
+        metamorphic_edge_list.threat_class.as_deref(),
+        Some("metamorphic_conversion_shape_idempotence")
+    );
+    assert_eq!(
+        metamorphic_adjacency.threat_class.as_deref(),
+        Some("metamorphic_conversion_shape_idempotence")
+    );
+    assert_eq!(metamorphic_edge_list.strict_violation_count, 0);
+    assert_eq!(metamorphic_adjacency.strict_violation_count, 0);
+    assert_eq!(metamorphic_edge_list.hardened_allowlisted_count, 0);
+    assert_eq!(metamorphic_adjacency.hardened_allowlisted_count, 0);
+
+    let hardened_metadata = report
+        .fixture_reports
+        .iter()
+        .find(|fixture| fixture.fixture_id == "convert::adversarial_metadata_ambiguity_hardened")
+        .expect("hardened metadata fixture should exist");
+    assert!(hardened_metadata.passed);
+    assert_eq!(
+        hardened_metadata.reason_code.as_deref(),
+        Some("hardened_allowlisted_mismatch")
+    );
+    assert_eq!(hardened_metadata.seed, Some(2204));
+    assert_eq!(
+        hardened_metadata.threat_class.as_deref(),
+        Some("metadata_ambiguity")
+    );
+    assert_eq!(hardened_metadata.strict_violation_count, 0);
+    assert_eq!(hardened_metadata.hardened_allowlisted_count, 1);
+    assert!(
+        hardened_metadata
+            .mismatch_taxonomy
+            .iter()
+            .all(|entry| entry.classification == MismatchClassification::HardenedAllowlisted)
+    );
+
+    let strict_adversarial_fixture_ids = [
+        "convert::adversarial_parser_abuse",
+        "convert::adversarial_version_skew",
+        "convert::adversarial_resource_exhaustion",
+        "convert::adversarial_state_corruption",
+        "convert::adversarial_attribute_confusion",
+    ];
+    for fixture_id in strict_adversarial_fixture_ids {
+        let fixture = report
+            .fixture_reports
+            .iter()
+            .find(|row| row.fixture_id == fixture_id)
+            .expect("strict adversarial fixture should exist");
+        assert!(!fixture.passed);
+        assert_eq!(fixture.reason_code.as_deref(), Some("mismatch"));
+        assert_eq!(fixture.strict_violation_count, 1);
+        assert_eq!(fixture.hardened_allowlisted_count, 0);
+        assert!(
+            fixture
+                .mismatch_taxonomy
+                .iter()
+                .all(|entry| entry.classification == MismatchClassification::StrictViolation)
+        );
+    }
+
+    let expected_seed_and_threat = BTreeMap::from([
+        (
+            "convert::adversarial_parser_abuse".to_owned(),
+            (Some(1104_u64), Some("parser_abuse")),
+        ),
+        (
+            "convert::adversarial_metadata_ambiguity_hardened".to_owned(),
+            (Some(2204_u64), Some("metadata_ambiguity")),
+        ),
+        (
+            "convert::adversarial_version_skew".to_owned(),
+            (Some(3104_u64), Some("version_skew")),
+        ),
+        (
+            "convert::adversarial_resource_exhaustion".to_owned(),
+            (Some(4104_u64), Some("resource_exhaustion")),
+        ),
+        (
+            "convert::adversarial_state_corruption".to_owned(),
+            (Some(5104_u64), Some("state_corruption")),
+        ),
+        (
+            "convert::adversarial_attribute_confusion".to_owned(),
+            (Some(6104_u64), Some("attribute_confusion")),
+        ),
+    ]);
+    for fixture in &report.fixture_reports {
+        if let Some((expected_seed, expected_threat)) =
+            expected_seed_and_threat.get(&fixture.fixture_id)
+        {
+            assert_eq!(&fixture.seed, expected_seed);
+            assert_eq!(fixture.threat_class.as_deref(), *expected_threat);
+        }
+    }
+
+    let taxonomy_raw = fs::read_to_string(report_root.join("mismatch_taxonomy_report.json"))
+        .expect("drift taxonomy report should exist");
+    let taxonomy: DriftTaxonomyReport =
+        serde_json::from_str(&taxonomy_raw).expect("drift taxonomy report should parse");
+    assert_eq!(taxonomy.strict_violation_count, 5);
+    assert_eq!(taxonomy.hardened_allowlisted_count, 1);
+    assert_eq!(taxonomy.fixtures.len(), 8);
+    assert!(
+        taxonomy
+            .fixtures
+            .iter()
+            .all(|fixture| fixture.packet_id == "FNX-P2C-004")
+    );
+    let hardened_taxonomy_row = taxonomy
+        .fixtures
+        .iter()
+        .find(|row| row.fixture_id == "convert::adversarial_metadata_ambiguity_hardened")
+        .expect("hardened taxonomy row should exist");
+    assert!(
+        hardened_taxonomy_row
+            .mismatches
+            .iter()
+            .all(|entry| entry.classification == MismatchClassification::HardenedAllowlisted)
+    );
+
+    let logs = read_structured_logs(&report_root);
+    assert_eq!(logs.len(), 8);
+    assert!(logs.iter().all(|log| log.packet_id == "FNX-P2C-004"));
+    assert!(
+        logs.iter()
+            .all(|log| log.test_kind == TestKind::Differential)
+    );
+    assert!(
+        logs.iter()
+            .all(|log| log.replay_command.starts_with("rch exec --"))
+    );
+    for log in &logs {
+        log.validate()
+            .expect("differential structured log should satisfy schema");
+        assert!(log.fixture_id.is_some());
+        assert!(log.seed.is_some());
+        assert!(!log.env_fingerprint.is_empty());
+        assert!(log.environment.contains_key("fixture_id"));
+    }
+
+    let strict_failed_logs = logs
+        .iter()
+        .filter(|log| {
+            strict_adversarial_fixture_ids.contains(&log.fixture_id.as_deref().unwrap_or_default())
+        })
+        .collect::<Vec<&StructuredTestLog>>();
+    assert_eq!(strict_failed_logs.len(), 5);
+    assert!(
+        strict_failed_logs
+            .iter()
+            .all(|log| log.status == TestStatus::Failed)
+    );
+    assert!(
+        strict_failed_logs
+            .iter()
+            .all(|log| log.failure_repro.is_some())
+    );
+    assert!(
+        strict_failed_logs
+            .iter()
+            .all(|log| log.reason_code.as_deref() == Some("mismatch"))
+    );
+
+    let hardened_log = logs
+        .iter()
+        .find(|log| {
+            log.fixture_id.as_deref() == Some("convert::adversarial_metadata_ambiguity_hardened")
+        })
+        .expect("hardened adversarial log should exist");
+    assert_eq!(hardened_log.status, TestStatus::Passed);
+    assert_eq!(
+        hardened_log.reason_code.as_deref(),
+        Some("hardened_allowlisted_mismatch")
+    );
+    assert!(hardened_log.failure_repro.is_none());
+    assert_eq!(hardened_log.seed, Some(2204));
+    assert_eq!(
+        hardened_log
+            .environment
+            .get("threat_class")
+            .map(String::as_str),
+        Some("metadata_ambiguity")
+    );
+
+    let failure_envelopes = fs::read_dir(&report_root)
+        .expect("report root should be readable")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with(".failure_envelope.json"))
+        })
+        .collect::<Vec<PathBuf>>();
+    assert_eq!(
+        failure_envelopes.len(),
+        6,
+        "5 strict failures + 1 hardened allowlisted failure envelope expected"
+    );
+    for envelope_path in &failure_envelopes {
+        let payload: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(envelope_path).expect("envelope readable"))
+                .expect("envelope parseable");
+        assert_eq!(payload["packet_id"].as_str(), Some("FNX-P2C-004"));
+        assert!(
+            payload["replay_command"]
+                .as_str()
+                .is_some_and(|cmd| { cmd.starts_with("rch exec --") })
+        );
+    }
+}
+
+#[test]
+fn packet_005_differential_metamorphic_and_adversarial_taxonomy_is_deterministic() {
+    let fixture_root = unique_fixture_root();
+    write_fixture(
+        &fixture_root,
+        "shortest_path_metamorphic_tie_order_a_strict.json",
+        r#"{
+  "suite": "shortest_path_v1",
+  "mode": "strict",
+  "fixture_id": "shortest_path::metamorphic_tie_order_a",
+  "seed": 6505,
+  "threat_class": "metamorphic_shortest_path_tie_idempotence",
+  "operations": [
+    { "op": "add_edge", "left": "a", "right": "b" },
+    { "op": "add_edge", "left": "b", "right": "c" },
+    { "op": "add_edge", "left": "c", "right": "d" },
+    { "op": "add_edge", "left": "d", "right": "e" },
+    { "op": "add_edge", "left": "a", "right": "e" },
+    { "op": "shortest_path_query", "source": "a", "target": "d" },
+    { "op": "number_connected_components_query" }
+  ],
+  "expected": {
+    "shortest_path_unweighted": ["a", "e", "d"],
+    "number_connected_components": 1
+  }
+}"#,
+    );
+    write_fixture(
+        &fixture_root,
+        "shortest_path_metamorphic_tie_order_b_strict.json",
+        r#"{
+  "suite": "shortest_path_v1",
+  "mode": "strict",
+  "fixture_id": "shortest_path::metamorphic_tie_order_b",
+  "seed": 6505,
+  "threat_class": "metamorphic_shortest_path_tie_idempotence",
+  "operations": [
+    { "op": "add_edge", "left": "a", "right": "e" },
+    { "op": "add_edge", "left": "d", "right": "e" },
+    { "op": "add_edge", "left": "c", "right": "d" },
+    { "op": "add_edge", "left": "b", "right": "c" },
+    { "op": "add_edge", "left": "a", "right": "b" },
+    { "op": "shortest_path_query", "source": "a", "target": "d" },
+    { "op": "number_connected_components_query" }
+  ],
+  "expected": {
+    "shortest_path_unweighted": ["a", "e", "d"],
+    "number_connected_components": 1
+  }
+}"#,
+    );
+    write_fixture(
+        &fixture_root,
+        "shortest_path_adversarial_parser_abuse_strict.json",
+        r#"{
+  "suite": "shortest_path_v1",
+  "mode": "strict",
+  "fixture_id": "shortest_path::adversarial_parser_abuse",
+  "seed": 1105,
+  "threat_class": "parser_abuse",
+  "operations": [
+    { "op": "add_edge", "left": "a", "right": "b" },
+    { "op": "add_edge", "left": "b", "right": "c" },
+    { "op": "shortest_path_query", "source": "a", "target": "c" }
+  ],
+  "expected": {
+    "shortest_path_unweighted": ["a", "c"]
+  }
+}"#,
+    );
+    write_fixture(
+        &fixture_root,
+        "shortest_path_adversarial_version_skew_strict.json",
+        r#"{
+  "suite": "shortest_path_v1",
+  "mode": "strict",
+  "fixture_id": "shortest_path::adversarial_version_skew",
+  "seed": 3105,
+  "threat_class": "version_skew",
+  "operations": [
+    { "op": "add_edge", "left": "a", "right": "b" },
+    { "op": "add_edge", "left": "b", "right": "c" },
+    { "op": "degree_centrality_query" }
+  ],
+  "expected": {
+    "degree_centrality": [
+      { "node": "a", "score": 0.5 },
+      { "node": "b", "score": 0.5 },
+      { "node": "c", "score": 0.5 }
+    ]
+  }
+}"#,
+    );
+    write_fixture(
+        &fixture_root,
+        "shortest_path_adversarial_resource_exhaustion_strict.json",
+        r#"{
+  "suite": "shortest_path_v1",
+  "mode": "strict",
+  "fixture_id": "shortest_path::adversarial_resource_exhaustion",
+  "seed": 4105,
+  "threat_class": "resource_exhaustion",
+  "operations": [
+    { "op": "add_edge", "left": "a", "right": "b" },
+    { "op": "add_edge", "left": "b", "right": "c" },
+    { "op": "number_connected_components_query" }
+  ],
+  "expected": {
+    "number_connected_components": 2
+  }
+}"#,
+    );
+    write_fixture(
+        &fixture_root,
+        "shortest_path_adversarial_state_corruption_strict.json",
+        r#"{
+  "suite": "shortest_path_v1",
+  "mode": "strict",
+  "fixture_id": "shortest_path::adversarial_state_corruption",
+  "seed": 5105,
+  "threat_class": "state_corruption",
+  "operations": [
+    { "op": "add_edge", "left": "a", "right": "b" },
+    { "op": "add_edge", "left": "b", "right": "c" },
+    { "op": "connected_components_query" }
+  ],
+  "expected": {
+    "connected_components": [["a"], ["b", "c"]]
+  }
+}"#,
+    );
+    write_fixture(
+        &fixture_root,
+        "shortest_path_adversarial_algorithmic_complexity_dos_strict.json",
+        r#"{
+  "suite": "shortest_path_v1",
+  "mode": "strict",
+  "fixture_id": "shortest_path::adversarial_algorithmic_complexity_dos",
+  "seed": 8105,
+  "threat_class": "algorithmic_complexity_dos",
+  "operations": [
+    { "op": "add_edge", "left": "a", "right": "b" },
+    { "op": "add_edge", "left": "b", "right": "c" },
+    { "op": "number_connected_components_query" }
+  ],
+  "expected": {
+    "number_connected_components": 2
+  }
+}"#,
+    );
+    write_fixture(
+        &fixture_root,
+        "shortest_path_adversarial_metadata_ambiguity_hardened.json",
+        r#"{
+  "suite": "shortest_path_v1",
+  "mode": "hardened",
+  "fixture_id": "shortest_path::adversarial_metadata_ambiguity_hardened",
+  "seed": 2205,
+  "threat_class": "metadata_ambiguity",
+  "hardened_allowlisted_categories": ["algorithm"],
+  "operations": [
+    { "op": "add_edge", "left": "a", "right": "b" },
+    { "op": "add_edge", "left": "b", "right": "c" },
+    { "op": "shortest_path_query", "source": "a", "target": "c" }
+  ],
+  "expected": {
+    "shortest_path_unweighted": ["a", "c"]
+  }
+}"#,
+    );
+
+    let mut cfg = HarnessConfig::default_paths();
+    let report_root = unique_report_root();
+    cfg.fixture_root = fixture_root;
+    cfg.report_root = Some(report_root.clone());
+
+    let report = run_smoke(&cfg);
+    assert!(
+        report.oracle_present,
+        "legacy oracle root should be present"
+    );
+    assert_eq!(report.fixture_count, 8);
+    assert_eq!(report.mismatch_count, 5);
+    assert_eq!(report.hardened_allowlisted_count, 1);
+
+    let metamorphic_a = report
+        .fixture_reports
+        .iter()
+        .find(|fixture| fixture.fixture_id == "shortest_path::metamorphic_tie_order_a")
+        .expect("metamorphic fixture A should exist");
+    let metamorphic_b = report
+        .fixture_reports
+        .iter()
+        .find(|fixture| fixture.fixture_id == "shortest_path::metamorphic_tie_order_b")
+        .expect("metamorphic fixture B should exist");
+    assert!(metamorphic_a.passed);
+    assert!(metamorphic_b.passed);
+    assert_eq!(metamorphic_a.seed, Some(6505));
+    assert_eq!(metamorphic_b.seed, Some(6505));
+    assert_eq!(
+        metamorphic_a.threat_class.as_deref(),
+        Some("metamorphic_shortest_path_tie_idempotence")
+    );
+    assert_eq!(
+        metamorphic_b.threat_class.as_deref(),
+        Some("metamorphic_shortest_path_tie_idempotence")
+    );
+    assert_eq!(metamorphic_a.strict_violation_count, 0);
+    assert_eq!(metamorphic_b.strict_violation_count, 0);
+    assert_eq!(metamorphic_a.hardened_allowlisted_count, 0);
+    assert_eq!(metamorphic_b.hardened_allowlisted_count, 0);
+
+    let hardened_metadata = report
+        .fixture_reports
+        .iter()
+        .find(|fixture| {
+            fixture.fixture_id == "shortest_path::adversarial_metadata_ambiguity_hardened"
+        })
+        .expect("hardened metadata fixture should exist");
+    assert!(hardened_metadata.passed);
+    assert_eq!(
+        hardened_metadata.reason_code.as_deref(),
+        Some("hardened_allowlisted_mismatch")
+    );
+    assert_eq!(hardened_metadata.seed, Some(2205));
+    assert_eq!(
+        hardened_metadata.threat_class.as_deref(),
+        Some("metadata_ambiguity")
+    );
+    assert_eq!(hardened_metadata.strict_violation_count, 0);
+    assert_eq!(hardened_metadata.hardened_allowlisted_count, 1);
+    assert!(
+        hardened_metadata
+            .mismatch_taxonomy
+            .iter()
+            .all(|entry| entry.classification == MismatchClassification::HardenedAllowlisted)
+    );
+
+    let strict_adversarial_fixture_ids = [
+        "shortest_path::adversarial_parser_abuse",
+        "shortest_path::adversarial_version_skew",
+        "shortest_path::adversarial_resource_exhaustion",
+        "shortest_path::adversarial_state_corruption",
+        "shortest_path::adversarial_algorithmic_complexity_dos",
+    ];
+    for fixture_id in strict_adversarial_fixture_ids {
+        let fixture = report
+            .fixture_reports
+            .iter()
+            .find(|row| row.fixture_id == fixture_id)
+            .expect("strict adversarial fixture should exist");
+        assert!(!fixture.passed);
+        assert_eq!(fixture.reason_code.as_deref(), Some("mismatch"));
+        assert_eq!(fixture.strict_violation_count, 1);
+        assert_eq!(fixture.hardened_allowlisted_count, 0);
+        assert!(
+            fixture
+                .mismatch_taxonomy
+                .iter()
+                .all(|entry| entry.classification == MismatchClassification::StrictViolation)
+        );
+    }
+
+    let expected_seed_and_threat = BTreeMap::from([
+        (
+            "shortest_path::adversarial_parser_abuse".to_owned(),
+            (Some(1105_u64), Some("parser_abuse")),
+        ),
+        (
+            "shortest_path::adversarial_metadata_ambiguity_hardened".to_owned(),
+            (Some(2205_u64), Some("metadata_ambiguity")),
+        ),
+        (
+            "shortest_path::adversarial_version_skew".to_owned(),
+            (Some(3105_u64), Some("version_skew")),
+        ),
+        (
+            "shortest_path::adversarial_resource_exhaustion".to_owned(),
+            (Some(4105_u64), Some("resource_exhaustion")),
+        ),
+        (
+            "shortest_path::adversarial_state_corruption".to_owned(),
+            (Some(5105_u64), Some("state_corruption")),
+        ),
+        (
+            "shortest_path::adversarial_algorithmic_complexity_dos".to_owned(),
+            (Some(8105_u64), Some("algorithmic_complexity_dos")),
+        ),
+    ]);
+    for fixture in &report.fixture_reports {
+        if let Some((expected_seed, expected_threat)) =
+            expected_seed_and_threat.get(&fixture.fixture_id)
+        {
+            assert_eq!(&fixture.seed, expected_seed);
+            assert_eq!(fixture.threat_class.as_deref(), *expected_threat);
+        }
+    }
+
+    let taxonomy_raw = fs::read_to_string(report_root.join("mismatch_taxonomy_report.json"))
+        .expect("drift taxonomy report should exist");
+    let taxonomy: DriftTaxonomyReport =
+        serde_json::from_str(&taxonomy_raw).expect("drift taxonomy report should parse");
+    assert_eq!(taxonomy.strict_violation_count, 5);
+    assert_eq!(taxonomy.hardened_allowlisted_count, 1);
+    assert_eq!(taxonomy.fixtures.len(), 8);
+    assert!(
+        taxonomy
+            .fixtures
+            .iter()
+            .all(|fixture| fixture.packet_id == "FNX-P2C-005")
+    );
+    let hardened_taxonomy_row = taxonomy
+        .fixtures
+        .iter()
+        .find(|row| row.fixture_id == "shortest_path::adversarial_metadata_ambiguity_hardened")
+        .expect("hardened taxonomy row should exist");
+    assert!(
+        hardened_taxonomy_row
+            .mismatches
+            .iter()
+            .all(|entry| entry.classification == MismatchClassification::HardenedAllowlisted)
+    );
+
+    let logs = read_structured_logs(&report_root);
+    assert_eq!(logs.len(), 8);
+    assert!(logs.iter().all(|log| log.packet_id == "FNX-P2C-005"));
+    assert!(
+        logs.iter()
+            .all(|log| log.test_kind == TestKind::Differential)
+    );
+    assert!(
+        logs.iter()
+            .all(|log| log.replay_command.starts_with("rch exec --"))
+    );
+    for log in &logs {
+        log.validate()
+            .expect("differential structured log should satisfy schema");
+        assert!(log.fixture_id.is_some());
+        assert!(log.seed.is_some());
+        assert!(!log.env_fingerprint.is_empty());
+        assert!(log.environment.contains_key("fixture_id"));
+    }
+
+    let strict_failed_logs = logs
+        .iter()
+        .filter(|log| {
+            strict_adversarial_fixture_ids.contains(&log.fixture_id.as_deref().unwrap_or_default())
+        })
+        .collect::<Vec<&StructuredTestLog>>();
+    assert_eq!(strict_failed_logs.len(), 5);
+    assert!(
+        strict_failed_logs
+            .iter()
+            .all(|log| log.status == TestStatus::Failed)
+    );
+    assert!(
+        strict_failed_logs
+            .iter()
+            .all(|log| log.failure_repro.is_some())
+    );
+    assert!(
+        strict_failed_logs
+            .iter()
+            .all(|log| log.reason_code.as_deref() == Some("mismatch"))
+    );
+
+    let hardened_log = logs
+        .iter()
+        .find(|log| {
+            log.fixture_id.as_deref()
+                == Some("shortest_path::adversarial_metadata_ambiguity_hardened")
+        })
+        .expect("hardened adversarial log should exist");
+    assert_eq!(hardened_log.status, TestStatus::Passed);
+    assert_eq!(
+        hardened_log.reason_code.as_deref(),
+        Some("hardened_allowlisted_mismatch")
+    );
+    assert!(hardened_log.failure_repro.is_none());
+    assert_eq!(hardened_log.seed, Some(2205));
+    assert_eq!(
+        hardened_log
+            .environment
+            .get("threat_class")
+            .map(String::as_str),
+        Some("metadata_ambiguity")
+    );
+
+    let failure_envelopes = fs::read_dir(&report_root)
+        .expect("report root should be readable")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with(".failure_envelope.json"))
+        })
+        .collect::<Vec<PathBuf>>();
+    assert_eq!(
+        failure_envelopes.len(),
+        6,
+        "5 strict failures + 1 hardened allowlisted failure envelope expected"
+    );
+    for envelope_path in &failure_envelopes {
+        let payload: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(envelope_path).expect("envelope readable"))
+                .expect("envelope parseable");
+        assert_eq!(payload["packet_id"].as_str(), Some("FNX-P2C-005"));
+        assert!(
+            payload["replay_command"]
+                .as_str()
+                .is_some_and(|cmd| cmd.starts_with("rch exec --"))
+        );
+    }
+}
+
 proptest! {
     #[test]
     fn property_packet_002_projection_matches_first_seen_neighbors(

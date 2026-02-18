@@ -6,3 +6,7 @@ edition = "2024"
 [dependencies]
 fnx-classes = { path = "../fnx-classes" }
 serde = { version = "1.0.218", features = ["derive"] }
+
+[dev-dependencies]
+fnx-runtime = { path = "../fnx-runtime" }
+proptest = "1.6.0"

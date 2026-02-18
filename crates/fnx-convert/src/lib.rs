@@ -362,8 +362,45 @@ mod tests {
         AdjacencyEntry, AdjacencyPayload, ConvertError, EdgeListPayload, EdgeRecord,
         GraphConverter, to_normalized_payload,
     };
-    use fnx_runtime::CompatibilityMode;
-    use std::collections::BTreeMap;
+    use fnx_runtime::{
+        CompatibilityMode, DecisionAction, ForensicsBundleIndex, StructuredTestLog, TestKind,
+        TestStatus, canonical_environment_fingerprint, structured_test_log_schema_version,
+    };
+    use proptest::prelude::*;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    fn packet_004_forensics_bundle(
+        run_id: &str,
+        test_id: &str,
+        replay_ref: &str,
+        bundle_id: &str,
+        artifact_refs: Vec<String>,
+    ) -> ForensicsBundleIndex {
+        ForensicsBundleIndex {
+            bundle_id: bundle_id.to_owned(),
+            run_id: run_id.to_owned(),
+            test_id: test_id.to_owned(),
+            bundle_hash_id: "bundle-hash-p2c004".to_owned(),
+            captured_unix_ms: 1,
+            replay_ref: replay_ref.to_owned(),
+            artifact_refs,
+            raptorq_sidecar_refs: Vec::new(),
+            decode_proof_refs: Vec::new(),
+        }
+    }
+
+    fn graph_fingerprint(nodes: &[String], edges: &[EdgeRecord]) -> String {
+        let edge_signature = edges
+            .iter()
+            .map(|edge| format!("{}>{}", edge.left, edge.right))
+            .collect::<Vec<String>>()
+            .join("|");
+        format!(
+            "nodes:{};edges:{};sig:{edge_signature}",
+            nodes.join(","),
+            edges.len()
+        )
+    }
 
     #[test]
     fn edge_list_conversion_is_deterministic() {
@@ -438,5 +475,245 @@ mod tests {
         let normalized = to_normalized_payload(&report.graph);
         assert_eq!(normalized.nodes, vec!["x", "y"]);
         assert_eq!(normalized.edges.len(), 1);
+    }
+
+    #[test]
+    fn unit_packet_004_contract_asserted() {
+        let mut converter = GraphConverter::strict();
+        let payload = EdgeListPayload {
+            nodes: vec!["n0".to_owned(), "n1".to_owned(), "n2".to_owned()],
+            edges: vec![
+                EdgeRecord {
+                    left: "n0".to_owned(),
+                    right: "n1".to_owned(),
+                    attrs: BTreeMap::new(),
+                },
+                EdgeRecord {
+                    left: "n1".to_owned(),
+                    right: "n2".to_owned(),
+                    attrs: BTreeMap::from([("weight".to_owned(), "3".to_owned())]),
+                },
+            ],
+        };
+
+        let report = converter
+            .from_edge_list(&payload)
+            .expect("packet-004 unit contract fixture should convert");
+        assert!(report.warnings.is_empty());
+        let normalized = to_normalized_payload(&report.graph);
+        assert_eq!(normalized.mode, CompatibilityMode::Strict);
+        assert_eq!(normalized.nodes, vec!["n0", "n1", "n2"]);
+        assert_eq!(normalized.edges.len(), 2);
+
+        let records = report.ledger.records();
+        assert_eq!(
+            records.len(),
+            1,
+            "unit contract should emit one decision record"
+        );
+        let record = &records[0];
+        assert_eq!(record.operation, "convert_edge_list");
+        assert_eq!(record.mode, CompatibilityMode::Strict);
+        assert_eq!(record.action, DecisionAction::Allow);
+        assert!(
+            record
+                .evidence
+                .iter()
+                .any(|term| term.signal == "message" && term.observed_value.contains("completed")),
+            "ledger evidence should include successful conversion marker"
+        );
+
+        let mut environment = BTreeMap::new();
+        environment.insert("os".to_owned(), std::env::consts::OS.to_owned());
+        environment.insert("arch".to_owned(), std::env::consts::ARCH.to_owned());
+        environment.insert("conversion_path".to_owned(), "edge_list".to_owned());
+        environment.insert("input_shape".to_owned(), "edge_list_payload".to_owned());
+        environment.insert("strict_mode".to_owned(), "true".to_owned());
+
+        let replay_command = "rch exec -- cargo test -p fnx-convert unit_packet_004_contract_asserted -- --nocapture";
+        let log = StructuredTestLog {
+            schema_version: structured_test_log_schema_version().to_owned(),
+            run_id: "convert-p2c004-unit".to_owned(),
+            ts_unix_ms: 1,
+            crate_name: "fnx-convert".to_owned(),
+            suite_id: "unit".to_owned(),
+            packet_id: "FNX-P2C-004".to_owned(),
+            test_name: "unit_packet_004_contract_asserted".to_owned(),
+            test_id: "unit::fnx-p2c-004::contract".to_owned(),
+            test_kind: TestKind::Unit,
+            mode: CompatibilityMode::Strict,
+            fixture_id: Some("convert::contract::edge_list".to_owned()),
+            seed: Some(7104),
+            env_fingerprint: canonical_environment_fingerprint(&environment),
+            environment,
+            duration_ms: 4,
+            replay_command: replay_command.to_owned(),
+            artifact_refs: vec!["artifacts/conformance/latest/structured_logs.jsonl".to_owned()],
+            forensic_bundle_id: "forensics::convert::unit::contract".to_owned(),
+            hash_id: "sha256:convert-p2c004-unit".to_owned(),
+            status: TestStatus::Passed,
+            reason_code: None,
+            failure_repro: None,
+            e2e_step_traces: Vec::new(),
+            forensics_bundle_index: Some(packet_004_forensics_bundle(
+                "convert-p2c004-unit",
+                "unit::fnx-p2c-004::contract",
+                replay_command,
+                "forensics::convert::unit::contract",
+                vec!["artifacts/conformance/latest/structured_logs.jsonl".to_owned()],
+            )),
+        };
+        log.validate()
+            .expect("unit packet-004 telemetry log should satisfy strict schema");
+    }
+
+    proptest! {
+        #[test]
+        fn property_packet_004_invariants(edges in prop::collection::vec((0_u8..8, 0_u8..8), 1..32)) {
+            let mut node_set = BTreeSet::new();
+            let mut edge_records = Vec::with_capacity(edges.len());
+            for (left, right) in &edges {
+                let left_node = format!("n{left}");
+                let right_node = format!("n{right}");
+                node_set.insert(left_node.clone());
+                node_set.insert(right_node.clone());
+                edge_records.push(EdgeRecord {
+                    left: left_node,
+                    right: right_node,
+                    attrs: BTreeMap::new(),
+                });
+            }
+
+            let payload = EdgeListPayload {
+                nodes: node_set.into_iter().collect(),
+                edges: edge_records,
+            };
+
+            let mut strict_left = GraphConverter::strict();
+            let mut strict_right = GraphConverter::strict();
+            let left = strict_left
+                .from_edge_list(&payload)
+                .expect("strict conversion should succeed for generated payload");
+            let right = strict_right
+                .from_edge_list(&payload)
+                .expect("strict conversion replay should succeed");
+            let left_normalized = to_normalized_payload(&left.graph);
+            let right_normalized = to_normalized_payload(&right.graph);
+
+            // Invariant family 1: strict replay determinism.
+            prop_assert_eq!(
+                &left_normalized,
+                &right_normalized,
+                "P2C004-IV-1 strict conversion replay drifted"
+            );
+
+            let mut hardened_left = GraphConverter::hardened();
+            let mut hardened_right = GraphConverter::hardened();
+            let hardened_a = hardened_left
+                .from_edge_list(&payload)
+                .expect("hardened conversion should succeed for generated payload");
+            let hardened_b = hardened_right
+                .from_edge_list(&payload)
+                .expect("hardened conversion replay should succeed");
+            let hardened_a_normalized = to_normalized_payload(&hardened_a.graph);
+            let hardened_b_normalized = to_normalized_payload(&hardened_b.graph);
+
+            // Invariant family 2: hardened replay determinism.
+            prop_assert_eq!(
+                &hardened_a_normalized,
+                &hardened_b_normalized,
+                "P2C004-IV-2 hardened conversion replay drifted"
+            );
+
+            // Invariant family 3: edge endpoints are represented in node set.
+            for edge in &left_normalized.edges {
+                prop_assert!(
+                    left_normalized.nodes.contains(&edge.left),
+                    "P2C004-IV-3 missing left endpoint node"
+                );
+                prop_assert!(
+                    left_normalized.nodes.contains(&edge.right),
+                    "P2C004-IV-3 missing right endpoint node"
+                );
+            }
+
+            // Invariant family 4: valid payloads produce no warnings.
+            prop_assert!(
+                left.warnings.is_empty() && right.warnings.is_empty(),
+                "P2C004-IV-4 strict mode unexpectedly emitted warnings"
+            );
+            prop_assert!(
+                hardened_a.warnings.is_empty() && hardened_b.warnings.is_empty(),
+                "P2C004-IV-4 hardened mode unexpectedly emitted warnings"
+            );
+
+            // Invariant family 5: decision ledger remains single-step allow for valid edge-list conversion.
+            for ledger in [&left.ledger, &right.ledger, &hardened_a.ledger, &hardened_b.ledger] {
+                prop_assert_eq!(ledger.records().len(), 1);
+                let record = &ledger.records()[0];
+                prop_assert_eq!(record.operation.as_str(), "convert_edge_list");
+                prop_assert_eq!(record.action, DecisionAction::Allow);
+            }
+
+            let deterministic_seed = edges.iter().fold(7204_u64, |acc, (left, right)| {
+                acc.wrapping_mul(131)
+                    .wrapping_add((*left as u64) << 8)
+                    .wrapping_add(*right as u64)
+            });
+            let mut environment = BTreeMap::new();
+            environment.insert("os".to_owned(), std::env::consts::OS.to_owned());
+            environment.insert("arch".to_owned(), std::env::consts::ARCH.to_owned());
+            environment.insert(
+                "graph_fingerprint".to_owned(),
+                graph_fingerprint(&left_normalized.nodes, &left_normalized.edges),
+            );
+            environment.insert("relabel_mode".to_owned(), "copy".to_owned());
+            environment.insert("invariant_id".to_owned(), "P2C004-IV-1".to_owned());
+
+            let replay_command =
+                "rch exec -- cargo test -p fnx-convert property_packet_004_invariants -- --nocapture";
+            let log = StructuredTestLog {
+                schema_version: structured_test_log_schema_version().to_owned(),
+                run_id: "convert-p2c004-property".to_owned(),
+                ts_unix_ms: 2,
+                crate_name: "fnx-convert".to_owned(),
+                suite_id: "property".to_owned(),
+                packet_id: "FNX-P2C-004".to_owned(),
+                test_name: "property_packet_004_invariants".to_owned(),
+                test_id: "property::fnx-p2c-004::invariants".to_owned(),
+                test_kind: TestKind::Property,
+                mode: CompatibilityMode::Hardened,
+                fixture_id: Some("convert::property::edge_list_matrix".to_owned()),
+                seed: Some(deterministic_seed),
+                env_fingerprint: canonical_environment_fingerprint(&environment),
+                environment,
+                duration_ms: 11,
+                replay_command: replay_command.to_owned(),
+                artifact_refs: vec![
+                    "artifacts/conformance/latest/structured_log_emitter_normalization_report.json"
+                        .to_owned(),
+                ],
+                forensic_bundle_id: "forensics::convert::property::invariants".to_owned(),
+                hash_id: "sha256:convert-p2c004-property".to_owned(),
+                status: TestStatus::Passed,
+                reason_code: None,
+                failure_repro: None,
+                e2e_step_traces: Vec::new(),
+                forensics_bundle_index: Some(packet_004_forensics_bundle(
+                    "convert-p2c004-property",
+                    "property::fnx-p2c-004::invariants",
+                    replay_command,
+                    "forensics::convert::property::invariants",
+                    vec![
+                        "artifacts/conformance/latest/structured_log_emitter_normalization_report.json"
+                            .to_owned(),
+                    ],
+                )),
+            };
+            prop_assert!(
+                log.validate().is_ok(),
+                "packet-004 property telemetry log should satisfy strict schema"
+            );
+        }
     }
 }

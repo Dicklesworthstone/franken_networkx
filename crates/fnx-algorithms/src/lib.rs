@@ -347,6 +347,68 @@ mod tests {
         shortest_path_unweighted,
     };
     use fnx_classes::Graph;
+    use fnx_runtime::{
+        CompatibilityMode, ForensicsBundleIndex, StructuredTestLog, TestKind, TestStatus,
+        canonical_environment_fingerprint, structured_test_log_schema_version,
+    };
+    use proptest::prelude::*;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    fn packet_005_forensics_bundle(
+        run_id: &str,
+        test_id: &str,
+        replay_ref: &str,
+        bundle_id: &str,
+        artifact_refs: Vec<String>,
+    ) -> ForensicsBundleIndex {
+        ForensicsBundleIndex {
+            bundle_id: bundle_id.to_owned(),
+            run_id: run_id.to_owned(),
+            test_id: test_id.to_owned(),
+            bundle_hash_id: "bundle-hash-p2c005".to_owned(),
+            captured_unix_ms: 1,
+            replay_ref: replay_ref.to_owned(),
+            artifact_refs,
+            raptorq_sidecar_refs: Vec::new(),
+            decode_proof_refs: Vec::new(),
+        }
+    }
+
+    fn canonical_edge_pairs(graph: &Graph) -> Vec<(String, String)> {
+        let mut edges = BTreeSet::new();
+        for node in graph.nodes_ordered() {
+            let Some(neighbors) = graph.neighbors_iter(node) else {
+                continue;
+            };
+            for neighbor in neighbors {
+                let (left, right) = if node <= neighbor {
+                    (node.to_owned(), neighbor.to_owned())
+                } else {
+                    (neighbor.to_owned(), node.to_owned())
+                };
+                edges.insert((left, right));
+            }
+        }
+        edges.into_iter().collect()
+    }
+
+    fn graph_fingerprint(graph: &Graph) -> String {
+        let nodes = graph
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<String>>();
+        let edge_signature = canonical_edge_pairs(graph)
+            .into_iter()
+            .map(|(left, right)| format!("{left}>{right}"))
+            .collect::<Vec<String>>()
+            .join("|");
+        format!(
+            "nodes:{};edges:{};sig:{edge_signature}",
+            nodes.join(","),
+            canonical_edge_pairs(graph).len()
+        )
+    }
 
     #[test]
     fn bfs_shortest_path_uses_deterministic_neighbor_order() {
@@ -529,5 +591,233 @@ mod tests {
         assert_eq!(single_result.scores.len(), 1);
         assert_eq!(single_result.scores[0].node, "solo");
         assert!((single_result.scores[0].score - 0.0).abs() <= 1e-12);
+    }
+
+    #[test]
+    fn unit_packet_005_contract_asserted() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("a", "c").expect("edge add should succeed");
+        graph.add_edge("b", "d").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+        graph.add_edge("d", "e").expect("edge add should succeed");
+
+        let path_result = shortest_path_unweighted(&graph, "a", "e");
+        assert_eq!(
+            path_result.path,
+            Some(
+                vec!["a", "b", "d", "e"]
+                    .into_iter()
+                    .map(str::to_owned)
+                    .collect()
+            )
+        );
+        assert_eq!(path_result.witness.algorithm, "bfs_shortest_path");
+        assert_eq!(path_result.witness.complexity_claim, "O(|V| + |E|)");
+
+        let components = connected_components(&graph);
+        assert_eq!(components.components.len(), 1);
+        assert_eq!(
+            number_connected_components(&graph).count,
+            components.components.len()
+        );
+
+        let degree = degree_centrality(&graph);
+        let closeness = closeness_centrality(&graph);
+        assert_eq!(degree.scores.len(), 5);
+        assert_eq!(closeness.scores.len(), 5);
+        assert!(
+            degree.scores.iter().all(|entry| entry.score >= 0.0),
+            "degree centrality must remain non-negative"
+        );
+        assert!(
+            closeness.scores.iter().all(|entry| entry.score >= 0.0),
+            "closeness centrality must remain non-negative"
+        );
+
+        let mut environment = BTreeMap::new();
+        environment.insert("os".to_owned(), std::env::consts::OS.to_owned());
+        environment.insert("arch".to_owned(), std::env::consts::ARCH.to_owned());
+        environment.insert(
+            "algorithm_family".to_owned(),
+            "shortest_path_first_wave".to_owned(),
+        );
+        environment.insert("source_target_pair".to_owned(), "a->e".to_owned());
+        environment.insert("strict_mode".to_owned(), "true".to_owned());
+
+        let replay_command = "rch exec -- cargo test -p fnx-algorithms unit_packet_005_contract_asserted -- --nocapture";
+        let log = StructuredTestLog {
+            schema_version: structured_test_log_schema_version().to_owned(),
+            run_id: "algorithms-p2c005-unit".to_owned(),
+            ts_unix_ms: 1,
+            crate_name: "fnx-algorithms".to_owned(),
+            suite_id: "unit".to_owned(),
+            packet_id: "FNX-P2C-005".to_owned(),
+            test_name: "unit_packet_005_contract_asserted".to_owned(),
+            test_id: "unit::fnx-p2c-005::contract".to_owned(),
+            test_kind: TestKind::Unit,
+            mode: CompatibilityMode::Strict,
+            fixture_id: Some("algorithms::contract::shortest_path_wave".to_owned()),
+            seed: Some(7105),
+            env_fingerprint: canonical_environment_fingerprint(&environment),
+            environment,
+            duration_ms: 7,
+            replay_command: replay_command.to_owned(),
+            artifact_refs: vec!["artifacts/conformance/latest/structured_logs.jsonl".to_owned()],
+            forensic_bundle_id: "forensics::algorithms::unit::contract".to_owned(),
+            hash_id: "sha256:algorithms-p2c005-unit".to_owned(),
+            status: TestStatus::Passed,
+            reason_code: None,
+            failure_repro: None,
+            e2e_step_traces: Vec::new(),
+            forensics_bundle_index: Some(packet_005_forensics_bundle(
+                "algorithms-p2c005-unit",
+                "unit::fnx-p2c-005::contract",
+                replay_command,
+                "forensics::algorithms::unit::contract",
+                vec!["artifacts/conformance/latest/structured_logs.jsonl".to_owned()],
+            )),
+        };
+        log.validate()
+            .expect("unit packet-005 telemetry log should satisfy strict schema");
+    }
+
+    proptest! {
+        #[test]
+        fn property_packet_005_invariants(edges in prop::collection::vec((0_u8..8, 0_u8..8), 1..40)) {
+            let mut graph = Graph::strict();
+            for (left, right) in &edges {
+                let left_node = format!("n{left}");
+                let right_node = format!("n{right}");
+                let _ = graph.add_node(&left_node);
+                let _ = graph.add_node(&right_node);
+                graph
+                    .add_edge(&left_node, &right_node)
+                    .expect("generated edge insertion should succeed");
+            }
+
+            let ordered_nodes = graph
+                .nodes_ordered()
+                .into_iter()
+                .map(str::to_owned)
+                .collect::<Vec<String>>();
+            prop_assume!(!ordered_nodes.is_empty());
+            let source = ordered_nodes.first().expect("source node exists").clone();
+            let target = ordered_nodes.last().expect("target node exists").clone();
+
+            let left = shortest_path_unweighted(&graph, &source, &target);
+            let right = shortest_path_unweighted(&graph, &source, &target);
+            prop_assert_eq!(
+                &left.path, &right.path,
+                "P2C005-INV-1 shortest-path replay must be deterministic"
+            );
+            prop_assert_eq!(
+                &left.witness, &right.witness,
+                "P2C005-INV-1 complexity witness replay must be deterministic"
+            );
+
+            let components = connected_components(&graph);
+            let count = number_connected_components(&graph);
+            prop_assert_eq!(
+                components.components.len(), count.count,
+                "P2C005-INV-3 connected component count must match partition cardinality"
+            );
+
+            let degree = degree_centrality(&graph);
+            let closeness = closeness_centrality(&graph);
+            let degree_order = degree
+                .scores
+                .iter()
+                .map(|entry| entry.node.as_str())
+                .collect::<Vec<&str>>();
+            let closeness_order = closeness
+                .scores
+                .iter()
+                .map(|entry| entry.node.as_str())
+                .collect::<Vec<&str>>();
+            let ordered_refs = graph.nodes_ordered();
+            prop_assert_eq!(
+                degree_order, ordered_refs.clone(),
+                "P2C005-DC-3 degree centrality order must match graph node order"
+            );
+            prop_assert_eq!(
+                closeness_order, ordered_refs,
+                "P2C005-DC-3 closeness centrality order must match graph node order"
+            );
+
+            if let Some(path) = &left.path {
+                prop_assert!(
+                    !path.is_empty(),
+                    "P2C005-INV-1 emitted path must be non-empty when present"
+                );
+                prop_assert_eq!(
+                    path.first().expect("path has first node"),
+                    &source,
+                    "P2C005-INV-1 path must start at source"
+                );
+                prop_assert_eq!(
+                    path.last().expect("path has last node"),
+                    &target,
+                    "P2C005-INV-1 path must end at target"
+                );
+            }
+
+            let deterministic_seed = edges.iter().fold(7205_u64, |acc, (left_edge, right_edge)| {
+                acc.wrapping_mul(131)
+                    .wrapping_add((*left_edge as u64) << 8)
+                    .wrapping_add(*right_edge as u64)
+            });
+            let mut environment = BTreeMap::new();
+            environment.insert("os".to_owned(), std::env::consts::OS.to_owned());
+            environment.insert("arch".to_owned(), std::env::consts::ARCH.to_owned());
+            environment.insert("graph_fingerprint".to_owned(), graph_fingerprint(&graph));
+            environment.insert("tie_break_policy".to_owned(), "lexical_neighbor_order".to_owned());
+            environment.insert("invariant_id".to_owned(), "P2C005-INV-1".to_owned());
+
+            let replay_command =
+                "rch exec -- cargo test -p fnx-algorithms property_packet_005_invariants -- --nocapture";
+            let log = StructuredTestLog {
+                schema_version: structured_test_log_schema_version().to_owned(),
+                run_id: "algorithms-p2c005-property".to_owned(),
+                ts_unix_ms: 2,
+                crate_name: "fnx-algorithms".to_owned(),
+                suite_id: "property".to_owned(),
+                packet_id: "FNX-P2C-005".to_owned(),
+                test_name: "property_packet_005_invariants".to_owned(),
+                test_id: "property::fnx-p2c-005::invariants".to_owned(),
+                test_kind: TestKind::Property,
+                mode: CompatibilityMode::Hardened,
+                fixture_id: Some("algorithms::property::path_and_centrality_matrix".to_owned()),
+                seed: Some(deterministic_seed),
+                env_fingerprint: canonical_environment_fingerprint(&environment),
+                environment,
+                duration_ms: 12,
+                replay_command: replay_command.to_owned(),
+                artifact_refs: vec![
+                    "artifacts/conformance/latest/structured_log_emitter_normalization_report.json"
+                        .to_owned(),
+                ],
+                forensic_bundle_id: "forensics::algorithms::property::invariants".to_owned(),
+                hash_id: "sha256:algorithms-p2c005-property".to_owned(),
+                status: TestStatus::Passed,
+                reason_code: None,
+                failure_repro: None,
+                e2e_step_traces: Vec::new(),
+                forensics_bundle_index: Some(packet_005_forensics_bundle(
+                    "algorithms-p2c005-property",
+                    "property::fnx-p2c-005::invariants",
+                    replay_command,
+                    "forensics::algorithms::property::invariants",
+                    vec![
+                        "artifacts/conformance/latest/structured_log_emitter_normalization_report.json"
+                            .to_owned(),
+                    ],
+                )),
+            };
+            prop_assert!(
+                log.validate().is_ok(),
+                "packet-005 property telemetry log should satisfy strict schema"
+            );
+        }
     }
 }
