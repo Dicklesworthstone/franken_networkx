@@ -2779,6 +2779,432 @@ fn packet_006_differential_metamorphic_and_adversarial_taxonomy_is_deterministic
     }
 }
 
+#[test]
+fn packet_007_differential_metamorphic_and_adversarial_taxonomy_is_deterministic() {
+    let fixture_root = unique_fixture_root();
+    write_fixture(
+        &fixture_root,
+        "generators_metamorphic_path_identity_a_strict.json",
+        r#"{
+  "suite": "generators_v1",
+  "mode": "strict",
+  "fixture_id": "generators::metamorphic_path_identity_a",
+  "seed": 6707,
+  "threat_class": "metamorphic_generator_topology_idempotence",
+  "operations": [
+    { "op": "generate_path_graph", "n": 5 },
+    { "op": "number_connected_components_query" }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["0", "1", "2", "3", "4"],
+      "edges": [
+        { "left": "0", "right": "1", "attrs": {} },
+        { "left": "1", "right": "2", "attrs": {} },
+        { "left": "2", "right": "3", "attrs": {} },
+        { "left": "3", "right": "4", "attrs": {} }
+      ]
+    },
+    "number_connected_components": 1
+  }
+}"#,
+    );
+    write_fixture(
+        &fixture_root,
+        "generators_metamorphic_path_identity_b_strict.json",
+        r#"{
+  "suite": "generators_v1",
+  "mode": "strict",
+  "fixture_id": "generators::metamorphic_path_identity_b",
+  "seed": 6707,
+  "threat_class": "metamorphic_generator_topology_idempotence",
+  "operations": [
+    { "op": "generate_path_graph", "n": 5 },
+    { "op": "connected_components_query" }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["0", "1", "2", "3", "4"],
+      "edges": [
+        { "left": "0", "right": "1", "attrs": {} },
+        { "left": "1", "right": "2", "attrs": {} },
+        { "left": "2", "right": "3", "attrs": {} },
+        { "left": "3", "right": "4", "attrs": {} }
+      ]
+    },
+    "connected_components": [["0", "1", "2", "3", "4"]]
+  }
+}"#,
+    );
+    write_fixture(
+        &fixture_root,
+        "generators_adversarial_parser_abuse_strict.json",
+        r#"{
+  "suite": "generators_v1",
+  "mode": "strict",
+  "fixture_id": "generators::adversarial_parser_abuse",
+  "seed": 1107,
+  "threat_class": "parser_abuse",
+  "operations": [
+    { "op": "generate_path_graph", "n": 5 },
+    { "op": "number_connected_components_query" }
+  ],
+  "expected": {
+    "number_connected_components": 2
+  }
+}"#,
+    );
+    write_fixture(
+        &fixture_root,
+        "generators_adversarial_metadata_ambiguity_strict.json",
+        r#"{
+  "suite": "generators_v1",
+  "mode": "strict",
+  "fixture_id": "generators::adversarial_metadata_ambiguity_strict",
+  "seed": 2107,
+  "threat_class": "metadata_ambiguity",
+  "operations": [
+    { "op": "generate_cycle_graph", "n": 5 },
+    { "op": "connected_components_query" }
+  ],
+  "expected": {
+    "connected_components": [["0", "1", "2", "4", "3"]]
+  }
+}"#,
+    );
+    write_fixture(
+        &fixture_root,
+        "generators_adversarial_metadata_ambiguity_hardened.json",
+        r#"{
+  "suite": "generators_v1",
+  "mode": "hardened",
+  "fixture_id": "generators::adversarial_metadata_ambiguity_hardened",
+  "seed": 2207,
+  "threat_class": "metadata_ambiguity",
+  "hardened_allowlisted_categories": ["algorithm_components"],
+  "operations": [
+    { "op": "generate_cycle_graph", "n": 5 },
+    { "op": "connected_components_query" }
+  ],
+  "expected": {
+    "connected_components": [["0", "1", "2", "4", "3"]]
+  }
+}"#,
+    );
+    write_fixture(
+        &fixture_root,
+        "generators_adversarial_version_skew_strict.json",
+        r#"{
+  "suite": "generators_v1",
+  "mode": "strict",
+  "fixture_id": "generators::adversarial_version_skew",
+  "seed": 3107,
+  "threat_class": "version_skew",
+  "operations": [
+    { "op": "generate_complete_graph", "n": 4 }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["0", "1", "2", "3"],
+      "edges": [
+        { "left": "0", "right": "1", "attrs": {} },
+        { "left": "0", "right": "2", "attrs": {} },
+        { "left": "0", "right": "3", "attrs": {} },
+        { "left": "1", "right": "2", "attrs": {} },
+        { "left": "1", "right": "3", "attrs": {} }
+      ]
+    }
+  }
+}"#,
+    );
+    write_fixture(
+        &fixture_root,
+        "generators_adversarial_resource_exhaustion_strict.json",
+        r#"{
+  "suite": "generators_v1",
+  "mode": "strict",
+  "fixture_id": "generators::adversarial_resource_exhaustion",
+  "seed": 4107,
+  "threat_class": "resource_exhaustion",
+  "operations": [
+    { "op": "generate_empty_graph", "n": 4 }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["0", "1", "2"],
+      "edges": []
+    }
+  }
+}"#,
+    );
+    write_fixture(
+        &fixture_root,
+        "generators_adversarial_state_corruption_strict.json",
+        r#"{
+  "suite": "generators_v1",
+  "mode": "strict",
+  "fixture_id": "generators::adversarial_state_corruption",
+  "seed": 5107,
+  "threat_class": "state_corruption",
+  "operations": [
+    { "op": "generate_cycle_graph", "n": 5 }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["0", "1", "2", "3", "4"],
+      "edges": [
+        { "left": "0", "right": "1", "attrs": {} },
+        { "left": "1", "right": "2", "attrs": {} },
+        { "left": "2", "right": "3", "attrs": {} },
+        { "left": "3", "right": "4", "attrs": {} }
+      ]
+    }
+  }
+}"#,
+    );
+
+    let mut cfg = HarnessConfig::default_paths();
+    let report_root = unique_report_root();
+    cfg.fixture_root = fixture_root;
+    cfg.report_root = Some(report_root.clone());
+
+    let report = run_smoke(&cfg);
+    assert!(
+        report.oracle_present,
+        "legacy oracle root should be present"
+    );
+    assert_eq!(report.fixture_count, 8);
+    assert_eq!(report.mismatch_count, 5);
+    assert_eq!(report.hardened_allowlisted_count, 1);
+
+    let metamorphic_a = report
+        .fixture_reports
+        .iter()
+        .find(|fixture| fixture.fixture_id == "generators::metamorphic_path_identity_a")
+        .expect("metamorphic fixture A should exist");
+    let metamorphic_b = report
+        .fixture_reports
+        .iter()
+        .find(|fixture| fixture.fixture_id == "generators::metamorphic_path_identity_b")
+        .expect("metamorphic fixture B should exist");
+    assert!(metamorphic_a.passed);
+    assert!(metamorphic_b.passed);
+    assert_eq!(metamorphic_a.seed, Some(6707));
+    assert_eq!(metamorphic_b.seed, Some(6707));
+    assert_eq!(
+        metamorphic_a.threat_class.as_deref(),
+        Some("metamorphic_generator_topology_idempotence")
+    );
+    assert_eq!(
+        metamorphic_b.threat_class.as_deref(),
+        Some("metamorphic_generator_topology_idempotence")
+    );
+    assert_eq!(metamorphic_a.strict_violation_count, 0);
+    assert_eq!(metamorphic_b.strict_violation_count, 0);
+    assert_eq!(metamorphic_a.hardened_allowlisted_count, 0);
+    assert_eq!(metamorphic_b.hardened_allowlisted_count, 0);
+
+    let hardened_metadata = report
+        .fixture_reports
+        .iter()
+        .find(|fixture| fixture.fixture_id == "generators::adversarial_metadata_ambiguity_hardened")
+        .expect("hardened metadata fixture should exist");
+    assert!(hardened_metadata.passed);
+    assert_eq!(
+        hardened_metadata.reason_code.as_deref(),
+        Some("hardened_allowlisted_mismatch")
+    );
+    assert_eq!(hardened_metadata.seed, Some(2207));
+    assert_eq!(
+        hardened_metadata.threat_class.as_deref(),
+        Some("metadata_ambiguity")
+    );
+    assert_eq!(hardened_metadata.strict_violation_count, 0);
+    assert_eq!(hardened_metadata.hardened_allowlisted_count, 1);
+    assert!(
+        hardened_metadata
+            .mismatch_taxonomy
+            .iter()
+            .all(|entry| entry.classification == MismatchClassification::HardenedAllowlisted)
+    );
+
+    let strict_adversarial_fixture_ids = [
+        "generators::adversarial_parser_abuse",
+        "generators::adversarial_metadata_ambiguity_strict",
+        "generators::adversarial_version_skew",
+        "generators::adversarial_resource_exhaustion",
+        "generators::adversarial_state_corruption",
+    ];
+    for fixture_id in strict_adversarial_fixture_ids {
+        let fixture = report
+            .fixture_reports
+            .iter()
+            .find(|row| row.fixture_id == fixture_id)
+            .expect("strict adversarial fixture should exist");
+        assert!(!fixture.passed);
+        assert_eq!(fixture.reason_code.as_deref(), Some("mismatch"));
+        assert_eq!(fixture.strict_violation_count, 1);
+        assert_eq!(fixture.hardened_allowlisted_count, 0);
+        assert!(
+            fixture
+                .mismatch_taxonomy
+                .iter()
+                .all(|entry| entry.classification == MismatchClassification::StrictViolation)
+        );
+    }
+
+    let expected_seed_and_threat = BTreeMap::from([
+        (
+            "generators::adversarial_parser_abuse".to_owned(),
+            (Some(1107_u64), Some("parser_abuse")),
+        ),
+        (
+            "generators::adversarial_metadata_ambiguity_strict".to_owned(),
+            (Some(2107_u64), Some("metadata_ambiguity")),
+        ),
+        (
+            "generators::adversarial_metadata_ambiguity_hardened".to_owned(),
+            (Some(2207_u64), Some("metadata_ambiguity")),
+        ),
+        (
+            "generators::adversarial_version_skew".to_owned(),
+            (Some(3107_u64), Some("version_skew")),
+        ),
+        (
+            "generators::adversarial_resource_exhaustion".to_owned(),
+            (Some(4107_u64), Some("resource_exhaustion")),
+        ),
+        (
+            "generators::adversarial_state_corruption".to_owned(),
+            (Some(5107_u64), Some("state_corruption")),
+        ),
+    ]);
+    for fixture in &report.fixture_reports {
+        if let Some((expected_seed, expected_threat)) =
+            expected_seed_and_threat.get(&fixture.fixture_id)
+        {
+            assert_eq!(&fixture.seed, expected_seed);
+            assert_eq!(fixture.threat_class.as_deref(), *expected_threat);
+        }
+    }
+
+    let taxonomy_raw = fs::read_to_string(report_root.join("mismatch_taxonomy_report.json"))
+        .expect("drift taxonomy report should exist");
+    let taxonomy: DriftTaxonomyReport =
+        serde_json::from_str(&taxonomy_raw).expect("drift taxonomy report should parse");
+    assert_eq!(taxonomy.strict_violation_count, 5);
+    assert_eq!(taxonomy.hardened_allowlisted_count, 1);
+    assert_eq!(taxonomy.fixtures.len(), 8);
+    assert!(
+        taxonomy
+            .fixtures
+            .iter()
+            .all(|fixture| fixture.packet_id == "FNX-P2C-007")
+    );
+    let hardened_taxonomy_row = taxonomy
+        .fixtures
+        .iter()
+        .find(|row| row.fixture_id == "generators::adversarial_metadata_ambiguity_hardened")
+        .expect("hardened taxonomy row should exist");
+    assert!(
+        hardened_taxonomy_row
+            .mismatches
+            .iter()
+            .all(|entry| entry.classification == MismatchClassification::HardenedAllowlisted)
+    );
+
+    let logs = read_structured_logs(&report_root);
+    assert_eq!(logs.len(), 8);
+    assert!(logs.iter().all(|log| log.packet_id == "FNX-P2C-007"));
+    assert!(
+        logs.iter()
+            .all(|log| log.test_kind == TestKind::Differential)
+    );
+    assert!(
+        logs.iter()
+            .all(|log| log.replay_command.starts_with("rch exec --"))
+    );
+    for log in &logs {
+        log.validate()
+            .expect("differential structured log should satisfy schema");
+        assert!(log.fixture_id.is_some());
+        assert!(log.seed.is_some());
+        assert!(!log.env_fingerprint.is_empty());
+        assert!(log.environment.contains_key("fixture_id"));
+    }
+
+    let strict_failed_logs = logs
+        .iter()
+        .filter(|log| {
+            strict_adversarial_fixture_ids.contains(&log.fixture_id.as_deref().unwrap_or_default())
+        })
+        .collect::<Vec<&StructuredTestLog>>();
+    assert_eq!(strict_failed_logs.len(), 5);
+    assert!(
+        strict_failed_logs
+            .iter()
+            .all(|log| log.status == TestStatus::Failed)
+    );
+    assert!(
+        strict_failed_logs
+            .iter()
+            .all(|log| log.failure_repro.is_some())
+    );
+    assert!(
+        strict_failed_logs
+            .iter()
+            .all(|log| log.reason_code.as_deref() == Some("mismatch"))
+    );
+
+    let hardened_log = logs
+        .iter()
+        .find(|log| {
+            log.fixture_id.as_deref() == Some("generators::adversarial_metadata_ambiguity_hardened")
+        })
+        .expect("hardened adversarial log should exist");
+    assert_eq!(hardened_log.status, TestStatus::Passed);
+    assert_eq!(
+        hardened_log.reason_code.as_deref(),
+        Some("hardened_allowlisted_mismatch")
+    );
+    assert!(hardened_log.failure_repro.is_none());
+    assert_eq!(hardened_log.seed, Some(2207));
+    assert_eq!(
+        hardened_log
+            .environment
+            .get("threat_class")
+            .map(String::as_str),
+        Some("metadata_ambiguity")
+    );
+
+    let failure_envelopes = fs::read_dir(&report_root)
+        .expect("report root should be readable")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.ends_with(".failure_envelope.json"))
+        })
+        .collect::<Vec<PathBuf>>();
+    assert_eq!(
+        failure_envelopes.len(),
+        6,
+        "5 strict failures + 1 hardened allowlisted failure envelope expected"
+    );
+    for envelope_path in &failure_envelopes {
+        let payload: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(envelope_path).expect("envelope readable"))
+                .expect("envelope parseable");
+        assert_eq!(payload["packet_id"].as_str(), Some("FNX-P2C-007"));
+        assert!(
+            payload["replay_command"]
+                .as_str()
+                .is_some_and(|cmd| cmd.starts_with("rch exec --"))
+        );
+    }
+}
+
 proptest! {
     #[test]
     fn property_packet_002_projection_matches_first_seen_neighbors(

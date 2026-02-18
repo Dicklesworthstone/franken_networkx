@@ -8,10 +8,10 @@
   "error_count": 0,
   "errors": [],
   "summary": {
-    "event_count": 36,
-    "required_scenario_count": 18,
+    "event_count": 40,
+    "required_scenario_count": 20,
     "required_pass_count": 2,
-    "bundle_row_count": 18,
+    "bundle_row_count": 20,
     "failure_index_count": 0
   }
 }

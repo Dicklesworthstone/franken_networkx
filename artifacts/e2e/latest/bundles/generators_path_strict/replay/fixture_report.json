@@ -1,0 +1,24 @@
+{
+  "fixture_id": "generated/generators_path_strict.json",
+  "fixture_name": "generated/generators_path_strict.json",
+  "suite": "generators_v1",
+  "mode": "strict",
+  "seed": null,
+  "threat_class": null,
+  "replay_command": "rch exec -- CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/generators_path_strict.json --mode strict",
+  "passed": true,
+  "reason_code": null,
+  "fixture_source_hash": "56905684ea83165b",
+  "duration_ms": 0,
+  "strict_violation_count": 0,
+  "hardened_allowlisted_count": 0,
+  "mismatches": [],
+  "mismatch_taxonomy": [],
+  "witness": {
+    "algorithm": "bfs_number_connected_components",
+    "complexity_claim": "O(|V| + |E|)",
+    "nodes_touched": 5,
+    "edges_scanned": 8,
+    "queue_peak": 1
+  }
+}

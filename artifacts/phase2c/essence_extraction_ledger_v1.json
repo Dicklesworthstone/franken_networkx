@@ -3144,13 +3144,20 @@
     {
       "packet_id": "FNX-P2C-008",
       "legacy_paths": [
+        "networkx/__init__.py",
         "networkx/utils/configs.py",
+        "networkx/utils/backends.py",
         "networkx/lazy_imports.py"
       ],
       "legacy_symbols": [
+        "Config",
+        "BackendPriorities",
+        "NetworkXConfig",
+        "_set_configs_from_environment",
         "_dispatchable",
-        "config",
-        "lazy imports"
+        "attach",
+        "_lazy_import",
+        "DelayedImportErrorModule"
       ],
       "graph_mutation_contract": "Mutations preserve deterministic adjacency semantics and observable output parity.",
       "view_cache_contract": "View/cache interactions remain deterministic with explicit revision invalidation.",
@@ -3164,18 +3171,77 @@
         "unscoped upstream APIs not yet admitted by packet roadmap"
       ],
       "oracle_tests": [
-        "utils/runtime behavior tests"
+        "networkx/utils/tests/test_config.py",
+        "networkx/utils/tests/test_backends.py",
+        "networkx/tests/test_lazy_imports.py"
       ],
       "performance_sentinels": [
         "artifacts/perf/BASELINE_BFS_V1.md",
-        "artifacts/perf/OPPORTUNITY_MATRIX.md",
-        "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+        "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+        "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+        "artifacts/perf/phase2c/perf_regression_gate_report_v1.json",
+        "artifacts/perf/phase2c/isomorphism_harness_report_v1.json"
       ],
       "compatibility_risks": [
         "environment-based behavior skew",
         "optional dependency fallback ambiguity"
       ],
-      "behavior_region_map": [],
+      "behavior_region_map": [
+        {
+          "region_id": "P2C008-R1",
+          "pathway": "config-core",
+          "source_anchors": [
+            "networkx/utils/configs.py:8-225",
+            "networkx/utils/tests/test_config.py:29-118",
+            "networkx/utils/tests/test_config.py:227-263"
+          ],
+          "behavior_note": "Strict Config rejects unknown keys/deletes, mapping access mirrors attribute semantics, and context manager staging restores prior values deterministically."
+        },
+        {
+          "region_id": "P2C008-R2",
+          "pathway": "backend-config-validation",
+          "source_anchors": [
+            "networkx/utils/configs.py:228-275",
+            "networkx/utils/configs.py:277-396",
+            "networkx/utils/tests/test_config.py:119-170"
+          ],
+          "behavior_note": "BackendPriorities and NetworkXConfig normalize backend-priority payloads and fail closed on unknown backends, invalid bools, and invalid warning names."
+        },
+        {
+          "region_id": "P2C008-R3",
+          "pathway": "environment-bootstrap",
+          "source_anchors": [
+            "networkx/__init__.py:15-24",
+            "networkx/utils/backends.py:113-185",
+            "networkx/conftest.py:45-88"
+          ],
+          "behavior_note": "Import-time bootstrap deterministically maps NETWORKX_* env variables into runtime config with explicit precedence rules."
+        },
+        {
+          "region_id": "P2C008-R4",
+          "pathway": "dispatch-fallback-optional-deps",
+          "source_anchors": [
+            "networkx/utils/backends.py:202-212",
+            "networkx/utils/backends.py:621-715",
+            "networkx/utils/backends.py:717-813",
+            "networkx/utils/backends.py:879-1045",
+            "networkx/utils/tests/test_backends.py:44-95",
+            "networkx/utils/tests/test_backends.py:162-225"
+          ],
+          "behavior_note": "Dispatch computes deterministic backend try-order, limits conversion surfaces, and emits stable fail-closed errors for unknown or ambiguous backend routes."
+        },
+        {
+          "region_id": "P2C008-R5",
+          "pathway": "lazy-import-proxy",
+          "source_anchors": [
+            "networkx/lazy_imports.py:11-79",
+            "networkx/lazy_imports.py:82-98",
+            "networkx/lazy_imports.py:100-188",
+            "networkx/tests/test_lazy_imports.py:9-96"
+          ],
+          "behavior_note": "Lazy import wrappers defer module loading until attribute access and lazily surface import failures with preserved callsite context."
+        }
+      ],
       "raptorq_artifacts": {
         "legacy_anchor_map": "artifacts/phase2c/FNX-P2C-008/legacy_anchor_map.md",
         "contract_table": "artifacts/phase2c/FNX-P2C-008/contract_table.md",
@@ -3221,8 +3287,8 @@
       },
       "profile_first_artifacts": {
         "baseline": "artifacts/perf/BASELINE_BFS_V1.md",
-        "hotspot": "artifacts/perf/OPPORTUNITY_MATRIX.md",
-        "delta": "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+        "hotspot": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+        "delta": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
       },
       "decision_theoretic_runtime_contract": {
         "states": [

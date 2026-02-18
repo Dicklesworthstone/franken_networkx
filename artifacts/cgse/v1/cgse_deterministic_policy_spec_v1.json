@@ -1,0 +1,631 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "cgse-deterministic-policy-spec-v1",
+  "generated_at_utc": "2026-02-18T06:42:15Z",
+  "baseline_comparator": "legacy_networkx_code/networkx/networkx (repository checkout in current workspace)",
+  "source_ledger": "artifacts/cgse/v1/cgse_legacy_tiebreak_ordering_ledger_v1.json",
+  "policy_scope": "Deterministic strict/hardened policy compilation from CGSE legacy tie-break extraction rules.",
+  "policy_rows": [
+    {
+      "policy_id": "CGSE-POL-R01",
+      "rule_id": "CGSE-R01",
+      "operation_family": "graph_core_mutation",
+      "tie_break_contract": "first-unused-integer key scan",
+      "ordering_contract": "stable for fixed keydict state; gaps may be skipped after deletions",
+      "strict_mode_behavior": "Preserve legacy tie-break and ordering semantics exactly as extracted from source anchors.",
+      "hardened_mode_behavior": "Allow only explicitly allowlisted ambiguity pathways; fail closed for all unknown or incompatible semantics drift.",
+      "strict_invariant": "CGSE-R01 strict mode preserves `first-unused-integer key scan` and `stable for fixed keydict state; gaps may be skipped after deletions` with zero mismatch budget.",
+      "hardened_invariant": "CGSE-R01 hardened mode may deviate only through allowlisted ambiguity controls while retaining observable output compatibility.",
+      "preconditions": [
+        "operation family `graph_core_mutation` is within CGSE scoped APIs",
+        "legacy source anchors and hook surfaces remain stable and resolvable"
+      ],
+      "postconditions": [
+        "tie-break contract remains `first-unused-integer key scan`",
+        "ordering contract remains `stable for fixed keydict state; gaps may be skipped after deletions`",
+        "unit/property/differential/e2e verification hooks remain replayable"
+      ],
+      "preservation_obligation": "strict mode forbids behavior-repair heuristics that alter legacy-observable ordering outcomes",
+      "hardened_allowlist": [
+        "CGSE-AMB-001"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r01_drift",
+      "hardened_security_rationale": "Hardened deviations are bounded to explicit ambiguity IDs or diagnostic categories to prevent silent semantics drift under adversarial inputs.",
+      "verification_hooks": {
+        "unit": [
+          "CGSE-UT-R01"
+        ],
+        "property": [
+          "CGSE-PROP-BASE"
+        ],
+        "differential": [
+          "CGSE-DIFF-R01"
+        ],
+        "e2e": [
+          "CGSE-E2E-BASE"
+        ]
+      }
+    },
+    {
+      "policy_id": "CGSE-POL-R02",
+      "rule_id": "CGSE-R02",
+      "operation_family": "graph_core_mutation",
+      "tie_break_contract": "remove newest edge first when key=None",
+      "ordering_contract": "LIFO across multiedges between same endpoints",
+      "strict_mode_behavior": "Preserve legacy tie-break and ordering semantics exactly as extracted from source anchors.",
+      "hardened_mode_behavior": "Allow only explicitly allowlisted ambiguity pathways; fail closed for all unknown or incompatible semantics drift.",
+      "strict_invariant": "CGSE-R02 strict mode preserves `remove newest edge first when key=None` and `LIFO across multiedges between same endpoints` with zero mismatch budget.",
+      "hardened_invariant": "CGSE-R02 hardened mode may deviate only through allowlisted ambiguity controls while retaining observable output compatibility.",
+      "preconditions": [
+        "operation family `graph_core_mutation` is within CGSE scoped APIs",
+        "legacy source anchors and hook surfaces remain stable and resolvable"
+      ],
+      "postconditions": [
+        "tie-break contract remains `remove newest edge first when key=None`",
+        "ordering contract remains `LIFO across multiedges between same endpoints`",
+        "unit/property/differential/e2e verification hooks remain replayable"
+      ],
+      "preservation_obligation": "strict mode forbids behavior-repair heuristics that alter legacy-observable ordering outcomes",
+      "hardened_allowlist": [
+        "CGSE-AMB-002"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r02_drift",
+      "hardened_security_rationale": "Hardened deviations are bounded to explicit ambiguity IDs or diagnostic categories to prevent silent semantics drift under adversarial inputs.",
+      "verification_hooks": {
+        "unit": [
+          "CGSE-UT-R02A",
+          "CGSE-UT-R02B"
+        ],
+        "property": [
+          "CGSE-PROP-BASE"
+        ],
+        "differential": [
+          "CGSE-DIFF-R02"
+        ],
+        "e2e": [
+          "CGSE-E2E-BASE"
+        ]
+      }
+    },
+    {
+      "policy_id": "CGSE-POL-R03",
+      "rule_id": "CGSE-R03",
+      "operation_family": "graph_core_mutation",
+      "tie_break_contract": "preserve encounter-order attr selection",
+      "ordering_contract": "directed edge traversal order determines conflict winner",
+      "strict_mode_behavior": "Preserve legacy tie-break and ordering semantics exactly as extracted from source anchors.",
+      "hardened_mode_behavior": "Allow only explicitly allowlisted ambiguity pathways; fail closed for all unknown or incompatible semantics drift.",
+      "strict_invariant": "CGSE-R03 strict mode preserves `preserve encounter-order attr selection` and `directed edge traversal order determines conflict winner` with zero mismatch budget.",
+      "hardened_invariant": "CGSE-R03 hardened mode may deviate only through allowlisted ambiguity controls while retaining observable output compatibility.",
+      "preconditions": [
+        "operation family `graph_core_mutation` is within CGSE scoped APIs",
+        "legacy source anchors and hook surfaces remain stable and resolvable"
+      ],
+      "postconditions": [
+        "tie-break contract remains `preserve encounter-order attr selection`",
+        "ordering contract remains `directed edge traversal order determines conflict winner`",
+        "unit/property/differential/e2e verification hooks remain replayable"
+      ],
+      "preservation_obligation": "strict mode forbids behavior-repair heuristics that alter legacy-observable ordering outcomes",
+      "hardened_allowlist": [
+        "CGSE-AMB-003"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r03_drift",
+      "hardened_security_rationale": "Hardened deviations are bounded to explicit ambiguity IDs or diagnostic categories to prevent silent semantics drift under adversarial inputs.",
+      "verification_hooks": {
+        "unit": [
+          "CGSE-UT-R03A",
+          "CGSE-UT-R03B"
+        ],
+        "property": [
+          "CGSE-PROP-BASE"
+        ],
+        "differential": [
+          "CGSE-DIFF-R03"
+        ],
+        "e2e": [
+          "CGSE-E2E-BASE"
+        ]
+      }
+    },
+    {
+      "policy_id": "CGSE-POL-R04",
+      "rule_id": "CGSE-R04",
+      "operation_family": "view_semantics",
+      "tie_break_contract": "prefer direct dict-order surfaces; treat set-union surfaces as ambiguity hotspots",
+      "ordering_contract": "deterministic for pure dict proxies; ambiguous for set-union composites",
+      "strict_mode_behavior": "Preserve legacy tie-break and ordering semantics exactly as extracted from source anchors.",
+      "hardened_mode_behavior": "Allow only explicitly allowlisted ambiguity pathways; fail closed for all unknown or incompatible semantics drift.",
+      "strict_invariant": "CGSE-R04 strict mode preserves `prefer direct dict-order surfaces; treat set-union surfaces as ambiguity hotspots` and `deterministic for pure dict proxies; ambiguous for set-union composites` with zero mismatch budget.",
+      "hardened_invariant": "CGSE-R04 hardened mode may deviate only through allowlisted ambiguity controls while retaining observable output compatibility.",
+      "preconditions": [
+        "operation family `view_semantics` is within CGSE scoped APIs",
+        "legacy source anchors and hook surfaces remain stable and resolvable"
+      ],
+      "postconditions": [
+        "tie-break contract remains `prefer direct dict-order surfaces; treat set-union surfaces as ambiguity hotspots`",
+        "ordering contract remains `deterministic for pure dict proxies; ambiguous for set-union composites`",
+        "unit/property/differential/e2e verification hooks remain replayable"
+      ],
+      "preservation_obligation": "strict mode forbids behavior-repair heuristics that alter legacy-observable ordering outcomes",
+      "hardened_allowlist": [
+        "CGSE-AMB-004"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r04_drift",
+      "hardened_security_rationale": "Hardened deviations are bounded to explicit ambiguity IDs or diagnostic categories to prevent silent semantics drift under adversarial inputs.",
+      "verification_hooks": {
+        "unit": [
+          "CGSE-UT-R04"
+        ],
+        "property": [
+          "CGSE-PROP-BASE"
+        ],
+        "differential": [
+          "CGSE-DIFF-R04"
+        ],
+        "e2e": [
+          "CGSE-E2E-BASE"
+        ]
+      }
+    },
+    {
+      "policy_id": "CGSE-POL-R05",
+      "rule_id": "CGSE-R05",
+      "operation_family": "dispatch_routing",
+      "tie_break_contract": "sorted-key application for unknown priority categories",
+      "ordering_contract": "stable env-variable fold order after normalization",
+      "strict_mode_behavior": "Preserve legacy tie-break and ordering semantics exactly as extracted from source anchors.",
+      "hardened_mode_behavior": "Allow only explicitly allowlisted ambiguity pathways; fail closed for all unknown or incompatible semantics drift.",
+      "strict_invariant": "CGSE-R05 strict mode preserves `sorted-key application for unknown priority categories` and `stable env-variable fold order after normalization` with zero mismatch budget.",
+      "hardened_invariant": "CGSE-R05 hardened mode may deviate only through allowlisted ambiguity controls while retaining observable output compatibility.",
+      "preconditions": [
+        "operation family `dispatch_routing` is within CGSE scoped APIs",
+        "legacy source anchors and hook surfaces remain stable and resolvable"
+      ],
+      "postconditions": [
+        "tie-break contract remains `sorted-key application for unknown priority categories`",
+        "ordering contract remains `stable env-variable fold order after normalization`",
+        "unit/property/differential/e2e verification hooks remain replayable"
+      ],
+      "preservation_obligation": "strict mode forbids behavior-repair heuristics that alter legacy-observable ordering outcomes",
+      "hardened_allowlist": [
+        "CGSE-AMB-005"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r05_drift",
+      "hardened_security_rationale": "Hardened deviations are bounded to explicit ambiguity IDs or diagnostic categories to prevent silent semantics drift under adversarial inputs.",
+      "verification_hooks": {
+        "unit": [
+          "CGSE-UT-R05"
+        ],
+        "property": [
+          "CGSE-PROP-BASE"
+        ],
+        "differential": [
+          "CGSE-DIFF-R05"
+        ],
+        "e2e": [
+          "CGSE-E2E-BASE"
+        ]
+      }
+    },
+    {
+      "policy_id": "CGSE-POL-R06",
+      "rule_id": "CGSE-R06",
+      "operation_family": "dispatch_routing",
+      "tie_break_contract": "grouped-priority try-order with no implicit alphabetical fallback for ambiguous group3",
+      "ordering_contract": "group1 -> group2 -> group3 -> group4 -> group5",
+      "strict_mode_behavior": "Preserve legacy tie-break and ordering semantics exactly as extracted from source anchors.",
+      "hardened_mode_behavior": "Allow only explicitly allowlisted ambiguity pathways; fail closed for all unknown or incompatible semantics drift.",
+      "strict_invariant": "CGSE-R06 strict mode preserves `grouped-priority try-order with no implicit alphabetical fallback for ambiguous group3` and `group1 -> group2 -> group3 -> group4 -> group5` with zero mismatch budget.",
+      "hardened_invariant": "CGSE-R06 hardened mode may deviate only through allowlisted ambiguity controls while retaining observable output compatibility.",
+      "preconditions": [
+        "operation family `dispatch_routing` is within CGSE scoped APIs",
+        "legacy source anchors and hook surfaces remain stable and resolvable"
+      ],
+      "postconditions": [
+        "tie-break contract remains `grouped-priority try-order with no implicit alphabetical fallback for ambiguous group3`",
+        "ordering contract remains `group1 -> group2 -> group3 -> group4 -> group5`",
+        "unit/property/differential/e2e verification hooks remain replayable"
+      ],
+      "preservation_obligation": "strict mode forbids behavior-repair heuristics that alter legacy-observable ordering outcomes",
+      "hardened_allowlist": [
+        "CGSE-AMB-006"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r06_drift",
+      "hardened_security_rationale": "Hardened deviations are bounded to explicit ambiguity IDs or diagnostic categories to prevent silent semantics drift under adversarial inputs.",
+      "verification_hooks": {
+        "unit": [
+          "CGSE-UT-R06"
+        ],
+        "property": [
+          "CGSE-PROP-BASE"
+        ],
+        "differential": [
+          "CGSE-DIFF-R06"
+        ],
+        "e2e": [
+          "CGSE-E2E-BASE"
+        ]
+      }
+    },
+    {
+      "policy_id": "CGSE-POL-R07",
+      "rule_id": "CGSE-R07",
+      "operation_family": "conversion_contracts",
+      "tie_break_contract": "fixed probe-order precedence",
+      "ordering_contract": "first successful conversion branch wins",
+      "strict_mode_behavior": "Preserve legacy tie-break and ordering semantics exactly as extracted from source anchors.",
+      "hardened_mode_behavior": "Allow only explicitly allowlisted ambiguity pathways; fail closed for all unknown or incompatible semantics drift.",
+      "strict_invariant": "CGSE-R07 strict mode preserves `fixed probe-order precedence` and `first successful conversion branch wins` with zero mismatch budget.",
+      "hardened_invariant": "CGSE-R07 hardened mode may deviate only through allowlisted ambiguity controls while retaining observable output compatibility.",
+      "preconditions": [
+        "operation family `conversion_contracts` is within CGSE scoped APIs",
+        "legacy source anchors and hook surfaces remain stable and resolvable"
+      ],
+      "postconditions": [
+        "tie-break contract remains `fixed probe-order precedence`",
+        "ordering contract remains `first successful conversion branch wins`",
+        "unit/property/differential/e2e verification hooks remain replayable"
+      ],
+      "preservation_obligation": "strict mode forbids behavior-repair heuristics that alter legacy-observable ordering outcomes",
+      "hardened_allowlist": [
+        "CGSE-AMB-007"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r07_drift",
+      "hardened_security_rationale": "Hardened deviations are bounded to explicit ambiguity IDs or diagnostic categories to prevent silent semantics drift under adversarial inputs.",
+      "verification_hooks": {
+        "unit": [
+          "CGSE-UT-R07"
+        ],
+        "property": [
+          "CGSE-PROP-BASE"
+        ],
+        "differential": [
+          "CGSE-DIFF-R07"
+        ],
+        "e2e": [
+          "CGSE-E2E-BASE"
+        ]
+      }
+    },
+    {
+      "policy_id": "CGSE-POL-R08",
+      "rule_id": "CGSE-R08",
+      "operation_family": "shortest_path_algorithms",
+      "tie_break_contract": "distance then insertion counter then predecessor-list first element",
+      "ordering_contract": "equal-weight predecessors tracked in encounter order",
+      "strict_mode_behavior": "Preserve legacy tie-break and ordering semantics exactly as extracted from source anchors.",
+      "hardened_mode_behavior": "Allow only explicitly allowlisted ambiguity pathways; fail closed for all unknown or incompatible semantics drift.",
+      "strict_invariant": "CGSE-R08 strict mode preserves `distance then insertion counter then predecessor-list first element` and `equal-weight predecessors tracked in encounter order` with zero mismatch budget.",
+      "hardened_invariant": "CGSE-R08 hardened mode may deviate only through allowlisted ambiguity controls while retaining observable output compatibility.",
+      "preconditions": [
+        "operation family `shortest_path_algorithms` is within CGSE scoped APIs",
+        "legacy source anchors and hook surfaces remain stable and resolvable"
+      ],
+      "postconditions": [
+        "tie-break contract remains `distance then insertion counter then predecessor-list first element`",
+        "ordering contract remains `equal-weight predecessors tracked in encounter order`",
+        "unit/property/differential/e2e verification hooks remain replayable"
+      ],
+      "preservation_obligation": "strict mode forbids behavior-repair heuristics that alter legacy-observable ordering outcomes",
+      "hardened_allowlist": [
+        "CGSE-AMB-008"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r08_drift",
+      "hardened_security_rationale": "Hardened deviations are bounded to explicit ambiguity IDs or diagnostic categories to prevent silent semantics drift under adversarial inputs.",
+      "verification_hooks": {
+        "unit": [
+          "CGSE-UT-R08"
+        ],
+        "property": [
+          "CGSE-PROP-BASE"
+        ],
+        "differential": [
+          "CGSE-DIFF-R08"
+        ],
+        "e2e": [
+          "CGSE-E2E-BASE"
+        ]
+      }
+    },
+    {
+      "policy_id": "CGSE-POL-R09",
+      "rule_id": "CGSE-R09",
+      "operation_family": "shortest_path_algorithms",
+      "tie_break_contract": "alternating direction + monotonic fringe counter",
+      "ordering_contract": "first discovered best meet-node wins unless shorter path found",
+      "strict_mode_behavior": "Preserve legacy tie-break and ordering semantics exactly as extracted from source anchors.",
+      "hardened_mode_behavior": "Allow only explicitly allowlisted ambiguity pathways; fail closed for all unknown or incompatible semantics drift.",
+      "strict_invariant": "CGSE-R09 strict mode preserves `alternating direction + monotonic fringe counter` and `first discovered best meet-node wins unless shorter path found` with zero mismatch budget.",
+      "hardened_invariant": "CGSE-R09 hardened mode may deviate only through allowlisted ambiguity controls while retaining observable output compatibility.",
+      "preconditions": [
+        "operation family `shortest_path_algorithms` is within CGSE scoped APIs",
+        "legacy source anchors and hook surfaces remain stable and resolvable"
+      ],
+      "postconditions": [
+        "tie-break contract remains `alternating direction + monotonic fringe counter`",
+        "ordering contract remains `first discovered best meet-node wins unless shorter path found`",
+        "unit/property/differential/e2e verification hooks remain replayable"
+      ],
+      "preservation_obligation": "strict mode forbids behavior-repair heuristics that alter legacy-observable ordering outcomes",
+      "hardened_allowlist": [
+        "bounded_diagnostic_enrichment"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r09_drift",
+      "hardened_security_rationale": "Hardened deviations are bounded to explicit ambiguity IDs or diagnostic categories to prevent silent semantics drift under adversarial inputs.",
+      "verification_hooks": {
+        "unit": [
+          "CGSE-UT-R09"
+        ],
+        "property": [
+          "CGSE-PROP-BASE"
+        ],
+        "differential": [
+          "CGSE-DIFF-R09"
+        ],
+        "e2e": [
+          "CGSE-E2E-BASE"
+        ]
+      }
+    },
+    {
+      "policy_id": "CGSE-POL-R10",
+      "rule_id": "CGSE-R10",
+      "operation_family": "readwrite_serialization",
+      "tie_break_contract": "graph-edge iteration order",
+      "ordering_contract": "output row order follows edge iterator traversal",
+      "strict_mode_behavior": "Preserve legacy tie-break and ordering semantics exactly as extracted from source anchors.",
+      "hardened_mode_behavior": "Allow only explicitly allowlisted ambiguity pathways; fail closed for all unknown or incompatible semantics drift.",
+      "strict_invariant": "CGSE-R10 strict mode preserves `graph-edge iteration order` and `output row order follows edge iterator traversal` with zero mismatch budget.",
+      "hardened_invariant": "CGSE-R10 hardened mode may deviate only through allowlisted ambiguity controls while retaining observable output compatibility.",
+      "preconditions": [
+        "operation family `readwrite_serialization` is within CGSE scoped APIs",
+        "legacy source anchors and hook surfaces remain stable and resolvable"
+      ],
+      "postconditions": [
+        "tie-break contract remains `graph-edge iteration order`",
+        "ordering contract remains `output row order follows edge iterator traversal`",
+        "unit/property/differential/e2e verification hooks remain replayable"
+      ],
+      "preservation_obligation": "strict mode forbids behavior-repair heuristics that alter legacy-observable ordering outcomes",
+      "hardened_allowlist": [
+        "CGSE-AMB-009"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r10_drift",
+      "hardened_security_rationale": "Hardened deviations are bounded to explicit ambiguity IDs or diagnostic categories to prevent silent semantics drift under adversarial inputs.",
+      "verification_hooks": {
+        "unit": [
+          "CGSE-UT-R10"
+        ],
+        "property": [
+          "CGSE-PROP-BASE"
+        ],
+        "differential": [
+          "CGSE-DIFF-R10"
+        ],
+        "e2e": [
+          "CGSE-E2E-BASE"
+        ]
+      }
+    },
+    {
+      "policy_id": "CGSE-POL-R11",
+      "rule_id": "CGSE-R11",
+      "operation_family": "readwrite_serialization",
+      "tie_break_contract": "first-seen line order for duplicate/same-endpoint edges",
+      "ordering_contract": "edge insertion order matches parsed line order",
+      "strict_mode_behavior": "Preserve legacy tie-break and ordering semantics exactly as extracted from source anchors.",
+      "hardened_mode_behavior": "Allow only explicitly allowlisted ambiguity pathways; fail closed for all unknown or incompatible semantics drift.",
+      "strict_invariant": "CGSE-R11 strict mode preserves `first-seen line order for duplicate/same-endpoint edges` and `edge insertion order matches parsed line order` with zero mismatch budget.",
+      "hardened_invariant": "CGSE-R11 hardened mode may deviate only through allowlisted ambiguity controls while retaining observable output compatibility.",
+      "preconditions": [
+        "operation family `readwrite_serialization` is within CGSE scoped APIs",
+        "legacy source anchors and hook surfaces remain stable and resolvable"
+      ],
+      "postconditions": [
+        "tie-break contract remains `first-seen line order for duplicate/same-endpoint edges`",
+        "ordering contract remains `edge insertion order matches parsed line order`",
+        "unit/property/differential/e2e verification hooks remain replayable"
+      ],
+      "preservation_obligation": "strict mode forbids behavior-repair heuristics that alter legacy-observable ordering outcomes",
+      "hardened_allowlist": [
+        "bounded_diagnostic_enrichment"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r11_drift",
+      "hardened_security_rationale": "Hardened deviations are bounded to explicit ambiguity IDs or diagnostic categories to prevent silent semantics drift under adversarial inputs.",
+      "verification_hooks": {
+        "unit": [
+          "CGSE-UT-R11"
+        ],
+        "property": [
+          "CGSE-PROP-BASE"
+        ],
+        "differential": [
+          "CGSE-DIFF-R11"
+        ],
+        "e2e": [
+          "CGSE-E2E-BASE"
+        ]
+      }
+    },
+    {
+      "policy_id": "CGSE-POL-R12",
+      "rule_id": "CGSE-R12",
+      "operation_family": "generator_semantics",
+      "tie_break_contract": "input-iterable order and documented directed orientation",
+      "ordering_contract": "generator edge emission follows pairwise traversal",
+      "strict_mode_behavior": "Preserve legacy tie-break and ordering semantics exactly as extracted from source anchors.",
+      "hardened_mode_behavior": "Allow only explicitly allowlisted ambiguity pathways; fail closed for all unknown or incompatible semantics drift.",
+      "strict_invariant": "CGSE-R12 strict mode preserves `input-iterable order and documented directed orientation` and `generator edge emission follows pairwise traversal` with zero mismatch budget.",
+      "hardened_invariant": "CGSE-R12 hardened mode may deviate only through allowlisted ambiguity controls while retaining observable output compatibility.",
+      "preconditions": [
+        "operation family `generator_semantics` is within CGSE scoped APIs",
+        "legacy source anchors and hook surfaces remain stable and resolvable"
+      ],
+      "postconditions": [
+        "tie-break contract remains `input-iterable order and documented directed orientation`",
+        "ordering contract remains `generator edge emission follows pairwise traversal`",
+        "unit/property/differential/e2e verification hooks remain replayable"
+      ],
+      "preservation_obligation": "strict mode forbids behavior-repair heuristics that alter legacy-observable ordering outcomes",
+      "hardened_allowlist": [
+        "CGSE-AMB-010"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r12_drift",
+      "hardened_security_rationale": "Hardened deviations are bounded to explicit ambiguity IDs or diagnostic categories to prevent silent semantics drift under adversarial inputs.",
+      "verification_hooks": {
+        "unit": [
+          "CGSE-UT-R12",
+          "CGSE-UT-R12B"
+        ],
+        "property": [
+          "CGSE-PROP-BASE"
+        ],
+        "differential": [
+          "CGSE-DIFF-R12"
+        ],
+        "e2e": [
+          "CGSE-E2E-BASE"
+        ]
+      }
+    },
+    {
+      "policy_id": "CGSE-POL-R13",
+      "rule_id": "CGSE-R13",
+      "operation_family": "runtime_config",
+      "tie_break_contract": "deterministic sorted error-report ordering",
+      "ordering_contract": "stable validation message ordering across runs",
+      "strict_mode_behavior": "Preserve legacy tie-break and ordering semantics exactly as extracted from source anchors.",
+      "hardened_mode_behavior": "Allow only explicitly allowlisted ambiguity pathways; fail closed for all unknown or incompatible semantics drift.",
+      "strict_invariant": "CGSE-R13 strict mode preserves `deterministic sorted error-report ordering` and `stable validation message ordering across runs` with zero mismatch budget.",
+      "hardened_invariant": "CGSE-R13 hardened mode may deviate only through allowlisted ambiguity controls while retaining observable output compatibility.",
+      "preconditions": [
+        "operation family `runtime_config` is within CGSE scoped APIs",
+        "legacy source anchors and hook surfaces remain stable and resolvable"
+      ],
+      "postconditions": [
+        "tie-break contract remains `deterministic sorted error-report ordering`",
+        "ordering contract remains `stable validation message ordering across runs`",
+        "unit/property/differential/e2e verification hooks remain replayable"
+      ],
+      "preservation_obligation": "strict mode forbids behavior-repair heuristics that alter legacy-observable ordering outcomes",
+      "hardened_allowlist": [
+        "bounded_diagnostic_enrichment"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r13_drift",
+      "hardened_security_rationale": "Hardened deviations are bounded to explicit ambiguity IDs or diagnostic categories to prevent silent semantics drift under adversarial inputs.",
+      "verification_hooks": {
+        "unit": [
+          "CGSE-UT-R13"
+        ],
+        "property": [
+          "CGSE-PROP-BASE"
+        ],
+        "differential": [
+          "CGSE-DIFF-R13"
+        ],
+        "e2e": [
+          "CGSE-E2E-BASE"
+        ]
+      }
+    },
+    {
+      "policy_id": "CGSE-POL-R14",
+      "rule_id": "CGSE-R14",
+      "operation_family": "oracle_test_surface",
+      "tie_break_contract": "accept multiple equivalent predecessor orderings where legacy oracle permits",
+      "ordering_contract": "maintain compatibility allowlist for equal-cost ambiguity",
+      "strict_mode_behavior": "Preserve legacy tie-break and ordering semantics exactly as extracted from source anchors.",
+      "hardened_mode_behavior": "Allow only explicitly allowlisted ambiguity pathways; fail closed for all unknown or incompatible semantics drift.",
+      "strict_invariant": "CGSE-R14 strict mode preserves `accept multiple equivalent predecessor orderings where legacy oracle permits` and `maintain compatibility allowlist for equal-cost ambiguity` with zero mismatch budget.",
+      "hardened_invariant": "CGSE-R14 hardened mode may deviate only through allowlisted ambiguity controls while retaining observable output compatibility.",
+      "preconditions": [
+        "operation family `oracle_test_surface` is within CGSE scoped APIs",
+        "legacy source anchors and hook surfaces remain stable and resolvable"
+      ],
+      "postconditions": [
+        "tie-break contract remains `accept multiple equivalent predecessor orderings where legacy oracle permits`",
+        "ordering contract remains `maintain compatibility allowlist for equal-cost ambiguity`",
+        "unit/property/differential/e2e verification hooks remain replayable"
+      ],
+      "preservation_obligation": "strict mode forbids behavior-repair heuristics that alter legacy-observable ordering outcomes",
+      "hardened_allowlist": [
+        "CGSE-AMB-011"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r14_drift",
+      "hardened_security_rationale": "Hardened deviations are bounded to explicit ambiguity IDs or diagnostic categories to prevent silent semantics drift under adversarial inputs.",
+      "verification_hooks": {
+        "unit": [
+          "CGSE-UT-R14"
+        ],
+        "property": [
+          "CGSE-PROP-BASE"
+        ],
+        "differential": [
+          "CGSE-DIFF-R14"
+        ],
+        "e2e": [
+          "CGSE-E2E-BASE"
+        ]
+      }
+    }
+  ],
+  "conflict_scan": {
+    "status": "no_conflicts",
+    "duplicate_policy_ids": [],
+    "duplicate_rule_ids": []
+  },
+  "hardened_allowlisted_categories": [
+    "CGSE-AMB-001",
+    "CGSE-AMB-002",
+    "CGSE-AMB-003",
+    "CGSE-AMB-004",
+    "CGSE-AMB-005",
+    "CGSE-AMB-006",
+    "CGSE-AMB-007",
+    "CGSE-AMB-008",
+    "CGSE-AMB-009",
+    "CGSE-AMB-010",
+    "CGSE-AMB-011",
+    "bounded_diagnostic_enrichment"
+  ],
+  "alien_uplift_contract_card": {
+    "artifact_track": "cgse-policy",
+    "ev_score": 2.5,
+    "baseline": "Policy rows are generated directly from source-anchored CGSE rule extraction.",
+    "notes": "Treats policy rows and invariants as executable contract surfaces, not prose."
+  },
+  "profile_first_artifacts": {
+    "baseline": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+    "hotspot": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+    "delta": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+  },
+  "decision_theoretic_runtime_contract": {
+    "states": [
+      "strict",
+      "hardened",
+      "fail_closed"
+    ],
+    "actions": [
+      "preserve_legacy_order",
+      "allow_allowlisted_ambiguity_only",
+      "reject_incompatible"
+    ],
+    "loss_model": "semantic_drift_major > ordering_noise_minor > diagnostic_verbosity_minor",
+    "safe_mode_fallback": "fail_closed",
+    "fallback_thresholds": {
+      "unknown_incompatible_feature": true,
+      "ambiguity_allowlist_required": true
+    }
+  },
+  "isomorphism_proof_artifacts": [
+    "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_001_V1.md",
+    "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_005_V1.md",
+    "artifacts/proofs/ISOMORPHISM_PROOF_NEIGHBOR_ITER_BFS_V2.md"
+  ],
+  "structured_logging_evidence": [
+    "artifacts/conformance/latest/structured_logs.json",
+    "artifacts/conformance/latest/structured_logs.jsonl",
+    "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json"
+  ]
+}

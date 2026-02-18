@@ -1,7 +1,7 @@
 # CGSE Legacy Tie-Break and Ordering Ledger
 
 - artifact id: `cgse-legacy-tiebreak-ordering-ledger-v1`
-- generated at (utc): `2026-02-15T04:44:37Z`
+- generated at (utc): `2026-02-18T06:42:15Z`
 - baseline comparator: `legacy_networkx_code/networkx/networkx (repository checkout in current workspace)`
 
 ## Scope

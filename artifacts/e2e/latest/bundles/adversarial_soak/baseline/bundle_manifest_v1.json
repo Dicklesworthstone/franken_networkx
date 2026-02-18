@@ -7,21 +7,21 @@
   "scenario_kind": "adversarial_soak",
   "journey_id": "J-READWRITE",
   "packet_id": "FNX-P2C-006",
-  "gate_step_id": "step-1",
+  "gate_step_id": "step-local",
   "mode": "hardened",
   "fixture_id": "generated/readwrite_hardened_malformed.json",
   "deterministic_seed": 15798793491341090845,
   "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened",
   "execution_metadata": {
-    "run_id": "e2e-script-pack-20260218T052924Z",
+    "run_id": "e2e-script-pack-20260218T132229Z",
     "pass_label": "baseline",
-    "gate_step_id": "step-1",
+    "gate_step_id": "step-local",
     "status": "passed",
     "reason_code": null,
-    "start_unix_ms": 1771392679372,
-    "end_unix_ms": 1771392716511,
-    "duration_ms": 37139,
-    "generated_at_utc": "2026-02-18T05:31:56.513355+00:00",
+    "start_unix_ms": 1771421082629,
+    "end_unix_ms": 1771421118140,
+    "duration_ms": 35511,
+    "generated_at_utc": "2026-02-18T13:25:18.142577+00:00",
     "forensics_source": "synthesized_fallback"
   },
   "forensics_links": {
@@ -74,7 +74,8 @@
   "retention_policy": {
     "policy_id": "e2e-latest-retention-v1",
     "min_retention_days": 14,
-    "storage_root": "artifacts/e2e/latest"
+    "storage_root": "artifacts/e2e/latest",
+    "policy_digest": "fnv1a64:8cdc8c7c182cecd2"
   },
   "soak_telemetry": {
     "soak_profile": "long_tail_stability",

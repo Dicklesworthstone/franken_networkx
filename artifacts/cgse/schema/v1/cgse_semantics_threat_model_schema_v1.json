@@ -1,0 +1,50 @@
+{
+  "schema_version": "1.0.0",
+  "schema_id": "cgse-semantics-threat-model-schema-v1",
+  "required_top_level_keys": [
+    "schema_version",
+    "artifact_id",
+    "generated_at_utc",
+    "baseline_comparator",
+    "source_ledger",
+    "source_policy",
+    "scope_statement",
+    "threat_rows",
+    "compatibility_boundary_rows",
+    "hardened_allowlisted_categories",
+    "alien_uplift_contract_card",
+    "profile_first_artifacts",
+    "decision_theoretic_runtime_contract",
+    "isomorphism_proof_artifacts",
+    "structured_logging_evidence"
+  ],
+  "required_threat_row_keys": [
+    "threat_id",
+    "rule_id",
+    "threat_class",
+    "strict_mode_response",
+    "hardened_mode_response",
+    "mitigations",
+    "evidence_artifact",
+    "adversarial_fixture_hooks",
+    "crash_triage_taxonomy",
+    "hardened_allowlisted_categories",
+    "compatibility_boundary"
+  ],
+  "required_boundary_row_keys": [
+    "boundary_id",
+    "rule_id",
+    "strict_parity_obligation",
+    "hardened_allowlisted_deviation_categories",
+    "fail_closed_default",
+    "evidence_hooks"
+  ],
+  "required_profile_artifact_keys": [
+    "baseline",
+    "hotspot",
+    "delta"
+  ],
+  "builtin_hardened_allowlist_categories": [
+    "bounded_diagnostic_enrichment"
+  ]
+}

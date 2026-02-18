@@ -70,7 +70,7 @@ impl GraphGenerator {
 
     pub fn empty_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("empty_graph", n, MAX_N_GENERIC)?;
-        let graph = graph_with_n_nodes(self.mode, n);
+        let (graph, _) = graph_with_n_nodes(self.mode, n);
         self.record(
             "empty_graph",
             DecisionAction::Allow,
@@ -82,11 +82,11 @@ impl GraphGenerator {
 
     pub fn path_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("path_graph", n, MAX_N_GENERIC)?;
-        let mut graph = graph_with_n_nodes(self.mode, n);
+        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
 
         for i in 0..n.saturating_sub(1) {
             graph
-                .add_edge(i.to_string(), (i + 1).to_string())
+                .add_edge(node_labels[i].clone(), node_labels[i + 1].clone())
                 .map_err(|err| GenerationError::FailClosed {
                     operation: "path_graph",
                     reason: err.to_string(),
@@ -104,38 +104,38 @@ impl GraphGenerator {
 
     pub fn cycle_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("cycle_graph", n, MAX_N_GENERIC)?;
-        let mut graph = graph_with_n_nodes(self.mode, n);
+        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
 
         if n == 1 {
             graph
-                .add_edge("0", "0")
+                .add_edge(node_labels[0].clone(), node_labels[0].clone())
                 .map_err(|err| GenerationError::FailClosed {
                     operation: "cycle_graph",
                     reason: err.to_string(),
                 })?;
         } else if n == 2 {
             graph
-                .add_edge("0", "1")
+                .add_edge(node_labels[0].clone(), node_labels[1].clone())
                 .map_err(|err| GenerationError::FailClosed {
                     operation: "cycle_graph",
                     reason: err.to_string(),
                 })?;
         } else if n >= 3 {
             graph
-                .add_edge("0", "1")
+                .add_edge(node_labels[0].clone(), node_labels[1].clone())
                 .map_err(|err| GenerationError::FailClosed {
                     operation: "cycle_graph",
                     reason: err.to_string(),
                 })?;
-            graph.add_edge("0", (n - 1).to_string()).map_err(|err| {
-                GenerationError::FailClosed {
+            graph
+                .add_edge(node_labels[0].clone(), node_labels[n - 1].clone())
+                .map_err(|err| GenerationError::FailClosed {
                     operation: "cycle_graph",
                     reason: err.to_string(),
-                }
-            })?;
+                })?;
             for i in 1..(n - 1) {
                 graph
-                    .add_edge(i.to_string(), (i + 1).to_string())
+                    .add_edge(node_labels[i].clone(), node_labels[i + 1].clone())
                     .map_err(|err| GenerationError::FailClosed {
                         operation: "cycle_graph",
                         reason: err.to_string(),
@@ -154,12 +154,12 @@ impl GraphGenerator {
 
     pub fn complete_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("complete_graph", n, MAX_N_COMPLETE)?;
-        let mut graph = graph_with_n_nodes(self.mode, n);
+        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
 
         for left in 0..n {
             for right in (left + 1)..n {
                 graph
-                    .add_edge(left.to_string(), right.to_string())
+                    .add_edge(node_labels[left].clone(), node_labels[right].clone())
                     .map_err(|err| GenerationError::FailClosed {
                         operation: "complete_graph",
                         reason: err.to_string(),
@@ -188,14 +188,14 @@ impl GraphGenerator {
             warnings.push(warning);
         }
 
-        let mut graph = graph_with_n_nodes(self.mode, n);
+        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
         let mut rng = StdRng::seed_from_u64(seed);
         for left in 0..n {
             for right in (left + 1)..n {
                 let draw: f64 = rng.random();
                 if draw < p {
                     graph
-                        .add_edge(left.to_string(), right.to_string())
+                        .add_edge(node_labels[left].clone(), node_labels[right].clone())
                         .map_err(|err| GenerationError::FailClosed {
                             operation: "gnp_random_graph",
                             reason: err.to_string(),
@@ -298,17 +298,76 @@ impl GraphGenerator {
     }
 }
 
-fn graph_with_n_nodes(mode: CompatibilityMode, n: usize) -> Graph {
+fn graph_with_n_nodes(mode: CompatibilityMode, n: usize) -> (Graph, Vec<String>) {
     let mut graph = Graph::new(mode);
+    let mut node_labels = Vec::with_capacity(n);
     for i in 0..n {
-        let _ = graph.add_node(i.to_string());
+        let node_label = i.to_string();
+        let _ = graph.add_node(node_label.clone());
+        node_labels.push(node_label);
     }
-    graph
+    (graph, node_labels)
 }
 
 #[cfg(test)]
 mod tests {
     use super::{GenerationError, GraphGenerator, MAX_N_COMPLETE, MAX_N_GENERIC};
+    use fnx_classes::Graph;
+    use fnx_runtime::{
+        CompatibilityMode, DecisionAction, ForensicsBundleIndex, StructuredTestLog, TestKind,
+        TestStatus, canonical_environment_fingerprint, structured_test_log_schema_version,
+    };
+    use proptest::prelude::*;
+    use std::collections::BTreeMap;
+
+    fn packet_007_forensics_bundle(
+        run_id: &str,
+        test_id: &str,
+        replay_ref: &str,
+        bundle_id: &str,
+        artifact_refs: Vec<String>,
+    ) -> ForensicsBundleIndex {
+        ForensicsBundleIndex {
+            bundle_id: bundle_id.to_owned(),
+            run_id: run_id.to_owned(),
+            test_id: test_id.to_owned(),
+            bundle_hash_id: "bundle-hash-p2c007".to_owned(),
+            captured_unix_ms: 1,
+            replay_ref: replay_ref.to_owned(),
+            artifact_refs,
+            raptorq_sidecar_refs: Vec::new(),
+            decode_proof_refs: Vec::new(),
+        }
+    }
+
+    fn stable_digest_hex(input: &str) -> String {
+        let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+        for byte in input.as_bytes() {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01B3_u64);
+        }
+        format!("sha256:{hash:016x}")
+    }
+
+    fn graph_fingerprint(graph: &Graph) -> String {
+        let snapshot = graph.snapshot();
+        let mode = match snapshot.mode {
+            CompatibilityMode::Strict => "strict",
+            CompatibilityMode::Hardened => "hardened",
+        };
+        let mut edge_signature = snapshot
+            .edges
+            .iter()
+            .map(|edge| format!("{}>{}", edge.left, edge.right))
+            .collect::<Vec<String>>();
+        edge_signature.sort();
+        format!(
+            "mode:{mode};nodes:{};edges:{};sig:{}",
+            snapshot.nodes.join(","),
+            snapshot.edges.len(),
+            edge_signature.join("|")
+        )
+    }
 
     #[test]
     fn path_graph_has_expected_structure() {
@@ -437,5 +496,346 @@ mod tests {
         assert!(!report.warnings.is_empty());
         assert_eq!(report.graph.node_count(), MAX_N_GENERIC);
         assert_eq!(report.graph.edge_count(), 0);
+    }
+
+    #[test]
+    fn unit_packet_007_contract_asserted() {
+        let mut generator = GraphGenerator::strict();
+        let empty = generator
+            .empty_graph(4)
+            .expect("packet-007 empty_graph contract should succeed");
+        let path = generator
+            .path_graph(5)
+            .expect("packet-007 path_graph contract should succeed");
+        let cycle = generator
+            .cycle_graph(5)
+            .expect("packet-007 cycle_graph contract should succeed");
+        let complete = generator
+            .complete_graph(4)
+            .expect("packet-007 complete_graph contract should succeed");
+
+        assert!(empty.warnings.is_empty());
+        assert!(path.warnings.is_empty());
+        assert!(cycle.warnings.is_empty());
+        assert!(complete.warnings.is_empty());
+        assert_eq!(empty.graph.edge_count(), 0, "P2C007-OC-4 drift");
+        assert_eq!(path.graph.edge_count(), 4, "P2C007-OC-3 drift");
+        assert_eq!(cycle.graph.edge_count(), 5, "P2C007-OC-2 drift");
+        assert_eq!(complete.graph.edge_count(), 6, "P2C007-OC-1 drift");
+
+        let path_edges = path
+            .graph
+            .snapshot()
+            .edges
+            .into_iter()
+            .map(|edge| format!("{}>{}", edge.left, edge.right))
+            .collect::<Vec<String>>();
+        assert_eq!(
+            path_edges,
+            vec!["0>1", "1>2", "2>3", "3>4"],
+            "P2C007-DC-3 ordered path emission drift"
+        );
+
+        let cycle_edges = cycle
+            .graph
+            .snapshot()
+            .edges
+            .into_iter()
+            .map(|edge| format!("{}>{}", edge.left, edge.right))
+            .collect::<Vec<String>>();
+        assert_eq!(
+            cycle_edges,
+            vec!["0>1", "0>4", "1>2", "2>3", "3>4"],
+            "P2C007-DC-2 cycle closure ordering drift"
+        );
+
+        let oversized = generator.complete_graph(MAX_N_COMPLETE + 1);
+        assert!(
+            matches!(oversized, Err(GenerationError::FailClosed { .. })),
+            "P2C007-EC-2 strict unknown-incompatibility path must fail closed"
+        );
+
+        let records = generator.evidence_ledger().records();
+        assert!(
+            records
+                .iter()
+                .any(|record| record.operation == "empty_graph"),
+            "empty_graph decision record missing"
+        );
+        assert!(
+            records
+                .iter()
+                .any(|record| record.operation == "path_graph"),
+            "path_graph decision record missing"
+        );
+        assert!(
+            records
+                .iter()
+                .any(|record| record.operation == "cycle_graph"),
+            "cycle_graph decision record missing"
+        );
+        assert!(
+            records
+                .iter()
+                .filter(|record| record.operation == "complete_graph")
+                .count()
+                >= 2,
+            "complete_graph should record both allow and fail-closed pathways"
+        );
+        assert!(
+            records.iter().any(|record| {
+                record.operation == "complete_graph" && record.action == DecisionAction::FailClosed
+            }),
+            "packet-007 strict oversized complete_graph must emit fail-closed evidence"
+        );
+
+        let mut environment = BTreeMap::new();
+        environment.insert("os".to_owned(), std::env::consts::OS.to_owned());
+        environment.insert("arch".to_owned(), std::env::consts::ARCH.to_owned());
+        environment.insert(
+            "graph_fingerprint".to_owned(),
+            graph_fingerprint(&complete.graph),
+        );
+        environment.insert("mode_policy".to_owned(), "strict".to_owned());
+        environment.insert("invariant_id".to_owned(), "P2C007-IV-1".to_owned());
+        environment.insert(
+            "input_digest".to_owned(),
+            stable_digest_hex("empty=4;path=5;cycle=5;complete=4;oversized=true"),
+        );
+        environment.insert(
+            "output_digest".to_owned(),
+            stable_digest_hex(&format!(
+                "{}|{}|{}|{}",
+                graph_fingerprint(&empty.graph),
+                graph_fingerprint(&path.graph),
+                graph_fingerprint(&cycle.graph),
+                graph_fingerprint(&complete.graph)
+            )),
+        );
+
+        let replay_command = "rch exec -- cargo test -p fnx-generators unit_packet_007_contract_asserted -- --nocapture";
+        let artifact_refs = vec![
+            "artifacts/phase2c/FNX-P2C-007/contract_table.md".to_owned(),
+            "artifacts/conformance/latest/structured_logs.jsonl".to_owned(),
+        ];
+        let log = StructuredTestLog {
+            schema_version: structured_test_log_schema_version().to_owned(),
+            run_id: "generators-p2c007-unit".to_owned(),
+            ts_unix_ms: 1,
+            crate_name: "fnx-generators".to_owned(),
+            suite_id: "unit".to_owned(),
+            packet_id: "FNX-P2C-007".to_owned(),
+            test_name: "unit_packet_007_contract_asserted".to_owned(),
+            test_id: "unit::fnx-p2c-007::contract".to_owned(),
+            test_kind: TestKind::Unit,
+            mode: CompatibilityMode::Strict,
+            fixture_id: Some("generators::contract::classic_first_wave".to_owned()),
+            seed: Some(7007),
+            env_fingerprint: canonical_environment_fingerprint(&environment),
+            environment,
+            duration_ms: 8,
+            replay_command: replay_command.to_owned(),
+            artifact_refs: artifact_refs.clone(),
+            forensic_bundle_id: "forensics::generators::unit::contract".to_owned(),
+            hash_id: "sha256:generators-p2c007-unit".to_owned(),
+            status: TestStatus::Passed,
+            reason_code: None,
+            failure_repro: None,
+            e2e_step_traces: Vec::new(),
+            forensics_bundle_index: Some(packet_007_forensics_bundle(
+                "generators-p2c007-unit",
+                "unit::fnx-p2c-007::contract",
+                replay_command,
+                "forensics::generators::unit::contract",
+                artifact_refs,
+            )),
+        };
+        log.validate()
+            .expect("packet-007 unit telemetry log should satisfy strict schema");
+    }
+
+    proptest! {
+        #[test]
+        fn property_packet_007_invariants(
+            n_path in 0_usize..40,
+            n_cycle in 0_usize..40,
+            n_complete in 0_usize..30,
+            n_random in 0_usize..80,
+            seed in any::<u64>(),
+            p in 0.0_f64..1.0_f64,
+            invalid_probability in prop_oneof![(-2.0_f64..-0.001_f64), (1.001_f64..3.0_f64)],
+        ) {
+            let mut strict_a = GraphGenerator::strict();
+            let mut strict_b = GraphGenerator::strict();
+
+            let path_a = strict_a.path_graph(n_path).expect("strict path_graph should succeed");
+            let path_b = strict_b.path_graph(n_path).expect("strict replay path_graph should succeed");
+
+            // Invariant family 1: strict path_graph output is deterministic.
+            prop_assert_eq!(
+                path_a.graph.snapshot(),
+                path_b.graph.snapshot(),
+                "P2C007-IV-1 path_graph deterministic output drift"
+            );
+
+            let cycle_a = strict_a.cycle_graph(n_cycle).expect("strict cycle_graph should succeed");
+            let cycle_b = strict_b.cycle_graph(n_cycle).expect("strict replay cycle_graph should succeed");
+
+            // Invariant family 2: strict cycle_graph output is deterministic.
+            prop_assert_eq!(
+                cycle_a.graph.snapshot(),
+                cycle_b.graph.snapshot(),
+                "P2C007-IV-1 cycle_graph deterministic output drift"
+            );
+
+            let complete_a = strict_a
+                .complete_graph(n_complete)
+                .expect("strict complete_graph should succeed");
+            let complete_b = strict_b
+                .complete_graph(n_complete)
+                .expect("strict replay complete_graph should succeed");
+            let expected_complete_edges = n_complete.saturating_mul(n_complete.saturating_sub(1)) / 2;
+
+            // Invariant family 3: complete_graph cardinality and ordering remain deterministic.
+            prop_assert_eq!(
+                complete_a.graph.snapshot(),
+                complete_b.graph.snapshot(),
+                "P2C007-IV-1 complete_graph deterministic output drift"
+            );
+            prop_assert_eq!(
+                complete_a.graph.edge_count(),
+                expected_complete_edges,
+                "P2C007-OC-1 complete_graph edge cardinality drift"
+            );
+
+            let random_a = strict_a
+                .gnp_random_graph(n_random, p, seed)
+                .expect("strict gnp_random_graph should succeed");
+            let random_b = strict_b
+                .gnp_random_graph(n_random, p, seed)
+                .expect("strict replay gnp_random_graph should succeed");
+
+            // Invariant family 4: gnp_random_graph is seed-reproducible in strict mode.
+            prop_assert_eq!(
+                random_a.graph.snapshot(),
+                random_b.graph.snapshot(),
+                "P2C007-DC-1 seeded random generation drift"
+            );
+
+            let mut hardened_prob_a = GraphGenerator::hardened();
+            let mut hardened_prob_b = GraphGenerator::hardened();
+            let hardened_prob_report_a = hardened_prob_a
+                .gnp_random_graph(n_random, invalid_probability, seed)
+                .expect("hardened invalid probability should recover deterministically");
+            let hardened_prob_report_b = hardened_prob_b
+                .gnp_random_graph(n_random, invalid_probability, seed)
+                .expect("hardened replay invalid probability should recover deterministically");
+
+            // Invariant family 5: hardened invalid-probability recovery is deterministic and warning-auditable.
+            prop_assert_eq!(
+                hardened_prob_report_a.graph.snapshot(),
+                hardened_prob_report_b.graph.snapshot(),
+                "P2C007-IV-3 hardened invalid-probability recovery snapshot drift"
+            );
+            prop_assert_eq!(
+                &hardened_prob_report_a.warnings,
+                &hardened_prob_report_b.warnings,
+                "P2C007-IV-3 hardened invalid-probability warning envelope drift"
+            );
+            prop_assert!(
+                !hardened_prob_report_a.warnings.is_empty(),
+                "P2C007-IV-3 hardened invalid-probability path must emit warnings"
+            );
+
+            for strict_engine in [&strict_a, &strict_b] {
+                let records = strict_engine.evidence_ledger().records();
+                prop_assert!(
+                    records.iter().all(|record| record.action == DecisionAction::Allow),
+                    "strict property runs should remain allow-only for in-range generated payloads"
+                );
+            }
+
+            for hardened_engine in [&hardened_prob_a, &hardened_prob_b] {
+                let records = hardened_engine.evidence_ledger().records();
+                prop_assert!(
+                    records.iter().any(|record| record.action == DecisionAction::FullValidate),
+                    "hardened property runs should include at least one full-validate decision"
+                );
+            }
+
+            let deterministic_seed = (n_path as u64)
+                .wrapping_mul(131)
+                .wrapping_add((n_cycle as u64).wrapping_mul(137))
+                .wrapping_add((n_complete as u64).wrapping_mul(149))
+                .wrapping_add((n_random as u64).wrapping_mul(157))
+                .wrapping_add(seed.rotate_left(7));
+
+            let mut environment = BTreeMap::new();
+            environment.insert("os".to_owned(), std::env::consts::OS.to_owned());
+            environment.insert("arch".to_owned(), std::env::consts::ARCH.to_owned());
+            environment.insert(
+                "graph_fingerprint".to_owned(),
+                graph_fingerprint(&random_a.graph),
+            );
+            environment.insert("mode_policy".to_owned(), "strict_and_hardened".to_owned());
+            environment.insert("invariant_id".to_owned(), "P2C007-IV-1..IV-3".to_owned());
+            environment.insert(
+                "input_digest".to_owned(),
+                stable_digest_hex(&format!(
+                    "n_path={n_path};n_cycle={n_cycle};n_complete={n_complete};n_random={n_random};p={p:.6};invalid_probability={invalid_probability:.6};seed={seed}"
+                )),
+            );
+            environment.insert(
+                "output_digest".to_owned(),
+                stable_digest_hex(&format!(
+                    "{}|{}",
+                    graph_fingerprint(&random_a.graph),
+                    graph_fingerprint(&hardened_prob_report_a.graph)
+                )),
+            );
+
+            let replay_command =
+                "rch exec -- cargo test -p fnx-generators property_packet_007_invariants -- --nocapture";
+            let artifact_refs = vec![
+                "artifacts/conformance/latest/structured_log_emitter_normalization_report.json"
+                    .to_owned(),
+            ];
+            let log = StructuredTestLog {
+                schema_version: structured_test_log_schema_version().to_owned(),
+                run_id: "generators-p2c007-property".to_owned(),
+                ts_unix_ms: 2,
+                crate_name: "fnx-generators".to_owned(),
+                suite_id: "property".to_owned(),
+                packet_id: "FNX-P2C-007".to_owned(),
+                test_name: "property_packet_007_invariants".to_owned(),
+                test_id: "property::fnx-p2c-007::invariants".to_owned(),
+                test_kind: TestKind::Property,
+                mode: CompatibilityMode::Hardened,
+                fixture_id: Some("generators::property::classic_first_wave_matrix".to_owned()),
+                seed: Some(deterministic_seed),
+                env_fingerprint: canonical_environment_fingerprint(&environment),
+                environment,
+                duration_ms: 17,
+                replay_command: replay_command.to_owned(),
+                artifact_refs: artifact_refs.clone(),
+                forensic_bundle_id: "forensics::generators::property::invariants".to_owned(),
+                hash_id: "sha256:generators-p2c007-property".to_owned(),
+                status: TestStatus::Passed,
+                reason_code: None,
+                failure_repro: None,
+                e2e_step_traces: Vec::new(),
+                forensics_bundle_index: Some(packet_007_forensics_bundle(
+                    "generators-p2c007-property",
+                    "property::fnx-p2c-007::invariants",
+                    replay_command,
+                    "forensics::generators::property::invariants",
+                    artifact_refs,
+                )),
+            };
+            prop_assert!(
+                log.validate().is_ok(),
+                "packet-007 property telemetry log should satisfy strict schema"
+            );
+        }
     }
 }

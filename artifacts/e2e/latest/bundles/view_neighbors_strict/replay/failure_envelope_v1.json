@@ -2,20 +2,61 @@
   "schema_version": "1.0.0",
   "artifact_id": "e2e-script-pack-failure-envelope-v1",
   "envelope_id": "e2e-failure-envelope-4905573f414a5969",
-  "generated_at_utc": "2026-02-18T05:33:25.253215+00:00",
+  "generated_at_utc": "2026-02-18T13:26:48.305129+00:00",
   "status": "passed",
   "reason_code": null,
   "scenario_id": "view_neighbors_strict",
   "pass_label": "replay",
-  "gate_step_id": "step-1",
+  "gate_step_id": "step-local",
   "packet_id": "FNX-P2C-002",
   "fixture_id": "generated/view_neighbors_strict.json",
   "mode": "strict",
-  "run_id": "e2e-script-pack-20260218T052924Z",
+  "run_id": "e2e-script-pack-20260218T132229Z",
   "bundle_id": "e2e-bundle-544bc0a62f128391",
   "stable_fingerprint": "92d1001a133862ff",
   "deterministic_seed": 4326461139333007120,
   "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/view_neighbors_strict.json --mode strict",
+  "policy_digest": "fnv1a64:8cdc8c7c182cecd2",
+  "deterministic_replay_metadata": {
+    "run_id": "e2e-script-pack-20260218T132229Z",
+    "deterministic_seed": 4326461139333007120,
+    "bundle_id": "e2e-bundle-544bc0a62f128391",
+    "stable_fingerprint": "92d1001a133862ff",
+    "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/view_neighbors_strict.json --mode strict",
+    "scenario_id": "view_neighbors_strict",
+    "packet_id": "FNX-P2C-002",
+    "fixture_id": "generated/view_neighbors_strict.json",
+    "mode": "strict",
+    "reason_code": null,
+    "policy_digest": "fnv1a64:8cdc8c7c182cecd2",
+    "packet_evidence_refs": {
+      "parity_report": "artifacts/phase2c/FNX-P2C-002/parity_report.json",
+      "parity_report_raptorq": "artifacts/phase2c/FNX-P2C-002/parity_report.raptorq.json",
+      "parity_report_decode_proof": "artifacts/phase2c/FNX-P2C-002/parity_report.decode_proof.json",
+      "contract_table": "artifacts/phase2c/FNX-P2C-002/contract_table.md",
+      "risk_note": "artifacts/phase2c/FNX-P2C-002/risk_note.md",
+      "legacy_anchor_map": "artifacts/phase2c/FNX-P2C-002/legacy_anchor_map.md",
+      "profile_first_artifacts": {
+        "baseline": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+        "hotspot": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+        "delta": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+      },
+      "optimization_lever_policy": {
+        "rule": "exactly_one_optimization_lever_per_change",
+        "evidence_path": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json"
+      },
+      "isomorphism_proof_artifacts": [
+        "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_FOUNDATION_V1.md",
+        "artifacts/perf/phase2c/isomorphism_harness_report_v1.json",
+        "artifacts/perf/phase2c/isomorphism_golden_signatures_v1.json"
+      ],
+      "durability_evidence": [
+        "artifacts/conformance/latest/durability_pipeline_report.json",
+        "artifacts/conformance/latest/structured_logs.raptorq.json"
+      ],
+      "baseline_comparator": "legacy_networkx/main@python3.12"
+    }
+  },
   "forensics_links": {
     "structured_log_hash_id": "a2d423203dd4157f",
     "forensic_bundle_id": "forensics::FNX-P2C-002::generated::view_neighbors_strict.json",
@@ -39,7 +80,8 @@
   "retention_policy": {
     "policy_id": "e2e-latest-retention-v1",
     "min_retention_days": 14,
-    "storage_root": "artifacts/e2e/latest"
+    "storage_root": "artifacts/e2e/latest",
+    "policy_digest": "fnv1a64:8cdc8c7c182cecd2"
   },
   "evidence_refs": {
     "parity_report": "artifacts/phase2c/FNX-P2C-002/parity_report.json",
@@ -103,7 +145,7 @@
   },
   "triage_hints": [
     "No failure detected; replay metadata and forensics links are contract-complete.",
-    "Gate stage: step-1",
+    "Gate stage: step-local",
     "Run replay command for verification: rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/view_neighbors_strict.json --mode strict"
   ]
 }

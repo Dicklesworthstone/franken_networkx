@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0.0",
+  "report_id": "cgse-deterministic-policy-spec-validation-v1",
+  "artifact": "artifacts/cgse/v1/cgse_deterministic_policy_spec_v1.json",
+  "schema": "artifacts/cgse/schema/v1/cgse_deterministic_policy_spec_schema_v1.json",
+  "ledger": "artifacts/cgse/v1/cgse_legacy_tiebreak_ordering_ledger_v1.json",
+  "ready": true,
+  "error_count": 0,
+  "errors": [],
+  "summary": {
+    "policy_row_count": 14,
+    "ledger_rule_count": 14,
+    "duplicate_policy_id_count": 0,
+    "duplicate_rule_id_count": 0
+  }
+}

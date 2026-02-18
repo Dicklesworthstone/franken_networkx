@@ -4,6 +4,17 @@ use fnx_classes::Graph;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 
+pub const CGSE_WITNESS_ARTIFACT_SCHEMA_VERSION_V1: &str = "1.0.0";
+pub const CGSE_WITNESS_POLICY_SPEC_PATH: &str =
+    "artifacts/cgse/v1/cgse_deterministic_policy_spec_v1.json";
+pub const CGSE_WITNESS_LEDGER_PATH: &str =
+    "artifacts/cgse/v1/cgse_legacy_tiebreak_ordering_ledger_v1.json";
+
+#[must_use]
+pub fn cgse_witness_schema_version() -> &'static str {
+    CGSE_WITNESS_ARTIFACT_SCHEMA_VERSION_V1
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ComplexityWitness {
     pub algorithm: String,
@@ -11,6 +22,71 @@ pub struct ComplexityWitness {
     pub nodes_touched: usize,
     pub edges_scanned: usize,
     pub queue_peak: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CgseWitnessArtifact {
+    pub schema_version: String,
+    pub algorithm_family: String,
+    pub operation: String,
+    pub algorithm: String,
+    pub complexity_claim: String,
+    pub nodes_touched: usize,
+    pub edges_scanned: usize,
+    pub queue_peak: usize,
+    pub artifact_refs: Vec<String>,
+    pub witness_hash_id: String,
+}
+
+impl ComplexityWitness {
+    #[must_use]
+    pub fn to_cgse_witness_artifact(
+        &self,
+        algorithm_family: &str,
+        operation: &str,
+        artifact_refs: &[&str],
+    ) -> CgseWitnessArtifact {
+        let mut canonical_refs = vec![
+            CGSE_WITNESS_POLICY_SPEC_PATH.to_owned(),
+            CGSE_WITNESS_LEDGER_PATH.to_owned(),
+        ];
+        canonical_refs.extend(
+            artifact_refs
+                .iter()
+                .copied()
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(str::to_owned),
+        );
+        canonical_refs.sort_unstable();
+        canonical_refs.dedup();
+
+        let hash_material = format!(
+            "schema:{}|family:{}|op:{}|alg:{}|claim:{}|nodes:{}|edges:{}|q:{}|refs:{}",
+            cgse_witness_schema_version(),
+            algorithm_family.trim(),
+            operation.trim(),
+            self.algorithm,
+            self.complexity_claim,
+            self.nodes_touched,
+            self.edges_scanned,
+            self.queue_peak,
+            canonical_refs.join("|")
+        );
+
+        CgseWitnessArtifact {
+            schema_version: cgse_witness_schema_version().to_owned(),
+            algorithm_family: algorithm_family.trim().to_owned(),
+            operation: operation.trim().to_owned(),
+            algorithm: self.algorithm.clone(),
+            complexity_claim: self.complexity_claim.clone(),
+            nodes_touched: self.nodes_touched,
+            edges_scanned: self.edges_scanned,
+            queue_peak: self.queue_peak,
+            artifact_refs: canonical_refs,
+            witness_hash_id: format!("cgse-witness:{}", stable_hash_hex(hash_material.as_bytes())),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -340,11 +416,21 @@ fn rebuild_path(predecessor: &HashMap<&str, &str>, source: &str, target: &str) -
     path
 }
 
+fn stable_hash_hex(input: &[u8]) -> String {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in input {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x00000100000001b3_u64);
+    }
+    format!("{hash:016x}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        closeness_centrality, connected_components, degree_centrality, number_connected_components,
-        shortest_path_unweighted,
+        CGSE_WITNESS_LEDGER_PATH, CGSE_WITNESS_POLICY_SPEC_PATH, CentralityScore,
+        ComplexityWitness, cgse_witness_schema_version, closeness_centrality, connected_components,
+        degree_centrality, number_connected_components, shortest_path_unweighted,
     };
     use fnx_classes::Graph;
     use fnx_runtime::{
@@ -428,10 +514,101 @@ mod tests {
     }
 
     #[test]
+    fn shortest_path_tie_break_tracks_first_seen_neighbor_order() {
+        let mut insertion_a = Graph::strict();
+        insertion_a
+            .add_edge("a", "b")
+            .expect("edge add should succeed");
+        insertion_a
+            .add_edge("a", "c")
+            .expect("edge add should succeed");
+        insertion_a
+            .add_edge("b", "d")
+            .expect("edge add should succeed");
+        insertion_a
+            .add_edge("c", "d")
+            .expect("edge add should succeed");
+
+        let mut insertion_b = Graph::strict();
+        insertion_b
+            .add_edge("c", "d")
+            .expect("edge add should succeed");
+        insertion_b
+            .add_edge("a", "c")
+            .expect("edge add should succeed");
+        insertion_b
+            .add_edge("b", "d")
+            .expect("edge add should succeed");
+        insertion_b
+            .add_edge("a", "b")
+            .expect("edge add should succeed");
+
+        let left = shortest_path_unweighted(&insertion_a, "a", "d");
+        let left_replay = shortest_path_unweighted(&insertion_a, "a", "d");
+        let right = shortest_path_unweighted(&insertion_b, "a", "d");
+        let right_replay = shortest_path_unweighted(&insertion_b, "a", "d");
+        assert_eq!(
+            left.path,
+            Some(vec!["a", "b", "d"].into_iter().map(str::to_owned).collect())
+        );
+        assert_eq!(
+            right.path,
+            Some(vec!["a", "c", "d"].into_iter().map(str::to_owned).collect())
+        );
+        assert_eq!(left.path, left_replay.path);
+        assert_eq!(left.witness, left_replay.witness);
+        assert_eq!(right.path, right_replay.path);
+        assert_eq!(right.witness, right_replay.witness);
+    }
+
+    #[test]
     fn returns_none_when_nodes_are_missing() {
         let graph = Graph::strict();
         let result = shortest_path_unweighted(&graph, "a", "b");
         assert_eq!(result.path, None);
+    }
+
+    #[test]
+    fn cgse_witness_artifact_skeleton_is_stable_and_deterministic() {
+        let witness = ComplexityWitness {
+            algorithm: "bfs_shortest_path".to_owned(),
+            complexity_claim: "O(|V| + |E|)".to_owned(),
+            nodes_touched: 7,
+            edges_scanned: 12,
+            queue_peak: 3,
+        };
+        let left = witness.to_cgse_witness_artifact(
+            "shortest_path_algorithms",
+            "shortest_path_unweighted",
+            &[
+                "artifacts/cgse/latest/cgse_deterministic_policy_spec_validation_v1.json",
+                CGSE_WITNESS_POLICY_SPEC_PATH,
+            ],
+        );
+        let right = witness.to_cgse_witness_artifact(
+            "shortest_path_algorithms",
+            "shortest_path_unweighted",
+            &[
+                CGSE_WITNESS_POLICY_SPEC_PATH,
+                "artifacts/cgse/latest/cgse_deterministic_policy_spec_validation_v1.json",
+            ],
+        );
+        assert_eq!(cgse_witness_schema_version(), "1.0.0");
+        assert_eq!(left, right);
+        assert_eq!(left.schema_version, "1.0.0");
+        assert_eq!(left.algorithm_family, "shortest_path_algorithms");
+        assert_eq!(left.operation, "shortest_path_unweighted");
+        assert!(
+            left.artifact_refs
+                .contains(&CGSE_WITNESS_POLICY_SPEC_PATH.to_owned()),
+            "witness must include policy spec path"
+        );
+        assert!(
+            left.artifact_refs
+                .contains(&CGSE_WITNESS_LEDGER_PATH.to_owned()),
+            "witness must include legacy tiebreak ledger path"
+        );
+        assert!(left.witness_hash_id.starts_with("cgse-witness:"));
     }
 
     #[test]
@@ -465,6 +642,89 @@ mod tests {
                 vec!["solo".to_owned()],
                 vec!["x".to_owned(), "y".to_owned()]
             ]
+        );
+    }
+
+    #[test]
+    fn centrality_and_component_outputs_are_deterministic_under_insertion_order_noise() {
+        let mut forward = Graph::strict();
+        for (left, right) in [("n0", "n1"), ("n1", "n2"), ("n2", "n3"), ("n0", "n3")] {
+            forward
+                .add_edge(left, right)
+                .expect("edge add should succeed");
+        }
+        let _ = forward.add_node("noise_a");
+        let _ = forward.add_node("noise_b");
+
+        let mut reverse = Graph::strict();
+        for (left, right) in [("n0", "n3"), ("n2", "n3"), ("n1", "n2"), ("n0", "n1")] {
+            reverse
+                .add_edge(left, right)
+                .expect("edge add should succeed");
+        }
+        let _ = reverse.add_node("noise_b");
+        let _ = reverse.add_node("noise_a");
+
+        let forward_components = connected_components(&forward);
+        let forward_components_replay = connected_components(&forward);
+        let reverse_components = connected_components(&reverse);
+        let reverse_components_replay = connected_components(&reverse);
+        assert_eq!(
+            forward_components.components,
+            forward_components_replay.components
+        );
+        assert_eq!(
+            reverse_components.components,
+            reverse_components_replay.components
+        );
+
+        let normalize_components = |components: Vec<Vec<String>>| {
+            let mut normalized = components
+                .into_iter()
+                .map(|mut component| {
+                    component.sort();
+                    component
+                })
+                .collect::<Vec<Vec<String>>>();
+            normalized.sort();
+            normalized
+        };
+        assert_eq!(
+            normalize_components(forward_components.components),
+            normalize_components(reverse_components.components)
+        );
+
+        let forward_count = number_connected_components(&forward);
+        let reverse_count = number_connected_components(&reverse);
+        assert_eq!(forward_count.count, reverse_count.count);
+
+        let forward_degree = degree_centrality(&forward);
+        let forward_degree_replay = degree_centrality(&forward);
+        let reverse_degree = degree_centrality(&reverse);
+        let reverse_degree_replay = degree_centrality(&reverse);
+        assert_eq!(forward_degree.scores, forward_degree_replay.scores);
+        assert_eq!(reverse_degree.scores, reverse_degree_replay.scores);
+
+        let as_score_map = |scores: Vec<CentralityScore>| -> BTreeMap<String, f64> {
+            scores
+                .into_iter()
+                .map(|entry| (entry.node, entry.score))
+                .collect::<BTreeMap<String, f64>>()
+        };
+        assert_eq!(
+            as_score_map(forward_degree.scores),
+            as_score_map(reverse_degree.scores)
+        );
+
+        let forward_closeness = closeness_centrality(&forward);
+        let forward_closeness_replay = closeness_centrality(&forward);
+        let reverse_closeness = closeness_centrality(&reverse);
+        let reverse_closeness_replay = closeness_centrality(&reverse);
+        assert_eq!(forward_closeness.scores, forward_closeness_replay.scores);
+        assert_eq!(reverse_closeness.scores, reverse_closeness_replay.scores);
+        assert_eq!(
+            as_score_map(forward_closeness.scores),
+            as_score_map(reverse_closeness.scores)
         );
     }
 
@@ -644,6 +904,7 @@ mod tests {
         );
         environment.insert("source_target_pair".to_owned(), "a->e".to_owned());
         environment.insert("strict_mode".to_owned(), "true".to_owned());
+        environment.insert("policy_row_id".to_owned(), "CGSE-POL-R08".to_owned());
 
         let replay_command = "rch exec -- cargo test -p fnx-algorithms unit_packet_005_contract_asserted -- --nocapture";
         let log = StructuredTestLog {
@@ -773,6 +1034,7 @@ mod tests {
             environment.insert("graph_fingerprint".to_owned(), graph_fingerprint(&graph));
             environment.insert("tie_break_policy".to_owned(), "lexical_neighbor_order".to_owned());
             environment.insert("invariant_id".to_owned(), "P2C005-INV-1".to_owned());
+            environment.insert("policy_row_id".to_owned(), "CGSE-POL-R08".to_owned());
 
             let replay_command =
                 "rch exec -- cargo test -p fnx-algorithms property_packet_005_invariants -- --nocapture";
@@ -817,6 +1079,235 @@ mod tests {
             prop_assert!(
                 log.validate().is_ok(),
                 "packet-005 property telemetry log should satisfy strict schema"
+            );
+        }
+
+        #[test]
+        fn property_packet_005_insertion_permutation_and_noise_are_replay_stable(
+            edges in prop::collection::vec((0_u8..8, 0_u8..8), 1..40),
+            noise_nodes in prop::collection::vec(0_u8..8, 0..12)
+        ) {
+            let mut forward = Graph::strict();
+            for (left, right) in &edges {
+                let left_node = format!("n{left}");
+                let right_node = format!("n{right}");
+                let _ = forward.add_node(&left_node);
+                let _ = forward.add_node(&right_node);
+                forward
+                    .add_edge(&left_node, &right_node)
+                    .expect("forward edge insertion should succeed");
+            }
+
+            let mut reverse = Graph::strict();
+            for (left, right) in edges.iter().rev() {
+                let left_node = format!("n{left}");
+                let right_node = format!("n{right}");
+                let _ = reverse.add_node(&left_node);
+                let _ = reverse.add_node(&right_node);
+                reverse
+                    .add_edge(&left_node, &right_node)
+                    .expect("reverse edge insertion should succeed");
+            }
+
+            for noise in &noise_nodes {
+                let node = format!("z{noise}");
+                let _ = forward.add_node(&node);
+                let _ = reverse.add_node(&node);
+            }
+
+            let forward_nodes = forward
+                .nodes_ordered()
+                .into_iter()
+                .map(str::to_owned)
+                .collect::<Vec<String>>();
+            let reverse_nodes = reverse
+                .nodes_ordered()
+                .into_iter()
+                .map(str::to_owned)
+                .collect::<Vec<String>>();
+            let mut forward_node_set = forward_nodes.clone();
+            forward_node_set.sort();
+            let mut reverse_node_set = reverse_nodes.clone();
+            reverse_node_set.sort();
+            prop_assert_eq!(
+                &forward_node_set, &reverse_node_set,
+                "P2C005-INV-2 node membership must remain stable under insertion perturbation"
+            );
+            prop_assume!(!forward_nodes.is_empty());
+
+            let source = forward_node_set.first().expect("source exists").clone();
+            let target = forward_node_set.last().expect("target exists").clone();
+
+            let forward_path = shortest_path_unweighted(&forward, &source, &target);
+            let forward_path_replay = shortest_path_unweighted(&forward, &source, &target);
+            let reverse_path = shortest_path_unweighted(&reverse, &source, &target);
+            let reverse_path_replay = shortest_path_unweighted(&reverse, &source, &target);
+            prop_assert_eq!(
+                &forward_path.path, &forward_path_replay.path,
+                "P2C005-INV-2 shortest-path output must be replay-stable for forward insertion"
+            );
+            prop_assert_eq!(
+                &forward_path.witness, &forward_path_replay.witness,
+                "P2C005-INV-2 shortest-path witness must be replay-stable for forward insertion"
+            );
+            prop_assert_eq!(
+                &reverse_path.path, &reverse_path_replay.path,
+                "P2C005-INV-2 shortest-path output must be replay-stable for reverse insertion"
+            );
+            prop_assert_eq!(
+                &reverse_path.witness, &reverse_path_replay.witness,
+                "P2C005-INV-2 shortest-path witness must be replay-stable for reverse insertion"
+            );
+            prop_assert_eq!(
+                forward_path.path.as_ref().map(Vec::len),
+                reverse_path.path.as_ref().map(Vec::len),
+                "P2C005-INV-2 shortest-path hop count should remain stable across insertion perturbation"
+            );
+
+            let forward_components = connected_components(&forward);
+            let forward_components_replay = connected_components(&forward);
+            let reverse_components = connected_components(&reverse);
+            let reverse_components_replay = connected_components(&reverse);
+            prop_assert_eq!(
+                &forward_components.components, &forward_components_replay.components,
+                "P2C005-INV-2 components must be replay-stable for forward insertion"
+            );
+            prop_assert_eq!(
+                &reverse_components.components, &reverse_components_replay.components,
+                "P2C005-INV-2 components must be replay-stable for reverse insertion"
+            );
+            let normalize_components = |components: &[Vec<String>]| {
+                let mut normalized = components
+                    .iter()
+                    .map(|component| {
+                        let mut component = component.clone();
+                        component.sort();
+                        component
+                    })
+                    .collect::<Vec<Vec<String>>>();
+                normalized.sort();
+                normalized
+            };
+            prop_assert_eq!(
+                normalize_components(&forward_components.components),
+                normalize_components(&reverse_components.components),
+                "P2C005-INV-2 component membership must remain stable under insertion perturbation"
+            );
+
+            let forward_count = number_connected_components(&forward);
+            let reverse_count = number_connected_components(&reverse);
+            prop_assert_eq!(
+                forward_count.count, reverse_count.count,
+                "P2C005-INV-2 component counts must remain stable"
+            );
+
+            let forward_degree = degree_centrality(&forward);
+            let forward_degree_replay = degree_centrality(&forward);
+            let reverse_degree = degree_centrality(&reverse);
+            let reverse_degree_replay = degree_centrality(&reverse);
+            prop_assert_eq!(
+                &forward_degree.scores, &forward_degree_replay.scores,
+                "P2C005-INV-2 degree-centrality must be replay-stable for forward insertion"
+            );
+            prop_assert_eq!(
+                &reverse_degree.scores, &reverse_degree_replay.scores,
+                "P2C005-INV-2 degree-centrality must be replay-stable for reverse insertion"
+            );
+            let as_score_map = |scores: &[CentralityScore]| -> BTreeMap<String, f64> {
+                scores
+                    .iter()
+                    .map(|entry| (entry.node.clone(), entry.score))
+                    .collect::<BTreeMap<String, f64>>()
+            };
+            prop_assert_eq!(
+                as_score_map(&forward_degree.scores),
+                as_score_map(&reverse_degree.scores),
+                "P2C005-INV-2 degree-centrality scores must remain stable by node"
+            );
+
+            let forward_closeness = closeness_centrality(&forward);
+            let forward_closeness_replay = closeness_centrality(&forward);
+            let reverse_closeness = closeness_centrality(&reverse);
+            let reverse_closeness_replay = closeness_centrality(&reverse);
+            prop_assert_eq!(
+                &forward_closeness.scores, &forward_closeness_replay.scores,
+                "P2C005-INV-2 closeness-centrality must be replay-stable for forward insertion"
+            );
+            prop_assert_eq!(
+                &reverse_closeness.scores, &reverse_closeness_replay.scores,
+                "P2C005-INV-2 closeness-centrality must be replay-stable for reverse insertion"
+            );
+            prop_assert_eq!(
+                as_score_map(&forward_closeness.scores),
+                as_score_map(&reverse_closeness.scores),
+                "P2C005-INV-2 closeness-centrality scores must remain stable by node"
+            );
+
+            let deterministic_seed = edges.iter().fold(7305_u64, |acc, (left_edge, right_edge)| {
+                acc.wrapping_mul(131)
+                    .wrapping_add((*left_edge as u64) << 8)
+                    .wrapping_add(*right_edge as u64)
+            }).wrapping_add(
+                noise_nodes
+                    .iter()
+                    .fold(0_u64, |acc, noise| acc.wrapping_mul(17).wrapping_add(*noise as u64))
+            );
+
+            let mut environment = BTreeMap::new();
+            environment.insert("os".to_owned(), std::env::consts::OS.to_owned());
+            environment.insert("arch".to_owned(), std::env::consts::ARCH.to_owned());
+            environment.insert("graph_fingerprint".to_owned(), graph_fingerprint(&forward));
+            environment.insert("tie_break_policy".to_owned(), "lexical_neighbor_order".to_owned());
+            environment.insert("invariant_id".to_owned(), "P2C005-INV-2".to_owned());
+            environment.insert("policy_row_id".to_owned(), "CGSE-POL-R08".to_owned());
+            environment.insert(
+                "perturbation_model".to_owned(),
+                "reverse_insertion_plus_noise_nodes".to_owned(),
+            );
+
+            let replay_command =
+                "rch exec -- cargo test -p fnx-algorithms property_packet_005_insertion_permutation_and_noise_are_replay_stable -- --nocapture";
+            let log = StructuredTestLog {
+                schema_version: structured_test_log_schema_version().to_owned(),
+                run_id: "algorithms-p2c005-property-perturbation".to_owned(),
+                ts_unix_ms: 3,
+                crate_name: "fnx-algorithms".to_owned(),
+                suite_id: "property".to_owned(),
+                packet_id: "FNX-P2C-005".to_owned(),
+                test_name: "property_packet_005_insertion_permutation_and_noise_are_replay_stable".to_owned(),
+                test_id: "property::fnx-p2c-005::invariants".to_owned(),
+                test_kind: TestKind::Property,
+                mode: CompatibilityMode::Hardened,
+                fixture_id: Some("algorithms::property::permutation_noise_matrix".to_owned()),
+                seed: Some(deterministic_seed),
+                env_fingerprint: canonical_environment_fingerprint(&environment),
+                environment,
+                duration_ms: 15,
+                replay_command: replay_command.to_owned(),
+                artifact_refs: vec![
+                    "artifacts/conformance/latest/structured_log_emitter_normalization_report.json"
+                        .to_owned(),
+                ],
+                forensic_bundle_id: "forensics::algorithms::property::permutation_noise".to_owned(),
+                hash_id: "sha256:algorithms-p2c005-property-permutation".to_owned(),
+                status: TestStatus::Passed,
+                reason_code: None,
+                failure_repro: None,
+                e2e_step_traces: Vec::new(),
+                forensics_bundle_index: Some(packet_005_forensics_bundle(
+                    "algorithms-p2c005-property-perturbation",
+                    "property::fnx-p2c-005::invariants",
+                    replay_command,
+                    "forensics::algorithms::property::permutation_noise",
+                    vec![
+                        "artifacts/conformance/latest/structured_log_emitter_normalization_report.json"
+                            .to_owned(),
+                    ],
+                )),
+            };
+            prop_assert!(
+                log.validate().is_ok(),
+                "packet-005 perturbation telemetry log should satisfy strict schema"
             );
         }
     }

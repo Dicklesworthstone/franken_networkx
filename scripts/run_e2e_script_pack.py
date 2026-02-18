@@ -73,7 +73,7 @@ OPTIMIZATION_LEVER_POLICY: dict[str, str] = {
     "rule": "exactly_one_optimization_lever_per_change",
     "evidence_path": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
 }
-ARTIFACT_RETENTION_POLICY: dict[str, Any] = {
+ARTIFACT_RETENTION_POLICY_BASE: dict[str, Any] = {
     "policy_id": "e2e-latest-retention-v1",
     "min_retention_days": 14,
     "storage_root": "artifacts/e2e/latest",
@@ -184,6 +184,22 @@ SCENARIOS: tuple[ScenarioSpec, ...] = (
         packet_id="FNX-P2C-006",
     ),
     ScenarioSpec(
+        scenario_id="generators_path_strict",
+        scenario_kind="regression_path",
+        journey_id="J-GENERATORS",
+        mode="strict",
+        fixture_id="generated/generators_path_strict.json",
+        packet_id="FNX-P2C-007",
+    ),
+    ScenarioSpec(
+        scenario_id="generators_cycle_hardened",
+        scenario_kind="regression_path",
+        journey_id="J-GENERATORS",
+        mode="hardened",
+        fixture_id="generated/generators_cycle_strict.json",
+        packet_id="FNX-P2C-007",
+    ),
+    ScenarioSpec(
         scenario_id="malformed_input",
         scenario_kind="malformed_input",
         journey_id="J-READWRITE",
@@ -279,6 +295,22 @@ def fnv1a64(text: str) -> str:
         value ^= byte
         value = (value * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
     return f"{value:016x}"
+
+
+def retention_policy_digest(policy: dict[str, Any]) -> str:
+    normalized = {
+        "policy_id": policy.get("policy_id"),
+        "min_retention_days": policy.get("min_retention_days"),
+        "storage_root": policy.get("storage_root"),
+    }
+    encoded = json.dumps(normalized, sort_keys=True, separators=(",", ":"))
+    return f"fnv1a64:{fnv1a64(encoded)}"
+
+
+def artifact_retention_policy() -> dict[str, Any]:
+    policy = dict(ARTIFACT_RETENTION_POLICY_BASE)
+    policy["policy_digest"] = retention_policy_digest(policy)
+    return policy
 
 
 def unix_ms() -> int:
@@ -691,9 +723,14 @@ def replay_manifest_diagnostics(manifest: dict[str, Any]) -> list[str]:
     if not isinstance(retention_policy, dict):
         diagnostics.append("manifest.retention_policy must be an object")
     else:
-        for key in ("policy_id", "min_retention_days", "storage_root"):
+        for key in ("policy_id", "min_retention_days", "storage_root", "policy_digest"):
             if key not in retention_policy:
                 diagnostics.append(f"manifest.retention_policy missing required key `{key}`")
+        expected_digest = retention_policy_digest(retention_policy)
+        if retention_policy.get("policy_digest") != expected_digest:
+            diagnostics.append(
+                "manifest.retention_policy.policy_digest must match deterministic policy digest"
+            )
     evidence_refs = manifest.get("evidence_refs")
     if not isinstance(evidence_refs, dict):
         diagnostics.append("manifest.evidence_refs must be an object")
@@ -715,6 +752,8 @@ def build_failure_envelope(
     forensics_links: dict[str, Any],
     forensics_index_path: str,
     retention_policy: dict[str, Any],
+    policy_digest: str,
+    deterministic_replay_metadata: dict[str, Any],
     artifact_refs: list[str],
     manifest_path: Path,
 ) -> dict[str, Any]:
@@ -763,6 +802,8 @@ def build_failure_envelope(
         "stable_fingerprint": stable_fingerprint,
         "deterministic_seed": deterministic_seed,
         "replay_command": replay_command,
+        "policy_digest": policy_digest,
+        "deterministic_replay_metadata": deterministic_replay_metadata,
         "forensics_links": forensics_links,
         "missing_forensics_fields": missing_forensics,
         "bundle_manifest_path": bundle_manifest_rel,
@@ -955,7 +996,22 @@ def run_scenario(
 
     evidence_refs = packet_evidence_refs(scenario.packet_id)
     forensics_index_path = repo_relative(output_dir / "e2e_script_pack_bundle_index_v1.json")
-    retention_policy = dict(ARTIFACT_RETENTION_POLICY)
+    retention_policy = artifact_retention_policy()
+    policy_digest = retention_policy["policy_digest"]
+    deterministic_replay_metadata = {
+        "run_id": run_id,
+        "deterministic_seed": deterministic_seed,
+        "bundle_id": bundle_id,
+        "stable_fingerprint": stable_fingerprint,
+        "replay_command": manifest_replay_command,
+        "scenario_id": scenario.scenario_id,
+        "packet_id": scenario.packet_id,
+        "fixture_id": scenario.fixture_id,
+        "mode": scenario.mode,
+        "reason_code": reason_code,
+        "policy_digest": policy_digest,
+        "packet_evidence_refs": evidence_refs,
+    }
 
     manifest = {
         "schema_version": BUNDLE_SCHEMA_VERSION,
@@ -1017,6 +1073,8 @@ def run_scenario(
         forensics_links=forensics_links,
         forensics_index_path=forensics_index_path,
         retention_policy=retention_policy,
+        policy_digest=policy_digest,
+        deterministic_replay_metadata=deterministic_replay_metadata,
         artifact_refs=artifact_refs,
         manifest_path=manifest_path,
     )
@@ -1064,13 +1122,7 @@ def run_scenario(
         "failure_envelope_path": repo_relative(failure_envelope_path),
         "forensics_index_path": forensics_index_path,
         "evidence_refs": evidence_refs,
-        "deterministic_replay_metadata": {
-            "run_id": run_id,
-            "deterministic_seed": deterministic_seed,
-            "bundle_id": bundle_id,
-            "stable_fingerprint": stable_fingerprint,
-            "replay_command": manifest["replay_command"],
-        },
+        "deterministic_replay_metadata": deterministic_replay_metadata,
         "bundle_manifest_path": repo_relative(manifest_path),
         "artifact_refs": manifest["artifact_refs"],
         "retention_policy": retention_policy,
@@ -1172,7 +1224,7 @@ def determinism_report(
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "gate_step_id": gate_step_id,
         "forensics_index_path": forensics_index_path,
-        "retention_policy": dict(ARTIFACT_RETENTION_POLICY),
+        "retention_policy": artifact_retention_policy(),
         "pass_labels": expected_passes,
         "required_scenarios": expected_scenarios,
         "required_packet_ids": expected_packet_ids,

@@ -1,5 +1,5 @@
 use serde_json::Value;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -80,6 +80,25 @@ fn assert_gate_step_id(value: &Value, required_prefix: &str, ctx: &str) -> Strin
     gate_step_id.to_owned()
 }
 
+fn fnv1a64(text: &str) -> String {
+    let mut value: u64 = 0xCBF29CE484222325;
+    for byte in text.as_bytes() {
+        value ^= u64::from(*byte);
+        value = value.wrapping_mul(0x100000001B3);
+    }
+    format!("{value:016x}")
+}
+
+fn expected_retention_policy_digest(policy_id: &str, min_retention_days: u64, storage_root: &str) -> String {
+    let mut normalized = BTreeMap::<&str, Value>::new();
+    normalized.insert("min_retention_days", Value::from(min_retention_days));
+    normalized.insert("policy_id", Value::from(policy_id));
+    normalized.insert("storage_root", Value::from(storage_root));
+    let canonical = serde_json::to_string(&normalized)
+        .expect("retention policy digest canonical serialization should succeed");
+    format!("fnv1a64:{}", fnv1a64(&canonical))
+}
+
 fn assert_retention_policy(root: &Path, schema: &Value, policy: &Value, ctx: &str) {
     let object = policy
         .as_object()
@@ -111,6 +130,20 @@ fn assert_retention_policy(root: &Path, schema: &Value, policy: &Value, ctx: &st
         .and_then(Value::as_str)
         .unwrap_or_else(|| panic!("{ctx}.storage_root should be string"));
     assert_path_exists(root, storage_root, &format!("{ctx}.storage_root"));
+    let policy_digest = object
+        .get("policy_digest")
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| panic!("{ctx}.policy_digest should be non-empty string"));
+    assert!(
+        !policy_digest.trim().is_empty(),
+        "{ctx}.policy_digest should be non-empty string"
+    );
+    let expected_policy_digest =
+        expected_retention_policy_digest(policy_id, min_retention_days, storage_root);
+    assert_eq!(
+        policy_digest, expected_policy_digest,
+        "{ctx}.policy_digest should match deterministic digest over policy fields"
+    );
 }
 
 fn assert_evidence_refs(root: &Path, schema: &Value, refs: &Value, ctx: &str) {
@@ -747,6 +780,10 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
             !event_replay_command.trim().is_empty(),
             "event replay_command should be non-empty"
         );
+        assert!(
+            event_replay_command.starts_with("rch exec --"),
+            "event replay_command should use rch offload"
+        );
         let event_gate_step_id = assert_gate_step_id(
             &event["gate_step_id"],
             required_gate_step_prefix,
@@ -785,6 +822,9 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
             &event["evidence_refs"],
             &format!("event[{scenario}/{pass_label}].evidence_refs"),
         );
+        let event_policy_digest = event["retention_policy"]["policy_digest"]
+            .as_str()
+            .expect("event retention_policy.policy_digest should be string");
         let deterministic_replay = event["deterministic_replay_metadata"]
             .as_object()
             .expect("event deterministic_replay_metadata should be object");
@@ -821,6 +861,43 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
                 .get("replay_command")
                 .and_then(Value::as_str),
             Some(event_replay_command)
+        );
+        assert_eq!(
+            deterministic_replay.get("scenario_id").and_then(Value::as_str),
+            Some(scenario),
+            "deterministic_replay_metadata.scenario_id should match event"
+        );
+        assert_eq!(
+            deterministic_replay.get("packet_id").and_then(Value::as_str),
+            Some(packet_id),
+            "deterministic_replay_metadata.packet_id should match event"
+        );
+        assert_eq!(
+            deterministic_replay.get("fixture_id").and_then(Value::as_str),
+            event.get("fixture_id").and_then(Value::as_str),
+            "deterministic_replay_metadata.fixture_id should match event"
+        );
+        assert_eq!(
+            deterministic_replay.get("mode").and_then(Value::as_str),
+            event.get("mode").and_then(Value::as_str),
+            "deterministic_replay_metadata.mode should match event"
+        );
+        assert_eq!(
+            deterministic_replay.get("reason_code"),
+            event.get("reason_code"),
+            "deterministic_replay_metadata.reason_code should match event"
+        );
+        assert_eq!(
+            deterministic_replay
+                .get("policy_digest")
+                .and_then(Value::as_str),
+            Some(event_policy_digest),
+            "deterministic_replay_metadata.policy_digest should match retention policy digest"
+        );
+        assert_eq!(
+            deterministic_replay.get("packet_evidence_refs"),
+            event.get("evidence_refs"),
+            "deterministic_replay_metadata.packet_evidence_refs should match event evidence_refs"
         );
         bundle_ids_by_scenario
             .entry(scenario.to_owned())
@@ -884,6 +961,16 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
             failure_envelope["replay_command"].as_str(),
             Some(event_replay_command),
             "failure envelope replay_command should match event replay_command"
+        );
+        assert_eq!(
+            failure_envelope["policy_digest"].as_str(),
+            Some(event_policy_digest),
+            "failure envelope policy_digest should match event retention policy digest"
+        );
+        assert_eq!(
+            failure_envelope["deterministic_replay_metadata"],
+            event["deterministic_replay_metadata"],
+            "failure envelope deterministic_replay_metadata should match event"
         );
         let envelope_status = failure_envelope["status"]
             .as_str()

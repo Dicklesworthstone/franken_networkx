@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "artifact_id": "cgse-legacy-tiebreak-ordering-ledger-v1",
-  "generated_at_utc": "2026-02-15T04:44:37Z",
+  "generated_at_utc": "2026-02-18T06:42:15Z",
   "baseline_comparator": "legacy_networkx_code/networkx/networkx (repository checkout in current workspace)",
   "scope_statement": "Source-anchored tie-break and ordering behavior ledger for legacy NetworkX surfaces used by FrankenNetworkX CGSE policy compilation.",
   "rule_families": [

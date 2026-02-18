@@ -5,10 +5,23 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const STRUCTURED_TEST_LOG_SCHEMA_VERSION_V1: &str = "1.0.0";
+pub const CGSE_POLICY_SCHEMA_VERSION_V1: &str = "1.0.0";
+pub const CGSE_POLICY_SPEC_PATH: &str = "artifacts/cgse/v1/cgse_deterministic_policy_spec_v1.json";
+pub const CGSE_POLICY_SPEC_SCHEMA_PATH: &str =
+    "artifacts/cgse/schema/v1/cgse_deterministic_policy_spec_schema_v1.json";
+pub const CGSE_LEGACY_TIEBREAK_LEDGER_PATH: &str =
+    "artifacts/cgse/v1/cgse_legacy_tiebreak_ordering_ledger_v1.json";
+pub const CGSE_SEMANTICS_THREAT_MODEL_PATH: &str =
+    "artifacts/cgse/v1/cgse_semantics_threat_model_v1.json";
 
 #[must_use]
 pub fn structured_test_log_schema_version() -> &'static str {
     STRUCTURED_TEST_LOG_SCHEMA_VERSION_V1
+}
+
+#[must_use]
+pub fn cgse_policy_schema_version() -> &'static str {
+    CGSE_POLICY_SCHEMA_VERSION_V1
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -24,6 +37,190 @@ pub enum DecisionAction {
     Allow,
     FullValidate,
     FailClosed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CgseOperationFamily {
+    GraphCoreMutation,
+    ViewSemantics,
+    DispatchRouting,
+    ConversionContracts,
+    ShortestPathAlgorithms,
+    ReadwriteSerialization,
+    GeneratorSemantics,
+    RuntimeConfig,
+    OracleTestSurface,
+}
+
+impl CgseOperationFamily {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::GraphCoreMutation => "graph_core_mutation",
+            Self::ViewSemantics => "view_semantics",
+            Self::DispatchRouting => "dispatch_routing",
+            Self::ConversionContracts => "conversion_contracts",
+            Self::ShortestPathAlgorithms => "shortest_path_algorithms",
+            Self::ReadwriteSerialization => "readwrite_serialization",
+            Self::GeneratorSemantics => "generator_semantics",
+            Self::RuntimeConfig => "runtime_config",
+            Self::OracleTestSurface => "oracle_test_surface",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CgsePolicyRule {
+    R01,
+    R02,
+    R03,
+    R04,
+    R05,
+    R06,
+    R07,
+    R08,
+    R09,
+    R10,
+    R11,
+    R12,
+    R13,
+    R14,
+}
+
+impl CgsePolicyRule {
+    pub const ALL: [Self; 14] = [
+        Self::R01,
+        Self::R02,
+        Self::R03,
+        Self::R04,
+        Self::R05,
+        Self::R06,
+        Self::R07,
+        Self::R08,
+        Self::R09,
+        Self::R10,
+        Self::R11,
+        Self::R12,
+        Self::R13,
+        Self::R14,
+    ];
+
+    #[must_use]
+    pub fn from_rule_id(rule_id: &str) -> Option<Self> {
+        Some(match rule_id {
+            "CGSE-R01" => Self::R01,
+            "CGSE-R02" => Self::R02,
+            "CGSE-R03" => Self::R03,
+            "CGSE-R04" => Self::R04,
+            "CGSE-R05" => Self::R05,
+            "CGSE-R06" => Self::R06,
+            "CGSE-R07" => Self::R07,
+            "CGSE-R08" => Self::R08,
+            "CGSE-R09" => Self::R09,
+            "CGSE-R10" => Self::R10,
+            "CGSE-R11" => Self::R11,
+            "CGSE-R12" => Self::R12,
+            "CGSE-R13" => Self::R13,
+            "CGSE-R14" => Self::R14,
+            _ => return None,
+        })
+    }
+
+    #[must_use]
+    pub const fn as_rule_id(self) -> &'static str {
+        match self {
+            Self::R01 => "CGSE-R01",
+            Self::R02 => "CGSE-R02",
+            Self::R03 => "CGSE-R03",
+            Self::R04 => "CGSE-R04",
+            Self::R05 => "CGSE-R05",
+            Self::R06 => "CGSE-R06",
+            Self::R07 => "CGSE-R07",
+            Self::R08 => "CGSE-R08",
+            Self::R09 => "CGSE-R09",
+            Self::R10 => "CGSE-R10",
+            Self::R11 => "CGSE-R11",
+            Self::R12 => "CGSE-R12",
+            Self::R13 => "CGSE-R13",
+            Self::R14 => "CGSE-R14",
+        }
+    }
+
+    #[must_use]
+    pub const fn policy_id(self) -> &'static str {
+        match self {
+            Self::R01 => "CGSE-POL-R01",
+            Self::R02 => "CGSE-POL-R02",
+            Self::R03 => "CGSE-POL-R03",
+            Self::R04 => "CGSE-POL-R04",
+            Self::R05 => "CGSE-POL-R05",
+            Self::R06 => "CGSE-POL-R06",
+            Self::R07 => "CGSE-POL-R07",
+            Self::R08 => "CGSE-POL-R08",
+            Self::R09 => "CGSE-POL-R09",
+            Self::R10 => "CGSE-POL-R10",
+            Self::R11 => "CGSE-POL-R11",
+            Self::R12 => "CGSE-POL-R12",
+            Self::R13 => "CGSE-POL-R13",
+            Self::R14 => "CGSE-POL-R14",
+        }
+    }
+
+    #[must_use]
+    pub const fn operation_family(self) -> CgseOperationFamily {
+        match self {
+            Self::R01 | Self::R02 | Self::R03 => CgseOperationFamily::GraphCoreMutation,
+            Self::R04 => CgseOperationFamily::ViewSemantics,
+            Self::R05 | Self::R06 => CgseOperationFamily::DispatchRouting,
+            Self::R07 => CgseOperationFamily::ConversionContracts,
+            Self::R08 | Self::R09 => CgseOperationFamily::ShortestPathAlgorithms,
+            Self::R10 | Self::R11 => CgseOperationFamily::ReadwriteSerialization,
+            Self::R12 => CgseOperationFamily::GeneratorSemantics,
+            Self::R13 => CgseOperationFamily::RuntimeConfig,
+            Self::R14 => CgseOperationFamily::OracleTestSurface,
+        }
+    }
+
+    #[must_use]
+    pub const fn hardened_allowlist(self) -> &'static [&'static str] {
+        match self {
+            Self::R01 => &["CGSE-AMB-001"],
+            Self::R02 => &["CGSE-AMB-002"],
+            Self::R03 => &["CGSE-AMB-003"],
+            Self::R04 => &["CGSE-AMB-004"],
+            Self::R05 => &["CGSE-AMB-005"],
+            Self::R06 => &["CGSE-AMB-006"],
+            Self::R07 => &["CGSE-AMB-007"],
+            Self::R08 => &["CGSE-AMB-008"],
+            Self::R09 => &["bounded_diagnostic_enrichment"],
+            Self::R10 => &["CGSE-AMB-009"],
+            Self::R11 => &["bounded_diagnostic_enrichment"],
+            Self::R12 => &["CGSE-AMB-010"],
+            Self::R13 => &["bounded_diagnostic_enrichment"],
+            Self::R14 => &["CGSE-AMB-011"],
+        }
+    }
+
+    #[must_use]
+    pub const fn fail_closed_default(self) -> &'static str {
+        match self {
+            Self::R01 => "fail_closed_on_cgse_r01_drift",
+            Self::R02 => "fail_closed_on_cgse_r02_drift",
+            Self::R03 => "fail_closed_on_cgse_r03_drift",
+            Self::R04 => "fail_closed_on_cgse_r04_drift",
+            Self::R05 => "fail_closed_on_cgse_r05_drift",
+            Self::R06 => "fail_closed_on_cgse_r06_drift",
+            Self::R07 => "fail_closed_on_cgse_r07_drift",
+            Self::R08 => "fail_closed_on_cgse_r08_drift",
+            Self::R09 => "fail_closed_on_cgse_r09_drift",
+            Self::R10 => "fail_closed_on_cgse_r10_drift",
+            Self::R11 => "fail_closed_on_cgse_r11_drift",
+            Self::R12 => "fail_closed_on_cgse_r12_drift",
+            Self::R13 => "fail_closed_on_cgse_r13_drift",
+            Self::R14 => "fail_closed_on_cgse_r14_drift",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -884,7 +1081,12 @@ impl StructuredTestLog {
             "unit::fnx-p2c-005::contract" => {
                 let context = "packet-005 unit contract telemetry";
                 self.require_non_empty_fixture_id(context)?;
-                for key in ["algorithm_family", "source_target_pair", "strict_mode"] {
+                for key in [
+                    "algorithm_family",
+                    "source_target_pair",
+                    "strict_mode",
+                    "policy_row_id",
+                ] {
                     self.require_environment_key(key, context)?;
                 }
             }
@@ -897,7 +1099,12 @@ impl StructuredTestLog {
                             .to_owned(),
                     );
                 }
-                for key in ["graph_fingerprint", "tie_break_policy", "invariant_id"] {
+                for key in [
+                    "graph_fingerprint",
+                    "tie_break_policy",
+                    "invariant_id",
+                    "policy_row_id",
+                ] {
                     self.require_environment_key(key, context)?;
                 }
             }
@@ -1240,6 +1447,176 @@ pub struct DecisionRecord {
     pub evidence: Vec<EvidenceTerm>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct CgsePolicyDecision {
+    pub policy_id: &'static str,
+    pub rule: CgsePolicyRule,
+    pub allowlisted_ambiguity: bool,
+    pub fail_closed_default: &'static str,
+    pub policy_spec_path: &'static str,
+    pub policy_spec_schema_path: &'static str,
+    pub legacy_tiebreak_ledger_path: &'static str,
+    pub semantics_threat_model_path: &'static str,
+    pub decision: DecisionRecord,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CgsePolicyEngine {
+    mode: CompatibilityMode,
+}
+
+impl CgsePolicyEngine {
+    #[must_use]
+    pub const fn new(mode: CompatibilityMode) -> Self {
+        Self { mode }
+    }
+
+    #[must_use]
+    pub const fn mode(self) -> CompatibilityMode {
+        self.mode
+    }
+
+    #[must_use]
+    pub fn evaluate(
+        &self,
+        rule: CgsePolicyRule,
+        ambiguity_tag: Option<&str>,
+        incompatibility_probability: f64,
+        unknown_incompatible_feature: bool,
+    ) -> CgsePolicyDecision {
+        self.evaluate_at(
+            rule,
+            ambiguity_tag,
+            incompatibility_probability,
+            unknown_incompatible_feature,
+            unix_time_ms(),
+        )
+    }
+
+    #[must_use]
+    pub fn evaluate_at(
+        &self,
+        rule: CgsePolicyRule,
+        ambiguity_tag: Option<&str>,
+        incompatibility_probability: f64,
+        unknown_incompatible_feature: bool,
+        ts_unix_ms: u128,
+    ) -> CgsePolicyDecision {
+        let clamped_probability = incompatibility_probability.clamp(0.0, 1.0);
+        let allowlisted_ambiguity =
+            ambiguity_tag.is_some_and(|tag| rule.hardened_allowlist().contains(&tag));
+        let hardened_ambiguity_violation = matches!(self.mode, CompatibilityMode::Hardened)
+            && ambiguity_tag.is_some()
+            && !allowlisted_ambiguity;
+
+        let action = if unknown_incompatible_feature || hardened_ambiguity_violation {
+            DecisionAction::FailClosed
+        } else {
+            decision_theoretic_action(self.mode, clamped_probability, false)
+        };
+
+        let rationale = if unknown_incompatible_feature {
+            format!(
+                "{} triggered fail-closed due to unknown incompatible feature",
+                rule.fail_closed_default()
+            )
+        } else if hardened_ambiguity_violation {
+            let tag = ambiguity_tag.unwrap_or("none");
+            format!(
+                "{} triggered fail-closed because ambiguity tag `{tag}` is not allowlisted in hardened mode",
+                rule.fail_closed_default()
+            )
+        } else {
+            format!(
+                "deterministic policy {} selected {:?} at incompatibility_probability={clamped_probability:.4}",
+                rule.as_rule_id(),
+                action
+            )
+        };
+
+        let decision = DecisionRecord {
+            ts_unix_ms,
+            operation: format!(
+                "{}::{}",
+                rule.operation_family().as_str(),
+                rule.as_rule_id().to_lowercase()
+            ),
+            mode: self.mode,
+            action,
+            incompatibility_probability: clamped_probability,
+            rationale,
+            evidence: vec![
+                EvidenceTerm {
+                    signal: "cgse_policy_rule_id".to_owned(),
+                    observed_value: rule.as_rule_id().to_owned(),
+                    log_likelihood_ratio: 1.0,
+                },
+                EvidenceTerm {
+                    signal: "cgse_operation_family".to_owned(),
+                    observed_value: rule.operation_family().as_str().to_owned(),
+                    log_likelihood_ratio: 0.5,
+                },
+                EvidenceTerm {
+                    signal: "cgse_ambiguity_tag".to_owned(),
+                    observed_value: ambiguity_tag.unwrap_or("none").to_owned(),
+                    log_likelihood_ratio: if allowlisted_ambiguity { 0.25 } else { -0.25 },
+                },
+                EvidenceTerm {
+                    signal: "cgse_hardened_allowlist_hit".to_owned(),
+                    observed_value: allowlisted_ambiguity.to_string(),
+                    log_likelihood_ratio: if allowlisted_ambiguity { 0.75 } else { -0.75 },
+                },
+            ],
+        };
+
+        CgsePolicyDecision {
+            policy_id: rule.policy_id(),
+            rule,
+            allowlisted_ambiguity,
+            fail_closed_default: rule.fail_closed_default(),
+            policy_spec_path: CGSE_POLICY_SPEC_PATH,
+            policy_spec_schema_path: CGSE_POLICY_SPEC_SCHEMA_PATH,
+            legacy_tiebreak_ledger_path: CGSE_LEGACY_TIEBREAK_LEDGER_PATH,
+            semantics_threat_model_path: CGSE_SEMANTICS_THREAT_MODEL_PATH,
+            decision,
+        }
+    }
+}
+
+pub trait CgsePolicyEvaluator {
+    fn mode(&self) -> CompatibilityMode;
+
+    fn evaluate(
+        &self,
+        rule: CgsePolicyRule,
+        ambiguity_tag: Option<&str>,
+        incompatibility_probability: f64,
+        unknown_incompatible_feature: bool,
+    ) -> CgsePolicyDecision;
+}
+
+impl CgsePolicyEvaluator for CgsePolicyEngine {
+    fn mode(&self) -> CompatibilityMode {
+        CgsePolicyEngine::mode(*self)
+    }
+
+    fn evaluate(
+        &self,
+        rule: CgsePolicyRule,
+        ambiguity_tag: Option<&str>,
+        incompatibility_probability: f64,
+        unknown_incompatible_feature: bool,
+    ) -> CgsePolicyDecision {
+        CgsePolicyEngine::evaluate(
+            self,
+            rule,
+            ambiguity_tag,
+            incompatibility_probability,
+            unknown_incompatible_feature,
+        )
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct EvidenceLedger {
     records: Vec<DecisionRecord>,
@@ -1407,13 +1784,14 @@ pub mod ftui_bridge {
 mod tests {
     use super::{
         AsupersyncAdapterMachine, AsupersyncAdapterReasonCode, AsupersyncAdapterState,
-        AsupersyncTransferIntent, CompatibilityMode, DecisionAction, E2eStepStatus, E2eStepTrace,
-        EvidenceLedger, FailureReproData, ForensicsBundleIndex, FtuiTelemetryAdapter,
+        AsupersyncTransferIntent, CGSE_POLICY_SPEC_PATH, CgseOperationFamily, CgsePolicyEngine,
+        CgsePolicyEvaluator, CgsePolicyRule, CompatibilityMode, DecisionAction, E2eStepStatus,
+        E2eStepTrace, EvidenceLedger, FailureReproData, ForensicsBundleIndex, FtuiTelemetryAdapter,
         StructuredTestLog, TestKind, TestStatus, canonical_environment_fingerprint,
-        decision_theoretic_action, ftui_telemetry_canonical_fields,
+        cgse_policy_schema_version, decision_theoretic_action, ftui_telemetry_canonical_fields,
         structured_test_log_schema_version,
     };
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
     fn base_env() -> BTreeMap<String, String> {
         let mut env = BTreeMap::new();
@@ -1460,6 +1838,52 @@ mod tests {
         let hardened = decision_theoretic_action(CompatibilityMode::Hardened, 0.0, true);
         assert_eq!(strict, DecisionAction::FailClosed);
         assert_eq!(hardened, DecisionAction::FailClosed);
+    }
+
+    #[test]
+    fn cgse_policy_rule_table_stays_stable_and_unique() {
+        assert_eq!(cgse_policy_schema_version(), "1.0.0");
+        assert_eq!(CgsePolicyRule::ALL.len(), 14);
+        let mut ids = BTreeSet::new();
+        for rule in CgsePolicyRule::ALL {
+            assert!(ids.insert(rule.as_rule_id()));
+            assert!(!rule.policy_id().is_empty());
+            assert!(!rule.fail_closed_default().is_empty());
+            assert!(!rule.hardened_allowlist().is_empty());
+        }
+        assert_eq!(
+            CgsePolicyRule::R08.operation_family(),
+            CgseOperationFamily::ShortestPathAlgorithms
+        );
+    }
+
+    #[test]
+    fn cgse_policy_engine_hardened_mode_fails_closed_on_non_allowlisted_ambiguity() {
+        let engine = CgsePolicyEngine::new(CompatibilityMode::Hardened);
+        let decision = CgsePolicyEvaluator::evaluate(
+            &engine,
+            CgsePolicyRule::R01,
+            Some("CGSE-AMB-999"),
+            0.01,
+            false,
+        );
+        assert_eq!(
+            CgsePolicyEvaluator::mode(&engine),
+            CompatibilityMode::Hardened
+        );
+        assert_eq!(decision.policy_spec_path, CGSE_POLICY_SPEC_PATH);
+        assert_eq!(decision.decision.action, DecisionAction::FailClosed);
+        assert!(!decision.allowlisted_ambiguity);
+        assert_eq!(decision.decision.evidence.len(), 4);
+    }
+
+    #[test]
+    fn cgse_policy_engine_is_deterministic_for_fixed_timestamp() {
+        let engine = CgsePolicyEngine::new(CompatibilityMode::Strict);
+        let left = engine.evaluate_at(CgsePolicyRule::R08, Some("CGSE-AMB-008"), 0.2, false, 42);
+        let right = engine.evaluate_at(CgsePolicyRule::R08, Some("CGSE-AMB-008"), 0.2, false, 42);
+        assert_eq!(left, right);
+        assert_eq!(left.decision.action, DecisionAction::FullValidate);
     }
 
     #[test]
@@ -2024,6 +2448,7 @@ mod tests {
         );
         env.insert("source_target_pair".to_owned(), "a->e".to_owned());
         env.insert("strict_mode".to_owned(), "true".to_owned());
+        env.insert("policy_row_id".to_owned(), "CGSE-POL-R08".to_owned());
 
         let replay = "rch exec -- cargo test -p fnx-algorithms unit_packet_005_contract_asserted -- --nocapture";
         let log = StructuredTestLog {
@@ -2076,6 +2501,17 @@ mod tests {
             .validate()
             .expect_err("packet-005 unit contract should require fixture_id");
         assert!(err.contains("fixture_id"));
+
+        let mut missing_policy_row = missing_algorithm_family.clone();
+        missing_policy_row.environment.insert(
+            "algorithm_family".to_owned(),
+            "shortest_path_first_wave".to_owned(),
+        );
+        missing_policy_row.environment.remove("policy_row_id");
+        let err = missing_policy_row
+            .validate()
+            .expect_err("packet-005 unit contract should require policy_row_id metadata");
+        assert!(err.contains("policy_row_id"));
     }
 
     #[test]
@@ -2087,6 +2523,7 @@ mod tests {
             "lexical_neighbor_order".to_owned(),
         );
         env.insert("invariant_id".to_owned(), "P2C005-INV-1".to_owned());
+        env.insert("policy_row_id".to_owned(), "CGSE-POL-R08".to_owned());
 
         let replay = "rch exec -- cargo test -p fnx-algorithms property_packet_005_invariants -- --nocapture";
         let log = StructuredTestLog {
@@ -2143,6 +2580,14 @@ mod tests {
             .validate()
             .expect_err("packet-005 property log should require tie_break_policy metadata");
         assert!(err.contains("tie_break_policy"));
+
+        let mut missing_policy_row = missing_seed;
+        missing_policy_row.seed = Some(7205);
+        missing_policy_row.environment.remove("policy_row_id");
+        let err = missing_policy_row
+            .validate()
+            .expect_err("packet-005 property log should require policy_row_id metadata");
+        assert!(err.contains("policy_row_id"));
     }
 
     #[test]

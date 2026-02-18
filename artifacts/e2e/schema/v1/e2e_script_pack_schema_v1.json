@@ -13,6 +13,8 @@
     "edge_path_hardened",
     "readwrite_roundtrip_strict",
     "readwrite_json_roundtrip_strict",
+    "generators_path_strict",
+    "generators_cycle_hardened",
     "malformed_input",
     "adversarial_soak",
     "asupersync_recovery_success",
@@ -32,6 +34,7 @@
     "FNX-P2C-004",
     "FNX-P2C-005",
     "FNX-P2C-006",
+    "FNX-P2C-007",
     "FNX-P2C-008"
   ],
   "required_gate_step_prefix": "step-",
@@ -49,6 +52,7 @@
     "deterministic_seed",
     "command",
     "status",
+    "reason_code",
     "start_unix_ms",
     "end_unix_ms",
     "duration_ms",
@@ -117,7 +121,8 @@
   "required_retention_policy_keys": [
     "policy_id",
     "min_retention_days",
-    "storage_root"
+    "storage_root",
+    "policy_digest"
   ],
   "required_evidence_ref_keys": [
     "parity_report",
@@ -137,7 +142,14 @@
     "deterministic_seed",
     "bundle_id",
     "stable_fingerprint",
-    "replay_command"
+    "replay_command",
+    "scenario_id",
+    "packet_id",
+    "fixture_id",
+    "mode",
+    "reason_code",
+    "policy_digest",
+    "packet_evidence_refs"
   ],
   "required_failure_envelope_keys": [
     "schema_version",
@@ -157,6 +169,8 @@
     "stable_fingerprint",
     "deterministic_seed",
     "replay_command",
+    "policy_digest",
+    "deterministic_replay_metadata",
     "forensics_links",
     "missing_forensics_fields",
     "bundle_manifest_path",

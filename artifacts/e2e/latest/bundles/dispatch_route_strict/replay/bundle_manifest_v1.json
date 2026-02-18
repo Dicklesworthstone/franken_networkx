@@ -7,21 +7,21 @@
   "scenario_kind": "regression_path",
   "journey_id": "J-DISPATCH",
   "packet_id": "FNX-P2C-003",
-  "gate_step_id": "step-1",
+  "gate_step_id": "step-local",
   "mode": "strict",
   "fixture_id": "generated/dispatch_route_strict.json",
   "deterministic_seed": 4784356042096728017,
   "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/dispatch_route_strict.json --mode strict",
   "execution_metadata": {
-    "run_id": "e2e-script-pack-20260218T052924Z",
+    "run_id": "e2e-script-pack-20260218T132229Z",
     "pass_label": "replay",
-    "gate_step_id": "step-1",
+    "gate_step_id": "step-local",
     "status": "passed",
     "reason_code": null,
-    "start_unix_ms": 1771392814653,
-    "end_unix_ms": 1771392823729,
-    "duration_ms": 9076,
-    "generated_at_utc": "2026-02-18T05:33:43.731215+00:00",
+    "start_unix_ms": 1771421217138,
+    "end_unix_ms": 1771421225974,
+    "duration_ms": 8836,
+    "generated_at_utc": "2026-02-18T13:27:05.976590+00:00",
     "forensics_source": "synthesized_fallback"
   },
   "forensics_links": {
@@ -72,6 +72,7 @@
   "retention_policy": {
     "policy_id": "e2e-latest-retention-v1",
     "min_retention_days": 14,
-    "storage_root": "artifacts/e2e/latest"
+    "storage_root": "artifacts/e2e/latest",
+    "policy_digest": "fnv1a64:8cdc8c7c182cecd2"
   }
 }

@@ -5,15 +5,22 @@
     "generated/runtime_config_optional_strict.json"
   ],
   "oracle_source": "legacy_networkx",
-  "generated_at_utc": "2026-02-14T06:40:00Z",
+  "generated_at_utc": "2026-02-18T08:34:00Z",
   "legacy_paths": [
+    "networkx/__init__.py",
     "networkx/utils/configs.py",
+    "networkx/utils/backends.py",
     "networkx/lazy_imports.py"
   ],
   "legacy_symbols": [
+    "Config",
+    "BackendPriorities",
+    "NetworkXConfig",
+    "_set_configs_from_environment",
     "_dispatchable",
-    "config",
-    "lazy imports"
+    "attach",
+    "_lazy_import",
+    "DelayedImportErrorModule"
   ],
   "graph_mutation_contract": "Primary graph mutation invariants enforced when packet touches graph state.",
   "view_cache_contract": "View cache coherence must remain deterministic and revision-safe.",
@@ -27,11 +34,17 @@
     "unsafe non-clean-room implementation techniques"
   ],
   "oracle_tests": [
-    "utils/runtime behavior tests"
+    "networkx/utils/tests/test_config.py",
+    "networkx/utils/tests/test_backends.py",
+    "networkx/tests/test_lazy_imports.py"
   ],
   "performance_sentinels": [
     "artifacts/perf/BASELINE_BFS_V1.md",
-    "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+    "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+    "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+    "artifacts/perf/phase2c/perf_regression_gate_report_v1.json",
+    "artifacts/perf/phase2c/isomorphism_harness_report_v1.json",
+    "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_008_V1.md"
   ],
   "compatibility_risks": [
     "environment-based behavior skew",

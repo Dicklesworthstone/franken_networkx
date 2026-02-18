@@ -818,6 +818,254 @@ def build_artifact() -> dict[str, Any]:
     return artifact
 
 
+def policy_id_for(rule_id: str) -> str:
+    return rule_id.replace("CGSE-R", "CGSE-POL-R")
+
+
+def build_policy_rows(artifact: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for rule in artifact["rules"]:
+        rule_id = rule["rule_id"]
+        ambiguity_tags = rule.get("ambiguity_tags", [])
+        ambiguity_ids = [tag["ambiguity_id"] for tag in ambiguity_tags]
+        hardened_allowlist = ambiguity_ids[:] if ambiguity_ids else ["bounded_diagnostic_enrichment"]
+        verification_hooks = {
+            channel: [entry["hook_id"] for entry in rule["test_hooks"].get(channel, [])]
+            for channel in ["unit", "property", "differential", "e2e"]
+        }
+        row = {
+            "policy_id": policy_id_for(rule_id),
+            "rule_id": rule_id,
+            "operation_family": rule["operation_family"],
+            "tie_break_contract": rule["tie_break_policy"],
+            "ordering_contract": rule["ordering_policy"],
+            "strict_mode_behavior": (
+                "Preserve legacy tie-break and ordering semantics exactly as extracted from source anchors."
+            ),
+            "hardened_mode_behavior": (
+                "Allow only explicitly allowlisted ambiguity pathways; fail closed for all unknown or "
+                "incompatible semantics drift."
+            ),
+            "strict_invariant": (
+                f"{rule_id} strict mode preserves `{rule['tie_break_policy']}` and `{rule['ordering_policy']}` "
+                "with zero mismatch budget."
+            ),
+            "hardened_invariant": (
+                f"{rule_id} hardened mode may deviate only through allowlisted ambiguity controls "
+                "while retaining observable output compatibility."
+            ),
+            "preconditions": [
+                f"operation family `{rule['operation_family']}` is within CGSE scoped APIs",
+                "legacy source anchors and hook surfaces remain stable and resolvable",
+            ],
+            "postconditions": [
+                f"tie-break contract remains `{rule['tie_break_policy']}`",
+                f"ordering contract remains `{rule['ordering_policy']}`",
+                "unit/property/differential/e2e verification hooks remain replayable",
+            ],
+            "preservation_obligation": (
+                "strict mode forbids behavior-repair heuristics that alter legacy-observable ordering outcomes"
+            ),
+            "hardened_allowlist": hardened_allowlist,
+            "fail_closed_default": f"fail_closed_on_{rule_id.lower().replace('-', '_')}_drift",
+            "hardened_security_rationale": (
+                "Hardened deviations are bounded to explicit ambiguity IDs or diagnostic categories to prevent "
+                "silent semantics drift under adversarial inputs."
+            ),
+            "verification_hooks": verification_hooks,
+        }
+        rows.append(row)
+    return rows
+
+
+def build_policy_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
+    rows = build_policy_rows(artifact)
+
+    seen_policy_ids: set[str] = set()
+    duplicate_policy_ids: set[str] = set()
+    seen_rule_ids: set[str] = set()
+    duplicate_rule_ids: set[str] = set()
+    allowlist_categories: set[str] = set()
+
+    for row in rows:
+        policy_id = row["policy_id"]
+        if policy_id in seen_policy_ids:
+            duplicate_policy_ids.add(policy_id)
+        seen_policy_ids.add(policy_id)
+
+        rule_id = row["rule_id"]
+        if rule_id in seen_rule_ids:
+            duplicate_rule_ids.add(rule_id)
+        seen_rule_ids.add(rule_id)
+
+        allowlist_categories.update(row["hardened_allowlist"])
+
+    return {
+        "schema_version": "1.0.0",
+        "artifact_id": "cgse-deterministic-policy-spec-v1",
+        "generated_at_utc": artifact["generated_at_utc"],
+        "baseline_comparator": artifact["baseline_comparator"],
+        "source_ledger": "artifacts/cgse/v1/cgse_legacy_tiebreak_ordering_ledger_v1.json",
+        "policy_scope": (
+            "Deterministic strict/hardened policy compilation from CGSE legacy tie-break extraction rules."
+        ),
+        "policy_rows": rows,
+        "conflict_scan": {
+            "status": "no_conflicts" if not duplicate_policy_ids and not duplicate_rule_ids else "conflicts_detected",
+            "duplicate_policy_ids": sorted(duplicate_policy_ids),
+            "duplicate_rule_ids": sorted(duplicate_rule_ids),
+        },
+        "hardened_allowlisted_categories": sorted(allowlist_categories),
+        "alien_uplift_contract_card": {
+            "artifact_track": "cgse-policy",
+            "ev_score": 2.5,
+            "baseline": "Policy rows are generated directly from source-anchored CGSE rule extraction.",
+            "notes": "Treats policy rows and invariants as executable contract surfaces, not prose.",
+        },
+        "profile_first_artifacts": artifact["profile_first_artifacts"],
+        "decision_theoretic_runtime_contract": {
+            "states": ["strict", "hardened", "fail_closed"],
+            "actions": [
+                "preserve_legacy_order",
+                "allow_allowlisted_ambiguity_only",
+                "reject_incompatible",
+            ],
+            "loss_model": "semantic_drift_major > ordering_noise_minor > diagnostic_verbosity_minor",
+            "safe_mode_fallback": "fail_closed",
+            "fallback_thresholds": {
+                "unknown_incompatible_feature": True,
+                "ambiguity_allowlist_required": True,
+            },
+        },
+        "isomorphism_proof_artifacts": artifact["isomorphism_proof_artifacts"],
+        "structured_logging_evidence": artifact["structured_logging_evidence"],
+    }
+
+
+def build_semantics_threat_artifact(
+    artifact: dict[str, Any],
+    policy: dict[str, Any],
+) -> dict[str, Any]:
+    rules_by_id = {
+        rule["rule_id"]: rule
+        for rule in artifact["rules"]
+    }
+
+    threat_class_map = {
+        "graph_core_mutation": "state_corruption",
+        "view_semantics": "ordering_ambiguity",
+        "dispatch_routing": "backend_route_ambiguity",
+        "conversion_contracts": "conversion_precedence_drift",
+        "shortest_path_algorithms": "tie_break_ambiguity",
+        "readwrite_serialization": "serialization_order_drift",
+        "generator_semantics": "generator_order_drift",
+        "runtime_config": "config_validation_order_drift",
+        "oracle_test_surface": "oracle_ambiguity_mismatch",
+    }
+
+    threat_rows: list[dict[str, Any]] = []
+    boundary_rows: list[dict[str, Any]] = []
+    allowlist_categories: set[str] = set()
+
+    for row in policy["policy_rows"]:
+        rule_id = row["rule_id"]
+        rule = rules_by_id[rule_id]
+        operation_family = row["operation_family"]
+        threat_id = rule_id.replace("CGSE-R", "CGSE-TM-R")
+        boundary_id = rule_id.replace("CGSE-R", "CGSE-CB-R")
+        allowlist = row["hardened_allowlist"]
+        allowlist_categories.update(allowlist)
+
+        hook_rows = []
+        for channel in ["unit", "property", "differential", "e2e"]:
+            hook_rows.extend(rule["test_hooks"].get(channel, []))
+        evidence_hooks = [f"{hook['path']}:{hook['lines']}" for hook in hook_rows]
+        adversarial_hooks = row["verification_hooks"]["differential"]
+
+        threat_rows.append(
+            {
+                "threat_id": threat_id,
+                "rule_id": rule_id,
+                "threat_class": threat_class_map.get(operation_family, "ordering_drift"),
+                "strict_mode_response": (
+                    f"Fail-closed on any strict-mode drift from `{row['tie_break_contract']}` / "
+                    f"`{row['ordering_contract']}` semantics."
+                ),
+                "hardened_mode_response": (
+                    "Allow only explicit allowlisted ambiguity categories with deterministic audit evidence; "
+                    "otherwise fail closed."
+                ),
+                "mitigations": [
+                    "machine-checkable strict/hardened invariants per policy row",
+                    "allowlist-bound ambiguity control gates",
+                    "cross-channel replayable verification hook coverage",
+                ],
+                "evidence_artifact": "artifacts/cgse/v1/cgse_deterministic_policy_spec_v1.json",
+                "adversarial_fixture_hooks": adversarial_hooks,
+                "crash_triage_taxonomy": [
+                    f"cgse.{operation_family}.strict_drift_detected",
+                    f"cgse.{operation_family}.hardened_allowlist_violation",
+                ],
+                "hardened_allowlisted_categories": allowlist,
+                "compatibility_boundary": (
+                    f"{operation_family} semantics boundary for {rule_id}"
+                ),
+            }
+        )
+
+        boundary_rows.append(
+            {
+                "boundary_id": boundary_id,
+                "rule_id": rule_id,
+                "strict_parity_obligation": (
+                    f"Preserve legacy-observable tie-break `{row['tie_break_contract']}` and ordering "
+                    f"`{row['ordering_contract']}` contracts without repair heuristics."
+                ),
+                "hardened_allowlisted_deviation_categories": allowlist,
+                "fail_closed_default": row["fail_closed_default"],
+                "evidence_hooks": evidence_hooks,
+            }
+        )
+
+    return {
+        "schema_version": "1.0.0",
+        "artifact_id": "cgse-semantics-threat-model-v1",
+        "generated_at_utc": artifact["generated_at_utc"],
+        "baseline_comparator": artifact["baseline_comparator"],
+        "source_ledger": "artifacts/cgse/v1/cgse_legacy_tiebreak_ordering_ledger_v1.json",
+        "source_policy": "artifacts/cgse/v1/cgse_deterministic_policy_spec_v1.json",
+        "scope_statement": (
+            "Threat model for CGSE semantics boundaries with explicit strict/hardened compatibility envelopes."
+        ),
+        "threat_rows": threat_rows,
+        "compatibility_boundary_rows": boundary_rows,
+        "hardened_allowlisted_categories": sorted(allowlist_categories),
+        "alien_uplift_contract_card": {
+            "artifact_track": "cgse-threat-model",
+            "ev_score": 2.4,
+            "baseline": "Threat rows are generated directly from deterministic policy rows and legacy rule extraction.",
+            "notes": "Semantics-boundary risk handling is allowlist-bounded and fail-closed by default.",
+        },
+        "profile_first_artifacts": artifact["profile_first_artifacts"],
+        "decision_theoretic_runtime_contract": {
+            "states": ["strict", "hardened", "fail_closed"],
+            "actions": [
+                "preserve_strict_semantics",
+                "apply_allowlisted_hardened_controls",
+                "fail_closed",
+            ],
+            "loss_model": "compatibility_drift_major > security_risk_major > diagnostic_noise_minor",
+            "safe_mode_fallback": "fail_closed",
+            "fallback_thresholds": {
+                "unknown_incompatible_feature": True,
+                "allowlist_violation": True,
+            },
+        },
+        "isomorphism_proof_artifacts": artifact["isomorphism_proof_artifacts"],
+        "structured_logging_evidence": artifact["structured_logging_evidence"],
+    }
+
+
 def render_markdown(artifact: dict[str, Any]) -> str:
     lines: list[str] = []
     lines.append("# CGSE Legacy Tie-Break and Ordering Ledger")
@@ -893,6 +1141,134 @@ def render_markdown(artifact: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def render_policy_markdown(policy: dict[str, Any]) -> str:
+    lines: list[str] = []
+    lines.append("# CGSE Deterministic Policy Spec")
+    lines.append("")
+    lines.append(f"- artifact id: `{policy['artifact_id']}`")
+    lines.append(f"- generated at (utc): `{policy['generated_at_utc']}`")
+    lines.append(f"- baseline comparator: `{policy['baseline_comparator']}`")
+    lines.append(f"- source ledger: `{policy['source_ledger']}`")
+    lines.append("")
+    lines.append("## Scope")
+    lines.append(policy["policy_scope"])
+    lines.append("")
+    lines.append("## Policy Table")
+    lines.append(
+        "| policy id | rule id | family | tie-break contract | ordering contract | strict invariant | "
+        "hardened invariant | allowlist |"
+    )
+    lines.append("|---|---|---|---|---|---|---|---|")
+    for row in policy["policy_rows"]:
+        lines.append(
+            "| {policy_id} | {rule_id} | {family} | {tie} | {ordering} | {strict} | {hardened} | {allowlist} |".format(
+                policy_id=row["policy_id"],
+                rule_id=row["rule_id"],
+                family=row["operation_family"],
+                tie=row["tie_break_contract"],
+                ordering=row["ordering_contract"],
+                strict=row["strict_invariant"],
+                hardened=row["hardened_invariant"],
+                allowlist="; ".join(row["hardened_allowlist"]),
+            )
+        )
+    lines.append("")
+    lines.append("## Conflict Scan")
+    lines.append(f"- status: `{policy['conflict_scan']['status']}`")
+    lines.append(
+        "- duplicate policy ids: {rows}".format(
+            rows="; ".join(policy["conflict_scan"]["duplicate_policy_ids"]) or "none"
+        )
+    )
+    lines.append(
+        "- duplicate rule ids: {rows}".format(
+            rows="; ".join(policy["conflict_scan"]["duplicate_rule_ids"]) or "none"
+        )
+    )
+    lines.append("")
+    lines.append("## Hardened Guardrails")
+    lines.append(
+        "- allowlisted categories: `{}`".format("; ".join(policy["hardened_allowlisted_categories"]))
+    )
+    lines.append("- hardened behavior must remain allowlist-bounded and fail-closed for unknown drift.")
+    lines.append("")
+    lines.append("## Evidence References")
+    lines.append("- profile baseline: `{}`".format(policy["profile_first_artifacts"]["baseline"]))
+    lines.append("- profile hotspot: `{}`".format(policy["profile_first_artifacts"]["hotspot"]))
+    lines.append("- profile delta: `{}`".format(policy["profile_first_artifacts"]["delta"]))
+    for path in policy["isomorphism_proof_artifacts"]:
+        lines.append(f"- isomorphism proof: `{path}`")
+    for path in policy["structured_logging_evidence"]:
+        lines.append(f"- structured logging evidence: `{path}`")
+
+    return "\n".join(lines) + "\n"
+
+
+def render_semantics_threat_markdown(threat: dict[str, Any]) -> str:
+    lines: list[str] = []
+    lines.append("# CGSE Semantics Boundary Threat Model")
+    lines.append("")
+    lines.append(f"- artifact id: `{threat['artifact_id']}`")
+    lines.append(f"- generated at (utc): `{threat['generated_at_utc']}`")
+    lines.append(f"- baseline comparator: `{threat['baseline_comparator']}`")
+    lines.append(f"- source ledger: `{threat['source_ledger']}`")
+    lines.append(f"- source policy: `{threat['source_policy']}`")
+    lines.append("")
+    lines.append("## Scope")
+    lines.append(threat["scope_statement"])
+    lines.append("")
+    lines.append("## Packet Threat Matrix")
+    lines.append(
+        "| threat id | rule id | threat class | strict mode response | hardened mode response | "
+        "mitigations | evidence artifact | adversarial hooks | crash taxonomy | allowlist | compatibility boundary |"
+    )
+    lines.append("|---|---|---|---|---|---|---|---|---|---|---|")
+    for row in threat["threat_rows"]:
+        lines.append(
+            "| {threat_id} | {rule_id} | {threat_class} | {strict} | {hardened} | {mitigations} | "
+            "{artifact} | {hooks} | {taxonomy} | {allowlist} | {boundary} |".format(
+                threat_id=row["threat_id"],
+                rule_id=row["rule_id"],
+                threat_class=row["threat_class"],
+                strict=row["strict_mode_response"],
+                hardened=row["hardened_mode_response"],
+                mitigations="; ".join(row["mitigations"]),
+                artifact=row["evidence_artifact"],
+                hooks="; ".join(row["adversarial_fixture_hooks"]),
+                taxonomy="; ".join(row["crash_triage_taxonomy"]),
+                allowlist="; ".join(row["hardened_allowlisted_categories"]),
+                boundary=row["compatibility_boundary"],
+            )
+        )
+    lines.append("")
+    lines.append("## Compatibility Boundary Matrix")
+    lines.append(
+        "| boundary id | rule id | strict parity obligation | hardened allowlisted categories | "
+        "fail-closed default | evidence hooks |"
+    )
+    lines.append("|---|---|---|---|---|---|")
+    for row in threat["compatibility_boundary_rows"]:
+        lines.append(
+            "| {boundary_id} | {rule_id} | {strict} | {allowlist} | {fail_closed} | {hooks} |".format(
+                boundary_id=row["boundary_id"],
+                rule_id=row["rule_id"],
+                strict=row["strict_parity_obligation"],
+                allowlist="; ".join(row["hardened_allowlisted_deviation_categories"]),
+                fail_closed=row["fail_closed_default"],
+                hooks="; ".join(row["evidence_hooks"]),
+            )
+        )
+    lines.append("")
+    lines.append("## Hardened Guardrails")
+    lines.append(
+        "- allowlisted categories only: `{}`.".format("; ".join(threat["hardened_allowlisted_categories"]))
+    )
+    lines.append("- ad hoc hardened deviations: forbidden.")
+    lines.append("- unknown incompatible feature policy: fail_closed.")
+
+    return "\n".join(lines) + "\n"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -905,24 +1281,64 @@ def main() -> int:
         default="artifacts/cgse/v1/cgse_legacy_tiebreak_ordering_ledger_v1.md",
         help="Output markdown artifact path",
     )
+    parser.add_argument(
+        "--policy-json-out",
+        default="artifacts/cgse/v1/cgse_deterministic_policy_spec_v1.json",
+        help="Output deterministic policy JSON artifact path",
+    )
+    parser.add_argument(
+        "--policy-md-out",
+        default="artifacts/cgse/v1/cgse_deterministic_policy_spec_v1.md",
+        help="Output deterministic policy markdown artifact path",
+    )
+    parser.add_argument(
+        "--threat-json-out",
+        default="artifacts/cgse/v1/cgse_semantics_threat_model_v1.json",
+        help="Output semantics-boundary threat model JSON artifact path",
+    )
+    parser.add_argument(
+        "--threat-md-out",
+        default="artifacts/cgse/v1/cgse_semantics_threat_model_v1.md",
+        help="Output semantics-boundary threat model markdown artifact path",
+    )
     args = parser.parse_args()
 
     root = repo_root()
     json_path = root / args.json_out
     md_path = root / args.md_out
+    policy_json_path = root / args.policy_json_out
+    policy_md_path = root / args.policy_md_out
+    threat_json_path = root / args.threat_json_out
+    threat_md_path = root / args.threat_md_out
 
     artifact = build_artifact()
+    policy_artifact = build_policy_artifact(artifact)
+    threat_artifact = build_semantics_threat_artifact(artifact, policy_artifact)
     json_path.parent.mkdir(parents=True, exist_ok=True)
     md_path.parent.mkdir(parents=True, exist_ok=True)
+    policy_json_path.parent.mkdir(parents=True, exist_ok=True)
+    policy_md_path.parent.mkdir(parents=True, exist_ok=True)
+    threat_json_path.parent.mkdir(parents=True, exist_ok=True)
+    threat_md_path.parent.mkdir(parents=True, exist_ok=True)
 
     json_path.write_text(json.dumps(artifact, indent=2) + "\n", encoding="utf-8")
     md_path.write_text(render_markdown(artifact), encoding="utf-8")
+    policy_json_path.write_text(json.dumps(policy_artifact, indent=2) + "\n", encoding="utf-8")
+    policy_md_path.write_text(render_policy_markdown(policy_artifact), encoding="utf-8")
+    threat_json_path.write_text(json.dumps(threat_artifact, indent=2) + "\n", encoding="utf-8")
+    threat_md_path.write_text(render_semantics_threat_markdown(threat_artifact), encoding="utf-8")
 
     print(json.dumps({
         "artifact_json": str(json_path.relative_to(root)),
         "artifact_markdown": str(md_path.relative_to(root)),
         "rule_count": len(artifact["rules"]),
         "ambiguity_count": len(artifact["ambiguity_register"]),
+        "policy_artifact_json": str(policy_json_path.relative_to(root)),
+        "policy_artifact_markdown": str(policy_md_path.relative_to(root)),
+        "policy_row_count": len(policy_artifact["policy_rows"]),
+        "threat_artifact_json": str(threat_json_path.relative_to(root)),
+        "threat_artifact_markdown": str(threat_md_path.relative_to(root)),
+        "threat_row_count": len(threat_artifact["threat_rows"]),
     }, indent=2))
     return 0
 

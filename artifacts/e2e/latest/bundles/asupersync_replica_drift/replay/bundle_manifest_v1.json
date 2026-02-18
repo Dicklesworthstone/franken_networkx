@@ -13,15 +13,15 @@
   "deterministic_seed": 1017954080714268602,
   "replay_command": "rch exec -- cargo test -q -p fnx-runtime asupersync_adapter_partial_write_cursor_regression_is_fail_closed -- --exact --nocapture",
   "execution_metadata": {
-    "run_id": "e2e-script-pack-20260218T052924Z",
+    "run_id": "e2e-script-pack-20260218T071801Z",
     "pass_label": "replay",
     "gate_step_id": "step-1",
     "status": "passed",
     "reason_code": null,
-    "start_unix_ms": 1771392966217,
-    "end_unix_ms": 1771392980258,
-    "duration_ms": 14041,
-    "generated_at_utc": "2026-02-18T05:36:20.260413+00:00",
+    "start_unix_ms": 1771399521662,
+    "end_unix_ms": 1771399535684,
+    "duration_ms": 14022,
+    "generated_at_utc": "2026-02-18T07:25:35.685912+00:00",
     "forensics_source": "synthesized_fallback"
   },
   "forensics_links": {

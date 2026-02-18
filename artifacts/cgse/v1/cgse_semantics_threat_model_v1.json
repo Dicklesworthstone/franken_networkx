@@ -1,0 +1,615 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "cgse-semantics-threat-model-v1",
+  "generated_at_utc": "2026-02-18T06:42:15Z",
+  "baseline_comparator": "legacy_networkx_code/networkx/networkx (repository checkout in current workspace)",
+  "source_ledger": "artifacts/cgse/v1/cgse_legacy_tiebreak_ordering_ledger_v1.json",
+  "source_policy": "artifacts/cgse/v1/cgse_deterministic_policy_spec_v1.json",
+  "scope_statement": "Threat model for CGSE semantics boundaries with explicit strict/hardened compatibility envelopes.",
+  "threat_rows": [
+    {
+      "threat_id": "CGSE-TM-R01",
+      "rule_id": "CGSE-R01",
+      "threat_class": "state_corruption",
+      "strict_mode_response": "Fail-closed on any strict-mode drift from `first-unused-integer key scan` / `stable for fixed keydict state; gaps may be skipped after deletions` semantics.",
+      "hardened_mode_response": "Allow only explicit allowlisted ambiguity categories with deterministic audit evidence; otherwise fail closed.",
+      "mitigations": [
+        "machine-checkable strict/hardened invariants per policy row",
+        "allowlist-bound ambiguity control gates",
+        "cross-channel replayable verification hook coverage"
+      ],
+      "evidence_artifact": "artifacts/cgse/v1/cgse_deterministic_policy_spec_v1.json",
+      "adversarial_fixture_hooks": [
+        "CGSE-DIFF-R01"
+      ],
+      "crash_triage_taxonomy": [
+        "cgse.graph_core_mutation.strict_drift_detected",
+        "cgse.graph_core_mutation.hardened_allowlist_violation"
+      ],
+      "hardened_allowlisted_categories": [
+        "CGSE-AMB-001"
+      ],
+      "compatibility_boundary": "graph_core_mutation semantics boundary for CGSE-R01"
+    },
+    {
+      "threat_id": "CGSE-TM-R02",
+      "rule_id": "CGSE-R02",
+      "threat_class": "state_corruption",
+      "strict_mode_response": "Fail-closed on any strict-mode drift from `remove newest edge first when key=None` / `LIFO across multiedges between same endpoints` semantics.",
+      "hardened_mode_response": "Allow only explicit allowlisted ambiguity categories with deterministic audit evidence; otherwise fail closed.",
+      "mitigations": [
+        "machine-checkable strict/hardened invariants per policy row",
+        "allowlist-bound ambiguity control gates",
+        "cross-channel replayable verification hook coverage"
+      ],
+      "evidence_artifact": "artifacts/cgse/v1/cgse_deterministic_policy_spec_v1.json",
+      "adversarial_fixture_hooks": [
+        "CGSE-DIFF-R02"
+      ],
+      "crash_triage_taxonomy": [
+        "cgse.graph_core_mutation.strict_drift_detected",
+        "cgse.graph_core_mutation.hardened_allowlist_violation"
+      ],
+      "hardened_allowlisted_categories": [
+        "CGSE-AMB-002"
+      ],
+      "compatibility_boundary": "graph_core_mutation semantics boundary for CGSE-R02"
+    },
+    {
+      "threat_id": "CGSE-TM-R03",
+      "rule_id": "CGSE-R03",
+      "threat_class": "state_corruption",
+      "strict_mode_response": "Fail-closed on any strict-mode drift from `preserve encounter-order attr selection` / `directed edge traversal order determines conflict winner` semantics.",
+      "hardened_mode_response": "Allow only explicit allowlisted ambiguity categories with deterministic audit evidence; otherwise fail closed.",
+      "mitigations": [
+        "machine-checkable strict/hardened invariants per policy row",
+        "allowlist-bound ambiguity control gates",
+        "cross-channel replayable verification hook coverage"
+      ],
+      "evidence_artifact": "artifacts/cgse/v1/cgse_deterministic_policy_spec_v1.json",
+      "adversarial_fixture_hooks": [
+        "CGSE-DIFF-R03"
+      ],
+      "crash_triage_taxonomy": [
+        "cgse.graph_core_mutation.strict_drift_detected",
+        "cgse.graph_core_mutation.hardened_allowlist_violation"
+      ],
+      "hardened_allowlisted_categories": [
+        "CGSE-AMB-003"
+      ],
+      "compatibility_boundary": "graph_core_mutation semantics boundary for CGSE-R03"
+    },
+    {
+      "threat_id": "CGSE-TM-R04",
+      "rule_id": "CGSE-R04",
+      "threat_class": "ordering_ambiguity",
+      "strict_mode_response": "Fail-closed on any strict-mode drift from `prefer direct dict-order surfaces; treat set-union surfaces as ambiguity hotspots` / `deterministic for pure dict proxies; ambiguous for set-union composites` semantics.",
+      "hardened_mode_response": "Allow only explicit allowlisted ambiguity categories with deterministic audit evidence; otherwise fail closed.",
+      "mitigations": [
+        "machine-checkable strict/hardened invariants per policy row",
+        "allowlist-bound ambiguity control gates",
+        "cross-channel replayable verification hook coverage"
+      ],
+      "evidence_artifact": "artifacts/cgse/v1/cgse_deterministic_policy_spec_v1.json",
+      "adversarial_fixture_hooks": [
+        "CGSE-DIFF-R04"
+      ],
+      "crash_triage_taxonomy": [
+        "cgse.view_semantics.strict_drift_detected",
+        "cgse.view_semantics.hardened_allowlist_violation"
+      ],
+      "hardened_allowlisted_categories": [
+        "CGSE-AMB-004"
+      ],
+      "compatibility_boundary": "view_semantics semantics boundary for CGSE-R04"
+    },
+    {
+      "threat_id": "CGSE-TM-R05",
+      "rule_id": "CGSE-R05",
+      "threat_class": "backend_route_ambiguity",
+      "strict_mode_response": "Fail-closed on any strict-mode drift from `sorted-key application for unknown priority categories` / `stable env-variable fold order after normalization` semantics.",
+      "hardened_mode_response": "Allow only explicit allowlisted ambiguity categories with deterministic audit evidence; otherwise fail closed.",
+      "mitigations": [
+        "machine-checkable strict/hardened invariants per policy row",
+        "allowlist-bound ambiguity control gates",
+        "cross-channel replayable verification hook coverage"
+      ],
+      "evidence_artifact": "artifacts/cgse/v1/cgse_deterministic_policy_spec_v1.json",
+      "adversarial_fixture_hooks": [
+        "CGSE-DIFF-R05"
+      ],
+      "crash_triage_taxonomy": [
+        "cgse.dispatch_routing.strict_drift_detected",
+        "cgse.dispatch_routing.hardened_allowlist_violation"
+      ],
+      "hardened_allowlisted_categories": [
+        "CGSE-AMB-005"
+      ],
+      "compatibility_boundary": "dispatch_routing semantics boundary for CGSE-R05"
+    },
+    {
+      "threat_id": "CGSE-TM-R06",
+      "rule_id": "CGSE-R06",
+      "threat_class": "backend_route_ambiguity",
+      "strict_mode_response": "Fail-closed on any strict-mode drift from `grouped-priority try-order with no implicit alphabetical fallback for ambiguous group3` / `group1 -> group2 -> group3 -> group4 -> group5` semantics.",
+      "hardened_mode_response": "Allow only explicit allowlisted ambiguity categories with deterministic audit evidence; otherwise fail closed.",
+      "mitigations": [
+        "machine-checkable strict/hardened invariants per policy row",
+        "allowlist-bound ambiguity control gates",
+        "cross-channel replayable verification hook coverage"
+      ],
+      "evidence_artifact": "artifacts/cgse/v1/cgse_deterministic_policy_spec_v1.json",
+      "adversarial_fixture_hooks": [
+        "CGSE-DIFF-R06"
+      ],
+      "crash_triage_taxonomy": [
+        "cgse.dispatch_routing.strict_drift_detected",
+        "cgse.dispatch_routing.hardened_allowlist_violation"
+      ],
+      "hardened_allowlisted_categories": [
+        "CGSE-AMB-006"
+      ],
+      "compatibility_boundary": "dispatch_routing semantics boundary for CGSE-R06"
+    },
+    {
+      "threat_id": "CGSE-TM-R07",
+      "rule_id": "CGSE-R07",
+      "threat_class": "conversion_precedence_drift",
+      "strict_mode_response": "Fail-closed on any strict-mode drift from `fixed probe-order precedence` / `first successful conversion branch wins` semantics.",
+      "hardened_mode_response": "Allow only explicit allowlisted ambiguity categories with deterministic audit evidence; otherwise fail closed.",
+      "mitigations": [
+        "machine-checkable strict/hardened invariants per policy row",
+        "allowlist-bound ambiguity control gates",
+        "cross-channel replayable verification hook coverage"
+      ],
+      "evidence_artifact": "artifacts/cgse/v1/cgse_deterministic_policy_spec_v1.json",
+      "adversarial_fixture_hooks": [
+        "CGSE-DIFF-R07"
+      ],
+      "crash_triage_taxonomy": [
+        "cgse.conversion_contracts.strict_drift_detected",
+        "cgse.conversion_contracts.hardened_allowlist_violation"
+      ],
+      "hardened_allowlisted_categories": [
+        "CGSE-AMB-007"
+      ],
+      "compatibility_boundary": "conversion_contracts semantics boundary for CGSE-R07"
+    },
+    {
+      "threat_id": "CGSE-TM-R08",
+      "rule_id": "CGSE-R08",
+      "threat_class": "tie_break_ambiguity",
+      "strict_mode_response": "Fail-closed on any strict-mode drift from `distance then insertion counter then predecessor-list first element` / `equal-weight predecessors tracked in encounter order` semantics.",
+      "hardened_mode_response": "Allow only explicit allowlisted ambiguity categories with deterministic audit evidence; otherwise fail closed.",
+      "mitigations": [
+        "machine-checkable strict/hardened invariants per policy row",
+        "allowlist-bound ambiguity control gates",
+        "cross-channel replayable verification hook coverage"
+      ],
+      "evidence_artifact": "artifacts/cgse/v1/cgse_deterministic_policy_spec_v1.json",
+      "adversarial_fixture_hooks": [
+        "CGSE-DIFF-R08"
+      ],
+      "crash_triage_taxonomy": [
+        "cgse.shortest_path_algorithms.strict_drift_detected",
+        "cgse.shortest_path_algorithms.hardened_allowlist_violation"
+      ],
+      "hardened_allowlisted_categories": [
+        "CGSE-AMB-008"
+      ],
+      "compatibility_boundary": "shortest_path_algorithms semantics boundary for CGSE-R08"
+    },
+    {
+      "threat_id": "CGSE-TM-R09",
+      "rule_id": "CGSE-R09",
+      "threat_class": "tie_break_ambiguity",
+      "strict_mode_response": "Fail-closed on any strict-mode drift from `alternating direction + monotonic fringe counter` / `first discovered best meet-node wins unless shorter path found` semantics.",
+      "hardened_mode_response": "Allow only explicit allowlisted ambiguity categories with deterministic audit evidence; otherwise fail closed.",
+      "mitigations": [
+        "machine-checkable strict/hardened invariants per policy row",
+        "allowlist-bound ambiguity control gates",
+        "cross-channel replayable verification hook coverage"
+      ],
+      "evidence_artifact": "artifacts/cgse/v1/cgse_deterministic_policy_spec_v1.json",
+      "adversarial_fixture_hooks": [
+        "CGSE-DIFF-R09"
+      ],
+      "crash_triage_taxonomy": [
+        "cgse.shortest_path_algorithms.strict_drift_detected",
+        "cgse.shortest_path_algorithms.hardened_allowlist_violation"
+      ],
+      "hardened_allowlisted_categories": [
+        "bounded_diagnostic_enrichment"
+      ],
+      "compatibility_boundary": "shortest_path_algorithms semantics boundary for CGSE-R09"
+    },
+    {
+      "threat_id": "CGSE-TM-R10",
+      "rule_id": "CGSE-R10",
+      "threat_class": "serialization_order_drift",
+      "strict_mode_response": "Fail-closed on any strict-mode drift from `graph-edge iteration order` / `output row order follows edge iterator traversal` semantics.",
+      "hardened_mode_response": "Allow only explicit allowlisted ambiguity categories with deterministic audit evidence; otherwise fail closed.",
+      "mitigations": [
+        "machine-checkable strict/hardened invariants per policy row",
+        "allowlist-bound ambiguity control gates",
+        "cross-channel replayable verification hook coverage"
+      ],
+      "evidence_artifact": "artifacts/cgse/v1/cgse_deterministic_policy_spec_v1.json",
+      "adversarial_fixture_hooks": [
+        "CGSE-DIFF-R10"
+      ],
+      "crash_triage_taxonomy": [
+        "cgse.readwrite_serialization.strict_drift_detected",
+        "cgse.readwrite_serialization.hardened_allowlist_violation"
+      ],
+      "hardened_allowlisted_categories": [
+        "CGSE-AMB-009"
+      ],
+      "compatibility_boundary": "readwrite_serialization semantics boundary for CGSE-R10"
+    },
+    {
+      "threat_id": "CGSE-TM-R11",
+      "rule_id": "CGSE-R11",
+      "threat_class": "serialization_order_drift",
+      "strict_mode_response": "Fail-closed on any strict-mode drift from `first-seen line order for duplicate/same-endpoint edges` / `edge insertion order matches parsed line order` semantics.",
+      "hardened_mode_response": "Allow only explicit allowlisted ambiguity categories with deterministic audit evidence; otherwise fail closed.",
+      "mitigations": [
+        "machine-checkable strict/hardened invariants per policy row",
+        "allowlist-bound ambiguity control gates",
+        "cross-channel replayable verification hook coverage"
+      ],
+      "evidence_artifact": "artifacts/cgse/v1/cgse_deterministic_policy_spec_v1.json",
+      "adversarial_fixture_hooks": [
+        "CGSE-DIFF-R11"
+      ],
+      "crash_triage_taxonomy": [
+        "cgse.readwrite_serialization.strict_drift_detected",
+        "cgse.readwrite_serialization.hardened_allowlist_violation"
+      ],
+      "hardened_allowlisted_categories": [
+        "bounded_diagnostic_enrichment"
+      ],
+      "compatibility_boundary": "readwrite_serialization semantics boundary for CGSE-R11"
+    },
+    {
+      "threat_id": "CGSE-TM-R12",
+      "rule_id": "CGSE-R12",
+      "threat_class": "generator_order_drift",
+      "strict_mode_response": "Fail-closed on any strict-mode drift from `input-iterable order and documented directed orientation` / `generator edge emission follows pairwise traversal` semantics.",
+      "hardened_mode_response": "Allow only explicit allowlisted ambiguity categories with deterministic audit evidence; otherwise fail closed.",
+      "mitigations": [
+        "machine-checkable strict/hardened invariants per policy row",
+        "allowlist-bound ambiguity control gates",
+        "cross-channel replayable verification hook coverage"
+      ],
+      "evidence_artifact": "artifacts/cgse/v1/cgse_deterministic_policy_spec_v1.json",
+      "adversarial_fixture_hooks": [
+        "CGSE-DIFF-R12"
+      ],
+      "crash_triage_taxonomy": [
+        "cgse.generator_semantics.strict_drift_detected",
+        "cgse.generator_semantics.hardened_allowlist_violation"
+      ],
+      "hardened_allowlisted_categories": [
+        "CGSE-AMB-010"
+      ],
+      "compatibility_boundary": "generator_semantics semantics boundary for CGSE-R12"
+    },
+    {
+      "threat_id": "CGSE-TM-R13",
+      "rule_id": "CGSE-R13",
+      "threat_class": "config_validation_order_drift",
+      "strict_mode_response": "Fail-closed on any strict-mode drift from `deterministic sorted error-report ordering` / `stable validation message ordering across runs` semantics.",
+      "hardened_mode_response": "Allow only explicit allowlisted ambiguity categories with deterministic audit evidence; otherwise fail closed.",
+      "mitigations": [
+        "machine-checkable strict/hardened invariants per policy row",
+        "allowlist-bound ambiguity control gates",
+        "cross-channel replayable verification hook coverage"
+      ],
+      "evidence_artifact": "artifacts/cgse/v1/cgse_deterministic_policy_spec_v1.json",
+      "adversarial_fixture_hooks": [
+        "CGSE-DIFF-R13"
+      ],
+      "crash_triage_taxonomy": [
+        "cgse.runtime_config.strict_drift_detected",
+        "cgse.runtime_config.hardened_allowlist_violation"
+      ],
+      "hardened_allowlisted_categories": [
+        "bounded_diagnostic_enrichment"
+      ],
+      "compatibility_boundary": "runtime_config semantics boundary for CGSE-R13"
+    },
+    {
+      "threat_id": "CGSE-TM-R14",
+      "rule_id": "CGSE-R14",
+      "threat_class": "oracle_ambiguity_mismatch",
+      "strict_mode_response": "Fail-closed on any strict-mode drift from `accept multiple equivalent predecessor orderings where legacy oracle permits` / `maintain compatibility allowlist for equal-cost ambiguity` semantics.",
+      "hardened_mode_response": "Allow only explicit allowlisted ambiguity categories with deterministic audit evidence; otherwise fail closed.",
+      "mitigations": [
+        "machine-checkable strict/hardened invariants per policy row",
+        "allowlist-bound ambiguity control gates",
+        "cross-channel replayable verification hook coverage"
+      ],
+      "evidence_artifact": "artifacts/cgse/v1/cgse_deterministic_policy_spec_v1.json",
+      "adversarial_fixture_hooks": [
+        "CGSE-DIFF-R14"
+      ],
+      "crash_triage_taxonomy": [
+        "cgse.oracle_test_surface.strict_drift_detected",
+        "cgse.oracle_test_surface.hardened_allowlist_violation"
+      ],
+      "hardened_allowlisted_categories": [
+        "CGSE-AMB-011"
+      ],
+      "compatibility_boundary": "oracle_test_surface semantics boundary for CGSE-R14"
+    }
+  ],
+  "compatibility_boundary_rows": [
+    {
+      "boundary_id": "CGSE-CB-R01",
+      "rule_id": "CGSE-R01",
+      "strict_parity_obligation": "Preserve legacy-observable tie-break `first-unused-integer key scan` and ordering `stable for fixed keydict state; gaps may be skipped after deletions` contracts without repair heuristics.",
+      "hardened_allowlisted_deviation_categories": [
+        "CGSE-AMB-001"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r01_drift",
+      "evidence_hooks": [
+        "legacy_networkx_code/networkx/networkx/classes/tests/test_multigraph.py:320-362",
+        "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs:51-187",
+        "crates/fnx-conformance/fixtures/graph_core_mutation_hardened.json:1-200",
+        "scripts/run_phase2c_readiness_e2e.sh:1-120"
+      ]
+    },
+    {
+      "boundary_id": "CGSE-CB-R02",
+      "rule_id": "CGSE-R02",
+      "strict_parity_obligation": "Preserve legacy-observable tie-break `remove newest edge first when key=None` and ordering `LIFO across multiedges between same endpoints` contracts without repair heuristics.",
+      "hardened_allowlisted_deviation_categories": [
+        "CGSE-AMB-002"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r02_drift",
+      "evidence_hooks": [
+        "legacy_networkx_code/networkx/networkx/classes/tests/test_multigraph.py:363-406",
+        "legacy_networkx_code/networkx/networkx/classes/tests/test_multidigraph.py:329-392",
+        "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs:51-187",
+        "crates/fnx-conformance/fixtures/graph_core_mutation_hardened.json:1-200",
+        "scripts/run_phase2c_readiness_e2e.sh:1-120"
+      ]
+    },
+    {
+      "boundary_id": "CGSE-CB-R03",
+      "rule_id": "CGSE-R03",
+      "strict_parity_obligation": "Preserve legacy-observable tie-break `preserve encounter-order attr selection` and ordering `directed edge traversal order determines conflict winner` contracts without repair heuristics.",
+      "hardened_allowlisted_deviation_categories": [
+        "CGSE-AMB-003"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r03_drift",
+      "evidence_hooks": [
+        "legacy_networkx_code/networkx/networkx/classes/tests/test_digraph.py:101-123",
+        "legacy_networkx_code/networkx/networkx/classes/tests/test_multidigraph.py:223-244",
+        "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs:51-187",
+        "crates/fnx-conformance/fixtures/graph_core_shortest_path_strict.json:1-220",
+        "scripts/run_phase2c_readiness_e2e.sh:1-120"
+      ]
+    },
+    {
+      "boundary_id": "CGSE-CB-R04",
+      "rule_id": "CGSE-R04",
+      "strict_parity_obligation": "Preserve legacy-observable tie-break `prefer direct dict-order surfaces; treat set-union surfaces as ambiguity hotspots` and ordering `deterministic for pure dict proxies; ambiguous for set-union composites` contracts without repair heuristics.",
+      "hardened_allowlisted_deviation_categories": [
+        "CGSE-AMB-004"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r04_drift",
+      "evidence_hooks": [
+        "legacy_networkx_code/networkx/networkx/classes/tests/test_coreviews.py:26-81",
+        "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs:51-187",
+        "crates/fnx-conformance/fixtures/generated/view_neighbors_strict.json:1-220",
+        "scripts/run_phase2c_readiness_e2e.sh:1-120"
+      ]
+    },
+    {
+      "boundary_id": "CGSE-CB-R05",
+      "rule_id": "CGSE-R05",
+      "strict_parity_obligation": "Preserve legacy-observable tie-break `sorted-key application for unknown priority categories` and ordering `stable env-variable fold order after normalization` contracts without repair heuristics.",
+      "hardened_allowlisted_deviation_categories": [
+        "CGSE-AMB-005"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r05_drift",
+      "evidence_hooks": [
+        "legacy_networkx_code/networkx/networkx/utils/tests/test_backends.py:217-218",
+        "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs:51-187",
+        "crates/fnx-conformance/fixtures/generated/dispatch_route_strict.json:1-220",
+        "scripts/run_phase2c_readiness_e2e.sh:1-120"
+      ]
+    },
+    {
+      "boundary_id": "CGSE-CB-R06",
+      "rule_id": "CGSE-R06",
+      "strict_parity_obligation": "Preserve legacy-observable tie-break `grouped-priority try-order with no implicit alphabetical fallback for ambiguous group3` and ordering `group1 -> group2 -> group3 -> group4 -> group5` contracts without repair heuristics.",
+      "hardened_allowlisted_deviation_categories": [
+        "CGSE-AMB-006"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r06_drift",
+      "evidence_hooks": [
+        "legacy_networkx_code/networkx/networkx/utils/tests/test_backends.py:136-158",
+        "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs:51-187",
+        "crates/fnx-conformance/fixtures/generated/dispatch_route_strict.json:1-220",
+        "scripts/run_phase2c_readiness_e2e.sh:1-120"
+      ]
+    },
+    {
+      "boundary_id": "CGSE-CB-R07",
+      "rule_id": "CGSE-R07",
+      "strict_parity_obligation": "Preserve legacy-observable tie-break `fixed probe-order precedence` and ordering `first successful conversion branch wins` contracts without repair heuristics.",
+      "hardened_allowlisted_deviation_categories": [
+        "CGSE-AMB-007"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r07_drift",
+      "evidence_hooks": [
+        "legacy_networkx_code/networkx/networkx/tests/test_convert.py:21-31",
+        "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs:51-187",
+        "crates/fnx-conformance/fixtures/generated/convert_edge_list_strict.json:1-220",
+        "scripts/run_phase2c_readiness_e2e.sh:1-120"
+      ]
+    },
+    {
+      "boundary_id": "CGSE-CB-R08",
+      "rule_id": "CGSE-R08",
+      "strict_parity_obligation": "Preserve legacy-observable tie-break `distance then insertion counter then predecessor-list first element` and ordering `equal-weight predecessors tracked in encounter order` contracts without repair heuristics.",
+      "hardened_allowlisted_deviation_categories": [
+        "CGSE-AMB-008"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r08_drift",
+      "evidence_hooks": [
+        "legacy_networkx_code/networkx/networkx/algorithms/shortest_paths/tests/test_weighted.py:271-286",
+        "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs:51-187",
+        "crates/fnx-conformance/fixtures/graph_core_shortest_path_strict.json:1-220",
+        "scripts/run_phase2c_readiness_e2e.sh:1-120"
+      ]
+    },
+    {
+      "boundary_id": "CGSE-CB-R09",
+      "rule_id": "CGSE-R09",
+      "strict_parity_obligation": "Preserve legacy-observable tie-break `alternating direction + monotonic fringe counter` and ordering `first discovered best meet-node wins unless shorter path found` contracts without repair heuristics.",
+      "hardened_allowlisted_deviation_categories": [
+        "bounded_diagnostic_enrichment"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r09_drift",
+      "evidence_hooks": [
+        "legacy_networkx_code/networkx/networkx/algorithms/shortest_paths/tests/test_weighted.py:165-182",
+        "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs:51-187",
+        "crates/fnx-conformance/fixtures/graph_core_shortest_path_strict.json:1-220",
+        "scripts/run_phase2c_readiness_e2e.sh:1-120"
+      ]
+    },
+    {
+      "boundary_id": "CGSE-CB-R10",
+      "rule_id": "CGSE-R10",
+      "strict_parity_obligation": "Preserve legacy-observable tie-break `graph-edge iteration order` and ordering `output row order follows edge iterator traversal` contracts without repair heuristics.",
+      "hardened_allowlisted_deviation_categories": [
+        "CGSE-AMB-009"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r10_drift",
+      "evidence_hooks": [
+        "legacy_networkx_code/networkx/networkx/readwrite/tests/test_edgelist.py:187-217",
+        "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs:51-187",
+        "crates/fnx-conformance/fixtures/generated/readwrite_roundtrip_strict.json:1-220",
+        "scripts/run_phase2c_readiness_e2e.sh:1-120"
+      ]
+    },
+    {
+      "boundary_id": "CGSE-CB-R11",
+      "rule_id": "CGSE-R11",
+      "strict_parity_obligation": "Preserve legacy-observable tie-break `first-seen line order for duplicate/same-endpoint edges` and ordering `edge insertion order matches parsed line order` contracts without repair heuristics.",
+      "hardened_allowlisted_deviation_categories": [
+        "bounded_diagnostic_enrichment"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r11_drift",
+      "evidence_hooks": [
+        "legacy_networkx_code/networkx/networkx/readwrite/tests/test_edgelist.py:117-170",
+        "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs:51-187",
+        "crates/fnx-conformance/fixtures/generated/readwrite_json_roundtrip_strict.json:1-220",
+        "scripts/run_phase2c_readiness_e2e.sh:1-120"
+      ]
+    },
+    {
+      "boundary_id": "CGSE-CB-R12",
+      "rule_id": "CGSE-R12",
+      "strict_parity_obligation": "Preserve legacy-observable tie-break `input-iterable order and documented directed orientation` and ordering `generator edge emission follows pairwise traversal` contracts without repair heuristics.",
+      "hardened_allowlisted_deviation_categories": [
+        "CGSE-AMB-010"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r12_drift",
+      "evidence_hooks": [
+        "legacy_networkx_code/networkx/networkx/generators/tests/test_classic.py:212-232",
+        "legacy_networkx_code/networkx/networkx/generators/tests/test_classic.py:409-442",
+        "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs:51-187",
+        "crates/fnx-conformance/fixtures/generated/generators_cycle_strict.json:1-220",
+        "scripts/run_phase2c_readiness_e2e.sh:1-120"
+      ]
+    },
+    {
+      "boundary_id": "CGSE-CB-R13",
+      "rule_id": "CGSE-R13",
+      "strict_parity_obligation": "Preserve legacy-observable tie-break `deterministic sorted error-report ordering` and ordering `stable validation message ordering across runs` contracts without repair heuristics.",
+      "hardened_allowlisted_deviation_categories": [
+        "bounded_diagnostic_enrichment"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r13_drift",
+      "evidence_hooks": [
+        "legacy_networkx_code/networkx/networkx/utils/tests/test_config.py:120-169",
+        "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs:51-187",
+        "crates/fnx-conformance/fixtures/generated/runtime_config_optional_strict.json:1-220",
+        "scripts/run_phase2c_readiness_e2e.sh:1-120"
+      ]
+    },
+    {
+      "boundary_id": "CGSE-CB-R14",
+      "rule_id": "CGSE-R14",
+      "strict_parity_obligation": "Preserve legacy-observable tie-break `accept multiple equivalent predecessor orderings where legacy oracle permits` and ordering `maintain compatibility allowlist for equal-cost ambiguity` contracts without repair heuristics.",
+      "hardened_allowlisted_deviation_categories": [
+        "CGSE-AMB-011"
+      ],
+      "fail_closed_default": "fail_closed_on_cgse_r14_drift",
+      "evidence_hooks": [
+        "legacy_networkx_code/networkx/networkx/algorithms/shortest_paths/tests/test_weighted.py:271-286",
+        "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs:51-187",
+        "crates/fnx-conformance/fixtures/generated/conformance_harness_strict.json:1-220",
+        "scripts/run_phase2c_readiness_e2e.sh:1-120"
+      ]
+    }
+  ],
+  "hardened_allowlisted_categories": [
+    "CGSE-AMB-001",
+    "CGSE-AMB-002",
+    "CGSE-AMB-003",
+    "CGSE-AMB-004",
+    "CGSE-AMB-005",
+    "CGSE-AMB-006",
+    "CGSE-AMB-007",
+    "CGSE-AMB-008",
+    "CGSE-AMB-009",
+    "CGSE-AMB-010",
+    "CGSE-AMB-011",
+    "bounded_diagnostic_enrichment"
+  ],
+  "alien_uplift_contract_card": {
+    "artifact_track": "cgse-threat-model",
+    "ev_score": 2.4,
+    "baseline": "Threat rows are generated directly from deterministic policy rows and legacy rule extraction.",
+    "notes": "Semantics-boundary risk handling is allowlist-bounded and fail-closed by default."
+  },
+  "profile_first_artifacts": {
+    "baseline": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+    "hotspot": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+    "delta": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+  },
+  "decision_theoretic_runtime_contract": {
+    "states": [
+      "strict",
+      "hardened",
+      "fail_closed"
+    ],
+    "actions": [
+      "preserve_strict_semantics",
+      "apply_allowlisted_hardened_controls",
+      "fail_closed"
+    ],
+    "loss_model": "compatibility_drift_major > security_risk_major > diagnostic_noise_minor",
+    "safe_mode_fallback": "fail_closed",
+    "fallback_thresholds": {
+      "unknown_incompatible_feature": true,
+      "allowlist_violation": true
+    }
+  },
+  "isomorphism_proof_artifacts": [
+    "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_001_V1.md",
+    "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_005_V1.md",
+    "artifacts/proofs/ISOMORPHISM_PROOF_NEIGHBOR_ITER_BFS_V2.md"
+  ],
+  "structured_logging_evidence": [
+    "artifacts/conformance/latest/structured_logs.json",
+    "artifacts/conformance/latest/structured_logs.jsonl",
+    "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json"
+  ]
+}

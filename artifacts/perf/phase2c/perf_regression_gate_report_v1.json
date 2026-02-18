@@ -1,9 +1,9 @@
 {
   "schema_version": "1.0.0",
   "report_id": "phase2c-perf-regression-gate-v1",
-  "generated_at_utc": "2026-02-18T00:51:38.401862+00:00",
+  "generated_at_utc": "2026-02-18T06:00:12.627697+00:00",
   "baseline_path": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
-  "candidate_path": "artifacts/perf/latest/perf_baseline_matrix_v1.json",
+  "candidate_path": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
   "hotspot_backlog_path": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
   "policy": {
     "critical_latency_tail_pct_threshold": 5.0,
