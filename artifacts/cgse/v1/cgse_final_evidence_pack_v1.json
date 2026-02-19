@@ -1,0 +1,112 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "cgse-final-evidence-pack-v1",
+  "generated_at_utc": "2026-02-18T19:36:59Z",
+  "baseline_comparator": "legacy_networkx_code/networkx/networkx (repository checkout in current workspace)",
+  "scope": "CGSE final evidence bundle: deterministic tie-break policy spec + legacy extraction ledger + semantics boundary threat model + conformance gates + performance optimization evidence + durability artifacts.",
+  "evidence_inventory": {
+    "contract_artifacts": [
+      "artifacts/cgse/v1/cgse_legacy_tiebreak_ordering_ledger_v1.json",
+      "artifacts/cgse/schema/v1/cgse_legacy_tiebreak_ordering_ledger_schema_v1.json",
+      "artifacts/cgse/v1/cgse_deterministic_policy_spec_v1.json",
+      "artifacts/cgse/schema/v1/cgse_deterministic_policy_spec_schema_v1.json",
+      "artifacts/cgse/v1/cgse_semantics_threat_model_v1.json",
+      "artifacts/cgse/schema/v1/cgse_semantics_threat_model_schema_v1.json",
+      "artifacts/cgse/latest/cgse_legacy_tiebreak_validation_v1.json",
+      "artifacts/cgse/latest/cgse_deterministic_policy_spec_validation_v1.json",
+      "artifacts/cgse/latest/cgse_semantics_threat_model_validation_v1.json"
+    ],
+    "implementation_artifacts": [
+      "crates/fnx-runtime/src/lib.rs",
+      "crates/fnx-runtime/src/bin/cgse_policy_bench.rs",
+      "crates/fnx-conformance/tests/cgse_legacy_tiebreak_gate.rs"
+    ],
+    "test_artifacts": {
+      "unit": [
+        {
+          "entry_id": "cgse_policy_engine_is_deterministic_for_fixed_timestamp",
+          "evidence_path": "crates/fnx-runtime/src/lib.rs",
+          "replay_command": "rch exec -- cargo test -p fnx-runtime cgse_policy_engine_is_deterministic_for_fixed_timestamp -- --exact --nocapture"
+        },
+        {
+          "entry_id": "cgse_policy_rule_operation_keys_match_legacy_format",
+          "evidence_path": "crates/fnx-runtime/src/lib.rs",
+          "replay_command": "rch exec -- cargo test -p fnx-runtime cgse_policy_rule_operation_keys_match_legacy_format -- --exact --nocapture"
+        }
+      ],
+      "conformance_gates": [
+        {
+          "entry_id": "cgse_legacy_tiebreak_gate",
+          "evidence_path": "crates/fnx-conformance/tests/cgse_legacy_tiebreak_gate.rs",
+          "replay_command": "rch exec -- cargo test -p fnx-conformance --test cgse_legacy_tiebreak_gate -- --nocapture"
+        }
+      ],
+      "e2e": [
+        {
+          "entry_id": "phase2c_readiness_e2e",
+          "evidence_path": "artifacts/e2e/latest/e2e_script_pack_gate_report_v1.json",
+          "replay_command": "bash ./scripts/run_phase2c_readiness_e2e.sh"
+        }
+      ],
+      "perf": [
+        {
+          "entry_id": "cgse_policy_bench",
+          "evidence_path": "artifacts/perf/cgse/cgse_policy_bench_delta_v1.json",
+          "replay_command": "rch exec -- cargo build -q -p fnx-runtime --bin cgse_policy_bench --release && /usr/bin/time -f 'elapsed_s=%e max_rss_kb=%M' ./target/release/cgse_policy_bench --iterations 2500000"
+        }
+      ]
+    },
+    "risk_artifacts": [
+      "artifacts/cgse/v1/cgse_semantics_threat_model_v1.md",
+      "artifacts/perf/cgse/cgse_policy_bench_delta_v1.json"
+    ],
+    "durability_sidecars": [
+      "artifacts/cgse/v1/cgse_legacy_tiebreak_ordering_ledger_v1.raptorq.json",
+      "artifacts/cgse/v1/cgse_deterministic_policy_spec_v1.raptorq.json",
+      "artifacts/cgse/v1/cgse_semantics_threat_model_v1.raptorq.json",
+      "artifacts/cgse/v1/cgse_final_evidence_pack_v1.raptorq.json",
+      "artifacts/cgse/v1/cgse_final_evidence_pack_v1_scrub_report.json"
+    ]
+  },
+  "strict_hardened_parity_status": {
+    "strict_mode": "pass",
+    "hardened_mode": "pass",
+    "evidence_gate": "crates/fnx-conformance/tests/cgse_legacy_tiebreak_gate.rs"
+  },
+  "durability_artifacts": {
+    "sidecar_path": "artifacts/cgse/v1/cgse_final_evidence_pack_v1.raptorq.json",
+    "recovered_output_path": "artifacts/cgse/v1/cgse_final_evidence_pack_v1.recovered.json",
+    "scrub_report_path": "artifacts/cgse/v1/cgse_final_evidence_pack_v1_scrub_report.json",
+    "build_durability_tool_command": "rch exec -- cargo build -q -p fnx-durability --bin fnx-durability --release",
+    "generate_command": "./target/release/fnx-durability generate artifacts/cgse/v1/cgse_final_evidence_pack_v1.json artifacts/cgse/v1/cgse_final_evidence_pack_v1.raptorq.json cgse-final-evidence-pack-v1 cgse_final_evidence_bundle 1400 6",
+    "scrub_command": "./target/release/fnx-durability scrub artifacts/cgse/v1/cgse_final_evidence_pack_v1.json artifacts/cgse/v1/cgse_final_evidence_pack_v1.raptorq.json",
+    "decode_drill_command": "./target/release/fnx-durability decode-drill artifacts/cgse/v1/cgse_final_evidence_pack_v1.raptorq.json artifacts/cgse/v1/cgse_final_evidence_pack_v1.recovered.json",
+    "source_hash": "blake3:396dfa0a33f94227f2a8b20e455ea2e3eafa86019fb1a401f52adb8e6d656977",
+    "scrub_status": "recovered",
+    "decode_proof_count": 1
+  },
+  "profile_first_artifacts": {
+    "baseline": "artifacts/perf/cgse/cgse_policy_bench_baseline_v1.json",
+    "candidate": "artifacts/perf/cgse/cgse_policy_bench_candidate_v1.json",
+    "delta": "artifacts/perf/cgse/cgse_policy_bench_delta_v1.json"
+  },
+  "alien_uplift_contract_card": {
+    "card_id": "CGSE-Uplift-Card-001",
+    "baseline_comparator": "legacy_networkx_code/networkx/networkx + CGSE policy engine baseline",
+    "ev_score": 2.24,
+    "selected_uplift": "precomputed CGSE operation keys to eliminate per-decision lowercase formatting overhead while preserving strict/hardened fail-closed semantics",
+    "fallback_if_rejected": "revert operation_key change and accept baseline policy-evaluation latency; block CGSE signoff until alternative one-lever optimization is proven isomorphic"
+  },
+  "residual_risk_register": [
+    {
+      "risk_id": "CGSE-RISK-001",
+      "title": "Policy-evaluation memory delta variability in microbench",
+      "severity": "low",
+      "status": "watch",
+      "mitigation": "Re-run cgse_policy_bench with higher runs and confirm delta remains within expected noise; treat large memory regressions as follow-up hotspot candidates.",
+      "evidence_refs": [
+        "artifacts/perf/cgse/cgse_policy_bench_delta_v1.json"
+      ]
+    }
+  ]
+}
