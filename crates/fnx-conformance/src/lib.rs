@@ -1,9 +1,9 @@
 #![forbid(unsafe_code)]
 
 use fnx_algorithms::{
-    CentralityScore, ComplexityWitness, closeness_centrality, connected_components,
-    degree_centrality, max_flow_edmonds_karp, number_connected_components,
-    shortest_path_unweighted, shortest_path_weighted,
+    CentralityScore, ComplexityWitness, MinimumCutResult, closeness_centrality,
+    connected_components, degree_centrality, max_flow_edmonds_karp, minimum_cut_edmonds_karp,
+    number_connected_components, shortest_path_unweighted, shortest_path_weighted,
 };
 use fnx_classes::{AttrMap, EdgeSnapshot, Graph, GraphSnapshot};
 use fnx_convert::{AdjacencyPayload, EdgeListPayload, GraphConverter};
@@ -261,6 +261,12 @@ enum Operation {
         #[serde(default = "default_capacity_attr")]
         capacity_attr: String,
     },
+    MinimumCutQuery {
+        source: String,
+        target: String,
+        #[serde(default = "default_capacity_attr")]
+        capacity_attr: String,
+    },
     DegreeCentralityQuery,
     ClosenessCentralityQuery,
     ConnectedComponentsQuery,
@@ -318,6 +324,8 @@ struct ExpectedState {
     #[serde(default)]
     max_flow_value: Option<f64>,
     #[serde(default)]
+    minimum_cut: Option<ExpectedMinimumCut>,
+    #[serde(default)]
     degree_centrality: Option<Vec<ExpectedCentralityScore>>,
     #[serde(default)]
     closeness_centrality: Option<Vec<ExpectedCentralityScore>>,
@@ -349,6 +357,13 @@ struct ExpectedDispatch {
     action: DecisionAction,
 }
 
+#[derive(Debug, Deserialize)]
+struct ExpectedMinimumCut {
+    value: f64,
+    source_partition: Vec<String>,
+    sink_partition: Vec<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct ExpectedCentralityScore {
     node: String,
@@ -362,6 +377,7 @@ struct ExecutionContext {
     shortest_path_result: Option<Vec<String>>,
     shortest_path_weighted_result: Option<Vec<String>>,
     max_flow_result: Option<f64>,
+    minimum_cut_result: Option<MinimumCutResult>,
     dispatch_decision: Option<DispatchDecision>,
     serialized_edgelist: Option<String>,
     serialized_json_graph: Option<String>,
@@ -1103,6 +1119,7 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
         shortest_path_result: None,
         shortest_path_weighted_result: None,
         max_flow_result: None,
+        minimum_cut_result: None,
         dispatch_decision: None,
         serialized_edgelist: None,
         serialized_json_graph: None,
@@ -1157,6 +1174,16 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
                 let result =
                     max_flow_edmonds_karp(&context.graph, &source, &target, &capacity_attr);
                 context.max_flow_result = Some(result.value);
+                context.witness = Some(result.witness);
+            }
+            Operation::MinimumCutQuery {
+                source,
+                target,
+                capacity_attr,
+            } => {
+                let result =
+                    minimum_cut_edmonds_karp(&context.graph, &source, &target, &capacity_attr);
+                context.minimum_cut_result = Some(result.clone());
                 context.witness = Some(result.witness);
             }
             Operation::DegreeCentralityQuery => {
@@ -1383,6 +1410,44 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
         }
     }
 
+    if let Some(expected_cut) = fixture.expected.minimum_cut {
+        match context.minimum_cut_result.as_ref() {
+            Some(actual_cut) => {
+                if (actual_cut.value - expected_cut.value).abs() > 1e-12 {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_flow".to_owned(),
+                        message: format!(
+                            "minimum_cut value mismatch: expected {}, got {}",
+                            expected_cut.value, actual_cut.value
+                        ),
+                    });
+                }
+                if actual_cut.source_partition != expected_cut.source_partition {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_flow".to_owned(),
+                        message: format!(
+                            "minimum_cut source partition mismatch: expected {:?}, got {:?}",
+                            expected_cut.source_partition, actual_cut.source_partition
+                        ),
+                    });
+                }
+                if actual_cut.sink_partition != expected_cut.sink_partition {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_flow".to_owned(),
+                        message: format!(
+                            "minimum_cut sink partition mismatch: expected {:?}, got {:?}",
+                            expected_cut.sink_partition, actual_cut.sink_partition
+                        ),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_flow".to_owned(),
+                message: "expected minimum_cut result but none produced".to_owned(),
+            }),
+        }
+    }
+
     if let Some(expected_scores) = fixture.expected.degree_centrality {
         match context.degree_centrality_result.as_ref() {
             Some(actual_scores) => {
@@ -1594,6 +1659,7 @@ fn default_dispatch_registry(mode: CompatibilityMode) -> BackendRegistry {
             "shortest_path",
             "shortest_path_weighted",
             "max_flow",
+            "minimum_cut",
             "convert_edge_list",
             "convert_adjacency",
             "read_edgelist",

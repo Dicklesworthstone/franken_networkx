@@ -131,6 +131,21 @@ pub struct MaxFlowResult {
     pub witness: ComplexityWitness,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MinimumCutResult {
+    pub value: f64,
+    pub source_partition: Vec<String>,
+    pub sink_partition: Vec<String>,
+    pub witness: ComplexityWitness,
+}
+
+#[derive(Debug, Clone)]
+struct FlowComputation {
+    value: f64,
+    residual: HashMap<String, HashMap<String, f64>>,
+    witness: ComplexityWitness,
+}
+
 #[must_use]
 pub fn shortest_path_unweighted(graph: &Graph, source: &str, target: &str) -> ShortestPathResult {
     if !graph.has_node(source) || !graph.has_node(target) {
@@ -533,9 +548,129 @@ pub fn max_flow_edmonds_karp(
     sink: &str,
     capacity_attr: &str,
 ) -> MaxFlowResult {
+    let computation = compute_max_flow_residual(graph, source, sink, capacity_attr);
+    MaxFlowResult {
+        value: computation.value,
+        witness: computation.witness,
+    }
+}
+
+#[must_use]
+pub fn minimum_cut_edmonds_karp(
+    graph: &Graph,
+    source: &str,
+    sink: &str,
+    capacity_attr: &str,
+) -> MinimumCutResult {
     if !graph.has_node(source) || !graph.has_node(sink) {
-        return MaxFlowResult {
+        return MinimumCutResult {
             value: 0.0,
+            source_partition: Vec::new(),
+            sink_partition: Vec::new(),
+            witness: ComplexityWitness {
+                algorithm: "edmonds_karp_minimum_cut".to_owned(),
+                complexity_claim: "O(|V| * |E|^2)".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    if source == sink {
+        let mut source_partition = Vec::new();
+        let mut sink_partition = Vec::new();
+        for node in graph.nodes_ordered().into_iter().map(str::to_owned) {
+            if node == source {
+                source_partition.push(node);
+            } else {
+                sink_partition.push(node);
+            }
+        }
+        return MinimumCutResult {
+            value: 0.0,
+            source_partition,
+            sink_partition,
+            witness: ComplexityWitness {
+                algorithm: "edmonds_karp_minimum_cut".to_owned(),
+                complexity_claim: "O(|V| * |E|^2)".to_owned(),
+                nodes_touched: 1,
+                edges_scanned: 0,
+                queue_peak: 1,
+            },
+        };
+    }
+
+    let computation = compute_max_flow_residual(graph, source, sink, capacity_attr);
+    let ordered_nodes = graph
+        .nodes_ordered()
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<String>>();
+    let mut visited = HashSet::<String>::new();
+    let mut queue = VecDeque::<String>::new();
+    queue.push_back(source.to_owned());
+    visited.insert(source.to_owned());
+    let mut cut_nodes_touched = 1_usize;
+    let mut cut_edges_scanned = 0_usize;
+    let mut cut_queue_peak = 1_usize;
+
+    while let Some(current) = queue.pop_front() {
+        for candidate in &ordered_nodes {
+            if visited.contains(candidate) {
+                continue;
+            }
+            cut_edges_scanned += 1;
+            let residual_capacity = computation
+                .residual
+                .get(&current)
+                .and_then(|caps| caps.get(candidate))
+                .copied()
+                .unwrap_or(0.0);
+            if residual_capacity <= 0.0 {
+                continue;
+            }
+            visited.insert(candidate.clone());
+            queue.push_back(candidate.clone());
+            cut_nodes_touched += 1;
+            cut_queue_peak = cut_queue_peak.max(queue.len());
+        }
+    }
+
+    let mut source_partition = Vec::new();
+    let mut sink_partition = Vec::new();
+    for node in ordered_nodes {
+        if visited.contains(&node) {
+            source_partition.push(node);
+        } else {
+            sink_partition.push(node);
+        }
+    }
+
+    MinimumCutResult {
+        value: computation.value,
+        source_partition,
+        sink_partition,
+        witness: ComplexityWitness {
+            algorithm: "edmonds_karp_minimum_cut".to_owned(),
+            complexity_claim: "O(|V| * |E|^2)".to_owned(),
+            nodes_touched: computation.witness.nodes_touched + cut_nodes_touched,
+            edges_scanned: computation.witness.edges_scanned + cut_edges_scanned,
+            queue_peak: computation.witness.queue_peak.max(cut_queue_peak),
+        },
+    }
+}
+
+fn compute_max_flow_residual(
+    graph: &Graph,
+    source: &str,
+    sink: &str,
+    capacity_attr: &str,
+) -> FlowComputation {
+    if !graph.has_node(source) || !graph.has_node(sink) {
+        return FlowComputation {
+            value: 0.0,
+            residual: HashMap::new(),
             witness: ComplexityWitness {
                 algorithm: "edmonds_karp_max_flow".to_owned(),
                 complexity_claim: "O(|V| * |E|^2)".to_owned(),
@@ -547,8 +682,9 @@ pub fn max_flow_edmonds_karp(
     }
 
     if source == sink {
-        return MaxFlowResult {
+        return FlowComputation {
             value: 0.0,
+            residual: HashMap::new(),
             witness: ComplexityWitness {
                 algorithm: "edmonds_karp_max_flow".to_owned(),
                 complexity_claim: "O(|V| * |E|^2)".to_owned(),
@@ -673,8 +809,9 @@ pub fn max_flow_edmonds_karp(
         total_flow += bottleneck;
     }
 
-    MaxFlowResult {
+    FlowComputation {
         value: total_flow,
+        residual,
         witness: ComplexityWitness {
             algorithm: "edmonds_karp_max_flow".to_owned(),
             complexity_claim: "O(|V| * |E|^2)".to_owned(),
@@ -733,8 +870,8 @@ mod tests {
     use super::{
         CGSE_WITNESS_LEDGER_PATH, CGSE_WITNESS_POLICY_SPEC_PATH, CentralityScore,
         ComplexityWitness, cgse_witness_schema_version, closeness_centrality, connected_components,
-        degree_centrality, max_flow_edmonds_karp, number_connected_components,
-        shortest_path_unweighted, shortest_path_weighted,
+        degree_centrality, max_flow_edmonds_karp, minimum_cut_edmonds_karp,
+        number_connected_components, shortest_path_unweighted, shortest_path_weighted,
     };
     use fnx_classes::Graph;
     use fnx_runtime::{
@@ -1000,6 +1137,69 @@ mod tests {
         let _ = graph.add_node("only");
         let result = max_flow_edmonds_karp(&graph, "missing", "only", "capacity");
         assert!((result.value - 0.0).abs() <= 1e-12);
+    }
+
+    #[test]
+    fn minimum_cut_edmonds_karp_matches_expected_partition() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("s", "a", [("capacity".to_owned(), "3".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("s", "b", [("capacity".to_owned(), "2".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "b", [("capacity".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "t", [("capacity".to_owned(), "2".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("b", "t", [("capacity".to_owned(), "3".to_owned())].into())
+            .expect("edge add should succeed");
+
+        let result = minimum_cut_edmonds_karp(&graph, "s", "t", "capacity");
+        assert!((result.value - 5.0).abs() <= 1e-12);
+        assert_eq!(result.source_partition, vec!["s".to_owned()]);
+        assert_eq!(
+            result.sink_partition,
+            vec!["a".to_owned(), "b".to_owned(), "t".to_owned()]
+        );
+        assert_eq!(result.witness.algorithm, "edmonds_karp_minimum_cut");
+    }
+
+    #[test]
+    fn minimum_cut_edmonds_karp_is_replay_stable() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("s", "a", [("capacity".to_owned(), "4".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("s", "b", [("capacity".to_owned(), "2".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "b", [("capacity".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "t", [("capacity".to_owned(), "2".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("b", "t", [("capacity".to_owned(), "3".to_owned())].into())
+            .expect("edge add should succeed");
+
+        let left = minimum_cut_edmonds_karp(&graph, "s", "t", "capacity");
+        let right = minimum_cut_edmonds_karp(&graph, "s", "t", "capacity");
+        assert_eq!(left, right);
+    }
+
+    #[test]
+    fn minimum_cut_edmonds_karp_returns_empty_partitions_for_missing_nodes() {
+        let mut graph = Graph::strict();
+        let _ = graph.add_node("only");
+        let result = minimum_cut_edmonds_karp(&graph, "missing", "only", "capacity");
+        assert!((result.value - 0.0).abs() <= 1e-12);
+        assert!(result.source_partition.is_empty());
+        assert!(result.sink_partition.is_empty());
     }
 
     #[test]

@@ -58,6 +58,11 @@ This project uses four pervasive disciplines:
   - conformance operation/schema support for closeness centrality (`fnx-conformance`),
   - oracle-generated closeness-centrality fixture (`fnx-conformance`),
   - expanded drift-free conformance corpus (14 fixtures) with durability artifacts.
+- seventh vertical slice landed:
+  - deterministic minimum-cut surface paired with the existing Edmonds-Karp max-flow path (`fnx-algorithms`),
+  - conformance operation/schema support for `minimum_cut_query` (`fnx-conformance`),
+  - oracle-anchored minimum-cut strict fixture (`fnx-conformance`),
+  - expanded drift-free conformance corpus (16 fixtures) with durability artifacts.
 
 ## V1 Scope
 
@@ -87,7 +92,7 @@ Maintain deterministic graph semantics, tie-break policies, and serialization ro
 ## Next Steps
 
 1. Expand fixture corpus to larger legacy families for matching and additional centrality variants.
-2. Expand flow-family coverage beyond the first max-flow slice (directed semantics, min-cut surfaces, and stress fixtures).
+2. Expand flow-family coverage beyond max-flow + min-cut (directed semantics hardening, larger adversarial flow fixtures, and stress fixtures).
 3. Add format breadth beyond edgelist/json (adjlist/graphml scoped paths).
 4. Add benchmark families and p50/p95/p99 regression gates across centrality and flow workloads.
 5. Tighten strict/hardened drift budgets with per-family parity thresholds.

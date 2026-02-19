@@ -424,13 +424,13 @@ Rust parity contract for the current weighted slice (`fnx-algorithms::shortest_p
 - Unit tests in `crates/fnx-algorithms/src/lib.rs` assert weighted-vs-unweighted divergence and tie-break replay stability.
 - Differential fixture `crates/fnx-conformance/fixtures/generated/shortest_path_weighted_strict.json` asserts strict-mode expected path.
 
-## 23. Initial Max-Flow Contract (P2C005 Extension)
+## 23. Initial Flow Contract (P2C005 Extension)
 
 Legacy anchors:
 - `legacy_networkx_code/networkx/networkx/algorithms/flow/edmondskarp.py`
 - `legacy_networkx_code/networkx/networkx/algorithms/flow/tests/`
 
-Rust parity contract for the first flow slice (`fnx-algorithms::max_flow_edmonds_karp`):
+Rust parity contract for the first flow slice (`fnx-algorithms::{max_flow_edmonds_karp, minimum_cut_edmonds_karp}`):
 
 1. Input/output shape:
 - Inputs: `(graph, source, sink, capacity_attr)`
@@ -456,3 +456,14 @@ Rust parity contract for the first flow slice (`fnx-algorithms::max_flow_edmonds
 6. Verification hooks:
 - Unit tests in `crates/fnx-algorithms/src/lib.rs` cover expected-value, replay-stability, and missing-node behavior.
 - Differential fixture `crates/fnx-conformance/fixtures/generated/flow_max_strict.json` asserts strict-mode flow value parity.
+- Differential fixture `crates/fnx-conformance/fixtures/generated/flow_min_cut_strict.json` asserts strict-mode min-cut value and partition parity.
+
+7. Min-cut output and partition semantics:
+- Inputs: `(graph, source, sink, capacity_attr)`
+- Output: `MinimumCutResult { value: f64, source_partition: Vec<String>, sink_partition: Vec<String>, witness }`
+- Partition extraction uses residual-positive reachability from `source` after deterministic max-flow completion.
+- Partitions are emitted in deterministic graph node order and replay on identical graph state must be bitwise stable.
+
+8. Min-cut witness contract:
+- Algorithm label: `edmonds_karp_minimum_cut`
+- Complexity claim: `O(|V| * |E|^2)`
