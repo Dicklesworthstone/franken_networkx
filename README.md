@@ -45,7 +45,7 @@ This project uses four pervasive disciplines:
   - percentile benchmark gate with durability sidecars (`scripts/run_benchmark_gate.sh`).
 - fourth vertical slice landed:
   - deterministic connected-components and component-count witnesses (`fnx-algorithms`),
-  - deterministic + seeded graph generators with strict/hardened guards (`fnx-generators`),
+  - deterministic (`empty/path/star/cycle/complete`) + seeded graph generators with strict/hardened guards (`fnx-generators`),
   - oracle-generated components/generators fixtures (`fnx-conformance`),
   - expanded drift-free conformance corpus (12 fixtures) with durability artifacts.
 - fifth vertical slice landed:

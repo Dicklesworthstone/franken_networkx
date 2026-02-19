@@ -22,10 +22,10 @@ Rule: parity status can move to `parity_green` only with fixture-backed conforma
 | View and mutation contracts | in_progress | `fnx-views` now provides live node/edge/neighbor views plus revision-aware cached snapshots. |
 | Dispatchable/backend behavior | in_progress | `fnx-dispatch` now has deterministic backend registry, strict/hardened fail-closed routing, and dispatch evidence ledger. |
 | Algorithm core families | in_progress | `fnx-algorithms` now ships unweighted + weighted shortest path, connected-components/component-count, degree-centrality, closeness-centrality, deterministic max-flow (`edmonds_karp_max_flow`), and deterministic minimum-cut (`edmonds_karp_minimum_cut`) with complexity witnesses; matching and broader flow/centrality families remain pending. |
-| Graph generator families | in_progress | `fnx-generators` now ships deterministic `empty/path/cycle/complete` and seeded `gnp_random_graph` with strict/hardened parameter controls. |
+| Graph generator families | in_progress | `fnx-generators` now ships deterministic `empty/path/star/cycle/complete` and seeded `gnp_random_graph` with strict/hardened parameter controls. |
 | Conversion baseline behavior | in_progress | `fnx-convert` ships edge-list/adjacency conversions with strict/hardened malformed-input handling and normalization output. |
 | Read/write baseline formats | in_progress | `fnx-readwrite` ships deterministic edgelist + JSON graph parse/write with strict/hardened parser modes. |
-| Differential conformance harness | in_progress | `fnx-conformance` executes graph + views + dispatch + convert + readwrite + components + generators + centrality + flow fixtures and emits report artifacts under `artifacts/conformance/latest/` (currently 16 fixtures). |
+| Differential conformance harness | in_progress | `fnx-conformance` executes graph + views + dispatch + convert + readwrite + components + generators + centrality + flow fixtures and emits report artifacts under `artifacts/conformance/latest/` (currently 17 fixtures). |
 | RaptorQ durability pipeline | in_progress | `fnx-durability` generates RaptorQ sidecars, runs scrub verification, and emits decode proofs for conformance reports. |
 | Benchmark percentile gating | in_progress | `scripts/run_benchmark_gate.sh` emits p50/p95/p99 artifact and enforces threshold budgets with durability sidecars. |
 
