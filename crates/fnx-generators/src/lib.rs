@@ -9,6 +9,7 @@ use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::fmt;
 
 const MAX_N_GENERIC: usize = 100_000;
+const MAX_N_STAR: usize = MAX_N_GENERIC - 1;
 const MAX_N_COMPLETE: usize = 2_000;
 const MAX_N_GNP: usize = 20_000;
 
@@ -98,6 +99,30 @@ impl GraphGenerator {
             DecisionAction::Allow,
             0.03,
             format!("generated path graph with n={n}"),
+        );
+        Ok(GenerationReport { graph, warnings })
+    }
+
+    pub fn star_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
+        // NetworkX integer semantics: star_graph(n) has n spokes and n + 1 nodes total.
+        let (n, warnings) = self.validate_n("star_graph", n, MAX_N_STAR)?;
+        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n + 1);
+        if let Some((hub, spokes)) = node_labels.split_first() {
+            for spoke in spokes {
+                graph.add_edge(hub.clone(), spoke.clone()).map_err(|err| {
+                    GenerationError::FailClosed {
+                        operation: "star_graph",
+                        reason: err.to_string(),
+                    }
+                })?;
+            }
+        }
+
+        self.record(
+            "star_graph",
+            DecisionAction::Allow,
+            0.03,
+            format!("generated star graph with spokes={n}"),
         );
         Ok(GenerationReport { graph, warnings })
     }
@@ -311,7 +336,7 @@ fn graph_with_n_nodes(mode: CompatibilityMode, n: usize) -> (Graph, Vec<String>)
 
 #[cfg(test)]
 mod tests {
-    use super::{GenerationError, GraphGenerator, MAX_N_COMPLETE, MAX_N_GENERIC};
+    use super::{GenerationError, GraphGenerator, MAX_N_COMPLETE, MAX_N_GENERIC, MAX_N_STAR};
     use fnx_classes::Graph;
     use fnx_runtime::{
         CompatibilityMode, DecisionAction, ForensicsBundleIndex, StructuredTestLog, TestKind,
@@ -382,6 +407,39 @@ mod tests {
         assert_eq!(snapshot.edges[0].right, "1");
         assert_eq!(snapshot.edges[2].left, "2");
         assert_eq!(snapshot.edges[2].right, "3");
+    }
+
+    #[test]
+    fn star_graph_has_expected_structure_and_order() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .star_graph(4)
+            .expect("star graph generation should succeed");
+        let snapshot = report.graph.snapshot();
+        assert_eq!(snapshot.nodes, vec!["0", "1", "2", "3", "4"]);
+        let got = snapshot
+            .edges
+            .iter()
+            .map(|edge| (edge.left.clone(), edge.right.clone()))
+            .collect::<Vec<(String, String)>>();
+        let expected = vec![
+            ("0".to_owned(), "1".to_owned()),
+            ("0".to_owned(), "2".to_owned()),
+            ("0".to_owned(), "3".to_owned()),
+            ("0".to_owned(), "4".to_owned()),
+        ];
+        assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn star_graph_zero_spokes_has_single_node() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .star_graph(0)
+            .expect("star graph generation should succeed");
+        let snapshot = report.graph.snapshot();
+        assert_eq!(snapshot.nodes, vec!["0"]);
+        assert!(snapshot.edges.is_empty());
     }
 
     #[test]
@@ -469,6 +527,15 @@ mod tests {
         let mut generator = GraphGenerator::strict();
         let err = generator
             .complete_graph(MAX_N_COMPLETE + 1)
+            .expect_err("strict mode should fail closed for oversize n");
+        assert!(matches!(err, GenerationError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn strict_mode_fails_for_excessive_star_spokes() {
+        let mut generator = GraphGenerator::strict();
+        let err = generator
+            .star_graph(MAX_N_STAR + 1)
             .expect_err("strict mode should fail closed for oversize n");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
     }

@@ -13,6 +13,7 @@ This folder stores normalized oracle-vs-target fixtures for fnx-conformance.
 - `generated/readwrite_json_roundtrip_strict.json`: JSON read/write + view parity.
 - `generated/components_connected_strict.json`: connected-components + component-count parity.
 - `generated/generators_path_strict.json`: deterministic `path_graph` generator parity.
+- `generated/generators_star_strict.json`: deterministic `star_graph` generator parity.
 - `generated/generators_cycle_strict.json`: deterministic `cycle_graph` generator parity.
 - `generated/generators_complete_strict.json`: deterministic `complete_graph` generator parity.
 - `generated/centrality_degree_strict.json`: deterministic degree-centrality parity.

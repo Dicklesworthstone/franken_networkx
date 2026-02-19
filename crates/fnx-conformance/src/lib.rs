@@ -302,6 +302,9 @@ enum Operation {
     GeneratePathGraph {
         n: usize,
     },
+    GenerateStarGraph {
+        n: usize,
+    },
     GenerateCycleGraph {
         n: usize,
     },
@@ -1322,6 +1325,19 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
                     }),
                 }
             }
+            Operation::GenerateStarGraph { n } => {
+                let mut generator = GraphGenerator::new(mode);
+                match generator.star_graph(n) {
+                    Ok(report) => {
+                        context.warnings.extend(report.warnings);
+                        context.graph = report.graph;
+                    }
+                    Err(err) => mismatches.push(Mismatch {
+                        category: "generators".to_owned(),
+                        message: format!("star_graph generation failed: {err}"),
+                    }),
+                }
+            }
             Operation::GenerateCycleGraph { n } => {
                 let mut generator = GraphGenerator::new(mode);
                 match generator.cycle_graph(n) {
@@ -1671,6 +1687,7 @@ fn default_dispatch_registry(mode: CompatibilityMode) -> BackendRegistry {
             "degree_centrality",
             "closeness_centrality",
             "generate_path_graph",
+            "generate_star_graph",
             "generate_cycle_graph",
             "generate_complete_graph",
             "generate_empty_graph",
