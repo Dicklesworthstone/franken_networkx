@@ -89,7 +89,11 @@ fn fnv1a64(text: &str) -> String {
     format!("{value:016x}")
 }
 
-fn expected_retention_policy_digest(policy_id: &str, min_retention_days: u64, storage_root: &str) -> String {
+fn expected_retention_policy_digest(
+    policy_id: &str,
+    min_retention_days: u64,
+    storage_root: &str,
+) -> String {
     let mut normalized = BTreeMap::<&str, Value>::new();
     normalized.insert("min_retention_days", Value::from(min_retention_days));
     normalized.insert("policy_id", Value::from(policy_id));
@@ -863,17 +867,23 @@ fn e2e_script_pack_artifacts_are_complete_and_deterministic() {
             Some(event_replay_command)
         );
         assert_eq!(
-            deterministic_replay.get("scenario_id").and_then(Value::as_str),
+            deterministic_replay
+                .get("scenario_id")
+                .and_then(Value::as_str),
             Some(scenario),
             "deterministic_replay_metadata.scenario_id should match event"
         );
         assert_eq!(
-            deterministic_replay.get("packet_id").and_then(Value::as_str),
+            deterministic_replay
+                .get("packet_id")
+                .and_then(Value::as_str),
             Some(packet_id),
             "deterministic_replay_metadata.packet_id should match event"
         );
         assert_eq!(
-            deterministic_replay.get("fixture_id").and_then(Value::as_str),
+            deterministic_replay
+                .get("fixture_id")
+                .and_then(Value::as_str),
             event.get("fixture_id").and_then(Value::as_str),
             "deterministic_replay_metadata.fixture_id should match event"
         );
