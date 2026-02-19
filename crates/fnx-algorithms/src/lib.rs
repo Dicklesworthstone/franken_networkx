@@ -2,6 +2,7 @@
 
 use fnx_classes::Graph;
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 pub const CGSE_WITNESS_ARTIFACT_SCHEMA_VERSION_V1: &str = "1.0.0";
@@ -126,6 +127,25 @@ pub struct ClosenessCentralityResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BetweennessCentralityResult {
+    pub scores: Vec<CentralityScore>,
+    pub witness: ComplexityWitness,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MaximalMatchingResult {
+    pub matching: Vec<(String, String)>,
+    pub witness: ComplexityWitness,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WeightedMatchingResult {
+    pub matching: Vec<(String, String)>,
+    pub total_weight: f64,
+    pub witness: ComplexityWitness,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MaxFlowResult {
     pub value: f64,
     pub witness: ComplexityWitness,
@@ -144,6 +164,18 @@ struct FlowComputation {
     value: f64,
     residual: HashMap<String, HashMap<String, f64>>,
     witness: ComplexityWitness,
+}
+
+type MatchingNodeSet = HashSet<String>;
+type MatchingEdgeSet = HashSet<(String, String)>;
+
+#[derive(Debug, Clone)]
+struct WeightedEdgeCandidate {
+    left: String,
+    right: String,
+    weight: f64,
+    iteration_index: usize,
+    degree_sum: usize,
 }
 
 #[must_use]
@@ -542,6 +574,285 @@ pub fn closeness_centrality(graph: &Graph) -> ClosenessCentralityResult {
 }
 
 #[must_use]
+pub fn betweenness_centrality(graph: &Graph) -> BetweennessCentralityResult {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return BetweennessCentralityResult {
+            scores: Vec::new(),
+            witness: ComplexityWitness {
+                algorithm: "brandes_betweenness_centrality".to_owned(),
+                complexity_claim: "O(|V| * |E|)".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    let mut centrality = HashMap::<&str, f64>::new();
+    for node in &nodes {
+        centrality.insert(*node, 0.0);
+    }
+
+    let mut nodes_touched = 0usize;
+    let mut edges_scanned = 0usize;
+    let mut queue_peak = 0usize;
+
+    for source in &nodes {
+        let mut stack = Vec::<&str>::with_capacity(n);
+        let mut predecessors = HashMap::<&str, Vec<&str>>::new();
+        let mut sigma = HashMap::<&str, f64>::new();
+        let mut distance = HashMap::<&str, i64>::new();
+        for node in &nodes {
+            predecessors.insert(*node, Vec::new());
+            sigma.insert(*node, 0.0);
+            distance.insert(*node, -1);
+        }
+        sigma.insert(*source, 1.0);
+        distance.insert(*source, 0);
+
+        let mut queue = VecDeque::<&str>::new();
+        queue.push_back(source);
+        queue_peak = queue_peak.max(queue.len());
+
+        while let Some(v) = queue.pop_front() {
+            stack.push(v);
+            let dist_v = *distance.get(v).unwrap_or(&-1);
+            let Some(neighbors) = graph.neighbors_iter(v) else {
+                continue;
+            };
+            for w in neighbors {
+                edges_scanned += 1;
+                if *distance.get(w).unwrap_or(&-1) < 0 {
+                    distance.insert(w, dist_v + 1);
+                    queue.push_back(w);
+                    queue_peak = queue_peak.max(queue.len());
+                }
+                if *distance.get(w).unwrap_or(&-1) == dist_v + 1 {
+                    let sigma_v = *sigma.get(v).unwrap_or(&0.0);
+                    *sigma.entry(w).or_insert(0.0) += sigma_v;
+                    predecessors.entry(w).or_default().push(v);
+                }
+            }
+        }
+        nodes_touched += stack.len();
+
+        let mut dependency = HashMap::<&str, f64>::new();
+        for node in &nodes {
+            dependency.insert(*node, 0.0);
+        }
+
+        while let Some(w) = stack.pop() {
+            let sigma_w = *sigma.get(w).unwrap_or(&0.0);
+            let delta_w = *dependency.get(w).unwrap_or(&0.0);
+            if sigma_w > 0.0 {
+                for v in predecessors.get(w).map(Vec::as_slice).unwrap_or(&[]) {
+                    let sigma_v = *sigma.get(v).unwrap_or(&0.0);
+                    let contribution = (sigma_v / sigma_w) * (1.0 + delta_w);
+                    *dependency.entry(v).or_insert(0.0) += contribution;
+                }
+            }
+            if w != *source {
+                *centrality.entry(w).or_insert(0.0) += delta_w;
+            }
+        }
+    }
+
+    let scale = if n > 2 {
+        1.0 / (((n - 1) * (n - 2)) as f64)
+    } else {
+        0.0
+    };
+    let scores = nodes
+        .iter()
+        .map(|node| CentralityScore {
+            node: (*node).to_owned(),
+            score: centrality.get(node).copied().unwrap_or(0.0) * scale,
+        })
+        .collect::<Vec<CentralityScore>>();
+
+    BetweennessCentralityResult {
+        scores,
+        witness: ComplexityWitness {
+            algorithm: "brandes_betweenness_centrality".to_owned(),
+            complexity_claim: "O(|V| * |E|)".to_owned(),
+            nodes_touched,
+            edges_scanned,
+            queue_peak,
+        },
+    }
+}
+
+#[must_use]
+pub fn maximal_matching(graph: &Graph) -> MaximalMatchingResult {
+    let mut matched_nodes = HashSet::<String>::new();
+    let mut matching = Vec::<(String, String)>::new();
+    let edges = undirected_edges_in_iteration_order(graph);
+    for (left, right) in &edges {
+        if left == right || matched_nodes.contains(left) || matched_nodes.contains(right) {
+            continue;
+        }
+        matched_nodes.insert(left.clone());
+        matched_nodes.insert(right.clone());
+        matching.push((left.clone(), right.clone()));
+    }
+
+    MaximalMatchingResult {
+        matching,
+        witness: ComplexityWitness {
+            algorithm: "greedy_maximal_matching".to_owned(),
+            complexity_claim: "O(|E|)".to_owned(),
+            nodes_touched: graph.node_count(),
+            edges_scanned: edges.len(),
+            queue_peak: 0,
+        },
+    }
+}
+
+#[must_use]
+pub fn is_matching(graph: &Graph, matching: &[(String, String)]) -> bool {
+    matching_state(graph, matching).is_some()
+}
+
+#[must_use]
+pub fn is_maximal_matching(graph: &Graph, matching: &[(String, String)]) -> bool {
+    let Some((matched_nodes, matched_edges)) = matching_state(graph, matching) else {
+        return false;
+    };
+
+    for (left, right) in undirected_edges_in_iteration_order(graph) {
+        if left == right {
+            continue;
+        }
+        let canonical = canonical_undirected_edge(&left, &right);
+        if matched_edges.contains(&canonical) {
+            continue;
+        }
+        if !matched_nodes.contains(&left) && !matched_nodes.contains(&right) {
+            return false;
+        }
+    }
+
+    true
+}
+
+#[must_use]
+pub fn is_perfect_matching(graph: &Graph, matching: &[(String, String)]) -> bool {
+    let Some((matched_nodes, _)) = matching_state(graph, matching) else {
+        return false;
+    };
+    matched_nodes.len() == graph.node_count()
+}
+
+#[must_use]
+pub fn max_weight_matching(
+    graph: &Graph,
+    maxcardinality: bool,
+    weight_attr: &str,
+) -> WeightedMatchingResult {
+    let candidates = weighted_edge_candidates(graph, weight_attr);
+    if candidates.is_empty() {
+        return WeightedMatchingResult {
+            matching: Vec::new(),
+            total_weight: 0.0,
+            witness: ComplexityWitness {
+                algorithm: if maxcardinality {
+                    "greedy_max_weight_matching_maxcardinality".to_owned()
+                } else {
+                    "greedy_max_weight_matching".to_owned()
+                },
+                complexity_claim: "O(|E| log |E|)".to_owned(),
+                nodes_touched: graph.node_count(),
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    let weighted_order = sorted_candidates_by_weight(candidates.clone());
+    let weighted_matching = greedy_matching_from_candidates(&weighted_order);
+
+    let (matching, total_weight, passes) = if maxcardinality {
+        let cardinality_order = sorted_candidates_by_cardinality_aware_weight(candidates);
+        let cardinality_matching = greedy_matching_from_candidates(&cardinality_order);
+        let (selected_matching, selected_weight) =
+            choose_preferred_matching(weighted_matching, cardinality_matching, true);
+        (selected_matching, selected_weight, 2usize)
+    } else {
+        (weighted_matching.0, weighted_matching.1, 1usize)
+    };
+
+    WeightedMatchingResult {
+        matching,
+        total_weight,
+        witness: ComplexityWitness {
+            algorithm: if maxcardinality {
+                "greedy_max_weight_matching_maxcardinality".to_owned()
+            } else {
+                "greedy_max_weight_matching".to_owned()
+            },
+            complexity_claim: "O(|E| log |E|)".to_owned(),
+            nodes_touched: graph.node_count(),
+            edges_scanned: weighted_order.len() * passes,
+            queue_peak: 0,
+        },
+    }
+}
+
+#[must_use]
+pub fn min_weight_matching(graph: &Graph, weight_attr: &str) -> WeightedMatchingResult {
+    let candidates = weighted_edge_candidates(graph, weight_attr);
+    if candidates.is_empty() {
+        return WeightedMatchingResult {
+            matching: Vec::new(),
+            total_weight: 0.0,
+            witness: ComplexityWitness {
+                algorithm: "greedy_min_weight_matching".to_owned(),
+                complexity_claim: "O(|E| log |E|)".to_owned(),
+                nodes_touched: graph.node_count(),
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    let max_weight = candidates
+        .iter()
+        .fold(f64::NEG_INFINITY, |acc, edge| acc.max(edge.weight));
+    let transformed_candidates = candidates
+        .into_iter()
+        .map(|edge| WeightedEdgeCandidate {
+            weight: (max_weight + 1.0) - edge.weight,
+            ..edge
+        })
+        .collect::<Vec<WeightedEdgeCandidate>>();
+
+    let weighted_order = sorted_candidates_by_weight(transformed_candidates.clone());
+    let weighted_matching = greedy_matching_from_candidates(&weighted_order);
+    let cardinality_order =
+        sorted_candidates_by_cardinality_aware_weight(transformed_candidates.clone());
+    let cardinality_matching = greedy_matching_from_candidates(&cardinality_order);
+    let (matching, _) = choose_preferred_matching(weighted_matching, cardinality_matching, true);
+    let total_weight = matching
+        .iter()
+        .map(|(left, right)| matching_edge_weight_or_default(graph, left, right, weight_attr))
+        .sum();
+
+    WeightedMatchingResult {
+        matching,
+        total_weight,
+        witness: ComplexityWitness {
+            algorithm: "greedy_min_weight_matching".to_owned(),
+            complexity_claim: "O(|E| log |E|)".to_owned(),
+            nodes_touched: graph.node_count(),
+            edges_scanned: transformed_candidates.len() * 2,
+            queue_peak: 0,
+        },
+    }
+}
+
+#[must_use]
 pub fn max_flow_edmonds_karp(
     graph: &Graph,
     source: &str,
@@ -822,6 +1133,166 @@ fn compute_max_flow_residual(
     }
 }
 
+fn matching_state(
+    graph: &Graph,
+    matching: &[(String, String)],
+) -> Option<(MatchingNodeSet, MatchingEdgeSet)> {
+    let mut matched_nodes = MatchingNodeSet::new();
+    let mut matched_edges = MatchingEdgeSet::new();
+
+    for (left, right) in matching {
+        if left == right
+            || !graph.has_node(left)
+            || !graph.has_node(right)
+            || !graph.has_edge(left, right)
+            || !matched_nodes.insert(left.clone())
+            || !matched_nodes.insert(right.clone())
+        {
+            return None;
+        }
+        matched_edges.insert(canonical_undirected_edge(left, right));
+    }
+
+    Some((matched_nodes, matched_edges))
+}
+
+fn canonical_undirected_edge(left: &str, right: &str) -> (String, String) {
+    if left <= right {
+        (left.to_owned(), right.to_owned())
+    } else {
+        (right.to_owned(), left.to_owned())
+    }
+}
+
+fn undirected_edges_in_iteration_order(graph: &Graph) -> Vec<(String, String)> {
+    let mut seen_nodes = HashSet::<&str>::new();
+    let mut edges = Vec::<(String, String)>::new();
+    for left in graph.nodes_ordered() {
+        let Some(neighbors) = graph.neighbors_iter(left) else {
+            seen_nodes.insert(left);
+            continue;
+        };
+        for right in neighbors {
+            if seen_nodes.contains(right) {
+                continue;
+            }
+            edges.push((left.to_owned(), right.to_owned()));
+        }
+        seen_nodes.insert(left);
+    }
+    edges
+}
+
+fn weighted_edge_candidates(graph: &Graph, weight_attr: &str) -> Vec<WeightedEdgeCandidate> {
+    undirected_edges_in_iteration_order(graph)
+        .into_iter()
+        .enumerate()
+        .map(|(iteration_index, (left, right))| WeightedEdgeCandidate {
+            weight: matching_edge_weight_or_default(graph, &left, &right, weight_attr),
+            degree_sum: graph.neighbor_count(&left) + graph.neighbor_count(&right),
+            left,
+            right,
+            iteration_index,
+        })
+        .collect()
+}
+
+fn sorted_candidates_by_weight(
+    mut candidates: Vec<WeightedEdgeCandidate>,
+) -> Vec<WeightedEdgeCandidate> {
+    candidates.sort_by(|left, right| {
+        right
+            .weight
+            .partial_cmp(&left.weight)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| left.iteration_index.cmp(&right.iteration_index))
+    });
+    candidates
+}
+
+fn sorted_candidates_by_cardinality_aware_weight(
+    mut candidates: Vec<WeightedEdgeCandidate>,
+) -> Vec<WeightedEdgeCandidate> {
+    candidates.sort_by(|left, right| {
+        left.degree_sum
+            .cmp(&right.degree_sum)
+            .then_with(|| {
+                right
+                    .weight
+                    .partial_cmp(&left.weight)
+                    .unwrap_or(Ordering::Equal)
+            })
+            .then_with(|| left.iteration_index.cmp(&right.iteration_index))
+    });
+    candidates
+}
+
+fn greedy_matching_from_candidates(
+    candidates: &[WeightedEdgeCandidate],
+) -> (Vec<(String, String)>, f64) {
+    let mut matched_nodes = MatchingNodeSet::new();
+    let mut matching = Vec::<(String, String)>::new();
+    let mut total_weight = 0.0_f64;
+
+    for edge in candidates {
+        if edge.left == edge.right
+            || matched_nodes.contains(&edge.left)
+            || matched_nodes.contains(&edge.right)
+        {
+            continue;
+        }
+        matched_nodes.insert(edge.left.clone());
+        matched_nodes.insert(edge.right.clone());
+        matching.push((edge.left.clone(), edge.right.clone()));
+        total_weight += edge.weight;
+    }
+
+    (matching, total_weight)
+}
+
+fn choose_preferred_matching(
+    weighted: (Vec<(String, String)>, f64),
+    alternative: (Vec<(String, String)>, f64),
+    prefer_cardinality: bool,
+) -> (Vec<(String, String)>, f64) {
+    let (weighted_matching, weighted_weight) = weighted;
+    let (alternative_matching, alternative_weight) = alternative;
+
+    if prefer_cardinality {
+        match alternative_matching.len().cmp(&weighted_matching.len()) {
+            Ordering::Greater => return (alternative_matching, alternative_weight),
+            Ordering::Less => return (weighted_matching, weighted_weight),
+            Ordering::Equal => {}
+        }
+    }
+
+    match alternative_weight
+        .partial_cmp(&weighted_weight)
+        .unwrap_or(Ordering::Equal)
+    {
+        Ordering::Greater => return (alternative_matching, alternative_weight),
+        Ordering::Less => return (weighted_matching, weighted_weight),
+        Ordering::Equal => {}
+    }
+
+    let weighted_key = canonical_matching_key(&weighted_matching);
+    let alternative_key = canonical_matching_key(&alternative_matching);
+    if alternative_key < weighted_key {
+        (alternative_matching, alternative_weight)
+    } else {
+        (weighted_matching, weighted_weight)
+    }
+}
+
+fn canonical_matching_key(matching: &[(String, String)]) -> Vec<(String, String)> {
+    let mut key = matching
+        .iter()
+        .map(|(left, right)| canonical_undirected_edge(left, right))
+        .collect::<Vec<(String, String)>>();
+    key.sort_unstable();
+    key
+}
+
 fn rebuild_path(predecessor: &HashMap<&str, &str>, source: &str, target: &str) -> Vec<String> {
     let mut path = vec![target.to_owned()];
     let mut cursor = target;
@@ -847,6 +1318,20 @@ fn edge_weight_or_default(graph: &Graph, left: &str, right: &str, weight_attr: &
         .unwrap_or(1.0)
 }
 
+fn matching_edge_weight_or_default(
+    graph: &Graph,
+    left: &str,
+    right: &str,
+    weight_attr: &str,
+) -> f64 {
+    graph
+        .edge_attrs(left, right)
+        .and_then(|attrs| attrs.get(weight_attr))
+        .and_then(|raw| raw.parse::<f64>().ok())
+        .filter(|value| value.is_finite())
+        .unwrap_or(1.0)
+}
+
 fn edge_capacity_or_default(graph: &Graph, left: &str, right: &str, capacity_attr: &str) -> f64 {
     graph
         .edge_attrs(left, right)
@@ -869,8 +1354,10 @@ fn stable_hash_hex(input: &[u8]) -> String {
 mod tests {
     use super::{
         CGSE_WITNESS_LEDGER_PATH, CGSE_WITNESS_POLICY_SPEC_PATH, CentralityScore,
-        ComplexityWitness, cgse_witness_schema_version, closeness_centrality, connected_components,
-        degree_centrality, max_flow_edmonds_karp, minimum_cut_edmonds_karp,
+        ComplexityWitness, betweenness_centrality, cgse_witness_schema_version,
+        closeness_centrality, connected_components, degree_centrality, is_matching,
+        is_maximal_matching, is_perfect_matching, max_flow_edmonds_karp, max_weight_matching,
+        maximal_matching, min_weight_matching, minimum_cut_edmonds_karp,
         number_connected_components, shortest_path_unweighted, shortest_path_weighted,
     };
     use fnx_classes::Graph;
@@ -935,6 +1422,51 @@ mod tests {
             nodes.join(","),
             canonical_edge_pairs(graph).len()
         )
+    }
+
+    fn assert_matching_is_valid_and_maximal(graph: &Graph, matching: &[(String, String)]) {
+        let mut matched_nodes = std::collections::HashSet::<String>::new();
+        let mut matched_edges = BTreeSet::<(String, String)>::new();
+
+        for (left, right) in matching {
+            assert_ne!(left, right, "self-loops are not valid matching edges");
+            assert!(
+                graph.has_edge(left, right),
+                "matching edge ({left}, {right}) must exist in graph"
+            );
+            assert!(
+                matched_nodes.insert(left.clone()),
+                "node {left} appears in multiple matching edges"
+            );
+            assert!(
+                matched_nodes.insert(right.clone()),
+                "node {right} appears in multiple matching edges"
+            );
+            let canonical = if left <= right {
+                (left.clone(), right.clone())
+            } else {
+                (right.clone(), left.clone())
+            };
+            matched_edges.insert(canonical);
+        }
+
+        for left in graph.nodes_ordered() {
+            let Some(neighbors) = graph.neighbors_iter(left) else {
+                continue;
+            };
+            for right in neighbors {
+                if left >= right {
+                    continue;
+                }
+                if matched_edges.contains(&(left.to_owned(), right.to_owned())) {
+                    continue;
+                }
+                assert!(
+                    matched_nodes.contains(left) || matched_nodes.contains(right),
+                    "found augmentable edge ({left}, {right}), matching is not maximal"
+                );
+            }
+        }
     }
 
     #[test]
@@ -1200,6 +1732,317 @@ mod tests {
         assert!((result.value - 0.0).abs() <= 1e-12);
         assert!(result.source_partition.is_empty());
         assert!(result.sink_partition.is_empty());
+    }
+
+    #[test]
+    fn maximal_matching_matches_greedy_contract() {
+        let mut graph = Graph::strict();
+        graph.add_edge("1", "2").expect("edge add should succeed");
+        graph.add_edge("1", "3").expect("edge add should succeed");
+        graph.add_edge("2", "3").expect("edge add should succeed");
+        graph.add_edge("2", "4").expect("edge add should succeed");
+        graph.add_edge("3", "5").expect("edge add should succeed");
+        graph.add_edge("4", "5").expect("edge add should succeed");
+
+        let result = maximal_matching(&graph);
+        assert_eq!(
+            result.matching,
+            vec![
+                ("1".to_owned(), "2".to_owned()),
+                ("3".to_owned(), "5".to_owned())
+            ]
+        );
+        assert_eq!(result.witness.algorithm, "greedy_maximal_matching");
+        assert_eq!(result.witness.complexity_claim, "O(|E|)");
+        assert_eq!(result.witness.nodes_touched, 5);
+        assert_eq!(result.witness.edges_scanned, 6);
+        assert_eq!(result.witness.queue_peak, 0);
+        assert_matching_is_valid_and_maximal(&graph, &result.matching);
+    }
+
+    #[test]
+    fn maximal_matching_skips_self_loops() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge("a", "a")
+            .expect("self-loop add should succeed");
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+
+        let result = maximal_matching(&graph);
+        assert_eq!(result.matching, vec![("a".to_owned(), "b".to_owned())]);
+        assert_matching_is_valid_and_maximal(&graph, &result.matching);
+    }
+
+    #[test]
+    fn maximal_matching_tie_break_tracks_edge_iteration_order() {
+        let mut insertion_a = Graph::strict();
+        insertion_a
+            .add_edge("a", "b")
+            .expect("edge add should succeed");
+        insertion_a
+            .add_edge("b", "c")
+            .expect("edge add should succeed");
+        insertion_a
+            .add_edge("c", "d")
+            .expect("edge add should succeed");
+        insertion_a
+            .add_edge("d", "a")
+            .expect("edge add should succeed");
+
+        let mut insertion_b = Graph::strict();
+        insertion_b
+            .add_edge("a", "d")
+            .expect("edge add should succeed");
+        insertion_b
+            .add_edge("d", "c")
+            .expect("edge add should succeed");
+        insertion_b
+            .add_edge("c", "b")
+            .expect("edge add should succeed");
+        insertion_b
+            .add_edge("b", "a")
+            .expect("edge add should succeed");
+
+        let left = maximal_matching(&insertion_a);
+        let left_replay = maximal_matching(&insertion_a);
+        let right = maximal_matching(&insertion_b);
+        let right_replay = maximal_matching(&insertion_b);
+
+        assert_eq!(
+            left.matching,
+            vec![
+                ("a".to_owned(), "b".to_owned()),
+                ("c".to_owned(), "d".to_owned())
+            ]
+        );
+        assert_eq!(
+            right.matching,
+            vec![
+                ("a".to_owned(), "d".to_owned()),
+                ("c".to_owned(), "b".to_owned())
+            ]
+        );
+        assert_eq!(left, left_replay);
+        assert_eq!(right, right_replay);
+        assert_matching_is_valid_and_maximal(&insertion_a, &left.matching);
+        assert_matching_is_valid_and_maximal(&insertion_b, &right.matching);
+    }
+
+    #[test]
+    fn maximal_matching_empty_graph_is_empty() {
+        let graph = Graph::strict();
+        let result = maximal_matching(&graph);
+        assert!(result.matching.is_empty());
+        assert_eq!(result.witness.nodes_touched, 0);
+        assert_eq!(result.witness.edges_scanned, 0);
+    }
+
+    #[test]
+    fn is_matching_accepts_valid_matching() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+        graph.add_edge("d", "a").expect("edge add should succeed");
+
+        let matching = vec![
+            ("a".to_owned(), "b".to_owned()),
+            ("c".to_owned(), "d".to_owned()),
+        ];
+        assert!(is_matching(&graph, &matching));
+    }
+
+    #[test]
+    fn is_matching_rejects_invalid_matching() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("a", "c").expect("edge add should succeed");
+
+        let shared_endpoint = vec![
+            ("a".to_owned(), "b".to_owned()),
+            ("a".to_owned(), "c".to_owned()),
+        ];
+        assert!(!is_matching(&graph, &shared_endpoint));
+
+        let missing_node = vec![("a".to_owned(), "z".to_owned())];
+        assert!(!is_matching(&graph, &missing_node));
+
+        let self_loop = vec![("a".to_owned(), "a".to_owned())];
+        assert!(!is_matching(&graph, &self_loop));
+    }
+
+    #[test]
+    fn is_maximal_matching_detects_augmentable_edge() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+
+        let non_maximal = vec![("a".to_owned(), "b".to_owned())];
+        assert!(!is_maximal_matching(&graph, &non_maximal));
+
+        let maximal = vec![
+            ("a".to_owned(), "b".to_owned()),
+            ("c".to_owned(), "d".to_owned()),
+        ];
+        assert!(is_maximal_matching(&graph, &maximal));
+    }
+
+    #[test]
+    fn is_perfect_matching_requires_all_nodes_covered() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+        graph.add_edge("d", "a").expect("edge add should succeed");
+
+        let perfect = vec![
+            ("a".to_owned(), "b".to_owned()),
+            ("c".to_owned(), "d".to_owned()),
+        ];
+        assert!(is_perfect_matching(&graph, &perfect));
+
+        let non_perfect = vec![("a".to_owned(), "b".to_owned())];
+        assert!(!is_perfect_matching(&graph, &non_perfect));
+    }
+
+    #[test]
+    fn is_perfect_matching_empty_graph_is_true() {
+        let graph = Graph::strict();
+        let matching = Vec::<(String, String)>::new();
+        assert!(is_perfect_matching(&graph, &matching));
+    }
+
+    #[test]
+    fn max_weight_matching_prefers_higher_total_weight() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("1", "2", [("weight".to_owned(), "6".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("1", "3", [("weight".to_owned(), "2".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("2", "3", [("weight".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("2", "4", [("weight".to_owned(), "7".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("3", "5", [("weight".to_owned(), "9".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("4", "5", [("weight".to_owned(), "3".to_owned())].into())
+            .expect("edge add should succeed");
+
+        let result = max_weight_matching(&graph, false, "weight");
+        assert_eq!(
+            result.matching,
+            vec![
+                ("3".to_owned(), "5".to_owned()),
+                ("2".to_owned(), "4".to_owned())
+            ]
+        );
+        assert!((result.total_weight - 16.0).abs() <= 1e-12);
+        assert_eq!(result.witness.algorithm, "greedy_max_weight_matching");
+        assert_matching_is_valid_and_maximal(&graph, &result.matching);
+    }
+
+    #[test]
+    fn max_weight_matching_maxcardinality_prefers_larger_matching() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("a", "b", [("weight".to_owned(), "100".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "c", [("weight".to_owned(), "60".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("b", "d", [("weight".to_owned(), "60".to_owned())].into())
+            .expect("edge add should succeed");
+
+        let default_result = max_weight_matching(&graph, false, "weight");
+        assert_eq!(
+            default_result.matching,
+            vec![("a".to_owned(), "b".to_owned())]
+        );
+        assert!((default_result.total_weight - 100.0).abs() <= 1e-12);
+
+        let maxcard_result = max_weight_matching(&graph, true, "weight");
+        assert_eq!(
+            maxcard_result.matching,
+            vec![
+                ("a".to_owned(), "c".to_owned()),
+                ("b".to_owned(), "d".to_owned())
+            ]
+        );
+        assert!((maxcard_result.total_weight - 120.0).abs() <= 1e-12);
+        assert_eq!(
+            maxcard_result.witness.algorithm,
+            "greedy_max_weight_matching_maxcardinality"
+        );
+        assert_matching_is_valid_and_maximal(&graph, &maxcard_result.matching);
+    }
+
+    #[test]
+    fn min_weight_matching_uses_weight_inversion_contract() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("a", "b", [("weight".to_owned(), "10".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "c", [("weight".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("b", "d", [("weight".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("c", "d", [("weight".to_owned(), "10".to_owned())].into())
+            .expect("edge add should succeed");
+
+        let result = min_weight_matching(&graph, "weight");
+        assert_eq!(
+            result.matching,
+            vec![
+                ("a".to_owned(), "c".to_owned()),
+                ("b".to_owned(), "d".to_owned())
+            ]
+        );
+        assert!((result.total_weight - 2.0).abs() <= 1e-12);
+        assert_eq!(result.witness.algorithm, "greedy_min_weight_matching");
+        assert_matching_is_valid_and_maximal(&graph, &result.matching);
+    }
+
+    #[test]
+    fn min_weight_matching_defaults_missing_weight_to_one() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "c", [("weight".to_owned(), "3".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("b", "c", [("weight".to_owned(), "2".to_owned())].into())
+            .expect("edge add should succeed");
+
+        let result = min_weight_matching(&graph, "weight");
+        assert_eq!(result.matching, vec![("a".to_owned(), "b".to_owned())]);
+        assert!((result.total_weight - 1.0).abs() <= 1e-12);
+    }
+
+    #[test]
+    fn weighted_matching_empty_graph_is_empty() {
+        let graph = Graph::strict();
+        let max_result = max_weight_matching(&graph, false, "weight");
+        let min_result = min_weight_matching(&graph, "weight");
+
+        assert!(max_result.matching.is_empty());
+        assert!((max_result.total_weight - 0.0).abs() <= 1e-12);
+        assert_eq!(max_result.witness.nodes_touched, 0);
+
+        assert!(min_result.matching.is_empty());
+        assert!((min_result.total_weight - 0.0).abs() <= 1e-12);
+        assert_eq!(min_result.witness.nodes_touched, 0);
     }
 
     #[test]
@@ -1492,6 +2335,133 @@ mod tests {
         assert_eq!(single_result.scores.len(), 1);
         assert_eq!(single_result.scores[0].node, "solo");
         assert!((single_result.scores[0].score - 0.0).abs() <= 1e-12);
+    }
+
+    #[test]
+    fn betweenness_centrality_path_graph_matches_expected_values() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+
+        let result = betweenness_centrality(&graph);
+        let expected = [
+            ("a", 0.0_f64),
+            ("b", 2.0 / 3.0),
+            ("c", 2.0 / 3.0),
+            ("d", 0.0_f64),
+        ];
+        for (actual, (exp_node, exp_score)) in result.scores.iter().zip(expected) {
+            assert_eq!(actual.node, exp_node);
+            assert!((actual.score - exp_score).abs() <= 1e-12);
+        }
+        assert_eq!(result.witness.algorithm, "brandes_betweenness_centrality");
+        assert_eq!(result.witness.complexity_claim, "O(|V| * |E|)");
+    }
+
+    #[test]
+    fn betweenness_centrality_star_graph_center_is_one() {
+        let mut graph = Graph::strict();
+        graph.add_edge("c", "l1").expect("edge add should succeed");
+        graph.add_edge("c", "l2").expect("edge add should succeed");
+        graph.add_edge("c", "l3").expect("edge add should succeed");
+        graph.add_edge("c", "l4").expect("edge add should succeed");
+
+        let result = betweenness_centrality(&graph);
+        let mut center_seen = false;
+        for score in result.scores {
+            if score.node == "c" {
+                center_seen = true;
+                assert!((score.score - 1.0).abs() <= 1e-12);
+            } else {
+                assert!(score.node.starts_with('l'));
+                assert!((score.score - 0.0).abs() <= 1e-12);
+            }
+        }
+        assert!(center_seen);
+    }
+
+    #[test]
+    fn betweenness_centrality_cycle_graph_distributes_evenly() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+        graph.add_edge("d", "a").expect("edge add should succeed");
+
+        let result = betweenness_centrality(&graph);
+        for score in result.scores {
+            assert!((score.score - (1.0 / 6.0)).abs() <= 1e-12);
+        }
+    }
+
+    #[test]
+    fn betweenness_centrality_is_replay_stable_under_insertion_order_noise() {
+        let mut forward = Graph::strict();
+        for (left, right) in [("n0", "n1"), ("n1", "n2"), ("n2", "n3"), ("n0", "n3")] {
+            forward
+                .add_edge(left, right)
+                .expect("edge add should succeed");
+        }
+        let _ = forward.add_node("noise_a");
+
+        let mut reverse = Graph::strict();
+        for (left, right) in [("n0", "n3"), ("n2", "n3"), ("n1", "n2"), ("n0", "n1")] {
+            reverse
+                .add_edge(left, right)
+                .expect("edge add should succeed");
+        }
+        let _ = reverse.add_node("noise_a");
+
+        let forward_once = betweenness_centrality(&forward);
+        let forward_twice = betweenness_centrality(&forward);
+        let reverse_once = betweenness_centrality(&reverse);
+        let reverse_twice = betweenness_centrality(&reverse);
+
+        assert_eq!(forward_once, forward_twice);
+        assert_eq!(reverse_once, reverse_twice);
+
+        let as_score_map = |scores: Vec<CentralityScore>| -> BTreeMap<String, f64> {
+            scores
+                .into_iter()
+                .map(|entry| (entry.node, entry.score))
+                .collect::<BTreeMap<String, f64>>()
+        };
+        let forward_map = as_score_map(forward_once.scores);
+        let reverse_map = as_score_map(reverse_once.scores);
+        assert_eq!(
+            forward_map.keys().collect::<Vec<&String>>(),
+            reverse_map.keys().collect::<Vec<&String>>()
+        );
+        for key in forward_map.keys() {
+            let left = *forward_map.get(key).unwrap_or(&0.0);
+            let right = *reverse_map.get(key).unwrap_or(&0.0);
+            assert!(
+                (left - right).abs() <= 1e-12,
+                "score mismatch for node {key}"
+            );
+        }
+    }
+
+    #[test]
+    fn betweenness_centrality_empty_and_small_graphs_are_zero_or_empty() {
+        let empty = Graph::strict();
+        let empty_result = betweenness_centrality(&empty);
+        assert!(empty_result.scores.is_empty());
+
+        let mut singleton = Graph::strict();
+        let _ = singleton.add_node("solo");
+        let singleton_result = betweenness_centrality(&singleton);
+        assert_eq!(singleton_result.scores.len(), 1);
+        assert_eq!(singleton_result.scores[0].node, "solo");
+        assert!((singleton_result.scores[0].score - 0.0).abs() <= 1e-12);
+
+        let mut pair = Graph::strict();
+        pair.add_edge("a", "b").expect("edge add should succeed");
+        let pair_result = betweenness_centrality(&pair);
+        for score in pair_result.scores {
+            assert!((score.score - 0.0).abs() <= 1e-12);
+        }
     }
 
     #[test]
