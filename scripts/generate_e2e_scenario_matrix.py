@@ -55,11 +55,24 @@ JOURNEY_SPECS: list[dict[str, Any]] = [
     },
     {
         "journey_id": "J-SHORTEST-PATH-COMPONENTS",
-        "scoped_api_journey": "components_and_connectivity_queries",
+        "scoped_api_journey": "components_weighted_path_and_flow_queries",
         "packet_id": "FNX-P2C-005",
-        "description": "Connected-components and component-count algorithm contracts.",
-        "strict_fixture_ids": ["generated/components_connected_strict.json"],
-        "hardened_fixture_ids": ["generated/components_connected_strict.json"],
+        "description": (
+            "Connected-components, weighted-shortest-path, max-flow, and minimum-cut "
+            "algorithm contracts."
+        ),
+        "strict_fixture_ids": [
+            "generated/components_connected_strict.json",
+            "generated/shortest_path_weighted_strict.json",
+            "generated/flow_max_strict.json",
+            "generated/flow_min_cut_strict.json",
+        ],
+        "hardened_fixture_ids": [
+            "generated/components_connected_strict.json",
+            "generated/shortest_path_weighted_strict.json",
+            "generated/flow_max_strict.json",
+            "generated/flow_min_cut_strict.json",
+        ],
         "hardened_mode_strategy": "mode_override_fixture",
     },
     {
