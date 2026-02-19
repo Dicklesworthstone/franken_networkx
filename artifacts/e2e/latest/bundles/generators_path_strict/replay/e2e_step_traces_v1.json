@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "e2e-step-traces-v1",
+  "run_id": "e2e-script-pack-20260218T215618Z",
+  "scenario_id": "generators_path_strict",
+  "packet_id": "FNX-P2C-007",
+  "pass_label": "replay",
+  "mode": "strict",
+  "fixture_id": "generated/generators_path_strict.json",
+  "bundle_id": "e2e-bundle-1bcb1015724c781f",
+  "stable_fingerprint": "0c1800b6d625c6e6",
+  "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/generators_path_strict.json --mode strict",
+  "env_fingerprint": "756110b48e409e33",
+  "generated_at_utc": "2026-02-18T22:06:11.147273+00:00",
+  "traces": [
+    {
+      "run_id": "e2e-script-pack-20260218T215618Z",
+      "test_id": "scenario::generators_path_strict",
+      "step_id": "generators_path_strict::cycle-01",
+      "step_label": "execute:regression_path",
+      "phase": "execute",
+      "status": "passed",
+      "start_unix_ms": 1771452355465,
+      "end_unix_ms": 1771452371069,
+      "duration_ms": 15604,
+      "retry_count": 0,
+      "command_or_api": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/generators_path_strict.json --mode strict",
+      "input_ref": "generated/generators_path_strict.json",
+      "output_ref": "artifacts/e2e/latest/bundles/generators_path_strict/replay/selected_structured_log.json",
+      "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/generators_path_strict.json --mode strict",
+      "forensic_bundle_id": "forensics::FNX-P2C-007::generated::generators_path_strict.json",
+      "artifact_refs": [
+        "artifacts/e2e/latest/bundles/generators_path_strict/replay/command.log",
+        "artifacts/e2e/latest/bundles/generators_path_strict/replay/selected_structured_log.json"
+      ],
+      "hash_id": "26f8a024cad25584",
+      "outcome": "passed",
+      "reason_code": null
+    }
+  ]
+}

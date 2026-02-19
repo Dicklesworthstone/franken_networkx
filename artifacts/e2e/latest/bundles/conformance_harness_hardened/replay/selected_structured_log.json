@@ -1,0 +1,58 @@
+{
+  "schema_version": "1.0.0",
+  "run_id": "e2e-script-pack-20260218T215618Z",
+  "ts_unix_ms": 1771452609236,
+  "crate_name": "fnx-conformance",
+  "suite_id": "smoke",
+  "packet_id": "FNX-P2C-009",
+  "test_name": "fixture::generated/conformance_harness_strict.json",
+  "test_id": "fixture::generated/conformance_harness_strict.json",
+  "test_kind": "differential",
+  "mode": "hardened",
+  "fixture_id": "generated/conformance_harness_strict.json",
+  "seed": 16760608802675680113,
+  "environment": {
+    "suite": "smoke",
+    "oracle_present": "true",
+    "mode": "hardened",
+    "scenario_id": "conformance_harness_hardened",
+    "generated_by": "e2e_script_pack_synth_fallback"
+  },
+  "env_fingerprint": "4099bde3cd892d8e",
+  "duration_ms": 0,
+  "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/conformance_harness_strict.json --mode hardened",
+  "artifact_refs": [
+    "artifacts/e2e/latest/bundles/conformance_harness_hardened/replay/smoke_report.json",
+    "artifacts/e2e/latest/bundles/conformance_harness_hardened/replay/fixture_report.json",
+    "artifacts/e2e/latest/bundles/conformance_harness_hardened/replay/structured_logs.jsonl",
+    "artifacts/phase2c/FNX-P2C-009/parity_report.decode_proof.json",
+    "artifacts/phase2c/FNX-P2C-009/parity_report.raptorq.json"
+  ],
+  "forensic_bundle_id": "forensics::FNX-P2C-009::generated::conformance_harness_strict.json",
+  "hash_id": "388558e8e2b88cbf",
+  "status": "passed",
+  "reason_code": null,
+  "failure_repro": null,
+  "e2e_step_traces": [],
+  "forensics_bundle_index": {
+    "bundle_id": "forensics::FNX-P2C-009::generated::conformance_harness_strict.json",
+    "run_id": "e2e-script-pack-20260218T215618Z",
+    "test_id": "fixture::generated/conformance_harness_strict.json",
+    "bundle_hash_id": "1247f350fb8f6b6b",
+    "captured_unix_ms": 1771452609236,
+    "replay_ref": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/conformance_harness_strict.json --mode hardened",
+    "artifact_refs": [
+      "artifacts/e2e/latest/bundles/conformance_harness_hardened/replay/smoke_report.json",
+      "artifacts/e2e/latest/bundles/conformance_harness_hardened/replay/fixture_report.json",
+      "artifacts/e2e/latest/bundles/conformance_harness_hardened/replay/structured_logs.jsonl",
+      "artifacts/phase2c/FNX-P2C-009/parity_report.decode_proof.json",
+      "artifacts/phase2c/FNX-P2C-009/parity_report.raptorq.json"
+    ],
+    "raptorq_sidecar_refs": [
+      "artifacts/phase2c/FNX-P2C-009/parity_report.raptorq.json"
+    ],
+    "decode_proof_refs": [
+      "artifacts/phase2c/FNX-P2C-009/parity_report.decode_proof.json"
+    ]
+  }
+}

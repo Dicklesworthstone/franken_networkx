@@ -1,0 +1,798 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "e2e-script-pack-determinism-report-v1",
+  "run_id": "e2e-script-pack-20260218T215618Z",
+  "generated_at_utc": "2026-02-18T22:10:09.238067+00:00",
+  "gate_step_id": "step-1",
+  "forensics_index_path": "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json",
+  "retention_policy": {
+    "policy_id": "e2e-latest-retention-v1",
+    "min_retention_days": 14,
+    "storage_root": "artifacts/e2e/latest",
+    "policy_digest": "fnv1a64:8cdc8c7c182cecd2"
+  },
+  "pass_labels": [
+    "baseline",
+    "replay"
+  ],
+  "required_scenarios": [
+    "happy_path",
+    "view_neighbors_strict",
+    "view_neighbors_hardened",
+    "dispatch_route_strict",
+    "dispatch_route_hardened",
+    "convert_route_strict",
+    "convert_route_hardened",
+    "edge_path",
+    "edge_path_hardened",
+    "readwrite_roundtrip_strict",
+    "readwrite_json_roundtrip_strict",
+    "generators_path_strict",
+    "generators_cycle_hardened",
+    "malformed_input",
+    "adversarial_soak",
+    "asupersync_recovery_success",
+    "asupersync_interruption_resume",
+    "asupersync_replica_drift",
+    "asupersync_sidecar_mismatch",
+    "asupersync_stale_metadata_resume",
+    "conformance_harness_strict",
+    "conformance_harness_hardened"
+  ],
+  "required_packet_ids": [
+    "FNX-P2C-001",
+    "FNX-P2C-002",
+    "FNX-P2C-003",
+    "FNX-P2C-004",
+    "FNX-P2C-005",
+    "FNX-P2C-006",
+    "FNX-P2C-007",
+    "FNX-P2C-008",
+    "FNX-P2C-009"
+  ],
+  "packet_coverage": {
+    "required_packet_ids": [
+      "FNX-P2C-001",
+      "FNX-P2C-002",
+      "FNX-P2C-003",
+      "FNX-P2C-004",
+      "FNX-P2C-005",
+      "FNX-P2C-006",
+      "FNX-P2C-007",
+      "FNX-P2C-008",
+      "FNX-P2C-009"
+    ],
+    "observed_packet_ids": [
+      "FNX-P2C-001",
+      "FNX-P2C-002",
+      "FNX-P2C-003",
+      "FNX-P2C-004",
+      "FNX-P2C-005",
+      "FNX-P2C-006",
+      "FNX-P2C-007",
+      "FNX-P2C-008",
+      "FNX-P2C-009"
+    ],
+    "missing_packet_ids": [],
+    "coverage_ok": true
+  },
+  "result_count": 44,
+  "status": "pass",
+  "failures": [],
+  "scenario_checks": [
+    {
+      "scenario_id": "happy_path",
+      "bundle_id_pass_a": "e2e-bundle-3acfb1d1f035bdf5",
+      "bundle_id_pass_b": "e2e-bundle-3acfb1d1f035bdf5",
+      "stable_fingerprint_pass_a": "ae36a376be507091",
+      "stable_fingerprint_pass_b": "ae36a376be507091",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "view_neighbors_strict",
+      "bundle_id_pass_a": "e2e-bundle-544bc0a62f128391",
+      "bundle_id_pass_b": "e2e-bundle-544bc0a62f128391",
+      "stable_fingerprint_pass_a": "92d1001a133862ff",
+      "stable_fingerprint_pass_b": "92d1001a133862ff",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "view_neighbors_hardened",
+      "bundle_id_pass_a": "e2e-bundle-f2e091333103f31d",
+      "bundle_id_pass_b": "e2e-bundle-f2e091333103f31d",
+      "stable_fingerprint_pass_a": "3c3c3c77c53a3b9f",
+      "stable_fingerprint_pass_b": "3c3c3c77c53a3b9f",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "dispatch_route_strict",
+      "bundle_id_pass_a": "e2e-bundle-61aaf4bb145189cc",
+      "bundle_id_pass_b": "e2e-bundle-61aaf4bb145189cc",
+      "stable_fingerprint_pass_a": "e843452eacfb9e13",
+      "stable_fingerprint_pass_b": "e843452eacfb9e13",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "dispatch_route_hardened",
+      "bundle_id_pass_a": "e2e-bundle-03b0c6b9dceb17d2",
+      "bundle_id_pass_b": "e2e-bundle-03b0c6b9dceb17d2",
+      "stable_fingerprint_pass_a": "0309e5aaa8e8355d",
+      "stable_fingerprint_pass_b": "0309e5aaa8e8355d",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "convert_route_strict",
+      "bundle_id_pass_a": "e2e-bundle-c3fdfe90d210605d",
+      "bundle_id_pass_b": "e2e-bundle-c3fdfe90d210605d",
+      "stable_fingerprint_pass_a": "b6003043881e30ac",
+      "stable_fingerprint_pass_b": "b6003043881e30ac",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "convert_route_hardened",
+      "bundle_id_pass_a": "e2e-bundle-3fce2789a964be91",
+      "bundle_id_pass_b": "e2e-bundle-3fce2789a964be91",
+      "stable_fingerprint_pass_a": "283aada6031a2570",
+      "stable_fingerprint_pass_b": "283aada6031a2570",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "edge_path",
+      "bundle_id_pass_a": "e2e-bundle-88629d87f0aacb45",
+      "bundle_id_pass_b": "e2e-bundle-88629d87f0aacb45",
+      "stable_fingerprint_pass_a": "628982d6dee8b45f",
+      "stable_fingerprint_pass_b": "628982d6dee8b45f",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "edge_path_hardened",
+      "bundle_id_pass_a": "e2e-bundle-5f65c26eec1a6596",
+      "bundle_id_pass_b": "e2e-bundle-5f65c26eec1a6596",
+      "stable_fingerprint_pass_a": "ac0f2907b50ec556",
+      "stable_fingerprint_pass_b": "ac0f2907b50ec556",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "readwrite_roundtrip_strict",
+      "bundle_id_pass_a": "e2e-bundle-e378ddfa33e68d51",
+      "bundle_id_pass_b": "e2e-bundle-e378ddfa33e68d51",
+      "stable_fingerprint_pass_a": "823ec5f4409a29ea",
+      "stable_fingerprint_pass_b": "823ec5f4409a29ea",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "readwrite_json_roundtrip_strict",
+      "bundle_id_pass_a": "e2e-bundle-3659a3df82c9b9d7",
+      "bundle_id_pass_b": "e2e-bundle-3659a3df82c9b9d7",
+      "stable_fingerprint_pass_a": "20c04aa28cedb63c",
+      "stable_fingerprint_pass_b": "20c04aa28cedb63c",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "generators_path_strict",
+      "bundle_id_pass_a": "e2e-bundle-1bcb1015724c781f",
+      "bundle_id_pass_b": "e2e-bundle-1bcb1015724c781f",
+      "stable_fingerprint_pass_a": "0c1800b6d625c6e6",
+      "stable_fingerprint_pass_b": "0c1800b6d625c6e6",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "generators_cycle_hardened",
+      "bundle_id_pass_a": "e2e-bundle-597f0b992d8f8a32",
+      "bundle_id_pass_b": "e2e-bundle-597f0b992d8f8a32",
+      "stable_fingerprint_pass_a": "34f523f0836a093d",
+      "stable_fingerprint_pass_b": "34f523f0836a093d",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "malformed_input",
+      "bundle_id_pass_a": "e2e-bundle-8812fedc0fe47217",
+      "bundle_id_pass_b": "e2e-bundle-8812fedc0fe47217",
+      "stable_fingerprint_pass_a": "04f4b92eac1f9d6b",
+      "stable_fingerprint_pass_b": "04f4b92eac1f9d6b",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "adversarial_soak",
+      "bundle_id_pass_a": "e2e-bundle-6d7e041ad44a0f50",
+      "bundle_id_pass_b": "e2e-bundle-6d7e041ad44a0f50",
+      "stable_fingerprint_pass_a": "ad1995178992eaf5",
+      "stable_fingerprint_pass_b": "ad1995178992eaf5",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "asupersync_recovery_success",
+      "bundle_id_pass_a": "e2e-bundle-a1574ac0c2ec39e8",
+      "bundle_id_pass_b": "e2e-bundle-a1574ac0c2ec39e8",
+      "stable_fingerprint_pass_a": "323a8c9a4eeaa29b",
+      "stable_fingerprint_pass_b": "323a8c9a4eeaa29b",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "asupersync_interruption_resume",
+      "bundle_id_pass_a": "e2e-bundle-0585fded4822b2b3",
+      "bundle_id_pass_b": "e2e-bundle-0585fded4822b2b3",
+      "stable_fingerprint_pass_a": "3ccaa75ca602c877",
+      "stable_fingerprint_pass_b": "3ccaa75ca602c877",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "asupersync_replica_drift",
+      "bundle_id_pass_a": "e2e-bundle-1e4bdf42ef231792",
+      "bundle_id_pass_b": "e2e-bundle-1e4bdf42ef231792",
+      "stable_fingerprint_pass_a": "824312598dff025a",
+      "stable_fingerprint_pass_b": "824312598dff025a",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "asupersync_sidecar_mismatch",
+      "bundle_id_pass_a": "e2e-bundle-81fdac520dfcba32",
+      "bundle_id_pass_b": "e2e-bundle-81fdac520dfcba32",
+      "stable_fingerprint_pass_a": "c0b548569381644c",
+      "stable_fingerprint_pass_b": "c0b548569381644c",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "asupersync_stale_metadata_resume",
+      "bundle_id_pass_a": "e2e-bundle-8a47bc62a1d7da00",
+      "bundle_id_pass_b": "e2e-bundle-8a47bc62a1d7da00",
+      "stable_fingerprint_pass_a": "328d101b09ec8ff4",
+      "stable_fingerprint_pass_b": "328d101b09ec8ff4",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "conformance_harness_strict",
+      "bundle_id_pass_a": "e2e-bundle-5e587caef9044496",
+      "bundle_id_pass_b": "e2e-bundle-5e587caef9044496",
+      "stable_fingerprint_pass_a": "1708fa18314021da",
+      "stable_fingerprint_pass_b": "1708fa18314021da",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    },
+    {
+      "scenario_id": "conformance_harness_hardened",
+      "bundle_id_pass_a": "e2e-bundle-ab38693735bd62ac",
+      "bundle_id_pass_b": "e2e-bundle-ab38693735bd62ac",
+      "stable_fingerprint_pass_a": "7f2d94a83ed9a0d8",
+      "stable_fingerprint_pass_b": "7f2d94a83ed9a0d8",
+      "bundle_id_match": true,
+      "stable_fingerprint_match": true,
+      "status_ok": true
+    }
+  ],
+  "runs": [
+    {
+      "scenario_id": "happy_path",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-001",
+      "bundle_id": "e2e-bundle-3acfb1d1f035bdf5",
+      "stable_fingerprint": "ae36a376be507091",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/happy_path/baseline/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "view_neighbors_strict",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-002",
+      "bundle_id": "e2e-bundle-544bc0a62f128391",
+      "stable_fingerprint": "92d1001a133862ff",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/view_neighbors_strict/baseline/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "view_neighbors_hardened",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-002",
+      "bundle_id": "e2e-bundle-f2e091333103f31d",
+      "stable_fingerprint": "3c3c3c77c53a3b9f",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/view_neighbors_hardened/baseline/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "dispatch_route_strict",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-003",
+      "bundle_id": "e2e-bundle-61aaf4bb145189cc",
+      "stable_fingerprint": "e843452eacfb9e13",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/dispatch_route_strict/baseline/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "dispatch_route_hardened",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-003",
+      "bundle_id": "e2e-bundle-03b0c6b9dceb17d2",
+      "stable_fingerprint": "0309e5aaa8e8355d",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/dispatch_route_hardened/baseline/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "convert_route_strict",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-004",
+      "bundle_id": "e2e-bundle-c3fdfe90d210605d",
+      "stable_fingerprint": "b6003043881e30ac",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/convert_route_strict/baseline/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "convert_route_hardened",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-004",
+      "bundle_id": "e2e-bundle-3fce2789a964be91",
+      "stable_fingerprint": "283aada6031a2570",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/convert_route_hardened/baseline/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "edge_path",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-005",
+      "bundle_id": "e2e-bundle-88629d87f0aacb45",
+      "stable_fingerprint": "628982d6dee8b45f",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/edge_path/baseline/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "edge_path_hardened",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-005",
+      "bundle_id": "e2e-bundle-5f65c26eec1a6596",
+      "stable_fingerprint": "ac0f2907b50ec556",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/edge_path_hardened/baseline/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "readwrite_roundtrip_strict",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-006",
+      "bundle_id": "e2e-bundle-e378ddfa33e68d51",
+      "stable_fingerprint": "823ec5f4409a29ea",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/readwrite_roundtrip_strict/baseline/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "readwrite_json_roundtrip_strict",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-006",
+      "bundle_id": "e2e-bundle-3659a3df82c9b9d7",
+      "stable_fingerprint": "20c04aa28cedb63c",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/readwrite_json_roundtrip_strict/baseline/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "generators_path_strict",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-007",
+      "bundle_id": "e2e-bundle-1bcb1015724c781f",
+      "stable_fingerprint": "0c1800b6d625c6e6",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/generators_path_strict/baseline/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "generators_cycle_hardened",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-007",
+      "bundle_id": "e2e-bundle-597f0b992d8f8a32",
+      "stable_fingerprint": "34f523f0836a093d",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/generators_cycle_hardened/baseline/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "malformed_input",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-006",
+      "bundle_id": "e2e-bundle-8812fedc0fe47217",
+      "stable_fingerprint": "04f4b92eac1f9d6b",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/malformed_input/baseline/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "adversarial_soak",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-006",
+      "bundle_id": "e2e-bundle-6d7e041ad44a0f50",
+      "stable_fingerprint": "ad1995178992eaf5",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/adversarial_soak/baseline/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "asupersync_recovery_success",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-008",
+      "bundle_id": "e2e-bundle-a1574ac0c2ec39e8",
+      "stable_fingerprint": "323a8c9a4eeaa29b",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/asupersync_recovery_success/baseline/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "asupersync_interruption_resume",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-008",
+      "bundle_id": "e2e-bundle-0585fded4822b2b3",
+      "stable_fingerprint": "3ccaa75ca602c877",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/asupersync_interruption_resume/baseline/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "asupersync_replica_drift",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-008",
+      "bundle_id": "e2e-bundle-1e4bdf42ef231792",
+      "stable_fingerprint": "824312598dff025a",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/asupersync_replica_drift/baseline/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "asupersync_sidecar_mismatch",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-008",
+      "bundle_id": "e2e-bundle-81fdac520dfcba32",
+      "stable_fingerprint": "c0b548569381644c",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/asupersync_sidecar_mismatch/baseline/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "asupersync_stale_metadata_resume",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-008",
+      "bundle_id": "e2e-bundle-8a47bc62a1d7da00",
+      "stable_fingerprint": "328d101b09ec8ff4",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/asupersync_stale_metadata_resume/baseline/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "conformance_harness_strict",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-009",
+      "bundle_id": "e2e-bundle-5e587caef9044496",
+      "stable_fingerprint": "1708fa18314021da",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/conformance_harness_strict/baseline/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "conformance_harness_hardened",
+      "pass_label": "baseline",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-009",
+      "bundle_id": "e2e-bundle-ab38693735bd62ac",
+      "stable_fingerprint": "7f2d94a83ed9a0d8",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/conformance_harness_hardened/baseline/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "happy_path",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-001",
+      "bundle_id": "e2e-bundle-3acfb1d1f035bdf5",
+      "stable_fingerprint": "ae36a376be507091",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/happy_path/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "view_neighbors_strict",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-002",
+      "bundle_id": "e2e-bundle-544bc0a62f128391",
+      "stable_fingerprint": "92d1001a133862ff",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/view_neighbors_strict/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "view_neighbors_hardened",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-002",
+      "bundle_id": "e2e-bundle-f2e091333103f31d",
+      "stable_fingerprint": "3c3c3c77c53a3b9f",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/view_neighbors_hardened/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "dispatch_route_strict",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-003",
+      "bundle_id": "e2e-bundle-61aaf4bb145189cc",
+      "stable_fingerprint": "e843452eacfb9e13",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/dispatch_route_strict/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "dispatch_route_hardened",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-003",
+      "bundle_id": "e2e-bundle-03b0c6b9dceb17d2",
+      "stable_fingerprint": "0309e5aaa8e8355d",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/dispatch_route_hardened/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "convert_route_strict",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-004",
+      "bundle_id": "e2e-bundle-c3fdfe90d210605d",
+      "stable_fingerprint": "b6003043881e30ac",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/convert_route_strict/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "convert_route_hardened",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-004",
+      "bundle_id": "e2e-bundle-3fce2789a964be91",
+      "stable_fingerprint": "283aada6031a2570",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/convert_route_hardened/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "edge_path",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-005",
+      "bundle_id": "e2e-bundle-88629d87f0aacb45",
+      "stable_fingerprint": "628982d6dee8b45f",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/edge_path/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "edge_path_hardened",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-005",
+      "bundle_id": "e2e-bundle-5f65c26eec1a6596",
+      "stable_fingerprint": "ac0f2907b50ec556",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/edge_path_hardened/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "readwrite_roundtrip_strict",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-006",
+      "bundle_id": "e2e-bundle-e378ddfa33e68d51",
+      "stable_fingerprint": "823ec5f4409a29ea",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/readwrite_roundtrip_strict/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "readwrite_json_roundtrip_strict",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-006",
+      "bundle_id": "e2e-bundle-3659a3df82c9b9d7",
+      "stable_fingerprint": "20c04aa28cedb63c",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/readwrite_json_roundtrip_strict/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "generators_path_strict",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-007",
+      "bundle_id": "e2e-bundle-1bcb1015724c781f",
+      "stable_fingerprint": "0c1800b6d625c6e6",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/generators_path_strict/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "generators_cycle_hardened",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-007",
+      "bundle_id": "e2e-bundle-597f0b992d8f8a32",
+      "stable_fingerprint": "34f523f0836a093d",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/generators_cycle_hardened/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "malformed_input",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-006",
+      "bundle_id": "e2e-bundle-8812fedc0fe47217",
+      "stable_fingerprint": "04f4b92eac1f9d6b",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/malformed_input/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "adversarial_soak",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-006",
+      "bundle_id": "e2e-bundle-6d7e041ad44a0f50",
+      "stable_fingerprint": "ad1995178992eaf5",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/adversarial_soak/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "asupersync_recovery_success",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-008",
+      "bundle_id": "e2e-bundle-a1574ac0c2ec39e8",
+      "stable_fingerprint": "323a8c9a4eeaa29b",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/asupersync_recovery_success/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "asupersync_interruption_resume",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-008",
+      "bundle_id": "e2e-bundle-0585fded4822b2b3",
+      "stable_fingerprint": "3ccaa75ca602c877",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/asupersync_interruption_resume/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "asupersync_replica_drift",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-008",
+      "bundle_id": "e2e-bundle-1e4bdf42ef231792",
+      "stable_fingerprint": "824312598dff025a",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/asupersync_replica_drift/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "asupersync_sidecar_mismatch",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-008",
+      "bundle_id": "e2e-bundle-81fdac520dfcba32",
+      "stable_fingerprint": "c0b548569381644c",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/asupersync_sidecar_mismatch/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "asupersync_stale_metadata_resume",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-008",
+      "bundle_id": "e2e-bundle-8a47bc62a1d7da00",
+      "stable_fingerprint": "328d101b09ec8ff4",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/asupersync_stale_metadata_resume/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "conformance_harness_strict",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-009",
+      "bundle_id": "e2e-bundle-5e587caef9044496",
+      "stable_fingerprint": "1708fa18314021da",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/conformance_harness_strict/replay/bundle_manifest_v1.json"
+    },
+    {
+      "scenario_id": "conformance_harness_hardened",
+      "pass_label": "replay",
+      "status": "passed",
+      "reason_code": null,
+      "packet_id": "FNX-P2C-009",
+      "bundle_id": "e2e-bundle-ab38693735bd62ac",
+      "stable_fingerprint": "7f2d94a83ed9a0d8",
+      "bundle_manifest_path": "artifacts/e2e/latest/bundles/conformance_harness_hardened/replay/bundle_manifest_v1.json"
+    }
+  ],
+  "events_path": "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl",
+  "profile_first_artifacts": {
+    "baseline": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+    "hotspot": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+    "delta": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+  },
+  "optimization_lever_policy": {
+    "rule": "exactly_one_optimization_lever_per_change",
+    "evidence_path": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json"
+  },
+  "alien_uplift_contract_card": {
+    "ev_score": 2.22,
+    "baseline_comparator": "legacy_networkx/main@python3.12",
+    "expected_value_statement": "Deterministic failure envelopes + artifact index linkage reduce replay triage ambiguity."
+  },
+  "decision_theoretic_runtime_contract": {
+    "states": [
+      "accept",
+      "validate",
+      "fail_closed"
+    ],
+    "actions": [
+      "ingest_event",
+      "publish_artifact_index",
+      "emit_failure_envelope",
+      "fail_closed"
+    ],
+    "loss_model": "Minimize expected replay divergence and diagnostic ambiguity while preserving deterministic ordering.",
+    "loss_budget": {
+      "max_expected_loss": 0.02,
+      "max_replay_loss": 0.0,
+      "max_data_loss": 0.0
+    },
+    "safe_mode_fallback": {
+      "trigger_thresholds": {
+        "missing_forensics_fields": 1,
+        "artifact_index_resolution_failures": 1,
+        "unexpected_failure_reason_codes": 1
+      },
+      "fallback_action": "emit fail-closed diagnostics and halt publication of readiness artifacts",
+      "budgeted_recovery_window_ms": 30000
+    }
+  },
+  "isomorphism_proof_artifacts": [
+    "artifacts/perf/phase2c/isomorphism_harness_report_v1.json",
+    "artifacts/perf/phase2c/isomorphism_golden_signatures_v1.json"
+  ],
+  "structured_logging_evidence": [
+    "artifacts/conformance/latest/structured_logs.jsonl",
+    "artifacts/e2e/latest/e2e_script_pack_steps_v1.jsonl",
+    "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"
+  ]
+}

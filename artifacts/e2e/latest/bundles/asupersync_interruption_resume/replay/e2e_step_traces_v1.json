@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "e2e-step-traces-v1",
+  "run_id": "e2e-script-pack-20260218T215618Z",
+  "scenario_id": "asupersync_interruption_resume",
+  "packet_id": "FNX-P2C-008",
+  "pass_label": "replay",
+  "mode": "hardened",
+  "fixture_id": "generated/runtime_config_optional_strict.json",
+  "bundle_id": "e2e-bundle-0585fded4822b2b3",
+  "stable_fingerprint": "3ccaa75ca602c877",
+  "replay_command": "rch exec -- cargo test -q -p fnx-runtime asupersync_adapter_retry_budget_exhaustion_fault_injection_is_fail_closed -- --exact --nocapture",
+  "env_fingerprint": "0fac1e41f03a725d",
+  "generated_at_utc": "2026-02-18T22:08:41.239829+00:00",
+  "traces": [
+    {
+      "run_id": "e2e-script-pack-20260218T215618Z",
+      "test_id": "scenario::asupersync_interruption_resume",
+      "step_id": "asupersync_interruption_resume::cycle-01",
+      "step_label": "execute:asupersync_fault_injection",
+      "phase": "execute",
+      "status": "passed",
+      "start_unix_ms": 1771452498043,
+      "end_unix_ms": 1771452521165,
+      "duration_ms": 23122,
+      "retry_count": 0,
+      "command_or_api": "rch exec -- cargo test -q -p fnx-runtime asupersync_adapter_retry_budget_exhaustion_fault_injection_is_fail_closed -- --exact --nocapture",
+      "input_ref": "generated/runtime_config_optional_strict.json",
+      "output_ref": "artifacts/e2e/latest/bundles/asupersync_interruption_resume/replay/selected_structured_log.json",
+      "replay_command": "rch exec -- cargo test -q -p fnx-runtime asupersync_adapter_retry_budget_exhaustion_fault_injection_is_fail_closed -- --exact --nocapture",
+      "forensic_bundle_id": "forensics::FNX-P2C-008::generated::runtime_config_optional_strict.json",
+      "artifact_refs": [
+        "artifacts/e2e/latest/bundles/asupersync_interruption_resume/replay/command.log",
+        "artifacts/e2e/latest/bundles/asupersync_interruption_resume/replay/selected_structured_log.json"
+      ],
+      "hash_id": "c45160f86b4aa7c9",
+      "outcome": "passed",
+      "reason_code": null
+    }
+  ]
+}

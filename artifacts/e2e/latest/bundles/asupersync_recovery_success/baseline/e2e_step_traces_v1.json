@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "e2e-step-traces-v1",
+  "run_id": "e2e-script-pack-20260218T215618Z",
+  "scenario_id": "asupersync_recovery_success",
+  "packet_id": "FNX-P2C-008",
+  "pass_label": "baseline",
+  "mode": "strict",
+  "fixture_id": "generated/runtime_config_optional_strict.json",
+  "bundle_id": "e2e-bundle-a1574ac0c2ec39e8",
+  "stable_fingerprint": "323a8c9a4eeaa29b",
+  "replay_command": "rch exec -- cargo test -q -p fnx-runtime asupersync_adapter_resume_is_deterministic_across_checkpoint_restart -- --exact --nocapture",
+  "env_fingerprint": "03ff0c94f80ee2be",
+  "generated_at_utc": "2026-02-18T22:02:27.433241+00:00",
+  "traces": [
+    {
+      "run_id": "e2e-script-pack-20260218T215618Z",
+      "test_id": "scenario::asupersync_recovery_success",
+      "step_id": "asupersync_recovery_success::cycle-01",
+      "step_label": "execute:asupersync_recovery_success",
+      "phase": "execute",
+      "status": "passed",
+      "start_unix_ms": 1771452131920,
+      "end_unix_ms": 1771452147431,
+      "duration_ms": 15511,
+      "retry_count": 0,
+      "command_or_api": "rch exec -- cargo test -q -p fnx-runtime asupersync_adapter_resume_is_deterministic_across_checkpoint_restart -- --exact --nocapture",
+      "input_ref": "generated/runtime_config_optional_strict.json",
+      "output_ref": "artifacts/e2e/latest/bundles/asupersync_recovery_success/baseline/selected_structured_log.json",
+      "replay_command": "rch exec -- cargo test -q -p fnx-runtime asupersync_adapter_resume_is_deterministic_across_checkpoint_restart -- --exact --nocapture",
+      "forensic_bundle_id": "forensics::FNX-P2C-008::generated::runtime_config_optional_strict.json",
+      "artifact_refs": [
+        "artifacts/e2e/latest/bundles/asupersync_recovery_success/baseline/command.log",
+        "artifacts/e2e/latest/bundles/asupersync_recovery_success/baseline/selected_structured_log.json"
+      ],
+      "hash_id": "92896342e176d1d4",
+      "outcome": "passed",
+      "reason_code": null
+    }
+  ]
+}

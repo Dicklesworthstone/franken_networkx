@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "e2e-step-traces-v1",
+  "run_id": "e2e-script-pack-20260218T215618Z",
+  "scenario_id": "conformance_harness_strict",
+  "packet_id": "FNX-P2C-009",
+  "pass_label": "replay",
+  "mode": "strict",
+  "fixture_id": "generated/conformance_harness_strict.json",
+  "bundle_id": "e2e-bundle-5e587caef9044496",
+  "stable_fingerprint": "1708fa18314021da",
+  "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/conformance_harness_strict.json --mode strict",
+  "env_fingerprint": "3cb053416904a42e",
+  "generated_at_utc": "2026-02-18T22:09:59.827855+00:00",
+  "traces": [
+    {
+      "run_id": "e2e-script-pack-20260218T215618Z",
+      "test_id": "scenario::conformance_harness_strict",
+      "step_id": "conformance_harness_strict::cycle-01",
+      "step_label": "execute:happy_path",
+      "phase": "execute",
+      "status": "passed",
+      "start_unix_ms": 1771452590072,
+      "end_unix_ms": 1771452599826,
+      "duration_ms": 9754,
+      "retry_count": 0,
+      "command_or_api": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/conformance_harness_strict.json --mode strict",
+      "input_ref": "generated/conformance_harness_strict.json",
+      "output_ref": "artifacts/e2e/latest/bundles/conformance_harness_strict/replay/selected_structured_log.json",
+      "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/conformance_harness_strict.json --mode strict",
+      "forensic_bundle_id": "forensics::FNX-P2C-009::generated::conformance_harness_strict.json",
+      "artifact_refs": [
+        "artifacts/e2e/latest/bundles/conformance_harness_strict/replay/command.log",
+        "artifacts/e2e/latest/bundles/conformance_harness_strict/replay/selected_structured_log.json"
+      ],
+      "hash_id": "74d335f73258aa8c",
+      "outcome": "passed",
+      "reason_code": null
+    }
+  ]
+}

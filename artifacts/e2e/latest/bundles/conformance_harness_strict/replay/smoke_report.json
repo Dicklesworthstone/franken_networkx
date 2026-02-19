@@ -1,0 +1,30 @@
+{
+  "suite": "smoke",
+  "oracle_present": true,
+  "fixture_count": 1,
+  "strict_mode": false,
+  "mismatch_count": 0,
+  "hardened_allowlisted_count": 0,
+  "structured_log_count": 1,
+  "structured_log_path": "/data/projects/franken_networkx/crates/fnx-conformance/../../artifacts/conformance/latest/structured_logs.jsonl",
+  "fixture_reports": [
+    {
+      "fixture_id": "generated/view_neighbors_strict.json",
+      "fixture_name": "generated/view_neighbors_strict.json",
+      "suite": "views_v1",
+      "mode": "strict",
+      "seed": null,
+      "threat_class": null,
+      "replay_command": "rch exec -- CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/view_neighbors_strict.json --mode strict",
+      "passed": true,
+      "reason_code": null,
+      "fixture_source_hash": "dace6995ce1ec776",
+      "duration_ms": 0,
+      "strict_violation_count": 0,
+      "hardened_allowlisted_count": 0,
+      "mismatches": [],
+      "mismatch_taxonomy": [],
+      "witness": null
+    }
+  ]
+}
