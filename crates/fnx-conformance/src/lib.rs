@@ -2,8 +2,8 @@
 
 use fnx_algorithms::{
     CentralityScore, ComplexityWitness, closeness_centrality, connected_components,
-    degree_centrality, number_connected_components, shortest_path_unweighted,
-    shortest_path_weighted,
+    degree_centrality, max_flow_edmonds_karp, number_connected_components,
+    shortest_path_unweighted, shortest_path_weighted,
 };
 use fnx_classes::{AttrMap, EdgeSnapshot, Graph, GraphSnapshot};
 use fnx_convert::{AdjacencyPayload, EdgeListPayload, GraphConverter};
@@ -220,6 +220,10 @@ fn default_weight_attr() -> String {
     "weight".to_owned()
 }
 
+fn default_capacity_attr() -> String {
+    "capacity".to_owned()
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 enum Operation {
@@ -250,6 +254,12 @@ enum Operation {
         target: String,
         #[serde(default = "default_weight_attr")]
         weight_attr: String,
+    },
+    MaxFlowQuery {
+        source: String,
+        target: String,
+        #[serde(default = "default_capacity_attr")]
+        capacity_attr: String,
     },
     DegreeCentralityQuery,
     ClosenessCentralityQuery,
@@ -306,6 +316,8 @@ struct ExpectedState {
     #[serde(default)]
     shortest_path_weighted: Option<Vec<String>>,
     #[serde(default)]
+    max_flow_value: Option<f64>,
+    #[serde(default)]
     degree_centrality: Option<Vec<ExpectedCentralityScore>>,
     #[serde(default)]
     closeness_centrality: Option<Vec<ExpectedCentralityScore>>,
@@ -349,6 +361,7 @@ struct ExecutionContext {
     dispatch_registry: BackendRegistry,
     shortest_path_result: Option<Vec<String>>,
     shortest_path_weighted_result: Option<Vec<String>>,
+    max_flow_result: Option<f64>,
     dispatch_decision: Option<DispatchDecision>,
     serialized_edgelist: Option<String>,
     serialized_json_graph: Option<String>,
@@ -892,6 +905,7 @@ fn packet_id_for_fixture(suite: &str, fixture_name: &str) -> String {
     } else if key.contains("shortest_path")
         || key.contains("centrality")
         || key.contains("component")
+        || key.contains("flow")
     {
         "FNX-P2C-005".to_owned()
     } else if key.contains("readwrite") || key.contains("edgelist") || key.contains("json_graph") {
@@ -1088,6 +1102,7 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
         dispatch_registry: default_dispatch_registry(mode),
         shortest_path_result: None,
         shortest_path_weighted_result: None,
+        max_flow_result: None,
         dispatch_decision: None,
         serialized_edgelist: None,
         serialized_json_graph: None,
@@ -1132,6 +1147,16 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
             } => {
                 let result = shortest_path_weighted(&context.graph, &source, &target, &weight_attr);
                 context.shortest_path_weighted_result = result.path;
+                context.witness = Some(result.witness);
+            }
+            Operation::MaxFlowQuery {
+                source,
+                target,
+                capacity_attr,
+            } => {
+                let result =
+                    max_flow_edmonds_karp(&context.graph, &source, &target, &capacity_attr);
+                context.max_flow_result = Some(result.value);
                 context.witness = Some(result.witness);
             }
             Operation::DegreeCentralityQuery => {
@@ -1339,6 +1364,23 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
                 expected_path, context.shortest_path_weighted_result
             ),
         });
+    }
+
+    if let Some(expected_flow) = fixture.expected.max_flow_value {
+        match context.max_flow_result {
+            Some(actual_flow) if (actual_flow - expected_flow).abs() <= 1e-12 => {}
+            Some(actual_flow) => mismatches.push(Mismatch {
+                category: "algorithm_flow".to_owned(),
+                message: format!(
+                    "max_flow mismatch: expected {}, got {}",
+                    expected_flow, actual_flow
+                ),
+            }),
+            None => mismatches.push(Mismatch {
+                category: "algorithm_flow".to_owned(),
+                message: "expected max_flow result but none produced".to_owned(),
+            }),
+        }
     }
 
     if let Some(expected_scores) = fixture.expected.degree_centrality {
@@ -1551,6 +1593,7 @@ fn default_dispatch_registry(mode: CompatibilityMode) -> BackendRegistry {
         supported_features: set([
             "shortest_path",
             "shortest_path_weighted",
+            "max_flow",
             "convert_edge_list",
             "convert_adjacency",
             "read_edgelist",

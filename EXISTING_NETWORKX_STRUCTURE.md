@@ -423,3 +423,36 @@ Rust parity contract for the current weighted slice (`fnx-algorithms::shortest_p
 6. Verification hooks:
 - Unit tests in `crates/fnx-algorithms/src/lib.rs` assert weighted-vs-unweighted divergence and tie-break replay stability.
 - Differential fixture `crates/fnx-conformance/fixtures/generated/shortest_path_weighted_strict.json` asserts strict-mode expected path.
+
+## 23. Initial Max-Flow Contract (P2C005 Extension)
+
+Legacy anchors:
+- `legacy_networkx_code/networkx/networkx/algorithms/flow/edmondskarp.py`
+- `legacy_networkx_code/networkx/networkx/algorithms/flow/tests/`
+
+Rust parity contract for the first flow slice (`fnx-algorithms::max_flow_edmonds_karp`):
+
+1. Input/output shape:
+- Inputs: `(graph, source, sink, capacity_attr)`
+- Output: `MaxFlowResult { value: f64, witness }`
+
+2. Existence semantics:
+- If either endpoint is absent, `value = 0.0`.
+- If `source == sink`, `value = 0.0`.
+
+3. Capacity semantics:
+- Read edge capacity from edge attribute key `capacity_attr`.
+- Missing capacity defaults to `1.0`.
+- Non-finite, negative, or non-parseable capacity values are treated as default `1.0` in this scoped slice.
+
+4. Determinism/tie-break semantics:
+- Augmenting-path discovery uses BFS with deterministic neighbor iteration from `fnx-classes`.
+- Replay on an identical graph state must produce identical max-flow value and witness metrics.
+
+5. Complexity witness contract:
+- Algorithm label: `edmonds_karp_max_flow`
+- Complexity claim: `O(|V| * |E|^2)`
+
+6. Verification hooks:
+- Unit tests in `crates/fnx-algorithms/src/lib.rs` cover expected-value, replay-stability, and missing-node behavior.
+- Differential fixture `crates/fnx-conformance/fixtures/generated/flow_max_strict.json` asserts strict-mode flow value parity.

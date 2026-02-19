@@ -125,6 +125,12 @@ pub struct ClosenessCentralityResult {
     pub witness: ComplexityWitness,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MaxFlowResult {
+    pub value: f64,
+    pub witness: ComplexityWitness,
+}
+
 #[must_use]
 pub fn shortest_path_unweighted(graph: &Graph, source: &str, target: &str) -> ShortestPathResult {
     if !graph.has_node(source) || !graph.has_node(target) {
@@ -520,6 +526,165 @@ pub fn closeness_centrality(graph: &Graph) -> ClosenessCentralityResult {
     }
 }
 
+#[must_use]
+pub fn max_flow_edmonds_karp(
+    graph: &Graph,
+    source: &str,
+    sink: &str,
+    capacity_attr: &str,
+) -> MaxFlowResult {
+    if !graph.has_node(source) || !graph.has_node(sink) {
+        return MaxFlowResult {
+            value: 0.0,
+            witness: ComplexityWitness {
+                algorithm: "edmonds_karp_max_flow".to_owned(),
+                complexity_claim: "O(|V| * |E|^2)".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    if source == sink {
+        return MaxFlowResult {
+            value: 0.0,
+            witness: ComplexityWitness {
+                algorithm: "edmonds_karp_max_flow".to_owned(),
+                complexity_claim: "O(|V| * |E|^2)".to_owned(),
+                nodes_touched: 1,
+                edges_scanned: 0,
+                queue_peak: 1,
+            },
+        };
+    }
+
+    let ordered_nodes = graph.nodes_ordered();
+    let mut residual: HashMap<String, HashMap<String, f64>> = HashMap::new();
+    for node in &ordered_nodes {
+        let node_key = (*node).to_owned();
+        residual.entry(node_key.clone()).or_default();
+        let Some(neighbors) = graph.neighbors_iter(node) else {
+            continue;
+        };
+        for neighbor in neighbors {
+            let capacity = edge_capacity_or_default(graph, node, neighbor, capacity_attr);
+            residual
+                .entry(node_key.clone())
+                .or_default()
+                .entry(neighbor.to_owned())
+                .or_insert(capacity);
+            residual.entry(neighbor.to_owned()).or_default();
+        }
+    }
+
+    let mut total_flow = 0.0_f64;
+    let mut nodes_touched = 0_usize;
+    let mut edges_scanned = 0_usize;
+    let mut queue_peak = 0_usize;
+
+    loop {
+        let mut predecessor: HashMap<String, String> = HashMap::new();
+        let mut visited: HashSet<String> = HashSet::new();
+        let mut queue: VecDeque<String> = VecDeque::new();
+        let source_owned = source.to_owned();
+        queue.push_back(source_owned.clone());
+        visited.insert(source_owned);
+        nodes_touched += 1;
+        queue_peak = queue_peak.max(queue.len());
+
+        let mut reached_sink = false;
+        while let Some(current) = queue.pop_front() {
+            let Some(neighbors) = graph.neighbors_iter(&current) else {
+                continue;
+            };
+            for neighbor in neighbors {
+                edges_scanned += 1;
+                if visited.contains(neighbor) {
+                    continue;
+                }
+                let residual_capacity = residual
+                    .get(&current)
+                    .and_then(|caps| caps.get(neighbor))
+                    .copied()
+                    .unwrap_or(0.0);
+                if residual_capacity <= 0.0 {
+                    continue;
+                }
+                predecessor.insert(neighbor.to_owned(), current.clone());
+                visited.insert(neighbor.to_owned());
+                nodes_touched += 1;
+                if neighbor == sink {
+                    reached_sink = true;
+                    break;
+                }
+                queue.push_back(neighbor.to_owned());
+                queue_peak = queue_peak.max(queue.len());
+            }
+            if reached_sink {
+                break;
+            }
+        }
+
+        if !reached_sink {
+            break;
+        }
+
+        let mut bottleneck = f64::INFINITY;
+        let mut cursor = sink.to_owned();
+        while cursor != source {
+            let Some(prev) = predecessor.get(&cursor) else {
+                bottleneck = 0.0;
+                break;
+            };
+            let available = residual
+                .get(prev)
+                .and_then(|caps| caps.get(&cursor))
+                .copied()
+                .unwrap_or(0.0);
+            bottleneck = bottleneck.min(available);
+            cursor = prev.clone();
+        }
+
+        if bottleneck <= 0.0 || !bottleneck.is_finite() {
+            break;
+        }
+
+        let mut cursor = sink.to_owned();
+        while cursor != source {
+            let Some(prev) = predecessor.get(&cursor).cloned() else {
+                break;
+            };
+            let forward = residual
+                .entry(prev.clone())
+                .or_default()
+                .entry(cursor.clone())
+                .or_insert(0.0);
+            *forward = (*forward - bottleneck).max(0.0);
+            let reverse = residual
+                .entry(cursor.clone())
+                .or_default()
+                .entry(prev.clone())
+                .or_insert(0.0);
+            *reverse += bottleneck;
+            cursor = prev;
+        }
+
+        total_flow += bottleneck;
+    }
+
+    MaxFlowResult {
+        value: total_flow,
+        witness: ComplexityWitness {
+            algorithm: "edmonds_karp_max_flow".to_owned(),
+            complexity_claim: "O(|V| * |E|^2)".to_owned(),
+            nodes_touched,
+            edges_scanned,
+            queue_peak,
+        },
+    }
+}
+
 fn rebuild_path(predecessor: &HashMap<&str, &str>, source: &str, target: &str) -> Vec<String> {
     let mut path = vec![target.to_owned()];
     let mut cursor = target;
@@ -545,6 +710,15 @@ fn edge_weight_or_default(graph: &Graph, left: &str, right: &str, weight_attr: &
         .unwrap_or(1.0)
 }
 
+fn edge_capacity_or_default(graph: &Graph, left: &str, right: &str, capacity_attr: &str) -> f64 {
+    graph
+        .edge_attrs(left, right)
+        .and_then(|attrs| attrs.get(capacity_attr))
+        .and_then(|raw| raw.parse::<f64>().ok())
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .unwrap_or(1.0)
+}
+
 fn stable_hash_hex(input: &[u8]) -> String {
     let mut hash = 0xcbf29ce484222325_u64;
     for byte in input {
@@ -559,8 +733,8 @@ mod tests {
     use super::{
         CGSE_WITNESS_LEDGER_PATH, CGSE_WITNESS_POLICY_SPEC_PATH, CentralityScore,
         ComplexityWitness, cgse_witness_schema_version, closeness_centrality, connected_components,
-        degree_centrality, number_connected_components, shortest_path_unweighted,
-        shortest_path_weighted,
+        degree_centrality, max_flow_edmonds_karp, number_connected_components,
+        shortest_path_unweighted, shortest_path_weighted,
     };
     use fnx_classes::Graph;
     use fnx_runtime::{
@@ -769,6 +943,63 @@ mod tests {
         assert_eq!(left.witness, left_replay.witness);
         assert_eq!(right.path, right_replay.path);
         assert_eq!(right.witness, right_replay.witness);
+    }
+
+    #[test]
+    fn max_flow_edmonds_karp_matches_expected_value() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("s", "a", [("capacity".to_owned(), "3".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("s", "b", [("capacity".to_owned(), "2".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "b", [("capacity".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "t", [("capacity".to_owned(), "2".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("b", "t", [("capacity".to_owned(), "3".to_owned())].into())
+            .expect("edge add should succeed");
+
+        let result = max_flow_edmonds_karp(&graph, "s", "t", "capacity");
+        assert!((result.value - 5.0).abs() <= 1e-12);
+        assert_eq!(result.witness.algorithm, "edmonds_karp_max_flow");
+    }
+
+    #[test]
+    fn max_flow_edmonds_karp_is_replay_stable() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("s", "a", [("capacity".to_owned(), "4".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("s", "b", [("capacity".to_owned(), "2".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "b", [("capacity".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "t", [("capacity".to_owned(), "2".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("b", "t", [("capacity".to_owned(), "3".to_owned())].into())
+            .expect("edge add should succeed");
+
+        let left = max_flow_edmonds_karp(&graph, "s", "t", "capacity");
+        let right = max_flow_edmonds_karp(&graph, "s", "t", "capacity");
+        assert!((left.value - right.value).abs() <= 1e-12);
+        assert_eq!(left.witness, right.witness);
+    }
+
+    #[test]
+    fn max_flow_edmonds_karp_returns_zero_for_missing_nodes() {
+        let mut graph = Graph::strict();
+        let _ = graph.add_node("only");
+        let result = max_flow_edmonds_karp(&graph, "missing", "only", "capacity");
+        assert!((result.value - 0.0).abs() <= 1e-12);
     }
 
     #[test]

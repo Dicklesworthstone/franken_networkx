@@ -86,8 +86,8 @@ Maintain deterministic graph semantics, tie-break policies, and serialization ro
 
 ## Next Steps
 
-1. Expand fixture corpus to larger legacy families for flow/matching and additional centrality variants.
-2. Implement first flow slice with witness artifacts and parity fixtures.
+1. Expand fixture corpus to larger legacy families for matching and additional centrality variants.
+2. Expand flow-family coverage beyond the first max-flow slice (directed semantics, min-cut surfaces, and stress fixtures).
 3. Add format breadth beyond edgelist/json (adjlist/graphml scoped paths).
 4. Add benchmark families and p50/p95/p99 regression gates across centrality and flow workloads.
 5. Tighten strict/hardened drift budgets with per-family parity thresholds.

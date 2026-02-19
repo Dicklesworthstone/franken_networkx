@@ -1,0 +1,99 @@
+{
+  "suite": "algorithms_flow_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "add_edge",
+      "left": "s",
+      "right": "a",
+      "attrs": {
+        "capacity": "3"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "s",
+      "right": "b",
+      "attrs": {
+        "capacity": "2"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "b",
+      "attrs": {
+        "capacity": "1"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "t",
+      "attrs": {
+        "capacity": "2"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "t",
+      "attrs": {
+        "capacity": "3"
+      }
+    },
+    {
+      "op": "max_flow_query",
+      "source": "s",
+      "target": "t"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "s",
+        "a",
+        "b",
+        "t"
+      ],
+      "edges": [
+        {
+          "left": "a",
+          "right": "s",
+          "attrs": {
+            "capacity": "3"
+          }
+        },
+        {
+          "left": "b",
+          "right": "s",
+          "attrs": {
+            "capacity": "2"
+          }
+        },
+        {
+          "left": "a",
+          "right": "b",
+          "attrs": {
+            "capacity": "1"
+          }
+        },
+        {
+          "left": "a",
+          "right": "t",
+          "attrs": {
+            "capacity": "2"
+          }
+        },
+        {
+          "left": "b",
+          "right": "t",
+          "attrs": {
+            "capacity": "3"
+          }
+        }
+      ]
+    },
+    "max_flow_value": 5.0
+  }
+}
