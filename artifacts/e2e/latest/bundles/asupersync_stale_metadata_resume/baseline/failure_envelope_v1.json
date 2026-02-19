@@ -2,23 +2,23 @@
   "schema_version": "1.0.0",
   "artifact_id": "e2e-script-pack-failure-envelope-v1",
   "envelope_id": "e2e-failure-envelope-e73b458a9dc8821b",
-  "generated_at_utc": "2026-02-18T13:26:29.519772+00:00",
+  "generated_at_utc": "2026-02-19T06:59:18.031690+00:00",
   "status": "passed",
   "reason_code": null,
   "scenario_id": "asupersync_stale_metadata_resume",
   "pass_label": "baseline",
-  "gate_step_id": "step-local",
+  "gate_step_id": "step-1",
   "packet_id": "FNX-P2C-008",
   "fixture_id": "generated/runtime_config_optional_strict.json",
   "mode": "strict",
-  "run_id": "e2e-script-pack-20260218T132229Z",
+  "run_id": "e2e-script-pack-20260219T065348Z",
   "bundle_id": "e2e-bundle-8a47bc62a1d7da00",
   "stable_fingerprint": "328d101b09ec8ff4",
   "deterministic_seed": 7592963280906986520,
   "replay_command": "rch exec -- cargo test -q -p fnx-runtime asupersync_adapter_stale_metadata_seed_mismatch_rejects_resume -- --exact --nocapture",
   "policy_digest": "fnv1a64:8cdc8c7c182cecd2",
   "deterministic_replay_metadata": {
-    "run_id": "e2e-script-pack-20260218T132229Z",
+    "run_id": "e2e-script-pack-20260219T065348Z",
     "deterministic_seed": 7592963280906986520,
     "bundle_id": "e2e-bundle-8a47bc62a1d7da00",
     "stable_fingerprint": "328d101b09ec8ff4",
@@ -145,7 +145,7 @@
   },
   "triage_hints": [
     "No failure detected; replay metadata and forensics links are contract-complete.",
-    "Gate stage: step-local",
+    "Gate stage: step-1",
     "Run replay command for verification: rch exec -- cargo test -q -p fnx-runtime asupersync_adapter_stale_metadata_seed_mismatch_rejects_resume -- --exact --nocapture"
   ]
 }

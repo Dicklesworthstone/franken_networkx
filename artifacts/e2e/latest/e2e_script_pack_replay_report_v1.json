@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "artifact_id": "e2e-script-pack-replay-report-v1",
-  "generated_at_utc": "2026-02-18T07:26:17.796154+00:00",
+  "generated_at_utc": "2026-02-19T07:03:38.072289+00:00",
   "status": "passed",
   "reason_code": null,
   "scenario_id": "asupersync_sidecar_mismatch",
@@ -18,7 +18,8 @@
   "retention_policy": {
     "policy_id": "e2e-latest-retention-v1",
     "min_retention_days": 14,
-    "storage_root": "artifacts/e2e/latest"
+    "storage_root": "artifacts/e2e/latest",
+    "policy_digest": "fnv1a64:8cdc8c7c182cecd2"
   },
   "evidence_refs": {
     "parity_report": "artifacts/phase2c/FNX-P2C-008/parity_report.json",
@@ -47,9 +48,9 @@
     ],
     "baseline_comparator": "legacy_networkx/main@python3.12"
   },
-  "start_unix_ms": 1771399563946,
-  "end_unix_ms": 1771399577795,
-  "duration_ms": 13849,
+  "start_unix_ms": 1771484604115,
+  "end_unix_ms": 1771484618072,
+  "duration_ms": 13957,
   "forensics_links_expected": {
     "structured_log_hash_id": "ccc83807fd70cab4",
     "forensic_bundle_id": "forensics::FNX-P2C-008::generated::runtime_config_optional_strict.json",

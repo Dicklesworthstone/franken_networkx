@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0.0",
   "artifact_id": "adversarial-soak-triage-summary-v1",
-  "generated_at_utc": "2026-02-18T13:25:18.143339+00:00",
-  "run_id": "e2e-script-pack-20260218T132229Z",
+  "generated_at_utc": "2026-02-19T06:58:06.057255+00:00",
+  "run_id": "e2e-script-pack-20260219T065348Z",
   "pass_label": "baseline",
   "scenario_id": "adversarial_soak",
   "soak_profile": "long_tail_stability",

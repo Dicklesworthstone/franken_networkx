@@ -2,23 +2,23 @@
   "schema_version": "1.0.0",
   "artifact_id": "e2e-script-pack-failure-envelope-v1",
   "envelope_id": "e2e-failure-envelope-22c294bddba59da8",
-  "generated_at_utc": "2026-02-18T13:25:18.142882+00:00",
+  "generated_at_utc": "2026-02-19T06:58:06.056831+00:00",
   "status": "passed",
   "reason_code": null,
   "scenario_id": "adversarial_soak",
   "pass_label": "baseline",
-  "gate_step_id": "step-local",
+  "gate_step_id": "step-1",
   "packet_id": "FNX-P2C-006",
   "fixture_id": "generated/readwrite_hardened_malformed.json",
   "mode": "hardened",
-  "run_id": "e2e-script-pack-20260218T132229Z",
+  "run_id": "e2e-script-pack-20260219T065348Z",
   "bundle_id": "e2e-bundle-6d7e041ad44a0f50",
   "stable_fingerprint": "ad1995178992eaf5",
   "deterministic_seed": 15798793491341090845,
   "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened",
   "policy_digest": "fnv1a64:8cdc8c7c182cecd2",
   "deterministic_replay_metadata": {
-    "run_id": "e2e-script-pack-20260218T132229Z",
+    "run_id": "e2e-script-pack-20260219T065348Z",
     "deterministic_seed": 15798793491341090845,
     "bundle_id": "e2e-bundle-6d7e041ad44a0f50",
     "stable_fingerprint": "ad1995178992eaf5",
@@ -147,7 +147,7 @@
   },
   "triage_hints": [
     "No failure detected; replay metadata and forensics links are contract-complete.",
-    "Gate stage: step-local",
+    "Gate stage: step-1",
     "Run replay command for verification: rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened"
   ]
 }

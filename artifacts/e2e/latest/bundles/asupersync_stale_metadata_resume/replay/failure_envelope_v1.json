@@ -2,7 +2,7 @@
   "schema_version": "1.0.0",
   "artifact_id": "e2e-script-pack-failure-envelope-v1",
   "envelope_id": "e2e-failure-envelope-39f1ad2aa82bb973",
-  "generated_at_utc": "2026-02-18T07:26:03.608079+00:00",
+  "generated_at_utc": "2026-02-19T07:03:23.794286+00:00",
   "status": "passed",
   "reason_code": null,
   "scenario_id": "asupersync_stale_metadata_resume",
@@ -11,11 +11,52 @@
   "packet_id": "FNX-P2C-008",
   "fixture_id": "generated/runtime_config_optional_strict.json",
   "mode": "strict",
-  "run_id": "e2e-script-pack-20260218T071801Z",
+  "run_id": "e2e-script-pack-20260219T065348Z",
   "bundle_id": "e2e-bundle-8a47bc62a1d7da00",
   "stable_fingerprint": "328d101b09ec8ff4",
   "deterministic_seed": 7592963280906986520,
   "replay_command": "rch exec -- cargo test -q -p fnx-runtime asupersync_adapter_stale_metadata_seed_mismatch_rejects_resume -- --exact --nocapture",
+  "policy_digest": "fnv1a64:8cdc8c7c182cecd2",
+  "deterministic_replay_metadata": {
+    "run_id": "e2e-script-pack-20260219T065348Z",
+    "deterministic_seed": 7592963280906986520,
+    "bundle_id": "e2e-bundle-8a47bc62a1d7da00",
+    "stable_fingerprint": "328d101b09ec8ff4",
+    "replay_command": "rch exec -- cargo test -q -p fnx-runtime asupersync_adapter_stale_metadata_seed_mismatch_rejects_resume -- --exact --nocapture",
+    "scenario_id": "asupersync_stale_metadata_resume",
+    "packet_id": "FNX-P2C-008",
+    "fixture_id": "generated/runtime_config_optional_strict.json",
+    "mode": "strict",
+    "reason_code": null,
+    "policy_digest": "fnv1a64:8cdc8c7c182cecd2",
+    "packet_evidence_refs": {
+      "parity_report": "artifacts/phase2c/FNX-P2C-008/parity_report.json",
+      "parity_report_raptorq": "artifacts/phase2c/FNX-P2C-008/parity_report.raptorq.json",
+      "parity_report_decode_proof": "artifacts/phase2c/FNX-P2C-008/parity_report.decode_proof.json",
+      "contract_table": "artifacts/phase2c/FNX-P2C-008/contract_table.md",
+      "risk_note": "artifacts/phase2c/FNX-P2C-008/risk_note.md",
+      "legacy_anchor_map": "artifacts/phase2c/FNX-P2C-008/legacy_anchor_map.md",
+      "profile_first_artifacts": {
+        "baseline": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+        "hotspot": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+        "delta": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+      },
+      "optimization_lever_policy": {
+        "rule": "exactly_one_optimization_lever_per_change",
+        "evidence_path": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json"
+      },
+      "isomorphism_proof_artifacts": [
+        "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_FOUNDATION_V1.md",
+        "artifacts/perf/phase2c/isomorphism_harness_report_v1.json",
+        "artifacts/perf/phase2c/isomorphism_golden_signatures_v1.json"
+      ],
+      "durability_evidence": [
+        "artifacts/conformance/latest/durability_pipeline_report.json",
+        "artifacts/conformance/latest/structured_logs.raptorq.json"
+      ],
+      "baseline_comparator": "legacy_networkx/main@python3.12"
+    }
+  },
   "forensics_links": {
     "structured_log_hash_id": "33cb8105790429af",
     "forensic_bundle_id": "forensics::FNX-P2C-008::generated::runtime_config_optional_strict.json",
@@ -39,7 +80,8 @@
   "retention_policy": {
     "policy_id": "e2e-latest-retention-v1",
     "min_retention_days": 14,
-    "storage_root": "artifacts/e2e/latest"
+    "storage_root": "artifacts/e2e/latest",
+    "policy_digest": "fnv1a64:8cdc8c7c182cecd2"
   },
   "evidence_refs": {
     "parity_report": "artifacts/phase2c/FNX-P2C-008/parity_report.json",
