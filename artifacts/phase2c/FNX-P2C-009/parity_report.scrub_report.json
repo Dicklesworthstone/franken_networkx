@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.0.0",
+  "report_id": "fnx-p2c-009-parity-report-scrub-report-v1",
+  "generated_at_utc": "2026-02-19T00:35:43Z",
+  "artifact_path": "artifacts/phase2c/FNX-P2C-009/parity_report.json",
+  "sidecar_path": "artifacts/phase2c/FNX-P2C-009/parity_report.raptorq.json",
+  "recovered_output_path": "artifacts/phase2c/FNX-P2C-009/parity_report.recovered.json",
+  "source_hash": "blake3:6045c7e27d480fea630374422e4aeb25356859afb6f93acb37edd6071f97bcf7",
+  "scrub_status": "recovered",
+  "decode_proof_count": 1,
+  "decode_proofs": [
+    {
+      "ts_unix_ms": 1771461303131,
+      "reason": "decode_drill",
+      "recovered_blocks": 1,
+      "proof_hash": "blake3:a7790315b8d06220fe6092e22f7c6b8084be47a7d456df4061e6050486e43af2"
+    }
+  ],
+  "commands": {
+    "generate": "rch exec -- cargo run -q -p fnx-durability --bin fnx-durability -- generate artifacts/phase2c/FNX-P2C-009/parity_report.json artifacts/phase2c/FNX-P2C-009/parity_report.raptorq.json fnx-p2c-009-parity-report phase2c_parity_report 1400 6",
+    "scrub": "rch exec -- cargo run -q -p fnx-durability --bin fnx-durability -- scrub artifacts/phase2c/FNX-P2C-009/parity_report.json artifacts/phase2c/FNX-P2C-009/parity_report.raptorq.json",
+    "decode_drill": "rch exec -- cargo run -q -p fnx-durability --bin fnx-durability -- decode-drill artifacts/phase2c/FNX-P2C-009/parity_report.raptorq.json artifacts/phase2c/FNX-P2C-009/parity_report.recovered.json"
+  },
+  "decode_proof_path": "artifacts/phase2c/FNX-P2C-009/parity_report.decode_proof.json",
+  "final_evidence_bundle_path": "artifacts/phase2c/FNX-P2C-009/final_evidence_pack_v1.json"
+}

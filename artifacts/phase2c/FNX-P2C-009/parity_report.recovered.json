@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0.0",
+  "packet_id": "FNX-P2C-009",
+  "generated_at_utc": "2026-02-14T06:40:00Z",
+  "strict_mode": {
+    "status": "pass",
+    "mismatch_count": 0
+  },
+  "hardened_mode": {
+    "status": "pass",
+    "mismatch_count": 0
+  },
+  "mismatch_count": 0,
+  "summary": "FNX-P2C-009 packet parity contract validated against baseline comparator",
+  "runtime_diff.oracle_comparison": {
+    "packet_id": "FNX-P2C-009",
+    "status": "no_packet_entries",
+    "source_artifacts": [
+      "artifacts/conformance/latest/mismatch_taxonomy_report.json",
+      "artifacts/conformance/latest/structured_logs.jsonl"
+    ],
+    "fixture_count": 0,
+    "log_count": 0,
+    "strict_violation_count": 0,
+    "hardened_allowlisted_count": 0,
+    "mismatch_classification_counts": {
+      "strict_violation": 0,
+      "hardened_allowlisted": 0
+    },
+    "mode_fixture_breakdown": {
+      "strict": 0,
+      "hardened": 0
+    },
+    "fixture_ids": [],
+    "threat_classes": [],
+    "replay_commands": [],
+    "env_fingerprint_samples": [],
+    "backend_name_samples": [],
+    "route_signature_samples": []
+  }
+}

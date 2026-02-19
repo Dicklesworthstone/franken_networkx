@@ -1,0 +1,185 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "fnx-p2c-009-final-evidence-pack-v1",
+  "packet_id": "FNX-P2C-009",
+  "generated_at_utc": "2026-02-19T00:35:43Z",
+  "scope": "Final signoff bundle for packet FNX-P2C-009 conformance harness corpus wiring with strict/hardened parity, deterministic replay evidence, and durability proofs.",
+  "evidence_inventory": {
+    "contract_artifacts": [
+      "artifacts/phase2c/FNX-P2C-009/legacy_anchor_map.md",
+      "artifacts/phase2c/FNX-P2C-009/contract_table.md",
+      "artifacts/phase2c/FNX-P2C-009/fixture_manifest.json",
+      "artifacts/phase2c/FNX-P2C-009/parity_gate.yaml",
+      "artifacts/phase2c/FNX-P2C-009/risk_note.md",
+      "artifacts/phase2c/FNX-P2C-009/parity_report.json"
+    ],
+    "implementation_artifacts": [
+      "crates/fnx-conformance/src/lib.rs",
+      "crates/fnx-conformance/tests/smoke.rs",
+      "crates/fnx-conformance/tests/e2e_script_pack_gate.rs",
+      "scripts/run_e2e_script_pack.py",
+      "scripts/generate_phase2c_packet_artifacts.py"
+    ],
+    "test_artifacts": {
+      "unit": [
+        {
+          "evidence_path": "crates/fnx-conformance/tests/smoke.rs",
+          "replay_command": "rch exec -- cargo test -p fnx-conformance packet_009_differential_metamorphic_and_adversarial_taxonomy_is_deterministic -- --nocapture"
+        }
+      ],
+      "differential": [
+        {
+          "evidence_path": "artifacts/conformance/latest/mismatch_taxonomy_report.json",
+          "replay_command": "rch exec -- cargo test -p fnx-conformance packet_009_differential_metamorphic_and_adversarial_taxonomy_is_deterministic -- --nocapture"
+        }
+      ],
+      "e2e": [
+        {
+          "evidence_path": "artifacts/e2e/latest/e2e_script_pack_gate_report_v1.json",
+          "replay_command": "bash ./scripts/run_e2e_script_pack_gate.sh"
+        }
+      ],
+      "perf": [
+        {
+          "evidence_path": "artifacts/perf/phase2c/fnx_p2c_009_optimization_report_v1.json",
+          "replay_command": "rch exec -- cargo test -p fnx-conformance --test smoke packet_009_differential_metamorphic_and_adversarial_taxonomy_is_deterministic -- --exact --nocapture"
+        }
+      ],
+      "isomorphism": [
+        {
+          "evidence_path": "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_009_V1.md",
+          "replay_command": "rch exec -- cargo test --workspace"
+        }
+      ]
+    }
+  },
+  "forensics_replay_matrix": [
+    {
+      "fixture_id": "adversarial_regression::fnx-p2c-009::parser_abuse::16d27f530d1c",
+      "seed": 1109,
+      "environment_fingerprint": "30800852818f9fdf",
+      "threat_class": "parser_abuse",
+      "expected_failure_mode": "fail_closed_malformed_payload",
+      "evidence_path": "crates/fnx-conformance/fixtures/generated/adversarial_regression_bundle_v1.json",
+      "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class parser_abuse --packet-id FNX-P2C-009 --run-id replay-16d27f530d1c0103"
+    },
+    {
+      "fixture_id": "adversarial_regression::fnx-p2c-009::source_contamination_ambiguity::f21ddb104d18",
+      "seed": 9309,
+      "environment_fingerprint": "30800852818f9fdf",
+      "threat_class": "source_contamination_ambiguity",
+      "expected_failure_mode": "fail_closed_source_contamination_ambiguity",
+      "evidence_path": "crates/fnx-conformance/fixtures/generated/adversarial_regression_bundle_v1.json",
+      "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class source_contamination_ambiguity --packet-id FNX-P2C-009 --run-id replay-f21ddb104d1829b2"
+    },
+    {
+      "fixture_id": "adversarial_regression::fnx-p2c-009::state_corruption::4528a8c3fa1d",
+      "seed": 5109,
+      "environment_fingerprint": "30800852818f9fdf",
+      "threat_class": "state_corruption",
+      "expected_failure_mode": "fail_closed_invariant_break",
+      "evidence_path": "crates/fnx-conformance/fixtures/generated/adversarial_regression_bundle_v1.json",
+      "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class state_corruption --packet-id FNX-P2C-009 --run-id replay-4528a8c3fa1d3297"
+    },
+    {
+      "fixture_id": "adversarial_regression::fnx-p2c-009::metadata_ambiguity::42df61b2417b",
+      "seed": 2109,
+      "environment_fingerprint": "30800852818f9fdf",
+      "threat_class": "metadata_ambiguity",
+      "expected_failure_mode": "fail_closed_ambiguous_metadata",
+      "evidence_path": "crates/fnx-conformance/fixtures/generated/adversarial_regression_bundle_v1.json",
+      "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class metadata_ambiguity --packet-id FNX-P2C-009 --run-id replay-42df61b2417bba78"
+    },
+    {
+      "fixture_id": "adversarial_regression::fnx-p2c-009::version_skew::dddcaed2205e",
+      "seed": 3109,
+      "environment_fingerprint": "30800852818f9fdf",
+      "threat_class": "version_skew",
+      "expected_failure_mode": "fail_closed_version_skew",
+      "evidence_path": "crates/fnx-conformance/fixtures/generated/adversarial_regression_bundle_v1.json",
+      "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class version_skew --packet-id FNX-P2C-009 --run-id replay-dddcaed2205ea3f4"
+    },
+    {
+      "fixture_id": "adversarial_regression::fnx-p2c-009::resource_exhaustion::c099a6808d3d",
+      "seed": 4109,
+      "environment_fingerprint": "30800852818f9fdf",
+      "threat_class": "resource_exhaustion",
+      "expected_failure_mode": "fail_closed_budget_exceeded",
+      "evidence_path": "crates/fnx-conformance/fixtures/generated/adversarial_regression_bundle_v1.json",
+      "replay_command": "python3 scripts/run_adversarial_seed_harness.py --threat-class resource_exhaustion --packet-id FNX-P2C-009 --run-id replay-c099a6808d3d82c6"
+    }
+  ],
+  "durability_artifacts": {
+    "sidecar_path": "artifacts/phase2c/FNX-P2C-009/parity_report.raptorq.json",
+    "decode_proof_path": "artifacts/phase2c/FNX-P2C-009/parity_report.decode_proof.json",
+    "recovered_output_path": "artifacts/phase2c/FNX-P2C-009/parity_report.recovered.json",
+    "scrub_report_path": "artifacts/phase2c/FNX-P2C-009/parity_report.scrub_report.json",
+    "source_hash": "blake3:6045c7e27d480fea630374422e4aeb25356859afb6f93acb37edd6071f97bcf7",
+    "scrub_status": "recovered",
+    "decode_proof_count": 1,
+    "generate_command": "rch exec -- cargo run -q -p fnx-durability --bin fnx-durability -- generate artifacts/phase2c/FNX-P2C-009/parity_report.json artifacts/phase2c/FNX-P2C-009/parity_report.raptorq.json fnx-p2c-009-parity-report phase2c_parity_report 1400 6",
+    "scrub_command": "rch exec -- cargo run -q -p fnx-durability --bin fnx-durability -- scrub artifacts/phase2c/FNX-P2C-009/parity_report.json artifacts/phase2c/FNX-P2C-009/parity_report.raptorq.json",
+    "decode_drill_command": "rch exec -- cargo run -q -p fnx-durability --bin fnx-durability -- decode-drill artifacts/phase2c/FNX-P2C-009/parity_report.raptorq.json artifacts/phase2c/FNX-P2C-009/parity_report.recovered.json"
+  },
+  "signoff_checklist": [
+    {
+      "requirement": "packet_artifact_contract_complete",
+      "status": "pass",
+      "evidence_refs": [
+        "artifacts/phase2c/FNX-P2C-009/legacy_anchor_map.md",
+        "artifacts/phase2c/FNX-P2C-009/contract_table.md",
+        "artifacts/phase2c/FNX-P2C-009/fixture_manifest.json",
+        "artifacts/phase2c/FNX-P2C-009/parity_gate.yaml",
+        "artifacts/phase2c/FNX-P2C-009/risk_note.md",
+        "artifacts/phase2c/FNX-P2C-009/parity_report.json"
+      ]
+    },
+    {
+      "requirement": "durability_sidecar_scrub_decode_attached",
+      "status": "pass",
+      "evidence_refs": [
+        "artifacts/phase2c/FNX-P2C-009/parity_report.raptorq.json",
+        "artifacts/phase2c/FNX-P2C-009/parity_report.decode_proof.json",
+        "artifacts/phase2c/FNX-P2C-009/parity_report.scrub_report.json"
+      ]
+    },
+    {
+      "requirement": "forensics_replay_matrix_complete",
+      "status": "pass",
+      "evidence_refs": [
+        "crates/fnx-conformance/fixtures/generated/adversarial_regression_bundle_v1.json",
+        "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"
+      ]
+    },
+    {
+      "requirement": "validator_and_workspace_gates_pass",
+      "status": "pass",
+      "evidence_refs": [
+        "scripts/validate_phase2c_artifacts.py",
+        "scripts/validate_phase2c_security_contracts.py",
+        "artifacts/phase2c/FNX-P2C-009/parity_gate.yaml"
+      ]
+    }
+  ],
+  "reviewer_validation_package": {
+    "signoff_ready": true,
+    "review_scope": [
+      "packet-009 strict/hardened parity artifacts",
+      "differential and adversarial replay matrix",
+      "e2e replay/forensics gate coverage",
+      "performance and isomorphism evidence linkage",
+      "durability sidecar/scrub/decode proof chain"
+    ],
+    "independent_replay_command": "bash ./scripts/run_phase2c_readiness_e2e.sh",
+    "independent_review_steps": [
+      "Run packet and workspace validators with current artifacts.",
+      "Re-run packet-009 durability generate/scrub/decode commands and confirm hash-stable recovery.",
+      "Confirm signoff checklist and replay matrix evidence paths all resolve locally."
+    ],
+    "traceability_refs": [
+      "artifacts/phase2c/FNX-P2C-009/final_evidence_pack_v1.json",
+      "artifacts/phase2c/FNX-P2C-009/parity_report.scrub_report.json",
+      "artifacts/phase2c/FNX-P2C-009/parity_report.decode_proof.json"
+    ]
+  }
+}
