@@ -3,6 +3,7 @@
 use fnx_algorithms::{
     CentralityScore, ComplexityWitness, closeness_centrality, connected_components,
     degree_centrality, number_connected_components, shortest_path_unweighted,
+    shortest_path_weighted,
 };
 use fnx_classes::{AttrMap, EdgeSnapshot, Graph, GraphSnapshot};
 use fnx_convert::{AdjacencyPayload, EdgeListPayload, GraphConverter};
@@ -215,6 +216,10 @@ impl ModeValue {
     }
 }
 
+fn default_weight_attr() -> String {
+    "weight".to_owned()
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 enum Operation {
@@ -239,6 +244,12 @@ enum Operation {
     ShortestPathQuery {
         source: String,
         target: String,
+    },
+    WeightedShortestPathQuery {
+        source: String,
+        target: String,
+        #[serde(default = "default_weight_attr")]
+        weight_attr: String,
     },
     DegreeCentralityQuery,
     ClosenessCentralityQuery,
@@ -293,6 +304,8 @@ struct ExpectedState {
     #[serde(default)]
     shortest_path_unweighted: Option<Vec<String>>,
     #[serde(default)]
+    shortest_path_weighted: Option<Vec<String>>,
+    #[serde(default)]
     degree_centrality: Option<Vec<ExpectedCentralityScore>>,
     #[serde(default)]
     closeness_centrality: Option<Vec<ExpectedCentralityScore>>,
@@ -335,6 +348,7 @@ struct ExecutionContext {
     graph: Graph,
     dispatch_registry: BackendRegistry,
     shortest_path_result: Option<Vec<String>>,
+    shortest_path_weighted_result: Option<Vec<String>>,
     dispatch_decision: Option<DispatchDecision>,
     serialized_edgelist: Option<String>,
     serialized_json_graph: Option<String>,
@@ -1073,6 +1087,7 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
         graph: Graph::new(mode),
         dispatch_registry: default_dispatch_registry(mode),
         shortest_path_result: None,
+        shortest_path_weighted_result: None,
         dispatch_decision: None,
         serialized_edgelist: None,
         serialized_json_graph: None,
@@ -1108,6 +1123,15 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
             Operation::ShortestPathQuery { source, target } => {
                 let result = shortest_path_unweighted(&context.graph, &source, &target);
                 context.shortest_path_result = result.path;
+                context.witness = Some(result.witness);
+            }
+            Operation::WeightedShortestPathQuery {
+                source,
+                target,
+                weight_attr,
+            } => {
+                let result = shortest_path_weighted(&context.graph, &source, &target, &weight_attr);
+                context.shortest_path_weighted_result = result.path;
                 context.witness = Some(result.witness);
             }
             Operation::DegreeCentralityQuery => {
@@ -1301,6 +1325,18 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
             message: format!(
                 "shortest_path_unweighted mismatch: expected {:?}, got {:?}",
                 expected_path, context.shortest_path_result
+            ),
+        });
+    }
+
+    if let Some(expected_path) = fixture.expected.shortest_path_weighted
+        && context.shortest_path_weighted_result != Some(expected_path.clone())
+    {
+        mismatches.push(Mismatch {
+            category: "algorithm".to_owned(),
+            message: format!(
+                "shortest_path_weighted mismatch: expected {:?}, got {:?}",
+                expected_path, context.shortest_path_weighted_result
             ),
         });
     }
@@ -1514,6 +1550,7 @@ fn default_dispatch_registry(mode: CompatibilityMode) -> BackendRegistry {
         priority: 100,
         supported_features: set([
             "shortest_path",
+            "shortest_path_weighted",
             "convert_edge_list",
             "convert_adjacency",
             "read_edgelist",
@@ -1535,7 +1572,7 @@ fn default_dispatch_registry(mode: CompatibilityMode) -> BackendRegistry {
     registry.register_backend(BackendSpec {
         name: "compat_probe".to_owned(),
         priority: 50,
-        supported_features: set(["shortest_path"]),
+        supported_features: set(["shortest_path", "shortest_path_weighted"]),
         allow_in_strict: true,
         allow_in_hardened: true,
     });

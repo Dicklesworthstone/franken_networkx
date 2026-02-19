@@ -208,6 +208,126 @@ pub fn shortest_path_unweighted(graph: &Graph, source: &str, target: &str) -> Sh
 }
 
 #[must_use]
+pub fn shortest_path_weighted(
+    graph: &Graph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> ShortestPathResult {
+    if !graph.has_node(source) || !graph.has_node(target) {
+        return ShortestPathResult {
+            path: None,
+            witness: ComplexityWitness {
+                algorithm: "dijkstra_shortest_path".to_owned(),
+                complexity_claim: "O(|V|^2 + |E|)".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    if source == target {
+        return ShortestPathResult {
+            path: Some(vec![source.to_owned()]),
+            witness: ComplexityWitness {
+                algorithm: "dijkstra_shortest_path".to_owned(),
+                complexity_claim: "O(|V|^2 + |E|)".to_owned(),
+                nodes_touched: 1,
+                edges_scanned: 0,
+                queue_peak: 1,
+            },
+        };
+    }
+
+    let nodes = graph.nodes_ordered();
+    let mut settled: HashSet<&str> = HashSet::new();
+    let mut predecessor: HashMap<&str, &str> = HashMap::new();
+    let mut distance: HashMap<&str, f64> = HashMap::new();
+    distance.insert(source, 0.0);
+
+    let mut nodes_touched = 1usize;
+    let mut edges_scanned = 0usize;
+    let mut queue_peak = 1usize;
+
+    loop {
+        let mut current: Option<(&str, f64)> = None;
+        for &node in &nodes {
+            if settled.contains(node) {
+                continue;
+            }
+            let Some(&candidate_distance) = distance.get(node) else {
+                continue;
+            };
+            match current {
+                None => current = Some((node, candidate_distance)),
+                Some((_, best_distance)) if candidate_distance < best_distance => {
+                    current = Some((node, candidate_distance));
+                }
+                _ => {}
+            }
+        }
+
+        let Some((current_node, current_distance)) = current else {
+            break;
+        };
+
+        settled.insert(current_node);
+        if current_node == target {
+            break;
+        }
+
+        let Some(neighbors) = graph.neighbors_iter(current_node) else {
+            continue;
+        };
+        for neighbor in neighbors {
+            edges_scanned += 1;
+            if settled.contains(neighbor) {
+                continue;
+            }
+            let edge_weight = edge_weight_or_default(graph, current_node, neighbor, weight_attr);
+            let candidate_distance = current_distance + edge_weight;
+            let should_update = match distance.get(neighbor) {
+                Some(existing_distance) => candidate_distance < *existing_distance,
+                None => true,
+            };
+            if should_update {
+                if distance.insert(neighbor, candidate_distance).is_none() {
+                    nodes_touched += 1;
+                }
+                predecessor.insert(neighbor, current_node);
+            }
+        }
+
+        queue_peak = queue_peak.max(distance.len().saturating_sub(settled.len()));
+    }
+
+    let path = if distance.contains_key(target) {
+        let rebuilt_path = rebuild_path(&predecessor, source, target);
+        if rebuilt_path.first().map(String::as_str) == Some(source)
+            && rebuilt_path.last().map(String::as_str) == Some(target)
+        {
+            Some(rebuilt_path)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    ShortestPathResult {
+        path,
+        witness: ComplexityWitness {
+            algorithm: "dijkstra_shortest_path".to_owned(),
+            complexity_claim: "O(|V|^2 + |E|)".to_owned(),
+            nodes_touched,
+            edges_scanned,
+            queue_peak,
+        },
+    }
+}
+
+#[must_use]
 pub fn connected_components(graph: &Graph) -> ComponentsResult {
     let mut visited: HashSet<&str> = HashSet::new();
     let mut components = Vec::new();
@@ -416,6 +536,15 @@ fn rebuild_path(predecessor: &HashMap<&str, &str>, source: &str, target: &str) -
     path
 }
 
+fn edge_weight_or_default(graph: &Graph, left: &str, right: &str, weight_attr: &str) -> f64 {
+    graph
+        .edge_attrs(left, right)
+        .and_then(|attrs| attrs.get(weight_attr))
+        .and_then(|raw| raw.parse::<f64>().ok())
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .unwrap_or(1.0)
+}
+
 fn stable_hash_hex(input: &[u8]) -> String {
     let mut hash = 0xcbf29ce484222325_u64;
     for byte in input {
@@ -431,6 +560,7 @@ mod tests {
         CGSE_WITNESS_LEDGER_PATH, CGSE_WITNESS_POLICY_SPEC_PATH, CentralityScore,
         ComplexityWitness, cgse_witness_schema_version, closeness_centrality, connected_components,
         degree_centrality, number_connected_components, shortest_path_unweighted,
+        shortest_path_weighted,
     };
     use fnx_classes::Graph;
     use fnx_runtime::{
@@ -547,6 +677,86 @@ mod tests {
         let left_replay = shortest_path_unweighted(&insertion_a, "a", "d");
         let right = shortest_path_unweighted(&insertion_b, "a", "d");
         let right_replay = shortest_path_unweighted(&insertion_b, "a", "d");
+        assert_eq!(
+            left.path,
+            Some(vec!["a", "b", "d"].into_iter().map(str::to_owned).collect())
+        );
+        assert_eq!(
+            right.path,
+            Some(vec!["a", "c", "d"].into_iter().map(str::to_owned).collect())
+        );
+        assert_eq!(left.path, left_replay.path);
+        assert_eq!(left.witness, left_replay.witness);
+        assert_eq!(right.path, right_replay.path);
+        assert_eq!(right.witness, right_replay.witness);
+    }
+
+    #[test]
+    fn weighted_shortest_path_prefers_lower_total_weight() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("a", "b", [("weight".to_owned(), "5".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "c", [("weight".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("c", "b", [("weight".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("b", "d", [("weight".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("c", "d", [("weight".to_owned(), "10".to_owned())].into())
+            .expect("edge add should succeed");
+
+        let result = shortest_path_weighted(&graph, "a", "d", "weight");
+        assert_eq!(
+            result.path,
+            Some(
+                vec!["a", "c", "b", "d"]
+                    .into_iter()
+                    .map(str::to_owned)
+                    .collect()
+            )
+        );
+        assert_eq!(result.witness.algorithm, "dijkstra_shortest_path");
+    }
+
+    #[test]
+    fn weighted_shortest_path_tie_break_tracks_node_insertion_order() {
+        let mut insertion_a = Graph::strict();
+        insertion_a
+            .add_edge_with_attrs("a", "b", [("weight".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+        insertion_a
+            .add_edge_with_attrs("a", "c", [("weight".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+        insertion_a
+            .add_edge_with_attrs("b", "d", [("weight".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+        insertion_a
+            .add_edge_with_attrs("c", "d", [("weight".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+
+        let mut insertion_b = Graph::strict();
+        insertion_b
+            .add_edge_with_attrs("a", "c", [("weight".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+        insertion_b
+            .add_edge_with_attrs("a", "b", [("weight".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+        insertion_b
+            .add_edge_with_attrs("c", "d", [("weight".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+        insertion_b
+            .add_edge_with_attrs("b", "d", [("weight".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+
+        let left = shortest_path_weighted(&insertion_a, "a", "d", "weight");
+        let left_replay = shortest_path_weighted(&insertion_a, "a", "d", "weight");
+        let right = shortest_path_weighted(&insertion_b, "a", "d", "weight");
+        let right_replay = shortest_path_weighted(&insertion_b, "a", "d", "weight");
         assert_eq!(
             left.path,
             Some(vec!["a", "b", "d"].into_iter().map(str::to_owned).collect())

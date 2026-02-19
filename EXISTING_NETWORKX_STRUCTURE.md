@@ -389,3 +389,37 @@ Operational invariants:
 2. Red-team and behavior-specialist contradictions are explicitly logged and resolved (`RT-*`, `BH-*`).
 3. Risk/perf/test specialist pass confirms all critical behavior surfaces are either covered or explicitly mapped to closure beads with replay + forensic requirements.
 4. Remaining uncertainty is bounded and documented as explicit follow-up work, not hidden assumptions.
+
+## 22. Weighted Shortest-Path Contract (P2C005 Extension)
+
+Legacy anchors:
+- `legacy_networkx_code/networkx/networkx/algorithms/shortest_paths/weighted.py`
+- `legacy_networkx_code/networkx/networkx/algorithms/shortest_paths/tests/test_weighted.py`
+
+Rust parity contract for the current weighted slice (`fnx-algorithms::shortest_path_weighted`):
+
+1. Input/output shape:
+- Inputs: `(graph, source, target, weight_attr)`
+- Output: `ShortestPathResult { path: Option<Vec<String>>, witness }`
+
+2. Existence semantics:
+- If either endpoint is absent, `path = None`.
+- If `source == target`, `path = [source]`.
+
+3. Weight semantics:
+- Read edge weight from edge attribute key `weight_attr`.
+- Missing weight defaults to `1.0`.
+- Non-finite, negative, or non-parseable weight values are treated as default `1.0` in this scoped slice.
+
+4. Determinism/tie-break semantics:
+- Candidate-node selection for Dijkstra frontier ties is deterministic by graph node insertion order.
+- Neighbor relaxation order follows deterministic neighbor iteration order from `fnx-classes`.
+- Equal-cost relaxations do not overwrite an existing predecessor (first-seen predecessor wins).
+
+5. Complexity witness contract:
+- Algorithm label: `dijkstra_shortest_path`
+- Complexity claim: `O(|V|^2 + |E|)` for the current deterministic linear-select implementation.
+
+6. Verification hooks:
+- Unit tests in `crates/fnx-algorithms/src/lib.rs` assert weighted-vs-unweighted divergence and tie-break replay stability.
+- Differential fixture `crates/fnx-conformance/fixtures/generated/shortest_path_weighted_strict.json` asserts strict-mode expected path.
