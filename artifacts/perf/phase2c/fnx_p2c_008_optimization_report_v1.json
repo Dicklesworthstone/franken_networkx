@@ -1,0 +1,141 @@
+{
+  "schema_version": "1.0.0",
+  "report_id": "fnx-p2c-008-optimization-report-v1",
+  "packet_id": "FNX-P2C-008",
+  "bead_id": "bd-315.19.8",
+  "generated_at_utc": "2026-02-18T20:57:42.989816+00:00",
+  "single_lever": {
+    "description": "preallocate BFS working-set capacities from graph size in shortest_path_unweighted",
+    "changed_paths": [
+      "crates/fnx-algorithms/src/lib.rs"
+    ]
+  },
+  "baseline_ref": "artifacts/perf/phase2c/perf_baseline_matrix_pre_bd315198_v1.json",
+  "candidate_ref": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+  "hotspot_backlog_ref": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+  "regression_gate_ref": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json",
+  "isomorphism_report_ref": "artifacts/perf/phase2c/isomorphism_harness_report_v1.json",
+  "scenario_deltas": [
+    {
+      "scenario_id": "complete_700_seed1337",
+      "delta_pct": {
+        "p95_ms": -1.807646746137137,
+        "p99_ms": -1.8331014531314411,
+        "memory_p95_kb": 3.849293214113456
+      },
+      "before": {
+        "p95_ms": 11032.182471826673,
+        "p99_ms": 11052.681129612029,
+        "memory_p95_kb": 43124.8
+      },
+      "after": {
+        "p95_ms": 10832.759584346786,
+        "p99_ms": 10850.074271215126,
+        "memory_p95_kb": 44784.8
+      }
+    },
+    {
+      "scenario_id": "erdos_renyi_n2500_p001_seed1337",
+      "delta_pct": {
+        "p95_ms": -2.6103641164405467,
+        "p99_ms": -2.447469790790017,
+        "memory_p95_kb": 1.7849529051513517
+      },
+      "before": {
+        "p95_ms": 9657.781965611503,
+        "p99_ms": 9686.678967541084,
+        "memory_p95_kb": 41278.4
+      },
+      "after": {
+        "p95_ms": 9405.678690737113,
+        "p99_ms": 9449.600426079705,
+        "memory_p95_kb": 42015.2
+      }
+    },
+    {
+      "scenario_id": "grid_80x80_seed1337",
+      "delta_pct": {
+        "p95_ms": -4.186026882356523,
+        "p99_ms": -4.000379686578973,
+        "memory_p95_kb": -6.751384089473499
+      },
+      "before": {
+        "p95_ms": 9818.742408440448,
+        "p99_ms": 9833.471776922233,
+        "memory_p95_kb": 43060.8
+      },
+      "after": {
+        "p95_ms": 9407.72721171379,
+        "p99_ms": 9440.09556947276,
+        "memory_p95_kb": 40153.6
+      }
+    },
+    {
+      "scenario_id": "line_15000_seed1337",
+      "delta_pct": {
+        "p95_ms": -3.5220339086868253,
+        "p99_ms": -3.2005737349819348,
+        "memory_p95_kb": 4.936119677437889
+      },
+      "before": {
+        "p95_ms": 9756.880854791962,
+        "p99_ms": 9785.590494158678,
+        "memory_p95_kb": 41765.6
+      },
+      "after": {
+        "p95_ms": 9413.240202656016,
+        "p99_ms": 9472.395454989746,
+        "memory_p95_kb": 43827.2
+      }
+    },
+    {
+      "scenario_id": "star_15000_seed1337",
+      "delta_pct": {
+        "p95_ms": -5.618640199165713,
+        "p99_ms": -5.766964702132208,
+        "memory_p95_kb": 9.650895268580568
+      },
+      "before": {
+        "p95_ms": 9711.865536193363,
+        "p99_ms": 9730.855968832038,
+        "memory_p95_kb": 39988.0
+      },
+      "after": {
+        "p95_ms": 9166.190755087882,
+        "p99_ms": 9169.68093989417,
+        "memory_p95_kb": 43847.2
+      }
+    }
+  ],
+  "risk_notes": [
+    "memory p95 increases on line/star scenarios remain under noncritical threshold",
+    "allocation strategy changed, traversal ordering and tie-break logic unchanged"
+  ],
+  "rollback": {
+    "trigger": "rollback if p95 or p99 regresses by >5% for the same scenario across 2 consecutive gate runs",
+    "path": "git revert <optimization-commit-sha>"
+  },
+  "decision_contract": {
+    "states": [
+      "regression",
+      "parity_preserved_speedup"
+    ],
+    "actions": [
+      "ship_optimization",
+      "rollback"
+    ],
+    "loss_model": "regression_cost >> unrealized_speedup",
+    "safe_mode_budget_trigger": ">5% p95/p99 regression across 2 consecutive runs"
+  },
+  "gate_summary": {
+    "regression_status": "pass",
+    "regression_counts": {
+      "scenario_count": 5,
+      "regression_count": 0,
+      "critical_regression_count": 0
+    },
+    "isomorphism_status": "pass",
+    "isomorphism_failures": 0,
+    "approved_divergences": 0
+  }
+}
