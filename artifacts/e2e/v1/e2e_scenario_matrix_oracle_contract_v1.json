@@ -7,8 +7,8 @@
     "journey_count": 10,
     "strict_journey_count": 10,
     "hardened_journey_count": 10,
-    "fixture_inventory_count": 20,
-    "covered_fixture_count": 20,
+    "fixture_inventory_count": 22,
+    "covered_fixture_count": 22,
     "uncovered_fixture_count": 0
   },
   "deterministic_seed_policy": {
@@ -849,6 +849,7 @@
         "fixture_id": "generated/centrality_degree_strict.json",
         "fixture_ids": [
           "generated/centrality_degree_strict.json",
+          "generated/centrality_betweenness_strict.json",
           "generated/centrality_closeness_strict.json"
         ],
         "deterministic_seed": 11351190574352106388,
@@ -930,7 +931,8 @@
         "mode_strategy": "mode_override_fixture",
         "fixture_id": "generated/centrality_closeness_strict.json",
         "fixture_ids": [
-          "generated/centrality_closeness_strict.json"
+          "generated/centrality_closeness_strict.json",
+          "generated/centrality_betweenness_strict.json"
         ],
         "deterministic_seed": 9070744064313709177,
         "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_closeness_strict.json --mode hardened",
@@ -1134,6 +1136,7 @@
         "fixture_id": "generated/generators_path_strict.json",
         "fixture_ids": [
           "generated/generators_path_strict.json",
+          "generated/generators_star_strict.json",
           "generated/generators_cycle_strict.json",
           "generated/generators_complete_strict.json"
         ],
@@ -1193,7 +1196,8 @@
         "mode_strategy": "mode_override_fixture",
         "fixture_id": "generated/generators_cycle_strict.json",
         "fixture_ids": [
-          "generated/generators_cycle_strict.json"
+          "generated/generators_cycle_strict.json",
+          "generated/generators_star_strict.json"
         ],
         "deterministic_seed": 13332243272534235892,
         "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/generators_cycle_strict.json --mode hardened",
@@ -1803,6 +1807,7 @@
   "coverage_manifest": {
     "fixture_inventory": [
       "generated/adversarial_regression_bundle_v1.json",
+      "generated/centrality_betweenness_strict.json",
       "generated/centrality_closeness_strict.json",
       "generated/centrality_degree_strict.json",
       "generated/components_connected_strict.json",
@@ -1814,6 +1819,7 @@
       "generated/generators_complete_strict.json",
       "generated/generators_cycle_strict.json",
       "generated/generators_path_strict.json",
+      "generated/generators_star_strict.json",
       "generated/readwrite_hardened_malformed.json",
       "generated/readwrite_json_roundtrip_strict.json",
       "generated/readwrite_roundtrip_strict.json",
@@ -1825,6 +1831,7 @@
     ],
     "covered_fixture_ids": [
       "generated/adversarial_regression_bundle_v1.json",
+      "generated/centrality_betweenness_strict.json",
       "generated/centrality_closeness_strict.json",
       "generated/centrality_degree_strict.json",
       "generated/components_connected_strict.json",
@@ -1836,6 +1843,7 @@
       "generated/generators_complete_strict.json",
       "generated/generators_cycle_strict.json",
       "generated/generators_path_strict.json",
+      "generated/generators_star_strict.json",
       "generated/readwrite_hardened_malformed.json",
       "generated/readwrite_json_roundtrip_strict.json",
       "generated/readwrite_roundtrip_strict.json",

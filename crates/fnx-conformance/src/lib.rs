@@ -1,9 +1,10 @@
 #![forbid(unsafe_code)]
 
 use fnx_algorithms::{
-    CentralityScore, ComplexityWitness, MinimumCutResult, closeness_centrality,
-    connected_components, degree_centrality, max_flow_edmonds_karp, minimum_cut_edmonds_karp,
-    number_connected_components, shortest_path_unweighted, shortest_path_weighted,
+    CentralityScore, ComplexityWitness, MinimumCutResult, betweenness_centrality,
+    closeness_centrality, connected_components, degree_centrality, max_flow_edmonds_karp,
+    minimum_cut_edmonds_karp, number_connected_components, shortest_path_unweighted,
+    shortest_path_weighted,
 };
 use fnx_classes::{AttrMap, EdgeSnapshot, Graph, GraphSnapshot};
 use fnx_convert::{AdjacencyPayload, EdgeListPayload, GraphConverter};
@@ -267,6 +268,7 @@ enum Operation {
         #[serde(default = "default_capacity_attr")]
         capacity_attr: String,
     },
+    BetweennessCentralityQuery,
     DegreeCentralityQuery,
     ClosenessCentralityQuery,
     ConnectedComponentsQuery,
@@ -329,6 +331,8 @@ struct ExpectedState {
     #[serde(default)]
     minimum_cut: Option<ExpectedMinimumCut>,
     #[serde(default)]
+    betweenness_centrality: Option<Vec<ExpectedCentralityScore>>,
+    #[serde(default)]
     degree_centrality: Option<Vec<ExpectedCentralityScore>>,
     #[serde(default)]
     closeness_centrality: Option<Vec<ExpectedCentralityScore>>,
@@ -385,6 +389,7 @@ struct ExecutionContext {
     serialized_edgelist: Option<String>,
     serialized_json_graph: Option<String>,
     view_neighbors_result: Option<Vec<String>>,
+    betweenness_centrality_result: Option<Vec<CentralityScore>>,
     degree_centrality_result: Option<Vec<CentralityScore>>,
     closeness_centrality_result: Option<Vec<CentralityScore>>,
     connected_components_result: Option<Vec<Vec<String>>>,
@@ -1127,6 +1132,7 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
         serialized_edgelist: None,
         serialized_json_graph: None,
         view_neighbors_result: None,
+        betweenness_centrality_result: None,
         degree_centrality_result: None,
         closeness_centrality_result: None,
         connected_components_result: None,
@@ -1187,6 +1193,11 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
                 let result =
                     minimum_cut_edmonds_karp(&context.graph, &source, &target, &capacity_attr);
                 context.minimum_cut_result = Some(result.clone());
+                context.witness = Some(result.witness);
+            }
+            Operation::BetweennessCentralityQuery => {
+                let result = betweenness_centrality(&context.graph);
+                context.betweenness_centrality_result = Some(result.scores);
                 context.witness = Some(result.witness);
             }
             Operation::DegreeCentralityQuery => {
@@ -1464,6 +1475,23 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
         }
     }
 
+    if let Some(expected_scores) = fixture.expected.betweenness_centrality {
+        match context.betweenness_centrality_result.as_ref() {
+            Some(actual_scores) => {
+                compare_centrality_scores(
+                    "betweenness_centrality",
+                    actual_scores,
+                    &expected_scores,
+                    &mut mismatches,
+                );
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_centrality".to_owned(),
+                message: "expected betweenness_centrality result but none produced".to_owned(),
+            }),
+        }
+    }
+
     if let Some(expected_scores) = fixture.expected.degree_centrality {
         match context.degree_centrality_result.as_ref() {
             Some(actual_scores) => {
@@ -1684,6 +1712,7 @@ fn default_dispatch_registry(mode: CompatibilityMode) -> BackendRegistry {
             "write_json_graph",
             "connected_components",
             "number_connected_components",
+            "betweenness_centrality",
             "degree_centrality",
             "closeness_centrality",
             "generate_path_graph",

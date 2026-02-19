@@ -218,6 +218,25 @@ def main() -> int:
         },
     }
 
+    betweenness_scores = nx.betweenness_centrality(centrality_graph)
+    betweenness_fixture = {
+        "suite": "centrality_v1",
+        "mode": "strict",
+        "operations": [
+            {"op": "add_edge", "left": "a", "right": "b"},
+            {"op": "add_edge", "left": "a", "right": "c"},
+            {"op": "add_edge", "left": "b", "right": "d"},
+            {"op": "betweenness_centrality_query"},
+        ],
+        "expected": {
+            "graph": graph_snapshot(centrality_graph),
+            "betweenness_centrality": [
+                {"node": str(node), "score": float(score)}
+                for node, score in betweenness_scores.items()
+            ],
+        },
+    }
+
     closeness_graph = nx.Graph()
     closeness_graph.add_edge("a", "b")
     closeness_graph.add_node("c")
@@ -277,6 +296,7 @@ def main() -> int:
     write_json(fixture_root / "generators_cycle_strict.json", generate_cycle_fixture)
     write_json(fixture_root / "generators_complete_strict.json", generate_complete_fixture)
     write_json(fixture_root / "centrality_degree_strict.json", centrality_fixture)
+    write_json(fixture_root / "centrality_betweenness_strict.json", betweenness_fixture)
     write_json(fixture_root / "centrality_closeness_strict.json", closeness_fixture)
 
     oracle_capture = {
@@ -293,6 +313,7 @@ def main() -> int:
             "generators_cycle_strict.json",
             "generators_complete_strict.json",
             "centrality_degree_strict.json",
+            "centrality_betweenness_strict.json",
             "centrality_closeness_strict.json",
         ],
         "snapshots": {

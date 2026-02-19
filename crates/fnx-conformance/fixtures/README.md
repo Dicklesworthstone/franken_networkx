@@ -17,4 +17,5 @@ This folder stores normalized oracle-vs-target fixtures for fnx-conformance.
 - `generated/generators_cycle_strict.json`: deterministic `cycle_graph` generator parity.
 - `generated/generators_complete_strict.json`: deterministic `complete_graph` generator parity.
 - `generated/centrality_degree_strict.json`: deterministic degree-centrality parity.
+- `generated/centrality_betweenness_strict.json`: deterministic betweenness-centrality parity.
 - `generated/centrality_closeness_strict.json`: deterministic closeness-centrality parity.
