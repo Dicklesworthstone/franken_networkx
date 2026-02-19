@@ -67,6 +67,8 @@ impl EdgeListEngine {
             supported_features: [
                 "read_edgelist",
                 "write_edgelist",
+                "read_adjlist",
+                "write_adjlist",
                 "read_json_graph",
                 "write_json_graph",
             ]
@@ -118,6 +120,37 @@ impl EdgeListEngine {
             "write_edgelist",
             DecisionAction::Allow,
             "edgelist serialization completed",
+            0.02,
+        );
+
+        Ok(lines.join("\n"))
+    }
+
+    pub fn write_adjlist(&mut self, graph: &Graph) -> Result<String, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "write_adjlist".to_owned(),
+            requested_backend: None,
+            required_features: set(["write_adjlist"]),
+            risk_probability: 0.03,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let mut lines = Vec::new();
+        for node in graph.nodes_ordered() {
+            let mut tokens = Vec::new();
+            tokens.push(node.to_owned());
+            if let Some(neighbors) = graph.neighbors(node) {
+                for neighbor in neighbors {
+                    tokens.push(neighbor.to_owned());
+                }
+            }
+            lines.push(tokens.join(" "));
+        }
+
+        self.record(
+            "write_adjlist",
+            DecisionAction::Allow,
+            "adjlist serialization completed",
             0.02,
         );
 
@@ -190,6 +223,60 @@ impl EdgeListEngine {
             "read_edgelist",
             DecisionAction::Allow,
             "edgelist parse completed",
+            0.04,
+        );
+
+        Ok(ReadWriteReport { graph, warnings })
+    }
+
+    pub fn read_adjlist(&mut self, input: &str) -> Result<ReadWriteReport, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "read_adjlist".to_owned(),
+            requested_backend: None,
+            required_features: set(["read_adjlist"]),
+            risk_probability: 0.08,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let mut graph = Graph::new(self.mode);
+        let mut warnings = Vec::new();
+
+        for (line_no, raw_line) in input.lines().enumerate() {
+            let line = raw_line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+
+            let mut parts = line.split_whitespace();
+            let Some(node) = parts.next() else {
+                continue;
+            };
+
+            if node.is_empty() {
+                let warning = format!("line {} malformed: missing node id", line_no + 1);
+                if self.mode == CompatibilityMode::Strict {
+                    self.record("read_adjlist", DecisionAction::FailClosed, &warning, 1.0);
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_adjlist",
+                        reason: warning,
+                    });
+                }
+                warnings.push(warning.clone());
+                self.record("read_adjlist", DecisionAction::FullValidate, &warning, 0.7);
+                continue;
+            }
+
+            let node = node.to_owned();
+            let _ = graph.add_node(node.clone());
+            for neighbor in parts {
+                graph.add_edge(node.clone(), neighbor.to_owned())?;
+            }
+        }
+
+        self.record(
+            "read_adjlist",
+            DecisionAction::Allow,
+            "adjlist parse completed",
             0.04,
         );
 
@@ -500,6 +587,38 @@ mod tests {
             .graph;
 
         assert_eq!(graph.snapshot(), parsed.snapshot());
+    }
+
+    #[test]
+    fn adjlist_round_trip_is_deterministic() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("a", "c").expect("edge add should succeed");
+        graph.add_node("d");
+
+        let mut engine = EdgeListEngine::strict();
+        let text = engine
+            .write_adjlist(&graph)
+            .expect("adjlist serialization should succeed");
+        assert_eq!(text, "a b c\nb a\nc a\nd");
+
+        let parsed = engine
+            .read_adjlist(&text)
+            .expect("adjlist parse should succeed")
+            .graph;
+        assert_eq!(graph.snapshot(), parsed.snapshot());
+    }
+
+    #[test]
+    fn hardened_adjlist_ignores_comments_and_empty_lines() {
+        let mut engine = EdgeListEngine::hardened();
+        let input = "# comment\n\na b c\nc a\n";
+        let report = engine
+            .read_adjlist(input)
+            .expect("hardened adjlist parse should succeed");
+        assert!(report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 3);
+        assert_eq!(report.graph.edge_count(), 2);
     }
 
     #[test]

@@ -127,6 +127,12 @@ pub struct ClosenessCentralityResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HarmonicCentralityResult {
+    pub scores: Vec<CentralityScore>,
+    pub witness: ComplexityWitness,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BetweennessCentralityResult {
     pub scores: Vec<CentralityScore>,
     pub witness: ComplexityWitness,
@@ -565,6 +571,88 @@ pub fn closeness_centrality(graph: &Graph) -> ClosenessCentralityResult {
         scores,
         witness: ComplexityWitness {
             algorithm: "closeness_centrality".to_owned(),
+            complexity_claim: "O(|V| * (|V| + |E|))".to_owned(),
+            nodes_touched,
+            edges_scanned,
+            queue_peak,
+        },
+    }
+}
+
+#[must_use]
+pub fn harmonic_centrality(graph: &Graph) -> HarmonicCentralityResult {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return HarmonicCentralityResult {
+            scores: Vec::new(),
+            witness: ComplexityWitness {
+                algorithm: "harmonic_centrality".to_owned(),
+                complexity_claim: "O(|V| * (|V| + |E|))".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    let mut scores = Vec::with_capacity(n);
+    let mut nodes_touched = 0usize;
+    let mut edges_scanned = 0usize;
+    let mut queue_peak = 0usize;
+
+    for source in &nodes {
+        let mut queue: VecDeque<&str> = VecDeque::new();
+        let mut distance: HashMap<&str, usize> = HashMap::new();
+        queue.push_back(*source);
+        distance.insert(*source, 0usize);
+        queue_peak = queue_peak.max(queue.len());
+
+        while let Some(current) = queue.pop_front() {
+            let Some(neighbors) = graph.neighbors_iter(current) else {
+                continue;
+            };
+            let current_distance = *distance.get(&current).unwrap_or(&0usize);
+            for neighbor in neighbors {
+                edges_scanned += 1;
+                if distance.contains_key(neighbor) {
+                    continue;
+                }
+                distance.insert(neighbor, current_distance + 1);
+                queue.push_back(neighbor);
+                queue_peak = queue_peak.max(queue.len());
+            }
+        }
+
+        nodes_touched += distance.len();
+        // Accumulate in canonical distance order so floating-point roundoff is replay-stable
+        // even when node insertion order differs.
+        let mut reachable_distances = distance
+            .iter()
+            .filter_map(|(target, shortest_path_distance)| {
+                if *target == *source || *shortest_path_distance == 0 {
+                    None
+                } else {
+                    Some(*shortest_path_distance)
+                }
+            })
+            .collect::<Vec<usize>>();
+        reachable_distances.sort_unstable();
+        let harmonic = reachable_distances
+            .into_iter()
+            .fold(0.0_f64, |sum, shortest_path_distance| {
+                sum + 1.0 / (shortest_path_distance as f64)
+            });
+        scores.push(CentralityScore {
+            node: (*source).to_owned(),
+            score: harmonic,
+        });
+    }
+
+    HarmonicCentralityResult {
+        scores,
+        witness: ComplexityWitness {
+            algorithm: "harmonic_centrality".to_owned(),
             complexity_claim: "O(|V| * (|V| + |E|))".to_owned(),
             nodes_touched,
             edges_scanned,
@@ -1355,9 +1443,9 @@ mod tests {
     use super::{
         CGSE_WITNESS_LEDGER_PATH, CGSE_WITNESS_POLICY_SPEC_PATH, CentralityScore,
         ComplexityWitness, betweenness_centrality, cgse_witness_schema_version,
-        closeness_centrality, connected_components, degree_centrality, is_matching,
-        is_maximal_matching, is_perfect_matching, max_flow_edmonds_karp, max_weight_matching,
-        maximal_matching, min_weight_matching, minimum_cut_edmonds_karp,
+        closeness_centrality, connected_components, degree_centrality, harmonic_centrality,
+        is_matching, is_maximal_matching, is_perfect_matching, max_flow_edmonds_karp,
+        max_weight_matching, maximal_matching, min_weight_matching, minimum_cut_edmonds_karp,
         number_connected_components, shortest_path_unweighted, shortest_path_weighted,
     };
     use fnx_classes::Graph;
@@ -2210,6 +2298,17 @@ mod tests {
             as_score_map(forward_closeness.scores),
             as_score_map(reverse_closeness.scores)
         );
+
+        let forward_harmonic = harmonic_centrality(&forward);
+        let forward_harmonic_replay = harmonic_centrality(&forward);
+        let reverse_harmonic = harmonic_centrality(&reverse);
+        let reverse_harmonic_replay = harmonic_centrality(&reverse);
+        assert_eq!(forward_harmonic.scores, forward_harmonic_replay.scores);
+        assert_eq!(reverse_harmonic.scores, reverse_harmonic_replay.scores);
+        assert_eq!(
+            as_score_map(forward_harmonic.scores),
+            as_score_map(reverse_harmonic.scores)
+        );
     }
 
     #[test]
@@ -2332,6 +2431,61 @@ mod tests {
         let mut singleton = Graph::strict();
         let _ = singleton.add_node("solo");
         let single_result = closeness_centrality(&singleton);
+        assert_eq!(single_result.scores.len(), 1);
+        assert_eq!(single_result.scores[0].node, "solo");
+        assert!((single_result.scores[0].score - 0.0).abs() <= 1e-12);
+    }
+
+    #[test]
+    fn harmonic_centrality_matches_expected_values_and_order() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("a", "c").expect("edge add should succeed");
+        graph.add_edge("b", "d").expect("edge add should succeed");
+
+        let result = harmonic_centrality(&graph);
+        let expected = [
+            ("a".to_owned(), 2.5_f64),
+            ("b".to_owned(), 2.5_f64),
+            ("c".to_owned(), 11.0_f64 / 6.0_f64),
+            ("d".to_owned(), 11.0_f64 / 6.0_f64),
+        ];
+        for (idx, (actual, (exp_node, exp_score))) in result.scores.iter().zip(expected).enumerate()
+        {
+            assert_eq!(actual.node, exp_node, "node order mismatch at index {idx}");
+            assert!(
+                (actual.score - exp_score).abs() <= 1e-12,
+                "score mismatch for node {}: expected {}, got {}",
+                actual.node,
+                exp_score,
+                actual.score
+            );
+        }
+    }
+
+    #[test]
+    fn harmonic_centrality_disconnected_graph_matches_networkx_behavior() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        let _ = graph.add_node("c");
+
+        let result = harmonic_centrality(&graph);
+        let expected = [("a", 1.0_f64), ("b", 1.0_f64), ("c", 0.0_f64)];
+        for (actual, (exp_node, exp_score)) in result.scores.iter().zip(expected) {
+            assert_eq!(actual.node, exp_node);
+            assert!((actual.score - exp_score).abs() <= 1e-12);
+        }
+    }
+
+    #[test]
+    fn harmonic_centrality_singleton_and_empty_are_zero_or_empty() {
+        let empty = Graph::strict();
+        let empty_result = harmonic_centrality(&empty);
+        assert!(empty_result.scores.is_empty());
+
+        let mut singleton = Graph::strict();
+        let _ = singleton.add_node("solo");
+        let single_result = harmonic_centrality(&singleton);
         assert_eq!(single_result.scores.len(), 1);
         assert_eq!(single_result.scores[0].node, "solo");
         assert!((single_result.scores[0].score - 0.0).abs() <= 1e-12);
@@ -2495,8 +2649,10 @@ mod tests {
 
         let degree = degree_centrality(&graph);
         let closeness = closeness_centrality(&graph);
+        let harmonic = harmonic_centrality(&graph);
         assert_eq!(degree.scores.len(), 5);
         assert_eq!(closeness.scores.len(), 5);
+        assert_eq!(harmonic.scores.len(), 5);
         assert!(
             degree.scores.iter().all(|entry| entry.score >= 0.0),
             "degree centrality must remain non-negative"
@@ -2504,6 +2660,10 @@ mod tests {
         assert!(
             closeness.scores.iter().all(|entry| entry.score >= 0.0),
             "closeness centrality must remain non-negative"
+        );
+        assert!(
+            harmonic.scores.iter().all(|entry| entry.score >= 0.0),
+            "harmonic centrality must remain non-negative"
         );
 
         let mut environment = BTreeMap::new();
@@ -2597,6 +2757,7 @@ mod tests {
 
             let degree = degree_centrality(&graph);
             let closeness = closeness_centrality(&graph);
+            let harmonic = harmonic_centrality(&graph);
             let degree_order = degree
                 .scores
                 .iter()
@@ -2607,14 +2768,23 @@ mod tests {
                 .iter()
                 .map(|entry| entry.node.as_str())
                 .collect::<Vec<&str>>();
+            let harmonic_order = harmonic
+                .scores
+                .iter()
+                .map(|entry| entry.node.as_str())
+                .collect::<Vec<&str>>();
             let ordered_refs = graph.nodes_ordered();
             prop_assert_eq!(
                 degree_order, ordered_refs.clone(),
                 "P2C005-DC-3 degree centrality order must match graph node order"
             );
             prop_assert_eq!(
-                closeness_order, ordered_refs,
+                closeness_order, ordered_refs.clone(),
                 "P2C005-DC-3 closeness centrality order must match graph node order"
+            );
+            prop_assert_eq!(
+                harmonic_order, ordered_refs,
+                "P2C005-DC-3 harmonic centrality order must match graph node order"
             );
 
             if let Some(path) = &left.path {
@@ -2852,6 +3022,24 @@ mod tests {
                 as_score_map(&forward_closeness.scores),
                 as_score_map(&reverse_closeness.scores),
                 "P2C005-INV-2 closeness-centrality scores must remain stable by node"
+            );
+
+            let forward_harmonic = harmonic_centrality(&forward);
+            let forward_harmonic_replay = harmonic_centrality(&forward);
+            let reverse_harmonic = harmonic_centrality(&reverse);
+            let reverse_harmonic_replay = harmonic_centrality(&reverse);
+            prop_assert_eq!(
+                &forward_harmonic.scores, &forward_harmonic_replay.scores,
+                "P2C005-INV-2 harmonic-centrality must be replay-stable for forward insertion"
+            );
+            prop_assert_eq!(
+                &reverse_harmonic.scores, &reverse_harmonic_replay.scores,
+                "P2C005-INV-2 harmonic-centrality must be replay-stable for reverse insertion"
+            );
+            prop_assert_eq!(
+                as_score_map(&forward_harmonic.scores),
+                as_score_map(&reverse_harmonic.scores),
+                "P2C005-INV-2 harmonic-centrality scores must remain stable by node"
             );
 
             let deterministic_seed = edges.iter().fold(7305_u64, |acc, (left_edge, right_edge)| {
