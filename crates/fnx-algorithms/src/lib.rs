@@ -4773,6 +4773,38 @@ mod tests {
     }
 
     #[test]
+    fn hits_centrality_path_graph_matches_legacy_networkx_oracle_values() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+
+        let result = hits_centrality(&graph);
+
+        let expected_hubs = [
+            ("a", 0.190_983_005_664_778_4_f64),
+            ("b", 0.309_016_994_335_221_6_f64),
+            ("c", 0.309_016_994_335_221_6_f64),
+            ("d", 0.190_983_005_664_778_4_f64),
+        ];
+        for (actual, (node, score)) in result.hubs.iter().zip(expected_hubs) {
+            assert_eq!(actual.node, node);
+            assert!((actual.score - score).abs() <= 1e-9);
+        }
+
+        let expected_authorities = [
+            ("a", 0.190_983_005_521_049_f64),
+            ("b", 0.309_016_994_478_951_f64),
+            ("c", 0.309_016_994_478_951_f64),
+            ("d", 0.190_983_005_521_049_f64),
+        ];
+        for (actual, (node, score)) in result.authorities.iter().zip(expected_authorities) {
+            assert_eq!(actual.node, node);
+            assert!((actual.score - score).abs() <= 1e-9);
+        }
+    }
+
+    #[test]
     fn hits_centrality_disconnected_graph_matches_expected_behavior() {
         let mut graph = Graph::strict();
         graph.add_edge("a", "b").expect("edge add should succeed");
@@ -4863,6 +4895,26 @@ mod tests {
     }
 
     #[test]
+    fn pagerank_path_graph_matches_legacy_networkx_oracle_values() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+
+        let result = pagerank(&graph);
+        let expected = [
+            ("a", 0.175_438_397_722_515_35_f64),
+            ("b", 0.324_561_602_277_484_65_f64),
+            ("c", 0.324_561_602_277_484_65_f64),
+            ("d", 0.175_438_397_722_515_35_f64),
+        ];
+        for (actual, (node, score)) in result.scores.iter().zip(expected) {
+            assert_eq!(actual.node, node);
+            assert!((actual.score - score).abs() <= 1e-9);
+        }
+    }
+
+    #[test]
     fn pagerank_empty_and_singleton_are_empty_or_one() {
         let empty = Graph::strict();
         let empty_result = pagerank(&empty);
@@ -4923,6 +4975,26 @@ mod tests {
         }
         for pair in leaves.windows(2) {
             assert!((pair[0] - pair[1]).abs() <= 1e-12);
+        }
+    }
+
+    #[test]
+    fn eigenvector_centrality_path_graph_matches_legacy_networkx_oracle_values() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+
+        let result = eigenvector_centrality(&graph);
+        let expected = [
+            ("a", 0.371_748_234_271_200_85_f64),
+            ("b", 0.601_500_831_517_500_3_f64),
+            ("c", 0.601_500_831_517_500_4_f64),
+            ("d", 0.371_748_234_271_200_8_f64),
+        ];
+        for (actual, (node, score)) in result.scores.iter().zip(expected) {
+            assert_eq!(actual.node, node);
+            assert!((actual.score - score).abs() <= 1e-9);
         }
     }
 

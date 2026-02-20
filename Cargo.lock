@@ -61,6 +61,7 @@ dependencies = [
  "getrandom 0.4.1",
  "hmac",
  "libc",
+ "memchr",
  "nix",
  "parking_lot",
  "pin-project",
