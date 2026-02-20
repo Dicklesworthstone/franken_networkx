@@ -212,6 +212,44 @@ pub struct MinimumCutResult {
     pub witness: ComplexityWitness,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EdgeCutResult {
+    pub value: f64,
+    pub cut_edges: Vec<(String, String)>,
+    pub source_partition: Vec<String>,
+    pub sink_partition: Vec<String>,
+    pub witness: ComplexityWitness,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EdgeConnectivityResult {
+    pub value: f64,
+    pub witness: ComplexityWitness,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GlobalEdgeCutResult {
+    pub value: f64,
+    pub source: String,
+    pub sink: String,
+    pub cut_edges: Vec<(String, String)>,
+    pub source_partition: Vec<String>,
+    pub sink_partition: Vec<String>,
+    pub witness: ComplexityWitness,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ArticulationPointsResult {
+    pub nodes: Vec<String>,
+    pub witness: ComplexityWitness,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BridgesResult {
+    pub edges: Vec<(String, String)>,
+    pub witness: ComplexityWitness,
+}
+
 #[derive(Debug, Clone)]
 struct FlowComputation {
     value: f64,
@@ -1737,6 +1775,378 @@ pub fn minimum_cut_edmonds_karp(
     }
 }
 
+#[must_use]
+pub fn minimum_st_edge_cut_edmonds_karp(
+    graph: &Graph,
+    source: &str,
+    sink: &str,
+    capacity_attr: &str,
+) -> EdgeCutResult {
+    let cut = minimum_cut_edmonds_karp(graph, source, sink, capacity_attr);
+    let source_partition = cut.source_partition;
+    let sink_partition = cut.sink_partition;
+
+    let source_set = source_partition
+        .iter()
+        .cloned()
+        .collect::<HashSet<String>>();
+    let sink_set = sink_partition.iter().cloned().collect::<HashSet<String>>();
+
+    let mut cut_edges = Vec::<(String, String)>::new();
+    let mut cut_edges_scanned = 0usize;
+    for (left, right) in undirected_edges_in_iteration_order(graph) {
+        cut_edges_scanned += 1;
+        let left_in_source = source_set.contains(&left);
+        let right_in_source = source_set.contains(&right);
+        let left_in_sink = sink_set.contains(&left);
+        let right_in_sink = sink_set.contains(&right);
+        let crosses_partition =
+            (left_in_source && right_in_sink) || (right_in_source && left_in_sink);
+        if !crosses_partition {
+            continue;
+        }
+        let (canonical_left, canonical_right) = canonical_undirected_edge(&left, &right);
+        if edge_capacity_or_default(graph, &canonical_left, &canonical_right, capacity_attr) > 0.0 {
+            cut_edges.push((canonical_left, canonical_right));
+        }
+    }
+    cut_edges.sort_unstable();
+    cut_edges.dedup();
+
+    EdgeCutResult {
+        value: cut.value,
+        cut_edges,
+        source_partition,
+        sink_partition,
+        witness: ComplexityWitness {
+            algorithm: "edmonds_karp_minimum_st_edge_cut".to_owned(),
+            complexity_claim: "O(|V| * |E|^2)".to_owned(),
+            nodes_touched: cut.witness.nodes_touched,
+            edges_scanned: cut.witness.edges_scanned + cut_edges_scanned,
+            queue_peak: cut.witness.queue_peak,
+        },
+    }
+}
+
+#[must_use]
+pub fn edge_connectivity_edmonds_karp(
+    graph: &Graph,
+    source: &str,
+    sink: &str,
+    capacity_attr: &str,
+) -> EdgeConnectivityResult {
+    let cut = minimum_cut_edmonds_karp(graph, source, sink, capacity_attr);
+    EdgeConnectivityResult {
+        value: cut.value,
+        witness: ComplexityWitness {
+            algorithm: "edmonds_karp_edge_connectivity".to_owned(),
+            complexity_claim: "O(|V| * |E|^2)".to_owned(),
+            nodes_touched: cut.witness.nodes_touched,
+            edges_scanned: cut.witness.edges_scanned,
+            queue_peak: cut.witness.queue_peak,
+        },
+    }
+}
+
+#[must_use]
+pub fn global_edge_connectivity_edmonds_karp(
+    graph: &Graph,
+    capacity_attr: &str,
+) -> EdgeConnectivityResult {
+    let mut nodes = graph.nodes_ordered();
+    nodes.sort_unstable();
+    if nodes.len() < 2 {
+        return EdgeConnectivityResult {
+            value: 0.0,
+            witness: ComplexityWitness {
+                algorithm: "edmonds_karp_global_edge_connectivity".to_owned(),
+                complexity_claim: "O(|V|^3 * |E|^2)".to_owned(),
+                nodes_touched: graph.node_count(),
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    let mut best_value = f64::INFINITY;
+    let mut nodes_touched = 0usize;
+    let mut edges_scanned = 0usize;
+    let mut queue_peak = 0usize;
+
+    'pairs: for (left_index, left) in nodes.iter().enumerate() {
+        for right in nodes.iter().skip(left_index + 1) {
+            let cut = minimum_cut_edmonds_karp(graph, left, right, capacity_attr);
+            best_value = best_value.min(cut.value);
+            nodes_touched += cut.witness.nodes_touched;
+            edges_scanned += cut.witness.edges_scanned;
+            queue_peak = queue_peak.max(cut.witness.queue_peak);
+            if best_value <= 0.0 {
+                break 'pairs;
+            }
+        }
+    }
+
+    EdgeConnectivityResult {
+        value: if best_value.is_finite() {
+            best_value
+        } else {
+            0.0
+        },
+        witness: ComplexityWitness {
+            algorithm: "edmonds_karp_global_edge_connectivity".to_owned(),
+            complexity_claim: "O(|V|^3 * |E|^2)".to_owned(),
+            nodes_touched,
+            edges_scanned,
+            queue_peak,
+        },
+    }
+}
+
+#[must_use]
+pub fn global_minimum_edge_cut_edmonds_karp(
+    graph: &Graph,
+    capacity_attr: &str,
+) -> GlobalEdgeCutResult {
+    let mut nodes = graph.nodes_ordered();
+    nodes.sort_unstable();
+    if nodes.len() < 2 {
+        return GlobalEdgeCutResult {
+            value: 0.0,
+            source: String::new(),
+            sink: String::new(),
+            cut_edges: Vec::new(),
+            source_partition: Vec::new(),
+            sink_partition: Vec::new(),
+            witness: ComplexityWitness {
+                algorithm: "edmonds_karp_global_minimum_edge_cut".to_owned(),
+                complexity_claim: "O(|V|^3 * |E|^2)".to_owned(),
+                nodes_touched: graph.node_count(),
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    let mut best_pair = None::<(String, String)>;
+    let mut best_cut = None::<EdgeCutResult>;
+    let mut nodes_touched = 0usize;
+    let mut edges_scanned = 0usize;
+    let mut queue_peak = 0usize;
+
+    'pairs: for (left_index, left) in nodes.iter().enumerate() {
+        for right in nodes.iter().skip(left_index + 1) {
+            let cut = minimum_st_edge_cut_edmonds_karp(graph, left, right, capacity_attr);
+            nodes_touched += cut.witness.nodes_touched;
+            edges_scanned += cut.witness.edges_scanned;
+            queue_peak = queue_peak.max(cut.witness.queue_peak);
+
+            let candidate_pair = ((*left).to_owned(), (*right).to_owned());
+            let should_replace = match (&best_pair, &best_cut) {
+                (None, None) => true,
+                (Some(current_pair), Some(current_cut)) => {
+                    if cut.value + 1e-12 < current_cut.value {
+                        true
+                    } else {
+                        (cut.value - current_cut.value).abs() <= 1e-12
+                            && candidate_pair < *current_pair
+                    }
+                }
+                _ => true,
+            };
+
+            if should_replace {
+                best_pair = Some(candidate_pair);
+                best_cut = Some(cut);
+            }
+
+            if let Some(current_cut) = &best_cut
+                && current_cut.value <= 0.0
+            {
+                break 'pairs;
+            }
+        }
+    }
+
+    let (source, sink) = best_pair.unwrap_or_else(|| (String::new(), String::new()));
+    let cut = best_cut.unwrap_or(EdgeCutResult {
+        value: 0.0,
+        cut_edges: Vec::new(),
+        source_partition: Vec::new(),
+        sink_partition: Vec::new(),
+        witness: ComplexityWitness {
+            algorithm: "edmonds_karp_minimum_st_edge_cut".to_owned(),
+            complexity_claim: "O(|V| * |E|^2)".to_owned(),
+            nodes_touched: 0,
+            edges_scanned: 0,
+            queue_peak: 0,
+        },
+    });
+
+    GlobalEdgeCutResult {
+        value: cut.value,
+        source,
+        sink,
+        cut_edges: cut.cut_edges,
+        source_partition: cut.source_partition,
+        sink_partition: cut.sink_partition,
+        witness: ComplexityWitness {
+            algorithm: "edmonds_karp_global_minimum_edge_cut".to_owned(),
+            complexity_claim: "O(|V|^3 * |E|^2)".to_owned(),
+            nodes_touched,
+            edges_scanned,
+            queue_peak,
+        },
+    }
+}
+
+#[must_use]
+pub fn articulation_points(graph: &Graph) -> ArticulationPointsResult {
+    let analysis = dfs_connectivity_analysis(graph);
+    ArticulationPointsResult {
+        nodes: analysis.articulation_points,
+        witness: ComplexityWitness {
+            algorithm: "tarjan_articulation_points".to_owned(),
+            complexity_claim: "O(|V| + |E|)".to_owned(),
+            nodes_touched: analysis.nodes_touched,
+            edges_scanned: analysis.edges_scanned,
+            queue_peak: 0,
+        },
+    }
+}
+
+#[must_use]
+pub fn bridges(graph: &Graph) -> BridgesResult {
+    let analysis = dfs_connectivity_analysis(graph);
+    BridgesResult {
+        edges: analysis.bridges,
+        witness: ComplexityWitness {
+            algorithm: "tarjan_bridges".to_owned(),
+            complexity_claim: "O(|V| + |E|)".to_owned(),
+            nodes_touched: analysis.nodes_touched,
+            edges_scanned: analysis.edges_scanned,
+            queue_peak: 0,
+        },
+    }
+}
+
+#[derive(Debug, Default)]
+struct DfsConnectivityAnalysis {
+    articulation_points: Vec<String>,
+    bridges: Vec<(String, String)>,
+    nodes_touched: usize,
+    edges_scanned: usize,
+}
+
+fn dfs_connectivity_analysis(graph: &Graph) -> DfsConnectivityAnalysis {
+    let mut analysis = DfsConnectivityAnalysis::default();
+    let mut ordered_nodes = graph.nodes_ordered();
+    ordered_nodes.sort_unstable();
+
+    let mut discovery = HashMap::<String, usize>::new();
+    let mut low = HashMap::<String, usize>::new();
+    let mut parent = HashMap::<String, Option<String>>::new();
+    let mut is_articulation = HashSet::<String>::new();
+    let mut bridges = HashSet::<(String, String)>::new();
+    let mut time = 0usize;
+
+    for node in &ordered_nodes {
+        if discovery.contains_key(*node) {
+            continue;
+        }
+        parent.insert((*node).to_owned(), None);
+        dfs_connectivity_visit(
+            graph,
+            node,
+            &mut time,
+            &mut discovery,
+            &mut low,
+            &mut parent,
+            &mut is_articulation,
+            &mut bridges,
+            &mut analysis.nodes_touched,
+            &mut analysis.edges_scanned,
+        );
+    }
+
+    let mut articulation_points = is_articulation.into_iter().collect::<Vec<String>>();
+    articulation_points.sort_unstable();
+    let mut bridge_edges = bridges.into_iter().collect::<Vec<(String, String)>>();
+    bridge_edges.sort_unstable();
+
+    analysis.articulation_points = articulation_points;
+    analysis.bridges = bridge_edges;
+    analysis
+}
+
+#[allow(clippy::too_many_arguments)]
+fn dfs_connectivity_visit(
+    graph: &Graph,
+    current: &str,
+    time: &mut usize,
+    discovery: &mut HashMap<String, usize>,
+    low: &mut HashMap<String, usize>,
+    parent: &mut HashMap<String, Option<String>>,
+    is_articulation: &mut HashSet<String>,
+    bridges: &mut HashSet<(String, String)>,
+    nodes_touched: &mut usize,
+    edges_scanned: &mut usize,
+) {
+    *nodes_touched += 1;
+    *time += 1;
+    discovery.insert(current.to_owned(), *time);
+    low.insert(current.to_owned(), *time);
+
+    let mut child_count = 0usize;
+    let current_parent = parent.get(current).cloned().flatten();
+    let mut neighbors = graph
+        .neighbors_iter(current)
+        .map(|iter| iter.map(str::to_owned).collect::<Vec<String>>())
+        .unwrap_or_default();
+    neighbors.sort_unstable();
+
+    for neighbor in neighbors {
+        *edges_scanned += 1;
+        if !discovery.contains_key(&neighbor) {
+            child_count += 1;
+            parent.insert(neighbor.clone(), Some(current.to_owned()));
+            dfs_connectivity_visit(
+                graph,
+                &neighbor,
+                time,
+                discovery,
+                low,
+                parent,
+                is_articulation,
+                bridges,
+                nodes_touched,
+                edges_scanned,
+            );
+
+            let low_neighbor = *low.get(&neighbor).unwrap_or(&usize::MAX);
+            let low_current = *low.get(current).unwrap_or(&usize::MAX);
+            low.insert(current.to_owned(), low_current.min(low_neighbor));
+
+            if current_parent.is_none() && child_count > 1 {
+                is_articulation.insert(current.to_owned());
+            }
+            if current_parent.is_some() {
+                let disc_current = *discovery.get(current).unwrap_or(&usize::MAX);
+                if low_neighbor >= disc_current {
+                    is_articulation.insert(current.to_owned());
+                }
+            }
+            let disc_current = *discovery.get(current).unwrap_or(&usize::MAX);
+            if low_neighbor > disc_current {
+                bridges.insert(canonical_undirected_edge(current, &neighbor));
+            }
+        } else if current_parent.as_deref() != Some(neighbor.as_str()) {
+            let disc_neighbor = *discovery.get(&neighbor).unwrap_or(&usize::MAX);
+            let low_current = *low.get(current).unwrap_or(&usize::MAX);
+            low.insert(current.to_owned(), low_current.min(disc_neighbor));
+        }
+    }
+}
+
 fn compute_max_flow_residual(
     graph: &Graph,
     source: &str,
@@ -2135,12 +2545,15 @@ fn stable_hash_hex(input: &[u8]) -> String {
 mod tests {
     use super::{
         CGSE_WITNESS_LEDGER_PATH, CGSE_WITNESS_POLICY_SPEC_PATH, CentralityScore,
-        ComplexityWitness, betweenness_centrality, cgse_witness_schema_version,
-        closeness_centrality, connected_components, degree_centrality, edge_betweenness_centrality,
-        eigenvector_centrality, harmonic_centrality, hits_centrality, is_matching,
-        is_maximal_matching, is_perfect_matching, katz_centrality, max_flow_edmonds_karp,
-        max_weight_matching, maximal_matching, min_weight_matching, minimum_cut_edmonds_karp,
-        number_connected_components, pagerank, shortest_path_unweighted, shortest_path_weighted,
+        ComplexityWitness, articulation_points, betweenness_centrality, bridges,
+        cgse_witness_schema_version, closeness_centrality, connected_components, degree_centrality,
+        edge_betweenness_centrality, edge_connectivity_edmonds_karp, eigenvector_centrality,
+        global_edge_connectivity_edmonds_karp, global_minimum_edge_cut_edmonds_karp,
+        harmonic_centrality, hits_centrality, is_matching, is_maximal_matching,
+        is_perfect_matching, katz_centrality, max_flow_edmonds_karp, max_weight_matching,
+        maximal_matching, min_weight_matching, minimum_cut_edmonds_karp,
+        minimum_st_edge_cut_edmonds_karp, number_connected_components, pagerank,
+        shortest_path_unweighted, shortest_path_weighted,
     };
     use fnx_classes::Graph;
     use fnx_runtime::{
@@ -2514,6 +2927,300 @@ mod tests {
         assert!((result.value - 0.0).abs() <= 1e-12);
         assert!(result.source_partition.is_empty());
         assert!(result.sink_partition.is_empty());
+    }
+
+    #[test]
+    fn minimum_st_edge_cut_edmonds_karp_matches_expected_edges() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("s", "a", [("capacity".to_owned(), "3".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("s", "b", [("capacity".to_owned(), "2".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "b", [("capacity".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "t", [("capacity".to_owned(), "2".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("b", "t", [("capacity".to_owned(), "3".to_owned())].into())
+            .expect("edge add should succeed");
+
+        let result = minimum_st_edge_cut_edmonds_karp(&graph, "s", "t", "capacity");
+        assert!((result.value - 5.0).abs() <= 1e-12);
+        assert_eq!(
+            result.cut_edges,
+            vec![
+                ("a".to_owned(), "s".to_owned()),
+                ("b".to_owned(), "s".to_owned())
+            ]
+        );
+        assert_eq!(result.source_partition, vec!["s".to_owned()]);
+        assert_eq!(
+            result.sink_partition,
+            vec!["a".to_owned(), "b".to_owned(), "t".to_owned()]
+        );
+        assert_eq!(result.witness.algorithm, "edmonds_karp_minimum_st_edge_cut");
+    }
+
+    #[test]
+    fn minimum_st_edge_cut_edmonds_karp_is_replay_stable() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("s", "a", [("capacity".to_owned(), "4".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("s", "b", [("capacity".to_owned(), "2".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "b", [("capacity".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "t", [("capacity".to_owned(), "2".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("b", "t", [("capacity".to_owned(), "3".to_owned())].into())
+            .expect("edge add should succeed");
+
+        let left = minimum_st_edge_cut_edmonds_karp(&graph, "s", "t", "capacity");
+        let right = minimum_st_edge_cut_edmonds_karp(&graph, "s", "t", "capacity");
+        assert_eq!(left, right);
+    }
+
+    #[test]
+    fn edge_connectivity_edmonds_karp_matches_minimum_cut_value() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("s", "a", [("capacity".to_owned(), "3".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("s", "b", [("capacity".to_owned(), "2".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "b", [("capacity".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "t", [("capacity".to_owned(), "2".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("b", "t", [("capacity".to_owned(), "3".to_owned())].into())
+            .expect("edge add should succeed");
+
+        let cut = minimum_cut_edmonds_karp(&graph, "s", "t", "capacity");
+        let connectivity = edge_connectivity_edmonds_karp(&graph, "s", "t", "capacity");
+        assert!((connectivity.value - cut.value).abs() <= 1e-12);
+        assert_eq!(
+            connectivity.witness.algorithm,
+            "edmonds_karp_edge_connectivity"
+        );
+    }
+
+    #[test]
+    fn edge_connectivity_edmonds_karp_returns_zero_for_missing_nodes() {
+        let mut graph = Graph::strict();
+        let _ = graph.add_node("only");
+        let result = edge_connectivity_edmonds_karp(&graph, "missing", "only", "capacity");
+        assert!((result.value - 0.0).abs() <= 1e-12);
+    }
+
+    #[test]
+    fn global_edge_connectivity_edmonds_karp_detects_path_bottleneck() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+
+        let result = global_edge_connectivity_edmonds_karp(&graph, "capacity");
+        assert!((result.value - 1.0).abs() <= 1e-12);
+        assert_eq!(
+            result.witness.algorithm,
+            "edmonds_karp_global_edge_connectivity"
+        );
+    }
+
+    #[test]
+    fn global_edge_connectivity_edmonds_karp_detects_triangle_redundancy() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "a").expect("edge add should succeed");
+
+        let result = global_edge_connectivity_edmonds_karp(&graph, "capacity");
+        assert!((result.value - 2.0).abs() <= 1e-12);
+    }
+
+    #[test]
+    fn global_edge_connectivity_edmonds_karp_disconnected_graph_is_zero() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+
+        let result = global_edge_connectivity_edmonds_karp(&graph, "capacity");
+        assert!((result.value - 0.0).abs() <= 1e-12);
+    }
+
+    #[test]
+    fn global_minimum_edge_cut_edmonds_karp_path_graph_returns_first_min_pair() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+
+        let result = global_minimum_edge_cut_edmonds_karp(&graph, "capacity");
+        assert!((result.value - 1.0).abs() <= 1e-12);
+        assert_eq!(result.source, "a");
+        assert_eq!(result.sink, "b");
+        assert_eq!(result.cut_edges, vec![("a".to_owned(), "b".to_owned())]);
+        assert_eq!(
+            result.witness.algorithm,
+            "edmonds_karp_global_minimum_edge_cut"
+        );
+    }
+
+    #[test]
+    fn global_minimum_edge_cut_edmonds_karp_triangle_is_two() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "a").expect("edge add should succeed");
+
+        let result = global_minimum_edge_cut_edmonds_karp(&graph, "capacity");
+        assert!((result.value - 2.0).abs() <= 1e-12);
+        assert_eq!(result.source, "a");
+        assert_eq!(result.sink, "b");
+        assert_eq!(
+            result.cut_edges,
+            vec![
+                ("a".to_owned(), "b".to_owned()),
+                ("a".to_owned(), "c".to_owned())
+            ]
+        );
+    }
+
+    #[test]
+    fn global_minimum_edge_cut_edmonds_karp_disconnected_graph_is_zero() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+
+        let result = global_minimum_edge_cut_edmonds_karp(&graph, "capacity");
+        assert!((result.value - 0.0).abs() <= 1e-12);
+        assert_eq!(result.source, "a");
+        assert_eq!(result.sink, "c");
+        assert!(result.cut_edges.is_empty());
+    }
+
+    #[test]
+    fn global_minimum_edge_cut_edmonds_karp_is_replay_stable() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("a", "c").expect("edge add should succeed");
+        graph.add_edge("b", "d").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+        graph.add_edge("d", "e").expect("edge add should succeed");
+
+        let left = global_minimum_edge_cut_edmonds_karp(&graph, "capacity");
+        let right = global_minimum_edge_cut_edmonds_karp(&graph, "capacity");
+        assert_eq!(left, right);
+    }
+
+    #[test]
+    fn articulation_points_path_graph_matches_expected() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+
+        let result = articulation_points(&graph);
+        assert_eq!(result.nodes, vec!["b".to_owned(), "c".to_owned()]);
+        assert_eq!(result.witness.algorithm, "tarjan_articulation_points");
+    }
+
+    #[test]
+    fn articulation_points_cycle_graph_is_empty() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+        graph.add_edge("d", "a").expect("edge add should succeed");
+
+        let result = articulation_points(&graph);
+        assert!(result.nodes.is_empty());
+    }
+
+    #[test]
+    fn articulation_points_is_replay_stable_under_insertion_order_noise() {
+        let mut forward = Graph::strict();
+        for (left, right) in [("a", "b"), ("b", "c"), ("c", "d"), ("d", "e"), ("c", "f")] {
+            forward
+                .add_edge(left, right)
+                .expect("forward edge insertion should succeed");
+        }
+
+        let mut reverse = Graph::strict();
+        for (left, right) in [("c", "f"), ("d", "e"), ("c", "d"), ("b", "c"), ("a", "b")] {
+            reverse
+                .add_edge(left, right)
+                .expect("reverse edge insertion should succeed");
+        }
+
+        let left = articulation_points(&forward);
+        let right = articulation_points(&reverse);
+        assert_eq!(left.nodes, right.nodes);
+    }
+
+    #[test]
+    fn bridges_path_graph_matches_expected() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+
+        let result = bridges(&graph);
+        assert_eq!(
+            result.edges,
+            vec![
+                ("a".to_owned(), "b".to_owned()),
+                ("b".to_owned(), "c".to_owned()),
+                ("c".to_owned(), "d".to_owned())
+            ]
+        );
+        assert_eq!(result.witness.algorithm, "tarjan_bridges");
+    }
+
+    #[test]
+    fn bridges_cycle_graph_is_empty() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+        graph.add_edge("d", "a").expect("edge add should succeed");
+
+        let result = bridges(&graph);
+        assert!(result.edges.is_empty());
+    }
+
+    #[test]
+    fn bridges_is_replay_stable_under_insertion_order_noise() {
+        let mut forward = Graph::strict();
+        for (left, right) in [("a", "b"), ("b", "c"), ("c", "d"), ("d", "e"), ("c", "f")] {
+            forward
+                .add_edge(left, right)
+                .expect("forward edge insertion should succeed");
+        }
+
+        let mut reverse = Graph::strict();
+        for (left, right) in [("c", "f"), ("d", "e"), ("c", "d"), ("b", "c"), ("a", "b")] {
+            reverse
+                .add_edge(left, right)
+                .expect("reverse edge insertion should succeed");
+        }
+
+        let left = bridges(&forward);
+        let right = bridges(&reverse);
+        assert_eq!(left.edges, right.edges);
     }
 
     #[test]
@@ -3900,6 +4607,12 @@ mod tests {
         let edge_betweenness = edge_betweenness_centrality(&graph);
         let pagerank_result = pagerank(&graph);
         let eigenvector_result = eigenvector_centrality(&graph);
+        let st_edge_cut = minimum_st_edge_cut_edmonds_karp(&graph, "a", "e", "capacity");
+        let pair_edge_connectivity = edge_connectivity_edmonds_karp(&graph, "a", "e", "capacity");
+        let global_edge_connectivity = global_edge_connectivity_edmonds_karp(&graph, "capacity");
+        let global_min_edge_cut = global_minimum_edge_cut_edmonds_karp(&graph, "capacity");
+        let articulation = articulation_points(&graph);
+        let bridge_result = bridges(&graph);
         assert_eq!(degree.scores.len(), 5);
         assert_eq!(closeness.scores.len(), 5);
         assert_eq!(harmonic.scores.len(), 5);
@@ -3909,6 +4622,23 @@ mod tests {
         assert_eq!(edge_betweenness.scores.len(), 5);
         assert_eq!(pagerank_result.scores.len(), 5);
         assert_eq!(eigenvector_result.scores.len(), 5);
+        assert!((st_edge_cut.value - 1.0).abs() <= 1e-12);
+        assert_eq!(
+            st_edge_cut.cut_edges,
+            vec![("d".to_owned(), "e".to_owned())]
+        );
+        assert!((pair_edge_connectivity.value - 1.0).abs() <= 1e-12);
+        assert!((global_edge_connectivity.value - 1.0).abs() <= 1e-12);
+        assert!(global_edge_connectivity.value <= pair_edge_connectivity.value);
+        assert!((global_min_edge_cut.value - 1.0).abs() <= 1e-12);
+        assert_eq!(global_min_edge_cut.source, "a");
+        assert_eq!(global_min_edge_cut.sink, "e");
+        assert_eq!(
+            global_min_edge_cut.cut_edges,
+            vec![("d".to_owned(), "e".to_owned())]
+        );
+        assert_eq!(articulation.nodes, vec!["d".to_owned()]);
+        assert_eq!(bridge_result.edges, vec![("d".to_owned(), "e".to_owned())]);
         assert!(
             degree.scores.iter().all(|entry| entry.score >= 0.0),
             "degree centrality must remain non-negative"
@@ -4158,6 +4888,99 @@ mod tests {
                 eigenvector_order, graph.nodes_ordered(),
                 "P2C005-DC-3 eigenvector centrality order must match graph node order"
             );
+
+            let pair_connectivity_left =
+                edge_connectivity_edmonds_karp(&graph, &source, &target, "capacity");
+            let pair_connectivity_right =
+                edge_connectivity_edmonds_karp(&graph, &source, &target, "capacity");
+            prop_assert!(
+                (pair_connectivity_left.value - pair_connectivity_right.value).abs() <= 1e-12,
+                "P2C005-INV-1 pair edge connectivity must be replay-stable"
+            );
+            prop_assert_eq!(
+                &pair_connectivity_left.witness, &pair_connectivity_right.witness,
+                "P2C005-INV-1 pair edge connectivity witness must be replay-stable"
+            );
+
+            let global_connectivity_left =
+                global_edge_connectivity_edmonds_karp(&graph, "capacity");
+            let global_connectivity_right =
+                global_edge_connectivity_edmonds_karp(&graph, "capacity");
+            prop_assert!(
+                (global_connectivity_left.value - global_connectivity_right.value).abs() <= 1e-12,
+                "P2C005-INV-1 global edge connectivity must be replay-stable"
+            );
+            prop_assert_eq!(
+                &global_connectivity_left.witness, &global_connectivity_right.witness,
+                "P2C005-INV-1 global edge connectivity witness must be replay-stable"
+            );
+            prop_assert!(
+                global_connectivity_left.value <= pair_connectivity_left.value + 1e-12,
+                "P2C005-INV-1 global edge connectivity should not exceed pair connectivity"
+            );
+
+            let st_edge_cut_left = minimum_st_edge_cut_edmonds_karp(&graph, &source, &target, "capacity");
+            let st_edge_cut_right = minimum_st_edge_cut_edmonds_karp(&graph, &source, &target, "capacity");
+            prop_assert_eq!(
+                &st_edge_cut_left.cut_edges, &st_edge_cut_right.cut_edges,
+                "P2C005-INV-1 minimum s-t edge cut edges must be replay-stable"
+            );
+            prop_assert!(
+                (st_edge_cut_left.value - st_edge_cut_right.value).abs() <= 1e-12,
+                "P2C005-INV-1 minimum s-t edge cut value must be replay-stable"
+            );
+            let mut sorted_cut_edges = st_edge_cut_left.cut_edges.clone();
+            sorted_cut_edges.sort();
+            prop_assert_eq!(
+                &st_edge_cut_left.cut_edges, &sorted_cut_edges,
+                "P2C005-INV-1 minimum s-t edge cut edge order must be canonical"
+            );
+
+            let global_min_edge_cut_left = global_minimum_edge_cut_edmonds_karp(&graph, "capacity");
+            let global_min_edge_cut_right = global_minimum_edge_cut_edmonds_karp(&graph, "capacity");
+            prop_assert_eq!(
+                &global_min_edge_cut_left, &global_min_edge_cut_right,
+                "P2C005-INV-1 global minimum edge cut must be replay-stable"
+            );
+            prop_assert!(
+                global_min_edge_cut_left.value <= st_edge_cut_left.value + 1e-12,
+                "P2C005-INV-1 global minimum edge cut should not exceed selected s-t cut"
+            );
+
+            let articulation_left = articulation_points(&graph);
+            let articulation_right = articulation_points(&graph);
+            prop_assert_eq!(
+                &articulation_left.nodes, &articulation_right.nodes,
+                "P2C005-INV-1 articulation points must be replay-stable"
+            );
+            let mut sorted_articulation = articulation_left.nodes.clone();
+            sorted_articulation.sort();
+            prop_assert_eq!(
+                &articulation_left.nodes, &sorted_articulation,
+                "P2C005-INV-1 articulation point order must be canonical"
+            );
+
+            let bridges_left = bridges(&graph);
+            let bridges_right = bridges(&graph);
+            prop_assert_eq!(
+                &bridges_left.edges, &bridges_right.edges,
+                "P2C005-INV-1 bridges must be replay-stable"
+            );
+            let mut sorted_bridges = bridges_left.edges.clone();
+            sorted_bridges.sort();
+            prop_assert_eq!(
+                &bridges_left.edges, &sorted_bridges,
+                "P2C005-INV-1 bridge edge order must be canonical"
+            );
+            let canonical_edge_set = canonical_edge_pairs(&graph)
+                .into_iter()
+                .collect::<BTreeSet<(String, String)>>();
+            for edge in &bridges_left.edges {
+                prop_assert!(
+                    canonical_edge_set.contains(edge),
+                    "P2C005-INV-1 every bridge must exist in canonical graph edge set"
+                );
+            }
 
             if let Some(path) = &left.path {
                 prop_assert!(
@@ -4532,6 +5355,143 @@ mod tests {
                 as_score_map(&forward_eigenvector.scores),
                 as_score_map(&reverse_eigenvector.scores),
                 "P2C005-INV-2 eigenvector centrality scores must remain stable by node"
+            );
+
+            let forward_pair_connectivity =
+                edge_connectivity_edmonds_karp(&forward, &source, &target, "capacity");
+            let forward_pair_connectivity_replay =
+                edge_connectivity_edmonds_karp(&forward, &source, &target, "capacity");
+            let reverse_pair_connectivity =
+                edge_connectivity_edmonds_karp(&reverse, &source, &target, "capacity");
+            let reverse_pair_connectivity_replay =
+                edge_connectivity_edmonds_karp(&reverse, &source, &target, "capacity");
+            prop_assert!(
+                (forward_pair_connectivity.value - forward_pair_connectivity_replay.value).abs()
+                    <= 1e-12,
+                "P2C005-INV-2 pair edge connectivity must be replay-stable for forward insertion"
+            );
+            prop_assert!(
+                (reverse_pair_connectivity.value - reverse_pair_connectivity_replay.value).abs()
+                    <= 1e-12,
+                "P2C005-INV-2 pair edge connectivity must be replay-stable for reverse insertion"
+            );
+            prop_assert!(
+                (forward_pair_connectivity.value - reverse_pair_connectivity.value).abs() <= 1e-12,
+                "P2C005-INV-2 pair edge connectivity values must remain stable across insertion perturbation"
+            );
+
+            let forward_global_connectivity =
+                global_edge_connectivity_edmonds_karp(&forward, "capacity");
+            let forward_global_connectivity_replay =
+                global_edge_connectivity_edmonds_karp(&forward, "capacity");
+            let reverse_global_connectivity =
+                global_edge_connectivity_edmonds_karp(&reverse, "capacity");
+            let reverse_global_connectivity_replay =
+                global_edge_connectivity_edmonds_karp(&reverse, "capacity");
+            prop_assert!(
+                (forward_global_connectivity.value - forward_global_connectivity_replay.value).abs()
+                    <= 1e-12,
+                "P2C005-INV-2 global edge connectivity must be replay-stable for forward insertion"
+            );
+            prop_assert!(
+                (reverse_global_connectivity.value - reverse_global_connectivity_replay.value).abs()
+                    <= 1e-12,
+                "P2C005-INV-2 global edge connectivity must be replay-stable for reverse insertion"
+            );
+            prop_assert!(
+                (forward_global_connectivity.value - reverse_global_connectivity.value).abs()
+                    <= 1e-12,
+                "P2C005-INV-2 global edge connectivity values must remain stable across insertion perturbation"
+            );
+
+            let forward_st_cut =
+                minimum_st_edge_cut_edmonds_karp(&forward, &source, &target, "capacity");
+            let forward_st_cut_replay =
+                minimum_st_edge_cut_edmonds_karp(&forward, &source, &target, "capacity");
+            let reverse_st_cut =
+                minimum_st_edge_cut_edmonds_karp(&reverse, &source, &target, "capacity");
+            let reverse_st_cut_replay =
+                minimum_st_edge_cut_edmonds_karp(&reverse, &source, &target, "capacity");
+            prop_assert_eq!(
+                &forward_st_cut.cut_edges, &forward_st_cut_replay.cut_edges,
+                "P2C005-INV-2 minimum s-t edge cut must be replay-stable for forward insertion"
+            );
+            prop_assert_eq!(
+                &reverse_st_cut.cut_edges, &reverse_st_cut_replay.cut_edges,
+                "P2C005-INV-2 minimum s-t edge cut must be replay-stable for reverse insertion"
+            );
+            prop_assert_eq!(
+                &forward_st_cut.cut_edges, &reverse_st_cut.cut_edges,
+                "P2C005-INV-2 minimum s-t edge cut edge sets must remain stable across insertion perturbation"
+            );
+            prop_assert!(
+                (forward_st_cut.value - reverse_st_cut.value).abs() <= 1e-12,
+                "P2C005-INV-2 minimum s-t edge cut values must remain stable across insertion perturbation"
+            );
+
+            let forward_global_min_cut = global_minimum_edge_cut_edmonds_karp(&forward, "capacity");
+            let forward_global_min_cut_replay =
+                global_minimum_edge_cut_edmonds_karp(&forward, "capacity");
+            let reverse_global_min_cut = global_minimum_edge_cut_edmonds_karp(&reverse, "capacity");
+            let reverse_global_min_cut_replay =
+                global_minimum_edge_cut_edmonds_karp(&reverse, "capacity");
+            prop_assert_eq!(
+                &forward_global_min_cut, &forward_global_min_cut_replay,
+                "P2C005-INV-2 global minimum edge cut must be replay-stable for forward insertion"
+            );
+            prop_assert_eq!(
+                &reverse_global_min_cut, &reverse_global_min_cut_replay,
+                "P2C005-INV-2 global minimum edge cut must be replay-stable for reverse insertion"
+            );
+            prop_assert!(
+                (forward_global_min_cut.value - reverse_global_min_cut.value).abs() <= 1e-12,
+                "P2C005-INV-2 global minimum edge cut value must remain stable across insertion perturbation"
+            );
+            prop_assert_eq!(
+                &forward_global_min_cut.cut_edges, &reverse_global_min_cut.cut_edges,
+                "P2C005-INV-2 global minimum edge cut edge set must remain stable across insertion perturbation"
+            );
+            prop_assert_eq!(
+                forward_global_min_cut.source, reverse_global_min_cut.source,
+                "P2C005-INV-2 global minimum edge cut source choice must remain stable across insertion perturbation"
+            );
+            prop_assert_eq!(
+                forward_global_min_cut.sink, reverse_global_min_cut.sink,
+                "P2C005-INV-2 global minimum edge cut sink choice must remain stable across insertion perturbation"
+            );
+
+            let forward_articulation = articulation_points(&forward);
+            let forward_articulation_replay = articulation_points(&forward);
+            let reverse_articulation = articulation_points(&reverse);
+            let reverse_articulation_replay = articulation_points(&reverse);
+            prop_assert_eq!(
+                &forward_articulation.nodes, &forward_articulation_replay.nodes,
+                "P2C005-INV-2 articulation points must be replay-stable for forward insertion"
+            );
+            prop_assert_eq!(
+                &reverse_articulation.nodes, &reverse_articulation_replay.nodes,
+                "P2C005-INV-2 articulation points must be replay-stable for reverse insertion"
+            );
+            prop_assert_eq!(
+                &forward_articulation.nodes, &reverse_articulation.nodes,
+                "P2C005-INV-2 articulation points must remain stable across insertion perturbation"
+            );
+
+            let forward_bridges = bridges(&forward);
+            let forward_bridges_replay = bridges(&forward);
+            let reverse_bridges = bridges(&reverse);
+            let reverse_bridges_replay = bridges(&reverse);
+            prop_assert_eq!(
+                &forward_bridges.edges, &forward_bridges_replay.edges,
+                "P2C005-INV-2 bridges must be replay-stable for forward insertion"
+            );
+            prop_assert_eq!(
+                &reverse_bridges.edges, &reverse_bridges_replay.edges,
+                "P2C005-INV-2 bridges must be replay-stable for reverse insertion"
+            );
+            prop_assert_eq!(
+                &forward_bridges.edges, &reverse_bridges.edges,
+                "P2C005-INV-2 bridges must remain stable across insertion perturbation"
             );
 
             let deterministic_seed = edges.iter().fold(7305_u64, |acc, (left_edge, right_edge)| {
