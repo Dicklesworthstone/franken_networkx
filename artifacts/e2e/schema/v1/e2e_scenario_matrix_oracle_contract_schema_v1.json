@@ -111,7 +111,8 @@
     "convert",
     "readwrite",
     "views",
-    "generators"
+    "generators",
+    "algorithm_structure"
   ],
   "required_replay_schema_refs": [
     "artifacts/conformance/schema/v1/structured_test_log_schema_v1.json",

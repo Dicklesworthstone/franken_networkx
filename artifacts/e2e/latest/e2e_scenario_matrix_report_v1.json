@@ -18,6 +18,7 @@
     "J-READWRITE",
     "J-RUNTIME-OPTIONAL",
     "J-SHORTEST-PATH-COMPONENTS",
+    "J-STRUCTURE",
     "J-VIEWS"
   ],
   "scenario_ids": [
@@ -30,6 +31,7 @@
     "WF-READWRITE-001",
     "WF-RUNTIME-OPTIONAL-001",
     "WF-SHORTEST-PATH-COMPONENTS-001",
+    "WF-STRUCTURE-001",
     "WF-VIEWS-001"
   ],
   "failed_step_ids": []

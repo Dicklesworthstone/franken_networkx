@@ -3697,8 +3697,17 @@ mod tests {
     #[test]
     fn articulation_points_complete_k4_is_empty() {
         let mut graph = Graph::strict();
-        for (left, right) in [("a", "b"), ("a", "c"), ("a", "d"), ("b", "c"), ("b", "d"), ("c", "d")] {
-            graph.add_edge(left, right).expect("edge add should succeed");
+        for (left, right) in [
+            ("a", "b"),
+            ("a", "c"),
+            ("a", "d"),
+            ("b", "c"),
+            ("b", "d"),
+            ("c", "d"),
+        ] {
+            graph
+                .add_edge(left, right)
+                .expect("edge add should succeed");
         }
         let result = articulation_points(&graph);
         assert!(result.nodes.is_empty());
@@ -3707,8 +3716,17 @@ mod tests {
     #[test]
     fn bridges_complete_k4_is_empty() {
         let mut graph = Graph::strict();
-        for (left, right) in [("a", "b"), ("a", "c"), ("a", "d"), ("b", "c"), ("b", "d"), ("c", "d")] {
-            graph.add_edge(left, right).expect("edge add should succeed");
+        for (left, right) in [
+            ("a", "b"),
+            ("a", "c"),
+            ("a", "d"),
+            ("b", "c"),
+            ("b", "d"),
+            ("c", "d"),
+        ] {
+            graph
+                .add_edge(left, right)
+                .expect("edge add should succeed");
         }
         let result = bridges(&graph);
         assert!(result.edges.is_empty());

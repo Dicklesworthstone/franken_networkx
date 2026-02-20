@@ -25,7 +25,7 @@ Rule: parity status can move to `parity_green` only with fixture-backed conforma
 | Graph generator families | in_progress | `fnx-generators` now ships deterministic `empty/path/star/cycle/complete` and seeded `gnp_random_graph` with strict/hardened parameter controls. |
 | Conversion baseline behavior | in_progress | `fnx-convert` ships edge-list/adjacency conversions with strict/hardened malformed-input handling and normalization output. |
 | Read/write baseline formats | in_progress | `fnx-readwrite` ships deterministic edgelist + adjacency-list + JSON graph parse/write with strict/hardened parser modes. |
-| Differential conformance harness | in_progress | `fnx-conformance` executes graph + views + dispatch + convert + readwrite + components + generators + centrality + flow fixtures and emits report artifacts under `artifacts/conformance/latest/` (currently 17 fixtures). |
+| Differential conformance harness | in_progress | `fnx-conformance` executes graph + views + dispatch + convert + readwrite + components + generators + centrality + flow + structure (articulation points, bridges) fixtures and emits report artifacts under `artifacts/conformance/latest/` (currently 24 fixtures). |
 | RaptorQ durability pipeline | in_progress | `fnx-durability` generates RaptorQ sidecars, runs scrub verification, and emits decode proofs for conformance reports. |
 | Benchmark percentile gating | in_progress | `scripts/run_benchmark_gate.sh` emits p50/p95/p99 artifact and enforces threshold budgets with durability sidecars. |
 

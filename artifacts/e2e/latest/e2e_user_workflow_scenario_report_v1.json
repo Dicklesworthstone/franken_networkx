@@ -95,6 +95,15 @@
         "artifacts/e2e/latest/e2e_scenario_matrix_report_v1.json",
         "artifacts/e2e/latest/e2e_user_workflow_scenario_report_v1.json"
       ]
+    },
+    {
+      "scenario_id": "WF-STRUCTURE-001",
+      "journey_id": "J-STRUCTURE",
+      "category": "happy_path",
+      "report_refs": [
+        "artifacts/e2e/latest/e2e_scenario_matrix_report_v1.json",
+        "artifacts/e2e/latest/e2e_user_workflow_scenario_report_v1.json"
+      ]
     }
   ]
 }
