@@ -6,8 +6,9 @@ license-file = "../../LICENSE"
 
 [dependencies]
 fnx-classes = { path = "../fnx-classes" }
-serde = { version = "1.0.218", features = ["derive"] }
+mwmatching = "0.1.1"
+serde = { version = "1.0.228", features = ["derive"] }
 
 [dev-dependencies]
 fnx-runtime = { path = "../fnx-runtime" }
-proptest = "1.6.0"
+proptest = "1.10.0"

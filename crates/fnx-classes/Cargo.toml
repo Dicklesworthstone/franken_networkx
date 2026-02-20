@@ -6,8 +6,8 @@ license-file = "../../LICENSE"
 
 [dependencies]
 fnx-runtime = { path = "../fnx-runtime" }
-indexmap = "2.7.1"
-serde = { version = "1.0.218", features = ["derive"] }
+indexmap = "2.13.0"
+serde = { version = "1.0.228", features = ["derive"] }
 
 [dev-dependencies]
-proptest = "1.6.0"
+proptest = "1.10.0"

@@ -7,7 +7,7 @@ license-file = "../../LICENSE"
 [dependencies]
 fnx-classes = { path = "../fnx-classes" }
 fnx-runtime = { path = "../fnx-runtime" }
-rand = { version = "0.9.0", default-features = false, features = ["std", "std_rng"] }
+rand = { version = "0.10.0", default-features = false, features = ["std", "std_rng"] }
 
 [dev-dependencies]
-proptest = "1.6.0"
+proptest = "1.10.0"

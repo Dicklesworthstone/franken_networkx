@@ -6,4 +6,4 @@ license-file = "../../LICENSE"
 
 [dependencies]
 fnx-runtime = { path = "../fnx-runtime" }
-serde = { version = "1.0.218", features = ["derive"] }
+serde = { version = "1.0.228", features = ["derive"] }

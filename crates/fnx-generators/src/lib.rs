@@ -5,7 +5,7 @@ use fnx_runtime::{
     CompatibilityMode, DecisionAction, DecisionRecord, EvidenceLedger, EvidenceTerm,
     decision_theoretic_action, unix_time_ms,
 };
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 use std::fmt;
 
 const MAX_N_GENERIC: usize = 100_000;
