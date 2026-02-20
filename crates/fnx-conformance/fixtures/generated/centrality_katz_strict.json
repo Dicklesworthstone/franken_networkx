@@ -1,0 +1,69 @@
+{
+  "suite": "centrality_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "b"
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "c"
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "d"
+    },
+    {
+      "op": "katz_centrality_query"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "a",
+        "b",
+        "c",
+        "d"
+      ],
+      "edges": [
+        {
+          "left": "a",
+          "right": "b",
+          "attrs": {}
+        },
+        {
+          "left": "a",
+          "right": "c",
+          "attrs": {}
+        },
+        {
+          "left": "b",
+          "right": "d",
+          "attrs": {}
+        }
+      ]
+    },
+    "katz_centrality": [
+      {
+        "node": "a",
+        "score": 0.5232166370571764
+      },
+      {
+        "node": "b",
+        "score": 0.5232166370571764
+      },
+      {
+        "node": "c",
+        "score": 0.47565150131853784
+      },
+      {
+        "node": "d",
+        "score": 0.47565150131853784
+      }
+    ]
+  }
+}

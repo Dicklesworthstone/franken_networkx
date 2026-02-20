@@ -3,8 +3,8 @@
 use fnx_algorithms::{
     CentralityScore, ComplexityWitness, MinimumCutResult, articulation_points,
     betweenness_centrality, bridges, closeness_centrality, connected_components, degree_centrality,
-    max_flow_edmonds_karp, minimum_cut_edmonds_karp, number_connected_components,
-    shortest_path_unweighted, shortest_path_weighted,
+    harmonic_centrality, katz_centrality, max_flow_edmonds_karp, minimum_cut_edmonds_karp,
+    number_connected_components, pagerank, shortest_path_unweighted, shortest_path_weighted,
 };
 use fnx_classes::{AttrMap, EdgeSnapshot, Graph, GraphSnapshot};
 use fnx_convert::{AdjacencyPayload, EdgeListPayload, GraphConverter};
@@ -271,6 +271,9 @@ enum Operation {
     BetweennessCentralityQuery,
     DegreeCentralityQuery,
     ClosenessCentralityQuery,
+    HarmonicCentralityQuery,
+    KatzCentralityQuery,
+    PagerankQuery,
     ConnectedComponentsQuery,
     NumberConnectedComponentsQuery,
     ArticulationPointsQuery,
@@ -339,6 +342,12 @@ struct ExpectedState {
     #[serde(default)]
     closeness_centrality: Option<Vec<ExpectedCentralityScore>>,
     #[serde(default)]
+    harmonic_centrality: Option<Vec<ExpectedCentralityScore>>,
+    #[serde(default)]
+    katz_centrality: Option<Vec<ExpectedCentralityScore>>,
+    #[serde(default)]
+    pagerank: Option<Vec<ExpectedCentralityScore>>,
+    #[serde(default)]
     connected_components: Option<Vec<Vec<String>>>,
     #[serde(default)]
     number_connected_components: Option<usize>,
@@ -398,6 +407,9 @@ struct ExecutionContext {
     betweenness_centrality_result: Option<Vec<CentralityScore>>,
     degree_centrality_result: Option<Vec<CentralityScore>>,
     closeness_centrality_result: Option<Vec<CentralityScore>>,
+    harmonic_centrality_result: Option<Vec<CentralityScore>>,
+    katz_centrality_result: Option<Vec<CentralityScore>>,
+    pagerank_result: Option<Vec<CentralityScore>>,
     connected_components_result: Option<Vec<Vec<String>>>,
     number_connected_components_result: Option<usize>,
     articulation_points_result: Option<Vec<String>>,
@@ -1143,6 +1155,9 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
         betweenness_centrality_result: None,
         degree_centrality_result: None,
         closeness_centrality_result: None,
+        harmonic_centrality_result: None,
+        katz_centrality_result: None,
+        pagerank_result: None,
         connected_components_result: None,
         number_connected_components_result: None,
         articulation_points_result: None,
@@ -1218,6 +1233,21 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
             Operation::ClosenessCentralityQuery => {
                 let result = closeness_centrality(&context.graph);
                 context.closeness_centrality_result = Some(result.scores);
+                context.witness = Some(result.witness);
+            }
+            Operation::HarmonicCentralityQuery => {
+                let result = harmonic_centrality(&context.graph);
+                context.harmonic_centrality_result = Some(result.scores);
+                context.witness = Some(result.witness);
+            }
+            Operation::KatzCentralityQuery => {
+                let result = katz_centrality(&context.graph);
+                context.katz_centrality_result = Some(result.scores);
+                context.witness = Some(result.witness);
+            }
+            Operation::PagerankQuery => {
+                let result = pagerank(&context.graph);
+                context.pagerank_result = Some(result.scores);
                 context.witness = Some(result.witness);
             }
             Operation::ConnectedComponentsQuery => {
@@ -1541,6 +1571,52 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
         }
     }
 
+    if let Some(expected_scores) = fixture.expected.harmonic_centrality {
+        match context.harmonic_centrality_result.as_ref() {
+            Some(actual_scores) => {
+                compare_centrality_scores(
+                    "harmonic_centrality",
+                    actual_scores,
+                    &expected_scores,
+                    &mut mismatches,
+                );
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_centrality".to_owned(),
+                message: "expected harmonic_centrality result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(expected_scores) = fixture.expected.katz_centrality {
+        match context.katz_centrality_result.as_ref() {
+            Some(actual_scores) => {
+                compare_centrality_scores(
+                    "katz_centrality",
+                    actual_scores,
+                    &expected_scores,
+                    &mut mismatches,
+                );
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_centrality".to_owned(),
+                message: "expected katz_centrality result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(expected_scores) = fixture.expected.pagerank {
+        match context.pagerank_result.as_ref() {
+            Some(actual_scores) => {
+                compare_centrality_scores("pagerank", actual_scores, &expected_scores, &mut mismatches);
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_centrality".to_owned(),
+                message: "expected pagerank result but none produced".to_owned(),
+            }),
+        }
+    }
+
     if let Some(expected_components) = fixture.expected.connected_components
         && context.connected_components_result != Some(expected_components.clone())
     {
@@ -1773,6 +1849,9 @@ fn default_dispatch_registry(mode: CompatibilityMode) -> BackendRegistry {
             "betweenness_centrality",
             "degree_centrality",
             "closeness_centrality",
+            "harmonic_centrality",
+            "katz_centrality",
+            "pagerank",
             "generate_path_graph",
             "generate_star_graph",
             "generate_cycle_graph",
