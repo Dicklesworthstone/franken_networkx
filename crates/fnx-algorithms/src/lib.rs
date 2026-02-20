@@ -1,8 +1,8 @@
 #![forbid(unsafe_code)]
 
 use fnx_classes::Graph;
+use mwmatching::{Matching as BlossomMatching, SENTINEL as BLOSSOM_SENTINEL};
 use serde::{Deserialize, Serialize};
-use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 pub const CGSE_WITNESS_ARTIFACT_SCHEMA_VERSION_V1: &str = "1.0.0";
@@ -10,6 +10,15 @@ pub const CGSE_WITNESS_POLICY_SPEC_PATH: &str =
     "artifacts/cgse/v1/cgse_deterministic_policy_spec_v1.json";
 pub const CGSE_WITNESS_LEDGER_PATH: &str =
     "artifacts/cgse/v1/cgse_legacy_tiebreak_ordering_ledger_v1.json";
+const PAGERANK_DEFAULT_ALPHA: f64 = 0.85;
+const PAGERANK_DEFAULT_MAX_ITERATIONS: usize = 100;
+const PAGERANK_DEFAULT_TOLERANCE: f64 = 1.0e-6;
+const KATZ_DEFAULT_ALPHA: f64 = 0.1;
+const KATZ_DEFAULT_BETA: f64 = 1.0;
+const KATZ_DEFAULT_MAX_ITERATIONS: usize = 1000;
+const KATZ_DEFAULT_TOLERANCE: f64 = 1.0e-6;
+const HITS_DEFAULT_MAX_ITERATIONS: usize = 100;
+const HITS_DEFAULT_TOLERANCE: f64 = 1.0e-8;
 
 #[must_use]
 pub fn cgse_witness_schema_version() -> &'static str {
@@ -133,8 +142,46 @@ pub struct HarmonicCentralityResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct KatzCentralityResult {
+    pub scores: Vec<CentralityScore>,
+    pub witness: ComplexityWitness,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HitsCentralityResult {
+    pub hubs: Vec<CentralityScore>,
+    pub authorities: Vec<CentralityScore>,
+    pub witness: ComplexityWitness,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PageRankResult {
+    pub scores: Vec<CentralityScore>,
+    pub witness: ComplexityWitness,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EigenvectorCentralityResult {
+    pub scores: Vec<CentralityScore>,
+    pub witness: ComplexityWitness,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BetweennessCentralityResult {
     pub scores: Vec<CentralityScore>,
+    pub witness: ComplexityWitness,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EdgeCentralityScore {
+    pub left: String,
+    pub right: String,
+    pub score: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EdgeBetweennessCentralityResult {
+    pub scores: Vec<EdgeCentralityScore>,
     pub witness: ComplexityWitness,
 }
 
@@ -180,8 +227,6 @@ struct WeightedEdgeCandidate {
     left: String,
     right: String,
     weight: f64,
-    iteration_index: usize,
-    degree_sum: usize,
 }
 
 #[must_use]
@@ -662,6 +707,521 @@ pub fn harmonic_centrality(graph: &Graph) -> HarmonicCentralityResult {
 }
 
 #[must_use]
+pub fn katz_centrality(graph: &Graph) -> KatzCentralityResult {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return KatzCentralityResult {
+            scores: Vec::new(),
+            witness: ComplexityWitness {
+                algorithm: "katz_centrality_power_iteration".to_owned(),
+                complexity_claim: "O(k * (|V| + |E|))".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+    if n == 1 {
+        return KatzCentralityResult {
+            scores: vec![CentralityScore {
+                node: nodes[0].to_owned(),
+                score: 1.0,
+            }],
+            witness: ComplexityWitness {
+                algorithm: "katz_centrality_power_iteration".to_owned(),
+                complexity_claim: "O(k * (|V| + |E|))".to_owned(),
+                nodes_touched: 1,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    let mut canonical_nodes = nodes.clone();
+    canonical_nodes.sort_unstable();
+    let index_by_node = canonical_nodes
+        .iter()
+        .enumerate()
+        .map(|(idx, node)| (*node, idx))
+        .collect::<HashMap<&str, usize>>();
+
+    let mut scores = vec![0.0_f64; n];
+    let mut next_scores = vec![0.0_f64; n];
+    let mut iterations = 0usize;
+    let mut edges_scanned = 0usize;
+    let tolerance = n as f64 * KATZ_DEFAULT_TOLERANCE;
+
+    for _ in 0..KATZ_DEFAULT_MAX_ITERATIONS {
+        iterations += 1;
+        next_scores.fill(0.0);
+
+        // Deterministic power iteration in canonical node/neighbor order.
+        for (source_idx, source) in canonical_nodes.iter().enumerate() {
+            let source_score = scores[source_idx];
+            let mut neighbors = graph
+                .neighbors_iter(source)
+                .map(|iter| iter.collect::<Vec<&str>>())
+                .unwrap_or_default();
+            neighbors.sort_unstable();
+            edges_scanned += neighbors.len();
+
+            for neighbor in neighbors {
+                let Some(&target_idx) = index_by_node.get(neighbor) else {
+                    continue;
+                };
+                next_scores[target_idx] += source_score;
+            }
+        }
+
+        for value in &mut next_scores {
+            *value = (KATZ_DEFAULT_ALPHA * *value) + KATZ_DEFAULT_BETA;
+        }
+
+        let delta = next_scores
+            .iter()
+            .zip(scores.iter())
+            .map(|(left, right)| (left - right).abs())
+            .sum::<f64>();
+        scores.copy_from_slice(&next_scores);
+        if delta < tolerance {
+            break;
+        }
+    }
+
+    let norm = scores.iter().map(|value| value * value).sum::<f64>().sqrt();
+    let normalizer = if norm > 0.0 { norm } else { 1.0 };
+    for value in &mut scores {
+        *value /= normalizer;
+    }
+
+    let ordered_scores = nodes
+        .iter()
+        .map(|node| CentralityScore {
+            node: (*node).to_owned(),
+            score: scores[*index_by_node
+                .get(*node)
+                .expect("graph output node must exist in canonical katz index")],
+        })
+        .collect::<Vec<CentralityScore>>();
+
+    KatzCentralityResult {
+        scores: ordered_scores,
+        witness: ComplexityWitness {
+            algorithm: "katz_centrality_power_iteration".to_owned(),
+            complexity_claim: "O(k * (|V| + |E|))".to_owned(),
+            nodes_touched: n.saturating_mul(iterations),
+            edges_scanned,
+            queue_peak: 0,
+        },
+    }
+}
+
+#[must_use]
+pub fn hits_centrality(graph: &Graph) -> HitsCentralityResult {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return HitsCentralityResult {
+            hubs: Vec::new(),
+            authorities: Vec::new(),
+            witness: ComplexityWitness {
+                algorithm: "hits_centrality_power_iteration".to_owned(),
+                complexity_claim: "O(k * (|V| + |E|))".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+    if n == 1 {
+        return HitsCentralityResult {
+            hubs: vec![CentralityScore {
+                node: nodes[0].to_owned(),
+                score: 1.0,
+            }],
+            authorities: vec![CentralityScore {
+                node: nodes[0].to_owned(),
+                score: 1.0,
+            }],
+            witness: ComplexityWitness {
+                algorithm: "hits_centrality_power_iteration".to_owned(),
+                complexity_claim: "O(k * (|V| + |E|))".to_owned(),
+                nodes_touched: 1,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    let mut canonical_nodes = nodes.clone();
+    canonical_nodes.sort_unstable();
+    let index_by_node = canonical_nodes
+        .iter()
+        .enumerate()
+        .map(|(idx, node)| (*node, idx))
+        .collect::<HashMap<&str, usize>>();
+
+    let n_f64 = n as f64;
+    let mut hubs = vec![1.0 / n_f64; n];
+    let mut authorities = vec![0.0_f64; n];
+    let mut next_hubs = vec![0.0_f64; n];
+    let mut iterations = 0usize;
+    let mut edges_scanned = 0usize;
+
+    for _ in 0..HITS_DEFAULT_MAX_ITERATIONS {
+        iterations += 1;
+        authorities.fill(0.0);
+        next_hubs.fill(0.0);
+
+        for (source_idx, source) in canonical_nodes.iter().enumerate() {
+            let source_hub = hubs[source_idx];
+            let mut neighbors = graph
+                .neighbors_iter(source)
+                .map(|iter| iter.collect::<Vec<&str>>())
+                .unwrap_or_default();
+            neighbors.sort_unstable();
+            edges_scanned += neighbors.len();
+            for neighbor in neighbors {
+                let Some(&target_idx) = index_by_node.get(neighbor) else {
+                    continue;
+                };
+                authorities[target_idx] += source_hub;
+            }
+        }
+
+        for value in &mut authorities {
+            if value.is_nan() || !value.is_finite() {
+                *value = 0.0;
+            }
+        }
+        let authority_max = authorities.iter().copied().fold(0.0_f64, f64::max);
+        if authority_max > 0.0 {
+            for value in &mut authorities {
+                *value /= authority_max;
+            }
+        }
+
+        for (source_idx, source) in canonical_nodes.iter().enumerate() {
+            let mut neighbors = graph
+                .neighbors_iter(source)
+                .map(|iter| iter.collect::<Vec<&str>>())
+                .unwrap_or_default();
+            neighbors.sort_unstable();
+            edges_scanned += neighbors.len();
+            let score = neighbors.into_iter().fold(0.0_f64, |acc, neighbor| {
+                let Some(&target_idx) = index_by_node.get(neighbor) else {
+                    return acc;
+                };
+                acc + authorities[target_idx]
+            });
+            next_hubs[source_idx] = if score.is_finite() { score } else { 0.0 };
+        }
+
+        let hub_max = next_hubs.iter().copied().fold(0.0_f64, f64::max);
+        if hub_max > 0.0 {
+            for value in &mut next_hubs {
+                *value /= hub_max;
+            }
+        }
+
+        let delta = next_hubs
+            .iter()
+            .zip(hubs.iter())
+            .map(|(left, right)| (left - right).abs())
+            .sum::<f64>();
+        hubs.copy_from_slice(&next_hubs);
+        if delta < HITS_DEFAULT_TOLERANCE {
+            break;
+        }
+    }
+
+    let hub_sum = hubs.iter().sum::<f64>();
+    if hub_sum > 0.0 {
+        for value in &mut hubs {
+            *value /= hub_sum;
+        }
+    } else {
+        for value in &mut hubs {
+            *value = 1.0 / n_f64;
+        }
+    }
+    let authority_sum = authorities.iter().sum::<f64>();
+    if authority_sum > 0.0 {
+        for value in &mut authorities {
+            *value /= authority_sum;
+        }
+    } else {
+        for value in &mut authorities {
+            *value = 1.0 / n_f64;
+        }
+    }
+
+    let ordered_hubs = nodes
+        .iter()
+        .map(|node| CentralityScore {
+            node: (*node).to_owned(),
+            score: hubs[*index_by_node
+                .get(*node)
+                .expect("graph output node must exist in canonical hits-hub index")],
+        })
+        .collect::<Vec<CentralityScore>>();
+    let ordered_authorities = nodes
+        .iter()
+        .map(|node| CentralityScore {
+            node: (*node).to_owned(),
+            score: authorities[*index_by_node
+                .get(*node)
+                .expect("graph output node must exist in canonical hits-authority index")],
+        })
+        .collect::<Vec<CentralityScore>>();
+
+    HitsCentralityResult {
+        hubs: ordered_hubs,
+        authorities: ordered_authorities,
+        witness: ComplexityWitness {
+            algorithm: "hits_centrality_power_iteration".to_owned(),
+            complexity_claim: "O(k * (|V| + |E|))".to_owned(),
+            nodes_touched: n.saturating_mul(iterations).saturating_mul(2),
+            edges_scanned,
+            queue_peak: 0,
+        },
+    }
+}
+
+#[must_use]
+pub fn pagerank(graph: &Graph) -> PageRankResult {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return PageRankResult {
+            scores: Vec::new(),
+            witness: ComplexityWitness {
+                algorithm: "pagerank_power_iteration".to_owned(),
+                complexity_claim: "O(k * (|V| + |E|))".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+    if n == 1 {
+        return PageRankResult {
+            scores: vec![CentralityScore {
+                node: nodes[0].to_owned(),
+                score: 1.0,
+            }],
+            witness: ComplexityWitness {
+                algorithm: "pagerank_power_iteration".to_owned(),
+                complexity_claim: "O(k * (|V| + |E|))".to_owned(),
+                nodes_touched: 1,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    // Canonical compute order removes insertion-order drift while preserving output order.
+    let mut canonical_nodes = nodes.clone();
+    canonical_nodes.sort_unstable();
+    let index_by_node = canonical_nodes
+        .iter()
+        .enumerate()
+        .map(|(idx, node)| (*node, idx))
+        .collect::<HashMap<&str, usize>>();
+    let out_degree = canonical_nodes
+        .iter()
+        .map(|node| graph.neighbor_count(node))
+        .collect::<Vec<usize>>();
+
+    let n_f64 = n as f64;
+    let base = (1.0 - PAGERANK_DEFAULT_ALPHA) / n_f64;
+    let mut ranks = vec![1.0 / n_f64; n];
+    let mut next_ranks = vec![0.0_f64; n];
+    let mut iterations = 0usize;
+    let mut edges_scanned = 0usize;
+
+    for _ in 0..PAGERANK_DEFAULT_MAX_ITERATIONS {
+        iterations += 1;
+        let dangling_mass = ranks
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, value)| (out_degree[idx] == 0).then_some(*value))
+            .sum::<f64>();
+        let dangling_term = PAGERANK_DEFAULT_ALPHA * dangling_mass / n_f64;
+
+        for (v_idx, v) in canonical_nodes.iter().enumerate() {
+            let mut neighbors = graph
+                .neighbors_iter(v)
+                .map(|iter| iter.collect::<Vec<&str>>())
+                .unwrap_or_default();
+            neighbors.sort_unstable();
+            edges_scanned += neighbors.len();
+
+            let inbound = neighbors.into_iter().fold(0.0_f64, |acc, neighbor| {
+                let Some(&u_idx) = index_by_node.get(neighbor) else {
+                    return acc;
+                };
+                let degree = out_degree[u_idx];
+                if degree == 0 {
+                    acc
+                } else {
+                    acc + (ranks[u_idx] / degree as f64)
+                }
+            });
+
+            next_ranks[v_idx] = base + dangling_term + (PAGERANK_DEFAULT_ALPHA * inbound);
+        }
+
+        let total_mass = next_ranks.iter().sum::<f64>();
+        if total_mass > 0.0 {
+            for value in &mut next_ranks {
+                *value /= total_mass;
+            }
+        }
+
+        let delta = next_ranks
+            .iter()
+            .zip(ranks.iter())
+            .map(|(left, right)| (left - right).abs())
+            .sum::<f64>();
+        ranks.copy_from_slice(&next_ranks);
+        if delta < n_f64 * PAGERANK_DEFAULT_TOLERANCE {
+            break;
+        }
+    }
+
+    let scores = nodes
+        .iter()
+        .map(|node| CentralityScore {
+            node: (*node).to_owned(),
+            score: ranks[*index_by_node
+                .get(*node)
+                .expect("graph output node must exist in canonical pagerank index")],
+        })
+        .collect::<Vec<CentralityScore>>();
+
+    PageRankResult {
+        scores,
+        witness: ComplexityWitness {
+            algorithm: "pagerank_power_iteration".to_owned(),
+            complexity_claim: "O(k * (|V| + |E|))".to_owned(),
+            nodes_touched: n.saturating_mul(iterations),
+            edges_scanned,
+            queue_peak: 0,
+        },
+    }
+}
+
+#[must_use]
+pub fn eigenvector_centrality(graph: &Graph) -> EigenvectorCentralityResult {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return EigenvectorCentralityResult {
+            scores: Vec::new(),
+            witness: ComplexityWitness {
+                algorithm: "eigenvector_centrality_power_iteration".to_owned(),
+                complexity_claim: "O(k * (|V| + |E|))".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+    if n == 1 {
+        return EigenvectorCentralityResult {
+            scores: vec![CentralityScore {
+                node: nodes[0].to_owned(),
+                score: 1.0,
+            }],
+            witness: ComplexityWitness {
+                algorithm: "eigenvector_centrality_power_iteration".to_owned(),
+                complexity_claim: "O(k * (|V| + |E|))".to_owned(),
+                nodes_touched: 1,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    let mut canonical_nodes = nodes.clone();
+    canonical_nodes.sort_unstable();
+    let index_by_node = canonical_nodes
+        .iter()
+        .enumerate()
+        .map(|(idx, node)| (*node, idx))
+        .collect::<HashMap<&str, usize>>();
+
+    let mut scores = vec![1.0_f64 / n as f64; n];
+    let mut next_scores = vec![0.0_f64; n];
+    let mut iterations = 0usize;
+    let mut edges_scanned = 0usize;
+
+    for _ in 0..PAGERANK_DEFAULT_MAX_ITERATIONS {
+        iterations += 1;
+        next_scores.copy_from_slice(&scores);
+
+        for (source_idx, source) in canonical_nodes.iter().enumerate() {
+            let source_score = scores[source_idx];
+            let mut neighbors = graph
+                .neighbors_iter(source)
+                .map(|iter| iter.collect::<Vec<&str>>())
+                .unwrap_or_default();
+            neighbors.sort_unstable();
+            edges_scanned += neighbors.len();
+            for neighbor in neighbors {
+                let Some(&target_idx) = index_by_node.get(neighbor) else {
+                    continue;
+                };
+                next_scores[target_idx] += source_score;
+            }
+        }
+
+        let norm = next_scores
+            .iter()
+            .map(|value| value * value)
+            .sum::<f64>()
+            .sqrt();
+        let normalizer = if norm > 0.0 { norm } else { 1.0 };
+        for value in &mut next_scores {
+            *value /= normalizer;
+        }
+
+        let delta = next_scores
+            .iter()
+            .zip(scores.iter())
+            .map(|(left, right)| (left - right).abs())
+            .sum::<f64>();
+        scores.copy_from_slice(&next_scores);
+        if delta < n as f64 * PAGERANK_DEFAULT_TOLERANCE {
+            break;
+        }
+    }
+
+    let ordered_scores = nodes
+        .iter()
+        .map(|node| CentralityScore {
+            node: (*node).to_owned(),
+            score: scores[*index_by_node
+                .get(*node)
+                .expect("graph output node must exist in canonical eigenvector index")],
+        })
+        .collect::<Vec<CentralityScore>>();
+
+    EigenvectorCentralityResult {
+        scores: ordered_scores,
+        witness: ComplexityWitness {
+            algorithm: "eigenvector_centrality_power_iteration".to_owned(),
+            complexity_claim: "O(k * (|V| + |E|))".to_owned(),
+            nodes_touched: n.saturating_mul(iterations),
+            edges_scanned,
+            queue_peak: 0,
+        },
+    }
+}
+
+#[must_use]
 pub fn betweenness_centrality(graph: &Graph) -> BetweennessCentralityResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
@@ -773,6 +1333,137 @@ pub fn betweenness_centrality(graph: &Graph) -> BetweennessCentralityResult {
 }
 
 #[must_use]
+pub fn edge_betweenness_centrality(graph: &Graph) -> EdgeBetweennessCentralityResult {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return EdgeBetweennessCentralityResult {
+            scores: Vec::new(),
+            witness: ComplexityWitness {
+                algorithm: "brandes_edge_betweenness_centrality".to_owned(),
+                complexity_claim: "O(|V| * |E|)".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    let canonical_edge_key = |left: &str, right: &str| -> (String, String) {
+        if left <= right {
+            (left.to_owned(), right.to_owned())
+        } else {
+            (right.to_owned(), left.to_owned())
+        }
+    };
+
+    let mut edge_scores = HashMap::<(String, String), f64>::new();
+    for node in &nodes {
+        let Some(neighbors) = graph.neighbors_iter(node) else {
+            continue;
+        };
+        for neighbor in neighbors {
+            edge_scores
+                .entry(canonical_edge_key(node, neighbor))
+                .or_insert(0.0);
+        }
+    }
+
+    let mut nodes_touched = 0usize;
+    let mut edges_scanned = 0usize;
+    let mut queue_peak = 0usize;
+
+    for source in &nodes {
+        let mut stack = Vec::<&str>::with_capacity(n);
+        let mut predecessors = HashMap::<&str, Vec<&str>>::new();
+        let mut sigma = HashMap::<&str, f64>::new();
+        let mut distance = HashMap::<&str, i64>::new();
+        for node in &nodes {
+            predecessors.insert(*node, Vec::new());
+            sigma.insert(*node, 0.0);
+            distance.insert(*node, -1);
+        }
+        sigma.insert(*source, 1.0);
+        distance.insert(*source, 0);
+
+        let mut queue = VecDeque::<&str>::new();
+        queue.push_back(source);
+        queue_peak = queue_peak.max(queue.len());
+
+        while let Some(v) = queue.pop_front() {
+            stack.push(v);
+            let dist_v = *distance.get(v).unwrap_or(&-1);
+            let Some(neighbors) = graph.neighbors_iter(v) else {
+                continue;
+            };
+            for w in neighbors {
+                edges_scanned += 1;
+                if *distance.get(w).unwrap_or(&-1) < 0 {
+                    distance.insert(w, dist_v + 1);
+                    queue.push_back(w);
+                    queue_peak = queue_peak.max(queue.len());
+                }
+                if *distance.get(w).unwrap_or(&-1) == dist_v + 1 {
+                    let sigma_v = *sigma.get(v).unwrap_or(&0.0);
+                    *sigma.entry(w).or_insert(0.0) += sigma_v;
+                    predecessors.entry(w).or_default().push(v);
+                }
+            }
+        }
+        nodes_touched += stack.len();
+
+        let mut dependency = HashMap::<&str, f64>::new();
+        for node in &nodes {
+            dependency.insert(*node, 0.0);
+        }
+
+        while let Some(w) = stack.pop() {
+            let sigma_w = *sigma.get(w).unwrap_or(&0.0);
+            let delta_w = *dependency.get(w).unwrap_or(&0.0);
+            if sigma_w > 0.0 {
+                for v in predecessors.get(w).map(Vec::as_slice).unwrap_or(&[]) {
+                    let sigma_v = *sigma.get(v).unwrap_or(&0.0);
+                    let contribution = (sigma_v / sigma_w) * (1.0 + delta_w);
+                    let key = canonical_edge_key(v, w);
+                    *edge_scores.entry(key).or_insert(0.0) += contribution;
+                    *dependency.entry(v).or_insert(0.0) += contribution;
+                }
+            }
+        }
+    }
+
+    let scale = if n > 1 {
+        1.0 / ((n * (n - 1)) as f64)
+    } else {
+        0.0
+    };
+    let mut scores = edge_scores
+        .into_iter()
+        .map(|((left, right), score)| EdgeCentralityScore {
+            left,
+            right,
+            score: score * scale,
+        })
+        .collect::<Vec<EdgeCentralityScore>>();
+    scores.sort_unstable_by(|left, right| {
+        left.left
+            .cmp(&right.left)
+            .then_with(|| left.right.cmp(&right.right))
+    });
+
+    EdgeBetweennessCentralityResult {
+        scores,
+        witness: ComplexityWitness {
+            algorithm: "brandes_edge_betweenness_centrality".to_owned(),
+            complexity_claim: "O(|V| * |E|)".to_owned(),
+            nodes_touched,
+            edges_scanned,
+            queue_peak,
+        },
+    }
+}
+
+#[must_use]
 pub fn maximal_matching(graph: &Graph) -> MaximalMatchingResult {
     let mut matched_nodes = HashSet::<String>::new();
     let mut matching = Vec::<(String, String)>::new();
@@ -846,11 +1537,11 @@ pub fn max_weight_matching(
             total_weight: 0.0,
             witness: ComplexityWitness {
                 algorithm: if maxcardinality {
-                    "greedy_max_weight_matching_maxcardinality".to_owned()
+                    "blossom_max_weight_matching_maxcardinality".to_owned()
                 } else {
-                    "greedy_max_weight_matching".to_owned()
+                    "blossom_max_weight_matching".to_owned()
                 },
-                complexity_claim: "O(|E| log |E|)".to_owned(),
+                complexity_claim: "O(|V|^3)".to_owned(),
                 nodes_touched: graph.node_count(),
                 edges_scanned: 0,
                 queue_peak: 0,
@@ -858,31 +1549,21 @@ pub fn max_weight_matching(
         };
     }
 
-    let weighted_order = sorted_candidates_by_weight(candidates.clone());
-    let weighted_matching = greedy_matching_from_candidates(&weighted_order);
-
-    let (matching, total_weight, passes) = if maxcardinality {
-        let cardinality_order = sorted_candidates_by_cardinality_aware_weight(candidates);
-        let cardinality_matching = greedy_matching_from_candidates(&cardinality_order);
-        let (selected_matching, selected_weight) =
-            choose_preferred_matching(weighted_matching, cardinality_matching, true);
-        (selected_matching, selected_weight, 2usize)
-    } else {
-        (weighted_matching.0, weighted_matching.1, 1usize)
-    };
+    let (matching, total_weight, edges_scanned) =
+        blossom_weight_matching(&candidates, maxcardinality);
 
     WeightedMatchingResult {
         matching,
         total_weight,
         witness: ComplexityWitness {
             algorithm: if maxcardinality {
-                "greedy_max_weight_matching_maxcardinality".to_owned()
+                "blossom_max_weight_matching_maxcardinality".to_owned()
             } else {
-                "greedy_max_weight_matching".to_owned()
+                "blossom_max_weight_matching".to_owned()
             },
-            complexity_claim: "O(|E| log |E|)".to_owned(),
+            complexity_claim: "O(|V|^3)".to_owned(),
             nodes_touched: graph.node_count(),
-            edges_scanned: weighted_order.len() * passes,
+            edges_scanned,
             queue_peak: 0,
         },
     }
@@ -896,8 +1577,8 @@ pub fn min_weight_matching(graph: &Graph, weight_attr: &str) -> WeightedMatching
             matching: Vec::new(),
             total_weight: 0.0,
             witness: ComplexityWitness {
-                algorithm: "greedy_min_weight_matching".to_owned(),
-                complexity_claim: "O(|E| log |E|)".to_owned(),
+                algorithm: "blossom_min_weight_matching".to_owned(),
+                complexity_claim: "O(|V|^3)".to_owned(),
                 nodes_touched: graph.node_count(),
                 edges_scanned: 0,
                 queue_peak: 0,
@@ -909,19 +1590,15 @@ pub fn min_weight_matching(graph: &Graph, weight_attr: &str) -> WeightedMatching
         .iter()
         .fold(f64::NEG_INFINITY, |acc, edge| acc.max(edge.weight));
     let transformed_candidates = candidates
-        .into_iter()
+        .iter()
         .map(|edge| WeightedEdgeCandidate {
             weight: (max_weight + 1.0) - edge.weight,
-            ..edge
+            left: edge.left.clone(),
+            right: edge.right.clone(),
         })
         .collect::<Vec<WeightedEdgeCandidate>>();
 
-    let weighted_order = sorted_candidates_by_weight(transformed_candidates.clone());
-    let weighted_matching = greedy_matching_from_candidates(&weighted_order);
-    let cardinality_order =
-        sorted_candidates_by_cardinality_aware_weight(transformed_candidates.clone());
-    let cardinality_matching = greedy_matching_from_candidates(&cardinality_order);
-    let (matching, _) = choose_preferred_matching(weighted_matching, cardinality_matching, true);
+    let (matching, _, edges_scanned) = blossom_weight_matching(&transformed_candidates, true);
     let total_weight = matching
         .iter()
         .map(|(left, right)| matching_edge_weight_or_default(graph, left, right, weight_attr))
@@ -931,10 +1608,10 @@ pub fn min_weight_matching(graph: &Graph, weight_attr: &str) -> WeightedMatching
         matching,
         total_weight,
         witness: ComplexityWitness {
-            algorithm: "greedy_min_weight_matching".to_owned(),
-            complexity_claim: "O(|E| log |E|)".to_owned(),
+            algorithm: "blossom_min_weight_matching".to_owned(),
+            complexity_claim: "O(|V|^3)".to_owned(),
             nodes_touched: graph.node_count(),
-            edges_scanned: transformed_candidates.len() * 2,
+            edges_scanned,
             queue_peak: 0,
         },
     }
@@ -1272,113 +1949,129 @@ fn undirected_edges_in_iteration_order(graph: &Graph) -> Vec<(String, String)> {
 }
 
 fn weighted_edge_candidates(graph: &Graph, weight_attr: &str) -> Vec<WeightedEdgeCandidate> {
-    undirected_edges_in_iteration_order(graph)
+    let mut candidates = undirected_edges_in_iteration_order(graph)
         .into_iter()
-        .enumerate()
-        .map(|(iteration_index, (left, right))| WeightedEdgeCandidate {
-            weight: matching_edge_weight_or_default(graph, &left, &right, weight_attr),
-            degree_sum: graph.neighbor_count(&left) + graph.neighbor_count(&right),
-            left,
-            right,
-            iteration_index,
+        .map(|(left, right)| {
+            let (canonical_left, canonical_right) = canonical_undirected_edge(&left, &right);
+            WeightedEdgeCandidate {
+                weight: matching_edge_weight_or_default(
+                    graph,
+                    &canonical_left,
+                    &canonical_right,
+                    weight_attr,
+                ),
+                left: canonical_left,
+                right: canonical_right,
+            }
         })
-        .collect()
-}
-
-fn sorted_candidates_by_weight(
-    mut candidates: Vec<WeightedEdgeCandidate>,
-) -> Vec<WeightedEdgeCandidate> {
-    candidates.sort_by(|left, right| {
-        right
-            .weight
-            .partial_cmp(&left.weight)
-            .unwrap_or(Ordering::Equal)
-            .then_with(|| left.iteration_index.cmp(&right.iteration_index))
+        .collect::<Vec<WeightedEdgeCandidate>>();
+    candidates.sort_unstable_by(|left, right| {
+        left.left
+            .cmp(&right.left)
+            .then_with(|| left.right.cmp(&right.right))
     });
     candidates
 }
 
-fn sorted_candidates_by_cardinality_aware_weight(
-    mut candidates: Vec<WeightedEdgeCandidate>,
-) -> Vec<WeightedEdgeCandidate> {
-    candidates.sort_by(|left, right| {
-        left.degree_sum
-            .cmp(&right.degree_sum)
-            .then_with(|| {
-                right
-                    .weight
-                    .partial_cmp(&left.weight)
-                    .unwrap_or(Ordering::Equal)
-            })
-            .then_with(|| left.iteration_index.cmp(&right.iteration_index))
-    });
-    candidates
-}
-
-fn greedy_matching_from_candidates(
+fn blossom_weight_matching(
     candidates: &[WeightedEdgeCandidate],
-) -> (Vec<(String, String)>, f64) {
-    let mut matched_nodes = MatchingNodeSet::new();
+    maxcardinality: bool,
+) -> (Vec<(String, String)>, f64, usize) {
+    if candidates.is_empty() {
+        return (Vec::new(), 0.0, 0);
+    }
+
+    let mut node_names = candidates
+        .iter()
+        .flat_map(|edge| [&edge.left, &edge.right])
+        .cloned()
+        .collect::<Vec<String>>();
+    node_names.sort_unstable();
+    node_names.dedup();
+
+    let mut node_to_index = HashMap::<String, usize>::new();
+    for (index, node) in node_names.iter().enumerate() {
+        node_to_index.insert(node.clone(), index);
+    }
+
+    let mut edge_weights = HashMap::<(usize, usize), f64>::new();
+    let scale = blossom_integer_weight_scale(candidates);
+    let mut blossom_edges = candidates
+        .iter()
+        .filter_map(|edge| {
+            let left_index = *node_to_index.get(&edge.left)?;
+            let right_index = *node_to_index.get(&edge.right)?;
+            if left_index == right_index {
+                return None;
+            }
+            let (u, v) = if left_index < right_index {
+                (left_index, right_index)
+            } else {
+                (right_index, left_index)
+            };
+            edge_weights.insert((u, v), edge.weight);
+            Some((u, v, blossom_quantized_weight(edge.weight, scale)))
+        })
+        .collect::<Vec<(usize, usize, i32)>>();
+    blossom_edges.sort_unstable_by(|left, right| {
+        left.0
+            .cmp(&right.0)
+            .then_with(|| left.1.cmp(&right.1))
+            .then_with(|| left.2.cmp(&right.2))
+    });
+
+    let mut solver = BlossomMatching::new(blossom_edges);
+    if maxcardinality {
+        solver.max_cardinality();
+    }
+    let mates = solver.solve();
+
     let mut matching = Vec::<(String, String)>::new();
     let mut total_weight = 0.0_f64;
-
-    for edge in candidates {
-        if edge.left == edge.right
-            || matched_nodes.contains(&edge.left)
-            || matched_nodes.contains(&edge.right)
-        {
+    for (left_index, right_index) in mates.iter().enumerate() {
+        if *right_index == BLOSSOM_SENTINEL || left_index >= *right_index {
             continue;
         }
-        matched_nodes.insert(edge.left.clone());
-        matched_nodes.insert(edge.right.clone());
-        matching.push((edge.left.clone(), edge.right.clone()));
-        total_weight += edge.weight;
+        let (u, v) = if left_index < *right_index {
+            (left_index, *right_index)
+        } else {
+            (*right_index, left_index)
+        };
+        let Some(left_node) = node_names.get(u) else {
+            continue;
+        };
+        let Some(right_node) = node_names.get(v) else {
+            continue;
+        };
+        matching.push((left_node.clone(), right_node.clone()));
+        total_weight += edge_weights.get(&(u, v)).copied().unwrap_or(1.0);
     }
+    matching.sort_unstable();
 
-    (matching, total_weight)
+    (matching, total_weight, candidates.len())
 }
 
-fn choose_preferred_matching(
-    weighted: (Vec<(String, String)>, f64),
-    alternative: (Vec<(String, String)>, f64),
-    prefer_cardinality: bool,
-) -> (Vec<(String, String)>, f64) {
-    let (weighted_matching, weighted_weight) = weighted;
-    let (alternative_matching, alternative_weight) = alternative;
-
-    if prefer_cardinality {
-        match alternative_matching.len().cmp(&weighted_matching.len()) {
-            Ordering::Greater => return (alternative_matching, alternative_weight),
-            Ordering::Less => return (weighted_matching, weighted_weight),
-            Ordering::Equal => {}
-        }
-    }
-
-    match alternative_weight
-        .partial_cmp(&weighted_weight)
-        .unwrap_or(Ordering::Equal)
-    {
-        Ordering::Greater => return (alternative_matching, alternative_weight),
-        Ordering::Less => return (weighted_matching, weighted_weight),
-        Ordering::Equal => {}
-    }
-
-    let weighted_key = canonical_matching_key(&weighted_matching);
-    let alternative_key = canonical_matching_key(&alternative_matching);
-    if alternative_key < weighted_key {
-        (alternative_matching, alternative_weight)
-    } else {
-        (weighted_matching, weighted_weight)
-    }
-}
-
-fn canonical_matching_key(matching: &[(String, String)]) -> Vec<(String, String)> {
-    let mut key = matching
+fn blossom_integer_weight_scale(candidates: &[WeightedEdgeCandidate]) -> f64 {
+    let max_abs_weight = candidates
         .iter()
-        .map(|(left, right)| canonical_undirected_edge(left, right))
-        .collect::<Vec<(String, String)>>();
-    key.sort_unstable();
-    key
+        .map(|edge| edge.weight.abs())
+        .fold(0.0_f64, f64::max);
+    if !max_abs_weight.is_finite() || max_abs_weight <= 0.0 {
+        return 1.0;
+    }
+
+    let preferred_scale = 1_000_000.0_f64;
+    let bounded_scale = (f64::from(i32::MAX) / max_abs_weight).floor().max(1.0);
+    preferred_scale.min(bounded_scale)
+}
+
+fn blossom_quantized_weight(weight: f64, scale: f64) -> i32 {
+    let scaled = (weight * scale).round();
+    if !scaled.is_finite() {
+        return 0;
+    }
+    let bounded = scaled.clamp(f64::from(i32::MIN), f64::from(i32::MAX));
+    bounded as i32
 }
 
 fn rebuild_path(predecessor: &HashMap<&str, &str>, source: &str, target: &str) -> Vec<String> {
@@ -1443,10 +2136,11 @@ mod tests {
     use super::{
         CGSE_WITNESS_LEDGER_PATH, CGSE_WITNESS_POLICY_SPEC_PATH, CentralityScore,
         ComplexityWitness, betweenness_centrality, cgse_witness_schema_version,
-        closeness_centrality, connected_components, degree_centrality, harmonic_centrality,
-        is_matching, is_maximal_matching, is_perfect_matching, max_flow_edmonds_karp,
+        closeness_centrality, connected_components, degree_centrality, edge_betweenness_centrality,
+        eigenvector_centrality, harmonic_centrality, hits_centrality, is_matching,
+        is_maximal_matching, is_perfect_matching, katz_centrality, max_flow_edmonds_karp,
         max_weight_matching, maximal_matching, min_weight_matching, minimum_cut_edmonds_karp,
-        number_connected_components, shortest_path_unweighted, shortest_path_weighted,
+        number_connected_components, pagerank, shortest_path_unweighted, shortest_path_weighted,
     };
     use fnx_classes::Graph;
     use fnx_runtime::{
@@ -2028,13 +2722,99 @@ mod tests {
         assert_eq!(
             result.matching,
             vec![
-                ("3".to_owned(), "5".to_owned()),
-                ("2".to_owned(), "4".to_owned())
+                ("2".to_owned(), "4".to_owned()),
+                ("3".to_owned(), "5".to_owned())
             ]
         );
         assert!((result.total_weight - 16.0).abs() <= 1e-12);
-        assert_eq!(result.witness.algorithm, "greedy_max_weight_matching");
+        assert_eq!(result.witness.algorithm, "blossom_max_weight_matching");
         assert_matching_is_valid_and_maximal(&graph, &result.matching);
+    }
+
+    #[test]
+    fn max_weight_matching_beats_greedy_local_choice() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("a", "b", [("weight".to_owned(), "10".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "c", [("weight".to_owned(), "9".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("b", "d", [("weight".to_owned(), "9".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("c", "d", [("weight".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+
+        let result = max_weight_matching(&graph, false, "weight");
+        assert_eq!(
+            result.matching,
+            vec![
+                ("a".to_owned(), "c".to_owned()),
+                ("b".to_owned(), "d".to_owned())
+            ]
+        );
+        assert!((result.total_weight - 18.0).abs() <= 1e-12);
+        assert_matching_is_valid_and_maximal(&graph, &result.matching);
+    }
+
+    #[test]
+    fn weighted_matching_replay_stable_under_insertion_order_noise() {
+        let mut forward = Graph::strict();
+        for (left, right, weight) in [
+            ("a", "b", "8"),
+            ("a", "c", "9"),
+            ("b", "d", "9"),
+            ("c", "d", "8"),
+            ("c", "e", "7"),
+            ("d", "f", "7"),
+        ] {
+            forward
+                .add_edge_with_attrs(
+                    left,
+                    right,
+                    [("weight".to_owned(), weight.to_owned())].into(),
+                )
+                .expect("edge add should succeed");
+        }
+        let _ = forward.add_node("noise");
+
+        let mut reverse = Graph::strict();
+        for (left, right, weight) in [
+            ("d", "f", "7"),
+            ("c", "e", "7"),
+            ("c", "d", "8"),
+            ("b", "d", "9"),
+            ("a", "c", "9"),
+            ("a", "b", "8"),
+        ] {
+            reverse
+                .add_edge_with_attrs(
+                    left,
+                    right,
+                    [("weight".to_owned(), weight.to_owned())].into(),
+                )
+                .expect("edge add should succeed");
+        }
+        let _ = reverse.add_node("noise");
+
+        let forward_default = max_weight_matching(&forward, false, "weight");
+        let reverse_default = max_weight_matching(&reverse, false, "weight");
+        assert_eq!(forward_default.matching, reverse_default.matching);
+        assert!((forward_default.total_weight - reverse_default.total_weight).abs() <= 1e-12);
+
+        let forward_cardinality = max_weight_matching(&forward, true, "weight");
+        let reverse_cardinality = max_weight_matching(&reverse, true, "weight");
+        assert_eq!(forward_cardinality.matching, reverse_cardinality.matching);
+        assert!(
+            (forward_cardinality.total_weight - reverse_cardinality.total_weight).abs() <= 1e-12
+        );
+
+        let forward_min = min_weight_matching(&forward, "weight");
+        let reverse_min = min_weight_matching(&reverse, "weight");
+        assert_eq!(forward_min.matching, reverse_min.matching);
+        assert!((forward_min.total_weight - reverse_min.total_weight).abs() <= 1e-12);
     }
 
     #[test]
@@ -2047,7 +2827,7 @@ mod tests {
             .add_edge_with_attrs("a", "c", [("weight".to_owned(), "60".to_owned())].into())
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("b", "d", [("weight".to_owned(), "60".to_owned())].into())
+            .add_edge_with_attrs("b", "d", [("weight".to_owned(), "39".to_owned())].into())
             .expect("edge add should succeed");
 
         let default_result = max_weight_matching(&graph, false, "weight");
@@ -2065,10 +2845,10 @@ mod tests {
                 ("b".to_owned(), "d".to_owned())
             ]
         );
-        assert!((maxcard_result.total_weight - 120.0).abs() <= 1e-12);
+        assert!((maxcard_result.total_weight - 99.0).abs() <= 1e-12);
         assert_eq!(
             maxcard_result.witness.algorithm,
-            "greedy_max_weight_matching_maxcardinality"
+            "blossom_max_weight_matching_maxcardinality"
         );
         assert_matching_is_valid_and_maximal(&graph, &maxcard_result.matching);
     }
@@ -2098,7 +2878,7 @@ mod tests {
             ]
         );
         assert!((result.total_weight - 2.0).abs() <= 1e-12);
-        assert_eq!(result.witness.algorithm, "greedy_min_weight_matching");
+        assert_eq!(result.witness.algorithm, "blossom_min_weight_matching");
         assert_matching_is_valid_and_maximal(&graph, &result.matching);
     }
 
@@ -2309,6 +3089,65 @@ mod tests {
             as_score_map(forward_harmonic.scores),
             as_score_map(reverse_harmonic.scores)
         );
+
+        let forward_edge_betweenness = edge_betweenness_centrality(&forward);
+        let forward_edge_betweenness_replay = edge_betweenness_centrality(&forward);
+        let reverse_edge_betweenness = edge_betweenness_centrality(&reverse);
+        let reverse_edge_betweenness_replay = edge_betweenness_centrality(&reverse);
+        assert_eq!(
+            forward_edge_betweenness.scores,
+            forward_edge_betweenness_replay.scores
+        );
+        assert_eq!(
+            reverse_edge_betweenness.scores,
+            reverse_edge_betweenness_replay.scores
+        );
+        let as_edge_score_map =
+            |scores: Vec<super::EdgeCentralityScore>| -> BTreeMap<(String, String), f64> {
+                scores
+                    .into_iter()
+                    .map(|entry| ((entry.left, entry.right), entry.score))
+                    .collect::<BTreeMap<(String, String), f64>>()
+            };
+        let forward_edge_map = as_edge_score_map(forward_edge_betweenness.scores);
+        let reverse_edge_map = as_edge_score_map(reverse_edge_betweenness.scores);
+        assert_eq!(
+            forward_edge_map.keys().collect::<Vec<&(String, String)>>(),
+            reverse_edge_map.keys().collect::<Vec<&(String, String)>>()
+        );
+        for key in forward_edge_map.keys() {
+            let left = *forward_edge_map.get(key).unwrap_or(&0.0);
+            let right = *reverse_edge_map.get(key).unwrap_or(&0.0);
+            assert!((left - right).abs() <= 1e-12);
+        }
+
+        let forward_pagerank = pagerank(&forward);
+        let forward_pagerank_replay = pagerank(&forward);
+        let reverse_pagerank = pagerank(&reverse);
+        let reverse_pagerank_replay = pagerank(&reverse);
+        assert_eq!(forward_pagerank.scores, forward_pagerank_replay.scores);
+        assert_eq!(reverse_pagerank.scores, reverse_pagerank_replay.scores);
+        assert_eq!(
+            as_score_map(forward_pagerank.scores),
+            as_score_map(reverse_pagerank.scores)
+        );
+
+        let forward_eigenvector = eigenvector_centrality(&forward);
+        let forward_eigenvector_replay = eigenvector_centrality(&forward);
+        let reverse_eigenvector = eigenvector_centrality(&reverse);
+        let reverse_eigenvector_replay = eigenvector_centrality(&reverse);
+        assert_eq!(
+            forward_eigenvector.scores,
+            forward_eigenvector_replay.scores
+        );
+        assert_eq!(
+            reverse_eigenvector.scores,
+            reverse_eigenvector_replay.scores
+        );
+        assert_eq!(
+            as_score_map(forward_eigenvector.scores),
+            as_score_map(reverse_eigenvector.scores)
+        );
     }
 
     #[test]
@@ -2492,6 +3331,310 @@ mod tests {
     }
 
     #[test]
+    fn katz_centrality_cycle_graph_is_uniform() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+        graph.add_edge("d", "a").expect("edge add should succeed");
+
+        let result = katz_centrality(&graph);
+        assert_eq!(result.scores.len(), 4);
+        for score in result.scores {
+            assert!((score.score - 0.5_f64).abs() <= 1e-12);
+        }
+        assert_eq!(result.witness.algorithm, "katz_centrality_power_iteration");
+        assert_eq!(result.witness.complexity_claim, "O(k * (|V| + |E|))");
+    }
+
+    #[test]
+    fn katz_centrality_star_graph_center_dominates_leaves() {
+        let mut graph = Graph::strict();
+        graph.add_edge("c", "l1").expect("edge add should succeed");
+        graph.add_edge("c", "l2").expect("edge add should succeed");
+        graph.add_edge("c", "l3").expect("edge add should succeed");
+        graph.add_edge("c", "l4").expect("edge add should succeed");
+
+        let result = katz_centrality(&graph);
+        let center = result
+            .scores
+            .iter()
+            .find(|entry| entry.node == "c")
+            .expect("center node must exist")
+            .score;
+        let leaves = result
+            .scores
+            .iter()
+            .filter(|entry| entry.node.starts_with('l'))
+            .map(|entry| entry.score)
+            .collect::<Vec<f64>>();
+        assert_eq!(leaves.len(), 4);
+        for leaf in &leaves {
+            assert!(center > *leaf);
+        }
+        for pair in leaves.windows(2) {
+            assert!((pair[0] - pair[1]).abs() <= 1e-12);
+        }
+    }
+
+    #[test]
+    fn katz_centrality_empty_and_singleton_are_empty_or_one() {
+        let empty = Graph::strict();
+        let empty_result = katz_centrality(&empty);
+        assert!(empty_result.scores.is_empty());
+
+        let mut singleton = Graph::strict();
+        let _ = singleton.add_node("solo");
+        let single_result = katz_centrality(&singleton);
+        assert_eq!(single_result.scores.len(), 1);
+        assert_eq!(single_result.scores[0].node, "solo");
+        assert!((single_result.scores[0].score - 1.0).abs() <= 1e-12);
+    }
+
+    #[test]
+    fn hits_centrality_cycle_graph_is_uniform() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+        graph.add_edge("d", "a").expect("edge add should succeed");
+
+        let result = hits_centrality(&graph);
+        assert_eq!(result.hubs.len(), 4);
+        assert_eq!(result.authorities.len(), 4);
+        for score in result.hubs {
+            assert!((score.score - 0.25_f64).abs() <= 1e-12);
+        }
+        for score in result.authorities {
+            assert!((score.score - 0.25_f64).abs() <= 1e-12);
+        }
+        assert_eq!(result.witness.algorithm, "hits_centrality_power_iteration");
+        assert_eq!(result.witness.complexity_claim, "O(k * (|V| + |E|))");
+    }
+
+    #[test]
+    fn hits_centrality_path_graph_matches_expected_symmetry() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+
+        let result = hits_centrality(&graph);
+        assert_eq!(result.hubs.len(), 4);
+        assert_eq!(result.authorities.len(), 4);
+
+        let hubs = result
+            .hubs
+            .iter()
+            .map(|entry| (entry.node.as_str(), entry.score))
+            .collect::<BTreeMap<&str, f64>>();
+        let authorities = result
+            .authorities
+            .iter()
+            .map(|entry| (entry.node.as_str(), entry.score))
+            .collect::<BTreeMap<&str, f64>>();
+        assert!(
+            (hubs.get("a").copied().unwrap_or_default()
+                - hubs.get("d").copied().unwrap_or_default())
+            .abs()
+                <= 1e-12
+        );
+        assert!(
+            (hubs.get("b").copied().unwrap_or_default()
+                - hubs.get("c").copied().unwrap_or_default())
+            .abs()
+                <= 1e-12
+        );
+        assert!(
+            hubs.get("b").copied().unwrap_or_default() > hubs.get("a").copied().unwrap_or_default()
+        );
+        assert!(
+            (authorities.get("a").copied().unwrap_or_default()
+                - authorities.get("d").copied().unwrap_or_default())
+            .abs()
+                <= 1e-12
+        );
+        assert!(
+            (authorities.get("b").copied().unwrap_or_default()
+                - authorities.get("c").copied().unwrap_or_default())
+            .abs()
+                <= 1e-12
+        );
+        assert!(
+            authorities.get("b").copied().unwrap_or_default()
+                > authorities.get("a").copied().unwrap_or_default()
+        );
+    }
+
+    #[test]
+    fn hits_centrality_disconnected_graph_matches_expected_behavior() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        let _ = graph.add_node("c");
+
+        let result = hits_centrality(&graph);
+        let hubs = result
+            .hubs
+            .iter()
+            .map(|entry| (entry.node.as_str(), entry.score))
+            .collect::<BTreeMap<&str, f64>>();
+        let authorities = result
+            .authorities
+            .iter()
+            .map(|entry| (entry.node.as_str(), entry.score))
+            .collect::<BTreeMap<&str, f64>>();
+        assert!((hubs.get("a").copied().unwrap_or_default() - 0.5).abs() <= 1e-12);
+        assert!((hubs.get("b").copied().unwrap_or_default() - 0.5).abs() <= 1e-12);
+        assert!((hubs.get("c").copied().unwrap_or_default() - 0.0).abs() <= 1e-12);
+        assert!((authorities.get("a").copied().unwrap_or_default() - 0.5).abs() <= 1e-12);
+        assert!((authorities.get("b").copied().unwrap_or_default() - 0.5).abs() <= 1e-12);
+        assert!((authorities.get("c").copied().unwrap_or_default() - 0.0).abs() <= 1e-12);
+    }
+
+    #[test]
+    fn hits_centrality_empty_and_singleton_are_empty_or_one() {
+        let empty = Graph::strict();
+        let empty_result = hits_centrality(&empty);
+        assert!(empty_result.hubs.is_empty());
+        assert!(empty_result.authorities.is_empty());
+
+        let mut singleton = Graph::strict();
+        let _ = singleton.add_node("solo");
+        let result = hits_centrality(&singleton);
+        assert_eq!(result.hubs.len(), 1);
+        assert_eq!(result.authorities.len(), 1);
+        assert_eq!(result.hubs[0].node, "solo");
+        assert_eq!(result.authorities[0].node, "solo");
+        assert!((result.hubs[0].score - 1.0).abs() <= 1e-12);
+        assert!((result.authorities[0].score - 1.0).abs() <= 1e-12);
+    }
+
+    #[test]
+    fn pagerank_cycle_graph_is_uniform() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+        graph.add_edge("d", "a").expect("edge add should succeed");
+
+        let result = pagerank(&graph);
+        assert_eq!(result.scores.len(), 4);
+        for score in result.scores {
+            assert!((score.score - 0.25_f64).abs() <= 1e-12);
+        }
+        assert_eq!(result.witness.algorithm, "pagerank_power_iteration");
+        assert_eq!(result.witness.complexity_claim, "O(k * (|V| + |E|))");
+    }
+
+    #[test]
+    fn pagerank_star_graph_center_dominates_leaves() {
+        let mut graph = Graph::strict();
+        graph.add_edge("c", "l1").expect("edge add should succeed");
+        graph.add_edge("c", "l2").expect("edge add should succeed");
+        graph.add_edge("c", "l3").expect("edge add should succeed");
+        graph.add_edge("c", "l4").expect("edge add should succeed");
+
+        let result = pagerank(&graph);
+        let center = result
+            .scores
+            .iter()
+            .find(|entry| entry.node == "c")
+            .expect("center node must exist")
+            .score;
+        let leaves = result
+            .scores
+            .iter()
+            .filter(|entry| entry.node.starts_with('l'))
+            .map(|entry| entry.score)
+            .collect::<Vec<f64>>();
+        assert_eq!(leaves.len(), 4);
+        for leaf in &leaves {
+            assert!(center > *leaf);
+        }
+        for pair in leaves.windows(2) {
+            assert!((pair[0] - pair[1]).abs() <= 1e-12);
+        }
+    }
+
+    #[test]
+    fn pagerank_empty_and_singleton_are_empty_or_one() {
+        let empty = Graph::strict();
+        let empty_result = pagerank(&empty);
+        assert!(empty_result.scores.is_empty());
+
+        let mut singleton = Graph::strict();
+        let _ = singleton.add_node("solo");
+        let singleton_result = pagerank(&singleton);
+        assert_eq!(singleton_result.scores.len(), 1);
+        assert_eq!(singleton_result.scores[0].node, "solo");
+        assert!((singleton_result.scores[0].score - 1.0).abs() <= 1e-12);
+    }
+
+    #[test]
+    fn eigenvector_centrality_cycle_graph_is_uniform() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+        graph.add_edge("d", "a").expect("edge add should succeed");
+
+        let result = eigenvector_centrality(&graph);
+        assert_eq!(result.scores.len(), 4);
+        for score in result.scores {
+            assert!((score.score - 0.5_f64).abs() <= 1e-12);
+        }
+        assert_eq!(
+            result.witness.algorithm,
+            "eigenvector_centrality_power_iteration"
+        );
+        assert_eq!(result.witness.complexity_claim, "O(k * (|V| + |E|))");
+    }
+
+    #[test]
+    fn eigenvector_centrality_star_graph_center_dominates_leaves() {
+        let mut graph = Graph::strict();
+        graph.add_edge("c", "l1").expect("edge add should succeed");
+        graph.add_edge("c", "l2").expect("edge add should succeed");
+        graph.add_edge("c", "l3").expect("edge add should succeed");
+        graph.add_edge("c", "l4").expect("edge add should succeed");
+
+        let result = eigenvector_centrality(&graph);
+        let center = result
+            .scores
+            .iter()
+            .find(|entry| entry.node == "c")
+            .expect("center node must exist")
+            .score;
+        let leaves = result
+            .scores
+            .iter()
+            .filter(|entry| entry.node.starts_with('l'))
+            .map(|entry| entry.score)
+            .collect::<Vec<f64>>();
+        assert_eq!(leaves.len(), 4);
+        for leaf in &leaves {
+            assert!(center > *leaf);
+        }
+        for pair in leaves.windows(2) {
+            assert!((pair[0] - pair[1]).abs() <= 1e-12);
+        }
+    }
+
+    #[test]
+    fn eigenvector_centrality_empty_and_singleton_are_empty_or_one() {
+        let empty = Graph::strict();
+        let empty_result = eigenvector_centrality(&empty);
+        assert!(empty_result.scores.is_empty());
+
+        let mut singleton = Graph::strict();
+        let _ = singleton.add_node("solo");
+        let single_result = eigenvector_centrality(&singleton);
+        assert_eq!(single_result.scores.len(), 1);
+        assert_eq!(single_result.scores[0].node, "solo");
+        assert!((single_result.scores[0].score - 1.0).abs() <= 1e-12);
+    }
+
+    #[test]
     fn betweenness_centrality_path_graph_matches_expected_values() {
         let mut graph = Graph::strict();
         graph.add_edge("a", "b").expect("edge add should succeed");
@@ -2619,6 +3762,108 @@ mod tests {
     }
 
     #[test]
+    fn edge_betweenness_centrality_path_graph_matches_expected_values() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+
+        let result = edge_betweenness_centrality(&graph);
+        let as_edge_map = result
+            .scores
+            .iter()
+            .map(|entry| ((entry.left.as_str(), entry.right.as_str()), entry.score))
+            .collect::<BTreeMap<(&str, &str), f64>>();
+        assert!((as_edge_map.get(&("a", "b")).copied().unwrap_or_default() - 0.5).abs() <= 1e-12);
+        assert!(
+            (as_edge_map.get(&("b", "c")).copied().unwrap_or_default() - (2.0 / 3.0)).abs()
+                <= 1e-12
+        );
+        assert!((as_edge_map.get(&("c", "d")).copied().unwrap_or_default() - 0.5).abs() <= 1e-12);
+        assert_eq!(
+            result.witness.algorithm,
+            "brandes_edge_betweenness_centrality"
+        );
+        assert_eq!(result.witness.complexity_claim, "O(|V| * |E|)");
+    }
+
+    #[test]
+    fn edge_betweenness_centrality_cycle_graph_is_uniform() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+        graph.add_edge("d", "a").expect("edge add should succeed");
+
+        let result = edge_betweenness_centrality(&graph);
+        for score in result.scores {
+            assert!((score.score - (1.0 / 3.0)).abs() <= 1e-12);
+        }
+    }
+
+    #[test]
+    fn edge_betweenness_centrality_is_replay_stable_under_insertion_order_noise() {
+        let mut forward = Graph::strict();
+        for (left, right) in [("n0", "n1"), ("n1", "n2"), ("n2", "n3"), ("n0", "n3")] {
+            forward
+                .add_edge(left, right)
+                .expect("edge add should succeed");
+        }
+        let _ = forward.add_node("noise_a");
+
+        let mut reverse = Graph::strict();
+        for (left, right) in [("n0", "n3"), ("n2", "n3"), ("n1", "n2"), ("n0", "n1")] {
+            reverse
+                .add_edge(left, right)
+                .expect("edge add should succeed");
+        }
+        let _ = reverse.add_node("noise_a");
+
+        let forward_once = edge_betweenness_centrality(&forward);
+        let forward_twice = edge_betweenness_centrality(&forward);
+        let reverse_once = edge_betweenness_centrality(&reverse);
+        let reverse_twice = edge_betweenness_centrality(&reverse);
+
+        assert_eq!(forward_once, forward_twice);
+        assert_eq!(reverse_once, reverse_twice);
+
+        let as_edge_map =
+            |edges: Vec<super::EdgeCentralityScore>| -> BTreeMap<(String, String), f64> {
+                edges
+                    .into_iter()
+                    .map(|entry| ((entry.left, entry.right), entry.score))
+                    .collect::<BTreeMap<(String, String), f64>>()
+            };
+        let forward_map = as_edge_map(forward_once.scores);
+        let reverse_map = as_edge_map(reverse_once.scores);
+        assert_eq!(
+            forward_map.keys().collect::<Vec<&(String, String)>>(),
+            reverse_map.keys().collect::<Vec<&(String, String)>>()
+        );
+        for key in forward_map.keys() {
+            let left = *forward_map.get(key).unwrap_or(&0.0);
+            let right = *reverse_map.get(key).unwrap_or(&0.0);
+            assert!(
+                (left - right).abs() <= 1e-12,
+                "score mismatch for edge {:?}",
+                key
+            );
+        }
+    }
+
+    #[test]
+    fn edge_betweenness_centrality_empty_and_singleton_are_empty() {
+        let empty = Graph::strict();
+        let empty_result = edge_betweenness_centrality(&empty);
+        assert!(empty_result.scores.is_empty());
+
+        let mut singleton = Graph::strict();
+        let _ = singleton.add_node("solo");
+        let single_result = edge_betweenness_centrality(&singleton);
+        assert!(single_result.scores.is_empty());
+    }
+
+    #[test]
     fn unit_packet_005_contract_asserted() {
         let mut graph = Graph::strict();
         graph.add_edge("a", "b").expect("edge add should succeed");
@@ -2650,9 +3895,20 @@ mod tests {
         let degree = degree_centrality(&graph);
         let closeness = closeness_centrality(&graph);
         let harmonic = harmonic_centrality(&graph);
+        let katz = katz_centrality(&graph);
+        let hits = hits_centrality(&graph);
+        let edge_betweenness = edge_betweenness_centrality(&graph);
+        let pagerank_result = pagerank(&graph);
+        let eigenvector_result = eigenvector_centrality(&graph);
         assert_eq!(degree.scores.len(), 5);
         assert_eq!(closeness.scores.len(), 5);
         assert_eq!(harmonic.scores.len(), 5);
+        assert_eq!(katz.scores.len(), 5);
+        assert_eq!(hits.hubs.len(), 5);
+        assert_eq!(hits.authorities.len(), 5);
+        assert_eq!(edge_betweenness.scores.len(), 5);
+        assert_eq!(pagerank_result.scores.len(), 5);
+        assert_eq!(eigenvector_result.scores.len(), 5);
         assert!(
             degree.scores.iter().all(|entry| entry.score >= 0.0),
             "degree centrality must remain non-negative"
@@ -2664,6 +3920,62 @@ mod tests {
         assert!(
             harmonic.scores.iter().all(|entry| entry.score >= 0.0),
             "harmonic centrality must remain non-negative"
+        );
+        assert!(
+            katz.scores.iter().all(|entry| entry.score >= 0.0),
+            "katz centrality must remain non-negative"
+        );
+        assert!(
+            hits.hubs.iter().all(|entry| entry.score >= 0.0),
+            "hits hubs must remain non-negative"
+        );
+        assert!(
+            hits.authorities.iter().all(|entry| entry.score >= 0.0),
+            "hits authorities must remain non-negative"
+        );
+        assert!(
+            edge_betweenness
+                .scores
+                .iter()
+                .all(|entry| entry.score >= 0.0),
+            "edge betweenness centrality must remain non-negative"
+        );
+        assert!(
+            pagerank_result
+                .scores
+                .iter()
+                .all(|entry| entry.score >= 0.0),
+            "pagerank must remain non-negative"
+        );
+        assert!(
+            eigenvector_result
+                .scores
+                .iter()
+                .all(|entry| entry.score >= 0.0),
+            "eigenvector centrality must remain non-negative"
+        );
+        let pagerank_mass = pagerank_result
+            .scores
+            .iter()
+            .map(|entry| entry.score)
+            .sum::<f64>();
+        let hits_hub_mass = hits.hubs.iter().map(|entry| entry.score).sum::<f64>();
+        let hits_authority_mass = hits
+            .authorities
+            .iter()
+            .map(|entry| entry.score)
+            .sum::<f64>();
+        assert!(
+            (pagerank_mass - 1.0).abs() <= 1e-12,
+            "pagerank distribution must sum to one"
+        );
+        assert!(
+            (hits_hub_mass - 1.0).abs() <= 1e-12,
+            "hits hub distribution must sum to one"
+        );
+        assert!(
+            (hits_authority_mass - 1.0).abs() <= 1e-12,
+            "hits authority distribution must sum to one"
         );
 
         let mut environment = BTreeMap::new();
@@ -2758,6 +4070,11 @@ mod tests {
             let degree = degree_centrality(&graph);
             let closeness = closeness_centrality(&graph);
             let harmonic = harmonic_centrality(&graph);
+            let katz = katz_centrality(&graph);
+            let hits = hits_centrality(&graph);
+            let edge_betweenness = edge_betweenness_centrality(&graph);
+            let pagerank_result = pagerank(&graph);
+            let eigenvector_result = eigenvector_centrality(&graph);
             let degree_order = degree
                 .scores
                 .iter()
@@ -2769,6 +4086,36 @@ mod tests {
                 .map(|entry| entry.node.as_str())
                 .collect::<Vec<&str>>();
             let harmonic_order = harmonic
+                .scores
+                .iter()
+                .map(|entry| entry.node.as_str())
+                .collect::<Vec<&str>>();
+            let katz_order = katz
+                .scores
+                .iter()
+                .map(|entry| entry.node.as_str())
+                .collect::<Vec<&str>>();
+            let hits_hub_order = hits
+                .hubs
+                .iter()
+                .map(|entry| entry.node.as_str())
+                .collect::<Vec<&str>>();
+            let hits_authority_order = hits
+                .authorities
+                .iter()
+                .map(|entry| entry.node.as_str())
+                .collect::<Vec<&str>>();
+            let edge_betweenness_order = edge_betweenness
+                .scores
+                .iter()
+                .map(|entry| (entry.left.clone(), entry.right.clone()))
+                .collect::<Vec<(String, String)>>();
+            let pagerank_order = pagerank_result
+                .scores
+                .iter()
+                .map(|entry| entry.node.as_str())
+                .collect::<Vec<&str>>();
+            let eigenvector_order = eigenvector_result
                 .scores
                 .iter()
                 .map(|entry| entry.node.as_str())
@@ -2785,6 +4132,31 @@ mod tests {
             prop_assert_eq!(
                 harmonic_order, ordered_refs,
                 "P2C005-DC-3 harmonic centrality order must match graph node order"
+            );
+            prop_assert_eq!(
+                katz_order, graph.nodes_ordered(),
+                "P2C005-DC-3 katz centrality order must match graph node order"
+            );
+            prop_assert_eq!(
+                hits_hub_order, graph.nodes_ordered(),
+                "P2C005-DC-3 hits hub order must match graph node order"
+            );
+            prop_assert_eq!(
+                hits_authority_order, graph.nodes_ordered(),
+                "P2C005-DC-3 hits authority order must match graph node order"
+            );
+            let canonical_edges = canonical_edge_pairs(&graph);
+            prop_assert_eq!(
+                edge_betweenness_order, canonical_edges,
+                "P2C005-DC-3 edge betweenness order must match canonical edge order"
+            );
+            prop_assert_eq!(
+                pagerank_order, graph.nodes_ordered(),
+                "P2C005-DC-3 pagerank order must match graph node order"
+            );
+            prop_assert_eq!(
+                eigenvector_order, graph.nodes_ordered(),
+                "P2C005-DC-3 eigenvector centrality order must match graph node order"
             );
 
             if let Some(path) = &left.path {
@@ -3040,6 +4412,126 @@ mod tests {
                 as_score_map(&forward_harmonic.scores),
                 as_score_map(&reverse_harmonic.scores),
                 "P2C005-INV-2 harmonic-centrality scores must remain stable by node"
+            );
+
+            let forward_katz = katz_centrality(&forward);
+            let forward_katz_replay = katz_centrality(&forward);
+            let reverse_katz = katz_centrality(&reverse);
+            let reverse_katz_replay = katz_centrality(&reverse);
+            prop_assert_eq!(
+                &forward_katz.scores, &forward_katz_replay.scores,
+                "P2C005-INV-2 katz centrality must be replay-stable for forward insertion"
+            );
+            prop_assert_eq!(
+                &reverse_katz.scores, &reverse_katz_replay.scores,
+                "P2C005-INV-2 katz centrality must be replay-stable for reverse insertion"
+            );
+            prop_assert_eq!(
+                as_score_map(&forward_katz.scores),
+                as_score_map(&reverse_katz.scores),
+                "P2C005-INV-2 katz centrality scores must remain stable by node"
+            );
+
+            let forward_hits = hits_centrality(&forward);
+            let forward_hits_replay = hits_centrality(&forward);
+            let reverse_hits = hits_centrality(&reverse);
+            let reverse_hits_replay = hits_centrality(&reverse);
+            prop_assert_eq!(
+                &forward_hits.hubs, &forward_hits_replay.hubs,
+                "P2C005-INV-2 hits hubs must be replay-stable for forward insertion"
+            );
+            prop_assert_eq!(
+                &reverse_hits.hubs, &reverse_hits_replay.hubs,
+                "P2C005-INV-2 hits hubs must be replay-stable for reverse insertion"
+            );
+            prop_assert_eq!(
+                as_score_map(&forward_hits.hubs),
+                as_score_map(&reverse_hits.hubs),
+                "P2C005-INV-2 hits hub scores must remain stable by node"
+            );
+            prop_assert_eq!(
+                &forward_hits.authorities, &forward_hits_replay.authorities,
+                "P2C005-INV-2 hits authorities must be replay-stable for forward insertion"
+            );
+            prop_assert_eq!(
+                &reverse_hits.authorities, &reverse_hits_replay.authorities,
+                "P2C005-INV-2 hits authorities must be replay-stable for reverse insertion"
+            );
+            prop_assert_eq!(
+                as_score_map(&forward_hits.authorities),
+                as_score_map(&reverse_hits.authorities),
+                "P2C005-INV-2 hits authority scores must remain stable by node"
+            );
+
+            let forward_edge_betweenness = edge_betweenness_centrality(&forward);
+            let forward_edge_betweenness_replay = edge_betweenness_centrality(&forward);
+            let reverse_edge_betweenness = edge_betweenness_centrality(&reverse);
+            let reverse_edge_betweenness_replay = edge_betweenness_centrality(&reverse);
+            prop_assert_eq!(
+                &forward_edge_betweenness.scores, &forward_edge_betweenness_replay.scores,
+                "P2C005-INV-2 edge betweenness must be replay-stable for forward insertion"
+            );
+            prop_assert_eq!(
+                &reverse_edge_betweenness.scores, &reverse_edge_betweenness_replay.scores,
+                "P2C005-INV-2 edge betweenness must be replay-stable for reverse insertion"
+            );
+            let as_edge_score_map =
+                |scores: &[super::EdgeCentralityScore]| -> BTreeMap<(String, String), f64> {
+                    scores
+                        .iter()
+                        .map(|entry| ((entry.left.clone(), entry.right.clone()), entry.score))
+                        .collect::<BTreeMap<(String, String), f64>>()
+                };
+            let forward_edge_map = as_edge_score_map(&forward_edge_betweenness.scores);
+            let reverse_edge_map = as_edge_score_map(&reverse_edge_betweenness.scores);
+            prop_assert_eq!(
+                forward_edge_map.keys().collect::<Vec<&(String, String)>>(),
+                reverse_edge_map.keys().collect::<Vec<&(String, String)>>(),
+                "P2C005-INV-2 edge betweenness edge set must remain stable"
+            );
+            for key in forward_edge_map.keys() {
+                let left = *forward_edge_map.get(key).unwrap_or(&0.0);
+                let right = *reverse_edge_map.get(key).unwrap_or(&0.0);
+                prop_assert!(
+                    (left - right).abs() <= 1e-12,
+                    "P2C005-INV-2 edge betweenness scores must remain stable by edge"
+                );
+            }
+
+            let forward_pagerank = pagerank(&forward);
+            let forward_pagerank_replay = pagerank(&forward);
+            let reverse_pagerank = pagerank(&reverse);
+            let reverse_pagerank_replay = pagerank(&reverse);
+            prop_assert_eq!(
+                &forward_pagerank.scores, &forward_pagerank_replay.scores,
+                "P2C005-INV-2 pagerank must be replay-stable for forward insertion"
+            );
+            prop_assert_eq!(
+                &reverse_pagerank.scores, &reverse_pagerank_replay.scores,
+                "P2C005-INV-2 pagerank must be replay-stable for reverse insertion"
+            );
+            prop_assert_eq!(
+                as_score_map(&forward_pagerank.scores),
+                as_score_map(&reverse_pagerank.scores),
+                "P2C005-INV-2 pagerank scores must remain stable by node"
+            );
+
+            let forward_eigenvector = eigenvector_centrality(&forward);
+            let forward_eigenvector_replay = eigenvector_centrality(&forward);
+            let reverse_eigenvector = eigenvector_centrality(&reverse);
+            let reverse_eigenvector_replay = eigenvector_centrality(&reverse);
+            prop_assert_eq!(
+                &forward_eigenvector.scores, &forward_eigenvector_replay.scores,
+                "P2C005-INV-2 eigenvector centrality must be replay-stable for forward insertion"
+            );
+            prop_assert_eq!(
+                &reverse_eigenvector.scores, &reverse_eigenvector_replay.scores,
+                "P2C005-INV-2 eigenvector centrality must be replay-stable for reverse insertion"
+            );
+            prop_assert_eq!(
+                as_score_map(&forward_eigenvector.scores),
+                as_score_map(&reverse_eigenvector.scores),
+                "P2C005-INV-2 eigenvector centrality scores must remain stable by node"
             );
 
             let deterministic_seed = edges.iter().fold(7305_u64, |acc, (left_edge, right_edge)| {
