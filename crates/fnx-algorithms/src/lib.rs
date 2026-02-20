@@ -19,6 +19,7 @@ const KATZ_DEFAULT_MAX_ITERATIONS: usize = 1000;
 const KATZ_DEFAULT_TOLERANCE: f64 = 1.0e-6;
 const HITS_DEFAULT_MAX_ITERATIONS: usize = 100;
 const HITS_DEFAULT_TOLERANCE: f64 = 1.0e-8;
+const DISTANCE_COMPARISON_EPSILON: f64 = 1.0e-12;
 
 #[must_use]
 pub fn cgse_witness_schema_version() -> &'static str {
@@ -102,6 +103,26 @@ impl ComplexityWitness {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShortestPathResult {
     pub path: Option<Vec<String>>,
+    pub witness: ComplexityWitness,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WeightedDistanceEntry {
+    pub node: String,
+    pub distance: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WeightedPredecessorEntry {
+    pub node: String,
+    pub predecessor: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WeightedShortestPathsResult {
+    pub distances: Vec<WeightedDistanceEntry>,
+    pub predecessors: Vec<WeightedPredecessorEntry>,
+    pub negative_cycle_detected: bool,
     pub witness: ComplexityWitness,
 }
 
@@ -467,6 +488,192 @@ pub fn shortest_path_weighted(
             queue_peak,
         },
     }
+}
+
+#[must_use]
+pub fn multi_source_dijkstra(
+    graph: &Graph,
+    sources: &[&str],
+    weight_attr: &str,
+) -> WeightedShortestPathsResult {
+    let ordered_nodes = graph.nodes_ordered();
+    let mut settled = HashSet::<String>::new();
+    let mut distances = HashMap::<String, f64>::new();
+    let mut predecessors = HashMap::<String, Option<String>>::new();
+    let mut seen_sources = HashSet::<&str>::new();
+
+    let mut nodes_touched = 0usize;
+    let mut edges_scanned = 0usize;
+    let mut queue_peak = 0usize;
+
+    for source in sources {
+        if !graph.has_node(source) || !seen_sources.insert(source) {
+            continue;
+        }
+        distances.insert((*source).to_owned(), 0.0);
+        predecessors.insert((*source).to_owned(), None);
+        nodes_touched += 1;
+    }
+
+    queue_peak = queue_peak.max(distances.len());
+
+    loop {
+        let mut current: Option<(&str, f64)> = None;
+        for &node in &ordered_nodes {
+            if settled.contains(node) {
+                continue;
+            }
+            let Some(&candidate_distance) = distances.get(node) else {
+                continue;
+            };
+            match current {
+                None => current = Some((node, candidate_distance)),
+                Some((_, best_distance)) if candidate_distance < best_distance => {
+                    current = Some((node, candidate_distance));
+                }
+                _ => {}
+            }
+        }
+
+        let Some((current_node, current_distance)) = current else {
+            break;
+        };
+        settled.insert(current_node.to_owned());
+
+        let Some(neighbors) = graph.neighbors_iter(current_node) else {
+            continue;
+        };
+        for neighbor in neighbors {
+            edges_scanned += 1;
+            if settled.contains(neighbor) {
+                continue;
+            }
+            let edge_weight = edge_weight_or_default(graph, current_node, neighbor, weight_attr);
+            let candidate_distance = current_distance + edge_weight;
+            let should_update = match distances.get(neighbor) {
+                Some(existing_distance) => {
+                    candidate_distance + DISTANCE_COMPARISON_EPSILON < *existing_distance
+                }
+                None => true,
+            };
+            if should_update {
+                if distances
+                    .insert(neighbor.to_owned(), candidate_distance)
+                    .is_none()
+                {
+                    nodes_touched += 1;
+                }
+                predecessors.insert(neighbor.to_owned(), Some(current_node.to_owned()));
+            }
+        }
+
+        queue_peak = queue_peak.max(distances.len().saturating_sub(settled.len()));
+    }
+
+    weighted_paths_result(
+        &ordered_nodes,
+        distances,
+        predecessors,
+        false,
+        ComplexityWitness {
+            algorithm: "multi_source_dijkstra".to_owned(),
+            complexity_claim: "O(|V|^2 + |E|)".to_owned(),
+            nodes_touched,
+            edges_scanned,
+            queue_peak,
+        },
+    )
+}
+
+#[must_use]
+pub fn bellman_ford_shortest_paths(
+    graph: &Graph,
+    source: &str,
+    weight_attr: &str,
+) -> WeightedShortestPathsResult {
+    if !graph.has_node(source) {
+        return WeightedShortestPathsResult {
+            distances: Vec::new(),
+            predecessors: Vec::new(),
+            negative_cycle_detected: false,
+            witness: ComplexityWitness {
+                algorithm: "bellman_ford_shortest_paths".to_owned(),
+                complexity_claim: "O(|V| * |E|)".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    let ordered_nodes = graph.nodes_ordered();
+    let ordered_edges = undirected_edges_in_iteration_order(graph);
+    let mut distances = HashMap::<String, f64>::new();
+    let mut predecessors = HashMap::<String, Option<String>>::new();
+
+    distances.insert(source.to_owned(), 0.0);
+    predecessors.insert(source.to_owned(), None);
+
+    let mut nodes_touched = 1usize;
+    let mut edges_scanned = 0usize;
+    let mut queue_peak = 1usize;
+
+    for _ in 0..ordered_nodes.len().saturating_sub(1) {
+        let mut changed = false;
+        for (left, right) in &ordered_edges {
+            let edge_weight = signed_edge_weight_or_default(graph, left, right, weight_attr);
+            edges_scanned += 2;
+            if relax_weighted_edge(
+                left,
+                right,
+                edge_weight,
+                &mut distances,
+                &mut predecessors,
+                &mut nodes_touched,
+            ) {
+                changed = true;
+            }
+            if relax_weighted_edge(
+                right,
+                left,
+                edge_weight,
+                &mut distances,
+                &mut predecessors,
+                &mut nodes_touched,
+            ) {
+                changed = true;
+            }
+        }
+        queue_peak = queue_peak.max(distances.len());
+        if !changed {
+            break;
+        }
+    }
+
+    let mut negative_cycle_detected = false;
+    for (left, right) in &ordered_edges {
+        let edge_weight = signed_edge_weight_or_default(graph, left, right, weight_attr);
+        if can_relax_weighted_edge(left, right, edge_weight, &distances)
+            || can_relax_weighted_edge(right, left, edge_weight, &distances)
+        {
+            negative_cycle_detected = true;
+            break;
+        }
+    }
+
+    weighted_paths_result(
+        &ordered_nodes,
+        distances,
+        predecessors,
+        negative_cycle_detected,
+        ComplexityWitness {
+            algorithm: "bellman_ford_shortest_paths".to_owned(),
+            complexity_claim: "O(|V| * |E|)".to_owned(),
+            nodes_touched,
+            edges_scanned,
+            queue_peak,
+        },
+    )
 }
 
 #[must_use]
@@ -2358,6 +2565,90 @@ fn undirected_edges_in_iteration_order(graph: &Graph) -> Vec<(String, String)> {
     edges
 }
 
+fn weighted_paths_result(
+    ordered_nodes: &[&str],
+    distances: HashMap<String, f64>,
+    predecessors: HashMap<String, Option<String>>,
+    negative_cycle_detected: bool,
+    witness: ComplexityWitness,
+) -> WeightedShortestPathsResult {
+    let distance_entries = ordered_nodes
+        .iter()
+        .filter_map(|node| {
+            distances.get(*node).map(|distance| WeightedDistanceEntry {
+                node: (*node).to_owned(),
+                distance: *distance,
+            })
+        })
+        .collect::<Vec<WeightedDistanceEntry>>();
+    let predecessor_entries = ordered_nodes
+        .iter()
+        .filter(|node| distances.contains_key(**node))
+        .map(|node| WeightedPredecessorEntry {
+            node: (*node).to_owned(),
+            predecessor: predecessors.get(*node).cloned().flatten(),
+        })
+        .collect::<Vec<WeightedPredecessorEntry>>();
+
+    WeightedShortestPathsResult {
+        distances: distance_entries,
+        predecessors: predecessor_entries,
+        negative_cycle_detected,
+        witness,
+    }
+}
+
+fn relax_weighted_edge(
+    from: &str,
+    to: &str,
+    weight: f64,
+    distances: &mut HashMap<String, f64>,
+    predecessors: &mut HashMap<String, Option<String>>,
+    nodes_touched: &mut usize,
+) -> bool {
+    let Some(base_distance) = distances.get(from).copied() else {
+        return false;
+    };
+
+    let candidate_distance = base_distance + weight;
+    let should_update = match distances.get(to) {
+        Some(existing_distance) => {
+            candidate_distance + DISTANCE_COMPARISON_EPSILON < *existing_distance
+        }
+        None => true,
+    };
+    if !should_update {
+        return false;
+    }
+
+    if distances
+        .insert(to.to_owned(), candidate_distance)
+        .is_none()
+    {
+        *nodes_touched += 1;
+    }
+    predecessors.insert(to.to_owned(), Some(from.to_owned()));
+    true
+}
+
+fn can_relax_weighted_edge(
+    from: &str,
+    to: &str,
+    weight: f64,
+    distances: &HashMap<String, f64>,
+) -> bool {
+    let Some(base_distance) = distances.get(from).copied() else {
+        return false;
+    };
+    let candidate_distance = base_distance + weight;
+    match distances.get(to) {
+        Some(existing_distance) => {
+            candidate_distance + DISTANCE_COMPARISON_EPSILON < *existing_distance
+        }
+        None => true,
+    }
+}
+
 fn weighted_edge_candidates(graph: &Graph, weight_attr: &str) -> Vec<WeightedEdgeCandidate> {
     let mut candidates = undirected_edges_in_iteration_order(graph)
         .into_iter()
@@ -2509,6 +2800,15 @@ fn edge_weight_or_default(graph: &Graph, left: &str, right: &str, weight_attr: &
         .unwrap_or(1.0)
 }
 
+fn signed_edge_weight_or_default(graph: &Graph, left: &str, right: &str, weight_attr: &str) -> f64 {
+    graph
+        .edge_attrs(left, right)
+        .and_then(|attrs| attrs.get(weight_attr))
+        .and_then(|raw| raw.parse::<f64>().ok())
+        .filter(|value| value.is_finite())
+        .unwrap_or(1.0)
+}
+
 fn matching_edge_weight_or_default(
     graph: &Graph,
     left: &str,
@@ -2545,15 +2845,16 @@ fn stable_hash_hex(input: &[u8]) -> String {
 mod tests {
     use super::{
         CGSE_WITNESS_LEDGER_PATH, CGSE_WITNESS_POLICY_SPEC_PATH, CentralityScore,
-        ComplexityWitness, articulation_points, betweenness_centrality, bridges,
-        cgse_witness_schema_version, closeness_centrality, connected_components, degree_centrality,
-        edge_betweenness_centrality, edge_connectivity_edmonds_karp, eigenvector_centrality,
+        ComplexityWitness, articulation_points, bellman_ford_shortest_paths,
+        betweenness_centrality, bridges, cgse_witness_schema_version, closeness_centrality,
+        connected_components, degree_centrality, edge_betweenness_centrality,
+        edge_connectivity_edmonds_karp, eigenvector_centrality,
         global_edge_connectivity_edmonds_karp, global_minimum_edge_cut_edmonds_karp,
         harmonic_centrality, hits_centrality, is_matching, is_maximal_matching,
         is_perfect_matching, katz_centrality, max_flow_edmonds_karp, max_weight_matching,
         maximal_matching, min_weight_matching, minimum_cut_edmonds_karp,
-        minimum_st_edge_cut_edmonds_karp, number_connected_components, pagerank,
-        shortest_path_unweighted, shortest_path_weighted,
+        minimum_st_edge_cut_edmonds_karp, multi_source_dijkstra, number_connected_components,
+        pagerank, shortest_path_unweighted, shortest_path_weighted,
     };
     use fnx_classes::Graph;
     use fnx_runtime::{
@@ -2807,6 +3108,126 @@ mod tests {
         assert_eq!(left.witness, left_replay.witness);
         assert_eq!(right.path, right_replay.path);
         assert_eq!(right.witness, right_replay.witness);
+    }
+
+    #[test]
+    fn multi_source_dijkstra_returns_expected_distances_and_predecessors() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("a", "b", [("weight".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("b", "d", [("weight".to_owned(), "2".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("c", "d", [("weight".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("d", "e", [("weight".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+
+        let result = multi_source_dijkstra(&graph, &["a", "c"], "weight");
+        let distance_map = result
+            .distances
+            .iter()
+            .map(|entry| (entry.node.as_str(), entry.distance))
+            .collect::<BTreeMap<&str, f64>>();
+        assert!((distance_map.get("a").copied().unwrap_or_default() - 0.0).abs() <= 1e-12);
+        assert!((distance_map.get("b").copied().unwrap_or_default() - 1.0).abs() <= 1e-12);
+        assert!((distance_map.get("c").copied().unwrap_or_default() - 0.0).abs() <= 1e-12);
+        assert!((distance_map.get("d").copied().unwrap_or_default() - 1.0).abs() <= 1e-12);
+        assert!((distance_map.get("e").copied().unwrap_or_default() - 2.0).abs() <= 1e-12);
+
+        let predecessor_map = result
+            .predecessors
+            .iter()
+            .map(|entry| (entry.node.as_str(), entry.predecessor.clone()))
+            .collect::<BTreeMap<&str, Option<String>>>();
+        assert_eq!(predecessor_map.get("a"), Some(&None));
+        assert_eq!(predecessor_map.get("c"), Some(&None));
+        assert_eq!(predecessor_map.get("b"), Some(&Some("a".to_owned())));
+        assert_eq!(predecessor_map.get("d"), Some(&Some("c".to_owned())));
+        assert_eq!(predecessor_map.get("e"), Some(&Some("d".to_owned())));
+        assert!(!result.negative_cycle_detected);
+        assert_eq!(result.witness.algorithm, "multi_source_dijkstra");
+    }
+
+    #[test]
+    fn multi_source_dijkstra_is_replay_stable() {
+        let mut graph = Graph::strict();
+        for (left, right) in [("a", "b"), ("b", "c"), ("c", "d"), ("a", "d")] {
+            graph
+                .add_edge_with_attrs(left, right, [("weight".to_owned(), "1".to_owned())].into())
+                .expect("edge add should succeed");
+        }
+
+        let first = multi_source_dijkstra(&graph, &["a", "c"], "weight");
+        let second = multi_source_dijkstra(&graph, &["a", "c"], "weight");
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn multi_source_dijkstra_ignores_missing_sources() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("a", "b", [("weight".to_owned(), "3".to_owned())].into())
+            .expect("edge add should succeed");
+
+        let result = multi_source_dijkstra(&graph, &["missing", "a"], "weight");
+        assert_eq!(result.distances.len(), 2);
+        assert_eq!(result.predecessors.len(), 2);
+        assert!(!result.negative_cycle_detected);
+    }
+
+    #[test]
+    fn bellman_ford_shortest_paths_positive_weights_match_expected() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("a", "b", [("weight".to_owned(), "2".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("b", "c", [("weight".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "c", [("weight".to_owned(), "10".to_owned())].into())
+            .expect("edge add should succeed");
+
+        let result = bellman_ford_shortest_paths(&graph, "a", "weight");
+        let distance_map = result
+            .distances
+            .iter()
+            .map(|entry| (entry.node.as_str(), entry.distance))
+            .collect::<BTreeMap<&str, f64>>();
+        assert!((distance_map.get("a").copied().unwrap_or_default() - 0.0).abs() <= 1e-12);
+        assert!((distance_map.get("b").copied().unwrap_or_default() - 2.0).abs() <= 1e-12);
+        assert!((distance_map.get("c").copied().unwrap_or_default() - 3.0).abs() <= 1e-12);
+        assert!(!result.negative_cycle_detected);
+        assert_eq!(result.witness.algorithm, "bellman_ford_shortest_paths");
+    }
+
+    #[test]
+    fn bellman_ford_shortest_paths_detects_negative_cycle() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("a", "b", [("weight".to_owned(), "-1".to_owned())].into())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("b", "c", [("weight".to_owned(), "2".to_owned())].into())
+            .expect("edge add should succeed");
+
+        let result = bellman_ford_shortest_paths(&graph, "a", "weight");
+        assert!(result.negative_cycle_detected);
+    }
+
+    #[test]
+    fn bellman_ford_shortest_paths_returns_empty_for_missing_source() {
+        let mut graph = Graph::strict();
+        let _ = graph.add_node("only");
+
+        let result = bellman_ford_shortest_paths(&graph, "missing", "weight");
+        assert!(result.distances.is_empty());
+        assert!(result.predecessors.is_empty());
+        assert!(!result.negative_cycle_detected);
     }
 
     #[test]
@@ -4592,6 +5013,20 @@ mod tests {
         assert_eq!(path_result.witness.algorithm, "bfs_shortest_path");
         assert_eq!(path_result.witness.complexity_claim, "O(|V| + |E|)");
 
+        let weighted_sources = multi_source_dijkstra(&graph, &["a", "d"], "weight");
+        let bellman_ford = bellman_ford_shortest_paths(&graph, "a", "weight");
+        assert!(!weighted_sources.distances.is_empty());
+        assert!(!weighted_sources.predecessors.is_empty());
+        assert!(!weighted_sources.negative_cycle_detected);
+        assert!(!bellman_ford.distances.is_empty());
+        assert!(!bellman_ford.predecessors.is_empty());
+        assert!(!bellman_ford.negative_cycle_detected);
+        assert_eq!(weighted_sources.witness.algorithm, "multi_source_dijkstra");
+        assert_eq!(
+            bellman_ford.witness.algorithm,
+            "bellman_ford_shortest_paths"
+        );
+
         let components = connected_components(&graph);
         assert_eq!(components.components.len(), 1);
         assert_eq!(
@@ -4788,6 +5223,54 @@ mod tests {
             prop_assert_eq!(
                 &left.witness, &right.witness,
                 "P2C005-INV-1 complexity witness replay must be deterministic"
+            );
+
+            let multi_source_left = multi_source_dijkstra(&graph, &[&source], "weight");
+            let multi_source_right = multi_source_dijkstra(&graph, &[&source], "weight");
+            prop_assert_eq!(
+                &multi_source_left, &multi_source_right,
+                "P2C005-INV-1 multi-source dijkstra replay must be deterministic"
+            );
+            let multi_source_nodes = multi_source_left
+                .distances
+                .iter()
+                .map(|entry| entry.node.clone())
+                .collect::<Vec<String>>();
+            let expected_multi_source_nodes = graph
+                .nodes_ordered()
+                .into_iter()
+                .filter(|node| multi_source_nodes.iter().any(|candidate| candidate == node))
+                .map(str::to_owned)
+                .collect::<Vec<String>>();
+            prop_assert_eq!(
+                multi_source_nodes, expected_multi_source_nodes,
+                "P2C005-DC-3 multi-source dijkstra order must match graph node order for reached nodes"
+            );
+
+            let bellman_left = bellman_ford_shortest_paths(&graph, &source, "weight");
+            let bellman_right = bellman_ford_shortest_paths(&graph, &source, "weight");
+            prop_assert_eq!(
+                &bellman_left, &bellman_right,
+                "P2C005-INV-1 bellman-ford replay must be deterministic"
+            );
+            let bellman_nodes = bellman_left
+                .distances
+                .iter()
+                .map(|entry| entry.node.clone())
+                .collect::<Vec<String>>();
+            let expected_bellman_nodes = graph
+                .nodes_ordered()
+                .into_iter()
+                .filter(|node| bellman_nodes.iter().any(|candidate| candidate == node))
+                .map(str::to_owned)
+                .collect::<Vec<String>>();
+            prop_assert_eq!(
+                bellman_nodes, expected_bellman_nodes,
+                "P2C005-DC-3 bellman-ford order must match graph node order for reached nodes"
+            );
+            prop_assert!(
+                !bellman_left.negative_cycle_detected,
+                "P2C005-INV-1 generated unweighted graph should not trigger bellman-ford negative cycle"
             );
 
             let components = connected_components(&graph);
@@ -5138,6 +5621,52 @@ mod tests {
                 forward_path.path.as_ref().map(Vec::len),
                 reverse_path.path.as_ref().map(Vec::len),
                 "P2C005-INV-2 shortest-path hop count should remain stable across insertion perturbation"
+            );
+
+            let forward_multi_source = multi_source_dijkstra(&forward, &[&source], "weight");
+            let forward_multi_source_replay = multi_source_dijkstra(&forward, &[&source], "weight");
+            let reverse_multi_source = multi_source_dijkstra(&reverse, &[&source], "weight");
+            let reverse_multi_source_replay = multi_source_dijkstra(&reverse, &[&source], "weight");
+            prop_assert_eq!(
+                &forward_multi_source, &forward_multi_source_replay,
+                "P2C005-INV-2 multi-source dijkstra must be replay-stable for forward insertion"
+            );
+            prop_assert_eq!(
+                &reverse_multi_source, &reverse_multi_source_replay,
+                "P2C005-INV-2 multi-source dijkstra must be replay-stable for reverse insertion"
+            );
+            let as_distance_map = |distances: &[super::WeightedDistanceEntry]| -> BTreeMap<String, f64> {
+                distances
+                    .iter()
+                    .map(|entry| (entry.node.clone(), entry.distance))
+                    .collect::<BTreeMap<String, f64>>()
+            };
+            prop_assert_eq!(
+                as_distance_map(&forward_multi_source.distances),
+                as_distance_map(&reverse_multi_source.distances),
+                "P2C005-INV-2 multi-source dijkstra distances must remain stable by node"
+            );
+
+            let forward_bellman_ford = bellman_ford_shortest_paths(&forward, &source, "weight");
+            let forward_bellman_ford_replay = bellman_ford_shortest_paths(&forward, &source, "weight");
+            let reverse_bellman_ford = bellman_ford_shortest_paths(&reverse, &source, "weight");
+            let reverse_bellman_ford_replay = bellman_ford_shortest_paths(&reverse, &source, "weight");
+            prop_assert_eq!(
+                &forward_bellman_ford, &forward_bellman_ford_replay,
+                "P2C005-INV-2 bellman-ford must be replay-stable for forward insertion"
+            );
+            prop_assert_eq!(
+                &reverse_bellman_ford, &reverse_bellman_ford_replay,
+                "P2C005-INV-2 bellman-ford must be replay-stable for reverse insertion"
+            );
+            prop_assert_eq!(
+                as_distance_map(&forward_bellman_ford.distances),
+                as_distance_map(&reverse_bellman_ford.distances),
+                "P2C005-INV-2 bellman-ford distances must remain stable by node"
+            );
+            prop_assert!(
+                !forward_bellman_ford.negative_cycle_detected && !reverse_bellman_ford.negative_cycle_detected,
+                "P2C005-INV-2 generated unweighted graph should not trigger bellman-ford negative cycle"
             );
 
             let forward_components = connected_components(&forward);

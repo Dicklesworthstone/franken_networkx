@@ -1,10 +1,10 @@
 #![forbid(unsafe_code)]
 
 use fnx_algorithms::{
-    CentralityScore, ComplexityWitness, MinimumCutResult, betweenness_centrality,
-    closeness_centrality, connected_components, degree_centrality, max_flow_edmonds_karp,
-    minimum_cut_edmonds_karp, number_connected_components, shortest_path_unweighted,
-    shortest_path_weighted,
+    CentralityScore, ComplexityWitness, MinimumCutResult, articulation_points,
+    betweenness_centrality, bridges, closeness_centrality, connected_components, degree_centrality,
+    max_flow_edmonds_karp, minimum_cut_edmonds_karp, number_connected_components,
+    shortest_path_unweighted, shortest_path_weighted,
 };
 use fnx_classes::{AttrMap, EdgeSnapshot, Graph, GraphSnapshot};
 use fnx_convert::{AdjacencyPayload, EdgeListPayload, GraphConverter};
@@ -273,6 +273,8 @@ enum Operation {
     ClosenessCentralityQuery,
     ConnectedComponentsQuery,
     NumberConnectedComponentsQuery,
+    ArticulationPointsQuery,
+    BridgesQuery,
     DispatchResolve {
         operation: String,
         #[serde(default)]
@@ -341,6 +343,10 @@ struct ExpectedState {
     #[serde(default)]
     number_connected_components: Option<usize>,
     #[serde(default)]
+    articulation_points: Option<Vec<String>>,
+    #[serde(default)]
+    bridges: Option<Vec<(String, String)>>,
+    #[serde(default)]
     dispatch: Option<ExpectedDispatch>,
     #[serde(default)]
     serialized_edgelist: Option<String>,
@@ -394,6 +400,8 @@ struct ExecutionContext {
     closeness_centrality_result: Option<Vec<CentralityScore>>,
     connected_components_result: Option<Vec<Vec<String>>>,
     number_connected_components_result: Option<usize>,
+    articulation_points_result: Option<Vec<String>>,
+    bridges_result: Option<Vec<(String, String)>>,
     warnings: Vec<String>,
     witness: Option<ComplexityWitness>,
 }
@@ -1137,6 +1145,8 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
         closeness_centrality_result: None,
         connected_components_result: None,
         number_connected_components_result: None,
+        articulation_points_result: None,
+        bridges_result: None,
         warnings: Vec::new(),
         witness: None,
     };
@@ -1218,6 +1228,16 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
             Operation::NumberConnectedComponentsQuery => {
                 let result = number_connected_components(&context.graph);
                 context.number_connected_components_result = Some(result.count);
+                context.witness = Some(result.witness);
+            }
+            Operation::ArticulationPointsQuery => {
+                let result = articulation_points(&context.graph);
+                context.articulation_points_result = Some(result.nodes);
+                context.witness = Some(result.witness);
+            }
+            Operation::BridgesQuery => {
+                let result = bridges(&context.graph);
+                context.bridges_result = Some(result.edges);
                 context.witness = Some(result.witness);
             }
             Operation::DispatchResolve {
@@ -1543,6 +1563,44 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
                 expected_count, context.number_connected_components_result
             ),
         });
+    }
+
+    if let Some(expected_nodes) = fixture.expected.articulation_points {
+        match context.articulation_points_result.as_ref() {
+            Some(actual_nodes) => {
+                if actual_nodes != &expected_nodes {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_structure".to_owned(),
+                        message: format!(
+                            "articulation_points mismatch: expected {expected_nodes:?}, got {actual_nodes:?}"
+                        ),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_structure".to_owned(),
+                message: "expected articulation_points result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(expected_edges) = fixture.expected.bridges {
+        match context.bridges_result.as_ref() {
+            Some(actual_edges) => {
+                if actual_edges != &expected_edges {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_structure".to_owned(),
+                        message: format!(
+                            "bridges mismatch: expected {expected_edges:?}, got {actual_edges:?}"
+                        ),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_structure".to_owned(),
+                message: "expected bridges result but none produced".to_owned(),
+            }),
+        }
     }
 
     if let Some(expected_dispatch) = fixture.expected.dispatch {
