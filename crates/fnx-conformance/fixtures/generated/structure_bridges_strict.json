@@ -1,0 +1,38 @@
+{
+  "suite": "structure_v1",
+  "mode": "strict",
+  "fixture_id": "structure_bridges_strict",
+  "operations": [
+    { "op": "add_edge", "left": "a", "right": "b" },
+    { "op": "add_edge", "left": "b", "right": "c" },
+    { "op": "add_edge", "left": "c", "right": "a" },
+    { "op": "add_edge", "left": "c", "right": "d" },
+    { "op": "add_edge", "left": "d", "right": "e" },
+    { "op": "add_edge", "left": "e", "right": "f" },
+    { "op": "add_edge", "left": "f", "right": "d" },
+    { "op": "add_edge", "left": "f", "right": "g" },
+    { "op": "add_edge", "left": "g", "right": "h" },
+    { "op": "bridges_query" }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["a", "b", "c", "d", "e", "f", "g", "h"],
+      "edges": [
+        { "left": "a", "right": "b", "attrs": {} },
+        { "left": "b", "right": "c", "attrs": {} },
+        { "left": "a", "right": "c", "attrs": {} },
+        { "left": "c", "right": "d", "attrs": {} },
+        { "left": "d", "right": "e", "attrs": {} },
+        { "left": "e", "right": "f", "attrs": {} },
+        { "left": "d", "right": "f", "attrs": {} },
+        { "left": "f", "right": "g", "attrs": {} },
+        { "left": "g", "right": "h", "attrs": {} }
+      ]
+    },
+    "bridges": [
+      ["c", "d"],
+      ["f", "g"],
+      ["g", "h"]
+    ]
+  }
+}
