@@ -1,0 +1,69 @@
+{
+  "suite": "centrality_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "b"
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "c"
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "d"
+    },
+    {
+      "op": "eigenvector_centrality_query"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "a",
+        "b",
+        "c",
+        "d"
+      ],
+      "edges": [
+        {
+          "left": "a",
+          "right": "b",
+          "attrs": {}
+        },
+        {
+          "left": "a",
+          "right": "c",
+          "attrs": {}
+        },
+        {
+          "left": "b",
+          "right": "d",
+          "attrs": {}
+        }
+      ]
+    },
+    "eigenvector_centrality": [
+      {
+        "node": "a",
+        "score": 0.6015008315175004
+      },
+      {
+        "node": "b",
+        "score": 0.6015008315175004
+      },
+      {
+        "node": "c",
+        "score": 0.37174823427120085
+      },
+      {
+        "node": "d",
+        "score": 0.37174823427120085
+      }
+    ]
+  }
+}

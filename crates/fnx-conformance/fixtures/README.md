@@ -22,3 +22,4 @@ This folder stores normalized oracle-vs-target fixtures for fnx-conformance.
 - `generated/centrality_harmonic_strict.json`: deterministic harmonic-centrality parity.
 - `generated/centrality_katz_strict.json`: deterministic Katz-centrality parity.
 - `generated/centrality_pagerank_strict.json`: deterministic PageRank parity.
+- `generated/centrality_eigenvector_strict.json`: deterministic eigenvector-centrality parity.

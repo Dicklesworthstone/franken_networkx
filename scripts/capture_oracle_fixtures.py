@@ -261,6 +261,44 @@ def main() -> int:
         },
     }
 
+    harmonic_scores = nx.harmonic_centrality(centrality_graph)
+    harmonic_fixture = {
+        "suite": "centrality_v1",
+        "mode": "strict",
+        "operations": [
+            {"op": "add_edge", "left": "a", "right": "b"},
+            {"op": "add_edge", "left": "a", "right": "c"},
+            {"op": "add_edge", "left": "b", "right": "d"},
+            {"op": "harmonic_centrality_query"},
+        ],
+        "expected": {
+            "graph": graph_snapshot(centrality_graph),
+            "harmonic_centrality": [
+                {"node": str(node), "score": float(harmonic_scores[node])}
+                for node in centrality_graph.nodes()
+            ],
+        },
+    }
+
+    katz_scores = nx.katz_centrality(centrality_graph)
+    katz_fixture = {
+        "suite": "centrality_v1",
+        "mode": "strict",
+        "operations": [
+            {"op": "add_edge", "left": "a", "right": "b"},
+            {"op": "add_edge", "left": "a", "right": "c"},
+            {"op": "add_edge", "left": "b", "right": "d"},
+            {"op": "katz_centrality_query"},
+        ],
+        "expected": {
+            "graph": graph_snapshot(centrality_graph),
+            "katz_centrality": [
+                {"node": str(node), "score": float(katz_scores[node])}
+                for node in centrality_graph.nodes()
+            ],
+        },
+    }
+
     pagerank_graph = nx.Graph()
     pagerank_graph.add_edge("a", "b")
     pagerank_scores = _pagerank_python(pagerank_graph)
@@ -276,6 +314,25 @@ def main() -> int:
             "pagerank": [
                 {"node": str(node), "score": float(score)}
                 for node, score in pagerank_scores.items()
+            ],
+        },
+    }
+
+    eigenvector_scores = nx.eigenvector_centrality(centrality_graph)
+    eigenvector_fixture = {
+        "suite": "centrality_v1",
+        "mode": "strict",
+        "operations": [
+            {"op": "add_edge", "left": "a", "right": "b"},
+            {"op": "add_edge", "left": "a", "right": "c"},
+            {"op": "add_edge", "left": "b", "right": "d"},
+            {"op": "eigenvector_centrality_query"},
+        ],
+        "expected": {
+            "graph": graph_snapshot(centrality_graph),
+            "eigenvector_centrality": [
+                {"node": str(node), "score": float(eigenvector_scores[node])}
+                for node in centrality_graph.nodes()
             ],
         },
     }
@@ -320,7 +377,12 @@ def main() -> int:
     write_json(fixture_root / "centrality_degree_strict.json", centrality_fixture)
     write_json(fixture_root / "centrality_betweenness_strict.json", betweenness_fixture)
     write_json(fixture_root / "centrality_closeness_strict.json", closeness_fixture)
+    write_json(fixture_root / "centrality_harmonic_strict.json", harmonic_fixture)
+    write_json(fixture_root / "centrality_katz_strict.json", katz_fixture)
     write_json(fixture_root / "centrality_pagerank_strict.json", pagerank_fixture)
+    write_json(
+        fixture_root / "centrality_eigenvector_strict.json", eigenvector_fixture
+    )
 
     oracle_capture = {
         "oracle": "legacy_networkx",
@@ -338,7 +400,10 @@ def main() -> int:
             "centrality_degree_strict.json",
             "centrality_betweenness_strict.json",
             "centrality_closeness_strict.json",
+            "centrality_harmonic_strict.json",
+            "centrality_katz_strict.json",
             "centrality_pagerank_strict.json",
+            "centrality_eigenvector_strict.json",
         ],
         "snapshots": {
             "convert_graph": graph_snapshot(convert_graph),
