@@ -1,0 +1,39 @@
+{
+  "suite": "centrality_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "b"
+    },
+    {
+      "op": "pagerank_query"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "a",
+        "b"
+      ],
+      "edges": [
+        {
+          "left": "a",
+          "right": "b",
+          "attrs": {}
+        }
+      ]
+    },
+    "pagerank": [
+      {
+        "node": "a",
+        "score": 0.5
+      },
+      {
+        "node": "b",
+        "score": 0.5
+      }
+    ]
+  }
+}

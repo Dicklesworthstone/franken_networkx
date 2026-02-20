@@ -56,6 +56,9 @@ def main() -> int:
 
     sys.path.insert(0, str(legacy_root))
     import networkx as nx  # type: ignore
+    from networkx.algorithms.link_analysis.pagerank_alg import (  # type: ignore
+        _pagerank_python,
+    )
 
     convert_graph = nx.Graph()
     convert_graph.add_edge("a", "b", weight=1)
@@ -258,6 +261,25 @@ def main() -> int:
         },
     }
 
+    pagerank_graph = nx.Graph()
+    pagerank_graph.add_edge("a", "b")
+    pagerank_scores = _pagerank_python(pagerank_graph)
+    pagerank_fixture = {
+        "suite": "centrality_v1",
+        "mode": "strict",
+        "operations": [
+            {"op": "add_edge", "left": "a", "right": "b"},
+            {"op": "pagerank_query"},
+        ],
+        "expected": {
+            "graph": graph_snapshot(pagerank_graph),
+            "pagerank": [
+                {"node": str(node), "score": float(score)}
+                for node, score in pagerank_scores.items()
+            ],
+        },
+    }
+
     cycle_graph = nx.cycle_graph(5)
     generate_cycle_fixture = {
         "suite": "generators_v1",
@@ -298,6 +320,7 @@ def main() -> int:
     write_json(fixture_root / "centrality_degree_strict.json", centrality_fixture)
     write_json(fixture_root / "centrality_betweenness_strict.json", betweenness_fixture)
     write_json(fixture_root / "centrality_closeness_strict.json", closeness_fixture)
+    write_json(fixture_root / "centrality_pagerank_strict.json", pagerank_fixture)
 
     oracle_capture = {
         "oracle": "legacy_networkx",
@@ -315,6 +338,7 @@ def main() -> int:
             "centrality_degree_strict.json",
             "centrality_betweenness_strict.json",
             "centrality_closeness_strict.json",
+            "centrality_pagerank_strict.json",
         ],
         "snapshots": {
             "convert_graph": graph_snapshot(convert_graph),
@@ -327,6 +351,7 @@ def main() -> int:
             "complete_graph": graph_snapshot(complete_graph),
             "centrality_graph": graph_snapshot(centrality_graph),
             "closeness_graph": graph_snapshot(closeness_graph),
+            "pagerank_graph": graph_snapshot(pagerank_graph),
         },
     }
     write_json(artifact_root / "legacy_networkx_capture.json", oracle_capture)

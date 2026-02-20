@@ -1608,7 +1608,12 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
     if let Some(expected_scores) = fixture.expected.pagerank {
         match context.pagerank_result.as_ref() {
             Some(actual_scores) => {
-                compare_centrality_scores("pagerank", actual_scores, &expected_scores, &mut mismatches);
+                compare_centrality_scores(
+                    "pagerank",
+                    actual_scores,
+                    &expected_scores,
+                    &mut mismatches,
+                );
             }
             None => mismatches.push(Mismatch {
                 category: "algorithm_centrality".to_owned(),
