@@ -3,9 +3,9 @@
 use fnx_algorithms::{
     CentralityScore, ComplexityWitness, MinimumCutResult, articulation_points,
     betweenness_centrality, bridges, closeness_centrality, connected_components, degree_centrality,
-    eigenvector_centrality, harmonic_centrality, katz_centrality, max_flow_edmonds_karp,
-    minimum_cut_edmonds_karp, number_connected_components, pagerank, shortest_path_unweighted,
-    shortest_path_weighted,
+    eigenvector_centrality, harmonic_centrality, hits_centrality, katz_centrality,
+    max_flow_edmonds_karp, minimum_cut_edmonds_karp, number_connected_components, pagerank,
+    shortest_path_unweighted, shortest_path_weighted,
 };
 use fnx_classes::{AttrMap, EdgeSnapshot, Graph, GraphSnapshot};
 use fnx_convert::{AdjacencyPayload, EdgeListPayload, GraphConverter};
@@ -274,6 +274,7 @@ enum Operation {
     ClosenessCentralityQuery,
     HarmonicCentralityQuery,
     KatzCentralityQuery,
+    HitsCentralityQuery,
     PagerankQuery,
     EigenvectorCentralityQuery,
     ConnectedComponentsQuery,
@@ -348,6 +349,10 @@ struct ExpectedState {
     #[serde(default)]
     katz_centrality: Option<Vec<ExpectedCentralityScore>>,
     #[serde(default)]
+    hits_hubs: Option<Vec<ExpectedCentralityScore>>,
+    #[serde(default)]
+    hits_authorities: Option<Vec<ExpectedCentralityScore>>,
+    #[serde(default)]
     pagerank: Option<Vec<ExpectedCentralityScore>>,
     #[serde(default)]
     eigenvector_centrality: Option<Vec<ExpectedCentralityScore>>,
@@ -413,6 +418,8 @@ struct ExecutionContext {
     closeness_centrality_result: Option<Vec<CentralityScore>>,
     harmonic_centrality_result: Option<Vec<CentralityScore>>,
     katz_centrality_result: Option<Vec<CentralityScore>>,
+    hits_hubs_result: Option<Vec<CentralityScore>>,
+    hits_authorities_result: Option<Vec<CentralityScore>>,
     pagerank_result: Option<Vec<CentralityScore>>,
     eigenvector_centrality_result: Option<Vec<CentralityScore>>,
     connected_components_result: Option<Vec<Vec<String>>>,
@@ -1162,6 +1169,8 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
         closeness_centrality_result: None,
         harmonic_centrality_result: None,
         katz_centrality_result: None,
+        hits_hubs_result: None,
+        hits_authorities_result: None,
         pagerank_result: None,
         eigenvector_centrality_result: None,
         connected_components_result: None,
@@ -1249,6 +1258,12 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
             Operation::KatzCentralityQuery => {
                 let result = katz_centrality(&context.graph);
                 context.katz_centrality_result = Some(result.scores);
+                context.witness = Some(result.witness);
+            }
+            Operation::HitsCentralityQuery => {
+                let result = hits_centrality(&context.graph);
+                context.hits_hubs_result = Some(result.hubs);
+                context.hits_authorities_result = Some(result.authorities);
                 context.witness = Some(result.witness);
             }
             Operation::PagerankQuery => {
@@ -1616,6 +1631,40 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
         }
     }
 
+    if let Some(expected_scores) = fixture.expected.hits_hubs {
+        match context.hits_hubs_result.as_ref() {
+            Some(actual_scores) => {
+                compare_centrality_scores(
+                    "hits_hubs",
+                    actual_scores,
+                    &expected_scores,
+                    &mut mismatches,
+                );
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_centrality".to_owned(),
+                message: "expected hits_hubs result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(expected_scores) = fixture.expected.hits_authorities {
+        match context.hits_authorities_result.as_ref() {
+            Some(actual_scores) => {
+                compare_centrality_scores(
+                    "hits_authorities",
+                    actual_scores,
+                    &expected_scores,
+                    &mut mismatches,
+                );
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_centrality".to_owned(),
+                message: "expected hits_authorities result but none produced".to_owned(),
+            }),
+        }
+    }
+
     if let Some(expected_scores) = fixture.expected.pagerank {
         match context.pagerank_result.as_ref() {
             Some(actual_scores) => {
@@ -1884,6 +1933,7 @@ fn default_dispatch_registry(mode: CompatibilityMode) -> BackendRegistry {
             "closeness_centrality",
             "harmonic_centrality",
             "katz_centrality",
+            "hits_centrality",
             "pagerank",
             "eigenvector_centrality",
             "generate_path_graph",

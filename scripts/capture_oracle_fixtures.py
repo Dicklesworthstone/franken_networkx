@@ -56,6 +56,7 @@ def main() -> int:
 
     sys.path.insert(0, str(legacy_root))
     import networkx as nx  # type: ignore
+    from networkx.algorithms.link_analysis.hits_alg import _hits_python  # type: ignore
     from networkx.algorithms.link_analysis.pagerank_alg import (  # type: ignore
         _pagerank_python,
     )
@@ -299,6 +300,29 @@ def main() -> int:
         },
     }
 
+    hits_hubs, hits_authorities = _hits_python(centrality_graph)
+    hits_fixture = {
+        "suite": "centrality_v1",
+        "mode": "strict",
+        "operations": [
+            {"op": "add_edge", "left": "a", "right": "b"},
+            {"op": "add_edge", "left": "a", "right": "c"},
+            {"op": "add_edge", "left": "b", "right": "d"},
+            {"op": "hits_centrality_query"},
+        ],
+        "expected": {
+            "graph": graph_snapshot(centrality_graph),
+            "hits_hubs": [
+                {"node": str(node), "score": float(hits_hubs[node])}
+                for node in centrality_graph.nodes()
+            ],
+            "hits_authorities": [
+                {"node": str(node), "score": float(hits_authorities[node])}
+                for node in centrality_graph.nodes()
+            ],
+        },
+    }
+
     pagerank_graph = nx.Graph()
     pagerank_graph.add_edge("a", "b")
     pagerank_scores = _pagerank_python(pagerank_graph)
@@ -379,6 +403,7 @@ def main() -> int:
     write_json(fixture_root / "centrality_closeness_strict.json", closeness_fixture)
     write_json(fixture_root / "centrality_harmonic_strict.json", harmonic_fixture)
     write_json(fixture_root / "centrality_katz_strict.json", katz_fixture)
+    write_json(fixture_root / "centrality_hits_strict.json", hits_fixture)
     write_json(fixture_root / "centrality_pagerank_strict.json", pagerank_fixture)
     write_json(
         fixture_root / "centrality_eigenvector_strict.json", eigenvector_fixture
@@ -402,6 +427,7 @@ def main() -> int:
             "centrality_closeness_strict.json",
             "centrality_harmonic_strict.json",
             "centrality_katz_strict.json",
+            "centrality_hits_strict.json",
             "centrality_pagerank_strict.json",
             "centrality_eigenvector_strict.json",
         ],
