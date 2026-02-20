@@ -3645,6 +3645,166 @@ mod tests {
     }
 
     #[test]
+    fn articulation_points_empty_graph_is_empty() {
+        let graph = Graph::strict();
+        let result = articulation_points(&graph);
+        assert!(result.nodes.is_empty());
+        assert_eq!(result.witness.algorithm, "tarjan_articulation_points");
+        assert_eq!(result.witness.nodes_touched, 0);
+        assert_eq!(result.witness.edges_scanned, 0);
+    }
+
+    #[test]
+    fn bridges_empty_graph_is_empty() {
+        let graph = Graph::strict();
+        let result = bridges(&graph);
+        assert!(result.edges.is_empty());
+        assert_eq!(result.witness.algorithm, "tarjan_bridges");
+    }
+
+    #[test]
+    fn articulation_points_single_node_is_empty() {
+        let mut graph = Graph::strict();
+        let _ = graph.add_node("lonely");
+        let result = articulation_points(&graph);
+        assert!(result.nodes.is_empty());
+    }
+
+    #[test]
+    fn bridges_single_node_is_empty() {
+        let mut graph = Graph::strict();
+        let _ = graph.add_node("lonely");
+        let result = bridges(&graph);
+        assert!(result.edges.is_empty());
+    }
+
+    #[test]
+    fn articulation_points_single_edge_is_empty() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        let result = articulation_points(&graph);
+        assert!(result.nodes.is_empty());
+    }
+
+    #[test]
+    fn bridges_single_edge_is_bridge() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        let result = bridges(&graph);
+        assert_eq!(result.edges, vec![("a".to_owned(), "b".to_owned())]);
+    }
+
+    #[test]
+    fn articulation_points_complete_k4_is_empty() {
+        let mut graph = Graph::strict();
+        for (left, right) in [("a", "b"), ("a", "c"), ("a", "d"), ("b", "c"), ("b", "d"), ("c", "d")] {
+            graph.add_edge(left, right).expect("edge add should succeed");
+        }
+        let result = articulation_points(&graph);
+        assert!(result.nodes.is_empty());
+    }
+
+    #[test]
+    fn bridges_complete_k4_is_empty() {
+        let mut graph = Graph::strict();
+        for (left, right) in [("a", "b"), ("a", "c"), ("a", "d"), ("b", "c"), ("b", "d"), ("c", "d")] {
+            graph.add_edge(left, right).expect("edge add should succeed");
+        }
+        let result = bridges(&graph);
+        assert!(result.edges.is_empty());
+    }
+
+    #[test]
+    fn articulation_points_star_graph_has_center() {
+        let mut graph = Graph::strict();
+        for leaf in ["a", "b", "c", "d"] {
+            graph
+                .add_edge("center", leaf)
+                .expect("edge add should succeed");
+        }
+        let result = articulation_points(&graph);
+        assert_eq!(result.nodes, vec!["center".to_owned()]);
+    }
+
+    #[test]
+    fn bridges_star_graph_all_edges_are_bridges() {
+        let mut graph = Graph::strict();
+        for leaf in ["a", "b", "c", "d"] {
+            graph
+                .add_edge("center", leaf)
+                .expect("edge add should succeed");
+        }
+        let result = bridges(&graph);
+        assert_eq!(
+            result.edges,
+            vec![
+                ("a".to_owned(), "center".to_owned()),
+                ("b".to_owned(), "center".to_owned()),
+                ("c".to_owned(), "center".to_owned()),
+                ("center".to_owned(), "d".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn articulation_points_two_triangles_with_bridge() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "a").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+        graph.add_edge("d", "e").expect("edge add should succeed");
+        graph.add_edge("e", "f").expect("edge add should succeed");
+        graph.add_edge("f", "d").expect("edge add should succeed");
+        let result = articulation_points(&graph);
+        assert_eq!(result.nodes, vec!["c".to_owned(), "d".to_owned()]);
+    }
+
+    #[test]
+    fn bridges_two_triangles_with_bridge() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "a").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+        graph.add_edge("d", "e").expect("edge add should succeed");
+        graph.add_edge("e", "f").expect("edge add should succeed");
+        graph.add_edge("f", "d").expect("edge add should succeed");
+        let result = bridges(&graph);
+        assert_eq!(result.edges, vec![("c".to_owned(), "d".to_owned())]);
+    }
+
+    #[test]
+    fn articulation_points_disconnected_graph() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("d", "e").expect("edge add should succeed");
+        graph.add_edge("e", "f").expect("edge add should succeed");
+        let result = articulation_points(&graph);
+        assert_eq!(result.nodes, vec!["b".to_owned(), "e".to_owned()]);
+    }
+
+    #[test]
+    fn bridges_disconnected_graph() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("d", "e").expect("edge add should succeed");
+        graph.add_edge("e", "f").expect("edge add should succeed");
+        let result = bridges(&graph);
+        assert_eq!(
+            result.edges,
+            vec![
+                ("a".to_owned(), "b".to_owned()),
+                ("b".to_owned(), "c".to_owned()),
+                ("d".to_owned(), "e".to_owned()),
+                ("e".to_owned(), "f".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
     fn maximal_matching_matches_greedy_contract() {
         let mut graph = Graph::strict();
         graph.add_edge("1", "2").expect("edge add should succeed");
