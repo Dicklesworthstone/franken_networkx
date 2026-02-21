@@ -76,13 +76,38 @@ JOURNEY_SPECS: list[dict[str, Any]] = [
         "hardened_mode_strategy": "mode_override_fixture",
     },
     {
-        "journey_id": "J-CENTRALITY",
-        "scoped_api_journey": "degree_and_closeness_centrality_contracts",
+        "journey_id": "J-STRUCTURE",
+        "scoped_api_journey": "articulation_and_bridge_structure_contracts",
         "packet_id": "FNX-P2C-005",
-        "description": "Deterministic degree/closeness centrality scoring and ordering semantics.",
+        "description": "Deterministic articulation-point and bridge-structure parity contracts.",
         "strict_fixture_ids": [
+            "generated/structure_articulation_points_strict.json",
+            "generated/structure_bridges_strict.json",
+        ],
+        "hardened_fixture_ids": [
+            "generated/structure_articulation_points_strict.json",
+            "generated/structure_bridges_strict.json",
+        ],
+        "hardened_mode_strategy": "mode_override_fixture",
+    },
+    {
+        "journey_id": "J-CENTRALITY",
+        "scoped_api_journey": "degree_closeness_and_edge_betweenness_centrality_contracts",
+        "packet_id": "FNX-P2C-005",
+        "description": (
+            "Deterministic degree/closeness/edge-betweenness centrality scoring and "
+            "ordering semantics."
+        ),
+        "strict_fixture_ids": [
+            "generated/centrality_edge_betweenness_strict.json",
             "generated/centrality_degree_strict.json",
+            "generated/centrality_betweenness_strict.json",
             "generated/centrality_closeness_strict.json",
+            "generated/centrality_harmonic_strict.json",
+            "generated/centrality_katz_strict.json",
+            "generated/centrality_hits_strict.json",
+            "generated/centrality_pagerank_strict.json",
+            "generated/centrality_eigenvector_strict.json",
         ],
         "hardened_fixture_ids": ["generated/centrality_closeness_strict.json"],
         "hardened_mode_strategy": "mode_override_fixture",
@@ -106,6 +131,7 @@ JOURNEY_SPECS: list[dict[str, Any]] = [
         "description": "Deterministic graph generator edge/node ordering across classic families.",
         "strict_fixture_ids": [
             "generated/generators_path_strict.json",
+            "generated/generators_star_strict.json",
             "generated/generators_cycle_strict.json",
             "generated/generators_complete_strict.json",
         ],
@@ -151,6 +177,7 @@ WORKFLOW_CATEGORY_BY_JOURNEY = {
     "J-DISPATCH": "regression_path",
     "J-CONVERT": "regression_path",
     "J-SHORTEST-PATH-COMPONENTS": "happy_path",
+    "J-STRUCTURE": "regression_path",
     "J-CENTRALITY": "regression_path",
     "J-READWRITE": "malformed_input_path",
     "J-GENERATORS": "happy_path",
@@ -176,6 +203,10 @@ UNIT_HOOK_TARGET_BY_JOURNEY = {
         "artifact_ref": "crates/fnx-convert/src/lib.rs",
     },
     "J-SHORTEST-PATH-COMPONENTS": {
+        "crate": "fnx-algorithms",
+        "artifact_ref": "crates/fnx-algorithms/src/lib.rs",
+    },
+    "J-STRUCTURE": {
         "crate": "fnx-algorithms",
         "artifact_ref": "crates/fnx-algorithms/src/lib.rs",
     },
@@ -220,6 +251,11 @@ TIE_BREAK_BY_OPERATION = {
     "shortest_path_query": "BFS predecessor choice follows deterministic neighbor insertion ordering.",
     "degree_centrality_query": "Centrality score ordering is deterministic for serialization and oracle diffs.",
     "closeness_centrality_query": "WF-improved traversal order is deterministic for equal-distance handling.",
+    "edge_betweenness_centrality_query": (
+        "Edge score serialization follows deterministic canonical edge ordering."
+    ),
+    "articulation_points_query": "Cut-vertex ordering is deterministic by canonical node traversal order.",
+    "bridges_query": "Bridge edge ordering is deterministic by canonical endpoint ordering.",
     "connected_components_query": "Component enumeration follows deterministic first-seen traversal order.",
     "number_connected_components_query": "Connectivity count invariant is deterministic for identical input graphs.",
     "dispatch_resolve": "Backend selection ties are resolved deterministically by registry order and policy.",
@@ -244,6 +280,9 @@ EXPECTED_REFS_BY_OPERATION = {
     "shortest_path_query": ["expected.shortest_path_unweighted"],
     "degree_centrality_query": ["expected.degree_centrality"],
     "closeness_centrality_query": ["expected.closeness_centrality"],
+    "edge_betweenness_centrality_query": ["expected.edge_betweenness_centrality"],
+    "articulation_points_query": ["expected.articulation_points"],
+    "bridges_query": ["expected.bridges"],
     "connected_components_query": ["expected.connected_components"],
     "number_connected_components_query": ["expected.number_connected_components"],
     "dispatch_resolve": ["expected.dispatch"],
@@ -268,6 +307,9 @@ FAILURE_CLASS_BY_OPERATION = {
     "shortest_path_query": "algorithm",
     "degree_centrality_query": "algorithm_centrality",
     "closeness_centrality_query": "algorithm_centrality",
+    "edge_betweenness_centrality_query": "algorithm_centrality",
+    "articulation_points_query": "algorithm_structure",
+    "bridges_query": "algorithm_structure",
     "connected_components_query": "algorithm_components",
     "number_connected_components_query": "algorithm_components",
     "dispatch_resolve": "dispatch",
@@ -308,6 +350,24 @@ ASSERTION_RULES = {
         "contract": "Closeness centrality scores must match oracle values under WF-improved semantics.",
         "tie_break_behavior": "Deterministic traversal and node ordering govern equal-distance resolution.",
         "failure_class": "algorithm_centrality",
+    },
+    "edge_betweenness_centrality": {
+        "expected_ref": "expected.edge_betweenness_centrality",
+        "contract": "Edge betweenness centrality scores must match oracle values for canonical edge tuples.",
+        "tie_break_behavior": "Edge tuple ordering is deterministic via canonical endpoint normalization.",
+        "failure_class": "algorithm_centrality",
+    },
+    "articulation_points": {
+        "expected_ref": "expected.articulation_points",
+        "contract": "Articulation point output must match oracle cut-vertex set and deterministic order.",
+        "tie_break_behavior": "Node ordering is deterministic via stable traversal and canonical comparison.",
+        "failure_class": "algorithm_structure",
+    },
+    "bridges": {
+        "expected_ref": "expected.bridges",
+        "contract": "Bridge edge output must match oracle bridge-set membership and deterministic ordering.",
+        "tie_break_behavior": "Bridge tuple ordering is deterministic via canonical endpoint normalization.",
+        "failure_class": "algorithm_structure",
     },
     "connected_components": {
         "expected_ref": "expected.connected_components",
@@ -383,6 +443,11 @@ FAILURE_CLASS_TAXONOMY = [
         "failure_class": "algorithm_components",
         "description": "Component partition/count output diverges from oracle expectation.",
         "source": "fnx-algorithms components checks",
+    },
+    {
+        "failure_class": "algorithm_structure",
+        "description": "Structural graph outputs (articulation points/bridges) diverge from oracle expectation.",
+        "source": "fnx-algorithms structure checks",
     },
     {
         "failure_class": "dispatch",

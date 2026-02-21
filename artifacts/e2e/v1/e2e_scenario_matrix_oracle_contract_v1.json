@@ -1,14 +1,14 @@
 {
   "schema_version": "1.0.0",
   "artifact_id": "e2e-scenario-matrix-oracle-contract-v1",
-  "generated_at_utc": "2026-02-19T06:33:19.954546+00:00",
+  "generated_at_utc": "2026-02-20T20:10:03.059136+00:00",
   "baseline_comparator": "legacy_networkx/main@python3.12",
   "journey_summary": {
     "journey_count": 11,
     "strict_journey_count": 11,
     "hardened_journey_count": 11,
-    "fixture_inventory_count": 24,
-    "covered_fixture_count": 24,
+    "fixture_inventory_count": 30,
+    "covered_fixture_count": 30,
     "uncovered_fixture_count": 0
   },
   "deterministic_seed_policy": {
@@ -839,21 +839,20 @@
       }
     },
     {
-      "journey_id": "J-CENTRALITY",
-      "scoped_api_journey": "degree_and_closeness_centrality_contracts",
+      "journey_id": "J-STRUCTURE",
+      "scoped_api_journey": "articulation_and_bridge_structure_contracts",
       "packet_id": "FNX-P2C-005",
-      "description": "Deterministic degree/closeness centrality scoring and ordering semantics.",
+      "description": "Deterministic articulation-point and bridge-structure parity contracts.",
       "strict_path": {
         "mode": "strict",
         "mode_strategy": "native_fixture",
-        "fixture_id": "generated/centrality_degree_strict.json",
+        "fixture_id": "generated/structure_articulation_points_strict.json",
         "fixture_ids": [
-          "generated/centrality_degree_strict.json",
-          "generated/centrality_betweenness_strict.json",
-          "generated/centrality_closeness_strict.json"
+          "generated/structure_articulation_points_strict.json",
+          "generated/structure_bridges_strict.json"
         ],
-        "deterministic_seed": 11351190574352106388,
-        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_degree_strict.json --mode strict",
+        "deterministic_seed": 470103415025137257,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/structure_articulation_points_strict.json --mode strict",
         "step_contract": [
           {
             "step_id": "S01",
@@ -893,11 +892,332 @@
           },
           {
             "step_id": "S04",
-            "operation": "degree_centrality_query",
+            "operation": "add_edge",
             "expected_outputs": [
-              "expected.degree_centrality"
+              "expected.graph.edges",
+              "expected.graph.nodes"
             ],
-            "tie_break_behavior": "Centrality score ordering is deterministic for serialization and oracle diffs.",
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S05",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S06",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S07",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S08",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S09",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S10",
+            "operation": "articulation_points_query",
+            "expected_outputs": [
+              "expected.articulation_points"
+            ],
+            "tie_break_behavior": "Cut-vertex ordering is deterministic by canonical node traversal order.",
+            "failure_classes": [
+              "algorithm_structure"
+            ]
+          }
+        ],
+        "oracle_assertions": [
+          {
+            "assertion_id": "A01",
+            "expected_ref": "expected.articulation_points",
+            "contract": "Articulation point output must match oracle cut-vertex set and deterministic order.",
+            "tie_break_behavior": "Node ordering is deterministic via stable traversal and canonical comparison.",
+            "failure_class": "algorithm_structure"
+          },
+          {
+            "assertion_id": "A02",
+            "expected_ref": "expected.graph",
+            "contract": "Node and edge snapshots must match oracle values exactly (including deterministic order and attrs).",
+            "tie_break_behavior": "Node/edge ordering follows deterministic insertion order parity.",
+            "failure_class": "graph_mutation"
+          }
+        ],
+        "failure_classes": [
+          "algorithm_structure",
+          "fixture_io",
+          "fixture_schema",
+          "graph_mutation"
+        ]
+      },
+      "hardened_path": {
+        "mode": "hardened",
+        "mode_strategy": "mode_override_fixture",
+        "fixture_id": "generated/structure_articulation_points_strict.json",
+        "fixture_ids": [
+          "generated/structure_articulation_points_strict.json",
+          "generated/structure_bridges_strict.json"
+        ],
+        "deterministic_seed": 3609198798068896531,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/structure_articulation_points_strict.json --mode hardened",
+        "step_contract": [
+          {
+            "step_id": "S01",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S02",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S03",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S04",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S05",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S06",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S07",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S08",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S09",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S10",
+            "operation": "articulation_points_query",
+            "expected_outputs": [
+              "expected.articulation_points"
+            ],
+            "tie_break_behavior": "Cut-vertex ordering is deterministic by canonical node traversal order.",
+            "failure_classes": [
+              "algorithm_structure"
+            ]
+          }
+        ],
+        "oracle_assertions": [
+          {
+            "assertion_id": "A01",
+            "expected_ref": "expected.articulation_points",
+            "contract": "Articulation point output must match oracle cut-vertex set and deterministic order.",
+            "tie_break_behavior": "Node ordering is deterministic via stable traversal and canonical comparison.",
+            "failure_class": "algorithm_structure"
+          },
+          {
+            "assertion_id": "A02",
+            "expected_ref": "expected.graph",
+            "contract": "Node and edge snapshots must match oracle values exactly (including deterministic order and attrs).",
+            "tie_break_behavior": "Node/edge ordering follows deterministic insertion order parity.",
+            "failure_class": "graph_mutation"
+          }
+        ],
+        "failure_classes": [
+          "algorithm_structure",
+          "fixture_io",
+          "fixture_schema",
+          "graph_mutation"
+        ]
+      }
+    },
+    {
+      "journey_id": "J-CENTRALITY",
+      "scoped_api_journey": "degree_closeness_and_edge_betweenness_centrality_contracts",
+      "packet_id": "FNX-P2C-005",
+      "description": "Deterministic degree/closeness/edge-betweenness centrality scoring and ordering semantics.",
+      "strict_path": {
+        "mode": "strict",
+        "mode_strategy": "native_fixture",
+        "fixture_id": "generated/centrality_edge_betweenness_strict.json",
+        "fixture_ids": [
+          "generated/centrality_edge_betweenness_strict.json",
+          "generated/centrality_degree_strict.json",
+          "generated/centrality_betweenness_strict.json",
+          "generated/centrality_closeness_strict.json",
+          "generated/centrality_harmonic_strict.json",
+          "generated/centrality_katz_strict.json",
+          "generated/centrality_hits_strict.json",
+          "generated/centrality_pagerank_strict.json",
+          "generated/centrality_eigenvector_strict.json"
+        ],
+        "deterministic_seed": 3420695649051788629,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_edge_betweenness_strict.json --mode strict",
+        "step_contract": [
+          {
+            "step_id": "S01",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S02",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S03",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S04",
+            "operation": "edge_betweenness_centrality_query",
+            "expected_outputs": [
+              "expected.edge_betweenness_centrality"
+            ],
+            "tie_break_behavior": "Edge score serialization follows deterministic canonical edge ordering.",
             "failure_classes": [
               "algorithm_centrality"
             ]
@@ -906,9 +1226,9 @@
         "oracle_assertions": [
           {
             "assertion_id": "A01",
-            "expected_ref": "expected.degree_centrality",
-            "contract": "Degree centrality scores must match oracle values and deterministic node ordering.",
-            "tie_break_behavior": "Deterministic node ordering is used for equal-score serialization.",
+            "expected_ref": "expected.edge_betweenness_centrality",
+            "contract": "Edge betweenness centrality scores must match oracle values for canonical edge tuples.",
+            "tie_break_behavior": "Edge tuple ordering is deterministic via canonical endpoint normalization.",
             "failure_class": "algorithm_centrality"
           },
           {
@@ -931,8 +1251,7 @@
         "mode_strategy": "mode_override_fixture",
         "fixture_id": "generated/centrality_closeness_strict.json",
         "fixture_ids": [
-          "generated/centrality_closeness_strict.json",
-          "generated/centrality_betweenness_strict.json"
+          "generated/centrality_closeness_strict.json"
         ],
         "deterministic_seed": 9070744064313709177,
         "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_closeness_strict.json --mode hardened",
@@ -1196,8 +1515,7 @@
         "mode_strategy": "mode_override_fixture",
         "fixture_id": "generated/generators_cycle_strict.json",
         "fixture_ids": [
-          "generated/generators_cycle_strict.json",
-          "generated/generators_star_strict.json"
+          "generated/generators_cycle_strict.json"
         ],
         "deterministic_seed": 13332243272534235892,
         "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/generators_cycle_strict.json --mode hardened",
@@ -1476,128 +1794,6 @@
           "graph_mutation"
         ]
       }
-    },
-    {
-      "journey_id": "J-STRUCTURE",
-      "scoped_api_journey": "articulation_points_and_bridges_contracts",
-      "packet_id": "FNX-P2C-005",
-      "description": "Deterministic articulation point and bridge detection via Tarjan DFS with canonical ordering.",
-      "strict_path": {
-        "mode": "strict",
-        "mode_strategy": "native_fixture",
-        "fixture_id": "generated/structure_articulation_points_strict.json",
-        "fixture_ids": [
-          "generated/structure_articulation_points_strict.json",
-          "generated/structure_bridges_strict.json"
-        ],
-        "deterministic_seed": 7305178420916483201,
-        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/structure_articulation_points_strict.json --mode strict",
-        "step_contract": [
-          {
-            "step_id": "S01",
-            "operation": "add_edge",
-            "expected_outputs": [
-              "expected.graph.edges",
-              "expected.graph.nodes"
-            ],
-            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
-            "failure_classes": [
-              "graph_mutation"
-            ]
-          },
-          {
-            "step_id": "S10",
-            "operation": "articulation_points_query",
-            "expected_outputs": [
-              "expected.articulation_points"
-            ],
-            "tie_break_behavior": "Articulation point ordering is deterministic via canonical node sorting.",
-            "failure_classes": [
-              "algorithm_structure"
-            ]
-          }
-        ],
-        "oracle_assertions": [
-          {
-            "assertion_id": "A01",
-            "expected_ref": "expected.articulation_points",
-            "contract": "Articulation point list must match oracle values with deterministic canonical ordering.",
-            "tie_break_behavior": "Canonical lexical sorting of articulation point node identifiers.",
-            "failure_class": "algorithm_structure"
-          },
-          {
-            "assertion_id": "A02",
-            "expected_ref": "expected.graph",
-            "contract": "Node and edge snapshots must match oracle values exactly (including deterministic order and attrs).",
-            "tie_break_behavior": "Node/edge ordering follows deterministic insertion order parity.",
-            "failure_class": "graph_mutation"
-          }
-        ],
-        "failure_classes": [
-          "algorithm_structure",
-          "fixture_io",
-          "fixture_schema",
-          "graph_mutation"
-        ]
-      },
-      "hardened_path": {
-        "mode": "hardened",
-        "mode_strategy": "mode_override_fixture",
-        "fixture_id": "generated/structure_bridges_strict.json",
-        "fixture_ids": [
-          "generated/structure_bridges_strict.json",
-          "generated/structure_articulation_points_strict.json"
-        ],
-        "deterministic_seed": 12481935720631447809,
-        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/structure_bridges_strict.json --mode hardened",
-        "step_contract": [
-          {
-            "step_id": "S01",
-            "operation": "add_edge",
-            "expected_outputs": [
-              "expected.graph.edges",
-              "expected.graph.nodes"
-            ],
-            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
-            "failure_classes": [
-              "graph_mutation"
-            ]
-          },
-          {
-            "step_id": "S10",
-            "operation": "bridges_query",
-            "expected_outputs": [
-              "expected.bridges"
-            ],
-            "tie_break_behavior": "Bridge edge ordering is deterministic via canonical edge sorting.",
-            "failure_classes": [
-              "algorithm_structure"
-            ]
-          }
-        ],
-        "oracle_assertions": [
-          {
-            "assertion_id": "A01",
-            "expected_ref": "expected.bridges",
-            "contract": "Bridge edge list must match oracle values with deterministic canonical ordering.",
-            "tie_break_behavior": "Canonical lexical sorting of bridge edge tuples.",
-            "failure_class": "algorithm_structure"
-          },
-          {
-            "assertion_id": "A02",
-            "expected_ref": "expected.graph",
-            "contract": "Node and edge snapshots must match oracle values exactly (including deterministic order and attrs).",
-            "tie_break_behavior": "Node/edge ordering follows deterministic insertion order parity.",
-            "failure_class": "graph_mutation"
-          }
-        ],
-        "failure_classes": [
-          "algorithm_structure",
-          "fixture_io",
-          "fixture_schema",
-          "graph_mutation"
-        ]
-      }
     }
   ],
   "user_workflow_corpus": {
@@ -1610,12 +1806,12 @@
       "J-DISPATCH",
       "J-CONVERT",
       "J-SHORTEST-PATH-COMPONENTS",
+      "J-STRUCTURE",
       "J-CENTRALITY",
       "J-READWRITE",
       "J-GENERATORS",
       "J-RUNTIME-OPTIONAL",
-      "J-CONFORMANCE-HARNESS",
-      "J-STRUCTURE"
+      "J-CONFORMANCE-HARNESS"
     ],
     "required_categories": [
       "happy_path",
@@ -1777,6 +1973,36 @@
       ]
     },
     {
+      "journey_id": "J-STRUCTURE",
+      "scenario_id": "WF-STRUCTURE-001",
+      "category": "regression_path",
+      "unit_hooks": [
+        {
+          "hook_id": "unit-structure",
+          "command": "rch exec -- cargo test -p fnx-algorithms -- --nocapture",
+          "artifact_ref": "crates/fnx-algorithms/src/lib.rs"
+        }
+      ],
+      "differential_hooks": [
+        {
+          "hook_id": "diff-structure",
+          "command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/structure_articulation_points_strict.json --mode strict",
+          "artifact_ref": "crates/fnx-conformance/fixtures/generated/structure_articulation_points_strict.json"
+        }
+      ],
+      "e2e_hooks": [
+        {
+          "hook_id": "e2e-structure",
+          "command": "rch exec -- cargo test -q -p fnx-conformance --test e2e_scenario_matrix_gate -- --nocapture",
+          "artifact_ref": "artifacts/e2e/latest/e2e_scenario_matrix_report_v1.json"
+        }
+      ],
+      "report_refs": [
+        "artifacts/e2e/latest/e2e_scenario_matrix_report_v1.json",
+        "artifacts/e2e/latest/e2e_user_workflow_scenario_report_v1.json"
+      ]
+    },
+    {
       "journey_id": "J-CENTRALITY",
       "scenario_id": "WF-CENTRALITY-001",
       "category": "regression_path",
@@ -1790,8 +2016,8 @@
       "differential_hooks": [
         {
           "hook_id": "diff-centrality",
-          "command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_degree_strict.json --mode strict",
-          "artifact_ref": "crates/fnx-conformance/fixtures/generated/centrality_degree_strict.json"
+          "command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_edge_betweenness_strict.json --mode strict",
+          "artifact_ref": "crates/fnx-conformance/fixtures/generated/centrality_edge_betweenness_strict.json"
         }
       ],
       "e2e_hooks": [
@@ -1925,41 +2151,6 @@
         "artifacts/e2e/latest/e2e_scenario_matrix_report_v1.json",
         "artifacts/e2e/latest/e2e_user_workflow_scenario_report_v1.json"
       ]
-    },
-    {
-      "journey_id": "J-STRUCTURE",
-      "scenario_id": "WF-STRUCTURE-001",
-      "category": "happy_path",
-      "unit_hooks": [
-        {
-          "hook_id": "unit-structure",
-          "command": "rch exec -- cargo test -p fnx-algorithms -- articulation --nocapture",
-          "artifact_ref": "crates/fnx-algorithms/src/lib.rs"
-        }
-      ],
-      "differential_hooks": [
-        {
-          "hook_id": "diff-structure-articulation",
-          "command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/structure_articulation_points_strict.json --mode strict",
-          "artifact_ref": "crates/fnx-conformance/fixtures/generated/structure_articulation_points_strict.json"
-        },
-        {
-          "hook_id": "diff-structure-bridges",
-          "command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/structure_bridges_strict.json --mode strict",
-          "artifact_ref": "crates/fnx-conformance/fixtures/generated/structure_bridges_strict.json"
-        }
-      ],
-      "e2e_hooks": [
-        {
-          "hook_id": "e2e-structure",
-          "command": "rch exec -- cargo test -q -p fnx-conformance --test e2e_scenario_matrix_gate -- --nocapture",
-          "artifact_ref": "artifacts/e2e/latest/e2e_scenario_matrix_report_v1.json"
-        }
-      ],
-      "report_refs": [
-        "artifacts/e2e/latest/e2e_scenario_matrix_report_v1.json",
-        "artifacts/e2e/latest/e2e_user_workflow_scenario_report_v1.json"
-      ]
     }
   ],
   "coverage_manifest": {
@@ -1968,6 +2159,12 @@
       "generated/centrality_betweenness_strict.json",
       "generated/centrality_closeness_strict.json",
       "generated/centrality_degree_strict.json",
+      "generated/centrality_edge_betweenness_strict.json",
+      "generated/centrality_eigenvector_strict.json",
+      "generated/centrality_harmonic_strict.json",
+      "generated/centrality_hits_strict.json",
+      "generated/centrality_katz_strict.json",
+      "generated/centrality_pagerank_strict.json",
       "generated/components_connected_strict.json",
       "generated/conformance_harness_strict.json",
       "generated/convert_edge_list_strict.json",
@@ -1994,6 +2191,12 @@
       "generated/centrality_betweenness_strict.json",
       "generated/centrality_closeness_strict.json",
       "generated/centrality_degree_strict.json",
+      "generated/centrality_edge_betweenness_strict.json",
+      "generated/centrality_eigenvector_strict.json",
+      "generated/centrality_harmonic_strict.json",
+      "generated/centrality_hits_strict.json",
+      "generated/centrality_katz_strict.json",
+      "generated/centrality_pagerank_strict.json",
       "generated/components_connected_strict.json",
       "generated/conformance_harness_strict.json",
       "generated/convert_edge_list_strict.json",
@@ -2049,6 +2252,11 @@
       "source": "fnx-algorithms components checks"
     },
     {
+      "failure_class": "algorithm_structure",
+      "description": "Structural graph outputs (articulation points/bridges) diverge from oracle expectation.",
+      "source": "fnx-algorithms structure checks"
+    },
+    {
       "failure_class": "dispatch",
       "description": "Dispatch route/action does not match deterministic policy expectation.",
       "source": "fnx-dispatch parity checks"
@@ -2072,11 +2280,6 @@
       "failure_class": "generators",
       "description": "Generator-produced graph structure/order diverges from oracle fixtures.",
       "source": "fnx-generators parity checks"
-    },
-    {
-      "failure_class": "algorithm_structure",
-      "description": "Structural algorithm output (articulation points, bridges) diverges from oracle expectation.",
-      "source": "fnx-algorithms structure checks"
     }
   ],
   "alien_uplift_contract_card": {

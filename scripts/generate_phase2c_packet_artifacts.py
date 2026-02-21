@@ -1641,6 +1641,7 @@ PACKET_SPECS: list[dict[str, Any]] = [
         "fixture_ids": [
             "graph_core_shortest_path_strict.json",
             "generated/centrality_degree_strict.json",
+            "generated/centrality_edge_betweenness_strict.json",
             "generated/centrality_closeness_strict.json",
             "generated/components_connected_strict.json",
         ],
@@ -4309,6 +4310,7 @@ FOUNDATION_SPEC: dict[str, Any] = {
     "oracle_tests": ["cross-family conformance smoke suite"],
     "fixture_ids": [
         "generated/centrality_degree_strict.json",
+        "generated/centrality_edge_betweenness_strict.json",
         "generated/centrality_closeness_strict.json",
     ],
     "risk_tier": "medium",

@@ -241,6 +241,28 @@ def main() -> int:
         },
     }
 
+    edge_betweenness_items = []
+    for edge, score in nx.edge_betweenness_centrality(centrality_graph).items():
+        left, right = sorted((str(edge[0]), str(edge[1])))
+        edge_betweenness_items.append(
+            {"left": left, "right": right, "score": float(score)}
+        )
+    edge_betweenness_items.sort(key=lambda item: (item["left"], item["right"]))
+    edge_betweenness_fixture = {
+        "suite": "centrality_v1",
+        "mode": "strict",
+        "operations": [
+            {"op": "add_edge", "left": "a", "right": "b"},
+            {"op": "add_edge", "left": "a", "right": "c"},
+            {"op": "add_edge", "left": "b", "right": "d"},
+            {"op": "edge_betweenness_centrality_query"},
+        ],
+        "expected": {
+            "graph": graph_snapshot(centrality_graph),
+            "edge_betweenness_centrality": edge_betweenness_items,
+        },
+    }
+
     closeness_graph = nx.Graph()
     closeness_graph.add_edge("a", "b")
     closeness_graph.add_node("c")
@@ -400,6 +422,10 @@ def main() -> int:
     write_json(fixture_root / "generators_complete_strict.json", generate_complete_fixture)
     write_json(fixture_root / "centrality_degree_strict.json", centrality_fixture)
     write_json(fixture_root / "centrality_betweenness_strict.json", betweenness_fixture)
+    write_json(
+        fixture_root / "centrality_edge_betweenness_strict.json",
+        edge_betweenness_fixture,
+    )
     write_json(fixture_root / "centrality_closeness_strict.json", closeness_fixture)
     write_json(fixture_root / "centrality_harmonic_strict.json", harmonic_fixture)
     write_json(fixture_root / "centrality_katz_strict.json", katz_fixture)
@@ -424,6 +450,7 @@ def main() -> int:
             "generators_complete_strict.json",
             "centrality_degree_strict.json",
             "centrality_betweenness_strict.json",
+            "centrality_edge_betweenness_strict.json",
             "centrality_closeness_strict.json",
             "centrality_harmonic_strict.json",
             "centrality_katz_strict.json",

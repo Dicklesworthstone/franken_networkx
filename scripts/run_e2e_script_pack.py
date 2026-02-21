@@ -156,7 +156,7 @@ SCENARIOS: tuple[ScenarioSpec, ...] = (
         scenario_kind="edge_path",
         journey_id="J-CENTRALITY",
         mode="strict",
-        fixture_id="generated/centrality_degree_strict.json",
+        fixture_id="generated/centrality_edge_betweenness_strict.json",
         packet_id="FNX-P2C-005",
     ),
     ScenarioSpec(

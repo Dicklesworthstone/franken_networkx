@@ -1,10 +1,10 @@
 # E2E Scenario Matrix + Oracle Contract (V1)
 
-- generated_at_utc: 2026-02-19T06:33:19.954546+00:00
+- generated_at_utc: 2026-02-20T20:10:03.059136+00:00
 - baseline_comparator: legacy_networkx/main@python3.12
-- journey_count: 10
-- fixture_inventory_count: 20
-- covered_fixture_count: 20
+- journey_count: 11
+- fixture_inventory_count: 30
+- covered_fixture_count: 30
 - uncovered_fixture_count: 0
 
 ## Journey Coverage
@@ -16,7 +16,8 @@
 | `J-DISPATCH` | `FNX-P2C-003` | `generated/dispatch_route_strict.json` | `generated/dispatch_route_strict.json` | `mode_override_fixture` |
 | `J-CONVERT` | `FNX-P2C-004` | `generated/convert_edge_list_strict.json` | `generated/convert_edge_list_strict.json` | `mode_override_fixture` |
 | `J-SHORTEST-PATH-COMPONENTS` | `FNX-P2C-005` | `generated/components_connected_strict.json` | `generated/components_connected_strict.json` | `mode_override_fixture` |
-| `J-CENTRALITY` | `FNX-P2C-005` | `generated/centrality_degree_strict.json` | `generated/centrality_closeness_strict.json` | `mode_override_fixture` |
+| `J-STRUCTURE` | `FNX-P2C-005` | `generated/structure_articulation_points_strict.json` | `generated/structure_articulation_points_strict.json` | `mode_override_fixture` |
+| `J-CENTRALITY` | `FNX-P2C-005` | `generated/centrality_edge_betweenness_strict.json` | `generated/centrality_closeness_strict.json` | `mode_override_fixture` |
 | `J-READWRITE` | `FNX-P2C-006` | `generated/readwrite_roundtrip_strict.json` | `generated/readwrite_hardened_malformed.json` | `native_fixture` |
 | `J-GENERATORS` | `FNX-P2C-007` | `generated/generators_path_strict.json` | `generated/generators_cycle_strict.json` | `mode_override_fixture` |
 | `J-RUNTIME-OPTIONAL` | `FNX-P2C-008` | `generated/runtime_config_optional_strict.json` | `generated/runtime_config_optional_strict.json` | `mode_override_fixture` |
@@ -40,6 +41,7 @@
 | `algorithm` | `fnx-algorithms parity checks` | Algorithm output (e.g., shortest path) diverges from oracle expectation. |
 | `algorithm_centrality` | `fnx-algorithms centrality checks` | Centrality score/ordering output diverges from oracle expectation. |
 | `algorithm_components` | `fnx-algorithms components checks` | Component partition/count output diverges from oracle expectation. |
+| `algorithm_structure` | `fnx-algorithms structure checks` | Structural graph outputs (articulation points/bridges) diverge from oracle expectation. |
 | `dispatch` | `fnx-dispatch parity checks` | Dispatch route/action does not match deterministic policy expectation. |
 | `convert` | `fnx-convert parity checks` | Conversion pipeline output diverges from expected normalized graph state. |
 | `readwrite` | `fnx-readwrite parity checks` | Read/write parser or serializer output diverges from oracle expectations. |
