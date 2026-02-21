@@ -339,6 +339,7 @@ fn cgse_differential_strict_fixture_matrix_is_parity_clean_and_triage_ready() {
         "generated/dispatch_route_strict.json".to_owned(),
         "generated/convert_edge_list_strict.json".to_owned(),
         "generated/centrality_degree_strict.json".to_owned(),
+        "generated/centrality_edge_betweenness_strict.json".to_owned(),
         "generated/readwrite_roundtrip_strict.json".to_owned(),
         "generated/generators_path_strict.json".to_owned(),
         "generated/runtime_config_optional_strict.json".to_owned(),

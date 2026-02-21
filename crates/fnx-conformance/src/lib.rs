@@ -1,11 +1,11 @@
 #![forbid(unsafe_code)]
 
 use fnx_algorithms::{
-    CentralityScore, ComplexityWitness, MinimumCutResult, articulation_points,
+    CentralityScore, ComplexityWitness, EdgeCentralityScore, MinimumCutResult, articulation_points,
     betweenness_centrality, bridges, closeness_centrality, connected_components, degree_centrality,
-    eigenvector_centrality, harmonic_centrality, hits_centrality, katz_centrality,
-    max_flow_edmonds_karp, minimum_cut_edmonds_karp, number_connected_components, pagerank,
-    shortest_path_unweighted, shortest_path_weighted,
+    edge_betweenness_centrality, eigenvector_centrality, harmonic_centrality, hits_centrality,
+    katz_centrality, max_flow_edmonds_karp, minimum_cut_edmonds_karp, number_connected_components,
+    pagerank, shortest_path_unweighted, shortest_path_weighted,
 };
 use fnx_classes::{AttrMap, EdgeSnapshot, Graph, GraphSnapshot};
 use fnx_convert::{AdjacencyPayload, EdgeListPayload, GraphConverter};
@@ -270,6 +270,7 @@ enum Operation {
         capacity_attr: String,
     },
     BetweennessCentralityQuery,
+    EdgeBetweennessCentralityQuery,
     DegreeCentralityQuery,
     ClosenessCentralityQuery,
     HarmonicCentralityQuery,
@@ -302,6 +303,10 @@ enum Operation {
         input: String,
     },
     WriteEdgelist,
+    ReadAdjlist {
+        input: String,
+    },
+    WriteAdjlist,
     ReadJsonGraph {
         input: String,
     },
@@ -341,6 +346,8 @@ struct ExpectedState {
     #[serde(default)]
     betweenness_centrality: Option<Vec<ExpectedCentralityScore>>,
     #[serde(default)]
+    edge_betweenness_centrality: Option<Vec<ExpectedEdgeCentralityScore>>,
+    #[serde(default)]
     degree_centrality: Option<Vec<ExpectedCentralityScore>>,
     #[serde(default)]
     closeness_centrality: Option<Vec<ExpectedCentralityScore>>,
@@ -368,6 +375,8 @@ struct ExpectedState {
     dispatch: Option<ExpectedDispatch>,
     #[serde(default)]
     serialized_edgelist: Option<String>,
+    #[serde(default)]
+    serialized_adjlist: Option<String>,
     #[serde(default)]
     serialized_json_graph: Option<String>,
     #[serde(default)]
@@ -401,6 +410,13 @@ struct ExpectedCentralityScore {
     score: f64,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct ExpectedEdgeCentralityScore {
+    left: String,
+    right: String,
+    score: f64,
+}
+
 #[derive(Debug)]
 struct ExecutionContext {
     graph: Graph,
@@ -411,9 +427,11 @@ struct ExecutionContext {
     minimum_cut_result: Option<MinimumCutResult>,
     dispatch_decision: Option<DispatchDecision>,
     serialized_edgelist: Option<String>,
+    serialized_adjlist: Option<String>,
     serialized_json_graph: Option<String>,
     view_neighbors_result: Option<Vec<String>>,
     betweenness_centrality_result: Option<Vec<CentralityScore>>,
+    edge_betweenness_centrality_result: Option<Vec<EdgeCentralityScore>>,
     degree_centrality_result: Option<Vec<CentralityScore>>,
     closeness_centrality_result: Option<Vec<CentralityScore>>,
     harmonic_centrality_result: Option<Vec<CentralityScore>>,
@@ -1162,9 +1180,11 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
         minimum_cut_result: None,
         dispatch_decision: None,
         serialized_edgelist: None,
+        serialized_adjlist: None,
         serialized_json_graph: None,
         view_neighbors_result: None,
         betweenness_centrality_result: None,
+        edge_betweenness_centrality_result: None,
         degree_centrality_result: None,
         closeness_centrality_result: None,
         harmonic_centrality_result: None,
@@ -1238,6 +1258,11 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
             Operation::BetweennessCentralityQuery => {
                 let result = betweenness_centrality(&context.graph);
                 context.betweenness_centrality_result = Some(result.scores);
+                context.witness = Some(result.witness);
+            }
+            Operation::EdgeBetweennessCentralityQuery => {
+                let result = edge_betweenness_centrality(&context.graph);
+                context.edge_betweenness_centrality_result = Some(result.scores);
                 context.witness = Some(result.witness);
             }
             Operation::DegreeCentralityQuery => {
@@ -1364,6 +1389,29 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
                     Err(err) => mismatches.push(Mismatch {
                         category: "readwrite".to_owned(),
                         message: format!("write_edgelist failed: {err}"),
+                    }),
+                }
+            }
+            Operation::ReadAdjlist { input } => {
+                let mut engine = EdgeListEngine::new(mode);
+                match engine.read_adjlist(&input) {
+                    Ok(report) => {
+                        context.warnings.extend(report.warnings);
+                        context.graph = report.graph;
+                    }
+                    Err(err) => mismatches.push(Mismatch {
+                        category: "readwrite".to_owned(),
+                        message: format!("read_adjlist failed: {err}"),
+                    }),
+                }
+            }
+            Operation::WriteAdjlist => {
+                let mut engine = EdgeListEngine::new(mode);
+                match engine.write_adjlist(&context.graph) {
+                    Ok(text) => context.serialized_adjlist = Some(text),
+                    Err(err) => mismatches.push(Mismatch {
+                        category: "readwrite".to_owned(),
+                        message: format!("write_adjlist failed: {err}"),
                     }),
                 }
             }
@@ -1564,6 +1612,23 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
             None => mismatches.push(Mismatch {
                 category: "algorithm_centrality".to_owned(),
                 message: "expected betweenness_centrality result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(expected_scores) = fixture.expected.edge_betweenness_centrality {
+        match context.edge_betweenness_centrality_result.as_ref() {
+            Some(actual_scores) => {
+                compare_edge_centrality_scores(
+                    "edge_betweenness_centrality",
+                    actual_scores,
+                    &expected_scores,
+                    &mut mismatches,
+                );
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_centrality".to_owned(),
+                message: "expected edge_betweenness_centrality result but none produced".to_owned(),
             }),
         }
     }
@@ -1802,6 +1867,18 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
         });
     }
 
+    if let Some(expected_text) = fixture.expected.serialized_adjlist
+        && context.serialized_adjlist.as_deref() != Some(expected_text.as_str())
+    {
+        mismatches.push(Mismatch {
+            category: "readwrite".to_owned(),
+            message: format!(
+                "serialized adjlist mismatch: expected {:?}, got {:?}",
+                expected_text, context.serialized_adjlist
+            ),
+        });
+    }
+
     if let Some(expected_text) = fixture.expected.serialized_json_graph
         && context.serialized_json_graph.as_deref() != Some(expected_text.as_str())
     {
@@ -1924,11 +2001,14 @@ fn default_dispatch_registry(mode: CompatibilityMode) -> BackendRegistry {
             "convert_adjacency",
             "read_edgelist",
             "write_edgelist",
+            "read_adjlist",
+            "write_adjlist",
             "read_json_graph",
             "write_json_graph",
             "connected_components",
             "number_connected_components",
             "betweenness_centrality",
+            "edge_betweenness_centrality",
             "degree_centrality",
             "closeness_centrality",
             "harmonic_centrality",
@@ -2001,6 +2081,52 @@ fn compare_centrality_scores(
                 message: format!(
                     "{label} score mismatch for node {}: expected {}, got {}",
                     expected_score.node, expected_score.score, actual_score.score
+                ),
+            });
+        }
+    }
+}
+
+fn compare_edge_centrality_scores(
+    label: &str,
+    actual: &[EdgeCentralityScore],
+    expected: &[ExpectedEdgeCentralityScore],
+    mismatches: &mut Vec<Mismatch>,
+) {
+    if actual.len() != expected.len() {
+        mismatches.push(Mismatch {
+            category: "algorithm_centrality".to_owned(),
+            message: format!(
+                "{label} length mismatch: expected {}, got {}",
+                expected.len(),
+                actual.len()
+            ),
+        });
+        return;
+    }
+
+    for (idx, (actual_score, expected_score)) in actual.iter().zip(expected.iter()).enumerate() {
+        if actual_score.left != expected_score.left || actual_score.right != expected_score.right {
+            mismatches.push(Mismatch {
+                category: "algorithm_centrality".to_owned(),
+                message: format!(
+                    "{label} edge mismatch at index {idx}: expected ({}, {}), got ({}, {})",
+                    expected_score.left,
+                    expected_score.right,
+                    actual_score.left,
+                    actual_score.right
+                ),
+            });
+        }
+        if (actual_score.score - expected_score.score).abs() > 1e-12 {
+            mismatches.push(Mismatch {
+                category: "algorithm_centrality".to_owned(),
+                message: format!(
+                    "{label} score mismatch for edge ({}, {}): expected {}, got {}",
+                    expected_score.left,
+                    expected_score.right,
+                    expected_score.score,
+                    actual_score.score
                 ),
             });
         }

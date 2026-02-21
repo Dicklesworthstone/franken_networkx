@@ -1,0 +1,51 @@
+{
+  "suite": "readwrite_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "read_adjlist",
+      "input": "a b c\nc d"
+    },
+    {
+      "op": "write_adjlist"
+    },
+    {
+      "op": "shortest_path_query",
+      "source": "a",
+      "target": "d"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "a",
+        "b",
+        "c",
+        "d"
+      ],
+      "edges": [
+        {
+          "left": "a",
+          "right": "b",
+          "attrs": {}
+        },
+        {
+          "left": "a",
+          "right": "c",
+          "attrs": {}
+        },
+        {
+          "left": "c",
+          "right": "d",
+          "attrs": {}
+        }
+      ]
+    },
+    "shortest_path_unweighted": [
+      "a",
+      "c",
+      "d"
+    ],
+    "serialized_adjlist": "a b c\nb a\nc a d\nd c"
+  }
+}
