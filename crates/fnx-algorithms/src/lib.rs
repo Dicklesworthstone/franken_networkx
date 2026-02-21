@@ -451,7 +451,9 @@ pub fn shortest_path_weighted(
             let edge_weight = edge_weight_or_default(graph, current_node, neighbor, weight_attr);
             let candidate_distance = current_distance + edge_weight;
             let should_update = match distance.get(neighbor) {
-                Some(existing_distance) => candidate_distance < *existing_distance,
+                Some(existing_distance) => {
+                    candidate_distance + DISTANCE_COMPARISON_EPSILON < *existing_distance
+                }
                 None => true,
             };
             if should_update {
@@ -1140,10 +1142,10 @@ pub fn hits_centrality(graph: &Graph) -> HitsCentralityResult {
                 *value = 0.0;
             }
         }
-        let authority_max = authorities.iter().copied().fold(0.0_f64, f64::max);
-        if authority_max > 0.0 {
+        let authority_sum_iter = authorities.iter().copied().sum::<f64>();
+        if authority_sum_iter > 0.0 {
             for value in &mut authorities {
-                *value /= authority_max;
+                *value /= authority_sum_iter;
             }
         }
 
@@ -1163,10 +1165,10 @@ pub fn hits_centrality(graph: &Graph) -> HitsCentralityResult {
             next_hubs[source_idx] = if score.is_finite() { score } else { 0.0 };
         }
 
-        let hub_max = next_hubs.iter().copied().fold(0.0_f64, f64::max);
-        if hub_max > 0.0 {
+        let hub_sum_iter = next_hubs.iter().copied().sum::<f64>();
+        if hub_sum_iter > 0.0 {
             for value in &mut next_hubs {
-                *value /= hub_max;
+                *value /= hub_sum_iter;
             }
         }
 
@@ -2013,9 +2015,7 @@ pub fn minimum_st_edge_cut_edmonds_karp(
             continue;
         }
         let (canonical_left, canonical_right) = canonical_undirected_edge(&left, &right);
-        if edge_capacity_or_default(graph, &canonical_left, &canonical_right, capacity_attr) > 0.0 {
-            cut_edges.push((canonical_left, canonical_right));
-        }
+        cut_edges.push((canonical_left, canonical_right));
     }
     cut_edges.sort_unstable();
     cut_edges.dedup();

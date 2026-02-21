@@ -275,6 +275,21 @@ impl GraphGenerator {
         operation: &'static str,
         p: f64,
     ) -> Result<(f64, Option<String>), GenerationError> {
+        if p.is_nan() {
+            let reason = "p is NaN".to_owned();
+            if self.mode == CompatibilityMode::Strict {
+                self.record(operation, DecisionAction::FailClosed, 1.0, reason.clone());
+                return Err(GenerationError::FailClosed { operation, reason });
+            }
+            let warning = format!("{operation} received NaN probability; clamped to p=0.0");
+            self.record(
+                operation,
+                DecisionAction::FullValidate,
+                0.7,
+                warning.clone(),
+            );
+            return Ok((0.0, Some(warning)));
+        }
         if (0.0..=1.0).contains(&p) {
             return Ok((p, None));
         }

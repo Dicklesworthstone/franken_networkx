@@ -386,7 +386,7 @@ impl AsupersyncAdapterMachine {
                 "checkpoint deterministic_seed does not match intent deterministic_seed".to_owned(),
             );
         }
-        if checkpoint.attempt > intent.max_attempts {
+        if checkpoint.attempt >= intent.max_attempts {
             return Err("checkpoint attempt exceeds max_attempts".to_owned());
         }
 
@@ -510,7 +510,7 @@ impl AsupersyncAdapterMachine {
                 AsupersyncAdapterReasonCode::RetryExhausted,
             );
         };
-        if next_attempt > self.intent.max_attempts {
+        if next_attempt >= self.intent.max_attempts {
             return self.fail_closed(
                 AsupersyncAdapterEventType::RetryBudgetExceeded,
                 AsupersyncAdapterReasonCode::RetryExhausted,

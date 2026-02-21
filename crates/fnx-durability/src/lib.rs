@@ -162,7 +162,7 @@ pub fn scrub_artifact(
         ts_unix_ms: unix_time_ms(),
         reason: "scrub_recovery".to_owned(),
         recovered_blocks: envelope.raptorq.k,
-        proof_hash: hash_bytes(recovered_hash.as_bytes()),
+        proof_hash: recovered_hash.clone(),
     };
     envelope.decode_proofs.push(proof);
     envelope.scrub = ScrubStatus {
@@ -194,7 +194,7 @@ pub fn run_decode_drill(
         ts_unix_ms: unix_time_ms(),
         reason: "decode_drill".to_owned(),
         recovered_blocks: envelope.raptorq.k,
-        proof_hash: hash_bytes(recovered_hash.as_bytes()),
+        proof_hash: recovered_hash.clone(),
     };
     envelope.decode_proofs.push(proof);
     envelope.scrub = ScrubStatus {
