@@ -1939,7 +1939,14 @@ pub fn minimum_cut_edmonds_karp(
     let mut cut_queue_peak = 1_usize;
 
     while let Some(current) = queue.pop_front() {
-        for candidate in &ordered_nodes {
+        let mut candidates = computation
+            .residual
+            .get(&current)
+            .map(|caps| caps.keys().map(|s| s.as_str()).collect::<Vec<&str>>())
+            .unwrap_or_default();
+        candidates.sort_unstable();
+
+        for candidate in candidates {
             if visited.contains(candidate) {
                 continue;
             }
@@ -1953,8 +1960,8 @@ pub fn minimum_cut_edmonds_karp(
             if residual_capacity <= 0.0 {
                 continue;
             }
-            visited.insert(candidate.clone());
-            queue.push_back(candidate.clone());
+            visited.insert(candidate.to_owned());
+            queue.push_back(candidate.to_owned());
             cut_nodes_touched += 1;
             cut_queue_peak = cut_queue_peak.max(queue.len());
         }
@@ -2424,9 +2431,12 @@ fn compute_max_flow_residual(
 
         let mut reached_sink = false;
         while let Some(current) = queue.pop_front() {
-            let Some(neighbors) = graph.neighbors_iter(&current) else {
-                continue;
-            };
+            let mut neighbors = residual
+                .get(&current)
+                .map(|caps| caps.keys().map(|s| s.as_str()).collect::<Vec<&str>>())
+                .unwrap_or_default();
+            neighbors.sort_unstable();
+
             for neighbor in neighbors {
                 edges_scanned += 1;
                 if visited.contains(neighbor) {
