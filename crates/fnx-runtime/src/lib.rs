@@ -1689,7 +1689,7 @@ pub fn decision_theoretic_action(
     incompatibility_probability: f64,
     unknown_incompatible_feature: bool,
 ) -> DecisionAction {
-    if unknown_incompatible_feature {
+    if unknown_incompatible_feature || incompatibility_probability.is_nan() {
         return DecisionAction::FailClosed;
     }
 
