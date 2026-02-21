@@ -1,0 +1,53 @@
+{
+  "suite": "readwrite_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "b",
+      "attrs": {"weight": "1"}
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "c",
+      "attrs": {"weight": "2"}
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "c",
+      "attrs": {}
+    },
+    {
+      "op": "write_graphml"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "a",
+        "b",
+        "c"
+      ],
+      "edges": [
+        {
+          "left": "a",
+          "right": "b",
+          "attrs": {"weight": "1"}
+        },
+        {
+          "left": "a",
+          "right": "c",
+          "attrs": {}
+        },
+        {
+          "left": "b",
+          "right": "c",
+          "attrs": {"weight": "2"}
+        }
+      ]
+    }
+  }
+}

@@ -177,7 +177,11 @@ impl BackendRegistry {
             operation: format!("dispatch::{}", request.operation),
             mode: self.mode,
             action,
-            incompatibility_probability: if request.risk_probability.is_nan() { 1.0 } else { request.risk_probability.clamp(0.0, 1.0) },
+            incompatibility_probability: if request.risk_probability.is_nan() {
+                1.0
+            } else {
+                request.risk_probability.clamp(0.0, 1.0)
+            },
             rationale: reason.to_owned(),
             evidence: vec![
                 EvidenceTerm {

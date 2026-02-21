@@ -5,8 +5,11 @@ use fnx_dispatch::{BackendRegistry, BackendSpec, DispatchError, DispatchRequest}
 use fnx_runtime::{
     CompatibilityMode, DecisionAction, DecisionRecord, EvidenceLedger, EvidenceTerm, unix_time_ms,
 };
-use std::collections::BTreeSet;
+use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
+use quick_xml::{Reader, Writer};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::io::Cursor;
 
 #[derive(Debug, Clone)]
 pub struct ReadWriteReport {
@@ -71,6 +74,8 @@ impl EdgeListEngine {
                 "write_adjlist",
                 "read_json_graph",
                 "write_json_graph",
+                "read_graphml",
+                "write_graphml",
             ]
             .into_iter()
             .map(str::to_owned)
@@ -136,15 +141,19 @@ impl EdgeListEngine {
         })?;
 
         let mut lines = Vec::new();
+        let mut seen = std::collections::HashSet::new();
         for node in graph.nodes_ordered() {
             let mut tokens = Vec::new();
             tokens.push(node.to_owned());
             if let Some(neighbors) = graph.neighbors(node) {
                 for neighbor in neighbors {
-                    tokens.push(neighbor.to_owned());
+                    if !seen.contains(neighbor) {
+                        tokens.push(neighbor.to_owned());
+                    }
                 }
             }
             lines.push(tokens.join(" "));
+            seen.insert(node.to_owned());
         }
 
         self.record(
@@ -396,6 +405,495 @@ impl EdgeListEngine {
         Ok(ReadWriteReport { graph, warnings })
     }
 
+    pub fn write_graphml(&mut self, graph: &Graph) -> Result<String, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "write_graphml".to_owned(),
+            requested_backend: None,
+            required_features: set(["write_graphml"]),
+            risk_probability: 0.03,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 2);
+
+        writer
+            .write_event(Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), None)))
+            .map_err(|e| xml_write_err("xml_decl", e))?;
+
+        let mut graphml_start = BytesStart::new("graphml");
+        graphml_start.push_attribute(("xmlns", "http://graphml.graphdrawing.org/xmlns"));
+        graphml_start.push_attribute(("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance"));
+        graphml_start.push_attribute((
+            "xsi:schemaLocation",
+            "http://graphml.graphdrawing.org/xmlns http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd",
+        ));
+        writer
+            .write_event(Event::Start(graphml_start))
+            .map_err(|e| xml_write_err("graphml_start", e))?;
+
+        let snapshot = graph.snapshot();
+
+        // Collect all distinct attribute keys from nodes and edges.
+        let mut node_attr_keys = BTreeSet::new();
+        let mut edge_attr_keys = BTreeSet::new();
+        for node_id in &snapshot.nodes {
+            if let Some(attrs) = graph.node_attrs(node_id) {
+                for key in attrs.keys() {
+                    node_attr_keys.insert(key.clone());
+                }
+            }
+        }
+        for edge in &snapshot.edges {
+            for key in edge.attrs.keys() {
+                edge_attr_keys.insert(key.clone());
+            }
+        }
+
+        // Emit <key> declarations for node attributes.
+        let mut key_counter = 0_usize;
+        let mut node_key_ids: BTreeMap<String, String> = BTreeMap::new();
+        for attr_name in &node_attr_keys {
+            let key_id = format!("d{key_counter}");
+            key_counter += 1;
+            let mut key_elem = BytesStart::new("key");
+            key_elem.push_attribute(("id", key_id.as_str()));
+            key_elem.push_attribute(("for", "node"));
+            key_elem.push_attribute(("attr.name", attr_name.as_str()));
+            key_elem.push_attribute(("attr.type", "string"));
+            writer
+                .write_event(Event::Empty(key_elem))
+                .map_err(|e| xml_write_err("key_node", e))?;
+            node_key_ids.insert(attr_name.clone(), key_id);
+        }
+
+        // Emit <key> declarations for edge attributes.
+        let mut edge_key_ids: BTreeMap<String, String> = BTreeMap::new();
+        for attr_name in &edge_attr_keys {
+            let key_id = format!("d{key_counter}");
+            key_counter += 1;
+            let mut key_elem = BytesStart::new("key");
+            key_elem.push_attribute(("id", key_id.as_str()));
+            key_elem.push_attribute(("for", "edge"));
+            key_elem.push_attribute(("attr.name", attr_name.as_str()));
+            key_elem.push_attribute(("attr.type", "string"));
+            writer
+                .write_event(Event::Empty(key_elem))
+                .map_err(|e| xml_write_err("key_edge", e))?;
+            edge_key_ids.insert(attr_name.clone(), key_id);
+        }
+
+        // Emit <graph> element.
+        let mut graph_elem = BytesStart::new("graph");
+        graph_elem.push_attribute(("id", "G"));
+        graph_elem.push_attribute(("edgedefault", "undirected"));
+        writer
+            .write_event(Event::Start(graph_elem))
+            .map_err(|e| xml_write_err("graph_start", e))?;
+
+        // Emit <node> elements in insertion order.
+        for node_id in &snapshot.nodes {
+            let node_attrs = graph.node_attrs(node_id);
+            let has_data = node_attrs.is_some_and(|a| !a.is_empty());
+            let mut node_elem = BytesStart::new("node");
+            node_elem.push_attribute(("id", node_id.as_str()));
+
+            if has_data {
+                writer
+                    .write_event(Event::Start(node_elem))
+                    .map_err(|e| xml_write_err("node_start", e))?;
+                if let Some(attrs) = node_attrs {
+                    for (attr_name, attr_value) in attrs {
+                        if let Some(key_id) = node_key_ids.get(attr_name) {
+                            let mut data_elem = BytesStart::new("data");
+                            data_elem.push_attribute(("key", key_id.as_str()));
+                            writer
+                                .write_event(Event::Start(data_elem))
+                                .map_err(|e| xml_write_err("data_start", e))?;
+                            writer
+                                .write_event(Event::Text(BytesText::new(attr_value)))
+                                .map_err(|e| xml_write_err("data_text", e))?;
+                            writer
+                                .write_event(Event::End(BytesEnd::new("data")))
+                                .map_err(|e| xml_write_err("data_end", e))?;
+                        }
+                    }
+                }
+                writer
+                    .write_event(Event::End(BytesEnd::new("node")))
+                    .map_err(|e| xml_write_err("node_end", e))?;
+            } else {
+                writer
+                    .write_event(Event::Empty(node_elem))
+                    .map_err(|e| xml_write_err("node_empty", e))?;
+            }
+        }
+
+        // Emit <edge> elements in insertion order.
+        for edge in &snapshot.edges {
+            let has_data = !edge.attrs.is_empty();
+            let mut edge_elem = BytesStart::new("edge");
+            edge_elem.push_attribute(("source", edge.left.as_str()));
+            edge_elem.push_attribute(("target", edge.right.as_str()));
+
+            if has_data {
+                writer
+                    .write_event(Event::Start(edge_elem))
+                    .map_err(|e| xml_write_err("edge_start", e))?;
+                for (attr_name, attr_value) in &edge.attrs {
+                    if let Some(key_id) = edge_key_ids.get(attr_name) {
+                        let mut data_elem = BytesStart::new("data");
+                        data_elem.push_attribute(("key", key_id.as_str()));
+                        writer
+                            .write_event(Event::Start(data_elem))
+                            .map_err(|e| xml_write_err("data_start", e))?;
+                        writer
+                            .write_event(Event::Text(BytesText::new(attr_value)))
+                            .map_err(|e| xml_write_err("data_text", e))?;
+                        writer
+                            .write_event(Event::End(BytesEnd::new("data")))
+                            .map_err(|e| xml_write_err("data_end", e))?;
+                    }
+                }
+                writer
+                    .write_event(Event::End(BytesEnd::new("edge")))
+                    .map_err(|e| xml_write_err("edge_end", e))?;
+            } else {
+                writer
+                    .write_event(Event::Empty(edge_elem))
+                    .map_err(|e| xml_write_err("edge_empty", e))?;
+            }
+        }
+
+        writer
+            .write_event(Event::End(BytesEnd::new("graph")))
+            .map_err(|e| xml_write_err("graph_end", e))?;
+        writer
+            .write_event(Event::End(BytesEnd::new("graphml")))
+            .map_err(|e| xml_write_err("graphml_end", e))?;
+
+        let result = writer.into_inner().into_inner();
+        let output = String::from_utf8(result).map_err(|e| ReadWriteError::FailClosed {
+            operation: "write_graphml",
+            reason: format!("UTF-8 encoding error: {e}"),
+        })?;
+
+        self.record(
+            "write_graphml",
+            DecisionAction::Allow,
+            "graphml serialization completed",
+            0.02,
+        );
+
+        Ok(output)
+    }
+
+    pub fn read_graphml(&mut self, input: &str) -> Result<ReadWriteReport, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "read_graphml".to_owned(),
+            requested_backend: None,
+            required_features: set(["read_graphml"]),
+            risk_probability: 0.10,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let mut graph = Graph::new(self.mode);
+        let mut warnings = Vec::new();
+
+        // Key registry: key_id -> (for_scope, attr_name)
+        let mut key_registry: BTreeMap<String, (String, String)> = BTreeMap::new();
+
+        let mut reader = Reader::from_str(input);
+        reader.config_mut().trim_text(true);
+
+        // Parser state.
+        let mut in_graph = false;
+        let mut current_node: Option<String> = None;
+        let mut current_edge: Option<(String, String)> = None;
+        let mut current_data_key: Option<String> = None;
+        let mut current_data_text = String::new();
+
+        // Collect node/edge attrs to apply after parsing each element.
+        let mut pending_node_attrs: AttrMap = AttrMap::new();
+        let mut pending_edge_attrs: AttrMap = AttrMap::new();
+
+        loop {
+            let event = reader.read_event();
+            match event {
+                Ok(Event::Start(ref e)) => {
+                    self.handle_graphml_start_element(
+                        e,
+                        false,
+                        &mut graph,
+                        &mut warnings,
+                        &mut key_registry,
+                        &mut in_graph,
+                        &mut current_node,
+                        &mut current_edge,
+                        &mut current_data_key,
+                        &mut current_data_text,
+                        &mut pending_node_attrs,
+                        &mut pending_edge_attrs,
+                    )?;
+                }
+                Ok(Event::Empty(ref e)) => {
+                    self.handle_graphml_start_element(
+                        e,
+                        true,
+                        &mut graph,
+                        &mut warnings,
+                        &mut key_registry,
+                        &mut in_graph,
+                        &mut current_node,
+                        &mut current_edge,
+                        &mut current_data_key,
+                        &mut current_data_text,
+                        &mut pending_node_attrs,
+                        &mut pending_edge_attrs,
+                    )?;
+                    // For empty elements like <node id="x"/>, immediately finalize.
+                    self.handle_graphml_end_element(
+                        e.name().as_ref(),
+                        &mut graph,
+                        &mut warnings,
+                        &mut in_graph,
+                        &mut current_node,
+                        &mut current_edge,
+                        &mut current_data_key,
+                        &mut current_data_text,
+                        &mut pending_node_attrs,
+                        &mut pending_edge_attrs,
+                        &key_registry,
+                    )?;
+                }
+                Ok(Event::Text(ref e)) => {
+                    if current_data_key.is_some() {
+                        current_data_text.push_str(&e.unescape().unwrap_or_default());
+                    }
+                }
+                Ok(Event::End(ref e)) => {
+                    self.handle_graphml_end_element(
+                        e.name().as_ref(),
+                        &mut graph,
+                        &mut warnings,
+                        &mut in_graph,
+                        &mut current_node,
+                        &mut current_edge,
+                        &mut current_data_key,
+                        &mut current_data_text,
+                        &mut pending_node_attrs,
+                        &mut pending_edge_attrs,
+                        &key_registry,
+                    )?;
+                }
+                Ok(Event::Eof) => break,
+                Err(e) => {
+                    let warning = format!("graphml xml parse error: {e}");
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_graphml",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.8);
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        self.record(
+            "read_graphml",
+            DecisionAction::Allow,
+            "graphml parse completed",
+            0.04,
+        );
+
+        Ok(ReadWriteReport { graph, warnings })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn handle_graphml_start_element(
+        &mut self,
+        e: &BytesStart<'_>,
+        _is_empty: bool,
+        graph: &mut Graph,
+        warnings: &mut Vec<String>,
+        key_registry: &mut BTreeMap<String, (String, String)>,
+        in_graph: &mut bool,
+        current_node: &mut Option<String>,
+        current_edge: &mut Option<(String, String)>,
+        current_data_key: &mut Option<String>,
+        current_data_text: &mut String,
+        pending_node_attrs: &mut AttrMap,
+        pending_edge_attrs: &mut AttrMap,
+    ) -> Result<(), ReadWriteError> {
+        let tag_name = e.name();
+        let local = tag_name.as_ref();
+        match local {
+            b"key" => {
+                let mut key_id = String::new();
+                let mut for_scope = String::new();
+                let mut attr_name = String::new();
+                for attr in e.attributes().flatten() {
+                    match attr.key.as_ref() {
+                        b"id" => {
+                            key_id = String::from_utf8_lossy(&attr.value).into_owned();
+                        }
+                        b"for" => {
+                            for_scope = String::from_utf8_lossy(&attr.value).into_owned();
+                        }
+                        b"attr.name" => {
+                            attr_name = String::from_utf8_lossy(&attr.value).into_owned();
+                        }
+                        _ => {}
+                    }
+                }
+                if !key_id.is_empty() && !attr_name.is_empty() {
+                    key_registry.insert(key_id, (for_scope, attr_name));
+                }
+            }
+            b"graph" => {
+                *in_graph = true;
+            }
+            b"node" if *in_graph => {
+                let mut node_id = String::new();
+                for attr in e.attributes().flatten() {
+                    if attr.key.as_ref() == b"id" {
+                        node_id = String::from_utf8_lossy(&attr.value).into_owned();
+                    }
+                }
+                if node_id.is_empty() {
+                    let warning = "graphml node missing id attribute".to_owned();
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_graphml",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
+                    return Ok(());
+                }
+                let _ = graph.add_node(node_id.clone());
+                *current_node = Some(node_id);
+                pending_node_attrs.clear();
+            }
+            b"edge" if *in_graph => {
+                let mut source = String::new();
+                let mut target = String::new();
+                for attr in e.attributes().flatten() {
+                    match attr.key.as_ref() {
+                        b"source" => {
+                            source = String::from_utf8_lossy(&attr.value).into_owned();
+                        }
+                        b"target" => {
+                            target = String::from_utf8_lossy(&attr.value).into_owned();
+                        }
+                        _ => {}
+                    }
+                }
+                if source.is_empty() || target.is_empty() {
+                    let warning = format!(
+                        "graphml edge missing source/target: source={source:?} target={target:?}"
+                    );
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_graphml",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
+                    return Ok(());
+                }
+                *current_edge = Some((source, target));
+                pending_edge_attrs.clear();
+            }
+            b"data" => {
+                current_data_text.clear();
+                for attr in e.attributes().flatten() {
+                    if attr.key.as_ref() == b"key" {
+                        *current_data_key = Some(String::from_utf8_lossy(&attr.value).into_owned());
+                    }
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn handle_graphml_end_element(
+        &mut self,
+        local: &[u8],
+        graph: &mut Graph,
+        warnings: &mut Vec<String>,
+        in_graph: &mut bool,
+        current_node: &mut Option<String>,
+        current_edge: &mut Option<(String, String)>,
+        current_data_key: &mut Option<String>,
+        current_data_text: &mut String,
+        pending_node_attrs: &mut AttrMap,
+        pending_edge_attrs: &mut AttrMap,
+        key_registry: &BTreeMap<String, (String, String)>,
+    ) -> Result<(), ReadWriteError> {
+        match local {
+            b"data" => {
+                if let Some(key_id) = current_data_key.take()
+                    && let Some((_scope, attr_name)) = key_registry.get(&key_id)
+                {
+                    let value = std::mem::take(current_data_text);
+                    if current_node.is_some() && current_edge.is_none() {
+                        pending_node_attrs.insert(attr_name.clone(), value);
+                    } else if current_edge.is_some() {
+                        pending_edge_attrs.insert(attr_name.clone(), value);
+                    }
+                }
+                current_data_text.clear();
+            }
+            b"node" => {
+                if let Some(node_id) = current_node.as_ref()
+                    && !pending_node_attrs.is_empty()
+                {
+                    graph.add_node_with_attrs(node_id.clone(), std::mem::take(pending_node_attrs));
+                }
+                *current_node = None;
+                pending_node_attrs.clear();
+            }
+            b"edge" => {
+                if let Some((source, target)) = current_edge.take() {
+                    let result = graph.add_edge_with_attrs(
+                        source,
+                        target,
+                        std::mem::take(pending_edge_attrs),
+                    );
+                    if let Err(err) = result {
+                        let warning = format!("graphml edge add failed: {err}");
+                        if self.mode == CompatibilityMode::Strict {
+                            self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                            return Err(ReadWriteError::FailClosed {
+                                operation: "read_graphml",
+                                reason: warning,
+                            });
+                        }
+                        warnings.push(warning.clone());
+                        self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
+                    }
+                }
+                pending_edge_attrs.clear();
+            }
+            b"graph" => {
+                *in_graph = false;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
     fn record(
         &mut self,
         operation: &'static str,
@@ -463,6 +961,13 @@ fn decode_attrs(
         attrs.insert(key.to_owned(), value.to_owned());
     }
     Ok(attrs)
+}
+
+fn xml_write_err(context: &str, err: std::io::Error) -> ReadWriteError {
+    ReadWriteError::FailClosed {
+        operation: "write_graphml",
+        reason: format!("xml write error ({context}): {err}"),
+    }
 }
 
 fn set<const N: usize>(values: [&str; N]) -> BTreeSet<String> {
@@ -675,6 +1180,114 @@ mod tests {
         assert!(!report.warnings.is_empty());
         assert_eq!(report.graph.node_count(), 0);
         assert_eq!(report.graph.edge_count(), 0);
+    }
+
+    #[test]
+    fn graphml_round_trip_no_attrs() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+
+        let mut engine = EdgeListEngine::strict();
+        let xml = engine
+            .write_graphml(&graph)
+            .expect("graphml write should succeed");
+        assert!(xml.contains("<graphml"));
+        assert!(xml.contains("edgedefault=\"undirected\""));
+
+        let parsed = engine
+            .read_graphml(&xml)
+            .expect("graphml read should succeed");
+        assert!(parsed.warnings.is_empty());
+        assert_eq!(graph.snapshot(), parsed.graph.snapshot());
+    }
+
+    #[test]
+    fn graphml_round_trip_with_edge_attrs() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs(
+                "a".to_owned(),
+                "b".to_owned(),
+                BTreeMap::from([("weight".to_owned(), "1".to_owned())]),
+            )
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs(
+                "b".to_owned(),
+                "c".to_owned(),
+                BTreeMap::from([("weight".to_owned(), "3".to_owned())]),
+            )
+            .expect("edge add should succeed");
+
+        let mut engine = EdgeListEngine::strict();
+        let xml = engine
+            .write_graphml(&graph)
+            .expect("graphml write should succeed");
+        let parsed = engine
+            .read_graphml(&xml)
+            .expect("graphml read should succeed");
+        assert!(parsed.warnings.is_empty());
+        assert_eq!(graph.snapshot(), parsed.graph.snapshot());
+    }
+
+    #[test]
+    fn graphml_round_trip_with_node_attrs() {
+        let mut graph = Graph::strict();
+        graph.add_node_with_attrs(
+            "a".to_owned(),
+            BTreeMap::from([("color".to_owned(), "red".to_owned())]),
+        );
+        graph.add_node_with_attrs(
+            "b".to_owned(),
+            BTreeMap::from([("color".to_owned(), "blue".to_owned())]),
+        );
+        graph.add_edge("a", "b").expect("edge add should succeed");
+
+        let mut engine = EdgeListEngine::strict();
+        let xml = engine
+            .write_graphml(&graph)
+            .expect("graphml write should succeed");
+        let parsed = engine
+            .read_graphml(&xml)
+            .expect("graphml read should succeed");
+        assert!(parsed.warnings.is_empty());
+        assert_eq!(graph.snapshot(), parsed.graph.snapshot());
+    }
+
+    #[test]
+    fn graphml_strict_fails_closed_for_malformed_xml() {
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml("<not-valid-graphml")
+            .expect_err("strict graphml parsing should fail closed for malformed xml");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_hardened_recovers_for_malformed_xml() {
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml("<not-valid-graphml")
+            .expect("hardened mode should recover");
+        assert!(!report.warnings.is_empty());
+    }
+
+    #[test]
+    fn graphml_deterministic_emission() {
+        let mut graph = Graph::strict();
+        graph.add_edge("x", "y").expect("edge add should succeed");
+        graph.add_edge("y", "z").expect("edge add should succeed");
+
+        let mut engine_a = EdgeListEngine::strict();
+        let mut engine_b = EdgeListEngine::strict();
+        let xml_a = engine_a
+            .write_graphml(&graph)
+            .expect("graphml write should succeed");
+        let xml_b = engine_b
+            .write_graphml(&graph)
+            .expect("graphml replay should succeed");
+        assert_eq!(xml_a, xml_b, "graphml emission must be deterministic");
     }
 
     #[test]

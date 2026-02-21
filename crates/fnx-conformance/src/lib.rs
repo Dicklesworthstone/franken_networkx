@@ -311,6 +311,10 @@ enum Operation {
         input: String,
     },
     WriteJsonGraph,
+    ReadGraphml {
+        input: String,
+    },
+    WriteGraphml,
     ViewNeighborsQuery {
         node: String,
     },
@@ -380,6 +384,8 @@ struct ExpectedState {
     #[serde(default)]
     serialized_json_graph: Option<String>,
     #[serde(default)]
+    serialized_graphml: Option<String>,
+    #[serde(default)]
     view_neighbors: Option<Vec<String>>,
     #[serde(default)]
     warnings_contains: Vec<String>,
@@ -429,6 +435,7 @@ struct ExecutionContext {
     serialized_edgelist: Option<String>,
     serialized_adjlist: Option<String>,
     serialized_json_graph: Option<String>,
+    serialized_graphml: Option<String>,
     view_neighbors_result: Option<Vec<String>>,
     betweenness_centrality_result: Option<Vec<CentralityScore>>,
     edge_betweenness_centrality_result: Option<Vec<EdgeCentralityScore>>,
@@ -1182,6 +1189,7 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
         serialized_edgelist: None,
         serialized_adjlist: None,
         serialized_json_graph: None,
+        serialized_graphml: None,
         view_neighbors_result: None,
         betweenness_centrality_result: None,
         edge_betweenness_centrality_result: None,
@@ -1435,6 +1443,29 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
                     Err(err) => mismatches.push(Mismatch {
                         category: "readwrite".to_owned(),
                         message: format!("write_json_graph failed: {err}"),
+                    }),
+                }
+            }
+            Operation::ReadGraphml { input } => {
+                let mut engine = EdgeListEngine::new(mode);
+                match engine.read_graphml(&input) {
+                    Ok(report) => {
+                        context.warnings.extend(report.warnings);
+                        context.graph = report.graph;
+                    }
+                    Err(err) => mismatches.push(Mismatch {
+                        category: "readwrite".to_owned(),
+                        message: format!("read_graphml failed: {err}"),
+                    }),
+                }
+            }
+            Operation::WriteGraphml => {
+                let mut engine = EdgeListEngine::new(mode);
+                match engine.write_graphml(&context.graph) {
+                    Ok(text) => context.serialized_graphml = Some(text),
+                    Err(err) => mismatches.push(Mismatch {
+                        category: "readwrite".to_owned(),
+                        message: format!("write_graphml failed: {err}"),
                     }),
                 }
             }
@@ -1891,6 +1922,18 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
         });
     }
 
+    if let Some(expected_text) = fixture.expected.serialized_graphml
+        && context.serialized_graphml.as_deref() != Some(expected_text.as_str())
+    {
+        mismatches.push(Mismatch {
+            category: "readwrite".to_owned(),
+            message: format!(
+                "serialized graphml mismatch: expected {:?}, got {:?}",
+                expected_text, context.serialized_graphml
+            ),
+        });
+    }
+
     if let Some(expected_neighbors) = fixture.expected.view_neighbors
         && context.view_neighbors_result != Some(expected_neighbors.clone())
     {
@@ -2005,6 +2048,8 @@ fn default_dispatch_registry(mode: CompatibilityMode) -> BackendRegistry {
             "write_adjlist",
             "read_json_graph",
             "write_json_graph",
+            "read_graphml",
+            "write_graphml",
             "connected_components",
             "number_connected_components",
             "betweenness_centrality",
