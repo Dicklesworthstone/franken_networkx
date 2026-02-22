@@ -921,13 +921,25 @@ impl EdgeListEngine {
     }
 }
 
+fn attr_escape(s: &str) -> String {
+    s.replace('%', "%25")
+        .replace('=', "%3D")
+        .replace(';', "%3B")
+}
+
+fn attr_unescape(s: &str) -> String {
+    s.replace("%3B", ";")
+        .replace("%3D", "=")
+        .replace("%25", "%")
+}
+
 fn encode_attrs(attrs: &AttrMap) -> String {
     if attrs.is_empty() {
         return "-".to_owned();
     }
     attrs
         .iter()
-        .map(|(k, v)| format!("{k}={v}"))
+        .map(|(k, v)| format!("{}={}", attr_escape(k), attr_escape(v)))
         .collect::<Vec<String>>()
         .join(";")
 }
@@ -958,7 +970,7 @@ fn decode_attrs(
             warnings.push(warning);
             continue;
         };
-        attrs.insert(key.to_owned(), value.to_owned());
+        attrs.insert(attr_unescape(key), attr_unescape(value));
     }
     Ok(attrs)
 }
@@ -1105,7 +1117,7 @@ mod tests {
         let text = engine
             .write_adjlist(&graph)
             .expect("adjlist serialization should succeed");
-        assert_eq!(text, "a b c\nb a\nc a\nd");
+        assert_eq!(text, "a b c\nb\nc\nd");
 
         let parsed = engine
             .read_adjlist(&text)

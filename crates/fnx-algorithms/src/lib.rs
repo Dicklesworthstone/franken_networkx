@@ -2292,10 +2292,17 @@ fn dfs_connectivity_analysis(graph: &Graph) -> DfsConnectivityAnalysis {
     analysis
 }
 
+struct DfsFrame {
+    node: String,
+    neighbors: Vec<String>,
+    neighbor_idx: usize,
+    child_count: usize,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn dfs_connectivity_visit(
     graph: &Graph,
-    current: &str,
+    root: &str,
     time: &mut usize,
     discovery: &mut HashMap<String, usize>,
     low: &mut HashMap<String, usize>,
@@ -2307,56 +2314,85 @@ fn dfs_connectivity_visit(
 ) {
     *nodes_touched += 1;
     *time += 1;
-    discovery.insert(current.to_owned(), *time);
-    low.insert(current.to_owned(), *time);
+    discovery.insert(root.to_owned(), *time);
+    low.insert(root.to_owned(), *time);
 
-    let mut child_count = 0usize;
-    let current_parent = parent.get(current).cloned().flatten();
-    let mut neighbors = graph
-        .neighbors_iter(current)
+    let mut root_neighbors = graph
+        .neighbors_iter(root)
         .map(|iter| iter.map(str::to_owned).collect::<Vec<String>>())
         .unwrap_or_default();
-    neighbors.sort_unstable();
+    root_neighbors.sort_unstable();
 
-    for neighbor in neighbors {
-        *edges_scanned += 1;
-        if !discovery.contains_key(&neighbor) {
-            child_count += 1;
-            parent.insert(neighbor.clone(), Some(current.to_owned()));
-            dfs_connectivity_visit(
-                graph,
-                &neighbor,
-                time,
-                discovery,
-                low,
-                parent,
-                is_articulation,
-                bridges,
-                nodes_touched,
-                edges_scanned,
-            );
+    let mut stack = vec![DfsFrame {
+        node: root.to_owned(),
+        neighbors: root_neighbors,
+        neighbor_idx: 0,
+        child_count: 0,
+    }];
 
-            let low_neighbor = *low.get(&neighbor).unwrap_or(&usize::MAX);
-            let low_current = *low.get(current).unwrap_or(&usize::MAX);
-            low.insert(current.to_owned(), low_current.min(low_neighbor));
+    while let Some(frame) = stack.last_mut() {
+        if frame.neighbor_idx < frame.neighbors.len() {
+            let neighbor = frame.neighbors[frame.neighbor_idx].clone();
+            frame.neighbor_idx += 1;
+            *edges_scanned += 1;
 
-            if current_parent.is_none() && child_count > 1 {
-                is_articulation.insert(current.to_owned());
-            }
-            if current_parent.is_some() {
-                let disc_current = *discovery.get(current).unwrap_or(&usize::MAX);
-                if low_neighbor >= disc_current {
-                    is_articulation.insert(current.to_owned());
+            if !discovery.contains_key(&neighbor) {
+                frame.child_count += 1;
+                parent.insert(neighbor.clone(), Some(frame.node.clone()));
+
+                *nodes_touched += 1;
+                *time += 1;
+                discovery.insert(neighbor.clone(), *time);
+                low.insert(neighbor.clone(), *time);
+
+                let mut child_neighbors = graph
+                    .neighbors_iter(&neighbor)
+                    .map(|iter| iter.map(str::to_owned).collect::<Vec<String>>())
+                    .unwrap_or_default();
+                child_neighbors.sort_unstable();
+
+                stack.push(DfsFrame {
+                    node: neighbor,
+                    neighbors: child_neighbors,
+                    neighbor_idx: 0,
+                    child_count: 0,
+                });
+            } else {
+                let current_parent = parent.get(&frame.node).cloned().flatten();
+                if current_parent.as_deref() != Some(neighbor.as_str()) {
+                    let disc_neighbor = *discovery.get(&neighbor).unwrap_or(&usize::MAX);
+                    let low_current = *low.get(&frame.node).unwrap_or(&usize::MAX);
+                    low.insert(frame.node.clone(), low_current.min(disc_neighbor));
                 }
             }
-            let disc_current = *discovery.get(current).unwrap_or(&usize::MAX);
-            if low_neighbor > disc_current {
-                bridges.insert(canonical_undirected_edge(current, &neighbor));
+        } else {
+            let finished = stack.pop().unwrap();
+
+            if let Some(parent_frame) = stack.last() {
+                let low_finished = *low.get(&finished.node).unwrap_or(&usize::MAX);
+                let low_parent = *low.get(&parent_frame.node).unwrap_or(&usize::MAX);
+                low.insert(parent_frame.node.clone(), low_parent.min(low_finished));
+
+                let parent_of_parent = parent.get(&parent_frame.node).cloned().flatten();
+                if parent_of_parent.is_none() && parent_frame.child_count > 1 {
+                    is_articulation.insert(parent_frame.node.clone());
+                }
+                if parent_of_parent.is_some() {
+                    let disc_parent = *discovery.get(&parent_frame.node).unwrap_or(&usize::MAX);
+                    if low_finished >= disc_parent {
+                        is_articulation.insert(parent_frame.node.clone());
+                    }
+                }
+                let disc_parent = *discovery.get(&parent_frame.node).unwrap_or(&usize::MAX);
+                if low_finished > disc_parent {
+                    bridges.insert(canonical_undirected_edge(
+                        &parent_frame.node,
+                        &finished.node,
+                    ));
+                }
+            } else if finished.child_count > 1 {
+                is_articulation.insert(finished.node);
             }
-        } else if current_parent.as_deref() != Some(neighbor.as_str()) {
-            let disc_neighbor = *discovery.get(&neighbor).unwrap_or(&usize::MAX);
-            let low_current = *low.get(current).unwrap_or(&usize::MAX);
-            low.insert(current.to_owned(), low_current.min(disc_neighbor));
         }
     }
 }

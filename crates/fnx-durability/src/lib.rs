@@ -150,7 +150,7 @@ pub fn scrub_artifact(
     let recovered_hash = hash_bytes(&recovered);
     if recovered_hash != envelope.source_hash {
         envelope.scrub = ScrubStatus {
-            last_ok_unix_ms: unix_time_ms(),
+            last_ok_unix_ms: envelope.scrub.last_ok_unix_ms,
             status: ScrubState::Failed,
         };
         write_envelope(sidecar_path, &envelope)?;

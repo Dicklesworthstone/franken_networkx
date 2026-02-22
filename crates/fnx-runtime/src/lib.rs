@@ -510,7 +510,7 @@ impl AsupersyncAdapterMachine {
                 AsupersyncAdapterReasonCode::RetryExhausted,
             );
         };
-        if next_attempt >= self.intent.max_attempts {
+        if next_attempt > self.intent.max_attempts {
             return self.fail_closed(
                 AsupersyncAdapterEventType::RetryBudgetExceeded,
                 AsupersyncAdapterReasonCode::RetryExhausted,
@@ -566,6 +566,10 @@ impl AsupersyncAdapterMachine {
         expected_epoch: u64,
         observed_epoch: u64,
     ) -> Result<(), String> {
+        self.require_active_state(
+            AsupersyncAdapterState::Syncing,
+            AsupersyncAdapterEventType::ConflictDetected,
+        )?;
         if expected_epoch == observed_epoch {
             return Ok(());
         }
@@ -791,7 +795,7 @@ impl FtuiTelemetryAdapter {
         let state = match log.status {
             TestStatus::Passed => "completed",
             TestStatus::Failed => "failed_closed",
-            TestStatus::Skipped => "failed_closed",
+            TestStatus::Skipped => "skipped",
         };
         let journey_id = format!("{}::{}", log.packet_id, log.suite_id);
         let artifact_ref = log.artifact_refs.join(";");
@@ -1502,20 +1506,31 @@ impl CgsePolicyEngine {
         unknown_incompatible_feature: bool,
         ts_unix_ms: u128,
     ) -> CgsePolicyDecision {
-        let clamped_probability = incompatibility_probability.clamp(0.0, 1.0);
+        let nan_detected = incompatibility_probability.is_nan();
+        let clamped_probability = if nan_detected {
+            1.0
+        } else {
+            incompatibility_probability.clamp(0.0, 1.0)
+        };
         let allowlisted_ambiguity =
             ambiguity_tag.is_some_and(|tag| rule.hardened_allowlist().contains(&tag));
         let hardened_ambiguity_violation = matches!(self.mode, CompatibilityMode::Hardened)
             && ambiguity_tag.is_some()
             && !allowlisted_ambiguity;
 
-        let action = if unknown_incompatible_feature || hardened_ambiguity_violation {
+        let action = if unknown_incompatible_feature || nan_detected || hardened_ambiguity_violation
+        {
             DecisionAction::FailClosed
         } else {
             decision_theoretic_action(self.mode, clamped_probability, false)
         };
 
-        let rationale = if unknown_incompatible_feature {
+        let rationale = if nan_detected {
+            format!(
+                "{} triggered fail-closed due to NaN incompatibility_probability",
+                rule.fail_closed_default()
+            )
+        } else if unknown_incompatible_feature {
             format!(
                 "{} triggered fail-closed due to unknown incompatible feature",
                 rule.fail_closed_default()
