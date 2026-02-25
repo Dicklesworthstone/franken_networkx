@@ -2,12 +2,14 @@
 
 use fnx_algorithms::{
     CentralityScore, ComplexityWitness, EdgeCentralityScore, EdgeCutResult, GlobalEdgeCutResult,
-    MinimumCutResult, articulation_points, betweenness_centrality, bridges, closeness_centrality,
-    connected_components, degree_centrality, edge_betweenness_centrality,
-    edge_connectivity_edmonds_karp, eigenvector_centrality, global_edge_connectivity_edmonds_karp,
-    global_minimum_edge_cut_edmonds_karp, harmonic_centrality, hits_centrality, katz_centrality,
-    max_flow_edmonds_karp, minimum_cut_edmonds_karp, minimum_st_edge_cut_edmonds_karp,
-    number_connected_components, pagerank, shortest_path_unweighted, shortest_path_weighted,
+    MaximalMatchingResult, MinimumCutResult, WeightedMatchingResult, articulation_points,
+    betweenness_centrality, bridges, closeness_centrality, connected_components, degree_centrality,
+    edge_betweenness_centrality, edge_connectivity_edmonds_karp, eigenvector_centrality,
+    global_edge_connectivity_edmonds_karp, global_minimum_edge_cut_edmonds_karp,
+    harmonic_centrality, hits_centrality, katz_centrality, max_flow_edmonds_karp,
+    max_weight_matching, maximal_matching, min_weight_matching, minimum_cut_edmonds_karp,
+    minimum_st_edge_cut_edmonds_karp, number_connected_components, pagerank,
+    shortest_path_unweighted, shortest_path_weighted,
 };
 use fnx_classes::{AttrMap, EdgeSnapshot, Graph, GraphSnapshot};
 use fnx_convert::{AdjacencyPayload, EdgeListPayload, GraphConverter};
@@ -304,6 +306,17 @@ enum Operation {
     NumberConnectedComponentsQuery,
     ArticulationPointsQuery,
     BridgesQuery,
+    MaximalMatchingQuery,
+    MaxWeightMatchingQuery {
+        #[serde(default)]
+        maxcardinality: bool,
+        #[serde(default = "default_weight_attr")]
+        weight_attr: String,
+    },
+    MinWeightMatchingQuery {
+        #[serde(default = "default_weight_attr")]
+        weight_attr: String,
+    },
     DispatchResolve {
         operation: String,
         #[serde(default)]
@@ -406,6 +419,12 @@ struct ExpectedState {
     #[serde(default)]
     bridges: Option<Vec<(String, String)>>,
     #[serde(default)]
+    maximal_matching: Option<Vec<(String, String)>>,
+    #[serde(default)]
+    max_weight_matching: Option<ExpectedWeightedMatching>,
+    #[serde(default)]
+    min_weight_matching: Option<ExpectedWeightedMatching>,
+    #[serde(default)]
     dispatch: Option<ExpectedDispatch>,
     #[serde(default)]
     serialized_edgelist: Option<String>,
@@ -471,6 +490,12 @@ struct ExpectedEdgeCentralityScore {
     score: f64,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct ExpectedWeightedMatching {
+    matching: Vec<(String, String)>,
+    total_weight: f64,
+}
+
 #[derive(Debug)]
 struct ExecutionContext {
     graph: Graph,
@@ -503,6 +528,9 @@ struct ExecutionContext {
     number_connected_components_result: Option<usize>,
     articulation_points_result: Option<Vec<String>>,
     bridges_result: Option<Vec<(String, String)>>,
+    maximal_matching_result: Option<MaximalMatchingResult>,
+    max_weight_matching_result: Option<WeightedMatchingResult>,
+    min_weight_matching_result: Option<WeightedMatchingResult>,
     warnings: Vec<String>,
     witness: Option<ComplexityWitness>,
 }
@@ -1261,6 +1289,9 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
         number_connected_components_result: None,
         articulation_points_result: None,
         bridges_result: None,
+        maximal_matching_result: None,
+        max_weight_matching_result: None,
+        min_weight_matching_result: None,
         warnings: Vec::new(),
         witness: None,
     };
@@ -1421,6 +1452,25 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
             Operation::BridgesQuery => {
                 let result = bridges(&context.graph);
                 context.bridges_result = Some(result.edges);
+                context.witness = Some(result.witness);
+            }
+            Operation::MaximalMatchingQuery => {
+                let result = maximal_matching(&context.graph);
+                context.maximal_matching_result = Some(result.clone());
+                context.witness = Some(result.witness);
+            }
+            Operation::MaxWeightMatchingQuery {
+                maxcardinality,
+                weight_attr,
+            } => {
+                let result =
+                    max_weight_matching(&context.graph, maxcardinality, &weight_attr);
+                context.max_weight_matching_result = Some(result.clone());
+                context.witness = Some(result.witness);
+            }
+            Operation::MinWeightMatchingQuery { weight_attr } => {
+                let result = min_weight_matching(&context.graph, &weight_attr);
+                context.min_weight_matching_result = Some(result.clone());
                 context.witness = Some(result.witness);
             }
             Operation::DispatchResolve {
