@@ -51,8 +51,7 @@
       }
     },
     {
-      "op": "max_weight_matching_query",
-      "weight_attr": "weight"
+      "op": "maximal_matching_query"
     }
   ],
   "expected": {
@@ -109,18 +108,15 @@
         }
       ]
     },
-    "max_weight_matching": {
-      "matching": [
-        [
-          "a",
-          "b"
-        ],
-        [
-          "d",
-          "e"
-        ]
+    "maximal_matching": [
+      [
+        "a",
+        "b"
       ],
-      "total_weight": 11.0
-    }
+      [
+        "c",
+        "d"
+      ]
+    ]
   }
 }

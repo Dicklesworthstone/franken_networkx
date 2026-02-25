@@ -1,0 +1,39 @@
+{
+  "suite": "convert_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "convert_adjacency",
+      "payload": {
+        "adjacency": {
+          "a": [
+            {"to": "b", "attrs": {"weight": "2"}},
+            {"to": "c", "attrs": {}}
+          ],
+          "b": [
+            {"to": "c", "attrs": {"weight": "3"}}
+          ],
+          "c": [],
+          "d": [
+            {"to": "a", "attrs": {"weight": "1"}}
+          ]
+        }
+      }
+    },
+    {
+      "op": "number_connected_components_query"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["a", "b", "c", "d"],
+      "edges": [
+        {"left": "a", "right": "b", "attrs": {"weight": "2"}},
+        {"left": "a", "right": "c", "attrs": {}},
+        {"left": "a", "right": "d", "attrs": {"weight": "1"}},
+        {"left": "b", "right": "c", "attrs": {"weight": "3"}}
+      ]
+    },
+    "number_connected_components": 1
+  }
+}

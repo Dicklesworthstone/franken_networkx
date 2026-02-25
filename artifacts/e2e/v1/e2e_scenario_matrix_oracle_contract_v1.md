@@ -1,10 +1,10 @@
 # E2E Scenario Matrix + Oracle Contract (V1)
 
-- generated_at_utc: 2026-02-20T20:10:03.059136+00:00
+- generated_at_utc: 2026-02-25T10:39:26.480207+00:00
 - baseline_comparator: legacy_networkx/main@python3.12
-- journey_count: 11
-- fixture_inventory_count: 33
-- covered_fixture_count: 30
+- journey_count: 12
+- fixture_inventory_count: 41
+- covered_fixture_count: 41
 - uncovered_fixture_count: 0
 
 ## Journey Coverage
@@ -18,6 +18,7 @@
 | `J-SHORTEST-PATH-COMPONENTS` | `FNX-P2C-005` | `generated/components_connected_strict.json` | `generated/components_connected_strict.json` | `mode_override_fixture` |
 | `J-STRUCTURE` | `FNX-P2C-005` | `generated/structure_articulation_points_strict.json` | `generated/structure_articulation_points_strict.json` | `mode_override_fixture` |
 | `J-CENTRALITY` | `FNX-P2C-005` | `generated/centrality_edge_betweenness_strict.json` | `generated/centrality_closeness_strict.json` | `mode_override_fixture` |
+| `J-MATCHING` | `FNX-P2C-005` | `generated/matching_maximal_strict.json` | `generated/matching_maximal_strict.json` | `mode_override_fixture` |
 | `J-READWRITE` | `FNX-P2C-006` | `generated/readwrite_roundtrip_strict.json` | `generated/readwrite_hardened_malformed.json` | `native_fixture` |
 | `J-GENERATORS` | `FNX-P2C-007` | `generated/generators_path_strict.json` | `generated/generators_cycle_strict.json` | `mode_override_fixture` |
 | `J-RUNTIME-OPTIONAL` | `FNX-P2C-008` | `generated/runtime_config_optional_strict.json` | `generated/runtime_config_optional_strict.json` | `mode_override_fixture` |
@@ -47,3 +48,5 @@
 | `readwrite` | `fnx-readwrite parity checks` | Read/write parser or serializer output diverges from oracle expectations. |
 | `views` | `fnx-views parity checks` | Graph view query output diverges from deterministic ordering expectations. |
 | `generators` | `fnx-generators parity checks` | Generator-produced graph structure/order diverges from oracle fixtures. |
+| `algorithm_matching` | `fnx-algorithms matching checks` | Matching algorithm output diverges from oracle expectation. |
+| `algorithm_flow` | `fnx-algorithms flow checks` | Flow/connectivity algorithm output diverges from oracle expectation. |

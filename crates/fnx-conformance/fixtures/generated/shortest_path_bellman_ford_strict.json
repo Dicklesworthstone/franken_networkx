@@ -1,0 +1,37 @@
+{
+  "suite": "shortest_path_v1",
+  "mode": "strict",
+  "operations": [
+    {"op": "add_edge", "left": "a", "right": "b", "attrs": {"weight": "4"}},
+    {"op": "add_edge", "left": "a", "right": "c", "attrs": {"weight": "2"}},
+    {"op": "add_edge", "left": "b", "right": "c", "attrs": {"weight": "1"}},
+    {"op": "add_edge", "left": "b", "right": "d", "attrs": {"weight": "3"}},
+    {"op": "add_edge", "left": "c", "right": "d", "attrs": {"weight": "5"}},
+    {"op": "bellman_ford_query", "source": "a", "weight_attr": "weight"}
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["a", "b", "c", "d"],
+      "edges": [
+        {"left": "a", "right": "b", "attrs": {"weight": "4"}},
+        {"left": "a", "right": "c", "attrs": {"weight": "2"}},
+        {"left": "b", "right": "c", "attrs": {"weight": "1"}},
+        {"left": "b", "right": "d", "attrs": {"weight": "3"}},
+        {"left": "c", "right": "d", "attrs": {"weight": "5"}}
+      ]
+    },
+    "bellman_ford_distances": [
+      {"node": "a", "distance": 0.0},
+      {"node": "b", "distance": 3.0},
+      {"node": "c", "distance": 2.0},
+      {"node": "d", "distance": 6.0}
+    ],
+    "bellman_ford_predecessors": [
+      {"node": "a", "predecessor": null},
+      {"node": "b", "predecessor": "c"},
+      {"node": "c", "predecessor": "a"},
+      {"node": "d", "predecessor": "b"}
+    ],
+    "bellman_ford_negative_cycle": false
+  }
+}

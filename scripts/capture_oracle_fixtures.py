@@ -411,6 +411,92 @@ def main() -> int:
         },
     }
 
+    matching_graph = nx.Graph()
+    matching_graph.add_edge("a", "b", weight=5)
+    matching_graph.add_edge("a", "c", weight=1)
+    matching_graph.add_edge("b", "c", weight=3)
+    matching_graph.add_edge("b", "d", weight=2)
+    matching_graph.add_edge("c", "d", weight=4)
+    matching_graph.add_edge("d", "e", weight=6)
+
+    maximal = nx.maximal_matching(matching_graph)
+    maximal_sorted = sorted(
+        tuple(sorted((str(u), str(v)))) for u, v in maximal
+    )
+    maximal_matching_fixture = {
+        "suite": "matching_v1",
+        "mode": "strict",
+        "operations": [
+            {"op": "add_edge", "left": "a", "right": "b", "attrs": {"weight": "5"}},
+            {"op": "add_edge", "left": "a", "right": "c", "attrs": {"weight": "1"}},
+            {"op": "add_edge", "left": "b", "right": "c", "attrs": {"weight": "3"}},
+            {"op": "add_edge", "left": "b", "right": "d", "attrs": {"weight": "2"}},
+            {"op": "add_edge", "left": "c", "right": "d", "attrs": {"weight": "4"}},
+            {"op": "add_edge", "left": "d", "right": "e", "attrs": {"weight": "6"}},
+            {"op": "maximal_matching_query"},
+        ],
+        "expected": {
+            "graph": graph_snapshot(matching_graph),
+            "maximal_matching": [list(pair) for pair in maximal_sorted],
+        },
+    }
+
+    max_wt = nx.max_weight_matching(matching_graph, maxcardinality=False, weight="weight")
+    max_wt_sorted = sorted(
+        tuple(sorted((str(u), str(v)))) for u, v in max_wt
+    )
+    max_wt_total = sum(
+        matching_graph[u][v]["weight"] for u, v in max_wt
+    )
+    max_weight_matching_fixture = {
+        "suite": "matching_v1",
+        "mode": "strict",
+        "operations": [
+            {"op": "add_edge", "left": "a", "right": "b", "attrs": {"weight": "5"}},
+            {"op": "add_edge", "left": "a", "right": "c", "attrs": {"weight": "1"}},
+            {"op": "add_edge", "left": "b", "right": "c", "attrs": {"weight": "3"}},
+            {"op": "add_edge", "left": "b", "right": "d", "attrs": {"weight": "2"}},
+            {"op": "add_edge", "left": "c", "right": "d", "attrs": {"weight": "4"}},
+            {"op": "add_edge", "left": "d", "right": "e", "attrs": {"weight": "6"}},
+            {"op": "max_weight_matching_query", "weight_attr": "weight"},
+        ],
+        "expected": {
+            "graph": graph_snapshot(matching_graph),
+            "max_weight_matching": {
+                "matching": [list(pair) for pair in max_wt_sorted],
+                "total_weight": float(max_wt_total),
+            },
+        },
+    }
+
+    min_wt = nx.min_weight_matching(matching_graph, weight="weight")
+    min_wt_sorted = sorted(
+        tuple(sorted((str(u), str(v)))) for u, v in min_wt
+    )
+    min_wt_total = sum(
+        matching_graph[u][v]["weight"] for u, v in min_wt
+    )
+    min_weight_matching_fixture = {
+        "suite": "matching_v1",
+        "mode": "strict",
+        "operations": [
+            {"op": "add_edge", "left": "a", "right": "b", "attrs": {"weight": "5"}},
+            {"op": "add_edge", "left": "a", "right": "c", "attrs": {"weight": "1"}},
+            {"op": "add_edge", "left": "b", "right": "c", "attrs": {"weight": "3"}},
+            {"op": "add_edge", "left": "b", "right": "d", "attrs": {"weight": "2"}},
+            {"op": "add_edge", "left": "c", "right": "d", "attrs": {"weight": "4"}},
+            {"op": "add_edge", "left": "d", "right": "e", "attrs": {"weight": "6"}},
+            {"op": "min_weight_matching_query", "weight_attr": "weight"},
+        ],
+        "expected": {
+            "graph": graph_snapshot(matching_graph),
+            "min_weight_matching": {
+                "matching": [list(pair) for pair in min_wt_sorted],
+                "total_weight": float(min_wt_total),
+            },
+        },
+    }
+
     write_json(fixture_root / "convert_edge_list_strict.json", convert_fixture)
     write_json(fixture_root / "readwrite_roundtrip_strict.json", readwrite_fixture)
     write_json(fixture_root / "dispatch_route_strict.json", dispatch_fixture)
@@ -433,6 +519,15 @@ def main() -> int:
     write_json(fixture_root / "centrality_pagerank_strict.json", pagerank_fixture)
     write_json(
         fixture_root / "centrality_eigenvector_strict.json", eigenvector_fixture
+    )
+    write_json(
+        fixture_root / "matching_maximal_strict.json", maximal_matching_fixture
+    )
+    write_json(
+        fixture_root / "matching_max_weight_strict.json", max_weight_matching_fixture
+    )
+    write_json(
+        fixture_root / "matching_min_weight_strict.json", min_weight_matching_fixture
     )
 
     oracle_capture = {
@@ -457,6 +552,9 @@ def main() -> int:
             "centrality_hits_strict.json",
             "centrality_pagerank_strict.json",
             "centrality_eigenvector_strict.json",
+            "matching_maximal_strict.json",
+            "matching_max_weight_strict.json",
+            "matching_min_weight_strict.json",
         ],
         "snapshots": {
             "convert_graph": graph_snapshot(convert_graph),
@@ -470,6 +568,7 @@ def main() -> int:
             "centrality_graph": graph_snapshot(centrality_graph),
             "closeness_graph": graph_snapshot(closeness_graph),
             "pagerank_graph": graph_snapshot(pagerank_graph),
+            "matching_graph": graph_snapshot(matching_graph),
         },
     }
     write_json(artifact_root / "legacy_networkx_capture.json", oracle_capture)

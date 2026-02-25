@@ -49,8 +49,14 @@ JOURNEY_SPECS: list[dict[str, Any]] = [
         "scoped_api_journey": "edge_list_conversion_and_route_parity",
         "packet_id": "FNX-P2C-004",
         "description": "Conversion pipeline from edge-list payload to deterministic graph state.",
-        "strict_fixture_ids": ["generated/convert_edge_list_strict.json"],
-        "hardened_fixture_ids": ["generated/convert_edge_list_strict.json"],
+        "strict_fixture_ids": [
+            "generated/convert_edge_list_strict.json",
+            "generated/convert_adjacency_strict.json",
+        ],
+        "hardened_fixture_ids": [
+            "generated/convert_edge_list_strict.json",
+            "generated/convert_adjacency_strict.json",
+        ],
         "hardened_mode_strategy": "mode_override_fixture",
     },
     {
@@ -64,14 +70,20 @@ JOURNEY_SPECS: list[dict[str, Any]] = [
         "strict_fixture_ids": [
             "generated/components_connected_strict.json",
             "generated/shortest_path_weighted_strict.json",
+            "generated/shortest_path_bellman_ford_strict.json",
+            "generated/shortest_path_multi_source_dijkstra_strict.json",
             "generated/flow_max_strict.json",
             "generated/flow_min_cut_strict.json",
+            "generated/flow_edge_connectivity_strict.json",
         ],
         "hardened_fixture_ids": [
             "generated/components_connected_strict.json",
             "generated/shortest_path_weighted_strict.json",
+            "generated/shortest_path_bellman_ford_strict.json",
+            "generated/shortest_path_multi_source_dijkstra_strict.json",
             "generated/flow_max_strict.json",
             "generated/flow_min_cut_strict.json",
+            "generated/flow_edge_connectivity_strict.json",
         ],
         "hardened_mode_strategy": "mode_override_fixture",
     },
@@ -113,6 +125,26 @@ JOURNEY_SPECS: list[dict[str, Any]] = [
         "hardened_mode_strategy": "mode_override_fixture",
     },
     {
+        "journey_id": "J-MATCHING",
+        "scoped_api_journey": "matching_maximal_and_weighted_contracts",
+        "packet_id": "FNX-P2C-005",
+        "description": (
+            "Deterministic maximal matching, max-weight matching, and min-weight matching "
+            "algorithm contracts."
+        ),
+        "strict_fixture_ids": [
+            "generated/matching_maximal_strict.json",
+            "generated/matching_max_weight_strict.json",
+            "generated/matching_min_weight_strict.json",
+        ],
+        "hardened_fixture_ids": [
+            "generated/matching_maximal_strict.json",
+            "generated/matching_max_weight_strict.json",
+            "generated/matching_min_weight_strict.json",
+        ],
+        "hardened_mode_strategy": "mode_override_fixture",
+    },
+    {
         "journey_id": "J-READWRITE",
         "scoped_api_journey": "readwrite_roundtrip_and_hardened_malformed_ingest",
         "packet_id": "FNX-P2C-006",
@@ -120,6 +152,8 @@ JOURNEY_SPECS: list[dict[str, Any]] = [
         "strict_fixture_ids": [
             "generated/readwrite_roundtrip_strict.json",
             "generated/readwrite_json_roundtrip_strict.json",
+            "generated/readwrite_adjlist_roundtrip_strict.json",
+            "generated/readwrite_graphml_roundtrip_strict.json",
         ],
         "hardened_fixture_ids": ["generated/readwrite_hardened_malformed.json"],
         "hardened_mode_strategy": "native_fixture",
@@ -134,6 +168,8 @@ JOURNEY_SPECS: list[dict[str, Any]] = [
             "generated/generators_star_strict.json",
             "generated/generators_cycle_strict.json",
             "generated/generators_complete_strict.json",
+            "generated/generators_empty_strict.json",
+            "generated/generators_gnp_random_graph_strict.json",
         ],
         "hardened_fixture_ids": ["generated/generators_cycle_strict.json"],
         "hardened_mode_strategy": "mode_override_fixture",
@@ -179,6 +215,7 @@ WORKFLOW_CATEGORY_BY_JOURNEY = {
     "J-SHORTEST-PATH-COMPONENTS": "happy_path",
     "J-STRUCTURE": "regression_path",
     "J-CENTRALITY": "regression_path",
+    "J-MATCHING": "regression_path",
     "J-READWRITE": "malformed_input_path",
     "J-GENERATORS": "happy_path",
     "J-RUNTIME-OPTIONAL": "degraded_environment_path",
@@ -211,6 +248,10 @@ UNIT_HOOK_TARGET_BY_JOURNEY = {
         "artifact_ref": "crates/fnx-algorithms/src/lib.rs",
     },
     "J-CENTRALITY": {
+        "crate": "fnx-algorithms",
+        "artifact_ref": "crates/fnx-algorithms/src/lib.rs",
+    },
+    "J-MATCHING": {
         "crate": "fnx-algorithms",
         "artifact_ref": "crates/fnx-algorithms/src/lib.rs",
     },
@@ -270,6 +311,17 @@ TIE_BREAK_BY_OPERATION = {
     "generate_cycle_graph": "Cycle closure edge placement is deterministic and fixture-locked.",
     "generate_complete_graph": "Complete graph edges emit in deterministic lexicographic pair order.",
     "generate_empty_graph": "Empty graph node initialization order is deterministic by index.",
+    "generate_gnp_random_graph": "GNP random graph generation is deterministic for identical seed/n/p parameters.",
+    "bellman_ford_query": "Bellman-Ford predecessor choice follows deterministic relaxation ordering.",
+    "multi_source_dijkstra_query": "Multi-source Dijkstra predecessor choice follows deterministic priority-queue ordering.",
+    "maximal_matching_query": "Maximal matching is deterministic via greedy canonical edge ordering.",
+    "max_weight_matching_query": "Max-weight matching is deterministic via blossom algorithm with canonical tie-breaking.",
+    "min_weight_matching_query": "Min-weight matching is deterministic via blossom algorithm with canonical tie-breaking.",
+    "edge_connectivity_query": "Edge connectivity is deterministic via Edmonds-Karp max-flow computation.",
+    "read_adjlist": "Adjacency-list ingest follows deterministic line-order parsing.",
+    "write_adjlist": "Adjacency-list serializer emits deterministic node/neighbor ordering.",
+    "read_graphml": "GraphML XML ingest follows deterministic element-order parsing.",
+    "write_graphml": "GraphML serializer emits deterministic node/edge ordering.",
 }
 
 EXPECTED_REFS_BY_OPERATION = {
@@ -297,6 +349,24 @@ EXPECTED_REFS_BY_OPERATION = {
     "generate_cycle_graph": ["expected.graph", "expected.connected_components"],
     "generate_complete_graph": ["expected.graph", "expected.number_connected_components"],
     "generate_empty_graph": ["expected.graph"],
+    "generate_gnp_random_graph": ["expected.graph", "expected.number_connected_components"],
+    "bellman_ford_query": [
+        "expected.bellman_ford_distances",
+        "expected.bellman_ford_predecessors",
+        "expected.bellman_ford_negative_cycle",
+    ],
+    "multi_source_dijkstra_query": [
+        "expected.multi_source_dijkstra_distances",
+        "expected.multi_source_dijkstra_predecessors",
+    ],
+    "maximal_matching_query": ["expected.maximal_matching"],
+    "max_weight_matching_query": ["expected.max_weight_matching"],
+    "min_weight_matching_query": ["expected.min_weight_matching"],
+    "edge_connectivity_query": ["expected.edge_connectivity"],
+    "read_adjlist": ["expected.graph"],
+    "write_adjlist": ["expected.serialized_adjlist"],
+    "read_graphml": ["expected.graph"],
+    "write_graphml": ["expected.serialized_graphml"],
 }
 
 FAILURE_CLASS_BY_OPERATION = {
@@ -324,6 +394,17 @@ FAILURE_CLASS_BY_OPERATION = {
     "generate_cycle_graph": "generators",
     "generate_complete_graph": "generators",
     "generate_empty_graph": "generators",
+    "generate_gnp_random_graph": "generators",
+    "bellman_ford_query": "algorithm",
+    "multi_source_dijkstra_query": "algorithm",
+    "maximal_matching_query": "algorithm_matching",
+    "max_weight_matching_query": "algorithm_matching",
+    "min_weight_matching_query": "algorithm_matching",
+    "edge_connectivity_query": "algorithm_flow",
+    "read_adjlist": "readwrite",
+    "write_adjlist": "readwrite",
+    "read_graphml": "readwrite",
+    "write_graphml": "readwrite",
 }
 
 ASSERTION_RULES = {
@@ -473,6 +554,16 @@ FAILURE_CLASS_TAXONOMY = [
         "failure_class": "generators",
         "description": "Generator-produced graph structure/order diverges from oracle fixtures.",
         "source": "fnx-generators parity checks",
+    },
+    {
+        "failure_class": "algorithm_matching",
+        "description": "Matching algorithm output diverges from oracle expectation.",
+        "source": "fnx-algorithms matching checks",
+    },
+    {
+        "failure_class": "algorithm_flow",
+        "description": "Flow/connectivity algorithm output diverges from oracle expectation.",
+        "source": "fnx-algorithms flow checks",
     },
 ]
 

@@ -1,0 +1,23 @@
+{
+  "suite": "generators_v1",
+  "mode": "strict",
+  "operations": [
+    {"op": "generate_gnp_random_graph", "n": 6, "p": 0.5, "seed": 42},
+    {"op": "number_connected_components_query"}
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["0", "1", "2", "3", "4", "5"],
+      "edges": [
+        {"left": "0", "right": "4", "attrs": {}},
+        {"left": "0", "right": "5", "attrs": {}},
+        {"left": "1", "right": "2", "attrs": {}},
+        {"left": "1", "right": "5", "attrs": {}},
+        {"left": "2", "right": "3", "attrs": {}},
+        {"left": "3", "right": "4", "attrs": {}},
+        {"left": "3", "right": "5", "attrs": {}}
+      ]
+    },
+    "number_connected_components": 1
+  }
+}

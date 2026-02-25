@@ -1,14 +1,14 @@
 {
   "schema_version": "1.0.0",
   "artifact_id": "e2e-scenario-matrix-oracle-contract-v1",
-  "generated_at_utc": "2026-02-20T20:10:03.059136+00:00",
+  "generated_at_utc": "2026-02-25T10:39:26.480207+00:00",
   "baseline_comparator": "legacy_networkx/main@python3.12",
   "journey_summary": {
-    "journey_count": 11,
-    "strict_journey_count": 11,
-    "hardened_journey_count": 11,
-    "fixture_inventory_count": 33,
-    "covered_fixture_count": 30,
+    "journey_count": 12,
+    "strict_journey_count": 12,
+    "hardened_journey_count": 12,
+    "fixture_inventory_count": 41,
+    "covered_fixture_count": 41,
     "uncovered_fixture_count": 0
   },
   "deterministic_seed_policy": {
@@ -516,7 +516,8 @@
         "mode_strategy": "native_fixture",
         "fixture_id": "generated/convert_edge_list_strict.json",
         "fixture_ids": [
-          "generated/convert_edge_list_strict.json"
+          "generated/convert_edge_list_strict.json",
+          "generated/convert_adjacency_strict.json"
         ],
         "deterministic_seed": 9367603223771151118,
         "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/convert_edge_list_strict.json --mode strict",
@@ -574,7 +575,8 @@
         "mode_strategy": "mode_override_fixture",
         "fixture_id": "generated/convert_edge_list_strict.json",
         "fixture_ids": [
-          "generated/convert_edge_list_strict.json"
+          "generated/convert_edge_list_strict.json",
+          "generated/convert_adjacency_strict.json"
         ],
         "deterministic_seed": 1388759758847734300,
         "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/convert_edge_list_strict.json --mode hardened",
@@ -640,8 +642,11 @@
         "fixture_ids": [
           "generated/components_connected_strict.json",
           "generated/shortest_path_weighted_strict.json",
+          "generated/shortest_path_bellman_ford_strict.json",
+          "generated/shortest_path_multi_source_dijkstra_strict.json",
           "generated/flow_max_strict.json",
-          "generated/flow_min_cut_strict.json"
+          "generated/flow_min_cut_strict.json",
+          "generated/flow_edge_connectivity_strict.json"
         ],
         "deterministic_seed": 12768501484240481578,
         "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/components_connected_strict.json --mode strict",
@@ -742,8 +747,11 @@
         "fixture_ids": [
           "generated/components_connected_strict.json",
           "generated/shortest_path_weighted_strict.json",
+          "generated/shortest_path_bellman_ford_strict.json",
+          "generated/shortest_path_multi_source_dijkstra_strict.json",
           "generated/flow_max_strict.json",
-          "generated/flow_min_cut_strict.json"
+          "generated/flow_min_cut_strict.json",
+          "generated/flow_edge_connectivity_strict.json"
         ],
         "deterministic_seed": 4869112433215673836,
         "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/components_connected_strict.json --mode hardened",
@@ -1317,6 +1325,250 @@
       }
     },
     {
+      "journey_id": "J-MATCHING",
+      "scoped_api_journey": "matching_maximal_and_weighted_contracts",
+      "packet_id": "FNX-P2C-005",
+      "description": "Deterministic maximal matching, max-weight matching, and min-weight matching algorithm contracts.",
+      "strict_path": {
+        "mode": "strict",
+        "mode_strategy": "native_fixture",
+        "fixture_id": "generated/matching_maximal_strict.json",
+        "fixture_ids": [
+          "generated/matching_maximal_strict.json",
+          "generated/matching_max_weight_strict.json",
+          "generated/matching_min_weight_strict.json"
+        ],
+        "deterministic_seed": 15943741301805251509,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/matching_maximal_strict.json --mode strict",
+        "step_contract": [
+          {
+            "step_id": "S01",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S02",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S03",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S04",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S05",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S06",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S07",
+            "operation": "maximal_matching_query",
+            "expected_outputs": [
+              "expected.maximal_matching"
+            ],
+            "tie_break_behavior": "Maximal matching is deterministic via greedy canonical edge ordering.",
+            "failure_classes": [
+              "algorithm_matching"
+            ]
+          }
+        ],
+        "oracle_assertions": [
+          {
+            "assertion_id": "A01",
+            "expected_ref": "expected.graph",
+            "contract": "Node and edge snapshots must match oracle values exactly (including deterministic order and attrs).",
+            "tie_break_behavior": "Node/edge ordering follows deterministic insertion order parity.",
+            "failure_class": "graph_mutation"
+          },
+          {
+            "assertion_id": "A02",
+            "expected_ref": "expected.maximal_matching",
+            "contract": "Expected output must match fixture oracle contract exactly.",
+            "tie_break_behavior": "Deterministic ordering is required for replay parity.",
+            "failure_class": "fixture_schema"
+          }
+        ],
+        "failure_classes": [
+          "algorithm_matching",
+          "fixture_io",
+          "fixture_schema",
+          "graph_mutation"
+        ]
+      },
+      "hardened_path": {
+        "mode": "hardened",
+        "mode_strategy": "mode_override_fixture",
+        "fixture_id": "generated/matching_maximal_strict.json",
+        "fixture_ids": [
+          "generated/matching_maximal_strict.json",
+          "generated/matching_max_weight_strict.json",
+          "generated/matching_min_weight_strict.json"
+        ],
+        "deterministic_seed": 15045496038485822011,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/matching_maximal_strict.json --mode hardened",
+        "step_contract": [
+          {
+            "step_id": "S01",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S02",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S03",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S04",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S05",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S06",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S07",
+            "operation": "maximal_matching_query",
+            "expected_outputs": [
+              "expected.maximal_matching"
+            ],
+            "tie_break_behavior": "Maximal matching is deterministic via greedy canonical edge ordering.",
+            "failure_classes": [
+              "algorithm_matching"
+            ]
+          }
+        ],
+        "oracle_assertions": [
+          {
+            "assertion_id": "A01",
+            "expected_ref": "expected.graph",
+            "contract": "Node and edge snapshots must match oracle values exactly (including deterministic order and attrs).",
+            "tie_break_behavior": "Node/edge ordering follows deterministic insertion order parity.",
+            "failure_class": "graph_mutation"
+          },
+          {
+            "assertion_id": "A02",
+            "expected_ref": "expected.maximal_matching",
+            "contract": "Expected output must match fixture oracle contract exactly.",
+            "tie_break_behavior": "Deterministic ordering is required for replay parity.",
+            "failure_class": "fixture_schema"
+          }
+        ],
+        "failure_classes": [
+          "algorithm_matching",
+          "fixture_io",
+          "fixture_schema",
+          "graph_mutation"
+        ]
+      }
+    },
+    {
       "journey_id": "J-READWRITE",
       "scoped_api_journey": "readwrite_roundtrip_and_hardened_malformed_ingest",
       "packet_id": "FNX-P2C-006",
@@ -1327,7 +1579,9 @@
         "fixture_id": "generated/readwrite_roundtrip_strict.json",
         "fixture_ids": [
           "generated/readwrite_roundtrip_strict.json",
-          "generated/readwrite_json_roundtrip_strict.json"
+          "generated/readwrite_json_roundtrip_strict.json",
+          "generated/readwrite_adjlist_roundtrip_strict.json",
+          "generated/readwrite_graphml_roundtrip_strict.json"
         ],
         "deterministic_seed": 5118099182707922283,
         "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_roundtrip_strict.json --mode strict",
@@ -1457,7 +1711,9 @@
           "generated/generators_path_strict.json",
           "generated/generators_star_strict.json",
           "generated/generators_cycle_strict.json",
-          "generated/generators_complete_strict.json"
+          "generated/generators_complete_strict.json",
+          "generated/generators_empty_strict.json",
+          "generated/generators_gnp_random_graph_strict.json"
         ],
         "deterministic_seed": 15513759347474842719,
         "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/generators_path_strict.json --mode strict",
@@ -1808,6 +2064,7 @@
       "J-SHORTEST-PATH-COMPONENTS",
       "J-STRUCTURE",
       "J-CENTRALITY",
+      "J-MATCHING",
       "J-READWRITE",
       "J-GENERATORS",
       "J-RUNTIME-OPTIONAL",
@@ -2033,6 +2290,36 @@
       ]
     },
     {
+      "journey_id": "J-MATCHING",
+      "scenario_id": "WF-MATCHING-001",
+      "category": "regression_path",
+      "unit_hooks": [
+        {
+          "hook_id": "unit-matching",
+          "command": "rch exec -- cargo test -p fnx-algorithms -- --nocapture",
+          "artifact_ref": "crates/fnx-algorithms/src/lib.rs"
+        }
+      ],
+      "differential_hooks": [
+        {
+          "hook_id": "diff-matching",
+          "command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/matching_maximal_strict.json --mode strict",
+          "artifact_ref": "crates/fnx-conformance/fixtures/generated/matching_maximal_strict.json"
+        }
+      ],
+      "e2e_hooks": [
+        {
+          "hook_id": "e2e-matching",
+          "command": "rch exec -- cargo test -q -p fnx-conformance --test e2e_scenario_matrix_gate -- --nocapture",
+          "artifact_ref": "artifacts/e2e/latest/e2e_scenario_matrix_report_v1.json"
+        }
+      ],
+      "report_refs": [
+        "artifacts/e2e/latest/e2e_scenario_matrix_report_v1.json",
+        "artifacts/e2e/latest/e2e_user_workflow_scenario_report_v1.json"
+      ]
+    },
+    {
       "journey_id": "J-READWRITE",
       "scenario_id": "WF-READWRITE-001",
       "category": "malformed_input_path",
@@ -2167,6 +2454,7 @@
       "generated/centrality_pagerank_strict.json",
       "generated/components_connected_strict.json",
       "generated/conformance_harness_strict.json",
+      "generated/convert_adjacency_strict.json",
       "generated/convert_edge_list_strict.json",
       "generated/dispatch_route_strict.json",
       "generated/flow_edge_connectivity_strict.json",
@@ -2174,14 +2462,21 @@
       "generated/flow_min_cut_strict.json",
       "generated/generators_complete_strict.json",
       "generated/generators_cycle_strict.json",
+      "generated/generators_empty_strict.json",
+      "generated/generators_gnp_random_graph_strict.json",
       "generated/generators_path_strict.json",
       "generated/generators_star_strict.json",
+      "generated/matching_max_weight_strict.json",
+      "generated/matching_maximal_strict.json",
+      "generated/matching_min_weight_strict.json",
       "generated/readwrite_adjlist_roundtrip_strict.json",
       "generated/readwrite_graphml_roundtrip_strict.json",
       "generated/readwrite_hardened_malformed.json",
       "generated/readwrite_json_roundtrip_strict.json",
       "generated/readwrite_roundtrip_strict.json",
       "generated/runtime_config_optional_strict.json",
+      "generated/shortest_path_bellman_ford_strict.json",
+      "generated/shortest_path_multi_source_dijkstra_strict.json",
       "generated/shortest_path_weighted_strict.json",
       "generated/structure_articulation_points_strict.json",
       "generated/structure_bridges_strict.json",
@@ -2202,18 +2497,29 @@
       "generated/centrality_pagerank_strict.json",
       "generated/components_connected_strict.json",
       "generated/conformance_harness_strict.json",
+      "generated/convert_adjacency_strict.json",
       "generated/convert_edge_list_strict.json",
       "generated/dispatch_route_strict.json",
+      "generated/flow_edge_connectivity_strict.json",
       "generated/flow_max_strict.json",
       "generated/flow_min_cut_strict.json",
       "generated/generators_complete_strict.json",
       "generated/generators_cycle_strict.json",
+      "generated/generators_empty_strict.json",
+      "generated/generators_gnp_random_graph_strict.json",
       "generated/generators_path_strict.json",
       "generated/generators_star_strict.json",
+      "generated/matching_max_weight_strict.json",
+      "generated/matching_maximal_strict.json",
+      "generated/matching_min_weight_strict.json",
+      "generated/readwrite_adjlist_roundtrip_strict.json",
+      "generated/readwrite_graphml_roundtrip_strict.json",
       "generated/readwrite_hardened_malformed.json",
       "generated/readwrite_json_roundtrip_strict.json",
       "generated/readwrite_roundtrip_strict.json",
       "generated/runtime_config_optional_strict.json",
+      "generated/shortest_path_bellman_ford_strict.json",
+      "generated/shortest_path_multi_source_dijkstra_strict.json",
       "generated/shortest_path_weighted_strict.json",
       "generated/structure_articulation_points_strict.json",
       "generated/structure_bridges_strict.json",
@@ -2283,6 +2589,16 @@
       "failure_class": "generators",
       "description": "Generator-produced graph structure/order diverges from oracle fixtures.",
       "source": "fnx-generators parity checks"
+    },
+    {
+      "failure_class": "algorithm_matching",
+      "description": "Matching algorithm output diverges from oracle expectation.",
+      "source": "fnx-algorithms matching checks"
+    },
+    {
+      "failure_class": "algorithm_flow",
+      "description": "Flow/connectivity algorithm output diverges from oracle expectation.",
+      "source": "fnx-algorithms flow checks"
     }
   ],
   "alien_uplift_contract_card": {

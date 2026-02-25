@@ -112,7 +112,9 @@
     "readwrite",
     "views",
     "generators",
-    "algorithm_structure"
+    "algorithm_structure",
+    "algorithm_matching",
+    "algorithm_flow"
   ],
   "required_replay_schema_refs": [
     "artifacts/conformance/schema/v1/structured_test_log_schema_v1.json",

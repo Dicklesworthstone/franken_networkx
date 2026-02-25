@@ -2,14 +2,14 @@
 
 use fnx_algorithms::{
     CentralityScore, ComplexityWitness, EdgeCentralityScore, EdgeCutResult, GlobalEdgeCutResult,
-    MaximalMatchingResult, MinimumCutResult, WeightedMatchingResult, articulation_points,
-    betweenness_centrality, bridges, closeness_centrality, connected_components, degree_centrality,
-    edge_betweenness_centrality, edge_connectivity_edmonds_karp, eigenvector_centrality,
-    global_edge_connectivity_edmonds_karp, global_minimum_edge_cut_edmonds_karp,
-    harmonic_centrality, hits_centrality, katz_centrality, max_flow_edmonds_karp,
-    max_weight_matching, maximal_matching, min_weight_matching, minimum_cut_edmonds_karp,
-    minimum_st_edge_cut_edmonds_karp, number_connected_components, pagerank,
-    shortest_path_unweighted, shortest_path_weighted,
+    MaximalMatchingResult, MinimumCutResult, WeightedMatchingResult, WeightedShortestPathsResult,
+    articulation_points, bellman_ford_shortest_paths, betweenness_centrality, bridges,
+    closeness_centrality, connected_components, degree_centrality, edge_betweenness_centrality,
+    edge_connectivity_edmonds_karp, eigenvector_centrality, global_edge_connectivity_edmonds_karp,
+    global_minimum_edge_cut_edmonds_karp, harmonic_centrality, hits_centrality, katz_centrality,
+    max_flow_edmonds_karp, max_weight_matching, maximal_matching, min_weight_matching,
+    minimum_cut_edmonds_karp, minimum_st_edge_cut_edmonds_karp, multi_source_dijkstra,
+    number_connected_components, pagerank, shortest_path_unweighted, shortest_path_weighted,
 };
 use fnx_classes::{AttrMap, EdgeSnapshot, Graph, GraphSnapshot};
 use fnx_convert::{AdjacencyPayload, EdgeListPayload, GraphConverter};
@@ -306,6 +306,16 @@ enum Operation {
     NumberConnectedComponentsQuery,
     ArticulationPointsQuery,
     BridgesQuery,
+    BellmanFordQuery {
+        source: String,
+        #[serde(default = "default_weight_attr")]
+        weight_attr: String,
+    },
+    MultiSourceDijkstraQuery {
+        sources: Vec<String>,
+        #[serde(default = "default_weight_attr")]
+        weight_attr: String,
+    },
     MaximalMatchingQuery,
     MaxWeightMatchingQuery {
         #[serde(default)]
@@ -368,6 +378,11 @@ enum Operation {
     GenerateEmptyGraph {
         n: usize,
     },
+    GenerateGnpRandomGraph {
+        n: usize,
+        p: f64,
+        seed: u64,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -418,6 +433,16 @@ struct ExpectedState {
     articulation_points: Option<Vec<String>>,
     #[serde(default)]
     bridges: Option<Vec<(String, String)>>,
+    #[serde(default)]
+    bellman_ford_distances: Option<Vec<ExpectedWeightedDistance>>,
+    #[serde(default)]
+    bellman_ford_predecessors: Option<Vec<ExpectedWeightedPredecessor>>,
+    #[serde(default)]
+    bellman_ford_negative_cycle: Option<bool>,
+    #[serde(default)]
+    multi_source_dijkstra_distances: Option<Vec<ExpectedWeightedDistance>>,
+    #[serde(default)]
+    multi_source_dijkstra_predecessors: Option<Vec<ExpectedWeightedPredecessor>>,
     #[serde(default)]
     maximal_matching: Option<Vec<(String, String)>>,
     #[serde(default)]
@@ -491,6 +516,18 @@ struct ExpectedEdgeCentralityScore {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+struct ExpectedWeightedDistance {
+    node: String,
+    distance: f64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ExpectedWeightedPredecessor {
+    node: String,
+    predecessor: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 struct ExpectedWeightedMatching {
     matching: Vec<(String, String)>,
     total_weight: f64,
@@ -528,6 +565,8 @@ struct ExecutionContext {
     number_connected_components_result: Option<usize>,
     articulation_points_result: Option<Vec<String>>,
     bridges_result: Option<Vec<(String, String)>>,
+    bellman_ford_result: Option<WeightedShortestPathsResult>,
+    multi_source_dijkstra_result: Option<WeightedShortestPathsResult>,
     maximal_matching_result: Option<MaximalMatchingResult>,
     max_weight_matching_result: Option<WeightedMatchingResult>,
     min_weight_matching_result: Option<WeightedMatchingResult>,
@@ -1289,6 +1328,8 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
         number_connected_components_result: None,
         articulation_points_result: None,
         bridges_result: None,
+        bellman_ford_result: None,
+        multi_source_dijkstra_result: None,
         maximal_matching_result: None,
         max_weight_matching_result: None,
         min_weight_matching_result: None,
@@ -1452,6 +1493,25 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
             Operation::BridgesQuery => {
                 let result = bridges(&context.graph);
                 context.bridges_result = Some(result.edges);
+                context.witness = Some(result.witness);
+            }
+            Operation::BellmanFordQuery {
+                source,
+                weight_attr,
+            } => {
+                let result =
+                    bellman_ford_shortest_paths(&context.graph, &source, &weight_attr);
+                context.bellman_ford_result = Some(result.clone());
+                context.witness = Some(result.witness);
+            }
+            Operation::MultiSourceDijkstraQuery {
+                sources,
+                weight_attr,
+            } => {
+                let source_refs: Vec<&str> = sources.iter().map(String::as_str).collect();
+                let result =
+                    multi_source_dijkstra(&context.graph, &source_refs, &weight_attr);
+                context.multi_source_dijkstra_result = Some(result.clone());
                 context.witness = Some(result.witness);
             }
             Operation::MaximalMatchingQuery => {
@@ -1684,6 +1744,19 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
                     Err(err) => mismatches.push(Mismatch {
                         category: "generators".to_owned(),
                         message: format!("empty_graph generation failed: {err}"),
+                    }),
+                }
+            }
+            Operation::GenerateGnpRandomGraph { n, p, seed } => {
+                let mut generator = GraphGenerator::new(mode);
+                match generator.gnp_random_graph(n, p, seed) {
+                    Ok(report) => {
+                        context.warnings.extend(report.warnings);
+                        context.graph = report.graph;
+                    }
+                    Err(err) => mismatches.push(Mismatch {
+                        category: "generators".to_owned(),
+                        message: format!("gnp_random_graph generation failed: {err}"),
                     }),
                 }
             }
@@ -2147,6 +2220,188 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
         }
     }
 
+    if let Some(expected_distances) = fixture.expected.bellman_ford_distances {
+        match context.bellman_ford_result.as_ref() {
+            Some(actual) => {
+                let actual_dists: Vec<(&str, f64)> = actual
+                    .distances
+                    .iter()
+                    .map(|d| (d.node.as_str(), d.distance))
+                    .collect();
+                let expected_dists: Vec<(&str, f64)> = expected_distances
+                    .iter()
+                    .map(|d| (d.node.as_str(), d.distance))
+                    .collect();
+                for (exp_node, exp_dist) in &expected_dists {
+                    let found = actual_dists
+                        .iter()
+                        .find(|(n, _)| n == exp_node);
+                    match found {
+                        Some((_, actual_dist)) => {
+                            if (actual_dist - exp_dist).abs() > 1e-9 {
+                                mismatches.push(Mismatch {
+                                    category: "algorithm_bellman_ford".to_owned(),
+                                    message: format!(
+                                        "bellman_ford distance mismatch for {exp_node}: expected {exp_dist}, got {actual_dist}"
+                                    ),
+                                });
+                            }
+                        }
+                        None => {
+                            mismatches.push(Mismatch {
+                                category: "algorithm_bellman_ford".to_owned(),
+                                message: format!(
+                                    "bellman_ford missing distance for node {exp_node}"
+                                ),
+                            });
+                        }
+                    }
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_bellman_ford".to_owned(),
+                message: "expected bellman_ford result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(expected_preds) = fixture.expected.bellman_ford_predecessors {
+        match context.bellman_ford_result.as_ref() {
+            Some(actual) => {
+                for exp in &expected_preds {
+                    let found = actual
+                        .predecessors
+                        .iter()
+                        .find(|p| p.node == exp.node);
+                    match found {
+                        Some(actual_pred) => {
+                            if actual_pred.predecessor != exp.predecessor {
+                                mismatches.push(Mismatch {
+                                    category: "algorithm_bellman_ford".to_owned(),
+                                    message: format!(
+                                        "bellman_ford predecessor mismatch for {}: expected {:?}, got {:?}",
+                                        exp.node, exp.predecessor, actual_pred.predecessor
+                                    ),
+                                });
+                            }
+                        }
+                        None => {
+                            mismatches.push(Mismatch {
+                                category: "algorithm_bellman_ford".to_owned(),
+                                message: format!(
+                                    "bellman_ford missing predecessor for node {}",
+                                    exp.node
+                                ),
+                            });
+                        }
+                    }
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_bellman_ford".to_owned(),
+                message: "expected bellman_ford predecessors but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(expected_neg_cycle) = fixture.expected.bellman_ford_negative_cycle {
+        match context.bellman_ford_result.as_ref() {
+            Some(actual) => {
+                if actual.negative_cycle_detected != expected_neg_cycle {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_bellman_ford".to_owned(),
+                        message: format!(
+                            "bellman_ford negative_cycle mismatch: expected {expected_neg_cycle}, got {}",
+                            actual.negative_cycle_detected
+                        ),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_bellman_ford".to_owned(),
+                message: "expected bellman_ford negative_cycle but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(expected_distances) = fixture.expected.multi_source_dijkstra_distances {
+        match context.multi_source_dijkstra_result.as_ref() {
+            Some(actual) => {
+                for exp in &expected_distances {
+                    let found = actual
+                        .distances
+                        .iter()
+                        .find(|d| d.node == exp.node);
+                    match found {
+                        Some(actual_dist) => {
+                            if (actual_dist.distance - exp.distance).abs() > 1e-9 {
+                                mismatches.push(Mismatch {
+                                    category: "algorithm_multi_source_dijkstra".to_owned(),
+                                    message: format!(
+                                        "multi_source_dijkstra distance mismatch for {}: expected {}, got {}",
+                                        exp.node, exp.distance, actual_dist.distance
+                                    ),
+                                });
+                            }
+                        }
+                        None => {
+                            mismatches.push(Mismatch {
+                                category: "algorithm_multi_source_dijkstra".to_owned(),
+                                message: format!(
+                                    "multi_source_dijkstra missing distance for node {}",
+                                    exp.node
+                                ),
+                            });
+                        }
+                    }
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_multi_source_dijkstra".to_owned(),
+                message: "expected multi_source_dijkstra distances but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(expected_preds) = fixture.expected.multi_source_dijkstra_predecessors {
+        match context.multi_source_dijkstra_result.as_ref() {
+            Some(actual) => {
+                for exp in &expected_preds {
+                    let found = actual
+                        .predecessors
+                        .iter()
+                        .find(|p| p.node == exp.node);
+                    match found {
+                        Some(actual_pred) => {
+                            if actual_pred.predecessor != exp.predecessor {
+                                mismatches.push(Mismatch {
+                                    category: "algorithm_multi_source_dijkstra".to_owned(),
+                                    message: format!(
+                                        "multi_source_dijkstra predecessor mismatch for {}: expected {:?}, got {:?}",
+                                        exp.node, exp.predecessor, actual_pred.predecessor
+                                    ),
+                                });
+                            }
+                        }
+                        None => {
+                            mismatches.push(Mismatch {
+                                category: "algorithm_multi_source_dijkstra".to_owned(),
+                                message: format!(
+                                    "multi_source_dijkstra missing predecessor for node {}",
+                                    exp.node
+                                ),
+                            });
+                        }
+                    }
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_multi_source_dijkstra".to_owned(),
+                message: "expected multi_source_dijkstra predecessors but none produced".to_owned(),
+            }),
+        }
+    }
+
     if let Some(expected_matching) = fixture.expected.maximal_matching {
         match context.maximal_matching_result.as_ref() {
             Some(actual) => {
@@ -2447,6 +2702,12 @@ fn default_dispatch_registry(mode: CompatibilityMode) -> BackendRegistry {
             "generate_cycle_graph",
             "generate_complete_graph",
             "generate_empty_graph",
+            "generate_gnp_random_graph",
+            "bellman_ford",
+            "multi_source_dijkstra",
+            "maximal_matching",
+            "max_weight_matching",
+            "min_weight_matching",
         ]),
         allow_in_strict: true,
         allow_in_hardened: true,

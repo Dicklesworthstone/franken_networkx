@@ -51,7 +51,7 @@
       }
     },
     {
-      "op": "max_weight_matching_query",
+      "op": "min_weight_matching_query",
       "weight_attr": "weight"
     }
   ],
@@ -109,18 +109,18 @@
         }
       ]
     },
-    "max_weight_matching": {
+    "min_weight_matching": {
       "matching": [
         [
           "a",
-          "b"
+          "c"
         ],
         [
-          "d",
-          "e"
+          "b",
+          "d"
         ]
       ],
-      "total_weight": 11.0
+      "total_weight": 3.0
     }
   }
 }
