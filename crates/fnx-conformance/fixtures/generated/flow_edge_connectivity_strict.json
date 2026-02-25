@@ -1,0 +1,148 @@
+{
+  "suite": "algorithms_flow_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "b"
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "c"
+    },
+    {
+      "op": "add_edge",
+      "left": "c",
+      "right": "a"
+    },
+    {
+      "op": "add_edge",
+      "left": "d",
+      "right": "e"
+    },
+    {
+      "op": "add_edge",
+      "left": "e",
+      "right": "f"
+    },
+    {
+      "op": "add_edge",
+      "left": "f",
+      "right": "d"
+    },
+    {
+      "op": "add_edge",
+      "left": "c",
+      "right": "d"
+    },
+    {
+      "op": "minimum_st_edge_cut_query",
+      "source": "a",
+      "target": "f"
+    },
+    {
+      "op": "edge_connectivity_query",
+      "source": "a",
+      "target": "f"
+    },
+    {
+      "op": "global_edge_connectivity_query"
+    },
+    {
+      "op": "global_minimum_edge_cut_query"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "a",
+        "b",
+        "c",
+        "d",
+        "e",
+        "f"
+      ],
+      "edges": [
+        {
+          "left": "a",
+          "right": "b",
+          "attrs": {}
+        },
+        {
+          "left": "b",
+          "right": "c",
+          "attrs": {}
+        },
+        {
+          "left": "a",
+          "right": "c",
+          "attrs": {}
+        },
+        {
+          "left": "d",
+          "right": "e",
+          "attrs": {}
+        },
+        {
+          "left": "e",
+          "right": "f",
+          "attrs": {}
+        },
+        {
+          "left": "d",
+          "right": "f",
+          "attrs": {}
+        },
+        {
+          "left": "c",
+          "right": "d",
+          "attrs": {}
+        }
+      ]
+    },
+    "minimum_st_edge_cut": {
+      "value": 1.0,
+      "cut_edges": [
+        [
+          "c",
+          "d"
+        ]
+      ],
+      "source_partition": [
+        "a",
+        "b",
+        "c"
+      ],
+      "sink_partition": [
+        "d",
+        "e",
+        "f"
+      ]
+    },
+    "edge_connectivity_value": 1.0,
+    "global_edge_connectivity_value": 1.0,
+    "global_minimum_edge_cut": {
+      "value": 1.0,
+      "source": "a",
+      "sink": "d",
+      "cut_edges": [
+        [
+          "c",
+          "d"
+        ]
+      ],
+      "source_partition": [
+        "a",
+        "b",
+        "c"
+      ],
+      "sink_partition": [
+        "d",
+        "e",
+        "f"
+      ]
+    }
+  }
+}

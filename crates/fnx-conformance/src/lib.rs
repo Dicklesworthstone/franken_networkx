@@ -1,11 +1,13 @@
 #![forbid(unsafe_code)]
 
 use fnx_algorithms::{
-    CentralityScore, ComplexityWitness, EdgeCentralityScore, MinimumCutResult, articulation_points,
-    betweenness_centrality, bridges, closeness_centrality, connected_components, degree_centrality,
-    edge_betweenness_centrality, eigenvector_centrality, harmonic_centrality, hits_centrality,
-    katz_centrality, max_flow_edmonds_karp, minimum_cut_edmonds_karp, number_connected_components,
-    pagerank, shortest_path_unweighted, shortest_path_weighted,
+    CentralityScore, ComplexityWitness, EdgeCentralityScore, EdgeCutResult, GlobalEdgeCutResult,
+    MinimumCutResult, articulation_points, betweenness_centrality, bridges, closeness_centrality,
+    connected_components, degree_centrality, edge_betweenness_centrality,
+    edge_connectivity_edmonds_karp, eigenvector_centrality, global_edge_connectivity_edmonds_karp,
+    global_minimum_edge_cut_edmonds_karp, harmonic_centrality, hits_centrality, katz_centrality,
+    max_flow_edmonds_karp, minimum_cut_edmonds_karp, minimum_st_edge_cut_edmonds_karp,
+    number_connected_components, pagerank, shortest_path_unweighted, shortest_path_weighted,
 };
 use fnx_classes::{AttrMap, EdgeSnapshot, Graph, GraphSnapshot};
 use fnx_convert::{AdjacencyPayload, EdgeListPayload, GraphConverter};
@@ -269,6 +271,26 @@ enum Operation {
         #[serde(default = "default_capacity_attr")]
         capacity_attr: String,
     },
+    MinimumStEdgeCutQuery {
+        source: String,
+        target: String,
+        #[serde(default = "default_capacity_attr")]
+        capacity_attr: String,
+    },
+    EdgeConnectivityQuery {
+        source: String,
+        target: String,
+        #[serde(default = "default_capacity_attr")]
+        capacity_attr: String,
+    },
+    GlobalEdgeConnectivityQuery {
+        #[serde(default = "default_capacity_attr")]
+        capacity_attr: String,
+    },
+    GlobalMinimumEdgeCutQuery {
+        #[serde(default = "default_capacity_attr")]
+        capacity_attr: String,
+    },
     BetweennessCentralityQuery,
     EdgeBetweennessCentralityQuery,
     DegreeCentralityQuery,
@@ -348,6 +370,14 @@ struct ExpectedState {
     #[serde(default)]
     minimum_cut: Option<ExpectedMinimumCut>,
     #[serde(default)]
+    minimum_st_edge_cut: Option<ExpectedEdgeCut>,
+    #[serde(default)]
+    edge_connectivity_value: Option<f64>,
+    #[serde(default)]
+    global_edge_connectivity_value: Option<f64>,
+    #[serde(default)]
+    global_minimum_edge_cut: Option<ExpectedGlobalEdgeCut>,
+    #[serde(default)]
     betweenness_centrality: Option<Vec<ExpectedCentralityScore>>,
     #[serde(default)]
     edge_betweenness_centrality: Option<Vec<ExpectedEdgeCentralityScore>>,
@@ -410,6 +440,24 @@ struct ExpectedMinimumCut {
     sink_partition: Vec<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct ExpectedEdgeCut {
+    value: f64,
+    cut_edges: Vec<(String, String)>,
+    source_partition: Vec<String>,
+    sink_partition: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ExpectedGlobalEdgeCut {
+    value: f64,
+    source: String,
+    sink: String,
+    cut_edges: Vec<(String, String)>,
+    source_partition: Vec<String>,
+    sink_partition: Vec<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct ExpectedCentralityScore {
     node: String,
@@ -431,6 +479,10 @@ struct ExecutionContext {
     shortest_path_weighted_result: Option<Vec<String>>,
     max_flow_result: Option<f64>,
     minimum_cut_result: Option<MinimumCutResult>,
+    minimum_st_edge_cut_result: Option<EdgeCutResult>,
+    edge_connectivity_result: Option<f64>,
+    global_edge_connectivity_result: Option<f64>,
+    global_minimum_edge_cut_result: Option<GlobalEdgeCutResult>,
     dispatch_decision: Option<DispatchDecision>,
     serialized_edgelist: Option<String>,
     serialized_adjlist: Option<String>,
@@ -1185,6 +1237,10 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
         shortest_path_weighted_result: None,
         max_flow_result: None,
         minimum_cut_result: None,
+        minimum_st_edge_cut_result: None,
+        edge_connectivity_result: None,
+        global_edge_connectivity_result: None,
+        global_minimum_edge_cut_result: None,
         dispatch_decision: None,
         serialized_edgelist: None,
         serialized_adjlist: None,
@@ -1261,6 +1317,44 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
                 let result =
                     minimum_cut_edmonds_karp(&context.graph, &source, &target, &capacity_attr);
                 context.minimum_cut_result = Some(result.clone());
+                context.witness = Some(result.witness);
+            }
+            Operation::MinimumStEdgeCutQuery {
+                source,
+                target,
+                capacity_attr,
+            } => {
+                let result = minimum_st_edge_cut_edmonds_karp(
+                    &context.graph,
+                    &source,
+                    &target,
+                    &capacity_attr,
+                );
+                context.minimum_st_edge_cut_result = Some(result.clone());
+                context.witness = Some(result.witness);
+            }
+            Operation::EdgeConnectivityQuery {
+                source,
+                target,
+                capacity_attr,
+            } => {
+                let result = edge_connectivity_edmonds_karp(
+                    &context.graph,
+                    &source,
+                    &target,
+                    &capacity_attr,
+                );
+                context.edge_connectivity_result = Some(result.value);
+                context.witness = Some(result.witness);
+            }
+            Operation::GlobalEdgeConnectivityQuery { capacity_attr } => {
+                let result = global_edge_connectivity_edmonds_karp(&context.graph, &capacity_attr);
+                context.global_edge_connectivity_result = Some(result.value);
+                context.witness = Some(result.witness);
+            }
+            Operation::GlobalMinimumEdgeCutQuery { capacity_attr } => {
+                let result = global_minimum_edge_cut_edmonds_karp(&context.graph, &capacity_attr);
+                context.global_minimum_edge_cut_result = Some(result.clone());
                 context.witness = Some(result.witness);
             }
             Operation::BetweennessCentralityQuery => {
@@ -1626,6 +1720,152 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
             None => mismatches.push(Mismatch {
                 category: "algorithm_flow".to_owned(),
                 message: "expected minimum_cut result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(expected_cut) = fixture.expected.minimum_st_edge_cut {
+        match context.minimum_st_edge_cut_result.as_ref() {
+            Some(actual_cut) => {
+                if (actual_cut.value - expected_cut.value).abs() > 1e-12 {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_flow".to_owned(),
+                        message: format!(
+                            "minimum_st_edge_cut value mismatch: expected {}, got {}",
+                            expected_cut.value, actual_cut.value
+                        ),
+                    });
+                }
+                if actual_cut.cut_edges != expected_cut.cut_edges {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_flow".to_owned(),
+                        message: format!(
+                            "minimum_st_edge_cut edges mismatch: expected {:?}, got {:?}",
+                            expected_cut.cut_edges, actual_cut.cut_edges
+                        ),
+                    });
+                }
+                if actual_cut.source_partition != expected_cut.source_partition {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_flow".to_owned(),
+                        message: format!(
+                            "minimum_st_edge_cut source partition mismatch: expected {:?}, got {:?}",
+                            expected_cut.source_partition, actual_cut.source_partition
+                        ),
+                    });
+                }
+                if actual_cut.sink_partition != expected_cut.sink_partition {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_flow".to_owned(),
+                        message: format!(
+                            "minimum_st_edge_cut sink partition mismatch: expected {:?}, got {:?}",
+                            expected_cut.sink_partition, actual_cut.sink_partition
+                        ),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_flow".to_owned(),
+                message: "expected minimum_st_edge_cut result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(expected_value) = fixture.expected.edge_connectivity_value {
+        match context.edge_connectivity_result {
+            Some(actual_value) if (actual_value - expected_value).abs() <= 1e-12 => {}
+            Some(actual_value) => mismatches.push(Mismatch {
+                category: "algorithm_flow".to_owned(),
+                message: format!(
+                    "edge_connectivity mismatch: expected {}, got {}",
+                    expected_value, actual_value
+                ),
+            }),
+            None => mismatches.push(Mismatch {
+                category: "algorithm_flow".to_owned(),
+                message: "expected edge_connectivity result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(expected_value) = fixture.expected.global_edge_connectivity_value {
+        match context.global_edge_connectivity_result {
+            Some(actual_value) if (actual_value - expected_value).abs() <= 1e-12 => {}
+            Some(actual_value) => mismatches.push(Mismatch {
+                category: "algorithm_flow".to_owned(),
+                message: format!(
+                    "global_edge_connectivity mismatch: expected {}, got {}",
+                    expected_value, actual_value
+                ),
+            }),
+            None => mismatches.push(Mismatch {
+                category: "algorithm_flow".to_owned(),
+                message: "expected global_edge_connectivity result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(expected_cut) = fixture.expected.global_minimum_edge_cut {
+        match context.global_minimum_edge_cut_result.as_ref() {
+            Some(actual_cut) => {
+                if (actual_cut.value - expected_cut.value).abs() > 1e-12 {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_flow".to_owned(),
+                        message: format!(
+                            "global_minimum_edge_cut value mismatch: expected {}, got {}",
+                            expected_cut.value, actual_cut.value
+                        ),
+                    });
+                }
+                if actual_cut.source != expected_cut.source {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_flow".to_owned(),
+                        message: format!(
+                            "global_minimum_edge_cut source mismatch: expected {:?}, got {:?}",
+                            expected_cut.source, actual_cut.source
+                        ),
+                    });
+                }
+                if actual_cut.sink != expected_cut.sink {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_flow".to_owned(),
+                        message: format!(
+                            "global_minimum_edge_cut sink mismatch: expected {:?}, got {:?}",
+                            expected_cut.sink, actual_cut.sink
+                        ),
+                    });
+                }
+                if actual_cut.cut_edges != expected_cut.cut_edges {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_flow".to_owned(),
+                        message: format!(
+                            "global_minimum_edge_cut edges mismatch: expected {:?}, got {:?}",
+                            expected_cut.cut_edges, actual_cut.cut_edges
+                        ),
+                    });
+                }
+                if actual_cut.source_partition != expected_cut.source_partition {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_flow".to_owned(),
+                        message: format!(
+                            "global_minimum_edge_cut source partition mismatch: expected {:?}, got {:?}",
+                            expected_cut.source_partition, actual_cut.source_partition
+                        ),
+                    });
+                }
+                if actual_cut.sink_partition != expected_cut.sink_partition {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_flow".to_owned(),
+                        message: format!(
+                            "global_minimum_edge_cut sink partition mismatch: expected {:?}, got {:?}",
+                            expected_cut.sink_partition, actual_cut.sink_partition
+                        ),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_flow".to_owned(),
+                message: "expected global_minimum_edge_cut result but none produced".to_owned(),
             }),
         }
     }
@@ -2040,6 +2280,10 @@ fn default_dispatch_registry(mode: CompatibilityMode) -> BackendRegistry {
             "shortest_path_weighted",
             "max_flow",
             "minimum_cut",
+            "minimum_st_edge_cut",
+            "edge_connectivity",
+            "global_edge_connectivity",
+            "global_minimum_edge_cut",
             "convert_edge_list",
             "convert_adjacency",
             "read_edgelist",
