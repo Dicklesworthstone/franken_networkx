@@ -41,25 +41,25 @@ nx.shortest_path(G, 0, 99)
 
 | Family | Functions |
 |--------|-----------|
-| Shortest path | `shortest_path`, `dijkstra_path`, `bellman_ford_path`, `has_path`, `shortest_path_length`, `average_shortest_path_length` |
-| Connectivity | `is_connected`, `connected_components`, `node_connectivity`, `edge_connectivity`, `bridges`, `articulation_points` |
-| Centrality | `pagerank`, `betweenness_centrality`, `closeness_centrality`, `eigenvector_centrality`, `degree_centrality`, `katz_centrality`, `hits` |
+| Shortest path | `shortest_path`, `dijkstra_path`, `bellman_ford_path`, `multi_source_dijkstra`, `has_path`, `shortest_path_length`, `average_shortest_path_length` |
+| Connectivity | `is_connected`, `connected_components`, `number_connected_components`, `node_connectivity`, `edge_connectivity`, `minimum_node_cut`, `bridges`, `articulation_points` |
+| Centrality | `pagerank`, `betweenness_centrality`, `edge_betweenness_centrality`, `closeness_centrality`, `harmonic_centrality`, `eigenvector_centrality`, `degree_centrality`, `katz_centrality`, `hits` |
 | Clustering | `clustering`, `triangles`, `transitivity`, `average_clustering`, `square_clustering` |
 | Matching | `max_weight_matching`, `min_weight_matching`, `maximal_matching`, `min_edge_cover` |
 | Flow | `maximum_flow_value`, `minimum_cut_value` |
 | Trees | `minimum_spanning_tree`, `is_tree`, `is_forest` |
-| Euler | `eulerian_circuit`, `eulerian_path`, `is_eulerian`, `has_eulerian_path` |
+| Euler | `eulerian_circuit`, `eulerian_path`, `is_eulerian`, `has_eulerian_path`, `is_semieulerian` |
 | Paths & Cycles | `all_simple_paths`, `cycle_basis` |
 | Bipartite | `is_bipartite`, `bipartite_sets` |
 | Coloring | `greedy_color` |
 | Distance | `diameter`, `radius`, `center`, `periphery`, `eccentricity`, `density` |
 | Efficiency | `global_efficiency`, `local_efficiency` |
-| Other | `core_number`, `voterank`, `find_cliques`, `degree_assortativity_coefficient`, `average_neighbor_degree`, `relabel_nodes` |
+| Other | `core_number`, `voterank`, `find_cliques`, `graph_clique_number`, `degree_assortativity_coefficient`, `average_neighbor_degree`, `relabel_nodes` |
 | Generators | `path_graph`, `cycle_graph`, `star_graph`, `complete_graph`, `empty_graph`, `gnp_random_graph` |
 | I/O | `read_edgelist`, `write_edgelist`, `read_adjlist`, `write_adjlist`, `read_graphml`, `write_graphml`, `node_link_data`, `node_link_graph` |
 | NumPy/SciPy | `to_numpy_array`, `from_numpy_array`, `to_scipy_sparse_array`, `from_scipy_sparse_array` |
 | Conversion | `from_dict_of_dicts`, `to_dict_of_dicts`, `from_dict_of_lists`, `to_dict_of_lists`, `from_edgelist`, `to_edgelist`, `convert_node_labels_to_integers`, `from_pandas_edgelist`, `to_pandas_edgelist` |
-| Drawing | `draw`, `draw_spring`, `draw_circular`, `spring_layout`, `circular_layout` (delegates to NetworkX/matplotlib) |
+| Drawing | `draw`, `draw_spring`, `draw_circular`, `draw_kamada_kawai`, `draw_planar`, `draw_random`, `draw_shell`, `draw_spectral`, `spring_layout`, `circular_layout`, `kamada_kawai_layout`, `planar_layout`, `random_layout`, `shell_layout`, `spectral_layout` (delegates to NetworkX/matplotlib) |
 
 ## Graph Types
 

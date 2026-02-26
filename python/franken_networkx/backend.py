@@ -80,6 +80,7 @@ _SUPPORTED_ALGORITHMS = {
     "is_tree": fnx.is_tree,
     "is_forest": fnx.is_forest,
     "is_bipartite": fnx.is_bipartite,
+    "bipartite_sets": fnx.bipartite_sets,
     "greedy_color": fnx.greedy_color,
     "core_number": fnx.core_number,
     "minimum_spanning_tree": fnx.minimum_spanning_tree,

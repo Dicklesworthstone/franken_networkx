@@ -209,16 +209,29 @@ impl PyGraph {
         self.inner.edge_count()
     }
 
-    /// Number of edges, optionally weighted. Currently ignores weight.
+    /// Number of edges, optionally weighted.
+    /// When *weight* is given, returns the sum of that edge attribute
+    /// (defaulting to 1.0 for edges missing the attribute).
     #[pyo3(signature = (weight=None))]
-    fn size(&self, weight: Option<&str>) -> PyResult<f64> {
-        if weight.is_some() {
-            // TODO: implement weighted size
-            return Err(NetworkXNotImplemented::new_err(
-                "weighted size not yet supported",
-            ));
+    fn size(&self, py: Python<'_>, weight: Option<&str>) -> PyResult<f64> {
+        match weight {
+            None => Ok(self.inner.edge_count() as f64),
+            Some(attr) => {
+                let mut total = 0.0_f64;
+                for dict in self.edge_py_attrs.values() {
+                    let bound = dict.bind(py);
+                    match bound.get_item(attr)? {
+                        Some(val) => {
+                            total += val.extract::<f64>()?;
+                        }
+                        None => {
+                            total += 1.0;
+                        }
+                    }
+                }
+                Ok(total)
+            }
         }
-        Ok(self.inner.edge_count() as f64)
     }
 
     // ---- Node mutation ----

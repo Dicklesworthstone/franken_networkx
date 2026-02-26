@@ -242,6 +242,166 @@ impl GraphGenerator {
         Ok(GenerationReport { graph, warnings })
     }
 
+    /// Generate a Watts-Strogatz small-world graph.
+    ///
+    /// Start with a ring lattice of `n` nodes where each node is connected
+    /// to its `k` nearest neighbours (k/2 on each side). Then rewire each
+    /// edge with probability `p`.
+    ///
+    /// Requires `k` to be even and `n >= k >= 2`.
+    pub fn watts_strogatz_graph(
+        &mut self,
+        n: usize,
+        k: usize,
+        p: f64,
+        seed: u64,
+    ) -> Result<GenerationReport, GenerationError> {
+        let (n, mut warnings) = self.validate_n("watts_strogatz_graph", n, MAX_N_GNP)?;
+        let (p, p_warning) = self.validate_probability("watts_strogatz_graph", p)?;
+        if let Some(warning) = p_warning {
+            warnings.push(warning);
+        }
+
+        if k % 2 != 0 {
+            return Err(GenerationError::FailClosed {
+                operation: "watts_strogatz_graph",
+                reason: format!("k={k} must be even"),
+            });
+        }
+        if n < k || k < 2 {
+            return Err(GenerationError::FailClosed {
+                operation: "watts_strogatz_graph",
+                reason: format!("requires n >= k >= 2, got n={n}, k={k}"),
+            });
+        }
+
+        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
+        let half_k = k / 2;
+        let mut rng = StdRng::seed_from_u64(seed);
+
+        // Step 1: Build ring lattice — each node connects to k/2 neighbors on each side.
+        for i in 0..n {
+            for j in 1..=half_k {
+                let right = (i + j) % n;
+                let _ = graph.add_edge(node_labels[i].clone(), node_labels[right].clone());
+            }
+        }
+
+        // Step 2: Rewire edges with probability p.
+        // Iterate over each node and its k/2 rightward neighbors.
+        for i in 0..n {
+            for j in 1..=half_k {
+                if rng.random::<f64>() < p {
+                    let right = (i + j) % n;
+                    // Remove the original edge.
+                    let _ = graph.remove_edge(&node_labels[i], &node_labels[right]);
+                    // Pick a random target that isn't self and isn't already a neighbor.
+                    let mut new_target = rng.random_range(0..n);
+                    let mut attempts = 0;
+                    while (new_target == i
+                        || graph.has_edge(&node_labels[i], &node_labels[new_target]))
+                        && attempts < n
+                    {
+                        new_target = rng.random_range(0..n);
+                        attempts += 1;
+                    }
+                    if attempts < n {
+                        let _ = graph
+                            .add_edge(node_labels[i].clone(), node_labels[new_target].clone());
+                    } else {
+                        // Restore the original edge if no valid target found.
+                        let _ =
+                            graph.add_edge(node_labels[i].clone(), node_labels[right].clone());
+                    }
+                }
+            }
+        }
+
+        self.record(
+            "watts_strogatz_graph",
+            if warnings.is_empty() {
+                DecisionAction::Allow
+            } else {
+                DecisionAction::FullValidate
+            },
+            if warnings.is_empty() { 0.08 } else { 0.35 },
+            format!("generated watts-strogatz graph with n={n}, k={k}, p={p}, seed={seed}"),
+        );
+        Ok(GenerationReport { graph, warnings })
+    }
+
+    /// Generate a Barabási-Albert preferential attachment graph.
+    ///
+    /// Start with a complete graph of `m` nodes, then add `n - m` nodes
+    /// one at a time, each connecting to `m` existing nodes chosen with
+    /// probability proportional to their degree.
+    ///
+    /// Requires `m >= 1` and `n >= m`.
+    pub fn barabasi_albert_graph(
+        &mut self,
+        n: usize,
+        m: usize,
+        seed: u64,
+    ) -> Result<GenerationReport, GenerationError> {
+        let (n, warnings) = self.validate_n("barabasi_albert_graph", n, MAX_N_GNP)?;
+
+        if m < 1 || m > n {
+            return Err(GenerationError::FailClosed {
+                operation: "barabasi_albert_graph",
+                reason: format!("requires 1 <= m <= n, got m={m}, n={n}"),
+            });
+        }
+
+        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
+        let mut rng = StdRng::seed_from_u64(seed);
+
+        // Start with a complete graph on the first m nodes (the "seed" graph).
+        for i in 0..m {
+            for j in (i + 1)..m {
+                let _ = graph.add_edge(node_labels[i].clone(), node_labels[j].clone());
+            }
+        }
+
+        // Maintain a "repeated list" of nodes for proportional-to-degree sampling.
+        // Each time an edge (u, v) is added, both u and v appear once more.
+        let mut repeated_nodes: Vec<usize> = Vec::new();
+        for i in 0..m {
+            for _ in 0..(m - 1) {
+                repeated_nodes.push(i);
+            }
+        }
+
+        // Grow the graph: add nodes m..n-1 one at a time.
+        for source in m..n {
+            // Choose m distinct targets from existing nodes proportional to degree.
+            let mut targets = Vec::with_capacity(m);
+            let mut target_set = std::collections::HashSet::new();
+
+            while targets.len() < m {
+                let idx = rng.random_range(0..repeated_nodes.len());
+                let candidate = repeated_nodes[idx];
+                if target_set.insert(candidate) {
+                    targets.push(candidate);
+                }
+            }
+
+            // Add edges from new node to chosen targets.
+            for &target in &targets {
+                let _ = graph.add_edge(node_labels[source].clone(), node_labels[target].clone());
+                repeated_nodes.push(source);
+                repeated_nodes.push(target);
+            }
+        }
+
+        self.record(
+            "barabasi_albert_graph",
+            DecisionAction::Allow,
+            0.08,
+            format!("generated barabasi-albert graph with n={n}, m={m}, seed={seed}"),
+        );
+        Ok(GenerationReport { graph, warnings })
+    }
+
     fn validate_n(
         &mut self,
         operation: &'static str,

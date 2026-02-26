@@ -41,9 +41,11 @@ class TestClustering:
         nx_sorted = sorted([sorted(str(n) for n in c) for c in nx_cliques])
         assert fnx_sorted == nx_sorted
 
-    def test_graph_clique_number(self, fnx, nx, complete_graph):
-        G_fnx, G_nx = complete_graph
-        assert fnx.graph_clique_number(G_fnx) == nx.graph_clique_number(G_nx)
+    def test_graph_clique_number(self, fnx, complete_graph):
+        G_fnx, _ = complete_graph
+        # nx.graph_clique_number was removed in NetworkX 3.4;
+        # verify our implementation against known value (K5 clique number = 5)
+        assert fnx.graph_clique_number(G_fnx) == 5
 
     def test_clustering_path_graph(self, fnx, nx, path_graph):
         G_fnx, G_nx = path_graph

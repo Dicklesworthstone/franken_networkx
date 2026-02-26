@@ -12,6 +12,7 @@ import logging
 import pickle
 import sys
 import time
+from functools import wraps
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,14 +41,32 @@ def check(name: str, condition: bool, detail: str = ""):
 
 def timed(func):
     """Decorator to log elapsed time."""
+    @wraps(func)
     def wrapper(*args, **kwargs):
         t0 = time.monotonic()
         result = func(*args, **kwargs)
         elapsed = (time.monotonic() - t0) * 1000
         log.info("  elapsed: %.1fms", elapsed)
         return result
-    wrapper.__name__ = func.__name__
     return wrapper
+
+
+# ---------------------------------------------------------------------------
+# Pytest fixture: pre-built weighted triangle graph for tests that need G
+# ---------------------------------------------------------------------------
+import pytest
+
+@pytest.fixture
+def G(fnx):
+    """Build the same 3-node weighted triangle used by standalone main()."""
+    g = fnx.Graph()
+    g.add_node("a", color="red")
+    g.add_node("b")
+    g.add_node("c")
+    g.add_edge("a", "b", weight=1.0)
+    g.add_edge("b", "c", weight=2.5)
+    g.add_edge("a", "c", weight=10.0)
+    return g
 
 
 # ===========================================================================

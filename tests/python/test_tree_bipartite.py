@@ -36,7 +36,9 @@ class TestBipartite:
     def test_bipartite_sets(self, fnx, nx, path_graph):
         G_fnx, G_nx = path_graph
         fnx_a, fnx_b = fnx.bipartite_sets(G_fnx)
-        nx_a, nx_b = nx.bipartite_sets(G_nx)
+        # nx.bipartite_sets moved to nx.bipartite.sets in NetworkX 3.6
+        from networkx.algorithms import bipartite as nx_bip
+        nx_a, nx_b = nx_bip.sets(G_nx)
         # Sets might be swapped, so check both orderings
         fnx_pair = (set(str(x) for x in fnx_a), set(str(x) for x in fnx_b))
         nx_pair = (set(str(x) for x in nx_a), set(str(x) for x in nx_b))
