@@ -208,7 +208,7 @@ pub fn has_path(
 #[pyfunction]
 #[pyo3(signature = (g, weight=None))]
 pub fn average_shortest_path_length(
-    _py: Python<'_>,
+    py: Python<'_>,
     g: &PyGraph,
     weight: Option<&str>,
 ) -> PyResult<f64> {
@@ -217,15 +217,18 @@ pub fn average_shortest_path_length(
             "weighted average_shortest_path_length not yet supported",
         ));
     }
-    // Check connectivity first
-    let conn = fnx_algorithms::is_connected(&g.inner);
-    if !conn.is_connected {
+    let inner = &g.inner;
+    let (connected, avg) = py.allow_threads(|| {
+        let conn = fnx_algorithms::is_connected(inner);
+        let result = fnx_algorithms::average_shortest_path_length(inner);
+        (conn.is_connected, result.average_shortest_path_length)
+    });
+    if !connected {
         return Err(NetworkXError::new_err(
             "Graph is not connected, so d(u,v) is infinite for some pairs.",
         ));
     }
-    let result = fnx_algorithms::average_shortest_path_length(&g.inner);
-    Ok(result.average_shortest_path_length)
+    Ok(avg)
 }
 
 // ---------------------------------------------------------------------------
@@ -391,9 +394,9 @@ pub fn multi_source_dijkstra(
 
 /// Return True if the graph is connected.
 #[pyfunction]
-pub fn is_connected(g: &PyGraph) -> bool {
-    let result = fnx_algorithms::is_connected(&g.inner);
-    result.is_connected
+pub fn is_connected(py: Python<'_>, g: &PyGraph) -> bool {
+    let inner = &g.inner;
+    py.allow_threads(|| fnx_algorithms::is_connected(inner).is_connected)
 }
 
 // ---------------------------------------------------------------------------
@@ -402,9 +405,9 @@ pub fn is_connected(g: &PyGraph) -> bool {
 
 /// Return the density of the graph.
 #[pyfunction]
-pub fn density(g: &PyGraph) -> f64 {
-    let result = fnx_algorithms::density(&g.inner);
-    result.density
+pub fn density(py: Python<'_>, g: &PyGraph) -> f64 {
+    let inner = &g.inner;
+    py.allow_threads(|| fnx_algorithms::density(inner).density)
 }
 
 // ---------------------------------------------------------------------------
@@ -495,7 +498,8 @@ fn compute_single_shortest_path(
 /// Return the connected components as a list of sets.
 #[pyfunction]
 pub fn connected_components(py: Python<'_>, g: &PyGraph) -> Vec<PyObject> {
-    let result = fnx_algorithms::connected_components(&g.inner);
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::connected_components(inner));
     result
         .components
         .iter()
@@ -508,22 +512,23 @@ pub fn connected_components(py: Python<'_>, g: &PyGraph) -> Vec<PyObject> {
 
 /// Return the number of connected components.
 #[pyfunction]
-pub fn number_connected_components(g: &PyGraph) -> usize {
-    let result = fnx_algorithms::number_connected_components(&g.inner);
-    result.count
+pub fn number_connected_components(py: Python<'_>, g: &PyGraph) -> usize {
+    let inner = &g.inner;
+    py.allow_threads(|| fnx_algorithms::number_connected_components(inner).count)
 }
 
 /// Return the node connectivity of the graph.
 #[pyfunction]
-pub fn node_connectivity(g: &PyGraph) -> usize {
-    let result = fnx_algorithms::global_node_connectivity(&g.inner);
-    result.value
+pub fn node_connectivity(py: Python<'_>, g: &PyGraph) -> usize {
+    let inner = &g.inner;
+    py.allow_threads(|| fnx_algorithms::global_node_connectivity(inner).value)
 }
 
 /// Return a minimum node cut of the graph.
 #[pyfunction]
 pub fn minimum_node_cut(py: Python<'_>, g: &PyGraph) -> Vec<PyObject> {
-    let result = fnx_algorithms::global_minimum_node_cut(&g.inner);
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::global_minimum_node_cut(inner));
     result
         .cut_nodes
         .iter()
@@ -534,15 +539,17 @@ pub fn minimum_node_cut(py: Python<'_>, g: &PyGraph) -> Vec<PyObject> {
 /// Return the edge connectivity of the graph.
 #[pyfunction]
 #[pyo3(signature = (g, capacity="capacity"))]
-pub fn edge_connectivity(g: &PyGraph, capacity: &str) -> f64 {
-    let result = fnx_algorithms::global_edge_connectivity_edmonds_karp(&g.inner, capacity);
-    result.value
+pub fn edge_connectivity(py: Python<'_>, g: &PyGraph, capacity: &str) -> f64 {
+    let inner = &g.inner;
+    let cap = capacity.to_owned();
+    py.allow_threads(move || fnx_algorithms::global_edge_connectivity_edmonds_karp(inner, &cap).value)
 }
 
 /// Return articulation points (cut vertices) of the graph.
 #[pyfunction]
 pub fn articulation_points(py: Python<'_>, g: &PyGraph) -> Vec<PyObject> {
-    let result = fnx_algorithms::articulation_points(&g.inner);
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::articulation_points(inner));
     result
         .nodes
         .iter()
@@ -553,7 +560,8 @@ pub fn articulation_points(py: Python<'_>, g: &PyGraph) -> Vec<PyObject> {
 /// Return bridges (cut edges) of the graph.
 #[pyfunction]
 pub fn bridges(py: Python<'_>, g: &PyGraph) -> Vec<(PyObject, PyObject)> {
-    let result = fnx_algorithms::bridges(&g.inner);
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::bridges(inner));
     result
         .edges
         .iter()
@@ -577,42 +585,48 @@ fn centrality_to_dict(py: Python<'_>, g: &PyGraph, scores: &[fnx_algorithms::Cen
 /// Return the degree centrality for all nodes.
 #[pyfunction]
 pub fn degree_centrality(py: Python<'_>, g: &PyGraph) -> PyResult<Py<PyDict>> {
-    let result = fnx_algorithms::degree_centrality(&g.inner);
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::degree_centrality(inner));
     centrality_to_dict(py, g, &result.scores)
 }
 
 /// Return the closeness centrality for all nodes.
 #[pyfunction]
 pub fn closeness_centrality(py: Python<'_>, g: &PyGraph) -> PyResult<Py<PyDict>> {
-    let result = fnx_algorithms::closeness_centrality(&g.inner);
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::closeness_centrality(inner));
     centrality_to_dict(py, g, &result.scores)
 }
 
 /// Return the harmonic centrality for all nodes.
 #[pyfunction]
 pub fn harmonic_centrality(py: Python<'_>, g: &PyGraph) -> PyResult<Py<PyDict>> {
-    let result = fnx_algorithms::harmonic_centrality(&g.inner);
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::harmonic_centrality(inner));
     centrality_to_dict(py, g, &result.scores)
 }
 
 /// Return the Katz centrality for all nodes.
 #[pyfunction]
 pub fn katz_centrality(py: Python<'_>, g: &PyGraph) -> PyResult<Py<PyDict>> {
-    let result = fnx_algorithms::katz_centrality(&g.inner);
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::katz_centrality(inner));
     centrality_to_dict(py, g, &result.scores)
 }
 
 /// Return the betweenness centrality for all nodes.
 #[pyfunction]
 pub fn betweenness_centrality(py: Python<'_>, g: &PyGraph) -> PyResult<Py<PyDict>> {
-    let result = fnx_algorithms::betweenness_centrality(&g.inner);
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::betweenness_centrality(inner));
     centrality_to_dict(py, g, &result.scores)
 }
 
 /// Return the edge betweenness centrality for all edges.
 #[pyfunction]
 pub fn edge_betweenness_centrality(py: Python<'_>, g: &PyGraph) -> PyResult<Py<PyDict>> {
-    let result = fnx_algorithms::edge_betweenness_centrality(&g.inner);
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::edge_betweenness_centrality(inner));
     let dict = PyDict::new(py);
     for s in &result.scores {
         let key = pyo3::types::PyTuple::new(py, &[
@@ -627,14 +641,16 @@ pub fn edge_betweenness_centrality(py: Python<'_>, g: &PyGraph) -> PyResult<Py<P
 /// Return the eigenvector centrality for all nodes.
 #[pyfunction]
 pub fn eigenvector_centrality(py: Python<'_>, g: &PyGraph) -> PyResult<Py<PyDict>> {
-    let result = fnx_algorithms::eigenvector_centrality(&g.inner);
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::eigenvector_centrality(inner));
     centrality_to_dict(py, g, &result.scores)
 }
 
 /// Return the PageRank for all nodes.
 #[pyfunction]
 pub fn pagerank(py: Python<'_>, g: &PyGraph) -> PyResult<Py<PyDict>> {
-    let result = fnx_algorithms::pagerank(&g.inner);
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::pagerank(inner));
     centrality_to_dict(py, g, &result.scores)
 }
 
@@ -643,7 +659,8 @@ pub fn pagerank(py: Python<'_>, g: &PyGraph) -> PyResult<Py<PyDict>> {
 /// Returns (hubs_dict, authorities_dict).
 #[pyfunction]
 pub fn hits(py: Python<'_>, g: &PyGraph) -> PyResult<(Py<PyDict>, Py<PyDict>)> {
-    let result = fnx_algorithms::hits_centrality(&g.inner);
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::hits_centrality(inner));
     let hubs = centrality_to_dict(py, g, &result.hubs)?;
     let auths = centrality_to_dict(py, g, &result.authorities)?;
     Ok((hubs, auths))
@@ -652,7 +669,8 @@ pub fn hits(py: Python<'_>, g: &PyGraph) -> PyResult<(Py<PyDict>, Py<PyDict>)> {
 /// Return the average neighbor degree for each node.
 #[pyfunction]
 pub fn average_neighbor_degree(py: Python<'_>, g: &PyGraph) -> PyResult<Py<PyDict>> {
-    let result = fnx_algorithms::average_neighbor_degree(&g.inner);
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::average_neighbor_degree(inner));
     let dict = PyDict::new(py);
     for s in &result.scores {
         dict.set_item(g.py_node_key(py, &s.node), s.avg_neighbor_degree)?;
@@ -662,15 +680,16 @@ pub fn average_neighbor_degree(py: Python<'_>, g: &PyGraph) -> PyResult<Py<PyDic
 
 /// Return the degree assortativity coefficient.
 #[pyfunction]
-pub fn degree_assortativity_coefficient(g: &PyGraph) -> f64 {
-    let result = fnx_algorithms::degree_assortativity_coefficient(&g.inner);
-    result.coefficient
+pub fn degree_assortativity_coefficient(py: Python<'_>, g: &PyGraph) -> f64 {
+    let inner = &g.inner;
+    py.allow_threads(|| fnx_algorithms::degree_assortativity_coefficient(inner).coefficient)
 }
 
 /// Return a list of nodes in decreasing voterank order.
 #[pyfunction]
 pub fn voterank(py: Python<'_>, g: &PyGraph) -> Vec<PyObject> {
-    let result = fnx_algorithms::voterank(&g.inner);
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::voterank(inner));
     result.ranked.iter().map(|n| g.py_node_key(py, n)).collect()
 }
 
@@ -681,28 +700,30 @@ pub fn voterank(py: Python<'_>, g: &PyGraph) -> Vec<PyObject> {
 /// Return the clustering coefficient for each node.
 #[pyfunction]
 pub fn clustering(py: Python<'_>, g: &PyGraph) -> PyResult<Py<PyDict>> {
-    let result = fnx_algorithms::clustering_coefficient(&g.inner);
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::clustering_coefficient(inner));
     centrality_to_dict(py, g, &result.scores)
 }
 
 /// Return the average clustering coefficient.
 #[pyfunction]
-pub fn average_clustering(g: &PyGraph) -> f64 {
-    let result = fnx_algorithms::clustering_coefficient(&g.inner);
-    result.average_clustering
+pub fn average_clustering(py: Python<'_>, g: &PyGraph) -> f64 {
+    let inner = &g.inner;
+    py.allow_threads(|| fnx_algorithms::clustering_coefficient(inner).average_clustering)
 }
 
 /// Return the transitivity (global clustering coefficient).
 #[pyfunction]
-pub fn transitivity(g: &PyGraph) -> f64 {
-    let result = fnx_algorithms::clustering_coefficient(&g.inner);
-    result.transitivity
+pub fn transitivity(py: Python<'_>, g: &PyGraph) -> f64 {
+    let inner = &g.inner;
+    py.allow_threads(|| fnx_algorithms::clustering_coefficient(inner).transitivity)
 }
 
 /// Return the number of triangles for each node.
 #[pyfunction]
 pub fn triangles(py: Python<'_>, g: &PyGraph) -> PyResult<Py<PyDict>> {
-    let result = fnx_algorithms::triangles(&g.inner);
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::triangles(inner));
     let dict = PyDict::new(py);
     for t in &result.triangles {
         dict.set_item(g.py_node_key(py, &t.node), t.count)?;
@@ -713,14 +734,16 @@ pub fn triangles(py: Python<'_>, g: &PyGraph) -> PyResult<Py<PyDict>> {
 /// Return the square clustering coefficient for each node.
 #[pyfunction]
 pub fn square_clustering(py: Python<'_>, g: &PyGraph) -> PyResult<Py<PyDict>> {
-    let result = fnx_algorithms::square_clustering(&g.inner);
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::square_clustering(inner));
     centrality_to_dict(py, g, &result.scores)
 }
 
 /// Return all maximal cliques as a list of lists.
 #[pyfunction]
 pub fn find_cliques(py: Python<'_>, g: &PyGraph) -> Vec<Vec<PyObject>> {
-    let result = fnx_algorithms::find_cliques(&g.inner);
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::find_cliques(inner));
     result
         .cliques
         .iter()
@@ -730,9 +753,9 @@ pub fn find_cliques(py: Python<'_>, g: &PyGraph) -> Vec<Vec<PyObject>> {
 
 /// Return the size of the largest maximal clique.
 #[pyfunction]
-pub fn graph_clique_number(g: &PyGraph) -> usize {
-    let result = fnx_algorithms::graph_clique_number(&g.inner);
-    result.clique_number
+pub fn graph_clique_number(py: Python<'_>, g: &PyGraph) -> usize {
+    let inner = &g.inner;
+    py.allow_threads(|| fnx_algorithms::graph_clique_number(inner).clique_number)
 }
 
 // ===========================================================================
@@ -742,7 +765,8 @@ pub fn graph_clique_number(g: &PyGraph) -> usize {
 /// Return a maximal matching as a set of edge tuples.
 #[pyfunction]
 pub fn maximal_matching(py: Python<'_>, g: &PyGraph) -> Vec<(PyObject, PyObject)> {
-    let result = fnx_algorithms::maximal_matching(&g.inner);
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::maximal_matching(inner));
     result
         .matching
         .iter()
@@ -754,9 +778,9 @@ pub fn maximal_matching(py: Python<'_>, g: &PyGraph) -> Vec<(PyObject, PyObject)
 #[pyfunction]
 #[pyo3(signature = (g, weight="weight"))]
 pub fn max_weight_matching(py: Python<'_>, g: &PyGraph, weight: &str) -> Vec<(PyObject, PyObject)> {
-    // fnx_algorithms has min_weight_matching; for max-weight we negate
-    // Actually we use the same underlying blossom, just pass the weight attr
-    let result = fnx_algorithms::min_weight_matching(&g.inner, weight);
+    let inner = &g.inner;
+    let w = weight.to_owned();
+    let result = py.allow_threads(move || fnx_algorithms::min_weight_matching(inner, &w));
     result
         .matching
         .iter()
@@ -768,7 +792,9 @@ pub fn max_weight_matching(py: Python<'_>, g: &PyGraph, weight: &str) -> Vec<(Py
 #[pyfunction]
 #[pyo3(signature = (g, weight="weight"))]
 pub fn min_weight_matching(py: Python<'_>, g: &PyGraph, weight: &str) -> Vec<(PyObject, PyObject)> {
-    let result = fnx_algorithms::min_weight_matching(&g.inner, weight);
+    let inner = &g.inner;
+    let w = weight.to_owned();
+    let result = py.allow_threads(move || fnx_algorithms::min_weight_matching(inner, &w));
     result
         .matching
         .iter()
@@ -779,7 +805,8 @@ pub fn min_weight_matching(py: Python<'_>, g: &PyGraph, weight: &str) -> Vec<(Py
 /// Return a minimum edge cover as a set of edge tuples.
 #[pyfunction]
 pub fn min_edge_cover(py: Python<'_>, g: &PyGraph) -> PyResult<Vec<(PyObject, PyObject)>> {
-    let result = fnx_algorithms::min_edge_cover(&g.inner);
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::min_edge_cover(inner));
     match result {
         Some(r) => Ok(r
             .edges
@@ -808,8 +835,9 @@ pub fn maximum_flow_value(
 ) -> PyResult<f64> {
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, sink)?;
-    let result = fnx_algorithms::max_flow_edmonds_karp(&g.inner, &s, &t, capacity);
-    Ok(result.value)
+    let inner = &g.inner;
+    let cap = capacity.to_owned();
+    Ok(py.allow_threads(move || fnx_algorithms::max_flow_edmonds_karp(inner, &s, &t, &cap).value))
 }
 
 /// Return the minimum cut value between source and sink.
@@ -824,8 +852,9 @@ pub fn minimum_cut_value(
 ) -> PyResult<f64> {
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, sink)?;
-    let result = fnx_algorithms::minimum_cut_edmonds_karp(&g.inner, &s, &t, capacity);
-    Ok(result.value)
+    let inner = &g.inner;
+    let cap = capacity.to_owned();
+    Ok(py.allow_threads(move || fnx_algorithms::minimum_cut_edmonds_karp(inner, &s, &t, &cap).value))
 }
 
 // ===========================================================================
@@ -835,7 +864,8 @@ pub fn minimum_cut_value(
 /// Return the eccentricity of each node as a dict.
 #[pyfunction]
 pub fn eccentricity(py: Python<'_>, g: &PyGraph) -> PyResult<Py<PyDict>> {
-    let result = fnx_algorithms::distance_measures(&g.inner);
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::distance_measures(inner));
     let dict = PyDict::new(py);
     for e in &result.eccentricity {
         dict.set_item(g.py_node_key(py, &e.node), e.value)?;
@@ -845,45 +875,61 @@ pub fn eccentricity(py: Python<'_>, g: &PyGraph) -> PyResult<Py<PyDict>> {
 
 /// Return the diameter of the graph.
 #[pyfunction]
-pub fn diameter(g: &PyGraph) -> PyResult<usize> {
-    let conn = fnx_algorithms::is_connected(&g.inner);
-    if !conn.is_connected {
+pub fn diameter(py: Python<'_>, g: &PyGraph) -> PyResult<usize> {
+    let inner = &g.inner;
+    let (connected, result) = py.allow_threads(|| {
+        let c = fnx_algorithms::is_connected(inner);
+        let r = fnx_algorithms::distance_measures(inner);
+        (c.is_connected, r)
+    });
+    if !connected {
         return Err(NetworkXError::new_err("Graph is not connected."));
     }
-    let result = fnx_algorithms::distance_measures(&g.inner);
     Ok(result.diameter)
 }
 
 /// Return the radius of the graph.
 #[pyfunction]
-pub fn radius(g: &PyGraph) -> PyResult<usize> {
-    let conn = fnx_algorithms::is_connected(&g.inner);
-    if !conn.is_connected {
+pub fn radius(py: Python<'_>, g: &PyGraph) -> PyResult<usize> {
+    let inner = &g.inner;
+    let (connected, result) = py.allow_threads(|| {
+        let c = fnx_algorithms::is_connected(inner);
+        let r = fnx_algorithms::distance_measures(inner);
+        (c.is_connected, r)
+    });
+    if !connected {
         return Err(NetworkXError::new_err("Graph is not connected."));
     }
-    let result = fnx_algorithms::distance_measures(&g.inner);
     Ok(result.radius)
 }
 
 /// Return the center of the graph.
 #[pyfunction]
 pub fn center(py: Python<'_>, g: &PyGraph) -> PyResult<Vec<PyObject>> {
-    let conn = fnx_algorithms::is_connected(&g.inner);
-    if !conn.is_connected {
+    let inner = &g.inner;
+    let (connected, result) = py.allow_threads(|| {
+        let c = fnx_algorithms::is_connected(inner);
+        let r = fnx_algorithms::distance_measures(inner);
+        (c.is_connected, r)
+    });
+    if !connected {
         return Err(NetworkXError::new_err("Graph is not connected."));
     }
-    let result = fnx_algorithms::distance_measures(&g.inner);
     Ok(result.center.iter().map(|n| g.py_node_key(py, n)).collect())
 }
 
 /// Return the periphery of the graph.
 #[pyfunction]
 pub fn periphery(py: Python<'_>, g: &PyGraph) -> PyResult<Vec<PyObject>> {
-    let conn = fnx_algorithms::is_connected(&g.inner);
-    if !conn.is_connected {
+    let inner = &g.inner;
+    let (connected, result) = py.allow_threads(|| {
+        let c = fnx_algorithms::is_connected(inner);
+        let r = fnx_algorithms::distance_measures(inner);
+        (c.is_connected, r)
+    });
+    if !connected {
         return Err(NetworkXError::new_err("Graph is not connected."));
     }
-    let result = fnx_algorithms::distance_measures(&g.inner);
     Ok(result
         .periphery
         .iter()
@@ -897,20 +943,23 @@ pub fn periphery(py: Python<'_>, g: &PyGraph) -> PyResult<Vec<PyObject>> {
 
 /// Return True if the graph is a tree.
 #[pyfunction]
-pub fn is_tree(g: &PyGraph) -> bool {
-    fnx_algorithms::is_tree(&g.inner).is_tree
+pub fn is_tree(py: Python<'_>, g: &PyGraph) -> bool {
+    let inner = &g.inner;
+    py.allow_threads(|| fnx_algorithms::is_tree(inner).is_tree)
 }
 
 /// Return True if the graph is a forest.
 #[pyfunction]
-pub fn is_forest(g: &PyGraph) -> bool {
-    fnx_algorithms::is_forest(&g.inner).is_forest
+pub fn is_forest(py: Python<'_>, g: &PyGraph) -> bool {
+    let inner = &g.inner;
+    py.allow_threads(|| fnx_algorithms::is_forest(inner).is_forest)
 }
 
 /// Return True if the graph is bipartite.
 #[pyfunction]
-pub fn is_bipartite(g: &PyGraph) -> bool {
-    fnx_algorithms::is_bipartite(&g.inner).is_bipartite
+pub fn is_bipartite(py: Python<'_>, g: &PyGraph) -> bool {
+    let inner = &g.inner;
+    py.allow_threads(|| fnx_algorithms::is_bipartite(inner).is_bipartite)
 }
 
 /// Return the two bipartite node sets.
@@ -919,7 +968,8 @@ pub fn bipartite_sets(
     py: Python<'_>,
     g: &PyGraph,
 ) -> PyResult<(Vec<PyObject>, Vec<PyObject>)> {
-    let result = fnx_algorithms::bipartite_sets(&g.inner);
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::bipartite_sets(inner));
     if !result.is_bipartite {
         return Err(NetworkXError::new_err("Graph is not bipartite."));
     }
@@ -931,7 +981,8 @@ pub fn bipartite_sets(
 /// Return a greedy graph coloring as a dict mapping node -> color.
 #[pyfunction]
 pub fn greedy_color(py: Python<'_>, g: &PyGraph) -> PyResult<Py<PyDict>> {
-    let result = fnx_algorithms::greedy_color(&g.inner);
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::greedy_color(inner));
     let dict = PyDict::new(py);
     for nc in &result.coloring {
         dict.set_item(g.py_node_key(py, &nc.node), nc.color)?;
@@ -942,7 +993,8 @@ pub fn greedy_color(py: Python<'_>, g: &PyGraph) -> PyResult<Py<PyDict>> {
 /// Return the core number for each node.
 #[pyfunction]
 pub fn core_number(py: Python<'_>, g: &PyGraph) -> PyResult<Py<PyDict>> {
-    let result = fnx_algorithms::core_number(&g.inner);
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::core_number(inner));
     let dict = PyDict::new(py);
     for nc in &result.core_numbers {
         dict.set_item(g.py_node_key(py, &nc.node), nc.core)?;
@@ -958,7 +1010,9 @@ pub fn minimum_spanning_tree(
     g: &PyGraph,
     weight: &str,
 ) -> PyResult<PyGraph> {
-    let result = fnx_algorithms::minimum_spanning_tree(&g.inner, weight);
+    let inner = &g.inner;
+    let w = weight.to_owned();
+    let result = py.allow_threads(move || fnx_algorithms::minimum_spanning_tree(inner, &w));
     let mut new_graph = PyGraph::new_empty(py)?;
     // Add all nodes from original graph
     for node in g.inner.nodes_ordered() {
@@ -989,20 +1043,23 @@ pub fn minimum_spanning_tree(
 
 /// Return True if the graph is Eulerian.
 #[pyfunction]
-pub fn is_eulerian(g: &PyGraph) -> bool {
-    fnx_algorithms::is_eulerian(&g.inner).is_eulerian
+pub fn is_eulerian(py: Python<'_>, g: &PyGraph) -> bool {
+    let inner = &g.inner;
+    py.allow_threads(|| fnx_algorithms::is_eulerian(inner).is_eulerian)
 }
 
 /// Return True if the graph has an Eulerian path.
 #[pyfunction]
-pub fn has_eulerian_path(g: &PyGraph) -> bool {
-    fnx_algorithms::has_eulerian_path(&g.inner).has_eulerian_path
+pub fn has_eulerian_path(py: Python<'_>, g: &PyGraph) -> bool {
+    let inner = &g.inner;
+    py.allow_threads(|| fnx_algorithms::has_eulerian_path(inner).has_eulerian_path)
 }
 
 /// Return True if the graph is semi-Eulerian.
 #[pyfunction]
-pub fn is_semieulerian(g: &PyGraph) -> bool {
-    fnx_algorithms::is_semieulerian(&g.inner).is_semieulerian
+pub fn is_semieulerian(py: Python<'_>, g: &PyGraph) -> bool {
+    let inner = &g.inner;
+    py.allow_threads(|| fnx_algorithms::is_semieulerian(inner).is_semieulerian)
 }
 
 /// Return an Eulerian circuit as a list of edge tuples.
@@ -1016,7 +1073,8 @@ pub fn eulerian_circuit(
     let src = source
         .map(|s| node_key_to_string(py, s))
         .transpose()?;
-    let result = fnx_algorithms::eulerian_circuit(&g.inner, src.as_deref());
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::eulerian_circuit(inner, src.as_deref()));
     match result {
         Some(r) => Ok(r
             .edges
@@ -1038,7 +1096,8 @@ pub fn eulerian_path(
     let src = source
         .map(|s| node_key_to_string(py, s))
         .transpose()?;
-    let result = fnx_algorithms::eulerian_path(&g.inner, src.as_deref());
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::eulerian_path(inner, src.as_deref()));
     match result {
         Some(r) => Ok(r
             .edges
@@ -1065,7 +1124,8 @@ pub fn all_simple_paths(
 ) -> PyResult<Vec<Vec<PyObject>>> {
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, target)?;
-    let result = fnx_algorithms::all_simple_paths(&g.inner, &s, &t, cutoff);
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::all_simple_paths(inner, &s, &t, cutoff));
     Ok(result
         .paths
         .iter()
@@ -1084,7 +1144,8 @@ pub fn cycle_basis(
     let r = root
         .map(|r| node_key_to_string(py, r))
         .transpose()?;
-    let result = fnx_algorithms::cycle_basis(&g.inner, r.as_deref());
+    let inner = &g.inner;
+    let result = py.allow_threads(|| fnx_algorithms::cycle_basis(inner, r.as_deref()));
     Ok(result
         .cycles
         .iter()
@@ -1098,14 +1159,16 @@ pub fn cycle_basis(
 
 /// Return the global efficiency of the graph.
 #[pyfunction]
-pub fn global_efficiency(g: &PyGraph) -> f64 {
-    fnx_algorithms::global_efficiency(&g.inner).efficiency
+pub fn global_efficiency(py: Python<'_>, g: &PyGraph) -> f64 {
+    let inner = &g.inner;
+    py.allow_threads(|| fnx_algorithms::global_efficiency(inner).efficiency)
 }
 
 /// Return the local efficiency of the graph.
 #[pyfunction]
-pub fn local_efficiency(g: &PyGraph) -> f64 {
-    fnx_algorithms::local_efficiency(&g.inner).efficiency
+pub fn local_efficiency(py: Python<'_>, g: &PyGraph) -> f64 {
+    let inner = &g.inner;
+    py.allow_threads(|| fnx_algorithms::local_efficiency(inner).efficiency)
 }
 
 /// Register all algorithm functions into the Python module.
