@@ -133,6 +133,47 @@ pub fn gnp_random_graph(py: Python<'_>, n: usize, p: f64, seed: u64) -> PyResult
     report_to_pygraph(py, report.graph)
 }
 
+/// Return a Watts-Strogatz small-world graph.
+///
+/// Parameters
+/// ----------
+/// n : int
+///     Number of nodes.
+/// k : int
+///     Each node is joined with its ``k`` nearest neighbors in a ring
+///     topology.  Must be even.
+/// p : float
+///     Probability of rewiring each edge.
+/// seed : int
+///     Seed for the random number generator.
+#[pyfunction]
+pub fn watts_strogatz_graph(py: Python<'_>, n: usize, k: usize, p: f64, seed: u64) -> PyResult<PyGraph> {
+    let mut gg = GraphGenerator::strict();
+    let report = gg
+        .watts_strogatz_graph(n, k, p, seed)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    report_to_pygraph(py, report.graph)
+}
+
+/// Return a random graph using Barabasi-Albert preferential attachment.
+///
+/// Parameters
+/// ----------
+/// n : int
+///     Number of nodes.
+/// m : int
+///     Number of edges to attach from a new node to existing nodes.
+/// seed : int
+///     Seed for the random number generator.
+#[pyfunction]
+pub fn barabasi_albert_graph(py: Python<'_>, n: usize, m: usize, seed: u64) -> PyResult<PyGraph> {
+    let mut gg = GraphGenerator::strict();
+    let report = gg
+        .barabasi_albert_graph(n, m, seed)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    report_to_pygraph(py, report.graph)
+}
+
 // ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
@@ -144,5 +185,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(star_graph, m)?)?;
     m.add_function(wrap_pyfunction!(complete_graph, m)?)?;
     m.add_function(wrap_pyfunction!(gnp_random_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(watts_strogatz_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(barabasi_albert_graph, m)?)?;
     Ok(())
 }

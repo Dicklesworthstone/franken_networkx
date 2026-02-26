@@ -262,7 +262,7 @@ impl GraphGenerator {
             warnings.push(warning);
         }
 
-        if k % 2 != 0 {
+        if !k.is_multiple_of(2) {
             return Err(GenerationError::FailClosed {
                 operation: "watts_strogatz_graph",
                 reason: format!("k={k} must be even"),

@@ -191,6 +191,8 @@ from franken_networkx._fnx import (
 
 # Graph generators — random
 from franken_networkx._fnx import gnp_random_graph
+from franken_networkx._fnx import watts_strogatz_graph
+from franken_networkx._fnx import barabasi_albert_graph
 
 # Read/write — graph I/O
 from franken_networkx._fnx import (
@@ -866,6 +868,8 @@ __all__ = [
     "star_graph",
     # Generators — random
     "gnp_random_graph",
+    "watts_strogatz_graph",
+    "barabasi_albert_graph",
     # Read/write — graph I/O
     "node_link_data",
     "node_link_graph",
