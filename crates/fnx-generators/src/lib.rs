@@ -306,12 +306,11 @@ impl GraphGenerator {
                         attempts += 1;
                     }
                     if attempts < n {
-                        let _ = graph
-                            .add_edge(node_labels[i].clone(), node_labels[new_target].clone());
+                        let _ =
+                            graph.add_edge(node_labels[i].clone(), node_labels[new_target].clone());
                     } else {
                         // Restore the original edge if no valid target found.
-                        let _ =
-                            graph.add_edge(node_labels[i].clone(), node_labels[right].clone());
+                        let _ = graph.add_edge(node_labels[i].clone(), node_labels[right].clone());
                     }
                 }
             }

@@ -16,6 +16,7 @@ use pyo3::exceptions::{PyKeyError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyIterator, PyTuple};
 use std::collections::HashMap;
+use std::convert::Infallible;
 
 // ---------------------------------------------------------------------------
 // Exception hierarchy — mirrors NetworkX for drop-in compatibility.
@@ -30,11 +31,7 @@ pyo3::create_exception!(_fnx, NetworkXUnbounded, NetworkXError);
 pyo3::create_exception!(_fnx, NetworkXNotImplemented, NetworkXError);
 pyo3::create_exception!(_fnx, NodeNotFound, NetworkXError);
 pyo3::create_exception!(_fnx, HasACycle, NetworkXError);
-pyo3::create_exception!(
-    _fnx,
-    PowerIterationFailedConvergence,
-    NetworkXError
-);
+pyo3::create_exception!(_fnx, PowerIterationFailedConvergence, NetworkXError);
 
 // ---------------------------------------------------------------------------
 // NodeKey — bridge Python's dynamic node identifiers to Rust String keys.
@@ -83,12 +80,14 @@ impl PyGraph {
 
     /// Return the original Python object for a node key, falling back to string.
     pub(crate) fn py_node_key(&self, py: Python<'_>, canonical: &str) -> PyObject {
-        self.node_key_map
-            .get(canonical)
-            .map_or_else(
-                || canonical.to_owned().into_pyobject(py).unwrap().into_any().unbind(),
-                |obj| obj.clone_ref(py),
-            )
+        self.node_key_map.get(canonical).map_or_else(
+            || {
+                unwrap_infallible(canonical.to_owned().into_pyobject(py))
+                    .into_any()
+                    .unbind()
+            },
+            |obj| obj.clone_ref(py),
+        )
     }
 
     /// Create a new empty PyGraph (no nodes, no edges, empty graph attrs).
@@ -263,7 +262,8 @@ impl PyGraph {
             }
         }
 
-        self.inner.add_node_with_attrs(canonical.clone(), rust_attrs);
+        self.inner
+            .add_node_with_attrs(canonical.clone(), rust_attrs);
         log::debug!(target: "franken_networkx", "add_node: {canonical}");
         Ok(())
     }
@@ -328,11 +328,7 @@ impl PyGraph {
     }
 
     /// Remove multiple nodes. Silently skips absent nodes.
-    fn remove_nodes_from(
-        &mut self,
-        py: Python<'_>,
-        nodes: &Bound<'_, PyAny>,
-    ) -> PyResult<()> {
+    fn remove_nodes_from(&mut self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<()> {
         let iter = PyIterator::from_object(nodes)?;
         for item in iter {
             let item = item?;
@@ -469,10 +465,10 @@ impl PyGraph {
             // Insert node key maps only if new.
             self.node_key_map
                 .entry(u_s.clone())
-                .or_insert_with(|| u.into_pyobject(py).unwrap().into_any().unbind());
+                .or_insert_with(|| unwrap_infallible(u.into_pyobject(py)).into_any().unbind());
             self.node_key_map
                 .entry(v_s.clone())
-                .or_insert_with(|| v.into_pyobject(py).unwrap().into_any().unbind());
+                .or_insert_with(|| unwrap_infallible(v.into_pyobject(py)).into_any().unbind());
             self.node_py_attrs
                 .entry(u_s.clone())
                 .or_insert_with(|| PyDict::new(py).unbind());
@@ -503,9 +499,9 @@ impl PyGraph {
         let iter = PyIterator::from_object(ebunch_to_add)?;
         for item in iter {
             let item = item?;
-            let tuple = item.downcast::<PyTuple>().map_err(|_| {
-                PyTypeError::new_err("each element must be a (u, v, w) tuple")
-            })?;
+            let tuple = item
+                .downcast::<PyTuple>()
+                .map_err(|_| PyTypeError::new_err("each element must be a (u, v, w) tuple"))?;
             if tuple.len() != 3 {
                 return Err(PyValueError::new_err("expected (u, v, w) tuples"));
             }
@@ -543,17 +539,13 @@ impl PyGraph {
     }
 
     /// Remove edges from an iterable. Silently skips absent edges.
-    fn remove_edges_from(
-        &mut self,
-        py: Python<'_>,
-        ebunch: &Bound<'_, PyAny>,
-    ) -> PyResult<()> {
+    fn remove_edges_from(&mut self, py: Python<'_>, ebunch: &Bound<'_, PyAny>) -> PyResult<()> {
         let iter = PyIterator::from_object(ebunch)?;
         for item in iter {
             let item = item?;
-            let tuple = item.downcast::<PyTuple>().map_err(|_| {
-                PyTypeError::new_err("each element must be a (u, v) tuple")
-            })?;
+            let tuple = item
+                .downcast::<PyTuple>()
+                .map_err(|_| PyTypeError::new_err("each element must be a (u, v) tuple"))?;
             if tuple.len() < 2 {
                 continue;
             }
@@ -610,11 +602,7 @@ impl PyGraph {
     }
 
     /// Return a list of neighbors of node n.
-    fn neighbors(
-        &self,
-        py: Python<'_>,
-        n: &Bound<'_, PyAny>,
-    ) -> PyResult<Vec<PyObject>> {
+    fn neighbors(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
         let canonical = node_key_to_string(py, n)?;
         match self.inner.neighbors(&canonical) {
             Some(neighbors) => Ok(neighbors
@@ -667,21 +655,19 @@ impl PyGraph {
             .into_iter()
             .map(|n| self.py_node_key(py, n))
             .collect();
-        Py::new(py, NodeIterator { inner: nodes.into_iter() })
+        Py::new(
+            py,
+            NodeIterator {
+                inner: nodes.into_iter(),
+            },
+        )
     }
 
     /// Get adjacency dict for node (called by ``G[n]``).
-    fn __getitem__(
-        &self,
-        py: Python<'_>,
-        n: &Bound<'_, PyAny>,
-    ) -> PyResult<Py<PyDict>> {
+    fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
         let canonical = node_key_to_string(py, n)?;
         if !self.inner.has_node(&canonical) {
-            return Err(PyKeyError::new_err(format!(
-                "{}",
-                n.repr()?
-            )));
+            return Err(PyKeyError::new_err(format!("{}", n.repr()?)));
         }
         let neighbors = self.inner.neighbors(&canonical).unwrap_or_default();
         let result = PyDict::new(py);
@@ -765,11 +751,7 @@ impl PyGraph {
     ///
     /// Returns a new graph (not a view) with the specified nodes and all
     /// edges between them. Node and edge attributes are copied.
-    fn subgraph(
-        &self,
-        py: Python<'_>,
-        nodes: &Bound<'_, PyAny>,
-    ) -> PyResult<Self> {
+    fn subgraph(&self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<Self> {
         let iter = PyIterator::from_object(nodes)?;
         let mut keep: std::collections::HashSet<String> = std::collections::HashSet::new();
         for item in iter {
@@ -817,18 +799,14 @@ impl PyGraph {
     }
 
     /// Return a subgraph containing only the specified edges.
-    fn edge_subgraph(
-        &self,
-        py: Python<'_>,
-        edges: &Bound<'_, PyAny>,
-    ) -> PyResult<Self> {
+    fn edge_subgraph(&self, py: Python<'_>, edges: &Bound<'_, PyAny>) -> PyResult<Self> {
         let iter = PyIterator::from_object(edges)?;
         let mut keep_edges: Vec<(String, String)> = Vec::new();
         for item in iter {
             let item = item?;
-            let tuple = item.downcast::<PyTuple>().map_err(|_| {
-                PyTypeError::new_err("each edge must be a (u, v) tuple")
-            })?;
+            let tuple = item
+                .downcast::<PyTuple>()
+                .map_err(|_| PyTypeError::new_err("each edge must be a (u, v) tuple"))?;
             let u = node_key_to_string(py, &tuple.get_item(0)?)?;
             let v = node_key_to_string(py, &tuple.get_item(1)?)?;
             if self.inner.has_edge(&u, &v) {
@@ -845,8 +823,7 @@ impl PyGraph {
         };
 
         // Collect nodes from kept edges
-        let mut nodes_needed: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
+        let mut nodes_needed: std::collections::HashSet<String> = std::collections::HashSet::new();
         for (u, v) in &keep_edges {
             nodes_needed.insert(u.clone());
             nodes_needed.insert(v.clone());
@@ -1096,6 +1073,10 @@ impl PyGraph {
     }
 }
 
+pub(crate) fn unwrap_infallible<T>(result: Result<T, Infallible>) -> T {
+    result.unwrap_or_else(|never| match never {})
+}
+
 // ---------------------------------------------------------------------------
 // Node iterator — returned by ``for n in G``.
 // ---------------------------------------------------------------------------
@@ -1165,10 +1146,7 @@ fn _fnx(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.py().get_type::<NetworkXUnfeasible>(),
     )?;
     m.add("NetworkXNoPath", m.py().get_type::<NetworkXNoPath>())?;
-    m.add(
-        "NetworkXUnbounded",
-        m.py().get_type::<NetworkXUnbounded>(),
-    )?;
+    m.add("NetworkXUnbounded", m.py().get_type::<NetworkXUnbounded>())?;
     m.add(
         "NetworkXNotImplemented",
         m.py().get_type::<NetworkXNotImplemented>(),

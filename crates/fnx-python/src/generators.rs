@@ -3,7 +3,7 @@
 //! Wraps `fnx_generators::GraphGenerator` methods as module-level functions.
 //! Node labels are Python integers (0, 1, 2, ...) matching NetworkX convention.
 
-use crate::PyGraph;
+use crate::{PyGraph, unwrap_infallible};
 use fnx_generators::GraphGenerator;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -27,7 +27,7 @@ fn report_to_pygraph(py: Python<'_>, graph: fnx_classes::Graph) -> PyResult<PyGr
         if let Ok(i) = canonical.parse::<i64>() {
             pg.node_key_map.insert(
                 canonical.to_owned(),
-                i.into_pyobject(py).unwrap().into_any().unbind(),
+                unwrap_infallible(i.into_pyobject(py)).into_any().unbind(),
             );
         }
         pg.node_py_attrs
@@ -147,7 +147,13 @@ pub fn gnp_random_graph(py: Python<'_>, n: usize, p: f64, seed: u64) -> PyResult
 /// seed : int
 ///     Seed for the random number generator.
 #[pyfunction]
-pub fn watts_strogatz_graph(py: Python<'_>, n: usize, k: usize, p: f64, seed: u64) -> PyResult<PyGraph> {
+pub fn watts_strogatz_graph(
+    py: Python<'_>,
+    n: usize,
+    k: usize,
+    p: f64,
+    seed: u64,
+) -> PyResult<PyGraph> {
     let mut gg = GraphGenerator::strict();
     let report = gg
         .watts_strogatz_graph(n, k, p, seed)

@@ -201,27 +201,17 @@ impl DiGraph {
     /// Outgoing edges from `node` as (source, target) pairs.
     #[must_use]
     pub fn out_edges<'a>(&'a self, node: &'a str) -> Vec<(&'a str, &'a str)> {
-        self.successors
-            .get(node)
-            .map_or_else(Vec::new, |succs| {
-                succs
-                    .iter()
-                    .map(|t| (node, t.as_str()))
-                    .collect()
-            })
+        self.successors.get(node).map_or_else(Vec::new, |succs| {
+            succs.iter().map(|t| (node, t.as_str())).collect()
+        })
     }
 
     /// Incoming edges to `node` as (source, target) pairs.
     #[must_use]
     pub fn in_edges<'a>(&'a self, node: &'a str) -> Vec<(&'a str, &'a str)> {
-        self.predecessors
-            .get(node)
-            .map_or_else(Vec::new, |preds| {
-                preds
-                    .iter()
-                    .map(|s| (s.as_str(), node))
-                    .collect()
-            })
+        self.predecessors.get(node).map_or_else(Vec::new, |preds| {
+            preds.iter().map(|s| (s.as_str(), node)).collect()
+        })
     }
 
     // -- Attribute queries -------------------------------------------------
@@ -464,16 +454,14 @@ impl DiGraph {
 
         // Remove outgoing edges: node → target.
         for target in &out_targets {
-            self.edges
-                .shift_remove(&DirectedEdgeKey::new(node, target));
+            self.edges.shift_remove(&DirectedEdgeKey::new(node, target));
             if let Some(preds) = self.predecessors.get_mut(target.as_str()) {
                 preds.shift_remove(node);
             }
         }
         // Remove incoming edges: source → node.
         for source in &in_sources {
-            self.edges
-                .shift_remove(&DirectedEdgeKey::new(source, node));
+            self.edges.shift_remove(&DirectedEdgeKey::new(source, node));
             if let Some(succs) = self.successors.get_mut(source.as_str()) {
                 succs.shift_remove(node);
             }

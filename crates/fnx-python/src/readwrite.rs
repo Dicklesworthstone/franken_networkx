@@ -4,8 +4,8 @@
 //! Each write function accepts a Graph and a file path or file-like object.
 //! Internally delegates to `fnx_readwrite::EdgeListEngine` which operates on strings.
 
-use crate::algorithms::extract_graph;
 use crate::PyGraph;
+use crate::algorithms::extract_graph;
 use fnx_readwrite::EdgeListEngine;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;

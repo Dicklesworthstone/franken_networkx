@@ -480,6 +480,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "ftui-a11y"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "ftui-core",
+]
+
+[[package]]
+name = "ftui-backend"
+version = "0.2.1"
+dependencies = [
+ "ftui-core",
+ "ftui-render",
+]
+
+[[package]]
 name = "ftui-core"
 version = "0.2.1"
 dependencies = [
@@ -494,12 +510,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ftui-i18n"
+version = "0.2.1"
+
+[[package]]
 name = "ftui-layout"
 version = "0.2.1"
 dependencies = [
  "ftui-core",
  "rustc-hash",
  "serde",
+ "smallvec",
 ]
 
 [[package]]
@@ -513,6 +534,24 @@ dependencies = [
  "memchr",
  "smallvec",
  "unicode-segmentation",
+ "web-time",
+]
+
+[[package]]
+name = "ftui-runtime"
+version = "0.2.1"
+dependencies = [
+ "arc-swap",
+ "ftui-backend",
+ "ftui-core",
+ "ftui-i18n",
+ "ftui-layout",
+ "ftui-render",
+ "ftui-style",
+ "ftui-text",
+ "tracing",
+ "unicode-segmentation",
+ "unicode-width",
  "web-time",
 ]
 
@@ -549,9 +588,11 @@ version = "0.2.1"
 dependencies = [
  "ahash",
  "bitflags",
+ "ftui-a11y",
  "ftui-core",
  "ftui-layout",
  "ftui-render",
+ "ftui-runtime",
  "ftui-style",
  "ftui-text",
  "unicode-segmentation",

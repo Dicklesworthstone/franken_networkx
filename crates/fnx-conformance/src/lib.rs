@@ -2,28 +2,25 @@
 
 use fnx_algorithms::{
     AllSimplePathsResult, AverageNeighborDegreeResult, AverageShortestPathLengthResult,
-    CentralityScore, ComplexityWitness, CoreNumberResult, CycleBasisResult,
-    DegreeAssortativityResult, DensityResult, DistanceMeasuresResult,
-    EdgeCentralityScore, EdgeCutResult, GlobalEdgeCutResult, GlobalEfficiencyResult,
-    HasPathResult, IsConnectedResult, LocalEfficiencyResult,
-    MaximalMatchingResult, MinEdgeCoverResult, MinimumSpanningTreeResult, ShortestPathLengthResult,
-    BipartiteSetsResult, GreedyColorResult, IsBipartiteResult, IsForestResult, IsTreeResult,
-    MinimumCutResult, SquareClusteringResult, TrianglesResult, VoterankResult,
-    WeightedMatchingResult, WeightedShortestPathsResult,
-    all_simple_paths, articulation_points, average_neighbor_degree, average_shortest_path_length,
-    bellman_ford_shortest_paths, betweenness_centrality, bridges,
-    closeness_centrality, clustering_coefficient, connected_components, core_number,
-    cycle_basis, degree_assortativity_coefficient, degree_centrality,
-    density, distance_measures, edge_betweenness_centrality, global_efficiency, has_path,
+    BipartiteSetsResult, CentralityScore, ComplexityWitness, CoreNumberResult, CycleBasisResult,
+    DegreeAssortativityResult, DensityResult, DistanceMeasuresResult, EdgeCentralityScore,
+    EdgeCutResult, GlobalEdgeCutResult, GlobalEfficiencyResult, GreedyColorResult, HasPathResult,
+    IsBipartiteResult, IsConnectedResult, IsForestResult, IsTreeResult, LocalEfficiencyResult,
+    MaximalMatchingResult, MinEdgeCoverResult, MinimumCutResult, MinimumSpanningTreeResult,
+    ShortestPathLengthResult, SquareClusteringResult, TrianglesResult, VoterankResult,
+    WeightedMatchingResult, WeightedShortestPathsResult, all_simple_paths, articulation_points,
+    average_neighbor_degree, average_shortest_path_length, bellman_ford_shortest_paths,
+    betweenness_centrality, bipartite_sets, bridges, closeness_centrality, clustering_coefficient,
+    connected_components, core_number, cycle_basis, degree_assortativity_coefficient,
+    degree_centrality, density, distance_measures, edge_betweenness_centrality,
     edge_connectivity_edmonds_karp, eigenvector_centrality, global_edge_connectivity_edmonds_karp,
-    global_minimum_edge_cut_edmonds_karp, harmonic_centrality, hits_centrality, is_connected,
-    katz_centrality, local_efficiency, min_edge_cover,
-    max_flow_edmonds_karp, max_weight_matching, maximal_matching, min_weight_matching,
-    minimum_cut_edmonds_karp, minimum_spanning_tree, minimum_st_edge_cut_edmonds_karp,
-    multi_source_dijkstra,
-    bipartite_sets, greedy_color, is_bipartite, is_forest, is_tree,
-    number_connected_components, pagerank, shortest_path_length, shortest_path_unweighted,
-    shortest_path_weighted, square_clustering, triangles, voterank,
+    global_efficiency, global_minimum_edge_cut_edmonds_karp, greedy_color, harmonic_centrality,
+    has_path, hits_centrality, is_bipartite, is_connected, is_forest, is_tree, katz_centrality,
+    local_efficiency, max_flow_edmonds_karp, max_weight_matching, maximal_matching, min_edge_cover,
+    min_weight_matching, minimum_cut_edmonds_karp, minimum_spanning_tree,
+    minimum_st_edge_cut_edmonds_karp, multi_source_dijkstra, number_connected_components, pagerank,
+    shortest_path_length, shortest_path_unweighted, shortest_path_weighted, square_clustering,
+    triangles, voterank,
 };
 // find_cliques, node_connectivity, minimum_node_cut, global_node_connectivity,
 // global_minimum_node_cut used via fnx_algorithms:: prefix
@@ -1820,8 +1817,7 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
                 source,
                 weight_attr,
             } => {
-                let result =
-                    bellman_ford_shortest_paths(&context.graph, &source, &weight_attr);
+                let result = bellman_ford_shortest_paths(&context.graph, &source, &weight_attr);
                 context.bellman_ford_result = Some(result.clone());
                 context.witness = Some(result.witness);
             }
@@ -1830,8 +1826,7 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
                 weight_attr,
             } => {
                 let source_refs: Vec<&str> = sources.iter().map(String::as_str).collect();
-                let result =
-                    multi_source_dijkstra(&context.graph, &source_refs, &weight_attr);
+                let result = multi_source_dijkstra(&context.graph, &source_refs, &weight_attr);
                 context.multi_source_dijkstra_result = Some(result.clone());
                 context.witness = Some(result.witness);
             }
@@ -1844,8 +1839,7 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
                 maxcardinality,
                 weight_attr,
             } => {
-                let result =
-                    max_weight_matching(&context.graph, maxcardinality, &weight_attr);
+                let result = max_weight_matching(&context.graph, maxcardinality, &weight_attr);
                 context.max_weight_matching_result = Some(result.clone());
                 context.witness = Some(result.witness);
             }
@@ -1982,20 +1976,14 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
                 context.witness = Some(result.witness);
             }
             Operation::EulerianCircuitQuery { source } => {
-                let result = fnx_algorithms::eulerian_circuit(
-                    &context.graph,
-                    source.as_deref(),
-                );
+                let result = fnx_algorithms::eulerian_circuit(&context.graph, source.as_deref());
                 context.eulerian_circuit_result = result.clone();
                 if let Some(ref r) = result {
                     context.witness = Some(r.witness.clone());
                 }
             }
             Operation::EulerianPathQuery { source } => {
-                let result = fnx_algorithms::eulerian_path(
-                    &context.graph,
-                    source.as_deref(),
-                );
+                let result = fnx_algorithms::eulerian_path(&context.graph, source.as_deref());
                 context.eulerian_path_result = result.clone();
                 if let Some(ref r) = result {
                     context.witness = Some(r.witness.clone());
@@ -2971,9 +2959,7 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
                     .map(|d| (d.node.as_str(), d.distance))
                     .collect();
                 for (exp_node, exp_dist) in &expected_dists {
-                    let found = actual_dists
-                        .iter()
-                        .find(|(n, _)| n == exp_node);
+                    let found = actual_dists.iter().find(|(n, _)| n == exp_node);
                     match found {
                         Some((_, actual_dist)) => {
                             if (actual_dist - exp_dist).abs() > 1e-9 {
@@ -3007,10 +2993,7 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
         match context.bellman_ford_result.as_ref() {
             Some(actual) => {
                 for exp in &expected_preds {
-                    let found = actual
-                        .predecessors
-                        .iter()
-                        .find(|p| p.node == exp.node);
+                    let found = actual.predecessors.iter().find(|p| p.node == exp.node);
                     match found {
                         Some(actual_pred) => {
                             if actual_pred.predecessor != exp.predecessor {
@@ -3066,10 +3049,7 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
         match context.multi_source_dijkstra_result.as_ref() {
             Some(actual) => {
                 for exp in &expected_distances {
-                    let found = actual
-                        .distances
-                        .iter()
-                        .find(|d| d.node == exp.node);
+                    let found = actual.distances.iter().find(|d| d.node == exp.node);
                     match found {
                         Some(actual_dist) => {
                             if (actual_dist.distance - exp.distance).abs() > 1e-9 {
@@ -3105,10 +3085,7 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
         match context.multi_source_dijkstra_result.as_ref() {
             Some(actual) => {
                 for exp in &expected_preds {
-                    let found = actual
-                        .predecessors
-                        .iter()
-                        .find(|p| p.node == exp.node);
+                    let found = actual.predecessors.iter().find(|p| p.node == exp.node);
                     match found {
                         Some(actual_pred) => {
                             if actual_pred.predecessor != exp.predecessor {
@@ -3235,19 +3212,13 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
                     .iter()
                     .map(|e| (e.left.clone(), e.right.clone(), e.weight))
                     .collect();
-                actual_edges.sort_by(|a, b| {
-                    a.0.cmp(&b.0)
-                        .then_with(|| a.1.cmp(&b.1))
-                });
+                actual_edges.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
                 let mut expected_edges: Vec<(String, String, f64)> = expected_mst
                     .edges
                     .iter()
                     .map(|e| (e.left.clone(), e.right.clone(), e.weight))
                     .collect();
-                expected_edges.sort_by(|a, b| {
-                    a.0.cmp(&b.0)
-                        .then_with(|| a.1.cmp(&b.1))
-                });
+                expected_edges.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
                 if actual_edges.len() != expected_edges.len() {
                     mismatches.push(Mismatch {
                         category: "algorithm_mst".to_owned(),
@@ -3348,10 +3319,7 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
                         }
                         None => mismatches.push(Mismatch {
                             category: "algorithm_square_clustering".to_owned(),
-                            message: format!(
-                                "square_clustering missing node {}",
-                                exp.node
-                            ),
+                            message: format!("square_clustering missing node {}", exp.node),
                         }),
                     }
                 }
@@ -3550,10 +3518,7 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
                         }
                         None => mismatches.push(Mismatch {
                             category: "algorithm_avg_neighbor_degree".to_owned(),
-                            message: format!(
-                                "average_neighbor_degree missing node {}",
-                                exp.node
-                            ),
+                            message: format!("average_neighbor_degree missing node {}", exp.node),
                         }),
                     }
                 }
@@ -3744,17 +3709,24 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
     if let Some(expected_cycles) = &fixture.expected.cycle_basis {
         match context.cycle_basis_result.as_ref() {
             Some(actual) => {
-                let mut actual_sorted: Vec<Vec<String>> = actual.cycles.iter().map(|c| {
-                    let mut sorted = c.clone();
-                    sorted.sort();
-                    sorted
-                }).collect();
+                let mut actual_sorted: Vec<Vec<String>> = actual
+                    .cycles
+                    .iter()
+                    .map(|c| {
+                        let mut sorted = c.clone();
+                        sorted.sort();
+                        sorted
+                    })
+                    .collect();
                 actual_sorted.sort();
-                let mut expected_sorted: Vec<Vec<String>> = expected_cycles.iter().map(|c| {
-                    let mut sorted = c.clone();
-                    sorted.sort();
-                    sorted
-                }).collect();
+                let mut expected_sorted: Vec<Vec<String>> = expected_cycles
+                    .iter()
+                    .map(|c| {
+                        let mut sorted = c.clone();
+                        sorted.sort();
+                        sorted
+                    })
+                    .collect();
                 expected_sorted.sort();
                 if actual_sorted != expected_sorted {
                     mismatches.push(Mismatch {
@@ -3832,13 +3804,28 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
     if let Some(expected_cover) = &fixture.expected.min_edge_cover {
         match context.min_edge_cover_result.as_ref() {
             Some(actual) => {
-                let mut actual_edges: Vec<(String, String)> = actual.edges.iter().map(|(l, r)| {
-                    if l <= r { (l.clone(), r.clone()) } else { (r.clone(), l.clone()) }
-                }).collect();
+                let mut actual_edges: Vec<(String, String)> = actual
+                    .edges
+                    .iter()
+                    .map(|(l, r)| {
+                        if l <= r {
+                            (l.clone(), r.clone())
+                        } else {
+                            (r.clone(), l.clone())
+                        }
+                    })
+                    .collect();
                 actual_edges.sort();
-                let mut expected_edges: Vec<(String, String)> = expected_cover.iter().map(|e| {
-                    if e.left <= e.right { (e.left.clone(), e.right.clone()) } else { (e.right.clone(), e.left.clone()) }
-                }).collect();
+                let mut expected_edges: Vec<(String, String)> = expected_cover
+                    .iter()
+                    .map(|e| {
+                        if e.left <= e.right {
+                            (e.left.clone(), e.right.clone())
+                        } else {
+                            (e.right.clone(), e.left.clone())
+                        }
+                    })
+                    .collect();
                 expected_edges.sort();
                 if actual_edges != expected_edges {
                     mismatches.push(Mismatch {

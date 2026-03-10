@@ -5,11 +5,9 @@
 //! - `neighbors()` returns successors (matches NetworkX convention).
 //! - Additional methods: `predecessors`, `successors`, `in_degree`, `out_degree`.
 
-use crate::{
-    NetworkXError, NodeNotFound, PyGraph, node_key_to_string,
-};
-use fnx_classes::digraph::DiGraph;
+use crate::{NetworkXError, NodeNotFound, PyGraph, node_key_to_string, unwrap_infallible};
 use fnx_classes::AttrMap;
+use fnx_classes::digraph::DiGraph;
 use pyo3::exceptions::{PyKeyError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyIterator, PyTuple};
@@ -39,10 +37,7 @@ impl PyDiGraph {
     pub(crate) fn py_node_key(&self, py: Python<'_>, canonical: &str) -> PyObject {
         self.node_key_map.get(canonical).map_or_else(
             || {
-                canonical
-                    .to_owned()
-                    .into_pyobject(py)
-                    .unwrap()
+                unwrap_infallible(canonical.to_owned().into_pyobject(py))
                     .into_any()
                     .unbind()
             },
@@ -50,7 +45,7 @@ impl PyDiGraph {
         )
     }
 
-    #[allow(dead_code)]  // Used by directed algorithm bindings (bd-uode.3).
+    #[allow(dead_code)] // Used by directed algorithm bindings (bd-uode.3).
     pub(crate) fn new_empty(py: Python<'_>) -> PyResult<Self> {
         Ok(Self {
             inner: DiGraph::strict(),
@@ -288,11 +283,7 @@ impl PyDiGraph {
         Ok(())
     }
 
-    fn remove_nodes_from(
-        &mut self,
-        py: Python<'_>,
-        nodes: &Bound<'_, PyAny>,
-    ) -> PyResult<()> {
+    fn remove_nodes_from(&mut self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<()> {
         let iter = PyIterator::from_object(nodes)?;
         for item in iter {
             let item = item?;
@@ -408,9 +399,9 @@ impl PyDiGraph {
         let iter = PyIterator::from_object(ebunch_to_add)?;
         for item in iter {
             let item = item?;
-            let tuple = item.downcast::<PyTuple>().map_err(|_| {
-                PyTypeError::new_err("each element must be a (u, v, w) tuple")
-            })?;
+            let tuple = item
+                .downcast::<PyTuple>()
+                .map_err(|_| PyTypeError::new_err("each element must be a (u, v, w) tuple"))?;
             if tuple.len() != 3 {
                 return Err(PyValueError::new_err("expected (u, v, w) tuples"));
             }
@@ -445,17 +436,13 @@ impl PyDiGraph {
         Ok(())
     }
 
-    fn remove_edges_from(
-        &mut self,
-        py: Python<'_>,
-        ebunch: &Bound<'_, PyAny>,
-    ) -> PyResult<()> {
+    fn remove_edges_from(&mut self, py: Python<'_>, ebunch: &Bound<'_, PyAny>) -> PyResult<()> {
         let iter = PyIterator::from_object(ebunch)?;
         for item in iter {
             let item = item?;
-            let tuple = item.downcast::<PyTuple>().map_err(|_| {
-                PyTypeError::new_err("each element must be a (u, v) tuple")
-            })?;
+            let tuple = item
+                .downcast::<PyTuple>()
+                .map_err(|_| PyTypeError::new_err("each element must be a (u, v) tuple"))?;
             if tuple.len() < 2 {
                 continue;
             }
@@ -473,17 +460,10 @@ impl PyDiGraph {
     // ---- Directed-specific queries ----
 
     /// Return a list of successors of node n.
-    fn successors(
-        &self,
-        py: Python<'_>,
-        n: &Bound<'_, PyAny>,
-    ) -> PyResult<Vec<PyObject>> {
+    fn successors(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
         let canonical = node_key_to_string(py, n)?;
         match self.inner.successors(&canonical) {
-            Some(succs) => Ok(succs
-                .into_iter()
-                .map(|s| self.py_node_key(py, s))
-                .collect()),
+            Some(succs) => Ok(succs.into_iter().map(|s| self.py_node_key(py, s)).collect()),
             None => Err(NodeNotFound::new_err(format!(
                 "The node {} is not in the graph.",
                 n.repr()?
@@ -493,17 +473,10 @@ impl PyDiGraph {
 
     /// Return a list of predecessors of node n.
     #[pyo3(name = "predecessors")]
-    fn predecessors_method(
-        &self,
-        py: Python<'_>,
-        n: &Bound<'_, PyAny>,
-    ) -> PyResult<Vec<PyObject>> {
+    fn predecessors_method(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
         let canonical = node_key_to_string(py, n)?;
         match self.inner.predecessors(&canonical) {
-            Some(preds) => Ok(preds
-                .into_iter()
-                .map(|p| self.py_node_key(py, p))
-                .collect()),
+            Some(preds) => Ok(preds.into_iter().map(|p| self.py_node_key(py, p)).collect()),
             None => Err(NodeNotFound::new_err(format!(
                 "The node {} is not in the graph.",
                 n.repr()?
@@ -512,11 +485,7 @@ impl PyDiGraph {
     }
 
     /// Neighbors = successors (matches NetworkX ``DiGraph.neighbors()``).
-    fn neighbors(
-        &self,
-        py: Python<'_>,
-        n: &Bound<'_, PyAny>,
-    ) -> PyResult<Vec<PyObject>> {
+    fn neighbors(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
         self.successors(py, n)
     }
 
@@ -618,9 +587,9 @@ impl PyDiGraph {
         for ((u, v), attrs) in &self.edge_py_attrs {
             let _ = ug.inner.add_edge(u.clone(), v.clone());
             let ek = PyGraph::edge_key(u, v);
-            ug.edge_py_attrs
-                .entry(ek)
-                .or_insert_with(|| attrs.bind(py).copy().unwrap().unbind());
+            if let std::collections::hash_map::Entry::Vacant(entry) = ug.edge_py_attrs.entry(ek) {
+                entry.insert(attrs.bind(py).copy()?.unbind());
+            }
         }
         ug.graph_attrs = self.graph_attrs.bind(py).copy()?.unbind();
         Ok(ug)
@@ -659,11 +628,7 @@ impl PyDiGraph {
         Ok(new_graph)
     }
 
-    fn subgraph(
-        &self,
-        py: Python<'_>,
-        nodes: &Bound<'_, PyAny>,
-    ) -> PyResult<Self> {
+    fn subgraph(&self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<Self> {
         let iter = PyIterator::from_object(nodes)?;
         let mut keep: std::collections::HashSet<String> = std::collections::HashSet::new();
         for item in iter {
@@ -708,18 +673,14 @@ impl PyDiGraph {
         Ok(new_graph)
     }
 
-    fn edge_subgraph(
-        &self,
-        py: Python<'_>,
-        edges: &Bound<'_, PyAny>,
-    ) -> PyResult<Self> {
+    fn edge_subgraph(&self, py: Python<'_>, edges: &Bound<'_, PyAny>) -> PyResult<Self> {
         let iter = PyIterator::from_object(edges)?;
         let mut keep_edges: Vec<(String, String)> = Vec::new();
         for item in iter {
             let item = item?;
-            let tuple = item.downcast::<PyTuple>().map_err(|_| {
-                PyTypeError::new_err("each edge must be a (u, v) tuple")
-            })?;
+            let tuple = item
+                .downcast::<PyTuple>()
+                .map_err(|_| PyTypeError::new_err("each edge must be a (u, v) tuple"))?;
             let u = node_key_to_string(py, &tuple.get_item(0)?)?;
             let v = node_key_to_string(py, &tuple.get_item(1)?)?;
             if self.inner.has_edge(&u, &v) {
@@ -735,8 +696,7 @@ impl PyDiGraph {
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
         };
 
-        let mut nodes_needed: std::collections::HashSet<String> =
-            std::collections::HashSet::new();
+        let mut nodes_needed: std::collections::HashSet<String> = std::collections::HashSet::new();
         for (u, v) in &keep_edges {
             nodes_needed.insert(u.clone());
             nodes_needed.insert(v.clone());
@@ -929,15 +889,16 @@ impl PyDiGraph {
             .into_iter()
             .map(|n| self.py_node_key(py, n))
             .collect();
-        Py::new(py, crate::NodeIterator { inner: nodes.into_iter() })
+        Py::new(
+            py,
+            crate::NodeIterator {
+                inner: nodes.into_iter(),
+            },
+        )
     }
 
     /// ``G[n]`` — return dict of successors with edge data.
-    fn __getitem__(
-        &self,
-        py: Python<'_>,
-        n: &Bound<'_, PyAny>,
-    ) -> PyResult<Py<PyDict>> {
+    fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
         let canonical = node_key_to_string(py, n)?;
         if !self.inner.has_node(&canonical) {
             return Err(PyKeyError::new_err(format!("{}", n.repr()?)));
@@ -1168,10 +1129,7 @@ impl DiNodeView {
         let g = self.graph.borrow(py);
         let nodes = g.inner.nodes_ordered();
         let items: Vec<PyObject> = match &self.data {
-            ViewData::NoData => nodes
-                .iter()
-                .map(|n| g.py_node_key(py, n))
-                .collect(),
+            ViewData::NoData => nodes.iter().map(|n| g.py_node_key(py, n)).collect(),
             ViewData::AllData => nodes
                 .iter()
                 .map(|n| {
@@ -1180,12 +1138,9 @@ impl DiNodeView {
                         .node_py_attrs
                         .get(*n)
                         .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
-                    PyTuple::new(py, &[py_key, attrs.into_any()])
-                        .unwrap()
-                        .into_any()
-                        .unbind()
+                    tuple_object(py, &[py_key, attrs.into_any()])
                 })
-                .collect(),
+                .collect::<PyResult<Vec<_>>>()?,
             ViewData::Attr(attr) => nodes
                 .iter()
                 .map(|n| {
@@ -1195,14 +1150,16 @@ impl DiNodeView {
                         .get(*n)
                         .and_then(|dict| dict.bind(py).get_item(attr.as_str()).ok().flatten())
                         .map_or_else(|| py.None(), |v| v.unbind());
-                    PyTuple::new(py, &[py_key, val])
-                        .unwrap()
-                        .into_any()
-                        .unbind()
+                    tuple_object(py, &[py_key, val])
                 })
-                .collect(),
+                .collect::<PyResult<Vec<_>>>()?,
         };
-        Py::new(py, DiViewIterator { inner: items.into_iter() })
+        Py::new(
+            py,
+            DiViewIterator {
+                inner: items.into_iter(),
+            },
+        )
     }
 
     fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
@@ -1256,9 +1213,9 @@ impl DiEdgeView {
     }
 
     fn __contains__(&self, py: Python<'_>, edge: &Bound<'_, PyAny>) -> PyResult<bool> {
-        let tuple = edge.downcast::<PyTuple>().map_err(|_| {
-            PyTypeError::new_err("edge must be a (u, v) tuple")
-        })?;
+        let tuple = edge
+            .downcast::<PyTuple>()
+            .map_err(|_| PyTypeError::new_err("edge must be a (u, v) tuple"))?;
         if tuple.len() < 2 {
             return Ok(false);
         }
@@ -1276,16 +1233,10 @@ impl DiEdgeView {
                 let py_u = g.py_node_key(py, u);
                 let py_v = g.py_node_key(py, v);
                 match &self.data {
-                    ViewData::NoData => PyTuple::new(py, &[py_u, py_v])
-                        .unwrap()
-                        .into_any()
-                        .unbind(),
+                    ViewData::NoData => tuple_object(py, &[py_u, py_v]),
                     ViewData::AllData => {
                         let a: PyObject = attrs.clone_ref(py).into_any();
-                        PyTuple::new(py, &[py_u, py_v, a])
-                            .unwrap()
-                            .into_any()
-                            .unbind()
+                        tuple_object(py, &[py_u, py_v, a])
                     }
                     ViewData::Attr(attr_name) => {
                         let val = attrs
@@ -1294,21 +1245,23 @@ impl DiEdgeView {
                             .ok()
                             .flatten()
                             .map_or_else(|| py.None(), |v| v.unbind());
-                        PyTuple::new(py, &[py_u, py_v, val])
-                            .unwrap()
-                            .into_any()
-                            .unbind()
+                        tuple_object(py, &[py_u, py_v, val])
                     }
                 }
             })
-            .collect();
-        Py::new(py, DiViewIterator { inner: items.into_iter() })
+            .collect::<PyResult<Vec<_>>>()?;
+        Py::new(
+            py,
+            DiViewIterator {
+                inner: items.into_iter(),
+            },
+        )
     }
 
     fn __getitem__(&self, py: Python<'_>, edge: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
-        let tuple = edge.downcast::<PyTuple>().map_err(|_| {
-            PyTypeError::new_err("edge key must be a (u, v) tuple")
-        })?;
+        let tuple = edge
+            .downcast::<PyTuple>()
+            .map_err(|_| PyTypeError::new_err("edge key must be a (u, v) tuple"))?;
         let u = node_key_to_string(py, &tuple.get_item(0)?)?;
         let v = node_key_to_string(py, &tuple.get_item(1)?)?;
         let g = self.graph.borrow(py);
@@ -1337,8 +1290,7 @@ impl DiEdgeView {
         if let Some(nb) = nbunch {
             let iter = PyIterator::from_object(nb)?;
             let g = self.graph.borrow(py);
-            let mut node_set: std::collections::HashSet<String> =
-                std::collections::HashSet::new();
+            let mut node_set: std::collections::HashSet<String> = std::collections::HashSet::new();
             for item in iter {
                 let item = item?;
                 node_set.insert(node_key_to_string(py, &item)?);
@@ -1352,15 +1304,10 @@ impl DiEdgeView {
                     let py_u = g.py_node_key(py, u);
                     let py_v = g.py_node_key(py, v);
                     match &view_data {
-                        ViewData::NoData => {
-                            PyTuple::new(py, &[py_u, py_v]).unwrap().into_any().unbind()
-                        }
+                        ViewData::NoData => tuple_object(py, &[py_u, py_v]),
                         ViewData::AllData => {
                             let a: PyObject = attrs.clone_ref(py).into_any();
-                            PyTuple::new(py, &[py_u, py_v, a])
-                                .unwrap()
-                                .into_any()
-                                .unbind()
+                            tuple_object(py, &[py_u, py_v, a])
                         }
                         ViewData::Attr(attr_name) => {
                             let val = attrs
@@ -1369,14 +1316,11 @@ impl DiEdgeView {
                                 .ok()
                                 .flatten()
                                 .map_or_else(|| py.None(), |v| v.unbind());
-                            PyTuple::new(py, &[py_u, py_v, val])
-                                .unwrap()
-                                .into_any()
-                                .unbind()
+                            tuple_object(py, &[py_u, py_v, val])
                         }
                     }
                 })
-                .collect();
+                .collect::<PyResult<Vec<_>>>()?;
             Ok(items.into_pyobject(py)?.into_any().unbind())
         } else {
             let view_data = parse_view_data(data)?;
@@ -1434,16 +1378,16 @@ impl DiDegreeView {
             .map(|n| {
                 let py_key = g.py_node_key(py, n);
                 let deg = self.node_degree(&g, n);
-                PyTuple::new(py, &[
-                    py_key,
-                    deg.into_pyobject(py).unwrap().into_any().unbind(),
-                ])
-                .unwrap()
-                .into_any()
-                .unbind()
+                let py_degree = unwrap_infallible(deg.into_pyobject(py)).into_any().unbind();
+                tuple_object(py, &[py_key, py_degree])
             })
-            .collect();
-        Py::new(py, DiViewIterator { inner: items.into_iter() })
+            .collect::<PyResult<Vec<_>>>()?;
+        Py::new(
+            py,
+            DiViewIterator {
+                inner: items.into_iter(),
+            },
+        )
     }
 
     fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<usize> {
@@ -1525,7 +1469,12 @@ impl DiAdjacencyView {
             .into_iter()
             .map(|n| g.py_node_key(py, n))
             .collect();
-        Py::new(py, crate::NodeIterator { inner: nodes.into_iter() })
+        Py::new(
+            py,
+            crate::NodeIterator {
+                inner: nodes.into_iter(),
+            },
+        )
     }
 
     fn __bool__(&self, py: Python<'_>) -> bool {
@@ -1550,6 +1499,10 @@ impl DiViewIterator {
     fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<PyObject> {
         slf.inner.next()
     }
+}
+
+fn tuple_object(py: Python<'_>, elements: &[PyObject]) -> PyResult<PyObject> {
+    Ok(PyTuple::new(py, elements)?.into_any().unbind())
 }
 
 // ---------------------------------------------------------------------------

@@ -3656,8 +3656,7 @@ pub fn minimum_spanning_tree(graph: &Graph, weight_attr: &str) -> MinimumSpannin
                     (neighbor, *node)
                 };
                 if seen.insert((left, right)) {
-                    let weight =
-                        matching_edge_weight_or_default(graph, left, right, weight_attr);
+                    let weight = matching_edge_weight_or_default(graph, left, right, weight_attr);
                     edge_list.push((weight, left, right));
                 }
             }
@@ -3880,7 +3879,10 @@ pub fn square_clustering(graph: &Graph) -> SquareClusteringResult {
                 edges_scanned += 1;
                 let nbrs_w = &neighbor_sets[w];
                 // q_v(u,w): common neighbors of u and w, excluding v
-                let q: usize = nbrs_u.iter().filter(|&&x| x != v && nbrs_w.contains(x)).count();
+                let q: usize = nbrs_u
+                    .iter()
+                    .filter(|&&x| x != v && nbrs_w.contains(x))
+                    .count();
                 // theta_uw: 1 if u and w are connected
                 let theta_uw: usize = if nbrs_u.contains(w) { 1 } else { 0 };
                 // a_v(u,w) = (deg(u) - 1 - q - theta_uw) + (deg(w) - 1 - q - theta_uw)
@@ -4580,7 +4582,8 @@ pub fn find_cliques(graph: &Graph) -> FindCliquesResult {
     }
 
     // Build adjacency sets for fast neighbor lookup
-    let node_to_idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+    let node_to_idx: HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
     let mut adj: Vec<HashSet<usize>> = vec![HashSet::new(); n];
     for i in 0..n {
         if let Some(nbrs) = graph.neighbors_iter(nodes[i]) {
@@ -4601,7 +4604,8 @@ pub fn find_cliques(graph: &Graph) -> FindCliquesResult {
     let r_init: HashSet<usize> = HashSet::new();
     let x_init: HashSet<usize> = HashSet::new();
 
-    let mut stack: Vec<(HashSet<usize>, HashSet<usize>, HashSet<usize>)> = vec![(p_init, r_init, x_init)];
+    let mut stack: Vec<(HashSet<usize>, HashSet<usize>, HashSet<usize>)> =
+        vec![(p_init, r_init, x_init)];
     let mut peak_stack: usize = 1;
 
     while let Some((p, r, x)) = stack.pop() {
@@ -4617,7 +4621,8 @@ pub fn find_cliques(graph: &Graph) -> FindCliquesResult {
         }
 
         // Choose pivot: node in P ∪ X that maximizes |P ∩ N(pivot)|
-        let pivot = p.union(&x)
+        let pivot = p
+            .union(&x)
             .max_by_key(|&&v| p.intersection(&adj[v]).count())
             .copied()
             .unwrap(); // safe: P is non-empty
@@ -4766,9 +4771,7 @@ fn aux_max_flow(
 /// Build auxiliary directed graph for node connectivity:
 /// Each node v → v_in, v_out with capacity 1.0.
 /// Each original edge (u,v) → u_out→v_in and v_out→u_in with large capacity.
-fn build_node_split_auxiliary(
-    graph: &Graph,
-) -> HashMap<String, HashMap<String, f64>> {
+fn build_node_split_auxiliary(graph: &Graph) -> HashMap<String, HashMap<String, f64>> {
     let nodes = graph.nodes_ordered();
     let large_cap = (nodes.len() + 1) as f64;
     let mut residual: HashMap<String, HashMap<String, f64>> = HashMap::new();
@@ -4822,11 +4825,7 @@ fn build_node_split_auxiliary(
 ///
 /// Uses node-splitting + Edmonds-Karp max-flow on auxiliary graph.
 /// Matches `networkx.algorithms.connectivity.node_connectivity(G, s, t)`.
-pub fn node_connectivity(
-    graph: &Graph,
-    source: &str,
-    sink: &str,
-) -> NodeConnectivityResult {
+pub fn node_connectivity(graph: &Graph, source: &str, sink: &str) -> NodeConnectivityResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
 
@@ -4904,12 +4903,7 @@ pub fn global_node_connectivity(graph: &Graph) -> NodeConnectivityResult {
     // Pick node with minimum degree
     let v = nodes
         .iter()
-        .min_by_key(|node| {
-            graph
-                .neighbors_iter(node)
-                .map(|it| it.count())
-                .unwrap_or(0)
-        })
+        .min_by_key(|node| graph.neighbors_iter(node).map(|it| it.count()).unwrap_or(0))
         .unwrap();
 
     let v_neighbors: HashSet<&str> = graph
@@ -4973,11 +4967,7 @@ pub fn global_node_connectivity(graph: &Graph) -> NodeConnectivityResult {
 ///
 /// Uses node-splitting + Edmonds-Karp, then BFS on residual to find min-cut nodes.
 /// Matches `networkx.algorithms.connectivity.minimum_node_cut(G, s, t)`.
-pub fn minimum_node_cut(
-    graph: &Graph,
-    source: &str,
-    sink: &str,
-) -> MinimumNodeCutResult {
+pub fn minimum_node_cut(graph: &Graph, source: &str, sink: &str) -> MinimumNodeCutResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
 
@@ -5097,12 +5087,7 @@ pub fn global_minimum_node_cut(graph: &Graph) -> MinimumNodeCutResult {
     // Pick node with minimum degree
     let v = nodes
         .iter()
-        .min_by_key(|node| {
-            graph
-                .neighbors_iter(node)
-                .map(|it| it.count())
-                .unwrap_or(0)
-        })
+        .min_by_key(|node| graph.neighbors_iter(node).map(|it| it.count()).unwrap_or(0))
         .unwrap();
 
     let v_neighbors: HashSet<&str> = graph
@@ -5358,8 +5343,7 @@ pub fn all_simple_paths(
 
             if next == target {
                 nodes_touched += 1;
-                let mut found_path: Vec<String> =
-                    path.iter().map(|s| (*s).to_owned()).collect();
+                let mut found_path: Vec<String> = path.iter().map(|s| (*s).to_owned()).collect();
                 found_path.push(target.to_owned());
                 paths.push(found_path);
             } else if !visited.contains(next) && path.len() < max_depth {
@@ -6133,16 +6117,14 @@ mod tests {
         ComplexityWitness, all_simple_paths, articulation_points, bellman_ford_shortest_paths,
         betweenness_centrality, bridges, cgse_witness_schema_version, closeness_centrality,
         clustering_coefficient, connected_components, cycle_basis, degree_centrality,
-        edge_betweenness_centrality,
-        edge_connectivity_edmonds_karp, eigenvector_centrality, eulerian_circuit, eulerian_path,
-        global_edge_connectivity_edmonds_karp, global_efficiency,
-        global_minimum_edge_cut_edmonds_karp, has_eulerian_path,
-        harmonic_centrality, hits_centrality, is_eulerian, is_matching, is_maximal_matching,
-        is_perfect_matching, is_semieulerian, katz_centrality, local_efficiency,
-        max_flow_edmonds_karp, max_weight_matching, maximal_matching, min_edge_cover,
-        min_weight_matching, minimum_cut_edmonds_karp, minimum_st_edge_cut_edmonds_karp,
-        multi_source_dijkstra, number_connected_components, pagerank,
-        shortest_path_unweighted, shortest_path_weighted,
+        edge_betweenness_centrality, edge_connectivity_edmonds_karp, eigenvector_centrality,
+        eulerian_circuit, eulerian_path, global_edge_connectivity_edmonds_karp, global_efficiency,
+        global_minimum_edge_cut_edmonds_karp, harmonic_centrality, has_eulerian_path,
+        hits_centrality, is_eulerian, is_matching, is_maximal_matching, is_perfect_matching,
+        is_semieulerian, katz_centrality, local_efficiency, max_flow_edmonds_karp,
+        max_weight_matching, maximal_matching, min_edge_cover, min_weight_matching,
+        minimum_cut_edmonds_karp, minimum_st_edge_cut_edmonds_karp, multi_source_dijkstra,
+        number_connected_components, pagerank, shortest_path_unweighted, shortest_path_weighted,
     };
     use fnx_classes::Graph;
     use fnx_runtime::{
@@ -9691,7 +9673,11 @@ mod tests {
         graph.add_edge("b", "c").expect("edge add");
         graph.add_edge("a", "c").expect("edge add");
         let result = cycle_basis(&graph, None);
-        assert_eq!(result.cycles.len(), 1, "triangle should have exactly one cycle in basis");
+        assert_eq!(
+            result.cycles.len(),
+            1,
+            "triangle should have exactly one cycle in basis"
+        );
     }
 
     #[test]
@@ -9704,7 +9690,11 @@ mod tests {
         graph.add_edge("d", "e").expect("edge add");
         graph.add_edge("c", "e").expect("edge add");
         let result = cycle_basis(&graph, None);
-        assert_eq!(result.cycles.len(), 2, "two triangles sharing vertex should have 2 cycles");
+        assert_eq!(
+            result.cycles.len(),
+            2,
+            "two triangles sharing vertex should have 2 cycles"
+        );
     }
 
     #[test]
@@ -9715,7 +9705,11 @@ mod tests {
         graph.add_edge("c", "d").expect("edge add");
         graph.add_edge("d", "a").expect("edge add");
         let result = cycle_basis(&graph, None);
-        assert_eq!(result.cycles.len(), 1, "4-cycle should have exactly one cycle in basis");
+        assert_eq!(
+            result.cycles.len(),
+            1,
+            "4-cycle should have exactly one cycle in basis"
+        );
         assert_eq!(result.cycles[0].len(), 4);
     }
 
@@ -9729,7 +9723,11 @@ mod tests {
         graph.add_edge("y", "z").expect("edge add");
         graph.add_edge("x", "z").expect("edge add");
         let result = cycle_basis(&graph, None);
-        assert_eq!(result.cycles.len(), 2, "two disconnected triangles should have 2 cycles");
+        assert_eq!(
+            result.cycles.len(),
+            2,
+            "two disconnected triangles should have 2 cycles"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -9759,13 +9757,17 @@ mod tests {
         graph.add_edge("b", "c").expect("edge add");
         graph.add_edge("a", "c").expect("edge add");
         let result = all_simple_paths(&graph, "a", "c", None);
-        assert_eq!(result.paths.len(), 2, "triangle should have 2 paths from a to c");
+        assert_eq!(
+            result.paths.len(),
+            2,
+            "triangle should have 2 paths from a to c"
+        );
         assert!(result.paths.contains(&vec!["a".to_owned(), "c".to_owned()]));
-        assert!(result.paths.contains(&vec![
-            "a".to_owned(),
-            "b".to_owned(),
-            "c".to_owned()
-        ]));
+        assert!(
+            result
+                .paths
+                .contains(&vec!["a".to_owned(), "b".to_owned(), "c".to_owned()])
+        );
     }
 
     #[test]
@@ -9775,7 +9777,11 @@ mod tests {
         graph.add_edge("b", "c").expect("edge add");
         graph.add_edge("a", "c").expect("edge add");
         let result = all_simple_paths(&graph, "a", "c", Some(1));
-        assert_eq!(result.paths.len(), 1, "cutoff=1 should only find direct path");
+        assert_eq!(
+            result.paths.len(),
+            1,
+            "cutoff=1 should only find direct path"
+        );
         assert_eq!(result.paths[0], vec!["a", "c"]);
     }
 

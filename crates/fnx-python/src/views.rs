@@ -46,10 +46,7 @@ impl NodeView {
         let g = self.graph.borrow(py);
         let nodes = g.inner.nodes_ordered();
         let items: Vec<PyObject> = match &self.data {
-            NodeViewData::NoData => nodes
-                .iter()
-                .map(|n| g.py_node_key(py, n))
-                .collect(),
+            NodeViewData::NoData => nodes.iter().map(|n| g.py_node_key(py, n)).collect(),
             NodeViewData::AllData => nodes
                 .iter()
                 .map(|n| {
@@ -58,10 +55,9 @@ impl NodeView {
                         .node_py_attrs
                         .get(*n)
                         .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
-                    let tuple = PyTuple::new(py, &[py_key, attrs.into_any()]).unwrap();
-                    tuple.into_any().unbind()
+                    tuple_object(py, &[py_key, attrs.into_any()])
                 })
-                .collect(),
+                .collect::<PyResult<Vec<_>>>()?,
             NodeViewData::Attr(attr) => nodes
                 .iter()
                 .map(|n| {
@@ -71,12 +67,16 @@ impl NodeView {
                         .get(*n)
                         .and_then(|dict| dict.bind(py).get_item(attr.as_str()).ok().flatten())
                         .map_or_else(|| py.None(), |v| v.unbind());
-                    let tuple = PyTuple::new(py, &[py_key, val]).unwrap();
-                    tuple.into_any().unbind()
+                    tuple_object(py, &[py_key, val])
                 })
-                .collect(),
+                .collect::<PyResult<Vec<_>>>()?,
         };
-        Py::new(py, NodeViewIterator { inner: items.into_iter() })
+        Py::new(
+            py,
+            NodeViewIterator {
+                inner: items.into_iter(),
+            },
+        )
     }
 
     fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
@@ -145,9 +145,9 @@ impl EdgeView {
     }
 
     fn __contains__(&self, py: Python<'_>, edge: &Bound<'_, PyAny>) -> PyResult<bool> {
-        let tuple = edge.downcast::<PyTuple>().map_err(|_| {
-            pyo3::exceptions::PyTypeError::new_err("edge must be a (u, v) tuple")
-        })?;
+        let tuple = edge
+            .downcast::<PyTuple>()
+            .map_err(|_| pyo3::exceptions::PyTypeError::new_err("edge must be a (u, v) tuple"))?;
         if tuple.len() < 2 {
             return Ok(false);
         }
@@ -166,14 +166,10 @@ impl EdgeView {
                 let py_u = g.py_node_key(py, u);
                 let py_v = g.py_node_key(py, v);
                 match &self.data {
-                    NodeViewData::NoData => {
-                        let tuple = PyTuple::new(py, &[py_u, py_v]).unwrap();
-                        tuple.into_any().unbind()
-                    }
+                    NodeViewData::NoData => tuple_object(py, &[py_u, py_v]),
                     NodeViewData::AllData => {
                         let a: PyObject = attrs.clone_ref(py).into_any();
-                        let tuple = PyTuple::new(py, &[py_u, py_v, a]).unwrap();
-                        tuple.into_any().unbind()
+                        tuple_object(py, &[py_u, py_v, a])
                     }
                     NodeViewData::Attr(attr_name) => {
                         let val = attrs
@@ -182,13 +178,17 @@ impl EdgeView {
                             .ok()
                             .flatten()
                             .map_or_else(|| py.None(), |v| v.unbind());
-                        let tuple = PyTuple::new(py, &[py_u, py_v, val]).unwrap();
-                        tuple.into_any().unbind()
+                        tuple_object(py, &[py_u, py_v, val])
                     }
                 }
             })
-            .collect();
-        Py::new(py, NodeViewIterator { inner: items.into_iter() })
+            .collect::<PyResult<Vec<_>>>()?;
+        Py::new(
+            py,
+            NodeViewIterator {
+                inner: items.into_iter(),
+            },
+        )
     }
 
     fn __getitem__(&self, py: Python<'_>, edge: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
@@ -232,8 +232,7 @@ impl EdgeView {
         if let Some(nb) = nbunch {
             let iter = PyIterator::from_object(nb)?;
             let g = self.graph.borrow(py);
-            let mut node_set: std::collections::HashSet<String> =
-                std::collections::HashSet::new();
+            let mut node_set: std::collections::HashSet<String> = std::collections::HashSet::new();
             for item in iter {
                 let item = item?;
                 node_set.insert(node_key_to_string(py, &item)?);
@@ -247,12 +246,10 @@ impl EdgeView {
                     let py_u = g.py_node_key(py, u);
                     let py_v = g.py_node_key(py, v);
                     match &view_data {
-                        NodeViewData::NoData => {
-                            PyTuple::new(py, &[py_u, py_v]).unwrap().into_any().unbind()
-                        }
+                        NodeViewData::NoData => tuple_object(py, &[py_u, py_v]),
                         NodeViewData::AllData => {
                             let a: PyObject = attrs.clone_ref(py).into_any();
-                            PyTuple::new(py, &[py_u, py_v, a]).unwrap().into_any().unbind()
+                            tuple_object(py, &[py_u, py_v, a])
                         }
                         NodeViewData::Attr(attr_name) => {
                             let val = attrs
@@ -261,11 +258,11 @@ impl EdgeView {
                                 .ok()
                                 .flatten()
                                 .map_or_else(|| py.None(), |v| v.unbind());
-                            PyTuple::new(py, &[py_u, py_v, val]).unwrap().into_any().unbind()
+                            tuple_object(py, &[py_u, py_v, val])
                         }
                     }
                 })
-                .collect();
+                .collect::<PyResult<Vec<_>>>()?;
             Ok(items.into_pyobject(py)?.into_any().unbind())
         } else {
             let view_data = parse_data_param(data)?;
@@ -307,15 +304,16 @@ impl DegreeView {
             .map(|n| {
                 let py_key = g.py_node_key(py, n);
                 let deg = g.inner.neighbor_count(n);
-                let tuple = PyTuple::new(py, &[
-                    py_key,
-                    deg.into_pyobject(py).unwrap().into_any().unbind(),
-                ])
-                .unwrap();
-                tuple.into_any().unbind()
+                let py_degree = deg.into_pyobject(py)?.into_any().unbind();
+                tuple_object(py, &[py_key, py_degree])
             })
-            .collect();
-        Py::new(py, NodeViewIterator { inner: items.into_iter() })
+            .collect::<PyResult<Vec<_>>>()?;
+        Py::new(
+            py,
+            NodeViewIterator {
+                inner: items.into_iter(),
+            },
+        )
     }
 
     fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<usize> {
@@ -398,7 +396,12 @@ impl AdjacencyView {
             .iter()
             .map(|n| g.py_node_key(py, n))
             .collect();
-        Py::new(py, NodeIterator { inner: nodes.into_iter() })
+        Py::new(
+            py,
+            NodeIterator {
+                inner: nodes.into_iter(),
+            },
+        )
     }
 
     fn __repr__(&self, py: Python<'_>) -> String {
@@ -454,6 +457,10 @@ fn parse_data_param(data: Option<&Bound<'_, PyAny>>) -> PyResult<NodeViewData> {
             }
         }
     }
+}
+
+fn tuple_object(py: Python<'_>, elements: &[PyObject]) -> PyResult<PyObject> {
+    Ok(PyTuple::new(py, elements)?.into_any().unbind())
 }
 
 // ---------------------------------------------------------------------------
