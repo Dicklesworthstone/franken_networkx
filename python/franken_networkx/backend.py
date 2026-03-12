@@ -198,6 +198,25 @@ _SUPPORTED_ALGORITHMS = {
     "difference": fnx.difference,
     "symmetric_difference": fnx.symmetric_difference,
     "degree_histogram": fnx.degree_histogram,
+    # Tree recognition
+    "is_arborescence": fnx.is_arborescence,
+    "is_branching": fnx.is_branching,
+    # Isolates
+    "is_isolate": fnx.is_isolate,
+    "isolates": fnx.isolates,
+    "number_of_isolates": fnx.number_of_isolates,
+    # Boundary
+    "edge_boundary": fnx.edge_boundary,
+    "node_boundary": fnx.node_boundary,
+    # Path validation
+    "is_simple_path": fnx.is_simple_path,
+    # Matching validators
+    "is_matching": fnx.is_matching,
+    "is_maximal_matching": fnx.is_maximal_matching,
+    "is_perfect_matching": fnx.is_perfect_matching,
+    # Cycles
+    "simple_cycles": fnx.simple_cycles,
+    "find_cycle": fnx.find_cycle,
 }
 
 

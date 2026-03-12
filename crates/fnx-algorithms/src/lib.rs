@@ -10219,10 +10219,10 @@ pub fn edge_boundary(
                 if set1.contains(nbr) {
                     continue;
                 }
-                if let Some(ref s2) = set2 {
-                    if !s2.contains(nbr) {
-                        continue;
-                    }
+                if let Some(ref s2) = set2
+                    && !s2.contains(nbr)
+                {
+                    continue;
                 }
                 result.push((node.to_string(), nbr.to_string()));
             }
@@ -10271,10 +10271,10 @@ pub fn edge_boundary_directed(
                 if set1.contains(succ) {
                     continue;
                 }
-                if let Some(ref s2) = set2 {
-                    if !s2.contains(succ) {
-                        continue;
-                    }
+                if let Some(ref s2) = set2
+                    && !s2.contains(succ)
+                {
+                    continue;
                 }
                 result.push((node.to_string(), succ.to_string()));
             }
@@ -10552,10 +10552,10 @@ pub fn simple_cycles(graph: &DiGraph) -> Vec<Vec<String>> {
                     cycle.push(s);
                     result.push(cycle);
                     found = true;
-                } else if !blocked[w] {
-                    if circuit(w, s, adj, stack, blocked, block_map, result) {
-                        found = true;
-                    }
+                } else if !blocked[w]
+                    && circuit(w, s, adj, stack, blocked, block_map, result)
+                {
+                    found = true;
                 }
             }
 
@@ -10615,6 +10615,7 @@ fn johnson_scc_containing(start: usize, adj: &[Vec<usize>], n: usize) -> Vec<usi
     let mut tarjan_stack: Vec<usize> = Vec::new();
     let mut sccs: Vec<Vec<usize>> = Vec::new();
 
+    #[allow(clippy::too_many_arguments)]
     fn strongconnect(
         v: usize,
         adj: &[Vec<usize>],
@@ -17333,6 +17334,16 @@ mod tests {
         let _ = g.add_edge("c", "d");
         let nb = node_boundary(&g, &["a", "b"]);
         assert_eq!(nb, vec!["c"]);
+    }
+
+    #[test]
+    fn test_edge_boundary_directed() {
+        let mut g = DiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "a");
+        let eb = edge_boundary_directed(&g, &["a"], None);
+        assert_eq!(eb, vec![("a".to_string(), "b".to_string())]);
     }
 
     #[test]

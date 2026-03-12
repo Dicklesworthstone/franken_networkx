@@ -65,6 +65,7 @@ from franken_networkx._fnx import (
     HasACycle,
     NetworkXAlgorithmError,
     NetworkXError,
+    NetworkXNoCycle,
     NetworkXNoPath,
     NetworkXNotImplemented,
     NetworkXPointlessConcept,
@@ -346,6 +347,41 @@ from franken_networkx._fnx import (
     max_clique,
     maximum_independent_set,
     min_weighted_vertex_cover,
+)
+
+# Algorithm functions — tree recognition
+from franken_networkx._fnx import (
+    is_arborescence,
+    is_branching,
+)
+
+# Algorithm functions — isolates
+from franken_networkx._fnx import (
+    is_isolate,
+    isolates,
+    number_of_isolates,
+)
+
+# Algorithm functions — boundary
+from franken_networkx._fnx import (
+    edge_boundary,
+    node_boundary,
+)
+
+# Algorithm functions — path validation
+from franken_networkx._fnx import is_simple_path
+
+# Algorithm functions — matching validators
+from franken_networkx._fnx import (
+    is_matching,
+    is_maximal_matching,
+    is_perfect_matching,
+)
+
+# Algorithm functions — cycles
+from franken_networkx._fnx import (
+    simple_cycles,
+    find_cycle,
 )
 
 # Graph generators — classic
@@ -1128,6 +1164,27 @@ __all__ = [
     "max_clique",
     "clique_removal",
     "large_clique_size",
+    # Algorithms — tree recognition
+    "is_arborescence",
+    "is_branching",
+    # Algorithms — isolates
+    "is_isolate",
+    "isolates",
+    "number_of_isolates",
+    # Algorithms — boundary
+    "edge_boundary",
+    "node_boundary",
+    # Algorithms — path validation
+    "is_simple_path",
+    # Algorithms — matching validators
+    "is_matching",
+    "is_maximal_matching",
+    "is_perfect_matching",
+    # Algorithms — cycles
+    "simple_cycles",
+    "find_cycle",
+    # Exception
+    "NetworkXNoCycle",
     # Algorithms — planarity
     "is_planar",
     # Algorithms — barycenter

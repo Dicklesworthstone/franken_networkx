@@ -5,7 +5,7 @@
 //! Python-native types (lists, dicts, floats, bools).
 
 use crate::digraph::PyDiGraph;
-use crate::{NetworkXError, NetworkXNoPath, NodeNotFound, PyGraph, node_key_to_string};
+use crate::{NetworkXError, NetworkXNoCycle, NetworkXNoPath, NodeNotFound, PyGraph, node_key_to_string};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use std::collections::HashMap;
@@ -3547,6 +3547,272 @@ fn barycenter(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
 }
 
 // ===========================================================================
+// Tree recognition — is_arborescence, is_branching
+// ===========================================================================
+
+/// Return True if `G` is an arborescence (a directed rooted tree).
+#[pyfunction]
+#[pyo3(signature = (g,))]
+fn is_arborescence(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
+    let gr = extract_graph(g)?;
+    if !gr.is_directed() {
+        return Ok(false);
+    }
+    if let GraphRef::Directed { dg, .. } = &gr {
+        Ok(fnx_algorithms::is_arborescence(&dg.inner))
+    } else {
+        unreachable!()
+    }
+}
+
+/// Return True if `G` is a branching (a directed forest).
+#[pyfunction]
+#[pyo3(signature = (g,))]
+fn is_branching(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
+    let gr = extract_graph(g)?;
+    if !gr.is_directed() {
+        return Ok(false);
+    }
+    if let GraphRef::Directed { dg, .. } = &gr {
+        Ok(fnx_algorithms::is_branching(&dg.inner))
+    } else {
+        unreachable!()
+    }
+}
+
+// ===========================================================================
+// Isolates — is_isolate, isolates, number_of_isolates
+// ===========================================================================
+
+/// Return True if `node` is an isolate (degree 0).
+#[pyfunction]
+#[pyo3(signature = (g, node))]
+fn is_isolate(py: Python<'_>, g: &Bound<'_, PyAny>, node: &Bound<'_, PyAny>) -> PyResult<bool> {
+    let gr = extract_graph(g)?;
+    let key = node_key_to_string(py, node);
+    validate_node(&gr, &key, node)?;
+    match &gr {
+        GraphRef::Undirected(pg) => Ok(fnx_algorithms::is_isolate(&pg.inner, &key)),
+        GraphRef::Directed { dg, .. } => Ok(fnx_algorithms::is_isolate_directed(&dg.inner, &key)),
+    }
+}
+
+/// Return a list of isolate nodes.
+#[pyfunction]
+#[pyo3(signature = (g,))]
+fn isolates(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
+    let gr = extract_graph(g)?;
+    let result = match &gr {
+        GraphRef::Undirected(pg) => fnx_algorithms::isolates(&pg.inner),
+        GraphRef::Directed { dg, .. } => fnx_algorithms::isolates_directed(&dg.inner),
+    };
+    Ok(result.iter().map(|n| gr.py_node_key(py, n)).collect())
+}
+
+/// Return the number of isolate nodes.
+#[pyfunction]
+#[pyo3(signature = (g,))]
+fn number_of_isolates(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usize> {
+    let gr = extract_graph(g)?;
+    match &gr {
+        GraphRef::Undirected(pg) => Ok(fnx_algorithms::number_of_isolates(&pg.inner)),
+        GraphRef::Directed { dg, .. } => Ok(fnx_algorithms::number_of_isolates_directed(&dg.inner)),
+    }
+}
+
+// ===========================================================================
+// Boundary — edge_boundary, node_boundary
+// ===========================================================================
+
+/// Return the edges at the boundary of `nbunch1`.
+#[pyfunction]
+#[pyo3(signature = (g, nbunch1, nbunch2=None))]
+fn edge_boundary(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    nbunch1: Vec<Bound<'_, PyAny>>,
+    nbunch2: Option<Vec<Bound<'_, PyAny>>>,
+) -> PyResult<Vec<(PyObject, PyObject)>> {
+    let gr = extract_graph(g)?;
+    let s1: Vec<String> = nbunch1.iter().map(|n| node_key_to_string(py, n)).collect();
+    let s2: Option<Vec<String>> = nbunch2
+        .as_ref()
+        .map(|v| v.iter().map(|n| node_key_to_string(py, n)).collect());
+    let s1_refs: Vec<&str> = s1.iter().map(|s| s.as_str()).collect();
+    let s2_refs: Option<Vec<&str>> = s2.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect());
+    let result = match &gr {
+        GraphRef::Undirected(pg) => {
+            fnx_algorithms::edge_boundary(&pg.inner, &s1_refs, s2_refs.as_deref())
+        }
+        GraphRef::Directed { dg, .. } => {
+            fnx_algorithms::edge_boundary_directed(&dg.inner, &s1_refs, s2_refs.as_deref())
+        }
+    };
+    Ok(result
+        .iter()
+        .map(|(u, v)| (gr.py_node_key(py, u), gr.py_node_key(py, v)))
+        .collect())
+}
+
+/// Return the nodes at the boundary of `nbunch1`.
+#[pyfunction]
+#[pyo3(signature = (g, nbunch1, nbunch2=None))]
+fn node_boundary(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    nbunch1: Vec<Bound<'_, PyAny>>,
+    nbunch2: Option<Vec<Bound<'_, PyAny>>>,
+) -> PyResult<Vec<PyObject>> {
+    let gr = extract_graph(g)?;
+    let s1: Vec<String> = nbunch1.iter().map(|n| node_key_to_string(py, n)).collect();
+    let s2: Option<Vec<String>> = nbunch2
+        .as_ref()
+        .map(|v| v.iter().map(|n| node_key_to_string(py, n)).collect());
+    let s1_refs: Vec<&str> = s1.iter().map(|s| s.as_str()).collect();
+    let s2_refs: Option<Vec<&str>> = s2.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect());
+    let result = match &gr {
+        GraphRef::Undirected(pg) => {
+            fnx_algorithms::node_boundary(&pg.inner, &s1_refs, s2_refs.as_deref())
+        }
+        GraphRef::Directed { dg, .. } => {
+            fnx_algorithms::node_boundary_directed(&dg.inner, &s1_refs, s2_refs.as_deref())
+        }
+    };
+    Ok(result.iter().map(|n| gr.py_node_key(py, n)).collect())
+}
+
+// ===========================================================================
+// is_simple_path
+// ===========================================================================
+
+/// Return True if `path` is a simple path in `G`.
+#[pyfunction]
+#[pyo3(signature = (g, path))]
+fn is_simple_path(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    path: Vec<Bound<'_, PyAny>>,
+) -> PyResult<bool> {
+    let gr = extract_graph(g)?;
+    let keys: Vec<String> = path.iter().map(|n| node_key_to_string(py, n)).collect();
+    let key_refs: Vec<&str> = keys.iter().map(|s| s.as_str()).collect();
+    match &gr {
+        GraphRef::Undirected(pg) => Ok(fnx_algorithms::is_simple_path(&pg.inner, &key_refs)),
+        GraphRef::Directed { dg, .. } => {
+            Ok(fnx_algorithms::is_simple_path_directed(&dg.inner, &key_refs))
+        }
+    }
+}
+
+// ===========================================================================
+// Matching validators — is_matching, is_maximal_matching, is_perfect_matching
+// ===========================================================================
+
+/// Return True if `matching` is a valid matching of `G`.
+#[pyfunction]
+#[pyo3(signature = (g, matching))]
+fn is_matching(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    matching: Vec<(Bound<'_, PyAny>, Bound<'_, PyAny>)>,
+) -> PyResult<bool> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "is_matching")?;
+    let inner = gr.undirected();
+    let edges: Vec<(String, String)> = matching
+        .iter()
+        .map(|(u, v)| (node_key_to_string(py, u), node_key_to_string(py, v)))
+        .collect();
+    Ok(fnx_algorithms::is_matching(inner, &edges))
+}
+
+/// Return True if `matching` is a maximal matching of `G`.
+#[pyfunction]
+#[pyo3(signature = (g, matching))]
+fn is_maximal_matching(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    matching: Vec<(Bound<'_, PyAny>, Bound<'_, PyAny>)>,
+) -> PyResult<bool> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "is_maximal_matching")?;
+    let inner = gr.undirected();
+    let edges: Vec<(String, String)> = matching
+        .iter()
+        .map(|(u, v)| (node_key_to_string(py, u), node_key_to_string(py, v)))
+        .collect();
+    Ok(fnx_algorithms::is_maximal_matching(inner, &edges))
+}
+
+/// Return True if `matching` is a perfect matching of `G`.
+#[pyfunction]
+#[pyo3(signature = (g, matching))]
+fn is_perfect_matching(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    matching: Vec<(Bound<'_, PyAny>, Bound<'_, PyAny>)>,
+) -> PyResult<bool> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "is_perfect_matching")?;
+    let inner = gr.undirected();
+    let edges: Vec<(String, String)> = matching
+        .iter()
+        .map(|(u, v)| (node_key_to_string(py, u), node_key_to_string(py, v)))
+        .collect();
+    Ok(fnx_algorithms::is_perfect_matching(inner, &edges))
+}
+
+// ===========================================================================
+// simple_cycles, find_cycle
+// ===========================================================================
+
+/// Find simple cycles (elementary circuits) of a directed graph.
+#[pyfunction]
+#[pyo3(signature = (g,))]
+fn simple_cycles(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<Vec<PyObject>>> {
+    let gr = extract_graph(g)?;
+    if !gr.is_directed() {
+        return Err(NetworkXError::new_err(
+            "simple_cycles is not defined for undirected graphs. Use cycle_basis instead.",
+        ));
+    }
+    if let GraphRef::Directed { dg, .. } = &gr {
+        let result = fnx_algorithms::simple_cycles(&dg.inner);
+        Ok(result
+            .into_iter()
+            .map(|cycle| cycle.iter().map(|n| gr.py_node_key(py, n)).collect())
+            .collect())
+    } else {
+        unreachable!()
+    }
+}
+
+/// Find a cycle in the graph. Returns a list of nodes forming the cycle,
+/// or raises ``NetworkXNoCycle`` if no cycle exists.
+#[pyfunction]
+#[pyo3(signature = (g,))]
+fn find_cycle(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<(PyObject, PyObject)>> {
+    let gr = extract_graph(g)?;
+    let result = match &gr {
+        GraphRef::Undirected(pg) => fnx_algorithms::find_cycle_undirected(&pg.inner),
+        GraphRef::Directed { dg, .. } => fnx_algorithms::find_cycle_directed(&dg.inner),
+    };
+    match result {
+        Some(cycle) => {
+            // Return as edge list: [(u, v), (v, w), ..., (last, first)]
+            let mut edges = Vec::new();
+            for i in 0..cycle.len() {
+                let u = &cycle[i];
+                let v = &cycle[(i + 1) % cycle.len()];
+                edges.push((gr.py_node_key(py, u), gr.py_node_key(py, v)));
+            }
+            Ok(edges)
+        }
+        None => Err(crate::NetworkXNoCycle::new_err("No cycle found.")),
+    }
+}
+
+// ===========================================================================
 // Registration
 // ===========================================================================
 
@@ -3725,5 +3991,24 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(max_clique, m)?)?;
     m.add_function(wrap_pyfunction!(clique_removal, m)?)?;
     m.add_function(wrap_pyfunction!(large_clique_size, m)?)?;
+    // Tree recognition
+    m.add_function(wrap_pyfunction!(is_arborescence, m)?)?;
+    m.add_function(wrap_pyfunction!(is_branching, m)?)?;
+    // Isolates
+    m.add_function(wrap_pyfunction!(is_isolate, m)?)?;
+    m.add_function(wrap_pyfunction!(isolates, m)?)?;
+    m.add_function(wrap_pyfunction!(number_of_isolates, m)?)?;
+    // Boundary
+    m.add_function(wrap_pyfunction!(edge_boundary, m)?)?;
+    m.add_function(wrap_pyfunction!(node_boundary, m)?)?;
+    // Path validation
+    m.add_function(wrap_pyfunction!(is_simple_path, m)?)?;
+    // Matching validators
+    m.add_function(wrap_pyfunction!(is_matching, m)?)?;
+    m.add_function(wrap_pyfunction!(is_maximal_matching, m)?)?;
+    m.add_function(wrap_pyfunction!(is_perfect_matching, m)?)?;
+    // Cycles
+    m.add_function(wrap_pyfunction!(simple_cycles, m)?)?;
+    m.add_function(wrap_pyfunction!(find_cycle, m)?)?;
     Ok(())
 }

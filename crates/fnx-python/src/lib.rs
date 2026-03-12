@@ -27,6 +27,7 @@ pyo3::create_exception!(_fnx, NetworkXPointlessConcept, NetworkXError);
 pyo3::create_exception!(_fnx, NetworkXAlgorithmError, NetworkXError);
 pyo3::create_exception!(_fnx, NetworkXUnfeasible, NetworkXError);
 pyo3::create_exception!(_fnx, NetworkXNoPath, NetworkXUnfeasible);
+pyo3::create_exception!(_fnx, NetworkXNoCycle, NetworkXUnfeasible);
 pyo3::create_exception!(_fnx, NetworkXUnbounded, NetworkXError);
 pyo3::create_exception!(_fnx, NetworkXNotImplemented, NetworkXError);
 pyo3::create_exception!(_fnx, NodeNotFound, NetworkXError);
@@ -1146,6 +1147,7 @@ fn _fnx(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.py().get_type::<NetworkXUnfeasible>(),
     )?;
     m.add("NetworkXNoPath", m.py().get_type::<NetworkXNoPath>())?;
+    m.add("NetworkXNoCycle", m.py().get_type::<NetworkXNoCycle>())?;
     m.add("NetworkXUnbounded", m.py().get_type::<NetworkXUnbounded>())?;
     m.add(
         "NetworkXNotImplemented",
