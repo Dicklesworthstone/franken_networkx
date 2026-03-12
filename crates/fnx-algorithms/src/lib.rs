@@ -9217,7 +9217,7 @@ pub fn max_clique_approx(graph: &Graph) -> Vec<String> {
                         candidates
                             .iter()
                             .filter(|other| {
-                                *other != c && nbrs.iter().any(|&n| n == other.as_str())
+                                other.as_str() != c.as_str() && nbrs.contains(&other.as_str())
                             })
                             .count()
                     })
@@ -9233,7 +9233,7 @@ pub fn max_clique_approx(graph: &Graph) -> Vec<String> {
             clique.iter().all(|member| {
                 graph
                     .neighbors(c)
-                    .map(|nbrs| nbrs.iter().any(|&n| n == member.as_str()))
+                    .map(|nbrs| nbrs.contains(&member.as_str()))
                     .unwrap_or(false)
             })
         });
@@ -9241,6 +9241,50 @@ pub fn max_clique_approx(graph: &Graph) -> Vec<String> {
 
     clique.sort();
     clique
+}
+
+/// Ramsey R2 algorithm: recursively finds a clique and an independent set
+/// in the subgraph induced by `node_set`.
+///
+/// Returns (clique, independent_set) where both are valid in the subgraph.
+fn ramsey_r2(graph: &Graph, node_set: &HashSet<String>) -> (Vec<String>, Vec<String>) {
+    if node_set.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+
+    // Pick an arbitrary node (use sorted order for determinism).
+    let node = node_set.iter().min().unwrap().clone();
+
+    // Partition remaining nodes into neighbors and non-neighbors of `node`.
+    let nbrs_of_node: HashSet<String> = graph
+        .neighbors(&node)
+        .map(|nbrs| {
+            nbrs.iter()
+                .filter(|&&n| n != node.as_str() && node_set.contains(n))
+                .map(|s| s.to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let non_nbrs: HashSet<String> = node_set
+        .iter()
+        .filter(|n| **n != node && !nbrs_of_node.contains(*n))
+        .cloned()
+        .collect();
+
+    // Recurse on neighbors (for clique) and non-neighbors (for independent set).
+    let (mut c_1, i_1) = ramsey_r2(graph, &nbrs_of_node);
+    let (c_2, mut i_2) = ramsey_r2(graph, &non_nbrs);
+
+    // Node extends the clique in the neighbors subgraph.
+    c_1.push(node.clone());
+    // Node extends the independent set in the non-neighbors subgraph.
+    i_2.push(node);
+
+    // Return the larger of each pair.
+    let best_clique = if c_1.len() >= c_2.len() { c_1 } else { c_2 };
+    let best_iset = if i_1.len() >= i_2.len() { i_1 } else { i_2 };
+    (best_clique, best_iset)
 }
 
 /// Ramsey-based clique removal: repeatedly extracts maximal cliques
@@ -9256,79 +9300,39 @@ pub fn clique_removal(graph: &Graph) -> (Vec<String>, Vec<Vec<String>>) {
     }
 
     let mut remaining: HashSet<String> = nodes.iter().map(|s| s.to_string()).collect();
-    let mut independent_set: Vec<String> = Vec::new();
+    let mut all_isets: Vec<Vec<String>> = Vec::new();
     let mut cliques: Vec<Vec<String>> = Vec::new();
 
     while !remaining.is_empty() {
-        let start = remaining
-            .iter()
-            .max_by_key(|node| {
-                graph
-                    .neighbors(node)
-                    .map(|nbrs| nbrs.iter().filter(|&n| remaining.contains(*n)).count())
-                    .unwrap_or(0)
-            })
-            .unwrap()
-            .clone();
+        let (mut c_i, i_i) = ramsey_r2(graph, &remaining);
 
-        let mut clique: Vec<String> = vec![start.clone()];
-        let mut cands: Vec<String> = remaining
-            .iter()
-            .filter(|c| {
-                **c != start
-                    && graph
-                        .neighbors(c)
-                        .map(|nbrs| nbrs.iter().any(|&n| n == start.as_str()))
-                        .unwrap_or(false)
-            })
-            .cloned()
-            .collect();
-
-        while !cands.is_empty() {
-            let best_idx = cands
-                .iter()
-                .enumerate()
-                .max_by_key(|(_, c)| {
-                    graph
-                        .neighbors(c)
-                        .map(|nbrs| {
-                            cands
-                                .iter()
-                                .filter(|other| {
-                                    *other != c && nbrs.iter().any(|&n| n == other.as_str())
-                                })
-                                .count()
-                        })
-                        .unwrap_or(0)
-                })
-                .map(|(i, _)| i)
-                .unwrap();
-
-            let chosen = cands.remove(best_idx);
-            clique.push(chosen);
-
-            cands.retain(|c| {
-                clique.iter().all(|member| {
-                    graph
-                        .neighbors(c)
-                        .map(|nbrs| nbrs.iter().any(|&n| n == member.as_str()))
-                        .unwrap_or(false)
-                })
-            });
+        if !c_i.is_empty() {
+            // Remove the clique nodes from remaining.
+            for node in &c_i {
+                remaining.remove(node);
+            }
+            c_i.sort();
+            cliques.push(c_i);
+        } else {
+            // Safety: if ramsey_r2 returns empty clique on non-empty set,
+            // remove one node to ensure progress.
+            let node = remaining.iter().min().unwrap().clone();
+            remaining.remove(&node);
+            cliques.push(vec![node]);
         }
 
-        independent_set.push(clique[0].clone());
-
-        for node in &clique {
-            remaining.remove(node);
+        if !i_i.is_empty() {
+            all_isets.push(i_i);
         }
-
-        clique.sort();
-        cliques.push(clique);
     }
 
-    independent_set.sort();
-    (independent_set, cliques)
+    // Return the largest independent set found across all iterations.
+    let mut best_iset = all_isets
+        .into_iter()
+        .max_by_key(|s| s.len())
+        .unwrap_or_default();
+    best_iset.sort();
+    (best_iset, cliques)
 }
 
 // ── A* shortest path ────────────────────────────────────────────────────────
@@ -9702,6 +9706,7 @@ pub fn is_isomorphic(g1: &Graph, g2: &Graph) -> bool {
     let mut mapping: Vec<Option<usize>> = vec![None; n]; // g1 node -> g2 node
     let mut used: Vec<bool> = vec![false; n]; // which g2 nodes are used
 
+    #[allow(clippy::too_many_arguments)]
     fn backtrack(
         depth: usize,
         n: usize,
@@ -9729,11 +9734,11 @@ pub fn is_isomorphic(g1: &Graph, g2: &Graph) -> bool {
             // Check adjacency consistency with already-mapped nodes
             let mut consistent = true;
             for prev_u in 0..depth {
-                if let Some(prev_v) = mapping[prev_u] {
-                    if adj1[u][prev_u] != adj2[v][prev_v] {
-                        consistent = false;
-                        break;
-                    }
+                if let Some(prev_v) = mapping[prev_u]
+                    && adj1[u][prev_u] != adj2[v][prev_v]
+                {
+                    consistent = false;
+                    break;
                 }
             }
             if !consistent {
@@ -9890,7 +9895,7 @@ pub fn is_planar(graph: &Graph) -> bool {
     // For graphs satisfying the edge bound, use DFS-based LR planarity
 
     // Build adjacency for the planarity algorithm
-    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (n.as_str(), i)).collect();
+    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
     let mut adj = vec![vec![]; n];
     for edge in graph.edges_ordered() {
         let i = idx[edge.left.as_str()];
@@ -10126,6 +10131,679 @@ pub fn barycenter(graph: &Graph) -> Vec<String> {
     result
 }
 
+// ---------------------------------------------------------------------------
+// Isolate detection
+// ---------------------------------------------------------------------------
+
+/// Return a sorted list of isolate nodes (nodes with degree 0).
+#[must_use]
+pub fn isolates(graph: &Graph) -> Vec<String> {
+    let nodes = graph.nodes_ordered();
+    let mut result = Vec::new();
+    for &node in &nodes {
+        if let Some(nbrs) = graph.neighbors(node) {
+            if nbrs.is_empty() {
+                result.push(node.to_string());
+            }
+        } else {
+            result.push(node.to_string());
+        }
+    }
+    result
+}
+
+/// Return true if `node` is an isolate (degree 0).
+#[must_use]
+pub fn is_isolate(graph: &Graph, node: &str) -> bool {
+    match graph.neighbors(node) {
+        Some(nbrs) => nbrs.is_empty(),
+        None => false, // node not in graph
+    }
+}
+
+/// Return the number of isolate nodes.
+#[must_use]
+pub fn number_of_isolates(graph: &Graph) -> usize {
+    isolates(graph).len()
+}
+
+/// Return a sorted list of isolate nodes in a directed graph.
+#[must_use]
+pub fn isolates_directed(graph: &DiGraph) -> Vec<String> {
+    let nodes = graph.nodes_ordered();
+    let mut result = Vec::new();
+    for &node in &nodes {
+        let out_deg = graph.successors(node).map_or(0, |v| v.len());
+        let in_deg = graph.predecessors(node).map_or(0, |v| v.len());
+        if out_deg == 0 && in_deg == 0 {
+            result.push(node.to_string());
+        }
+    }
+    result
+}
+
+/// Return true if `node` is an isolate in a directed graph.
+#[must_use]
+pub fn is_isolate_directed(graph: &DiGraph, node: &str) -> bool {
+    let out_deg = graph.successors(node).map_or(0, |v| v.len());
+    let in_deg = graph.predecessors(node).map_or(0, |v| v.len());
+    out_deg == 0 && in_deg == 0
+}
+
+/// Return the number of isolate nodes in a directed graph.
+#[must_use]
+pub fn number_of_isolates_directed(graph: &DiGraph) -> usize {
+    isolates_directed(graph).len()
+}
+
+// ---------------------------------------------------------------------------
+// Boundary
+// ---------------------------------------------------------------------------
+
+/// Return the set of edges with one endpoint in `nbunch1` and the other not.
+/// Each edge is (u, v) where u is in nbunch1.
+/// If `nbunch2` is provided, only edges to nodes in nbunch2 are returned.
+#[must_use]
+pub fn edge_boundary(
+    graph: &Graph,
+    nbunch1: &[&str],
+    nbunch2: Option<&[&str]>,
+) -> Vec<(String, String)> {
+    let set1: HashSet<&str> = nbunch1.iter().copied().collect();
+    let set2: Option<HashSet<&str>> = nbunch2.map(|s| s.iter().copied().collect());
+
+    let mut result = Vec::new();
+    for &node in nbunch1 {
+        if let Some(nbrs) = graph.neighbors(node) {
+            for &nbr in &nbrs {
+                if set1.contains(nbr) {
+                    continue;
+                }
+                if let Some(ref s2) = set2 {
+                    if !s2.contains(nbr) {
+                        continue;
+                    }
+                }
+                result.push((node.to_string(), nbr.to_string()));
+            }
+        }
+    }
+    result.sort();
+    result
+}
+
+/// Return the set of nodes on the boundary of `nbunch`.
+/// The node boundary is the set of nodes outside `nbunch` that have
+/// a neighbor in `nbunch`.
+#[must_use]
+pub fn node_boundary(
+    graph: &Graph,
+    nbunch: &[&str],
+) -> Vec<String> {
+    let set: HashSet<&str> = nbunch.iter().copied().collect();
+    let mut boundary: BTreeMap<&str, ()> = BTreeMap::new();
+    for &node in nbunch {
+        if let Some(nbrs) = graph.neighbors(node) {
+            for &nbr in &nbrs {
+                if !set.contains(nbr) {
+                    boundary.insert(nbr, ());
+                }
+            }
+        }
+    }
+    boundary.keys().map(|k| k.to_string()).collect()
+}
+
+/// Return the set of edges on the boundary in a directed graph.
+#[must_use]
+pub fn edge_boundary_directed(
+    graph: &DiGraph,
+    nbunch1: &[&str],
+    nbunch2: Option<&[&str]>,
+) -> Vec<(String, String)> {
+    let set1: HashSet<&str> = nbunch1.iter().copied().collect();
+    let set2: Option<HashSet<&str>> = nbunch2.map(|s| s.iter().copied().collect());
+
+    let mut result = Vec::new();
+    for &node in nbunch1 {
+        if let Some(succs) = graph.successors(node) {
+            for &succ in &succs {
+                if set1.contains(succ) {
+                    continue;
+                }
+                if let Some(ref s2) = set2 {
+                    if !s2.contains(succ) {
+                        continue;
+                    }
+                }
+                result.push((node.to_string(), succ.to_string()));
+            }
+        }
+    }
+    result.sort();
+    result
+}
+
+/// Return the node boundary of `nbunch` in a directed graph.
+#[must_use]
+pub fn node_boundary_directed(
+    graph: &DiGraph,
+    nbunch: &[&str],
+) -> Vec<String> {
+    let set: HashSet<&str> = nbunch.iter().copied().collect();
+    let mut boundary: BTreeMap<&str, ()> = BTreeMap::new();
+    for &node in nbunch {
+        if let Some(succs) = graph.successors(node) {
+            for &succ in &succs {
+                if !set.contains(succ) {
+                    boundary.insert(succ, ());
+                }
+            }
+        }
+    }
+    boundary.keys().map(|k| k.to_string()).collect()
+}
+
+// ---------------------------------------------------------------------------
+// is_simple_path
+// ---------------------------------------------------------------------------
+
+/// Return True if `path` is a simple path in the graph (no repeated nodes,
+/// all consecutive nodes connected by edges).
+#[must_use]
+pub fn is_simple_path(graph: &Graph, path: &[&str]) -> bool {
+    if path.is_empty() {
+        return false;
+    }
+    if path.len() == 1 {
+        return graph.neighbors(path[0]).is_some();
+    }
+    // Check for repeated nodes
+    let mut seen: HashSet<&str> = HashSet::new();
+    for &node in path {
+        if !seen.insert(node) {
+            return false;
+        }
+    }
+    // Check consecutive edges exist
+    for w in path.windows(2) {
+        match graph.neighbors(w[0]) {
+            Some(nbrs) => {
+                if !nbrs.contains(&w[1]) {
+                    return false;
+                }
+            }
+            None => return false,
+        }
+    }
+    true
+}
+
+/// Return True if `path` is a simple path in the directed graph.
+#[must_use]
+pub fn is_simple_path_directed(graph: &DiGraph, path: &[&str]) -> bool {
+    if path.is_empty() {
+        return false;
+    }
+    if path.len() == 1 {
+        return graph.successors(path[0]).is_some() || graph.predecessors(path[0]).is_some();
+    }
+    let mut seen: HashSet<&str> = HashSet::new();
+    for &node in path {
+        if !seen.insert(node) {
+            return false;
+        }
+    }
+    for w in path.windows(2) {
+        match graph.successors(w[0]) {
+            Some(succs) => {
+                if !succs.contains(&w[1]) {
+                    return false;
+                }
+            }
+            None => return false,
+        }
+    }
+    true
+}
+
+// ---------------------------------------------------------------------------
+// Tree recognition: is_arborescence, is_branching
+// ---------------------------------------------------------------------------
+
+/// Return True if the directed graph is an arborescence (a directed rooted tree
+/// where every node except the root has in-degree 1, and the root has in-degree 0).
+#[must_use]
+pub fn is_arborescence(graph: &DiGraph) -> bool {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return false;
+    }
+
+    // Count edges
+    let mut edge_count = 0usize;
+    let mut root_count = 0usize;
+
+    for &node in &nodes {
+        let in_deg = graph.predecessors(node).map_or(0, |v| v.len());
+        let out_deg = graph.successors(node).map_or(0, |v| v.len());
+        edge_count += out_deg;
+
+        if in_deg == 0 {
+            root_count += 1;
+        } else if in_deg != 1 {
+            return false; // Must have exactly 0 or 1 in-degree
+        }
+    }
+
+    // Must have exactly n-1 edges, exactly one root, and be connected
+    if edge_count != n - 1 || root_count != 1 {
+        return false;
+    }
+
+    // Verify weakly connected: BFS ignoring direction
+    let start = nodes[0];
+    let mut visited: HashSet<&str> = HashSet::new();
+    let mut queue = VecDeque::new();
+    visited.insert(start);
+    queue.push_back(start);
+    while let Some(current) = queue.pop_front() {
+        if let Some(succs) = graph.successors(current) {
+            for &s in &succs {
+                if visited.insert(s) {
+                    queue.push_back(s);
+                }
+            }
+        }
+        if let Some(preds) = graph.predecessors(current) {
+            for &p in &preds {
+                if visited.insert(p) {
+                    queue.push_back(p);
+                }
+            }
+        }
+    }
+    visited.len() == n
+}
+
+/// Return True if the directed graph is a branching (a directed forest where
+/// every node has in-degree 0 or 1).
+#[must_use]
+pub fn is_branching(graph: &DiGraph) -> bool {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return true; // empty graph is a branching
+    }
+
+    let mut edge_count = 0usize;
+    for &node in &nodes {
+        let in_deg = graph.predecessors(node).map_or(0, |v| v.len());
+        if in_deg > 1 {
+            return false;
+        }
+        edge_count += graph.successors(node).map_or(0, |v| v.len());
+    }
+
+    // A branching (forest of arborescences) has at most n-1 edges
+    // and no cycles. With max in-degree 1 and ≤ n-1 edges, it's acyclic.
+    edge_count < n
+}
+
+// ---------------------------------------------------------------------------
+// Cycle detection: simple_cycles (Johnson's algorithm) and find_cycle
+// ---------------------------------------------------------------------------
+
+/// Find all elementary cycles (simple cycles) in a directed graph using
+/// Johnson's algorithm. Returns cycles as lists of node labels.
+pub fn simple_cycles(graph: &DiGraph) -> Vec<Vec<String>> {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return Vec::new();
+    }
+
+    // Map node names to indices
+    let node_to_idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+    let mut adj: Vec<Vec<usize>> = vec![vec![]; n];
+    for &node in &nodes {
+        let i = node_to_idx[node];
+        if let Some(succs) = graph.successors(node) {
+            for &s in &succs {
+                if let Some(&j) = node_to_idx.get(s) {
+                    adj[i].push(j);
+                }
+            }
+            adj[i].sort_unstable();
+        }
+    }
+
+    let mut result: Vec<Vec<String>> = Vec::new();
+
+    // Johnson's algorithm: for each node s in order, find all cycles
+    // through s in the subgraph induced by {s, s+1, ..., n-1}
+    for s in 0..n {
+        // Build subgraph adjacency for nodes [s..n)
+        let sub_adj: Vec<Vec<usize>> = adj.iter().enumerate().map(|(i, nbrs)| {
+            if i < s {
+                vec![]
+            } else {
+                nbrs.iter().copied().filter(|&j| j >= s).collect()
+            }
+        }).collect();
+
+        // Find SCCs in the subgraph reachable from s
+        let scc_of_s = johnson_scc_containing(s, &sub_adj, n);
+        if scc_of_s.is_empty() {
+            continue;
+        }
+
+        // Only process if s is in a non-trivial SCC (or has a self-loop)
+        let s_in_scc = scc_of_s.contains(&s);
+        if !s_in_scc {
+            continue;
+        }
+
+        let scc_set: HashSet<usize> = scc_of_s.into_iter().collect();
+
+        // Restricted adjacency: only edges within SCC
+        let restricted: Vec<Vec<usize>> = (0..n)
+            .map(|i| {
+                if scc_set.contains(&i) {
+                    sub_adj[i].iter().copied().filter(|j| scc_set.contains(j)).collect()
+                } else {
+                    vec![]
+                }
+            })
+            .collect();
+
+        let mut blocked = vec![false; n];
+        let mut block_map: Vec<HashSet<usize>> = vec![HashSet::new(); n];
+        let mut stack: Vec<usize> = Vec::new();
+
+        fn unblock(u: usize, blocked: &mut [bool], block_map: &mut [HashSet<usize>]) {
+            blocked[u] = false;
+            let to_unblock: Vec<usize> = block_map[u].drain().collect();
+            for w in to_unblock {
+                if blocked[w] {
+                    unblock(w, blocked, block_map);
+                }
+            }
+        }
+
+        fn circuit(
+            v: usize,
+            s: usize,
+            adj: &[Vec<usize>],
+            stack: &mut Vec<usize>,
+            blocked: &mut Vec<bool>,
+            block_map: &mut Vec<HashSet<usize>>,
+            result: &mut Vec<Vec<usize>>,
+        ) -> bool {
+            let mut found = false;
+            stack.push(v);
+            blocked[v] = true;
+
+            for &w in &adj[v] {
+                if w == s {
+                    // Found a cycle
+                    let mut cycle = stack.clone();
+                    cycle.push(s);
+                    result.push(cycle);
+                    found = true;
+                } else if !blocked[w] {
+                    if circuit(w, s, adj, stack, blocked, block_map, result) {
+                        found = true;
+                    }
+                }
+            }
+
+            if found {
+                unblock(v, blocked, block_map);
+            } else {
+                for &w in &adj[v] {
+                    block_map[w].insert(v);
+                }
+            }
+
+            stack.pop();
+            found
+        }
+
+        let mut idx_cycles: Vec<Vec<usize>> = Vec::new();
+        circuit(s, s, &restricted, &mut stack, &mut blocked, &mut block_map, &mut idx_cycles);
+
+        for cyc in idx_cycles {
+            // cyc includes the start node repeated at end; exclude it
+            let cycle: Vec<String> = cyc[..cyc.len() - 1]
+                .iter()
+                .map(|&i| nodes[i].to_string())
+                .collect();
+            result.push(cycle);
+        }
+    }
+
+    // Sort for deterministic output
+    result.sort();
+    result
+}
+
+/// Find the SCC containing `start` in the subgraph, using Tarjan's algorithm
+/// restricted to reachable nodes from `start`.
+fn johnson_scc_containing(start: usize, adj: &[Vec<usize>], n: usize) -> Vec<usize> {
+    // First, find all nodes reachable from start
+    let mut reachable: HashSet<usize> = HashSet::new();
+    let mut stack = vec![start];
+    while let Some(v) = stack.pop() {
+        if reachable.insert(v) {
+            for &w in &adj[v] {
+                stack.push(w);
+            }
+        }
+    }
+
+    if reachable.is_empty() {
+        return Vec::new();
+    }
+
+    // Tarjan's SCC on reachable subgraph
+    let mut index_counter = 0usize;
+    let mut indices = vec![usize::MAX; n];
+    let mut lowlinks = vec![usize::MAX; n];
+    let mut on_stack = vec![false; n];
+    let mut tarjan_stack: Vec<usize> = Vec::new();
+    let mut sccs: Vec<Vec<usize>> = Vec::new();
+
+    fn strongconnect(
+        v: usize,
+        adj: &[Vec<usize>],
+        reachable: &HashSet<usize>,
+        index_counter: &mut usize,
+        indices: &mut [usize],
+        lowlinks: &mut [usize],
+        on_stack: &mut [bool],
+        stack: &mut Vec<usize>,
+        sccs: &mut Vec<Vec<usize>>,
+    ) {
+        indices[v] = *index_counter;
+        lowlinks[v] = *index_counter;
+        *index_counter += 1;
+        stack.push(v);
+        on_stack[v] = true;
+
+        for &w in &adj[v] {
+            if !reachable.contains(&w) {
+                continue;
+            }
+            if indices[w] == usize::MAX {
+                strongconnect(w, adj, reachable, index_counter, indices, lowlinks, on_stack, stack, sccs);
+                lowlinks[v] = lowlinks[v].min(lowlinks[w]);
+            } else if on_stack[w] {
+                lowlinks[v] = lowlinks[v].min(indices[w]);
+            }
+        }
+
+        if lowlinks[v] == indices[v] {
+            let mut scc = Vec::new();
+            while let Some(w) = stack.pop() {
+                on_stack[w] = false;
+                scc.push(w);
+                if w == v {
+                    break;
+                }
+            }
+            sccs.push(scc);
+        }
+    }
+
+    for &v in &reachable {
+        if indices[v] == usize::MAX {
+            strongconnect(v, adj, &reachable, &mut index_counter, &mut indices, &mut lowlinks, &mut on_stack, &mut tarjan_stack, &mut sccs);
+        }
+    }
+
+    // Return the SCC containing start
+    for scc in sccs {
+        if scc.contains(&start) {
+            return scc;
+        }
+    }
+    Vec::new()
+}
+
+/// Find a cycle in the directed graph. Returns Some(cycle) where cycle is a
+/// list of nodes forming the cycle, or None if the graph is acyclic.
+/// Uses DFS-based cycle detection.
+pub fn find_cycle_directed(graph: &DiGraph) -> Option<Vec<String>> {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return None;
+    }
+
+    let node_to_idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+    let mut adj: Vec<Vec<usize>> = vec![vec![]; n];
+    for &node in &nodes {
+        let i = node_to_idx[node];
+        if let Some(succs) = graph.successors(node) {
+            for &s in &succs {
+                if let Some(&j) = node_to_idx.get(s) {
+                    adj[i].push(j);
+                }
+            }
+            adj[i].sort_unstable();
+        }
+    }
+
+    // DFS-based cycle detection
+    let mut color = vec![0u8; n]; // 0=white, 1=gray, 2=black
+    let mut parent = vec![usize::MAX; n];
+
+    for start in 0..n {
+        if color[start] != 0 {
+            continue;
+        }
+        let mut stack: Vec<(usize, usize)> = vec![(start, 0)]; // (node, neighbor_index)
+        color[start] = 1;
+
+        while let Some((v, idx)) = stack.last_mut() {
+            let v = *v;
+            if *idx < adj[v].len() {
+                let w = adj[v][*idx];
+                *idx += 1;
+                if color[w] == 1 {
+                    // Found a cycle: trace back from v to w
+                    let mut cycle = vec![nodes[w].to_string(), nodes[v].to_string()];
+                    let mut cur = v;
+                    while cur != w {
+                        cur = parent[cur];
+                        if cur == usize::MAX {
+                            break;
+                        }
+                        cycle.push(nodes[cur].to_string());
+                    }
+                    cycle.reverse();
+                    return Some(cycle);
+                } else if color[w] == 0 {
+                    color[w] = 1;
+                    parent[w] = v;
+                    stack.push((w, 0));
+                }
+            } else {
+                color[v] = 2;
+                stack.pop();
+            }
+        }
+    }
+    None
+}
+
+/// Find a cycle in an undirected graph. Returns Some(cycle) or None.
+pub fn find_cycle_undirected(graph: &Graph) -> Option<Vec<String>> {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return None;
+    }
+
+    let node_to_idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+    let mut adj: Vec<Vec<usize>> = vec![vec![]; n];
+    for &node in &nodes {
+        let i = node_to_idx[node];
+        if let Some(nbrs) = graph.neighbors(node) {
+            for &nbr in &nbrs {
+                if let Some(&j) = node_to_idx.get(nbr) {
+                    adj[i].push(j);
+                }
+            }
+            adj[i].sort_unstable();
+        }
+    }
+
+    let mut visited = vec![false; n];
+    let mut parent = vec![usize::MAX; n];
+
+    for start in 0..n {
+        if visited[start] {
+            continue;
+        }
+        let mut stack: Vec<(usize, usize)> = vec![(start, 0)];
+        visited[start] = true;
+
+        while let Some((v, idx)) = stack.last_mut() {
+            let v = *v;
+            if *idx < adj[v].len() {
+                let w = adj[v][*idx];
+                *idx += 1;
+                if w == parent[v] {
+                    continue; // Skip parent edge
+                }
+                if visited[w] {
+                    // Found a cycle
+                    let mut cycle = vec![nodes[w].to_string(), nodes[v].to_string()];
+                    let mut cur = v;
+                    while cur != w {
+                        cur = parent[cur];
+                        if cur == usize::MAX {
+                            break;
+                        }
+                        cycle.push(nodes[cur].to_string());
+                    }
+                    cycle.reverse();
+                    return Some(cycle);
+                }
+                visited[w] = true;
+                parent[w] = v;
+                stack.push((w, 0));
+            } else {
+                stack.pop();
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -10181,6 +10859,18 @@ mod tests {
         is_planar,
         // Barycenter
         barycenter,
+        // Isolates
+        isolates, is_isolate, number_of_isolates,
+        isolates_directed, is_isolate_directed, number_of_isolates_directed,
+        // Boundary
+        edge_boundary, node_boundary,
+        edge_boundary_directed, node_boundary_directed,
+        // is_simple_path
+        is_simple_path, is_simple_path_directed,
+        // Tree recognition
+        is_arborescence, is_branching,
+        // Cycle detection
+        simple_cycles, find_cycle_directed, find_cycle_undirected,
     };
     use fnx_classes::Graph;
     use fnx_classes::digraph::DiGraph;
@@ -16569,5 +17259,285 @@ mod tests {
         let bc = barycenter(&g);
         // All nodes have the same sum of distances in K3
         assert_eq!(bc, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+    }
+
+    // -----------------------------------------------------------------------
+    // Isolates tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_isolates_empty_graph() {
+        let g = Graph::strict();
+        assert_eq!(isolates(&g), Vec::<String>::new());
+        assert_eq!(number_of_isolates(&g), 0);
+    }
+
+    #[test]
+    fn test_isolates_with_isolated_nodes() {
+        let mut g = Graph::strict();
+        g.add_node("a");
+        g.add_node("b");
+        let _ = g.add_edge("c", "d");
+        assert_eq!(isolates(&g), vec!["a", "b"]);
+        assert_eq!(number_of_isolates(&g), 2);
+        assert!(is_isolate(&g, "a"));
+        assert!(!is_isolate(&g, "c"));
+        assert!(!is_isolate(&g, "z")); // not in graph
+    }
+
+    #[test]
+    fn test_isolates_directed() {
+        let mut g = DiGraph::strict();
+        g.add_node("a");
+        g.add_node("b");
+        let _ = g.add_edge("c", "d");
+        assert_eq!(isolates_directed(&g), vec!["a", "b"]);
+        assert_eq!(number_of_isolates_directed(&g), 2);
+        assert!(is_isolate_directed(&g, "a"));
+        assert!(!is_isolate_directed(&g, "c"));
+        // "d" has in-degree 1, so not isolated
+        assert!(!is_isolate_directed(&g, "d"));
+    }
+
+    // -----------------------------------------------------------------------
+    // Boundary tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_edge_boundary() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "d");
+        let eb = edge_boundary(&g, &["a", "b"], None);
+        // Edge from b to c crosses the boundary
+        assert_eq!(eb, vec![("b".to_string(), "c".to_string())]);
+    }
+
+    #[test]
+    fn test_edge_boundary_with_nbunch2() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("b", "d");
+        let eb = edge_boundary(&g, &["a", "b"], Some(&["c"]));
+        // Only edges to nodes in nbunch2
+        assert_eq!(eb, vec![("b".to_string(), "c".to_string())]);
+    }
+
+    #[test]
+    fn test_node_boundary() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "d");
+        let nb = node_boundary(&g, &["a", "b"]);
+        assert_eq!(nb, vec!["c"]);
+    }
+
+    #[test]
+    fn test_node_boundary_directed() {
+        let mut g = DiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "a");
+        let nb = node_boundary_directed(&g, &["a"]);
+        // Only successors of "a" outside the set: "b"
+        assert_eq!(nb, vec!["b"]);
+    }
+
+    // -----------------------------------------------------------------------
+    // is_simple_path tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_is_simple_path_valid() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "d");
+        assert!(is_simple_path(&g, &["a", "b", "c", "d"]));
+        assert!(is_simple_path(&g, &["a", "b"]));
+        assert!(is_simple_path(&g, &["a"]));
+    }
+
+    #[test]
+    fn test_is_simple_path_invalid() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        // Repeated node
+        assert!(!is_simple_path(&g, &["a", "b", "a"]));
+        // No edge between a and c
+        assert!(!is_simple_path(&g, &["a", "c"]));
+        // Empty path
+        assert!(!is_simple_path(&g, &[]));
+        // Node not in graph
+        assert!(!is_simple_path(&g, &["z"]));
+    }
+
+    #[test]
+    fn test_is_simple_path_directed() {
+        let mut g = DiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        assert!(is_simple_path_directed(&g, &["a", "b", "c"]));
+        // Reverse direction: no edge b->a
+        assert!(!is_simple_path_directed(&g, &["c", "b", "a"]));
+    }
+
+    // -----------------------------------------------------------------------
+    // Tree recognition tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_is_arborescence_simple_tree() {
+        let mut g = DiGraph::strict();
+        let _ = g.add_edge("r", "a");
+        let _ = g.add_edge("r", "b");
+        let _ = g.add_edge("a", "c");
+        assert!(is_arborescence(&g));
+    }
+
+    #[test]
+    fn test_is_arborescence_not_tree() {
+        let mut g = DiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("c", "b"); // b has in-degree 2
+        assert!(!is_arborescence(&g));
+    }
+
+    #[test]
+    fn test_is_arborescence_cycle() {
+        let mut g = DiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "a");
+        assert!(!is_arborescence(&g)); // No root with in-degree 0 (cycle has n edges for n nodes)
+    }
+
+    #[test]
+    fn test_is_arborescence_empty() {
+        let g = DiGraph::strict();
+        assert!(!is_arborescence(&g));
+    }
+
+    #[test]
+    fn test_is_branching_forest() {
+        let mut g = DiGraph::strict();
+        let _ = g.add_edge("r1", "a");
+        let _ = g.add_edge("r2", "b");
+        assert!(is_branching(&g));
+    }
+
+    #[test]
+    fn test_is_branching_not_forest() {
+        let mut g = DiGraph::strict();
+        let _ = g.add_edge("a", "c");
+        let _ = g.add_edge("b", "c"); // c has in-degree 2
+        assert!(!is_branching(&g));
+    }
+
+    #[test]
+    fn test_is_branching_empty() {
+        let g = DiGraph::strict();
+        assert!(is_branching(&g));
+    }
+
+    // -----------------------------------------------------------------------
+    // simple_cycles tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_simple_cycles_triangle() {
+        let mut g = DiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "a");
+        let cycles = simple_cycles(&g);
+        assert_eq!(cycles.len(), 1);
+        // The cycle should contain all three nodes
+        assert_eq!(cycles[0].len(), 3);
+    }
+
+    #[test]
+    fn test_simple_cycles_self_loop() {
+        let mut g = DiGraph::strict();
+        let _ = g.add_edge("a", "a");
+        let cycles = simple_cycles(&g);
+        assert_eq!(cycles.len(), 1);
+        assert_eq!(cycles[0], vec!["a"]);
+    }
+
+    #[test]
+    fn test_simple_cycles_dag_no_cycles() {
+        let mut g = DiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let cycles = simple_cycles(&g);
+        assert!(cycles.is_empty());
+    }
+
+    #[test]
+    fn test_simple_cycles_two_cycles() {
+        let mut g = DiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "a");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "b");
+        let cycles = simple_cycles(&g);
+        assert_eq!(cycles.len(), 2);
+    }
+
+    // -----------------------------------------------------------------------
+    // find_cycle tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_find_cycle_directed_exists() {
+        let mut g = DiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "a");
+        let cycle = find_cycle_directed(&g);
+        assert!(cycle.is_some());
+        let c = cycle.unwrap();
+        assert!(c.len() >= 2);
+    }
+
+    #[test]
+    fn test_find_cycle_directed_dag() {
+        let mut g = DiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        assert!(find_cycle_directed(&g).is_none());
+    }
+
+    #[test]
+    fn test_find_cycle_undirected_exists() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "a");
+        let cycle = find_cycle_undirected(&g);
+        assert!(cycle.is_some());
+        let c = cycle.unwrap();
+        assert!(c.len() >= 3);
+    }
+
+    #[test]
+    fn test_find_cycle_undirected_tree() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        assert!(find_cycle_undirected(&g).is_none());
+    }
+
+    #[test]
+    fn test_find_cycle_empty() {
+        let g = DiGraph::strict();
+        assert!(find_cycle_directed(&g).is_none());
+        let g2 = Graph::strict();
+        assert!(find_cycle_undirected(&g2).is_none());
     }
 }

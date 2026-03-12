@@ -318,6 +318,36 @@ from franken_networkx._fnx import (
     topological_generations,
 )
 
+# Algorithm functions — graph isomorphism
+from franken_networkx._fnx import (
+    could_be_isomorphic,
+    fast_could_be_isomorphic,
+    faster_could_be_isomorphic,
+    is_isomorphic,
+)
+
+# Planarity
+from franken_networkx._fnx import is_planar
+
+# Barycenter
+from franken_networkx._fnx import barycenter
+
+# Algorithm functions — A* shortest path
+from franken_networkx._fnx import (
+    astar_path,
+    astar_path_length,
+    shortest_simple_paths,
+)
+
+# Algorithm functions — approximation
+from franken_networkx._fnx import (
+    clique_removal,
+    large_clique_size,
+    max_clique,
+    maximum_independent_set,
+    min_weighted_vertex_cover,
+)
+
 # Graph generators — classic
 from franken_networkx._fnx import (
     complete_graph,
@@ -1083,6 +1113,25 @@ __all__ = [
     "lexicographic_topological_sort",
     "topological_sort",
     "topological_generations",
+    # Algorithms — graph isomorphism
+    "is_isomorphic",
+    "could_be_isomorphic",
+    "fast_could_be_isomorphic",
+    "faster_could_be_isomorphic",
+    # Algorithms — A* shortest path
+    "astar_path",
+    "astar_path_length",
+    "shortest_simple_paths",
+    # Algorithms — approximation
+    "min_weighted_vertex_cover",
+    "maximum_independent_set",
+    "max_clique",
+    "clique_removal",
+    "large_clique_size",
+    # Algorithms — planarity
+    "is_planar",
+    # Algorithms — barycenter
+    "barycenter",
     # Generators — classic
     "complete_graph",
     "cycle_graph",

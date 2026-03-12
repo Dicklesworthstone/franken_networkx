@@ -41,7 +41,7 @@ nx.shortest_path(G, 0, 99)
 
 | Family | Functions |
 |--------|-----------|
-| Shortest path | `shortest_path`, `all_shortest_paths`, `dijkstra_path`, `bellman_ford_path`, `multi_source_dijkstra`, `has_path`, `shortest_path_length`, `average_shortest_path_length`, `single_source_shortest_path`, `single_source_shortest_path_length`, `all_pairs_shortest_path`, `all_pairs_shortest_path_length` |
+| Shortest path | `shortest_path`, `all_shortest_paths`, `dijkstra_path`, `bellman_ford_path`, `multi_source_dijkstra`, `has_path`, `shortest_path_length`, `average_shortest_path_length`, `single_source_shortest_path`, `single_source_shortest_path_length`, `all_pairs_shortest_path`, `all_pairs_shortest_path_length`, `astar_path`, `astar_path_length`, `shortest_simple_paths` |
 | Connectivity | `is_connected`, `connected_components`, `number_connected_components`, `node_connectivity`, `edge_connectivity`, `minimum_node_cut`, `bridges`, `articulation_points`, `strongly_connected_components`, `number_strongly_connected_components`, `is_strongly_connected`, `condensation`, `weakly_connected_components`, `number_weakly_connected_components`, `is_weakly_connected` |
 | Centrality | `pagerank`, `betweenness_centrality`, `edge_betweenness_centrality`, `closeness_centrality`, `harmonic_centrality`, `eigenvector_centrality`, `degree_centrality`, `katz_centrality`, `hits` |
 | Clustering | `clustering`, `triangles`, `transitivity`, `average_clustering`, `square_clustering` |
@@ -53,7 +53,7 @@ nx.shortest_path(G, 0, 99)
 | Operators | `complement`, `union`, `intersection`, `compose`, `difference`, `symmetric_difference` |
 | Bipartite | `is_bipartite`, `bipartite_sets` |
 | Coloring | `greedy_color` |
-| Distance | `diameter`, `radius`, `center`, `periphery`, `eccentricity`, `density` |
+| Distance | `diameter`, `radius`, `center`, `periphery`, `eccentricity`, `density`, `barycenter` |
 | Efficiency | `global_efficiency`, `local_efficiency` |
 | Traversal | `bfs_edges`, `bfs_tree`, `bfs_predecessors`, `bfs_successors`, `bfs_layers`, `descendants_at_distance`, `dfs_edges`, `dfs_tree`, `dfs_predecessors`, `dfs_successors`, `dfs_preorder_nodes`, `dfs_postorder_nodes` |
 | DAG | `topological_sort`, `topological_generations`, `dag_longest_path`, `dag_longest_path_length`, `lexicographic_topological_sort`, `is_directed_acyclic_graph`, `ancestors`, `descendants`, `transitive_closure`, `transitive_reduction` |
@@ -61,6 +61,9 @@ nx.shortest_path(G, 0, 99)
 | Reciprocity | `reciprocity`, `overall_reciprocity` |
 | Graph metrics | `average_degree_connectivity`, `rich_club_coefficient`, `s_metric` |
 | Community | `louvain_communities`, `greedy_modularity_communities`, `label_propagation_communities`, `modularity` |
+| Isomorphism | `is_isomorphic`, `could_be_isomorphic`, `fast_could_be_isomorphic`, `faster_could_be_isomorphic` |
+| Planarity | `is_planar` |
+| Approximation | `min_weighted_vertex_cover`, `maximum_independent_set`, `max_clique`, `clique_removal`, `large_clique_size` |
 | Dominating | `dominating_set`, `is_dominating_set` |
 | Other | `core_number`, `voterank`, `find_cliques`, `graph_clique_number`, `number_of_cliques`, `degree_assortativity_coefficient`, `average_neighbor_degree`, `wiener_index`, `non_neighbors`, `is_empty`, `relabel_nodes`, `degree_histogram` |
 | Generators | `path_graph`, `cycle_graph`, `star_graph`, `complete_graph`, `empty_graph`, `gnp_random_graph`, `watts_strogatz_graph`, `barabasi_albert_graph` |

@@ -3268,6 +3268,285 @@ fn greedy_modularity_communities(
 }
 
 // ===========================================================================
+// A* shortest path
+// ===========================================================================
+
+/// A* shortest path from source to target.
+///
+/// ``heuristic`` is an optional Python callable ``heuristic(u, v) -> float``
+/// where *v* is the target node.  When omitted, A* degenerates to Dijkstra.
+#[pyfunction]
+#[pyo3(signature = (g, source, target, heuristic=None, weight="weight"))]
+fn astar_path(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    target: &Bound<'_, PyAny>,
+    heuristic: Option<&Bound<'_, PyAny>>,
+    weight: &str,
+) -> PyResult<Vec<PyObject>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let src_key = node_key_to_string(py, source)?;
+    let tgt_key = node_key_to_string(py, target)?;
+    validate_node(&gr, &src_key, source)?;
+    validate_node(&gr, &tgt_key, target)?;
+
+    let result = if let Some(callable) = heuristic {
+        // With heuristic: build a closure that calls back into Python.
+        // The closure converts internal string keys back to Python objects
+        // and invokes the user-supplied heuristic(u, target).
+        let tgt_obj = target.clone().unbind();
+        let callable_obj = callable.clone().unbind();
+        let h = |node_str: &str| -> f64 {
+            let node_py = gr.py_node_key(py, node_str);
+            let tgt_bound = tgt_obj.bind(py);
+            callable_obj
+                .bind(py)
+                .call1((node_py, tgt_bound))
+                .and_then(|r| r.extract::<f64>())
+                .unwrap_or(0.0)
+        };
+        fnx_algorithms::astar_path(inner, &src_key, &tgt_key, weight, Some(&h))
+    } else {
+        // Without heuristic: can release the GIL.
+        py.allow_threads(|| {
+            fnx_algorithms::astar_path(inner, &src_key, &tgt_key, weight, None)
+        })
+    };
+
+    match result {
+        Some(path) => Ok(path.iter().map(|n| gr.py_node_key(py, n)).collect()),
+        None => Err(pyo3::exceptions::PyValueError::new_err(
+            format!("No path between {} and {}.", src_key, tgt_key),
+        )),
+    }
+}
+
+/// A* shortest path length from source to target.
+#[pyfunction]
+#[pyo3(signature = (g, source, target, heuristic=None, weight="weight"))]
+fn astar_path_length(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    target: &Bound<'_, PyAny>,
+    heuristic: Option<&Bound<'_, PyAny>>,
+    weight: &str,
+) -> PyResult<f64> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let src_key = node_key_to_string(py, source)?;
+    let tgt_key = node_key_to_string(py, target)?;
+    validate_node(&gr, &src_key, source)?;
+    validate_node(&gr, &tgt_key, target)?;
+
+    let result = if let Some(callable) = heuristic {
+        let tgt_obj = target.clone().unbind();
+        let callable_obj = callable.clone().unbind();
+        let h = |node_str: &str| -> f64 {
+            let node_py = gr.py_node_key(py, node_str);
+            let tgt_bound = tgt_obj.bind(py);
+            callable_obj
+                .bind(py)
+                .call1((node_py, tgt_bound))
+                .and_then(|r| r.extract::<f64>())
+                .unwrap_or(0.0)
+        };
+        fnx_algorithms::astar_path_length(inner, &src_key, &tgt_key, weight, Some(&h))
+    } else {
+        py.allow_threads(|| {
+            fnx_algorithms::astar_path_length(inner, &src_key, &tgt_key, weight, None)
+        })
+    };
+
+    match result {
+        Some(length) => Ok(length),
+        None => Err(pyo3::exceptions::PyValueError::new_err(
+            format!("No path between {} and {}.", src_key, tgt_key),
+        )),
+    }
+}
+
+/// Yen's K-shortest simple paths from source to target.
+#[pyfunction]
+#[pyo3(signature = (g, source, target, weight=None))]
+fn shortest_simple_paths(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    target: &Bound<'_, PyAny>,
+    weight: Option<&str>,
+) -> PyResult<Vec<Vec<PyObject>>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let src_key = node_key_to_string(py, source)?;
+    let tgt_key = node_key_to_string(py, target)?;
+    validate_node(&gr, &src_key, source)?;
+    validate_node(&gr, &tgt_key, target)?;
+    let result = py.allow_threads(|| {
+        fnx_algorithms::shortest_simple_paths(inner, &src_key, &tgt_key, weight)
+    });
+    Ok(result
+        .iter()
+        .map(|path| path.iter().map(|n| gr.py_node_key(py, n)).collect())
+        .collect())
+}
+
+// ===========================================================================
+// Graph isomorphism
+// ===========================================================================
+
+/// Check if two graphs are isomorphic (VF2 algorithm).
+#[pyfunction]
+#[pyo3(signature = (g1, g2))]
+fn is_isomorphic(py: Python<'_>, g1: &Bound<'_, PyAny>, g2: &Bound<'_, PyAny>) -> PyResult<bool> {
+    let gr1 = extract_graph(g1)?;
+    let gr2 = extract_graph(g2)?;
+    let inner1 = gr1.undirected();
+    let inner2 = gr2.undirected();
+    Ok(py.allow_threads(|| fnx_algorithms::is_isomorphic(inner1, inner2)))
+}
+
+/// Check if two graphs could be isomorphic (degree sequence heuristic).
+#[pyfunction]
+#[pyo3(signature = (g1, g2))]
+fn could_be_isomorphic(py: Python<'_>, g1: &Bound<'_, PyAny>, g2: &Bound<'_, PyAny>) -> PyResult<bool> {
+    let gr1 = extract_graph(g1)?;
+    let gr2 = extract_graph(g2)?;
+    let inner1 = gr1.undirected();
+    let inner2 = gr2.undirected();
+    Ok(py.allow_threads(|| fnx_algorithms::could_be_isomorphic(inner1, inner2)))
+}
+
+/// Fast check if two graphs could be isomorphic (node/edge count + degree sequence).
+#[pyfunction]
+#[pyo3(signature = (g1, g2))]
+fn fast_could_be_isomorphic(py: Python<'_>, g1: &Bound<'_, PyAny>, g2: &Bound<'_, PyAny>) -> PyResult<bool> {
+    let gr1 = extract_graph(g1)?;
+    let gr2 = extract_graph(g2)?;
+    let inner1 = gr1.undirected();
+    let inner2 = gr2.undirected();
+    Ok(py.allow_threads(|| fnx_algorithms::fast_could_be_isomorphic(inner1, inner2)))
+}
+
+// ===========================================================================
+// Approximation algorithms
+// ===========================================================================
+
+/// 2-approximation for minimum weighted vertex cover.
+#[pyfunction]
+#[pyo3(signature = (g, weight=None))]
+fn min_weighted_vertex_cover(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: Option<&str>,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let attr = weight.unwrap_or("weight");
+    let result = py.allow_threads(|| fnx_algorithms::min_weighted_vertex_cover(inner, attr));
+    let dict = pyo3::types::PyDict::new(py);
+    for (node, w) in &result {
+        dict.set_item(gr.py_node_key(py, node), w)?;
+    }
+    // NetworkX returns a set of nodes (ignoring weights), so return just a set.
+    let pyset = pyo3::types::PySet::new(py, result.keys().map(|n| gr.py_node_key(py, n)).collect::<Vec<_>>())?;
+    Ok(pyset.into_any().unbind())
+}
+
+/// Greedy approximation for maximum independent set.
+#[pyfunction]
+#[pyo3(signature = (g,))]
+fn maximum_independent_set(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::maximum_independent_set(inner));
+    let pyset = pyo3::types::PySet::new(py, result.iter().map(|n| gr.py_node_key(py, n)).collect::<Vec<_>>())?;
+    Ok(pyset.into_any().unbind())
+}
+
+/// Greedy approximation for maximum clique.
+#[pyfunction]
+#[pyo3(signature = (g,))]
+fn max_clique(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::max_clique_approx(inner));
+    let pyset = pyo3::types::PySet::new(py, result.iter().map(|n| gr.py_node_key(py, n)).collect::<Vec<_>>())?;
+    Ok(pyset.into_any().unbind())
+}
+
+/// Ramsey-based clique removal approximation.
+///
+/// Returns (independent_set, list_of_cliques).
+#[pyfunction]
+#[pyo3(signature = (g,))]
+fn clique_removal(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<(PyObject, Vec<PyObject>)> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let (iset, cliques) = py.allow_threads(|| fnx_algorithms::clique_removal(inner));
+    let py_iset = pyo3::types::PySet::new(
+        py,
+        iset.iter().map(|n| gr.py_node_key(py, n)).collect::<Vec<_>>(),
+    )?;
+    let py_cliques: Vec<PyObject> = cliques
+        .iter()
+        .map(|clique| {
+            pyo3::types::PySet::new(
+                py,
+                clique.iter().map(|n| gr.py_node_key(py, n)).collect::<Vec<_>>(),
+            )
+            .map(|s| s.into_any().unbind())
+        })
+        .collect::<PyResult<Vec<_>>>()?;
+    Ok((py_iset.into_any().unbind(), py_cliques))
+}
+
+/// Return the size of the largest clique in the graph (approximate).
+#[pyfunction]
+#[pyo3(signature = (g,))]
+fn large_clique_size(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usize> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::max_clique_approx(inner));
+    Ok(result.len())
+}
+
+/// Fastest isomorphism pre-check (order + size only).
+#[pyfunction]
+#[pyo3(signature = (g1, g2))]
+fn faster_could_be_isomorphic(py: Python<'_>, g1: &Bound<'_, PyAny>, g2: &Bound<'_, PyAny>) -> PyResult<bool> {
+    let gr1 = extract_graph(g1)?;
+    let gr2 = extract_graph(g2)?;
+    let inner1 = gr1.undirected();
+    let inner2 = gr2.undirected();
+    Ok(py.allow_threads(|| fnx_algorithms::faster_could_be_isomorphic(inner1, inner2)))
+}
+
+/// Check if a graph is planar (can be drawn without edge crossings).
+#[pyfunction]
+#[pyo3(signature = (g,))]
+fn is_planar(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    Ok(py.allow_threads(|| fnx_algorithms::is_planar(inner)))
+}
+
+/// Find the barycenter of a connected graph.
+///
+/// The barycenter is the set of nodes minimizing the sum of shortest
+/// path distances to all other nodes.
+#[pyfunction]
+#[pyo3(signature = (g,))]
+fn barycenter(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::barycenter(inner));
+    Ok(result.iter().map(|n| gr.py_node_key(py, n)).collect())
+}
+
+// ===========================================================================
 // Registration
 // ===========================================================================
 
@@ -3427,5 +3706,24 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(difference, m)?)?;
     m.add_function(wrap_pyfunction!(symmetric_difference, m)?)?;
     m.add_function(wrap_pyfunction!(degree_histogram, m)?)?;
+    // A* shortest path
+    m.add_function(wrap_pyfunction!(astar_path, m)?)?;
+    m.add_function(wrap_pyfunction!(astar_path_length, m)?)?;
+    m.add_function(wrap_pyfunction!(shortest_simple_paths, m)?)?;
+    // Graph isomorphism
+    m.add_function(wrap_pyfunction!(is_isomorphic, m)?)?;
+    m.add_function(wrap_pyfunction!(could_be_isomorphic, m)?)?;
+    m.add_function(wrap_pyfunction!(fast_could_be_isomorphic, m)?)?;
+    m.add_function(wrap_pyfunction!(faster_could_be_isomorphic, m)?)?;
+    // Planarity
+    m.add_function(wrap_pyfunction!(is_planar, m)?)?;
+    // Barycenter
+    m.add_function(wrap_pyfunction!(barycenter, m)?)?;
+    // Approximation algorithms
+    m.add_function(wrap_pyfunction!(min_weighted_vertex_cover, m)?)?;
+    m.add_function(wrap_pyfunction!(maximum_independent_set, m)?)?;
+    m.add_function(wrap_pyfunction!(max_clique, m)?)?;
+    m.add_function(wrap_pyfunction!(clique_removal, m)?)?;
+    m.add_function(wrap_pyfunction!(large_clique_size, m)?)?;
     Ok(())
 }

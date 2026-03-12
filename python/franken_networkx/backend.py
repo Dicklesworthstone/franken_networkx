@@ -139,6 +139,25 @@ _SUPPORTED_ALGORITHMS = {
     "average_degree_connectivity": fnx.average_degree_connectivity,
     "rich_club_coefficient": fnx.rich_club_coefficient,
     "s_metric": fnx.s_metric,
+    # Graph isomorphism
+    "is_isomorphic": fnx.is_isomorphic,
+    "could_be_isomorphic": fnx.could_be_isomorphic,
+    "fast_could_be_isomorphic": fnx.fast_could_be_isomorphic,
+    "faster_could_be_isomorphic": fnx.faster_could_be_isomorphic,
+    # Planarity
+    "is_planar": fnx.is_planar,
+    # Barycenter
+    "barycenter": fnx.barycenter,
+    # A* shortest path
+    "astar_path": fnx.astar_path,
+    "astar_path_length": fnx.astar_path_length,
+    "shortest_simple_paths": fnx.shortest_simple_paths,
+    # Approximation algorithms
+    "min_weighted_vertex_cover": fnx.min_weighted_vertex_cover,
+    "maximum_independent_set": fnx.maximum_independent_set,
+    "max_clique": fnx.max_clique,
+    "clique_removal": fnx.clique_removal,
+    "large_clique_size": fnx.large_clique_size,
     # Strongly connected components
     "strongly_connected_components": fnx.strongly_connected_components,
     "number_strongly_connected_components": fnx.number_strongly_connected_components,

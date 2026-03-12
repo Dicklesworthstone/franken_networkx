@@ -650,6 +650,62 @@ def rich_club_coefficient(g: Graph) -> dict[int, float]: ...
 def s_metric(g: Graph) -> float: ...
 
 # ---------------------------------------------------------------------------
+# Graph isomorphism
+# ---------------------------------------------------------------------------
+
+def is_isomorphic(g1: Graph, g2: Graph) -> bool: ...
+def could_be_isomorphic(g1: Graph, g2: Graph) -> bool: ...
+def fast_could_be_isomorphic(g1: Graph, g2: Graph) -> bool: ...
+def faster_could_be_isomorphic(g1: Graph, g2: Graph) -> bool: ...
+
+# ---------------------------------------------------------------------------
+# A* shortest path
+# ---------------------------------------------------------------------------
+
+def astar_path(
+    g: Graph,
+    source: Any,
+    target: Any,
+    heuristic: Optional[Any] = None,
+    weight: str = "weight",
+) -> list[Any]: ...
+def astar_path_length(
+    g: Graph,
+    source: Any,
+    target: Any,
+    heuristic: Optional[Any] = None,
+    weight: str = "weight",
+) -> float: ...
+def shortest_simple_paths(
+    g: Graph,
+    source: Any,
+    target: Any,
+    weight: Optional[str] = None,
+) -> list[list[Any]]: ...
+
+# ---------------------------------------------------------------------------
+# Approximation algorithms
+# ---------------------------------------------------------------------------
+
+def min_weighted_vertex_cover(g: Graph, weight: Optional[str] = None) -> set[Any]: ...
+def maximum_independent_set(g: Graph) -> set[Any]: ...
+def max_clique(g: Graph) -> set[Any]: ...
+def clique_removal(g: Graph) -> tuple[set[Any], list[set[Any]]]: ...
+def large_clique_size(g: Graph) -> int: ...
+
+# ---------------------------------------------------------------------------
+# Planarity
+# ---------------------------------------------------------------------------
+
+def is_planar(g: Graph) -> bool: ...
+
+# ---------------------------------------------------------------------------
+# Distance measures — barycenter
+# ---------------------------------------------------------------------------
+
+def barycenter(g: Graph) -> list[Any]: ...
+
+# ---------------------------------------------------------------------------
 # Community detection
 # ---------------------------------------------------------------------------
 
