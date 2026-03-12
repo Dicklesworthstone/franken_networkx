@@ -290,6 +290,10 @@ from franken_networkx._fnx import (
     trivial_graph,
     binomial_tree,
     full_rary_tree,
+    circulant_graph,
+    kneser_graph,
+    paley_graph,
+    chordal_cycle_graph,
 )
 
 # Algorithm functions — single-source shortest paths
@@ -1271,6 +1275,10 @@ __all__ = [
     "trivial_graph",
     "binomial_tree",
     "full_rary_tree",
+    "circulant_graph",
+    "kneser_graph",
+    "paley_graph",
+    "chordal_cycle_graph",
     # Algorithms — single-source shortest paths
     "single_source_shortest_path",
     "single_source_shortest_path_length",

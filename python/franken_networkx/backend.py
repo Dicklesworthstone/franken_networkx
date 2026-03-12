@@ -228,6 +228,10 @@ _SUPPORTED_ALGORITHMS = {
     "trivial_graph": fnx.trivial_graph,
     "binomial_tree": fnx.binomial_tree,
     "full_rary_tree": fnx.full_rary_tree,
+    "circulant_graph": fnx.circulant_graph,
+    "kneser_graph": fnx.kneser_graph,
+    "paley_graph": fnx.paley_graph,
+    "chordal_cycle_graph": fnx.chordal_cycle_graph,
     # Single-source shortest paths
     "single_source_shortest_path": fnx.single_source_shortest_path,
     "single_source_shortest_path_length": fnx.single_source_shortest_path_length,

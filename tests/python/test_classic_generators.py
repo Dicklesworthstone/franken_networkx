@@ -215,6 +215,26 @@ class TestParametricGenerators:
         assert g.number_of_nodes() == 7
         assert g.number_of_edges() == 6
 
+    def test_circulant_graph(self):
+        g = fnx.circulant_graph(6, [1, 2])
+        assert g.number_of_nodes() == 6
+        assert g.number_of_edges() == 12
+
+    def test_kneser_graph_petersen(self):
+        g = fnx.kneser_graph(5, 2)
+        assert g.number_of_nodes() == 10
+        assert g.number_of_edges() == 15
+
+    def test_paley_graph(self):
+        g = fnx.paley_graph(5)
+        assert g.number_of_nodes() == 5
+        assert g.number_of_edges() == 5
+
+    def test_chordal_cycle_graph(self):
+        g = fnx.chordal_cycle_graph(6)
+        assert g.number_of_nodes() == 6
+        assert g.number_of_edges() == 12
+
     def test_petersen_is_connected(self):
         g = fnx.petersen_graph()
         assert fnx.is_connected(g)

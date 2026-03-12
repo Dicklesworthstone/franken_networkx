@@ -2856,6 +2856,34 @@ pub fn full_rary_tree(py: Python<'_>, r: usize, n: usize) -> PyResult<PyObject> 
     rust_graph_to_py_standalone(py, &result)
 }
 
+#[pyfunction]
+#[pyo3(signature = (n, offsets))]
+pub fn circulant_graph(py: Python<'_>, n: usize, offsets: Vec<usize>) -> PyResult<PyObject> {
+    let result = py.allow_threads(|| fnx_algorithms::circulant_graph(n, &offsets));
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+#[pyo3(signature = (n, k))]
+pub fn kneser_graph(py: Python<'_>, n: usize, k: usize) -> PyResult<PyObject> {
+    let result = py.allow_threads(|| fnx_algorithms::kneser_graph(n, k));
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+#[pyo3(signature = (q,))]
+pub fn paley_graph(py: Python<'_>, q: usize) -> PyResult<PyObject> {
+    let result = py.allow_threads(|| fnx_algorithms::paley_graph(q));
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+#[pyo3(signature = (n,))]
+pub fn chordal_cycle_graph(py: Python<'_>, n: usize) -> PyResult<PyObject> {
+    let result = py.allow_threads(|| fnx_algorithms::chordal_cycle_graph(n));
+    rust_graph_to_py_standalone(py, &result)
+}
+
 // ===========================================================================
 // Single-source shortest paths
 // ===========================================================================
@@ -5579,6 +5607,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(trivial_graph, m)?)?;
     m.add_function(wrap_pyfunction!(binomial_tree, m)?)?;
     m.add_function(wrap_pyfunction!(full_rary_tree, m)?)?;
+    m.add_function(wrap_pyfunction!(circulant_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(kneser_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(paley_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(chordal_cycle_graph, m)?)?;
     // Single-source shortest paths
     m.add_function(wrap_pyfunction!(single_source_shortest_path, m)?)?;
     m.add_function(wrap_pyfunction!(single_source_shortest_path_length, m)?)?;

@@ -13703,6 +13703,102 @@ pub fn full_rary_tree(r: usize, n: usize) -> Graph {
     g
 }
 
+/// Return the circulant graph C_n(offsets).
+#[must_use]
+pub fn circulant_graph(n: usize, offsets: &[usize]) -> Graph {
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, n);
+    for i in 0..n {
+        for &off in offsets {
+            let j = (i + off) % n;
+            if i != j {
+                gen_edge(&mut g, i, j);
+            }
+        }
+    }
+    g
+}
+
+/// Return the Kneser graph KG(n, k).
+/// Nodes are all k-element subsets of {0,...,n-1}; edges connect disjoint subsets.
+#[must_use]
+pub fn kneser_graph(n: usize, k: usize) -> Graph {
+    let mut g = Graph::strict();
+    if k > n { return g; }
+    let subsets = combinations(n, k);
+    // Name each subset as comma-separated indices
+    let names: Vec<String> = subsets.iter().map(|s| {
+        s.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",")
+    }).collect();
+    for name in &names {
+        g.add_node(name.as_str());
+    }
+    for i in 0..subsets.len() {
+        for j in (i + 1)..subsets.len() {
+            // Check if disjoint
+            if subsets[i].iter().all(|x| !subsets[j].contains(x)) {
+                let _ = g.add_edge(names[i].as_str(), names[j].as_str());
+            }
+        }
+    }
+    g
+}
+
+fn combinations(n: usize, k: usize) -> Vec<Vec<usize>> {
+    let mut result = Vec::new();
+    let mut combo = Vec::with_capacity(k);
+    fn backtrack(start: usize, n: usize, k: usize, combo: &mut Vec<usize>, result: &mut Vec<Vec<usize>>) {
+        if combo.len() == k {
+            result.push(combo.clone());
+            return;
+        }
+        for i in start..n {
+            combo.push(i);
+            backtrack(i + 1, n, k, combo, result);
+            combo.pop();
+        }
+    }
+    backtrack(0, n, k, &mut combo, &mut result);
+    result
+}
+
+/// Return the Paley graph of order q (q must be a prime power ≡ 1 mod 4).
+/// For simplicity, this only supports prime q.
+#[must_use]
+pub fn paley_graph(q: usize) -> Graph {
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, q);
+    // Compute quadratic residues mod q
+    let mut is_qr = vec![false; q];
+    for i in 1..q {
+        is_qr[(i * i) % q] = true;
+    }
+    for i in 0..q {
+        for j in (i + 1)..q {
+            let diff = j.abs_diff(i);
+            if is_qr[diff % q] {
+                gen_edge(&mut g, i, j);
+            }
+        }
+    }
+    g
+}
+
+/// Return the chordal cycle graph C_n with chords.
+/// This creates a cycle of n nodes where node i is also connected to node (i+2) mod n.
+#[must_use]
+pub fn chordal_cycle_graph(n: usize) -> Graph {
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, n);
+    for i in 0..n {
+        gen_edge(&mut g, i, (i + 1) % n);
+        if n > 3 {
+            gen_edge(&mut g, i, (i + 2) % n);
+        }
+    }
+    g
+}
+
 // ===========================================================================
 // Traversal algorithms — additional
 // ===========================================================================
@@ -14334,6 +14430,7 @@ mod tests {
         lollipop_graph, tadpole_graph, turan_graph, windmill_graph, hypercube_graph,
         complete_bipartite_graph, complete_multipartite_graph, grid_2d_graph,
         null_graph, trivial_graph, binomial_tree, full_rary_tree,
+        circulant_graph, kneser_graph, paley_graph, chordal_cycle_graph,
         // Traversal — additional
         edge_bfs, edge_bfs_directed, edge_dfs, edge_dfs_directed,
         // Matching — additional
@@ -22788,5 +22885,38 @@ mod tests {
         let g = full_rary_tree(2, 7);
         assert_eq!(g.node_count(), 7);
         assert_eq!(g.edge_count(), 6); // tree
+    }
+
+    #[test]
+    fn test_circulant_graph() {
+        let g = circulant_graph(6, &[1, 2]);
+        assert_eq!(g.node_count(), 6);
+        // Each node connects to 4 others (offset 1 and 2 in both directions)
+        // but some may overlap → 12 edges total for C_6([1,2])
+        assert_eq!(g.edge_count(), 12);
+    }
+
+    #[test]
+    fn test_kneser_graph_petersen() {
+        // KG(5,2) is the Petersen graph: 10 nodes, 15 edges
+        let g = kneser_graph(5, 2);
+        assert_eq!(g.node_count(), 10);
+        assert_eq!(g.edge_count(), 15);
+    }
+
+    #[test]
+    fn test_paley_graph_5() {
+        // Paley(5): QR = {1,4}, edges when diff is QR
+        let g = paley_graph(5);
+        assert_eq!(g.node_count(), 5);
+        assert_eq!(g.edge_count(), 5); // C5
+    }
+
+    #[test]
+    fn test_chordal_cycle_graph() {
+        let g = chordal_cycle_graph(6);
+        assert_eq!(g.node_count(), 6);
+        // 6 cycle edges + 6 chord edges = 12
+        assert_eq!(g.edge_count(), 12);
     }
 }
