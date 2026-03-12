@@ -180,6 +180,13 @@ _SUPPORTED_ALGORITHMS = {
     "is_empty": fnx.is_empty,
     "non_neighbors": fnx.non_neighbors,
     "number_of_cliques": fnx.number_of_cliques,
+    "all_triangles": fnx.all_triangles,
+    "node_clique_number": fnx.node_clique_number,
+    "enumerate_all_cliques": fnx.enumerate_all_cliques,
+    "find_cliques_recursive": fnx.find_cliques_recursive,
+    "chordal_graph_cliques": fnx.chordal_graph_cliques,
+    "make_max_clique_graph": fnx.make_max_clique_graph,
+    "ring_of_cliques": fnx.ring_of_cliques,
     # Single-source shortest paths
     "single_source_shortest_path": fnx.single_source_shortest_path,
     "single_source_shortest_path_length": fnx.single_source_shortest_path_length,

@@ -2506,6 +2506,96 @@ pub fn number_of_cliques(
     Ok(dict.into_any().unbind())
 }
 
+/// Return all triangles as a list of 3-tuples.
+#[pyfunction]
+#[pyo3(signature = (g,))]
+pub fn all_triangles(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<(PyObject, PyObject, PyObject)>> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "all_triangles")?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::all_triangles(inner));
+    Ok(result
+        .iter()
+        .map(|(a, b, c)| (gr.py_node_key(py, a), gr.py_node_key(py, b), gr.py_node_key(py, c)))
+        .collect())
+}
+
+/// Return the clique number of each node (size of the largest clique containing that node).
+#[pyfunction]
+#[pyo3(signature = (g,))]
+pub fn node_clique_number(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "node_clique_number")?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::node_clique_number(inner));
+    let dict = pyo3::types::PyDict::new(py);
+    for (node, size) in &result {
+        dict.set_item(gr.py_node_key(py, node), *size)?;
+    }
+    Ok(dict.into_any().unbind())
+}
+
+/// Enumerate all cliques (not just maximal) in a graph.
+#[pyfunction]
+#[pyo3(signature = (g,))]
+pub fn enumerate_all_cliques(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<Vec<PyObject>>> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "enumerate_all_cliques")?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::enumerate_all_cliques(inner));
+    Ok(result
+        .iter()
+        .map(|clique| clique.iter().map(|n| gr.py_node_key(py, n)).collect())
+        .collect())
+}
+
+/// Find all maximal cliques using a recursive Bron-Kerbosch algorithm.
+#[pyfunction]
+#[pyo3(signature = (g,))]
+pub fn find_cliques_recursive(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<Vec<PyObject>>> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "find_cliques_recursive")?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::find_cliques_recursive(inner));
+    Ok(result
+        .iter()
+        .map(|clique| clique.iter().map(|n| gr.py_node_key(py, n)).collect())
+        .collect())
+}
+
+/// Return maximal cliques of a chordal graph.
+#[pyfunction]
+#[pyo3(signature = (g,))]
+pub fn chordal_graph_cliques(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<Vec<PyObject>>> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "chordal_graph_cliques")?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::chordal_graph_cliques(inner));
+    Ok(result
+        .iter()
+        .map(|clique| clique.iter().map(|n| gr.py_node_key(py, n)).collect())
+        .collect())
+}
+
+/// Build the max clique graph.
+#[pyfunction]
+#[pyo3(signature = (g,))]
+pub fn make_max_clique_graph(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "make_max_clique_graph")?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::make_max_clique_graph(inner));
+    rust_graph_to_py_standalone(py, &result)
+}
+
+/// Generate a ring of cliques graph.
+#[pyfunction]
+#[pyo3(signature = (num_cliques, clique_size))]
+pub fn ring_of_cliques(py: Python<'_>, num_cliques: usize, clique_size: usize) -> PyResult<PyObject> {
+    let result = py.allow_threads(|| fnx_algorithms::ring_of_cliques(num_cliques, clique_size));
+    rust_graph_to_py_standalone(py, &result)
+}
+
 // ===========================================================================
 // Single-source shortest paths
 // ===========================================================================
@@ -3113,6 +3203,28 @@ fn rust_graph_to_py(py: Python<'_>, result: &fnx_classes::Graph, source_gr: &Gra
     let mut py_graph = PyGraph::new_empty(py)?;
     for node in result.nodes_ordered() {
         let py_key = source_gr.py_node_key(py, node);
+        py_graph.node_key_map.insert(node.to_owned(), py_key);
+        py_graph.node_py_attrs.insert(
+            node.to_owned(),
+            pyo3::types::PyDict::new(py).unbind(),
+        );
+        py_graph.inner.add_node(node);
+    }
+    for edge in result.edges_ordered() {
+        let _ = py_graph.inner.add_edge(&edge.left, &edge.right);
+        let ek = PyGraph::edge_key(&edge.left, &edge.right);
+        py_graph
+            .edge_py_attrs
+            .insert(ek, pyo3::types::PyDict::new(py).unbind());
+    }
+    Ok(py_graph.into_pyobject(py)?.into_any().unbind())
+}
+
+/// Convert a Rust Graph to a Python Graph using string node keys directly.
+fn rust_graph_to_py_standalone(py: Python<'_>, result: &fnx_classes::Graph) -> PyResult<PyObject> {
+    let mut py_graph = PyGraph::new_empty(py)?;
+    for node in result.nodes_ordered() {
+        let py_key = node.to_owned().into_pyobject(py)?.into_any().unbind();
         py_graph.node_key_map.insert(node.to_owned(), py_key);
         py_graph.node_py_attrs.insert(
             node.to_owned(),
@@ -5159,6 +5271,13 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(is_empty, m)?)?;
     m.add_function(wrap_pyfunction!(non_neighbors, m)?)?;
     m.add_function(wrap_pyfunction!(number_of_cliques, m)?)?;
+    m.add_function(wrap_pyfunction!(all_triangles, m)?)?;
+    m.add_function(wrap_pyfunction!(node_clique_number, m)?)?;
+    m.add_function(wrap_pyfunction!(enumerate_all_cliques, m)?)?;
+    m.add_function(wrap_pyfunction!(find_cliques_recursive, m)?)?;
+    m.add_function(wrap_pyfunction!(chordal_graph_cliques, m)?)?;
+    m.add_function(wrap_pyfunction!(make_max_clique_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(ring_of_cliques, m)?)?;
     // Single-source shortest paths
     m.add_function(wrap_pyfunction!(single_source_shortest_path, m)?)?;
     m.add_function(wrap_pyfunction!(single_source_shortest_path_length, m)?)?;

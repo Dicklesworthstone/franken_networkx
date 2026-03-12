@@ -239,6 +239,13 @@ from franken_networkx._fnx import (
     is_empty,
     non_neighbors,
     number_of_cliques,
+    all_triangles,
+    node_clique_number,
+    enumerate_all_cliques,
+    find_cliques_recursive,
+    chordal_graph_cliques,
+    make_max_clique_graph,
+    ring_of_cliques,
 )
 
 # Algorithm functions — single-source shortest paths
@@ -1172,6 +1179,13 @@ __all__ = [
     "is_empty",
     "non_neighbors",
     "number_of_cliques",
+    "all_triangles",
+    "node_clique_number",
+    "enumerate_all_cliques",
+    "find_cliques_recursive",
+    "chordal_graph_cliques",
+    "make_max_clique_graph",
+    "ring_of_cliques",
     # Algorithms — single-source shortest paths
     "single_source_shortest_path",
     "single_source_shortest_path_length",

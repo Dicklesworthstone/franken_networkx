@@ -12632,6 +12632,305 @@ pub fn is_distance_regular(graph: &Graph) -> bool {
 }
 
 // ===========================================================================
+// Clustering & cliques — additional
+// ===========================================================================
+
+/// Return all triangles in the graph as sorted 3-tuples.
+#[must_use]
+pub fn all_triangles(graph: &Graph) -> Vec<(String, String, String)> {
+    let nodes = graph.nodes_ordered();
+    let node_set: HashSet<&str> = nodes.iter().copied().collect();
+    let mut result = Vec::new();
+
+    for &u in &nodes {
+        if let Some(u_nbrs) = graph.neighbors_iter(u) {
+            let u_neighbors: HashSet<&str> = u_nbrs.filter(|n| node_set.contains(n)).collect();
+            for &v in &u_neighbors {
+                if v <= u {
+                    continue;
+                }
+                if let Some(v_nbrs) = graph.neighbors_iter(v) {
+                    for w in v_nbrs {
+                        if w <= v {
+                            continue;
+                        }
+                        if u_neighbors.contains(w) {
+                            result.push((u.to_string(), v.to_string(), w.to_string()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    result
+}
+
+/// Return the clique number of each node (size of the largest clique containing that node).
+#[must_use]
+pub fn node_clique_number(graph: &Graph) -> HashMap<String, usize> {
+    let cliques = find_cliques(graph).cliques;
+    let mut result: HashMap<String, usize> = HashMap::new();
+    for &node in &graph.nodes_ordered() {
+        result.insert(node.to_string(), 1); // At least the node itself
+    }
+    for clique in &cliques {
+        let size = clique.len();
+        for node in clique {
+            let entry = result.entry(node.clone()).or_insert(1);
+            if size > *entry {
+                *entry = size;
+            }
+        }
+    }
+    result
+}
+
+/// Enumerate all cliques (not just maximal) in a graph.
+/// Returns all cliques starting from size 1 up.
+#[must_use]
+pub fn enumerate_all_cliques(graph: &Graph) -> Vec<Vec<String>> {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return vec![];
+    }
+
+    let node_to_idx: HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+
+    // Build adjacency set
+    let mut adj = vec![HashSet::new(); n];
+    for (i, &u) in nodes.iter().enumerate() {
+        if let Some(neighbors) = graph.neighbors_iter(u) {
+            for v in neighbors {
+                let j = node_to_idx[v];
+                adj[i].insert(j);
+            }
+        }
+    }
+
+    let mut result = Vec::new();
+
+    // Start with single nodes
+    for &node in &nodes {
+        result.push(vec![node.to_string()]);
+    }
+
+    // BFS-like expansion: for each clique, try extending with a node that has higher index
+    let mut current_level: Vec<Vec<usize>> = (0..n).map(|i| vec![i]).collect();
+    while !current_level.is_empty() {
+        let mut next_level = Vec::new();
+        for clique in &current_level {
+            let last = *clique.last().unwrap();
+            for candidate in (last + 1)..n {
+                if clique.iter().all(|&c| adj[c].contains(&candidate)) {
+                    let mut new_clique = clique.clone();
+                    new_clique.push(candidate);
+                    result.push(new_clique.iter().map(|&i| nodes[i].to_string()).collect());
+                    next_level.push(new_clique);
+                }
+            }
+        }
+        current_level = next_level;
+    }
+
+    result
+}
+
+/// Find all maximal cliques using a recursive Bron-Kerbosch algorithm.
+/// Returns the same result as `find_cliques` but uses explicit recursion.
+#[must_use]
+pub fn find_cliques_recursive(graph: &Graph) -> Vec<Vec<String>> {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return vec![];
+    }
+    let node_to_idx: HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+
+    // Build adjacency bitsets
+    let mut adj = vec![HashSet::new(); n];
+    for (i, &u) in nodes.iter().enumerate() {
+        if let Some(neighbors) = graph.neighbors_iter(u) {
+            for v in neighbors {
+                let j = node_to_idx[v];
+                adj[i].insert(j);
+            }
+        }
+    }
+
+    let mut result = Vec::new();
+    let r: HashSet<usize> = HashSet::new();
+    let p: HashSet<usize> = (0..n).collect();
+    let x: HashSet<usize> = HashSet::new();
+
+    fn bron_kerbosch(
+        r: &HashSet<usize>,
+        p: &mut HashSet<usize>,
+        x: &mut HashSet<usize>,
+        adj: &[HashSet<usize>],
+        result: &mut Vec<Vec<usize>>,
+    ) {
+        if p.is_empty() && x.is_empty() {
+            let mut clique: Vec<usize> = r.iter().copied().collect();
+            clique.sort_unstable();
+            result.push(clique);
+            return;
+        }
+        // Choose pivot with maximum connections to p
+        let pivot = p.union(x).max_by_key(|&&v| adj[v].intersection(p).count()).copied();
+        let Some(pivot) = pivot else { return };
+        let candidates: Vec<usize> = p.difference(&adj[pivot]).copied().collect();
+        for v in candidates {
+            let mut new_r = r.clone();
+            new_r.insert(v);
+            let mut new_p: HashSet<usize> = p.intersection(&adj[v]).copied().collect();
+            let mut new_x: HashSet<usize> = x.intersection(&adj[v]).copied().collect();
+            bron_kerbosch(&new_r, &mut new_p, &mut new_x, adj, result);
+            p.remove(&v);
+            x.insert(v);
+        }
+    }
+
+    let mut p_mut = p;
+    let mut x_mut = x;
+    bron_kerbosch(&r, &mut p_mut, &mut x_mut, &adj, &mut result);
+
+    // Sort cliques lexicographically
+    let mut string_result: Vec<Vec<String>> = result
+        .into_iter()
+        .map(|clique| clique.into_iter().map(|i| nodes[i].to_string()).collect())
+        .collect();
+    string_result.sort();
+    string_result
+}
+
+/// Return maximal cliques of a chordal graph.
+/// A graph is chordal if every cycle of length > 3 has a chord.
+/// Uses perfect elimination ordering to find maximal cliques efficiently.
+#[must_use]
+pub fn chordal_graph_cliques(graph: &Graph) -> Vec<Vec<String>> {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return vec![];
+    }
+
+    // Use lexicographic BFS to get a perfect elimination ordering
+    let mut order = Vec::with_capacity(n);
+    let mut remaining: HashSet<&str> = nodes.iter().copied().collect();
+    let mut labels: HashMap<&str, Vec<usize>> = nodes.iter().map(|&nd| (nd, vec![])).collect();
+
+    for i in (0..n).rev() {
+        // Pick the node with the lexicographically largest label
+        let &chosen = remaining.iter().max_by(|&&a, &&b| labels[a].cmp(&labels[b])).unwrap();
+        order.push(chosen);
+        remaining.remove(chosen);
+        if let Some(neighbors) = graph.neighbors_iter(chosen) {
+            for nbr in neighbors {
+                if remaining.contains(nbr) {
+                    labels.get_mut(nbr).unwrap().push(i);
+                }
+            }
+        }
+    }
+
+    // Process nodes in reverse PEO to find maximal cliques
+    let pos: HashMap<&str, usize> = order.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+    let mut cliques: Vec<HashSet<&str>> = Vec::new();
+
+    for &v in &order {
+        // Find neighbors that appear later in PEO
+        let mut later_neighbors: Vec<&str> = Vec::new();
+        if let Some(neighbors) = graph.neighbors_iter(v) {
+            for nbr in neighbors {
+                if pos[nbr] > pos[v] {
+                    later_neighbors.push(nbr);
+                }
+            }
+        }
+        let mut clique: HashSet<&str> = later_neighbors.iter().copied().collect();
+        clique.insert(v);
+
+        // Check if this clique is a subset of any existing clique
+        let is_subset = cliques.iter().any(|existing| clique.is_subset(existing));
+        if !is_subset {
+            cliques.push(clique);
+        }
+    }
+
+    let mut result: Vec<Vec<String>> = cliques
+        .into_iter()
+        .map(|c| {
+            let mut v: Vec<String> = c.into_iter().map(|s| s.to_string()).collect();
+            v.sort();
+            v
+        })
+        .collect();
+    result.sort();
+    result
+}
+
+/// Build the max clique graph: one node per maximal clique, edge between
+/// cliques that share at least one node.
+#[must_use]
+pub fn make_max_clique_graph(graph: &Graph) -> Graph {
+    let cliques = find_cliques(graph).cliques;
+    let mut result = Graph::strict();
+
+    // Each clique becomes a node (named by sorted members joined with ",")
+    let clique_names: Vec<String> = cliques.iter().map(|c| c.join(",")).collect();
+    for name in &clique_names {
+        result.add_node(name);
+    }
+
+    // Add edges between cliques that share nodes
+    for i in 0..cliques.len() {
+        let set_i: HashSet<&str> = cliques[i].iter().map(|s| s as &str).collect();
+        for j in (i + 1)..cliques.len() {
+            if cliques[j].iter().any(|s| set_i.contains(s as &str)) {
+                let _ = result.add_edge(&clique_names[i], &clique_names[j]);
+            }
+        }
+    }
+
+    result
+}
+
+/// Generate a ring of cliques graph.
+/// Creates `num_cliques` complete graphs of size `clique_size`, connected in a ring.
+#[must_use]
+pub fn ring_of_cliques(num_cliques: usize, clique_size: usize) -> Graph {
+    assert!(num_cliques >= 2, "num_cliques must be >= 2");
+    assert!(clique_size >= 2, "clique_size must be >= 2");
+
+    let mut g = Graph::strict();
+
+    // Create cliques
+    for c in 0..num_cliques {
+        for i in 0..clique_size {
+            let node_i = format!("{c}_{i}");
+            g.add_node(&node_i);
+            for j in (i + 1)..clique_size {
+                let node_j = format!("{c}_{j}");
+                let _ = g.add_edge(&node_i, &node_j);
+            }
+        }
+    }
+
+    // Connect cliques in a ring: last node of clique c to first node of clique (c+1)%n
+    for c in 0..num_cliques {
+        let next = (c + 1) % num_cliques;
+        let from = format!("{c}_{}", clique_size - 1);
+        let to = format!("{next}_0");
+        let _ = g.add_edge(&from, &to);
+    }
+
+    g
+}
+
+// ===========================================================================
 // Traversal algorithms — additional
 // ===========================================================================
 
@@ -13248,6 +13547,9 @@ mod tests {
         non_edges, is_distance_regular,
         // DAG algorithms — additional
         // Matching — additional
+        // Clustering & cliques — additional
+        all_triangles, node_clique_number, enumerate_all_cliques,
+        find_cliques, find_cliques_recursive, chordal_graph_cliques, make_max_clique_graph, ring_of_cliques,
         // Traversal — additional
         edge_bfs, edge_bfs_directed, edge_dfs, edge_dfs_directed,
         // Matching — additional
@@ -21257,5 +21559,166 @@ mod tests {
         let edges = edge_dfs_directed(&g, "a");
         assert!(edges.contains(&("a".to_string(), "b".to_string())));
         assert!(edges.contains(&("b".to_string(), "c".to_string())));
+    }
+
+    // -----------------------------------------------------------------------
+    // Clustering & cliques — additional
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_all_triangles_triangle() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "a");
+        let tris = all_triangles(&g);
+        assert_eq!(tris.len(), 1);
+    }
+
+    #[test]
+    fn test_all_triangles_path() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let tris = all_triangles(&g);
+        assert!(tris.is_empty());
+    }
+
+    #[test]
+    fn test_node_clique_number() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "a");
+        let ncn = node_clique_number(&g);
+        assert_eq!(ncn["a"], 3);
+        assert_eq!(ncn["b"], 3);
+        assert_eq!(ncn["c"], 3);
+    }
+
+    #[test]
+    fn test_enumerate_all_cliques_triangle() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "a");
+        let cliques = enumerate_all_cliques(&g);
+        // 3 single nodes + 3 edges + 1 triangle = 7
+        assert_eq!(cliques.len(), 7);
+    }
+
+    #[test]
+    fn test_enumerate_all_cliques_path() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let cliques = enumerate_all_cliques(&g);
+        // 3 nodes + 2 edges = 5
+        assert_eq!(cliques.len(), 5);
+    }
+
+    #[test]
+    fn test_find_cliques_recursive_triangle() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "a");
+        let cliques = find_cliques_recursive(&g);
+        assert_eq!(cliques.len(), 1);
+        assert_eq!(cliques[0], vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn test_find_cliques_recursive_k4() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("a", "c");
+        let _ = g.add_edge("a", "d");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("b", "d");
+        let _ = g.add_edge("c", "d");
+        let cliques = find_cliques_recursive(&g);
+        assert_eq!(cliques.len(), 1);
+        assert_eq!(cliques[0], vec!["a", "b", "c", "d"]);
+    }
+
+    #[test]
+    fn test_find_cliques_recursive_matches_find_cliques() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("a", "c");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("b", "d");
+        let _ = g.add_edge("c", "d");
+        let rec = find_cliques_recursive(&g);
+        let mut iterative = find_cliques(&g).cliques;
+        iterative.sort();
+        assert_eq!(rec, iterative);
+    }
+
+    #[test]
+    fn test_chordal_graph_cliques_triangle() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "a");
+        let cliques = chordal_graph_cliques(&g);
+        assert_eq!(cliques.len(), 1);
+        assert_eq!(cliques[0], vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn test_chordal_graph_cliques_path() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let cliques = chordal_graph_cliques(&g);
+        // Two maximal cliques: {a,b} and {b,c}
+        assert_eq!(cliques.len(), 2);
+    }
+
+    #[test]
+    fn test_make_max_clique_graph_triangle() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "a");
+        let mcg = make_max_clique_graph(&g);
+        // Triangle has 1 maximal clique → 1 node, 0 edges
+        assert_eq!(mcg.node_count(), 1);
+        assert_eq!(mcg.edge_count(), 0);
+    }
+
+    #[test]
+    fn test_make_max_clique_graph_diamond() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("a", "c");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("b", "d");
+        let _ = g.add_edge("c", "d");
+        let mcg = make_max_clique_graph(&g);
+        // Diamond has 2 maximal cliques: {a,b,c} and {b,c,d}
+        // They share b,c so there's 1 edge
+        assert_eq!(mcg.node_count(), 2);
+        assert_eq!(mcg.edge_count(), 1);
+    }
+
+    #[test]
+    fn test_ring_of_cliques_basic() {
+        let g = ring_of_cliques(3, 3);
+        // 3 cliques of size 3 = 9 nodes
+        assert_eq!(g.node_count(), 9);
+        // Each K3 has 3 edges + 3 ring edges = 12
+        assert_eq!(g.edge_count(), 12);
+    }
+
+    #[test]
+    fn test_ring_of_cliques_2x2() {
+        let g = ring_of_cliques(2, 2);
+        // 2 cliques of size 2 = 4 nodes
+        assert_eq!(g.node_count(), 4);
+        // 2 edges in cliques + 2 ring edges = 4
+        assert_eq!(g.edge_count(), 4);
     }
 }
