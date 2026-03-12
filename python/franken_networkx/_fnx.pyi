@@ -564,8 +564,124 @@ def resource_allocation_index(
 # ---------------------------------------------------------------------------
 
 def average_degree_connectivity(g: Graph) -> dict[int, float]: ...
+
+# ---------------------------------------------------------------------------
+# Strongly connected components
+# ---------------------------------------------------------------------------
+
+def strongly_connected_components(g: DiGraph) -> list[list[Any]]: ...
+def number_strongly_connected_components(g: DiGraph) -> int: ...
+def is_strongly_connected(g: DiGraph) -> bool: ...
+
+# ---------------------------------------------------------------------------
+# Weakly connected components
+# ---------------------------------------------------------------------------
+
+def weakly_connected_components(g: DiGraph) -> list[list[Any]]: ...
+def number_weakly_connected_components(g: DiGraph) -> int: ...
+def is_weakly_connected(g: DiGraph) -> bool: ...
+
+# ---------------------------------------------------------------------------
+# Transitive closure / reduction
+# ---------------------------------------------------------------------------
+
+def transitive_closure(g: DiGraph) -> DiGraph: ...
+def transitive_reduction(g: DiGraph) -> DiGraph: ...
+
+# ---------------------------------------------------------------------------
+# Dominating set
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Single-source shortest paths
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Graph predicates & utilities
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# All-pairs shortest paths
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Maximum spanning tree
+# ---------------------------------------------------------------------------
+
+def maximum_spanning_tree(g: Graph, weight: str = "weight") -> Graph: ...
+
+# ---------------------------------------------------------------------------
+# Condensation
+# ---------------------------------------------------------------------------
+
+def condensation(g: DiGraph) -> tuple[DiGraph, dict[Any, int]]: ...
+
+def all_pairs_shortest_path(
+    g: Graph,
+    cutoff: Optional[int] = None,
+) -> dict[Any, dict[Any, list[Any]]]: ...
+def all_pairs_shortest_path_length(
+    g: Graph,
+    cutoff: Optional[int] = None,
+) -> dict[Any, dict[Any, int]]: ...
+
+def is_empty(g: Union[Graph, DiGraph]) -> bool: ...
+def non_neighbors(g: Graph, v: Any) -> list[Any]: ...
+def number_of_cliques(g: Graph) -> dict[Any, int]: ...
+
+def single_source_shortest_path(
+    g: Graph,
+    source: Any,
+    cutoff: Optional[int] = None,
+) -> dict[Any, list[Any]]: ...
+def single_source_shortest_path_length(
+    g: Graph,
+    source: Any,
+    cutoff: Optional[int] = None,
+) -> dict[Any, int]: ...
+
+# ---------------------------------------------------------------------------
+# Dominating set
+# ---------------------------------------------------------------------------
+
+def dominating_set(g: Graph) -> list[Any]: ...
+def is_dominating_set(g: Graph, nbunch: Any) -> bool: ...
 def rich_club_coefficient(g: Graph) -> dict[int, float]: ...
 def s_metric(g: Graph) -> float: ...
+
+# ---------------------------------------------------------------------------
+# Community detection
+# ---------------------------------------------------------------------------
+
+def louvain_communities(
+    g: Graph,
+    resolution: float = 1.0,
+    weight: str = "weight",
+    seed: Optional[int] = None,
+) -> list[list[Any]]: ...
+def modularity(
+    g: Graph,
+    communities: list[list[str]],
+    resolution: float = 1.0,
+    weight: str = "weight",
+) -> float: ...
+def label_propagation_communities(g: Graph) -> list[list[Any]]: ...
+def greedy_modularity_communities(
+    g: Graph,
+    resolution: float = 1.0,
+    weight: str = "weight",
+) -> list[list[Any]]: ...
+
+# ---------------------------------------------------------------------------
+# Graph operators
+# ---------------------------------------------------------------------------
+
+def union(g: Graph, h: Graph) -> Graph: ...
+def intersection(g: Graph, h: Graph) -> Graph: ...
+def compose(g: Graph, h: Graph) -> Graph: ...
+def difference(g: Graph, h: Graph) -> Graph: ...
+def symmetric_difference(g: Graph, h: Graph) -> Graph: ...
+def degree_histogram(g: Graph) -> list[int]: ...
 
 # ---------------------------------------------------------------------------
 # Read/write — graph I/O

@@ -41,26 +41,28 @@ nx.shortest_path(G, 0, 99)
 
 | Family | Functions |
 |--------|-----------|
-| Shortest path | `shortest_path`, `all_shortest_paths`, `dijkstra_path`, `bellman_ford_path`, `multi_source_dijkstra`, `has_path`, `shortest_path_length`, `average_shortest_path_length` |
-| Connectivity | `is_connected`, `connected_components`, `number_connected_components`, `node_connectivity`, `edge_connectivity`, `minimum_node_cut`, `bridges`, `articulation_points` |
+| Shortest path | `shortest_path`, `all_shortest_paths`, `dijkstra_path`, `bellman_ford_path`, `multi_source_dijkstra`, `has_path`, `shortest_path_length`, `average_shortest_path_length`, `single_source_shortest_path`, `single_source_shortest_path_length`, `all_pairs_shortest_path`, `all_pairs_shortest_path_length` |
+| Connectivity | `is_connected`, `connected_components`, `number_connected_components`, `node_connectivity`, `edge_connectivity`, `minimum_node_cut`, `bridges`, `articulation_points`, `strongly_connected_components`, `number_strongly_connected_components`, `is_strongly_connected`, `condensation`, `weakly_connected_components`, `number_weakly_connected_components`, `is_weakly_connected` |
 | Centrality | `pagerank`, `betweenness_centrality`, `edge_betweenness_centrality`, `closeness_centrality`, `harmonic_centrality`, `eigenvector_centrality`, `degree_centrality`, `katz_centrality`, `hits` |
 | Clustering | `clustering`, `triangles`, `transitivity`, `average_clustering`, `square_clustering` |
 | Matching | `max_weight_matching`, `min_weight_matching`, `maximal_matching`, `min_edge_cover` |
 | Flow | `maximum_flow_value`, `minimum_cut_value` |
-| Trees | `minimum_spanning_tree`, `is_tree`, `is_forest` |
+| Trees | `minimum_spanning_tree`, `maximum_spanning_tree`, `is_tree`, `is_forest` |
 | Euler | `eulerian_circuit`, `eulerian_path`, `is_eulerian`, `has_eulerian_path`, `is_semieulerian` |
 | Paths & Cycles | `all_simple_paths`, `cycle_basis` |
-| Operators | `complement` |
+| Operators | `complement`, `union`, `intersection`, `compose`, `difference`, `symmetric_difference` |
 | Bipartite | `is_bipartite`, `bipartite_sets` |
 | Coloring | `greedy_color` |
 | Distance | `diameter`, `radius`, `center`, `periphery`, `eccentricity`, `density` |
 | Efficiency | `global_efficiency`, `local_efficiency` |
 | Traversal | `bfs_edges`, `bfs_tree`, `bfs_predecessors`, `bfs_successors`, `bfs_layers`, `descendants_at_distance`, `dfs_edges`, `dfs_tree`, `dfs_predecessors`, `dfs_successors`, `dfs_preorder_nodes`, `dfs_postorder_nodes` |
-| DAG | `topological_sort`, `topological_generations`, `dag_longest_path`, `dag_longest_path_length`, `lexicographic_topological_sort`, `is_directed_acyclic_graph`, `ancestors`, `descendants` |
+| DAG | `topological_sort`, `topological_generations`, `dag_longest_path`, `dag_longest_path_length`, `lexicographic_topological_sort`, `is_directed_acyclic_graph`, `ancestors`, `descendants`, `transitive_closure`, `transitive_reduction` |
 | Link prediction | `common_neighbors`, `jaccard_coefficient`, `adamic_adar_index`, `preferential_attachment`, `resource_allocation_index` |
 | Reciprocity | `reciprocity`, `overall_reciprocity` |
 | Graph metrics | `average_degree_connectivity`, `rich_club_coefficient`, `s_metric` |
-| Other | `core_number`, `voterank`, `find_cliques`, `graph_clique_number`, `degree_assortativity_coefficient`, `average_neighbor_degree`, `wiener_index`, `relabel_nodes` |
+| Community | `louvain_communities`, `greedy_modularity_communities`, `label_propagation_communities`, `modularity` |
+| Dominating | `dominating_set`, `is_dominating_set` |
+| Other | `core_number`, `voterank`, `find_cliques`, `graph_clique_number`, `number_of_cliques`, `degree_assortativity_coefficient`, `average_neighbor_degree`, `wiener_index`, `non_neighbors`, `is_empty`, `relabel_nodes`, `degree_histogram` |
 | Generators | `path_graph`, `cycle_graph`, `star_graph`, `complete_graph`, `empty_graph`, `gnp_random_graph`, `watts_strogatz_graph`, `barabasi_albert_graph` |
 | I/O | `read_edgelist`, `write_edgelist`, `read_adjlist`, `write_adjlist`, `read_graphml`, `write_graphml`, `node_link_data`, `node_link_graph` |
 | NumPy/SciPy | `to_numpy_array`, `from_numpy_array`, `to_scipy_sparse_array`, `from_scipy_sparse_array` |

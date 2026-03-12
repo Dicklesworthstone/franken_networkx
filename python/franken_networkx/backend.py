@@ -139,6 +139,46 @@ _SUPPORTED_ALGORITHMS = {
     "average_degree_connectivity": fnx.average_degree_connectivity,
     "rich_club_coefficient": fnx.rich_club_coefficient,
     "s_metric": fnx.s_metric,
+    # Strongly connected components
+    "strongly_connected_components": fnx.strongly_connected_components,
+    "number_strongly_connected_components": fnx.number_strongly_connected_components,
+    "is_strongly_connected": fnx.is_strongly_connected,
+    # Weakly connected components
+    "weakly_connected_components": fnx.weakly_connected_components,
+    "number_weakly_connected_components": fnx.number_weakly_connected_components,
+    "is_weakly_connected": fnx.is_weakly_connected,
+    # Transitive closure/reduction
+    "transitive_closure": fnx.transitive_closure,
+    "transitive_reduction": fnx.transitive_reduction,
+    # Maximum spanning tree
+    "maximum_spanning_tree": fnx.maximum_spanning_tree,
+    # Condensation
+    "condensation": fnx.condensation,
+    # All-pairs shortest paths
+    "all_pairs_shortest_path": fnx.all_pairs_shortest_path,
+    "all_pairs_shortest_path_length": fnx.all_pairs_shortest_path_length,
+    # Graph predicates & utilities
+    "is_empty": fnx.is_empty,
+    "non_neighbors": fnx.non_neighbors,
+    "number_of_cliques": fnx.number_of_cliques,
+    # Single-source shortest paths
+    "single_source_shortest_path": fnx.single_source_shortest_path,
+    "single_source_shortest_path_length": fnx.single_source_shortest_path_length,
+    # Dominating set
+    "dominating_set": fnx.dominating_set,
+    "is_dominating_set": fnx.is_dominating_set,
+    # Community detection
+    "louvain_communities": fnx.louvain_communities,
+    "modularity": fnx.modularity,
+    "label_propagation_communities": fnx.label_propagation_communities,
+    "greedy_modularity_communities": fnx.greedy_modularity_communities,
+    # Graph operators
+    "union": fnx.union,
+    "intersection": fnx.intersection,
+    "compose": fnx.compose,
+    "difference": fnx.difference,
+    "symmetric_difference": fnx.symmetric_difference,
+    "degree_histogram": fnx.degree_histogram,
 }
 
 

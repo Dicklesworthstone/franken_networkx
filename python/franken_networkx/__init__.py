@@ -217,11 +217,84 @@ from franken_networkx._fnx import (
     wiener_index,
 )
 
+# Algorithm functions — maximum spanning tree
+from franken_networkx._fnx import (
+    maximum_spanning_tree,
+)
+
+# Algorithm functions — condensation
+from franken_networkx._fnx import (
+    condensation,
+)
+
+# Algorithm functions — all-pairs shortest paths
+from franken_networkx._fnx import (
+    all_pairs_shortest_path,
+    all_pairs_shortest_path_length,
+)
+
+# Algorithm functions — graph predicates & utilities
+from franken_networkx._fnx import (
+    is_empty,
+    non_neighbors,
+    number_of_cliques,
+)
+
+# Algorithm functions — single-source shortest paths
+from franken_networkx._fnx import (
+    single_source_shortest_path,
+    single_source_shortest_path_length,
+)
+
+# Algorithm functions — dominating set
+from franken_networkx._fnx import (
+    dominating_set,
+    is_dominating_set,
+)
+
+# Algorithm functions — community detection
+from franken_networkx._fnx import (
+    louvain_communities,
+    modularity,
+    label_propagation_communities,
+    greedy_modularity_communities,
+)
+
+# Algorithm functions — graph operators
+from franken_networkx._fnx import (
+    union,
+    intersection,
+    compose,
+    difference,
+    symmetric_difference,
+    degree_histogram,
+)
+
+# Algorithm functions — transitive closure/reduction
+from franken_networkx._fnx import (
+    transitive_closure,
+    transitive_reduction,
+)
+
 # Algorithm functions — graph metrics
 from franken_networkx._fnx import (
     average_degree_connectivity,
     rich_club_coefficient,
     s_metric,
+)
+
+# Algorithm functions — strongly connected components
+from franken_networkx._fnx import (
+    strongly_connected_components,
+    number_strongly_connected_components,
+    is_strongly_connected,
+)
+
+# Algorithm functions — weakly connected components
+from franken_networkx._fnx import (
+    weakly_connected_components,
+    number_weakly_connected_components,
+    is_weakly_connected,
 )
 
 # Algorithm functions — link prediction
@@ -653,6 +726,10 @@ def from_dict_of_dicts(d, create_using=None, multigraph_input=False):
     else:
         G = Graph()
 
+    # Add all keys as nodes first (preserves isolated nodes like NetworkX).
+    for u in d:
+        G.add_node(u)
+
     for u, nbrs in d.items():
         for v, data in nbrs.items():
             if isinstance(data, dict):
@@ -933,10 +1010,50 @@ __all__ = [
     "reciprocity",
     # Algorithms — Wiener index
     "wiener_index",
+    # Algorithms — trees
+    "maximum_spanning_tree",
+    # Algorithms — condensation
+    "condensation",
+    # Algorithms — all-pairs shortest paths
+    "all_pairs_shortest_path",
+    "all_pairs_shortest_path_length",
+    # Algorithms — graph predicates & utilities
+    "is_empty",
+    "non_neighbors",
+    "number_of_cliques",
+    # Algorithms — single-source shortest paths
+    "single_source_shortest_path",
+    "single_source_shortest_path_length",
+    # Algorithms — dominating set
+    "dominating_set",
+    "is_dominating_set",
+    # Algorithms — community detection
+    "louvain_communities",
+    "modularity",
+    "label_propagation_communities",
+    "greedy_modularity_communities",
+    # Algorithms — graph operators
+    "union",
+    "intersection",
+    "compose",
+    "difference",
+    "symmetric_difference",
+    "degree_histogram",
+    # Algorithms — transitive closure/reduction
+    "transitive_closure",
+    "transitive_reduction",
     # Algorithms — graph metrics
     "average_degree_connectivity",
     "rich_club_coefficient",
     "s_metric",
+    # Algorithms — strongly connected components
+    "strongly_connected_components",
+    "number_strongly_connected_components",
+    "is_strongly_connected",
+    # Algorithms — weakly connected components
+    "weakly_connected_components",
+    "number_weakly_connected_components",
+    "is_weakly_connected",
     # Algorithms — link prediction
     "common_neighbors",
     "jaccard_coefficient",

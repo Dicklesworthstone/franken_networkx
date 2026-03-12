@@ -140,6 +140,14 @@ class TestDictOfDicts:
         G = fnx.from_dict_of_dicts({})
         assert G.number_of_nodes() == 0
 
+    def test_preserves_isolated_nodes(self):
+        # Node 5 has no neighbors but should still be in the graph.
+        d = {0: {1: {"weight": 1.0}}, 1: {0: {"weight": 1.0}}, 5: {}}
+        G = fnx.from_dict_of_dicts(d)
+        assert G.number_of_nodes() == 3
+        assert G.has_node(5)
+        assert G.number_of_edges() == 1
+
 
 # ---------------------------------------------------------------------------
 # to/from_dict_of_lists

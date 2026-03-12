@@ -1258,6 +1258,42 @@ pub fn minimum_spanning_tree(
     Ok(new_graph)
 }
 
+/// Return a maximum spanning tree using Kruskal's algorithm.
+#[pyfunction]
+#[pyo3(signature = (g, weight="weight"))]
+pub fn maximum_spanning_tree(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<PyGraph> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let w = weight.to_owned();
+    let result = py.allow_threads(move || fnx_algorithms::maximum_spanning_tree(inner, &w));
+    let mut new_graph = PyGraph::new_empty(py)?;
+
+    for node in inner.nodes_ordered() {
+        new_graph.inner.add_node(node.to_owned());
+        if let Some(py_key) = gr.node_key_map().get(node) {
+            new_graph
+                .node_key_map
+                .insert(node.to_owned(), py_key.clone_ref(py));
+        }
+    }
+    for edge in &result.edges {
+        let _ = new_graph
+            .inner
+            .add_edge(edge.left.clone(), edge.right.clone());
+        let ek = PyGraph::edge_key(&edge.left, &edge.right);
+        if let Some(attrs) = gr.edge_attrs_for_undirected(&edge.left, &edge.right) {
+            new_graph
+                .edge_py_attrs
+                .insert(ek, attrs.bind(py).copy()?.unbind());
+        }
+    }
+    Ok(new_graph)
+}
+
 // ===========================================================================
 // Euler algorithms
 // ===========================================================================
@@ -2371,6 +2407,457 @@ pub fn s_metric(
 }
 
 // ===========================================================================
+// All-pairs shortest paths
+// ===========================================================================
+
+/// Return all shortest paths between all pairs of nodes.
+#[pyfunction]
+#[pyo3(signature = (g, cutoff=None))]
+pub fn all_pairs_shortest_path(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    cutoff: Option<usize>,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "all_pairs_shortest_path")?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::all_pairs_shortest_path(inner, cutoff));
+    let outer_dict = pyo3::types::PyDict::new(py);
+    for (source, targets) in &result {
+        let inner_dict = pyo3::types::PyDict::new(py);
+        for (target, path) in targets {
+            let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
+            inner_dict.set_item(gr.py_node_key(py, target), py_path)?;
+        }
+        outer_dict.set_item(gr.py_node_key(py, source), inner_dict)?;
+    }
+    Ok(outer_dict.into_any().unbind())
+}
+
+/// Return shortest path lengths between all pairs of nodes.
+#[pyfunction]
+#[pyo3(signature = (g, cutoff=None))]
+pub fn all_pairs_shortest_path_length(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    cutoff: Option<usize>,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "all_pairs_shortest_path_length")?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::all_pairs_shortest_path_length(inner, cutoff));
+    let outer_dict = pyo3::types::PyDict::new(py);
+    for (source, targets) in &result {
+        let inner_dict = pyo3::types::PyDict::new(py);
+        for (target, length) in targets {
+            inner_dict.set_item(gr.py_node_key(py, target), *length)?;
+        }
+        outer_dict.set_item(gr.py_node_key(py, source), inner_dict)?;
+    }
+    Ok(outer_dict.into_any().unbind())
+}
+
+// ===========================================================================
+// Graph Predicates & Utilities
+// ===========================================================================
+
+/// Return whether the graph has no edges.
+#[pyfunction]
+pub fn is_empty(
+    _py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<bool> {
+    let gr = extract_graph(g)?;
+    match &gr {
+        GraphRef::Undirected(pg) => Ok(fnx_algorithms::is_empty(&pg.inner)),
+        GraphRef::Directed { dg, .. } => Ok(fnx_algorithms::is_empty_directed(&dg.inner)),
+    }
+}
+
+/// Return the non-neighbors of a node.
+#[pyfunction]
+pub fn non_neighbors(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    v: &Bound<'_, PyAny>,
+) -> PyResult<Vec<PyObject>> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "non_neighbors")?;
+    let inner = gr.undirected();
+    let node_key = node_key_to_string(py, v)?;
+    let result = fnx_algorithms::non_neighbors(inner, &node_key);
+    Ok(result.iter().map(|n| gr.py_node_key(py, n)).collect())
+}
+
+/// Return the number of maximal cliques containing each node.
+#[pyfunction]
+pub fn number_of_cliques(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "number_of_cliques")?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::number_of_cliques(inner));
+    let dict = pyo3::types::PyDict::new(py);
+    for (node, count) in &result {
+        dict.set_item(gr.py_node_key(py, node), *count)?;
+    }
+    Ok(dict.into_any().unbind())
+}
+
+// ===========================================================================
+// Single-source shortest paths
+// ===========================================================================
+
+/// Return all shortest paths from source (unweighted BFS).
+#[pyfunction]
+#[pyo3(signature = (g, source, cutoff=None))]
+pub fn single_source_shortest_path(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    cutoff: Option<usize>,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "single_source_shortest_path")?;
+    let inner = gr.undirected();
+    let source_key = node_key_to_string(py, source)?;
+    let result = fnx_algorithms::single_source_shortest_path(inner, &source_key, cutoff);
+    let dict = pyo3::types::PyDict::new(py);
+    for (node, path) in &result {
+        let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
+        dict.set_item(gr.py_node_key(py, node), py_path)?;
+    }
+    Ok(dict.into_any().unbind())
+}
+
+/// Return shortest path lengths from source (unweighted BFS).
+#[pyfunction]
+#[pyo3(signature = (g, source, cutoff=None))]
+pub fn single_source_shortest_path_length(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    cutoff: Option<usize>,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "single_source_shortest_path_length")?;
+    let inner = gr.undirected();
+    let source_key = node_key_to_string(py, source)?;
+    let result = fnx_algorithms::single_source_shortest_path_length(inner, &source_key, cutoff);
+    let dict = pyo3::types::PyDict::new(py);
+    for (node, length) in &result {
+        dict.set_item(gr.py_node_key(py, node), *length)?;
+    }
+    Ok(dict.into_any().unbind())
+}
+
+// ===========================================================================
+// Dominating Set
+// ===========================================================================
+
+/// Return a greedy dominating set.
+#[pyfunction]
+pub fn dominating_set(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Vec<PyObject>> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "dominating_set")?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::dominating_set(inner));
+    Ok(result.iter().map(|n| gr.py_node_key(py, n)).collect())
+}
+
+/// Return whether the given nodes form a dominating set.
+#[pyfunction]
+pub fn is_dominating_set(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    nbunch: &Bound<'_, PyAny>,
+) -> PyResult<bool> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "is_dominating_set")?;
+    let inner = gr.undirected();
+    let nodes: Vec<String> = nbunch
+        .try_iter()?
+        .map(|item| node_key_to_string(py, &item?))
+        .collect::<PyResult<Vec<_>>>()?;
+    let refs: Vec<&str> = nodes.iter().map(String::as_str).collect();
+    Ok(fnx_algorithms::is_dominating_set(inner, &refs))
+}
+
+// ===========================================================================
+// Strongly Connected Components
+// ===========================================================================
+
+/// Return the strongly connected components of a directed graph.
+#[pyfunction]
+pub fn strongly_connected_components(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Vec<PyObject>> {
+    let gr = extract_graph(g)?;
+    if !gr.is_directed() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "strongly_connected_components is not defined for undirected graphs. Use connected_components instead.",
+        ));
+    }
+    if let GraphRef::Directed { dg, .. } = &gr {
+        let result = fnx_algorithms::strongly_connected_components(&dg.inner);
+        result
+            .iter()
+            .map(|comp| {
+                let py_set: Vec<PyObject> = comp.iter().map(|n| gr.py_node_key(py, n)).collect();
+                py_set.into_pyobject(py).map(|obj| obj.into_any().unbind())
+            })
+            .collect()
+    } else {
+        unreachable!()
+    }
+}
+
+/// Return the number of strongly connected components.
+#[pyfunction]
+pub fn number_strongly_connected_components(
+    _py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<usize> {
+    let gr = extract_graph(g)?;
+    if !gr.is_directed() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "number_strongly_connected_components is not defined for undirected graphs.",
+        ));
+    }
+    if let GraphRef::Directed { dg, .. } = &gr {
+        Ok(fnx_algorithms::number_strongly_connected_components(&dg.inner))
+    } else {
+        unreachable!()
+    }
+}
+
+/// Return whether the directed graph is strongly connected.
+#[pyfunction]
+pub fn is_strongly_connected(
+    _py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<bool> {
+    let gr = extract_graph(g)?;
+    if !gr.is_directed() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "is_strongly_connected is not defined for undirected graphs. Use is_connected instead.",
+        ));
+    }
+    if let GraphRef::Directed { dg, .. } = &gr {
+        Ok(fnx_algorithms::is_strongly_connected(&dg.inner))
+    } else {
+        unreachable!()
+    }
+}
+
+/// Condense a directed graph by contracting each SCC into a single node.
+///
+/// Returns a tuple (condensation_graph, mapping) where mapping is a dict
+/// from original nodes to SCC indices.
+#[pyfunction]
+pub fn condensation(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<(PyObject, PyObject)> {
+    let gr = extract_graph(g)?;
+    if !gr.is_directed() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "condensation is not defined for undirected graphs.",
+        ));
+    }
+    if let GraphRef::Directed { dg, .. } = &gr {
+        let (cond_graph, node_mapping) = fnx_algorithms::condensation(&dg.inner);
+        // Build the condensation DiGraph
+        let mut py_dg = PyDiGraph::new_empty(py)?;
+        for node in cond_graph.nodes_ordered() {
+            py_dg.node_key_map.insert(
+                node.to_owned(),
+                node.parse::<i64>().unwrap().into_pyobject(py)?.into_any().unbind(),
+            );
+            py_dg.node_py_attrs.insert(
+                node.to_owned(),
+                pyo3::types::PyDict::new(py).unbind(),
+            );
+            py_dg.inner.add_node(node);
+        }
+        for edge in cond_graph.edges_ordered() {
+            let _ = py_dg.inner.add_edge(&edge.left, &edge.right);
+            py_dg.edge_py_attrs.insert(
+                (edge.left, edge.right),
+                pyo3::types::PyDict::new(py).unbind(),
+            );
+        }
+        let py_cond = py_dg.into_pyobject(py)?.into_any().unbind();
+        // Build the mapping dict
+        let mapping = pyo3::types::PyDict::new(py);
+        for (node, scc_idx) in &node_mapping {
+            mapping.set_item(dg.py_node_key(py, node), *scc_idx)?;
+        }
+        Ok((py_cond, mapping.into_any().unbind()))
+    } else {
+        unreachable!()
+    }
+}
+
+// ===========================================================================
+// Weakly Connected Components
+// ===========================================================================
+
+/// Return the weakly connected components of a directed graph.
+#[pyfunction]
+pub fn weakly_connected_components(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Vec<PyObject>> {
+    let gr = extract_graph(g)?;
+    if !gr.is_directed() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "weakly_connected_components is not defined for undirected graphs. Use connected_components instead.",
+        ));
+    }
+    if let GraphRef::Directed { dg, .. } = &gr {
+        let result = fnx_algorithms::weakly_connected_components(&dg.inner);
+        result
+            .iter()
+            .map(|comp| {
+                let py_set: Vec<PyObject> = comp.iter().map(|n| gr.py_node_key(py, n)).collect();
+                py_set.into_pyobject(py).map(|obj| obj.into_any().unbind())
+            })
+            .collect()
+    } else {
+        unreachable!()
+    }
+}
+
+/// Return the number of weakly connected components.
+#[pyfunction]
+pub fn number_weakly_connected_components(
+    _py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<usize> {
+    let gr = extract_graph(g)?;
+    if !gr.is_directed() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "number_weakly_connected_components is not defined for undirected graphs.",
+        ));
+    }
+    if let GraphRef::Directed { dg, .. } = &gr {
+        Ok(fnx_algorithms::number_weakly_connected_components(&dg.inner))
+    } else {
+        unreachable!()
+    }
+}
+
+/// Return whether the directed graph is weakly connected.
+#[pyfunction]
+pub fn is_weakly_connected(
+    _py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<bool> {
+    let gr = extract_graph(g)?;
+    if !gr.is_directed() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "is_weakly_connected is not defined for undirected graphs. Use is_connected instead.",
+        ));
+    }
+    if let GraphRef::Directed { dg, .. } = &gr {
+        Ok(fnx_algorithms::is_weakly_connected(&dg.inner))
+    } else {
+        unreachable!()
+    }
+}
+
+// ===========================================================================
+// Transitive Closure / Reduction
+// ===========================================================================
+
+/// Return the transitive closure of a directed graph.
+#[pyfunction]
+pub fn transitive_closure(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    if !gr.is_directed() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "transitive_closure is not defined for undirected graphs.",
+        ));
+    }
+    if let GraphRef::Directed { dg, .. } = &gr {
+        let result = fnx_algorithms::transitive_closure(&dg.inner);
+        let mut py_dg = PyDiGraph::new_empty(py)?;
+        for node in result.nodes_ordered() {
+            let py_key = dg.py_node_key(py, node);
+            py_dg.node_key_map.insert(node.to_owned(), py_key);
+            py_dg.node_py_attrs.insert(
+                node.to_owned(),
+                pyo3::types::PyDict::new(py).unbind(),
+            );
+            py_dg.inner.add_node(node);
+        }
+        for edge in result.edges_ordered() {
+            let _ = py_dg.inner.add_edge(&edge.left, &edge.right);
+            py_dg.edge_py_attrs.insert(
+                (edge.left, edge.right),
+                pyo3::types::PyDict::new(py).unbind(),
+            );
+        }
+        Ok(py_dg.into_pyobject(py)?.into_any().unbind())
+    } else {
+        unreachable!()
+    }
+}
+
+/// Return the transitive reduction of a directed acyclic graph.
+#[pyfunction]
+pub fn transitive_reduction(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    if !gr.is_directed() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "transitive_reduction is not defined for undirected graphs.",
+        ));
+    }
+    if let GraphRef::Directed { dg, .. } = &gr {
+        match fnx_algorithms::transitive_reduction(&dg.inner) {
+            Some(result) => {
+                let mut py_dg = PyDiGraph::new_empty(py)?;
+                for node in result.nodes_ordered() {
+                    let py_key = dg.py_node_key(py, node);
+                    py_dg.node_key_map.insert(node.to_owned(), py_key);
+                    py_dg.node_py_attrs.insert(
+                        node.to_owned(),
+                        pyo3::types::PyDict::new(py).unbind(),
+                    );
+                    py_dg.inner.add_node(node);
+                }
+                for edge in result.edges_ordered() {
+                    let _ = py_dg.inner.add_edge(&edge.left, &edge.right);
+                    py_dg.edge_py_attrs.insert(
+                        (edge.left, edge.right),
+                        pyo3::types::PyDict::new(py).unbind(),
+                    );
+                }
+                Ok(py_dg.into_pyobject(py)?.into_any().unbind())
+            }
+            None => Err(NetworkXError::new_err(
+                "transitive_reduction is not uniquely defined for graphs with cycles.",
+            )),
+        }
+    } else {
+        unreachable!()
+    }
+}
+
+// ===========================================================================
 // Reciprocity
 // ===========================================================================
 
@@ -2619,6 +3106,168 @@ pub fn resource_allocation_index(
 }
 
 // ===========================================================================
+// Graph Operators
+// ===========================================================================
+
+fn rust_graph_to_py(py: Python<'_>, result: &fnx_classes::Graph, source_gr: &GraphRef<'_>) -> PyResult<PyObject> {
+    let mut py_graph = PyGraph::new_empty(py)?;
+    for node in result.nodes_ordered() {
+        let py_key = source_gr.py_node_key(py, node);
+        py_graph.node_key_map.insert(node.to_owned(), py_key);
+        py_graph.node_py_attrs.insert(
+            node.to_owned(),
+            pyo3::types::PyDict::new(py).unbind(),
+        );
+        py_graph.inner.add_node(node);
+    }
+    for edge in result.edges_ordered() {
+        let _ = py_graph.inner.add_edge(&edge.left, &edge.right);
+        let ek = PyGraph::edge_key(&edge.left, &edge.right);
+        py_graph
+            .edge_py_attrs
+            .insert(ek, pyo3::types::PyDict::new(py).unbind());
+    }
+    Ok(py_graph.into_pyobject(py)?.into_any().unbind())
+}
+
+#[pyfunction]
+#[pyo3(signature = (g, h))]
+fn union(py: Python<'_>, g: &Bound<'_, PyAny>, h: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+    let gr1 = extract_graph(g)?;
+    let gr2 = extract_graph(h)?;
+    let inner1 = gr1.undirected();
+    let inner2 = gr2.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::graph_union(inner1, inner2));
+    rust_graph_to_py(py, &result, &gr1)
+}
+
+#[pyfunction]
+#[pyo3(signature = (g, h))]
+fn intersection(py: Python<'_>, g: &Bound<'_, PyAny>, h: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+    let gr1 = extract_graph(g)?;
+    let gr2 = extract_graph(h)?;
+    let inner1 = gr1.undirected();
+    let inner2 = gr2.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::graph_intersection(inner1, inner2));
+    rust_graph_to_py(py, &result, &gr1)
+}
+
+#[pyfunction]
+#[pyo3(signature = (g, h))]
+fn compose(py: Python<'_>, g: &Bound<'_, PyAny>, h: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+    let gr1 = extract_graph(g)?;
+    let gr2 = extract_graph(h)?;
+    let inner1 = gr1.undirected();
+    let inner2 = gr2.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::graph_compose(inner1, inner2));
+    rust_graph_to_py(py, &result, &gr1)
+}
+
+#[pyfunction]
+#[pyo3(signature = (g, h))]
+fn difference(py: Python<'_>, g: &Bound<'_, PyAny>, h: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+    let gr1 = extract_graph(g)?;
+    let gr2 = extract_graph(h)?;
+    let inner1 = gr1.undirected();
+    let inner2 = gr2.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::graph_difference(inner1, inner2));
+    rust_graph_to_py(py, &result, &gr1)
+}
+
+#[pyfunction]
+#[pyo3(signature = (g, h))]
+fn symmetric_difference(py: Python<'_>, g: &Bound<'_, PyAny>, h: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+    let gr1 = extract_graph(g)?;
+    let gr2 = extract_graph(h)?;
+    let inner1 = gr1.undirected();
+    let inner2 = gr2.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::graph_symmetric_difference(inner1, inner2));
+    rust_graph_to_py(py, &result, &gr1)
+}
+
+#[pyfunction]
+#[pyo3(signature = (g,))]
+fn degree_histogram(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<usize>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    Ok(py.allow_threads(|| fnx_algorithms::degree_histogram(inner)))
+}
+
+// ===========================================================================
+// Community Detection
+// ===========================================================================
+
+#[pyfunction]
+#[pyo3(signature = (g, resolution=1.0, weight="weight", seed=None))]
+fn louvain_communities(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    resolution: f64,
+    weight: &str,
+    seed: Option<u64>,
+) -> PyResult<Vec<Vec<PyObject>>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| {
+        fnx_algorithms::louvain_communities(inner, resolution, weight, seed)
+    });
+    Ok(result
+        .into_iter()
+        .map(|comm| comm.into_iter().map(|n| gr.py_node_key(py, &n)).collect())
+        .collect())
+}
+
+#[pyfunction]
+#[pyo3(signature = (g, communities, resolution=1.0, weight="weight"))]
+fn modularity(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    communities: Vec<Vec<String>>,
+    resolution: f64,
+    weight: &str,
+) -> PyResult<f64> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    Ok(py.allow_threads(|| {
+        fnx_algorithms::modularity(inner, &communities, resolution, weight)
+    }))
+}
+
+#[pyfunction]
+#[pyo3(signature = (g,))]
+fn label_propagation_communities(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Vec<Vec<PyObject>>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::label_propagation_communities(inner));
+    Ok(result
+        .into_iter()
+        .map(|comm| comm.into_iter().map(|n| gr.py_node_key(py, &n)).collect())
+        .collect())
+}
+
+#[pyfunction]
+#[pyo3(signature = (g, resolution=1.0, weight="weight"))]
+fn greedy_modularity_communities(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    resolution: f64,
+    weight: &str,
+) -> PyResult<Vec<Vec<PyObject>>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| {
+        fnx_algorithms::greedy_modularity_communities(inner, resolution, weight)
+    });
+    Ok(result
+        .into_iter()
+        .map(|comm| comm.into_iter().map(|n| gr.py_node_key(py, &n)).collect())
+        .collect())
+}
+
+// ===========================================================================
 // Registration
 // ===========================================================================
 
@@ -2739,5 +3388,44 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(average_degree_connectivity, m)?)?;
     m.add_function(wrap_pyfunction!(rich_club_coefficient, m)?)?;
     m.add_function(wrap_pyfunction!(s_metric, m)?)?;
+    // Spanning trees
+    m.add_function(wrap_pyfunction!(maximum_spanning_tree, m)?)?;
+    // Strongly connected components
+    m.add_function(wrap_pyfunction!(strongly_connected_components, m)?)?;
+    m.add_function(wrap_pyfunction!(number_strongly_connected_components, m)?)?;
+    m.add_function(wrap_pyfunction!(is_strongly_connected, m)?)?;
+    m.add_function(wrap_pyfunction!(condensation, m)?)?;
+    // Weakly connected components
+    m.add_function(wrap_pyfunction!(weakly_connected_components, m)?)?;
+    m.add_function(wrap_pyfunction!(number_weakly_connected_components, m)?)?;
+    m.add_function(wrap_pyfunction!(is_weakly_connected, m)?)?;
+    // Transitive closure/reduction
+    m.add_function(wrap_pyfunction!(transitive_closure, m)?)?;
+    m.add_function(wrap_pyfunction!(transitive_reduction, m)?)?;
+    // All-pairs shortest paths
+    m.add_function(wrap_pyfunction!(all_pairs_shortest_path, m)?)?;
+    m.add_function(wrap_pyfunction!(all_pairs_shortest_path_length, m)?)?;
+    // Graph predicates & utilities
+    m.add_function(wrap_pyfunction!(is_empty, m)?)?;
+    m.add_function(wrap_pyfunction!(non_neighbors, m)?)?;
+    m.add_function(wrap_pyfunction!(number_of_cliques, m)?)?;
+    // Single-source shortest paths
+    m.add_function(wrap_pyfunction!(single_source_shortest_path, m)?)?;
+    m.add_function(wrap_pyfunction!(single_source_shortest_path_length, m)?)?;
+    // Dominating set
+    m.add_function(wrap_pyfunction!(dominating_set, m)?)?;
+    m.add_function(wrap_pyfunction!(is_dominating_set, m)?)?;
+    // Community detection
+    m.add_function(wrap_pyfunction!(louvain_communities, m)?)?;
+    m.add_function(wrap_pyfunction!(modularity, m)?)?;
+    m.add_function(wrap_pyfunction!(label_propagation_communities, m)?)?;
+    m.add_function(wrap_pyfunction!(greedy_modularity_communities, m)?)?;
+    // Graph operators
+    m.add_function(wrap_pyfunction!(union, m)?)?;
+    m.add_function(wrap_pyfunction!(intersection, m)?)?;
+    m.add_function(wrap_pyfunction!(compose, m)?)?;
+    m.add_function(wrap_pyfunction!(difference, m)?)?;
+    m.add_function(wrap_pyfunction!(symmetric_difference, m)?)?;
+    m.add_function(wrap_pyfunction!(degree_histogram, m)?)?;
     Ok(())
 }
