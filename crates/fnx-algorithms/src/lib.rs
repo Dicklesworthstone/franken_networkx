@@ -12931,6 +12931,779 @@ pub fn ring_of_cliques(num_cliques: usize, clique_size: usize) -> Graph {
 }
 
 // ===========================================================================
+// Classic graph generators
+// ===========================================================================
+
+fn gen_nodes(g: &mut Graph, n: usize) {
+    for i in 0..n {
+        g.add_node(i.to_string().as_str());
+    }
+}
+
+fn gen_edge(g: &mut Graph, u: usize, v: usize) {
+    let us = u.to_string();
+    let vs = v.to_string();
+    let _ = g.add_edge(us.as_str(), vs.as_str());
+}
+
+/// Return a balanced tree of branching factor r and height h.
+#[must_use]
+pub fn balanced_tree(r: usize, h: usize) -> Graph {
+    let mut g = Graph::strict();
+    if r == 0 || h == 0 {
+        g.add_node("0");
+        return g;
+    }
+    // Total nodes: (r^(h+1) - 1) / (r - 1) for r > 1, or h+1 for r == 1
+    let n = if r == 1 { h + 1 } else { (r.pow((h + 1) as u32) - 1) / (r - 1) };
+    gen_nodes(&mut g, n);
+    for i in 0..n {
+        for j in 0..r {
+            let child = i * r + j + 1;
+            if child < n {
+                gen_edge(&mut g, i, child);
+            }
+        }
+    }
+    g
+}
+
+/// Return the barbell graph: two complete graphs of n1 nodes connected by a path of n2 nodes.
+#[must_use]
+pub fn barbell_graph(n1: usize, n2: usize) -> Graph {
+    let mut g = Graph::strict();
+    let total = 2 * n1 + n2;
+    gen_nodes(&mut g, total);
+    // First complete graph (0..n1)
+    for i in 0..n1 {
+        for j in (i + 1)..n1 {
+            gen_edge(&mut g, i, j);
+        }
+    }
+    // Path (n1..n1+n2)
+    for i in 0..n2.saturating_sub(1) {
+        gen_edge(&mut g, n1 + i, n1 + i + 1);
+    }
+    // Second complete graph (n1+n2..total)
+    for i in (n1 + n2)..total {
+        for j in (i + 1)..total {
+            gen_edge(&mut g, i, j);
+        }
+    }
+    // Connect first clique to path, path to second clique
+    if n2 > 0 {
+        gen_edge(&mut g, n1 - 1, n1);
+        gen_edge(&mut g, n1 + n2 - 1, n1 + n2);
+    } else {
+        gen_edge(&mut g, n1 - 1, n1);
+    }
+    g
+}
+
+/// Return the bull graph (5 nodes, 5 edges).
+#[must_use]
+pub fn bull_graph() -> Graph {
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, 5);
+    for &(u, v) in &[(0, 1), (1, 2), (2, 0), (1, 3), (2, 4)] {
+        gen_edge(&mut g, u, v);
+    }
+    g
+}
+
+/// Return the Chvátal graph (12 nodes, 24 edges).
+#[must_use]
+pub fn chvatal_graph() -> Graph {
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, 12);
+    for &(u, v) in &[
+        (0,1),(0,4),(0,6),(0,9),
+        (1,2),(1,5),(1,7),
+        (2,3),(2,6),(2,8),
+        (3,4),(3,7),(3,9),
+        (4,5),(4,8),
+        (5,10),(5,11),
+        (6,10),(6,11),
+        (7,8),(7,11),
+        (8,10),
+        (9,10),(9,11),
+    ] {
+        gen_edge(&mut g, u, v);
+    }
+    g
+}
+
+/// Return the cubical graph (Q3) — 8 nodes, 12 edges.
+#[must_use]
+pub fn cubical_graph() -> Graph {
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, 8);
+    for &(u, v) in &[
+        (0,1),(0,3),(0,4),
+        (1,2),(1,5),
+        (2,3),(2,6),
+        (3,7),
+        (4,5),(4,7),
+        (5,6),
+        (6,7),
+    ] {
+        gen_edge(&mut g, u, v);
+    }
+    g
+}
+
+/// Return the Desargues graph (20 nodes, 30 edges).
+#[must_use]
+pub fn desargues_graph() -> Graph {
+    generalized_petersen_graph(10, 3)
+}
+
+/// Return the diamond graph (4 nodes, 5 edges).
+#[must_use]
+pub fn diamond_graph() -> Graph {
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, 4);
+    for &(u, v) in &[(0,1),(0,2),(1,2),(1,3),(2,3)] {
+        gen_edge(&mut g, u, v);
+    }
+    g
+}
+
+/// Return the dodecahedral graph (20 nodes, 30 edges).
+#[must_use]
+pub fn dodecahedral_graph() -> Graph {
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, 20);
+    for &(u, v) in &[
+        (0,1),(0,10),(0,19),
+        (1,2),(1,8),
+        (2,3),(2,6),
+        (3,4),(3,19),
+        (4,5),(4,17),
+        (5,6),(5,15),
+        (6,7),
+        (7,8),(7,14),
+        (8,9),
+        (9,10),(9,13),
+        (10,11),
+        (11,12),(11,18),
+        (12,13),(12,16),
+        (13,14),
+        (14,15),
+        (15,16),
+        (16,17),
+        (17,18),
+        (18,19),
+    ] {
+        gen_edge(&mut g, u, v);
+    }
+    g
+}
+
+/// Return the Frucht graph (12 nodes, 18 edges) — smallest cubic graph with no automorphism.
+#[must_use]
+pub fn frucht_graph() -> Graph {
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, 12);
+    for &(u, v) in &[
+        (0,1),(0,6),(0,7),
+        (1,2),(1,7),
+        (2,3),(2,8),
+        (3,4),(3,9),
+        (4,5),(4,9),
+        (5,6),(5,10),
+        (6,10),
+        (7,11),
+        (8,9),(8,11),
+        (10,11),
+    ] {
+        gen_edge(&mut g, u, v);
+    }
+    g
+}
+
+/// Return the Heawood graph (14 nodes, 21 edges).
+#[must_use]
+pub fn heawood_graph() -> Graph {
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, 14);
+    for i in 0..14 {
+        gen_edge(&mut g, i, (i + 1) % 14);
+    }
+    for i in (0..14).step_by(2) {
+        gen_edge(&mut g, i, (i + 5) % 14);
+    }
+    g
+}
+
+/// Return the house graph (5 nodes, 6 edges).
+#[must_use]
+pub fn house_graph() -> Graph {
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, 5);
+    for &(u, v) in &[(0,1),(0,2),(1,3),(2,3),(2,4),(3,4)] {
+        gen_edge(&mut g, u, v);
+    }
+    g
+}
+
+/// Return the house-with-X graph (5 nodes, 8 edges).
+#[must_use]
+pub fn house_x_graph() -> Graph {
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, 5);
+    for &(u, v) in &[(0,1),(0,2),(0,3),(1,2),(1,3),(2,3),(2,4),(3,4)] {
+        gen_edge(&mut g, u, v);
+    }
+    g
+}
+
+/// Return the icosahedral graph (12 nodes, 30 edges).
+#[must_use]
+pub fn icosahedral_graph() -> Graph {
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, 12);
+    // Each vertex has degree 5 in the icosahedron
+    for &(u, v) in &[
+        (0,1),(0,2),(0,3),(0,4),(0,5),
+        (1,2),(1,5),(1,7),(1,8),
+        (2,3),(2,8),(2,9),
+        (3,4),(3,9),(3,10),
+        (4,5),(4,10),(4,11),
+        (5,6),(5,11),
+        (6,7),(6,8),(6,10),(6,11),
+        (7,8),(7,9),(7,10),
+        (8,9),
+        (9,10),
+        (10,11),
+    ] {
+        gen_edge(&mut g, u, v);
+    }
+    g
+}
+
+/// Return the Krackhardt kite graph (10 nodes, 18 edges).
+#[must_use]
+pub fn krackhardt_kite_graph() -> Graph {
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, 10);
+    for &(u, v) in &[
+        (0,1),(0,2),(0,3),(0,5),
+        (1,3),(1,4),(1,6),
+        (2,3),(2,5),
+        (3,4),(3,5),(3,6),
+        (4,6),
+        (5,6),(5,7),
+        (6,7),
+        (7,8),
+        (8,9),
+    ] {
+        gen_edge(&mut g, u, v);
+    }
+    g
+}
+
+/// Return the Möbius-Kantor graph (16 nodes, 24 edges).
+#[must_use]
+pub fn moebius_kantor_graph() -> Graph {
+    generalized_petersen_graph(8, 3)
+}
+
+/// Return the octahedral graph (6 nodes, 12 edges).
+#[must_use]
+pub fn octahedral_graph() -> Graph {
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, 6);
+    // K_{2,2,2} — all edges except opposite pairs
+    for i in 0..6 {
+        for j in (i + 1)..6 {
+            if (i + 3) % 6 != j {
+                gen_edge(&mut g, i, j);
+            }
+        }
+    }
+    g
+}
+
+/// Return the Pappus graph (18 nodes, 27 edges).
+#[must_use]
+pub fn pappus_graph() -> Graph {
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, 18);
+    for &(u, v) in &[
+        (0,1),(0,5),(0,6),
+        (1,2),(1,7),
+        (2,3),(2,8),
+        (3,4),(3,9),
+        (4,5),(4,10),
+        (5,11),
+        (6,13),(6,17),
+        (7,12),(7,14),
+        (8,13),(8,15),
+        (9,14),(9,16),
+        (10,15),(10,17),
+        (11,12),(11,16),
+        (12,15),
+        (13,16),
+        (14,17),
+    ] {
+        gen_edge(&mut g, u, v);
+    }
+    g
+}
+
+/// Return the Petersen graph (10 nodes, 15 edges).
+#[must_use]
+pub fn petersen_graph() -> Graph {
+    generalized_petersen_graph(5, 2)
+}
+
+/// Return the Sedgewick maze graph (8 nodes, 10 edges).
+#[must_use]
+pub fn sedgewick_maze_graph() -> Graph {
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, 8);
+    for &(u, v) in &[(0,2),(0,5),(0,7),(1,7),(2,6),(3,4),(3,5),(4,5),(4,6),(4,7)] {
+        gen_edge(&mut g, u, v);
+    }
+    g
+}
+
+/// Return the tetrahedral graph (K4, 4 nodes, 6 edges).
+#[must_use]
+pub fn tetrahedral_graph() -> Graph {
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, 4);
+    for i in 0..4 {
+        for j in (i + 1)..4 {
+            gen_edge(&mut g, i, j);
+        }
+    }
+    g
+}
+
+/// Return the truncated cube graph (24 nodes, 36 edges).
+#[must_use]
+pub fn truncated_cube_graph() -> Graph {
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, 24);
+    for &(u, v) in &[
+        (0,1),(0,2),(0,4),
+        (1,14),(1,11),
+        (2,3),(2,4),
+        (3,6),(3,8),
+        (4,5),
+        (5,16),(5,18),
+        (6,7),(6,8),
+        (7,10),(7,12),
+        (8,9),
+        (9,17),(9,20),
+        (10,11),(10,12),
+        (11,14),
+        (12,13),
+        (13,21),(13,22),
+        (14,15),
+        (15,19),(15,23),
+        (16,17),(16,18),
+        (17,20),
+        (18,19),
+        (19,23),
+        (20,21),
+        (21,22),
+        (22,23),
+    ] {
+        gen_edge(&mut g, u, v);
+    }
+    g
+}
+
+/// Return the truncated tetrahedron graph (12 nodes, 18 edges).
+#[must_use]
+pub fn truncated_tetrahedron_graph() -> Graph {
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, 12);
+    for &(u, v) in &[
+        (0,1),(0,2),(0,9),
+        (1,2),(1,6),
+        (2,3),
+        (3,4),(3,11),
+        (4,5),(4,11),
+        (5,6),(5,7),
+        (6,7),
+        (7,8),
+        (8,9),(8,10),
+        (9,10),
+        (10,11),
+    ] {
+        gen_edge(&mut g, u, v);
+    }
+    g
+}
+
+/// Return the Tutte graph (46 nodes, 69 edges).
+#[must_use]
+pub fn tutte_graph() -> Graph {
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, 46);
+    let edges: &[(usize, usize)] = &[
+        (0,1),(0,2),(0,3),
+        (1,4),(1,26),
+        (2,10),(2,11),
+        (3,18),(3,19),
+        (4,5),(4,33),
+        (5,6),(5,29),
+        (6,7),(6,27),
+        (7,8),(7,14),
+        (8,9),(8,38),
+        (9,10),(9,37),
+        (10,39),
+        (11,12),(11,39),
+        (12,13),(12,35),
+        (13,14),(13,15),
+        (14,34),
+        (15,16),(15,22),
+        (16,17),(16,44),
+        (17,18),(17,43),
+        (18,45),
+        (19,20),(19,45),
+        (20,21),(20,41),
+        (21,22),(21,23),
+        (22,40),
+        (23,24),(23,28),
+        (24,25),(24,32),
+        (25,26),(25,31),
+        (26,33),
+        (27,28),(27,32),
+        (28,29),
+        (29,30),
+        (30,31),(30,33),
+        (31,32),
+        (34,35),(34,38),
+        (35,36),
+        (36,37),(36,39),
+        (37,38),
+        (40,41),(40,44),
+        (41,42),
+        (42,43),(42,45),
+        (43,44),
+    ];
+    for &(u, v) in edges {
+        gen_edge(&mut g, u, v);
+    }
+    g
+}
+
+/// Return the Hoffman-Singleton graph (50 nodes, 175 edges).
+#[must_use]
+pub fn hoffman_singleton_graph() -> Graph {
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, 50);
+    // Pentagons P_i: nodes 5*i .. 5*i+4
+    for i in 0..5 {
+        for j in 0..5 {
+            gen_edge(&mut g, 5 * i + j, 5 * i + (j + 1) % 5);
+        }
+    }
+    // Pentagrams Q_i: nodes 25 + 5*i .. 25 + 5*i+4
+    for i in 0..5 {
+        for j in 0..5 {
+            gen_edge(&mut g, 25 + 5 * i + j, 25 + 5 * i + (j + 2) % 5);
+        }
+    }
+    // Cross edges: P_i,j connects to Q_j,(i*k+k) for each pentagram Q
+    for i in 0..5 {
+        for j in 0..5 {
+            for k in 0..5 {
+                // P_i node j connects to Q_k node (i*k+j) mod 5
+                gen_edge(&mut g, 5 * i + j, 25 + 5 * k + (i * k + j) % 5);
+            }
+        }
+    }
+    g
+}
+
+// ---------- Parametric generators ----------
+
+/// Return the generalized Petersen graph GP(n, k).
+#[must_use]
+pub fn generalized_petersen_graph(n: usize, k: usize) -> Graph {
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, 2 * n);
+    // Outer ring: 0..n-1
+    for i in 0..n {
+        gen_edge(&mut g, i, (i + 1) % n);
+    }
+    // Inner star: n..2n-1
+    for i in 0..n {
+        gen_edge(&mut g, n + i, n + (i + k) % n);
+    }
+    // Spokes
+    for i in 0..n {
+        gen_edge(&mut g, i, n + i);
+    }
+    g
+}
+
+/// Return the wheel graph W_n (n+1 nodes: hub + n rim nodes).
+#[must_use]
+pub fn wheel_graph(n: usize) -> Graph {
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, n + 1);
+    // Hub is node 0, rim is 1..n
+    for i in 1..=n {
+        gen_edge(&mut g, 0, i);
+    }
+    for i in 1..n {
+        gen_edge(&mut g, i, i + 1);
+    }
+    if n > 1 {
+        gen_edge(&mut g, n, 1);
+    }
+    g
+}
+
+/// Return the ladder graph (2n nodes: two paths connected by rungs).
+#[must_use]
+pub fn ladder_graph(n: usize) -> Graph {
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, 2 * n);
+    for i in 0..n.saturating_sub(1) {
+        gen_edge(&mut g, i, i + 1);
+        gen_edge(&mut g, n + i, n + i + 1);
+    }
+    for i in 0..n {
+        gen_edge(&mut g, i, n + i);
+    }
+    g
+}
+
+/// Return the circular ladder graph (Möbius ladder, 2n nodes).
+#[must_use]
+pub fn circular_ladder_graph(n: usize) -> Graph {
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, 2 * n);
+    for i in 0..n {
+        gen_edge(&mut g, i, (i + 1) % n);
+        gen_edge(&mut g, n + i, n + (i + 1) % n);
+        gen_edge(&mut g, i, n + i);
+    }
+    g
+}
+
+/// Return the lollipop graph (K_m connected to P_n).
+#[must_use]
+pub fn lollipop_graph(m: usize, n: usize) -> Graph {
+    let mut g = Graph::strict();
+    let total = m + n;
+    gen_nodes(&mut g, total);
+    // Complete graph on 0..m
+    for i in 0..m {
+        for j in (i + 1)..m {
+            gen_edge(&mut g, i, j);
+        }
+    }
+    // Path from m-1 to m..total-1
+    if m > 0 && n > 0 {
+        gen_edge(&mut g, m - 1, m);
+    }
+    for i in m..total.saturating_sub(1) {
+        gen_edge(&mut g, i, i + 1);
+    }
+    g
+}
+
+/// Return the tadpole graph (C_m connected to P_n).
+#[must_use]
+pub fn tadpole_graph(m: usize, n: usize) -> Graph {
+    let mut g = Graph::strict();
+    let total = m + n;
+    gen_nodes(&mut g, total);
+    // Cycle on 0..m
+    for i in 0..m {
+        gen_edge(&mut g, i, (i + 1) % m);
+    }
+    // Path from m-1 to m..total-1
+    if m > 0 && n > 0 {
+        gen_edge(&mut g, m - 1, m);
+    }
+    for i in m..total.saturating_sub(1) {
+        gen_edge(&mut g, i, i + 1);
+    }
+    g
+}
+
+/// Return the Turán graph T(n, r).
+#[must_use]
+pub fn turan_graph(n: usize, r: usize) -> Graph {
+    assert!(r > 0 && r <= n, "r must be in [1, n]");
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, n);
+    // Assign nodes to partitions: partition[i] = i % r
+    // Nodes in different partitions are connected
+    for i in 0..n {
+        for j in (i + 1)..n {
+            if i % r != j % r {
+                gen_edge(&mut g, i, j);
+            }
+        }
+    }
+    g
+}
+
+/// Return the windmill graph Wd(k, n): n copies of K_k sharing a universal vertex.
+#[must_use]
+pub fn windmill_graph(k: usize, n: usize) -> Graph {
+    let mut g = Graph::strict();
+    // Node 0 is the universal center
+    let total = 1 + n * (k - 1);
+    gen_nodes(&mut g, total);
+    for copy in 0..n {
+        let start = 1 + copy * (k - 1);
+        // Connect center to all nodes in this copy
+        for i in start..(start + k - 1) {
+            gen_edge(&mut g, 0, i);
+        }
+        // Complete graph within this copy
+        for i in start..(start + k - 1) {
+            for j in (i + 1)..(start + k - 1) {
+                gen_edge(&mut g, i, j);
+            }
+        }
+    }
+    g
+}
+
+/// Return the hypercube graph Q_n (2^n nodes).
+#[must_use]
+pub fn hypercube_graph(n: usize) -> Graph {
+    let mut g = Graph::strict();
+    let size = 1usize << n;
+    gen_nodes(&mut g, size);
+    for i in 0..size {
+        for bit in 0..n {
+            let j = i ^ (1 << bit);
+            if j > i {
+                gen_edge(&mut g, i, j);
+            }
+        }
+    }
+    g
+}
+
+/// Return the complete bipartite graph K_{n1, n2}.
+#[must_use]
+pub fn complete_bipartite_graph(n1: usize, n2: usize) -> Graph {
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, n1 + n2);
+    for i in 0..n1 {
+        for j in n1..(n1 + n2) {
+            gen_edge(&mut g, i, j);
+        }
+    }
+    g
+}
+
+/// Return the complete multipartite graph K_{n1, n2, ...}.
+#[must_use]
+pub fn complete_multipartite_graph(block_sizes: &[usize]) -> Graph {
+    let mut g = Graph::strict();
+    let total: usize = block_sizes.iter().sum();
+    gen_nodes(&mut g, total);
+    // For each pair of blocks, add all cross-edges
+    let mut starts = Vec::with_capacity(block_sizes.len());
+    let mut offset = 0;
+    for &sz in block_sizes {
+        starts.push(offset);
+        offset += sz;
+    }
+    for (bi, &bsz) in block_sizes.iter().enumerate() {
+        for (bj, &csz) in block_sizes.iter().enumerate() {
+            if bj <= bi { continue; }
+            for i in starts[bi]..(starts[bi] + bsz) {
+                for j in starts[bj]..(starts[bj] + csz) {
+                    gen_edge(&mut g, i, j);
+                }
+            }
+        }
+    }
+    g
+}
+
+/// Return the 2D grid graph (m x n nodes).
+#[must_use]
+pub fn grid_2d_graph(m: usize, n: usize) -> Graph {
+    let mut g = Graph::strict();
+    // Nodes labeled as "row,col"
+    for r in 0..m {
+        for c in 0..n {
+            g.add_node(format!("{r},{c}").as_str());
+        }
+    }
+    for r in 0..m {
+        for c in 0..n {
+            let node = format!("{r},{c}");
+            if c + 1 < n {
+                let right = format!("{r},{}", c + 1);
+                let _ = g.add_edge(&node, &right);
+            }
+            if r + 1 < m {
+                let down = format!("{},{c}", r + 1);
+                let _ = g.add_edge(&node, &down);
+            }
+        }
+    }
+    g
+}
+
+/// Return the null graph (0 nodes).
+#[must_use]
+pub fn null_graph() -> Graph {
+    Graph::strict()
+}
+
+/// Return the trivial graph (1 node, 0 edges).
+#[must_use]
+pub fn trivial_graph() -> Graph {
+    let mut g = Graph::strict();
+    g.add_node("0");
+    g
+}
+
+/// Return the binomial tree of order n (2^n nodes).
+#[must_use]
+pub fn binomial_tree(n: usize) -> Graph {
+    let mut g = Graph::strict();
+    let size = 1usize << n;
+    gen_nodes(&mut g, size);
+    // Binomial tree: for each node i (1..size), parent = i with highest bit cleared
+    for i in 1..size {
+        // Parent of i: clear the highest set bit of i
+        let highest_bit = 1 << (usize::BITS - 1 - i.leading_zeros());
+        let parent = i ^ highest_bit;
+        gen_edge(&mut g, parent, i);
+    }
+    g
+}
+
+/// Return the full r-ary tree of height h.
+#[must_use]
+pub fn full_rary_tree(r: usize, n: usize) -> Graph {
+    // Returns a full r-ary tree with at most n nodes
+    let mut g = Graph::strict();
+    if n == 0 { return g; }
+    gen_nodes(&mut g, n);
+    for i in 0..n {
+        for j in 0..r {
+            let child = i * r + j + 1;
+            if child < n {
+                gen_edge(&mut g, i, child);
+            }
+        }
+    }
+    g
+}
+
+// ===========================================================================
 // Traversal algorithms — additional
 // ===========================================================================
 
@@ -13550,6 +14323,17 @@ mod tests {
         // Clustering & cliques — additional
         all_triangles, node_clique_number, enumerate_all_cliques,
         find_cliques, find_cliques_recursive, chordal_graph_cliques, make_max_clique_graph, ring_of_cliques,
+        // Classic graph generators
+        balanced_tree, barbell_graph, bull_graph, chvatal_graph, cubical_graph,
+        desargues_graph, diamond_graph, dodecahedral_graph, frucht_graph, heawood_graph,
+        house_graph, house_x_graph, icosahedral_graph, krackhardt_kite_graph,
+        moebius_kantor_graph, octahedral_graph, pappus_graph, petersen_graph,
+        sedgewick_maze_graph, tetrahedral_graph, truncated_cube_graph,
+        truncated_tetrahedron_graph, tutte_graph, hoffman_singleton_graph,
+        generalized_petersen_graph, wheel_graph, ladder_graph, circular_ladder_graph,
+        lollipop_graph, tadpole_graph, turan_graph, windmill_graph, hypercube_graph,
+        complete_bipartite_graph, complete_multipartite_graph, grid_2d_graph,
+        null_graph, trivial_graph, binomial_tree, full_rary_tree,
         // Traversal — additional
         edge_bfs, edge_bfs_directed, edge_dfs, edge_dfs_directed,
         // Matching — additional
@@ -21716,9 +22500,293 @@ mod tests {
     #[test]
     fn test_ring_of_cliques_2x2() {
         let g = ring_of_cliques(2, 2);
-        // 2 cliques of size 2 = 4 nodes
         assert_eq!(g.node_count(), 4);
-        // 2 edges in cliques + 2 ring edges = 4
         assert_eq!(g.edge_count(), 4);
+    }
+
+    // ---- Classic graph generators ----
+
+    #[test]
+    fn test_balanced_tree() {
+        let g = balanced_tree(2, 3);
+        // 2^4 - 1 = 15 nodes, 14 edges (tree)
+        assert_eq!(g.node_count(), 15);
+        assert_eq!(g.edge_count(), 14);
+    }
+
+    #[test]
+    fn test_barbell_graph() {
+        let g = barbell_graph(3, 2);
+        // 2*3 + 2 = 8 nodes
+        assert_eq!(g.node_count(), 8);
+    }
+
+    #[test]
+    fn test_bull_graph() {
+        let g = bull_graph();
+        assert_eq!(g.node_count(), 5);
+        assert_eq!(g.edge_count(), 5);
+    }
+
+    #[test]
+    fn test_chvatal_graph() {
+        let g = chvatal_graph();
+        assert_eq!(g.node_count(), 12);
+        assert_eq!(g.edge_count(), 24);
+    }
+
+    #[test]
+    fn test_cubical_graph() {
+        let g = cubical_graph();
+        assert_eq!(g.node_count(), 8);
+        assert_eq!(g.edge_count(), 12);
+    }
+
+    #[test]
+    fn test_diamond_graph() {
+        let g = diamond_graph();
+        assert_eq!(g.node_count(), 4);
+        assert_eq!(g.edge_count(), 5);
+    }
+
+    #[test]
+    fn test_dodecahedral_graph() {
+        let g = dodecahedral_graph();
+        assert_eq!(g.node_count(), 20);
+        assert_eq!(g.edge_count(), 30);
+    }
+
+    #[test]
+    fn test_frucht_graph() {
+        let g = frucht_graph();
+        assert_eq!(g.node_count(), 12);
+        assert_eq!(g.edge_count(), 18);
+    }
+
+    #[test]
+    fn test_heawood_graph() {
+        let g = heawood_graph();
+        assert_eq!(g.node_count(), 14);
+        assert_eq!(g.edge_count(), 21);
+    }
+
+    #[test]
+    fn test_house_graph() {
+        let g = house_graph();
+        assert_eq!(g.node_count(), 5);
+        assert_eq!(g.edge_count(), 6);
+    }
+
+    #[test]
+    fn test_house_x_graph() {
+        let g = house_x_graph();
+        assert_eq!(g.node_count(), 5);
+        assert_eq!(g.edge_count(), 8);
+    }
+
+    #[test]
+    fn test_icosahedral_graph() {
+        let g = icosahedral_graph();
+        assert_eq!(g.node_count(), 12);
+        assert_eq!(g.edge_count(), 30);
+    }
+
+    #[test]
+    fn test_krackhardt_kite_graph() {
+        let g = krackhardt_kite_graph();
+        assert_eq!(g.node_count(), 10);
+        assert_eq!(g.edge_count(), 18);
+    }
+
+    #[test]
+    fn test_moebius_kantor_graph() {
+        let g = moebius_kantor_graph();
+        assert_eq!(g.node_count(), 16);
+        assert_eq!(g.edge_count(), 24);
+    }
+
+    #[test]
+    fn test_octahedral_graph() {
+        let g = octahedral_graph();
+        assert_eq!(g.node_count(), 6);
+        assert_eq!(g.edge_count(), 12);
+    }
+
+    #[test]
+    fn test_pappus_graph() {
+        let g = pappus_graph();
+        assert_eq!(g.node_count(), 18);
+        assert_eq!(g.edge_count(), 27);
+    }
+
+    #[test]
+    fn test_petersen_graph() {
+        let g = petersen_graph();
+        assert_eq!(g.node_count(), 10);
+        assert_eq!(g.edge_count(), 15);
+    }
+
+    #[test]
+    fn test_sedgewick_maze_graph() {
+        let g = sedgewick_maze_graph();
+        assert_eq!(g.node_count(), 8);
+        assert_eq!(g.edge_count(), 10);
+    }
+
+    #[test]
+    fn test_tetrahedral_graph() {
+        let g = tetrahedral_graph();
+        assert_eq!(g.node_count(), 4);
+        assert_eq!(g.edge_count(), 6);
+    }
+
+    #[test]
+    fn test_truncated_cube_graph() {
+        let g = truncated_cube_graph();
+        assert_eq!(g.node_count(), 24);
+        assert_eq!(g.edge_count(), 36);
+    }
+
+    #[test]
+    fn test_truncated_tetrahedron_graph() {
+        let g = truncated_tetrahedron_graph();
+        assert_eq!(g.node_count(), 12);
+        assert_eq!(g.edge_count(), 18);
+    }
+
+    #[test]
+    fn test_tutte_graph() {
+        let g = tutte_graph();
+        assert_eq!(g.node_count(), 46);
+        assert_eq!(g.edge_count(), 69);
+    }
+
+    #[test]
+    fn test_hoffman_singleton_graph() {
+        let g = hoffman_singleton_graph();
+        assert_eq!(g.node_count(), 50);
+        assert_eq!(g.edge_count(), 175);
+    }
+
+    #[test]
+    fn test_desargues_graph() {
+        let g = desargues_graph();
+        assert_eq!(g.node_count(), 20);
+        assert_eq!(g.edge_count(), 30);
+    }
+
+    #[test]
+    fn test_generalized_petersen_graph() {
+        let g = generalized_petersen_graph(5, 2);
+        assert_eq!(g.node_count(), 10);
+        assert_eq!(g.edge_count(), 15);
+    }
+
+    #[test]
+    fn test_wheel_graph() {
+        let g = wheel_graph(5);
+        assert_eq!(g.node_count(), 6);
+        assert_eq!(g.edge_count(), 10);
+    }
+
+    #[test]
+    fn test_ladder_graph() {
+        let g = ladder_graph(4);
+        assert_eq!(g.node_count(), 8);
+        assert_eq!(g.edge_count(), 10);
+    }
+
+    #[test]
+    fn test_circular_ladder_graph() {
+        let g = circular_ladder_graph(4);
+        assert_eq!(g.node_count(), 8);
+        assert_eq!(g.edge_count(), 12);
+    }
+
+    #[test]
+    fn test_lollipop_graph() {
+        let g = lollipop_graph(4, 3);
+        assert_eq!(g.node_count(), 7);
+        // K4 = 6 edges + bridge + 2 path edges = 9
+        assert_eq!(g.edge_count(), 9);
+    }
+
+    #[test]
+    fn test_tadpole_graph() {
+        let g = tadpole_graph(4, 3);
+        assert_eq!(g.node_count(), 7);
+        // C4 = 4 edges + bridge + 2 path edges = 7
+        assert_eq!(g.edge_count(), 7);
+    }
+
+    #[test]
+    fn test_turan_graph() {
+        let g = turan_graph(6, 3);
+        // T(6,3) = K_{2,2,2} = 12 edges
+        assert_eq!(g.node_count(), 6);
+        assert_eq!(g.edge_count(), 12);
+    }
+
+    #[test]
+    fn test_windmill_graph() {
+        let g = windmill_graph(3, 4);
+        // 1 center + 4*(3-1) = 9 nodes
+        assert_eq!(g.node_count(), 9);
+    }
+
+    #[test]
+    fn test_hypercube_graph() {
+        let g = hypercube_graph(3);
+        assert_eq!(g.node_count(), 8);
+        assert_eq!(g.edge_count(), 12);
+    }
+
+    #[test]
+    fn test_complete_bipartite_graph() {
+        let g = complete_bipartite_graph(3, 4);
+        assert_eq!(g.node_count(), 7);
+        assert_eq!(g.edge_count(), 12);
+    }
+
+    #[test]
+    fn test_complete_multipartite_graph() {
+        let g = complete_multipartite_graph(&[2, 2, 2]);
+        assert_eq!(g.node_count(), 6);
+        assert_eq!(g.edge_count(), 12); // K_{2,2,2}
+    }
+
+    #[test]
+    fn test_grid_2d_graph() {
+        let g = grid_2d_graph(3, 4);
+        assert_eq!(g.node_count(), 12);
+        // Horizontal: 3*3 = 9, vertical: 2*4 = 8 → 17
+        assert_eq!(g.edge_count(), 17);
+    }
+
+    #[test]
+    fn test_null_graph() {
+        let g = null_graph();
+        assert_eq!(g.node_count(), 0);
+    }
+
+    #[test]
+    fn test_trivial_graph() {
+        let g = trivial_graph();
+        assert_eq!(g.node_count(), 1);
+        assert_eq!(g.edge_count(), 0);
+    }
+
+    #[test]
+    fn test_binomial_tree() {
+        let g = binomial_tree(3);
+        assert_eq!(g.node_count(), 8);
+        assert_eq!(g.edge_count(), 7); // tree
+    }
+
+    #[test]
+    fn test_full_rary_tree() {
+        let g = full_rary_tree(2, 7);
+        assert_eq!(g.node_count(), 7);
+        assert_eq!(g.edge_count(), 6); // tree
     }
 }

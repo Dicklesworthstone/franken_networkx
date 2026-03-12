@@ -2597,6 +2597,266 @@ pub fn ring_of_cliques(py: Python<'_>, num_cliques: usize, clique_size: usize) -
 }
 
 // ===========================================================================
+// Classic graph generators
+// ===========================================================================
+
+#[pyfunction]
+#[pyo3(signature = (r, h))]
+pub fn balanced_tree(py: Python<'_>, r: usize, h: usize) -> PyResult<PyObject> {
+    let result = py.allow_threads(|| fnx_algorithms::balanced_tree(r, h));
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+#[pyo3(signature = (n1, n2))]
+pub fn barbell_graph(py: Python<'_>, n1: usize, n2: usize) -> PyResult<PyObject> {
+    let result = py.allow_threads(|| fnx_algorithms::barbell_graph(n1, n2));
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+pub fn bull_graph(py: Python<'_>) -> PyResult<PyObject> {
+    let result = py.allow_threads(fnx_algorithms::bull_graph);
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+pub fn chvatal_graph(py: Python<'_>) -> PyResult<PyObject> {
+    let result = py.allow_threads(fnx_algorithms::chvatal_graph);
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+pub fn cubical_graph(py: Python<'_>) -> PyResult<PyObject> {
+    let result = py.allow_threads(fnx_algorithms::cubical_graph);
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+pub fn desargues_graph(py: Python<'_>) -> PyResult<PyObject> {
+    let result = py.allow_threads(fnx_algorithms::desargues_graph);
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+pub fn diamond_graph(py: Python<'_>) -> PyResult<PyObject> {
+    let result = py.allow_threads(fnx_algorithms::diamond_graph);
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+pub fn dodecahedral_graph(py: Python<'_>) -> PyResult<PyObject> {
+    let result = py.allow_threads(fnx_algorithms::dodecahedral_graph);
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+pub fn frucht_graph(py: Python<'_>) -> PyResult<PyObject> {
+    let result = py.allow_threads(fnx_algorithms::frucht_graph);
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+pub fn heawood_graph(py: Python<'_>) -> PyResult<PyObject> {
+    let result = py.allow_threads(fnx_algorithms::heawood_graph);
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+pub fn house_graph(py: Python<'_>) -> PyResult<PyObject> {
+    let result = py.allow_threads(fnx_algorithms::house_graph);
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+pub fn house_x_graph(py: Python<'_>) -> PyResult<PyObject> {
+    let result = py.allow_threads(fnx_algorithms::house_x_graph);
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+pub fn icosahedral_graph(py: Python<'_>) -> PyResult<PyObject> {
+    let result = py.allow_threads(fnx_algorithms::icosahedral_graph);
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+pub fn krackhardt_kite_graph(py: Python<'_>) -> PyResult<PyObject> {
+    let result = py.allow_threads(fnx_algorithms::krackhardt_kite_graph);
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+pub fn moebius_kantor_graph(py: Python<'_>) -> PyResult<PyObject> {
+    let result = py.allow_threads(fnx_algorithms::moebius_kantor_graph);
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+pub fn octahedral_graph(py: Python<'_>) -> PyResult<PyObject> {
+    let result = py.allow_threads(fnx_algorithms::octahedral_graph);
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+pub fn pappus_graph(py: Python<'_>) -> PyResult<PyObject> {
+    let result = py.allow_threads(fnx_algorithms::pappus_graph);
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+pub fn petersen_graph(py: Python<'_>) -> PyResult<PyObject> {
+    let result = py.allow_threads(fnx_algorithms::petersen_graph);
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+pub fn sedgewick_maze_graph(py: Python<'_>) -> PyResult<PyObject> {
+    let result = py.allow_threads(fnx_algorithms::sedgewick_maze_graph);
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+pub fn tetrahedral_graph(py: Python<'_>) -> PyResult<PyObject> {
+    let result = py.allow_threads(fnx_algorithms::tetrahedral_graph);
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+pub fn truncated_cube_graph(py: Python<'_>) -> PyResult<PyObject> {
+    let result = py.allow_threads(fnx_algorithms::truncated_cube_graph);
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+pub fn truncated_tetrahedron_graph(py: Python<'_>) -> PyResult<PyObject> {
+    let result = py.allow_threads(fnx_algorithms::truncated_tetrahedron_graph);
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+pub fn tutte_graph(py: Python<'_>) -> PyResult<PyObject> {
+    let result = py.allow_threads(fnx_algorithms::tutte_graph);
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+pub fn hoffman_singleton_graph(py: Python<'_>) -> PyResult<PyObject> {
+    let result = py.allow_threads(fnx_algorithms::hoffman_singleton_graph);
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+#[pyo3(signature = (n, k))]
+pub fn generalized_petersen_graph(py: Python<'_>, n: usize, k: usize) -> PyResult<PyObject> {
+    let result = py.allow_threads(|| fnx_algorithms::generalized_petersen_graph(n, k));
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+#[pyo3(signature = (n,))]
+pub fn wheel_graph(py: Python<'_>, n: usize) -> PyResult<PyObject> {
+    let result = py.allow_threads(|| fnx_algorithms::wheel_graph(n));
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+#[pyo3(signature = (n,))]
+pub fn ladder_graph(py: Python<'_>, n: usize) -> PyResult<PyObject> {
+    let result = py.allow_threads(|| fnx_algorithms::ladder_graph(n));
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+#[pyo3(signature = (n,))]
+pub fn circular_ladder_graph(py: Python<'_>, n: usize) -> PyResult<PyObject> {
+    let result = py.allow_threads(|| fnx_algorithms::circular_ladder_graph(n));
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+#[pyo3(signature = (m, n))]
+pub fn lollipop_graph(py: Python<'_>, m: usize, n: usize) -> PyResult<PyObject> {
+    let result = py.allow_threads(|| fnx_algorithms::lollipop_graph(m, n));
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+#[pyo3(signature = (m, n))]
+pub fn tadpole_graph(py: Python<'_>, m: usize, n: usize) -> PyResult<PyObject> {
+    let result = py.allow_threads(|| fnx_algorithms::tadpole_graph(m, n));
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+#[pyo3(signature = (n, r))]
+pub fn turan_graph(py: Python<'_>, n: usize, r: usize) -> PyResult<PyObject> {
+    let result = py.allow_threads(|| fnx_algorithms::turan_graph(n, r));
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+#[pyo3(signature = (k, n))]
+pub fn windmill_graph(py: Python<'_>, k: usize, n: usize) -> PyResult<PyObject> {
+    let result = py.allow_threads(|| fnx_algorithms::windmill_graph(k, n));
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+#[pyo3(signature = (n,))]
+pub fn hypercube_graph(py: Python<'_>, n: usize) -> PyResult<PyObject> {
+    let result = py.allow_threads(|| fnx_algorithms::hypercube_graph(n));
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+#[pyo3(signature = (n1, n2))]
+pub fn complete_bipartite_graph(py: Python<'_>, n1: usize, n2: usize) -> PyResult<PyObject> {
+    let result = py.allow_threads(|| fnx_algorithms::complete_bipartite_graph(n1, n2));
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+#[pyo3(signature = (block_sizes,))]
+pub fn complete_multipartite_graph(py: Python<'_>, block_sizes: Vec<usize>) -> PyResult<PyObject> {
+    let result = py.allow_threads(|| fnx_algorithms::complete_multipartite_graph(&block_sizes));
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+#[pyo3(signature = (m, n))]
+pub fn grid_2d_graph(py: Python<'_>, m: usize, n: usize) -> PyResult<PyObject> {
+    let result = py.allow_threads(|| fnx_algorithms::grid_2d_graph(m, n));
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+pub fn null_graph(py: Python<'_>) -> PyResult<PyObject> {
+    let result = fnx_algorithms::null_graph();
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+pub fn trivial_graph(py: Python<'_>) -> PyResult<PyObject> {
+    let result = fnx_algorithms::trivial_graph();
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+#[pyo3(signature = (n,))]
+pub fn binomial_tree(py: Python<'_>, n: usize) -> PyResult<PyObject> {
+    let result = py.allow_threads(|| fnx_algorithms::binomial_tree(n));
+    rust_graph_to_py_standalone(py, &result)
+}
+
+#[pyfunction]
+#[pyo3(signature = (r, n))]
+pub fn full_rary_tree(py: Python<'_>, r: usize, n: usize) -> PyResult<PyObject> {
+    let result = py.allow_threads(|| fnx_algorithms::full_rary_tree(r, n));
+    rust_graph_to_py_standalone(py, &result)
+}
+
+// ===========================================================================
 // Single-source shortest paths
 // ===========================================================================
 
@@ -5278,6 +5538,47 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(chordal_graph_cliques, m)?)?;
     m.add_function(wrap_pyfunction!(make_max_clique_graph, m)?)?;
     m.add_function(wrap_pyfunction!(ring_of_cliques, m)?)?;
+    // Classic graph generators
+    m.add_function(wrap_pyfunction!(balanced_tree, m)?)?;
+    m.add_function(wrap_pyfunction!(barbell_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(bull_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(chvatal_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(cubical_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(desargues_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(diamond_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(dodecahedral_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(frucht_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(heawood_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(house_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(house_x_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(icosahedral_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(krackhardt_kite_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(moebius_kantor_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(octahedral_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(pappus_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(petersen_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(sedgewick_maze_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(tetrahedral_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(truncated_cube_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(truncated_tetrahedron_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(tutte_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(hoffman_singleton_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(generalized_petersen_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(wheel_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(ladder_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(circular_ladder_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(lollipop_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(tadpole_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(turan_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(windmill_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(hypercube_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(complete_bipartite_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(complete_multipartite_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(grid_2d_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(null_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(trivial_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(binomial_tree, m)?)?;
+    m.add_function(wrap_pyfunction!(full_rary_tree, m)?)?;
     // Single-source shortest paths
     m.add_function(wrap_pyfunction!(single_source_shortest_path, m)?)?;
     m.add_function(wrap_pyfunction!(single_source_shortest_path_length, m)?)?;
