@@ -3813,6 +3813,528 @@ fn find_cycle(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<(PyObject, P
 }
 
 // ===========================================================================
+// Additional shortest path bindings
+// ===========================================================================
+
+/// Return the shortest path length from source to target using Dijkstra.
+#[pyfunction]
+#[pyo3(signature = (g, source, target, weight="weight"))]
+fn dijkstra_path_length(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    target: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<f64> {
+    let gr = extract_graph(g)?;
+    let s = node_key_to_string(py, source)?;
+    let t = node_key_to_string(py, target)?;
+    validate_node(&gr, &s, source)?;
+    validate_node(&gr, &t, target)?;
+    let result = fnx_algorithms::dijkstra_path_length(gr.undirected(), &s, &t, weight);
+    match result {
+        Some(d) => Ok(d),
+        None => Err(NetworkXNoPath::new_err(format!(
+            "No path between {} and {}.",
+            s, t
+        ))),
+    }
+}
+
+/// Return the shortest path length from source to target using Bellman-Ford.
+#[pyfunction]
+#[pyo3(signature = (g, source, target, weight="weight"))]
+fn bellman_ford_path_length(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    target: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<f64> {
+    let gr = extract_graph(g)?;
+    let s = node_key_to_string(py, source)?;
+    let t = node_key_to_string(py, target)?;
+    validate_node(&gr, &s, source)?;
+    validate_node(&gr, &t, target)?;
+    let result = fnx_algorithms::bellman_ford_path_length(gr.undirected(), &s, &t, weight);
+    match result {
+        Ok(d) => Ok(d),
+        Err(true) => Err(crate::NetworkXUnbounded::new_err(
+            "Negative cost cycle detected.",
+        )),
+        Err(false) => Err(NetworkXNoPath::new_err(format!(
+            "No path between {} and {}.",
+            s, t
+        ))),
+    }
+}
+
+/// Return (distances, paths) from a single source using Dijkstra.
+#[pyfunction]
+#[pyo3(signature = (g, source, weight="weight"))]
+fn single_source_dijkstra(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<(PyObject, PyObject)> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "single_source_dijkstra")?;
+    let s = node_key_to_string(py, source)?;
+    validate_node_str(&gr, &s)?;
+    let (dists, paths) =
+        fnx_algorithms::single_source_dijkstra_full(gr.undirected(), &s, weight);
+    let dist_dict = PyDict::new(py);
+    for (node, d) in &dists {
+        dist_dict.set_item(gr.py_node_key(py, node), d)?;
+    }
+    let path_dict = PyDict::new(py);
+    for (node, path) in &paths {
+        let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
+        path_dict.set_item(gr.py_node_key(py, node), py_path)?;
+    }
+    Ok((
+        dist_dict.into_any().unbind(),
+        path_dict.into_any().unbind(),
+    ))
+}
+
+/// Return paths from a single source using Dijkstra.
+#[pyfunction]
+#[pyo3(signature = (g, source, weight="weight"))]
+fn single_source_dijkstra_path(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "single_source_dijkstra_path")?;
+    let s = node_key_to_string(py, source)?;
+    validate_node_str(&gr, &s)?;
+    let paths = fnx_algorithms::single_source_dijkstra_path(gr.undirected(), &s, weight);
+    let dict = PyDict::new(py);
+    for (node, path) in &paths {
+        let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
+        dict.set_item(gr.py_node_key(py, node), py_path)?;
+    }
+    Ok(dict.into_any().unbind())
+}
+
+/// Return distances from a single source using Dijkstra.
+#[pyfunction]
+#[pyo3(signature = (g, source, weight="weight"))]
+fn single_source_dijkstra_path_length(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "single_source_dijkstra_path_length")?;
+    let s = node_key_to_string(py, source)?;
+    validate_node_str(&gr, &s)?;
+    let dists = fnx_algorithms::single_source_dijkstra_path_length(gr.undirected(), &s, weight);
+    let dict = PyDict::new(py);
+    for (node, d) in &dists {
+        dict.set_item(gr.py_node_key(py, node), d)?;
+    }
+    Ok(dict.into_any().unbind())
+}
+
+/// Return (distances, paths) from a single source using Bellman-Ford.
+#[pyfunction]
+#[pyo3(signature = (g, source, weight="weight"))]
+fn single_source_bellman_ford(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<(PyObject, PyObject)> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "single_source_bellman_ford")?;
+    let s = node_key_to_string(py, source)?;
+    validate_node_str(&gr, &s)?;
+    let result = fnx_algorithms::single_source_bellman_ford(gr.undirected(), &s, weight);
+    match result {
+        Some((dists, paths)) => {
+            let dist_dict = PyDict::new(py);
+            for (node, d) in &dists {
+                dist_dict.set_item(gr.py_node_key(py, node), d)?;
+            }
+            let path_dict = PyDict::new(py);
+            for (node, path) in &paths {
+                let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
+                path_dict.set_item(gr.py_node_key(py, node), py_path)?;
+            }
+            Ok((
+                dist_dict.into_any().unbind(),
+                path_dict.into_any().unbind(),
+            ))
+        }
+        None => Err(crate::NetworkXUnbounded::new_err(
+            "Negative cost cycle detected.",
+        )),
+    }
+}
+
+/// Return paths from a single source using Bellman-Ford.
+#[pyfunction]
+#[pyo3(signature = (g, source, weight="weight"))]
+fn single_source_bellman_ford_path(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "single_source_bellman_ford_path")?;
+    let s = node_key_to_string(py, source)?;
+    validate_node_str(&gr, &s)?;
+    let result = fnx_algorithms::single_source_bellman_ford_path(gr.undirected(), &s, weight);
+    match result {
+        Some(paths) => {
+            let dict = PyDict::new(py);
+            for (node, path) in &paths {
+                let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
+                dict.set_item(gr.py_node_key(py, node), py_path)?;
+            }
+            Ok(dict.into_any().unbind())
+        }
+        None => Err(crate::NetworkXUnbounded::new_err(
+            "Negative cost cycle detected.",
+        )),
+    }
+}
+
+/// Return distances from a single source using Bellman-Ford.
+#[pyfunction]
+#[pyo3(signature = (g, source, weight="weight"))]
+fn single_source_bellman_ford_path_length(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "single_source_bellman_ford_path_length")?;
+    let s = node_key_to_string(py, source)?;
+    validate_node_str(&gr, &s)?;
+    let result = fnx_algorithms::single_source_bellman_ford_path_length(gr.undirected(), &s, weight);
+    match result {
+        Some(dists) => {
+            let dict = PyDict::new(py);
+            for (node, d) in &dists {
+                dict.set_item(gr.py_node_key(py, node), d)?;
+            }
+            Ok(dict.into_any().unbind())
+        }
+        None => Err(crate::NetworkXUnbounded::new_err(
+            "Negative cost cycle detected.",
+        )),
+    }
+}
+
+/// Return shortest paths from all nodes to a single target (unweighted BFS).
+#[pyfunction]
+#[pyo3(signature = (g, target, cutoff=None))]
+fn single_target_shortest_path(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    target: &Bound<'_, PyAny>,
+    cutoff: Option<usize>,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "single_target_shortest_path")?;
+    let t = node_key_to_string(py, target)?;
+    validate_node_str(&gr, &t)?;
+    let result = fnx_algorithms::single_target_shortest_path(gr.undirected(), &t, cutoff);
+    let dict = PyDict::new(py);
+    for (node, path) in &result {
+        let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
+        dict.set_item(gr.py_node_key(py, node), py_path)?;
+    }
+    Ok(dict.into_any().unbind())
+}
+
+/// Return shortest path lengths from all nodes to a single target (unweighted BFS).
+#[pyfunction]
+#[pyo3(signature = (g, target, cutoff=None))]
+fn single_target_shortest_path_length(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    target: &Bound<'_, PyAny>,
+    cutoff: Option<usize>,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "single_target_shortest_path_length")?;
+    let t = node_key_to_string(py, target)?;
+    validate_node_str(&gr, &t)?;
+    let result = fnx_algorithms::single_target_shortest_path_length(gr.undirected(), &t, cutoff);
+    let dict = PyDict::new(py);
+    for (node, length) in &result {
+        dict.set_item(gr.py_node_key(py, node), *length)?;
+    }
+    Ok(dict.into_any().unbind())
+}
+
+/// Return all-pairs shortest path distances using Dijkstra.
+#[pyfunction]
+#[pyo3(signature = (g, weight="weight"))]
+fn all_pairs_dijkstra_path_length(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "all_pairs_dijkstra_path_length")?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::all_pairs_dijkstra_path_length(inner, weight));
+    let outer_dict = PyDict::new(py);
+    for (source, targets) in &result {
+        let inner_dict = PyDict::new(py);
+        for (target, d) in targets {
+            inner_dict.set_item(gr.py_node_key(py, target), d)?;
+        }
+        outer_dict.set_item(gr.py_node_key(py, source), inner_dict)?;
+    }
+    Ok(outer_dict.into_any().unbind())
+}
+
+/// Return all-pairs shortest paths using Dijkstra.
+#[pyfunction]
+#[pyo3(signature = (g, weight="weight"))]
+fn all_pairs_dijkstra_path(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "all_pairs_dijkstra_path")?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::all_pairs_dijkstra_path(inner, weight));
+    let outer_dict = PyDict::new(py);
+    for (source, targets) in &result {
+        let inner_dict = PyDict::new(py);
+        for (target, path) in targets {
+            let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
+            inner_dict.set_item(gr.py_node_key(py, target), py_path)?;
+        }
+        outer_dict.set_item(gr.py_node_key(py, source), inner_dict)?;
+    }
+    Ok(outer_dict.into_any().unbind())
+}
+
+/// Return all-pairs shortest path distances using Bellman-Ford.
+#[pyfunction]
+#[pyo3(signature = (g, weight="weight"))]
+fn all_pairs_bellman_ford_path_length(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "all_pairs_bellman_ford_path_length")?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::all_pairs_bellman_ford_path_length(inner, weight));
+    match result {
+        Some(data) => {
+            let outer_dict = PyDict::new(py);
+            for (source, targets) in &data {
+                let inner_dict = PyDict::new(py);
+                for (target, d) in targets {
+                    inner_dict.set_item(gr.py_node_key(py, target), d)?;
+                }
+                outer_dict.set_item(gr.py_node_key(py, source), inner_dict)?;
+            }
+            Ok(outer_dict.into_any().unbind())
+        }
+        None => Err(crate::NetworkXUnbounded::new_err(
+            "Negative cost cycle detected.",
+        )),
+    }
+}
+
+/// Return all-pairs shortest paths using Bellman-Ford.
+#[pyfunction]
+#[pyo3(signature = (g, weight="weight"))]
+fn all_pairs_bellman_ford_path(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "all_pairs_bellman_ford_path")?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::all_pairs_bellman_ford_path(inner, weight));
+    match result {
+        Some(data) => {
+            let outer_dict = PyDict::new(py);
+            for (source, targets) in &data {
+                let inner_dict = PyDict::new(py);
+                for (target, path) in targets {
+                    let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
+                    inner_dict.set_item(gr.py_node_key(py, target), py_path)?;
+                }
+                outer_dict.set_item(gr.py_node_key(py, source), inner_dict)?;
+            }
+            Ok(outer_dict.into_any().unbind())
+        }
+        None => Err(crate::NetworkXUnbounded::new_err(
+            "Negative cost cycle detected.",
+        )),
+    }
+}
+
+/// Return Floyd-Warshall all-pairs shortest path distances.
+#[pyfunction]
+#[pyo3(signature = (g, weight="weight"))]
+fn floyd_warshall(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "floyd_warshall")?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::floyd_warshall(inner, weight));
+    let outer_dict = PyDict::new(py);
+    for (source, targets) in &result {
+        let inner_dict = PyDict::new(py);
+        for (target, d) in targets {
+            inner_dict.set_item(gr.py_node_key(py, target), d)?;
+        }
+        outer_dict.set_item(gr.py_node_key(py, source), inner_dict)?;
+    }
+    Ok(outer_dict.into_any().unbind())
+}
+
+/// Return Floyd-Warshall predecessors and distances.
+#[pyfunction]
+#[pyo3(signature = (g, weight="weight"))]
+fn floyd_warshall_predecessor_and_distance(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<(PyObject, PyObject)> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "floyd_warshall_predecessor_and_distance")?;
+    let inner = gr.undirected();
+    let (dists, preds) = py.allow_threads(|| {
+        fnx_algorithms::floyd_warshall_predecessor_and_distance(inner, weight)
+    });
+    let dist_outer = PyDict::new(py);
+    for (source, targets) in &dists {
+        let inner_dict = PyDict::new(py);
+        for (target, d) in targets {
+            inner_dict.set_item(gr.py_node_key(py, target), d)?;
+        }
+        dist_outer.set_item(gr.py_node_key(py, source), inner_dict)?;
+    }
+    let pred_outer = PyDict::new(py);
+    for (source, targets) in &preds {
+        let inner_dict = PyDict::new(py);
+        for (target, pred_list) in targets {
+            let py_preds: Vec<PyObject> = pred_list.iter().map(|n| gr.py_node_key(py, n)).collect();
+            inner_dict.set_item(gr.py_node_key(py, target), py_preds)?;
+        }
+        pred_outer.set_item(gr.py_node_key(py, source), inner_dict)?;
+    }
+    Ok((
+        pred_outer.into_any().unbind(),
+        dist_outer.into_any().unbind(),
+    ))
+}
+
+/// Return shortest path between source and target using bidirectional BFS.
+#[pyfunction]
+#[pyo3(signature = (g, source, target))]
+fn bidirectional_shortest_path(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    target: &Bound<'_, PyAny>,
+) -> PyResult<Vec<PyObject>> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "bidirectional_shortest_path")?;
+    let s = node_key_to_string(py, source)?;
+    let t = node_key_to_string(py, target)?;
+    validate_node(&gr, &s, source)?;
+    validate_node(&gr, &t, target)?;
+    let result = fnx_algorithms::bidirectional_shortest_path(gr.undirected(), &s, &t);
+    match result {
+        Some(path) => Ok(path.iter().map(|n| gr.py_node_key(py, n)).collect()),
+        None => Err(NetworkXNoPath::new_err(format!(
+            "No path between {} and {}.",
+            s, t
+        ))),
+    }
+}
+
+/// Return True if a negative edge cycle exists in the graph.
+#[pyfunction]
+#[pyo3(signature = (g, weight="weight"))]
+fn negative_edge_cycle(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<bool> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "negative_edge_cycle")?;
+    let inner = gr.undirected();
+    Ok(py.allow_threads(|| fnx_algorithms::negative_edge_cycle(inner, weight)))
+}
+
+/// Return the predecessor dictionary from BFS.
+#[pyfunction]
+#[pyo3(name = "predecessor", signature = (g, source, cutoff=None))]
+fn predecessor_fn(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    cutoff: Option<usize>,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "predecessor")?;
+    let s = node_key_to_string(py, source)?;
+    validate_node_str(&gr, &s)?;
+    let result = fnx_algorithms::predecessor(gr.undirected(), &s, cutoff);
+    let dict = PyDict::new(py);
+    for (node, preds) in &result {
+        let py_preds: Vec<PyObject> = preds.iter().map(|n| gr.py_node_key(py, n)).collect();
+        dict.set_item(gr.py_node_key(py, node), py_preds)?;
+    }
+    Ok(dict.into_any().unbind())
+}
+
+/// Return the weight of a path given edge weights.
+#[pyfunction]
+#[pyo3(signature = (g, path, weight="weight"))]
+fn path_weight(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    path: Vec<Bound<'_, PyAny>>,
+    weight: &str,
+) -> PyResult<f64> {
+    let gr = extract_graph(g)?;
+    let path_strs: Vec<String> = path
+        .iter()
+        .map(|n| node_key_to_string(py, n))
+        .collect::<PyResult<_>>()?;
+    let path_refs: Vec<&str> = path_strs.iter().map(String::as_str).collect();
+    let result = match &gr {
+        GraphRef::Undirected(pg) => fnx_algorithms::path_weight(&pg.inner, &path_refs, weight),
+        GraphRef::Directed { dg, .. } => {
+            fnx_algorithms::path_weight_directed(&dg.inner, &path_refs, weight)
+        }
+    };
+    match result {
+        Some(w) => Ok(w),
+        None => Err(NetworkXNoPath::new_err("path contains edges not in graph")),
+    }
+}
+
+// ===========================================================================
 // Registration
 // ===========================================================================
 
@@ -4010,5 +4532,26 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Cycles
     m.add_function(wrap_pyfunction!(simple_cycles, m)?)?;
     m.add_function(wrap_pyfunction!(find_cycle, m)?)?;
+    // Additional shortest path algorithms
+    m.add_function(wrap_pyfunction!(dijkstra_path_length, m)?)?;
+    m.add_function(wrap_pyfunction!(bellman_ford_path_length, m)?)?;
+    m.add_function(wrap_pyfunction!(single_source_dijkstra, m)?)?;
+    m.add_function(wrap_pyfunction!(single_source_dijkstra_path, m)?)?;
+    m.add_function(wrap_pyfunction!(single_source_dijkstra_path_length, m)?)?;
+    m.add_function(wrap_pyfunction!(single_source_bellman_ford, m)?)?;
+    m.add_function(wrap_pyfunction!(single_source_bellman_ford_path, m)?)?;
+    m.add_function(wrap_pyfunction!(single_source_bellman_ford_path_length, m)?)?;
+    m.add_function(wrap_pyfunction!(single_target_shortest_path, m)?)?;
+    m.add_function(wrap_pyfunction!(single_target_shortest_path_length, m)?)?;
+    m.add_function(wrap_pyfunction!(all_pairs_dijkstra_path_length, m)?)?;
+    m.add_function(wrap_pyfunction!(all_pairs_dijkstra_path, m)?)?;
+    m.add_function(wrap_pyfunction!(all_pairs_bellman_ford_path_length, m)?)?;
+    m.add_function(wrap_pyfunction!(all_pairs_bellman_ford_path, m)?)?;
+    m.add_function(wrap_pyfunction!(floyd_warshall, m)?)?;
+    m.add_function(wrap_pyfunction!(floyd_warshall_predecessor_and_distance, m)?)?;
+    m.add_function(wrap_pyfunction!(bidirectional_shortest_path, m)?)?;
+    m.add_function(wrap_pyfunction!(negative_edge_cycle, m)?)?;
+    m.add_function(wrap_pyfunction!(predecessor_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(path_weight, m)?)?;
     Ok(())
 }

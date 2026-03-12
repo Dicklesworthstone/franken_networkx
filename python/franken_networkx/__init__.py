@@ -384,6 +384,30 @@ from franken_networkx._fnx import (
     find_cycle,
 )
 
+# Algorithm functions — additional shortest path
+from franken_networkx._fnx import (
+    dijkstra_path_length,
+    bellman_ford_path_length,
+    single_source_dijkstra,
+    single_source_dijkstra_path,
+    single_source_dijkstra_path_length,
+    single_source_bellman_ford,
+    single_source_bellman_ford_path,
+    single_source_bellman_ford_path_length,
+    single_target_shortest_path,
+    single_target_shortest_path_length,
+    all_pairs_dijkstra_path,
+    all_pairs_dijkstra_path_length,
+    all_pairs_bellman_ford_path,
+    all_pairs_bellman_ford_path_length,
+    floyd_warshall,
+    floyd_warshall_predecessor_and_distance,
+    bidirectional_shortest_path,
+    negative_edge_cycle,
+    predecessor,
+    path_weight,
+)
+
 # Graph generators — classic
 from franken_networkx._fnx import (
     complete_graph,
@@ -1185,6 +1209,27 @@ __all__ = [
     "find_cycle",
     # Exception
     "NetworkXNoCycle",
+    # Algorithms — additional shortest path
+    "dijkstra_path_length",
+    "bellman_ford_path_length",
+    "single_source_dijkstra",
+    "single_source_dijkstra_path",
+    "single_source_dijkstra_path_length",
+    "single_source_bellman_ford",
+    "single_source_bellman_ford_path",
+    "single_source_bellman_ford_path_length",
+    "single_target_shortest_path",
+    "single_target_shortest_path_length",
+    "all_pairs_dijkstra_path",
+    "all_pairs_dijkstra_path_length",
+    "all_pairs_bellman_ford_path",
+    "all_pairs_bellman_ford_path_length",
+    "floyd_warshall",
+    "floyd_warshall_predecessor_and_distance",
+    "bidirectional_shortest_path",
+    "negative_edge_cycle",
+    "predecessor",
+    "path_weight",
     # Algorithms — planarity
     "is_planar",
     # Algorithms — barycenter

@@ -10822,6 +10822,775 @@ pub fn find_cycle_undirected(graph: &Graph) -> Option<Vec<String>> {
     None
 }
 
+// ===========================================================================
+// Additional shortest path algorithms
+// ===========================================================================
+
+/// Return the shortest path length from source to target using Dijkstra's
+/// algorithm. Matches `networkx.dijkstra_path_length(G, source, target, weight)`.
+#[must_use]
+pub fn dijkstra_path_length(
+    graph: &Graph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> Option<f64> {
+    let result = multi_source_dijkstra(graph, &[source], weight_attr);
+    result
+        .distances
+        .iter()
+        .find(|e| e.node == target)
+        .map(|e| e.distance)
+}
+
+/// Return the shortest path length from source to target using Dijkstra's
+/// on a directed graph.
+#[must_use]
+pub fn dijkstra_path_length_directed(
+    digraph: &DiGraph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> Option<f64> {
+    let result = single_source_dijkstra_directed(digraph, source, weight_attr);
+    result.get(target).copied()
+}
+
+/// Return the shortest path length from source to target using Bellman-Ford.
+/// Matches `networkx.bellman_ford_path_length(G, source, target, weight)`.
+/// Returns Err(true) if a negative cycle is detected, Err(false) if no path, Ok(length) otherwise.
+pub fn bellman_ford_path_length(
+    graph: &Graph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> Result<f64, bool> {
+    let result = bellman_ford_shortest_paths(graph, source, weight_attr);
+    if result.negative_cycle_detected {
+        return Err(true);
+    }
+    result
+        .distances
+        .iter()
+        .find(|e| e.node == target)
+        .map(|e| e.distance)
+        .ok_or(false)
+}
+
+/// Single-source Dijkstra returning distances only (directed graph).
+/// Returns HashMap<node, distance>.
+#[must_use]
+pub fn single_source_dijkstra_directed(
+    digraph: &DiGraph,
+    source: &str,
+    weight_attr: &str,
+) -> HashMap<String, f64> {
+    let mut distances: HashMap<String, f64> = HashMap::new();
+    if !digraph.has_node(source) {
+        return distances;
+    }
+
+    let mut settled = HashSet::<String>::new();
+    distances.insert(source.to_owned(), 0.0);
+
+    let ordered_nodes = digraph.nodes_ordered();
+
+    loop {
+        let mut current: Option<(&str, f64)> = None;
+        for &node in &ordered_nodes {
+            if settled.contains(node) {
+                continue;
+            }
+            let Some(&d) = distances.get(node) else {
+                continue;
+            };
+            match current {
+                None => current = Some((node, d)),
+                Some((_, best)) if d < best => current = Some((node, d)),
+                _ => {}
+            }
+        }
+
+        let Some((cur, cur_dist)) = current else {
+            break;
+        };
+        settled.insert(cur.to_owned());
+
+        if let Some(neighbors) = digraph.successors(cur) {
+            for nbr in neighbors {
+                if settled.contains(nbr) {
+                    continue;
+                }
+                let w = digraph_edge_weight_or_default(digraph, cur, nbr, weight_attr);
+                let new_dist = cur_dist + w;
+                let update = match distances.get(nbr) {
+                    Some(&existing) => new_dist + DISTANCE_COMPARISON_EPSILON < existing,
+                    None => true,
+                };
+                if update {
+                    distances.insert(nbr.to_owned(), new_dist);
+                }
+            }
+        }
+    }
+
+    distances
+}
+
+/// Single-source Dijkstra returning (distances, paths) for undirected graph.
+/// Matches `networkx.single_source_dijkstra(G, source, weight=weight)`.
+#[must_use]
+pub fn single_source_dijkstra_full(
+    graph: &Graph,
+    source: &str,
+    weight_attr: &str,
+) -> (HashMap<String, f64>, HashMap<String, Vec<String>>) {
+    let result = multi_source_dijkstra(graph, &[source], weight_attr);
+    let mut distances = HashMap::new();
+    let mut paths = HashMap::new();
+
+    let pred_map: HashMap<&str, Option<&str>> = result
+        .predecessors
+        .iter()
+        .map(|e| (e.node.as_str(), e.predecessor.as_deref()))
+        .collect();
+
+    for entry in &result.distances {
+        distances.insert(entry.node.clone(), entry.distance);
+        let mut path = vec![entry.node.clone()];
+        let mut cur = entry.node.as_str();
+        while let Some(Some(prev)) = pred_map.get(cur) {
+            path.push((*prev).to_owned());
+            cur = prev;
+        }
+        path.reverse();
+        paths.insert(entry.node.clone(), path);
+    }
+
+    (distances, paths)
+}
+
+/// Single-source Dijkstra returning paths only.
+/// Matches `networkx.single_source_dijkstra_path(G, source, weight=weight)`.
+#[must_use]
+pub fn single_source_dijkstra_path(
+    graph: &Graph,
+    source: &str,
+    weight_attr: &str,
+) -> HashMap<String, Vec<String>> {
+    single_source_dijkstra_full(graph, source, weight_attr).1
+}
+
+/// Single-source Dijkstra returning distances only.
+/// Matches `networkx.single_source_dijkstra_path_length(G, source, weight=weight)`.
+#[must_use]
+pub fn single_source_dijkstra_path_length(
+    graph: &Graph,
+    source: &str,
+    weight_attr: &str,
+) -> HashMap<String, f64> {
+    single_source_dijkstra_full(graph, source, weight_attr).0
+}
+
+/// Single-source Bellman-Ford returning paths only.
+/// Returns None if a negative cycle is detected.
+/// Matches `networkx.single_source_bellman_ford_path(G, source, weight=weight)`.
+#[must_use]
+pub fn single_source_bellman_ford_path(
+    graph: &Graph,
+    source: &str,
+    weight_attr: &str,
+) -> Option<HashMap<String, Vec<String>>> {
+    let result = bellman_ford_shortest_paths(graph, source, weight_attr);
+    if result.negative_cycle_detected {
+        return None;
+    }
+
+    let pred_map: HashMap<&str, Option<&str>> = result
+        .predecessors
+        .iter()
+        .map(|e| (e.node.as_str(), e.predecessor.as_deref()))
+        .collect();
+
+    let mut paths = HashMap::new();
+    for entry in &result.distances {
+        let mut path = vec![entry.node.clone()];
+        let mut cur = entry.node.as_str();
+        while let Some(Some(prev)) = pred_map.get(cur) {
+            path.push((*prev).to_owned());
+            cur = prev;
+        }
+        path.reverse();
+        paths.insert(entry.node.clone(), path);
+    }
+
+    Some(paths)
+}
+
+/// Single-source Bellman-Ford returning distances only.
+/// Returns None if a negative cycle is detected.
+/// Matches `networkx.single_source_bellman_ford_path_length(G, source, weight=weight)`.
+#[must_use]
+pub fn single_source_bellman_ford_path_length(
+    graph: &Graph,
+    source: &str,
+    weight_attr: &str,
+) -> Option<HashMap<String, f64>> {
+    let result = bellman_ford_shortest_paths(graph, source, weight_attr);
+    if result.negative_cycle_detected {
+        return None;
+    }
+
+    let mut distances = HashMap::new();
+    for entry in &result.distances {
+        distances.insert(entry.node.clone(), entry.distance);
+    }
+    Some(distances)
+}
+
+/// Single-source Bellman-Ford returning (distances, paths).
+/// Returns None if a negative cycle is detected.
+/// Matches `networkx.single_source_bellman_ford(G, source, weight=weight)`.
+#[allow(clippy::type_complexity)]
+#[must_use]
+pub fn single_source_bellman_ford(
+    graph: &Graph,
+    source: &str,
+    weight_attr: &str,
+) -> Option<(HashMap<String, f64>, HashMap<String, Vec<String>>)> {
+    let result = bellman_ford_shortest_paths(graph, source, weight_attr);
+    if result.negative_cycle_detected {
+        return None;
+    }
+
+    let pred_map: HashMap<&str, Option<&str>> = result
+        .predecessors
+        .iter()
+        .map(|e| (e.node.as_str(), e.predecessor.as_deref()))
+        .collect();
+
+    let mut distances = HashMap::new();
+    let mut paths = HashMap::new();
+    for entry in &result.distances {
+        distances.insert(entry.node.clone(), entry.distance);
+        let mut path = vec![entry.node.clone()];
+        let mut cur = entry.node.as_str();
+        while let Some(Some(prev)) = pred_map.get(cur) {
+            path.push((*prev).to_owned());
+            cur = prev;
+        }
+        path.reverse();
+        paths.insert(entry.node.clone(), path);
+    }
+
+    Some((distances, paths))
+}
+
+/// Single-target shortest path (unweighted BFS, reversed).
+/// Matches `networkx.single_target_shortest_path(G, target, cutoff=None)`.
+#[must_use]
+pub fn single_target_shortest_path(
+    graph: &Graph,
+    target: &str,
+    cutoff: Option<usize>,
+) -> HashMap<String, Vec<String>> {
+    // For undirected graphs, single_target is equivalent to single_source
+    // but paths are reversed (source -> ... -> target instead of target -> ... -> source)
+    let raw = single_source_shortest_path(graph, target, cutoff);
+    let mut result = HashMap::new();
+    for (node, mut path) in raw {
+        path.reverse();
+        result.insert(node, path);
+    }
+    result
+}
+
+/// Single-target shortest path lengths (unweighted BFS, reversed).
+/// Matches `networkx.single_target_shortest_path_length(G, target, cutoff=None)`.
+#[must_use]
+pub fn single_target_shortest_path_length(
+    graph: &Graph,
+    target: &str,
+    cutoff: Option<usize>,
+) -> HashMap<String, usize> {
+    // For undirected graphs, lengths are the same regardless of direction
+    single_source_shortest_path_length(graph, target, cutoff)
+}
+
+/// All-pairs Dijkstra returning (distances, paths).
+/// Matches `networkx.all_pairs_dijkstra(G, weight=weight)`.
+#[allow(clippy::type_complexity)]
+#[must_use]
+pub fn all_pairs_dijkstra(
+    graph: &Graph,
+    weight_attr: &str,
+) -> HashMap<String, (HashMap<String, f64>, HashMap<String, Vec<String>>)> {
+    let mut result = HashMap::new();
+    for node in graph.nodes_ordered() {
+        let (dists, paths) = single_source_dijkstra_full(graph, node, weight_attr);
+        result.insert(node.to_owned(), (dists, paths));
+    }
+    result
+}
+
+/// All-pairs Dijkstra returning paths only.
+/// Matches `networkx.all_pairs_dijkstra_path(G, weight=weight)`.
+#[must_use]
+pub fn all_pairs_dijkstra_path(
+    graph: &Graph,
+    weight_attr: &str,
+) -> HashMap<String, HashMap<String, Vec<String>>> {
+    let mut result = HashMap::new();
+    for node in graph.nodes_ordered() {
+        result.insert(node.to_owned(), single_source_dijkstra_path(graph, node, weight_attr));
+    }
+    result
+}
+
+/// All-pairs Dijkstra returning distances only.
+/// Matches `networkx.all_pairs_dijkstra_path_length(G, weight=weight)`.
+#[must_use]
+pub fn all_pairs_dijkstra_path_length(
+    graph: &Graph,
+    weight_attr: &str,
+) -> HashMap<String, HashMap<String, f64>> {
+    let mut result = HashMap::new();
+    for node in graph.nodes_ordered() {
+        result.insert(node.to_owned(), single_source_dijkstra_path_length(graph, node, weight_attr));
+    }
+    result
+}
+
+/// All-pairs Bellman-Ford returning paths only.
+/// Returns None if a negative cycle is detected.
+/// Matches `networkx.all_pairs_bellman_ford_path(G, weight=weight)`.
+#[must_use]
+pub fn all_pairs_bellman_ford_path(
+    graph: &Graph,
+    weight_attr: &str,
+) -> Option<HashMap<String, HashMap<String, Vec<String>>>> {
+    let mut result = HashMap::new();
+    for node in graph.nodes_ordered() {
+        let paths = single_source_bellman_ford_path(graph, node, weight_attr)?;
+        result.insert(node.to_owned(), paths);
+    }
+    Some(result)
+}
+
+/// All-pairs Bellman-Ford returning distances only.
+/// Returns None if a negative cycle is detected.
+/// Matches `networkx.all_pairs_bellman_ford_path_length(G, weight=weight)`.
+#[must_use]
+pub fn all_pairs_bellman_ford_path_length(
+    graph: &Graph,
+    weight_attr: &str,
+) -> Option<HashMap<String, HashMap<String, f64>>> {
+    let mut result = HashMap::new();
+    for node in graph.nodes_ordered() {
+        let dists = single_source_bellman_ford_path_length(graph, node, weight_attr)?;
+        result.insert(node.to_owned(), dists);
+    }
+    Some(result)
+}
+
+/// Floyd-Warshall all-pairs shortest paths (dense, O(V^3)).
+/// Returns a nested map: source -> target -> distance.
+/// Matches `networkx.floyd_warshall(G, weight=weight)`.
+#[allow(clippy::needless_range_loop)]
+#[must_use]
+pub fn floyd_warshall(
+    graph: &Graph,
+    weight_attr: &str,
+) -> HashMap<String, HashMap<String, f64>> {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    let mut idx: HashMap<&str, usize> = HashMap::new();
+    for (i, &node) in nodes.iter().enumerate() {
+        idx.insert(node, i);
+    }
+
+    // Initialize distance matrix
+    let mut dist = vec![vec![f64::INFINITY; n]; n];
+    for i in 0..n {
+        dist[i][i] = 0.0;
+    }
+
+    // Fill with edge weights
+    for &u in &nodes {
+        let ui = idx[u];
+        if let Some(neighbors) = graph.neighbors_iter(u) {
+            for v in neighbors {
+                let vi = idx[v];
+                let w = signed_edge_weight_or_default(graph, u, v, weight_attr);
+                if w < dist[ui][vi] {
+                    dist[ui][vi] = w;
+                }
+            }
+        }
+    }
+
+    // Floyd-Warshall relaxation
+    for k in 0..n {
+        for i in 0..n {
+            if dist[i][k] == f64::INFINITY {
+                continue;
+            }
+            for j in 0..n {
+                if dist[k][j] == f64::INFINITY {
+                    continue;
+                }
+                let via_k = dist[i][k] + dist[k][j];
+                if via_k < dist[i][j] {
+                    dist[i][j] = via_k;
+                }
+            }
+        }
+    }
+
+    // Convert back to HashMap
+    let mut result = HashMap::new();
+    for (i, &u) in nodes.iter().enumerate() {
+        let mut inner = HashMap::new();
+        for (j, &v) in nodes.iter().enumerate() {
+            inner.insert(v.to_owned(), dist[i][j]);
+        }
+        result.insert(u.to_owned(), inner);
+    }
+    result
+}
+
+/// Floyd-Warshall with predecessors.
+/// Returns (distances, predecessors) where predecessors[u][v] = next-to-last node on path u->v.
+/// Matches `networkx.floyd_warshall_predecessor_and_distance(G, weight=weight)`.
+#[allow(clippy::needless_range_loop, clippy::type_complexity)]
+#[must_use]
+pub fn floyd_warshall_predecessor_and_distance(
+    graph: &Graph,
+    weight_attr: &str,
+) -> (
+    HashMap<String, HashMap<String, f64>>,
+    HashMap<String, HashMap<String, Vec<String>>>,
+) {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    let mut idx: HashMap<&str, usize> = HashMap::new();
+    for (i, &node) in nodes.iter().enumerate() {
+        idx.insert(node, i);
+    }
+
+    let mut dist = vec![vec![f64::INFINITY; n]; n];
+    let mut pred: Vec<Vec<Vec<usize>>> = vec![vec![Vec::new(); n]; n];
+
+    for i in 0..n {
+        dist[i][i] = 0.0;
+    }
+
+    for &u in &nodes {
+        let ui = idx[u];
+        if let Some(neighbors) = graph.neighbors_iter(u) {
+            for v in neighbors {
+                let vi = idx[v];
+                let w = signed_edge_weight_or_default(graph, u, v, weight_attr);
+                if w < dist[ui][vi] {
+                    dist[ui][vi] = w;
+                    pred[ui][vi] = vec![ui];
+                } else if (w - dist[ui][vi]).abs() < DISTANCE_COMPARISON_EPSILON && !pred[ui][vi].contains(&ui) {
+                    pred[ui][vi].push(ui);
+                }
+            }
+        }
+    }
+
+    for k in 0..n {
+        for i in 0..n {
+            if dist[i][k] == f64::INFINITY {
+                continue;
+            }
+            for j in 0..n {
+                if dist[k][j] == f64::INFINITY {
+                    continue;
+                }
+                let via_k = dist[i][k] + dist[k][j];
+                if via_k + DISTANCE_COMPARISON_EPSILON < dist[i][j] {
+                    dist[i][j] = via_k;
+                    pred[i][j] = pred[k][j].clone();
+                } else if (via_k - dist[i][j]).abs() < DISTANCE_COMPARISON_EPSILON {
+                    let new_preds: Vec<usize> = pred[k][j]
+                        .iter()
+                        .copied()
+                        .filter(|p| !pred[i][j].contains(p))
+                        .collect();
+                    pred[i][j].extend(new_preds);
+                }
+            }
+        }
+    }
+
+    let mut dist_result = HashMap::new();
+    let mut pred_result = HashMap::new();
+    for (i, &u) in nodes.iter().enumerate() {
+        let mut d_inner = HashMap::new();
+        let mut p_inner = HashMap::new();
+        for (j, &v) in nodes.iter().enumerate() {
+            d_inner.insert(v.to_owned(), dist[i][j]);
+            let pred_nodes: Vec<String> = pred[i][j].iter().map(|&pi| nodes[pi].to_owned()).collect();
+            p_inner.insert(v.to_owned(), pred_nodes);
+        }
+        dist_result.insert(u.to_owned(), d_inner);
+        pred_result.insert(u.to_owned(), p_inner);
+    }
+    (dist_result, pred_result)
+}
+
+/// Bidirectional shortest path (unweighted BFS from both ends).
+/// Matches `networkx.bidirectional_shortest_path(G, source, target)`.
+pub fn bidirectional_shortest_path(
+    graph: &Graph,
+    source: &str,
+    target: &str,
+) -> Option<Vec<String>> {
+    if !graph.has_node(source) || !graph.has_node(target) {
+        return None;
+    }
+    if source == target {
+        return Some(vec![source.to_owned()]);
+    }
+
+    // Forward and backward BFS frontiers
+    let mut forward_pred: HashMap<&str, &str> = HashMap::new();
+    let mut backward_pred: HashMap<&str, &str> = HashMap::new();
+    let mut forward_visited: HashSet<&str> = HashSet::new();
+    let mut backward_visited: HashSet<&str> = HashSet::new();
+    let mut forward_frontier: Vec<&str> = vec![source];
+    let mut backward_frontier: Vec<&str> = vec![target];
+
+    forward_visited.insert(source);
+    backward_visited.insert(target);
+
+    while !forward_frontier.is_empty() && !backward_frontier.is_empty() {
+        // Expand the smaller frontier
+        if forward_frontier.len() <= backward_frontier.len() {
+            let mut next = Vec::new();
+            for &node in &forward_frontier {
+                if let Some(neighbors) = graph.neighbors_iter(node) {
+                    for nbr in neighbors {
+                        if !forward_visited.insert(nbr) {
+                            continue;
+                        }
+                        forward_pred.insert(nbr, node);
+                        if backward_visited.contains(nbr) {
+                            // Found meeting point
+                            return Some(build_bidirectional_path(
+                                source, target, nbr, &forward_pred, &backward_pred,
+                            ));
+                        }
+                        next.push(nbr);
+                    }
+                }
+            }
+            forward_frontier = next;
+        } else {
+            let mut next = Vec::new();
+            for &node in &backward_frontier {
+                if let Some(neighbors) = graph.neighbors_iter(node) {
+                    for nbr in neighbors {
+                        if !backward_visited.insert(nbr) {
+                            continue;
+                        }
+                        backward_pred.insert(nbr, node);
+                        if forward_visited.contains(nbr) {
+                            return Some(build_bidirectional_path(
+                                source, target, nbr, &forward_pred, &backward_pred,
+                            ));
+                        }
+                        next.push(nbr);
+                    }
+                }
+            }
+            backward_frontier = next;
+        }
+    }
+
+    None
+}
+
+/// Helper to reconstruct path from bidirectional BFS.
+fn build_bidirectional_path<'a>(
+    source: &str,
+    target: &str,
+    meeting: &str,
+    forward_pred: &HashMap<&'a str, &'a str>,
+    backward_pred: &HashMap<&'a str, &'a str>,
+) -> Vec<String> {
+    // Build forward half: source -> ... -> meeting
+    let mut forward_half = vec![meeting.to_owned()];
+    let mut cur = meeting;
+    while cur != source {
+        if let Some(&prev) = forward_pred.get(cur) {
+            forward_half.push(prev.to_owned());
+            cur = prev;
+        } else {
+            break;
+        }
+    }
+    forward_half.reverse();
+
+    // Build backward half: meeting -> ... -> target
+    let mut cur = meeting;
+    while cur != target {
+        if let Some(&prev) = backward_pred.get(cur) {
+            forward_half.push(prev.to_owned());
+            cur = prev;
+        } else {
+            break;
+        }
+    }
+
+    forward_half
+}
+
+/// Detect whether a graph contains a negative weight cycle.
+/// Matches `networkx.negative_edge_cycle(G, weight=weight)`.
+#[must_use]
+pub fn negative_edge_cycle(graph: &Graph, weight_attr: &str) -> bool {
+    // Run Bellman-Ford from each component
+    let mut visited = HashSet::<String>::new();
+    for node in graph.nodes_ordered() {
+        if visited.contains(node) {
+            continue;
+        }
+        let result = bellman_ford_shortest_paths(graph, node, weight_attr);
+        if result.negative_cycle_detected {
+            return true;
+        }
+        for entry in &result.distances {
+            visited.insert(entry.node.clone());
+        }
+    }
+    false
+}
+
+/// Return the predecessor dictionary from BFS.
+/// Matches `networkx.predecessor(G, source, target=None, cutoff=None)`.
+/// Each node maps to the list of predecessors on shortest paths from source.
+#[must_use]
+pub fn predecessor(
+    graph: &Graph,
+    source: &str,
+    cutoff: Option<usize>,
+) -> HashMap<String, Vec<String>> {
+    let mut pred_map: HashMap<String, Vec<String>> = HashMap::new();
+    if !graph.has_node(source) {
+        return pred_map;
+    }
+
+    pred_map.insert(source.to_owned(), Vec::new());
+    let mut level_map: HashMap<String, usize> = HashMap::new();
+    level_map.insert(source.to_owned(), 0);
+    let mut frontier: Vec<&str> = vec![source];
+    let mut level = 0usize;
+
+    while !frontier.is_empty() {
+        if let Some(c) = cutoff && level >= c {
+            break;
+        }
+        let mut next_frontier: Vec<&str> = Vec::new();
+        let next_level = level + 1;
+        for &node in &frontier {
+            if let Some(neighbors) = graph.neighbors_iter(node) {
+                for nbr in neighbors {
+                    if !pred_map.contains_key(nbr) {
+                        pred_map.insert(nbr.to_owned(), vec![node.to_owned()]);
+                        level_map.insert(nbr.to_owned(), next_level);
+                        next_frontier.push(nbr);
+                    } else if level_map.get(nbr) == Some(&next_level)
+                        && let Some(preds) = pred_map.get_mut(nbr)
+                        && !preds.contains(&node.to_owned())
+                    {
+                        preds.push(node.to_owned());
+                    }
+                }
+            }
+        }
+        frontier = next_frontier;
+        level += 1;
+    }
+
+    pred_map
+}
+
+/// Compute the weight of a path given edge weights.
+/// Matches `networkx.path_weight(G, path, weight)`.
+pub fn path_weight(graph: &Graph, path: &[&str], weight_attr: &str) -> Option<f64> {
+    if path.len() < 2 {
+        return Some(0.0);
+    }
+    let mut total = 0.0;
+    for window in path.windows(2) {
+        let u = window[0];
+        let v = window[1];
+        if graph.edge_attrs(u, v).is_none() && graph.edge_attrs(v, u).is_none() {
+            return None; // Edge doesn't exist
+        }
+        total += signed_edge_weight_or_default(graph, u, v, weight_attr);
+    }
+    Some(total)
+}
+
+/// Compute the weight of a path in a directed graph.
+pub fn path_weight_directed(digraph: &DiGraph, path: &[&str], weight_attr: &str) -> Option<f64> {
+    if path.len() < 2 {
+        return Some(0.0);
+    }
+    let mut total = 0.0;
+    for window in path.windows(2) {
+        let u = window[0];
+        let v = window[1];
+        digraph.edge_attrs(u, v)?;
+        total += digraph_edge_weight_or_default(digraph, u, v, weight_attr);
+    }
+    Some(total)
+}
+
+/// Helper to get edge weight from DiGraph.
+fn digraph_edge_weight_or_default(digraph: &DiGraph, source: &str, target: &str, weight_attr: &str) -> f64 {
+    digraph
+        .edge_attrs(source, target)
+        .and_then(|attrs| attrs.get(weight_attr))
+        .and_then(|raw| raw.parse::<f64>().ok())
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .unwrap_or(1.0)
+}
+
+/// Reconstruct a path from a predecessor dictionary.
+/// Matches `networkx.reconstruct_path(source, target, predecessors)`.
+#[must_use]
+pub fn reconstruct_path(
+    source: &str,
+    target: &str,
+    predecessors: &HashMap<String, Vec<String>>,
+) -> Vec<String> {
+    if source == target {
+        return vec![source.to_owned()];
+    }
+    if !predecessors.contains_key(target) {
+        return Vec::new();
+    }
+
+    let mut path = vec![target.to_owned()];
+    let mut cur = target;
+    while cur != source {
+        let preds = match predecessors.get(cur) {
+            Some(p) if !p.is_empty() => p,
+            _ => return Vec::new(),
+        };
+        path.push(preds[0].clone());
+        cur = &preds[0];
+    }
+    path.reverse();
+    path
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -10889,6 +11658,16 @@ mod tests {
         is_arborescence, is_branching,
         // Cycle detection
         simple_cycles, find_cycle_directed, find_cycle_undirected,
+        // Additional shortest path algorithms
+        dijkstra_path_length, bellman_ford_path_length,
+        single_source_dijkstra_full, single_source_dijkstra_path, single_source_dijkstra_path_length,
+        single_source_bellman_ford, single_source_bellman_ford_path, single_source_bellman_ford_path_length,
+        single_target_shortest_path, single_target_shortest_path_length,
+        all_pairs_dijkstra_path, all_pairs_dijkstra_path_length,
+        all_pairs_bellman_ford_path, all_pairs_bellman_ford_path_length,
+        floyd_warshall, floyd_warshall_predecessor_and_distance,
+        bidirectional_shortest_path, negative_edge_cycle,
+        predecessor, path_weight, reconstruct_path,
     };
     use fnx_classes::Graph;
     use fnx_classes::digraph::DiGraph;
@@ -17567,5 +18346,408 @@ mod tests {
         assert!(find_cycle_directed(&g).is_none());
         let g2 = Graph::strict();
         assert!(find_cycle_undirected(&g2).is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // dijkstra_path_length tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_dijkstra_path_length_simple() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("a", "c");
+        // All edges weight 1, direct a->c exists
+        assert_eq!(dijkstra_path_length(&g, "a", "c", "weight"), Some(1.0));
+    }
+
+    #[test]
+    fn test_dijkstra_path_length_weighted() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "2.0".to_owned())].into());
+        let _ = g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "3.0".to_owned())].into());
+        let _ = g.add_edge_with_attrs("a", "c", [("weight".to_owned(), "10.0".to_owned())].into());
+        // Shortest: a->b->c = 5.0, not a->c = 10.0
+        assert_eq!(dijkstra_path_length(&g, "a", "c", "weight"), Some(5.0));
+    }
+
+    #[test]
+    fn test_dijkstra_path_length_no_path() {
+        let mut g = Graph::strict();
+        g.add_node("a");
+        g.add_node("b");
+        assert_eq!(dijkstra_path_length(&g, "a", "b", "weight"), None);
+    }
+
+    // -----------------------------------------------------------------------
+    // bellman_ford_path_length tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_bellman_ford_path_length_simple() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        assert_eq!(bellman_ford_path_length(&g, "a", "c", "weight"), Ok(2.0));
+    }
+
+    #[test]
+    fn test_bellman_ford_path_length_no_path() {
+        let mut g = Graph::strict();
+        g.add_node("a");
+        g.add_node("b");
+        assert_eq!(bellman_ford_path_length(&g, "a", "b", "weight"), Err(false));
+    }
+
+    // -----------------------------------------------------------------------
+    // single_source_dijkstra tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_single_source_dijkstra_full() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "1.0".to_owned())].into());
+        let _ = g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "2.0".to_owned())].into());
+        let _ = g.add_edge_with_attrs("a", "c", [("weight".to_owned(), "4.0".to_owned())].into());
+        let (dists, paths) = single_source_dijkstra_full(&g, "a", "weight");
+        assert_eq!(dists["a"], 0.0);
+        assert_eq!(dists["b"], 1.0);
+        assert_eq!(dists["c"], 3.0); // a->b->c=3 < a->c=4
+        assert_eq!(paths["a"], vec!["a"]);
+        assert_eq!(paths["b"], vec!["a", "b"]);
+        assert_eq!(paths["c"], vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn test_single_source_dijkstra_path_only() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let paths = single_source_dijkstra_path(&g, "a", "weight");
+        assert_eq!(paths["c"], vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn test_single_source_dijkstra_path_length_only() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let dists = single_source_dijkstra_path_length(&g, "a", "weight");
+        assert_eq!(dists["a"], 0.0);
+        assert_eq!(dists["b"], 1.0);
+        assert_eq!(dists["c"], 2.0);
+    }
+
+    // -----------------------------------------------------------------------
+    // single_source_bellman_ford tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_single_source_bellman_ford_path() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let paths = single_source_bellman_ford_path(&g, "a", "weight").expect("no negative cycle");
+        assert_eq!(paths["c"], vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn test_single_source_bellman_ford_path_length() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let dists = single_source_bellman_ford_path_length(&g, "a", "weight").expect("no negative cycle");
+        assert_eq!(dists["a"], 0.0);
+        assert_eq!(dists["c"], 2.0);
+    }
+
+    #[test]
+    fn test_single_source_bellman_ford_full() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let (dists, paths) = single_source_bellman_ford(&g, "a", "weight").expect("no negative cycle");
+        assert_eq!(dists["c"], 2.0);
+        assert_eq!(paths["c"], vec!["a", "b", "c"]);
+    }
+
+    // -----------------------------------------------------------------------
+    // single_target_shortest_path tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_single_target_shortest_path() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("a", "c");
+        let paths = single_target_shortest_path(&g, "c", None);
+        // All paths should end with "c"
+        assert_eq!(*paths["c"].last().unwrap(), "c");
+        assert_eq!(*paths["a"].last().unwrap(), "c");
+        assert_eq!(paths["a"].len(), 2); // a -> c (direct)
+    }
+
+    #[test]
+    fn test_single_target_shortest_path_length() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let lengths = single_target_shortest_path_length(&g, "c", None);
+        assert_eq!(lengths["c"], 0);
+        assert_eq!(lengths["b"], 1);
+        assert_eq!(lengths["a"], 2);
+    }
+
+    // -----------------------------------------------------------------------
+    // all_pairs_dijkstra tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_all_pairs_dijkstra_path() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let paths = all_pairs_dijkstra_path(&g, "weight");
+        assert_eq!(paths["a"]["c"], vec!["a", "b", "c"]);
+        assert_eq!(paths["c"]["a"], vec!["c", "b", "a"]);
+    }
+
+    #[test]
+    fn test_all_pairs_dijkstra_path_length() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let dists = all_pairs_dijkstra_path_length(&g, "weight");
+        assert_eq!(dists["a"]["c"], 2.0);
+        assert_eq!(dists["a"]["a"], 0.0);
+    }
+
+    // -----------------------------------------------------------------------
+    // all_pairs_bellman_ford tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_all_pairs_bellman_ford_path() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let paths = all_pairs_bellman_ford_path(&g, "weight").expect("no negative cycle");
+        assert_eq!(paths["a"]["c"], vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn test_all_pairs_bellman_ford_path_length() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let dists = all_pairs_bellman_ford_path_length(&g, "weight").expect("no negative cycle");
+        assert_eq!(dists["a"]["c"], 2.0);
+    }
+
+    // -----------------------------------------------------------------------
+    // floyd_warshall tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_floyd_warshall_simple() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let dists = floyd_warshall(&g, "weight");
+        assert_eq!(dists["a"]["a"], 0.0);
+        assert_eq!(dists["a"]["b"], 1.0);
+        assert_eq!(dists["a"]["c"], 2.0);
+        assert_eq!(dists["b"]["c"], 1.0);
+    }
+
+    #[test]
+    fn test_floyd_warshall_weighted() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "2.0".to_owned())].into());
+        let _ = g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "3.0".to_owned())].into());
+        let _ = g.add_edge_with_attrs("a", "c", [("weight".to_owned(), "10.0".to_owned())].into());
+        let dists = floyd_warshall(&g, "weight");
+        assert_eq!(dists["a"]["c"], 5.0); // a->b->c
+    }
+
+    #[test]
+    fn test_floyd_warshall_disconnected() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        g.add_node("c");
+        let dists = floyd_warshall(&g, "weight");
+        assert_eq!(dists["a"]["c"], f64::INFINITY);
+    }
+
+    #[test]
+    fn test_floyd_warshall_predecessor_and_distance() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("a", "c");
+        let (dists, preds) = floyd_warshall_predecessor_and_distance(&g, "weight");
+        assert_eq!(dists["a"]["c"], 1.0); // direct edge
+        // Predecessor of c on path from a should be a (direct edge)
+        assert!(preds["a"]["c"].contains(&"a".to_owned()));
+    }
+
+    // -----------------------------------------------------------------------
+    // bidirectional_shortest_path tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_bidirectional_shortest_path_simple() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "d");
+        let path = bidirectional_shortest_path(&g, "a", "d");
+        assert!(path.is_some());
+        let p = path.unwrap();
+        assert_eq!(p.first().unwrap(), "a");
+        assert_eq!(p.last().unwrap(), "d");
+        assert_eq!(p.len(), 4);
+    }
+
+    #[test]
+    fn test_bidirectional_shortest_path_same_node() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        assert_eq!(
+            bidirectional_shortest_path(&g, "a", "a"),
+            Some(vec!["a".to_owned()])
+        );
+    }
+
+    #[test]
+    fn test_bidirectional_shortest_path_no_path() {
+        let mut g = Graph::strict();
+        g.add_node("a");
+        g.add_node("b");
+        assert_eq!(bidirectional_shortest_path(&g, "a", "b"), None);
+    }
+
+    #[test]
+    fn test_bidirectional_shortest_path_optimal() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("a", "c"); // shortcut
+        let path = bidirectional_shortest_path(&g, "a", "c").unwrap();
+        assert_eq!(path.len(), 2); // a -> c (direct)
+    }
+
+    // -----------------------------------------------------------------------
+    // negative_edge_cycle tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_negative_edge_cycle_none() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        assert!(!negative_edge_cycle(&g, "weight"));
+    }
+
+    #[test]
+    fn test_negative_edge_cycle_detected() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "-2.0".to_owned())].into());
+        let _ = g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "-3.0".to_owned())].into());
+        let _ = g.add_edge_with_attrs("c", "a", [("weight".to_owned(), "-1.0".to_owned())].into());
+        assert!(negative_edge_cycle(&g, "weight"));
+    }
+
+    // -----------------------------------------------------------------------
+    // predecessor tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_predecessor_simple() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("b", "d");
+        let preds = predecessor(&g, "a", None);
+        assert_eq!(preds["a"], Vec::<String>::new());
+        assert_eq!(preds["b"], vec!["a"]);
+        assert_eq!(preds["c"], vec!["b"]);
+        assert_eq!(preds["d"], vec!["b"]);
+    }
+
+    #[test]
+    fn test_predecessor_cutoff() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "d");
+        let preds = predecessor(&g, "a", Some(2));
+        assert!(preds.contains_key("b"));
+        assert!(preds.contains_key("c"));
+        assert!(!preds.contains_key("d")); // Beyond cutoff
+    }
+
+    // -----------------------------------------------------------------------
+    // path_weight tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_path_weight_unweighted() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        assert_eq!(path_weight(&g, &["a", "b", "c"], "weight"), Some(2.0));
+    }
+
+    #[test]
+    fn test_path_weight_weighted() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "3.5".to_owned())].into());
+        let _ = g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "1.5".to_owned())].into());
+        assert_eq!(path_weight(&g, &["a", "b", "c"], "weight"), Some(5.0));
+    }
+
+    #[test]
+    fn test_path_weight_no_edge() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        g.add_node("c");
+        assert_eq!(path_weight(&g, &["a", "c"], "weight"), None);
+    }
+
+    #[test]
+    fn test_path_weight_empty() {
+        let g = Graph::strict();
+        assert_eq!(path_weight(&g, &[], "weight"), Some(0.0));
+    }
+
+    // -----------------------------------------------------------------------
+    // reconstruct_path tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_reconstruct_path_simple() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let preds = predecessor(&g, "a", None);
+        let path = reconstruct_path("a", "c", &preds);
+        assert_eq!(path, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn test_reconstruct_path_same_node() {
+        let preds = std::collections::HashMap::new();
+        let path = reconstruct_path("a", "a", &preds);
+        assert_eq!(path, vec!["a"]);
+    }
+
+    #[test]
+    fn test_reconstruct_path_no_path() {
+        let preds = std::collections::HashMap::new();
+        let path = reconstruct_path("a", "z", &preds);
+        assert!(path.is_empty());
     }
 }

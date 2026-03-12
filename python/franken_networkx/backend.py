@@ -217,6 +217,27 @@ _SUPPORTED_ALGORITHMS = {
     # Cycles
     "simple_cycles": fnx.simple_cycles,
     "find_cycle": fnx.find_cycle,
+    # Additional shortest path algorithms
+    "dijkstra_path_length": fnx.dijkstra_path_length,
+    "bellman_ford_path_length": fnx.bellman_ford_path_length,
+    "single_source_dijkstra": fnx.single_source_dijkstra,
+    "single_source_dijkstra_path": fnx.single_source_dijkstra_path,
+    "single_source_dijkstra_path_length": fnx.single_source_dijkstra_path_length,
+    "single_source_bellman_ford": fnx.single_source_bellman_ford,
+    "single_source_bellman_ford_path": fnx.single_source_bellman_ford_path,
+    "single_source_bellman_ford_path_length": fnx.single_source_bellman_ford_path_length,
+    "single_target_shortest_path": fnx.single_target_shortest_path,
+    "single_target_shortest_path_length": fnx.single_target_shortest_path_length,
+    "all_pairs_dijkstra_path": fnx.all_pairs_dijkstra_path,
+    "all_pairs_dijkstra_path_length": fnx.all_pairs_dijkstra_path_length,
+    "all_pairs_bellman_ford_path": fnx.all_pairs_bellman_ford_path,
+    "all_pairs_bellman_ford_path_length": fnx.all_pairs_bellman_ford_path_length,
+    "floyd_warshall": fnx.floyd_warshall,
+    "floyd_warshall_predecessor_and_distance": fnx.floyd_warshall_predecessor_and_distance,
+    "bidirectional_shortest_path": fnx.bidirectional_shortest_path,
+    "negative_edge_cycle": fnx.negative_edge_cycle,
+    "predecessor": fnx.predecessor,
+    "path_weight": fnx.path_weight,
 }
 
 
