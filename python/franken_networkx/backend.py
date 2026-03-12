@@ -91,11 +91,45 @@ _SUPPORTED_ALGORITHMS = {
     "eulerian_circuit": fnx.eulerian_circuit,
     "eulerian_path": fnx.eulerian_path,
     # Paths / cycles
+    "all_shortest_paths": fnx.all_shortest_paths,
     "all_simple_paths": fnx.all_simple_paths,
     "cycle_basis": fnx.cycle_basis,
+    # Operators
+    "complement": fnx.complement,
     # Efficiency
     "global_efficiency": fnx.global_efficiency,
     "local_efficiency": fnx.local_efficiency,
+    # Shortest path — additional
+    "multi_source_dijkstra": fnx.multi_source_dijkstra,
+    # Traversal — BFS
+    "bfs_edges": fnx.bfs_edges,
+    "bfs_tree": fnx.bfs_tree,
+    "bfs_predecessors": fnx.bfs_predecessors,
+    "bfs_successors": fnx.bfs_successors,
+    "bfs_layers": fnx.bfs_layers,
+    "descendants_at_distance": fnx.descendants_at_distance,
+    # Traversal — DFS
+    "dfs_edges": fnx.dfs_edges,
+    "dfs_tree": fnx.dfs_tree,
+    "dfs_predecessors": fnx.dfs_predecessors,
+    "dfs_successors": fnx.dfs_successors,
+    "dfs_preorder_nodes": fnx.dfs_preorder_nodes,
+    "dfs_postorder_nodes": fnx.dfs_postorder_nodes,
+    # DAG
+    "topological_sort": fnx.topological_sort,
+    "topological_generations": fnx.topological_generations,
+    "dag_longest_path": fnx.dag_longest_path,
+    "dag_longest_path_length": fnx.dag_longest_path_length,
+    "lexicographic_topological_sort": fnx.lexicographic_topological_sort,
+    "is_directed_acyclic_graph": fnx.is_directed_acyclic_graph,
+    "ancestors": fnx.ancestors,
+    "descendants": fnx.descendants,
+    # Link prediction
+    "common_neighbors": fnx.common_neighbors,
+    "jaccard_coefficient": fnx.jaccard_coefficient,
+    "adamic_adar_index": fnx.adamic_adar_index,
+    "preferential_attachment": fnx.preferential_attachment,
+    "resource_allocation_index": fnx.resource_allocation_index,
 }
 
 

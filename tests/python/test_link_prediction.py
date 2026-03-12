@@ -40,9 +40,10 @@ class TestCommonNeighbors:
         cn = list(fnx.common_neighbors(triangle_plus, 1, 2))
         assert set(cn) == {0}
 
-    def test_no_common(self, triangle_plus):
+    def test_shared_via_center(self, triangle_plus):
+        # Nodes 1 and 3 share neighbor 0
         cn = list(fnx.common_neighbors(triangle_plus, 1, 3))
-        assert cn == [] or set(cn) == set()
+        assert set(cn) == {0}
 
     def test_star_leaves(self, star5):
         cn = list(fnx.common_neighbors(star5, 1, 2))

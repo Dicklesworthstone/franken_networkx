@@ -2307,6 +2307,105 @@ pub fn complement(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
 }
 
 // ===========================================================================
+// Reciprocity
+// ===========================================================================
+
+/// Compute the overall reciprocity of a directed graph.
+///
+/// Matches `networkx.overall_reciprocity(G)`.
+#[pyfunction]
+pub fn overall_reciprocity(
+    _py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<f64> {
+    let gr = extract_graph(g)?;
+    if !gr.is_directed() {
+        return Err(NetworkXError::new_err(
+            "overall_reciprocity not defined on undirected graphs.",
+        ));
+    }
+    if let GraphRef::Directed { dg, .. } = &gr {
+        Ok(fnx_algorithms::overall_reciprocity(&dg.inner))
+    } else {
+        unreachable!()
+    }
+}
+
+/// Compute the reciprocity for nodes in a directed graph.
+///
+/// If nodes is None, computes for all nodes.
+/// Matches `networkx.reciprocity(G, nodes)`.
+#[pyfunction]
+#[pyo3(signature = (g, nodes=None))]
+pub fn reciprocity(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    nodes: Option<&Bound<'_, PyAny>>,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    if !gr.is_directed() {
+        return Err(NetworkXError::new_err(
+            "reciprocity not defined on undirected graphs.",
+        ));
+    }
+    if let GraphRef::Directed { dg, .. } = &gr {
+        let node_list: Vec<String> = if let Some(ns) = nodes {
+            // Check if it's a single node (not iterable list)
+            if let Ok(s) = node_key_to_string(py, ns) {
+                if dg.inner.has_node(&s) {
+                    // Single node: return a float directly
+                    let node_refs: Vec<&str> = vec![s.as_str()];
+                    let result = fnx_algorithms::reciprocity(&dg.inner, &node_refs);
+                    let val = result.get(&s).copied().unwrap_or(0.0);
+                    return Ok(val.into_pyobject(py).unwrap().into_any().unbind());
+                }
+            }
+            // Try as iterable
+            ns.try_iter()?
+                .map(|item| node_key_to_string(py, &item?))
+                .collect::<PyResult<Vec<_>>>()?
+        } else {
+            dg.inner.nodes_ordered().into_iter().map(|s| s.to_owned()).collect()
+        };
+
+        let node_refs: Vec<&str> = node_list.iter().map(String::as_str).collect();
+        let result = fnx_algorithms::reciprocity(&dg.inner, &node_refs);
+
+        let dict = pyo3::types::PyDict::new(py);
+        for (k, v) in &result {
+            let py_key = gr.py_node_key(py, k);
+            dict.set_item(py_key, v)?;
+        }
+        Ok(dict.into_any().unbind())
+    } else {
+        unreachable!()
+    }
+}
+
+// ===========================================================================
+// Wiener Index
+// ===========================================================================
+
+/// Compute the Wiener index of a connected graph.
+///
+/// Matches `networkx.wiener_index(G)`.
+#[pyfunction]
+pub fn wiener_index(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<f64> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "wiener_index")?;
+    let inner = gr.undirected();
+    match py.allow_threads(|| fnx_algorithms::wiener_index(inner)) {
+        Some(w) => Ok(w),
+        None => Err(NetworkXError::new_err(
+            "Graph is not connected.",
+        )),
+    }
+}
+
+// ===========================================================================
 // Link Prediction
 // ===========================================================================
 
@@ -2563,6 +2662,11 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(all_shortest_paths, m)?)?;
     // Complement
     m.add_function(wrap_pyfunction!(complement, m)?)?;
+    // Reciprocity
+    m.add_function(wrap_pyfunction!(overall_reciprocity, m)?)?;
+    m.add_function(wrap_pyfunction!(reciprocity, m)?)?;
+    // Wiener index
+    m.add_function(wrap_pyfunction!(wiener_index, m)?)?;
     // Link prediction
     m.add_function(wrap_pyfunction!(common_neighbors, m)?)?;
     m.add_function(wrap_pyfunction!(jaccard_coefficient, m)?)?;

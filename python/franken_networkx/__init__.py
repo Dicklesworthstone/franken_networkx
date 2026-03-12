@@ -206,6 +206,17 @@ from franken_networkx._fnx import (
     dfs_tree,
 )
 
+# Algorithm functions — reciprocity
+from franken_networkx._fnx import (
+    overall_reciprocity,
+    reciprocity,
+)
+
+# Algorithm functions — Wiener index
+from franken_networkx._fnx import (
+    wiener_index,
+)
+
 # Algorithm functions — link prediction
 from franken_networkx._fnx import (
     common_neighbors,
@@ -910,6 +921,11 @@ __all__ = [
     # Algorithms — efficiency
     "global_efficiency",
     "local_efficiency",
+    # Algorithms — reciprocity
+    "overall_reciprocity",
+    "reciprocity",
+    # Algorithms — Wiener index
+    "wiener_index",
     # Algorithms — link prediction
     "common_neighbors",
     "jaccard_coefficient",

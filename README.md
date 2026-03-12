@@ -58,7 +58,8 @@ nx.shortest_path(G, 0, 99)
 | Traversal | `bfs_edges`, `bfs_tree`, `bfs_predecessors`, `bfs_successors`, `bfs_layers`, `descendants_at_distance`, `dfs_edges`, `dfs_tree`, `dfs_predecessors`, `dfs_successors`, `dfs_preorder_nodes`, `dfs_postorder_nodes` |
 | DAG | `topological_sort`, `topological_generations`, `dag_longest_path`, `dag_longest_path_length`, `lexicographic_topological_sort`, `is_directed_acyclic_graph`, `ancestors`, `descendants` |
 | Link prediction | `common_neighbors`, `jaccard_coefficient`, `adamic_adar_index`, `preferential_attachment`, `resource_allocation_index` |
-| Other | `core_number`, `voterank`, `find_cliques`, `graph_clique_number`, `degree_assortativity_coefficient`, `average_neighbor_degree`, `relabel_nodes` |
+| Reciprocity | `reciprocity`, `overall_reciprocity` |
+| Other | `core_number`, `voterank`, `find_cliques`, `graph_clique_number`, `degree_assortativity_coefficient`, `average_neighbor_degree`, `wiener_index`, `relabel_nodes` |
 | Generators | `path_graph`, `cycle_graph`, `star_graph`, `complete_graph`, `empty_graph`, `gnp_random_graph`, `watts_strogatz_graph`, `barabasi_albert_graph` |
 | I/O | `read_edgelist`, `write_edgelist`, `read_adjlist`, `write_adjlist`, `read_graphml`, `write_graphml`, `node_link_data`, `node_link_graph` |
 | NumPy/SciPy | `to_numpy_array`, `from_numpy_array`, `to_scipy_sparse_array`, `from_scipy_sparse_array` |
