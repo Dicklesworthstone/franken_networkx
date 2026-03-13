@@ -11,6 +11,14 @@ class TestFlow:
         nx_val = nx.maximum_flow_value(G_nx, "a", "d", capacity="weight")
         assert abs(fnx_val - nx_val) < 1e-9
 
+    def test_minimum_cut(self, fnx, nx, weighted_graph):
+        G_fnx, G_nx = weighted_graph
+        fnx_val, fnx_partition = fnx.minimum_cut(G_fnx, "a", "d", capacity="weight")
+        nx_val, nx_partition = nx.minimum_cut(G_nx, "a", "d", capacity="weight")
+        assert abs(fnx_val - nx_val) < 1e-9
+        assert fnx_partition[0] == nx_partition[0]
+        assert fnx_partition[1] == nx_partition[1]
+
     def test_minimum_cut_value(self, fnx, nx, weighted_graph):
         G_fnx, G_nx = weighted_graph
         fnx_val = fnx.minimum_cut_value(G_fnx, "a", "d", capacity="weight")
@@ -23,3 +31,26 @@ class TestFlow:
         mc = fnx.minimum_cut_value(G_fnx, "a", "d", capacity="weight")
         # Max-flow min-cut theorem
         assert abs(mf - mc) < 1e-9
+
+    def test_flow_bindings_reject_directed_graphs(self, fnx):
+        DG = fnx.DiGraph()
+        DG.add_edge("s", "a", capacity=2.0)
+        DG.add_edge("a", "t", capacity=2.0)
+
+        with pytest.raises(
+            fnx.NetworkXNotImplemented,
+            match=r"not implemented for directed type",
+        ):
+            fnx.maximum_flow_value(DG, "s", "t")
+
+        with pytest.raises(
+            fnx.NetworkXNotImplemented,
+            match=r"not implemented for directed type",
+        ):
+            fnx.minimum_cut(DG, "s", "t")
+
+        with pytest.raises(
+            fnx.NetworkXNotImplemented,
+            match=r"not implemented for directed type",
+        ):
+            fnx.minimum_cut_value(DG, "s", "t")

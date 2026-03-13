@@ -137,6 +137,7 @@ from franken_networkx._fnx import (
 # Algorithm functions — flow
 from franken_networkx._fnx import (
     maximum_flow_value,
+    minimum_cut,
     minimum_cut_value,
 )
 
@@ -1196,6 +1197,7 @@ __all__ = [
     "min_weight_matching",
     # Algorithms — flow
     "maximum_flow_value",
+    "minimum_cut",
     "minimum_cut_value",
     # Algorithms — distance measures
     "center",

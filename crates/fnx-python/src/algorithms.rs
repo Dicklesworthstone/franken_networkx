@@ -1119,6 +1119,7 @@ pub fn maximum_flow_value(
     capacity: &str,
 ) -> PyResult<f64> {
     let gr = extract_graph(g)?;
+    require_undirected(&gr, "maximum_flow_value")?;
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, sink)?;
     let inner = gr.undirected();
@@ -1137,12 +1138,57 @@ pub fn minimum_cut_value(
     capacity: &str,
 ) -> PyResult<f64> {
     let gr = extract_graph(g)?;
+    require_undirected(&gr, "minimum_cut_value")?;
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, sink)?;
     let inner = gr.undirected();
     let cap = capacity.to_owned();
     Ok(py
         .allow_threads(move || fnx_algorithms::minimum_cut_edmonds_karp(inner, &s, &t, &cap).value))
+}
+
+/// Return the minimum cut value and node partition between source and sink.
+#[pyfunction]
+#[pyo3(signature = (g, source, sink, capacity="capacity"))]
+pub fn minimum_cut(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    sink: &Bound<'_, PyAny>,
+    capacity: &str,
+) -> PyResult<(f64, PyObject)> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "minimum_cut")?;
+    let s = node_key_to_string(py, source)?;
+    let t = node_key_to_string(py, sink)?;
+    let inner = gr.undirected();
+    let cap = capacity.to_owned();
+    let cut =
+        py.allow_threads(move || fnx_algorithms::minimum_cut_edmonds_karp(inner, &s, &t, &cap));
+
+    let source_partition = pyo3::types::PySet::new(
+        py,
+        cut.source_partition
+            .iter()
+            .map(|node| gr.py_node_key(py, node))
+            .collect::<Vec<_>>(),
+    )?;
+    let sink_partition = pyo3::types::PySet::new(
+        py,
+        cut.sink_partition
+            .iter()
+            .map(|node| gr.py_node_key(py, node))
+            .collect::<Vec<_>>(),
+    )?;
+    let partition = tuple_object(
+        py,
+        &[
+            source_partition.into_any().unbind(),
+            sink_partition.into_any().unbind(),
+        ],
+    )?;
+
+    Ok((cut.value, partition))
 }
 
 // ===========================================================================
@@ -5910,6 +5956,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(min_edge_cover, m)?)?;
     // Flow
     m.add_function(wrap_pyfunction!(maximum_flow_value, m)?)?;
+    m.add_function(wrap_pyfunction!(minimum_cut, m)?)?;
     m.add_function(wrap_pyfunction!(minimum_cut_value, m)?)?;
     // Distance measures
     m.add_function(wrap_pyfunction!(density, m)?)?;

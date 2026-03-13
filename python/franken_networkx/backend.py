@@ -68,6 +68,7 @@ _SUPPORTED_ALGORITHMS = {
     "min_edge_cover": fnx.min_edge_cover,
     # Flow
     "maximum_flow_value": fnx.maximum_flow_value,
+    "minimum_cut": fnx.minimum_cut,
     "minimum_cut_value": fnx.minimum_cut_value,
     # Distance / measures
     "density": fnx.density,
