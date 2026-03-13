@@ -6,6 +6,7 @@
 
 use crate::digraph::PyDiGraph;
 use crate::{NetworkXError, NetworkXNoCycle, NetworkXNoPath, NodeNotFound, PyGraph, node_key_to_string};
+use pyo3::exceptions::PyZeroDivisionError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use std::collections::HashMap;
@@ -4083,6 +4084,84 @@ fn node_boundary(
     Ok(result.iter().map(|n| gr.py_node_key(py, n)).collect())
 }
 
+/// Return the size of the cut between `nbunch1` and `nbunch2`.
+#[pyfunction]
+#[pyo3(signature = (g, nbunch1, nbunch2=None, weight=None))]
+fn cut_size(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    nbunch1: Vec<Bound<'_, PyAny>>,
+    nbunch2: Option<Vec<Bound<'_, PyAny>>>,
+    weight: Option<&str>,
+) -> PyResult<f64> {
+    let gr = extract_graph(g)?;
+    let s1: Vec<String> = nbunch1
+        .iter()
+        .map(|n| node_key_to_string(py, n))
+        .collect::<PyResult<_>>()?;
+    let s2: Option<Vec<String>> = match nbunch2.as_ref() {
+        Some(v) => Some(
+            v.iter()
+                .map(|n| node_key_to_string(py, n))
+                .collect::<PyResult<_>>()?,
+        ),
+        None => None,
+    };
+    let s1_refs: Vec<&str> = s1.iter().map(|s| s.as_str()).collect();
+    let s2_refs: Option<Vec<&str>> = s2
+        .as_ref()
+        .map(|v| v.iter().map(|s| s.as_str()).collect());
+    Ok(match &gr {
+        GraphRef::Undirected(pg) => {
+            fnx_algorithms::cut_size(&pg.inner, &s1_refs, s2_refs.as_deref(), weight)
+        }
+        GraphRef::Directed { dg, .. } => {
+            fnx_algorithms::cut_size_directed(&dg.inner, &s1_refs, s2_refs.as_deref(), weight)
+        }
+    })
+}
+
+/// Return the normalized cut size between `nbunch1` and `nbunch2`.
+#[pyfunction]
+#[pyo3(signature = (g, nbunch1, nbunch2=None, weight=None))]
+fn normalized_cut_size(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    nbunch1: Vec<Bound<'_, PyAny>>,
+    nbunch2: Option<Vec<Bound<'_, PyAny>>>,
+    weight: Option<&str>,
+) -> PyResult<f64> {
+    let gr = extract_graph(g)?;
+    let s1: Vec<String> = nbunch1
+        .iter()
+        .map(|n| node_key_to_string(py, n))
+        .collect::<PyResult<_>>()?;
+    let s2: Option<Vec<String>> = match nbunch2.as_ref() {
+        Some(v) => Some(
+            v.iter()
+                .map(|n| node_key_to_string(py, n))
+                .collect::<PyResult<_>>()?,
+        ),
+        None => None,
+    };
+    let s1_refs: Vec<&str> = s1.iter().map(|s| s.as_str()).collect();
+    let s2_refs: Option<Vec<&str>> = s2
+        .as_ref()
+        .map(|v| v.iter().map(|s| s.as_str()).collect());
+    let result = match &gr {
+        GraphRef::Undirected(pg) => {
+            fnx_algorithms::normalized_cut_size(&pg.inner, &s1_refs, s2_refs.as_deref(), weight)
+        }
+        GraphRef::Directed { dg, .. } => fnx_algorithms::normalized_cut_size_directed(
+            &dg.inner,
+            &s1_refs,
+            s2_refs.as_deref(),
+            weight,
+        ),
+    };
+    result.ok_or_else(|| PyZeroDivisionError::new_err("division by zero"))
+}
+
 // ===========================================================================
 // is_simple_path
 // ===========================================================================
@@ -5658,6 +5737,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Boundary
     m.add_function(wrap_pyfunction!(edge_boundary, m)?)?;
     m.add_function(wrap_pyfunction!(node_boundary, m)?)?;
+    m.add_function(wrap_pyfunction!(cut_size, m)?)?;
+    m.add_function(wrap_pyfunction!(normalized_cut_size, m)?)?;
     // Path validation
     m.add_function(wrap_pyfunction!(is_simple_path, m)?)?;
     // Matching validators

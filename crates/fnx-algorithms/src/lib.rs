@@ -10321,6 +10321,176 @@ pub fn node_boundary_directed(
     boundary.keys().map(|k| k.to_string()).collect()
 }
 
+/// Return the size of the cut between two node sets in an undirected graph.
+#[must_use]
+pub fn cut_size(
+    graph: &Graph,
+    nbunch1: &[&str],
+    nbunch2: Option<&[&str]>,
+    weight_attr: Option<&str>,
+) -> f64 {
+    let target_nodes = match nbunch2 {
+        Some(nodes) => nodes.to_vec(),
+        None => {
+            let source_nodes = nbunch1.iter().copied().collect::<HashSet<&str>>();
+            graph
+                .nodes_ordered()
+                .into_iter()
+                .filter(|node| !source_nodes.contains(node))
+                .collect::<Vec<&str>>()
+        }
+    };
+    let boundary = edge_boundary(graph, nbunch1, Some(&target_nodes));
+    sum_cut_edge_weights(graph, &boundary, weight_attr)
+}
+
+/// Return the size of the cut between two node sets in a directed graph.
+#[must_use]
+pub fn cut_size_directed(
+    digraph: &DiGraph,
+    nbunch1: &[&str],
+    nbunch2: Option<&[&str]>,
+    weight_attr: Option<&str>,
+) -> f64 {
+    let target_nodes = match nbunch2 {
+        Some(nodes) => nodes.to_vec(),
+        None => {
+            let source_nodes = nbunch1.iter().copied().collect::<HashSet<&str>>();
+            digraph
+                .nodes_ordered()
+                .into_iter()
+                .filter(|node| !source_nodes.contains(node))
+                .collect::<Vec<&str>>()
+        }
+    };
+    let forward = edge_boundary_directed(digraph, nbunch1, Some(&target_nodes));
+    let reverse = edge_boundary_directed(digraph, &target_nodes, Some(nbunch1));
+    sum_cut_edge_weights_directed(digraph, &forward, weight_attr)
+        + sum_cut_edge_weights_directed(digraph, &reverse, weight_attr)
+}
+
+/// Return the normalized cut size between two node sets in an undirected graph.
+#[must_use]
+pub fn normalized_cut_size(
+    graph: &Graph,
+    nbunch1: &[&str],
+    nbunch2: Option<&[&str]>,
+    weight_attr: Option<&str>,
+) -> Option<f64> {
+    let target_nodes = match nbunch2 {
+        Some(nodes) => nodes.to_vec(),
+        None => {
+            let source_nodes = nbunch1.iter().copied().collect::<HashSet<&str>>();
+            graph
+                .nodes_ordered()
+                .into_iter()
+                .filter(|node| !source_nodes.contains(node))
+                .collect::<Vec<&str>>()
+        }
+    };
+    let volume_s = cut_volume(graph, nbunch1, weight_attr);
+    let volume_t = cut_volume(graph, &target_nodes, weight_attr);
+    if volume_s == 0.0 || volume_t == 0.0 {
+        return None;
+    }
+    let cut = cut_size(graph, nbunch1, Some(&target_nodes), weight_attr);
+    Some(cut * ((1.0 / volume_s) + (1.0 / volume_t)))
+}
+
+/// Return the normalized cut size between two node sets in a directed graph.
+#[must_use]
+pub fn normalized_cut_size_directed(
+    digraph: &DiGraph,
+    nbunch1: &[&str],
+    nbunch2: Option<&[&str]>,
+    weight_attr: Option<&str>,
+) -> Option<f64> {
+    let target_nodes = match nbunch2 {
+        Some(nodes) => nodes.to_vec(),
+        None => {
+            let source_nodes = nbunch1.iter().copied().collect::<HashSet<&str>>();
+            digraph
+                .nodes_ordered()
+                .into_iter()
+                .filter(|node| !source_nodes.contains(node))
+                .collect::<Vec<&str>>()
+        }
+    };
+    let volume_s = cut_volume_directed(digraph, nbunch1, weight_attr);
+    let volume_t = cut_volume_directed(digraph, &target_nodes, weight_attr);
+    if volume_s == 0.0 || volume_t == 0.0 {
+        return None;
+    }
+    let cut = cut_size_directed(digraph, nbunch1, Some(&target_nodes), weight_attr);
+    Some(cut * ((1.0 / volume_s) + (1.0 / volume_t)))
+}
+
+fn sum_cut_edge_weights(
+    graph: &Graph,
+    edges: &[(String, String)],
+    weight_attr: Option<&str>,
+) -> f64 {
+    match weight_attr {
+        Some(attr) => edges
+            .iter()
+            .map(|(left, right)| signed_edge_weight_or_default(graph, left, right, attr))
+            .sum(),
+        None => edges.len() as f64,
+    }
+}
+
+fn sum_cut_edge_weights_directed(
+    digraph: &DiGraph,
+    edges: &[(String, String)],
+    weight_attr: Option<&str>,
+) -> f64 {
+    match weight_attr {
+        Some(attr) => edges
+            .iter()
+            .map(|(source, target)| {
+                signed_digraph_edge_weight_or_default(digraph, source, target, attr)
+            })
+            .sum(),
+        None => edges.len() as f64,
+    }
+}
+
+fn cut_volume(graph: &Graph, nodes: &[&str], weight_attr: Option<&str>) -> f64 {
+    let node_set: HashSet<&str> = nodes.iter().copied().collect();
+    let mut total = 0.0;
+    for &node in &node_set {
+        if let Some(neighbors) = graph.neighbors(node) {
+            total += match weight_attr {
+                Some(attr) => neighbors
+                    .iter()
+                    .map(|neighbor| signed_edge_weight_or_default(graph, node, neighbor, attr))
+                    .sum(),
+                None => neighbors.len() as f64,
+            };
+        }
+    }
+    total
+}
+
+fn cut_volume_directed(digraph: &DiGraph, nodes: &[&str], weight_attr: Option<&str>) -> f64 {
+    let node_set: HashSet<&str> = nodes.iter().copied().collect();
+    let mut total = 0.0;
+    for &node in &node_set {
+        if let Some(successors) = digraph.successors(node) {
+            total += match weight_attr {
+                Some(attr) => successors
+                    .iter()
+                    .map(|successor| {
+                        signed_digraph_edge_weight_or_default(digraph, node, successor, attr)
+                    })
+                    .sum(),
+                None => successors.len() as f64,
+            };
+        }
+    }
+    total
+}
+
 // ---------------------------------------------------------------------------
 // is_simple_path
 // ---------------------------------------------------------------------------
@@ -11689,6 +11859,20 @@ fn digraph_edge_weight_or_default(digraph: &DiGraph, source: &str, target: &str,
         .and_then(|attrs| attrs.get(weight_attr))
         .and_then(|raw| raw.parse::<f64>().ok())
         .filter(|value| value.is_finite() && *value >= 0.0)
+        .unwrap_or(1.0)
+}
+
+fn signed_digraph_edge_weight_or_default(
+    digraph: &DiGraph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> f64 {
+    digraph
+        .edge_attrs(source, target)
+        .and_then(|attrs| attrs.get(weight_attr))
+        .and_then(|raw| raw.parse::<f64>().ok())
+        .filter(|value| value.is_finite())
         .unwrap_or(1.0)
 }
 
@@ -14603,8 +14787,9 @@ mod tests {
         isolates, is_isolate, number_of_isolates,
         isolates_directed, is_isolate_directed, number_of_isolates_directed,
         // Boundary
-        edge_boundary, node_boundary,
-        edge_boundary_directed, node_boundary_directed,
+        cut_size, cut_size_directed, edge_boundary, node_boundary,
+        edge_boundary_directed, node_boundary_directed, normalized_cut_size,
+        normalized_cut_size_directed,
         // is_simple_path
         is_simple_path, is_simple_path_directed,
         // Tree recognition
@@ -23146,6 +23331,57 @@ mod tests {
         let _ = g.add_edge("c", "a");
         // Volume of {a,b} = degree(a) + degree(b) = 2 + 2 = 4
         assert_eq!(volume(&g, &["a", "b"]), 4);
+    }
+
+    #[test]
+    fn test_cut_size_uses_complement_when_second_partition_missing() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "d");
+        assert!((cut_size(&g, &["a", "b"], None, None) - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_cut_size_directed_counts_both_directions() {
+        let mut d = DiGraph::strict();
+        let mut forward = BTreeMap::new();
+        forward.insert("weight".to_owned(), "-2".to_owned());
+        let mut reverse = BTreeMap::new();
+        reverse.insert("weight".to_owned(), "5".to_owned());
+        let _ = d.add_edge_with_attrs("a", "b", forward);
+        let _ = d.add_edge_with_attrs("b", "a", reverse);
+        assert!((cut_size_directed(&d, &["a"], Some(&["b"]), Some("weight")) - 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_normalized_cut_size_matches_expected() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "d");
+        let result = normalized_cut_size(&g, &["a", "b"], None, None);
+        assert!(matches!(result, Some(value) if (value - (2.0 / 3.0)).abs() < 1e-9));
+    }
+
+    #[test]
+    fn test_normalized_cut_size_directed_supports_signed_weights() {
+        let mut d = DiGraph::strict();
+        let mut forward = BTreeMap::new();
+        forward.insert("weight".to_owned(), "-2".to_owned());
+        let mut reverse = BTreeMap::new();
+        reverse.insert("weight".to_owned(), "5".to_owned());
+        let _ = d.add_edge_with_attrs("a", "b", forward);
+        let _ = d.add_edge_with_attrs("b", "a", reverse);
+        let result = normalized_cut_size_directed(&d, &["a"], Some(&["b"]), Some("weight"));
+        assert!(matches!(result, Some(value) if (value + 0.9).abs() < 1e-9));
+    }
+
+    #[test]
+    fn test_normalized_cut_size_returns_none_for_zero_volume_partition() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        assert_eq!(normalized_cut_size(&g, &[], None, None), None);
     }
 
     #[test]
