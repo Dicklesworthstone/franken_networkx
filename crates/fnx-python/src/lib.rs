@@ -30,6 +30,7 @@ pyo3::create_exception!(_fnx, NetworkXNoPath, NetworkXUnfeasible);
 pyo3::create_exception!(_fnx, NetworkXNoCycle, NetworkXUnfeasible);
 pyo3::create_exception!(_fnx, NetworkXUnbounded, NetworkXError);
 pyo3::create_exception!(_fnx, NetworkXNotImplemented, NetworkXError);
+pyo3::create_exception!(_fnx, NotATree, NetworkXError);
 pyo3::create_exception!(_fnx, NodeNotFound, NetworkXError);
 pyo3::create_exception!(_fnx, HasACycle, NetworkXError);
 pyo3::create_exception!(_fnx, PowerIterationFailedConvergence, NetworkXError);
@@ -1153,6 +1154,7 @@ fn _fnx(m: &Bound<'_, PyModule>) -> PyResult<()> {
         "NetworkXNotImplemented",
         m.py().get_type::<NetworkXNotImplemented>(),
     )?;
+    m.add("NotATree", m.py().get_type::<NotATree>())?;
     m.add("NodeNotFound", m.py().get_type::<NodeNotFound>())?;
     m.add("HasACycle", m.py().get_type::<HasACycle>())?;
     m.add(

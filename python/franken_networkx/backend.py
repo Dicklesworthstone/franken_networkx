@@ -98,8 +98,12 @@ _SUPPORTED_ALGORITHMS = {
     # Operators
     "complement": fnx.complement,
     # Efficiency
+    "efficiency": fnx.efficiency,
     "global_efficiency": fnx.global_efficiency,
     "local_efficiency": fnx.local_efficiency,
+    # Broadcasting
+    "tree_broadcast_center": fnx.tree_broadcast_center,
+    "tree_broadcast_time": fnx.tree_broadcast_time,
     # Shortest path — additional
     "multi_source_dijkstra": fnx.multi_source_dijkstra,
     # Traversal — BFS
@@ -155,10 +159,12 @@ _SUPPORTED_ALGORITHMS = {
     "shortest_simple_paths": fnx.shortest_simple_paths,
     # Approximation algorithms
     "min_weighted_vertex_cover": fnx.min_weighted_vertex_cover,
+    "maximal_independent_set": fnx.maximal_independent_set,
     "maximum_independent_set": fnx.maximum_independent_set,
     "max_clique": fnx.max_clique,
     "clique_removal": fnx.clique_removal,
     "large_clique_size": fnx.large_clique_size,
+    "spanner": fnx.spanner,
     # Strongly connected components
     "strongly_connected_components": fnx.strongly_connected_components,
     "number_strongly_connected_components": fnx.number_strongly_connected_components,
@@ -187,6 +193,7 @@ _SUPPORTED_ALGORITHMS = {
     "enumerate_all_cliques": fnx.enumerate_all_cliques,
     "find_cliques_recursive": fnx.find_cliques_recursive,
     "chordal_graph_cliques": fnx.chordal_graph_cliques,
+    "chordal_graph_treewidth": fnx.chordal_graph_treewidth,
     "make_max_clique_graph": fnx.make_max_clique_graph,
     "ring_of_cliques": fnx.ring_of_cliques,
     # Classic graph generators

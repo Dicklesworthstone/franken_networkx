@@ -38,6 +38,25 @@ class TestPathsCycles:
 
 @pytest.mark.conformance
 class TestEfficiency:
+    def test_efficiency(self, fnx, nx, path_graph):
+        G_fnx, G_nx = path_graph
+        assert abs(fnx.efficiency(G_fnx, "a", "c") - nx.efficiency(G_nx, "a", "c")) < 1e-6
+        assert abs(fnx.efficiency(G_fnx, "a", "b") - 1.0) < 1e-6
+
+    def test_efficiency_disconnected_nodes(self, fnx, nx, disconnected_graph):
+        G_fnx, G_nx = disconnected_graph
+        assert fnx.efficiency(G_fnx, "a", "d") == nx.efficiency(G_nx, "a", "d") == 0
+
+    def test_efficiency_same_node_raises(self, fnx, path_graph):
+        G_fnx, _ = path_graph
+        with pytest.raises(ZeroDivisionError, match="division by zero"):
+            fnx.efficiency(G_fnx, "a", "a")
+
+    def test_efficiency_missing_node_raises(self, fnx, path_graph):
+        G_fnx, _ = path_graph
+        with pytest.raises(fnx.NodeNotFound):
+            fnx.efficiency(G_fnx, "missing", "a")
+
     def test_global_efficiency(self, fnx, nx, path_graph):
         G_fnx, G_nx = path_graph
         assert abs(fnx.global_efficiency(G_fnx) - nx.global_efficiency(G_nx)) < 1e-6

@@ -379,6 +379,10 @@ def test_tree_bipartite(fnx):
     check("path graph is_tree", fnx.is_tree(T))
     check("path graph is_forest", fnx.is_forest(T))
     check("path graph is_bipartite", fnx.is_bipartite(T))
+    broadcast_time, broadcast_center = fnx.tree_broadcast_center(T)
+    check("tree_broadcast_center returns int", isinstance(broadcast_time, int))
+    check("tree_broadcast_center returns set", isinstance(broadcast_center, set))
+    check("tree_broadcast_time is int", isinstance(fnx.tree_broadcast_time(T), int))
 
     sets = fnx.bipartite_sets(T)
     check("bipartite_sets returns tuple of 2", len(sets) == 2)
@@ -444,6 +448,10 @@ def test_paths_cycles_efficiency(fnx, G):
 
     cycles = fnx.cycle_basis(G)
     check("cycle_basis returns list", isinstance(cycles, list))
+
+    pe = fnx.efficiency(G, "a", "c")
+    check("efficiency is float", isinstance(pe, float))
+    check("efficiency in [0,1]", 0 <= pe <= 1)
 
     ge = fnx.global_efficiency(G)
     check("global_efficiency is float", isinstance(ge, float))

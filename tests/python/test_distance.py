@@ -42,3 +42,41 @@ class TestDistance:
         G_fnx, _ = disconnected_graph
         with pytest.raises(fnx.NetworkXError):
             fnx.diameter(G_fnx)
+
+    def test_tree_broadcast_example_tree(self, fnx, nx):
+        edge_list = [
+            (0, 1),
+            (1, 2),
+            (2, 7),
+            (3, 4),
+            (5, 4),
+            (4, 7),
+            (6, 7),
+            (7, 9),
+            (8, 9),
+            (9, 13),
+            (13, 14),
+            (14, 15),
+            (14, 16),
+            (14, 17),
+            (13, 11),
+            (11, 10),
+            (11, 12),
+            (13, 18),
+            (18, 19),
+            (18, 20),
+        ]
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for u, v in edge_list:
+            G_fnx.add_edge(u, v)
+            G_nx.add_edge(u, v)
+
+        fnx_time, fnx_center = fnx.tree_broadcast_center(G_fnx)
+        nx_time, nx_center = nx.tree_broadcast_center(G_nx)
+
+        assert fnx_time == nx_time
+        assert_sets_equal(fnx_center, nx_center, label="tree_broadcast_center")
+        assert fnx.tree_broadcast_time(G_fnx) == nx.tree_broadcast_time(G_nx)
+        assert fnx.tree_broadcast_time(G_fnx, 17) == nx.tree_broadcast_time(G_nx, 17)
+        assert fnx.tree_broadcast_time(G_fnx, 3) == nx.tree_broadcast_time(G_nx, 3)

@@ -1,10 +1,11 @@
 #![forbid(unsafe_code)]
 
-use fnx_classes::Graph;
 use fnx_classes::digraph::DiGraph;
+use fnx_classes::{Graph, GraphError};
 use mwmatching::{Matching as BlossomMatching, SENTINEL as BLOSSOM_SENTINEL};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque};
+use std::fmt;
 
 pub const CGSE_WITNESS_ARTIFACT_SCHEMA_VERSION_V1: &str = "1.0.0";
 pub const CGSE_WITNESS_POLICY_SPEC_PATH: &str =
@@ -955,7 +956,9 @@ pub fn single_source_shortest_path(
     let mut level = 0usize;
 
     while !frontier.is_empty() {
-        if let Some(c) = cutoff && level >= c {
+        if let Some(c) = cutoff
+            && level >= c
+        {
             break;
         }
         let mut next_frontier: Vec<&str> = Vec::new();
@@ -999,7 +1002,9 @@ pub fn single_source_shortest_path_length(
     let mut level = 0usize;
 
     while !frontier.is_empty() {
-        if let Some(c) = cutoff && level >= c {
+        if let Some(c) = cutoff
+            && level >= c
+        {
             break;
         }
         let mut next_frontier: Vec<&str> = Vec::new();
@@ -5583,6 +5588,25 @@ pub fn all_simple_paths(
     }
 }
 
+/// Compute the efficiency of a pair of distinct nodes.
+///
+/// Efficiency is the reciprocal of the unweighted shortest-path distance.
+/// Returns `0.0` when no path exists and `None` when both node arguments are
+/// the same, allowing the Python binding to mirror NetworkX's
+/// `ZeroDivisionError` behavior for `efficiency(G, u, u)`.
+#[must_use]
+pub fn efficiency(graph: &Graph, source: &str, target: &str) -> Option<f64> {
+    if source == target {
+        return None;
+    }
+
+    let result = shortest_path_unweighted(graph, source, target);
+    Some(match result.path {
+        Some(path) => 1.0 / path.len().saturating_sub(1) as f64,
+        None => 0.0,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // global_efficiency / local_efficiency — Latora & Marchiori (2001)
 // ---------------------------------------------------------------------------
@@ -5750,6 +5774,202 @@ pub fn local_efficiency(graph: &Graph) -> LocalEfficiencyResult {
             edges_scanned: total_edges_scanned,
             queue_peak: max_queue_peak,
         },
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tree broadcast center / time
+// ---------------------------------------------------------------------------
+
+fn tree_broadcast_max_value(
+    graph: &Graph,
+    informed: &HashSet<String>,
+    node: &str,
+    values: &HashMap<String, usize>,
+) -> usize {
+    let mut adjacent = graph
+        .neighbors(node)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|neighbor| informed.contains(*neighbor))
+        .collect::<Vec<&str>>();
+    adjacent.sort_by(|left, right| {
+        values
+            .get(*right)
+            .copied()
+            .unwrap_or(0)
+            .cmp(&values.get(*left).copied().unwrap_or(0))
+    });
+    adjacent
+        .iter()
+        .enumerate()
+        .map(|(index, neighbor)| values.get(*neighbor).copied().unwrap_or(0) + index + 1)
+        .max()
+        .unwrap_or(0)
+}
+
+fn tree_broadcast_centers(
+    graph: &Graph,
+    node: &str,
+    values: &HashMap<String, usize>,
+    target: usize,
+) -> Vec<String> {
+    let mut adjacent = graph.neighbors(node).unwrap_or_default();
+    adjacent.sort_by(|left, right| {
+        values
+            .get(*right)
+            .copied()
+            .unwrap_or(0)
+            .cmp(&values.get(*left).copied().unwrap_or(0))
+    });
+
+    let cutoff = adjacent
+        .iter()
+        .enumerate()
+        .find_map(|(index, neighbor)| {
+            (values.get(*neighbor).copied().unwrap_or(0) + index + 1 == target).then_some(index + 1)
+        })
+        .unwrap_or(adjacent.len());
+
+    let mut centers = Vec::with_capacity(cutoff + 1);
+    centers.push(node.to_owned());
+    centers.extend(adjacent.into_iter().take(cutoff).map(str::to_owned));
+    centers.sort_unstable();
+    centers.dedup();
+    centers
+}
+
+fn multi_source_bfs_distances(graph: &Graph, sources: &[String]) -> HashMap<String, usize> {
+    let mut distances = HashMap::new();
+    let mut queue = VecDeque::new();
+
+    for source in sources {
+        if distances.insert(source.clone(), 0).is_none() {
+            queue.push_back(source.clone());
+        }
+    }
+
+    while let Some(current) = queue.pop_front() {
+        let current_distance = distances.get(&current).copied().unwrap_or(0);
+        if let Some(neighbors) = graph.neighbors(&current) {
+            for neighbor in neighbors {
+                if distances.contains_key(neighbor) {
+                    continue;
+                }
+                distances.insert(neighbor.to_owned(), current_distance + 1);
+                queue.push_back(neighbor.to_owned());
+            }
+        }
+    }
+
+    distances
+}
+
+/// Compute the broadcast center of a tree.
+///
+/// Returns `None` when the graph has no nodes or is not a tree.
+/// Matches `networkx.tree_broadcast_center` for valid undirected trees.
+#[must_use]
+pub fn tree_broadcast_center(graph: &Graph) -> Option<(usize, Vec<String>)> {
+    let node_count = graph.node_count();
+    if node_count == 0 || !is_tree(graph).is_tree {
+        return None;
+    }
+    if node_count < 3 {
+        let mut nodes = graph
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<String>>();
+        nodes.sort_unstable();
+        return Some((node_count - 1, nodes));
+    }
+
+    let mut informed = graph
+        .nodes_ordered()
+        .into_iter()
+        .filter(|node| graph.neighbor_count(node) == 1)
+        .map(str::to_owned)
+        .collect::<HashSet<String>>();
+    let mut values = informed
+        .iter()
+        .cloned()
+        .map(|node| (node, 0usize))
+        .collect::<HashMap<String, usize>>();
+
+    let mut reduced = graph.clone();
+    for node in &informed {
+        let _ = reduced.remove_node(node);
+    }
+
+    let mut frontier = reduced
+        .nodes_ordered()
+        .into_iter()
+        .filter(|node| reduced.neighbor_count(node) == 1)
+        .map(str::to_owned)
+        .collect::<HashSet<String>>();
+    for node in &frontier {
+        values.insert(node.clone(), graph.neighbor_count(node).saturating_sub(1));
+    }
+
+    while reduced.node_count() >= 2 {
+        let leaf = frontier
+            .iter()
+            .min_by(|left, right| {
+                values
+                    .get(*left)
+                    .copied()
+                    .unwrap_or(0)
+                    .cmp(&values.get(*right).copied().unwrap_or(0))
+                    .then_with(|| left.cmp(right))
+            })?
+            .clone();
+        let neighbor = reduced
+            .neighbors(&leaf)
+            .and_then(|neighbors| neighbors.into_iter().next())
+            .map(str::to_owned)?;
+
+        informed.insert(leaf.clone());
+        frontier.remove(&leaf);
+        let _ = reduced.remove_node(&leaf);
+
+        if reduced.has_node(&neighbor) && reduced.neighbor_count(&neighbor) == 1 {
+            let value = tree_broadcast_max_value(graph, &informed, &neighbor, &values);
+            values.insert(neighbor.clone(), value);
+            frontier.insert(neighbor);
+        }
+    }
+
+    let root = reduced.nodes_ordered().into_iter().next()?.to_owned();
+    let broadcast_time = tree_broadcast_max_value(graph, &informed, &root, &values);
+    let centers = tree_broadcast_centers(graph, &root, &values, broadcast_time);
+    Some((broadcast_time, centers))
+}
+
+/// Compute the tree broadcast time for either the tree or a specific node.
+///
+/// Returns `None` when the graph has no nodes, is not a tree, or the requested
+/// node is absent. Matches `networkx.tree_broadcast_time` on valid input.
+#[must_use]
+pub fn tree_broadcast_time(graph: &Graph, node: Option<&str>) -> Option<usize> {
+    if node.is_some_and(|candidate| !graph.has_node(candidate)) {
+        return None;
+    }
+
+    let (base_time, centers) = tree_broadcast_center(graph)?;
+    let distances = multi_source_bfs_distances(graph, &centers);
+
+    match node {
+        Some(target) => distances
+            .get(target)
+            .copied()
+            .map(|distance| base_time + distance),
+        None => distances
+            .values()
+            .copied()
+            .max()
+            .map(|distance| base_time + distance)
+            .or(Some(base_time)),
     }
 }
 
@@ -6589,7 +6809,11 @@ pub fn dfs_edges(graph: &Graph, source: &str, depth_limit: Option<usize>) -> Vec
 ///
 /// Follows successors (outgoing edges). Matches `networkx.dfs_edges` on DiGraph.
 #[must_use]
-pub fn dfs_edges_directed(digraph: &DiGraph, source: &str, depth_limit: Option<usize>) -> Vec<(String, String)> {
+pub fn dfs_edges_directed(
+    digraph: &DiGraph,
+    source: &str,
+    depth_limit: Option<usize>,
+) -> Vec<(String, String)> {
     let max_depth = depth_limit.unwrap_or(usize::MAX);
     let mut visited: HashSet<&str> = HashSet::new();
     let mut edges: Vec<(String, String)> = Vec::new();
@@ -6636,7 +6860,11 @@ pub fn dfs_edges_directed(digraph: &DiGraph, source: &str, depth_limit: Option<u
 /// Returns a map from node → its DFS parent. The source has no entry.
 /// Matches `networkx.dfs_predecessors`.
 #[must_use]
-pub fn dfs_predecessors(graph: &Graph, source: &str, depth_limit: Option<usize>) -> HashMap<String, String> {
+pub fn dfs_predecessors(
+    graph: &Graph,
+    source: &str,
+    depth_limit: Option<usize>,
+) -> HashMap<String, String> {
     dfs_edges(graph, source, depth_limit)
         .into_iter()
         .map(|(parent, child)| (child, parent))
@@ -6645,7 +6873,11 @@ pub fn dfs_predecessors(graph: &Graph, source: &str, depth_limit: Option<usize>)
 
 /// DFS predecessors map on a directed graph.
 #[must_use]
-pub fn dfs_predecessors_directed(digraph: &DiGraph, source: &str, depth_limit: Option<usize>) -> HashMap<String, String> {
+pub fn dfs_predecessors_directed(
+    digraph: &DiGraph,
+    source: &str,
+    depth_limit: Option<usize>,
+) -> HashMap<String, String> {
     dfs_edges_directed(digraph, source, depth_limit)
         .into_iter()
         .map(|(parent, child)| (child, parent))
@@ -6657,7 +6889,11 @@ pub fn dfs_predecessors_directed(digraph: &DiGraph, source: &str, depth_limit: O
 /// Returns a map from node → list of its DFS children.
 /// Matches `networkx.dfs_successors`.
 #[must_use]
-pub fn dfs_successors(graph: &Graph, source: &str, depth_limit: Option<usize>) -> HashMap<String, Vec<String>> {
+pub fn dfs_successors(
+    graph: &Graph,
+    source: &str,
+    depth_limit: Option<usize>,
+) -> HashMap<String, Vec<String>> {
     let mut result: HashMap<String, Vec<String>> = HashMap::new();
     for (parent, child) in dfs_edges(graph, source, depth_limit) {
         result.entry(parent).or_default().push(child);
@@ -6667,7 +6903,11 @@ pub fn dfs_successors(graph: &Graph, source: &str, depth_limit: Option<usize>) -
 
 /// DFS successors map on a directed graph.
 #[must_use]
-pub fn dfs_successors_directed(digraph: &DiGraph, source: &str, depth_limit: Option<usize>) -> HashMap<String, Vec<String>> {
+pub fn dfs_successors_directed(
+    digraph: &DiGraph,
+    source: &str,
+    depth_limit: Option<usize>,
+) -> HashMap<String, Vec<String>> {
     let mut result: HashMap<String, Vec<String>> = HashMap::new();
     for (parent, child) in dfs_edges_directed(digraph, source, depth_limit) {
         result.entry(parent).or_default().push(child);
@@ -6690,7 +6930,11 @@ pub fn dfs_preorder_nodes(graph: &Graph, source: &str, depth_limit: Option<usize
 
 /// DFS preorder nodes from `source` on a directed graph.
 #[must_use]
-pub fn dfs_preorder_nodes_directed(digraph: &DiGraph, source: &str, depth_limit: Option<usize>) -> Vec<String> {
+pub fn dfs_preorder_nodes_directed(
+    digraph: &DiGraph,
+    source: &str,
+    depth_limit: Option<usize>,
+) -> Vec<String> {
     let edges = dfs_edges_directed(digraph, source, depth_limit);
     let mut result = vec![source.to_owned()];
     for (_, child) in edges {
@@ -6742,7 +6986,11 @@ pub fn dfs_postorder_nodes(graph: &Graph, source: &str, depth_limit: Option<usiz
 
 /// DFS postorder nodes from `source` on a directed graph.
 #[must_use]
-pub fn dfs_postorder_nodes_directed(digraph: &DiGraph, source: &str, depth_limit: Option<usize>) -> Vec<String> {
+pub fn dfs_postorder_nodes_directed(
+    digraph: &DiGraph,
+    source: &str,
+    depth_limit: Option<usize>,
+) -> Vec<String> {
     let max_depth = depth_limit.unwrap_or(usize::MAX);
     let mut visited: HashSet<&str> = HashSet::new();
     let mut postorder: Vec<String> = Vec::new();
@@ -6821,7 +7069,11 @@ pub fn bfs_edges(graph: &Graph, source: &str, depth_limit: Option<usize>) -> Vec
 ///
 /// Follows successors (outgoing edges). Matches `networkx.bfs_edges` on DiGraph.
 #[must_use]
-pub fn bfs_edges_directed(digraph: &DiGraph, source: &str, depth_limit: Option<usize>) -> Vec<(String, String)> {
+pub fn bfs_edges_directed(
+    digraph: &DiGraph,
+    source: &str,
+    depth_limit: Option<usize>,
+) -> Vec<(String, String)> {
     let max_depth = depth_limit.unwrap_or(usize::MAX);
     let mut visited: HashSet<&str> = HashSet::new();
     let mut edges: Vec<(String, String)> = Vec::new();
@@ -6856,7 +7108,11 @@ pub fn bfs_edges_directed(digraph: &DiGraph, source: &str, depth_limit: Option<u
 /// Returns a map from node → its BFS parent. The source has no entry.
 /// Matches `networkx.bfs_predecessors`.
 #[must_use]
-pub fn bfs_predecessors(graph: &Graph, source: &str, depth_limit: Option<usize>) -> HashMap<String, String> {
+pub fn bfs_predecessors(
+    graph: &Graph,
+    source: &str,
+    depth_limit: Option<usize>,
+) -> HashMap<String, String> {
     bfs_edges(graph, source, depth_limit)
         .into_iter()
         .map(|(parent, child)| (child, parent))
@@ -6865,7 +7121,11 @@ pub fn bfs_predecessors(graph: &Graph, source: &str, depth_limit: Option<usize>)
 
 /// BFS predecessors map on a directed graph.
 #[must_use]
-pub fn bfs_predecessors_directed(digraph: &DiGraph, source: &str, depth_limit: Option<usize>) -> HashMap<String, String> {
+pub fn bfs_predecessors_directed(
+    digraph: &DiGraph,
+    source: &str,
+    depth_limit: Option<usize>,
+) -> HashMap<String, String> {
     bfs_edges_directed(digraph, source, depth_limit)
         .into_iter()
         .map(|(parent, child)| (child, parent))
@@ -6877,7 +7137,11 @@ pub fn bfs_predecessors_directed(digraph: &DiGraph, source: &str, depth_limit: O
 /// Returns a map from node → list of its BFS children.
 /// Matches `networkx.bfs_successors`.
 #[must_use]
-pub fn bfs_successors(graph: &Graph, source: &str, depth_limit: Option<usize>) -> HashMap<String, Vec<String>> {
+pub fn bfs_successors(
+    graph: &Graph,
+    source: &str,
+    depth_limit: Option<usize>,
+) -> HashMap<String, Vec<String>> {
     let mut result: HashMap<String, Vec<String>> = HashMap::new();
     for (parent, child) in bfs_edges(graph, source, depth_limit) {
         result.entry(parent).or_default().push(child);
@@ -6887,7 +7151,11 @@ pub fn bfs_successors(graph: &Graph, source: &str, depth_limit: Option<usize>) -
 
 /// BFS successors map on a directed graph.
 #[must_use]
-pub fn bfs_successors_directed(digraph: &DiGraph, source: &str, depth_limit: Option<usize>) -> HashMap<String, Vec<String>> {
+pub fn bfs_successors_directed(
+    digraph: &DiGraph,
+    source: &str,
+    depth_limit: Option<usize>,
+) -> HashMap<String, Vec<String>> {
     let mut result: HashMap<String, Vec<String>> = HashMap::new();
     for (parent, child) in bfs_edges_directed(digraph, source, depth_limit) {
         result.entry(parent).or_default().push(child);
@@ -6972,7 +7240,11 @@ pub fn descendants_at_distance(graph: &Graph, source: &str, distance: usize) -> 
 
 /// Nodes at exactly `distance` hops from `source` on a directed graph.
 #[must_use]
-pub fn descendants_at_distance_directed(digraph: &DiGraph, source: &str, distance: usize) -> Vec<String> {
+pub fn descendants_at_distance_directed(
+    digraph: &DiGraph,
+    source: &str,
+    distance: usize,
+) -> Vec<String> {
     let layers = bfs_layers_directed(digraph, source);
     layers.into_iter().nth(distance).unwrap_or_default()
 }
@@ -7237,9 +7509,7 @@ pub fn transitive_reduction(digraph: &DiGraph) -> Option<DiGraph> {
 
     for u in order {
         // Get direct successors
-        let direct: Vec<&str> = digraph
-            .successors(u)
-            .unwrap_or_default();
+        let direct: Vec<&str> = digraph.successors(u).unwrap_or_default();
 
         // For each direct successor, check if it's reachable through
         // another direct successor (making the edge redundant)
@@ -7287,11 +7557,7 @@ pub fn transitive_reduction(digraph: &DiGraph) -> Option<DiGraph> {
 /// enumerates all paths by backtracking from target to source.
 /// Matches `networkx.all_shortest_paths(G, source, target)`.
 #[must_use]
-pub fn all_shortest_paths(
-    graph: &Graph,
-    source: &str,
-    target: &str,
-) -> Vec<Vec<String>> {
+pub fn all_shortest_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec<String>> {
     if !graph.has_node(source) || !graph.has_node(target) {
         return Vec::new();
     }
@@ -8295,16 +8561,8 @@ pub fn is_weakly_connected(digraph: &DiGraph) -> bool {
 /// Matches `networkx.common_neighbors(G, u, v)`.
 #[must_use]
 pub fn common_neighbors(graph: &Graph, u: &str, v: &str) -> Vec<String> {
-    let u_neighbors: HashSet<&str> = graph
-        .neighbors(u)
-        .unwrap_or_default()
-        .into_iter()
-        .collect();
-    let v_neighbors: HashSet<&str> = graph
-        .neighbors(v)
-        .unwrap_or_default()
-        .into_iter()
-        .collect();
+    let u_neighbors: HashSet<&str> = graph.neighbors(u).unwrap_or_default().into_iter().collect();
+    let v_neighbors: HashSet<&str> = graph.neighbors(v).unwrap_or_default().into_iter().collect();
     let mut result: Vec<String> = u_neighbors
         .intersection(&v_neighbors)
         .map(|&s| s.to_owned())
@@ -8319,20 +8577,17 @@ pub fn common_neighbors(graph: &Graph, u: &str, v: &str) -> Vec<String> {
 /// If the union is empty, the coefficient is 0.
 /// Matches `networkx.jaccard_coefficient(G, ebunch)`.
 #[must_use]
-pub fn jaccard_coefficient(graph: &Graph, ebunch: &[(String, String)]) -> Vec<(String, String, f64)> {
+pub fn jaccard_coefficient(
+    graph: &Graph,
+    ebunch: &[(String, String)],
+) -> Vec<(String, String, f64)> {
     ebunch
         .iter()
         .map(|(u, v)| {
-            let u_nbrs: HashSet<&str> = graph
-                .neighbors(u)
-                .unwrap_or_default()
-                .into_iter()
-                .collect();
-            let v_nbrs: HashSet<&str> = graph
-                .neighbors(v)
-                .unwrap_or_default()
-                .into_iter()
-                .collect();
+            let u_nbrs: HashSet<&str> =
+                graph.neighbors(u).unwrap_or_default().into_iter().collect();
+            let v_nbrs: HashSet<&str> =
+                graph.neighbors(v).unwrap_or_default().into_iter().collect();
             let common = u_nbrs.intersection(&v_nbrs).count();
             let union = u_nbrs.union(&v_nbrs).count();
             let score = if union == 0 {
@@ -8354,16 +8609,10 @@ pub fn adamic_adar_index(graph: &Graph, ebunch: &[(String, String)]) -> Vec<(Str
     ebunch
         .iter()
         .map(|(u, v)| {
-            let u_nbrs: HashSet<&str> = graph
-                .neighbors(u)
-                .unwrap_or_default()
-                .into_iter()
-                .collect();
-            let v_nbrs: HashSet<&str> = graph
-                .neighbors(v)
-                .unwrap_or_default()
-                .into_iter()
-                .collect();
+            let u_nbrs: HashSet<&str> =
+                graph.neighbors(u).unwrap_or_default().into_iter().collect();
+            let v_nbrs: HashSet<&str> =
+                graph.neighbors(v).unwrap_or_default().into_iter().collect();
             let score: f64 = u_nbrs
                 .intersection(&v_nbrs)
                 .map(|&w| {
@@ -8385,7 +8634,10 @@ pub fn adamic_adar_index(graph: &Graph, ebunch: &[(String, String)]) -> Vec<(Str
 /// For each `(u, v)` pair, returns `|N(u)| * |N(v)|`.
 /// Matches `networkx.preferential_attachment(G, ebunch)`.
 #[must_use]
-pub fn preferential_attachment(graph: &Graph, ebunch: &[(String, String)]) -> Vec<(String, String, f64)> {
+pub fn preferential_attachment(
+    graph: &Graph,
+    ebunch: &[(String, String)],
+) -> Vec<(String, String, f64)> {
     ebunch
         .iter()
         .map(|(u, v)| {
@@ -8402,29 +8654,22 @@ pub fn preferential_attachment(graph: &Graph, ebunch: &[(String, String)]) -> Ve
 /// For each `(u, v)` pair, returns `Σ_{w ∈ common(u,v)} 1/|N(w)|`.
 /// Matches `networkx.resource_allocation_index(G, ebunch)`.
 #[must_use]
-pub fn resource_allocation_index(graph: &Graph, ebunch: &[(String, String)]) -> Vec<(String, String, f64)> {
+pub fn resource_allocation_index(
+    graph: &Graph,
+    ebunch: &[(String, String)],
+) -> Vec<(String, String, f64)> {
     ebunch
         .iter()
         .map(|(u, v)| {
-            let u_nbrs: HashSet<&str> = graph
-                .neighbors(u)
-                .unwrap_or_default()
-                .into_iter()
-                .collect();
-            let v_nbrs: HashSet<&str> = graph
-                .neighbors(v)
-                .unwrap_or_default()
-                .into_iter()
-                .collect();
+            let u_nbrs: HashSet<&str> =
+                graph.neighbors(u).unwrap_or_default().into_iter().collect();
+            let v_nbrs: HashSet<&str> =
+                graph.neighbors(v).unwrap_or_default().into_iter().collect();
             let score: f64 = u_nbrs
                 .intersection(&v_nbrs)
                 .map(|&w| {
                     let deg = graph.neighbor_count(w);
-                    if deg > 0 {
-                        1.0 / deg as f64
-                    } else {
-                        0.0
-                    }
+                    if deg > 0 { 1.0 / deg as f64 } else { 0.0 }
                 })
                 .sum();
             (u.clone(), v.clone(), score)
@@ -8462,11 +8707,8 @@ pub fn louvain_communities(
     let nodes = graph.nodes_ordered();
 
     // Build a deterministic node-index mapping
-    let node_to_idx: HashMap<&str, usize> = nodes
-        .iter()
-        .enumerate()
-        .map(|(i, &nd)| (nd, i))
-        .collect();
+    let node_to_idx: HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
 
     // Build adjacency with weights in index space
     let mut adj: Vec<Vec<(usize, f64)>> = vec![Vec::new(); n];
@@ -8551,8 +8793,8 @@ pub fn louvain_communities(
                     continue;
                 }
                 let target_sigma = sigma_tot.get(&target_comm).copied().unwrap_or(0.0);
-                let insert_delta = ki_to / (2.0 * m)
-                    - resolution * target_sigma * k[i] / (2.0 * m * 2.0 * m);
+                let insert_delta =
+                    ki_to / (2.0 * m) - resolution * target_sigma * k[i] / (2.0 * m * 2.0 * m);
                 let gain = insert_delta - remove_delta;
                 if gain > best_gain || (gain == best_gain && target_comm < best_comm) {
                     best_gain = gain;
@@ -8677,11 +8919,8 @@ pub fn label_propagation_communities(graph: &Graph) -> Vec<Vec<String>> {
     }
 
     let nodes = graph.nodes_ordered();
-    let node_to_idx: HashMap<&str, usize> = nodes
-        .iter()
-        .enumerate()
-        .map(|(i, &nd)| (nd, i))
-        .collect();
+    let node_to_idx: HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
 
     // Each node starts with its own label
     let mut labels: Vec<usize> = (0..n).collect();
@@ -8726,10 +8965,7 @@ pub fn label_propagation_communities(graph: &Graph) -> Vec<Vec<String>> {
     // Collect communities
     let mut comm_map: HashMap<usize, Vec<String>> = HashMap::new();
     for (i, &label) in labels.iter().enumerate() {
-        comm_map
-            .entry(label)
-            .or_default()
-            .push(nodes[i].to_owned());
+        comm_map.entry(label).or_default().push(nodes[i].to_owned());
     }
 
     let mut result: Vec<Vec<String>> = comm_map
@@ -8763,11 +8999,8 @@ pub fn greedy_modularity_communities(
     }
 
     let nodes = graph.nodes_ordered();
-    let node_to_idx: HashMap<&str, usize> = nodes
-        .iter()
-        .enumerate()
-        .map(|(i, &nd)| (nd, i))
-        .collect();
+    let node_to_idx: HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
 
     // Compute m (total edge weight)
     let mut m = 0.0;
@@ -8841,12 +9074,8 @@ pub fn greedy_modularity_communities(
                             for nbr in &nbrs {
                                 let j = node_to_idx[nbr];
                                 if community[j] == cj {
-                                    e_ij += edge_weight_or_default(
-                                        graph,
-                                        nodes[mi],
-                                        nbr,
-                                        weight_attr,
-                                    );
+                                    e_ij +=
+                                        edge_weight_or_default(graph, nodes[mi], nbr, weight_attr);
                                 }
                             }
                         }
@@ -9103,10 +9332,7 @@ pub fn degree_histogram(graph: &Graph) -> Vec<usize> {
 /// twice the optimal.
 ///
 /// NetworkX equivalent: `networkx.algorithms.approximation.vertex_cover.min_weighted_vertex_cover`
-pub fn min_weighted_vertex_cover(
-    graph: &Graph,
-    weight_attr: &str,
-) -> HashMap<String, f64> {
+pub fn min_weighted_vertex_cover(graph: &Graph, weight_attr: &str) -> HashMap<String, f64> {
     let nodes = graph.nodes_ordered();
     let mut cover: HashMap<String, f64> = HashMap::new();
 
@@ -9164,7 +9390,12 @@ pub fn maximum_independent_set(graph: &Graph) -> Vec<String> {
 
         let nbrs_to_remove: Vec<String> = graph
             .neighbors(&min_node)
-            .map(|nbrs| nbrs.iter().filter(|&n| remaining.contains(*n)).map(|s| s.to_string()).collect())
+            .map(|nbrs| {
+                nbrs.iter()
+                    .filter(|&n| remaining.contains(*n))
+                    .map(|s| s.to_string())
+                    .collect()
+            })
             .unwrap_or_default();
 
         remaining.remove(&min_node);
@@ -9175,6 +9406,563 @@ pub fn maximum_independent_set(graph: &Graph) -> Vec<String> {
 
     independent_set.sort();
     independent_set
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MaximalIndependentSetError {
+    NodesNotSubset { nodes: Vec<String> },
+    NodesNotIndependent { nodes: Vec<String> },
+}
+
+impl fmt::Display for MaximalIndependentSetError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NodesNotSubset { nodes } => {
+                write!(f, "{nodes:?} is not a subset of the nodes of G")
+            }
+            Self::NodesNotIndependent { nodes } => {
+                write!(f, "{nodes:?} is not an independent set of G")
+            }
+        }
+    }
+}
+
+impl std::error::Error for MaximalIndependentSetError {}
+
+fn next_seed(state: &mut u64) -> u64 {
+    *state = state
+        .wrapping_mul(6_364_136_223_846_793_005)
+        .wrapping_add(1);
+    *state
+}
+
+fn choose_index(seed_state: &mut Option<u64>, len: usize) -> usize {
+    if len <= 1 {
+        return 0;
+    }
+    match seed_state {
+        Some(state) => ((next_seed(state) >> 33) as usize) % len,
+        None => 0,
+    }
+}
+
+fn deterministic_graph_seed(graph: &Graph) -> u64 {
+    ((graph.node_count() as u64) << 32) ^ (graph.edge_count() as u64) ^ 0x9e37_79b9_7f4a_7c15_u64
+}
+
+fn next_random_unit(seed_state: &mut u64) -> f64 {
+    let bits = next_seed(seed_state) >> 11;
+    (bits as f64) / ((1_u64 << 53) as f64)
+}
+
+/// Return a maximal independent set, optionally seeded for reproducible choices.
+///
+/// Unlike `maximum_independent_set`, this only guarantees maximality.
+/// The optional `initial_nodes` must already form an independent set.
+pub fn maximal_independent_set(
+    graph: &Graph,
+    initial_nodes: &[String],
+    seed: Option<u64>,
+) -> Result<Vec<String>, MaximalIndependentSetError> {
+    let ordered_nodes: Vec<String> = graph
+        .nodes_ordered()
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+
+    let graph_nodes: HashSet<&str> = ordered_nodes.iter().map(String::as_str).collect();
+    let mut seen = HashSet::new();
+    let mut required = Vec::new();
+    let mut seed_state = seed;
+    for node in initial_nodes {
+        if !graph_nodes.contains(node.as_str()) {
+            return Err(MaximalIndependentSetError::NodesNotSubset {
+                nodes: initial_nodes.to_vec(),
+            });
+        }
+        if seen.insert(node.clone()) {
+            required.push(node.clone());
+        }
+    }
+    if required.is_empty() {
+        if ordered_nodes.is_empty() {
+            return Ok(Vec::new());
+        }
+        let first_index = choose_index(&mut seed_state, ordered_nodes.len());
+        required.push(ordered_nodes[first_index].clone());
+    }
+
+    let required_set: HashSet<&str> = required.iter().map(String::as_str).collect();
+    for node in &required {
+        if graph
+            .neighbors(node)
+            .unwrap_or_default()
+            .into_iter()
+            .any(|neighbor| required_set.contains(neighbor))
+        {
+            return Err(MaximalIndependentSetError::NodesNotIndependent {
+                nodes: initial_nodes.to_vec(),
+            });
+        }
+    }
+
+    let mut indep_nodes = required;
+    let mut blocked: HashSet<String> = indep_nodes.iter().cloned().collect();
+    for node in &indep_nodes {
+        if let Some(neighbors) = graph.neighbors(node) {
+            blocked.extend(neighbors.into_iter().map(str::to_owned));
+        }
+    }
+
+    let mut available_nodes: Vec<String> = ordered_nodes
+        .into_iter()
+        .filter(|node| !blocked.contains(node))
+        .collect();
+    while !available_nodes.is_empty() {
+        let index = choose_index(&mut seed_state, available_nodes.len());
+        let chosen = available_nodes.remove(index);
+        indep_nodes.push(chosen.clone());
+
+        let mut banned = HashSet::from([chosen.clone()]);
+        if let Some(neighbors) = graph.neighbors(&chosen) {
+            banned.extend(neighbors.into_iter().map(str::to_owned));
+        }
+        available_nodes.retain(|candidate| !banned.contains(candidate));
+    }
+
+    Ok(indep_nodes)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChordalGraphTreewidthError {
+    NotChordal,
+}
+
+impl fmt::Display for ChordalGraphTreewidthError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotChordal => write!(f, "Input graph is not chordal."),
+        }
+    }
+}
+
+impl std::error::Error for ChordalGraphTreewidthError {}
+
+fn node_set_is_complete(graph: &Graph, nodes: &[&str]) -> bool {
+    for (index, &left) in nodes.iter().enumerate() {
+        for &right in &nodes[(index + 1)..] {
+            if !graph.has_edge(left, right) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+fn chordal_mcs_max_clique_size(graph: &Graph) -> Result<usize, ChordalGraphTreewidthError> {
+    if graph
+        .nodes_ordered()
+        .into_iter()
+        .any(|node| graph.has_edge(node, node))
+    {
+        return Err(ChordalGraphTreewidthError::NotChordal);
+    }
+
+    let nodes = graph.nodes_ordered();
+    if nodes.is_empty() {
+        return Ok(0);
+    }
+
+    let rank: HashMap<&str, usize> = nodes
+        .iter()
+        .enumerate()
+        .map(|(index, &node)| (node, index))
+        .collect();
+    let mut remaining: HashSet<&str> = nodes.iter().copied().collect();
+    let mut labels: HashMap<&str, usize> = nodes.iter().map(|&node| (node, 0)).collect();
+    let mut max_clique_size = 0usize;
+
+    while !remaining.is_empty() {
+        let &chosen = remaining
+            .iter()
+            .max_by(|&&left, &&right| {
+                labels[&left]
+                    .cmp(&labels[&right])
+                    .then_with(|| rank[&right].cmp(&rank[&left]))
+            })
+            .expect("remaining is non-empty");
+        remaining.remove(chosen);
+
+        let clique_wanna_be: Vec<&str> = graph
+            .neighbors_iter(chosen)
+            .map(|neighbors| {
+                neighbors
+                    .filter(|neighbor| neighbor != &chosen && !remaining.contains(*neighbor))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if !node_set_is_complete(graph, &clique_wanna_be) {
+            return Err(ChordalGraphTreewidthError::NotChordal);
+        }
+        max_clique_size = max_clique_size.max(clique_wanna_be.len() + 1);
+
+        if let Some(neighbors) = graph.neighbors_iter(chosen) {
+            for neighbor in neighbors {
+                if remaining.contains(neighbor)
+                    && let Some(label) = labels.get_mut(neighbor)
+                {
+                    *label += 1;
+                }
+            }
+        }
+    }
+
+    Ok(max_clique_size)
+}
+
+fn is_chordal_internal(graph: &Graph) -> bool {
+    chordal_mcs_max_clique_size(graph).is_ok()
+}
+
+/// Return the treewidth of a chordal graph.
+///
+/// This is the size of the largest maximal clique minus one.
+pub fn chordal_graph_treewidth(graph: &Graph) -> Result<usize, ChordalGraphTreewidthError> {
+    if graph.node_count() == 0 {
+        return Err(ChordalGraphTreewidthError::NotChordal);
+    }
+
+    chordal_mcs_max_clique_size(graph).map(|max_clique_len| max_clique_len.saturating_sub(1))
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SpannerEdgeWeight {
+    primary: f64,
+    secondary: usize,
+    tertiary: usize,
+}
+
+impl PartialEq for SpannerEdgeWeight {
+    fn eq(&self, other: &Self) -> bool {
+        self.primary.to_bits() == other.primary.to_bits()
+            && self.secondary == other.secondary
+            && self.tertiary == other.tertiary
+    }
+}
+
+impl Eq for SpannerEdgeWeight {}
+
+impl PartialOrd for SpannerEdgeWeight {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for SpannerEdgeWeight {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.primary
+            .total_cmp(&other.primary)
+            .then_with(|| self.secondary.cmp(&other.secondary))
+            .then_with(|| self.tertiary.cmp(&other.tertiary))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SpannerError {
+    InvalidStretch,
+}
+
+impl fmt::Display for SpannerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidStretch => write!(f, "stretch must be at least 1"),
+        }
+    }
+}
+
+impl std::error::Error for SpannerError {}
+
+fn canonical_edge(left: &str, right: &str) -> (String, String) {
+    if left <= right {
+        (left.to_owned(), right.to_owned())
+    } else {
+        (right.to_owned(), left.to_owned())
+    }
+}
+
+fn spanner_weight_for_edge(
+    graph: &Graph,
+    left: &str,
+    right: &str,
+    weight_attr: Option<&str>,
+    node_rank: &HashMap<String, usize>,
+) -> SpannerEdgeWeight {
+    let (canon_left, canon_right) = canonical_edge(left, right);
+    let left_rank = *node_rank.get(&canon_left).unwrap_or(&usize::MAX);
+    let right_rank = *node_rank.get(&canon_right).unwrap_or(&usize::MAX);
+    let primary = weight_attr
+        .and_then(|attr| {
+            graph
+                .edge_attrs(left, right)
+                .and_then(|attrs| attrs.get(attr))
+        })
+        .and_then(|raw| raw.parse::<f64>().ok())
+        .unwrap_or(1.0);
+
+    SpannerEdgeWeight {
+        primary,
+        secondary: left_rank,
+        tertiary: right_rank,
+    }
+}
+
+fn add_original_edge(
+    source: &Graph,
+    target: &mut Graph,
+    left: &str,
+    right: &str,
+) -> Result<(), GraphError> {
+    let attrs = source.edge_attrs(left, right).cloned().unwrap_or_default();
+    target.add_edge_with_attrs(left.to_owned(), right.to_owned(), attrs)
+}
+
+fn lightest_edge_dicts(
+    residual_graph: &Graph,
+    residual_weights: &HashMap<(String, String), SpannerEdgeWeight>,
+    clustering: &HashMap<String, String>,
+    node: &str,
+) -> (HashMap<String, String>, HashMap<String, SpannerEdgeWeight>) {
+    let mut lightest_edge_neighbor = HashMap::new();
+    let mut lightest_edge_weight = HashMap::new();
+
+    if let Some(neighbors) = residual_graph.neighbors_iter(node) {
+        for neighbor in neighbors {
+            let Some(center) = clustering.get(neighbor) else {
+                continue;
+            };
+            let weight = residual_weights
+                .get(&canonical_edge(node, neighbor))
+                .copied()
+                .unwrap_or(SpannerEdgeWeight {
+                    primary: 1.0,
+                    secondary: usize::MAX,
+                    tertiary: usize::MAX,
+                });
+            let entry = lightest_edge_weight.get(center);
+            if entry.is_none_or(|current| weight < *current) {
+                lightest_edge_weight.insert(center.clone(), weight);
+                lightest_edge_neighbor.insert(center.clone(), neighbor.to_owned());
+            }
+        }
+    }
+
+    (lightest_edge_neighbor, lightest_edge_weight)
+}
+
+/// Return a spanner of an undirected simple graph.
+///
+/// This follows the Baswana-Sen structure used by NetworkX, while using the
+/// workspace's deterministic tie-breaking and seeded LCG helpers.
+pub fn spanner(
+    graph: &Graph,
+    stretch: f64,
+    weight_attr: Option<&str>,
+    seed: Option<u64>,
+) -> Result<Graph, SpannerError> {
+    if stretch < 1.0 {
+        return Err(SpannerError::InvalidStretch);
+    }
+
+    let mut result = Graph::new(graph.mode());
+    for node in graph.nodes_ordered() {
+        result.add_node(node);
+    }
+
+    if graph.edge_count() == 0 {
+        return Ok(result);
+    }
+
+    let k = (((stretch + 1.0) / 2.0).floor() as usize).max(1);
+    if k <= 1 {
+        for edge in graph.edges_ordered() {
+            let _ = add_original_edge(graph, &mut result, &edge.left, &edge.right);
+        }
+        return Ok(result);
+    }
+
+    let node_rank: HashMap<String, usize> = graph
+        .nodes_ordered()
+        .into_iter()
+        .enumerate()
+        .map(|(index, node)| (node.to_owned(), index))
+        .collect();
+    let mut residual_graph = graph.clone();
+    let mut residual_weights: HashMap<(String, String), SpannerEdgeWeight> = graph
+        .edges_ordered()
+        .into_iter()
+        .map(|edge| {
+            let weight =
+                spanner_weight_for_edge(graph, &edge.left, &edge.right, weight_attr, &node_rank);
+            (canonical_edge(&edge.left, &edge.right), weight)
+        })
+        .collect();
+    let mut clustering: HashMap<String, String> = graph
+        .nodes_ordered()
+        .into_iter()
+        .map(|node| (node.to_owned(), node.to_owned()))
+        .collect();
+    let node_count = graph.node_count().max(1);
+    let sample_prob = (node_count as f64).powf(-1.0 / (k as f64));
+    let size_limit = 2.0 * (node_count as f64).powf(1.0 + 1.0 / (k as f64));
+    let mut rng_state = seed.unwrap_or_else(|| deterministic_graph_seed(graph));
+    let mut iteration = 0_usize;
+
+    while iteration < k.saturating_sub(1) {
+        let mut centers: Vec<String> = clustering.values().cloned().collect();
+        centers.sort_by_key(|center| *node_rank.get(center).unwrap_or(&usize::MAX));
+        centers.dedup();
+
+        let sampled_centers: HashSet<String> = centers
+            .into_iter()
+            .filter(|_| next_random_unit(&mut rng_state) < sample_prob)
+            .collect();
+
+        let mut edges_to_add = BTreeSet::new();
+        let mut edges_to_remove = BTreeSet::new();
+        let mut new_clustering = HashMap::new();
+
+        for node in residual_graph
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+        {
+            if clustering
+                .get(&node)
+                .is_some_and(|center| sampled_centers.contains(center))
+            {
+                continue;
+            }
+
+            let (lightest_edge_neighbor, lightest_edge_weight) =
+                lightest_edge_dicts(&residual_graph, &residual_weights, &clustering, &node);
+            let mut neighboring_sampled_centers: Vec<&String> = lightest_edge_weight
+                .keys()
+                .filter(|center| sampled_centers.contains(*center))
+                .collect();
+            neighboring_sampled_centers
+                .sort_by_key(|center| *node_rank.get(center.as_str()).unwrap_or(&usize::MAX));
+
+            if neighboring_sampled_centers.is_empty() {
+                edges_to_add.extend(
+                    lightest_edge_neighbor
+                        .values()
+                        .map(|neighbor| canonical_edge(&node, neighbor)),
+                );
+                if let Some(neighbors) = residual_graph.neighbors_iter(&node) {
+                    edges_to_remove
+                        .extend(neighbors.map(|neighbor| canonical_edge(&node, neighbor)));
+                }
+                continue;
+            }
+
+            let closest_center = neighboring_sampled_centers
+                .into_iter()
+                .min_by(|left, right| {
+                    lightest_edge_weight[*left]
+                        .cmp(&lightest_edge_weight[*right])
+                        .then_with(|| node_rank[left.as_str()].cmp(&node_rank[right.as_str()]))
+                })
+                .expect("neighboring sampled centers is non-empty");
+            let closest_weight = lightest_edge_weight[closest_center];
+            let closest_neighbor = lightest_edge_neighbor[closest_center].clone();
+            edges_to_add.insert(canonical_edge(&node, &closest_neighbor));
+            new_clustering.insert(node.clone(), closest_center.clone());
+
+            for (center, edge_weight) in &lightest_edge_weight {
+                if *edge_weight < closest_weight
+                    && let Some(neighbor) = lightest_edge_neighbor.get(center)
+                {
+                    edges_to_add.insert(canonical_edge(&node, neighbor));
+                }
+            }
+
+            if let Some(neighbors) = residual_graph.neighbors_iter(&node) {
+                for neighbor in neighbors {
+                    let Some(cluster) = clustering.get(neighbor) else {
+                        continue;
+                    };
+                    let Some(neighbor_weight) = lightest_edge_weight.get(cluster) else {
+                        continue;
+                    };
+                    if cluster == closest_center || *neighbor_weight < closest_weight {
+                        edges_to_remove.insert(canonical_edge(&node, neighbor));
+                    }
+                }
+            }
+        }
+
+        if (edges_to_add.len() as f64) > size_limit {
+            continue;
+        }
+
+        iteration += 1;
+        for (left, right) in &edges_to_add {
+            let _ = add_original_edge(graph, &mut result, left, right);
+        }
+        for (left, right) in &edges_to_remove {
+            residual_graph.remove_edge(left, right);
+            residual_weights.remove(&(left.clone(), right.clone()));
+        }
+
+        for (node, center) in &clustering {
+            if sampled_centers.contains(center) {
+                new_clustering.insert(node.clone(), center.clone());
+            }
+        }
+        clustering = new_clustering;
+        if clustering.is_empty() {
+            break;
+        }
+
+        for edge in residual_graph.edges_ordered() {
+            let Some(left_center) = clustering.get(&edge.left) else {
+                continue;
+            };
+            let Some(right_center) = clustering.get(&edge.right) else {
+                continue;
+            };
+            if left_center == right_center {
+                let key = canonical_edge(&edge.left, &edge.right);
+                residual_graph.remove_edge(&edge.left, &edge.right);
+                residual_weights.remove(&key);
+            }
+        }
+
+        let residual_nodes: Vec<String> = residual_graph
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        for node in residual_nodes {
+            if !clustering.contains_key(&node) {
+                residual_graph.remove_node(&node);
+            }
+        }
+    }
+
+    for node in residual_graph
+        .nodes_ordered()
+        .into_iter()
+        .map(str::to_owned)
+    {
+        let (lightest_edge_neighbor, _) =
+            lightest_edge_dicts(&residual_graph, &residual_weights, &clustering, &node);
+        for neighbor in lightest_edge_neighbor.values() {
+            let _ = add_original_edge(graph, &mut result, &node, neighbor);
+        }
+    }
+
+    Ok(result)
 }
 
 /// Greedy approximation for maximum clique.
@@ -9380,7 +10168,10 @@ pub fn astar_path(
     }
     impl Ord for State {
         fn cmp(&self, other: &Self) -> Ordering {
-            other.f_score.partial_cmp(&self.f_score).unwrap_or(Ordering::Equal)
+            other
+                .f_score
+                .partial_cmp(&self.f_score)
+                .unwrap_or(Ordering::Equal)
                 .then_with(|| self.node.cmp(&other.node))
         }
     }
@@ -9482,12 +10273,11 @@ pub fn shortest_simple_paths(
     }
 
     // Helper: Dijkstra shortest path avoiding certain nodes and edges
-    let dijkstra_restricted = |
-        excluded_nodes: &HashSet<String>,
-        excluded_edges: &HashSet<(String, String)>,
-        src: &str,
-        tgt: &str,
-    | -> Option<Vec<String>> {
+    let dijkstra_restricted = |excluded_nodes: &HashSet<String>,
+                               excluded_edges: &HashSet<(String, String)>,
+                               src: &str,
+                               tgt: &str|
+     -> Option<Vec<String>> {
         use std::cmp::Ordering;
 
         #[derive(PartialEq)]
@@ -9503,7 +10293,10 @@ pub fn shortest_simple_paths(
         }
         impl Ord for St {
             fn cmp(&self, other: &Self) -> Ordering {
-                other.cost.partial_cmp(&self.cost).unwrap_or(Ordering::Equal)
+                other
+                    .cost
+                    .partial_cmp(&self.cost)
+                    .unwrap_or(Ordering::Equal)
                     .then_with(|| self.node.cmp(&other.node))
             }
         }
@@ -9513,7 +10306,10 @@ pub fn shortest_simple_paths(
         let mut heap = BinaryHeap::new();
 
         dist.insert(src.to_string(), 0.0);
-        heap.push(St { cost: 0.0, node: src.to_string() });
+        heap.push(St {
+            cost: 0.0,
+            node: src.to_string(),
+        });
 
         while let Some(St { cost, node }) = heap.pop() {
             if node == tgt {
@@ -9538,7 +10334,8 @@ pub fn shortest_simple_paths(
                     }
                     let edge_key = (node.clone(), nbr.to_string());
                     let edge_key_rev = (nbr.to_string(), node.clone());
-                    if excluded_edges.contains(&edge_key) || excluded_edges.contains(&edge_key_rev) {
+                    if excluded_edges.contains(&edge_key) || excluded_edges.contains(&edge_key_rev)
+                    {
                         continue;
                     }
                     let w = weight_attr
@@ -9548,7 +10345,10 @@ pub fn shortest_simple_paths(
                     if new_cost < *dist.get(nbr).unwrap_or(&f64::INFINITY) {
                         dist.insert(nbr.to_string(), new_cost);
                         prev.insert(nbr.to_string(), node.clone());
-                        heap.push(St { cost: new_cost, node: nbr.to_string() });
+                        heap.push(St {
+                            cost: new_cost,
+                            node: nbr.to_string(),
+                        });
                     }
                 }
             }
@@ -9602,7 +10402,9 @@ pub fn shortest_simple_paths(
                 excl_nodes.insert(node.clone());
             }
 
-            if let Some(spur_path) = dijkstra_restricted(&excl_nodes, &excl_edges, spur_node, target) {
+            if let Some(spur_path) =
+                dijkstra_restricted(&excl_nodes, &excl_edges, spur_node, target)
+            {
                 let mut total_path = root_path[..root_path.len() - 1].to_vec();
                 total_path.extend(spur_path);
 
@@ -9638,7 +10440,9 @@ impl PartialOrd for OrderedF64 {
 
 impl Ord for OrderedF64 {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.0.partial_cmp(&other.0).unwrap_or(std::cmp::Ordering::Equal)
+        self.0
+            .partial_cmp(&other.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
     }
 }
 
@@ -9759,7 +10563,16 @@ pub fn is_isomorphic(g1: &Graph, g2: &Graph) -> bool {
         false
     }
 
-    backtrack(0, n, &adj1, &adj2, &deg1_map, &deg2_map, &mut mapping, &mut used)
+    backtrack(
+        0,
+        n,
+        &adj1,
+        &adj2,
+        &deg1_map,
+        &deg2_map,
+        &mut mapping,
+        &mut used,
+    )
 }
 
 /// Fast check whether two graphs could possibly be isomorphic.
@@ -10237,11 +11050,7 @@ pub fn edge_boundary(
 /// a neighbor in `nbunch`. If `nbunch2` is given, only nodes in `nbunch2`
 /// are considered for the boundary.
 #[must_use]
-pub fn node_boundary(
-    graph: &Graph,
-    nbunch: &[&str],
-    nbunch2: Option<&[&str]>,
-) -> Vec<String> {
+pub fn node_boundary(graph: &Graph, nbunch: &[&str], nbunch2: Option<&[&str]>) -> Vec<String> {
     let set: HashSet<&str> = nbunch.iter().copied().collect();
     let set2: Option<HashSet<&str>> = nbunch2.map(|s| s.iter().copied().collect());
     let mut boundary: BTreeMap<&str, ()> = BTreeMap::new();
@@ -10652,7 +11461,8 @@ pub fn simple_cycles(graph: &DiGraph) -> Vec<Vec<String>> {
     }
 
     // Map node names to indices
-    let node_to_idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+    let node_to_idx: HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
     let mut adj: Vec<Vec<usize>> = vec![vec![]; n];
     for &node in &nodes {
         let i = node_to_idx[node];
@@ -10672,13 +11482,17 @@ pub fn simple_cycles(graph: &DiGraph) -> Vec<Vec<String>> {
     // through s in the subgraph induced by {s, s+1, ..., n-1}
     for s in 0..n {
         // Build subgraph adjacency for nodes [s..n)
-        let sub_adj: Vec<Vec<usize>> = adj.iter().enumerate().map(|(i, nbrs)| {
-            if i < s {
-                vec![]
-            } else {
-                nbrs.iter().copied().filter(|&j| j >= s).collect()
-            }
-        }).collect();
+        let sub_adj: Vec<Vec<usize>> = adj
+            .iter()
+            .enumerate()
+            .map(|(i, nbrs)| {
+                if i < s {
+                    vec![]
+                } else {
+                    nbrs.iter().copied().filter(|&j| j >= s).collect()
+                }
+            })
+            .collect();
 
         // Find SCCs in the subgraph reachable from s
         let scc_of_s = johnson_scc_containing(s, &sub_adj, n);
@@ -10698,7 +11512,11 @@ pub fn simple_cycles(graph: &DiGraph) -> Vec<Vec<String>> {
         let restricted: Vec<Vec<usize>> = (0..n)
             .map(|i| {
                 if scc_set.contains(&i) {
-                    sub_adj[i].iter().copied().filter(|j| scc_set.contains(j)).collect()
+                    sub_adj[i]
+                        .iter()
+                        .copied()
+                        .filter(|j| scc_set.contains(j))
+                        .collect()
                 } else {
                     vec![]
                 }
@@ -10739,9 +11557,7 @@ pub fn simple_cycles(graph: &DiGraph) -> Vec<Vec<String>> {
                     cycle.push(s);
                     result.push(cycle);
                     found = true;
-                } else if !blocked[w]
-                    && circuit(w, s, adj, stack, blocked, block_map, result)
-                {
+                } else if !blocked[w] && circuit(w, s, adj, stack, blocked, block_map, result) {
                     found = true;
                 }
             }
@@ -10759,7 +11575,15 @@ pub fn simple_cycles(graph: &DiGraph) -> Vec<Vec<String>> {
         }
 
         let mut idx_cycles: Vec<Vec<usize>> = Vec::new();
-        circuit(s, s, &restricted, &mut stack, &mut blocked, &mut block_map, &mut idx_cycles);
+        circuit(
+            s,
+            s,
+            &restricted,
+            &mut stack,
+            &mut blocked,
+            &mut block_map,
+            &mut idx_cycles,
+        );
 
         for cyc in idx_cycles {
             // cyc includes the start node repeated at end; exclude it
@@ -10825,7 +11649,17 @@ fn johnson_scc_containing(start: usize, adj: &[Vec<usize>], n: usize) -> Vec<usi
                 continue;
             }
             if indices[w] == usize::MAX {
-                strongconnect(w, adj, reachable, index_counter, indices, lowlinks, on_stack, stack, sccs);
+                strongconnect(
+                    w,
+                    adj,
+                    reachable,
+                    index_counter,
+                    indices,
+                    lowlinks,
+                    on_stack,
+                    stack,
+                    sccs,
+                );
                 lowlinks[v] = lowlinks[v].min(lowlinks[w]);
             } else if on_stack[w] {
                 lowlinks[v] = lowlinks[v].min(indices[w]);
@@ -10847,7 +11681,17 @@ fn johnson_scc_containing(start: usize, adj: &[Vec<usize>], n: usize) -> Vec<usi
 
     for &v in &reachable {
         if indices[v] == usize::MAX {
-            strongconnect(v, adj, &reachable, &mut index_counter, &mut indices, &mut lowlinks, &mut on_stack, &mut tarjan_stack, &mut sccs);
+            strongconnect(
+                v,
+                adj,
+                &reachable,
+                &mut index_counter,
+                &mut indices,
+                &mut lowlinks,
+                &mut on_stack,
+                &mut tarjan_stack,
+                &mut sccs,
+            );
         }
     }
 
@@ -10870,7 +11714,8 @@ pub fn find_cycle_directed(graph: &DiGraph) -> Option<Vec<String>> {
         return None;
     }
 
-    let node_to_idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+    let node_to_idx: HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
     let mut adj: Vec<Vec<usize>> = vec![vec![]; n];
     for &node in &nodes {
         let i = node_to_idx[node];
@@ -10935,7 +11780,8 @@ pub fn find_cycle_undirected(graph: &Graph) -> Option<Vec<String>> {
         return None;
     }
 
-    let node_to_idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+    let node_to_idx: HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
     let mut adj: Vec<Vec<usize>> = vec![vec![]; n];
     for &node in &nodes {
         let i = node_to_idx[node];
@@ -11060,7 +11906,8 @@ pub fn find_negative_cycle(graph: &Graph, source: &str, weight_attr: &str) -> Op
         return None;
     }
 
-    let node_to_idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+    let node_to_idx: HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, &n)| (n, i)).collect();
     let mut dist = vec![f64::INFINITY; n];
     let mut pred = vec![usize::MAX; n];
     dist[node_to_idx[source]] = 0.0;
@@ -11442,7 +12289,10 @@ pub fn all_pairs_dijkstra_path(
 ) -> HashMap<String, HashMap<String, Vec<String>>> {
     let mut result = HashMap::new();
     for node in graph.nodes_ordered() {
-        result.insert(node.to_owned(), single_source_dijkstra_path(graph, node, weight_attr));
+        result.insert(
+            node.to_owned(),
+            single_source_dijkstra_path(graph, node, weight_attr),
+        );
     }
     result
 }
@@ -11456,7 +12306,10 @@ pub fn all_pairs_dijkstra_path_length(
 ) -> HashMap<String, HashMap<String, f64>> {
     let mut result = HashMap::new();
     for node in graph.nodes_ordered() {
-        result.insert(node.to_owned(), single_source_dijkstra_path_length(graph, node, weight_attr));
+        result.insert(
+            node.to_owned(),
+            single_source_dijkstra_path_length(graph, node, weight_attr),
+        );
     }
     result
 }
@@ -11498,10 +12351,7 @@ pub fn all_pairs_bellman_ford_path_length(
 /// Matches `networkx.floyd_warshall(G, weight=weight)`.
 #[allow(clippy::needless_range_loop)]
 #[must_use]
-pub fn floyd_warshall(
-    graph: &Graph,
-    weight_attr: &str,
-) -> HashMap<String, HashMap<String, f64>> {
+pub fn floyd_warshall(graph: &Graph, weight_attr: &str) -> HashMap<String, HashMap<String, f64>> {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     let mut idx: HashMap<&str, usize> = HashMap::new();
@@ -11594,7 +12444,9 @@ pub fn floyd_warshall_predecessor_and_distance(
                 if w < dist[ui][vi] {
                     dist[ui][vi] = w;
                     pred[ui][vi] = vec![ui];
-                } else if (w - dist[ui][vi]).abs() < DISTANCE_COMPARISON_EPSILON && !pred[ui][vi].contains(&ui) {
+                } else if (w - dist[ui][vi]).abs() < DISTANCE_COMPARISON_EPSILON
+                    && !pred[ui][vi].contains(&ui)
+                {
                     pred[ui][vi].push(ui);
                 }
             }
@@ -11633,7 +12485,8 @@ pub fn floyd_warshall_predecessor_and_distance(
         let mut p_inner = HashMap::new();
         for (j, &v) in nodes.iter().enumerate() {
             d_inner.insert(v.to_owned(), dist[i][j]);
-            let pred_nodes: Vec<String> = pred[i][j].iter().map(|&pi| nodes[pi].to_owned()).collect();
+            let pred_nodes: Vec<String> =
+                pred[i][j].iter().map(|&pi| nodes[pi].to_owned()).collect();
             p_inner.insert(v.to_owned(), pred_nodes);
         }
         dist_result.insert(u.to_owned(), d_inner);
@@ -11681,7 +12534,11 @@ pub fn bidirectional_shortest_path(
                         if backward_visited.contains(nbr) {
                             // Found meeting point
                             return Some(build_bidirectional_path(
-                                source, target, nbr, &forward_pred, &backward_pred,
+                                source,
+                                target,
+                                nbr,
+                                &forward_pred,
+                                &backward_pred,
                             ));
                         }
                         next.push(nbr);
@@ -11700,7 +12557,11 @@ pub fn bidirectional_shortest_path(
                         backward_pred.insert(nbr, node);
                         if forward_visited.contains(nbr) {
                             return Some(build_bidirectional_path(
-                                source, target, nbr, &forward_pred, &backward_pred,
+                                source,
+                                target,
+                                nbr,
+                                &forward_pred,
+                                &backward_pred,
                             ));
                         }
                         next.push(nbr);
@@ -11791,7 +12652,9 @@ pub fn predecessor(
     let mut level = 0usize;
 
     while !frontier.is_empty() {
-        if let Some(c) = cutoff && level >= c {
+        if let Some(c) = cutoff
+            && level >= c
+        {
             break;
         }
         let mut next_frontier: Vec<&str> = Vec::new();
@@ -11853,7 +12716,12 @@ pub fn path_weight_directed(digraph: &DiGraph, path: &[&str], weight_attr: &str)
 }
 
 /// Helper to get edge weight from DiGraph.
-fn digraph_edge_weight_or_default(digraph: &DiGraph, source: &str, target: &str, weight_attr: &str) -> f64 {
+fn digraph_edge_weight_or_default(
+    digraph: &DiGraph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+) -> f64 {
     digraph
         .edge_attrs(source, target)
         .and_then(|attrs| attrs.get(weight_attr))
@@ -11923,10 +12791,7 @@ pub fn in_degree_centrality(digraph: &DiGraph) -> Vec<CentralityScore> {
     nodes
         .iter()
         .map(|&node| {
-            let in_deg = digraph
-                .predecessors(node)
-                .map(|it| it.len())
-                .unwrap_or(0);
+            let in_deg = digraph.predecessors(node).map(|it| it.len()).unwrap_or(0);
             CentralityScore {
                 node: node.to_owned(),
                 score: in_deg as f64 / denom,
@@ -11949,10 +12814,7 @@ pub fn out_degree_centrality(digraph: &DiGraph) -> Vec<CentralityScore> {
     nodes
         .iter()
         .map(|&node| {
-            let out_deg = digraph
-                .successors(node)
-                .map(|it| it.len())
-                .unwrap_or(0);
+            let out_deg = digraph.successors(node).map(|it| it.len()).unwrap_or(0);
             CentralityScore {
                 node: node.to_owned(),
                 score: out_deg as f64 / denom,
@@ -12612,13 +13474,18 @@ pub fn is_regular(graph: &Graph) -> bool {
         return true;
     }
     let first_deg = node_degree(graph, nodes[0]);
-    nodes[1..].iter().all(|&node| node_degree(graph, node) == first_deg)
+    nodes[1..]
+        .iter()
+        .all(|&node| node_degree(graph, node) == first_deg)
 }
 
 /// Check if an undirected graph is k-regular (all nodes have degree k).
 #[must_use]
 pub fn is_k_regular(graph: &Graph, k: usize) -> bool {
-    graph.nodes_ordered().iter().all(|&node| node_degree(graph, node) == k)
+    graph
+        .nodes_ordered()
+        .iter()
+        .all(|&node| node_degree(graph, node) == k)
 }
 
 fn node_degree(graph: &Graph, node: &str) -> usize {
@@ -12641,8 +13508,12 @@ pub fn is_tournament(digraph: &DiGraph) -> bool {
     }
     for i in 0..n {
         for j in (i + 1)..n {
-            let has_ij = digraph.successors(nodes[i]).is_some_and(|s| s.contains(&nodes[j]));
-            let has_ji = digraph.successors(nodes[j]).is_some_and(|s| s.contains(&nodes[i]));
+            let has_ij = digraph
+                .successors(nodes[i])
+                .is_some_and(|s| s.contains(&nodes[j]));
+            let has_ji = digraph
+                .successors(nodes[j])
+                .is_some_and(|s| s.contains(&nodes[i]));
             if has_ij == has_ji {
                 return false;
             }
@@ -12660,7 +13531,11 @@ pub fn is_weighted(graph: &Graph, weight_attr: &str) -> bool {
         if let Some(neighbors) = graph.neighbors_iter(u) {
             for v in neighbors {
                 has_edges = true;
-                if graph.edge_attrs(u, v).and_then(|attrs| attrs.get(weight_attr)).is_none() {
+                if graph
+                    .edge_attrs(u, v)
+                    .and_then(|attrs| attrs.get(weight_attr))
+                    .is_none()
+                {
                     return false;
                 }
             }
@@ -12724,7 +13599,9 @@ pub fn non_edges(graph: &Graph) -> Vec<(String, String)> {
         for j in (i + 1)..nodes.len() {
             let u = nodes[i];
             let v = nodes[j];
-            let has_edge = graph.neighbors_iter(u).is_some_and(|mut nbrs| nbrs.any(|nb| nb == v));
+            let has_edge = graph
+                .neighbors_iter(u)
+                .is_some_and(|mut nbrs| nbrs.any(|nb| nb == v));
             if !has_edge {
                 result.push((u.to_string(), v.to_string()));
             }
@@ -12747,8 +13624,11 @@ pub fn is_distance_regular(graph: &Graph) -> bool {
         return true;
     }
 
-    let node_to_idx: HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(idx, &nd)| (nd, idx)).collect();
+    let node_to_idx: HashMap<&str, usize> = nodes
+        .iter()
+        .enumerate()
+        .map(|(idx, &nd)| (nd, idx))
+        .collect();
     let mut dist_matrix = vec![vec![usize::MAX; n]; n];
     for (src_idx, _src) in nodes.iter().enumerate() {
         dist_matrix[src_idx][src_idx] = 0;
@@ -12963,7 +13843,10 @@ pub fn find_cliques_recursive(graph: &Graph) -> Vec<Vec<String>> {
             return;
         }
         // Choose pivot with maximum connections to p
-        let pivot = p.union(x).max_by_key(|&&v| adj[v].intersection(p).count()).copied();
+        let pivot = p
+            .union(x)
+            .max_by_key(|&&v| adj[v].intersection(p).count())
+            .copied();
         let Some(pivot) = pivot else { return };
         let candidates: Vec<usize> = p.difference(&adj[pivot]).copied().collect();
         for v in candidates {
@@ -12995,63 +13878,96 @@ pub fn find_cliques_recursive(graph: &Graph) -> Vec<Vec<String>> {
 /// Uses perfect elimination ordering to find maximal cliques efficiently.
 #[must_use]
 pub fn chordal_graph_cliques(graph: &Graph) -> Vec<Vec<String>> {
-    let nodes = graph.nodes_ordered();
-    let n = nodes.len();
-    if n == 0 {
-        return vec![];
+    if !is_chordal_internal(graph) {
+        return Vec::new();
     }
 
-    // Use lexicographic BFS to get a perfect elimination ordering
-    let mut order = Vec::with_capacity(n);
-    let mut remaining: HashSet<&str> = nodes.iter().copied().collect();
-    let mut labels: HashMap<&str, Vec<usize>> = nodes.iter().map(|&nd| (nd, vec![])).collect();
+    let mut result = Vec::new();
 
-    for i in (0..n).rev() {
-        // Pick the node with the lexicographically largest label
-        let &chosen = remaining.iter().max_by(|&&a, &&b| labels[a].cmp(&labels[b])).unwrap();
-        order.push(chosen);
-        remaining.remove(chosen);
-        if let Some(neighbors) = graph.neighbors_iter(chosen) {
-            for nbr in neighbors {
-                if remaining.contains(nbr) {
-                    labels.get_mut(nbr).unwrap().push(i);
+    for component in connected_components(graph).components {
+        if component.is_empty() {
+            continue;
+        }
+        if component.len() == 1 {
+            result.push(component);
+            continue;
+        }
+
+        let rank: HashMap<&str, usize> = component
+            .iter()
+            .enumerate()
+            .map(|(index, node)| (node.as_str(), index))
+            .collect();
+        let start = component[0].as_str();
+        let mut unnumbered: HashSet<&str> = component.iter().map(String::as_str).collect();
+        let mut numbered = HashSet::from([start]);
+        unnumbered.remove(start);
+        let mut clique_wanna_be = HashSet::from([start]);
+
+        while !unnumbered.is_empty() {
+            let &chosen = unnumbered
+                .iter()
+                .max_by(|&&left, &&right| {
+                    let left_count = graph
+                        .neighbors_iter(left)
+                        .map(|neighbors| {
+                            neighbors
+                                .filter(|neighbor| numbered.contains(*neighbor))
+                                .count()
+                        })
+                        .unwrap_or(0);
+                    let right_count = graph
+                        .neighbors_iter(right)
+                        .map(|neighbors| {
+                            neighbors
+                                .filter(|neighbor| numbered.contains(*neighbor))
+                                .count()
+                        })
+                        .unwrap_or(0);
+                    left_count
+                        .cmp(&right_count)
+                        .then_with(|| rank[&right].cmp(&rank[&left]))
+                })
+                .expect("unnumbered is non-empty");
+
+            if node_set_is_complete(
+                graph,
+                &clique_wanna_be.iter().copied().collect::<Vec<&str>>(),
+            ) {
+                let mut new_clique_wanna_be: HashSet<&str> = graph
+                    .neighbors_iter(chosen)
+                    .map(|neighbors| {
+                        neighbors
+                            .filter(|neighbor| numbered.contains(*neighbor))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                new_clique_wanna_be.insert(chosen);
+                if !new_clique_wanna_be.is_superset(&clique_wanna_be) {
+                    let mut clique: Vec<String> = clique_wanna_be
+                        .iter()
+                        .map(|node| (*node).to_owned())
+                        .collect();
+                    clique.sort();
+                    result.push(clique);
                 }
+                clique_wanna_be = new_clique_wanna_be;
+            } else {
+                return Vec::new();
             }
+
+            unnumbered.remove(chosen);
+            numbered.insert(chosen);
         }
+
+        let mut clique: Vec<String> = clique_wanna_be
+            .iter()
+            .map(|node| (*node).to_owned())
+            .collect();
+        clique.sort();
+        result.push(clique);
     }
 
-    // Process nodes in reverse PEO to find maximal cliques
-    let pos: HashMap<&str, usize> = order.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
-    let mut cliques: Vec<HashSet<&str>> = Vec::new();
-
-    for &v in &order {
-        // Find neighbors that appear later in PEO
-        let mut later_neighbors: Vec<&str> = Vec::new();
-        if let Some(neighbors) = graph.neighbors_iter(v) {
-            for nbr in neighbors {
-                if pos[nbr] > pos[v] {
-                    later_neighbors.push(nbr);
-                }
-            }
-        }
-        let mut clique: HashSet<&str> = later_neighbors.iter().copied().collect();
-        clique.insert(v);
-
-        // Check if this clique is a subset of any existing clique
-        let is_subset = cliques.iter().any(|existing| clique.is_subset(existing));
-        if !is_subset {
-            cliques.push(clique);
-        }
-    }
-
-    let mut result: Vec<Vec<String>> = cliques
-        .into_iter()
-        .map(|c| {
-            let mut v: Vec<String> = c.into_iter().map(|s| s.to_string()).collect();
-            v.sort();
-            v
-        })
-        .collect();
     result.sort();
     result
 }
@@ -13139,7 +14055,11 @@ pub fn balanced_tree(r: usize, h: usize) -> Graph {
         return g;
     }
     // Total nodes: (r^(h+1) - 1) / (r - 1) for r > 1, or h+1 for r == 1
-    let n = if r == 1 { h + 1 } else { (r.pow((h + 1) as u32) - 1) / (r - 1) };
+    let n = if r == 1 {
+        h + 1
+    } else {
+        (r.pow((h + 1) as u32) - 1) / (r - 1)
+    };
     gen_nodes(&mut g, n);
     for i in 0..n {
         for j in 0..r {
@@ -13201,16 +14121,30 @@ pub fn chvatal_graph() -> Graph {
     let mut g = Graph::strict();
     gen_nodes(&mut g, 12);
     for &(u, v) in &[
-        (0,1),(0,4),(0,6),(0,9),
-        (1,2),(1,5),(1,7),
-        (2,3),(2,6),(2,8),
-        (3,4),(3,7),(3,9),
-        (4,5),(4,8),
-        (5,10),(5,11),
-        (6,10),(6,11),
-        (7,8),(7,11),
-        (8,10),
-        (9,10),(9,11),
+        (0, 1),
+        (0, 4),
+        (0, 6),
+        (0, 9),
+        (1, 2),
+        (1, 5),
+        (1, 7),
+        (2, 3),
+        (2, 6),
+        (2, 8),
+        (3, 4),
+        (3, 7),
+        (3, 9),
+        (4, 5),
+        (4, 8),
+        (5, 10),
+        (5, 11),
+        (6, 10),
+        (6, 11),
+        (7, 8),
+        (7, 11),
+        (8, 10),
+        (9, 10),
+        (9, 11),
     ] {
         gen_edge(&mut g, u, v);
     }
@@ -13223,13 +14157,18 @@ pub fn cubical_graph() -> Graph {
     let mut g = Graph::strict();
     gen_nodes(&mut g, 8);
     for &(u, v) in &[
-        (0,1),(0,3),(0,4),
-        (1,2),(1,5),
-        (2,3),(2,6),
-        (3,7),
-        (4,5),(4,7),
-        (5,6),
-        (6,7),
+        (0, 1),
+        (0, 3),
+        (0, 4),
+        (1, 2),
+        (1, 5),
+        (2, 3),
+        (2, 6),
+        (3, 7),
+        (4, 5),
+        (4, 7),
+        (5, 6),
+        (6, 7),
     ] {
         gen_edge(&mut g, u, v);
     }
@@ -13247,7 +14186,7 @@ pub fn desargues_graph() -> Graph {
 pub fn diamond_graph() -> Graph {
     let mut g = Graph::strict();
     gen_nodes(&mut g, 4);
-    for &(u, v) in &[(0,1),(0,2),(1,2),(1,3),(2,3)] {
+    for &(u, v) in &[(0, 1), (0, 2), (1, 2), (1, 3), (2, 3)] {
         gen_edge(&mut g, u, v);
     }
     g
@@ -13259,25 +14198,36 @@ pub fn dodecahedral_graph() -> Graph {
     let mut g = Graph::strict();
     gen_nodes(&mut g, 20);
     for &(u, v) in &[
-        (0,1),(0,10),(0,19),
-        (1,2),(1,8),
-        (2,3),(2,6),
-        (3,4),(3,19),
-        (4,5),(4,17),
-        (5,6),(5,15),
-        (6,7),
-        (7,8),(7,14),
-        (8,9),
-        (9,10),(9,13),
-        (10,11),
-        (11,12),(11,18),
-        (12,13),(12,16),
-        (13,14),
-        (14,15),
-        (15,16),
-        (16,17),
-        (17,18),
-        (18,19),
+        (0, 1),
+        (0, 10),
+        (0, 19),
+        (1, 2),
+        (1, 8),
+        (2, 3),
+        (2, 6),
+        (3, 4),
+        (3, 19),
+        (4, 5),
+        (4, 17),
+        (5, 6),
+        (5, 15),
+        (6, 7),
+        (7, 8),
+        (7, 14),
+        (8, 9),
+        (9, 10),
+        (9, 13),
+        (10, 11),
+        (11, 12),
+        (11, 18),
+        (12, 13),
+        (12, 16),
+        (13, 14),
+        (14, 15),
+        (15, 16),
+        (16, 17),
+        (17, 18),
+        (18, 19),
     ] {
         gen_edge(&mut g, u, v);
     }
@@ -13290,16 +14240,24 @@ pub fn frucht_graph() -> Graph {
     let mut g = Graph::strict();
     gen_nodes(&mut g, 12);
     for &(u, v) in &[
-        (0,1),(0,6),(0,7),
-        (1,2),(1,7),
-        (2,3),(2,8),
-        (3,4),(3,9),
-        (4,5),(4,9),
-        (5,6),(5,10),
-        (6,10),
-        (7,11),
-        (8,9),(8,11),
-        (10,11),
+        (0, 1),
+        (0, 6),
+        (0, 7),
+        (1, 2),
+        (1, 7),
+        (2, 3),
+        (2, 8),
+        (3, 4),
+        (3, 9),
+        (4, 5),
+        (4, 9),
+        (5, 6),
+        (5, 10),
+        (6, 10),
+        (7, 11),
+        (8, 9),
+        (8, 11),
+        (10, 11),
     ] {
         gen_edge(&mut g, u, v);
     }
@@ -13325,7 +14283,7 @@ pub fn heawood_graph() -> Graph {
 pub fn house_graph() -> Graph {
     let mut g = Graph::strict();
     gen_nodes(&mut g, 5);
-    for &(u, v) in &[(0,1),(0,2),(1,3),(2,3),(2,4),(3,4)] {
+    for &(u, v) in &[(0, 1), (0, 2), (1, 3), (2, 3), (2, 4), (3, 4)] {
         gen_edge(&mut g, u, v);
     }
     g
@@ -13336,7 +14294,16 @@ pub fn house_graph() -> Graph {
 pub fn house_x_graph() -> Graph {
     let mut g = Graph::strict();
     gen_nodes(&mut g, 5);
-    for &(u, v) in &[(0,1),(0,2),(0,3),(1,2),(1,3),(2,3),(2,4),(3,4)] {
+    for &(u, v) in &[
+        (0, 1),
+        (0, 2),
+        (0, 3),
+        (1, 2),
+        (1, 3),
+        (2, 3),
+        (2, 4),
+        (3, 4),
+    ] {
         gen_edge(&mut g, u, v);
     }
     g
@@ -13349,17 +14316,36 @@ pub fn icosahedral_graph() -> Graph {
     gen_nodes(&mut g, 12);
     // Each vertex has degree 5 in the icosahedron
     for &(u, v) in &[
-        (0,1),(0,2),(0,3),(0,4),(0,5),
-        (1,2),(1,5),(1,7),(1,8),
-        (2,3),(2,8),(2,9),
-        (3,4),(3,9),(3,10),
-        (4,5),(4,10),(4,11),
-        (5,6),(5,11),
-        (6,7),(6,8),(6,10),(6,11),
-        (7,8),(7,9),(7,10),
-        (8,9),
-        (9,10),
-        (10,11),
+        (0, 1),
+        (0, 2),
+        (0, 3),
+        (0, 4),
+        (0, 5),
+        (1, 2),
+        (1, 5),
+        (1, 7),
+        (1, 8),
+        (2, 3),
+        (2, 8),
+        (2, 9),
+        (3, 4),
+        (3, 9),
+        (3, 10),
+        (4, 5),
+        (4, 10),
+        (4, 11),
+        (5, 6),
+        (5, 11),
+        (6, 7),
+        (6, 8),
+        (6, 10),
+        (6, 11),
+        (7, 8),
+        (7, 9),
+        (7, 10),
+        (8, 9),
+        (9, 10),
+        (10, 11),
     ] {
         gen_edge(&mut g, u, v);
     }
@@ -13372,15 +14358,24 @@ pub fn krackhardt_kite_graph() -> Graph {
     let mut g = Graph::strict();
     gen_nodes(&mut g, 10);
     for &(u, v) in &[
-        (0,1),(0,2),(0,3),(0,5),
-        (1,3),(1,4),(1,6),
-        (2,3),(2,5),
-        (3,4),(3,5),(3,6),
-        (4,6),
-        (5,6),(5,7),
-        (6,7),
-        (7,8),
-        (8,9),
+        (0, 1),
+        (0, 2),
+        (0, 3),
+        (0, 5),
+        (1, 3),
+        (1, 4),
+        (1, 6),
+        (2, 3),
+        (2, 5),
+        (3, 4),
+        (3, 5),
+        (3, 6),
+        (4, 6),
+        (5, 6),
+        (5, 7),
+        (6, 7),
+        (7, 8),
+        (8, 9),
     ] {
         gen_edge(&mut g, u, v);
     }
@@ -13415,21 +14410,33 @@ pub fn pappus_graph() -> Graph {
     let mut g = Graph::strict();
     gen_nodes(&mut g, 18);
     for &(u, v) in &[
-        (0,1),(0,5),(0,6),
-        (1,2),(1,7),
-        (2,3),(2,8),
-        (3,4),(3,9),
-        (4,5),(4,10),
-        (5,11),
-        (6,13),(6,17),
-        (7,12),(7,14),
-        (8,13),(8,15),
-        (9,14),(9,16),
-        (10,15),(10,17),
-        (11,12),(11,16),
-        (12,15),
-        (13,16),
-        (14,17),
+        (0, 1),
+        (0, 5),
+        (0, 6),
+        (1, 2),
+        (1, 7),
+        (2, 3),
+        (2, 8),
+        (3, 4),
+        (3, 9),
+        (4, 5),
+        (4, 10),
+        (5, 11),
+        (6, 13),
+        (6, 17),
+        (7, 12),
+        (7, 14),
+        (8, 13),
+        (8, 15),
+        (9, 14),
+        (9, 16),
+        (10, 15),
+        (10, 17),
+        (11, 12),
+        (11, 16),
+        (12, 15),
+        (13, 16),
+        (14, 17),
     ] {
         gen_edge(&mut g, u, v);
     }
@@ -13447,7 +14454,18 @@ pub fn petersen_graph() -> Graph {
 pub fn sedgewick_maze_graph() -> Graph {
     let mut g = Graph::strict();
     gen_nodes(&mut g, 8);
-    for &(u, v) in &[(0,2),(0,5),(0,7),(1,7),(2,6),(3,4),(3,5),(4,5),(4,6),(4,7)] {
+    for &(u, v) in &[
+        (0, 2),
+        (0, 5),
+        (0, 7),
+        (1, 7),
+        (2, 6),
+        (3, 4),
+        (3, 5),
+        (4, 5),
+        (4, 6),
+        (4, 7),
+    ] {
         gen_edge(&mut g, u, v);
     }
     g
@@ -13472,29 +14490,42 @@ pub fn truncated_cube_graph() -> Graph {
     let mut g = Graph::strict();
     gen_nodes(&mut g, 24);
     for &(u, v) in &[
-        (0,1),(0,2),(0,4),
-        (1,14),(1,11),
-        (2,3),(2,4),
-        (3,6),(3,8),
-        (4,5),
-        (5,16),(5,18),
-        (6,7),(6,8),
-        (7,10),(7,12),
-        (8,9),
-        (9,17),(9,20),
-        (10,11),(10,12),
-        (11,14),
-        (12,13),
-        (13,21),(13,22),
-        (14,15),
-        (15,19),(15,23),
-        (16,17),(16,18),
-        (17,20),
-        (18,19),
-        (19,23),
-        (20,21),
-        (21,22),
-        (22,23),
+        (0, 1),
+        (0, 2),
+        (0, 4),
+        (1, 14),
+        (1, 11),
+        (2, 3),
+        (2, 4),
+        (3, 6),
+        (3, 8),
+        (4, 5),
+        (5, 16),
+        (5, 18),
+        (6, 7),
+        (6, 8),
+        (7, 10),
+        (7, 12),
+        (8, 9),
+        (9, 17),
+        (9, 20),
+        (10, 11),
+        (10, 12),
+        (11, 14),
+        (12, 13),
+        (13, 21),
+        (13, 22),
+        (14, 15),
+        (15, 19),
+        (15, 23),
+        (16, 17),
+        (16, 18),
+        (17, 20),
+        (18, 19),
+        (19, 23),
+        (20, 21),
+        (21, 22),
+        (22, 23),
     ] {
         gen_edge(&mut g, u, v);
     }
@@ -13507,17 +14538,24 @@ pub fn truncated_tetrahedron_graph() -> Graph {
     let mut g = Graph::strict();
     gen_nodes(&mut g, 12);
     for &(u, v) in &[
-        (0,1),(0,2),(0,9),
-        (1,2),(1,6),
-        (2,3),
-        (3,4),(3,11),
-        (4,5),(4,11),
-        (5,6),(5,7),
-        (6,7),
-        (7,8),
-        (8,9),(8,10),
-        (9,10),
-        (10,11),
+        (0, 1),
+        (0, 2),
+        (0, 9),
+        (1, 2),
+        (1, 6),
+        (2, 3),
+        (3, 4),
+        (3, 11),
+        (4, 5),
+        (4, 11),
+        (5, 6),
+        (5, 7),
+        (6, 7),
+        (7, 8),
+        (8, 9),
+        (8, 10),
+        (9, 10),
+        (10, 11),
     ] {
         gen_edge(&mut g, u, v);
     }
@@ -13530,46 +14568,75 @@ pub fn tutte_graph() -> Graph {
     let mut g = Graph::strict();
     gen_nodes(&mut g, 46);
     let edges: &[(usize, usize)] = &[
-        (0,1),(0,2),(0,3),
-        (1,4),(1,26),
-        (2,10),(2,11),
-        (3,18),(3,19),
-        (4,5),(4,33),
-        (5,6),(5,29),
-        (6,7),(6,27),
-        (7,8),(7,14),
-        (8,9),(8,38),
-        (9,10),(9,37),
-        (10,39),
-        (11,12),(11,39),
-        (12,13),(12,35),
-        (13,14),(13,15),
-        (14,34),
-        (15,16),(15,22),
-        (16,17),(16,44),
-        (17,18),(17,43),
-        (18,45),
-        (19,20),(19,45),
-        (20,21),(20,41),
-        (21,22),(21,23),
-        (22,40),
-        (23,24),(23,28),
-        (24,25),(24,32),
-        (25,26),(25,31),
-        (26,33),
-        (27,28),(27,32),
-        (28,29),
-        (29,30),
-        (30,31),(30,33),
-        (31,32),
-        (34,35),(34,38),
-        (35,36),
-        (36,37),(36,39),
-        (37,38),
-        (40,41),(40,44),
-        (41,42),
-        (42,43),(42,45),
-        (43,44),
+        (0, 1),
+        (0, 2),
+        (0, 3),
+        (1, 4),
+        (1, 26),
+        (2, 10),
+        (2, 11),
+        (3, 18),
+        (3, 19),
+        (4, 5),
+        (4, 33),
+        (5, 6),
+        (5, 29),
+        (6, 7),
+        (6, 27),
+        (7, 8),
+        (7, 14),
+        (8, 9),
+        (8, 38),
+        (9, 10),
+        (9, 37),
+        (10, 39),
+        (11, 12),
+        (11, 39),
+        (12, 13),
+        (12, 35),
+        (13, 14),
+        (13, 15),
+        (14, 34),
+        (15, 16),
+        (15, 22),
+        (16, 17),
+        (16, 44),
+        (17, 18),
+        (17, 43),
+        (18, 45),
+        (19, 20),
+        (19, 45),
+        (20, 21),
+        (20, 41),
+        (21, 22),
+        (21, 23),
+        (22, 40),
+        (23, 24),
+        (23, 28),
+        (24, 25),
+        (24, 32),
+        (25, 26),
+        (25, 31),
+        (26, 33),
+        (27, 28),
+        (27, 32),
+        (28, 29),
+        (29, 30),
+        (30, 31),
+        (30, 33),
+        (31, 32),
+        (34, 35),
+        (34, 38),
+        (35, 36),
+        (36, 37),
+        (36, 39),
+        (37, 38),
+        (40, 41),
+        (40, 44),
+        (41, 42),
+        (42, 43),
+        (42, 45),
+        (43, 44),
     ];
     for &(u, v) in edges {
         gen_edge(&mut g, u, v);
@@ -13802,7 +14869,9 @@ pub fn complete_multipartite_graph(block_sizes: &[usize]) -> Graph {
     }
     for (bi, &bsz) in block_sizes.iter().enumerate() {
         for (bj, &csz) in block_sizes.iter().enumerate() {
-            if bj <= bi { continue; }
+            if bj <= bi {
+                continue;
+            }
             for i in starts[bi]..(starts[bi] + bsz) {
                 for j in starts[bj]..(starts[bj] + csz) {
                     gen_edge(&mut g, i, j);
@@ -13874,7 +14943,9 @@ pub fn binomial_tree(n: usize) -> Graph {
 pub fn full_rary_tree(r: usize, n: usize) -> Graph {
     // Returns a full r-ary tree with at most n nodes
     let mut g = Graph::strict();
-    if n == 0 { return g; }
+    if n == 0 {
+        return g;
+    }
     gen_nodes(&mut g, n);
     for i in 0..n {
         for j in 0..r {
@@ -13908,12 +14979,20 @@ pub fn circulant_graph(n: usize, offsets: &[usize]) -> Graph {
 #[must_use]
 pub fn kneser_graph(n: usize, k: usize) -> Graph {
     let mut g = Graph::strict();
-    if k > n { return g; }
+    if k > n {
+        return g;
+    }
     let subsets = combinations(n, k);
     // Name each subset as comma-separated indices
-    let names: Vec<String> = subsets.iter().map(|s| {
-        s.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",")
-    }).collect();
+    let names: Vec<String> = subsets
+        .iter()
+        .map(|s| {
+            s.iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        })
+        .collect();
     for name in &names {
         g.add_node(name.as_str());
     }
@@ -13931,7 +15010,13 @@ pub fn kneser_graph(n: usize, k: usize) -> Graph {
 fn combinations(n: usize, k: usize) -> Vec<Vec<usize>> {
     let mut result = Vec::new();
     let mut combo = Vec::with_capacity(k);
-    fn backtrack(start: usize, n: usize, k: usize, combo: &mut Vec<usize>, result: &mut Vec<Vec<usize>>) {
+    fn backtrack(
+        start: usize,
+        n: usize,
+        k: usize,
+        combo: &mut Vec<usize>,
+        result: &mut Vec<Vec<usize>>,
+    ) {
         if combo.len() == k {
             result.push(combo.clone());
             return;
@@ -14003,8 +15088,12 @@ pub fn volume(graph: &Graph, nodes: &[&str]) -> usize {
 /// Return True if the graph is k-edge-connected.
 #[must_use]
 pub fn is_k_edge_connected(graph: &Graph, k: usize) -> bool {
-    if k == 0 { return true; }
-    if !is_connected(graph).is_connected { return false; }
+    if k == 0 {
+        return true;
+    }
+    if !is_connected(graph).is_connected {
+        return false;
+    }
     // Edge connectivity must be >= k
     let ec = global_edge_connectivity_edmonds_karp(graph, "weight");
     ec.value as usize >= k
@@ -14016,7 +15105,9 @@ pub fn is_k_edge_connected(graph: &Graph, k: usize) -> bool {
 pub fn average_node_connectivity(graph: &Graph) -> f64 {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
-    if n < 2 { return 0.0; }
+    if n < 2 {
+        return 0.0;
+    }
     let mut total = 0.0;
     let mut count = 0usize;
     for i in 0..n {
@@ -14029,7 +15120,11 @@ pub fn average_node_connectivity(graph: &Graph) -> f64 {
             count += 1;
         }
     }
-    if count == 0 { 0.0 } else { total / count as f64 }
+    if count == 0 {
+        0.0
+    } else {
+        total / count as f64
+    }
 }
 
 /// Compute local node connectivity between s and t using iterative max-flow.
@@ -14037,7 +15132,9 @@ fn local_node_connectivity_bfs(graph: &Graph, s: &str, t: &str) -> usize {
     // Iteratively find node-disjoint paths from s to t using BFS
     let nodes = graph.nodes_ordered();
     let node_set: HashSet<&str> = nodes.iter().copied().collect();
-    if !node_set.contains(s) || !node_set.contains(t) { return 0; }
+    if !node_set.contains(s) || !node_set.contains(t) {
+        return 0;
+    }
 
     let mut flow = 0;
     let mut excluded: HashSet<&str> = HashSet::new();
@@ -14067,7 +15164,9 @@ fn local_node_connectivity_bfs(graph: &Graph, s: &str, t: &str) -> usize {
             }
         }
 
-        if !found { break; }
+        if !found {
+            break;
+        }
 
         // Trace path and exclude internal nodes
         let mut node = t;
@@ -14086,7 +15185,9 @@ fn local_node_connectivity_bfs(graph: &Graph, s: &str, t: &str) -> usize {
 /// boundary_expansion(G, S) = |edge_boundary(S)| / |S|
 #[must_use]
 pub fn boundary_expansion(graph: &Graph, nodes: &[&str]) -> f64 {
-    if nodes.is_empty() { return 0.0; }
+    if nodes.is_empty() {
+        return 0.0;
+    }
     let node_set: HashSet<&str> = nodes.iter().copied().collect();
     let mut boundary_edges = 0;
     for &nd in &node_set {
@@ -14107,7 +15208,11 @@ pub fn boundary_expansion(graph: &Graph, nodes: &[&str]) -> f64 {
 pub fn conductance(graph: &Graph, nodes: &[&str]) -> f64 {
     let node_set: HashSet<&str> = nodes.iter().copied().collect();
     let all_nodes = graph.nodes_ordered();
-    let complement: Vec<&str> = all_nodes.iter().filter(|&&n| !node_set.contains(n)).copied().collect();
+    let complement: Vec<&str> = all_nodes
+        .iter()
+        .filter(|&&n| !node_set.contains(n))
+        .copied()
+        .collect();
 
     let mut boundary_edges = 0;
     for &nd in &node_set {
@@ -14123,7 +15228,9 @@ pub fn conductance(graph: &Graph, nodes: &[&str]) -> f64 {
     let vol_s = volume(graph, nodes);
     let vol_comp = volume(graph, &complement);
     let min_vol = vol_s.min(vol_comp);
-    if min_vol == 0 { return 0.0; }
+    if min_vol == 0 {
+        return 0.0;
+    }
     boundary_edges as f64 / min_vol as f64
 }
 
@@ -14136,7 +15243,9 @@ pub fn edge_expansion(graph: &Graph, nodes: &[&str]) -> f64 {
     let s = node_set.len();
     let complement_size = n - s;
     let min_size = s.min(complement_size);
-    if min_size == 0 { return 0.0; }
+    if min_size == 0 {
+        return 0.0;
+    }
 
     let mut boundary_edges = 0;
     for &nd in &node_set {
@@ -14156,7 +15265,9 @@ pub fn edge_expansion(graph: &Graph, nodes: &[&str]) -> f64 {
 /// node_expansion(G, S) = |node_boundary(S)| / |S|
 #[must_use]
 pub fn node_expansion(graph: &Graph, nodes: &[&str]) -> f64 {
-    if nodes.is_empty() { return 0.0; }
+    if nodes.is_empty() {
+        return 0.0;
+    }
     let node_set: HashSet<&str> = nodes.iter().copied().collect();
     let mut node_boundary: HashSet<&str> = HashSet::new();
     for &nd in &node_set {
@@ -14180,7 +15291,9 @@ pub fn mixing_expansion(graph: &Graph, nodes: &[&str]) -> f64 {
     let s = node_set.len();
     let complement_size = n - s;
     let denom = s * complement_size;
-    if denom == 0 { return 0.0; }
+    if denom == 0 {
+        return 0.0;
+    }
 
     let mut boundary_edges = 0;
     for &nd in &node_set {
@@ -14339,7 +15452,9 @@ pub fn is_edge_cover(graph: &Graph, edges: &[(&str, &str)]) -> bool {
     let mut covered: HashSet<&str> = HashSet::new();
     for &(u, v) in edges {
         // Verify edge exists in graph
-        let exists = graph.neighbors_iter(u).is_some_and(|mut nbrs| nbrs.any(|n| n == v));
+        let exists = graph
+            .neighbors_iter(u)
+            .is_some_and(|mut nbrs| nbrs.any(|n| n == v));
         if !exists {
             return false;
         }
@@ -14537,7 +15652,14 @@ pub fn antichains(digraph: &DiGraph) -> Vec<Vec<String>> {
 
     // Enumerate all antichains: subsets where no two nodes are comparable
     let mut result = vec![vec![]]; // Empty set
-    enumerate_antichains(&nodes, &reachable, &node_to_idx, &mut vec![], 0, &mut result);
+    enumerate_antichains(
+        &nodes,
+        &reachable,
+        &node_to_idx,
+        &mut vec![],
+        0,
+        &mut result,
+    );
     result
 }
 
@@ -14552,7 +15674,9 @@ fn enumerate_antichains(
     for i in start..nodes.len() {
         let idx = node_to_idx[nodes[i]];
         // Check if idx is comparable with any node in current
-        let compatible = current.iter().all(|&c| !reachable[c][idx] && !reachable[idx][c]);
+        let compatible = current
+            .iter()
+            .all(|&c| !reachable[c][idx] && !reachable[idx][c]);
         if compatible {
             current.push(idx);
             result.push(current.iter().map(|&j| nodes[j].to_string()).collect());
@@ -14731,123 +15855,307 @@ pub fn is_aperiodic_digraph(digraph: &DiGraph) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        CGSE_WITNESS_LEDGER_PATH, CGSE_WITNESS_POLICY_SPEC_PATH, CentralityScore,
-        ComplexityWitness, adamic_adar_index, all_shortest_paths, all_shortest_paths_directed,
-        all_shortest_paths_weighted, all_simple_paths,
-        all_pairs_shortest_path, all_pairs_shortest_path_length,
-        ancestors, articulation_points, bellman_ford_shortest_paths, betweenness_centrality,
-        bfs_edges, bfs_edges_directed, bfs_layers, bfs_layers_directed, bfs_predecessors,
-        bfs_successors, bridges, cgse_witness_schema_version, closeness_centrality,
-        clustering_coefficient, common_neighbors, complement, complement_directed,
-        condensation,
-        connected_components, cycle_basis, dag_longest_path, dag_longest_path_length,
-        average_degree_connectivity,
-        degree_centrality, descendants, descendants_at_distance, dominating_set,
-        dfs_edges, dfs_edges_directed,
-        dfs_postorder_nodes, dfs_postorder_nodes_directed, dfs_predecessors, dfs_preorder_nodes,
-        dfs_successors, edge_betweenness_centrality, edge_connectivity_edmonds_karp,
-        eigenvector_centrality, eulerian_circuit, eulerian_path,
-        global_edge_connectivity_edmonds_karp, global_efficiency,
-        global_minimum_edge_cut_edmonds_karp, harmonic_centrality, has_eulerian_path,
-        hits_centrality, is_directed_acyclic_graph, is_eulerian, is_matching,
-        is_maximal_matching, is_perfect_matching, is_semieulerian, jaccard_coefficient,
-        katz_centrality, lexicographic_topological_sort,
-        local_efficiency, max_flow_edmonds_karp, max_weight_matching, maximal_matching,
-        min_edge_cover, min_weight_matching, minimum_cut_edmonds_karp,
-        minimum_st_edge_cut_edmonds_karp, multi_source_dijkstra, number_connected_components,
-        number_strongly_connected_components, number_weakly_connected_components,
-        overall_reciprocity, pagerank, preferential_attachment, reciprocity,
-        resource_allocation_index, rich_club_coefficient, s_metric,
-        shortest_path_unweighted, shortest_path_weighted,
-        single_source_shortest_path, single_source_shortest_path_length,
-        strongly_connected_components,
-        topological_generations,
-        topological_sort, transitive_closure, transitive_reduction,
-        weakly_connected_components,
-        degree_histogram,
-        graph_compose, graph_difference, graph_intersection,
-        graph_symmetric_difference, graph_union,
-        greedy_modularity_communities,
-        is_dominating_set, is_empty, is_strongly_connected, is_weakly_connected,
-        label_propagation_communities, louvain_communities,
-        maximum_spanning_tree, modularity,
-        non_neighbors, number_of_cliques,
-        wiener_index,
-        // Approximation algorithms
-        min_weighted_vertex_cover, maximum_independent_set, max_clique_approx, clique_removal,
-        // A* and Yen's K-shortest
-        astar_path, astar_path_length, shortest_simple_paths,
-        // Isomorphism
-        is_isomorphic, could_be_isomorphic, fast_could_be_isomorphic, faster_could_be_isomorphic,
-        // Planarity
-        is_planar,
-        // Barycenter
-        barycenter,
-        // Isolates
-        isolates, is_isolate, number_of_isolates,
-        isolates_directed, is_isolate_directed, number_of_isolates_directed,
-        // Boundary
-        cut_size, cut_size_directed, edge_boundary, node_boundary,
-        edge_boundary_directed, node_boundary_directed, normalized_cut_size,
-        normalized_cut_size_directed,
-        // is_simple_path
-        is_simple_path, is_simple_path_directed,
-        // Tree recognition
-        is_arborescence, is_branching,
-        // Cycle detection
-        simple_cycles, find_cycle_directed, find_cycle_undirected,
-        // Cycle algorithms
-        girth, find_negative_cycle,
-        // Additional centrality
-        in_degree_centrality, out_degree_centrality,
-        local_reaching_centrality, local_reaching_centrality_directed,
-        global_reaching_centrality, global_reaching_centrality_directed,
-        group_degree_centrality, group_in_degree_centrality, group_out_degree_centrality,
-        // Component algorithms
-        node_connected_component, is_biconnected, biconnected_components, biconnected_component_edges,
-        is_semiconnected, kosaraju_strongly_connected_components,
-        attracting_components, number_attracting_components, is_attracting_component,
-        // Graph predicates
-        is_graphical, is_digraphical, is_multigraphical, is_pseudographical,
-        is_regular, is_k_regular, is_tournament,
-        is_weighted, is_negatively_weighted, is_path_graph,
-        non_edges, is_distance_regular,
+        CGSE_WITNESS_LEDGER_PATH,
+        CGSE_WITNESS_POLICY_SPEC_PATH,
+        CentralityScore,
+        ChordalGraphTreewidthError,
+        ComplexityWitness,
+        MaximalIndependentSetError,
+        SpannerError,
+        adamic_adar_index,
+        all_pairs_bellman_ford_path,
+        all_pairs_bellman_ford_path_length,
+        all_pairs_dijkstra_path,
+        all_pairs_dijkstra_path_length,
+        all_pairs_shortest_path,
+        all_pairs_shortest_path_length,
+        all_shortest_paths,
+        all_shortest_paths_directed,
+        all_shortest_paths_weighted,
+        all_simple_paths,
         // DAG algorithms — additional
         // Matching — additional
         // Clustering & cliques — additional
-        all_triangles, node_clique_number, enumerate_all_cliques,
-        find_cliques, find_cliques_recursive, chordal_graph_cliques, make_max_clique_graph, ring_of_cliques,
+        all_triangles,
+        ancestors,
+        antichains,
+        articulation_points,
+        // A* and Yen's K-shortest
+        astar_path,
+        astar_path_length,
+        attracting_components,
+        average_degree_connectivity,
+        average_node_connectivity,
         // Classic graph generators
-        balanced_tree, barbell_graph, bull_graph, chvatal_graph, cubical_graph,
-        desargues_graph, diamond_graph, dodecahedral_graph, frucht_graph, heawood_graph,
-        house_graph, house_x_graph, icosahedral_graph, krackhardt_kite_graph,
-        moebius_kantor_graph, octahedral_graph, pappus_graph, petersen_graph,
-        sedgewick_maze_graph, tetrahedral_graph, truncated_cube_graph,
-        truncated_tetrahedron_graph, tutte_graph, hoffman_singleton_graph,
-        generalized_petersen_graph, wheel_graph, ladder_graph, circular_ladder_graph,
-        lollipop_graph, tadpole_graph, turan_graph, windmill_graph, hypercube_graph,
-        complete_bipartite_graph, complete_multipartite_graph, grid_2d_graph,
-        null_graph, trivial_graph, binomial_tree, full_rary_tree,
-        circulant_graph, kneser_graph, paley_graph, chordal_cycle_graph,
-        // Connectivity and cuts — additional
-        volume, is_k_edge_connected, average_node_connectivity,
-        boundary_expansion, conductance, edge_expansion, node_expansion, mixing_expansion,
-        // Traversal — additional
-        edge_bfs, edge_bfs_directed, edge_dfs, edge_dfs_directed,
-        // Matching — additional
-        is_edge_cover, max_weight_clique,
-        // DAG — additional
-        is_aperiodic, antichains, immediate_dominators, dominance_frontiers,
+        balanced_tree,
+        barbell_graph,
+        // Barycenter
+        barycenter,
+        bellman_ford_path_length,
+        bellman_ford_shortest_paths,
+        betweenness_centrality,
+        bfs_edges,
+        bfs_edges_directed,
+        bfs_layers,
+        bfs_layers_directed,
+        bfs_predecessors,
+        bfs_successors,
+        biconnected_component_edges,
+        biconnected_components,
+        bidirectional_shortest_path,
+        binomial_tree,
+        boundary_expansion,
+        bridges,
+        bull_graph,
+        cgse_witness_schema_version,
+        chordal_cycle_graph,
+        chordal_graph_cliques,
+        chordal_graph_treewidth,
+        chvatal_graph,
+        circulant_graph,
+        circular_ladder_graph,
+        clique_removal,
+        closeness_centrality,
+        clustering_coefficient,
+        common_neighbors,
+        complement,
+        complement_directed,
+        complete_bipartite_graph,
+        complete_multipartite_graph,
+        condensation,
+        conductance,
+        connected_components,
+        could_be_isomorphic,
+        cubical_graph,
+        // Boundary
+        cut_size,
+        cut_size_directed,
+        cycle_basis,
+        dag_longest_path,
+        dag_longest_path_length,
+        degree_centrality,
+        degree_histogram,
+        desargues_graph,
+        descendants,
+        descendants_at_distance,
+        dfs_edges,
+        dfs_edges_directed,
+        dfs_postorder_nodes,
+        dfs_postorder_nodes_directed,
+        dfs_predecessors,
+        dfs_preorder_nodes,
+        dfs_successors,
+        diamond_graph,
         // Additional shortest path algorithms
-        dijkstra_path_length, bellman_ford_path_length,
-        single_source_dijkstra_full, single_source_dijkstra_path, single_source_dijkstra_path_length,
-        single_source_bellman_ford, single_source_bellman_ford_path, single_source_bellman_ford_path_length,
-        single_target_shortest_path, single_target_shortest_path_length,
-        all_pairs_dijkstra_path, all_pairs_dijkstra_path_length,
-        all_pairs_bellman_ford_path, all_pairs_bellman_ford_path_length,
-        floyd_warshall, floyd_warshall_predecessor_and_distance,
-        bidirectional_shortest_path, negative_edge_cycle,
-        predecessor, path_weight, reconstruct_path,
+        dijkstra_path_length,
+        dodecahedral_graph,
+        dominance_frontiers,
+        dominating_set,
+        edge_betweenness_centrality,
+        // Traversal — additional
+        edge_bfs,
+        edge_bfs_directed,
+        edge_boundary,
+        edge_boundary_directed,
+        edge_connectivity_edmonds_karp,
+        edge_dfs,
+        edge_dfs_directed,
+        edge_expansion,
+        efficiency,
+        eigenvector_centrality,
+        enumerate_all_cliques,
+        eulerian_circuit,
+        eulerian_path,
+        fast_could_be_isomorphic,
+        faster_could_be_isomorphic,
+        find_cliques,
+        find_cliques_recursive,
+        find_cycle_directed,
+        find_cycle_undirected,
+        find_negative_cycle,
+        floyd_warshall,
+        floyd_warshall_predecessor_and_distance,
+        frucht_graph,
+        full_rary_tree,
+        generalized_petersen_graph,
+        // Cycle algorithms
+        girth,
+        global_edge_connectivity_edmonds_karp,
+        global_efficiency,
+        global_minimum_edge_cut_edmonds_karp,
+        global_reaching_centrality,
+        global_reaching_centrality_directed,
+        graph_compose,
+        graph_difference,
+        graph_intersection,
+        graph_symmetric_difference,
+        graph_union,
+        greedy_modularity_communities,
+        grid_2d_graph,
+        group_degree_centrality,
+        group_in_degree_centrality,
+        group_out_degree_centrality,
+        harmonic_centrality,
+        has_eulerian_path,
+        heawood_graph,
+        hits_centrality,
+        hoffman_singleton_graph,
+        house_graph,
+        house_x_graph,
+        hypercube_graph,
+        icosahedral_graph,
+        immediate_dominators,
+        // Additional centrality
+        in_degree_centrality,
+        // DAG — additional
+        is_aperiodic,
+        // Tree recognition
+        is_arborescence,
+        is_attracting_component,
+        is_biconnected,
+        is_branching,
+        is_digraphical,
+        is_directed_acyclic_graph,
+        is_distance_regular,
+        is_dominating_set,
+        // Matching — additional
+        is_edge_cover,
+        is_empty,
+        is_eulerian,
+        // Graph predicates
+        is_graphical,
+        is_isolate,
+        is_isolate_directed,
+        // Isomorphism
+        is_isomorphic,
+        is_k_edge_connected,
+        is_k_regular,
+        is_matching,
+        is_maximal_matching,
+        is_multigraphical,
+        is_negatively_weighted,
+        is_path_graph,
+        is_perfect_matching,
+        // Planarity
+        is_planar,
+        is_pseudographical,
+        is_regular,
+        is_semiconnected,
+        is_semieulerian,
+        // is_simple_path
+        is_simple_path,
+        is_simple_path_directed,
+        is_strongly_connected,
+        is_tournament,
+        is_weakly_connected,
+        is_weighted,
+        // Isolates
+        isolates,
+        isolates_directed,
+        jaccard_coefficient,
+        katz_centrality,
+        kneser_graph,
+        kosaraju_strongly_connected_components,
+        krackhardt_kite_graph,
+        label_propagation_communities,
+        ladder_graph,
+        lexicographic_topological_sort,
+        local_efficiency,
+        local_reaching_centrality,
+        local_reaching_centrality_directed,
+        lollipop_graph,
+        louvain_communities,
+        make_max_clique_graph,
+        max_clique_approx,
+        max_flow_edmonds_karp,
+        max_weight_clique,
+        max_weight_matching,
+        maximal_independent_set,
+        maximal_matching,
+        maximum_independent_set,
+        maximum_spanning_tree,
+        min_edge_cover,
+        min_weight_matching,
+        // Approximation algorithms
+        min_weighted_vertex_cover,
+        minimum_cut_edmonds_karp,
+        minimum_st_edge_cut_edmonds_karp,
+        mixing_expansion,
+        modularity,
+        moebius_kantor_graph,
+        multi_source_dijkstra,
+        negative_edge_cycle,
+        node_boundary,
+        node_boundary_directed,
+        node_clique_number,
+        // Component algorithms
+        node_connected_component,
+        node_expansion,
+        non_edges,
+        non_neighbors,
+        normalized_cut_size,
+        normalized_cut_size_directed,
+        null_graph,
+        number_attracting_components,
+        number_connected_components,
+        number_of_cliques,
+        number_of_isolates,
+        number_of_isolates_directed,
+        number_strongly_connected_components,
+        number_weakly_connected_components,
+        octahedral_graph,
+        out_degree_centrality,
+        overall_reciprocity,
+        pagerank,
+        paley_graph,
+        pappus_graph,
+        path_weight,
+        petersen_graph,
+        predecessor,
+        preferential_attachment,
+        reciprocity,
+        reconstruct_path,
+        resource_allocation_index,
+        rich_club_coefficient,
+        ring_of_cliques,
+        s_metric,
+        sedgewick_maze_graph,
+        shortest_path_unweighted,
+        shortest_path_weighted,
+        shortest_simple_paths,
+        // Cycle detection
+        simple_cycles,
+        single_source_bellman_ford,
+        single_source_bellman_ford_path,
+        single_source_bellman_ford_path_length,
+        single_source_dijkstra_full,
+        single_source_dijkstra_path,
+        single_source_dijkstra_path_length,
+        single_source_shortest_path,
+        single_source_shortest_path_length,
+        single_target_shortest_path,
+        single_target_shortest_path_length,
+        spanner,
+        strongly_connected_components,
+        tadpole_graph,
+        tetrahedral_graph,
+        topological_generations,
+        topological_sort,
+        transitive_closure,
+        transitive_reduction,
+        tree_broadcast_center,
+        tree_broadcast_time,
+        trivial_graph,
+        truncated_cube_graph,
+        truncated_tetrahedron_graph,
+        turan_graph,
+        tutte_graph,
+        // Connectivity and cuts — additional
+        volume,
+        weakly_connected_components,
+        wheel_graph,
+        wiener_index,
+        windmill_graph,
     };
     use fnx_classes::Graph;
     use fnx_classes::digraph::DiGraph;
@@ -18579,6 +19887,35 @@ mod tests {
         );
     }
 
+    #[test]
+    fn efficiency_matches_pairwise_networkx_examples() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add");
+        graph.add_edge("b", "c").expect("edge add");
+        graph.add_edge("c", "d").expect("edge add");
+        graph.add_edge("d", "a").expect("edge add");
+
+        assert_eq!(efficiency(&graph, "a", "b"), Some(1.0));
+        assert_eq!(efficiency(&graph, "a", "c"), Some(0.5));
+    }
+
+    #[test]
+    fn efficiency_disconnected_pair_returns_zero() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add");
+        graph.add_edge("c", "d").expect("edge add");
+
+        assert_eq!(efficiency(&graph, "a", "d"), Some(0.0));
+    }
+
+    #[test]
+    fn efficiency_same_node_reports_division_surface() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add");
+
+        assert_eq!(efficiency(&graph, "a", "a"), None);
+    }
+
     // -----------------------------------------------------------------------
     // local_efficiency tests
     // -----------------------------------------------------------------------
@@ -19378,7 +20715,10 @@ mod tests {
         let _ = g.add_edge("0", "1");
         let _ = g.add_edge("1", "2");
         let paths = all_shortest_paths(&g, "0", "2");
-        assert_eq!(paths, vec![vec!["0".to_owned(), "1".to_owned(), "2".to_owned()]]);
+        assert_eq!(
+            paths,
+            vec![vec!["0".to_owned(), "1".to_owned(), "2".to_owned()]]
+        );
     }
 
     #[test]
@@ -19457,7 +20797,10 @@ mod tests {
         g.add_edge_with_attrs("1", "2", w1.clone()).unwrap();
         g.add_edge_with_attrs("0", "2", w10).unwrap();
         let paths = all_shortest_paths_weighted(&g, "0", "2", "weight");
-        assert_eq!(paths, vec![vec!["0".to_owned(), "1".to_owned(), "2".to_owned()]]);
+        assert_eq!(
+            paths,
+            vec![vec!["0".to_owned(), "1".to_owned(), "2".to_owned()]]
+        );
     }
 
     #[test]
@@ -20214,7 +21557,10 @@ mod tests {
         let _ = g.add_edge("c", "b");
         let _ = g.add_edge("c", "d");
         let ds = dominating_set(&g);
-        assert!(is_dominating_set(&g, &ds.iter().map(String::as_str).collect::<Vec<_>>()));
+        assert!(is_dominating_set(
+            &g,
+            &ds.iter().map(String::as_str).collect::<Vec<_>>()
+        ));
     }
 
     #[test]
@@ -20226,7 +21572,10 @@ mod tests {
         let _ = g.add_edge("c", "d");
         let _ = g.add_edge("d", "e");
         let ds = dominating_set(&g);
-        assert!(is_dominating_set(&g, &ds.iter().map(String::as_str).collect::<Vec<_>>()));
+        assert!(is_dominating_set(
+            &g,
+            &ds.iter().map(String::as_str).collect::<Vec<_>>()
+        ));
     }
 
     #[test]
@@ -20569,7 +21918,10 @@ mod tests {
             vec!["c".to_owned(), "d".to_owned()],
         ];
         let q = modularity(&g, &comms, 1.0, "weight");
-        assert!(q > 0.0, "Modularity should be positive for perfect partition: {q}");
+        assert!(
+            q > 0.0,
+            "Modularity should be positive for perfect partition: {q}"
+        );
 
         // Bad partition: mix communities
         let bad_comms = vec![
@@ -20577,7 +21929,10 @@ mod tests {
             vec!["b".to_owned(), "d".to_owned()],
         ];
         let q_bad = modularity(&g, &bad_comms, 1.0, "weight");
-        assert!(q > q_bad, "Good partition should have higher modularity than bad: {q} vs {q_bad}");
+        assert!(
+            q > q_bad,
+            "Good partition should have higher modularity than bad: {q} vs {q_bad}"
+        );
     }
 
     #[test]
@@ -20820,7 +22175,12 @@ mod tests {
         for i in 0..mis.len() {
             for j in (i + 1)..mis.len() {
                 let nbrs = g.neighbors(&mis[i]).unwrap_or_default();
-                assert!(!nbrs.iter().any(|&n| n == mis[j]), "{} and {} are adjacent", mis[i], mis[j]);
+                assert!(
+                    !nbrs.iter().any(|&n| n == mis[j]),
+                    "{} and {} are adjacent",
+                    mis[i],
+                    mis[j]
+                );
             }
         }
         assert_eq!(mis.len(), 1); // Triangle: only 1 node can be independent
@@ -20850,6 +22210,41 @@ mod tests {
         let g = Graph::strict();
         let mis = maximum_independent_set(&g);
         assert!(mis.is_empty());
+    }
+
+    #[test]
+    fn test_maximal_independent_set_with_seed_nodes() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("0", "1");
+        let _ = g.add_edge("1", "2");
+        let _ = g.add_edge("2", "3");
+        let result = maximal_independent_set(&g, &[String::from("1")], Some(1)).unwrap();
+        assert_eq!(result, vec![String::from("1"), String::from("3")]);
+    }
+
+    #[test]
+    fn test_maximal_independent_set_rejects_non_independent_seed_nodes() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let err =
+            maximal_independent_set(&g, &[String::from("a"), String::from("b")], None).unwrap_err();
+        assert_eq!(
+            err,
+            MaximalIndependentSetError::NodesNotIndependent {
+                nodes: vec![String::from("a"), String::from("b")]
+            }
+        );
+    }
+
+    #[test]
+    fn test_maximal_independent_set_single_self_loop_is_unfeasible() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "a");
+        let err = maximal_independent_set(&g, &[], None).unwrap_err();
+        assert_eq!(
+            err,
+            MaximalIndependentSetError::NodesNotIndependent { nodes: vec![] }
+        );
     }
 
     #[test]
@@ -20899,10 +22294,74 @@ mod tests {
             for i in 0..clique.len() {
                 for j in (i + 1)..clique.len() {
                     let nbrs = g.neighbors(&clique[i]).unwrap_or_default();
-                    assert!(nbrs.iter().any(|&n| n == clique[j]), "{} and {} not adjacent in clique", clique[i], clique[j]);
+                    assert!(
+                        nbrs.iter().any(|&n| n == clique[j]),
+                        "{} and {} not adjacent in clique",
+                        clique[i],
+                        clique[j]
+                    );
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_chordal_graph_treewidth_path() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("0", "1");
+        let _ = g.add_edge("1", "2");
+        let _ = g.add_edge("2", "3");
+        assert_eq!(chordal_graph_treewidth(&g).unwrap(), 1);
+    }
+
+    #[test]
+    fn test_chordal_graph_treewidth_star() {
+        let mut g = Graph::strict();
+        for leaf in 1..=6 {
+            let _ = g.add_edge("0", leaf.to_string());
+        }
+        assert_eq!(chordal_graph_treewidth(&g).unwrap(), 1);
+    }
+
+    #[test]
+    fn test_chordal_graph_treewidth_non_chordal() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("0", "1");
+        let _ = g.add_edge("1", "2");
+        let _ = g.add_edge("2", "3");
+        let _ = g.add_edge("3", "4");
+        let _ = g.add_edge("4", "0");
+        assert_eq!(
+            chordal_graph_treewidth(&g).unwrap_err(),
+            ChordalGraphTreewidthError::NotChordal
+        );
+    }
+
+    #[test]
+    fn test_spanner_trivial_stretch_one_copies_graph() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge_with_attrs("0", "1", [("weight".to_owned(), "1.5".to_owned())].into());
+        let _ = g.add_edge_with_attrs("0", "2", [("weight".to_owned(), "2.5".to_owned())].into());
+        let _ = g.add_edge_with_attrs("1", "2", [("weight".to_owned(), "3.5".to_owned())].into());
+        let sp = spanner(&g, 1.0, Some("weight"), Some(2)).unwrap();
+        assert_eq!(sp.node_count(), g.node_count());
+        assert_eq!(sp.edge_count(), g.edge_count());
+        for edge in g.edges_ordered() {
+            assert!(sp.has_edge(&edge.left, &edge.right));
+            assert_eq!(
+                sp.edge_attrs(&edge.left, &edge.right),
+                g.edge_attrs(&edge.left, &edge.right)
+            );
+        }
+    }
+
+    #[test]
+    fn test_spanner_rejects_invalid_stretch() {
+        let g = Graph::strict();
+        assert_eq!(
+            spanner(&g, 0.0, None, None).unwrap_err(),
+            SpannerError::InvalidStretch
+        );
     }
 
     // ── A* shortest path tests ──────────────────────────────────────────────
@@ -20915,7 +22374,10 @@ mod tests {
         let _ = g.add_edge_with_attrs("a", "c", [("weight".to_owned(), "5.0".to_owned())].into());
 
         let path = astar_path(&g, "a", "c", "weight", None);
-        assert_eq!(path, Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]));
+        assert_eq!(
+            path,
+            Some(vec!["a".to_string(), "b".to_string(), "c".to_string()])
+        );
     }
 
     #[test]
@@ -20945,7 +22407,10 @@ mod tests {
         // Heuristic: estimate 0 for all (admissible)
         let h = |_: &str| 0.0;
         let path = astar_path(&g, "a", "c", "weight", Some(&h));
-        assert_eq!(path, Some(vec!["a".to_string(), "b".to_string(), "c".to_string()]));
+        assert_eq!(
+            path,
+            Some(vec!["a".to_string(), "b".to_string(), "c".to_string()])
+        );
     }
 
     #[test]
@@ -20993,7 +22458,10 @@ mod tests {
         let paths = shortest_simple_paths(&g, "a", "c", Some("weight"));
         assert!(!paths.is_empty());
         // First path: a->b->c (cost 2.0) should be shorter than a->c (cost 5.0)
-        assert_eq!(paths[0], vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+        assert_eq!(
+            paths[0],
+            vec!["a".to_string(), "b".to_string(), "c".to_string()]
+        );
     }
 
     #[test]
@@ -21236,6 +22704,54 @@ mod tests {
         let bc = barycenter(&g);
         // All nodes have the same sum of distances in K3
         assert_eq!(bc, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+    }
+
+    #[test]
+    fn test_tree_broadcast_center_path_graph() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("0", "1");
+        let _ = g.add_edge("1", "2");
+        let _ = g.add_edge("2", "3");
+
+        let (time, center) = tree_broadcast_center(&g).expect("path graph should be a tree");
+        assert_eq!(time, 2);
+        assert_eq!(center, vec!["1".to_string(), "2".to_string()]);
+    }
+
+    #[test]
+    fn test_tree_broadcast_center_star_graph() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("0", "1");
+        let _ = g.add_edge("0", "2");
+        let _ = g.add_edge("0", "3");
+        let _ = g.add_edge("0", "4");
+
+        let (time, center) = tree_broadcast_center(&g).expect("star graph should be a tree");
+        assert_eq!(time, 4);
+        assert_eq!(
+            center,
+            vec![
+                "0".to_string(),
+                "1".to_string(),
+                "2".to_string(),
+                "3".to_string(),
+                "4".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_tree_broadcast_time_path_graph() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("0", "1");
+        let _ = g.add_edge("1", "2");
+        let _ = g.add_edge("2", "3");
+
+        assert_eq!(tree_broadcast_time(&g, None), Some(3));
+        assert_eq!(tree_broadcast_time(&g, Some("0")), Some(3));
+        assert_eq!(tree_broadcast_time(&g, Some("1")), Some(2));
+        assert_eq!(tree_broadcast_time(&g, Some("2")), Some(2));
+        assert_eq!(tree_broadcast_time(&g, Some("3")), Some(3));
     }
 
     // -----------------------------------------------------------------------
@@ -21637,7 +23153,8 @@ mod tests {
         let mut g = Graph::strict();
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
-        let dists = single_source_bellman_ford_path_length(&g, "a", "weight").expect("no negative cycle");
+        let dists =
+            single_source_bellman_ford_path_length(&g, "a", "weight").expect("no negative cycle");
         assert_eq!(dists["a"], 0.0);
         assert_eq!(dists["c"], 2.0);
     }
@@ -21647,7 +23164,8 @@ mod tests {
         let mut g = Graph::strict();
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
-        let (dists, paths) = single_source_bellman_ford(&g, "a", "weight").expect("no negative cycle");
+        let (dists, paths) =
+            single_source_bellman_ford(&g, "a", "weight").expect("no negative cycle");
         assert_eq!(dists["c"], 2.0);
         assert_eq!(paths["c"], vec!["a", "b", "c"]);
     }
@@ -22122,7 +23640,10 @@ mod tests {
         let sccs = kosaraju_strongly_connected_components(&dg);
         assert_eq!(sccs.len(), 2);
         // Check that all expected nodes are present
-        let all_nodes: HashSet<&str> = sccs.iter().flat_map(|c| c.iter().map(|s| s.as_str())).collect();
+        let all_nodes: HashSet<&str> = sccs
+            .iter()
+            .flat_map(|c| c.iter().map(|s| s.as_str()))
+            .collect();
         assert!(all_nodes.contains("a"));
         assert!(all_nodes.contains("b"));
         assert!(all_nodes.contains("c"));
@@ -22153,8 +23674,20 @@ mod tests {
         // Same number of components
         assert_eq!(tarjan.len(), kosaraju.len());
         // Same sets of nodes
-        let mut tarjan_sets: Vec<Vec<String>> = tarjan.into_iter().map(|mut c| { c.sort_unstable(); c }).collect();
-        let mut kosaraju_sets: Vec<Vec<String>> = kosaraju.into_iter().map(|mut c| { c.sort_unstable(); c }).collect();
+        let mut tarjan_sets: Vec<Vec<String>> = tarjan
+            .into_iter()
+            .map(|mut c| {
+                c.sort_unstable();
+                c
+            })
+            .collect();
+        let mut kosaraju_sets: Vec<Vec<String>> = kosaraju
+            .into_iter()
+            .map(|mut c| {
+                c.sort_unstable();
+                c
+            })
+            .collect();
         tarjan_sets.sort();
         kosaraju_sets.sort();
         assert_eq!(tarjan_sets, kosaraju_sets);
@@ -22260,7 +23793,8 @@ mod tests {
         dg.add_edge("a", "b").unwrap();
         dg.add_edge("b", "c").unwrap();
         let scores = in_degree_centrality(&dg);
-        let map: std::collections::HashMap<&str, f64> = scores.iter().map(|s| (s.node.as_str(), s.score)).collect();
+        let map: std::collections::HashMap<&str, f64> =
+            scores.iter().map(|s| (s.node.as_str(), s.score)).collect();
         assert!((map["a"] - 0.0).abs() < 1e-10);
         assert!((map["b"] - 0.5).abs() < 1e-10);
         assert!((map["c"] - 0.5).abs() < 1e-10);
@@ -22273,7 +23807,8 @@ mod tests {
         dg.add_edge("a", "b").unwrap();
         dg.add_edge("b", "c").unwrap();
         let scores = out_degree_centrality(&dg);
-        let map: std::collections::HashMap<&str, f64> = scores.iter().map(|s| (s.node.as_str(), s.score)).collect();
+        let map: std::collections::HashMap<&str, f64> =
+            scores.iter().map(|s| (s.node.as_str(), s.score)).collect();
         assert!((map["a"] - 0.5).abs() < 1e-10);
         assert!((map["b"] - 0.5).abs() < 1e-10);
         assert!((map["c"] - 0.0).abs() < 1e-10);
@@ -22461,18 +23996,24 @@ mod tests {
     #[test]
     fn test_find_negative_cycle_positive_cycle() {
         let mut g = Graph::strict();
-        g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "1.0".to_owned())].into()).unwrap();
-        g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "2.0".to_owned())].into()).unwrap();
-        g.add_edge_with_attrs("c", "a", [("weight".to_owned(), "3.0".to_owned())].into()).unwrap();
+        g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "1.0".to_owned())].into())
+            .unwrap();
+        g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "2.0".to_owned())].into())
+            .unwrap();
+        g.add_edge_with_attrs("c", "a", [("weight".to_owned(), "3.0".to_owned())].into())
+            .unwrap();
         assert_eq!(find_negative_cycle(&g, "a", "weight"), None);
     }
 
     #[test]
     fn test_find_negative_cycle_exists() {
         let mut g = Graph::strict();
-        g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "-2.0".to_owned())].into()).unwrap();
-        g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "-3.0".to_owned())].into()).unwrap();
-        g.add_edge_with_attrs("c", "a", [("weight".to_owned(), "-1.0".to_owned())].into()).unwrap();
+        g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "-2.0".to_owned())].into())
+            .unwrap();
+        g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "-3.0".to_owned())].into())
+            .unwrap();
+        g.add_edge_with_attrs("c", "a", [("weight".to_owned(), "-1.0".to_owned())].into())
+            .unwrap();
         let cycle = find_negative_cycle(&g, "a", "weight");
         assert!(cycle.is_some());
         let cycle = cycle.unwrap();
@@ -22575,7 +24116,8 @@ mod tests {
     #[test]
     fn test_is_weighted() {
         let mut g = Graph::strict();
-        g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "1.0".to_owned())].into()).unwrap();
+        g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "1.0".to_owned())].into())
+            .unwrap();
         assert!(is_weighted(&g, "weight"));
         assert!(!is_weighted(&g, "cost"));
     }
@@ -22583,11 +24125,13 @@ mod tests {
     #[test]
     fn test_is_negatively_weighted() {
         let mut g = Graph::strict();
-        g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "-1.0".to_owned())].into()).unwrap();
+        g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "-1.0".to_owned())].into())
+            .unwrap();
         assert!(is_negatively_weighted(&g, "weight"));
 
         let mut g2 = Graph::strict();
-        g2.add_edge_with_attrs("a", "b", [("weight".to_owned(), "1.0".to_owned())].into()).unwrap();
+        g2.add_edge_with_attrs("a", "b", [("weight".to_owned(), "1.0".to_owned())].into())
+            .unwrap();
         assert!(!is_negatively_weighted(&g2, "weight"));
     }
 
@@ -22957,6 +24501,24 @@ mod tests {
         let cliques = chordal_graph_cliques(&g);
         // Two maximal cliques: {a,b} and {b,c}
         assert_eq!(cliques.len(), 2);
+    }
+
+    #[test]
+    fn test_chordal_graph_cliques_star() {
+        let mut g = Graph::strict();
+        for leaf in 1..=4 {
+            let _ = g.add_edge("0", leaf.to_string());
+        }
+        let cliques = chordal_graph_cliques(&g);
+        assert_eq!(
+            cliques,
+            vec![
+                vec!["0".to_owned(), "1".to_owned()],
+                vec!["0".to_owned(), "2".to_owned()],
+                vec!["0".to_owned(), "3".to_owned()],
+                vec!["0".to_owned(), "4".to_owned()],
+            ]
+        );
     }
 
     #[test]
@@ -23448,7 +25010,7 @@ mod tests {
         // vol({a,b}) = 1+2 = 3, vol({c,d}) = 2+1 = 3
         // conductance({a,b}) = 1 / min(3,3) = 1/3
         let c = conductance(&g, &["a", "b"]);
-        assert!((c - 1.0/3.0).abs() < 1e-6);
+        assert!((c - 1.0 / 3.0).abs() < 1e-6);
     }
 
     #[test]

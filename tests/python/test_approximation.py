@@ -1,5 +1,4 @@
-"""Tests for approximation algorithms: min_weighted_vertex_cover,
-maximum_independent_set, max_clique, clique_removal, large_clique_size."""
+"""Tests for approximation algorithms and related parity gaps."""
 
 import pytest
 
@@ -52,6 +51,23 @@ def petersen():
     for i in range(5):
         G.add_edge(i, i + 5)
     return G
+
+
+def assert_valid_spanner(original, candidate, stretch, weight=None):
+    assert set(original.nodes()) == set(candidate.nodes())
+    for u, v in candidate.edges():
+        assert original.has_edge(u, v)
+        if weight is not None:
+            assert candidate[u][v][weight] == original[u][v][weight]
+
+    for u in original.nodes():
+        for v in original.nodes():
+            try:
+                original_length = fnx.shortest_path_length(original, u, v, weight=weight)
+            except Exception:
+                continue
+            candidate_length = fnx.shortest_path_length(candidate, u, v, weight=weight)
+            assert candidate_length <= stretch * original_length + 1e-9
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +162,37 @@ class TestMaximumIndependentSet:
         iset = fnx.maximum_independent_set(G)
         # In a complete graph, MIS = 1.
         assert len(iset) == 1
+
+
+# ---------------------------------------------------------------------------
+# maximal_independent_set
+# ---------------------------------------------------------------------------
+
+
+class TestMaximalIndependentSet:
+    def test_seeded_empty_graph_matches_reference_order(self):
+        G = fnx.empty_graph(5)
+        assert fnx.maximal_independent_set(G, seed=1) == [1, 0, 3, 2, 4]
+
+    def test_seeded_path_with_required_node(self):
+        G = fnx.path_graph(5)
+        assert fnx.maximal_independent_set(G, [1], seed=1) == [1, 3]
+
+    def test_invalid_seed_nodes_raise(self, triangle):
+        with pytest.raises(fnx.NetworkXUnfeasible):
+            fnx.maximal_independent_set(triangle, [0, 1])
+
+    def test_single_self_loop_raises(self):
+        G = fnx.Graph()
+        G.add_edge("a", "a")
+        with pytest.raises(fnx.NetworkXUnfeasible):
+            fnx.maximal_independent_set(G)
+
+    def test_directed_not_implemented(self):
+        G = fnx.DiGraph()
+        G.add_edge(0, 1)
+        with pytest.raises(fnx.NetworkXNotImplemented):
+            fnx.maximal_independent_set(G)
 
 
 # ---------------------------------------------------------------------------
@@ -255,3 +302,77 @@ class TestLargeCliqueSize:
     def test_path(self, path4):
         # Path: max clique size is 2 (any edge).
         assert fnx.large_clique_size(path4) == 2
+
+
+# ---------------------------------------------------------------------------
+# chordal_graph_treewidth
+# ---------------------------------------------------------------------------
+
+
+class TestChordalGraphTreewidth:
+    def test_trees_have_treewidth_one(self):
+        assert fnx.chordal_graph_treewidth(fnx.path_graph(5)) == 1
+        assert fnx.chordal_graph_treewidth(fnx.star_graph(6)) == 1
+
+    def test_largest_clique_drives_treewidth(self):
+        G = fnx.star_graph(10)
+        for left in "abcde":
+            G.add_node(left)
+        clique = list("abcde")
+        for i, left in enumerate(clique):
+            for right in clique[i + 1 :]:
+                G.add_edge(left, right)
+        G.add_edge(5, "a")
+        assert fnx.chordal_graph_treewidth(G) == 4
+
+    def test_non_chordal_graph_raises(self):
+        with pytest.raises(fnx.NetworkXError):
+            fnx.chordal_graph_treewidth(fnx.cycle_graph(5))
+
+    def test_empty_graph_matches_reference_exception_shape(self):
+        with pytest.raises(ValueError, match="max\\(\\) iterable argument is empty"):
+            fnx.chordal_graph_treewidth(fnx.Graph())
+
+
+# ---------------------------------------------------------------------------
+# spanner
+# ---------------------------------------------------------------------------
+
+
+class TestSpanner:
+    def test_stretch_one_returns_all_edges(self):
+        G = fnx.complete_graph(5)
+        S = fnx.spanner(G, 1, seed=2)
+        assert set(G.nodes()) == set(S.nodes())
+        assert set(G.edges()) == set(S.edges())
+
+    def test_unweighted_complete_graph(self):
+        G = fnx.complete_graph(8)
+        S = fnx.spanner(G, 4, seed=2)
+        assert_valid_spanner(G, S, 4)
+
+    def test_weighted_complete_graph_preserves_weights(self):
+        G = fnx.Graph()
+        for node in range(6):
+            G.add_node(node)
+        for left in range(6):
+            for right in range(left + 1, 6):
+                G.add_edge(left, right, weight=left + right + 0.5)
+
+        S = fnx.spanner(G, 4, weight="weight", seed=2)
+        assert_valid_spanner(G, S, 4, weight="weight")
+
+    def test_disconnected_graph_keeps_components(self):
+        G = fnx.Graph()
+        G.add_edge(0, 1)
+        G.add_edge(1, 2)
+        G.add_edge(3, 4)
+        G.add_edge(4, 5)
+        S = fnx.spanner(G, 4, seed=2)
+        assert set(G.nodes()) == set(S.nodes())
+        for u, v in S.edges():
+            assert G.has_edge(u, v)
+
+    def test_invalid_stretch_raises(self):
+        with pytest.raises(ValueError, match="stretch must be at least 1"):
+            fnx.spanner(fnx.Graph(), 0)

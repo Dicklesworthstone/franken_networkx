@@ -649,6 +649,18 @@ class TestCoreNumberInvariants:
 class TestEfficiencyInvariants:
     """Properties of efficiency measures."""
 
+    @given(data=small_connected_graph(min_nodes=3, max_nodes=12))
+    @settings(FAST)
+    def test_efficiency_matches_nx(self, data):
+        """Pairwise efficiency matches NetworkX for a deterministic node pair."""
+        G_fnx, G_nx, _n = data
+        nodes = sorted(G_nx.nodes())
+        source = nodes[0]
+        target = nodes[-1]
+        eff_fnx = fnx.efficiency(G_fnx, source, target)
+        eff_nx = nx.efficiency(G_nx, source, target)
+        assert abs(eff_fnx - eff_nx) < 1e-6
+
     @given(data=small_connected_graph(min_nodes=3, max_nodes=15))
     @settings(FAST)
     def test_global_efficiency_in_range(self, data):

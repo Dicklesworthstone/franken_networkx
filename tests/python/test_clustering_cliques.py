@@ -214,6 +214,12 @@ class TestChordalGraphCliques:
         # K4 is chordal, one maximal clique
         assert len(cliques) == 1
 
+    def test_self_loop_raises(self):
+        g = fnx.Graph()
+        g.add_edge("a", "a")
+        with pytest.raises(fnx.NetworkXError):
+            fnx.chordal_graph_cliques(g)
+
 
 # ---------------------------------------------------------------------------
 # make_max_clique_graph

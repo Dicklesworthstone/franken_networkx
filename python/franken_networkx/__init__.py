@@ -71,6 +71,7 @@ from franken_networkx._fnx import (
     NetworkXPointlessConcept,
     NetworkXUnbounded,
     NetworkXUnfeasible,
+    NotATree,
     NodeNotFound,
     PowerIterationFailedConvergence,
 )
@@ -184,8 +185,15 @@ from franken_networkx._fnx import (
 
 # Algorithm functions — efficiency
 from franken_networkx._fnx import (
+    efficiency,
     global_efficiency,
     local_efficiency,
+)
+
+# Algorithm functions — broadcasting
+from franken_networkx._fnx import (
+    tree_broadcast_center,
+    tree_broadcast_time,
 )
 
 # Algorithm functions — traversal (BFS)
@@ -246,6 +254,7 @@ from franken_networkx._fnx import (
     enumerate_all_cliques,
     find_cliques_recursive,
     chordal_graph_cliques,
+    chordal_graph_treewidth,
     make_max_clique_graph,
     ring_of_cliques,
 )
@@ -400,10 +409,12 @@ from franken_networkx._fnx import (
 # Algorithm functions — approximation
 from franken_networkx._fnx import (
     clique_removal,
+    maximal_independent_set,
     large_clique_size,
     max_clique,
     maximum_independent_set,
     min_weighted_vertex_cover,
+    spanner,
 )
 
 # Algorithm functions — tree recognition
@@ -1137,6 +1148,7 @@ __all__ = [
     "NetworkXPointlessConcept",
     "NetworkXUnbounded",
     "NetworkXUnfeasible",
+    "NotATree",
     "NodeNotFound",
     "PowerIterationFailedConvergence",
     # Algorithms — shortest path
@@ -1214,8 +1226,11 @@ __all__ = [
     # Algorithms — graph operators
     "complement",
     # Algorithms — efficiency
+    "efficiency",
     "global_efficiency",
     "local_efficiency",
+    "tree_broadcast_center",
+    "tree_broadcast_time",
     # Algorithms — reciprocity
     "overall_reciprocity",
     "reciprocity",
@@ -1238,6 +1253,7 @@ __all__ = [
     "enumerate_all_cliques",
     "find_cliques_recursive",
     "chordal_graph_cliques",
+    "chordal_graph_treewidth",
     "make_max_clique_graph",
     "ring_of_cliques",
     # Classic graph generators
@@ -1358,10 +1374,12 @@ __all__ = [
     "shortest_simple_paths",
     # Algorithms — approximation
     "min_weighted_vertex_cover",
+    "maximal_independent_set",
     "maximum_independent_set",
     "max_clique",
     "clique_removal",
     "large_clique_size",
+    "spanner",
     # Algorithms — tree recognition
     "is_arborescence",
     "is_branching",

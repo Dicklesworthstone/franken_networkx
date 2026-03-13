@@ -162,6 +162,21 @@ class TestNetworkXError:
         ):
             fnx.min_edge_cover(G)
 
+    def test_tree_broadcast_center_empty_graph(self):
+        G = fnx.Graph()
+        with pytest.raises(fnx.NetworkXPointlessConcept, match=r"G has no nodes\."):
+            fnx.tree_broadcast_center(G)
+
+    def test_tree_broadcast_center_not_tree(self):
+        G = _make_triangle()
+        with pytest.raises(fnx.NotATree, match=r"G is not a tree"):
+            fnx.tree_broadcast_center(G)
+
+    def test_tree_broadcast_time_missing_node(self):
+        G = _make_path()
+        with pytest.raises(fnx.NodeNotFound, match=r"node z not in G"):
+            fnx.tree_broadcast_time(G, node="z")
+
 
 # ---------------------------------------------------------------------------
 # NetworkXNotImplemented — directed type
@@ -249,3 +264,6 @@ class TestExceptionHierarchy:
 
     def test_algorithm_error_is_error(self):
         assert issubclass(fnx.NetworkXAlgorithmError, fnx.NetworkXError)
+
+    def test_not_a_tree_is_error(self):
+        assert issubclass(fnx.NotATree, fnx.NetworkXError)
