@@ -3,6 +3,15 @@
 import pytest
 
 
+def _directed_flow_pair(fnx, nx, edges):
+    g_fnx = fnx.DiGraph()
+    g_nx = nx.DiGraph()
+    for u, v, capacity in edges:
+        g_fnx.add_edge(u, v, capacity=capacity)
+        g_nx.add_edge(u, v, capacity=capacity)
+    return g_fnx, g_nx
+
+
 @pytest.mark.conformance
 class TestFlow:
     def test_maximum_flow_value(self, fnx, nx, weighted_graph):
@@ -32,25 +41,53 @@ class TestFlow:
         # Max-flow min-cut theorem
         assert abs(mf - mc) < 1e-9
 
-    def test_flow_bindings_reject_directed_graphs(self, fnx):
-        DG = fnx.DiGraph()
-        DG.add_edge("s", "a", capacity=2.0)
-        DG.add_edge("a", "t", capacity=2.0)
+    def test_flow_bindings_support_directed_graphs(self, fnx, nx):
+        DG_fnx, DG_nx = _directed_flow_pair(
+            fnx,
+            nx,
+            [
+                ("s", "a", 3.0),
+                ("s", "b", 2.0),
+                ("a", "b", 1.0),
+                ("a", "t", 2.0),
+                ("b", "t", 3.0),
+            ],
+        )
 
-        with pytest.raises(
-            fnx.NetworkXNotImplemented,
-            match=r"not implemented for directed type",
-        ):
-            fnx.maximum_flow_value(DG, "s", "t")
+        fnx_val = fnx.maximum_flow_value(DG_fnx, "s", "t")
+        nx_val = nx.maximum_flow_value(DG_nx, "s", "t")
+        assert abs(fnx_val - nx_val) < 1e-9
 
-        with pytest.raises(
-            fnx.NetworkXNotImplemented,
-            match=r"not implemented for directed type",
-        ):
-            fnx.minimum_cut(DG, "s", "t")
+        fnx_cut_value, fnx_partition = fnx.minimum_cut(DG_fnx, "s", "t")
+        nx_cut_value, nx_partition = nx.minimum_cut(DG_nx, "s", "t")
+        assert abs(fnx_cut_value - nx_cut_value) < 1e-9
+        assert fnx_partition[0] == nx_partition[0]
+        assert fnx_partition[1] == nx_partition[1]
 
-        with pytest.raises(
-            fnx.NetworkXNotImplemented,
-            match=r"not implemented for directed type",
-        ):
-            fnx.minimum_cut_value(DG, "s", "t")
+        fnx_cut_val = fnx.minimum_cut_value(DG_fnx, "s", "t")
+        nx_cut_val = nx.minimum_cut_value(DG_nx, "s", "t")
+        assert abs(fnx_cut_val - nx_cut_val) < 1e-9
+
+    def test_flow_bindings_respect_edge_direction(self, fnx, nx):
+        DG_fnx, DG_nx = _directed_flow_pair(
+            fnx,
+            nx,
+            [
+                ("a", "s", 5.0),
+                ("a", "t", 5.0),
+            ],
+        )
+
+        fnx_val = fnx.maximum_flow_value(DG_fnx, "s", "t")
+        nx_val = nx.maximum_flow_value(DG_nx, "s", "t")
+        assert abs(fnx_val - nx_val) < 1e-9
+
+        fnx_cut_value, fnx_partition = fnx.minimum_cut(DG_fnx, "s", "t")
+        nx_cut_value, nx_partition = nx.minimum_cut(DG_nx, "s", "t")
+        assert abs(fnx_cut_value - nx_cut_value) < 1e-9
+        assert fnx_partition[0] == nx_partition[0]
+        assert fnx_partition[1] == nx_partition[1]
+
+        fnx_cut_val = fnx.minimum_cut_value(DG_fnx, "s", "t")
+        nx_cut_val = nx.minimum_cut_value(DG_nx, "s", "t")
+        assert abs(fnx_cut_val - nx_cut_val) < 1e-9

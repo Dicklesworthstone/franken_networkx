@@ -321,13 +321,13 @@ def min_edge_cover(g: Graph) -> list[tuple[Any, Any]]: ...
 # ---------------------------------------------------------------------------
 
 def maximum_flow_value(
-    g: Graph, source: Any, sink: Any, capacity: str = "capacity"
+    g: Union[Graph, DiGraph], source: Any, sink: Any, capacity: str = "capacity"
 ) -> float: ...
 def minimum_cut(
-    g: Graph, source: Any, sink: Any, capacity: str = "capacity"
+    g: Union[Graph, DiGraph], source: Any, sink: Any, capacity: str = "capacity"
 ) -> tuple[float, tuple[set[Any], set[Any]]]: ...
 def minimum_cut_value(
-    g: Graph, source: Any, sink: Any, capacity: str = "capacity"
+    g: Union[Graph, DiGraph], source: Any, sink: Any, capacity: str = "capacity"
 ) -> float: ...
 
 # ---------------------------------------------------------------------------

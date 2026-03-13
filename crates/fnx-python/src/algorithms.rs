@@ -1119,12 +1119,23 @@ pub fn maximum_flow_value(
     capacity: &str,
 ) -> PyResult<f64> {
     let gr = extract_graph(g)?;
-    require_undirected(&gr, "maximum_flow_value")?;
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, sink)?;
-    let inner = gr.undirected();
     let cap = capacity.to_owned();
-    Ok(py.allow_threads(move || fnx_algorithms::max_flow_edmonds_karp(inner, &s, &t, &cap).value))
+    match &gr {
+        GraphRef::Undirected(pg) => {
+            let inner = &pg.inner;
+            Ok(py.allow_threads(move || {
+                fnx_algorithms::max_flow_edmonds_karp(inner, &s, &t, &cap).value
+            }))
+        }
+        GraphRef::Directed { dg, .. } => {
+            let inner = &dg.inner;
+            Ok(py.allow_threads(move || {
+                fnx_algorithms::max_flow_edmonds_karp_directed(inner, &s, &t, &cap).value
+            }))
+        }
+    }
 }
 
 /// Return the minimum cut value between source and sink.
@@ -1138,13 +1149,23 @@ pub fn minimum_cut_value(
     capacity: &str,
 ) -> PyResult<f64> {
     let gr = extract_graph(g)?;
-    require_undirected(&gr, "minimum_cut_value")?;
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, sink)?;
-    let inner = gr.undirected();
     let cap = capacity.to_owned();
-    Ok(py
-        .allow_threads(move || fnx_algorithms::minimum_cut_edmonds_karp(inner, &s, &t, &cap).value))
+    match &gr {
+        GraphRef::Undirected(pg) => {
+            let inner = &pg.inner;
+            Ok(py.allow_threads(move || {
+                fnx_algorithms::minimum_cut_edmonds_karp(inner, &s, &t, &cap).value
+            }))
+        }
+        GraphRef::Directed { dg, .. } => {
+            let inner = &dg.inner;
+            Ok(py.allow_threads(move || {
+                fnx_algorithms::minimum_cut_edmonds_karp_directed(inner, &s, &t, &cap).value
+            }))
+        }
+    }
 }
 
 /// Return the minimum cut value and node partition between source and sink.
@@ -1158,13 +1179,21 @@ pub fn minimum_cut(
     capacity: &str,
 ) -> PyResult<(f64, PyObject)> {
     let gr = extract_graph(g)?;
-    require_undirected(&gr, "minimum_cut")?;
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, sink)?;
-    let inner = gr.undirected();
     let cap = capacity.to_owned();
-    let cut =
-        py.allow_threads(move || fnx_algorithms::minimum_cut_edmonds_karp(inner, &s, &t, &cap));
+    let cut = match &gr {
+        GraphRef::Undirected(pg) => {
+            let inner = &pg.inner;
+            py.allow_threads(move || fnx_algorithms::minimum_cut_edmonds_karp(inner, &s, &t, &cap))
+        }
+        GraphRef::Directed { dg, .. } => {
+            let inner = &dg.inner;
+            py.allow_threads(move || {
+                fnx_algorithms::minimum_cut_edmonds_karp_directed(inner, &s, &t, &cap)
+            })
+        }
+    };
 
     let source_partition = pyo3::types::PySet::new(
         py,
