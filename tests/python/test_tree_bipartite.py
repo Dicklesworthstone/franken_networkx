@@ -98,3 +98,36 @@ class TestMST:
         )
         nx_weight = sum(mst_nx[u][v].get("weight", 1.0) for u, v in mst_nx.edges())
         assert abs(fnx_weight - nx_weight) < 1e-9
+
+    def test_minimum_spanning_edges_matches_networkx(self, fnx, nx, weighted_graph):
+        G_fnx, G_nx = weighted_graph
+        assert list(fnx.minimum_spanning_edges(G_fnx, weight="weight")) == list(
+            nx.minimum_spanning_edges(G_nx, weight="weight")
+        )
+
+    def test_maximum_spanning_edges_data_false_matches_networkx(self, fnx, nx, weighted_graph):
+        G_fnx, G_nx = weighted_graph
+        assert list(fnx.maximum_spanning_edges(G_fnx, weight="weight", data=False)) == list(
+            nx.maximum_spanning_edges(G_nx, weight="weight", data=False)
+        )
+
+    def test_spanning_edges_ignore_nan_matches_networkx(self, fnx, nx):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", weight=float("nan"))
+            graph.add_edge("b", "c", weight=1.0)
+            graph.add_edge("c", "d", weight=2.0)
+
+        assert list(fnx.minimum_spanning_edges(G_fnx, weight="weight", ignore_nan=True)) == list(
+            nx.minimum_spanning_edges(G_nx, weight="weight", ignore_nan=True)
+        )
+        assert list(
+            fnx.maximum_spanning_edges(G_fnx, weight="weight", ignore_nan=True, data=False)
+        ) == list(nx.maximum_spanning_edges(G_nx, weight="weight", ignore_nan=True, data=False))
+
+        with pytest.raises(ValueError, match="NaN found as an edge weight"):
+            list(fnx.minimum_spanning_edges(G_fnx, weight="weight"))
+
+        with pytest.raises(ValueError, match="NaN found as an edge weight"):
+            list(fnx.maximum_spanning_edges(G_fnx, weight="weight"))

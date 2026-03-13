@@ -347,6 +347,14 @@ def is_bipartite(g: Graph) -> bool: ...
 def bipartite_sets(g: Graph) -> tuple[list[Any], list[Any]]: ...
 def greedy_color(g: Graph) -> dict[Any, int]: ...
 def core_number(g: Graph) -> dict[Any, int]: ...
+def minimum_spanning_edges(
+    g: Graph,
+    algorithm: str = "kruskal",
+    weight: str = "weight",
+    keys: bool = True,
+    data: bool = True,
+    ignore_nan: bool = False,
+) -> list[tuple[Any, Any] | tuple[Any, Any, dict[str, Any]]]: ...
 def minimum_spanning_tree(g: Graph, weight: str = "weight") -> Graph: ...
 
 # ---------------------------------------------------------------------------
@@ -609,6 +617,14 @@ def transitive_reduction(g: DiGraph) -> DiGraph: ...
 # Maximum spanning tree
 # ---------------------------------------------------------------------------
 
+def maximum_spanning_edges(
+    g: Graph,
+    algorithm: str = "kruskal",
+    weight: str = "weight",
+    keys: bool = True,
+    data: bool = True,
+    ignore_nan: bool = False,
+) -> list[tuple[Any, Any] | tuple[Any, Any, dict[str, Any]]]: ...
 def maximum_spanning_tree(g: Graph, weight: str = "weight") -> Graph: ...
 
 # ---------------------------------------------------------------------------

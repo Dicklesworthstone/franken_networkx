@@ -157,6 +157,7 @@ from franken_networkx._fnx import (
     is_bipartite,
     is_forest,
     is_tree,
+    minimum_spanning_edges,
     minimum_spanning_tree,
 )
 
@@ -220,6 +221,7 @@ from franken_networkx._fnx import (
 
 # Algorithm functions — maximum spanning tree
 from franken_networkx._fnx import (
+    maximum_spanning_edges,
     maximum_spanning_tree,
 )
 
@@ -1197,6 +1199,7 @@ __all__ = [
     "is_bipartite",
     "is_forest",
     "is_tree",
+    "minimum_spanning_edges",
     "minimum_spanning_tree",
     # Algorithms — Euler
     "eulerian_circuit",
@@ -1219,6 +1222,7 @@ __all__ = [
     # Algorithms — Wiener index
     "wiener_index",
     # Algorithms — trees
+    "maximum_spanning_edges",
     "maximum_spanning_tree",
     # Algorithms — condensation
     "condensation",

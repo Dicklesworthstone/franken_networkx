@@ -83,6 +83,7 @@ _SUPPORTED_ALGORITHMS = {
     "bipartite_sets": fnx.bipartite_sets,
     "greedy_color": fnx.greedy_color,
     "core_number": fnx.core_number,
+    "minimum_spanning_edges": fnx.minimum_spanning_edges,
     "minimum_spanning_tree": fnx.minimum_spanning_tree,
     # Euler
     "is_eulerian": fnx.is_eulerian,
@@ -170,6 +171,7 @@ _SUPPORTED_ALGORITHMS = {
     "transitive_closure": fnx.transitive_closure,
     "transitive_reduction": fnx.transitive_reduction,
     # Maximum spanning tree
+    "maximum_spanning_edges": fnx.maximum_spanning_edges,
     "maximum_spanning_tree": fnx.maximum_spanning_tree,
     # Condensation
     "condensation": fnx.condensation,

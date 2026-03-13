@@ -6,9 +6,10 @@
 
 use crate::digraph::PyDiGraph;
 use crate::{NetworkXError, NetworkXNoCycle, NetworkXNoPath, NodeNotFound, PyGraph, node_key_to_string};
-use pyo3::exceptions::PyZeroDivisionError;
+use fnx_classes::AttrMap;
+use pyo3::exceptions::{PyValueError, PyZeroDivisionError};
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyTuple};
 use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
@@ -203,6 +204,98 @@ fn centrality_to_dict(
         dict.set_item(gr.py_node_key(py, &s.node), s.score)?;
     }
     Ok(dict.unbind())
+}
+
+fn tuple_object(py: Python<'_>, elements: &[PyObject]) -> PyResult<PyObject> {
+    Ok(PyTuple::new(py, elements)?.into_any().unbind())
+}
+
+fn validate_spanning_algorithm(algorithm: &str) -> PyResult<()> {
+    if algorithm != "kruskal" {
+        return Err(PyValueError::new_err(format!(
+            "Only 'kruskal' is currently supported for spanning edge generation; got '{algorithm}'."
+        )));
+    }
+    Ok(())
+}
+
+fn spanning_input_graph(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+    weight: &str,
+    ignore_nan: bool,
+) -> PyResult<fnx_classes::Graph> {
+    require_undirected(gr, "spanning_edges")?;
+
+    let inner = gr.undirected();
+    let mut sanitized = fnx_classes::Graph::strict();
+
+    for node in inner.nodes_ordered() {
+        sanitized.add_node(node.to_owned());
+    }
+
+    for edge in inner.edges_ordered() {
+        let has_nan_weight = edge
+            .attrs
+            .get(weight)
+            .and_then(|weight_value| weight_value.parse::<f64>().ok())
+            .is_some_and(f64::is_nan);
+        if has_nan_weight {
+            if ignore_nan {
+                continue;
+            }
+
+            let py_u = gr.py_node_key(py, &edge.left);
+            let py_v = gr.py_node_key(py, &edge.right);
+            let edge_attrs = match gr.edge_attrs_for_undirected(&edge.left, &edge.right) {
+                Some(attrs) => attrs.bind(py).copy()?,
+                None => PyDict::new(py),
+            };
+
+            return Err(PyValueError::new_err(format!(
+                "NaN found as an edge weight. Edge ({}, {}, {})",
+                py_u.bind(py).repr()?,
+                py_v.bind(py).repr()?,
+                edge_attrs.repr()?,
+            )));
+        }
+
+        let attrs = edge.attrs.get(weight).map_or_else(AttrMap::new, |weight_value| {
+            let mut attrs = AttrMap::new();
+            attrs.insert(weight.to_owned(), weight_value.clone());
+            attrs
+        });
+
+        sanitized
+            .add_edge_with_attrs(edge.left, edge.right, attrs)
+            .map_err(|err| PyValueError::new_err(err.to_string()))?;
+    }
+
+    Ok(sanitized)
+}
+
+fn mst_edges_to_python(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+    edges: &[fnx_algorithms::MstEdge],
+    data: bool,
+) -> PyResult<Vec<PyObject>> {
+    edges
+        .iter()
+        .map(|edge| {
+            let u = gr.py_node_key(py, &edge.left);
+            let v = gr.py_node_key(py, &edge.right);
+            if data {
+                let attrs = match gr.edge_attrs_for_undirected(&edge.left, &edge.right) {
+                    Some(dict) => dict.bind(py).copy()?.into_any().unbind(),
+                    None => PyDict::new(py).into_any().unbind(),
+                };
+                tuple_object(py, &[u, v, attrs])
+            } else {
+                tuple_object(py, &[u, v])
+            }
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -1259,6 +1352,27 @@ pub fn minimum_spanning_tree(
     Ok(new_graph)
 }
 
+/// Return the edges of a minimum spanning forest.
+#[pyfunction]
+#[pyo3(signature = (g, algorithm="kruskal", weight="weight", keys=true, data=true, ignore_nan=false))]
+pub fn minimum_spanning_edges(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    algorithm: &str,
+    weight: &str,
+    keys: bool,
+    data: bool,
+    ignore_nan: bool,
+) -> PyResult<Vec<PyObject>> {
+    let _ = keys;
+    validate_spanning_algorithm(algorithm)?;
+    let gr = extract_graph(g)?;
+    let input = spanning_input_graph(py, &gr, weight, ignore_nan)?;
+    let w = weight.to_owned();
+    let result = py.allow_threads(move || fnx_algorithms::minimum_spanning_tree(&input, &w));
+    mst_edges_to_python(py, &gr, &result.edges, data)
+}
+
 /// Return a maximum spanning tree using Kruskal's algorithm.
 #[pyfunction]
 #[pyo3(signature = (g, weight="weight"))]
@@ -1293,6 +1407,27 @@ pub fn maximum_spanning_tree(
         }
     }
     Ok(new_graph)
+}
+
+/// Return the edges of a maximum spanning forest.
+#[pyfunction]
+#[pyo3(signature = (g, algorithm="kruskal", weight="weight", keys=true, data=true, ignore_nan=false))]
+pub fn maximum_spanning_edges(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    algorithm: &str,
+    weight: &str,
+    keys: bool,
+    data: bool,
+    ignore_nan: bool,
+) -> PyResult<Vec<PyObject>> {
+    let _ = keys;
+    validate_spanning_algorithm(algorithm)?;
+    let gr = extract_graph(g)?;
+    let input = spanning_input_graph(py, &gr, weight, ignore_nan)?;
+    let w = weight.to_owned();
+    let result = py.allow_threads(move || fnx_algorithms::maximum_spanning_tree(&input, &w));
+    mst_edges_to_python(py, &gr, &result.edges, data)
 }
 
 // ===========================================================================
@@ -5563,6 +5698,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(greedy_color, m)?)?;
     m.add_function(wrap_pyfunction!(core_number, m)?)?;
     m.add_function(wrap_pyfunction!(minimum_spanning_tree, m)?)?;
+    m.add_function(wrap_pyfunction!(minimum_spanning_edges, m)?)?;
     // Euler
     m.add_function(wrap_pyfunction!(is_eulerian, m)?)?;
     m.add_function(wrap_pyfunction!(has_eulerian_path, m)?)?;
@@ -5619,6 +5755,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(s_metric, m)?)?;
     // Spanning trees
     m.add_function(wrap_pyfunction!(maximum_spanning_tree, m)?)?;
+    m.add_function(wrap_pyfunction!(maximum_spanning_edges, m)?)?;
     // Strongly connected components
     m.add_function(wrap_pyfunction!(strongly_connected_components, m)?)?;
     m.add_function(wrap_pyfunction!(number_strongly_connected_components, m)?)?;
