@@ -159,7 +159,11 @@ from franken_networkx._fnx import (
     is_bipartite,
     is_forest,
     is_tree,
+    maximum_branching,
+    maximum_spanning_arborescence,
     minimum_spanning_edges,
+    minimum_branching,
+    minimum_spanning_arborescence,
     minimum_spanning_tree,
 )
 
@@ -1213,7 +1217,11 @@ __all__ = [
     "is_bipartite",
     "is_forest",
     "is_tree",
+    "maximum_branching",
+    "maximum_spanning_arborescence",
     "minimum_spanning_edges",
+    "minimum_branching",
+    "minimum_spanning_arborescence",
     "minimum_spanning_tree",
     # Algorithms — Euler
     "eulerian_circuit",

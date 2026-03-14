@@ -107,6 +107,33 @@ class TestIsBranching:
 
 
 # ---------------------------------------------------------------------------
+# branching and arborescence constructors
+# ---------------------------------------------------------------------------
+
+
+class TestBranchingConstructors:
+    def test_maximum_branching_preserve_attrs(self):
+        D = fnx.DiGraph()
+        D.add_edge("a", "b", weight=5.0, color="red")
+        D.add_edge("c", "b", weight=4.0, color="blue")
+
+        kept = fnx.maximum_branching(D, preserve_attrs=True)
+        assert kept.edges["a", "b"]["weight"] == 5.0
+        assert kept.edges["a", "b"]["color"] == "red"
+
+        dropped = fnx.maximum_branching(D, preserve_attrs=False)
+        assert dropped.edges["a", "b"]["weight"] == 5.0
+        assert "color" not in dropped.edges["a", "b"]
+
+    def test_empty_spanning_arborescence_raises(self):
+        D = fnx.DiGraph()
+        with pytest.raises(fnx.NetworkXPointlessConcept):
+            fnx.maximum_spanning_arborescence(D)
+        with pytest.raises(fnx.NetworkXPointlessConcept):
+            fnx.minimum_spanning_arborescence(D)
+
+
+# ---------------------------------------------------------------------------
 # is_isolate, isolates, number_of_isolates
 # ---------------------------------------------------------------------------
 

@@ -351,6 +351,34 @@ def is_bipartite(g: Graph) -> bool: ...
 def bipartite_sets(g: Graph) -> tuple[list[Any], list[Any]]: ...
 def greedy_color(g: Graph) -> dict[Any, int]: ...
 def core_number(g: Graph) -> dict[Any, int]: ...
+def maximum_branching(
+    g: DiGraph,
+    attr: str = "weight",
+    default: float = 1.0,
+    preserve_attrs: bool = False,
+    partition: Optional[str] = None,
+) -> DiGraph: ...
+def minimum_branching(
+    g: DiGraph,
+    attr: str = "weight",
+    default: float = 1.0,
+    preserve_attrs: bool = False,
+    partition: Optional[str] = None,
+) -> DiGraph: ...
+def maximum_spanning_arborescence(
+    g: DiGraph,
+    attr: str = "weight",
+    default: float = 1.0,
+    preserve_attrs: bool = False,
+    partition: Optional[str] = None,
+) -> DiGraph: ...
+def minimum_spanning_arborescence(
+    g: DiGraph,
+    attr: str = "weight",
+    default: float = 1.0,
+    preserve_attrs: bool = False,
+    partition: Optional[str] = None,
+) -> DiGraph: ...
 def minimum_spanning_edges(
     g: Graph,
     algorithm: str = "kruskal",
@@ -360,6 +388,34 @@ def minimum_spanning_edges(
     ignore_nan: bool = False,
 ) -> list[tuple[Any, Any] | tuple[Any, Any, dict[str, Any]]]: ...
 def minimum_spanning_tree(g: Graph, weight: str = "weight") -> Graph: ...
+def maximum_branching(
+    g: DiGraph,
+    attr: str = "weight",
+    default: float = 1.0,
+    preserve_attrs: bool = False,
+    partition: Optional[str] = None,
+) -> DiGraph: ...
+def minimum_branching(
+    g: DiGraph,
+    attr: str = "weight",
+    default: float = 1.0,
+    preserve_attrs: bool = False,
+    partition: Optional[str] = None,
+) -> DiGraph: ...
+def maximum_spanning_arborescence(
+    g: DiGraph,
+    attr: str = "weight",
+    default: float = 1.0,
+    preserve_attrs: bool = False,
+    partition: Optional[str] = None,
+) -> DiGraph: ...
+def minimum_spanning_arborescence(
+    g: DiGraph,
+    attr: str = "weight",
+    default: float = 1.0,
+    preserve_attrs: bool = False,
+    partition: Optional[str] = None,
+) -> DiGraph: ...
 
 # ---------------------------------------------------------------------------
 # Algorithm functions — Euler

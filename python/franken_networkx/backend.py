@@ -84,7 +84,11 @@ _SUPPORTED_ALGORITHMS = {
     "bipartite_sets": fnx.bipartite_sets,
     "greedy_color": fnx.greedy_color,
     "core_number": fnx.core_number,
+    "maximum_branching": fnx.maximum_branching,
+    "maximum_spanning_arborescence": fnx.maximum_spanning_arborescence,
     "minimum_spanning_edges": fnx.minimum_spanning_edges,
+    "minimum_branching": fnx.minimum_branching,
+    "minimum_spanning_arborescence": fnx.minimum_spanning_arborescence,
     "minimum_spanning_tree": fnx.minimum_spanning_tree,
     # Euler
     "is_eulerian": fnx.is_eulerian,

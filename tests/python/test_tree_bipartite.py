@@ -4,6 +4,10 @@ import pytest
 from conftest import assert_sets_equal
 
 
+def _sorted_directed_weighted_edges(graph):
+    return sorted((u, v, graph.edges[u, v].get("weight", 1.0)) for u, v in graph.edges)
+
+
 @pytest.mark.conformance
 class TestTreeForest:
     def test_is_tree_path(self, fnx, nx, path_graph):
@@ -131,3 +135,62 @@ class TestMST:
 
         with pytest.raises(ValueError, match="NaN found as an edge weight"):
             list(fnx.maximum_spanning_edges(G_fnx, weight="weight"))
+
+
+@pytest.mark.conformance
+class TestBranchings:
+    def test_maximum_branching_matches_networkx(self, fnx, nx):
+        G_fnx = fnx.DiGraph()
+        G_nx = nx.DiGraph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", weight=5.0)
+            graph.add_edge("c", "b", weight=5.0)
+            graph.add_edge("b", "d", weight=4.0)
+            graph.add_edge("c", "d", weight=4.0)
+
+        fnx_result = fnx.maximum_branching(G_fnx)
+        nx_result = nx.maximum_branching(G_nx)
+        assert list(fnx_result.nodes) == list(nx_result.nodes)
+        assert _sorted_directed_weighted_edges(fnx_result) == _sorted_directed_weighted_edges(nx_result)
+
+    def test_minimum_branching_matches_networkx(self, fnx, nx):
+        G_fnx = fnx.DiGraph()
+        G_nx = nx.DiGraph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", weight=5.0)
+            graph.add_edge("b", "c", weight=-10.0)
+            graph.add_edge("a", "c", weight=1.0)
+
+        fnx_result = fnx.minimum_branching(G_fnx)
+        nx_result = nx.minimum_branching(G_nx)
+        assert list(fnx_result.nodes) == list(nx_result.nodes)
+        assert _sorted_directed_weighted_edges(fnx_result) == _sorted_directed_weighted_edges(nx_result)
+
+    def test_maximum_spanning_arborescence_matches_networkx(self, fnx, nx):
+        G_fnx = fnx.DiGraph()
+        G_nx = nx.DiGraph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", weight=5.0)
+            graph.add_edge("b", "c", weight=4.0)
+            graph.add_edge("c", "a", weight=3.0)
+            graph.add_edge("a", "d", weight=2.0)
+
+        fnx_result = fnx.maximum_spanning_arborescence(G_fnx)
+        nx_result = nx.maximum_spanning_arborescence(G_nx)
+        assert list(fnx_result.nodes) == list(nx_result.nodes)
+        assert _sorted_directed_weighted_edges(fnx_result) == _sorted_directed_weighted_edges(nx_result)
+
+    def test_minimum_spanning_arborescence_matches_networkx(self, fnx, nx):
+        G_fnx = fnx.DiGraph()
+        G_nx = nx.DiGraph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("s", "a", weight=2.0)
+            graph.add_edge("s", "b", weight=5.0)
+            graph.add_edge("a", "b", weight=1.0)
+            graph.add_edge("a", "c", weight=4.0)
+            graph.add_edge("b", "c", weight=1.0)
+
+        fnx_result = fnx.minimum_spanning_arborescence(G_fnx)
+        nx_result = nx.minimum_spanning_arborescence(G_nx)
+        assert list(fnx_result.nodes) == list(nx_result.nodes)
+        assert _sorted_directed_weighted_edges(fnx_result) == _sorted_directed_weighted_edges(nx_result)

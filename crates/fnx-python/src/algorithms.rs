@@ -304,6 +304,41 @@ fn mst_edges_to_python(
         .collect()
 }
 
+fn directed_branching_to_pydigraph(
+    py: Python<'_>,
+    dg: &PyDiGraph,
+    edges: &[fnx_algorithms::BranchingEdge],
+    attr: &str,
+    preserve_attrs: bool,
+) -> PyResult<PyDiGraph> {
+    let mut tree = PyDiGraph::new_empty(py)?;
+    for node in dg.inner.nodes_ordered() {
+        let py_key = dg.py_node_key(py, node);
+        tree.node_key_map.insert(node.to_owned(), py_key);
+        tree.node_py_attrs
+            .insert(node.to_owned(), PyDict::new(py).unbind());
+        tree.inner.add_node(node);
+    }
+    for edge in edges {
+        let _ = tree.inner.add_edge(&edge.source, &edge.target);
+        let attrs = if preserve_attrs {
+            match dg
+                .edge_py_attrs
+                .get(&(edge.source.clone(), edge.target.clone()))
+            {
+                Some(dict) => dict.bind(py).copy()?,
+                None => PyDict::new(py),
+            }
+        } else {
+            PyDict::new(py)
+        };
+        attrs.set_item(attr, edge.weight)?;
+        tree.edge_py_attrs
+            .insert((edge.source.clone(), edge.target.clone()), attrs.unbind());
+    }
+    Ok(tree)
+}
+
 // ---------------------------------------------------------------------------
 // shortest_path
 // ---------------------------------------------------------------------------
@@ -1509,6 +1544,138 @@ pub fn maximum_spanning_edges(
     let w = weight.to_owned();
     let result = py.allow_threads(move || fnx_algorithms::maximum_spanning_tree(&input, &w));
     mst_edges_to_python(py, &gr, &result.edges, data)
+}
+
+/// Return a maximum branching of a directed graph.
+#[pyfunction]
+#[pyo3(signature = (g, attr="weight", default=1.0, preserve_attrs=false, partition=None))]
+pub fn maximum_branching(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    attr: &str,
+    default: f64,
+    preserve_attrs: bool,
+    partition: Option<&str>,
+) -> PyResult<PyDiGraph> {
+    if partition.is_some() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "edge partition constraints are not implemented for maximum_branching.",
+        ));
+    }
+    let gr = extract_graph(g)?;
+    if let GraphRef::Directed { dg, .. } = &gr {
+        let inner = &dg.inner;
+        let attr_name = attr.to_owned();
+        let result =
+            py.allow_threads(move || fnx_algorithms::maximum_branching(inner, &attr_name, default));
+        directed_branching_to_pydigraph(py, dg, &result.edges, attr, preserve_attrs)
+    } else {
+        Err(crate::NetworkXNotImplemented::new_err(
+            "maximum_branching is only implemented for directed graphs.",
+        ))
+    }
+}
+
+/// Return a minimum branching of a directed graph.
+#[pyfunction]
+#[pyo3(signature = (g, attr="weight", default=1.0, preserve_attrs=false, partition=None))]
+pub fn minimum_branching(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    attr: &str,
+    default: f64,
+    preserve_attrs: bool,
+    partition: Option<&str>,
+) -> PyResult<PyDiGraph> {
+    if partition.is_some() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "edge partition constraints are not implemented for minimum_branching.",
+        ));
+    }
+    let gr = extract_graph(g)?;
+    if let GraphRef::Directed { dg, .. } = &gr {
+        let inner = &dg.inner;
+        let attr_name = attr.to_owned();
+        let result =
+            py.allow_threads(move || fnx_algorithms::minimum_branching(inner, &attr_name, default));
+        directed_branching_to_pydigraph(py, dg, &result.edges, attr, preserve_attrs)
+    } else {
+        Err(crate::NetworkXNotImplemented::new_err(
+            "minimum_branching is only implemented for directed graphs.",
+        ))
+    }
+}
+
+/// Return a maximum spanning arborescence of a directed graph.
+#[pyfunction]
+#[pyo3(signature = (g, attr="weight", default=1.0, preserve_attrs=false, partition=None))]
+pub fn maximum_spanning_arborescence(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    attr: &str,
+    default: f64,
+    preserve_attrs: bool,
+    partition: Option<&str>,
+) -> PyResult<PyDiGraph> {
+    if partition.is_some() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "edge partition constraints are not implemented for maximum_spanning_arborescence.",
+        ));
+    }
+    let gr = extract_graph(g)?;
+    if let GraphRef::Directed { dg, .. } = &gr {
+        if dg.inner.node_count() == 0 {
+            return Err(crate::NetworkXPointlessConcept::new_err("G has no nodes."));
+        }
+        let inner = &dg.inner;
+        let attr_name = attr.to_owned();
+        let result = py.allow_threads(move || {
+            fnx_algorithms::maximum_spanning_arborescence(inner, &attr_name, default)
+        });
+        let result = result
+            .ok_or_else(|| NetworkXError::new_err("No maximum spanning arborescence in G."))?;
+        directed_branching_to_pydigraph(py, dg, &result.edges, attr, preserve_attrs)
+    } else {
+        Err(crate::NetworkXNotImplemented::new_err(
+            "maximum_spanning_arborescence is only implemented for directed graphs.",
+        ))
+    }
+}
+
+/// Return a minimum spanning arborescence of a directed graph.
+#[pyfunction]
+#[pyo3(signature = (g, attr="weight", default=1.0, preserve_attrs=false, partition=None))]
+pub fn minimum_spanning_arborescence(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    attr: &str,
+    default: f64,
+    preserve_attrs: bool,
+    partition: Option<&str>,
+) -> PyResult<PyDiGraph> {
+    if partition.is_some() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "edge partition constraints are not implemented for minimum_spanning_arborescence.",
+        ));
+    }
+    let gr = extract_graph(g)?;
+    if let GraphRef::Directed { dg, .. } = &gr {
+        if dg.inner.node_count() == 0 {
+            return Err(crate::NetworkXPointlessConcept::new_err("G has no nodes."));
+        }
+        let inner = &dg.inner;
+        let attr_name = attr.to_owned();
+        let result = py.allow_threads(move || {
+            fnx_algorithms::minimum_spanning_arborescence(inner, &attr_name, default)
+        });
+        let result = result
+            .ok_or_else(|| NetworkXError::new_err("No minimum spanning arborescence in G."))?;
+        directed_branching_to_pydigraph(py, dg, &result.edges, attr, preserve_attrs)
+    } else {
+        Err(crate::NetworkXNotImplemented::new_err(
+            "minimum_spanning_arborescence is only implemented for directed graphs.",
+        ))
+    }
 }
 
 // ===========================================================================
@@ -6003,6 +6170,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(core_number, m)?)?;
     m.add_function(wrap_pyfunction!(minimum_spanning_tree, m)?)?;
     m.add_function(wrap_pyfunction!(minimum_spanning_edges, m)?)?;
+    m.add_function(wrap_pyfunction!(maximum_branching, m)?)?;
+    m.add_function(wrap_pyfunction!(minimum_branching, m)?)?;
+    m.add_function(wrap_pyfunction!(maximum_spanning_arborescence, m)?)?;
+    m.add_function(wrap_pyfunction!(minimum_spanning_arborescence, m)?)?;
     // Euler
     m.add_function(wrap_pyfunction!(is_eulerian, m)?)?;
     m.add_function(wrap_pyfunction!(has_eulerian_path, m)?)?;
@@ -6063,6 +6234,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Spanning trees
     m.add_function(wrap_pyfunction!(maximum_spanning_tree, m)?)?;
     m.add_function(wrap_pyfunction!(maximum_spanning_edges, m)?)?;
+    m.add_function(wrap_pyfunction!(maximum_branching, m)?)?;
+    m.add_function(wrap_pyfunction!(minimum_branching, m)?)?;
+    m.add_function(wrap_pyfunction!(maximum_spanning_arborescence, m)?)?;
+    m.add_function(wrap_pyfunction!(minimum_spanning_arborescence, m)?)?;
     // Strongly connected components
     m.add_function(wrap_pyfunction!(strongly_connected_components, m)?)?;
     m.add_function(wrap_pyfunction!(number_strongly_connected_components, m)?)?;

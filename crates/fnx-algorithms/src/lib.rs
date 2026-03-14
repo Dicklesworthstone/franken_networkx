@@ -334,8 +334,22 @@ pub struct MstEdge {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BranchingEdge {
+    pub source: String,
+    pub target: String,
+    pub weight: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MinimumSpanningTreeResult {
     pub edges: Vec<MstEdge>,
+    pub total_weight: f64,
+    pub witness: ComplexityWitness,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BranchingResult {
+    pub edges: Vec<BranchingEdge>,
     pub total_weight: f64,
     pub witness: ComplexityWitness,
 }
@@ -4055,6 +4069,529 @@ pub fn maximum_spanning_tree(graph: &Graph, weight_attr: &str) -> MinimumSpannin
             queue_peak: 0,
         },
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct ContractedBranchingEdge {
+    source: String,
+    target: String,
+    weight: f64,
+    repr_source: String,
+    repr_target: String,
+    repr_weight: f64,
+}
+
+fn sort_branching_edges(edges: &mut [BranchingEdge]) {
+    edges.sort_by(|left, right| {
+        left.source
+            .cmp(&right.source)
+            .then_with(|| left.target.cmp(&right.target))
+            .then_with(|| {
+                left.weight
+                    .partial_cmp(&right.weight)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+    });
+}
+
+fn better_contracted_edge_for_max(
+    candidate: &ContractedBranchingEdge,
+    current: &ContractedBranchingEdge,
+) -> bool {
+    match candidate
+        .weight
+        .partial_cmp(&current.weight)
+        .unwrap_or(std::cmp::Ordering::Equal)
+    {
+        std::cmp::Ordering::Greater => true,
+        std::cmp::Ordering::Less => false,
+        std::cmp::Ordering::Equal => {
+            (
+                candidate.repr_source.as_str(),
+                candidate.repr_target.as_str(),
+                candidate.source.as_str(),
+                candidate.target.as_str(),
+            ) < (
+                current.repr_source.as_str(),
+                current.repr_target.as_str(),
+                current.source.as_str(),
+                current.target.as_str(),
+            )
+        }
+    }
+}
+
+fn better_branching_result_for_max(candidate: &BranchingResult, current: &BranchingResult) -> bool {
+    if candidate.total_weight > current.total_weight + DISTANCE_COMPARISON_EPSILON {
+        return true;
+    }
+    if current.total_weight > candidate.total_weight + DISTANCE_COMPARISON_EPSILON {
+        return false;
+    }
+    candidate
+        .edges
+        .iter()
+        .map(|edge| (edge.source.as_str(), edge.target.as_str()))
+        .collect::<Vec<_>>()
+        < current
+            .edges
+            .iter()
+            .map(|edge| (edge.source.as_str(), edge.target.as_str()))
+            .collect::<Vec<_>>()
+}
+
+fn better_branching_result_for_min(candidate: &BranchingResult, current: &BranchingResult) -> bool {
+    if candidate.total_weight + DISTANCE_COMPARISON_EPSILON < current.total_weight {
+        return true;
+    }
+    if current.total_weight + DISTANCE_COMPARISON_EPSILON < candidate.total_weight {
+        return false;
+    }
+    candidate
+        .edges
+        .iter()
+        .map(|edge| (edge.source.as_str(), edge.target.as_str()))
+        .collect::<Vec<_>>()
+        < current
+            .edges
+            .iter()
+            .map(|edge| (edge.source.as_str(), edge.target.as_str()))
+            .collect::<Vec<_>>()
+}
+
+fn find_selected_cycle(
+    nodes: &[String],
+    root: &str,
+    selected_incoming: &HashMap<String, ContractedBranchingEdge>,
+) -> Option<Vec<String>> {
+    let mut globally_done = HashSet::<String>::new();
+    for node in nodes {
+        if node == root || globally_done.contains(node) {
+            continue;
+        }
+        let mut path = Vec::<String>::new();
+        let mut positions = HashMap::<String, usize>::new();
+        let mut current = node.clone();
+        loop {
+            if current == root {
+                break;
+            }
+            if let Some(&cycle_start) = positions.get(&current) {
+                return Some(path[cycle_start..].to_vec());
+            }
+            if globally_done.contains(&current) {
+                break;
+            }
+            positions.insert(current.clone(), path.len());
+            path.push(current.clone());
+            let edge = selected_incoming.get(&current)?;
+            current = edge.source.clone();
+        }
+        globally_done.extend(path);
+    }
+    None
+}
+
+fn unique_cycle_node_name(nodes: &[String], cycle: &[String]) -> String {
+    let base = format!("__fnx_cycle__{}", cycle.join("__"));
+    if !nodes.iter().any(|node| node == &base) {
+        return base;
+    }
+    let mut suffix = 1usize;
+    loop {
+        let candidate = format!("{base}#{suffix}");
+        if !nodes.iter().any(|node| node == &candidate) {
+            return candidate;
+        }
+        suffix += 1;
+    }
+}
+
+fn maximum_rooted_arborescence_current(
+    nodes: Vec<String>,
+    edges: Vec<ContractedBranchingEdge>,
+    root: &str,
+) -> Option<Vec<ContractedBranchingEdge>> {
+    if nodes.len() <= 1 {
+        return Some(Vec::new());
+    }
+
+    let mut selected_incoming = HashMap::<String, ContractedBranchingEdge>::new();
+    for node in nodes.iter().filter(|node| node.as_str() != root) {
+        let mut best_edge: Option<ContractedBranchingEdge> = None;
+        for edge in &edges {
+            if edge.target != *node || edge.source == *node {
+                continue;
+            }
+            if best_edge
+                .as_ref()
+                .is_none_or(|current| better_contracted_edge_for_max(edge, current))
+            {
+                best_edge = Some(edge.clone());
+            }
+        }
+        selected_incoming.insert(node.clone(), best_edge?);
+    }
+
+    let Some(cycle) = find_selected_cycle(&nodes, root, &selected_incoming) else {
+        return Some(selected_incoming.into_values().collect());
+    };
+
+    let cycle_set = cycle.iter().cloned().collect::<HashSet<_>>();
+    let supernode = unique_cycle_node_name(&nodes, &cycle);
+    let cycle_insert_index = nodes
+        .iter()
+        .position(|node| cycle_set.contains(node))
+        .unwrap_or(nodes.len());
+
+    let mut contracted_nodes = Vec::<String>::new();
+    for (index, node) in nodes.iter().enumerate() {
+        if index == cycle_insert_index {
+            contracted_nodes.push(supernode.clone());
+        }
+        if !cycle_set.contains(node) {
+            contracted_nodes.push(node.clone());
+        }
+    }
+
+    let mut contracted_edges = Vec::<ContractedBranchingEdge>::new();
+    for edge in &edges {
+        let source_in_cycle = cycle_set.contains(&edge.source);
+        let target_in_cycle = cycle_set.contains(&edge.target);
+        match (source_in_cycle, target_in_cycle) {
+            (true, true) => {}
+            (false, false) => contracted_edges.push(edge.clone()),
+            (false, true) => {
+                let incoming = selected_incoming.get(&edge.target)?;
+                contracted_edges.push(ContractedBranchingEdge {
+                    source: edge.source.clone(),
+                    target: supernode.clone(),
+                    weight: edge.weight - incoming.weight,
+                    repr_source: edge.source.clone(),
+                    repr_target: edge.target.clone(),
+                    repr_weight: edge.weight,
+                });
+            }
+            (true, false) => {
+                contracted_edges.push(ContractedBranchingEdge {
+                    source: supernode.clone(),
+                    target: edge.target.clone(),
+                    weight: edge.weight,
+                    repr_source: edge.source.clone(),
+                    repr_target: edge.target.clone(),
+                    repr_weight: edge.weight,
+                });
+            }
+        }
+    }
+
+    let contracted_solution =
+        maximum_rooted_arborescence_current(contracted_nodes, contracted_edges, root)?;
+
+    let mut expanded = Vec::<ContractedBranchingEdge>::new();
+    let mut cycle_entry_target: Option<String> = None;
+
+    for edge in contracted_solution {
+        if edge.source == supernode || edge.target == supernode {
+            let restored = ContractedBranchingEdge {
+                source: edge.repr_source.clone(),
+                target: edge.repr_target.clone(),
+                weight: edge.repr_weight,
+                repr_source: edge.repr_source,
+                repr_target: edge.repr_target,
+                repr_weight: edge.repr_weight,
+            };
+            if edge.target == supernode {
+                cycle_entry_target = Some(restored.target.clone());
+            }
+            expanded.push(restored);
+        } else {
+            expanded.push(edge);
+        }
+    }
+
+    let cycle_entry_target = cycle_entry_target?;
+    for node in cycle {
+        if node == cycle_entry_target {
+            continue;
+        }
+        if let Some(edge) = selected_incoming.get(&node) {
+            expanded.push(edge.clone());
+        }
+    }
+
+    Some(expanded)
+}
+
+fn collect_directed_branching_edges(
+    digraph: &DiGraph,
+    weight_attr: &str,
+    default_weight: f64,
+) -> Vec<BranchingEdge> {
+    let mut edges = Vec::<BranchingEdge>::new();
+    for edge in digraph.edges_ordered() {
+        let weight = directed_edge_weight_with_default(
+            digraph,
+            &edge.left,
+            &edge.right,
+            weight_attr,
+            default_weight,
+        );
+        edges.push(BranchingEdge {
+            source: edge.left,
+            target: edge.right,
+            weight,
+        });
+    }
+    sort_branching_edges(&mut edges);
+    edges
+}
+
+fn maximum_rooted_arborescence(
+    nodes: &[String],
+    edges: &[BranchingEdge],
+    root: &str,
+) -> Option<Vec<BranchingEdge>> {
+    if !nodes.iter().any(|node| node == root) {
+        return None;
+    }
+    let contracted_edges = edges
+        .iter()
+        .map(|edge| ContractedBranchingEdge {
+            source: edge.source.clone(),
+            target: edge.target.clone(),
+            weight: edge.weight,
+            repr_source: edge.source.clone(),
+            repr_target: edge.target.clone(),
+            repr_weight: edge.weight,
+        })
+        .collect::<Vec<_>>();
+    let mut restored = maximum_rooted_arborescence_current(nodes.to_vec(), contracted_edges, root)?
+        .into_iter()
+        .map(|edge| BranchingEdge {
+            source: edge.source,
+            target: edge.target,
+            weight: edge.weight,
+        })
+        .collect::<Vec<_>>();
+    sort_branching_edges(&mut restored);
+    Some(restored)
+}
+
+fn branching_result(
+    algorithm: &str,
+    nodes_touched: usize,
+    edges_scanned: usize,
+    edges: Vec<BranchingEdge>,
+) -> BranchingResult {
+    let total_weight = edges.iter().map(|edge| edge.weight).sum::<f64>();
+    BranchingResult {
+        edges,
+        total_weight,
+        witness: ComplexityWitness {
+            algorithm: algorithm.to_owned(),
+            complexity_claim: "O(|V| * |E|)".to_owned(),
+            nodes_touched,
+            edges_scanned,
+            queue_peak: 0,
+        },
+    }
+}
+
+/// Return a maximum branching of a directed graph.
+#[must_use]
+pub fn maximum_branching(
+    digraph: &DiGraph,
+    weight_attr: &str,
+    default_weight: f64,
+) -> BranchingResult {
+    let nodes = digraph
+        .nodes_ordered()
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if nodes.is_empty() {
+        return branching_result("chu_liu_edmonds_maximum_branching", 0, 0, Vec::new());
+    }
+
+    let mut augmented_nodes = nodes.clone();
+    let super_root = unique_cycle_node_name(&augmented_nodes, &["root".to_owned()]);
+    augmented_nodes.insert(0, super_root.clone());
+
+    let mut augmented_edges =
+        collect_directed_branching_edges(digraph, weight_attr, default_weight);
+    for node in &nodes {
+        augmented_edges.push(BranchingEdge {
+            source: super_root.clone(),
+            target: node.clone(),
+            weight: 0.0,
+        });
+    }
+    sort_branching_edges(&mut augmented_edges);
+
+    let mut edges = maximum_rooted_arborescence(&augmented_nodes, &augmented_edges, &super_root)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|edge| edge.source != super_root)
+        .collect::<Vec<_>>();
+    sort_branching_edges(&mut edges);
+    branching_result(
+        "chu_liu_edmonds_maximum_branching",
+        augmented_nodes.len(),
+        augmented_edges.len(),
+        edges,
+    )
+}
+
+/// Return a minimum branching of a directed graph.
+#[must_use]
+pub fn minimum_branching(
+    digraph: &DiGraph,
+    weight_attr: &str,
+    default_weight: f64,
+) -> BranchingResult {
+    let nodes = digraph
+        .nodes_ordered()
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if nodes.is_empty() {
+        return branching_result("chu_liu_edmonds_minimum_branching", 0, 0, Vec::new());
+    }
+
+    let transformed_edges = collect_directed_branching_edges(digraph, weight_attr, default_weight)
+        .into_iter()
+        .map(|edge| BranchingEdge {
+            source: edge.source,
+            target: edge.target,
+            weight: -edge.weight,
+        })
+        .collect::<Vec<_>>();
+
+    let mut augmented_nodes = nodes.clone();
+    let super_root = unique_cycle_node_name(&augmented_nodes, &["root".to_owned()]);
+    augmented_nodes.insert(0, super_root.clone());
+
+    let mut augmented_edges = transformed_edges;
+    for node in &nodes {
+        augmented_edges.push(BranchingEdge {
+            source: super_root.clone(),
+            target: node.clone(),
+            weight: 0.0,
+        });
+    }
+    sort_branching_edges(&mut augmented_edges);
+
+    let mut edges = maximum_rooted_arborescence(&augmented_nodes, &augmented_edges, &super_root)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|edge| edge.source != super_root)
+        .map(|edge| BranchingEdge {
+            source: edge.source,
+            target: edge.target,
+            weight: -edge.weight,
+        })
+        .collect::<Vec<_>>();
+    sort_branching_edges(&mut edges);
+    branching_result(
+        "chu_liu_edmonds_minimum_branching",
+        augmented_nodes.len(),
+        augmented_edges.len(),
+        edges,
+    )
+}
+
+/// Return a maximum spanning arborescence of a directed graph, if one exists.
+#[must_use]
+pub fn maximum_spanning_arborescence(
+    digraph: &DiGraph,
+    weight_attr: &str,
+    default_weight: f64,
+) -> Option<BranchingResult> {
+    let nodes = digraph
+        .nodes_ordered()
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if nodes.is_empty() {
+        return None;
+    }
+    let edges = collect_directed_branching_edges(digraph, weight_attr, default_weight);
+    let mut best: Option<BranchingResult> = None;
+    for root in &nodes {
+        let Some(mut candidate_edges) = maximum_rooted_arborescence(&nodes, &edges, root) else {
+            continue;
+        };
+        sort_branching_edges(&mut candidate_edges);
+        let candidate = branching_result(
+            "chu_liu_edmonds_maximum_spanning_arborescence",
+            nodes.len(),
+            edges.len(),
+            candidate_edges,
+        );
+        if best
+            .as_ref()
+            .is_none_or(|current| better_branching_result_for_max(&candidate, current))
+        {
+            best = Some(candidate);
+        }
+    }
+    best
+}
+
+/// Return a minimum spanning arborescence of a directed graph, if one exists.
+#[must_use]
+pub fn minimum_spanning_arborescence(
+    digraph: &DiGraph,
+    weight_attr: &str,
+    default_weight: f64,
+) -> Option<BranchingResult> {
+    let nodes = digraph
+        .nodes_ordered()
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if nodes.is_empty() {
+        return None;
+    }
+    let transformed_edges = collect_directed_branching_edges(digraph, weight_attr, default_weight)
+        .into_iter()
+        .map(|edge| BranchingEdge {
+            source: edge.source,
+            target: edge.target,
+            weight: -edge.weight,
+        })
+        .collect::<Vec<_>>();
+
+    let mut best: Option<BranchingResult> = None;
+    for root in &nodes {
+        let Some(candidate_edges) = maximum_rooted_arborescence(&nodes, &transformed_edges, root)
+        else {
+            continue;
+        };
+        let mut restored_edges = candidate_edges
+            .into_iter()
+            .map(|edge| BranchingEdge {
+                source: edge.source,
+                target: edge.target,
+                weight: -edge.weight,
+            })
+            .collect::<Vec<_>>();
+        sort_branching_edges(&mut restored_edges);
+        let candidate = branching_result(
+            "chu_liu_edmonds_minimum_spanning_arborescence",
+            nodes.len(),
+            transformed_edges.len(),
+            restored_edges,
+        );
+        if best
+            .as_ref()
+            .is_none_or(|current| better_branching_result_for_min(&candidate, current))
+        {
+            best = Some(candidate);
+        }
+    }
+    best
 }
 
 /// Counts the number of triangles each node participates in.
@@ -12820,18 +13357,34 @@ pub fn path_weight_directed(digraph: &DiGraph, path: &[&str], weight_attr: &str)
 }
 
 /// Helper to get edge weight from DiGraph.
+fn directed_edge_weight_with_default(
+    digraph: &DiGraph,
+    source: &str,
+    target: &str,
+    weight_attr: &str,
+    default_weight: f64,
+) -> f64 {
+    digraph
+        .edge_attrs(source, target)
+        .and_then(|attrs| attrs.get(weight_attr))
+        .and_then(|raw| raw.parse::<f64>().ok())
+        .filter(|value| value.is_finite())
+        .unwrap_or(default_weight)
+}
+
+/// Helper to get a non-negative edge weight from DiGraph.
 fn digraph_edge_weight_or_default(
     digraph: &DiGraph,
     source: &str,
     target: &str,
     weight_attr: &str,
 ) -> f64 {
-    digraph
-        .edge_attrs(source, target)
-        .and_then(|attrs| attrs.get(weight_attr))
-        .and_then(|raw| raw.parse::<f64>().ok())
-        .filter(|value| value.is_finite() && *value >= 0.0)
-        .unwrap_or(1.0)
+    let weight = directed_edge_weight_with_default(digraph, source, target, weight_attr, 1.0);
+    if weight.is_finite() && weight >= 0.0 {
+        weight
+    } else {
+        1.0
+    }
 }
 
 fn signed_digraph_edge_weight_or_default(
@@ -12840,12 +13393,7 @@ fn signed_digraph_edge_weight_or_default(
     target: &str,
     weight_attr: &str,
 ) -> f64 {
-    digraph
-        .edge_attrs(source, target)
-        .and_then(|attrs| attrs.get(weight_attr))
-        .and_then(|raw| raw.parse::<f64>().ok())
-        .filter(|value| value.is_finite())
-        .unwrap_or(1.0)
+    directed_edge_weight_with_default(digraph, source, target, weight_attr, 1.0)
 }
 
 /// Reconstruct a path from a predecessor dictionary.
@@ -15959,6 +16507,7 @@ pub fn is_aperiodic_digraph(digraph: &DiGraph) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
+        BranchingEdge,
         CGSE_WITNESS_LEDGER_PATH,
         CGSE_WITNESS_POLICY_SPEC_PATH,
         CentralityScore,
@@ -16177,14 +16726,18 @@ mod tests {
         max_weight_matching,
         maximal_independent_set,
         maximal_matching,
+        maximum_branching,
         maximum_independent_set,
+        maximum_spanning_arborescence,
         maximum_spanning_tree,
         min_edge_cover,
         min_weight_matching,
         // Approximation algorithms
         min_weighted_vertex_cover,
+        minimum_branching,
         minimum_cut_edmonds_karp,
         minimum_cut_edmonds_karp_directed,
+        minimum_spanning_arborescence,
         minimum_st_edge_cut_edmonds_karp,
         mixing_expansion,
         modularity,
@@ -23118,6 +23671,144 @@ mod tests {
     fn test_is_branching_empty() {
         let g = DiGraph::strict();
         assert!(is_branching(&g));
+    }
+
+    #[test]
+    fn test_maximum_branching_matches_networkx_tie_break_example() {
+        let mut g = DiGraph::strict();
+        g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "5".to_owned())].into())
+            .expect("edge add should succeed");
+        g.add_edge_with_attrs("c", "b", [("weight".to_owned(), "5".to_owned())].into())
+            .expect("edge add should succeed");
+        g.add_edge_with_attrs("b", "d", [("weight".to_owned(), "4".to_owned())].into())
+            .expect("edge add should succeed");
+        g.add_edge_with_attrs("c", "d", [("weight".to_owned(), "4".to_owned())].into())
+            .expect("edge add should succeed");
+
+        let result = maximum_branching(&g, "weight", 1.0);
+        assert_eq!(
+            result.edges,
+            vec![
+                BranchingEdge {
+                    source: "a".to_owned(),
+                    target: "b".to_owned(),
+                    weight: 5.0,
+                },
+                BranchingEdge {
+                    source: "b".to_owned(),
+                    target: "d".to_owned(),
+                    weight: 4.0,
+                },
+            ]
+        );
+        assert!((result.total_weight - 9.0).abs() <= 1e-12);
+    }
+
+    #[test]
+    fn test_minimum_branching_prefers_negative_edge() {
+        let mut g = DiGraph::strict();
+        g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "5".to_owned())].into())
+            .expect("edge add should succeed");
+        g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "-10".to_owned())].into())
+            .expect("edge add should succeed");
+        g.add_edge_with_attrs("a", "c", [("weight".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+
+        let result = minimum_branching(&g, "weight", 1.0);
+        assert_eq!(
+            result.edges,
+            vec![BranchingEdge {
+                source: "b".to_owned(),
+                target: "c".to_owned(),
+                weight: -10.0,
+            }]
+        );
+        assert!((result.total_weight + 10.0).abs() <= 1e-12);
+    }
+
+    #[test]
+    fn test_maximum_spanning_arborescence_matches_expected_edges() {
+        let mut g = DiGraph::strict();
+        g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "5".to_owned())].into())
+            .expect("edge add should succeed");
+        g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "4".to_owned())].into())
+            .expect("edge add should succeed");
+        g.add_edge_with_attrs("c", "a", [("weight".to_owned(), "3".to_owned())].into())
+            .expect("edge add should succeed");
+        g.add_edge_with_attrs("a", "d", [("weight".to_owned(), "2".to_owned())].into())
+            .expect("edge add should succeed");
+
+        let result =
+            maximum_spanning_arborescence(&g, "weight", 1.0).expect("arborescence should exist");
+        assert_eq!(
+            result.edges,
+            vec![
+                BranchingEdge {
+                    source: "a".to_owned(),
+                    target: "b".to_owned(),
+                    weight: 5.0,
+                },
+                BranchingEdge {
+                    source: "a".to_owned(),
+                    target: "d".to_owned(),
+                    weight: 2.0,
+                },
+                BranchingEdge {
+                    source: "b".to_owned(),
+                    target: "c".to_owned(),
+                    weight: 4.0,
+                },
+            ]
+        );
+        assert!((result.total_weight - 11.0).abs() <= 1e-12);
+    }
+
+    #[test]
+    fn test_maximum_spanning_arborescence_returns_none_when_disconnected() {
+        let mut g = DiGraph::strict();
+        g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "5".to_owned())].into())
+            .expect("edge add should succeed");
+        g.add_node("c");
+        assert!(maximum_spanning_arborescence(&g, "weight", 1.0).is_none());
+    }
+
+    #[test]
+    fn test_minimum_spanning_arborescence_matches_expected_edges() {
+        let mut g = DiGraph::strict();
+        g.add_edge_with_attrs("s", "a", [("weight".to_owned(), "2".to_owned())].into())
+            .expect("edge add should succeed");
+        g.add_edge_with_attrs("s", "b", [("weight".to_owned(), "5".to_owned())].into())
+            .expect("edge add should succeed");
+        g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+        g.add_edge_with_attrs("a", "c", [("weight".to_owned(), "4".to_owned())].into())
+            .expect("edge add should succeed");
+        g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "1".to_owned())].into())
+            .expect("edge add should succeed");
+
+        let result =
+            minimum_spanning_arborescence(&g, "weight", 1.0).expect("arborescence should exist");
+        assert_eq!(
+            result.edges,
+            vec![
+                BranchingEdge {
+                    source: "a".to_owned(),
+                    target: "b".to_owned(),
+                    weight: 1.0,
+                },
+                BranchingEdge {
+                    source: "b".to_owned(),
+                    target: "c".to_owned(),
+                    weight: 1.0,
+                },
+                BranchingEdge {
+                    source: "s".to_owned(),
+                    target: "a".to_owned(),
+                    weight: 2.0,
+                },
+            ]
+        );
+        assert!((result.total_weight - 4.0).abs() <= 1e-12);
     }
 
     // -----------------------------------------------------------------------
