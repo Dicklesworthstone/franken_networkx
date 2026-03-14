@@ -14,6 +14,13 @@ def _directed_flow_pair(fnx, nx, edges):
 
 @pytest.mark.conformance
 class TestFlow:
+    def test_maximum_flow(self, fnx, nx, weighted_graph):
+        G_fnx, G_nx = weighted_graph
+        fnx_val, fnx_flow = fnx.maximum_flow(G_fnx, "a", "d", capacity="weight")
+        nx_val, nx_flow = nx.maximum_flow(G_nx, "a", "d", capacity="weight")
+        assert abs(fnx_val - nx_val) < 1e-9
+        assert fnx_flow == nx_flow
+
     def test_maximum_flow_value(self, fnx, nx, weighted_graph):
         G_fnx, G_nx = weighted_graph
         fnx_val = fnx.maximum_flow_value(G_fnx, "a", "d", capacity="weight")
@@ -54,6 +61,11 @@ class TestFlow:
             ],
         )
 
+        fnx_flow_value, fnx_flow = fnx.maximum_flow(DG_fnx, "s", "t")
+        nx_flow_value, nx_flow = nx.maximum_flow(DG_nx, "s", "t")
+        assert abs(fnx_flow_value - nx_flow_value) < 1e-9
+        assert fnx_flow == nx_flow
+
         fnx_val = fnx.maximum_flow_value(DG_fnx, "s", "t")
         nx_val = nx.maximum_flow_value(DG_nx, "s", "t")
         assert abs(fnx_val - nx_val) < 1e-9
@@ -77,6 +89,11 @@ class TestFlow:
                 ("a", "t", 5.0),
             ],
         )
+
+        fnx_flow_value, fnx_flow = fnx.maximum_flow(DG_fnx, "s", "t")
+        nx_flow_value, nx_flow = nx.maximum_flow(DG_nx, "s", "t")
+        assert abs(fnx_flow_value - nx_flow_value) < 1e-9
+        assert fnx_flow == nx_flow
 
         fnx_val = fnx.maximum_flow_value(DG_fnx, "s", "t")
         nx_val = nx.maximum_flow_value(DG_nx, "s", "t")

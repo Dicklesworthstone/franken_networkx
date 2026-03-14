@@ -12,8 +12,10 @@ use crate::{
 use fnx_classes::AttrMap;
 use pyo3::exceptions::{PyIndexError, PyValueError, PyZeroDivisionError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyTuple};
+use pyo3::types::{PyDict, PyList, PyTuple};
 use std::collections::{HashMap, HashSet};
+
+type SpanningEdgeSamples = (Vec<(String, String)>, Vec<f64>);
 
 // ---------------------------------------------------------------------------
 // GraphRef — unified graph access for algorithms accepting both Graph & DiGraph
@@ -213,6 +215,56 @@ fn tuple_object(py: Python<'_>, elements: &[PyObject]) -> PyResult<PyObject> {
     Ok(PyTuple::new(py, elements)?.into_any().unbind())
 }
 
+fn flow_dict_object(
+    py: Python<'_>,
+    gr: &GraphRef<'_>,
+    flows: &[fnx_algorithms::FlowEdgeValue],
+) -> PyResult<PyObject> {
+    let outer = PyDict::new(py);
+    let mut adjacency_by_source = HashMap::<String, Py<PyDict>>::new();
+
+    match gr {
+        GraphRef::Undirected(pg) => {
+            for node in pg.inner.nodes_ordered() {
+                let adjacency = PyDict::new(py).unbind();
+                if let Some(neighbors) = pg.inner.neighbors_iter(node) {
+                    for neighbor in neighbors {
+                        adjacency
+                            .bind(py)
+                            .set_item(pg.py_node_key(py, neighbor), 0.0)?;
+                    }
+                }
+                outer.set_item(pg.py_node_key(py, node), adjacency.bind(py))?;
+                adjacency_by_source.insert(node.to_owned(), adjacency);
+            }
+        }
+        GraphRef::Directed { dg, .. } => {
+            for node in dg.inner.nodes_ordered() {
+                let adjacency = PyDict::new(py).unbind();
+                if let Some(neighbors) = dg.inner.successors_iter(node) {
+                    for neighbor in neighbors {
+                        adjacency
+                            .bind(py)
+                            .set_item(dg.py_node_key(py, neighbor), 0.0)?;
+                    }
+                }
+                outer.set_item(dg.py_node_key(py, node), adjacency.bind(py))?;
+                adjacency_by_source.insert(node.to_owned(), adjacency);
+            }
+        }
+    }
+
+    for flow in flows {
+        if let Some(adjacency) = adjacency_by_source.get(&flow.source) {
+            adjacency
+                .bind(py)
+                .set_item(gr.py_node_key(py, &flow.target), flow.flow)?;
+        }
+    }
+
+    Ok(outer.into_any().unbind())
+}
+
 fn validate_spanning_algorithm(algorithm: &str) -> PyResult<()> {
     if algorithm != "kruskal" {
         return Err(PyValueError::new_err(format!(
@@ -302,6 +354,75 @@ fn mst_edges_to_python(
             }
         })
         .collect()
+}
+
+fn undirected_spanning_edges_to_pygraph(
+    py: Python<'_>,
+    pg: &PyGraph,
+    edges: &[(String, String)],
+) -> PyResult<PyGraph> {
+    let mut tree = PyGraph::new_empty(py)?;
+    tree.graph_attrs = pg.graph_attrs.bind(py).copy()?.unbind();
+
+    for node in pg.inner.nodes_ordered() {
+        let py_key = pg.py_node_key(py, node);
+        tree.node_key_map.insert(node.to_owned(), py_key);
+        let node_attrs = match pg.node_py_attrs.get(node) {
+            Some(attrs) => attrs.bind(py).copy()?.unbind(),
+            None => PyDict::new(py).unbind(),
+        };
+        tree.node_py_attrs.insert(node.to_owned(), node_attrs);
+        tree.inner.add_node(node);
+    }
+
+    for (left, right) in edges {
+        let _ = tree.inner.add_edge(left, right);
+        let edge_key = PyGraph::edge_key(left, right);
+        let edge_attrs = match pg.edge_py_attrs.get(&edge_key) {
+            Some(attrs) => attrs.bind(py).copy()?.unbind(),
+            None => PyDict::new(py).unbind(),
+        };
+        tree.edge_py_attrs.insert(edge_key, edge_attrs);
+    }
+
+    Ok(tree)
+}
+
+fn random_source(py: Python<'_>, seed: Option<u64>) -> PyResult<Bound<'_, PyAny>> {
+    let random_module = py.import("random")?;
+    if let Some(seed) = seed {
+        random_module.getattr("Random")?.call1((seed,))
+    } else {
+        Ok(random_module.into_any())
+    }
+}
+
+fn shuffled_spanning_edges_with_random(
+    py: Python<'_>,
+    inner: &fnx_classes::Graph,
+    random: &Bound<'_, PyAny>,
+) -> PyResult<SpanningEdgeSamples> {
+    let edge_items = inner
+        .edges_ordered()
+        .into_iter()
+        .map(|edge| (edge.left, edge.right))
+        .collect::<Vec<_>>();
+    let edge_list = PyList::new(py, &edge_items)?;
+    random.call_method1("shuffle", (&edge_list,))?;
+    let shuffled_edges = edge_list.extract::<Vec<(String, String)>>()?;
+    let random_values = (0..shuffled_edges.len())
+        .map(|_| random.call_method1("uniform", (0.0, 1.0))?.extract::<f64>())
+        .collect::<PyResult<Vec<_>>>()?;
+    Ok((shuffled_edges, random_values))
+}
+
+fn ensure_random_spanning_weight_key(py: Python<'_>, pg: &PyGraph, weight: &str) -> PyResult<()> {
+    for attrs in pg.edge_py_attrs.values() {
+        if attrs.bind(py).get_item(weight)?.is_none() {
+            return Err(pyo3::exceptions::PyKeyError::new_err(weight.to_owned()));
+        }
+    }
+    Ok(())
 }
 
 fn directed_branching_to_pydigraph(
@@ -1143,6 +1264,36 @@ pub fn min_edge_cover(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<(PyO
 // Flow algorithms
 // ===========================================================================
 
+/// Return the maximum flow value and flow dictionary between source and sink.
+#[pyfunction]
+#[pyo3(signature = (g, source, sink, capacity="capacity"))]
+pub fn maximum_flow(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    sink: &Bound<'_, PyAny>,
+    capacity: &str,
+) -> PyResult<(f64, PyObject)> {
+    let gr = extract_graph(g)?;
+    let s = node_key_to_string(py, source)?;
+    let t = node_key_to_string(py, sink)?;
+    let cap = capacity.to_owned();
+    let result = match &gr {
+        GraphRef::Undirected(pg) => {
+            let inner = &pg.inner;
+            py.allow_threads(move || fnx_algorithms::max_flow_edmonds_karp(inner, &s, &t, &cap))
+        }
+        GraphRef::Directed { dg, .. } => {
+            let inner = &dg.inner;
+            py.allow_threads(move || {
+                fnx_algorithms::max_flow_edmonds_karp_directed(inner, &s, &t, &cap)
+            })
+        }
+    };
+    let flow_dict = flow_dict_object(py, &gr, &result.flows)?;
+    Ok((result.value, flow_dict))
+}
+
 /// Return the maximum flow value between source and sink.
 #[pyfunction]
 #[pyo3(signature = (g, source, sink, capacity="capacity"))]
@@ -1544,6 +1695,153 @@ pub fn maximum_spanning_edges(
     let w = weight.to_owned();
     let result = py.allow_threads(move || fnx_algorithms::maximum_spanning_tree(&input, &w));
     mst_edges_to_python(py, &gr, &result.edges, data)
+}
+
+/// Return the number of spanning trees or rooted spanning arborescences.
+#[pyfunction]
+#[pyo3(signature = (g, root=None, weight=None))]
+pub fn number_of_spanning_trees(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    root: Option<&Bound<'_, PyAny>>,
+    weight: Option<&str>,
+) -> PyResult<f64> {
+    let gr = extract_graph(g)?;
+    match &gr {
+        GraphRef::Undirected(pg) => {
+            if pg.inner.node_count() == 0 {
+                return Err(crate::NetworkXPointlessConcept::new_err(
+                    "Graph G must contain at least one node.",
+                ));
+            }
+            let inner = &pg.inner;
+            Ok(py.allow_threads(|| fnx_algorithms::number_of_spanning_trees(inner, weight)))
+        }
+        GraphRef::Directed { dg, .. } => {
+            if dg.inner.node_count() == 0 {
+                return Err(crate::NetworkXPointlessConcept::new_err(
+                    "Graph G must contain at least one node.",
+                ));
+            }
+            let Some(root) = root else {
+                return Err(NetworkXError::new_err(
+                    "Input `root` must be provided when G is directed",
+                ));
+            };
+            let canonical_root = node_key_to_string(py, root)?;
+            if !dg.inner.has_node(&canonical_root) {
+                return Err(NetworkXError::new_err(
+                    "The node root is not in the graph G.",
+                ));
+            }
+            let inner = &dg.inner;
+            Ok(py.allow_threads(move || {
+                fnx_algorithms::number_of_spanning_arborescences(inner, &canonical_root, weight)
+            }))
+        }
+    }
+}
+
+/// Find a spanning tree while respecting edge partition constraints.
+#[pyfunction]
+#[pyo3(signature = (g, minimum=true, weight="weight", partition="partition", ignore_nan=false))]
+pub fn partition_spanning_tree(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    minimum: bool,
+    weight: &str,
+    partition: &str,
+    ignore_nan: bool,
+) -> PyResult<PyGraph> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "partition_spanning_tree")?;
+    let GraphRef::Undirected(pg) = &gr else {
+        unreachable!("require_undirected should reject directed graphs")
+    };
+    let weight_name = weight.to_owned();
+    let partition_name = partition.to_owned();
+    let inner = &pg.inner;
+    let result = match py.allow_threads(move || {
+        fnx_algorithms::partition_spanning_tree(
+            inner,
+            minimum,
+            &weight_name,
+            &partition_name,
+            ignore_nan,
+        )
+    }) {
+        Ok(result) => result,
+        Err(fnx_algorithms::PartitionSpanningTreeError::NaNWeight { left, right }) => {
+            let py_u = pg.py_node_key(py, &left);
+            let py_v = pg.py_node_key(py, &right);
+            let edge_attrs = match pg.edge_py_attrs.get(&PyGraph::edge_key(&left, &right)) {
+                Some(attrs) => attrs.bind(py).copy()?,
+                None => PyDict::new(py),
+            };
+            return Err(PyValueError::new_err(format!(
+                "NaN found as an edge weight. Edge ({}, {}, {})",
+                py_u.bind(py).repr()?,
+                py_v.bind(py).repr()?,
+                edge_attrs.repr()?,
+            )));
+        }
+    };
+    let edge_pairs = result
+        .edges
+        .iter()
+        .map(|edge| (edge.left.clone(), edge.right.clone()))
+        .collect::<Vec<_>>();
+    undirected_spanning_edges_to_pygraph(py, pg, &edge_pairs)
+}
+
+/// Sample a random spanning tree.
+#[pyfunction]
+#[pyo3(signature = (g, weight=None, multiplicative=true, seed=None))]
+pub fn random_spanning_tree(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: Option<&str>,
+    multiplicative: bool,
+    seed: Option<u64>,
+) -> PyResult<PyGraph> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "random_spanning_tree")?;
+    let GraphRef::Undirected(pg) = &gr else {
+        unreachable!("require_undirected should reject directed graphs")
+    };
+    if let Some(weight_attr) = weight {
+        ensure_random_spanning_weight_key(py, pg, weight_attr)?;
+    }
+
+    let random = random_source(py, seed)?;
+    let (shuffled_edges, random_values) =
+        shuffled_spanning_edges_with_random(py, &pg.inner, &random)?;
+    let inner = &pg.inner;
+    let result = py
+        .allow_threads(move || {
+            fnx_algorithms::random_spanning_tree_from_samples(
+                inner,
+                weight,
+                multiplicative,
+                &shuffled_edges,
+                &random_values,
+            )
+        })
+        .map_err(|err| match err {
+            fnx_algorithms::RandomSpanningTreeError::DivisionByZero => {
+                PyZeroDivisionError::new_err("division by zero")
+            }
+            fnx_algorithms::RandomSpanningTreeError::MissingRandomSample
+            | fnx_algorithms::RandomSpanningTreeError::IncompleteTree => {
+                crate::NetworkXAlgorithmError::new_err(err.to_string())
+            }
+        })?;
+    let edge_pairs = result
+        .edges_ordered()
+        .into_iter()
+        .map(|edge| (edge.left, edge.right))
+        .collect::<Vec<_>>();
+    undirected_spanning_edges_to_pygraph(py, pg, &edge_pairs)
 }
 
 /// Return a maximum branching of a directed graph.
@@ -6151,6 +6449,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(min_weight_matching, m)?)?;
     m.add_function(wrap_pyfunction!(min_edge_cover, m)?)?;
     // Flow
+    m.add_function(wrap_pyfunction!(maximum_flow, m)?)?;
     m.add_function(wrap_pyfunction!(maximum_flow_value, m)?)?;
     m.add_function(wrap_pyfunction!(minimum_cut, m)?)?;
     m.add_function(wrap_pyfunction!(minimum_cut_value, m)?)?;
@@ -6168,6 +6467,9 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(bipartite_sets, m)?)?;
     m.add_function(wrap_pyfunction!(greedy_color, m)?)?;
     m.add_function(wrap_pyfunction!(core_number, m)?)?;
+    m.add_function(wrap_pyfunction!(number_of_spanning_trees, m)?)?;
+    m.add_function(wrap_pyfunction!(partition_spanning_tree, m)?)?;
+    m.add_function(wrap_pyfunction!(random_spanning_tree, m)?)?;
     m.add_function(wrap_pyfunction!(minimum_spanning_tree, m)?)?;
     m.add_function(wrap_pyfunction!(minimum_spanning_edges, m)?)?;
     m.add_function(wrap_pyfunction!(maximum_branching, m)?)?;

@@ -1,10 +1,18 @@
 """Conformance tests: tree, forest, bipartite, coloring, core — fnx vs nx oracle."""
 
+import importlib.util
+
 import pytest
 from conftest import assert_sets_equal
 
+HAS_SCIPY = importlib.util.find_spec("scipy") is not None
+
 
 def _sorted_directed_weighted_edges(graph):
+    return sorted((u, v, graph.edges[u, v].get("weight", 1.0)) for u, v in graph.edges)
+
+
+def _sorted_weighted_edges(graph):
     return sorted((u, v, graph.edges[u, v].get("weight", 1.0)) for u, v in graph.edges)
 
 
@@ -135,6 +143,142 @@ class TestMST:
 
         with pytest.raises(ValueError, match="NaN found as an edge weight"):
             list(fnx.maximum_spanning_edges(G_fnx, weight="weight"))
+
+    def test_number_of_spanning_trees_triangle(self, fnx):
+        G = fnx.Graph()
+        G.add_edge("a", "b")
+        G.add_edge("b", "c")
+        G.add_edge("a", "c")
+        assert fnx.number_of_spanning_trees(G) == pytest.approx(3.0)
+
+    def test_number_of_spanning_trees_weighted_triangle(self, fnx):
+        G = fnx.Graph()
+        G.add_edge(1, 2, weight=2.0)
+        G.add_edge(1, 3, weight=1.0)
+        G.add_edge(2, 3, weight=1.0)
+        assert fnx.number_of_spanning_trees(G, weight="weight") == pytest.approx(5.0)
+
+    def test_number_of_spanning_trees_directed_rooted(self, fnx):
+        G = fnx.DiGraph()
+        G.add_edge("a", "b", weight=2.0)
+        G.add_edge("a", "c", weight=3.0)
+        G.add_edge("b", "c", weight=5.0)
+        assert fnx.number_of_spanning_trees(G, root="a") == pytest.approx(2.0)
+        assert fnx.number_of_spanning_trees(G, root="a", weight="weight") == pytest.approx(16.0)
+
+    def test_number_of_spanning_trees_errors_match_networkx_contract(self, fnx):
+        empty = fnx.Graph()
+        with pytest.raises(fnx.NetworkXPointlessConcept, match="Graph G must contain at least one node"):
+            fnx.number_of_spanning_trees(empty)
+
+        directed = fnx.DiGraph()
+        directed.add_edge("a", "b")
+        with pytest.raises(fnx.NetworkXError, match="Input `root` must be provided when G is directed"):
+            fnx.number_of_spanning_trees(directed)
+        with pytest.raises(fnx.NetworkXError, match="The node root is not in the graph G."):
+            fnx.number_of_spanning_trees(directed, root="missing")
+
+    @pytest.mark.skipif(not HAS_SCIPY, reason="NetworkX number_of_spanning_trees requires scipy")
+    def test_number_of_spanning_trees_matches_networkx_when_scipy_available(self, fnx, nx):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", weight=2.0)
+            graph.add_edge("b", "c", weight=1.0)
+            graph.add_edge("a", "c", weight=4.0)
+            graph.add_edge("c", "d", weight=3.0)
+            graph.add_edge("b", "d", weight=5.0)
+        assert fnx.number_of_spanning_trees(G_fnx) == pytest.approx(nx.number_of_spanning_trees(G_nx))
+        assert fnx.number_of_spanning_trees(G_fnx, weight="weight") == pytest.approx(
+            nx.number_of_spanning_trees(G_nx, weight="weight")
+        )
+
+    def test_partition_spanning_tree_matches_networkx(self, fnx, nx):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        fnx_partition = fnx.EdgePartition
+        nx_partition = nx.EdgePartition
+
+        G_fnx.graph["name"] = "fnx partition"
+        G_nx.graph["name"] = "nx partition"
+        G_fnx.add_node("a", color="red")
+        G_nx.add_node("a", color="red")
+        for graph, partition_enum in ((G_fnx, fnx_partition), (G_nx, nx_partition)):
+            graph.add_edge("a", "b", weight=4.0, partition=partition_enum.INCLUDED, color="blue")
+            graph.add_edge("b", "c", weight=1.0, color="green")
+            graph.add_edge("a", "c", weight=3.0, color="orange")
+            graph.add_edge("c", "d", weight=2.0, partition=partition_enum.EXCLUDED, color="purple")
+            graph.add_edge("b", "d", weight=5.0, color="black")
+
+        tree_fnx = fnx.partition_spanning_tree(G_fnx)
+        tree_nx = nx.partition_spanning_tree(G_nx)
+        assert _sorted_weighted_edges(tree_fnx) == _sorted_weighted_edges(tree_nx)
+        assert tree_fnx.graph["name"] == "fnx partition"
+        assert tree_fnx.nodes["a"]["color"] == "red"
+        assert tree_fnx.edges["a", "b"]["partition"] == fnx_partition.INCLUDED
+        assert tree_fnx.edges["a", "b"]["color"] == "blue"
+
+        tree_fnx_max = fnx.partition_spanning_tree(G_fnx, minimum=False)
+        tree_nx_max = nx.partition_spanning_tree(G_nx, minimum=False)
+        assert _sorted_weighted_edges(tree_fnx_max) == _sorted_weighted_edges(tree_nx_max)
+
+    def test_partition_spanning_tree_ignore_nan_matches_networkx(self, fnx, nx):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for graph, partition_enum in ((G_fnx, fnx.EdgePartition), (G_nx, nx.EdgePartition)):
+            graph.add_edge("a", "b", weight=float("nan"), partition=partition_enum.OPEN)
+            graph.add_edge("b", "c", weight=1.0)
+            graph.add_edge("a", "c", weight=2.0)
+
+        assert _sorted_weighted_edges(
+            fnx.partition_spanning_tree(G_fnx, ignore_nan=True)
+        ) == _sorted_weighted_edges(nx.partition_spanning_tree(G_nx, ignore_nan=True))
+        with pytest.raises(ValueError, match="NaN found as an edge weight"):
+            fnx.partition_spanning_tree(G_fnx)
+
+    def test_random_spanning_tree_is_seeded_and_valid(self, fnx):
+        G = fnx.Graph()
+        G.graph["name"] = "random tree source"
+        G.add_node("a", tag="root")
+        G.add_edge("a", "b", weight=2.0, color="red")
+        G.add_edge("a", "c", weight=3.0, color="blue")
+        G.add_edge("b", "c", weight=5.0, color="green")
+        G.add_edge("b", "d", weight=7.0, color="purple")
+        G.add_edge("c", "d", weight=11.0, color="orange")
+
+        tree_a = fnx.random_spanning_tree(G, weight="weight", seed=7)
+        tree_b = fnx.random_spanning_tree(G, weight="weight", seed=7)
+        assert _sorted_weighted_edges(tree_a) == _sorted_weighted_edges(tree_b)
+        assert tree_a.number_of_nodes() == G.number_of_nodes()
+        assert tree_a.number_of_edges() == G.number_of_nodes() - 1
+        assert fnx.is_tree(tree_a)
+        assert tree_a.graph["name"] == "random tree source"
+        assert tree_a.nodes["a"]["tag"] == "root"
+        for u, v in tree_a.edges:
+            assert G.has_edge(u, v)
+            assert tree_a.edges[u, v]["color"] == G.edges[u, v]["color"]
+
+    def test_random_spanning_tree_missing_weight_raises_key_error(self, fnx):
+        G = fnx.Graph()
+        G.add_edge("a", "b", weight=1.0)
+        G.add_edge("b", "c")
+        with pytest.raises(KeyError, match="weight"):
+            fnx.random_spanning_tree(G, weight="weight", seed=1)
+
+    @pytest.mark.skipif(not HAS_SCIPY, reason="NetworkX random_spanning_tree requires scipy")
+    def test_random_spanning_tree_matches_networkx_when_scipy_available(self, fnx, nx):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", weight=2.0)
+            graph.add_edge("a", "c", weight=3.0)
+            graph.add_edge("b", "c", weight=5.0)
+            graph.add_edge("b", "d", weight=7.0)
+            graph.add_edge("c", "d", weight=11.0)
+
+        tree_fnx = fnx.random_spanning_tree(G_fnx, weight="weight", seed=13)
+        tree_nx = nx.random_spanning_tree(G_nx, weight="weight", seed=13)
+        assert _sorted_weighted_edges(tree_fnx) == _sorted_weighted_edges(tree_nx)
 
 
 @pytest.mark.conformance

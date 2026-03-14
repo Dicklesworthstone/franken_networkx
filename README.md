@@ -46,8 +46,8 @@ nx.shortest_path(G, 0, 99)
 | Centrality | `pagerank`, `betweenness_centrality`, `edge_betweenness_centrality`, `closeness_centrality`, `harmonic_centrality`, `eigenvector_centrality`, `degree_centrality`, `katz_centrality`, `hits` |
 | Clustering | `clustering`, `triangles`, `transitivity`, `average_clustering`, `square_clustering` |
 | Matching | `max_weight_matching`, `min_weight_matching`, `maximal_matching`, `min_edge_cover`, `is_matching`, `is_maximal_matching`, `is_perfect_matching` |
-| Flow | `maximum_flow_value`, `minimum_cut`, `minimum_cut_value` |
-| Trees | `minimum_spanning_tree`, `maximum_spanning_tree`, `is_tree`, `is_forest`, `is_arborescence`, `is_branching` |
+| Flow | `maximum_flow`, `maximum_flow_value`, `minimum_cut`, `minimum_cut_value` |
+| Trees | `minimum_spanning_tree`, `maximum_spanning_tree`, `partition_spanning_tree`, `random_spanning_tree`, `number_of_spanning_trees`, `is_tree`, `is_forest`, `is_arborescence`, `is_branching` |
 | Euler | `eulerian_circuit`, `eulerian_path`, `is_eulerian`, `has_eulerian_path`, `is_semieulerian` |
 | Paths & Cycles | `all_simple_paths`, `cycle_basis`, `simple_cycles`, `find_cycle`, `is_simple_path` |
 | Operators | `complement`, `union`, `intersection`, `compose`, `difference`, `symmetric_difference` |

@@ -67,6 +67,7 @@ _SUPPORTED_ALGORITHMS = {
     "min_weight_matching": fnx.min_weight_matching,
     "min_edge_cover": fnx.min_edge_cover,
     # Flow
+    "maximum_flow": fnx.maximum_flow,
     "maximum_flow_value": fnx.maximum_flow_value,
     "minimum_cut": fnx.minimum_cut,
     "minimum_cut_value": fnx.minimum_cut_value,
@@ -84,6 +85,9 @@ _SUPPORTED_ALGORITHMS = {
     "bipartite_sets": fnx.bipartite_sets,
     "greedy_color": fnx.greedy_color,
     "core_number": fnx.core_number,
+    "number_of_spanning_trees": fnx.number_of_spanning_trees,
+    "partition_spanning_tree": fnx.partition_spanning_tree,
+    "random_spanning_tree": fnx.random_spanning_tree,
     "maximum_branching": fnx.maximum_branching,
     "maximum_spanning_arborescence": fnx.maximum_spanning_arborescence,
     "minimum_spanning_edges": fnx.minimum_spanning_edges,

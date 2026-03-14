@@ -320,6 +320,9 @@ def min_edge_cover(g: Graph) -> list[tuple[Any, Any]]: ...
 # Algorithm functions — flow
 # ---------------------------------------------------------------------------
 
+def maximum_flow(
+    g: Union[Graph, DiGraph], source: Any, sink: Any, capacity: str = "capacity"
+) -> tuple[float, dict[Any, dict[Any, float]]]: ...
 def maximum_flow_value(
     g: Union[Graph, DiGraph], source: Any, sink: Any, capacity: str = "capacity"
 ) -> float: ...
@@ -388,6 +391,24 @@ def minimum_spanning_edges(
     ignore_nan: bool = False,
 ) -> list[tuple[Any, Any] | tuple[Any, Any, dict[str, Any]]]: ...
 def minimum_spanning_tree(g: Graph, weight: str = "weight") -> Graph: ...
+def number_of_spanning_trees(
+    g: Graph | DiGraph,
+    root: Any = None,
+    weight: Optional[str] = None,
+) -> float: ...
+def partition_spanning_tree(
+    g: Graph,
+    minimum: bool = True,
+    weight: str = "weight",
+    partition: str = "partition",
+    ignore_nan: bool = False,
+) -> Graph: ...
+def random_spanning_tree(
+    g: Graph,
+    weight: Optional[str] = None,
+    multiplicative: bool = True,
+    seed: Optional[int] = None,
+) -> Graph: ...
 def maximum_branching(
     g: DiGraph,
     attr: str = "weight",

@@ -16,6 +16,8 @@ Or as a NetworkX backend (zero code changes required)::
     # Now all supported algorithms dispatch to Rust automatically.
 """
 
+from enum import Enum
+
 from franken_networkx._fnx import __version__
 
 # Core graph classes
@@ -59,6 +61,12 @@ class MultiDiGraph:
 
     def is_directed(self):
         return True
+
+
+class EdgePartition(Enum):
+    OPEN = 0
+    INCLUDED = 1
+    EXCLUDED = 2
 
 # Exception hierarchy
 from franken_networkx._fnx import (
@@ -136,6 +144,7 @@ from franken_networkx._fnx import (
 
 # Algorithm functions — flow
 from franken_networkx._fnx import (
+    maximum_flow,
     maximum_flow_value,
     minimum_cut,
     minimum_cut_value,
@@ -161,10 +170,13 @@ from franken_networkx._fnx import (
     is_tree,
     maximum_branching,
     maximum_spanning_arborescence,
+    number_of_spanning_trees,
     minimum_spanning_edges,
     minimum_branching,
     minimum_spanning_arborescence,
     minimum_spanning_tree,
+    partition_spanning_tree,
+    random_spanning_tree,
 )
 
 # Algorithm functions — Euler
@@ -1200,6 +1212,7 @@ __all__ = [
     "min_edge_cover",
     "min_weight_matching",
     # Algorithms — flow
+    "maximum_flow",
     "maximum_flow_value",
     "minimum_cut",
     "minimum_cut_value",
@@ -1213,16 +1226,20 @@ __all__ = [
     # Algorithms — tree, forest, bipartite, coloring, core
     "bipartite_sets",
     "core_number",
+    "EdgePartition",
     "greedy_color",
     "is_bipartite",
     "is_forest",
     "is_tree",
     "maximum_branching",
     "maximum_spanning_arborescence",
+    "number_of_spanning_trees",
     "minimum_spanning_edges",
     "minimum_branching",
     "minimum_spanning_arborescence",
     "minimum_spanning_tree",
+    "partition_spanning_tree",
+    "random_spanning_tree",
     # Algorithms — Euler
     "eulerian_circuit",
     "eulerian_path",

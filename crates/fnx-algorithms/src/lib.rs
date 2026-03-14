@@ -224,7 +224,15 @@ pub struct WeightedMatchingResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MaxFlowResult {
     pub value: f64,
+    pub flows: Vec<FlowEdgeValue>,
     pub witness: ComplexityWitness,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FlowEdgeValue {
+    pub source: String,
+    pub target: String,
+    pub flow: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -542,6 +550,7 @@ pub struct EulerianPathResult {
 struct FlowComputation {
     value: f64,
     residual: HashMap<String, HashMap<String, f64>>,
+    flows: Vec<FlowEdgeValue>,
     witness: ComplexityWitness,
 }
 
@@ -2235,6 +2244,7 @@ pub fn max_flow_edmonds_karp(
     let computation = compute_max_flow_residual(graph, source, sink, capacity_attr);
     MaxFlowResult {
         value: computation.value,
+        flows: computation.flows,
         witness: computation.witness,
     }
 }
@@ -2249,6 +2259,7 @@ pub fn max_flow_edmonds_karp_directed(
     let computation = compute_max_flow_residual(digraph, source, sink, capacity_attr);
     MaxFlowResult {
         value: computation.value,
+        flows: computation.flows,
         witness: computation.witness,
     }
 }
@@ -2732,6 +2743,34 @@ impl FlowGraphView for DiGraph {
     }
 }
 
+fn flow_edges_from_residual<G: FlowGraphView>(
+    graph: &G,
+    residual: &HashMap<String, HashMap<String, f64>>,
+    capacity_attr: &str,
+) -> Vec<FlowEdgeValue> {
+    let mut flows = Vec::new();
+    for source in graph.flow_nodes_ordered() {
+        for target in graph.flow_outgoing_neighbors(&source) {
+            let capacity = graph.flow_edge_capacity(&source, &target, capacity_attr);
+            let residual_capacity = residual
+                .get(&source)
+                .and_then(|caps| caps.get(&target))
+                .copied()
+                .unwrap_or(0.0);
+            let flow = (capacity - residual_capacity).max(0.0);
+            if flow <= DISTANCE_COMPARISON_EPSILON {
+                continue;
+            }
+            flows.push(FlowEdgeValue {
+                source: source.clone(),
+                target,
+                flow,
+            });
+        }
+    }
+    flows
+}
+
 fn compute_minimum_cut_edmonds_karp<G: FlowGraphView>(
     graph: &G,
     source: &str,
@@ -2862,6 +2901,7 @@ fn compute_max_flow_residual<G: FlowGraphView>(
         return FlowComputation {
             value: 0.0,
             residual: HashMap::new(),
+            flows: Vec::new(),
             witness: ComplexityWitness {
                 algorithm: "edmonds_karp_max_flow".to_owned(),
                 complexity_claim: "O(|V| * |E|^2)".to_owned(),
@@ -2876,6 +2916,7 @@ fn compute_max_flow_residual<G: FlowGraphView>(
         return FlowComputation {
             value: 0.0,
             residual: HashMap::new(),
+            flows: Vec::new(),
             witness: ComplexityWitness {
                 algorithm: "edmonds_karp_max_flow".to_owned(),
                 complexity_claim: "O(|V| * |E|^2)".to_owned(),
@@ -3001,6 +3042,7 @@ fn compute_max_flow_residual<G: FlowGraphView>(
 
     FlowComputation {
         value: total_flow,
+        flows: flow_edges_from_residual(graph, &residual, capacity_attr),
         residual,
         witness: ComplexityWitness {
             algorithm: "edmonds_karp_max_flow".to_owned(),
@@ -4069,6 +4111,692 @@ pub fn maximum_spanning_tree(graph: &Graph, weight_attr: &str) -> MinimumSpannin
             queue_peak: 0,
         },
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PartitionState {
+    Included,
+    Excluded,
+    Open,
+}
+
+fn parse_partition_state(raw: Option<&str>) -> PartitionState {
+    match raw {
+        Some("EdgePartition.INCLUDED" | "INCLUDED" | "Included" | "included") => {
+            PartitionState::Included
+        }
+        Some("EdgePartition.EXCLUDED" | "EXCLUDED" | "Excluded" | "excluded") => {
+            PartitionState::Excluded
+        }
+        _ => PartitionState::Open,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct ContractedUndirectedEdge {
+    weight_sum: f64,
+    multiplicity: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct ContractedUndirectedGraph {
+    nodes: Vec<String>,
+    edges: BTreeMap<(String, String), ContractedUndirectedEdge>,
+}
+
+impl ContractedUndirectedGraph {
+    fn new(nodes: Vec<String>) -> Self {
+        Self {
+            nodes,
+            edges: BTreeMap::new(),
+        }
+    }
+
+    fn has_edge(&self, left: &str, right: &str) -> bool {
+        self.edges
+            .contains_key(&canonical_contracted_edge_key(left, right))
+    }
+
+    fn total_edge_instances(&self) -> usize {
+        self.edges.values().map(|edge| edge.multiplicity).sum()
+    }
+
+    fn is_connected(&self) -> bool {
+        if self.nodes.is_empty() {
+            return false;
+        }
+        if self.nodes.len() == 1 {
+            return true;
+        }
+
+        let mut adjacency = HashMap::<&str, Vec<&str>>::new();
+        for node in &self.nodes {
+            adjacency.entry(node.as_str()).or_default();
+        }
+        for (left, right) in self.edges.keys() {
+            adjacency
+                .entry(left.as_str())
+                .or_default()
+                .push(right.as_str());
+            adjacency
+                .entry(right.as_str())
+                .or_default()
+                .push(left.as_str());
+        }
+
+        let mut visited = HashSet::<&str>::new();
+        let mut queue = VecDeque::<&str>::new();
+        queue.push_back(self.nodes[0].as_str());
+        visited.insert(self.nodes[0].as_str());
+
+        while let Some(current) = queue.pop_front() {
+            if let Some(neighbors) = adjacency.get(current) {
+                for &neighbor in neighbors {
+                    if visited.insert(neighbor) {
+                        queue.push_back(neighbor);
+                    }
+                }
+            }
+        }
+
+        visited.len() == self.nodes.len()
+    }
+
+    fn contract_edge(&self, keep: &str, merge: &str) -> Self {
+        if keep == merge || !self.nodes.iter().any(|node| node == merge) {
+            return self.clone();
+        }
+
+        let mut nodes = Vec::with_capacity(self.nodes.len().saturating_sub(1));
+        let mut inserted_keep = false;
+        for node in &self.nodes {
+            if node == merge {
+                continue;
+            }
+            if node == keep {
+                inserted_keep = true;
+            }
+            nodes.push(node.clone());
+        }
+        if !inserted_keep {
+            nodes.insert(0, keep.to_owned());
+        }
+
+        let mut contracted = Self::new(nodes);
+        for ((left, right), edge) in &self.edges {
+            let mapped_left = if left == merge { keep } else { left.as_str() };
+            let mapped_right = if right == merge { keep } else { right.as_str() };
+            if mapped_left == mapped_right {
+                continue;
+            }
+            let key = canonical_contracted_edge_key(mapped_left, mapped_right);
+            let entry = contracted
+                .edges
+                .entry(key)
+                .or_insert(ContractedUndirectedEdge {
+                    weight_sum: 0.0,
+                    multiplicity: 0,
+                });
+            entry.weight_sum += edge.weight_sum;
+            entry.multiplicity += edge.multiplicity;
+        }
+
+        contracted
+    }
+}
+
+fn canonical_contracted_edge_key(left: &str, right: &str) -> (String, String) {
+    if left <= right {
+        (left.to_owned(), right.to_owned())
+    } else {
+        (right.to_owned(), left.to_owned())
+    }
+}
+
+fn merged_node_representative(parent: &mut HashMap<String, String>, node: &str) -> String {
+    match parent.get(node).cloned() {
+        Some(next) => {
+            let representative = merged_node_representative(parent, &next);
+            parent.insert(node.to_owned(), representative.clone());
+            representative
+        }
+        None => node.to_owned(),
+    }
+}
+
+fn spanning_tree_edge_weight_from_attrs(
+    attrs: Option<&fnx_classes::AttrMap>,
+    weight_attr: Option<&str>,
+) -> f64 {
+    weight_attr
+        .and_then(|attr| attrs.and_then(|items| items.get(attr)))
+        .and_then(|raw| raw.parse::<f64>().ok())
+        .filter(|value| value.is_finite())
+        .unwrap_or(1.0)
+}
+
+fn build_contracted_undirected_graph(
+    graph: &Graph,
+    weight_attr: Option<&str>,
+    available_edges: &HashSet<(String, String)>,
+    included_edges: &[(String, String)],
+) -> (HashMap<String, String>, ContractedUndirectedGraph) {
+    let mut merged_nodes = HashMap::<String, String>::new();
+    for (left, right) in included_edges {
+        let left_rep = merged_node_representative(&mut merged_nodes, left);
+        let right_rep = merged_node_representative(&mut merged_nodes, right);
+        if left_rep != right_rep {
+            merged_nodes.insert(right_rep, left_rep);
+        }
+    }
+
+    let mut nodes = Vec::new();
+    let mut seen_nodes = HashSet::<String>::new();
+    for &node in &graph.nodes_ordered() {
+        let representative = merged_node_representative(&mut merged_nodes, node);
+        if seen_nodes.insert(representative.clone()) {
+            nodes.push(representative);
+        }
+    }
+
+    let mut prepared = ContractedUndirectedGraph::new(nodes);
+    for edge in graph.edges_ordered() {
+        let original_edge = canonical_contracted_edge_key(&edge.left, &edge.right);
+        if !available_edges.contains(&original_edge) {
+            continue;
+        }
+
+        let left_rep = merged_node_representative(&mut merged_nodes, &edge.left);
+        let right_rep = merged_node_representative(&mut merged_nodes, &edge.right);
+        if left_rep == right_rep {
+            continue;
+        }
+
+        let weight = spanning_tree_edge_weight_from_attrs(Some(&edge.attrs), weight_attr);
+        let key = canonical_contracted_edge_key(&left_rep, &right_rep);
+        let entry = prepared
+            .edges
+            .entry(key)
+            .or_insert(ContractedUndirectedEdge {
+                weight_sum: 0.0,
+                multiplicity: 0,
+            });
+        entry.weight_sum += weight;
+        entry.multiplicity += 1;
+    }
+
+    (merged_nodes, prepared)
+}
+
+fn determinant(mut matrix: Vec<Vec<f64>>) -> f64 {
+    let n = matrix.len();
+    if n == 0 {
+        return 1.0;
+    }
+
+    let mut det = 1.0;
+    for pivot_index in 0..n {
+        let mut pivot_row = pivot_index;
+        for row in (pivot_index + 1)..n {
+            if matrix[row][pivot_index].abs() > matrix[pivot_row][pivot_index].abs() {
+                pivot_row = row;
+            }
+        }
+
+        if matrix[pivot_row][pivot_index].abs() <= DISTANCE_COMPARISON_EPSILON {
+            return 0.0;
+        }
+        if pivot_row != pivot_index {
+            matrix.swap(pivot_row, pivot_index);
+            det = -det;
+        }
+
+        let pivot = matrix[pivot_index][pivot_index];
+        det *= pivot;
+        for row in (pivot_index + 1)..n {
+            let factor = matrix[row][pivot_index] / pivot;
+            if factor.abs() <= DISTANCE_COMPARISON_EPSILON {
+                continue;
+            }
+            let pivot_tail = matrix[pivot_index][(pivot_index + 1)..].to_vec();
+            for (offset, value) in matrix[row][(pivot_index + 1)..].iter_mut().enumerate() {
+                *value -= factor * pivot_tail[offset];
+            }
+        }
+    }
+
+    if det.abs() <= DISTANCE_COMPARISON_EPSILON {
+        0.0
+    } else {
+        det
+    }
+}
+
+fn contracted_graph_spanning_tree_count(
+    graph: &ContractedUndirectedGraph,
+    use_weights: bool,
+) -> f64 {
+    if graph.nodes.is_empty() {
+        return 0.0;
+    }
+    if graph.nodes.len() == 1 {
+        return 1.0;
+    }
+    if !graph.is_connected() {
+        return 0.0;
+    }
+
+    let node_index: HashMap<&str, usize> = graph
+        .nodes
+        .iter()
+        .enumerate()
+        .map(|(index, node)| (node.as_str(), index))
+        .collect();
+    let mut laplacian = vec![vec![0.0; graph.nodes.len()]; graph.nodes.len()];
+    for ((left, right), edge) in &graph.edges {
+        let weight = if use_weights {
+            edge.weight_sum
+        } else {
+            edge.multiplicity as f64
+        };
+        let left_index = node_index[left.as_str()];
+        let right_index = node_index[right.as_str()];
+        laplacian[left_index][left_index] += weight;
+        laplacian[right_index][right_index] += weight;
+        laplacian[left_index][right_index] -= weight;
+        laplacian[right_index][left_index] -= weight;
+    }
+
+    let minor = laplacian
+        .iter()
+        .skip(1)
+        .map(|row| row.iter().skip(1).copied().collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+    determinant(minor)
+}
+
+fn random_spanning_tree_total_weight(
+    graph: &ContractedUndirectedGraph,
+    multiplicative: bool,
+) -> f64 {
+    if multiplicative {
+        return contracted_graph_spanning_tree_count(graph, true);
+    }
+
+    if graph.total_edge_instances() == 1 {
+        return graph
+            .edges
+            .values()
+            .next()
+            .map_or(0.0, |edge| edge.weight_sum);
+    }
+
+    let mut total = 0.0;
+    for ((left, right), edge) in &graph.edges {
+        let contracted = graph.contract_edge(left, right);
+        total += edge.weight_sum * contracted_graph_spanning_tree_count(&contracted, false);
+    }
+    total
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PartitionSpanningTreeError {
+    NaNWeight { left: String, right: String },
+}
+
+impl fmt::Display for PartitionSpanningTreeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NaNWeight { left, right } => {
+                write!(f, "NaN found as an edge weight. Edge ({left}, {right})")
+            }
+        }
+    }
+}
+
+impl std::error::Error for PartitionSpanningTreeError {}
+
+/// Return a spanning tree or forest that respects `EdgePartition` constraints.
+pub fn partition_spanning_tree(
+    graph: &Graph,
+    minimum: bool,
+    weight_attr: &str,
+    partition_attr: &str,
+    ignore_nan: bool,
+) -> Result<MinimumSpanningTreeResult, PartitionSpanningTreeError> {
+    let nodes = graph.nodes_ordered();
+    let node_count = nodes.len();
+    if node_count == 0 {
+        return Ok(MinimumSpanningTreeResult {
+            edges: Vec::new(),
+            total_weight: 0.0,
+            witness: ComplexityWitness {
+                algorithm: if minimum {
+                    "kruskal_partition_mst".to_owned()
+                } else {
+                    "kruskal_partition_max_st".to_owned()
+                },
+                complexity_claim: "O(|E| log |E|)".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        });
+    }
+
+    let mut parent: HashMap<&str, &str> = HashMap::new();
+    let mut rank: HashMap<&str, usize> = HashMap::new();
+    for node in &nodes {
+        parent.insert(node, node);
+        rank.insert(node, 0);
+    }
+
+    fn find_partition_root<'a>(parent: &mut HashMap<&'a str, &'a str>, node: &'a str) -> &'a str {
+        let mut root = node;
+        while parent[root] != root {
+            root = parent[root];
+        }
+        let mut current = node;
+        while current != root {
+            let next = parent[current];
+            parent.insert(current, root);
+            current = next;
+        }
+        root
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    struct OrderedSpanningEdge<'a> {
+        weight: f64,
+        ordinal: usize,
+        left: &'a str,
+        right: &'a str,
+    }
+
+    let mut included_edges = Vec::<OrderedSpanningEdge<'_>>::new();
+    let mut open_edges = Vec::<OrderedSpanningEdge<'_>>::new();
+    let mut seen = HashSet::new();
+    let mut ordinal = 0usize;
+    for node in &nodes {
+        if let Some(neighbors) = graph.neighbors_iter(node) {
+            for neighbor in neighbors {
+                let key = canonical_contracted_edge_key(node, neighbor);
+                if !seen.insert(key) {
+                    continue;
+                }
+
+                let raw_weight = graph
+                    .edge_attrs(node, neighbor)
+                    .and_then(|attrs| attrs.get(weight_attr))
+                    .and_then(|raw| raw.parse::<f64>().ok());
+                if raw_weight.is_some_and(f64::is_nan) {
+                    if ignore_nan {
+                        ordinal += 1;
+                        continue;
+                    }
+                    return Err(PartitionSpanningTreeError::NaNWeight {
+                        left: (*node).to_owned(),
+                        right: neighbor.to_owned(),
+                    });
+                }
+
+                let weight = raw_weight.filter(|value| value.is_finite()).unwrap_or(1.0);
+                let entry = OrderedSpanningEdge {
+                    weight,
+                    ordinal,
+                    left: node,
+                    right: neighbor,
+                };
+                ordinal += 1;
+
+                match parse_partition_state(
+                    graph
+                        .edge_attrs(node, neighbor)
+                        .and_then(|attrs| attrs.get(partition_attr))
+                        .map(String::as_str),
+                ) {
+                    PartitionState::Included => included_edges.push(entry),
+                    PartitionState::Excluded => {}
+                    PartitionState::Open => open_edges.push(entry),
+                }
+            }
+        }
+    }
+
+    open_edges.sort_by(|left, right| {
+        let order = if minimum {
+            left.weight.total_cmp(&right.weight)
+        } else {
+            right.weight.total_cmp(&left.weight)
+        };
+        order.then_with(|| left.ordinal.cmp(&right.ordinal))
+    });
+
+    let edges_scanned = included_edges.len() + open_edges.len();
+    let mut chosen = Vec::new();
+    let mut total_weight = 0.0;
+    let mut nodes_touched = 0usize;
+    for edge in included_edges.into_iter().chain(open_edges.into_iter()) {
+        let left_root = find_partition_root(&mut parent, edge.left);
+        let right_root = find_partition_root(&mut parent, edge.right);
+        if left_root == right_root {
+            continue;
+        }
+
+        let left_rank = rank[left_root];
+        let right_rank = rank[right_root];
+        if left_rank < right_rank {
+            parent.insert(left_root, right_root);
+        } else if left_rank > right_rank {
+            parent.insert(right_root, left_root);
+        } else {
+            parent.insert(right_root, left_root);
+            rank.insert(left_root, left_rank + 1);
+        }
+
+        chosen.push(MstEdge {
+            left: edge.left.to_owned(),
+            right: edge.right.to_owned(),
+            weight: edge.weight,
+        });
+        total_weight += edge.weight;
+        nodes_touched += 2;
+        if chosen.len() == node_count.saturating_sub(1) {
+            break;
+        }
+    }
+
+    Ok(MinimumSpanningTreeResult {
+        edges: chosen,
+        total_weight,
+        witness: ComplexityWitness {
+            algorithm: if minimum {
+                "kruskal_partition_mst".to_owned()
+            } else {
+                "kruskal_partition_max_st".to_owned()
+            },
+            complexity_claim: "O(|E| log |E|)".to_owned(),
+            nodes_touched: nodes_touched.min(node_count),
+            edges_scanned,
+            queue_peak: 0,
+        },
+    })
+}
+
+/// Return the number of spanning trees of an undirected graph.
+#[must_use]
+pub fn number_of_spanning_trees(graph: &Graph, weight_attr: Option<&str>) -> f64 {
+    let available_edges = graph
+        .edges_ordered()
+        .into_iter()
+        .map(|edge| canonical_contracted_edge_key(&edge.left, &edge.right))
+        .collect::<HashSet<_>>();
+    let (_, contracted) =
+        build_contracted_undirected_graph(graph, weight_attr, &available_edges, &[]);
+    contracted_graph_spanning_tree_count(&contracted, weight_attr.is_some())
+}
+
+/// Return the number of spanning arborescences rooted at `root`.
+#[must_use]
+pub fn number_of_spanning_arborescences(
+    digraph: &DiGraph,
+    root: &str,
+    weight_attr: Option<&str>,
+) -> f64 {
+    if digraph.node_count() == 0 {
+        return 0.0;
+    }
+    if digraph.node_count() == 1 {
+        return 1.0;
+    }
+    if !is_weakly_connected(digraph) {
+        return 0.0;
+    }
+
+    let mut nodes = Vec::with_capacity(digraph.node_count());
+    nodes.push(root.to_owned());
+    nodes.extend(
+        digraph
+            .nodes_ordered()
+            .into_iter()
+            .filter(|node| *node != root)
+            .map(str::to_owned),
+    );
+    let node_index: HashMap<&str, usize> = nodes
+        .iter()
+        .enumerate()
+        .map(|(index, node)| (node.as_str(), index))
+        .collect();
+    let mut laplacian = vec![vec![0.0; nodes.len()]; nodes.len()];
+
+    for edge in digraph.edges_ordered() {
+        if edge.left == edge.right {
+            continue;
+        }
+        let weight = spanning_tree_edge_weight_from_attrs(Some(&edge.attrs), weight_attr);
+        let source_index = node_index[edge.left.as_str()];
+        let target_index = node_index[edge.right.as_str()];
+        laplacian[target_index][target_index] += weight;
+        laplacian[source_index][target_index] -= weight;
+    }
+
+    let minor = laplacian
+        .iter()
+        .skip(1)
+        .map(|row| row.iter().skip(1).copied().collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+    determinant(minor)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RandomSpanningTreeError {
+    DivisionByZero,
+    MissingRandomSample,
+    IncompleteTree,
+}
+
+impl fmt::Display for RandomSpanningTreeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::DivisionByZero => write!(f, "division by zero"),
+            Self::MissingRandomSample => write!(f, "missing random sample for spanning-tree draw"),
+            Self::IncompleteTree => write!(f, "failed to assemble a spanning tree"),
+        }
+    }
+}
+
+impl std::error::Error for RandomSpanningTreeError {}
+
+/// Sample a random spanning tree using precomputed edge order and random draws.
+pub fn random_spanning_tree_from_samples(
+    graph: &Graph,
+    weight_attr: Option<&str>,
+    multiplicative: bool,
+    shuffled_edges: &[(String, String)],
+    random_values: &[f64],
+) -> Result<Graph, RandomSpanningTreeError> {
+    let mut tree = Graph::new(graph.mode());
+    for &node in &graph.nodes_ordered() {
+        tree.add_node(node);
+    }
+    if graph.node_count() < 2 {
+        return Ok(tree);
+    }
+
+    let mut available_edges = graph
+        .edges_ordered()
+        .into_iter()
+        .map(|edge| canonical_contracted_edge_key(&edge.left, &edge.right))
+        .collect::<HashSet<_>>();
+    let mut chosen_edges = Vec::<(String, String)>::new();
+    let mut chosen_weight_sum = 0.0;
+
+    for (index, (left, right)) in shuffled_edges.iter().enumerate() {
+        let random_value = *random_values
+            .get(index)
+            .ok_or(RandomSpanningTreeError::MissingRandomSample)?;
+        let (mut merged_nodes, prepared_graph) =
+            build_contracted_undirected_graph(graph, weight_attr, &available_edges, &chosen_edges);
+        let total_tree_weight = random_spanning_tree_total_weight(&prepared_graph, multiplicative);
+
+        let edge_weight =
+            spanning_tree_edge_weight_from_attrs(graph.edge_attrs(left, right), weight_attr);
+        let representative_left = merged_node_representative(&mut merged_nodes, left);
+        let representative_right = merged_node_representative(&mut merged_nodes, right);
+
+        let threshold = if representative_left != representative_right
+            && prepared_graph.has_edge(&representative_left, &representative_right)
+        {
+            if total_tree_weight.abs() <= DISTANCE_COMPARISON_EPSILON {
+                return Err(RandomSpanningTreeError::DivisionByZero);
+            }
+
+            let contracted_graph =
+                prepared_graph.contract_edge(&representative_left, &representative_right);
+            let contracted_total =
+                random_spanning_tree_total_weight(&contracted_graph, multiplicative);
+            if multiplicative {
+                edge_weight * contracted_total / total_tree_weight
+            } else {
+                let prepared_tree_count =
+                    contracted_graph_spanning_tree_count(&prepared_graph, false);
+                let contracted_tree_count =
+                    contracted_graph_spanning_tree_count(&contracted_graph, false);
+                let denominator = chosen_weight_sum * prepared_tree_count + total_tree_weight;
+                if denominator.abs() <= DISTANCE_COMPARISON_EPSILON {
+                    return Err(RandomSpanningTreeError::DivisionByZero);
+                }
+                let numerator =
+                    (chosen_weight_sum + edge_weight) * contracted_tree_count + contracted_total;
+                numerator / denominator
+            }
+        } else {
+            0.0
+        };
+
+        let canonical_edge = canonical_contracted_edge_key(left, right);
+        if random_value > threshold {
+            available_edges.remove(&canonical_edge);
+        } else {
+            chosen_weight_sum += edge_weight;
+            chosen_edges.push(canonical_edge.clone());
+            if tree
+                .add_edge_with_attrs(
+                    canonical_edge.0.clone(),
+                    canonical_edge.1.clone(),
+                    graph.edge_attrs(left, right).cloned().unwrap_or_default(),
+                )
+                .is_err()
+            {
+                return Err(RandomSpanningTreeError::IncompleteTree);
+            }
+            if chosen_edges.len() == graph.node_count().saturating_sub(1) {
+                return Ok(tree);
+            }
+        }
+    }
+
+    Err(RandomSpanningTreeError::IncompleteTree)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -16513,6 +17241,7 @@ mod tests {
         CentralityScore,
         ChordalGraphTreewidthError,
         ComplexityWitness,
+        FlowEdgeValue,
         MaximalIndependentSetError,
         SpannerError,
         adamic_adar_index,
@@ -17212,6 +17941,36 @@ mod tests {
 
         let result = max_flow_edmonds_karp(&graph, "s", "t", "capacity");
         assert!((result.value - 5.0).abs() <= 1e-12);
+        assert_eq!(
+            result.flows,
+            vec![
+                FlowEdgeValue {
+                    source: "s".to_owned(),
+                    target: "a".to_owned(),
+                    flow: 3.0,
+                },
+                FlowEdgeValue {
+                    source: "s".to_owned(),
+                    target: "b".to_owned(),
+                    flow: 2.0,
+                },
+                FlowEdgeValue {
+                    source: "a".to_owned(),
+                    target: "b".to_owned(),
+                    flow: 1.0,
+                },
+                FlowEdgeValue {
+                    source: "a".to_owned(),
+                    target: "t".to_owned(),
+                    flow: 2.0,
+                },
+                FlowEdgeValue {
+                    source: "b".to_owned(),
+                    target: "t".to_owned(),
+                    flow: 3.0,
+                },
+            ]
+        );
         assert_eq!(result.witness.algorithm, "edmonds_karp_max_flow");
     }
 
@@ -17269,6 +18028,36 @@ mod tests {
 
         let result = max_flow_edmonds_karp_directed(&digraph, "s", "t", "capacity");
         assert!((result.value - 5.0).abs() <= 1e-12);
+        assert_eq!(
+            result.flows,
+            vec![
+                FlowEdgeValue {
+                    source: "s".to_owned(),
+                    target: "a".to_owned(),
+                    flow: 3.0,
+                },
+                FlowEdgeValue {
+                    source: "s".to_owned(),
+                    target: "b".to_owned(),
+                    flow: 2.0,
+                },
+                FlowEdgeValue {
+                    source: "a".to_owned(),
+                    target: "b".to_owned(),
+                    flow: 1.0,
+                },
+                FlowEdgeValue {
+                    source: "a".to_owned(),
+                    target: "t".to_owned(),
+                    flow: 2.0,
+                },
+                FlowEdgeValue {
+                    source: "b".to_owned(),
+                    target: "t".to_owned(),
+                    flow: 3.0,
+                },
+            ]
+        );
         assert_eq!(result.witness.algorithm, "edmonds_karp_max_flow");
     }
 
@@ -17284,6 +18073,7 @@ mod tests {
 
         let result = max_flow_edmonds_karp_directed(&digraph, "s", "t", "capacity");
         assert!((result.value - 0.0).abs() <= 1e-12);
+        assert!(result.flows.is_empty());
     }
 
     #[test]
@@ -22514,6 +23304,97 @@ mod tests {
         // Max ST picks edges with weight 3.0 and 2.0
         assert_eq!(result.edges.len(), 2);
         assert!((result.total_weight - 5.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn number_of_spanning_trees_triangle() {
+        let mut g = Graph::strict();
+        g.add_edge("a", "b").expect("edge add should succeed");
+        g.add_edge("b", "c").expect("edge add should succeed");
+        g.add_edge("a", "c").expect("edge add should succeed");
+        assert!((super::number_of_spanning_trees(&g, None) - 3.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn number_of_spanning_arborescences_weighted() {
+        let mut dg = DiGraph::strict();
+        dg.add_edge_with_attrs("a", "b", [("weight".to_owned(), "2.0".to_owned())].into())
+            .expect("edge add should succeed");
+        dg.add_edge_with_attrs("a", "c", [("weight".to_owned(), "3.0".to_owned())].into())
+            .expect("edge add should succeed");
+        dg.add_edge_with_attrs("b", "c", [("weight".to_owned(), "5.0".to_owned())].into())
+            .expect("edge add should succeed");
+        assert!(
+            (super::number_of_spanning_arborescences(&dg, "a", Some("weight")) - 16.0).abs()
+                < 1e-10
+        );
+    }
+
+    #[test]
+    fn partition_spanning_tree_respects_included_and_excluded_edges() {
+        let mut g = Graph::strict();
+        g.add_edge_with_attrs(
+            "a",
+            "b",
+            [
+                ("weight".to_owned(), "4.0".to_owned()),
+                ("partition".to_owned(), "EdgePartition.INCLUDED".to_owned()),
+            ]
+            .into(),
+        )
+        .expect("edge add should succeed");
+        g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "1.0".to_owned())].into())
+            .expect("edge add should succeed");
+        g.add_edge_with_attrs("a", "c", [("weight".to_owned(), "3.0".to_owned())].into())
+            .expect("edge add should succeed");
+        g.add_edge_with_attrs(
+            "c",
+            "d",
+            [
+                ("weight".to_owned(), "2.0".to_owned()),
+                ("partition".to_owned(), "EdgePartition.EXCLUDED".to_owned()),
+            ]
+            .into(),
+        )
+        .expect("edge add should succeed");
+        g.add_edge_with_attrs("b", "d", [("weight".to_owned(), "5.0".to_owned())].into())
+            .expect("edge add should succeed");
+
+        let result = super::partition_spanning_tree(&g, true, "weight", "partition", false)
+            .expect("partition spanning tree should succeed");
+        let chosen = result
+            .edges
+            .iter()
+            .map(|edge| (edge.left.as_str(), edge.right.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(chosen, vec![("a", "b"), ("b", "c"), ("b", "d")]);
+    }
+
+    #[test]
+    fn random_spanning_tree_from_samples_returns_tree() {
+        let mut g = Graph::strict();
+        g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "2.0".to_owned())].into())
+            .expect("edge add should succeed");
+        g.add_edge_with_attrs("a", "c", [("weight".to_owned(), "3.0".to_owned())].into())
+            .expect("edge add should succeed");
+        g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "5.0".to_owned())].into())
+            .expect("edge add should succeed");
+
+        let tree = super::random_spanning_tree_from_samples(
+            &g,
+            Some("weight"),
+            true,
+            &[
+                ("a".to_owned(), "b".to_owned()),
+                ("a".to_owned(), "c".to_owned()),
+                ("b".to_owned(), "c".to_owned()),
+            ],
+            &[0.0, 0.0, 0.0],
+        )
+        .expect("sampling should succeed");
+        assert_eq!(tree.node_count(), 3);
+        assert_eq!(tree.edge_count(), 2);
+        assert!(super::is_tree(&tree).is_tree);
     }
 
     // -----------------------------------------------------------------------
