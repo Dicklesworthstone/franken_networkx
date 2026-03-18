@@ -839,9 +839,9 @@ impl MultiDiGraph {
         }
 
         let edge_key = DirectedEdgeKey::new(&source, &target);
-        let key =
-            explicit_key.unwrap_or_else(|| self.next_edge_key.get(&edge_key).copied().unwrap_or(0));
-        let mut changed = false;
+        let key = explicit_key
+            .unwrap_or_else(|| self.next_edge_key.get(&edge_key).copied().unwrap_or(0));
+        let mut changed;
         let edge_attr_count = {
             let edge_bucket = self.edges.entry(edge_key).or_default();
             changed = !edge_bucket.contains_key(&key);

@@ -711,7 +711,7 @@ impl MultiGraph {
         let edge_key = EdgeKey::new(&left, &right);
         let key =
             explicit_key.unwrap_or_else(|| self.next_edge_key.get(&edge_key).copied().unwrap_or(0));
-        let mut changed = false;
+        let mut changed;
         let edge_attr_count = {
             let edge_bucket = self.edges.entry(edge_key).or_default();
             changed = !edge_bucket.contains_key(&key);

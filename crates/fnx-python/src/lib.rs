@@ -11,7 +11,7 @@ mod generators;
 mod readwrite;
 mod views;
 
-use fnx_classes::{AttrMap, Graph};
+use fnx_classes::{AttrMap, Graph, MultiGraph};
 use pyo3::exceptions::{PyKeyError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyIterator, PyTuple};
@@ -101,6 +101,626 @@ impl PyGraph {
             edge_py_attrs: HashMap::new(),
             graph_attrs: PyDict::new(py).unbind(),
         })
+    }
+}
+
+#[pyclass(
+    module = "franken_networkx",
+    name = "MultiGraph",
+    dict,
+    weakref,
+    subclass
+)]
+pub(crate) struct PyMultiGraph {
+    pub(crate) inner: MultiGraph,
+    pub(crate) node_key_map: HashMap<String, PyObject>,
+    pub(crate) node_py_attrs: HashMap<String, Py<PyDict>>,
+    pub(crate) edge_py_attrs: HashMap<(String, String, usize), Py<PyDict>>,
+    pub(crate) graph_attrs: Py<PyDict>,
+}
+
+impl PyMultiGraph {
+    pub(crate) fn edge_key(u: &str, v: &str, key: usize) -> (String, String, usize) {
+        if u <= v {
+            (u.to_owned(), v.to_owned(), key)
+        } else {
+            (v.to_owned(), u.to_owned(), key)
+        }
+    }
+
+    fn neighbor_dict(&self, py: Python<'_>, node: &str, neighbor: &str) -> PyResult<Py<PyDict>> {
+        let result = PyDict::new(py);
+        for key in self.inner.edge_keys(node, neighbor).unwrap_or_default() {
+            let ek = Self::edge_key(node, neighbor, key);
+            let attrs = self
+                .edge_py_attrs
+                .get(&ek)
+                .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+            result.set_item(key, attrs.bind(py))?;
+        }
+        Ok(result.unbind())
+    }
+}
+
+#[pymethods]
+impl PyMultiGraph {
+    #[new]
+    #[pyo3(signature = (incoming_graph_data=None, **attr))]
+    fn new(
+        py: Python<'_>,
+        incoming_graph_data: Option<&Bound<'_, PyAny>>,
+        attr: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<Self> {
+        let graph_attrs = PyDict::new(py);
+        if let Some(a) = attr {
+            graph_attrs.update(a.as_mapping())?;
+        }
+
+        let mut g = Self {
+            inner: MultiGraph::strict(),
+            node_key_map: HashMap::new(),
+            node_py_attrs: HashMap::new(),
+            edge_py_attrs: HashMap::new(),
+            graph_attrs: graph_attrs.unbind(),
+        };
+
+        if let Some(data) = incoming_graph_data {
+            if let Ok(other) = data.extract::<PyRef<'_, PyMultiGraph>>() {
+                for (canonical, py_key) in &other.node_key_map {
+                    g.inner.add_node(canonical.clone());
+                    g.node_key_map
+                        .insert(canonical.clone(), py_key.clone_ref(py));
+                    if let Some(attrs) = other.node_py_attrs.get(canonical) {
+                        g.node_py_attrs
+                            .insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
+                    }
+                }
+                for ((u, v, key), attrs) in &other.edge_py_attrs {
+                    let _ = g.inner.add_edge_with_key_and_attrs(
+                        u.clone(),
+                        v.clone(),
+                        *key,
+                        AttrMap::new(),
+                    );
+                    g.edge_py_attrs.insert(
+                        (u.clone(), v.clone(), *key),
+                        attrs.bind(py).copy()?.unbind(),
+                    );
+                }
+                g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
+            } else if let Ok(other) = data.extract::<PyRef<'_, PyGraph>>() {
+                for (canonical, py_key) in &other.node_key_map {
+                    g.inner.add_node(canonical.clone());
+                    g.node_key_map
+                        .insert(canonical.clone(), py_key.clone_ref(py));
+                    if let Some(attrs) = other.node_py_attrs.get(canonical) {
+                        g.node_py_attrs
+                            .insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
+                    }
+                }
+                for ((u, v), attrs) in &other.edge_py_attrs {
+                    let key = g
+                        .inner
+                        .add_edge_with_key_and_attrs(u.clone(), v.clone(), 0, AttrMap::new())
+                        .map_err(|e| NetworkXError::new_err(e.to_string()))?;
+                    g.edge_py_attrs
+                        .insert((u.clone(), v.clone(), key), attrs.bind(py).copy()?.unbind());
+                }
+                g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
+            }
+        }
+
+        Ok(g)
+    }
+
+    #[getter]
+    fn graph(&self, py: Python<'_>) -> Py<PyDict> {
+        self.graph_attrs.clone_ref(py)
+    }
+
+    #[getter]
+    fn name(&self, py: Python<'_>) -> PyResult<String> {
+        let gd = self.graph_attrs.bind(py);
+        match gd.get_item("name")? {
+            Some(v) => v.extract(),
+            None => Ok(String::new()),
+        }
+    }
+
+    #[setter]
+    fn set_name(&self, py: Python<'_>, value: String) -> PyResult<()> {
+        self.graph_attrs.bind(py).set_item("name", value)
+    }
+
+    fn is_directed(&self) -> bool {
+        false
+    }
+
+    fn is_multigraph(&self) -> bool {
+        true
+    }
+
+    fn number_of_nodes(&self) -> usize {
+        self.inner.node_count()
+    }
+
+    fn order(&self) -> usize {
+        self.inner.node_count()
+    }
+
+    #[pyo3(signature = (u=None, v=None))]
+    fn number_of_edges(
+        &self,
+        py: Python<'_>,
+        u: Option<&Bound<'_, PyAny>>,
+        v: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<usize> {
+        match (u, v) {
+            (Some(u_node), Some(v_node)) => {
+                let u_c = node_key_to_string(py, u_node)?;
+                let v_c = node_key_to_string(py, v_node)?;
+                Ok(self
+                    .inner
+                    .edge_keys(&u_c, &v_c)
+                    .map_or(0, |keys| keys.len()))
+            }
+            _ => Ok(self.inner.edge_count()),
+        }
+    }
+
+    #[pyo3(signature = (weight=None))]
+    fn size(&self, py: Python<'_>, weight: Option<&str>) -> PyResult<f64> {
+        match weight {
+            None => Ok(self.inner.edge_count() as f64),
+            Some(attr) => {
+                let mut total = 0.0_f64;
+                for dict in self.edge_py_attrs.values() {
+                    let bound = dict.bind(py);
+                    match bound.get_item(attr)? {
+                        Some(val) => total += val.extract::<f64>()?,
+                        None => total += 1.0,
+                    }
+                }
+                Ok(total)
+            }
+        }
+    }
+
+    #[pyo3(signature = (n, **attr))]
+    fn add_node(
+        &mut self,
+        py: Python<'_>,
+        n: &Bound<'_, PyAny>,
+        attr: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<()> {
+        let canonical = node_key_to_string(py, n)?;
+        self.node_key_map
+            .insert(canonical.clone(), n.clone().unbind());
+
+        let mut rust_attrs = AttrMap::new();
+        let py_dict = self
+            .node_py_attrs
+            .entry(canonical.clone())
+            .or_insert_with(|| PyDict::new(py).unbind());
+        if let Some(a) = attr {
+            for (k, v) in a.iter() {
+                let key: String = k.extract()?;
+                let val_str = v.str()?.to_string();
+                rust_attrs.insert(key.clone(), val_str);
+                py_dict.bind(py).set_item(k, v)?;
+            }
+        }
+
+        self.inner.add_node_with_attrs(canonical, rust_attrs);
+        Ok(())
+    }
+
+    #[pyo3(signature = (nodes_for_adding, **attr))]
+    fn add_nodes_from(
+        &mut self,
+        py: Python<'_>,
+        nodes_for_adding: &Bound<'_, PyAny>,
+        attr: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<()> {
+        let iter = PyIterator::from_object(nodes_for_adding)?;
+        for item in iter {
+            let item = item?;
+            if let Ok(tuple) = item.downcast::<PyTuple>()
+                && tuple.len() == 2
+            {
+                let node = tuple.get_item(0)?;
+                let node_attrs = tuple.get_item(1)?;
+                let merged = PyDict::new(py);
+                if let Some(a) = attr {
+                    merged.update(a.as_mapping())?;
+                }
+                if let Ok(d) = node_attrs.downcast::<PyDict>() {
+                    merged.update(d.as_mapping())?;
+                }
+                self.add_node(py, &node, Some(&merged))?;
+                continue;
+            }
+            self.add_node(py, &item, attr)?;
+        }
+        Ok(())
+    }
+
+    fn remove_node(&mut self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
+        let canonical = node_key_to_string(py, n)?;
+        if !self.inner.has_node(&canonical) {
+            return Err(NodeNotFound::new_err(format!(
+                "The node {} is not in the graph.",
+                n.repr()?
+            )));
+        }
+        self.inner.remove_node(&canonical);
+        self.node_key_map.remove(&canonical);
+        self.node_py_attrs.remove(&canonical);
+        let keys_to_remove: Vec<(String, String, usize)> = self
+            .edge_py_attrs
+            .keys()
+            .filter(|(u, v, _)| u == &canonical || v == &canonical)
+            .cloned()
+            .collect();
+        for k in keys_to_remove {
+            self.edge_py_attrs.remove(&k);
+        }
+        Ok(())
+    }
+
+    fn remove_nodes_from(&mut self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<()> {
+        let iter = PyIterator::from_object(nodes)?;
+        for item in iter {
+            let item = item?;
+            let canonical = node_key_to_string(py, &item)?;
+            if self.inner.has_node(&canonical) {
+                self.inner.remove_node(&canonical);
+                self.node_key_map.remove(&canonical);
+                self.node_py_attrs.remove(&canonical);
+                let keys_to_remove: Vec<(String, String, usize)> = self
+                    .edge_py_attrs
+                    .keys()
+                    .filter(|(u, v, _)| u == &canonical || v == &canonical)
+                    .cloned()
+                    .collect();
+                for k in keys_to_remove {
+                    self.edge_py_attrs.remove(&k);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[pyo3(signature = (u, v, key=None, **attr))]
+    fn add_edge(
+        &mut self,
+        py: Python<'_>,
+        u: &Bound<'_, PyAny>,
+        v: &Bound<'_, PyAny>,
+        key: Option<usize>,
+        attr: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<usize> {
+        let u_canonical = node_key_to_string(py, u)?;
+        let v_canonical = node_key_to_string(py, v)?;
+
+        self.node_key_map
+            .entry(u_canonical.clone())
+            .or_insert_with(|| u.clone().unbind());
+        self.node_key_map
+            .entry(v_canonical.clone())
+            .or_insert_with(|| v.clone().unbind());
+        self.node_py_attrs
+            .entry(u_canonical.clone())
+            .or_insert_with(|| PyDict::new(py).unbind());
+        self.node_py_attrs
+            .entry(v_canonical.clone())
+            .or_insert_with(|| PyDict::new(py).unbind());
+
+        let mut rust_attrs = AttrMap::new();
+        if let Some(a) = attr {
+            for (k, val) in a.iter() {
+                let attr_key: String = k.extract()?;
+                rust_attrs.insert(attr_key, val.str()?.to_string());
+            }
+        }
+
+        let actual_key = match key {
+            Some(explicit_key) => self
+                .inner
+                .add_edge_with_key_and_attrs(
+                    u_canonical.clone(),
+                    v_canonical.clone(),
+                    explicit_key,
+                    rust_attrs,
+                )
+                .map_err(|e| NetworkXError::new_err(e.to_string()))?,
+            None => self
+                .inner
+                .add_edge_with_attrs(u_canonical.clone(), v_canonical.clone(), rust_attrs)
+                .map_err(|e| NetworkXError::new_err(e.to_string()))?,
+        };
+
+        let ek = Self::edge_key(&u_canonical, &v_canonical, actual_key);
+        let py_dict = self
+            .edge_py_attrs
+            .entry(ek)
+            .or_insert_with(|| PyDict::new(py).unbind());
+        if let Some(a) = attr {
+            for (k, val) in a.iter() {
+                py_dict.bind(py).set_item(k, val)?;
+            }
+        }
+
+        Ok(actual_key)
+    }
+
+    #[pyo3(signature = (ebunch_to_add, **attr))]
+    fn add_edges_from(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+        attr: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<()> {
+        let iter = PyIterator::from_object(ebunch_to_add)?;
+        for item in iter {
+            let item = item?;
+            let tuple = item.downcast::<PyTuple>().map_err(|_| {
+                PyTypeError::new_err(
+                    "each edge must be a tuple (u, v), (u, v, data), or (u, v, key, data)",
+                )
+            })?;
+            let merged = PyDict::new(py);
+            if let Some(a) = attr {
+                merged.update(a.as_mapping())?;
+            }
+            match tuple.len() {
+                2 => {
+                    self.add_edge(
+                        py,
+                        &tuple.get_item(0)?,
+                        &tuple.get_item(1)?,
+                        None,
+                        Some(&merged),
+                    )?;
+                }
+                3 => {
+                    let third = tuple.get_item(2)?;
+                    if let Ok(d) = third.downcast::<PyDict>() {
+                        merged.update(d.as_mapping())?;
+                        self.add_edge(
+                            py,
+                            &tuple.get_item(0)?,
+                            &tuple.get_item(1)?,
+                            None,
+                            Some(&merged),
+                        )?;
+                    } else {
+                        let edge_key = third.extract::<usize>()?;
+                        self.add_edge(
+                            py,
+                            &tuple.get_item(0)?,
+                            &tuple.get_item(1)?,
+                            Some(edge_key),
+                            Some(&merged),
+                        )?;
+                    }
+                }
+                4 => {
+                    let edge_key = tuple.get_item(2)?.extract::<usize>()?;
+                    if let Ok(d) = tuple.get_item(3)?.downcast::<PyDict>() {
+                        merged.update(d.as_mapping())?;
+                    }
+                    self.add_edge(
+                        py,
+                        &tuple.get_item(0)?,
+                        &tuple.get_item(1)?,
+                        Some(edge_key),
+                        Some(&merged),
+                    )?;
+                }
+                _ => {
+                    return Err(PyValueError::new_err(
+                        "edge tuple must have 2, 3, or 4 elements",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[pyo3(signature = (u, v, key=None))]
+    fn remove_edge(
+        &mut self,
+        py: Python<'_>,
+        u: &Bound<'_, PyAny>,
+        v: &Bound<'_, PyAny>,
+        key: Option<usize>,
+    ) -> PyResult<()> {
+        let u_canonical = node_key_to_string(py, u)?;
+        let v_canonical = node_key_to_string(py, v)?;
+        let removed = self.inner.remove_edge(&u_canonical, &v_canonical, key);
+        if !removed {
+            return Err(NetworkXError::new_err(format!(
+                "The edge {}-{} is not in the graph",
+                u.repr()?,
+                v.repr()?
+            )));
+        }
+        match key {
+            Some(explicit_key) => {
+                self.edge_py_attrs.remove(&Self::edge_key(
+                    &u_canonical,
+                    &v_canonical,
+                    explicit_key,
+                ));
+            }
+            None => {
+                if let Some(latest_key) = self
+                    .edge_py_attrs
+                    .keys()
+                    .filter_map(|(left, right, existing_key)| {
+                        (Self::edge_key(&u_canonical, &v_canonical, *existing_key)
+                            == (left.clone(), right.clone(), *existing_key))
+                            .then_some(*existing_key)
+                    })
+                    .max()
+                {
+                    self.edge_py_attrs.remove(&Self::edge_key(
+                        &u_canonical,
+                        &v_canonical,
+                        latest_key,
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn clear(&mut self, py: Python<'_>) -> PyResult<()> {
+        self.inner = MultiGraph::strict();
+        self.node_key_map.clear();
+        self.node_py_attrs.clear();
+        self.edge_py_attrs.clear();
+        self.graph_attrs = PyDict::new(py).unbind();
+        Ok(())
+    }
+
+    fn clear_edges(&mut self) {
+        self.inner = MultiGraph::strict();
+        for canonical in self.node_key_map.keys() {
+            self.inner.add_node(canonical.clone());
+        }
+        self.edge_py_attrs.clear();
+    }
+
+    fn has_node(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        let canonical = node_key_to_string(py, n)?;
+        Ok(self.inner.has_node(&canonical))
+    }
+
+    #[pyo3(signature = (u, v, key=None))]
+    fn has_edge(
+        &self,
+        py: Python<'_>,
+        u: &Bound<'_, PyAny>,
+        v: &Bound<'_, PyAny>,
+        key: Option<usize>,
+    ) -> PyResult<bool> {
+        let u_c = node_key_to_string(py, u)?;
+        let v_c = node_key_to_string(py, v)?;
+        Ok(match key {
+            Some(edge_key) => self.inner.edge_attrs(&u_c, &v_c, edge_key).is_some(),
+            None => self.inner.has_edge(&u_c, &v_c),
+        })
+    }
+
+    fn neighbors(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
+        let canonical = node_key_to_string(py, n)?;
+        match self.inner.neighbors(&canonical) {
+            Some(neighbors) => Ok(neighbors
+                .into_iter()
+                .map(|nb| {
+                    self.node_key_map.get(nb).map_or_else(
+                        || {
+                            unwrap_infallible(nb.to_owned().into_pyobject(py))
+                                .into_any()
+                                .unbind()
+                        },
+                        |obj| obj.clone_ref(py),
+                    )
+                })
+                .collect()),
+            None => Err(NodeNotFound::new_err(format!(
+                "The node {} is not in the graph.",
+                n.repr()?
+            ))),
+        }
+    }
+
+    fn __len__(&self) -> usize {
+        self.inner.node_count()
+    }
+
+    fn __contains__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        let canonical = node_key_to_string(py, n)?;
+        Ok(self.inner.has_node(&canonical))
+    }
+
+    fn __iter__(&self, py: Python<'_>) -> PyResult<Py<NodeIterator>> {
+        let nodes: Vec<PyObject> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(|n| {
+                self.node_key_map.get(n).map_or_else(
+                    || {
+                        unwrap_infallible(n.to_owned().into_pyobject(py))
+                            .into_any()
+                            .unbind()
+                    },
+                    |obj| obj.clone_ref(py),
+                )
+            })
+            .collect();
+        Py::new(
+            py,
+            NodeIterator {
+                inner: nodes.into_iter(),
+            },
+        )
+    }
+
+    fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+        let canonical = node_key_to_string(py, n)?;
+        if !self.inner.has_node(&canonical) {
+            return Err(PyKeyError::new_err(format!("{}", n.repr()?)));
+        }
+        let result = PyDict::new(py);
+        for neighbor in self.inner.neighbors(&canonical).unwrap_or_default() {
+            let py_nb = self.node_key_map.get(neighbor).map_or_else(
+                || {
+                    unwrap_infallible(neighbor.to_owned().into_pyobject(py))
+                        .into_any()
+                        .unbind()
+                },
+                |obj| obj.clone_ref(py),
+            );
+            result.set_item(
+                py_nb,
+                self.neighbor_dict(py, &canonical, neighbor)?.bind(py),
+            )?;
+        }
+        Ok(result.unbind())
+    }
+
+    fn __str__(&self) -> String {
+        format!(
+            "MultiGraph with {} nodes and {} edges",
+            self.inner.node_count(),
+            self.inner.edge_count()
+        )
+    }
+
+    fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+        let name = self.name(py)?;
+        if name.is_empty() {
+            Ok(format!(
+                "MultiGraph(nodes={}, edges={})",
+                self.inner.node_count(),
+                self.inner.edge_count()
+            ))
+        } else {
+            Ok(format!(
+                "MultiGraph(name='{}', nodes={}, edges={})",
+                name,
+                self.inner.node_count(),
+                self.inner.edge_count()
+            ))
+        }
+    }
+
+    fn __bool__(&self) -> bool {
+        self.inner.node_count() > 0
     }
 }
 
@@ -1113,6 +1733,7 @@ fn _fnx(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Graph class
     m.add_class::<PyGraph>()?;
+    m.add_class::<PyMultiGraph>()?;
     m.add_class::<NodeIterator>()?;
 
     // DiGraph class + views

@@ -145,6 +145,40 @@ def test_graph_lifecycle(fnx):
     return G
 
 
+@timed
+def test_multigraph_lifecycle(fnx):
+    log.info("--- test_multigraph_lifecycle ---")
+    G = fnx.MultiGraph()
+
+    key0 = G.add_edge("a", "b", weight=1.0)
+    key1 = G.add_edge("a", "b", weight=2.0)
+    check("multigraph key allocation increments", (key0, key1) == (0, 1))
+    check("multigraph edge count counts parallels", G.number_of_edges() == 2)
+    check("multigraph edge count between pair", G.number_of_edges("a", "b") == 2)
+    check("multigraph has keyed edge", G.has_edge("a", "b", key=1))
+    check("multigraph adjacency is keyed", sorted(G["a"]["b"].keys()) == [0, 1])
+
+    G.remove_edge("a", "b", key=0)
+    check("multigraph remove keyed edge", G.number_of_edges("a", "b") == 1)
+
+
+@timed
+def test_multidigraph_lifecycle(fnx):
+    log.info("--- test_multidigraph_lifecycle ---")
+    G = fnx.MultiDiGraph()
+
+    key0 = G.add_edge("a", "b", weight=1.0)
+    key1 = G.add_edge("a", "b", weight=2.0)
+    G.add_edge("b", "a", weight=3.0)
+
+    check("multidigraph key allocation increments", (key0, key1) == (0, 1))
+    check("multidigraph edge count counts directions", G.number_of_edges() == 3)
+    check("multidigraph edge count between pair", G.number_of_edges("a", "b") == 2)
+    check("multidigraph successors work", G.successors("a") == ["b"])
+    check("multidigraph predecessors work", G.predecessors("b") == ["a"])
+    check("multidigraph adjacency is keyed", sorted(G["a"]["b"].keys()) == [0, 1])
+
+
 # ===========================================================================
 # Test: View objects
 # ===========================================================================

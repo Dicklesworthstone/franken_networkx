@@ -5,6 +5,8 @@
 //! Run:   cargo bench -p fnx-algorithms
 //! Gate:  check p50/p95/p99 via criterion JSON output in target/criterion/
 
+use std::collections::BTreeMap;
+
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use fnx_algorithms::{
     betweenness_centrality, closeness_centrality, connected_components, degree_centrality,
@@ -13,96 +15,90 @@ use fnx_algorithms::{
 };
 use fnx_classes::Graph;
 
+fn attr(key: &str, val: &str) -> BTreeMap<String, String> {
+    let mut m = BTreeMap::new();
+    m.insert(key.to_owned(), val.to_owned());
+    m
+}
+
 // ---------------------------------------------------------------------------
 // Graph construction helpers
 // ---------------------------------------------------------------------------
 
-/// Build a path graph: 0 -- 1 -- 2 -- ... -- (n-1)
 fn build_path(n: usize) -> Graph {
     let mut g = Graph::strict();
     for i in 0..n {
-        let _ = g.add_node(&i.to_string());
+        let _ = g.add_node(i.to_string());
     }
     for i in 0..(n.saturating_sub(1)) {
-        let _ = g.add_edge(&i.to_string(), &(i + 1).to_string());
+        let _ = g.add_edge(i.to_string(), (i + 1).to_string());
     }
     g
 }
 
-/// Build a complete graph K_n
 fn build_complete(n: usize) -> Graph {
     let mut g = Graph::strict();
     for i in 0..n {
-        let _ = g.add_node(&i.to_string());
+        let _ = g.add_node(i.to_string());
     }
     for i in 0..n {
         for j in (i + 1)..n {
-            let _ = g.add_edge(&i.to_string(), &j.to_string());
+            let _ = g.add_edge(i.to_string(), j.to_string());
         }
     }
     g
 }
 
-/// Build a grid graph (rows x cols)
 fn build_grid(rows: usize, cols: usize) -> Graph {
     let mut g = Graph::strict();
     for r in 0..rows {
         for c in 0..cols {
-            let _ = g.add_node(&format!("{r}_{c}"));
+            let _ = g.add_node(format!("{r}_{c}"));
         }
     }
     for r in 0..rows {
         for c in 0..cols {
             if c + 1 < cols {
-                let _ = g.add_edge(&format!("{r}_{c}"), &format!("{r}_{}", c + 1));
+                let _ = g.add_edge(format!("{r}_{c}"), format!("{r}_{}", c + 1));
             }
             if r + 1 < rows {
-                let _ = g.add_edge(&format!("{r}_{c}"), &format!("{}_{ c}", r + 1));
+                let _ = g.add_edge(format!("{r}_{c}"), format!("{}_{c}", r + 1));
             }
         }
     }
     g
 }
 
-/// Build a flow network with parallel paths
 fn build_flow_network(paths: usize, path_len: usize) -> Graph {
     let mut g = Graph::strict();
     let _ = g.add_node("s");
     let _ = g.add_node("t");
     for p in 0..paths {
+        let cap = ((p + 1) * 2).to_string();
         let first = format!("p{p}_0");
         let _ = g.add_node(&first);
-        g.set_edge_attr("s", &first, "capacity", &((p + 1) * 2).to_string());
-        let _ = g.add_edge("s", &first);
+        let _ = g.add_edge_with_attrs("s", first, attr("capacity", &cap));
         for i in 1..path_len {
             let prev = format!("p{p}_{}", i - 1);
             let curr = format!("p{p}_{i}");
             let _ = g.add_node(&curr);
-            g.set_edge_attr(&prev, &curr, "capacity", &((p + 1) * 2).to_string());
-            let _ = g.add_edge(&prev, &curr);
+            let _ = g.add_edge_with_attrs(prev, curr, attr("capacity", &cap));
         }
         let last = format!("p{p}_{}", path_len - 1);
-        g.set_edge_attr(&last, "t", "capacity", &((p + 1) * 2).to_string());
-        let _ = g.add_edge(&last, "t");
+        let _ = g.add_edge_with_attrs(last, "t", attr("capacity", &cap));
     }
     g
 }
 
-/// Build a weighted complete graph
 fn build_weighted_complete(n: usize) -> Graph {
     let mut g = Graph::strict();
     for i in 0..n {
-        let _ = g.add_node(&i.to_string());
+        let _ = g.add_node(i.to_string());
     }
     for i in 0..n {
         for j in (i + 1)..n {
-            let _ = g.add_edge(&i.to_string(), &j.to_string());
-            g.set_edge_attr(
-                &i.to_string(),
-                &j.to_string(),
-                "weight",
-                &((i + j + 1) as f64 * 0.5).to_string(),
-            );
+            let w = ((i + j + 1) as f64 * 0.5).to_string();
+            let _ = g.add_edge_with_attrs(i.to_string(), j.to_string(), attr("weight", &w));
         }
     }
     g
@@ -156,9 +152,9 @@ fn bench_connected_components(c: &mut Criterion) {
             b.iter(|| connected_components(&g));
         });
     }
-    for &(r, cols) in &[(10, 10), (20, 20), (30, 30)] {
-        let g = build_grid(r, cols);
-        let label = r * cols;
+    for &(r, co) in &[(10, 10), (20, 20), (30, 30)] {
+        let g = build_grid(r, co);
+        let label = r * co;
         group.bench_with_input(BenchmarkId::new("grid", label), &label, |b, _| {
             b.iter(|| connected_components(&g));
         });
@@ -167,7 +163,7 @@ fn bench_connected_components(c: &mut Criterion) {
 }
 
 // ---------------------------------------------------------------------------
-// Benchmark: Centrality (degree, closeness, betweenness, eigenvector, pagerank)
+// Benchmark: Centrality
 // ---------------------------------------------------------------------------
 
 fn bench_degree_centrality(c: &mut Criterion) {
@@ -232,7 +228,7 @@ fn bench_pagerank(c: &mut Criterion) {
 }
 
 // ---------------------------------------------------------------------------
-// Benchmark: Flow (max flow, minimum cut)
+// Benchmark: Flow
 // ---------------------------------------------------------------------------
 
 fn bench_max_flow(c: &mut Criterion) {

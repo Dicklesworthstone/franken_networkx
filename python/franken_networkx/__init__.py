@@ -23,44 +23,8 @@ from franken_networkx._fnx import __version__
 # Core graph classes
 from franken_networkx._fnx import Graph
 from franken_networkx._fnx import DiGraph
-
-
-class MultiGraph:
-    """Stub for MultiGraph — not yet supported.
-
-    Raises ``NotImplementedError`` on instantiation with a clear message.
-    """
-
-    def __init__(self, *args, **kwargs):
-        raise NotImplementedError(
-            "MultiGraph is not yet supported by FrankenNetworkX. "
-            "Use Graph for undirected simple graphs."
-        )
-
-    def is_multigraph(self):
-        return True
-
-    def is_directed(self):
-        return False
-
-
-class MultiDiGraph:
-    """Stub for MultiDiGraph — not yet supported.
-
-    Raises ``NotImplementedError`` on instantiation with a clear message.
-    """
-
-    def __init__(self, *args, **kwargs):
-        raise NotImplementedError(
-            "MultiDiGraph is not yet supported by FrankenNetworkX. "
-            "Use DiGraph for directed simple graphs."
-        )
-
-    def is_multigraph(self):
-        return True
-
-    def is_directed(self):
-        return True
+from franken_networkx._fnx import MultiGraph
+from franken_networkx._fnx import MultiDiGraph
 
 
 class EdgePartition(Enum):
