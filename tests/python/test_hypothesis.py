@@ -827,3 +827,118 @@ class TestGraphConstruction:
         if n > 0:
             assert fnx.is_connected(G)
             assert fnx.is_tree(G)
+
+
+class TestExpansionMetrics:
+    """Properties of graph expansion and connectivity metrics."""
+
+    @given(data=small_connected_graph(min_nodes=4, max_nodes=15))
+    @settings(FAST)
+    def test_volume_matches_nx(self, data):
+        """Volume of a node set should match NetworkX."""
+        G_fnx, G_nx, n = data
+        nodes = list(range(min(3, n)))
+        fnx_vol = fnx.volume(G_fnx, nodes)
+        nx_vol = nx.volume(G_nx, nodes)
+        assert fnx_vol == nx_vol
+
+    @given(data=small_connected_graph(min_nodes=4, max_nodes=15))
+    @settings(FAST)
+    def test_volume_all_nodes_equals_twice_edges(self, data):
+        """Volume of all nodes = 2 * number of edges (handshaking lemma)."""
+        G_fnx, G_nx, n = data
+        all_nodes = list(range(n))
+        vol = fnx.volume(G_fnx, all_nodes)
+        assert vol == 2 * G_fnx.number_of_edges()
+
+    @given(data=small_connected_graph(min_nodes=4, max_nodes=15))
+    @settings(FAST)
+    def test_conductance_matches_nx(self, data):
+        """Conductance should match NetworkX for a node subset."""
+        G_fnx, G_nx, n = data
+        # Pick a non-trivial subset (not empty, not full)
+        k = max(1, n // 3)
+        nodes = list(range(k))
+        fnx_val = fnx.conductance(G_fnx, nodes)
+        nx_val = nx.conductance(G_nx, nodes)
+        assert abs(fnx_val - nx_val) < 1e-10
+
+    @given(data=small_connected_graph(min_nodes=4, max_nodes=15))
+    @settings(FAST)
+    def test_conductance_non_negative(self, data):
+        """Conductance should always be non-negative."""
+        G_fnx, _, n = data
+        k = max(1, n // 3)
+        nodes = list(range(k))
+        assert fnx.conductance(G_fnx, nodes) >= 0.0
+
+    @given(data=small_connected_graph(min_nodes=4, max_nodes=15))
+    @settings(FAST)
+    def test_edge_expansion_non_negative(self, data):
+        """Edge expansion should be non-negative."""
+        G_fnx, _, n = data
+        k = max(1, n // 3)
+        nodes = list(range(k))
+        assert fnx.edge_expansion(G_fnx, nodes) >= 0.0
+
+    @given(data=small_connected_graph(min_nodes=4, max_nodes=15))
+    @settings(FAST)
+    def test_node_expansion_non_negative(self, data):
+        """Node expansion should be non-negative."""
+        G_fnx, _, n = data
+        k = max(1, n // 3)
+        nodes = list(range(k))
+        assert fnx.node_expansion(G_fnx, nodes) >= 0.0
+
+    @given(data=small_connected_graph(min_nodes=4, max_nodes=15))
+    @settings(FAST)
+    def test_boundary_expansion_leq_volume_ratio(self, data):
+        """Boundary expansion <= volume / |S| for connected graphs."""
+        G_fnx, _, n = data
+        k = max(1, n // 3)
+        nodes = list(range(k))
+        be = fnx.boundary_expansion(G_fnx, nodes)
+        vol = fnx.volume(G_fnx, nodes)
+        # boundary_expansion = |edge_boundary| / |S|
+        # |edge_boundary| <= vol since each boundary edge contributes to vol
+        assert be <= vol / k + 1e-10
+
+    @given(data=small_connected_graph(min_nodes=4, max_nodes=15))
+    @settings(FAST)
+    def test_non_edges_count(self, data):
+        """Non-edges + edges = total possible edges for simple graph."""
+        G_fnx, _, n = data
+        ne = len(fnx.non_edges(G_fnx))
+        total_possible = n * (n - 1) // 2
+        assert ne + G_fnx.number_of_edges() == total_possible
+
+    @given(data=small_connected_graph(min_nodes=3, max_nodes=12))
+    @settings(FAST)
+    def test_is_k_edge_connected_monotonic(self, data):
+        """If graph is k-edge-connected, it's also (k-1)-edge-connected."""
+        G_fnx, _, n = data
+        # Find the edge connectivity
+        for k in range(1, n):
+            if not fnx.is_k_edge_connected(G_fnx, k):
+                # All lower values should be True
+                for j in range(k):
+                    assert fnx.is_k_edge_connected(G_fnx, j)
+                break
+
+    @given(data=small_connected_graph(min_nodes=3, max_nodes=10))
+    @settings(FAST)
+    def test_average_node_connectivity_bounds(self, data):
+        """Average node connectivity is between 0 and n-1."""
+        G_fnx, _, n = data
+        avg = fnx.average_node_connectivity(G_fnx)
+        assert avg >= 0.0
+        assert avg <= n - 1 + 1e-10
+
+    @given(data=small_connected_graph(min_nodes=3, max_nodes=10))
+    @settings(FAST)
+    def test_global_node_connectivity_leq_min_degree(self, data):
+        """Node connectivity <= minimum degree (Whitney's theorem)."""
+        G_fnx, G_nx, n = data
+        gnc = fnx.global_node_connectivity(G_fnx)
+        min_deg = min(d for _, d in G_nx.degree())
+        assert gnc <= min_deg
