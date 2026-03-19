@@ -766,6 +766,28 @@ impl MultiDiGraph {
         true
     }
 
+    /// Return the out-degree of a node (number of outgoing parallel edges).
+    #[must_use]
+    pub fn out_degree(&self, node: &str) -> usize {
+        self.successors
+            .get(node)
+            .map_or(0, |succs| succs.values().map(IndexSet::len).sum())
+    }
+
+    /// Return the in-degree of a node (number of incoming parallel edges).
+    #[must_use]
+    pub fn in_degree(&self, node: &str) -> usize {
+        self.predecessors
+            .get(node)
+            .map_or(0, |preds| preds.values().map(IndexSet::len).sum())
+    }
+
+    /// Return the degree of a node (in-degree + out-degree).
+    #[must_use]
+    pub fn degree(&self, node: &str) -> usize {
+        self.in_degree(node) + self.out_degree(node)
+    }
+
     pub fn add_node(&mut self, node: impl Into<String>) -> bool {
         self.add_node_with_attrs(node, AttrMap::new())
     }
