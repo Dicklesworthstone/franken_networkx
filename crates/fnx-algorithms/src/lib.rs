@@ -26965,18 +26965,26 @@ fn test_betweenness_normalization_bug() {
     // Path graph a-b-c
     g.add_edge("a", "b").unwrap();
     g.add_edge("b", "c").unwrap();
-    
+
     let result = betweenness_centrality(&g);
-    let scores: std::collections::HashMap<String, f64> = result.scores.into_iter().map(|s| (s.node, s.score)).collect();
-    
+    let scores: std::collections::HashMap<String, f64> = result
+        .scores
+        .into_iter()
+        .map(|s| (s.node, s.score))
+        .collect();
+
     // In NetworkX:
     // a: 0.0
     // b: (1 * 1) / ((3-1)*(3-2)/2) = 1.0 / 1.0 = 1.0
     // c: 0.0
-    
+
     let b_score = *scores.get("b").unwrap();
     println!("Betweenness score for b: {}", b_score);
-    
+
     // CURRENT BUG: FrankenNetworkX returns 0.5 because it divides by (n-1)(n-2) = 2*1 = 2 instead of (n-1)(n-2)/2 = 1.
-    assert!( (b_score - 1.0).abs() < 1e-6, "Betweenness score for b should be 1.0, got {}", b_score);
+    assert!(
+        (b_score - 1.0).abs() < 1e-6,
+        "Betweenness score for b should be 1.0, got {}",
+        b_score
+    );
 }

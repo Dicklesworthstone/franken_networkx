@@ -802,7 +802,7 @@ def from_pandas_edgelist(df, source='source', target='target', edge_attr=None,
     """
     G = _empty_graph_from_create_using(create_using)
 
-    if edge_attr is True:
+    if isinstance(edge_attr, bool) and edge_attr:
         attr_cols = [c for c in df.columns if c not in (source, target)]
     elif isinstance(edge_attr, str):
         attr_cols = [edge_attr]
@@ -891,7 +891,6 @@ def from_numpy_array(A, parallel_edges=False, create_using=None):
     G : Graph or DiGraph
         The constructed graph.
     """
-    import numpy as np
 
     G = _empty_graph_from_create_using(create_using)
 

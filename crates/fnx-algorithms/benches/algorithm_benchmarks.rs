@@ -10,8 +10,8 @@ use std::collections::BTreeMap;
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use fnx_algorithms::{
     betweenness_centrality, closeness_centrality, connected_components, degree_centrality,
-    eigenvector_centrality, max_flow_edmonds_karp, minimum_cut_edmonds_karp,
-    minimum_spanning_tree, pagerank, shortest_path_unweighted, shortest_path_weighted,
+    eigenvector_centrality, max_flow_edmonds_karp, minimum_cut_edmonds_karp, minimum_spanning_tree,
+    pagerank, shortest_path_unweighted, shortest_path_weighted,
 };
 use fnx_classes::Graph;
 
@@ -237,9 +237,13 @@ fn bench_max_flow(c: &mut Criterion) {
     for &(paths, len) in &[(3, 5), (5, 5), (5, 10), (10, 5)] {
         let g = build_flow_network(paths, len);
         let label = format!("{paths}x{len}");
-        group.bench_with_input(BenchmarkId::new("parallel_paths", &label), &label, |b, _| {
-            b.iter(|| max_flow_edmonds_karp(&g, "s", "t", "capacity"));
-        });
+        group.bench_with_input(
+            BenchmarkId::new("parallel_paths", &label),
+            &label,
+            |b, _| {
+                b.iter(|| max_flow_edmonds_karp(&g, "s", "t", "capacity"));
+            },
+        );
     }
     group.finish();
 }
@@ -249,9 +253,13 @@ fn bench_minimum_cut(c: &mut Criterion) {
     for &(paths, len) in &[(3, 5), (5, 5), (5, 10)] {
         let g = build_flow_network(paths, len);
         let label = format!("{paths}x{len}");
-        group.bench_with_input(BenchmarkId::new("parallel_paths", &label), &label, |b, _| {
-            b.iter(|| minimum_cut_edmonds_karp(&g, "s", "t", "capacity"));
-        });
+        group.bench_with_input(
+            BenchmarkId::new("parallel_paths", &label),
+            &label,
+            |b, _| {
+                b.iter(|| minimum_cut_edmonds_karp(&g, "s", "t", "capacity"));
+            },
+        );
     }
     group.finish();
 }

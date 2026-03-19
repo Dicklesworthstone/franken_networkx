@@ -1,6 +1,7 @@
 """Type stubs for franken_networkx._fnx (Rust extension module)."""
 
-from typing import Any, Iterator, Optional, Union
+from typing import Any, Iterator, Optional, Union, Iterable, IO
+from os import PathLike
 
 __version__: str
 
@@ -468,34 +469,6 @@ def random_spanning_tree(
     multiplicative: bool = True,
     seed: Optional[int] = None,
 ) -> Graph: ...
-def maximum_branching(
-    g: DiGraph,
-    attr: str = "weight",
-    default: float = 1.0,
-    preserve_attrs: bool = False,
-    partition: Optional[str] = None,
-) -> DiGraph: ...
-def minimum_branching(
-    g: DiGraph,
-    attr: str = "weight",
-    default: float = 1.0,
-    preserve_attrs: bool = False,
-    partition: Optional[str] = None,
-) -> DiGraph: ...
-def maximum_spanning_arborescence(
-    g: DiGraph,
-    attr: str = "weight",
-    default: float = 1.0,
-    preserve_attrs: bool = False,
-    partition: Optional[str] = None,
-) -> DiGraph: ...
-def minimum_spanning_arborescence(
-    g: DiGraph,
-    attr: str = "weight",
-    default: float = 1.0,
-    preserve_attrs: bool = False,
-    partition: Optional[str] = None,
-) -> DiGraph: ...
 
 # ---------------------------------------------------------------------------
 # Algorithm functions — Euler
@@ -655,19 +628,9 @@ def descendants(g: DiGraph, source: Any) -> frozenset[Any]: ...
 # All shortest paths
 # ---------------------------------------------------------------------------
 
-def all_shortest_paths(
-    g: Union[Graph, DiGraph],
-    source: Any,
-    target: Any,
-    weight: Optional[str] = None,
-    method: Optional[str] = None,
-) -> list[list[Any]]: ...
-
 # ---------------------------------------------------------------------------
 # Complement
 # ---------------------------------------------------------------------------
-
-def complement(g: Union[Graph, DiGraph]) -> Union[Graph, DiGraph]: ...
 
 # ---------------------------------------------------------------------------
 # Reciprocity
@@ -1116,9 +1079,6 @@ def is_attracting_component(g: DiGraph, component: Any) -> bool: ...
 # ---------------------------------------------------------------------------
 # Read/write — graph I/O
 # ---------------------------------------------------------------------------
-
-from typing import IO, Any, Union
-from os import PathLike
 
 def read_edgelist(path: Union[str, PathLike, IO[str]]) -> Graph: ...
 def write_edgelist(g: Union[Graph, DiGraph], path: Union[str, PathLike, IO[str]]) -> None: ...

@@ -167,8 +167,8 @@ impl CachedDiGraphSnapshotView {
 #[cfg(test)]
 mod tests {
     use super::{CachedDiGraphSnapshotView, CachedSnapshotView, DiGraphView, GraphView};
-    use fnx_classes::digraph::DiGraph;
     use fnx_classes::Graph;
+    use fnx_classes::digraph::DiGraph;
 
     #[test]
     fn live_view_observes_graph_mutations() {

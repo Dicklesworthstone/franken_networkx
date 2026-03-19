@@ -80,15 +80,19 @@ pub fn generate_sidecar_for_file(
     let source_hash = hash_bytes(&data);
     let encoder = Encoder::with_defaults(&data, mtu);
     let config = encoder.get_config();
-    
+
     let mut total_k = 0u32;
     for block_encoder in encoder.get_block_encoders() {
         total_k += block_encoder.source_packets().len() as u32;
     }
-    
+
     let blocks = encoder.get_block_encoders().len() as u32;
-    let repair_per_block = if blocks == 0 { 0 } else { repair_symbols.div_ceil(blocks) };
-    
+    let repair_per_block = if blocks == 0 {
+        0
+    } else {
+        repair_symbols.div_ceil(blocks)
+    };
+
     let packets = encoder.get_encoded_packets(repair_per_block);
     let actual_repair_count = packets.len() as u32 - total_k;
 
@@ -102,7 +106,7 @@ pub fn generate_sidecar_for_file(
         .map(|bytes| STANDARD.encode(bytes))
         .collect();
     let oti_b64 = STANDARD.encode(config.serialize());
-    
+
     let overhead_ratio = if total_k == 0 {
         0.0
     } else {
@@ -183,13 +187,13 @@ pub fn run_decode_drill(
 ) -> Result<ArtifactEnvelope, DurabilityError> {
     let mut envelope = read_envelope(sidecar_path)?;
     let packets = envelope.raptorq.packets_b64.clone();
-    
+
     let drop_count = usize::try_from(envelope.raptorq.repair_symbols.min(2)).unwrap_or(0);
     let reduced: Vec<String> = packets.into_iter().skip(drop_count).collect();
 
     let recovered =
         decode_with_packets(&envelope, &reduced).or_else(|_| decode_from_envelope(&envelope))?;
-    
+
     let recovered_hash = hash_bytes(&recovered);
     if recovered_hash != envelope.source_hash {
         return Err(DurabilityError::HashMismatch);
@@ -294,7 +298,7 @@ mod tests {
         fs::write(&artifact, b"corrupted").expect("corruption write should succeed");
         let scrubbed = scrub_artifact(&artifact, &sidecar).expect("scrub recovery should succeed");
         assert_eq!(scrubbed.scrub.status, super::ScrubState::Recovered);
-        
+
         let recovered_content = fs::read_to_string(&artifact).expect("read recovered");
         assert_eq!(recovered_content, "{\"hello\":\"world\"}");
     }
@@ -308,7 +312,7 @@ mod tests {
 
         generate_sidecar_for_file(&artifact, &sidecar, "missing_test", "data", 1400, 4)
             .expect("generate");
-        
+
         fs::remove_file(&artifact).expect("remove artifact");
         assert!(!artifact.exists());
 
