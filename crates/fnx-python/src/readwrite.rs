@@ -169,6 +169,17 @@ fn write_edgelist(py: Python<'_>, g: &Bound<'_, PyAny>, path: &Bound<'_, PyAny>)
             py.allow_threads(|| engine.write_digraph_edgelist(inner))
                 .map_err(rw_error_to_py)?
         }
+        _ => {
+            if gr.is_directed() {
+                let inner = gr.digraph().unwrap();
+                py.allow_threads(|| engine.write_digraph_edgelist(inner))
+                    .map_err(rw_error_to_py)?
+            } else {
+                let inner = gr.undirected();
+                py.allow_threads(|| engine.write_edgelist(inner))
+                    .map_err(rw_error_to_py)?
+            }
+        }
     };
     write_output(py, path, &content)
 }
@@ -204,6 +215,17 @@ fn write_adjlist(py: Python<'_>, g: &Bound<'_, PyAny>, path: &Bound<'_, PyAny>) 
             py.allow_threads(|| engine.write_digraph_adjlist(inner))
                 .map_err(rw_error_to_py)?
         }
+        _ => {
+            if gr.is_directed() {
+                let inner = gr.digraph().unwrap();
+                py.allow_threads(|| engine.write_digraph_adjlist(inner))
+                    .map_err(rw_error_to_py)?
+            } else {
+                let inner = gr.undirected();
+                py.allow_threads(|| engine.write_adjlist(inner))
+                    .map_err(rw_error_to_py)?
+            }
+        }
     };
     write_output(py, path, &content)
 }
@@ -227,6 +249,17 @@ fn node_link_data(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
             let inner = &dg.inner;
             py.allow_threads(|| engine.write_digraph_json_graph(inner))
                 .map_err(rw_error_to_py)?
+        }
+        _ => {
+            if gr.is_directed() {
+                let inner = gr.digraph().unwrap();
+                py.allow_threads(|| engine.write_digraph_json_graph(inner))
+                    .map_err(rw_error_to_py)?
+            } else {
+                let inner = gr.undirected();
+                py.allow_threads(|| engine.write_json_graph(inner))
+                    .map_err(rw_error_to_py)?
+            }
         }
     };
     let json_mod = py.import("json")?;
@@ -293,6 +326,17 @@ fn write_graphml(py: Python<'_>, g: &Bound<'_, PyAny>, path: &Bound<'_, PyAny>) 
             let inner = &dg.inner;
             py.allow_threads(|| engine.write_digraph_graphml(inner))
                 .map_err(rw_error_to_py)?
+        }
+        _ => {
+            if gr.is_directed() {
+                let inner = gr.digraph().unwrap();
+                py.allow_threads(|| engine.write_digraph_graphml(inner))
+                    .map_err(rw_error_to_py)?
+            } else {
+                let inner = gr.undirected();
+                py.allow_threads(|| engine.write_graphml(inner))
+                    .map_err(rw_error_to_py)?
+            }
         }
     };
     write_output(py, path, &content)

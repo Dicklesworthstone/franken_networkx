@@ -38,9 +38,10 @@ pub(crate) enum GraphRef<'py> {
         mg: PyRef<'py, PyMultiGraph>,
         simple: Box<fnx_classes::Graph>,
     },
-    /// MultiDiGraph converted to simple DiGraph, then to undirected.
+    /// MultiDiGraph converted to simple DiGraph (+ its undirected projection).
     MultiDirected {
         mdg: PyRef<'py, PyMultiDiGraph>,
+        simple_dg: Box<fnx_classes::digraph::DiGraph>,
         undirected: Box<fnx_classes::Graph>,
     },
 }
@@ -80,8 +81,18 @@ impl<'py> GraphRef<'py> {
     }
 
     /// Is this a directed graph?
-    fn is_directed(&self) -> bool {
+    pub(crate) fn is_directed(&self) -> bool {
         matches!(self, GraphRef::Directed { .. } | GraphRef::MultiDirected { .. })
+    }
+
+    /// Get a reference to the inner DiGraph (for directed-specific algorithms).
+    /// Returns `None` for undirected graphs.
+    pub(crate) fn digraph(&self) -> Option<&fnx_classes::digraph::DiGraph> {
+        match self {
+            GraphRef::Directed { dg, .. } => Some(&dg.inner),
+            GraphRef::MultiDirected { simple_dg, .. } => Some(simple_dg),
+            _ => None,
+        }
     }
 
     /// Get the original graph's node key map.
@@ -147,11 +158,12 @@ pub(crate) fn extract_graph<'py>(g: &'py Bound<'py, PyAny>) -> PyResult<GraphRef
             simple: Box::new(simple),
         })
     } else if let Ok(mdg) = g.extract::<PyRef<'py, PyMultiDiGraph>>() {
-        // Convert MultiDiGraph to simple undirected Graph.
+        // Convert MultiDiGraph to simple DiGraph and its undirected projection.
         let simple_di = multidigraph_to_simple_digraph(&mdg.inner);
         let undirected = simple_di.to_undirected();
         Ok(GraphRef::MultiDirected {
             mdg,
+            simple_dg: Box::new(simple_di),
             undirected: Box::new(undirected),
         })
     } else {
@@ -341,6 +353,35 @@ fn flow_dict_object(
                 }
                 outer.set_item(dg.py_node_key(py, node), adjacency.bind(py))?;
                 adjacency_by_source.insert(node.to_owned(), adjacency);
+            }
+        }
+        _ => {
+            if gr.is_directed() {
+                for node in gr.digraph().unwrap().nodes_ordered() {
+                                let adjacency = PyDict::new(py).unbind();
+                                if let Some(neighbors) = gr.digraph().unwrap().successors_iter(node) {
+                                    for neighbor in neighbors {
+                                        adjacency
+                                            .bind(py)
+                                            .set_item(gr.py_node_key(py, neighbor), 0.0)?;
+                                    }
+                                }
+                                outer.set_item(gr.py_node_key(py, node), adjacency.bind(py))?;
+                                adjacency_by_source.insert(node.to_owned(), adjacency);
+                            }
+            } else {
+                for node in gr.undirected().nodes_ordered() {
+                                let adjacency = PyDict::new(py).unbind();
+                                if let Some(neighbors) = gr.undirected().neighbors_iter(node) {
+                                    for neighbor in neighbors {
+                                        adjacency
+                                            .bind(py)
+                                            .set_item(gr.py_node_key(py, neighbor), 0.0)?;
+                                    }
+                                }
+                                outer.set_item(gr.py_node_key(py, node), adjacency.bind(py))?;
+                                adjacency_by_source.insert(node.to_owned(), adjacency);
+                            }
             }
         }
     }
@@ -1068,6 +1109,15 @@ pub fn degree_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<Py
             let inner = &dg.inner;
             py.allow_threads(|| fnx_algorithms::degree_centrality_directed(inner))
         }
+        _ => {
+            if gr.is_directed() {
+                let inner = gr.digraph().unwrap();
+                            py.allow_threads(|| fnx_algorithms::degree_centrality_directed(inner))
+            } else {
+                let inner = gr.undirected();
+                            py.allow_threads(|| fnx_algorithms::degree_centrality(inner))
+            }
+        }
     };
     centrality_to_dict(py, &gr, &result.scores)
 }
@@ -1084,6 +1134,15 @@ pub fn closeness_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py
         GraphRef::Directed { dg, .. } => {
             let inner = &dg.inner;
             py.allow_threads(|| fnx_algorithms::closeness_centrality_directed(inner))
+        }
+        _ => {
+            if gr.is_directed() {
+                let inner = gr.digraph().unwrap();
+                            py.allow_threads(|| fnx_algorithms::closeness_centrality_directed(inner))
+            } else {
+                let inner = gr.undirected();
+                            py.allow_threads(|| fnx_algorithms::closeness_centrality(inner))
+            }
         }
     };
     centrality_to_dict(py, &gr, &result.scores)
@@ -1102,6 +1161,15 @@ pub fn harmonic_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<
             let inner = &dg.inner;
             py.allow_threads(|| fnx_algorithms::harmonic_centrality_directed(inner))
         }
+        _ => {
+            if gr.is_directed() {
+                let inner = gr.digraph().unwrap();
+                            py.allow_threads(|| fnx_algorithms::harmonic_centrality_directed(inner))
+            } else {
+                let inner = gr.undirected();
+                            py.allow_threads(|| fnx_algorithms::harmonic_centrality(inner))
+            }
+        }
     };
     centrality_to_dict(py, &gr, &result.scores)
 }
@@ -1118,6 +1186,15 @@ pub fn katz_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDi
         GraphRef::Directed { dg, .. } => {
             let inner = &dg.inner;
             py.allow_threads(|| fnx_algorithms::katz_centrality_directed(inner))
+        }
+        _ => {
+            if gr.is_directed() {
+                let inner = gr.digraph().unwrap();
+                            py.allow_threads(|| fnx_algorithms::katz_centrality_directed(inner))
+            } else {
+                let inner = gr.undirected();
+                            py.allow_threads(|| fnx_algorithms::katz_centrality(inner))
+            }
         }
     };
     centrality_to_dict(py, &gr, &result.scores)
@@ -1147,6 +1224,15 @@ pub fn betweenness_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<
             let inner = &dg.inner;
             py.allow_threads(|| fnx_algorithms::betweenness_centrality_directed(inner))
         }
+        _ => {
+            if gr.is_directed() {
+                let inner = gr.digraph().unwrap();
+                            py.allow_threads(|| fnx_algorithms::betweenness_centrality_directed(inner))
+            } else {
+                let inner = gr.undirected();
+                            py.allow_threads(|| fnx_algorithms::betweenness_centrality(inner))
+            }
+        }
     };
     centrality_to_dict(py, &gr, &result.scores)
 }
@@ -1163,6 +1249,15 @@ pub fn edge_betweenness_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyRe
         GraphRef::Directed { dg, .. } => {
             let inner = &dg.inner;
             py.allow_threads(|| fnx_algorithms::edge_betweenness_centrality_directed(inner))
+        }
+        _ => {
+            if gr.is_directed() {
+                let inner = gr.digraph().unwrap();
+                            py.allow_threads(|| fnx_algorithms::edge_betweenness_centrality_directed(inner))
+            } else {
+                let inner = gr.undirected();
+                            py.allow_threads(|| fnx_algorithms::edge_betweenness_centrality(inner))
+            }
         }
     };
     let dict = PyDict::new(py);
@@ -1188,6 +1283,15 @@ pub fn eigenvector_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<
         GraphRef::Directed { dg, .. } => {
             let inner = &dg.inner;
             py.allow_threads(|| fnx_algorithms::eigenvector_centrality_directed(inner))
+        }
+        _ => {
+            if gr.is_directed() {
+                let inner = gr.digraph().unwrap();
+                            py.allow_threads(|| fnx_algorithms::eigenvector_centrality_directed(inner))
+            } else {
+                let inner = gr.undirected();
+                            py.allow_threads(|| fnx_algorithms::eigenvector_centrality(inner))
+            }
         }
     };
     centrality_to_dict(py, &gr, &result.scores)
@@ -1218,6 +1322,15 @@ pub fn pagerank(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
             let inner = &dg.inner;
             py.allow_threads(|| fnx_algorithms::pagerank_directed(inner))
         }
+        _ => {
+            if gr.is_directed() {
+                let inner = gr.digraph().unwrap();
+                            py.allow_threads(|| fnx_algorithms::pagerank_directed(inner))
+            } else {
+                let inner = gr.undirected();
+                            py.allow_threads(|| fnx_algorithms::pagerank(inner))
+            }
+        }
     };
     centrality_to_dict(py, &gr, &result.scores)
 }
@@ -1234,6 +1347,15 @@ pub fn hits(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<(Py<PyDict>, Py<Py
         GraphRef::Directed { dg, .. } => {
             let inner = &dg.inner;
             py.allow_threads(|| fnx_algorithms::hits_centrality_directed(inner))
+        }
+        _ => {
+            if gr.is_directed() {
+                let inner = gr.digraph().unwrap();
+                            py.allow_threads(|| fnx_algorithms::hits_centrality_directed(inner))
+            } else {
+                let inner = gr.undirected();
+                            py.allow_threads(|| fnx_algorithms::hits_centrality(inner))
+            }
         }
     };
     let hubs = centrality_to_dict(py, &gr, &result.hubs)?;
@@ -1274,6 +1396,15 @@ pub fn voterank(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>>
         GraphRef::Directed { dg, .. } => {
             let inner = &dg.inner;
             py.allow_threads(|| fnx_algorithms::voterank_directed(inner))
+        }
+        _ => {
+            if gr.is_directed() {
+                let inner = gr.digraph().unwrap();
+                            py.allow_threads(|| fnx_algorithms::voterank_directed(inner))
+            } else {
+                let inner = gr.undirected();
+                            py.allow_threads(|| fnx_algorithms::voterank(inner))
+            }
         }
     };
     Ok(result
@@ -1470,6 +1601,17 @@ pub fn maximum_flow(
                 fnx_algorithms::max_flow_edmonds_karp_directed(inner, &s, &t, &cap)
             })
         }
+        _ => {
+            if gr.is_directed() {
+                let inner = gr.digraph().unwrap();
+                            py.allow_threads(move || {
+                                fnx_algorithms::max_flow_edmonds_karp_directed(inner, &s, &t, &cap)
+                            })
+            } else {
+                let inner = gr.undirected();
+                            py.allow_threads(move || fnx_algorithms::max_flow_edmonds_karp(inner, &s, &t, &cap))
+            }
+        }
     };
     let flow_dict = flow_dict_object(py, &gr, &result.flows)?;
     Ok((result.value, flow_dict))
@@ -1502,6 +1644,19 @@ pub fn maximum_flow_value(
                 fnx_algorithms::max_flow_edmonds_karp_directed(inner, &s, &t, &cap).value
             }))
         }
+        _ => {
+            if gr.is_directed() {
+                let inner = gr.digraph().unwrap();
+                            Ok(py.allow_threads(move || {
+                                fnx_algorithms::max_flow_edmonds_karp_directed(inner, &s, &t, &cap).value
+                            }))
+            } else {
+                let inner = gr.undirected();
+                            Ok(py.allow_threads(move || {
+                                fnx_algorithms::max_flow_edmonds_karp(inner, &s, &t, &cap).value
+                            }))
+            }
+        }
     }
 }
 
@@ -1532,6 +1687,19 @@ pub fn minimum_cut_value(
                 fnx_algorithms::minimum_cut_edmonds_karp_directed(inner, &s, &t, &cap).value
             }))
         }
+        _ => {
+            if gr.is_directed() {
+                let inner = gr.digraph().unwrap();
+                            Ok(py.allow_threads(move || {
+                                fnx_algorithms::minimum_cut_edmonds_karp_directed(inner, &s, &t, &cap).value
+                            }))
+            } else {
+                let inner = gr.undirected();
+                            Ok(py.allow_threads(move || {
+                                fnx_algorithms::minimum_cut_edmonds_karp(inner, &s, &t, &cap).value
+                            }))
+            }
+        }
     }
 }
 
@@ -1559,6 +1727,17 @@ pub fn minimum_cut(
             py.allow_threads(move || {
                 fnx_algorithms::minimum_cut_edmonds_karp_directed(inner, &s, &t, &cap)
             })
+        }
+        _ => {
+            if gr.is_directed() {
+                let inner = gr.digraph().unwrap();
+                            py.allow_threads(move || {
+                                fnx_algorithms::minimum_cut_edmonds_karp_directed(inner, &s, &t, &cap)
+                            })
+            } else {
+                let inner = gr.undirected();
+                            py.allow_threads(move || fnx_algorithms::minimum_cut_edmonds_karp(inner, &s, &t, &cap))
+            }
         }
     };
 
@@ -1937,6 +2116,38 @@ pub fn number_of_spanning_trees(
             Ok(py.allow_threads(move || {
                 fnx_algorithms::number_of_spanning_arborescences(inner, &canonical_root, weight)
             }))
+        }
+        _ => {
+            if gr.is_directed() {
+                if gr.digraph().unwrap().node_count() == 0 {
+                                return Err(crate::NetworkXPointlessConcept::new_err(
+                                    "Graph G must contain at least one node.",
+                                ));
+                            }
+                            let Some(root) = root else {
+                                return Err(NetworkXError::new_err(
+                                    "Input `root` must be provided when G is directed",
+                                ));
+                            };
+                            let canonical_root = node_key_to_string(py, root)?;
+                            if !gr.digraph().unwrap().has_node(&canonical_root) {
+                                return Err(NetworkXError::new_err(
+                                    "The node root is not in the graph G.",
+                                ));
+                            }
+                            let inner = gr.digraph().unwrap();
+                            Ok(py.allow_threads(move || {
+                                fnx_algorithms::number_of_spanning_arborescences(inner, &canonical_root, weight)
+                            }))
+            } else {
+                if gr.undirected().node_count() == 0 {
+                                return Err(crate::NetworkXPointlessConcept::new_err(
+                                    "Graph G must contain at least one node.",
+                                ));
+                            }
+                            let inner = gr.undirected();
+                            Ok(py.allow_threads(|| fnx_algorithms::number_of_spanning_trees(inner, weight)))
+            }
         }
     }
 }
@@ -2429,6 +2640,15 @@ pub fn bfs_edges(
 
             py.allow_threads(|| fnx_algorithms::bfs_edges(inner, &source_key, depth_limit))
         }
+        _ => {
+            if gr.is_directed() {
+                fnx_algorithms::bfs_edges_directed(gr.digraph().unwrap(), &source_key, depth_limit)
+            } else {
+                let inner = gr.undirected();
+
+                            py.allow_threads(|| fnx_algorithms::bfs_edges(inner, &source_key, depth_limit))
+            }
+        }
     };
 
     Ok(edges
@@ -2467,6 +2687,15 @@ pub fn bfs_tree(
             let inner = &pg.inner;
 
             py.allow_threads(|| fnx_algorithms::bfs_edges(inner, &source_key, depth_limit))
+        }
+        _ => {
+            if gr.is_directed() {
+                fnx_algorithms::bfs_edges_directed(gr.digraph().unwrap(), &source_key, depth_limit)
+            } else {
+                let inner = gr.undirected();
+
+                            py.allow_threads(|| fnx_algorithms::bfs_edges(inner, &source_key, depth_limit))
+            }
         }
     };
 
@@ -2525,6 +2754,15 @@ pub fn bfs_predecessors(
 
             py.allow_threads(|| fnx_algorithms::bfs_predecessors(inner, &source_key, depth_limit))
         }
+        _ => {
+            if gr.is_directed() {
+                fnx_algorithms::bfs_predecessors_directed(gr.digraph().unwrap(), &source_key, depth_limit)
+            } else {
+                let inner = gr.undirected();
+
+                            py.allow_threads(|| fnx_algorithms::bfs_predecessors(inner, &source_key, depth_limit))
+            }
+        }
     };
 
     Ok(preds
@@ -2563,6 +2801,15 @@ pub fn bfs_successors(
 
             py.allow_threads(|| fnx_algorithms::bfs_successors(inner, &source_key, depth_limit))
         }
+        _ => {
+            if gr.is_directed() {
+                fnx_algorithms::bfs_successors_directed(gr.digraph().unwrap(), &source_key, depth_limit)
+            } else {
+                let inner = gr.undirected();
+
+                            py.allow_threads(|| fnx_algorithms::bfs_successors(inner, &source_key, depth_limit))
+            }
+        }
     };
 
     Ok(succs
@@ -2598,6 +2845,15 @@ pub fn bfs_layers(
                 let inner = &pg.inner;
 
                 py.allow_threads(|| fnx_algorithms::bfs_layers(inner, &source_key))
+            }
+            _ => {
+                if gr.is_directed() {
+                    fnx_algorithms::bfs_layers_directed(gr.digraph().unwrap(), &source_key)
+                } else {
+                    let inner = gr.undirected();
+
+                                    py.allow_threads(|| fnx_algorithms::bfs_layers(inner, &source_key))
+                }
             }
         };
         return Ok(layers
@@ -2642,6 +2898,17 @@ pub fn descendants_at_distance(
             py.allow_threads(|| {
                 fnx_algorithms::descendants_at_distance(inner, &source_key, distance)
             })
+        }
+        _ => {
+            if gr.is_directed() {
+                fnx_algorithms::descendants_at_distance_directed(gr.digraph().unwrap(), &source_key, distance)
+            } else {
+                let inner = gr.undirected();
+
+                            py.allow_threads(|| {
+                                fnx_algorithms::descendants_at_distance(inner, &source_key, distance)
+                            })
+            }
         }
     };
 
@@ -2696,6 +2963,15 @@ pub fn dfs_edges(
             let inner = &pg.inner;
 
             py.allow_threads(|| fnx_algorithms::dfs_edges(inner, &source_key, depth_limit))
+        }
+        _ => {
+            if gr.is_directed() {
+                fnx_algorithms::dfs_edges_directed(gr.digraph().unwrap(), &source_key, depth_limit)
+            } else {
+                let inner = gr.undirected();
+
+                            py.allow_threads(|| fnx_algorithms::dfs_edges(inner, &source_key, depth_limit))
+            }
         }
     };
 
@@ -2797,6 +3073,15 @@ pub fn dfs_predecessors(
 
             py.allow_threads(|| fnx_algorithms::dfs_predecessors(inner, &source_key, depth_limit))
         }
+        _ => {
+            if gr.is_directed() {
+                fnx_algorithms::dfs_predecessors_directed(gr.digraph().unwrap(), &source_key, depth_limit)
+            } else {
+                let inner = gr.undirected();
+
+                            py.allow_threads(|| fnx_algorithms::dfs_predecessors(inner, &source_key, depth_limit))
+            }
+        }
     };
 
     let dict = PyDict::new(py);
@@ -2848,6 +3133,15 @@ pub fn dfs_successors(
             let inner = &pg.inner;
 
             py.allow_threads(|| fnx_algorithms::dfs_successors(inner, &source_key, depth_limit))
+        }
+        _ => {
+            if gr.is_directed() {
+                fnx_algorithms::dfs_successors_directed(gr.digraph().unwrap(), &source_key, depth_limit)
+            } else {
+                let inner = gr.undirected();
+
+                            py.allow_threads(|| fnx_algorithms::dfs_successors(inner, &source_key, depth_limit))
+            }
         }
     };
 
@@ -2902,6 +3196,15 @@ pub fn dfs_preorder_nodes(
 
             py.allow_threads(|| fnx_algorithms::dfs_preorder_nodes(inner, &source_key, depth_limit))
         }
+        _ => {
+            if gr.is_directed() {
+                fnx_algorithms::dfs_preorder_nodes_directed(gr.digraph().unwrap(), &source_key, depth_limit)
+            } else {
+                let inner = gr.undirected();
+
+                            py.allow_threads(|| fnx_algorithms::dfs_preorder_nodes(inner, &source_key, depth_limit))
+            }
+        }
     };
 
     Ok(nodes.iter().map(|n| gr.py_node_key(py, n)).collect())
@@ -2952,6 +3255,17 @@ pub fn dfs_postorder_nodes(
                 fnx_algorithms::dfs_postorder_nodes(inner, &source_key, depth_limit)
             })
         }
+        _ => {
+            if gr.is_directed() {
+                fnx_algorithms::dfs_postorder_nodes_directed(gr.digraph().unwrap(), &source_key, depth_limit)
+            } else {
+                let inner = gr.undirected();
+
+                            py.allow_threads(|| {
+                                fnx_algorithms::dfs_postorder_nodes(inner, &source_key, depth_limit)
+                            })
+            }
+        }
     };
 
     Ok(nodes.iter().map(|n| gr.py_node_key(py, n)).collect())
@@ -2973,15 +3287,14 @@ pub fn topological_sort(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<Py
             "Topological sort not defined on undirected graphs.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
-        match fnx_algorithms::topological_sort(&dg.inner) {
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        match fnx_algorithms::topological_sort(dg_ref) {
             Some(result) => Ok(result.order.iter().map(|n| gr.py_node_key(py, n)).collect()),
             None => Err(crate::HasACycle::new_err(
                 "Graph contains a cycle, topological sort is not possible.",
             )),
         }
-    } else {
-        unreachable!()
     }
 }
 
@@ -3000,8 +3313,9 @@ pub fn topological_generations(
             "Topological generations not defined on undirected graphs.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
-        match fnx_algorithms::topological_generations(&dg.inner) {
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        match fnx_algorithms::topological_generations(dg_ref) {
             Some(result) => {
                 let gens: Vec<Vec<PyObject>> = result
                     .generations
@@ -3014,8 +3328,6 @@ pub fn topological_generations(
                 "Graph contains a cycle, topological generations is not possible.",
             )),
         }
-    } else {
-        unreachable!()
     }
 }
 
@@ -3030,13 +3342,12 @@ pub fn dag_longest_path(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<Py
             "dag_longest_path not defined on undirected graphs.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
-        match fnx_algorithms::dag_longest_path(&dg.inner) {
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        match fnx_algorithms::dag_longest_path(dg_ref) {
             Some(path) => Ok(path.iter().map(|n| gr.py_node_key(py, n)).collect()),
             None => Err(crate::HasACycle::new_err("Graph contains a cycle.")),
         }
-    } else {
-        unreachable!()
     }
 }
 
@@ -3051,13 +3362,12 @@ pub fn dag_longest_path_length(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResul
             "dag_longest_path_length not defined on undirected graphs.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
-        match fnx_algorithms::dag_longest_path_length(&dg.inner) {
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        match fnx_algorithms::dag_longest_path_length(dg_ref) {
             Some(length) => Ok(length),
             None => Err(crate::HasACycle::new_err("Graph contains a cycle.")),
         }
-    } else {
-        unreachable!()
     }
 }
 
@@ -3075,15 +3385,14 @@ pub fn lexicographic_topological_sort(
             "Lexicographic topological sort not defined on undirected graphs.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
-        match fnx_algorithms::lexicographic_topological_sort(&dg.inner) {
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        match fnx_algorithms::lexicographic_topological_sort(dg_ref) {
             Some(order) => Ok(order.iter().map(|n| gr.py_node_key(py, n)).collect()),
             None => Err(crate::HasACycle::new_err(
                 "Graph contains a cycle, topological sort is not possible.",
             )),
         }
-    } else {
-        unreachable!()
     }
 }
 
@@ -3094,10 +3403,9 @@ pub fn is_directed_acyclic_graph(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyRes
     if !gr.is_directed() {
         return Ok(false);
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
-        Ok(fnx_algorithms::is_directed_acyclic_graph(&dg.inner))
-    } else {
-        unreachable!()
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        Ok(fnx_algorithms::is_directed_acyclic_graph(dg_ref))
     }
 }
 
@@ -3122,12 +3430,11 @@ pub fn ancestors(
         )));
     }
 
-    if let GraphRef::Directed { dg, .. } = &gr {
-        let result = fnx_algorithms::ancestors(&dg.inner, &source_key);
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        let result = fnx_algorithms::ancestors(dg_ref, &source_key);
         let py_nodes: Vec<PyObject> = result.iter().map(|n| gr.py_node_key(py, n)).collect();
         pyo3::types::PyFrozenSet::new(py, &py_nodes).map(|s| s.unbind())
-    } else {
-        unreachable!()
     }
 }
 
@@ -3152,12 +3459,11 @@ pub fn descendants(
         )));
     }
 
-    if let GraphRef::Directed { dg, .. } = &gr {
-        let result = fnx_algorithms::descendants(&dg.inner, &source_key);
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        let result = fnx_algorithms::descendants(dg_ref, &source_key);
         let py_nodes: Vec<PyObject> = result.iter().map(|n| gr.py_node_key(py, n)).collect();
         pyo3::types::PyFrozenSet::new(py, &py_nodes).map(|s| s.unbind())
-    } else {
-        unreachable!()
     }
 }
 
@@ -3202,10 +3508,9 @@ pub fn all_shortest_paths(
                 "weighted all_shortest_paths is not yet supported for DiGraph",
             ));
         }
-        if let GraphRef::Directed { dg, .. } = &gr {
-            fnx_algorithms::all_shortest_paths_directed(&dg.inner, &source_key, &target_key)
-        } else {
-            unreachable!()
+        {
+            let dg_ref = gr.digraph().expect("is_directed checked above");
+            fnx_algorithms::all_shortest_paths_directed(dg_ref, &source_key, &target_key)
         }
     } else {
         let inner = gr.undirected();
@@ -3411,6 +3716,13 @@ pub fn is_empty(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     match &gr {
         GraphRef::Undirected(pg) => Ok(fnx_algorithms::is_empty(&pg.inner)),
         GraphRef::Directed { dg, .. } => Ok(fnx_algorithms::is_empty_directed(&dg.inner)),
+        _ => {
+            if gr.is_directed() {
+                Ok(fnx_algorithms::is_empty_directed(gr.digraph().unwrap()))
+            } else {
+                Ok(fnx_algorithms::is_empty(gr.undirected()))
+            }
+        }
     }
 }
 
@@ -3953,18 +4265,15 @@ pub fn strongly_connected_components(
             "strongly_connected_components is not defined for undirected graphs. Use connected_components instead.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
-        let result = fnx_algorithms::strongly_connected_components(&dg.inner);
-        result
-            .iter()
-            .map(|comp| {
-                let py_set: Vec<PyObject> = comp.iter().map(|n| gr.py_node_key(py, n)).collect();
-                py_set.into_pyobject(py).map(|obj| obj.into_any().unbind())
-            })
-            .collect()
-    } else {
-        unreachable!()
-    }
+    let dg_ref = gr.digraph().expect("is_directed checked above");
+    let result = fnx_algorithms::strongly_connected_components(dg_ref);
+    result
+        .iter()
+        .map(|comp| {
+            let py_set: Vec<PyObject> = comp.iter().map(|n| gr.py_node_key(py, n)).collect();
+            py_set.into_pyobject(py).map(|obj| obj.into_any().unbind())
+        })
+        .collect()
 }
 
 /// Return the number of strongly connected components.
@@ -3979,12 +4288,11 @@ pub fn number_strongly_connected_components(
             "number_strongly_connected_components is not defined for undirected graphs.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
         Ok(fnx_algorithms::number_strongly_connected_components(
-            &dg.inner,
+            dg_ref,
         ))
-    } else {
-        unreachable!()
     }
 }
 
@@ -3997,10 +4305,9 @@ pub fn is_strongly_connected(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<
             "is_strongly_connected is not defined for undirected graphs. Use is_connected instead.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
-        Ok(fnx_algorithms::is_strongly_connected(&dg.inner))
-    } else {
-        unreachable!()
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        Ok(fnx_algorithms::is_strongly_connected(dg_ref))
     }
 }
 
@@ -4016,8 +4323,9 @@ pub fn condensation(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<(PyObject,
             "condensation is not defined for undirected graphs.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
-        let (cond_graph, node_mapping) = fnx_algorithms::condensation(&dg.inner);
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        let (cond_graph, node_mapping) = fnx_algorithms::condensation(dg_ref);
         // Build the condensation DiGraph
         let mut py_dg = PyDiGraph::new_empty(py)?;
         for node in cond_graph.nodes_ordered() {
@@ -4045,11 +4353,9 @@ pub fn condensation(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<(PyObject,
         // Build the mapping dict
         let mapping = pyo3::types::PyDict::new(py);
         for (node, scc_idx) in &node_mapping {
-            mapping.set_item(dg.py_node_key(py, node), *scc_idx)?;
+            mapping.set_item(gr.py_node_key(py, node), *scc_idx)?;
         }
         Ok((py_cond, mapping.into_any().unbind()))
-    } else {
-        unreachable!()
     }
 }
 
@@ -4069,8 +4375,9 @@ pub fn weakly_connected_components(
             "weakly_connected_components is not defined for undirected graphs. Use connected_components instead.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
-        let result = fnx_algorithms::weakly_connected_components(&dg.inner);
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        let result = fnx_algorithms::weakly_connected_components(dg_ref);
         result
             .iter()
             .map(|comp| {
@@ -4078,8 +4385,6 @@ pub fn weakly_connected_components(
                 py_set.into_pyobject(py).map(|obj| obj.into_any().unbind())
             })
             .collect()
-    } else {
-        unreachable!()
     }
 }
 
@@ -4095,12 +4400,11 @@ pub fn number_weakly_connected_components(
             "number_weakly_connected_components is not defined for undirected graphs.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
         Ok(fnx_algorithms::number_weakly_connected_components(
-            &dg.inner,
+            dg_ref,
         ))
-    } else {
-        unreachable!()
     }
 }
 
@@ -4113,15 +4417,14 @@ pub fn is_weakly_connected(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bo
             "is_weakly_connected is not defined for undirected graphs. Use is_connected instead.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
-        if dg.inner.node_count() == 0 {
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        if dg_ref.node_count() == 0 {
             return Err(crate::NetworkXPointlessConcept::new_err(
                 "Connectivity is undefined for the null graph.",
             ));
         }
-        Ok(fnx_algorithms::is_weakly_connected(&dg.inner))
-    } else {
-        unreachable!()
+        Ok(fnx_algorithms::is_weakly_connected(dg_ref))
     }
 }
 
@@ -4138,11 +4441,12 @@ pub fn transitive_closure(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyOb
             "transitive_closure is not defined for undirected graphs.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
-        let result = fnx_algorithms::transitive_closure(&dg.inner);
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        let result = fnx_algorithms::transitive_closure(dg_ref);
         let mut py_dg = PyDiGraph::new_empty(py)?;
         for node in result.nodes_ordered() {
-            let py_key = dg.py_node_key(py, node);
+            let py_key = gr.py_node_key(py, node);
             py_dg.node_key_map.insert(node.to_owned(), py_key);
             py_dg
                 .node_py_attrs
@@ -4157,8 +4461,6 @@ pub fn transitive_closure(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyOb
             );
         }
         Ok(py_dg.into_pyobject(py)?.into_any().unbind())
-    } else {
-        unreachable!()
     }
 }
 
@@ -4171,12 +4473,13 @@ pub fn transitive_reduction(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py
             "transitive_reduction is not defined for undirected graphs.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
-        match fnx_algorithms::transitive_reduction(&dg.inner) {
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        match fnx_algorithms::transitive_reduction(dg_ref) {
             Some(result) => {
                 let mut py_dg = PyDiGraph::new_empty(py)?;
                 for node in result.nodes_ordered() {
-                    let py_key = dg.py_node_key(py, node);
+                    let py_key = gr.py_node_key(py, node);
                     py_dg.node_key_map.insert(node.to_owned(), py_key);
                     py_dg
                         .node_py_attrs
@@ -4196,8 +4499,6 @@ pub fn transitive_reduction(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py
                 "transitive_reduction is not uniquely defined for graphs with cycles.",
             )),
         }
-    } else {
-        unreachable!()
     }
 }
 
@@ -4216,10 +4517,9 @@ pub fn overall_reciprocity(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f6
             "overall_reciprocity not defined on undirected graphs.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
-        Ok(fnx_algorithms::overall_reciprocity(&dg.inner))
-    } else {
-        unreachable!()
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        Ok(fnx_algorithms::overall_reciprocity(dg_ref))
     }
 }
 
@@ -4240,15 +4540,16 @@ pub fn reciprocity(
             "reciprocity not defined on undirected graphs.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
         let node_list: Vec<String> = if let Some(ns) = nodes {
             // Check if it's a single node (not iterable list)
             if let Ok(s) = node_key_to_string(py, ns)
-                && dg.inner.has_node(&s)
+                && dg_ref.has_node(&s)
             {
                 // Single node: return a float directly
                 let node_refs: Vec<&str> = vec![s.as_str()];
-                let result = fnx_algorithms::reciprocity(&dg.inner, &node_refs);
+                let result = fnx_algorithms::reciprocity(dg_ref, &node_refs);
                 let val = result.get(&s).copied().unwrap_or(0.0);
                 return Ok(val.into_pyobject(py).unwrap().into_any().unbind());
             }
@@ -4257,7 +4558,7 @@ pub fn reciprocity(
                 .map(|item| node_key_to_string(py, &item?))
                 .collect::<PyResult<Vec<_>>>()?
         } else {
-            dg.inner
+            dg_ref
                 .nodes_ordered()
                 .into_iter()
                 .map(|s| s.to_owned())
@@ -4265,7 +4566,7 @@ pub fn reciprocity(
         };
 
         let node_refs: Vec<&str> = node_list.iter().map(String::as_str).collect();
-        let result = fnx_algorithms::reciprocity(&dg.inner, &node_refs);
+        let result = fnx_algorithms::reciprocity(dg_ref, &node_refs);
 
         let dict = pyo3::types::PyDict::new(py);
         for (k, v) in &result {
@@ -4273,8 +4574,6 @@ pub fn reciprocity(
             dict.set_item(py_key, v)?;
         }
         Ok(dict.into_any().unbind())
-    } else {
-        unreachable!()
     }
 }
 
@@ -5126,10 +5425,9 @@ fn is_arborescence(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     if !gr.is_directed() {
         return Ok(false);
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
-        Ok(fnx_algorithms::is_arborescence(&dg.inner))
-    } else {
-        unreachable!()
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        Ok(fnx_algorithms::is_arborescence(dg_ref))
     }
 }
 
@@ -5141,10 +5439,9 @@ fn is_branching(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     if !gr.is_directed() {
         return Ok(false);
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
-        Ok(fnx_algorithms::is_branching(&dg.inner))
-    } else {
-        unreachable!()
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        Ok(fnx_algorithms::is_branching(dg_ref))
     }
 }
 
@@ -5162,6 +5459,13 @@ fn is_isolate(py: Python<'_>, g: &Bound<'_, PyAny>, node: &Bound<'_, PyAny>) -> 
     match &gr {
         GraphRef::Undirected(pg) => Ok(fnx_algorithms::is_isolate(&pg.inner, &key)),
         GraphRef::Directed { dg, .. } => Ok(fnx_algorithms::is_isolate_directed(&dg.inner, &key)),
+        _ => {
+            if gr.is_directed() {
+                Ok(fnx_algorithms::is_isolate_directed(gr.digraph().unwrap(), &key))
+            } else {
+                Ok(fnx_algorithms::is_isolate(gr.undirected(), &key))
+            }
+        }
     }
 }
 
@@ -5173,6 +5477,13 @@ fn isolates(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
     let result = match &gr {
         GraphRef::Undirected(pg) => fnx_algorithms::isolates(&pg.inner),
         GraphRef::Directed { dg, .. } => fnx_algorithms::isolates_directed(&dg.inner),
+        _ => {
+            if gr.is_directed() {
+                fnx_algorithms::isolates_directed(gr.digraph().unwrap())
+            } else {
+                fnx_algorithms::isolates(gr.undirected())
+            }
+        }
     };
     Ok(result.iter().map(|n| gr.py_node_key(py, n)).collect())
 }
@@ -5185,6 +5496,13 @@ fn number_of_isolates(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usize> 
     match &gr {
         GraphRef::Undirected(pg) => Ok(fnx_algorithms::number_of_isolates(&pg.inner)),
         GraphRef::Directed { dg, .. } => Ok(fnx_algorithms::number_of_isolates_directed(&dg.inner)),
+        _ => {
+            if gr.is_directed() {
+                Ok(fnx_algorithms::number_of_isolates_directed(gr.digraph().unwrap()))
+            } else {
+                Ok(fnx_algorithms::number_of_isolates(gr.undirected()))
+            }
+        }
     }
 }
 
@@ -5222,6 +5540,13 @@ fn edge_boundary(
         }
         GraphRef::Directed { dg, .. } => {
             fnx_algorithms::edge_boundary_directed(&dg.inner, &s1_refs, s2_refs.as_deref())
+        }
+        _ => {
+            if gr.is_directed() {
+                fnx_algorithms::edge_boundary_directed(gr.digraph().unwrap(), &s1_refs, s2_refs.as_deref())
+            } else {
+                fnx_algorithms::edge_boundary(gr.undirected(), &s1_refs, s2_refs.as_deref())
+            }
         }
     };
     Ok(result
@@ -5261,6 +5586,13 @@ fn node_boundary(
         GraphRef::Directed { dg, .. } => {
             fnx_algorithms::node_boundary_directed(&dg.inner, &s1_refs, s2_refs.as_deref())
         }
+        _ => {
+            if gr.is_directed() {
+                fnx_algorithms::node_boundary_directed(gr.digraph().unwrap(), &s1_refs, s2_refs.as_deref())
+            } else {
+                fnx_algorithms::node_boundary(gr.undirected(), &s1_refs, s2_refs.as_deref())
+            }
+        }
     };
     Ok(result.iter().map(|n| gr.py_node_key(py, n)).collect())
 }
@@ -5296,6 +5628,13 @@ fn cut_size(
         }
         GraphRef::Directed { dg, .. } => {
             fnx_algorithms::cut_size_directed(&dg.inner, &s1_refs, s2_refs.as_deref(), weight)
+        }
+        _ => {
+            if gr.is_directed() {
+                fnx_algorithms::cut_size_directed(gr.digraph().unwrap(), &s1_refs, s2_refs.as_deref(), weight)
+            } else {
+                fnx_algorithms::cut_size(gr.undirected(), &s1_refs, s2_refs.as_deref(), weight)
+            }
         }
     })
 }
@@ -5335,6 +5674,18 @@ fn normalized_cut_size(
             s2_refs.as_deref(),
             weight,
         ),
+        _ => {
+            if gr.is_directed() {
+                fnx_algorithms::normalized_cut_size_directed(
+                            gr.digraph().unwrap(),
+                            &s1_refs,
+                            s2_refs.as_deref(),
+                            weight,
+                        )
+            } else {
+                fnx_algorithms::normalized_cut_size(gr.undirected(), &s1_refs, s2_refs.as_deref(), weight)
+            }
+        }
     };
     result.ok_or_else(|| PyZeroDivisionError::new_err("division by zero"))
 }
@@ -5362,6 +5713,15 @@ fn is_simple_path(
         GraphRef::Directed { dg, .. } => Ok(fnx_algorithms::is_simple_path_directed(
             &dg.inner, &key_refs,
         )),
+        _ => {
+            if gr.is_directed() {
+                Ok(fnx_algorithms::is_simple_path_directed(
+                            gr.digraph().unwrap(), &key_refs,
+                        ))
+            } else {
+                Ok(fnx_algorithms::is_simple_path(gr.undirected(), &key_refs))
+            }
+        }
     }
 }
 
@@ -5437,14 +5797,13 @@ fn simple_cycles(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<Vec<PyObj
             "simple_cycles is not defined for undirected graphs. Use cycle_basis instead.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
-        let result = fnx_algorithms::simple_cycles(&dg.inner);
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        let result = fnx_algorithms::simple_cycles(dg_ref);
         Ok(result
             .into_iter()
             .map(|cycle| cycle.iter().map(|n| gr.py_node_key(py, n)).collect())
             .collect())
-    } else {
-        unreachable!()
     }
 }
 
@@ -5457,6 +5816,13 @@ fn find_cycle(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<(PyObject, P
     let result = match &gr {
         GraphRef::Undirected(pg) => fnx_algorithms::find_cycle_undirected(&pg.inner),
         GraphRef::Directed { dg, .. } => fnx_algorithms::find_cycle_directed(&dg.inner),
+        _ => {
+            if gr.is_directed() {
+                fnx_algorithms::find_cycle_directed(gr.digraph().unwrap())
+            } else {
+                fnx_algorithms::find_cycle_undirected(gr.undirected())
+            }
+        }
     };
     match result {
         Some(cycle) => {
@@ -5973,6 +6339,13 @@ fn path_weight(
         GraphRef::Directed { dg, .. } => {
             fnx_algorithms::path_weight_directed(&dg.inner, &path_refs, weight)
         }
+        _ => {
+            if gr.is_directed() {
+                fnx_algorithms::path_weight_directed(gr.digraph().unwrap(), &path_refs, weight)
+            } else {
+                fnx_algorithms::path_weight(gr.undirected(), &path_refs, weight)
+            }
+        }
     };
     match result {
         Some(w) => Ok(w),
@@ -5993,11 +6366,10 @@ pub fn in_degree_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py
             "in_degree_centrality is not defined for undirected graphs.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
-        let scores = fnx_algorithms::in_degree_centrality(&dg.inner);
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        let scores = fnx_algorithms::in_degree_centrality(dg_ref);
         centrality_to_dict(py, &gr, &scores)
-    } else {
-        unreachable!()
     }
 }
 
@@ -6010,11 +6382,10 @@ pub fn out_degree_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<P
             "out_degree_centrality is not defined for undirected graphs.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
-        let scores = fnx_algorithms::out_degree_centrality(&dg.inner);
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        let scores = fnx_algorithms::out_degree_centrality(dg_ref);
         centrality_to_dict(py, &gr, &scores)
-    } else {
-        unreachable!()
     }
 }
 
@@ -6033,6 +6404,15 @@ pub fn local_reaching_centrality(
         GraphRef::Directed { dg, .. } => Ok(fnx_algorithms::local_reaching_centrality_directed(
             &dg.inner, &node,
         )),
+        _ => {
+            if gr.is_directed() {
+                Ok(fnx_algorithms::local_reaching_centrality_directed(
+                            gr.digraph().unwrap(), &node,
+                        ))
+            } else {
+                Ok(fnx_algorithms::local_reaching_centrality(gr.undirected(), &node))
+            }
+        }
     }
 }
 
@@ -6045,6 +6425,15 @@ pub fn global_reaching_centrality(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyRe
         GraphRef::Directed { dg, .. } => Ok(fnx_algorithms::global_reaching_centrality_directed(
             &dg.inner,
         )),
+        _ => {
+            if gr.is_directed() {
+                Ok(fnx_algorithms::global_reaching_centrality_directed(
+                            gr.digraph().unwrap(),
+                        ))
+            } else {
+                Ok(fnx_algorithms::global_reaching_centrality(gr.undirected()))
+            }
+        }
     }
 }
 
@@ -6079,18 +6468,17 @@ pub fn group_in_degree_centrality(
             "group_in_degree_centrality is not defined for undirected graphs.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
         let group_iter = s.try_iter()?;
         let group_strings: Vec<String> = group_iter
             .map(|item| node_key_to_string(py, &item?))
             .collect::<PyResult<Vec<String>>>()?;
         let group_refs: Vec<&str> = group_strings.iter().map(|s| s.as_str()).collect();
         Ok(fnx_algorithms::group_in_degree_centrality(
-            &dg.inner,
+            dg_ref,
             &group_refs,
         ))
-    } else {
-        unreachable!()
     }
 }
 
@@ -6107,18 +6495,17 @@ pub fn group_out_degree_centrality(
             "group_out_degree_centrality is not defined for undirected graphs.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
         let group_iter = s.try_iter()?;
         let group_strings: Vec<String> = group_iter
             .map(|item| node_key_to_string(py, &item?))
             .collect::<PyResult<Vec<String>>>()?;
         let group_refs: Vec<&str> = group_strings.iter().map(|s| s.as_str()).collect();
         Ok(fnx_algorithms::group_out_degree_centrality(
-            &dg.inner,
+            dg_ref,
             &group_refs,
         ))
-    } else {
-        unreachable!()
     }
 }
 
@@ -6196,10 +6583,9 @@ pub fn is_semiconnected(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool>
             "is_semiconnected is not defined for undirected graphs.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
-        Ok(fnx_algorithms::is_semiconnected(&dg.inner))
-    } else {
-        unreachable!()
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        Ok(fnx_algorithms::is_semiconnected(dg_ref))
     }
 }
 
@@ -6215,8 +6601,9 @@ pub fn kosaraju_strongly_connected_components(
             "kosaraju_strongly_connected_components is not defined for undirected graphs.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
-        let result = fnx_algorithms::kosaraju_strongly_connected_components(&dg.inner);
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        let result = fnx_algorithms::kosaraju_strongly_connected_components(dg_ref);
         result
             .iter()
             .map(|comp| {
@@ -6224,8 +6611,6 @@ pub fn kosaraju_strongly_connected_components(
                 py_set.into_pyobject(py).map(|obj| obj.into_any().unbind())
             })
             .collect()
-    } else {
-        unreachable!()
     }
 }
 
@@ -6238,8 +6623,9 @@ pub fn attracting_components(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<V
             "attracting_components is not defined for undirected graphs.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
-        let result = fnx_algorithms::attracting_components(&dg.inner);
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        let result = fnx_algorithms::attracting_components(dg_ref);
         result
             .iter()
             .map(|comp| {
@@ -6247,8 +6633,6 @@ pub fn attracting_components(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<V
                 py_set.into_pyobject(py).map(|obj| obj.into_any().unbind())
             })
             .collect()
-    } else {
-        unreachable!()
     }
 }
 
@@ -6261,10 +6645,9 @@ pub fn number_attracting_components(_py: Python<'_>, g: &Bound<'_, PyAny>) -> Py
             "number_attracting_components is not defined for undirected graphs.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
-        Ok(fnx_algorithms::number_attracting_components(&dg.inner))
-    } else {
-        unreachable!()
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        Ok(fnx_algorithms::number_attracting_components(dg_ref))
     }
 }
 
@@ -6281,17 +6664,16 @@ pub fn is_attracting_component(
             "is_attracting_component is not defined for undirected graphs.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
         let comp_iter = component.try_iter()?;
         let comp_strings: Vec<String> = comp_iter
             .map(|item| node_key_to_string(py, &item?))
             .collect::<PyResult<Vec<String>>>()?;
         let comp_refs: Vec<&str> = comp_strings.iter().map(|s| s.as_str()).collect();
         Ok(fnx_algorithms::is_attracting_component(
-            &dg.inner, &comp_refs,
+            dg_ref, &comp_refs,
         ))
-    } else {
-        unreachable!()
     }
 }
 
@@ -6381,10 +6763,9 @@ pub fn is_tournament(g: &Bound<'_, PyAny>) -> PyResult<bool> {
             "is_tournament is not defined for undirected graphs.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
-        Ok(fnx_algorithms::is_tournament(&dg.inner))
-    } else {
-        unreachable!()
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        Ok(fnx_algorithms::is_tournament(dg_ref))
     }
 }
 
@@ -6446,6 +6827,13 @@ pub fn edge_bfs(
     let result = match &gr {
         GraphRef::Undirected(pg) => fnx_algorithms::edge_bfs(&pg.inner, &src),
         GraphRef::Directed { dg, .. } => fnx_algorithms::edge_bfs_directed(&dg.inner, &src),
+        _ => {
+            if gr.is_directed() {
+                fnx_algorithms::edge_bfs_directed(gr.digraph().unwrap(), &src)
+            } else {
+                fnx_algorithms::edge_bfs(gr.undirected(), &src)
+            }
+        }
     };
     Ok(result
         .iter()
@@ -6465,6 +6853,13 @@ pub fn edge_dfs(
     let result = match &gr {
         GraphRef::Undirected(pg) => fnx_algorithms::edge_dfs(&pg.inner, &src),
         GraphRef::Directed { dg, .. } => fnx_algorithms::edge_dfs_directed(&dg.inner, &src),
+        _ => {
+            if gr.is_directed() {
+                fnx_algorithms::edge_dfs_directed(gr.digraph().unwrap(), &src)
+            } else {
+                fnx_algorithms::edge_dfs(gr.undirected(), &src)
+            }
+        }
     };
     Ok(result
         .iter()
@@ -6531,10 +6926,9 @@ pub fn is_aperiodic(g: &Bound<'_, PyAny>) -> PyResult<bool> {
             "is_aperiodic is not defined for undirected graphs.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
-        Ok(fnx_algorithms::is_aperiodic(&dg.inner))
-    } else {
-        unreachable!()
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        Ok(fnx_algorithms::is_aperiodic(dg_ref))
     }
 }
 
@@ -6547,14 +6941,13 @@ pub fn antichains(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<Vec<PyOb
             "antichains is not defined for undirected graphs.",
         ));
     }
-    if let GraphRef::Directed { dg, .. } = &gr {
-        let result = fnx_algorithms::antichains(&dg.inner);
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        let result = fnx_algorithms::antichains(dg_ref);
         Ok(result
             .into_iter()
             .map(|chain| chain.iter().map(|n| gr.py_node_key(py, n)).collect())
             .collect())
-    } else {
-        unreachable!()
     }
 }
 
@@ -6572,15 +6965,14 @@ pub fn immediate_dominators(
         ));
     }
     let src = node_key_to_string(py, start)?;
-    if let GraphRef::Directed { dg, .. } = &gr {
-        let result = fnx_algorithms::immediate_dominators(&dg.inner, &src);
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        let result = fnx_algorithms::immediate_dominators(dg_ref, &src);
         let dict = pyo3::types::PyDict::new(py);
         for (node, dom) in &result {
             dict.set_item(gr.py_node_key(py, node), gr.py_node_key(py, dom))?;
         }
         Ok(dict.into_any().unbind())
-    } else {
-        unreachable!()
     }
 }
 
@@ -6598,8 +6990,9 @@ pub fn dominance_frontiers(
         ));
     }
     let src = node_key_to_string(py, start)?;
-    if let GraphRef::Directed { dg, .. } = &gr {
-        let result = fnx_algorithms::dominance_frontiers(&dg.inner, &src);
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        let result = fnx_algorithms::dominance_frontiers(dg_ref, &src);
         let dict = pyo3::types::PyDict::new(py);
         for (node, frontier) in &result {
             let fset = pyo3::types::PySet::new(
@@ -6613,8 +7006,6 @@ pub fn dominance_frontiers(
             dict.set_item(gr.py_node_key(py, node), fset)?;
         }
         Ok(dict.into_any().unbind())
-    } else {
-        unreachable!()
     }
 }
 
@@ -6791,12 +7182,11 @@ fn number_of_spanning_arborescences(
         ));
     }
     let root_str = node_key_to_string(py, root)?;
-    if let GraphRef::Directed { dg, .. } = &gr {
+    {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
         Ok(fnx_algorithms::number_of_spanning_arborescences(
-            &dg.inner, &root_str, weight,
+            dg_ref, &root_str, weight,
         ))
-    } else {
-        unreachable!()
     }
 }
 
