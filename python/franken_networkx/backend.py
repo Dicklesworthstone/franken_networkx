@@ -396,8 +396,12 @@ def _fnx_to_nx(fg):
         G = nx.DiGraph()
     else:
         G = nx.Graph()
-    for node in fg.nodes:
-        G.add_node(node, **fg.nodes[node])
+    node_view = getattr(fg, "nodes", None)
+    for node in fg:
+        if node_view is not None:
+            G.add_node(node, **node_view[node])
+        else:
+            G.add_node(node)
     if fg.is_multigraph():
         seen = set()
         for u in fg:
