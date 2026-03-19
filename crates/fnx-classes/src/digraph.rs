@@ -32,7 +32,7 @@ impl DirectedEdgeKey {
     }
 }
 
-#[derive(Hash, PartialEq, Eq)]
+#[derive(Hash, PartialEq, Eq, Clone, Copy)]
 struct DirectedEdgeKeyRef<'a> {
     source: &'a str,
     target: &'a str,
@@ -545,6 +545,40 @@ impl DiGraph {
                         right: key.target.clone(),
                         attrs: attrs.clone(),
                     });
+                }
+            }
+        }
+
+        ordered
+    }
+
+    #[must_use]
+    pub fn edges_ordered_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
+        let mut ordered = Vec::with_capacity(self.edges.len());
+        let mut seen = HashSet::<DirectedEdgeKeyRef>::with_capacity(self.edges.len());
+
+        for node in self.nodes.keys() {
+            if let Some(succs) = self.successors.get(node) {
+                for target in succs {
+                    let key = DirectedEdgeKeyRef::new(node, target);
+                    if !seen.insert(key) {
+                        continue;
+                    }
+                    if let Some(attrs) = self.edges.get(&key) {
+                        ordered.push((node.as_str(), target.as_str(), attrs));
+                    }
+                }
+            }
+        }
+
+        if ordered.len() < self.edges.len() {
+            for (key, attrs) in &self.edges {
+                let rkey = DirectedEdgeKeyRef {
+                    source: &key.source,
+                    target: &key.target,
+                };
+                if seen.insert(rkey) {
+                    ordered.push((&key.source, &key.target, attrs));
                 }
             }
         }

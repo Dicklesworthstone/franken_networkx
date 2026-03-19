@@ -35,7 +35,7 @@ impl EdgeKey {
     }
 }
 
-#[derive(Hash, PartialEq, Eq)]
+#[derive(Hash, PartialEq, Eq, Clone, Copy)]
 struct EdgeKeyRef<'a> {
     left: &'a str,
     right: &'a str,
