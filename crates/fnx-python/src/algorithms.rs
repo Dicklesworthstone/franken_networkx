@@ -21,14 +21,26 @@ type SpanningEdgeSamples = (Vec<(String, String)>, Vec<f64>);
 // GraphRef — unified graph access for algorithms accepting both Graph & DiGraph
 // ---------------------------------------------------------------------------
 
-/// Unified graph reference for algorithm bindings that accept both Graph and DiGraph.
+/// Unified graph reference for algorithm bindings that accept Graph, DiGraph,
+/// MultiGraph, or MultiDiGraph.
 ///
 /// For undirected graphs, borrows the inner `Graph` directly.
 /// For directed graphs, converts to undirected once and stores the result.
+/// For multigraphs, converts to simple graph (collapsing parallel edges).
 pub(crate) enum GraphRef<'py> {
     Undirected(PyRef<'py, PyGraph>),
     Directed {
         dg: PyRef<'py, PyDiGraph>,
+        undirected: Box<fnx_classes::Graph>,
+    },
+    /// MultiGraph converted to simple undirected Graph.
+    MultiUndirected {
+        mg: PyRef<'py, PyMultiGraph>,
+        simple: Box<fnx_classes::Graph>,
+    },
+    /// MultiDiGraph converted to simple DiGraph, then to undirected.
+    MultiDirected {
+        mdg: PyRef<'py, PyMultiDiGraph>,
         undirected: Box<fnx_classes::Graph>,
     },
 }
@@ -38,16 +50,23 @@ impl<'py> GraphRef<'py> {
     pub(crate) fn undirected(&self) -> &fnx_classes::Graph {
         match self {
             GraphRef::Undirected(pg) => &pg.inner,
-            GraphRef::Directed { undirected, .. } => undirected,
+            GraphRef::Directed { undirected, .. }
+            | GraphRef::MultiDirected { undirected, .. } => undirected,
+            GraphRef::MultiUndirected { simple, .. } => simple,
         }
     }
 
     /// Convert a canonical node key to Python object.
     fn py_node_key(&self, py: Python<'_>, canonical: &str) -> PyObject {
-        match self {
-            GraphRef::Undirected(pg) => pg.py_node_key(py, canonical),
-            GraphRef::Directed { dg, .. } => dg.py_node_key(py, canonical),
-        }
+        let key_map = self.node_key_map();
+        key_map.get(canonical).map_or_else(
+            || {
+                crate::unwrap_infallible(canonical.to_owned().into_pyobject(py))
+                    .into_any()
+                    .unbind()
+            },
+            |obj| obj.clone_ref(py),
+        )
     }
 
     /// Check if a node exists.
@@ -55,12 +74,14 @@ impl<'py> GraphRef<'py> {
         match self {
             GraphRef::Undirected(pg) => pg.inner.has_node(canonical),
             GraphRef::Directed { dg, .. } => dg.inner.has_node(canonical),
+            GraphRef::MultiUndirected { mg, .. } => mg.inner.has_node(canonical),
+            GraphRef::MultiDirected { mdg, .. } => mdg.inner.has_node(canonical),
         }
     }
 
     /// Is this a directed graph?
     fn is_directed(&self) -> bool {
-        matches!(self, GraphRef::Directed { .. })
+        matches!(self, GraphRef::Directed { .. } | GraphRef::MultiDirected { .. })
     }
 
     /// Get the original graph's node key map.
@@ -68,11 +89,14 @@ impl<'py> GraphRef<'py> {
         match self {
             GraphRef::Undirected(pg) => &pg.node_key_map,
             GraphRef::Directed { dg, .. } => &dg.node_key_map,
+            GraphRef::MultiUndirected { mg, .. } => &mg.node_key_map,
+            GraphRef::MultiDirected { mdg, .. } => &mdg.node_key_map,
         }
     }
 
     /// Look up edge attributes from the original graph for an undirected edge.
     /// For DiGraph, tries both directions.
+    /// For multigraphs, returns first matching parallel edge's attributes.
     fn edge_attrs_for_undirected(&self, left: &str, right: &str) -> Option<&Py<PyDict>> {
         match self {
             GraphRef::Undirected(pg) => {
@@ -87,11 +111,25 @@ impl<'py> GraphRef<'py> {
                 let ek2 = (right.to_owned(), left.to_owned());
                 dg.edge_py_attrs.get(&ek2)
             }
+            GraphRef::MultiUndirected { mg, .. } => {
+                // Return first parallel edge's attrs (key 0)
+                let ek = PyMultiGraph::edge_key(left, right, 0);
+                mg.edge_py_attrs.get(&ek)
+            }
+            GraphRef::MultiDirected { mdg, .. } => {
+                let ek1 = (left.to_owned(), right.to_owned(), 0);
+                if let Some(attrs) = mdg.edge_py_attrs.get(&ek1) {
+                    return Some(attrs);
+                }
+                let ek2 = (right.to_owned(), left.to_owned(), 0);
+                mdg.edge_py_attrs.get(&ek2)
+            }
         }
     }
 }
 
-/// Extract either a `PyGraph` or `PyDiGraph` from a Python argument.
+/// Extract a `PyGraph`, `PyDiGraph`, `PyMultiGraph`, or `PyMultiDiGraph` from
+/// a Python argument, converting multigraphs to simple graphs for algorithm dispatch.
 pub(crate) fn extract_graph<'py>(g: &'py Bound<'py, PyAny>) -> PyResult<GraphRef<'py>> {
     if let Ok(pg) = g.extract::<PyRef<'py, PyGraph>>() {
         Ok(GraphRef::Undirected(pg))
@@ -101,11 +139,64 @@ pub(crate) fn extract_graph<'py>(g: &'py Bound<'py, PyAny>) -> PyResult<GraphRef
             dg,
             undirected: Box::new(undirected),
         })
+    } else if let Ok(mg) = g.extract::<PyRef<'py, PyMultiGraph>>() {
+        // Convert MultiGraph to simple Graph by collapsing parallel edges.
+        let simple = multigraph_to_simple_graph(&mg.inner);
+        Ok(GraphRef::MultiUndirected {
+            mg,
+            simple: Box::new(simple),
+        })
+    } else if let Ok(mdg) = g.extract::<PyRef<'py, PyMultiDiGraph>>() {
+        // Convert MultiDiGraph to simple undirected Graph.
+        let simple_di = multidigraph_to_simple_digraph(&mdg.inner);
+        let undirected = simple_di.to_undirected();
+        Ok(GraphRef::MultiDirected {
+            mdg,
+            undirected: Box::new(undirected),
+        })
     } else {
         Err(pyo3::exceptions::PyTypeError::new_err(
-            "expected Graph or DiGraph",
+            "expected Graph, DiGraph, MultiGraph, or MultiDiGraph",
         ))
     }
+}
+
+/// Convert a MultiGraph to a simple Graph by collapsing parallel edges.
+/// Edge attributes from the first parallel edge (key 0) are kept.
+fn multigraph_to_simple_graph(mg: &fnx_classes::MultiGraph) -> fnx_classes::Graph {
+    let mut g = fnx_classes::Graph::strict();
+    for node in mg.nodes_ordered() {
+        let attrs = mg.node_attrs(node).cloned().unwrap_or_default();
+        g.add_node_with_attrs(node.to_owned(), attrs);
+    }
+    for edge in mg.edges_ordered() {
+        // Only add the first parallel edge (skip duplicates)
+        if !g.has_edge(&edge.left, &edge.right) {
+            let _ = g.add_edge_with_attrs(edge.left, edge.right, edge.attrs);
+        }
+    }
+    g
+}
+
+/// Convert a MultiDiGraph to a simple DiGraph by collapsing parallel edges.
+fn multidigraph_to_simple_digraph(
+    mdg: &fnx_classes::digraph::MultiDiGraph,
+) -> fnx_classes::digraph::DiGraph {
+    let mut dg = fnx_classes::digraph::DiGraph::strict();
+    for node in mdg.nodes_ordered() {
+        let attrs = mdg.node_attrs(node).cloned().unwrap_or_default();
+        dg.add_node_with_attrs(node.to_owned(), attrs);
+    }
+    for edge in mdg.edges_ordered() {
+        if !dg.has_edge(&edge.source, &edge.target) {
+            let _ = dg.add_edge_with_attrs(
+                edge.source,
+                edge.target,
+                edge.attrs,
+            );
+        }
+    }
+    dg
 }
 
 /// Require undirected graph — raise `NetworkXNotImplemented` on DiGraph.

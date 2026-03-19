@@ -242,6 +242,121 @@ def test_backend_multigraph_conversion_roundtrip(fnx):
     check("backend preserves graph attrs on digraph", mdg_roundtrip.graph["name"] == "mdg")
 
 
+@timed
+def test_multigraph_extended_surface(fnx):
+    log.info("--- test_multigraph_extended_surface ---")
+    import pytest
+
+    g = fnx.MultiGraph()
+    g.graph["name"] = "mg-extended"
+    g.add_nodes_from([("a", {"color": "red"}), "b", "c"])
+    g.add_weighted_edges_from([("a", "b", 1.5), ("a", "b", 2.5)])
+
+    assert len(g.nodes) == 3
+    assert "a" in g.nodes
+    assert any(node == "a" and attrs["color"] == "red" for node, attrs in g.nodes(data=True))
+
+    keyed_edges = list(g.edges(keys=True))
+    assert keyed_edges == [("a", "b", 0), ("a", "b", 1)]
+    keyed_data_edges = list(g.edges(data=True, keys=True))
+    assert keyed_data_edges[0][3]["weight"] == 1.5
+    assert keyed_data_edges[1][3]["weight"] == 2.5
+
+    assert g.degree["a"] == 2
+    assert list(g.degree) == [("a", 2), ("b", 2), ("c", 0)]
+    assert sorted(g.adj["a"]["b"].keys()) == [0, 1]
+    assert list(g.adjacency()) == ["a", "b", "c"]
+
+    copied = g.copy()
+    copied.remove_edge("a", "b", key=0)
+    assert copied.number_of_edges("a", "b") == 1
+    assert g.number_of_edges("a", "b") == 2
+
+    sub = g.subgraph(["a", "b"])
+    assert sub.number_of_nodes() == 2
+    assert sub.number_of_edges("a", "b") == 2
+
+    edge_sub = g.edge_subgraph([("a", "b", 1)])
+    assert edge_sub.number_of_nodes() == 2
+    assert edge_sub.number_of_edges("a", "b") == 1
+    assert edge_sub.has_edge("a", "b", key=1)
+
+    same_kind = g.to_undirected()
+    assert isinstance(same_kind, fnx.MultiGraph)
+    assert same_kind.number_of_edges("a", "b") == 2
+
+    with pytest.raises(fnx.NetworkXNotImplemented):
+        g.to_directed()
+
+    g.update(edges=[("b", "c", {"weight": 4.0})], nodes=[("d", {"shape": "square"})])
+    assert g.has_node("d")
+    assert g.number_of_edges("b", "c") == 1
+    assert g.number_of_edges_between("a", "b") == 2
+    assert "mg-extended" in repr(g)
+
+
+@timed
+def test_multidigraph_extended_surface(fnx):
+    log.info("--- test_multidigraph_extended_surface ---")
+    import pytest
+
+    g = fnx.MultiDiGraph()
+    g.graph["name"] = "mdg-extended"
+    g.add_nodes_from([("a", {"kind": "src"}), "b", "c"])
+    g.add_weighted_edges_from([("a", "b", 1.0), ("a", "b", 2.0), ("b", "a", 3.0)])
+
+    assert len(g.nodes) == 3
+    assert "a" in g.nodes
+    assert any(node == "a" and attrs["kind"] == "src" for node, attrs in g.nodes(data=True))
+
+    keyed_edges = list(g.edges(keys=True))
+    assert keyed_edges == [("a", "b", 0), ("a", "b", 1), ("b", "a", 0)]
+    keyed_data_edges = list(g.edges(data=True, keys=True))
+    assert keyed_data_edges[0][3]["weight"] == 1.0
+    assert keyed_data_edges[1][3]["weight"] == 2.0
+    assert keyed_data_edges[2][3]["weight"] == 3.0
+
+    assert g.degree["a"] == 3
+    assert g.in_degree["a"] == 1
+    assert g.out_degree["a"] == 2
+    assert list(g.degree) == [("a", 3), ("b", 3), ("c", 0)]
+    assert list(g.in_degree) == [("a", 1), ("b", 2), ("c", 0)]
+    assert list(g.out_degree) == [("a", 2), ("b", 1), ("c", 0)]
+    assert sorted(g.succ["a"]["b"].keys()) == [0, 1]
+    assert sorted(g.pred["a"]["b"].keys()) == [0]
+
+    copied = g.copy()
+    copied.remove_edge("a", "b", key=0)
+    assert copied.number_of_edges("a", "b") == 1
+    assert g.number_of_edges("a", "b") == 2
+
+    sub = g.subgraph(["a", "b"])
+    assert sub.number_of_nodes() == 2
+    assert sub.number_of_edges() == 3
+
+    edge_sub = g.edge_subgraph([("a", "b", 1)])
+    assert edge_sub.number_of_nodes() == 2
+    assert edge_sub.number_of_edges("a", "b") == 1
+    assert edge_sub.has_edge("a", "b", key=1)
+
+    directed_copy = g.to_directed()
+    assert isinstance(directed_copy, fnx.MultiDiGraph)
+    assert directed_copy.number_of_edges() == g.number_of_edges()
+
+    reversed_graph = g.reverse()
+    assert reversed_graph.has_edge("b", "a", key=0)
+    assert reversed_graph.has_edge("b", "a", key=1)
+    assert reversed_graph.has_edge("a", "b", key=0)
+
+    with pytest.raises(fnx.NetworkXNotImplemented):
+        g.to_undirected()
+
+    g.update(edges=[("c", "a", {"weight": 4.0})], nodes=[("d", {"shape": "sink"})])
+    assert g.has_node("d")
+    assert g.number_of_edges("c", "a") == 1
+    assert "mdg-extended" in repr(g)
+
+
 # ===========================================================================
 # Test: View objects
 # ===========================================================================
