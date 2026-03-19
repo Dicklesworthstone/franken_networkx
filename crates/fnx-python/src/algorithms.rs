@@ -6513,6 +6513,206 @@ pub fn dominance_frontiers(
 }
 
 // ===========================================================================
+// Graph metrics — expansion, conductance, volume
+// ===========================================================================
+
+/// Return the volume of a set of nodes (sum of degrees).
+#[pyfunction]
+#[pyo3(signature = (g, nodes))]
+fn volume(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    nodes: Vec<Bound<'_, PyAny>>,
+) -> PyResult<usize> {
+    let gr = extract_graph(g)?;
+    let node_strs: Vec<String> = nodes
+        .iter()
+        .map(|n| node_key_to_string(py, n))
+        .collect::<PyResult<_>>()?;
+    let refs: Vec<&str> = node_strs.iter().map(|s| s.as_str()).collect();
+    Ok(fnx_algorithms::volume(gr.undirected(), &refs))
+}
+
+/// Return the boundary expansion of a set of nodes.
+#[pyfunction]
+#[pyo3(signature = (g, nodes))]
+fn boundary_expansion(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    nodes: Vec<Bound<'_, PyAny>>,
+) -> PyResult<f64> {
+    let gr = extract_graph(g)?;
+    let node_strs: Vec<String> = nodes
+        .iter()
+        .map(|n| node_key_to_string(py, n))
+        .collect::<PyResult<_>>()?;
+    let refs: Vec<&str> = node_strs.iter().map(|s| s.as_str()).collect();
+    Ok(fnx_algorithms::boundary_expansion(gr.undirected(), &refs))
+}
+
+/// Return the conductance of a set of nodes.
+#[pyfunction]
+#[pyo3(signature = (g, nodes))]
+fn conductance(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    nodes: Vec<Bound<'_, PyAny>>,
+) -> PyResult<f64> {
+    let gr = extract_graph(g)?;
+    let node_strs: Vec<String> = nodes
+        .iter()
+        .map(|n| node_key_to_string(py, n))
+        .collect::<PyResult<_>>()?;
+    let refs: Vec<&str> = node_strs.iter().map(|s| s.as_str()).collect();
+    Ok(fnx_algorithms::conductance(gr.undirected(), &refs))
+}
+
+/// Return the edge expansion of a set of nodes.
+#[pyfunction]
+#[pyo3(signature = (g, nodes))]
+fn edge_expansion(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    nodes: Vec<Bound<'_, PyAny>>,
+) -> PyResult<f64> {
+    let gr = extract_graph(g)?;
+    let node_strs: Vec<String> = nodes
+        .iter()
+        .map(|n| node_key_to_string(py, n))
+        .collect::<PyResult<_>>()?;
+    let refs: Vec<&str> = node_strs.iter().map(|s| s.as_str()).collect();
+    Ok(fnx_algorithms::edge_expansion(gr.undirected(), &refs))
+}
+
+/// Return the node expansion of a set of nodes.
+#[pyfunction]
+#[pyo3(signature = (g, nodes))]
+fn node_expansion(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    nodes: Vec<Bound<'_, PyAny>>,
+) -> PyResult<f64> {
+    let gr = extract_graph(g)?;
+    let node_strs: Vec<String> = nodes
+        .iter()
+        .map(|n| node_key_to_string(py, n))
+        .collect::<PyResult<_>>()?;
+    let refs: Vec<&str> = node_strs.iter().map(|s| s.as_str()).collect();
+    Ok(fnx_algorithms::node_expansion(gr.undirected(), &refs))
+}
+
+/// Return the mixing expansion of a set of nodes.
+#[pyfunction]
+#[pyo3(signature = (g, nodes))]
+fn mixing_expansion(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    nodes: Vec<Bound<'_, PyAny>>,
+) -> PyResult<f64> {
+    let gr = extract_graph(g)?;
+    let node_strs: Vec<String> = nodes
+        .iter()
+        .map(|n| node_key_to_string(py, n))
+        .collect::<PyResult<_>>()?;
+    let refs: Vec<&str> = node_strs.iter().map(|s| s.as_str()).collect();
+    Ok(fnx_algorithms::mixing_expansion(gr.undirected(), &refs))
+}
+
+/// Return all non-edges of the graph.
+#[pyfunction]
+#[pyo3(signature = (g,))]
+fn non_edges(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<(PyObject, PyObject)>> {
+    let gr = extract_graph(g)?;
+    let result = fnx_algorithms::non_edges(gr.undirected());
+    Ok(result
+        .iter()
+        .map(|(u, v)| (gr.py_node_key(py, u), gr.py_node_key(py, v)))
+        .collect())
+}
+
+/// Return the average node connectivity of the graph.
+#[pyfunction]
+#[pyo3(signature = (g,))]
+fn average_node_connectivity(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    Ok(py.allow_threads(|| fnx_algorithms::average_node_connectivity(inner)))
+}
+
+/// Return True if the graph is k-edge-connected.
+#[pyfunction]
+#[pyo3(signature = (g, k))]
+fn is_k_edge_connected(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<bool> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    Ok(py.allow_threads(|| fnx_algorithms::is_k_edge_connected(inner, k)))
+}
+
+/// Return all-pairs Dijkstra distances and paths.
+#[pyfunction]
+#[pyo3(signature = (g, weight="weight"))]
+fn all_pairs_dijkstra(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let w = weight.to_owned();
+    let result = py.allow_threads(|| fnx_algorithms::all_pairs_dijkstra(inner, &w));
+    let outer = PyDict::new(py);
+    for (source, (dists, paths)) in &result {
+        let dist_dict = PyDict::new(py);
+        for (target, &dist) in dists {
+            dist_dict.set_item(gr.py_node_key(py, target), dist)?;
+        }
+        let path_dict = PyDict::new(py);
+        for (target, path) in paths {
+            let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
+            path_dict.set_item(gr.py_node_key(py, target), PyList::new(py, &py_path)?)?;
+        }
+        let pair = PyTuple::new(py, &[dist_dict.as_any(), path_dict.as_any()])?;
+        outer.set_item(gr.py_node_key(py, source), pair)?;
+    }
+    Ok(outer.into_any().unbind())
+}
+
+/// Return the number of spanning arborescences of a directed graph rooted at `root`.
+#[pyfunction]
+#[pyo3(signature = (g, root, weight=None))]
+fn number_of_spanning_arborescences(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    root: &Bound<'_, PyAny>,
+    weight: Option<&str>,
+) -> PyResult<f64> {
+    let gr = extract_graph(g)?;
+    if !gr.is_directed() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "number_of_spanning_arborescences is not defined for undirected graphs.",
+        ));
+    }
+    let root_str = node_key_to_string(py, root)?;
+    if let GraphRef::Directed { dg, .. } = &gr {
+        Ok(fnx_algorithms::number_of_spanning_arborescences(
+            &dg.inner, &root_str, weight,
+        ))
+    } else {
+        unreachable!()
+    }
+}
+
+/// Return the global node connectivity of the graph.
+#[pyfunction]
+#[pyo3(signature = (g,))]
+fn global_node_connectivity(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usize> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::global_node_connectivity(inner));
+    Ok(result.value)
+}
+
+// ===========================================================================
 // Registration
 // ===========================================================================
 
@@ -6853,5 +7053,18 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(antichains, m)?)?;
     m.add_function(wrap_pyfunction!(immediate_dominators, m)?)?;
     m.add_function(wrap_pyfunction!(dominance_frontiers, m)?)?;
+    // Graph metrics — expansion, conductance, volume
+    m.add_function(wrap_pyfunction!(volume, m)?)?;
+    m.add_function(wrap_pyfunction!(boundary_expansion, m)?)?;
+    m.add_function(wrap_pyfunction!(conductance, m)?)?;
+    m.add_function(wrap_pyfunction!(edge_expansion, m)?)?;
+    m.add_function(wrap_pyfunction!(node_expansion, m)?)?;
+    m.add_function(wrap_pyfunction!(mixing_expansion, m)?)?;
+    m.add_function(wrap_pyfunction!(non_edges, m)?)?;
+    m.add_function(wrap_pyfunction!(average_node_connectivity, m)?)?;
+    m.add_function(wrap_pyfunction!(is_k_edge_connected, m)?)?;
+    m.add_function(wrap_pyfunction!(all_pairs_dijkstra, m)?)?;
+    m.add_function(wrap_pyfunction!(number_of_spanning_arborescences, m)?)?;
+    m.add_function(wrap_pyfunction!(global_node_connectivity, m)?)?;
     Ok(())
 }

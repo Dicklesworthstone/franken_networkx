@@ -331,6 +331,22 @@ from franken_networkx._fnx import (
     s_metric,
 )
 
+# Algorithm functions — graph metrics (expansion, conductance, volume)
+from franken_networkx._fnx import (
+    volume,
+    boundary_expansion,
+    conductance,
+    edge_expansion,
+    node_expansion,
+    mixing_expansion,
+    non_edges,
+    average_node_connectivity,
+    is_k_edge_connected,
+    all_pairs_dijkstra,
+    number_of_spanning_arborescences,
+    global_node_connectivity,
+)
+
 # Algorithm functions — strongly connected components
 from franken_networkx._fnx import (
     strongly_connected_components,
@@ -1312,6 +1328,18 @@ __all__ = [
     "average_degree_connectivity",
     "rich_club_coefficient",
     "s_metric",
+    "volume",
+    "boundary_expansion",
+    "conductance",
+    "edge_expansion",
+    "node_expansion",
+    "mixing_expansion",
+    "non_edges",
+    "average_node_connectivity",
+    "is_k_edge_connected",
+    "all_pairs_dijkstra",
+    "number_of_spanning_arborescences",
+    "global_node_connectivity",
     # Algorithms — strongly connected components
     "strongly_connected_components",
     "number_strongly_connected_components",
