@@ -159,6 +159,20 @@ impl PyMultiDiGraph {
         self.graph_attrs.clone_ref(py)
     }
 
+    #[getter]
+    fn name(&self, py: Python<'_>) -> PyResult<String> {
+        let gd = self.graph_attrs.bind(py);
+        match gd.get_item("name")? {
+            Some(v) => v.extract(),
+            None => Ok(String::new()),
+        }
+    }
+
+    #[setter]
+    fn set_name(&self, py: Python<'_>, value: String) -> PyResult<()> {
+        self.graph_attrs.bind(py).set_item("name", value)
+    }
+
     fn is_directed(&self) -> bool {
         true
     }
@@ -195,6 +209,24 @@ impl PyMultiDiGraph {
         }
     }
 
+    #[pyo3(signature = (weight=None))]
+    fn size(&self, py: Python<'_>, weight: Option<&str>) -> PyResult<f64> {
+        match weight {
+            None => Ok(self.inner.edge_count() as f64),
+            Some(attr) => {
+                let mut total = 0.0_f64;
+                for dict in self.edge_py_attrs.values() {
+                    let bound = dict.bind(py);
+                    match bound.get_item(attr)? {
+                        Some(val) => total += val.extract::<f64>()?,
+                        None => total += 1.0,
+                    }
+                }
+                Ok(total)
+            }
+        }
+    }
+
     #[pyo3(signature = (n, **attr))]
     fn add_node(
         &mut self,
@@ -218,6 +250,36 @@ impl PyMultiDiGraph {
             }
         }
         self.inner.add_node_with_attrs(canonical, rust_attrs);
+        Ok(())
+    }
+
+    #[pyo3(signature = (nodes_for_adding, **attr))]
+    fn add_nodes_from(
+        &mut self,
+        py: Python<'_>,
+        nodes_for_adding: &Bound<'_, PyAny>,
+        attr: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<()> {
+        let iter = PyIterator::from_object(nodes_for_adding)?;
+        for item in iter {
+            let item = item?;
+            if let Ok(tuple) = item.downcast::<PyTuple>()
+                && tuple.len() == 2
+            {
+                let node = tuple.get_item(0)?;
+                let node_attrs = tuple.get_item(1)?;
+                let merged = PyDict::new(py);
+                if let Some(a) = attr {
+                    merged.update(a.as_mapping())?;
+                }
+                if let Ok(d) = node_attrs.downcast::<PyDict>() {
+                    merged.update(d.as_mapping())?;
+                }
+                self.add_node(py, &node, Some(&merged))?;
+                continue;
+            }
+            self.add_node(py, &item, attr)?;
+        }
         Ok(())
     }
 
@@ -281,6 +343,80 @@ impl PyMultiDiGraph {
         Ok(actual_key)
     }
 
+    #[pyo3(signature = (ebunch_to_add, **attr))]
+    fn add_edges_from(
+        &mut self,
+        py: Python<'_>,
+        ebunch_to_add: &Bound<'_, PyAny>,
+        attr: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<()> {
+        let iter = PyIterator::from_object(ebunch_to_add)?;
+        for item in iter {
+            let item = item?;
+            let tuple = item.downcast::<PyTuple>().map_err(|_| {
+                PyTypeError::new_err(
+                    "each edge must be a tuple (u, v), (u, v, data), or (u, v, key, data)",
+                )
+            })?;
+            let merged = PyDict::new(py);
+            if let Some(a) = attr {
+                merged.update(a.as_mapping())?;
+            }
+            match tuple.len() {
+                2 => {
+                    self.add_edge(
+                        py,
+                        &tuple.get_item(0)?,
+                        &tuple.get_item(1)?,
+                        None,
+                        Some(&merged),
+                    )?;
+                }
+                3 => {
+                    let third = tuple.get_item(2)?;
+                    if let Ok(d) = third.downcast::<PyDict>() {
+                        merged.update(d.as_mapping())?;
+                        self.add_edge(
+                            py,
+                            &tuple.get_item(0)?,
+                            &tuple.get_item(1)?,
+                            None,
+                            Some(&merged),
+                        )?;
+                    } else {
+                        let edge_key = third.extract::<usize>()?;
+                        self.add_edge(
+                            py,
+                            &tuple.get_item(0)?,
+                            &tuple.get_item(1)?,
+                            Some(edge_key),
+                            Some(&merged),
+                        )?;
+                    }
+                }
+                4 => {
+                    let edge_key = tuple.get_item(2)?.extract::<usize>()?;
+                    if let Ok(d) = tuple.get_item(3)?.downcast::<PyDict>() {
+                        merged.update(d.as_mapping())?;
+                    }
+                    self.add_edge(
+                        py,
+                        &tuple.get_item(0)?,
+                        &tuple.get_item(1)?,
+                        Some(edge_key),
+                        Some(&merged),
+                    )?;
+                }
+                _ => {
+                    return Err(PyValueError::new_err(
+                        "edge tuple must have 2, 3, or 4 elements",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
     #[pyo3(signature = (u, v, key=None))]
     fn remove_edge(
         &mut self,
@@ -309,6 +445,52 @@ impl PyMultiDiGraph {
         if let Some(explicit_key) = auto_removal_key {
             self.edge_py_attrs
                 .remove(&Self::edge_key(&u_canonical, &v_canonical, explicit_key));
+        }
+        Ok(())
+    }
+
+    fn remove_node(&mut self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
+        let canonical = node_key_to_string(py, n)?;
+        if !self.inner.has_node(&canonical) {
+            return Err(NodeNotFound::new_err(format!(
+                "The node {} is not in the graph.",
+                n.repr()?
+            )));
+        }
+        self.inner.remove_node(&canonical);
+        self.node_key_map.remove(&canonical);
+        self.node_py_attrs.remove(&canonical);
+        let keys_to_remove: Vec<(String, String, usize)> = self
+            .edge_py_attrs
+            .keys()
+            .filter(|(u, v, _)| u == &canonical || v == &canonical)
+            .cloned()
+            .collect();
+        for k in keys_to_remove {
+            self.edge_py_attrs.remove(&k);
+        }
+        Ok(())
+    }
+
+    fn remove_nodes_from(&mut self, py: Python<'_>, nodes: &Bound<'_, PyAny>) -> PyResult<()> {
+        let iter = PyIterator::from_object(nodes)?;
+        for item in iter {
+            let item = item?;
+            let canonical = node_key_to_string(py, &item)?;
+            if self.inner.has_node(&canonical) {
+                self.inner.remove_node(&canonical);
+                self.node_key_map.remove(&canonical);
+                self.node_py_attrs.remove(&canonical);
+                let keys_to_remove: Vec<(String, String, usize)> = self
+                    .edge_py_attrs
+                    .keys()
+                    .filter(|(u, v, _)| u == &canonical || v == &canonical)
+                    .cloned()
+                    .collect();
+                for k in keys_to_remove {
+                    self.edge_py_attrs.remove(&k);
+                }
+            }
         }
         Ok(())
     }
@@ -365,6 +547,30 @@ impl PyMultiDiGraph {
         Ok(())
     }
 
+    fn clear_edges(&mut self) {
+        self.inner = MultiDiGraph::strict();
+        Python::with_gil(|py| {
+            for canonical in self.node_key_map.keys() {
+                let rust_attrs = self
+                    .node_py_attrs
+                    .get(canonical)
+                    .map(|attrs| crate::py_dict_to_attr_map(attrs.bind(py)))
+                    .transpose()
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
+                self.inner
+                    .add_node_with_attrs(canonical.clone(), rust_attrs);
+            }
+        });
+        self.edge_py_attrs.clear();
+    }
+
+    fn has_node(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        let canonical = node_key_to_string(py, n)?;
+        Ok(self.inner.has_node(&canonical))
+    }
+
     fn __len__(&self) -> usize {
         self.inner.node_count()
     }
@@ -410,6 +616,28 @@ impl PyMultiDiGraph {
             self.inner.node_count(),
             self.inner.edge_count()
         )
+    }
+
+    fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+        let name = self.name(py)?;
+        if name.is_empty() {
+            Ok(format!(
+                "MultiDiGraph(nodes={}, edges={})",
+                self.inner.node_count(),
+                self.inner.edge_count()
+            ))
+        } else {
+            Ok(format!(
+                "MultiDiGraph(name='{}', nodes={}, edges={})",
+                name,
+                self.inner.node_count(),
+                self.inner.edge_count()
+            ))
+        }
+    }
+
+    fn __bool__(&self) -> bool {
+        self.inner.node_count() > 0
     }
 }
 

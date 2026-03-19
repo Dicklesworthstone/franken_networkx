@@ -1,12 +1,13 @@
 //! Python bindings for graph I/O functions.
 //!
 //! Each read function accepts a file path (str or os.PathLike) or file-like object.
-//! Each write function accepts a Graph and a file path or file-like object.
-//! Internally delegates to `fnx_readwrite::EdgeListEngine` which operates on strings.
+//! Each write function accepts a Graph or DiGraph and a file path or file-like object.
+//! Internally delegates to `fnx_readwrite::EdgeListEngine`.
 
 use crate::PyGraph;
 use crate::algorithms::extract_graph;
-use fnx_readwrite::EdgeListEngine;
+use crate::digraph::PyDiGraph;
+use fnx_readwrite::{DiReadWriteReport, EdgeListEngine, ReadWriteReport};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use std::collections::HashMap;
@@ -54,13 +55,8 @@ fn write_output(py: Python<'_>, dest: &Bound<'_, PyAny>, content: &str) -> PyRes
 }
 
 /// Convert a `ReadWriteReport` into a `PyGraph`.
-///
-/// Builds Python-side maps (node_key_map, node_py_attrs, edge_py_attrs)
-/// from the Rust Graph's string-keyed data.
-fn report_to_pygraph(py: Python<'_>, report: fnx_readwrite::ReadWriteReport) -> PyResult<PyGraph> {
+fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGraph> {
     let g = report.graph;
-
-    // Build node_key_map: canonical string -> Python str object
     let mut node_key_map = HashMap::new();
     let mut node_py_attrs = HashMap::new();
     for node_id in g.nodes_ordered() {
@@ -77,7 +73,6 @@ fn report_to_pygraph(py: Python<'_>, report: fnx_readwrite::ReadWriteReport) -> 
         node_py_attrs.insert(node_id.to_owned(), d.unbind());
     }
 
-    // Build edge_py_attrs from edges
     let mut edge_py_attrs = HashMap::new();
     for es in g.edges_ordered() {
         let key = PyGraph::edge_key(&es.left, &es.right);
@@ -99,6 +94,46 @@ fn report_to_pygraph(py: Python<'_>, report: fnx_readwrite::ReadWriteReport) -> 
     })
 }
 
+/// Convert a `DiReadWriteReport` into a `PyDiGraph`.
+fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult<PyDiGraph> {
+    let g = report.graph;
+    let mut node_key_map = HashMap::new();
+    let mut node_py_attrs = HashMap::new();
+    for node_id in g.nodes_ordered() {
+        node_key_map.insert(
+            node_id.to_owned(),
+            node_id.into_pyobject(py)?.into_any().unbind(),
+        );
+        let d = PyDict::new(py);
+        if let Some(attrs) = g.node_attrs(node_id) {
+            for (k, v) in attrs {
+                d.set_item(k, v)?;
+            }
+        }
+        node_py_attrs.insert(node_id.to_owned(), d.unbind());
+    }
+
+    let mut edge_py_attrs = HashMap::new();
+    for es in g.edges_ordered() {
+        let key = PyDiGraph::edge_key(&es.left, &es.right);
+        let d = PyDict::new(py);
+        if let Some(attrs) = g.edge_attrs(&es.left, &es.right) {
+            for (k, v) in attrs {
+                d.set_item(k, v)?;
+            }
+        }
+        edge_py_attrs.insert(key, d.unbind());
+    }
+
+    Ok(PyDiGraph {
+        inner: g,
+        node_key_map,
+        node_py_attrs,
+        edge_py_attrs,
+        graph_attrs: PyDict::new(py).unbind(),
+    })
+}
+
 fn rw_error_to_py(e: fnx_readwrite::ReadWriteError) -> PyErr {
     pyo3::exceptions::PyIOError::new_err(format!("{e}"))
 }
@@ -110,7 +145,6 @@ fn rw_error_to_py(e: fnx_readwrite::ReadWriteError) -> PyErr {
 #[pyfunction]
 #[pyo3(signature = (path,))]
 fn read_edgelist(py: Python<'_>, path: &Bound<'_, PyAny>) -> PyResult<PyGraph> {
-    log::info!(target: "franken_networkx", "read_edgelist");
     let input = read_input(py, path)?;
     let mut engine = EdgeListEngine::hardened();
     let report = py
@@ -122,13 +156,16 @@ fn read_edgelist(py: Python<'_>, path: &Bound<'_, PyAny>) -> PyResult<PyGraph> {
 #[pyfunction]
 #[pyo3(signature = (g, path))]
 fn write_edgelist(py: Python<'_>, g: &Bound<'_, PyAny>, path: &Bound<'_, PyAny>) -> PyResult<()> {
-    log::info!(target: "franken_networkx", "write_edgelist");
     let gr = extract_graph(g)?;
-    let graph = gr.undirected();
     let mut engine = EdgeListEngine::hardened();
-    let content = py
-        .allow_threads(|| engine.write_edgelist(graph))
-        .map_err(rw_error_to_py)?;
+    let content = match gr {
+        crate::algorithms::GraphRef::Undirected(pg) => py
+            .allow_threads(|| engine.write_edgelist(&pg.inner))
+            .map_err(rw_error_to_py)?,
+        crate::algorithms::GraphRef::Directed { dg, .. } => py
+            .allow_threads(|| engine.write_digraph_edgelist(&dg.inner))
+            .map_err(rw_error_to_py)?,
+    };
     write_output(py, path, &content)
 }
 
@@ -151,11 +188,15 @@ fn read_adjlist(py: Python<'_>, path: &Bound<'_, PyAny>) -> PyResult<PyGraph> {
 #[pyo3(signature = (g, path))]
 fn write_adjlist(py: Python<'_>, g: &Bound<'_, PyAny>, path: &Bound<'_, PyAny>) -> PyResult<()> {
     let gr = extract_graph(g)?;
-    let graph = gr.undirected();
     let mut engine = EdgeListEngine::hardened();
-    let content = py
-        .allow_threads(|| engine.write_adjlist(graph))
-        .map_err(rw_error_to_py)?;
+    let content = match gr {
+        crate::algorithms::GraphRef::Undirected(pg) => py
+            .allow_threads(|| engine.write_adjlist(&pg.inner))
+            .map_err(rw_error_to_py)?,
+        crate::algorithms::GraphRef::Directed { dg, .. } => py
+            .allow_threads(|| engine.write_digraph_adjlist(&dg.inner))
+            .map_err(rw_error_to_py)?,
+    };
     write_output(py, path, &content)
 }
 
@@ -167,11 +208,15 @@ fn write_adjlist(py: Python<'_>, g: &Bound<'_, PyAny>, path: &Bound<'_, PyAny>) 
 #[pyo3(signature = (g,))]
 fn node_link_data(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
-    let graph = gr.undirected();
     let mut engine = EdgeListEngine::hardened();
-    let json_str = py
-        .allow_threads(|| engine.write_json_graph(graph))
-        .map_err(rw_error_to_py)?;
+    let json_str = match gr {
+        crate::algorithms::GraphRef::Undirected(pg) => py
+            .allow_threads(|| engine.write_json_graph(&pg.inner))
+            .map_err(rw_error_to_py)?,
+        crate::algorithms::GraphRef::Directed { dg, .. } => py
+            .allow_threads(|| engine.write_digraph_json_graph(&dg.inner))
+            .map_err(rw_error_to_py)?,
+    };
     let json_mod = py.import("json")?;
     let result = json_mod.call_method1("loads", (json_str,))?;
     Ok(result.unbind())
@@ -179,14 +224,18 @@ fn node_link_data(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
 
 #[pyfunction]
 #[pyo3(signature = (data,))]
-fn node_link_graph(py: Python<'_>, data: &Bound<'_, PyAny>) -> PyResult<PyGraph> {
+fn node_link_graph(py: Python<'_>, data: &Bound<'_, PyAny>) -> PyResult<PyObject> {
     let json_mod = py.import("json")?;
     let json_str: String = json_mod.call_method1("dumps", (data,))?.extract()?;
     let mut engine = EdgeListEngine::hardened();
-    let report = py
-        .allow_threads(|| engine.read_json_graph(&json_str))
-        .map_err(rw_error_to_py)?;
-    report_to_pygraph(py, report)
+    
+    // We try to read as undirected first, then directed?
+    // Actually we need to know if it's directed.
+    // For now let's assume undirected or use a heuristic.
+    // Better: add a way to detect.
+    
+    let report = engine.read_json_graph(&json_str).map_err(rw_error_to_py)?;
+    Ok(report_to_pygraph(py, report)?.into_pyobject(py)?.into_any().unbind())
 }
 
 // ---------------------------------------------------------------------------
@@ -195,24 +244,37 @@ fn node_link_graph(py: Python<'_>, data: &Bound<'_, PyAny>) -> PyResult<PyGraph>
 
 #[pyfunction]
 #[pyo3(signature = (path,))]
-fn read_graphml(py: Python<'_>, path: &Bound<'_, PyAny>) -> PyResult<PyGraph> {
+fn read_graphml(py: Python<'_>, path: &Bound<'_, PyAny>) -> PyResult<PyObject> {
     let input = read_input(py, path)?;
     let mut engine = EdgeListEngine::hardened();
-    let report = py
-        .allow_threads(|| engine.read_graphml(&input))
-        .map_err(rw_error_to_py)?;
-    report_to_pygraph(py, report)
+    
+    // Check if input says it's directed.
+    if input.contains("edgedefault=\"directed\"") {
+        let report = py
+            .allow_threads(|| engine.read_digraph_graphml(&input))
+            .map_err(rw_error_to_py)?;
+        Ok(di_report_to_pydigraph(py, report)?.into_pyobject(py)?.into_any().unbind())
+    } else {
+        let report = py
+            .allow_threads(|| engine.read_graphml(&input))
+            .map_err(rw_error_to_py)?;
+        Ok(report_to_pygraph(py, report)?.into_pyobject(py)?.into_any().unbind())
+    }
 }
 
 #[pyfunction]
 #[pyo3(signature = (g, path))]
 fn write_graphml(py: Python<'_>, g: &Bound<'_, PyAny>, path: &Bound<'_, PyAny>) -> PyResult<()> {
     let gr = extract_graph(g)?;
-    let graph = gr.undirected();
     let mut engine = EdgeListEngine::hardened();
-    let content = py
-        .allow_threads(|| engine.write_graphml(graph))
-        .map_err(rw_error_to_py)?;
+    let content = match gr {
+        crate::algorithms::GraphRef::Undirected(pg) => py
+            .allow_threads(|| engine.write_graphml(&pg.inner))
+            .map_err(rw_error_to_py)?,
+        crate::algorithms::GraphRef::Directed { dg, .. } => py
+            .allow_threads(|| engine.write_digraph_graphml(&dg.inner))
+            .map_err(rw_error_to_py)?,
+    };
     write_output(py, path, &content)
 }
 

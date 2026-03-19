@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+use fnx_classes::digraph::{DiGraph, DiGraphSnapshot};
 use fnx_classes::{AttrMap, Graph, GraphError, GraphSnapshot};
 use fnx_dispatch::{BackendRegistry, BackendSpec, DispatchError, DispatchRequest};
 use fnx_runtime::{
@@ -14,6 +15,12 @@ use std::io::Cursor;
 #[derive(Debug, Clone)]
 pub struct ReadWriteReport {
     pub graph: Graph,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DiReadWriteReport {
+    pub graph: DiGraph,
     pub warnings: Vec<String>,
 }
 
@@ -131,6 +138,31 @@ impl EdgeListEngine {
         Ok(lines.join("\n"))
     }
 
+    pub fn write_digraph_edgelist(&mut self, graph: &DiGraph) -> Result<String, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "write_edgelist".to_owned(),
+            requested_backend: None,
+            required_features: set(["write_edgelist"]),
+            risk_probability: 0.03,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let mut lines = Vec::new();
+        for edge in graph.edges_ordered() {
+            let attrs = encode_attrs(&edge.attrs);
+            lines.push(format!("{} {} {}", edge.left, edge.right, attrs));
+        }
+
+        self.record(
+            "write_edgelist",
+            DecisionAction::Allow,
+            "digraph edgelist serialization completed",
+            0.02,
+        );
+
+        Ok(lines.join("\n"))
+    }
+
     pub fn write_adjlist(&mut self, graph: &Graph) -> Result<String, ReadWriteError> {
         self.dispatch.resolve(&DispatchRequest {
             operation: "write_adjlist".to_owned(),
@@ -166,6 +198,37 @@ impl EdgeListEngine {
         Ok(lines.join("\n"))
     }
 
+    pub fn write_digraph_adjlist(&mut self, graph: &DiGraph) -> Result<String, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "write_adjlist".to_owned(),
+            requested_backend: None,
+            required_features: set(["write_adjlist"]),
+            risk_probability: 0.03,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let mut lines = Vec::new();
+        for node in graph.nodes_ordered() {
+            let mut tokens = Vec::new();
+            tokens.push(node.to_owned());
+            if let Some(successors) = graph.successors(node) {
+                for succ in successors {
+                    tokens.push(succ.to_owned());
+                }
+            }
+            lines.push(tokens.join(" "));
+        }
+
+        self.record(
+            "write_adjlist",
+            DecisionAction::Allow,
+            "digraph adjlist serialization completed",
+            0.02,
+        );
+
+        Ok(lines.join("\n"))
+    }
+
     pub fn read_edgelist(&mut self, input: &str) -> Result<ReadWriteReport, ReadWriteError> {
         self.dispatch.resolve(&DispatchRequest {
             operation: "read_edgelist".to_owned(),
@@ -184,7 +247,6 @@ impl EdgeListEngine {
                 continue;
             }
 
-            // Optimization lever: parse tokens in a streaming fashion to avoid per-line Vec allocation.
             let mut parts = line.split_whitespace();
             let left = parts.next();
             let right = parts.next();
@@ -207,8 +269,8 @@ impl EdgeListEngine {
                 continue;
             }
 
-            let left = left.expect("left token should be present after malformed check");
-            let right = right.expect("right token should be present after malformed check");
+            let left = left.expect("left token present");
+            let right = right.expect("right token present");
             if left.is_empty() || right.is_empty() {
                 let warning = format!("line {} malformed endpoints", line_no + 1);
                 if self.mode == CompatibilityMode::Strict {
@@ -236,6 +298,77 @@ impl EdgeListEngine {
         );
 
         Ok(ReadWriteReport { graph, warnings })
+    }
+
+    pub fn read_digraph_edgelist(&mut self, input: &str) -> Result<DiReadWriteReport, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "read_edgelist".to_owned(),
+            requested_backend: None,
+            required_features: set(["read_edgelist"]),
+            risk_probability: 0.08,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let mut graph = DiGraph::new(self.mode);
+        let mut warnings = Vec::new();
+
+        for (line_no, raw_line) in input.lines().enumerate() {
+            let line = raw_line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+
+            let mut parts = line.split_whitespace();
+            let left = parts.next();
+            let right = parts.next();
+            let attrs = parts.next();
+            let extra = parts.next();
+            if left.is_none() || right.is_none() || extra.is_some() {
+                let warning = format!(
+                    "line {} malformed: expected `source target [attrs]`",
+                    line_no + 1
+                );
+                if self.mode == CompatibilityMode::Strict {
+                    self.record("read_edgelist", DecisionAction::FailClosed, &warning, 1.0);
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_edgelist",
+                        reason: warning,
+                    });
+                }
+                warnings.push(warning.clone());
+                self.record("read_edgelist", DecisionAction::FullValidate, &warning, 0.7);
+                continue;
+            }
+
+            let left = left.expect("source token present");
+            let right = right.expect("target token present");
+            if left.is_empty() || right.is_empty() {
+                let warning = format!("line {} malformed endpoints", line_no + 1);
+                if self.mode == CompatibilityMode::Strict {
+                    self.record("read_edgelist", DecisionAction::FailClosed, &warning, 1.0);
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_edgelist",
+                        reason: warning,
+                    });
+                }
+                warnings.push(warning.clone());
+                self.record("read_edgelist", DecisionAction::FullValidate, &warning, 0.7);
+                continue;
+            }
+
+            let attrs_encoded = attrs.unwrap_or("-");
+            let attrs = decode_attrs(attrs_encoded, self.mode, &mut warnings, line_no + 1)?;
+            graph.add_edge_with_attrs(left.to_owned(), right.to_owned(), attrs)?;
+        }
+
+        self.record(
+            "read_edgelist",
+            DecisionAction::Allow,
+            "digraph edgelist parse completed",
+            0.04,
+        );
+
+        Ok(DiReadWriteReport { graph, warnings })
     }
 
     pub fn read_adjlist(&mut self, input: &str) -> Result<ReadWriteReport, ReadWriteError> {
@@ -292,6 +425,60 @@ impl EdgeListEngine {
         Ok(ReadWriteReport { graph, warnings })
     }
 
+    pub fn read_digraph_adjlist(&mut self, input: &str) -> Result<DiReadWriteReport, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "read_adjlist".to_owned(),
+            requested_backend: None,
+            required_features: set(["read_adjlist"]),
+            risk_probability: 0.08,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let mut graph = DiGraph::new(self.mode);
+        let mut warnings = Vec::new();
+
+        for (line_no, raw_line) in input.lines().enumerate() {
+            let line = raw_line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+
+            let mut parts = line.split_whitespace();
+            let Some(node) = parts.next() else {
+                continue;
+            };
+
+            if node.is_empty() {
+                let warning = format!("line {} malformed: missing node id", line_no + 1);
+                if self.mode == CompatibilityMode::Strict {
+                    self.record("read_adjlist", DecisionAction::FailClosed, &warning, 1.0);
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_adjlist",
+                        reason: warning,
+                    });
+                }
+                warnings.push(warning.clone());
+                self.record("read_adjlist", DecisionAction::FullValidate, &warning, 0.7);
+                continue;
+            }
+
+            let node = node.to_owned();
+            let _ = graph.add_node(node.clone());
+            for neighbor in parts {
+                graph.add_edge(node.clone(), neighbor.to_owned())?;
+            }
+        }
+
+        self.record(
+            "read_adjlist",
+            DecisionAction::Allow,
+            "digraph adjlist parse completed",
+            0.04,
+        );
+
+        Ok(DiReadWriteReport { graph, warnings })
+    }
+
     pub fn write_json_graph(&mut self, graph: &Graph) -> Result<String, ReadWriteError> {
         self.dispatch.resolve(&DispatchRequest {
             operation: "write_json_graph".to_owned(),
@@ -312,6 +499,31 @@ impl EdgeListEngine {
             "write_json_graph",
             DecisionAction::Allow,
             "json graph serialization completed",
+            0.02,
+        );
+        Ok(serialized)
+    }
+
+    pub fn write_digraph_json_graph(&mut self, graph: &DiGraph) -> Result<String, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "write_json_graph".to_owned(),
+            requested_backend: None,
+            required_features: set(["write_json_graph"]),
+            risk_probability: 0.03,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let snapshot = graph.snapshot();
+        let serialized =
+            serde_json::to_string_pretty(&snapshot).map_err(|err| ReadWriteError::FailClosed {
+                operation: "write_json_graph",
+                reason: format!("json serialization failed: {err}"),
+            })?;
+
+        self.record(
+            "write_json_graph",
+            DecisionAction::Allow,
+            "digraph json graph serialization completed",
             0.02,
         );
         Ok(serialized)
@@ -405,6 +617,94 @@ impl EdgeListEngine {
         Ok(ReadWriteReport { graph, warnings })
     }
 
+    pub fn read_digraph_json_graph(&mut self, input: &str) -> Result<DiReadWriteReport, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "read_json_graph".to_owned(),
+            requested_backend: None,
+            required_features: set(["read_json_graph"]),
+            risk_probability: 0.09,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let parsed: DiGraphSnapshot = match serde_json::from_str(input) {
+            Ok(value) => value,
+            Err(err) => {
+                let warning = format!("json parse error: {err}");
+                if self.mode == CompatibilityMode::Strict {
+                    self.record("read_json_graph", DecisionAction::FailClosed, &warning, 1.0);
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_json_graph",
+                        reason: warning,
+                    });
+                }
+                self.record(
+                    "read_json_graph",
+                    DecisionAction::FullValidate,
+                    &warning,
+                    0.8,
+                );
+                return Ok(DiReadWriteReport {
+                    graph: DiGraph::new(self.mode),
+                    warnings: vec![warning],
+                });
+            }
+        };
+
+        let mut graph = DiGraph::new(self.mode);
+        let mut warnings = Vec::new();
+        for node in parsed.nodes {
+            if node.is_empty() {
+                let warning = "empty node id in json graph".to_owned();
+                if self.mode == CompatibilityMode::Strict {
+                    self.record("read_json_graph", DecisionAction::FailClosed, &warning, 1.0);
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_json_graph",
+                        reason: warning,
+                    });
+                }
+                warnings.push(warning.clone());
+                self.record(
+                    "read_json_graph",
+                    DecisionAction::FullValidate,
+                    &warning,
+                    0.7,
+                );
+                continue;
+            }
+            let _ = graph.add_node(node);
+        }
+        for edge in parsed.edges {
+            if edge.left.is_empty() || edge.right.is_empty() {
+                let warning = "empty edge endpoint in json graph".to_owned();
+                if self.mode == CompatibilityMode::Strict {
+                    self.record("read_json_graph", DecisionAction::FailClosed, &warning, 1.0);
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_json_graph",
+                        reason: warning,
+                    });
+                }
+                warnings.push(warning.clone());
+                self.record(
+                    "read_json_graph",
+                    DecisionAction::FullValidate,
+                    &warning,
+                    0.7,
+                );
+                continue;
+            }
+            graph.add_edge_with_attrs(edge.left, edge.right, edge.attrs)?;
+        }
+
+        self.record(
+            "read_json_graph",
+            DecisionAction::Allow,
+            "digraph json graph parse completed",
+            0.04,
+        );
+
+        Ok(DiReadWriteReport { graph, warnings })
+    }
+
     pub fn write_graphml(&mut self, graph: &Graph) -> Result<String, ReadWriteError> {
         self.dispatch.resolve(&DispatchRequest {
             operation: "write_graphml".to_owned(),
@@ -414,6 +714,27 @@ impl EdgeListEngine {
             unknown_incompatible_feature: false,
         })?;
 
+        self.write_graphml_impl(graph.nodes_ordered(), graph.edges_ordered(), false)
+    }
+
+    pub fn write_digraph_graphml(&mut self, graph: &DiGraph) -> Result<String, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "write_graphml".to_owned(),
+            requested_backend: None,
+            required_features: set(["write_graphml"]),
+            risk_probability: 0.03,
+            unknown_incompatible_feature: false,
+        })?;
+
+        self.write_graphml_impl(graph.nodes_ordered(), graph.edges_ordered(), true)
+    }
+
+    fn write_graphml_impl(
+        &mut self,
+        nodes: Vec<&str>,
+        edges: Vec<fnx_classes::EdgeSnapshot>,
+        directed: bool,
+    ) -> Result<String, ReadWriteError> {
         let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 2);
 
         writer
@@ -431,42 +752,14 @@ impl EdgeListEngine {
             .write_event(Event::Start(graphml_start))
             .map_err(|e| xml_write_err("graphml_start", e))?;
 
-        let snapshot = graph.snapshot();
-
-        // Collect all distinct attribute keys from nodes and edges.
-        let mut node_attr_keys = BTreeSet::new();
         let mut edge_attr_keys = BTreeSet::new();
-        for node_id in &snapshot.nodes {
-            if let Some(attrs) = graph.node_attrs(node_id) {
-                for key in attrs.keys() {
-                    node_attr_keys.insert(key.clone());
-                }
-            }
-        }
-        for edge in &snapshot.edges {
+        for edge in &edges {
             for key in edge.attrs.keys() {
                 edge_attr_keys.insert(key.clone());
             }
         }
 
-        // Emit <key> declarations for node attributes.
         let mut key_counter = 0_usize;
-        let mut node_key_ids: BTreeMap<String, String> = BTreeMap::new();
-        for attr_name in &node_attr_keys {
-            let key_id = format!("d{key_counter}");
-            key_counter += 1;
-            let mut key_elem = BytesStart::new("key");
-            key_elem.push_attribute(("id", key_id.as_str()));
-            key_elem.push_attribute(("for", "node"));
-            key_elem.push_attribute(("attr.name", attr_name.as_str()));
-            key_elem.push_attribute(("attr.type", "string"));
-            writer
-                .write_event(Event::Empty(key_elem))
-                .map_err(|e| xml_write_err("key_node", e))?;
-            node_key_ids.insert(attr_name.clone(), key_id);
-        }
-
-        // Emit <key> declarations for edge attributes.
         let mut edge_key_ids: BTreeMap<String, String> = BTreeMap::new();
         for attr_name in &edge_attr_keys {
             let key_id = format!("d{key_counter}");
@@ -482,54 +775,25 @@ impl EdgeListEngine {
             edge_key_ids.insert(attr_name.clone(), key_id);
         }
 
-        // Emit <graph> element.
         let mut graph_elem = BytesStart::new("graph");
         graph_elem.push_attribute(("id", "G"));
-        graph_elem.push_attribute(("edgedefault", "undirected"));
+        graph_elem.push_attribute((
+            "edgedefault",
+            if directed { "directed" } else { "undirected" },
+        ));
         writer
             .write_event(Event::Start(graph_elem))
             .map_err(|e| xml_write_err("graph_start", e))?;
 
-        // Emit <node> elements in insertion order.
-        for node_id in &snapshot.nodes {
-            let node_attrs = graph.node_attrs(node_id);
-            let has_data = node_attrs.is_some_and(|a| !a.is_empty());
+        for node_id in &nodes {
             let mut node_elem = BytesStart::new("node");
-            node_elem.push_attribute(("id", node_id.as_str()));
-
-            if has_data {
-                writer
-                    .write_event(Event::Start(node_elem))
-                    .map_err(|e| xml_write_err("node_start", e))?;
-                if let Some(attrs) = node_attrs {
-                    for (attr_name, attr_value) in attrs {
-                        if let Some(key_id) = node_key_ids.get(attr_name) {
-                            let mut data_elem = BytesStart::new("data");
-                            data_elem.push_attribute(("key", key_id.as_str()));
-                            writer
-                                .write_event(Event::Start(data_elem))
-                                .map_err(|e| xml_write_err("data_start", e))?;
-                            writer
-                                .write_event(Event::Text(BytesText::new(attr_value)))
-                                .map_err(|e| xml_write_err("data_text", e))?;
-                            writer
-                                .write_event(Event::End(BytesEnd::new("data")))
-                                .map_err(|e| xml_write_err("data_end", e))?;
-                        }
-                    }
-                }
-                writer
-                    .write_event(Event::End(BytesEnd::new("node")))
-                    .map_err(|e| xml_write_err("node_end", e))?;
-            } else {
-                writer
-                    .write_event(Event::Empty(node_elem))
-                    .map_err(|e| xml_write_err("node_empty", e))?;
-            }
+            node_elem.push_attribute(("id", *node_id));
+            writer
+                .write_event(Event::Empty(node_elem))
+                .map_err(|e| xml_write_err("node_empty", e))?;
         }
 
-        // Emit <edge> elements in insertion order.
-        for edge in &snapshot.edges {
+        for edge in &edges {
             let has_data = !edge.attrs.is_empty();
             let mut edge_elem = BytesStart::new("edge");
             edge_elem.push_attribute(("source", edge.left.as_str()));
@@ -599,32 +863,71 @@ impl EdgeListEngine {
         let mut graph = Graph::new(self.mode);
         let mut warnings = Vec::new();
 
-        // Key registry: key_id -> (for_scope, attr_name)
-        let mut key_registry: BTreeMap<String, (String, String)> = BTreeMap::new();
+        self.read_graphml_into(&mut graph, &mut warnings, input)?;
 
+        self.record(
+            "read_graphml",
+            DecisionAction::Allow,
+            "graphml parse completed",
+            0.04,
+        );
+
+        Ok(ReadWriteReport { graph, warnings })
+    }
+
+    pub fn read_digraph_graphml(&mut self, input: &str) -> Result<DiReadWriteReport, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "read_graphml".to_owned(),
+            requested_backend: None,
+            required_features: set(["read_graphml"]),
+            risk_probability: 0.10,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let mut graph = DiGraph::new(self.mode);
+        let mut warnings = Vec::new();
+
+        self.read_graphml_into(&mut graph, &mut warnings, input)?;
+
+        self.record(
+            "read_graphml",
+            DecisionAction::Allow,
+            "digraph graphml parse completed",
+            0.04,
+        );
+
+        Ok(DiReadWriteReport { graph, warnings })
+    }
+
+    fn read_graphml_into<G>(
+        &mut self,
+        graph: &mut G,
+        warnings: &mut Vec<String>,
+        input: &str,
+    ) -> Result<(), ReadWriteError>
+    where
+        G: GraphLike,
+    {
+        let mut key_registry: BTreeMap<String, (String, String)> = BTreeMap::new();
         let mut reader = Reader::from_str(input);
         reader.config_mut().trim_text(true);
 
-        // Parser state.
         let mut in_graph = false;
         let mut current_node: Option<String> = None;
         let mut current_edge: Option<(String, String)> = None;
         let mut current_data_key: Option<String> = None;
         let mut current_data_text = String::new();
 
-        // Collect node/edge attrs to apply after parsing each element.
         let mut pending_node_attrs: AttrMap = AttrMap::new();
         let mut pending_edge_attrs: AttrMap = AttrMap::new();
 
         loop {
-            let event = reader.read_event();
-            match event {
+            match reader.read_event() {
                 Ok(Event::Start(ref e)) => {
                     self.handle_graphml_start_element(
                         e,
-                        false,
-                        &mut graph,
-                        &mut warnings,
+                        graph,
+                        warnings,
                         &mut key_registry,
                         &mut in_graph,
                         &mut current_node,
@@ -638,9 +941,8 @@ impl EdgeListEngine {
                 Ok(Event::Empty(ref e)) => {
                     self.handle_graphml_start_element(
                         e,
-                        true,
-                        &mut graph,
-                        &mut warnings,
+                        graph,
+                        warnings,
                         &mut key_registry,
                         &mut in_graph,
                         &mut current_node,
@@ -650,11 +952,10 @@ impl EdgeListEngine {
                         &mut pending_node_attrs,
                         &mut pending_edge_attrs,
                     )?;
-                    // For empty elements like <node id="x"/>, immediately finalize.
                     self.handle_graphml_end_element(
                         e.name().as_ref(),
-                        &mut graph,
-                        &mut warnings,
+                        graph,
+                        warnings,
                         &mut in_graph,
                         &mut current_node,
                         &mut current_edge,
@@ -671,8 +972,8 @@ impl EdgeListEngine {
                 Ok(Event::End(ref e)) => {
                     self.handle_graphml_end_element(
                         e.name().as_ref(),
-                        &mut graph,
-                        &mut warnings,
+                        graph,
+                        warnings,
                         &mut in_graph,
                         &mut current_node,
                         &mut current_edge,
@@ -700,23 +1001,14 @@ impl EdgeListEngine {
                 _ => {}
             }
         }
-
-        self.record(
-            "read_graphml",
-            DecisionAction::Allow,
-            "graphml parse completed",
-            0.04,
-        );
-
-        Ok(ReadWriteReport { graph, warnings })
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn handle_graphml_start_element(
+    fn handle_graphml_start_element<G>(
         &mut self,
         e: &BytesStart<'_>,
-        _is_empty: bool,
-        graph: &mut Graph,
+        graph: &mut G,
         warnings: &mut Vec<String>,
         key_registry: &mut BTreeMap<String, (String, String)>,
         in_graph: &mut bool,
@@ -726,7 +1018,10 @@ impl EdgeListEngine {
         current_data_text: &mut String,
         pending_node_attrs: &mut AttrMap,
         pending_edge_attrs: &mut AttrMap,
-    ) -> Result<(), ReadWriteError> {
+    ) -> Result<(), ReadWriteError>
+    where
+        G: GraphLike,
+    {
         let tag_name = e.name();
         let local = tag_name.as_ref();
         match local {
@@ -825,10 +1120,10 @@ impl EdgeListEngine {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn handle_graphml_end_element(
+    fn handle_graphml_end_element<G>(
         &mut self,
         local: &[u8],
-        graph: &mut Graph,
+        graph: &mut G,
         warnings: &mut Vec<String>,
         in_graph: &mut bool,
         current_node: &mut Option<String>,
@@ -838,7 +1133,10 @@ impl EdgeListEngine {
         pending_node_attrs: &mut AttrMap,
         pending_edge_attrs: &mut AttrMap,
         key_registry: &BTreeMap<String, (String, String)>,
-    ) -> Result<(), ReadWriteError> {
+    ) -> Result<(), ReadWriteError>
+    where
+        G: GraphLike,
+    {
         match local {
             b"data" => {
                 if let Some(key_id) = current_data_key.take()
@@ -919,6 +1217,51 @@ impl EdgeListEngine {
     }
 }
 
+trait GraphLike {
+    fn add_node(&mut self, node: String) -> bool;
+    fn add_node_with_attrs(&mut self, node: String, attrs: AttrMap) -> bool;
+    fn add_edge_with_attrs(
+        &mut self,
+        source: String,
+        target: String,
+        attrs: AttrMap,
+    ) -> Result<bool, GraphError>;
+}
+
+impl GraphLike for Graph {
+    fn add_node(&mut self, node: String) -> bool {
+        self.add_node(node)
+    }
+    fn add_node_with_attrs(&mut self, node: String, attrs: AttrMap) -> bool {
+        self.add_node_with_attrs(node, attrs)
+    }
+    fn add_edge_with_attrs(
+        &mut self,
+        source: String,
+        target: String,
+        attrs: AttrMap,
+    ) -> Result<bool, GraphError> {
+        self.add_edge_with_attrs(source, target, attrs).map(|_| true)
+    }
+}
+
+impl GraphLike for DiGraph {
+    fn add_node(&mut self, node: String) -> bool {
+        self.add_node(node)
+    }
+    fn add_node_with_attrs(&mut self, node: String, attrs: AttrMap) -> bool {
+        self.add_node_with_attrs(node, attrs)
+    }
+    fn add_edge_with_attrs(
+        &mut self,
+        source: String,
+        target: String,
+        attrs: AttrMap,
+    ) -> Result<bool, GraphError> {
+        self.add_edge_with_attrs(source, target, attrs).map(|_| true)
+    }
+}
+
 fn attr_escape(s: &str) -> String {
     s.replace('%', "%25")
         .replace('=', "%3D")
@@ -987,6 +1330,7 @@ fn set<const N: usize>(values: [&str; N]) -> BTreeSet<String> {
 #[cfg(test)]
 mod tests {
     use super::{EdgeListEngine, ReadWriteError};
+    use fnx_classes::digraph::DiGraph;
     use fnx_classes::{Graph, GraphSnapshot};
     use fnx_runtime::{
         CompatibilityMode, DecisionAction, ForensicsBundleIndex, StructuredTestLog, TestKind,
@@ -1213,6 +1557,26 @@ mod tests {
     }
 
     #[test]
+    fn digraph_graphml_round_trip() {
+        let mut graph = DiGraph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+
+        let mut engine = EdgeListEngine::strict();
+        let xml = engine
+            .write_digraph_graphml(&graph)
+            .expect("graphml write should succeed");
+        assert!(xml.contains("<graphml"));
+        assert!(xml.contains("edgedefault=\"directed\""));
+
+        let parsed = engine
+            .read_digraph_graphml(&xml)
+            .expect("graphml read should succeed");
+        assert!(parsed.warnings.is_empty());
+        assert_eq!(graph.snapshot(), parsed.graph.snapshot());
+    }
+
+    #[test]
     fn graphml_round_trip_with_edge_attrs() {
         let mut graph = Graph::strict();
         graph
@@ -1229,30 +1593,6 @@ mod tests {
                 BTreeMap::from([("weight".to_owned(), "3".to_owned())]),
             )
             .expect("edge add should succeed");
-
-        let mut engine = EdgeListEngine::strict();
-        let xml = engine
-            .write_graphml(&graph)
-            .expect("graphml write should succeed");
-        let parsed = engine
-            .read_graphml(&xml)
-            .expect("graphml read should succeed");
-        assert!(parsed.warnings.is_empty());
-        assert_eq!(graph.snapshot(), parsed.graph.snapshot());
-    }
-
-    #[test]
-    fn graphml_round_trip_with_node_attrs() {
-        let mut graph = Graph::strict();
-        graph.add_node_with_attrs(
-            "a".to_owned(),
-            BTreeMap::from([("color".to_owned(), "red".to_owned())]),
-        );
-        graph.add_node_with_attrs(
-            "b".to_owned(),
-            BTreeMap::from([("color".to_owned(), "blue".to_owned())]),
-        );
-        graph.add_edge("a", "b").expect("edge add should succeed");
 
         let mut engine = EdgeListEngine::strict();
         let xml = engine

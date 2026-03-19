@@ -166,17 +166,28 @@ def test_multigraph_lifecycle(fnx):
 def test_multidigraph_lifecycle(fnx):
     log.info("--- test_multidigraph_lifecycle ---")
     G = fnx.MultiDiGraph()
+    G.graph["name"] = "mdg"
+    G.add_nodes_from([("solo", {"color": "blue"})])
 
     key0 = G.add_edge("a", "b", weight=1.0)
     key1 = G.add_edge("a", "b", weight=2.0)
     G.add_edge("b", "a", weight=3.0)
+    G.add_edges_from([("b", "c", {"weight": 4.0}), ("c", "a", 7, {"weight": 5.0})])
 
     check("multidigraph key allocation increments", (key0, key1) == (0, 1))
-    check("multidigraph edge count counts directions", G.number_of_edges() == 3)
+    check("multidigraph edge count counts directions", G.number_of_edges() == 5)
     check("multidigraph edge count between pair", G.number_of_edges("a", "b") == 2)
+    check("multidigraph size sums weights", G.size(weight="weight") == 15.0)
+    check("multidigraph has node", G.has_node("solo"))
     check("multidigraph successors work", G.successors("a") == ["b"])
     check("multidigraph predecessors work", G.predecessors("b") == ["a"])
     check("multidigraph adjacency is keyed", sorted(G["a"]["b"].keys()) == [0, 1])
+    check("multidigraph repr includes name", "name='mdg'" in repr(G))
+    G.remove_node("solo")
+    check("multidigraph remove_node updates membership", not G.has_node("solo"))
+    G.clear_edges()
+    check("multidigraph clear_edges preserves nodes", G.number_of_nodes() == 3)
+    check("multidigraph clear_edges removes all edges", G.number_of_edges() == 0)
 
 
 # ===========================================================================

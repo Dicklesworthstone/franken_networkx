@@ -32,6 +32,24 @@ impl DirectedEdgeKey {
     }
 }
 
+#[derive(Hash, PartialEq, Eq)]
+struct DirectedEdgeKeyRef<'a> {
+    source: &'a str,
+    target: &'a str,
+}
+
+impl<'a> DirectedEdgeKeyRef<'a> {
+    fn new(source: &'a str, target: &'a str) -> Self {
+        Self { source, target }
+    }
+}
+
+impl<'a> indexmap::Equivalent<DirectedEdgeKey> for DirectedEdgeKeyRef<'a> {
+    fn equivalent(&self, key: &DirectedEdgeKey) -> bool {
+        self.source == key.source && self.target == key.target
+    }
+}
+
 // ---------------------------------------------------------------------------
 // DiGraphSnapshot
 // ---------------------------------------------------------------------------
@@ -138,7 +156,7 @@ impl DiGraph {
     #[must_use]
     pub fn has_edge(&self, source: &str, target: &str) -> bool {
         self.edges
-            .contains_key(&DirectedEdgeKey::new(source, target))
+            .contains_key(&DirectedEdgeKeyRef::new(source, target))
     }
 
     #[must_use]
@@ -238,7 +256,7 @@ impl DiGraph {
     /// Attributes of directed edge source→target.
     #[must_use]
     pub fn edge_attrs(&self, source: &str, target: &str) -> Option<&AttrMap> {
-        self.edges.get(&DirectedEdgeKey::new(source, target))
+        self.edges.get(&DirectedEdgeKeyRef::new(source, target))
     }
 
     #[must_use]
@@ -433,7 +451,7 @@ impl DiGraph {
     pub fn remove_edge(&mut self, source: &str, target: &str) -> bool {
         let removed = self
             .edges
-            .shift_remove(&DirectedEdgeKey::new(source, target))
+            .shift_remove(&DirectedEdgeKeyRef::new(source, target))
             .is_some();
         if removed {
             if let Some(succs) = self.successors.get_mut(source) {
@@ -466,14 +484,16 @@ impl DiGraph {
 
         // Remove outgoing edges: node → target.
         for target in &out_targets {
-            self.edges.shift_remove(&DirectedEdgeKey::new(node, target));
+            self.edges
+                .shift_remove(&DirectedEdgeKeyRef::new(node, target));
             if let Some(preds) = self.predecessors.get_mut(target.as_str()) {
                 preds.shift_remove(node);
             }
         }
         // Remove incoming edges: source → node.
         for source in &in_sources {
-            self.edges.shift_remove(&DirectedEdgeKey::new(source, node));
+            self.edges
+                .shift_remove(&DirectedEdgeKeyRef::new(source, node));
             if let Some(succs) = self.successors.get_mut(source.as_str()) {
                 succs.shift_remove(node);
             }
@@ -650,7 +670,7 @@ impl MultiDiGraph {
     #[must_use]
     pub fn has_edge(&self, source: &str, target: &str) -> bool {
         self.edges
-            .get(&DirectedEdgeKey::new(source, target))
+            .get(&DirectedEdgeKeyRef::new(source, target))
             .is_some_and(|edge_bucket| !edge_bucket.is_empty())
     }
 
@@ -681,7 +701,7 @@ impl MultiDiGraph {
     #[must_use]
     pub fn edge_keys(&self, source: &str, target: &str) -> Option<Vec<usize>> {
         self.edges
-            .get(&DirectedEdgeKey::new(source, target))
+            .get(&DirectedEdgeKeyRef::new(source, target))
             .map(|edge_bucket| edge_bucket.keys().copied().collect::<Vec<usize>>())
     }
 
@@ -693,7 +713,7 @@ impl MultiDiGraph {
     #[must_use]
     pub fn edge_attrs(&self, source: &str, target: &str, key: usize) -> Option<&AttrMap> {
         self.edges
-            .get(&DirectedEdgeKey::new(source, target))
+            .get(&DirectedEdgeKeyRef::new(source, target))
             .and_then(|edge_bucket| edge_bucket.get(&key))
     }
 
@@ -913,7 +933,7 @@ impl MultiDiGraph {
     }
 
     pub fn remove_edge(&mut self, source: &str, target: &str, key: Option<usize>) -> bool {
-        let edge_key = DirectedEdgeKey::new(source, target);
+        let edge_key = DirectedEdgeKeyRef::new(source, target);
         let removal_key = key.or_else(|| {
             self.edges
                 .get(&edge_key)
