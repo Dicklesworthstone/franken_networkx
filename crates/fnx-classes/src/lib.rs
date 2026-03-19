@@ -395,8 +395,10 @@ impl Graph {
             if let Some(left_neighbors) = self.adjacency.get_mut(left) {
                 left_neighbors.shift_remove(right);
             }
-            if let Some(right_neighbors) = self.adjacency.get_mut(right) {
-                right_neighbors.shift_remove(left);
+            if left != right {
+                if let Some(right_neighbors) = self.adjacency.get_mut(right) {
+                    right_neighbors.shift_remove(left);
+                }
             }
             self.revision = self.revision.saturating_add(1);
         }
@@ -643,6 +645,16 @@ impl MultiGraph {
         true
     }
 
+    /// Return the degree of a node (total number of parallel edges incident).
+    #[must_use]
+    pub fn degree(&self, node: &str) -> usize {
+        self.adjacency
+            .get(node)
+            .map_or(0, |neighbors| {
+                neighbors.values().map(IndexSet::len).sum()
+            })
+    }
+
     pub fn add_node(&mut self, node: impl Into<String>) -> bool {
         self.add_node_with_attrs(node, AttrMap::new())
     }
@@ -772,7 +784,7 @@ impl MultiGraph {
             explicit_key.unwrap_or_else(|| self.next_edge_key.get(&edge_key).copied().unwrap_or(0));
         let mut changed;
         let edge_attr_count = {
-            let edge_bucket = self.edges.entry(edge_key).or_default();
+            let edge_bucket = self.edges.entry(edge_key.clone()).or_default();
             changed = !edge_bucket.contains_key(&key);
             let attrs_for_change_check = attrs.clone();
             let edge_attrs = edge_bucket.entry(key).or_default();
@@ -789,7 +801,7 @@ impl MultiGraph {
         if explicit_key.is_none() {
             let next_key = key.saturating_add(1);
             self.next_edge_key
-                .entry(EdgeKey::new(&left, &right))
+                .entry(edge_key)
                 .and_modify(|next| *next = (*next).max(next_key))
                 .or_insert(next_key);
         }
@@ -800,12 +812,14 @@ impl MultiGraph {
             .entry(right.clone())
             .or_default()
             .insert(key);
-        self.adjacency
-            .entry(right.clone())
-            .or_default()
-            .entry(left.clone())
-            .or_default()
-            .insert(key);
+        if left != right {
+            self.adjacency
+                .entry(right.clone())
+                .or_default()
+                .entry(left.clone())
+                .or_default()
+                .insert(key);
+        }
         if changed {
             self.revision = self.revision.saturating_add(1);
         }
@@ -910,10 +924,10 @@ impl MultiGraph {
         for node in self.nodes.keys() {
             if let Some(neighbors) = self.adjacency.get(node) {
                 for neighbor in neighbors.keys() {
-                    let pair = EdgeKey::new(node, neighbor);
+                    let pair = EdgeKeyRef::new(node, neighbor);
                     if let Some(edge_bucket) = self.edges.get(&pair) {
                         for (key, attrs) in edge_bucket {
-                            let instance = (pair.left.clone(), pair.right.clone(), *key);
+                            let instance = (pair.left.to_owned(), pair.right.to_owned(), *key);
                             if !seen.insert(instance.clone()) {
                                 continue;
                             }
@@ -940,6 +954,44 @@ impl MultiGraph {
                             key: instance.2,
                             attrs: attrs.clone(),
                         });
+                    }
+                }
+            }
+        }
+
+        ordered
+    }
+
+    #[must_use]
+    pub fn edges_ordered_borrowed(&self) -> Vec<(&str, &str, usize, &AttrMap)> {
+        let mut ordered = Vec::with_capacity(self.edge_count());
+        let mut seen = HashSet::<(EdgeKeyRef, usize)>::with_capacity(self.edge_count());
+
+        for node in self.nodes.keys() {
+            if let Some(neighbors) = self.adjacency.get(node) {
+                for neighbor in neighbors.keys() {
+                    let pair = EdgeKeyRef::new(node, neighbor);
+                    if let Some(edge_bucket) = self.edges.get(&pair) {
+                        for (key, attrs) in edge_bucket {
+                            if !seen.insert((pair, *key)) {
+                                continue;
+                            }
+                            ordered.push((pair.left, pair.right, *key, attrs));
+                        }
+                    }
+                }
+            }
+        }
+
+        if ordered.len() < self.edge_count() {
+            for (pair, edge_bucket) in &self.edges {
+                let rpair = EdgeKeyRef {
+                    left: &pair.left,
+                    right: &pair.right,
+                };
+                for (key, attrs) in edge_bucket {
+                    if seen.insert((rpair, *key)) {
+                        ordered.push((rpair.left, rpair.right, *key, attrs));
                     }
                 }
             }
