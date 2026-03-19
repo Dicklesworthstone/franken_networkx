@@ -361,31 +361,57 @@ _SUPPORTED_ALGORITHMS = {
 # ---------------------------------------------------------------------------
 
 def _nx_to_fnx(G):
-    """Convert a NetworkX Graph/DiGraph to a FrankenNetworkX Graph/DiGraph."""
-    if G.is_directed():
+    """Convert a NetworkX graph to the matching FrankenNetworkX graph type."""
+    if G.is_multigraph():
+        if G.is_directed():
+            fg = fnx.MultiDiGraph()
+        else:
+            fg = fnx.MultiGraph()
+    elif G.is_directed():
         fg = fnx.DiGraph()
     else:
         fg = fnx.Graph()
     for node, data in G.nodes(data=True):
         fg.add_node(node, **data)
-    for u, v, data in G.edges(data=True):
-        fg.add_edge(u, v, **data)
+    if G.is_multigraph():
+        for u, v, key, data in G.edges(keys=True, data=True):
+            fg.add_edge(u, v, key=key, **data)
+    else:
+        for u, v, data in G.edges(data=True):
+            fg.add_edge(u, v, **data)
     fg.graph.update(G.graph)
     return fg
 
 
 def _fnx_to_nx(fg):
-    """Convert a FrankenNetworkX Graph/DiGraph to a NetworkX Graph/DiGraph."""
+    """Convert a FrankenNetworkX graph to the matching NetworkX graph type."""
     import networkx as nx
 
-    if fg.is_directed():
+    if fg.is_multigraph():
+        if fg.is_directed():
+            G = nx.MultiDiGraph()
+        else:
+            G = nx.MultiGraph()
+    elif fg.is_directed():
         G = nx.DiGraph()
     else:
         G = nx.Graph()
     for node in fg.nodes:
         G.add_node(node, **fg.nodes[node])
-    for u, v in fg.edges:
-        G.add_edge(u, v, **fg.edges[u, v])
+    if fg.is_multigraph():
+        seen = set()
+        for u in fg:
+            for v, keyed_attrs in fg[u].items():
+                if not fg.is_directed():
+                    edge_id = (min(u, v), max(u, v))
+                    if edge_id in seen:
+                        continue
+                    seen.add(edge_id)
+                for key, attrs in keyed_attrs.items():
+                    G.add_edge(u, v, key=key, **attrs)
+    else:
+        for u, v in fg.edges:
+            G.add_edge(u, v, **fg.edges[u, v])
     G.graph.update(dict(fg.graph))
     return G
 
@@ -415,16 +441,12 @@ class BackendInterface:
         graph_name=None,
     ):
         """Convert a NetworkX graph to a FrankenNetworkX graph."""
-        if G.is_multigraph():
-            raise fnx.NetworkXNotImplemented(
-                "FrankenNetworkX does not yet support multigraphs."
-            )
         return _nx_to_fnx(G)
 
     @staticmethod
     def convert_to_nx(result, *, name=None):
         """Convert a FrankenNetworkX result back to NetworkX types."""
-        if isinstance(result, (fnx.Graph, fnx.DiGraph)):
+        if isinstance(result, (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph)):
             return _fnx_to_nx(result)
         return result
 

@@ -190,6 +190,51 @@ def test_multidigraph_lifecycle(fnx):
     check("multidigraph clear_edges removes all edges", G.number_of_edges() == 0)
 
 
+@timed
+def test_backend_multigraph_conversion_roundtrip(fnx):
+    log.info("--- test_backend_multigraph_conversion_roundtrip ---")
+    import networkx as nx
+    from franken_networkx.backend import BackendInterface
+
+    mg = nx.MultiGraph()
+    mg.graph["name"] = "mg"
+    mg.add_node("a", color="red")
+    mg.add_edge("a", "b", key=7, weight=2.5)
+    mg.add_edge("a", "b", key=9, capacity=4)
+
+    fnx_mg = BackendInterface.convert_from_nx(mg)
+    check("backend converts nx.MultiGraph to fnx.MultiGraph", isinstance(fnx_mg, fnx.MultiGraph))
+    check("backend preserves multigraph edge count", fnx_mg.number_of_edges("a", "b") == 2)
+    check("backend preserves multigraph keys", sorted(fnx_mg["a"]["b"].keys()) == [7, 9])
+
+    mg_roundtrip = BackendInterface.convert_to_nx(fnx_mg)
+    check("backend roundtrips to nx.MultiGraph", isinstance(mg_roundtrip, nx.MultiGraph))
+    check("backend preserves graph attrs", mg_roundtrip.graph["name"] == "mg")
+    check("backend preserves node attrs", mg_roundtrip.nodes["a"]["color"] == "red")
+    check("backend preserves keyed edge attrs", mg_roundtrip["a"]["b"][7]["weight"] == 2.5)
+    check("backend preserves second keyed edge attrs", mg_roundtrip["a"]["b"][9]["capacity"] == 4)
+
+    mdg = nx.MultiDiGraph()
+    mdg.graph["name"] = "mdg"
+    mdg.add_edge("x", "y", key=1, weight=3.0)
+    mdg.add_edge("x", "y", key=4, cost=8)
+    mdg.add_edge("y", "x", key=2, weight=5.0)
+
+    fnx_mdg = BackendInterface.convert_from_nx(mdg)
+    check(
+        "backend converts nx.MultiDiGraph to fnx.MultiDiGraph",
+        isinstance(fnx_mdg, fnx.MultiDiGraph),
+    )
+    check("backend preserves directed multiedge count", fnx_mdg.number_of_edges("x", "y") == 2)
+    check("backend preserves directed key ordering", sorted(fnx_mdg["x"]["y"].keys()) == [1, 4])
+
+    mdg_roundtrip = BackendInterface.convert_to_nx(fnx_mdg)
+    check("backend roundtrips to nx.MultiDiGraph", isinstance(mdg_roundtrip, nx.MultiDiGraph))
+    check("backend preserves reverse directed edge", mdg_roundtrip.has_edge("y", "x", key=2))
+    check("backend preserves directed edge attrs", mdg_roundtrip["x"]["y"][1]["weight"] == 3.0)
+    check("backend preserves graph attrs on digraph", mdg_roundtrip.graph["name"] == "mdg")
+
+
 # ===========================================================================
 # Test: View objects
 # ===========================================================================
