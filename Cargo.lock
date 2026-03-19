@@ -450,7 +450,6 @@ version = "0.1.0"
 dependencies = [
  "criterion",
  "fnx-classes",
- "fnx-generators",
  "fnx-runtime",
  "mwmatching",
  "proptest",

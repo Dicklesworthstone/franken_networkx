@@ -52,6 +52,15 @@ fn node_key_to_string(_py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<Strin
     Ok(repr.to_string())
 }
 
+pub(crate) fn py_dict_to_attr_map(attrs: &Bound<'_, PyDict>) -> PyResult<AttrMap> {
+    let mut rust_attrs = AttrMap::new();
+    for (k, v) in attrs.iter() {
+        let key: String = k.extract()?;
+        rust_attrs.insert(key, v.str()?.to_string());
+    }
+    Ok(rust_attrs)
+}
+
 // ---------------------------------------------------------------------------
 // PyGraph — the main graph class wrapping fnx_classes::Graph.
 // ---------------------------------------------------------------------------
@@ -167,7 +176,13 @@ impl PyMultiGraph {
         if let Some(data) = incoming_graph_data {
             if let Ok(other) = data.extract::<PyRef<'_, PyMultiGraph>>() {
                 for (canonical, py_key) in &other.node_key_map {
-                    g.inner.add_node(canonical.clone());
+                    let rust_attrs = other
+                        .node_py_attrs
+                        .get(canonical)
+                        .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
+                        .transpose()?
+                        .unwrap_or_default();
+                    g.inner.add_node_with_attrs(canonical.clone(), rust_attrs);
                     g.node_key_map
                         .insert(canonical.clone(), py_key.clone_ref(py));
                     if let Some(attrs) = other.node_py_attrs.get(canonical) {
@@ -176,12 +191,10 @@ impl PyMultiGraph {
                     }
                 }
                 for ((u, v, key), attrs) in &other.edge_py_attrs {
-                    let _ = g.inner.add_edge_with_key_and_attrs(
-                        u.clone(),
-                        v.clone(),
-                        *key,
-                        AttrMap::new(),
-                    );
+                    let rust_attrs = py_dict_to_attr_map(attrs.bind(py))?;
+                    let _ =
+                        g.inner
+                            .add_edge_with_key_and_attrs(u.clone(), v.clone(), *key, rust_attrs);
                     g.edge_py_attrs.insert(
                         (u.clone(), v.clone(), *key),
                         attrs.bind(py).copy()?.unbind(),
@@ -190,7 +203,13 @@ impl PyMultiGraph {
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
             } else if let Ok(other) = data.extract::<PyRef<'_, PyGraph>>() {
                 for (canonical, py_key) in &other.node_key_map {
-                    g.inner.add_node(canonical.clone());
+                    let rust_attrs = other
+                        .node_py_attrs
+                        .get(canonical)
+                        .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
+                        .transpose()?
+                        .unwrap_or_default();
+                    g.inner.add_node_with_attrs(canonical.clone(), rust_attrs);
                     g.node_key_map
                         .insert(canonical.clone(), py_key.clone_ref(py));
                     if let Some(attrs) = other.node_py_attrs.get(canonical) {
@@ -199,9 +218,10 @@ impl PyMultiGraph {
                     }
                 }
                 for ((u, v), attrs) in &other.edge_py_attrs {
+                    let rust_attrs = py_dict_to_attr_map(attrs.bind(py))?;
                     let key = g
                         .inner
-                        .add_edge_with_key_and_attrs(u.clone(), v.clone(), 0, AttrMap::new())
+                        .add_edge_with_key_and_attrs(u.clone(), v.clone(), 0, rust_attrs)
                         .map_err(|e| NetworkXError::new_err(e.to_string()))?;
                     g.edge_py_attrs
                         .insert((u.clone(), v.clone(), key), attrs.bind(py).copy()?.unbind());
@@ -538,7 +558,14 @@ impl PyMultiGraph {
     ) -> PyResult<()> {
         let u_canonical = node_key_to_string(py, u)?;
         let v_canonical = node_key_to_string(py, v)?;
-        let removed = self.inner.remove_edge(&u_canonical, &v_canonical, key);
+        let auto_removal_key = key.or_else(|| {
+            self.inner
+                .edge_keys(&u_canonical, &v_canonical)
+                .and_then(|keys| keys.last().copied())
+        });
+        let removed = self
+            .inner
+            .remove_edge(&u_canonical, &v_canonical, auto_removal_key);
         if !removed {
             return Err(NetworkXError::new_err(format!(
                 "The edge {}-{} is not in the graph",
@@ -546,32 +573,9 @@ impl PyMultiGraph {
                 v.repr()?
             )));
         }
-        match key {
-            Some(explicit_key) => {
-                self.edge_py_attrs.remove(&Self::edge_key(
-                    &u_canonical,
-                    &v_canonical,
-                    explicit_key,
-                ));
-            }
-            None => {
-                if let Some(latest_key) = self
-                    .edge_py_attrs
-                    .keys()
-                    .filter_map(|(left, right, existing_key)| {
-                        (Self::edge_key(&u_canonical, &v_canonical, *existing_key)
-                            == (left.clone(), right.clone(), *existing_key))
-                            .then_some(*existing_key)
-                    })
-                    .max()
-                {
-                    self.edge_py_attrs.remove(&Self::edge_key(
-                        &u_canonical,
-                        &v_canonical,
-                        latest_key,
-                    ));
-                }
-            }
+        if let Some(explicit_key) = auto_removal_key {
+            self.edge_py_attrs
+                .remove(&Self::edge_key(&u_canonical, &v_canonical, explicit_key));
         }
         Ok(())
     }
@@ -587,9 +591,20 @@ impl PyMultiGraph {
 
     fn clear_edges(&mut self) {
         self.inner = MultiGraph::strict();
-        for canonical in self.node_key_map.keys() {
-            self.inner.add_node(canonical.clone());
-        }
+        Python::with_gil(|py| {
+            for canonical in self.node_key_map.keys() {
+                let rust_attrs = self
+                    .node_py_attrs
+                    .get(canonical)
+                    .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
+                    .transpose()
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
+                self.inner
+                    .add_node_with_attrs(canonical.clone(), rust_attrs);
+            }
+        });
         self.edge_py_attrs.clear();
     }
 

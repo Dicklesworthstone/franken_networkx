@@ -87,7 +87,7 @@ pub fn generate_sidecar_for_file(
     }
     
     let blocks = encoder.get_block_encoders().len() as u32;
-    let repair_per_block = repair_symbols.checked_div(blocks).map_or(0, |_| repair_symbols.div_ceil(blocks));
+    let repair_per_block = if blocks == 0 { 0 } else { repair_symbols.div_ceil(blocks) };
     
     let packets = encoder.get_encoded_packets(repair_per_block);
     let actual_repair_count = packets.len() as u32 - total_k;

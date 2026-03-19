@@ -11,6 +11,9 @@ serde = { version = "1.0.228", features = ["derive"] }
 
 [dev-dependencies]
 fnx-runtime = { path = "../fnx-runtime" }
-fnx-generators = { path = "../fnx-generators" }
 proptest = "1.10.0"
 criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "algorithm_benchmarks"
+harness = false

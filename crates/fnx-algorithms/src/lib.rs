@@ -16656,7 +16656,7 @@ pub fn is_k_edge_connected(graph: &Graph, k: usize) -> bool {
 }
 
 /// Return the average node connectivity of a graph.
-/// Average of local node connectivity over all pairs of non-adjacent nodes.
+/// Average of local node connectivity over all distinct pairs of nodes.
 #[must_use]
 pub fn average_node_connectivity(graph: &Graph) -> f64 {
     let nodes = graph.nodes_ordered();

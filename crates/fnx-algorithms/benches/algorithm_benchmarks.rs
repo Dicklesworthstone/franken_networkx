@@ -70,6 +70,7 @@ fn build_grid(rows: usize, cols: usize) -> Graph {
 }
 
 fn build_flow_network(paths: usize, path_len: usize) -> Graph {
+    assert!(path_len >= 1, "path_len must be at least 1");
     let mut g = Graph::strict();
     let _ = g.add_node("s");
     let _ = g.add_node("t");

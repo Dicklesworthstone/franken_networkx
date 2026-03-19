@@ -98,7 +98,13 @@ impl PyMultiDiGraph {
         if let Some(data) = incoming_graph_data {
             if let Ok(other) = data.extract::<PyRef<'_, PyMultiDiGraph>>() {
                 for (canonical, py_key) in &other.node_key_map {
-                    g.inner.add_node(canonical.clone());
+                    let rust_attrs = other
+                        .node_py_attrs
+                        .get(canonical)
+                        .map(|attrs| crate::py_dict_to_attr_map(attrs.bind(py)))
+                        .transpose()?
+                        .unwrap_or_default();
+                    g.inner.add_node_with_attrs(canonical.clone(), rust_attrs);
                     g.node_key_map
                         .insert(canonical.clone(), py_key.clone_ref(py));
                     if let Some(attrs) = other.node_py_attrs.get(canonical) {
@@ -107,21 +113,25 @@ impl PyMultiDiGraph {
                     }
                 }
                 for ((u, v, key), attrs) in &other.edge_py_attrs {
-                    let _ = g.inner.add_edge_with_key_and_attrs(
-                        u.clone(),
-                        v.clone(),
-                        *key,
-                        AttrMap::new(),
-                    );
+                    let rust_attrs = crate::py_dict_to_attr_map(attrs.bind(py))?;
+                    let _ =
+                        g.inner
+                            .add_edge_with_key_and_attrs(u.clone(), v.clone(), *key, rust_attrs);
                     g.edge_py_attrs.insert(
                         (u.clone(), v.clone(), *key),
                         attrs.bind(py).copy()?.unbind(),
                     );
                 }
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
-            } else if let Ok(other) = data.extract::<pyo3::PyRef<'_, PyDiGraph>>() {
+            } else if let Ok(other) = data.extract::<PyRef<'_, PyDiGraph>>() {
                 for (canonical, py_key) in &other.node_key_map {
-                    g.inner.add_node(canonical.clone());
+                    let rust_attrs = other
+                        .node_py_attrs
+                        .get(canonical)
+                        .map(|attrs| crate::py_dict_to_attr_map(attrs.bind(py)))
+                        .transpose()?
+                        .unwrap_or_default();
+                    g.inner.add_node_with_attrs(canonical.clone(), rust_attrs);
                     g.node_key_map
                         .insert(canonical.clone(), py_key.clone_ref(py));
                     if let Some(attrs) = other.node_py_attrs.get(canonical) {
@@ -130,12 +140,10 @@ impl PyMultiDiGraph {
                     }
                 }
                 for ((u, v), attrs) in &other.edge_py_attrs {
-                    let _ = g.inner.add_edge_with_key_and_attrs(
-                        u.clone(),
-                        v.clone(),
-                        0,
-                        AttrMap::new(),
-                    );
+                    let rust_attrs = crate::py_dict_to_attr_map(attrs.bind(py))?;
+                    let _ =
+                        g.inner
+                            .add_edge_with_key_and_attrs(u.clone(), v.clone(), 0, rust_attrs);
                     g.edge_py_attrs
                         .insert((u.clone(), v.clone(), 0), attrs.bind(py).copy()?.unbind());
                 }
@@ -283,7 +291,14 @@ impl PyMultiDiGraph {
     ) -> PyResult<()> {
         let u_canonical = node_key_to_string(py, u)?;
         let v_canonical = node_key_to_string(py, v)?;
-        let removed = self.inner.remove_edge(&u_canonical, &v_canonical, key);
+        let auto_removal_key = key.or_else(|| {
+            self.inner
+                .edge_keys(&u_canonical, &v_canonical)
+                .and_then(|keys| keys.last().copied())
+        });
+        let removed = self
+            .inner
+            .remove_edge(&u_canonical, &v_canonical, auto_removal_key);
         if !removed {
             return Err(NetworkXError::new_err(format!(
                 "The edge {}-{} is not in the graph",
@@ -291,29 +306,9 @@ impl PyMultiDiGraph {
                 v.repr()?
             )));
         }
-        match key {
-            Some(explicit_key) => {
-                self.edge_py_attrs.remove(&Self::edge_key(
-                    &u_canonical,
-                    &v_canonical,
-                    explicit_key,
-                ));
-            }
-            None => {
-                if let Some(latest_key) = self
-                    .edge_py_attrs
-                    .keys()
-                    .filter(|(left, right, _)| left == &u_canonical && right == &v_canonical)
-                    .map(|(_, _, existing_key)| *existing_key)
-                    .max()
-                {
-                    self.edge_py_attrs.remove(&Self::edge_key(
-                        &u_canonical,
-                        &v_canonical,
-                        latest_key,
-                    ));
-                }
-            }
+        if let Some(explicit_key) = auto_removal_key {
+            self.edge_py_attrs
+                .remove(&Self::edge_key(&u_canonical, &v_canonical, explicit_key));
         }
         Ok(())
     }
