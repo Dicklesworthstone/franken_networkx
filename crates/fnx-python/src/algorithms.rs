@@ -6440,10 +6440,11 @@ fn dijkstra_path_length(
     let t = node_key_to_string(py, target)?;
     validate_node(&gr, &s, source)?;
     validate_node(&gr, &t, target)?;
-    let result = if let Some(inner) = gr.digraph() {
-        fnx_algorithms::dijkstra_path_length_directed(inner, &s, &t, weight)
+    let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
+        fnx_algorithms::dijkstra_path_length_directed(weighted_projection.as_ref(), &s, &t, weight)
     } else {
-        fnx_algorithms::dijkstra_path_length(gr.undirected(), &s, &t, weight)
+        let weighted_projection = gr.weighted_undirected_projection(weight);
+        fnx_algorithms::dijkstra_path_length(weighted_projection.as_ref(), &s, &t, weight)
     };
     match result {
         Some(d) => Ok(d),
@@ -6469,8 +6470,9 @@ fn bellman_ford_path_length(
     let t = node_key_to_string(py, target)?;
     validate_node(&gr, &s, source)?;
     validate_node(&gr, &t, target)?;
-    let result = if let Some(inner) = gr.digraph() {
-        let bf = fnx_algorithms::bellman_ford_shortest_paths_directed(inner, &s, weight);
+    let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
+        let bf =
+            fnx_algorithms::bellman_ford_shortest_paths_directed(weighted_projection.as_ref(), &s, weight);
         if bf.negative_cycle_detected {
             Err(true)
         } else {
@@ -6481,7 +6483,8 @@ fn bellman_ford_path_length(
                 .ok_or(false)
         }
     } else {
-        fnx_algorithms::bellman_ford_path_length(gr.undirected(), &s, &t, weight)
+        let weighted_projection = gr.weighted_undirected_projection(weight);
+        fnx_algorithms::bellman_ford_path_length(weighted_projection.as_ref(), &s, &t, weight)
     };
     match result {
         Ok(d) => Ok(d),
@@ -6508,7 +6511,9 @@ fn single_source_dijkstra(
     require_undirected(&gr, "single_source_dijkstra")?;
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s)?;
-    let (dists, paths) = fnx_algorithms::single_source_dijkstra_full(gr.undirected(), &s, weight);
+    let weighted_projection = gr.weighted_undirected_projection(weight);
+    let (dists, paths) =
+        fnx_algorithms::single_source_dijkstra_full(weighted_projection.as_ref(), &s, weight);
     let dist_dict = PyDict::new(py);
     for (node, d) in &dists {
         dist_dict.set_item(gr.py_node_key(py, node), d)?;
@@ -6534,7 +6539,8 @@ fn single_source_dijkstra_path(
     require_undirected(&gr, "single_source_dijkstra_path")?;
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s)?;
-    let paths = fnx_algorithms::single_source_dijkstra_path(gr.undirected(), &s, weight);
+    let weighted_projection = gr.weighted_undirected_projection(weight);
+    let paths = fnx_algorithms::single_source_dijkstra_path(weighted_projection.as_ref(), &s, weight);
     let dict = PyDict::new(py);
     for (node, path) in &paths {
         let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
@@ -6556,7 +6562,9 @@ fn single_source_dijkstra_path_length(
     require_undirected(&gr, "single_source_dijkstra_path_length")?;
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s)?;
-    let dists = fnx_algorithms::single_source_dijkstra_path_length(gr.undirected(), &s, weight);
+    let weighted_projection = gr.weighted_undirected_projection(weight);
+    let dists =
+        fnx_algorithms::single_source_dijkstra_path_length(weighted_projection.as_ref(), &s, weight);
     let dict = PyDict::new(py);
     for (node, d) in &dists {
         dict.set_item(gr.py_node_key(py, node), d)?;
@@ -6577,7 +6585,8 @@ fn single_source_bellman_ford(
     require_undirected(&gr, "single_source_bellman_ford")?;
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s)?;
-    let result = fnx_algorithms::single_source_bellman_ford(gr.undirected(), &s, weight);
+    let weighted_projection = gr.weighted_undirected_projection(weight);
+    let result = fnx_algorithms::single_source_bellman_ford(weighted_projection.as_ref(), &s, weight);
     match result {
         Some((dists, paths)) => {
             let dist_dict = PyDict::new(py);
@@ -6610,7 +6619,9 @@ fn single_source_bellman_ford_path(
     require_undirected(&gr, "single_source_bellman_ford_path")?;
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s)?;
-    let result = fnx_algorithms::single_source_bellman_ford_path(gr.undirected(), &s, weight);
+    let weighted_projection = gr.weighted_undirected_projection(weight);
+    let result =
+        fnx_algorithms::single_source_bellman_ford_path(weighted_projection.as_ref(), &s, weight);
     match result {
         Some(paths) => {
             let dict = PyDict::new(py);
@@ -6639,8 +6650,12 @@ fn single_source_bellman_ford_path_length(
     require_undirected(&gr, "single_source_bellman_ford_path_length")?;
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s)?;
-    let result =
-        fnx_algorithms::single_source_bellman_ford_path_length(gr.undirected(), &s, weight);
+    let weighted_projection = gr.weighted_undirected_projection(weight);
+    let result = fnx_algorithms::single_source_bellman_ford_path_length(
+        weighted_projection.as_ref(),
+        &s,
+        weight,
+    );
     match result {
         Some(dists) => {
             let dict = PyDict::new(py);
@@ -6716,8 +6731,10 @@ fn all_pairs_dijkstra_path_length(
                 .collect::<HashMap<_, _>>()
         })
     } else {
-        let inner = gr.undirected();
-        py.allow_threads(|| fnx_algorithms::all_pairs_dijkstra_path_length(inner, weight))
+        let weighted_projection = gr.weighted_undirected_projection(weight);
+        py.allow_threads(|| {
+            fnx_algorithms::all_pairs_dijkstra_path_length(weighted_projection.as_ref(), weight)
+        })
     };
     let outer_dict = PyDict::new(py);
     for (source, targets) in &result {
@@ -6748,8 +6765,8 @@ fn all_pairs_dijkstra_path(
                 .collect::<HashMap<_, _>>()
         })
     } else {
-        let inner = gr.undirected();
-        py.allow_threads(|| fnx_algorithms::all_pairs_dijkstra_path(inner, weight))
+        let weighted_projection = gr.weighted_undirected_projection(weight);
+        py.allow_threads(|| fnx_algorithms::all_pairs_dijkstra_path(weighted_projection.as_ref(), weight))
     };
     let outer_dict = PyDict::new(py);
     for (source, targets) in &result {
@@ -6773,9 +6790,10 @@ fn all_pairs_bellman_ford_path_length(
 ) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
     require_undirected(&gr, "all_pairs_bellman_ford_path_length")?;
-    let inner = gr.undirected();
-    let result =
-        py.allow_threads(|| fnx_algorithms::all_pairs_bellman_ford_path_length(inner, weight));
+    let weighted_projection = gr.weighted_undirected_projection(weight);
+    let result = py.allow_threads(|| {
+        fnx_algorithms::all_pairs_bellman_ford_path_length(weighted_projection.as_ref(), weight)
+    });
     match result {
         Some(data) => {
             let outer_dict = PyDict::new(py);
@@ -6804,8 +6822,10 @@ fn all_pairs_bellman_ford_path(
 ) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
     require_undirected(&gr, "all_pairs_bellman_ford_path")?;
-    let inner = gr.undirected();
-    let result = py.allow_threads(|| fnx_algorithms::all_pairs_bellman_ford_path(inner, weight));
+    let weighted_projection = gr.weighted_undirected_projection(weight);
+    let result = py.allow_threads(|| {
+        fnx_algorithms::all_pairs_bellman_ford_path(weighted_projection.as_ref(), weight)
+    });
     match result {
         Some(data) => {
             let outer_dict = PyDict::new(py);
@@ -6832,8 +6852,9 @@ fn all_pairs_bellman_ford_path(
 fn floyd_warshall(py: Python<'_>, g: &Bound<'_, PyAny>, weight: &str) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
     require_undirected(&gr, "floyd_warshall")?;
-    let inner = gr.undirected();
-    let result = py.allow_threads(|| fnx_algorithms::floyd_warshall(inner, weight));
+    let weighted_projection = gr.weighted_undirected_projection(weight);
+    let result =
+        py.allow_threads(|| fnx_algorithms::floyd_warshall(weighted_projection.as_ref(), weight));
     let outer_dict = PyDict::new(py);
     for (source, targets) in &result {
         let inner_dict = PyDict::new(py);
@@ -6855,9 +6876,13 @@ fn floyd_warshall_predecessor_and_distance(
 ) -> PyResult<(PyObject, PyObject)> {
     let gr = extract_graph(g)?;
     require_undirected(&gr, "floyd_warshall_predecessor_and_distance")?;
-    let inner = gr.undirected();
-    let (dists, preds) =
-        py.allow_threads(|| fnx_algorithms::floyd_warshall_predecessor_and_distance(inner, weight));
+    let weighted_projection = gr.weighted_undirected_projection(weight);
+    let (dists, preds) = py.allow_threads(|| {
+        fnx_algorithms::floyd_warshall_predecessor_and_distance(
+            weighted_projection.as_ref(),
+            weight,
+        )
+    });
     let dist_outer = PyDict::new(py);
     for (source, targets) in &dists {
         let inner_dict = PyDict::new(py);
@@ -6912,8 +6937,10 @@ fn bidirectional_shortest_path(
 fn negative_edge_cycle(py: Python<'_>, g: &Bound<'_, PyAny>, weight: &str) -> PyResult<bool> {
     let gr = extract_graph(g)?;
     require_undirected(&gr, "negative_edge_cycle")?;
-    let inner = gr.undirected();
-    Ok(py.allow_threads(|| fnx_algorithms::negative_edge_cycle(inner, weight)))
+    let weighted_projection = gr.weighted_undirected_projection(weight);
+    Ok(py.allow_threads(|| {
+        fnx_algorithms::negative_edge_cycle(weighted_projection.as_ref(), weight)
+    }))
 }
 
 /// Return the predecessor dictionary from BFS.
@@ -6958,12 +6985,13 @@ fn path_weight(
         GraphRef::Directed { dg, .. } => {
             fnx_algorithms::path_weight_directed(&dg.inner, &path_refs, weight)
         }
-        _ => {
-            if gr.is_directed() {
-                fnx_algorithms::path_weight_directed(gr.digraph().unwrap(), &path_refs, weight)
-            } else {
-                fnx_algorithms::path_weight(gr.undirected(), &path_refs, weight)
-            }
+        GraphRef::MultiUndirected { .. } => {
+            let weighted_projection = gr.weighted_undirected_projection(weight);
+            fnx_algorithms::path_weight(weighted_projection.as_ref(), &path_refs, weight)
+        }
+        GraphRef::MultiDirected { .. } => {
+            let weighted_projection = gr.weighted_digraph_projection(weight).expect("multidigraph");
+            fnx_algorithms::path_weight_directed(weighted_projection.as_ref(), &path_refs, weight)
         }
     };
     match result {
@@ -7322,8 +7350,8 @@ pub fn find_negative_cycle(
     let gr = extract_graph(g)?;
     require_undirected(&gr, "find_negative_cycle")?;
     let src = node_key_to_string(py, source)?;
-    let inner = gr.undirected();
-    match fnx_algorithms::find_negative_cycle(inner, &src, weight) {
+    let weighted_projection = gr.weighted_undirected_projection(weight);
+    match fnx_algorithms::find_negative_cycle(weighted_projection.as_ref(), &src, weight) {
         Some(cycle) => Ok(cycle.iter().map(|n| gr.py_node_key(py, n)).collect()),
         None => Err(crate::NetworkXError::new_err("No negative cycle found.")),
     }

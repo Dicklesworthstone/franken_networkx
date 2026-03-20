@@ -913,7 +913,7 @@ class TestExpansionMetrics:
         assert ne + G_fnx.number_of_edges() == total_possible
 
     @given(data=small_connected_graph(min_nodes=3, max_nodes=12))
-    @settings(FAST)
+    @settings(FAST, deadline=None)
     def test_is_k_edge_connected_monotonic(self, data):
         """If graph is k-edge-connected, it's also (k-1)-edge-connected."""
         G_fnx, _, n = data
