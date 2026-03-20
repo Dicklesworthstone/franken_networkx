@@ -1058,7 +1058,7 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight='weight',
             row.append(i)
             col.append(j)
             data.append(w)
-            if not G.is_directed():
+            if not G.is_directed() and i != j:
                 row.append(j)
                 col.append(i)
                 data.append(w)
