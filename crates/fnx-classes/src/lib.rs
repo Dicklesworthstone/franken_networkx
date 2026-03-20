@@ -178,6 +178,16 @@ impl Graph {
     }
 
     #[must_use]
+    pub fn get_node_index(&self, node: &str) -> Option<usize> {
+        self.nodes.get_index_of(node)
+    }
+
+    #[must_use]
+    pub fn get_node_name(&self, index: usize) -> Option<&str> {
+        self.nodes.get_index(index).map(|(k, _)| k.as_str())
+    }
+
+    #[must_use]
     pub fn neighbors(&self, node: &str) -> Option<Vec<&str>> {
         self.adjacency
             .get(node)

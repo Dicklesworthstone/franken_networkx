@@ -23,8 +23,34 @@ const HITS_DEFAULT_MAX_ITERATIONS: usize = 100;
 const HITS_DEFAULT_TOLERANCE: f64 = 1.0e-8;
 const DISTANCE_COMPARISON_EPSILON: f64 = 1.0e-12;
 
+#[derive(Copy, Clone, PartialEq)]
+struct DijkstraState<T: Copy + PartialEq> {
+    dist: f64,
+    node: T,
+}
+
+impl<T: Copy + PartialEq> Eq for DijkstraState<T> {}
+
+impl<T: Copy + PartialEq> PartialOrd for DijkstraState<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<T: Copy + PartialEq> Ord for DijkstraState<T> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Min-heap: reverse the comparison
+        other
+            .dist
+            .partial_cmp(&self.dist)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    }
+}
+
 pub trait GraphView {
     fn nodes_ordered(&self) -> Vec<&str>;
+    fn get_node_index(&self, node: &str) -> Option<usize>;
+    fn get_node_name(&self, index: usize) -> Option<&str>;
     fn neighbors_iter(&self, node: &str) -> Option<Box<dyn Iterator<Item = &str> + '_>>;
     fn neighbor_count(&self, node: &str) -> usize;
     fn has_node(&self, node: &str) -> bool;
@@ -37,6 +63,12 @@ pub trait GraphView {
 impl GraphView for Graph {
     fn nodes_ordered(&self) -> Vec<&str> {
         self.nodes_ordered()
+    }
+    fn get_node_index(&self, node: &str) -> Option<usize> {
+        self.get_node_index(node)
+    }
+    fn get_node_name(&self, index: usize) -> Option<&str> {
+        self.get_node_name(index)
     }
     fn neighbors_iter(&self, node: &str) -> Option<Box<dyn Iterator<Item = &str> + '_>> {
         self.neighbors_iter(node)
@@ -65,6 +97,12 @@ impl GraphView for Graph {
 impl GraphView for DiGraph {
     fn nodes_ordered(&self) -> Vec<&str> {
         self.nodes_ordered()
+    }
+    fn get_node_index(&self, node: &str) -> Option<usize> {
+        self.get_node_index(node)
+    }
+    fn get_node_name(&self, index: usize) -> Option<&str> {
+        self.get_node_name(index)
     }
     fn neighbors_iter(&self, node: &str) -> Option<Box<dyn Iterator<Item = &str> + '_>> {
         self.neighbors_iter(node)
@@ -842,87 +880,79 @@ pub fn multi_source_dijkstra(
     weight_attr: &str,
 ) -> WeightedShortestPathsResult {
     let ordered_nodes = graph.nodes_ordered();
-    let mut settled = HashSet::<String>::new();
-    let mut distances = HashMap::<String, f64>::new();
-    let mut predecessors = HashMap::<String, Option<String>>::new();
-    let mut seen_sources = HashSet::<&str>::new();
+    let n = ordered_nodes.len();
+    let mut distances = vec![f64::INFINITY; n];
+    let mut predecessors: Vec<Option<usize>> = vec![None; n];
+    let mut pq = BinaryHeap::new();
 
     let mut nodes_touched = 0usize;
     let mut edges_scanned = 0usize;
     let mut queue_peak = 0usize;
 
-    for source in sources {
-        if !graph.has_node(source) || !seen_sources.insert(source) {
-            continue;
+    for source_name in sources {
+        if let Some(s_idx) = graph.get_node_index(source_name) {
+            if distances[s_idx].is_infinite() {
+                distances[s_idx] = 0.0;
+                pq.push(DijkstraState {
+                    dist: 0.0,
+                    node: s_idx,
+                });
+                nodes_touched += 1;
+            }
         }
-        distances.insert((*source).to_owned(), 0.0);
-        predecessors.insert((*source).to_owned(), None);
-        nodes_touched += 1;
     }
 
-    queue_peak = queue_peak.max(distances.len());
+    queue_peak = queue_peak.max(pq.len());
 
-    loop {
-        let mut current: Option<(&str, f64)> = None;
-        for &node in &ordered_nodes {
-            if settled.contains(node) {
-                continue;
-            }
-            let Some(&candidate_distance) = distances.get(node) else {
-                continue;
-            };
-            match current {
-                None => current = Some((node, candidate_distance)),
-                Some((_, best_distance)) if candidate_distance < best_distance => {
-                    current = Some((node, candidate_distance));
-                }
-                _ => {}
-            }
-        }
-
-        let Some((current_node, current_distance)) = current else {
-            break;
-        };
-        settled.insert(current_node.to_owned());
-
-        let Some(neighbors) = graph.neighbors_iter(current_node) else {
+    while let Some(DijkstraState { dist: d, node: u_idx }) = pq.pop() {
+        if d > distances[u_idx] {
             continue;
-        };
-        for neighbor in neighbors {
-            edges_scanned += 1;
-            if settled.contains(neighbor) {
-                continue;
-            }
-            let edge_weight = edge_weight_or_default(graph, current_node, neighbor, weight_attr);
-            let candidate_distance = current_distance + edge_weight;
-            let should_update = match distances.get(neighbor) {
-                Some(existing_distance) => {
-                    candidate_distance + DISTANCE_COMPARISON_EPSILON < *existing_distance
-                }
-                None => true,
-            };
-            if should_update {
-                if distances
-                    .insert(neighbor.to_owned(), candidate_distance)
-                    .is_none()
-                {
-                    nodes_touched += 1;
-                }
-                predecessors.insert(neighbor.to_owned(), Some(current_node.to_owned()));
-            }
         }
 
-        queue_peak = queue_peak.max(distances.len().saturating_sub(settled.len()));
+        if let Some(neighbors) = graph.neighbors_iter(ordered_nodes[u_idx]) {
+            for v_name in neighbors {
+                edges_scanned += 1;
+                let v_idx = graph.get_node_index(v_name).unwrap();
+                let edge_weight =
+                    edge_weight_or_default(graph, ordered_nodes[u_idx], v_name, weight_attr);
+                let next_dist = d + edge_weight;
+
+                if next_dist < distances[v_idx] - DISTANCE_COMPARISON_EPSILON {
+                    if distances[v_idx].is_infinite() {
+                        nodes_touched += 1;
+                    }
+                    distances[v_idx] = next_dist;
+                    predecessors[v_idx] = Some(u_idx);
+                    pq.push(DijkstraState {
+                        dist: next_dist,
+                        node: v_idx,
+                    });
+                    queue_peak = queue_peak.max(pq.len());
+                }
+            }
+        }
+    }
+
+    let mut dist_map = HashMap::new();
+    let mut pred_map = HashMap::new();
+    for i in 0..n {
+        if !distances[i].is_infinite() {
+            dist_map.insert(ordered_nodes[i].to_owned(), distances[i]);
+            pred_map.insert(
+                ordered_nodes[i].to_owned(),
+                predecessors[i].map(|idx| ordered_nodes[idx].to_owned()),
+            );
+        }
     }
 
     weighted_paths_result(
         &ordered_nodes,
-        distances,
-        predecessors,
+        dist_map,
+        pred_map,
         false,
         ComplexityWitness {
             algorithm: "multi_source_dijkstra".to_owned(),
-            complexity_claim: "O(|V|^2 + |E|)".to_owned(),
+            complexity_claim: "O(|E| log |V|)".to_owned(),
             nodes_touched,
             edges_scanned,
             queue_peak,
@@ -1268,47 +1298,54 @@ fn closeness_centrality_generic<G: GraphView>(graph: &G) -> ClosenessCentralityR
     }
 
     let mut scores = Vec::with_capacity(n);
-    let mut nodes_touched = 0usize;
-    let mut edges_scanned = 0usize;
-    let mut queue_peak = 0usize;
+    let mut total_nodes_touched = 0usize;
+    let mut total_edges_scanned = 0usize;
+    let mut global_queue_peak = 0usize;
 
-    for source in &nodes {
-        let mut queue: VecDeque<&str> = VecDeque::new();
-        let mut distance: HashMap<&str, usize> = HashMap::new();
-        queue.push_back(*source);
-        distance.insert(*source, 0usize);
-        queue_peak = queue_peak.max(queue.len());
+    for s in 0..n {
+        let mut queue = VecDeque::<usize>::new();
+        let mut distance = vec![None; n];
 
-        while let Some(current) = queue.pop_front() {
-            let current_distance = *distance.get(&current).unwrap_or(&0usize);
-            if let Some(neighbors) = graph.neighbors_iter(current) {
-                for neighbor in neighbors {
-                    edges_scanned += 1;
-                    if distance.contains_key(neighbor) {
-                        continue;
+        queue.push_back(s);
+        distance[s] = Some(0usize);
+        global_queue_peak = global_queue_peak.max(queue.len());
+
+        let mut reached = 0usize;
+        let mut sum_dist = 0usize;
+
+        while let Some(v) = queue.pop_front() {
+            reached += 1;
+            let d = distance[v].unwrap();
+            sum_dist += d;
+
+            if let Some(neighbors) = graph.neighbors_iter(nodes[v]) {
+                for w_name in neighbors {
+                    total_edges_scanned += 1;
+                    let w = graph.get_node_index(w_name).unwrap();
+                    if distance[w].is_none() {
+                        distance[w] = Some(d + 1);
+                        queue.push_back(w);
+                        global_queue_peak = global_queue_peak.max(queue.len());
                     }
-                    distance.insert(neighbor, current_distance + 1);
-                    queue.push_back(neighbor);
-                    queue_peak = queue_peak.max(queue.len());
                 }
             }
         }
 
-        let reachable = distance.len();
-        nodes_touched += reachable;
-        let total_distance: usize = distance.values().sum();
-        let score = if reachable <= 1 || total_distance == 0 {
+        total_nodes_touched += reached;
+
+        let score = if reached <= 1 || sum_dist == 0 {
             0.0
         } else {
-            let reachable_minus_one = (reachable - 1) as f64;
-            let mut closeness = reachable_minus_one / (total_distance as f64);
+            let reachable_minus_one = (reached - 1) as f64;
+            let mut closeness = reachable_minus_one / (sum_dist as f64);
             if n > 1 {
                 closeness *= reachable_minus_one / ((n - 1) as f64);
             }
             closeness
         };
+
         scores.push(CentralityScore {
-            node: (*source).to_owned(),
+            node: nodes[s].to_owned(),
             score,
         });
     }
@@ -1318,9 +1355,9 @@ fn closeness_centrality_generic<G: GraphView>(graph: &G) -> ClosenessCentralityR
         witness: ComplexityWitness {
             algorithm: "closeness_centrality".to_owned(),
             complexity_claim: "O(|V| * (|V| + |E|))".to_owned(),
-            nodes_touched,
-            edges_scanned,
-            queue_peak,
+            nodes_touched: total_nodes_touched,
+            edges_scanned: total_edges_scanned,
+            queue_peak: global_queue_peak,
         },
     }
 }
@@ -2015,93 +2052,85 @@ fn betweenness_centrality_generic<G: GraphView>(graph: &G) -> BetweennessCentral
         };
     }
 
-    let mut centrality = HashMap::<&str, f64>::new();
-    for node in &nodes {
-        centrality.insert(*node, 0.0);
-    }
-
-    let mut nodes_touched = 0usize;
+    let mut centrality = vec![0.0; n];
+    let mut total_nodes_touched = 0usize;
     let mut edges_scanned = 0usize;
     let mut queue_peak = 0usize;
 
-    for source in &nodes {
-        let mut stack = Vec::<&str>::with_capacity(n);
-        let mut predecessors = HashMap::<&str, Vec<&str>>::new();
-        let mut sigma = HashMap::<&str, f64>::new();
-        let mut distance = HashMap::<&str, i64>::new();
-        for node in &nodes {
-            predecessors.insert(*node, Vec::new());
-            sigma.insert(*node, 0.0);
-            distance.insert(*node, -1);
-        }
-        sigma.insert(*source, 1.0);
-        distance.insert(*source, 0);
+    for s in 0..n {
+        let mut stack = Vec::<usize>::with_capacity(n);
+        let mut predecessors = vec![Vec::<usize>::new(); n];
+        let mut sigma = vec![0.0; n];
+        let mut distance = vec![-1i64; n];
 
-        let mut queue = VecDeque::<&str>::new();
-        queue.push_back(source);
+        sigma[s] = 1.0;
+        distance[s] = 0;
+
+        let mut queue = VecDeque::<usize>::new();
+        queue.push_back(s);
         queue_peak = queue_peak.max(queue.len());
 
         while let Some(v) = queue.pop_front() {
             stack.push(v);
-            let dist_v = *distance.get(v).unwrap_or(&-1);
-            if let Some(neighbors) = graph.neighbors_iter(v) {
-                for w in neighbors {
+            let dist_v = distance[v];
+            if let Some(neighbors) = graph.neighbors_iter(nodes[v]) {
+                for w_name in neighbors {
                     edges_scanned += 1;
-                    if *distance.get(w).unwrap_or(&-1) < 0 {
-                        distance.insert(w, dist_v + 1);
+                    let w = graph.get_node_index(w_name).unwrap();
+
+                    if distance[w] < 0 {
+                        distance[w] = dist_v + 1;
                         queue.push_back(w);
                         queue_peak = queue_peak.max(queue.len());
                     }
-                    if *distance.get(w).unwrap_or(&-1) == dist_v + 1 {
-                        let sigma_v = *sigma.get(v).unwrap_or(&0.0);
-                        *sigma.entry(w).or_insert(0.0) += sigma_v;
-                        predecessors.entry(w).or_default().push(v);
+                    if distance[w] == dist_v + 1 {
+                        sigma[w] += sigma[v];
+                        predecessors[w].push(v);
                     }
                 }
             }
         }
-        nodes_touched += stack.len();
+        total_nodes_touched += stack.len();
 
-        let mut dependency = HashMap::<&str, f64>::new();
-        for node in &nodes {
-            dependency.insert(*node, 0.0);
-        }
-
+        let mut dependency = vec![0.0; n];
         while let Some(w) = stack.pop() {
-            let sigma_w = *sigma.get(w).unwrap_or(&0.0);
-            let delta_w = *dependency.get(w).unwrap_or(&0.0);
+            let sigma_w = sigma[w];
+            let delta_w = dependency[w];
             if sigma_w > 0.0 {
-                for v in predecessors.get(w).map(Vec::as_slice).unwrap_or(&[]) {
-                    let sigma_v = *sigma.get(v).unwrap_or(&0.0);
-                    let contribution = (sigma_v / sigma_w) * (1.0 + delta_w);
-                    *dependency.entry(v).or_insert(0.0) += contribution;
+                for &v in &predecessors[w] {
+                    dependency[v] += (sigma[v] / sigma_w) * (1.0 + delta_w);
                 }
             }
-            if w != *source {
-                *centrality.entry(w).or_insert(0.0) += delta_w;
+            if w != s {
+                centrality[w] += delta_w;
             }
         }
     }
 
     let scale = if n > 2 {
-        1.0 / (((n - 1) * (n - 2)) as f64)
+        // NetworkX normalization: 1/((n-1)*(n-2)) for both directed and undirected.
+        // Brandes accumulation already counts each unordered pair twice for
+        // undirected graphs; the 1/((n-1)*(n-2)) factor accounts for this.
+        1.0 / ((n - 1) * (n - 2)) as f64
     } else {
-        0.0
+        1.0
     };
-    let scores = nodes
+
+    let ordered_scores = nodes
         .iter()
-        .map(|node| CentralityScore {
+        .enumerate()
+        .map(|(i, node)| CentralityScore {
             node: (*node).to_owned(),
-            score: centrality.get(node).copied().unwrap_or(0.0) * scale,
+            score: centrality[i] * scale,
         })
-        .collect::<Vec<CentralityScore>>();
+        .collect();
 
     BetweennessCentralityResult {
-        scores,
+        scores: ordered_scores,
         witness: ComplexityWitness {
             algorithm: "brandes_betweenness_centrality".to_owned(),
             complexity_claim: "O(|V| * |E|)".to_owned(),
-            nodes_touched,
+            nodes_touched: total_nodes_touched,
             edges_scanned,
             queue_peak,
         },
@@ -5753,10 +5782,11 @@ pub fn is_tree(graph: &Graph) -> IsTreeResult {
     let n = graph.node_count();
     let m = graph.edge_count();
 
-    // Single node is a tree; empty graph (0 nodes) is not (matches NetworkX)
+    // Single node with no edges is a tree; empty graph (0 nodes) is not.
+    // A single node with a self-loop is NOT a tree (has a cycle).
     if n <= 1 {
         return IsTreeResult {
-            is_tree: n == 1,
+            is_tree: n == 1 && m == 0,
             witness: ComplexityWitness {
                 algorithm: "is_tree".to_owned(),
                 complexity_claim: "O(|V| + |E|)".to_owned(),
@@ -9885,66 +9915,46 @@ pub fn all_shortest_paths_weighted(
         return vec![vec![source.to_owned()]];
     }
 
-    let nodes = graph.nodes_ordered();
-    let mut settled: HashSet<&str> = HashSet::new();
     let mut dist: HashMap<&str, f64> = HashMap::new();
     let mut preds: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut pq = BinaryHeap::new();
 
     dist.insert(source, 0.0);
+    pq.push(DijkstraState {
+        dist: 0.0,
+        node: source,
+    });
 
-    loop {
-        // Find the unsettled node with smallest distance
-        let mut current: Option<(&str, f64)> = None;
-        for &node in &nodes {
-            if settled.contains(node) {
-                continue;
-            }
-            let Some(&d) = dist.get(node) else {
-                continue;
-            };
-            match current {
-                None => current = Some((node, d)),
-                Some((_, best_d)) if d < best_d => current = Some((node, d)),
-                _ => {}
-            }
-        }
+    let mut target_dist = f64::INFINITY;
 
-        let Some((current_node, current_dist)) = current else {
-            break;
-        };
-
-        // If we've settled the target, no need to continue
-        if current_node == target {
+    while let Some(DijkstraState { dist: d, node: u }) = pq.pop() {
+        if d > target_dist + DISTANCE_COMPARISON_EPSILON {
             break;
         }
 
-        settled.insert(current_node);
-
-        let Some(neighbors) = graph.neighbors_iter(current_node) else {
+        if d > *dist.get(u).unwrap_or(&f64::INFINITY) + DISTANCE_COMPARISON_EPSILON {
             continue;
-        };
+        }
 
-        for neighbor in neighbors {
-            if settled.contains(neighbor) {
-                continue;
-            }
-            let w = edge_weight_or_default(graph, current_node, neighbor, weight_attr);
-            let new_dist = current_dist + w;
+        if u == target {
+            target_dist = d;
+        }
 
-            match dist.get(neighbor) {
-                None => {
-                    dist.insert(neighbor, new_dist);
-                    preds.insert(neighbor, vec![current_node]);
-                }
-                Some(&existing) => {
-                    if new_dist + DISTANCE_COMPARISON_EPSILON < existing {
-                        // Strictly shorter path
-                        dist.insert(neighbor, new_dist);
-                        preds.insert(neighbor, vec![current_node]);
-                    } else if (new_dist - existing).abs() < DISTANCE_COMPARISON_EPSILON {
-                        // Equal-distance path: add predecessor
-                        preds.get_mut(neighbor).unwrap().push(current_node);
-                    }
+        if let Some(neighbors) = graph.neighbors_iter(u) {
+            for v in neighbors {
+                let weight = edge_weight_or_default(graph, u, v, weight_attr);
+                let next_dist = d + weight;
+                let current_dist_v = *dist.get(v).unwrap_or(&f64::INFINITY);
+
+                if next_dist < current_dist_v - DISTANCE_COMPARISON_EPSILON {
+                    dist.insert(v, next_dist);
+                    preds.insert(v, vec![u]);
+                    pq.push(DijkstraState {
+                        dist: next_dist,
+                        node: v,
+                    });
+                } else if (next_dist - current_dist_v).abs() < DISTANCE_COMPARISON_EPSILON {
+                    preds.entry(v).or_default().push(u);
                 }
             }
         }
@@ -10499,65 +10509,70 @@ pub fn is_dominating_set(graph: &Graph, dom_nodes: &[&str]) -> bool {
 pub fn strongly_connected_components(digraph: &DiGraph) -> Vec<Vec<String>> {
     let nodes = digraph.nodes_ordered();
     let n = nodes.len();
+    let mut indices: Vec<Option<usize>> = vec![None; n];
+    let mut lowlinks: Vec<usize> = vec![0; n];
+    let mut on_stack: Vec<bool> = vec![false; n];
+    let mut stack: Vec<usize> = Vec::new();
     let mut index_counter: usize = 0;
-    let mut stack: Vec<&str> = Vec::new();
-    let mut on_stack: HashSet<&str> = HashSet::new();
-    let mut indices: HashMap<&str, usize> = HashMap::with_capacity(n);
-    let mut lowlinks: HashMap<&str, usize> = HashMap::with_capacity(n);
     let mut components: Vec<Vec<String>> = Vec::new();
 
-    // Iterative Tarjan's to avoid stack overflow on large graphs
-    for &start in &nodes {
-        if indices.contains_key(start) {
+    // Work stack stores: (node_idx, successors_list, next_successor_idx)
+    let mut work: Vec<(usize, Vec<&str>, usize)> = Vec::new();
+
+    for i in 0..n {
+        if indices[i].is_some() {
             continue;
         }
-        // Work stack: (node, successor_index, is_root_call)
-        let mut work: Vec<(&str, usize, bool)> = Vec::new();
-        indices.insert(start, index_counter);
-        lowlinks.insert(start, index_counter);
-        index_counter += 1;
-        stack.push(start);
-        on_stack.insert(start);
-        work.push((start, 0, true));
 
-        while let Some((v, si, _is_root)) = work.last_mut() {
-            let succs: Vec<&str> = digraph
-                .successors_iter(v)
-                .map(|it| it.collect())
-                .unwrap_or_default();
-            if *si < succs.len() {
-                let w = succs[*si];
-                *si += 1;
-                if !indices.contains_key(w) {
-                    // Tree edge — recurse
-                    indices.insert(w, index_counter);
-                    lowlinks.insert(w, index_counter);
-                    index_counter += 1;
-                    stack.push(w);
-                    on_stack.insert(w);
-                    work.push((w, 0, false));
-                } else if on_stack.contains(w) {
-                    let w_idx = indices[w];
-                    let v_low = lowlinks.get_mut(v).unwrap();
-                    if w_idx < *v_low {
-                        *v_low = w_idx;
+        // Initialize DFS from node i
+        indices[i] = Some(index_counter);
+        lowlinks[i] = index_counter;
+        index_counter += 1;
+        stack.push(i);
+        on_stack[i] = true;
+
+        let succs = digraph.successors(nodes[i]).unwrap_or_default();
+        work.push((i, succs, 0));
+
+        while let Some((u_idx, u_succs, next_nbr_idx)) = work.last_mut() {
+            let u_idx = *u_idx;
+            if *next_nbr_idx < u_succs.len() {
+                let v_name = u_succs[*next_nbr_idx];
+                *next_nbr_idx += 1;
+
+                let v_idx = digraph.get_node_index(v_name).unwrap();
+
+                match indices[v_idx] {
+                    None => {
+                        // Tree edge
+                        indices[v_idx] = Some(index_counter);
+                        lowlinks[v_idx] = index_counter;
+                        index_counter += 1;
+                        stack.push(v_idx);
+                        on_stack[v_idx] = true;
+
+                        let v_succs = digraph.successors(v_name).unwrap_or_default();
+                        work.push((v_idx, v_succs, 0));
                     }
+                    Some(v_index) if on_stack[v_idx] => {
+                        // Back edge
+                        lowlinks[u_idx] = lowlinks[u_idx].min(v_index);
+                    }
+                    _ => {}
                 }
             } else {
-                // All successors processed
-                let v_str = *v;
-                let v_low = lowlinks[v_str];
-                let v_idx = indices[v_str];
-                let popped = work.pop().unwrap();
+                // Done with node u
+                let (u_finished, _, _) = work.pop().unwrap();
+                let u_low = lowlinks[u_finished];
+                let u_index = indices[u_finished].unwrap();
 
-                if v_low == v_idx {
-                    // Root of an SCC — pop everything up to v
+                if u_low == u_index {
                     let mut component = Vec::new();
                     loop {
-                        let w = stack.pop().unwrap();
-                        on_stack.remove(w);
-                        component.push(w.to_owned());
-                        if w == popped.0 {
+                        let w_idx = stack.pop().unwrap();
+                        on_stack[w_idx] = false;
+                        component.push(nodes[w_idx].to_owned());
+                        if w_idx == u_finished {
                             break;
                         }
                     }
@@ -10565,18 +10580,14 @@ pub fn strongly_connected_components(digraph: &DiGraph) -> Vec<Vec<String>> {
                     components.push(component);
                 }
 
-                // Propagate lowlink to parent
-                if let Some((parent, _, _)) = work.last() {
-                    let parent_low = lowlinks.get_mut(parent).unwrap();
-                    if v_low < *parent_low {
-                        *parent_low = v_low;
-                    }
+                // Propagate lowlink back to parent
+                if let Some((parent_idx, _, _)) = work.last_mut() {
+                    lowlinks[*parent_idx] = lowlinks[*parent_idx].min(u_low);
                 }
             }
         }
     }
 
-    // Sort components by smallest element for deterministic output
     components.sort_unstable();
     components
 }
@@ -14187,50 +14198,36 @@ pub fn single_source_dijkstra_directed(
     source: &str,
     weight_attr: &str,
 ) -> HashMap<String, f64> {
-    let mut distances: HashMap<String, f64> = HashMap::new();
     if !digraph.has_node(source) {
-        return distances;
+        return HashMap::new();
     }
 
-    let mut settled = HashSet::<String>::new();
+    let mut distances: HashMap<String, f64> = HashMap::new();
+    let mut pq = BinaryHeap::new();
+
     distances.insert(source.to_owned(), 0.0);
+    pq.push(DijkstraState {
+        dist: 0.0,
+        node: source,
+    });
 
-    let ordered_nodes = digraph.nodes_ordered();
-
-    loop {
-        let mut current: Option<(&str, f64)> = None;
-        for &node in &ordered_nodes {
-            if settled.contains(node) {
-                continue;
-            }
-            let Some(&d) = distances.get(node) else {
-                continue;
-            };
-            match current {
-                None => current = Some((node, d)),
-                Some((_, best)) if d < best => current = Some((node, d)),
-                _ => {}
-            }
+    while let Some(DijkstraState { dist: d, node: u }) = pq.pop() {
+        if d > *distances.get(u).unwrap_or(&f64::INFINITY) + DISTANCE_COMPARISON_EPSILON {
+            continue;
         }
 
-        let Some((cur, cur_dist)) = current else {
-            break;
-        };
-        settled.insert(cur.to_owned());
+        if let Some(successors) = digraph.successors_iter(u) {
+            for v in successors {
+                let weight = digraph_edge_weight_or_default(digraph, u, v, weight_attr);
+                let next_dist = d + weight;
+                let current_dist_v = *distances.get(v).unwrap_or(&f64::INFINITY);
 
-        if let Some(neighbors) = digraph.successors(cur) {
-            for nbr in neighbors {
-                if settled.contains(nbr) {
-                    continue;
-                }
-                let w = digraph_edge_weight_or_default(digraph, cur, nbr, weight_attr);
-                let new_dist = cur_dist + w;
-                let update = match distances.get(nbr) {
-                    Some(&existing) => new_dist + DISTANCE_COMPARISON_EPSILON < existing,
-                    None => true,
-                };
-                if update {
-                    distances.insert(nbr.to_owned(), new_dist);
+                if next_dist < current_dist_v - DISTANCE_COMPARISON_EPSILON {
+                    distances.insert(v.to_owned(), next_dist);
+                    pq.push(DijkstraState {
+                        dist: next_dist,
+                        node: v,
+                    });
                 }
             }
         }
