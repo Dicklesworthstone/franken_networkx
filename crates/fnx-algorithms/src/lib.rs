@@ -7469,7 +7469,7 @@ pub fn global_minimum_node_cut_directed(digraph: &DiGraph) -> MinimumNodeCutResu
         let result = minimum_node_cut_directed(digraph, v, w);
         total_edges_scanned += result.witness.edges_scanned;
         max_queue_peak = max_queue_peak.max(result.witness.queue_peak);
-        if result.cut_nodes.len() <= min_cut.len() {
+        if should_replace_minimum_node_cut(&min_cut, &result.cut_nodes) {
             min_cut = result.cut_nodes;
         }
     }
@@ -7492,7 +7492,7 @@ pub fn global_minimum_node_cut_directed(digraph: &DiGraph) -> MinimumNodeCutResu
             };
             total_edges_scanned += result.witness.edges_scanned;
             max_queue_peak = max_queue_peak.max(result.witness.queue_peak);
-            if result.cut_nodes.len() <= min_cut.len() {
+            if should_replace_minimum_node_cut(&min_cut, &result.cut_nodes) {
                 min_cut = result.cut_nodes;
             }
         }
@@ -7510,6 +7510,10 @@ pub fn global_minimum_node_cut_directed(digraph: &DiGraph) -> MinimumNodeCutResu
             queue_peak: max_queue_peak,
         },
     }
+}
+
+fn should_replace_minimum_node_cut(current: &[String], candidate: &[String]) -> bool {
+    candidate.len() < current.len() || (candidate.len() == current.len() && candidate < current)
 }
 
 // ---------------------------------------------------------------------------
@@ -23958,6 +23962,16 @@ mod tests {
     fn is_weakly_connected_empty() {
         let dg = DiGraph::strict();
         assert!(!is_weakly_connected(&dg));
+    }
+
+    #[test]
+    fn global_minimum_node_cut_directed_prefers_lexicographically_smaller_equal_cut() {
+        let mut dg = DiGraph::strict();
+        dg.add_edge("0", "1").unwrap();
+        dg.add_edge("1", "0").unwrap();
+
+        let result = super::global_minimum_node_cut_directed(&dg);
+        assert_eq!(result.cut_nodes, vec!["0"]);
     }
 
     // -----------------------------------------------------------------------

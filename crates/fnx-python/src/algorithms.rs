@@ -1050,22 +1050,17 @@ pub fn node_connectivity(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usize
 #[pyfunction]
 pub fn minimum_node_cut(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
     let gr = extract_graph(g)?;
-    if gr.is_directed() {
+    let result = if gr.is_directed() {
         let dg = gr.digraph().expect("is_directed checked above");
         if !fnx_algorithms::is_weakly_connected(dg) {
             return Err(NetworkXError::new_err("Input graph is not connected"));
         }
+        py.allow_threads(|| fnx_algorithms::global_minimum_node_cut_directed(dg))
     } else {
         let inner = gr.undirected();
         if !fnx_algorithms::is_connected(inner).is_connected {
             return Err(NetworkXError::new_err("Input graph is not connected"));
         }
-    }
-    let result = if gr.is_directed() {
-        let dg = gr.digraph().expect("is_directed checked above");
-        py.allow_threads(|| fnx_algorithms::global_minimum_node_cut_directed(dg))
-    } else {
-        let inner = gr.undirected();
         py.allow_threads(|| fnx_algorithms::global_minimum_node_cut(inner))
     };
     Ok(result
