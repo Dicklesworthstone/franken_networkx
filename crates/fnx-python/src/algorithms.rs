@@ -174,15 +174,10 @@ impl<'py> GraphRef<'py> {
         match self {
             GraphRef::Undirected(pg) => WeightedGraphProjection::Borrowed(&pg.inner),
             GraphRef::Directed { undirected, .. } => WeightedGraphProjection::Borrowed(undirected),
-            GraphRef::MultiUndirected { mg, .. } => {
-                WeightedGraphProjection::Owned(multigraph_to_weighted_simple_graph(
-                    &mg.inner,
-                    weight_attr,
-                ))
-            }
-            GraphRef::MultiDirected { .. } => {
-                WeightedGraphProjection::Borrowed(self.undirected())
-            }
+            GraphRef::MultiUndirected { mg, .. } => WeightedGraphProjection::Owned(
+                multigraph_to_weighted_simple_graph(&mg.inner, weight_attr),
+            ),
+            GraphRef::MultiDirected { .. } => WeightedGraphProjection::Borrowed(self.undirected()),
         }
     }
 
@@ -252,7 +247,8 @@ fn multigraph_to_simple_graph(mg: &fnx_classes::MultiGraph) -> fnx_classes::Grap
 }
 
 fn projected_weight(attrs: &AttrMap, weight_attr: &str) -> f64 {
-    attrs.get(weight_attr)
+    attrs
+        .get(weight_attr)
         .and_then(|raw| raw.parse::<f64>().ok())
         .filter(|weight| weight.is_finite())
         .unwrap_or(1.0)
@@ -849,8 +845,13 @@ pub fn shortest_path(
                     validate_node(&gr, &s, src)?;
                     validate_node(&gr, &t, tgt)?;
 
-                    let path =
-                        compute_single_shortest_path_directed(inner, &s, &t, Some(weight_attr), method)?;
+                    let path = compute_single_shortest_path_directed(
+                        inner,
+                        &s,
+                        &t,
+                        Some(weight_attr),
+                        method,
+                    )?;
                     match path {
                         Some(p) => {
                             let py_path: Vec<PyObject> =
@@ -934,7 +935,8 @@ pub fn shortest_path(
                     validate_node(&gr, &s, src)?;
                     validate_node(&gr, &t, tgt)?;
 
-                    let path = compute_single_shortest_path(inner, &s, &t, Some(weight_attr), method)?;
+                    let path =
+                        compute_single_shortest_path(inner, &s, &t, Some(weight_attr), method)?;
                     match path {
                         Some(p) => {
                             let py_path: Vec<PyObject> =
@@ -952,9 +954,13 @@ pub fn shortest_path(
                     validate_node(&gr, &s, src)?;
                     let result = PyDict::new(py);
                     for node in inner.nodes_ordered() {
-                        if let Some(p) =
-                            compute_single_shortest_path(inner, &s, node, Some(weight_attr), method)?
-                        {
+                        if let Some(p) = compute_single_shortest_path(
+                            inner,
+                            &s,
+                            node,
+                            Some(weight_attr),
+                            method,
+                        )? {
                             let py_path: Vec<PyObject> =
                                 p.iter().map(|n| gr.py_node_key(py, n)).collect();
                             result.set_item(gr.py_node_key(py, node), py_path)?;
@@ -1061,9 +1067,9 @@ pub fn shortest_path(
                 for src_node in inner.nodes_ordered() {
                     let inner_dict = PyDict::new(py);
                     for tgt_node in inner.nodes_ordered() {
-                        if let Some(p) =
-                            compute_single_shortest_path_directed(inner, src_node, tgt_node, None, method)?
-                        {
+                        if let Some(p) = compute_single_shortest_path_directed(
+                            inner, src_node, tgt_node, None, method,
+                        )? {
                             let py_path: Vec<PyObject> =
                                 p.iter().map(|n| gr.py_node_key(py, n)).collect();
                             inner_dict.set_item(gr.py_node_key(py, tgt_node), py_path)?;
@@ -1102,8 +1108,7 @@ pub fn shortest_path(
                 validate_node(&gr, &s, src)?;
                 let result = PyDict::new(py);
                 for node in inner.nodes_ordered() {
-                    if let Some(p) = compute_single_shortest_path(inner, &s, node, None, method)?
-                    {
+                    if let Some(p) = compute_single_shortest_path(inner, &s, node, None, method)? {
                         let py_path: Vec<PyObject> =
                             p.iter().map(|n| gr.py_node_key(py, n)).collect();
                         result.set_item(gr.py_node_key(py, node), py_path)?;
@@ -1116,8 +1121,7 @@ pub fn shortest_path(
                 validate_node(&gr, &t, tgt)?;
                 let result = PyDict::new(py);
                 for node in inner.nodes_ordered() {
-                    if let Some(p) = compute_single_shortest_path(inner, node, &t, None, method)?
-                    {
+                    if let Some(p) = compute_single_shortest_path(inner, node, &t, None, method)? {
                         let py_path: Vec<PyObject> =
                             p.iter().map(|n| gr.py_node_key(py, n)).collect();
                         result.set_item(gr.py_node_key(py, node), py_path)?;
@@ -1310,7 +1314,12 @@ pub fn dijkstra_path(
     validate_node(&gr, &t, target)?;
 
     let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
-        fnx_algorithms::shortest_path_weighted_directed(weighted_projection.as_ref(), &s, &t, weight)
+        fnx_algorithms::shortest_path_weighted_directed(
+            weighted_projection.as_ref(),
+            &s,
+            &t,
+            weight,
+        )
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
         fnx_algorithms::shortest_path_weighted(weighted_projection.as_ref(), &s, &t, weight)
@@ -1344,7 +1353,11 @@ pub fn bellman_ford_path(
     validate_node(&gr, &t, target)?;
 
     let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
-        fnx_algorithms::bellman_ford_shortest_paths_directed(weighted_projection.as_ref(), &s, weight)
+        fnx_algorithms::bellman_ford_shortest_paths_directed(
+            weighted_projection.as_ref(),
+            &s,
+            weight,
+        )
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
         fnx_algorithms::bellman_ford_shortest_paths(weighted_projection.as_ref(), &s, weight)
@@ -2055,7 +2068,7 @@ pub fn max_weight_matching(
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
     let w = weight.to_owned();
-    let result = py.allow_threads(move || fnx_algorithms::min_weight_matching(inner, &w));
+    let result = py.allow_threads(move || fnx_algorithms::max_weight_matching(inner, false, &w));
     Ok(result
         .matching
         .iter()
@@ -6471,8 +6484,11 @@ fn bellman_ford_path_length(
     validate_node(&gr, &s, source)?;
     validate_node(&gr, &t, target)?;
     let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
-        let bf =
-            fnx_algorithms::bellman_ford_shortest_paths_directed(weighted_projection.as_ref(), &s, weight);
+        let bf = fnx_algorithms::bellman_ford_shortest_paths_directed(
+            weighted_projection.as_ref(),
+            &s,
+            weight,
+        );
         if bf.negative_cycle_detected {
             Err(true)
         } else {
@@ -6540,7 +6556,8 @@ fn single_source_dijkstra_path(
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s)?;
     let weighted_projection = gr.weighted_undirected_projection(weight);
-    let paths = fnx_algorithms::single_source_dijkstra_path(weighted_projection.as_ref(), &s, weight);
+    let paths =
+        fnx_algorithms::single_source_dijkstra_path(weighted_projection.as_ref(), &s, weight);
     let dict = PyDict::new(py);
     for (node, path) in &paths {
         let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
@@ -6563,8 +6580,11 @@ fn single_source_dijkstra_path_length(
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s)?;
     let weighted_projection = gr.weighted_undirected_projection(weight);
-    let dists =
-        fnx_algorithms::single_source_dijkstra_path_length(weighted_projection.as_ref(), &s, weight);
+    let dists = fnx_algorithms::single_source_dijkstra_path_length(
+        weighted_projection.as_ref(),
+        &s,
+        weight,
+    );
     let dict = PyDict::new(py);
     for (node, d) in &dists {
         dict.set_item(gr.py_node_key(py, node), d)?;
@@ -6586,7 +6606,8 @@ fn single_source_bellman_ford(
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s)?;
     let weighted_projection = gr.weighted_undirected_projection(weight);
-    let result = fnx_algorithms::single_source_bellman_ford(weighted_projection.as_ref(), &s, weight);
+    let result =
+        fnx_algorithms::single_source_bellman_ford(weighted_projection.as_ref(), &s, weight);
     match result {
         Some((dists, paths)) => {
             let dist_dict = PyDict::new(py);
@@ -6723,9 +6744,11 @@ fn all_pairs_dijkstra_path_length(
 ) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
     let result = if gr.is_directed() {
-        let dg = gr.digraph().expect("is_directed checked above");
+        let dg = gr
+            .weighted_digraph_projection(weight)
+            .expect("is_directed checked above");
         py.allow_threads(|| {
-            fnx_algorithms::all_pairs_dijkstra_directed(dg, weight)
+            fnx_algorithms::all_pairs_dijkstra_directed(dg.as_ref(), weight)
                 .into_iter()
                 .map(|(source, (dists, _paths))| (source, dists))
                 .collect::<HashMap<_, _>>()
@@ -6757,16 +6780,20 @@ fn all_pairs_dijkstra_path(
 ) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
     let result = if gr.is_directed() {
-        let dg = gr.digraph().expect("is_directed checked above");
+        let dg = gr
+            .weighted_digraph_projection(weight)
+            .expect("is_directed checked above");
         py.allow_threads(|| {
-            fnx_algorithms::all_pairs_dijkstra_directed(dg, weight)
+            fnx_algorithms::all_pairs_dijkstra_directed(dg.as_ref(), weight)
                 .into_iter()
                 .map(|(source, (_dists, paths))| (source, paths))
                 .collect::<HashMap<_, _>>()
         })
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
-        py.allow_threads(|| fnx_algorithms::all_pairs_dijkstra_path(weighted_projection.as_ref(), weight))
+        py.allow_threads(|| {
+            fnx_algorithms::all_pairs_dijkstra_path(weighted_projection.as_ref(), weight)
+        })
     };
     let outer_dict = PyDict::new(py);
     for (source, targets) in &result {
@@ -6990,7 +7017,9 @@ fn path_weight(
             fnx_algorithms::path_weight(weighted_projection.as_ref(), &path_refs, weight)
         }
         GraphRef::MultiDirected { .. } => {
-            let weighted_projection = gr.weighted_digraph_projection(weight).expect("multidigraph");
+            let weighted_projection = gr
+                .weighted_digraph_projection(weight)
+                .expect("multidigraph");
             fnx_algorithms::path_weight_directed(weighted_projection.as_ref(), &path_refs, weight)
         }
     };
@@ -7837,11 +7866,13 @@ fn all_pairs_dijkstra(py: Python<'_>, g: &Bound<'_, PyAny>, weight: &str) -> PyR
     let gr = extract_graph(g)?;
     let w = weight.to_owned();
     let result = if gr.is_directed() {
-        let dg = gr.digraph().expect("is_directed checked above");
-        py.allow_threads(|| fnx_algorithms::all_pairs_dijkstra_directed(dg, &w))
+        let dg = gr
+            .weighted_digraph_projection(weight)
+            .expect("is_directed checked above");
+        py.allow_threads(|| fnx_algorithms::all_pairs_dijkstra_directed(dg.as_ref(), &w))
     } else {
-        let inner = gr.undirected();
-        py.allow_threads(|| fnx_algorithms::all_pairs_dijkstra(inner, &w))
+        let weighted_projection = gr.weighted_undirected_projection(weight);
+        py.allow_threads(|| fnx_algorithms::all_pairs_dijkstra(weighted_projection.as_ref(), &w))
     };
     let outer = PyDict::new(py);
     for (source, (dists, paths)) in &result {
