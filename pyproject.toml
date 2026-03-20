@@ -58,4 +58,5 @@ testpaths = ["tests/python"]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "conformance: conformance tests comparing against NetworkX oracle",
+    "benchmark: performance benchmarks; skipped unless --benchmark-only is set",
 ]

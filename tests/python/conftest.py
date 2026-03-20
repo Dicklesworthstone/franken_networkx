@@ -12,6 +12,24 @@ import pytest
 
 log = logging.getLogger("fnx_conformance")
 
+
+def _benchmark_mode_enabled(config: pytest.Config) -> bool:
+    """Return true when pytest-benchmark execution was explicitly requested."""
+    return bool(getattr(config.option, "benchmark_only", False))
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Skip benchmark-marked tests unless the caller opted into benchmark mode."""
+    if _benchmark_mode_enabled(config):
+        return
+
+    skip_benchmark = pytest.mark.skip(
+        reason="benchmark tests are opt-in; rerun with --benchmark-only"
+    )
+    for item in items:
+        if "benchmark" in item.keywords:
+            item.add_marker(skip_benchmark)
+
 # ---------------------------------------------------------------------------
 # Graph builder fixtures
 # ---------------------------------------------------------------------------

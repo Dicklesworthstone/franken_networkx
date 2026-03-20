@@ -5,8 +5,8 @@ Run with:
     pytest tests/python/test_benchmarks.py --benchmark-only --benchmark-sort=name
     pytest tests/python/test_benchmarks.py --benchmark-only --benchmark-group-by=param:size
 
-Skip benchmarks during regular testing:
-    pytest tests/python/ -m "not benchmark"
+These tests are skipped automatically during regular pytest runs.
+To execute them intentionally, pass ``--benchmark-only``.
 """
 
 import pytest
