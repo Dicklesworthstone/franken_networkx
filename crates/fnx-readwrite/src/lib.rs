@@ -1370,10 +1370,12 @@ fn attr_escape(s: &str) -> String {
     s.replace('%', "%25")
         .replace('=', "%3D")
         .replace(';', "%3B")
+        .replace(' ', "%20")
 }
 
 fn attr_unescape(s: &str) -> String {
-    s.replace("%3B", ";")
+    s.replace("%20", " ")
+        .replace("%3B", ";")
         .replace("%3D", "=")
         .replace("%25", "%")
 }

@@ -88,6 +88,16 @@ class TestBellmanFordPathLength:
         with pytest.raises(fnx.NetworkXNoPath):
             fnx.bellman_ford_path_length(disconnected_graph, "a", "b", weight="weight")
 
+    def test_directed_reverse_path_missing(self):
+        g = fnx.DiGraph()
+        g.add_edge("a", "b", weight=1.0)
+
+        with pytest.raises(fnx.NetworkXNoPath):
+            fnx.dijkstra_path_length(g, "b", "a", weight="weight")
+
+        with pytest.raises(fnx.NetworkXNoPath):
+            fnx.bellman_ford_path_length(g, "b", "a", weight="weight")
+
 
 # ---------------------------------------------------------------------------
 # single_source_dijkstra
@@ -109,6 +119,19 @@ class TestSingleSourceDijkstra:
         dists, paths = fnx.single_source_dijkstra(g, "x", weight="weight")
         assert dists == {"x": 0.0}
         assert paths == {"x": ["x"]}
+
+
+class TestDirectedMultiSourceDijkstra:
+    def test_only_reaches_successors(self):
+        g = fnx.DiGraph()
+        g.add_edge("a", "b", weight=1.0)
+        g.add_edge("b", "c", weight=2.0)
+
+        dists, paths = fnx.multi_source_dijkstra(g, ["b"], weight="weight")
+        assert dists["b"] == 0.0
+        assert dists["c"] == 2.0
+        assert "a" not in dists
+        assert paths["c"] == ["b", "c"]
 
 
 # ---------------------------------------------------------------------------

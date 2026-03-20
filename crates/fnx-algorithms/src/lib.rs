@@ -1094,7 +1094,11 @@ pub fn multi_source_dijkstra(
 
     queue_peak = queue_peak.max(pq.len());
 
-    while let Some(DijkstraState { dist: d, node: u_idx }) = pq.pop() {
+    while let Some(DijkstraState {
+        dist: d,
+        node: u_idx,
+    }) = pq.pop()
+    {
         if d > distances[u_idx] {
             continue;
         }
@@ -1181,7 +1185,11 @@ pub fn multi_source_dijkstra_directed(
 
     queue_peak = queue_peak.max(pq.len());
 
-    while let Some(DijkstraState { dist: d, node: u_idx }) = pq.pop() {
+    while let Some(DijkstraState {
+        dist: d,
+        node: u_idx,
+    }) = pq.pop()
+    {
         if d > distances[u_idx] {
             continue;
         }
@@ -1190,8 +1198,12 @@ pub fn multi_source_dijkstra_directed(
             for v_name in successors {
                 edges_scanned += 1;
                 let v_idx = digraph.get_node_index(v_name).unwrap();
-                let edge_weight =
-                    digraph_edge_weight_or_default(digraph, ordered_nodes[u_idx], v_name, weight_attr);
+                let edge_weight = digraph_edge_weight_or_default(
+                    digraph,
+                    ordered_nodes[u_idx],
+                    v_name,
+                    weight_attr,
+                );
                 let next_dist = d + edge_weight;
 
                 if next_dist < distances[v_idx] - DISTANCE_COMPARISON_EPSILON {
@@ -1364,7 +1376,8 @@ pub fn bellman_ford_shortest_paths_directed(
     for _ in 0..ordered_nodes.len().saturating_sub(1) {
         let mut changed = false;
         for (left, right) in &ordered_edges {
-            let edge_weight = signed_digraph_edge_weight_or_default(digraph, left, right, weight_attr);
+            let edge_weight =
+                signed_digraph_edge_weight_or_default(digraph, left, right, weight_attr);
             edges_scanned += 1;
             if relax_weighted_edge(
                 left,

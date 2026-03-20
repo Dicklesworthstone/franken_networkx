@@ -51,3 +51,33 @@ class TestShortestPath:
         G_fnx, _ = path_graph
         with pytest.raises(fnx.NodeNotFound):
             fnx.shortest_path(G_fnx, "a", "nonexistent")
+
+    def test_directed_shortest_path_respects_edge_direction(self, fnx, nx):
+        D_fnx = fnx.DiGraph()
+        D_fnx.add_edge("a", "b")
+        D_nx = nx.DiGraph()
+        D_nx.add_edge("a", "b")
+
+        with pytest.raises(fnx.NetworkXNoPath):
+            fnx.shortest_path(D_fnx, "b", "a")
+        with pytest.raises(nx.NetworkXNoPath):
+            nx.shortest_path(D_nx, "b", "a")
+
+        assert not fnx.has_path(D_fnx, "b", "a")
+        assert not nx.has_path(D_nx, "b", "a")
+
+    def test_directed_weighted_paths_respect_edge_direction(self, fnx, nx):
+        D_fnx = fnx.DiGraph()
+        D_fnx.add_edge("a", "b", weight=1.0)
+        D_nx = nx.DiGraph()
+        D_nx.add_edge("a", "b", weight=1.0)
+
+        with pytest.raises(fnx.NetworkXNoPath):
+            fnx.dijkstra_path(D_fnx, "b", "a", weight="weight")
+        with pytest.raises(nx.NetworkXNoPath):
+            nx.dijkstra_path(D_nx, "b", "a", weight="weight")
+
+        with pytest.raises(fnx.NetworkXNoPath):
+            fnx.bellman_ford_path(D_fnx, "b", "a", weight="weight")
+        with pytest.raises(nx.NetworkXNoPath):
+            nx.bellman_ford_path(D_nx, "b", "a", weight="weight")

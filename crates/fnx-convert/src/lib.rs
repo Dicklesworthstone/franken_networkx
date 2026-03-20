@@ -473,3 +473,71 @@ impl GraphConverter {
         });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{AdjacencyEntry, AdjacencyPayload, EdgeListPayload, EdgeRecord, GraphConverter};
+    use fnx_classes::AttrMap;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn convert_from_edge_list_basic() {
+        let mut converter = GraphConverter::strict();
+        let payload = EdgeListPayload {
+            nodes: vec!["a".to_owned(), "b".to_owned()],
+            edges: vec![EdgeRecord {
+                left: "a".to_owned(),
+                right: "b".to_owned(),
+                attrs: AttrMap::from([("weight".to_owned(), "1.0".to_owned())]),
+            }],
+        };
+
+        let report = converter.from_edge_list(&payload).expect("conversion should succeed");
+        assert_eq!(report.graph.node_count(), 2);
+        assert_eq!(report.graph.edge_count(), 1);
+        assert_eq!(report.graph.node_attrs("a").unwrap().len(), 0);
+        assert_eq!(
+            report.graph.edge_attrs("a", "b").unwrap().get("weight").unwrap(),
+            "1.0"
+        );
+    }
+
+    #[test]
+    fn convert_from_adjacency_basic() {
+        let mut converter = GraphConverter::strict();
+        let mut adjacency = BTreeMap::new();
+        adjacency.insert(
+            "a".to_owned(),
+            vec![AdjacencyEntry {
+                to: "b".to_owned(),
+                attrs: AttrMap::from([("weight".to_owned(), "2.0".to_owned())]),
+            }],
+        );
+        let payload = AdjacencyPayload { adjacency };
+
+        let report = converter.from_adjacency(&payload).expect("conversion should succeed");
+        assert_eq!(report.graph.node_count(), 2);
+        assert_eq!(report.graph.edge_count(), 1);
+        assert_eq!(
+            report.graph.edge_attrs("a", "b").unwrap().get("weight").unwrap(),
+            "2.0"
+        );
+    }
+
+    #[test]
+    fn convert_digraph_from_edge_list() {
+        let mut converter = GraphConverter::strict();
+        let payload = EdgeListPayload {
+            nodes: vec!["a".to_owned(), "b".to_owned()],
+            edges: vec![EdgeRecord {
+                left: "a".to_owned(),
+                right: "b".to_owned(),
+                attrs: AttrMap::new(),
+            }],
+        };
+
+        let report = converter.digraph_from_edge_list(&payload).expect("conversion should succeed");
+        assert!(report.graph.has_edge("a", "b"));
+        assert!(!report.graph.has_edge("b", "a"));
+    }
+}
