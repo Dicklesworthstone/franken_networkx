@@ -314,3 +314,119 @@ class TestMultiGraphNxParity:
         N.add_edge(1, 2)
 
         assert fnx.shortest_path(G, 0, 2) == nx.shortest_path(N, 0, 2)
+
+    def test_weighted_multigraph_shortest_path_family_uses_min_parallel_edge(self):
+        G = fnx.MultiGraph()
+        G.add_edge("a", "b", cost=10.0)
+        G.add_edge("a", "b", cost=1.0)
+        G.add_edge("b", "c", cost=1.0)
+        G.add_edge("a", "c", cost=5.0)
+
+        N = nx.MultiGraph()
+        N.add_edge("a", "b", cost=10.0)
+        N.add_edge("a", "b", cost=1.0)
+        N.add_edge("b", "c", cost=1.0)
+        N.add_edge("a", "c", cost=5.0)
+
+        assert fnx.shortest_path(G, "a", "c", weight="cost") == nx.shortest_path(
+            N, "a", "c", weight="cost"
+        )
+        assert fnx.shortest_path_length(G, "a", "c", weight="cost") == nx.shortest_path_length(
+            N, "a", "c", weight="cost"
+        )
+        assert fnx.dijkstra_path(G, "a", "c", weight="cost") == nx.dijkstra_path(
+            N, "a", "c", weight="cost"
+        )
+        assert fnx.dijkstra_path_length(
+            G, "a", "c", weight="cost"
+        ) == nx.dijkstra_path_length(N, "a", "c", weight="cost")
+        assert fnx.bellman_ford_path(G, "a", "c", weight="cost") == nx.bellman_ford_path(
+            N, "a", "c", weight="cost"
+        )
+        assert fnx.bellman_ford_path_length(
+            G, "a", "c", weight="cost"
+        ) == nx.bellman_ford_path_length(N, "a", "c", weight="cost")
+        assert fnx.path_weight(G, ["a", "b", "c"], weight="cost") == nx.path_weight(
+            N, ["a", "b", "c"], weight="cost"
+        )
+
+        fnx_dists, fnx_paths = fnx.single_source_dijkstra(G, "a", weight="cost")
+        nx_dists, nx_paths = nx.single_source_dijkstra(N, "a", weight="cost")
+        assert fnx_dists == nx_dists
+        assert fnx_paths == nx_paths
+
+        fnx_multi_dists, fnx_multi_paths = fnx.multi_source_dijkstra(G, ["a"], weight="cost")
+        nx_multi_dists, nx_multi_paths = nx.multi_source_dijkstra(N, ["a"], weight="cost")
+        assert fnx_multi_dists == nx_multi_dists
+        assert fnx_multi_paths == nx_multi_paths
+
+        assert fnx.all_pairs_dijkstra_path_length(
+            G, weight="cost"
+        ) == dict(nx.all_pairs_dijkstra_path_length(N, weight="cost"))
+        assert fnx.all_pairs_dijkstra_path(G, weight="cost") == dict(
+            nx.all_pairs_dijkstra_path(N, weight="cost")
+        )
+        assert fnx.all_pairs_dijkstra(G, weight="cost") == dict(
+            nx.all_pairs_dijkstra(N, weight="cost")
+        )
+        assert fnx.all_pairs_bellman_ford_path_length(
+            G, weight="cost"
+        ) == dict(nx.all_pairs_bellman_ford_path_length(N, weight="cost"))
+        assert fnx.all_pairs_bellman_ford_path(G, weight="cost") == dict(
+            nx.all_pairs_bellman_ford_path(N, weight="cost")
+        )
+        assert fnx.floyd_warshall(G, weight="cost") == dict(nx.floyd_warshall(N, weight="cost"))
+
+        _, fnx_fw_dists = fnx.floyd_warshall_predecessor_and_distance(G, weight="cost")
+        _, nx_fw_dists = nx.floyd_warshall_predecessor_and_distance(N, weight="cost")
+        assert fnx_fw_dists == nx_fw_dists
+
+    def test_weighted_multidigraph_shortest_path_family_uses_min_parallel_edge(self):
+        D = fnx.MultiDiGraph()
+        D.add_edge("a", "b", weight=10.0)
+        D.add_edge("a", "b", weight=1.0)
+        D.add_edge("b", "c", weight=1.0)
+        D.add_edge("a", "c", weight=5.0)
+
+        N = nx.MultiDiGraph()
+        N.add_edge("a", "b", weight=10.0)
+        N.add_edge("a", "b", weight=1.0)
+        N.add_edge("b", "c", weight=1.0)
+        N.add_edge("a", "c", weight=5.0)
+
+        assert fnx.shortest_path(D, "a", "c", weight="weight") == nx.shortest_path(
+            N, "a", "c", weight="weight"
+        )
+        assert fnx.shortest_path_length(
+            D, "a", "c", weight="weight"
+        ) == nx.shortest_path_length(N, "a", "c", weight="weight")
+        assert fnx.dijkstra_path(D, "a", "c", weight="weight") == nx.dijkstra_path(
+            N, "a", "c", weight="weight"
+        )
+        assert fnx.dijkstra_path_length(
+            D, "a", "c", weight="weight"
+        ) == nx.dijkstra_path_length(N, "a", "c", weight="weight")
+        assert fnx.bellman_ford_path(D, "a", "c", weight="weight") == nx.bellman_ford_path(
+            N, "a", "c", weight="weight"
+        )
+        assert fnx.bellman_ford_path_length(
+            D, "a", "c", weight="weight"
+        ) == nx.bellman_ford_path_length(N, "a", "c", weight="weight")
+        assert fnx.path_weight(D, ["a", "b", "c"], weight="weight") == nx.path_weight(
+            N, ["a", "b", "c"], weight="weight"
+        )
+
+        fnx_dists, fnx_paths = fnx.multi_source_dijkstra(D, ["a"], weight="weight")
+        nx_dists, nx_paths = nx.multi_source_dijkstra(N, ["a"], weight="weight")
+        assert fnx_dists == nx_dists
+        assert fnx_paths == nx_paths
+
+        assert fnx.all_pairs_dijkstra_path_length(
+            D, weight="weight"
+        ) == dict(nx.all_pairs_dijkstra_path_length(N, weight="weight"))
+        assert fnx.all_pairs_dijkstra_path(D, weight="weight") == dict(
+            nx.all_pairs_dijkstra_path(N, weight="weight")
+        )
+        assert fnx.all_pairs_dijkstra(D, weight="weight") == dict(
+            nx.all_pairs_dijkstra(N, weight="weight")
+        )
