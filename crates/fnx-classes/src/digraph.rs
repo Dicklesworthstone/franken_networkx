@@ -1181,7 +1181,7 @@ impl MultiDiGraph {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fnx_runtime::{CompatibilityMode, DecisionAction};
+    use fnx_runtime::{CgseValue, CompatibilityMode, DecisionAction};
     use proptest::prelude::*;
 
     fn node_name(id: u8) -> String {
@@ -1401,12 +1401,12 @@ mod tests {
     fn edge_attrs_directed() {
         let mut g = DiGraph::strict();
         let mut attrs = AttrMap::new();
-        attrs.insert("weight".to_owned(), "5".to_owned());
+        attrs.insert("weight".to_owned(), "5".into());
         g.add_edge_with_attrs("a", "b", attrs).unwrap();
 
         assert_eq!(
             g.edge_attrs("a", "b").unwrap().get("weight"),
-            Some(&"5".to_owned())
+            Some(&CgseValue::String("5".to_owned()))
         );
         assert!(g.edge_attrs("b", "a").is_none()); // reverse has no attrs
     }
@@ -1415,17 +1415,17 @@ mod tests {
     fn repeated_edge_merges_attrs() {
         let mut g = DiGraph::strict();
         let mut first = AttrMap::new();
-        first.insert("weight".to_owned(), "1".to_owned());
+        first.insert("weight".to_owned(), "1".into());
         g.add_edge_with_attrs("a", "b", first).unwrap();
 
         let mut second = AttrMap::new();
-        second.insert("color".to_owned(), "red".to_owned());
+        second.insert("color".to_owned(), "red".into());
         g.add_edge_with_attrs("a", "b", second).unwrap();
 
         assert_eq!(g.edge_count(), 1);
         let attrs = g.edge_attrs("a", "b").unwrap();
-        assert_eq!(attrs.get("weight"), Some(&"1".to_owned()));
-        assert_eq!(attrs.get("color"), Some(&"red".to_owned()));
+        assert_eq!(attrs.get("weight"), Some(&CgseValue::String("1".to_owned())));
+        assert_eq!(attrs.get("color"), Some(&CgseValue::String("red".to_owned())));
     }
 
     #[test]
@@ -1475,7 +1475,7 @@ mod tests {
     fn snapshot_roundtrip() {
         let mut g = DiGraph::strict();
         let mut attrs = AttrMap::new();
-        attrs.insert("weight".to_owned(), "3".to_owned());
+        attrs.insert("weight".to_owned(), "3".into());
         g.add_edge_with_attrs("a", "b", attrs).unwrap();
         g.add_edge("b", "c").unwrap();
         g.add_edge("c", "a").unwrap();
@@ -1577,7 +1577,7 @@ mod tests {
     fn strict_mode_fails_closed_for_incompatible_attrs() {
         let mut g = DiGraph::strict();
         let mut attrs = AttrMap::new();
-        attrs.insert("__fnx_incompatible_decoder".to_owned(), "v2".to_owned());
+        attrs.insert("__fnx_incompatible_decoder".to_owned(), "v2".into());
         let err = g
             .add_edge_with_attrs("a", "b", attrs)
             .expect_err("strict mode should fail closed");
@@ -1661,9 +1661,9 @@ mod tests {
                 let tgt = node_name(tgt_id);
                 let mut attrs = AttrMap::new();
                 if attrs_variant == 1 {
-                    attrs.insert("weight".to_owned(), (src_id % 5).to_string());
+                    attrs.insert("weight".to_owned(), (src_id % 5).to_string().into());
                 } else if attrs_variant == 2 {
-                    attrs.insert("tag".to_owned(), format!("k{}", tgt_id % 4));
+                    attrs.insert("tag".to_owned(), format!("k{}", tgt_id % 4).into());
                 }
                 prop_assert!(g1.add_edge_with_attrs(src.clone(), tgt.clone(), attrs.clone()).is_ok());
                 prop_assert!(g2.add_edge_with_attrs(src, tgt, attrs).is_ok());

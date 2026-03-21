@@ -2139,6 +2139,10 @@ fn flow_terminals(
     Ok((s, t))
 }
 
+fn flow_py_error(err: fnx_algorithms::FlowError) -> PyErr {
+    NetworkXError::new_err(err.to_string())
+}
+
 /// Return the maximum flow value and flow dictionary between source and sink.
 #[pyfunction]
 #[pyo3(signature = (g, source, sink, capacity="capacity"))]
@@ -2171,10 +2175,13 @@ pub fn maximum_flow(
                 })
             } else {
                 let inner = gr.undirected();
-                py.allow_threads(move || fnx_algorithms::max_flow_edmonds_karp(inner, &s, &t, &cap))
+                py.allow_threads(move || {
+                    fnx_algorithms::max_flow_edmonds_karp(inner, &s, &t, &cap)
+                })
             }
         }
     };
+    let result = result.map_err(flow_py_error)?;
     let flow_dict = flow_dict_object(py, &gr, &result.flows)?;
     Ok((result.value, flow_dict))
 }
@@ -2195,27 +2202,33 @@ pub fn maximum_flow_value(
     match &gr {
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
-            Ok(py.allow_threads(move || {
-                fnx_algorithms::max_flow_edmonds_karp(inner, &s, &t, &cap).value
-            }))
+            py.allow_threads(move || fnx_algorithms::max_flow_edmonds_karp(inner, &s, &t, &cap))
+                .map(|result| result.value)
+                .map_err(flow_py_error)
         }
         GraphRef::Directed { dg, .. } => {
             let inner = &dg.inner;
-            Ok(py.allow_threads(move || {
-                fnx_algorithms::max_flow_edmonds_karp_directed(inner, &s, &t, &cap).value
-            }))
+            py.allow_threads(move || {
+                fnx_algorithms::max_flow_edmonds_karp_directed(inner, &s, &t, &cap)
+            })
+            .map(|result| result.value)
+            .map_err(flow_py_error)
         }
         _ => {
             if gr.is_directed() {
                 let inner = gr.digraph().unwrap();
-                Ok(py.allow_threads(move || {
-                    fnx_algorithms::max_flow_edmonds_karp_directed(inner, &s, &t, &cap).value
-                }))
+                py.allow_threads(move || {
+                    fnx_algorithms::max_flow_edmonds_karp_directed(inner, &s, &t, &cap)
+                })
+                .map(|result| result.value)
+                .map_err(flow_py_error)
             } else {
                 let inner = gr.undirected();
-                Ok(py.allow_threads(move || {
-                    fnx_algorithms::max_flow_edmonds_karp(inner, &s, &t, &cap).value
-                }))
+                py.allow_threads(move || {
+                    fnx_algorithms::max_flow_edmonds_karp(inner, &s, &t, &cap)
+                })
+                .map(|result| result.value)
+                .map_err(flow_py_error)
             }
         }
     }
@@ -2237,27 +2250,33 @@ pub fn minimum_cut_value(
     match &gr {
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
-            Ok(py.allow_threads(move || {
-                fnx_algorithms::minimum_cut_edmonds_karp(inner, &s, &t, &cap).value
-            }))
+            py.allow_threads(move || fnx_algorithms::minimum_cut_edmonds_karp(inner, &s, &t, &cap))
+                .map(|result| result.value)
+                .map_err(flow_py_error)
         }
         GraphRef::Directed { dg, .. } => {
             let inner = &dg.inner;
-            Ok(py.allow_threads(move || {
-                fnx_algorithms::minimum_cut_edmonds_karp_directed(inner, &s, &t, &cap).value
-            }))
+            py.allow_threads(move || {
+                fnx_algorithms::minimum_cut_edmonds_karp_directed(inner, &s, &t, &cap)
+            })
+            .map(|result| result.value)
+            .map_err(flow_py_error)
         }
         _ => {
             if gr.is_directed() {
                 let inner = gr.digraph().unwrap();
-                Ok(py.allow_threads(move || {
-                    fnx_algorithms::minimum_cut_edmonds_karp_directed(inner, &s, &t, &cap).value
-                }))
+                py.allow_threads(move || {
+                    fnx_algorithms::minimum_cut_edmonds_karp_directed(inner, &s, &t, &cap)
+                })
+                .map(|result| result.value)
+                .map_err(flow_py_error)
             } else {
                 let inner = gr.undirected();
-                Ok(py.allow_threads(move || {
-                    fnx_algorithms::minimum_cut_edmonds_karp(inner, &s, &t, &cap).value
-                }))
+                py.allow_threads(move || {
+                    fnx_algorithms::minimum_cut_edmonds_karp(inner, &s, &t, &cap)
+                })
+                .map(|result| result.value)
+                .map_err(flow_py_error)
             }
         }
     }
@@ -2302,6 +2321,7 @@ pub fn minimum_cut(
         }
     };
 
+    let cut = cut.map_err(flow_py_error)?;
     let source_partition = pyo3::types::PySet::new(
         py,
         cut.source_partition

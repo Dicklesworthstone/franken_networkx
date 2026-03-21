@@ -1802,8 +1802,9 @@ mod tests {
     use fnx_classes::digraph::DiGraph;
     use fnx_classes::{Graph, GraphSnapshot};
     use fnx_runtime::{
-        CompatibilityMode, DecisionAction, ForensicsBundleIndex, StructuredTestLog, TestKind,
-        TestStatus, canonical_environment_fingerprint, structured_test_log_schema_version,
+        CgseValue, CompatibilityMode, DecisionAction, ForensicsBundleIndex, StructuredTestLog,
+        TestKind, TestStatus, canonical_environment_fingerprint,
+        structured_test_log_schema_version,
     };
     use proptest::prelude::*;
     use std::collections::BTreeMap;
@@ -2052,14 +2053,14 @@ mod tests {
             .add_edge_with_attrs(
                 "a".to_owned(),
                 "b".to_owned(),
-                BTreeMap::from([("weight".to_owned(), "1".to_owned())]),
+                BTreeMap::from([("weight".to_owned(), "1".into())]),
             )
             .expect("edge add should succeed");
         graph
             .add_edge_with_attrs(
                 "b".to_owned(),
                 "c".to_owned(),
-                BTreeMap::from([("weight".to_owned(), "3".to_owned())]),
+                BTreeMap::from([("weight".to_owned(), "3".into())]),
             )
             .expect("edge add should succeed");
 
@@ -2079,11 +2080,11 @@ mod tests {
         let mut graph = Graph::strict();
         graph.add_node_with_attrs(
             "a".to_owned(),
-            BTreeMap::from([("color".to_owned(), "red".to_owned())]),
+            BTreeMap::from([("color".to_owned(), "red".into())]),
         );
         graph.add_node_with_attrs(
             "b".to_owned(),
-            BTreeMap::from([("color".to_owned(), "blue".to_owned())]),
+            BTreeMap::from([("color".to_owned(), "blue".into())]),
         );
         graph.add_edge("a", "b").expect("edge add should succeed");
 
@@ -2098,7 +2099,7 @@ mod tests {
         assert_eq!(graph.snapshot(), parsed.graph.snapshot());
         assert_eq!(
             parsed.graph.node_attrs("a").unwrap().get("color").unwrap(),
-            "red"
+            &CgseValue::String("red".to_owned())
         );
     }
 
@@ -2255,7 +2256,9 @@ mod tests {
                         right_node,
                         BTreeMap::from([(
                             "weight".to_owned(),
-                            ((u16::from(*left) + u16::from(*right)) + 1).to_string(),
+                            ((u16::from(*left) + u16::from(*right)) + 1)
+                                .to_string()
+                                .into(),
                         )]),
                     )
                     .expect("generated edge insertion should succeed");

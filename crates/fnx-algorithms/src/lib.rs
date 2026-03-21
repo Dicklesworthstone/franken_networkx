@@ -2832,8 +2832,8 @@ pub fn minimum_st_edge_cut_edmonds_karp(
     source: &str,
     sink: &str,
     capacity_attr: &str,
-) -> EdgeCutResult {
-    let cut = minimum_cut_edmonds_karp(graph, source, sink, capacity_attr);
+) -> Result<EdgeCutResult, FlowError> {
+    let cut = minimum_cut_edmonds_karp(graph, source, sink, capacity_attr)?;
     let source_partition = cut.source_partition;
     let sink_partition = cut.sink_partition;
 
@@ -2862,7 +2862,7 @@ pub fn minimum_st_edge_cut_edmonds_karp(
     cut_edges.sort_unstable();
     cut_edges.dedup();
 
-    EdgeCutResult {
+    Ok(EdgeCutResult {
         value: cut.value,
         cut_edges,
         source_partition,
@@ -2874,7 +2874,7 @@ pub fn minimum_st_edge_cut_edmonds_karp(
             edges_scanned: cut.witness.edges_scanned + cut_edges_scanned,
             queue_peak: cut.witness.queue_peak,
         },
-    }
+    })
 }
 
 #[must_use]
@@ -2883,9 +2883,9 @@ pub fn edge_connectivity_edmonds_karp(
     source: &str,
     sink: &str,
     capacity_attr: &str,
-) -> EdgeConnectivityResult {
-    let cut = minimum_cut_edmonds_karp(graph, source, sink, capacity_attr);
-    EdgeConnectivityResult {
+) -> Result<EdgeConnectivityResult, FlowError> {
+    let cut = minimum_cut_edmonds_karp(graph, source, sink, capacity_attr)?;
+    Ok(EdgeConnectivityResult {
         value: cut.value,
         witness: ComplexityWitness {
             algorithm: "edmonds_karp_edge_connectivity".to_owned(),
@@ -2894,7 +2894,7 @@ pub fn edge_connectivity_edmonds_karp(
             edges_scanned: cut.witness.edges_scanned,
             queue_peak: cut.witness.queue_peak,
         },
-    }
+    })
 }
 
 #[must_use]
@@ -2924,7 +2924,9 @@ pub fn global_edge_connectivity_edmonds_karp(
 
     'pairs: for (left_index, left) in nodes.iter().enumerate() {
         for right in nodes.iter().skip(left_index + 1) {
-            let cut = minimum_cut_edmonds_karp(graph, left, right, capacity_attr);
+            // These nodes come from the graph itself, so they MUST exist.
+            let cut = minimum_cut_edmonds_karp(graph, left, right, capacity_attr)
+                .expect("nodes should exist in graph");
             best_value = best_value.min(cut.value);
             nodes_touched += cut.witness.nodes_touched;
             edges_scanned += cut.witness.edges_scanned;
@@ -2994,11 +2996,13 @@ pub fn global_edge_connectivity_edmonds_karp_directed(
 
     for (index, &source) in nodes.iter().enumerate() {
         let target = nodes.get(index + 1).copied().unwrap_or(nodes[0]);
-        let cut = minimum_cut_edmonds_karp_directed(digraph, source, target, capacity_attr);
-        best_value = best_value.min(cut.value);
-        nodes_touched += cut.witness.nodes_touched;
-        edges_scanned += cut.witness.edges_scanned;
-        queue_peak = queue_peak.max(cut.witness.queue_peak);
+        if let Ok(cut) = minimum_cut_edmonds_karp_directed(digraph, source, target, capacity_attr)
+        {
+            best_value = best_value.min(cut.value);
+            nodes_touched += cut.witness.nodes_touched;
+            edges_scanned += cut.witness.edges_scanned;
+            queue_peak = queue_peak.max(cut.witness.queue_peak);
+        }
         if best_value <= 0.0 {
             break;
         }
@@ -3053,7 +3057,8 @@ pub fn global_minimum_edge_cut_edmonds_karp(
 
     'pairs: for (left_index, left) in nodes.iter().enumerate() {
         for right in nodes.iter().skip(left_index + 1) {
-            let cut = minimum_st_edge_cut_edmonds_karp(graph, left, right, capacity_attr);
+            let cut = minimum_st_edge_cut_edmonds_karp(graph, left, right, capacity_attr)
+                .expect("nodes should exist in graph");
             nodes_touched += cut.witness.nodes_touched;
             edges_scanned += cut.witness.edges_scanned;
             queue_peak = queue_peak.max(cut.witness.queue_peak);
@@ -18767,6 +18772,7 @@ mod tests {
         ChordalGraphTreewidthError,
         ComplexityWitness,
         FlowEdgeValue,
+        FlowError,
         MaximalIndependentSetError,
         SpannerError,
         adamic_adar_index,
@@ -19073,8 +19079,8 @@ mod tests {
     use fnx_classes::Graph;
     use fnx_classes::digraph::DiGraph;
     use fnx_runtime::{
-        CompatibilityMode, ForensicsBundleIndex, StructuredTestLog, TestKind, TestStatus,
-        canonical_environment_fingerprint, structured_test_log_schema_version,
+        CgseValue, CompatibilityMode, ForensicsBundleIndex, StructuredTestLog, TestKind,
+        TestStatus, canonical_environment_fingerprint, structured_test_log_schema_version,
     };
     use proptest::prelude::*;
     use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -19097,6 +19103,17 @@ mod tests {
             raptorq_sidecar_refs: Vec::new(),
             decode_proof_refs: Vec::new(),
         }
+    }
+
+    fn attrs<const N: usize>(entries: [(&str, &str); N]) -> BTreeMap<String, CgseValue> {
+        entries
+            .into_iter()
+            .map(|(key, value)| (key.to_owned(), value.into()))
+            .collect()
+    }
+
+    fn single_attr(key: &str, value: impl Into<String>) -> BTreeMap<String, CgseValue> {
+        BTreeMap::from([(key.to_owned(), value.into().into())])
     }
 
     fn canonical_edge_pairs(graph: &Graph) -> Vec<(String, String)> {
@@ -19249,19 +19266,19 @@ mod tests {
     fn weighted_shortest_path_prefers_lower_total_weight() {
         let mut graph = Graph::strict();
         graph
-            .add_edge_with_attrs("a", "b", [("weight".to_owned(), "5".to_owned())].into())
+            .add_edge_with_attrs("a", "b", attrs([("weight", "5")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("a", "c", [("weight".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("a", "c", attrs([("weight", "1")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("c", "b", [("weight".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("c", "b", attrs([("weight", "1")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("b", "d", [("weight".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("b", "d", attrs([("weight", "1")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("c", "d", [("weight".to_owned(), "10".to_owned())].into())
+            .add_edge_with_attrs("c", "d", attrs([("weight", "10")]))
             .expect("edge add should succeed");
 
         let result = shortest_path_weighted(&graph, "a", "d", "weight");
@@ -19281,30 +19298,30 @@ mod tests {
     fn weighted_shortest_path_tie_break_tracks_node_insertion_order() {
         let mut insertion_a = Graph::strict();
         insertion_a
-            .add_edge_with_attrs("a", "b", [("weight".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("a", "b", attrs([("weight", "1")]))
             .expect("edge add should succeed");
         insertion_a
-            .add_edge_with_attrs("a", "c", [("weight".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("a", "c", attrs([("weight", "1")]))
             .expect("edge add should succeed");
         insertion_a
-            .add_edge_with_attrs("b", "d", [("weight".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("b", "d", attrs([("weight", "1")]))
             .expect("edge add should succeed");
         insertion_a
-            .add_edge_with_attrs("c", "d", [("weight".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("c", "d", attrs([("weight", "1")]))
             .expect("edge add should succeed");
 
         let mut insertion_b = Graph::strict();
         insertion_b
-            .add_edge_with_attrs("a", "c", [("weight".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("a", "c", attrs([("weight", "1")]))
             .expect("edge add should succeed");
         insertion_b
-            .add_edge_with_attrs("a", "b", [("weight".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("a", "b", attrs([("weight", "1")]))
             .expect("edge add should succeed");
         insertion_b
-            .add_edge_with_attrs("c", "d", [("weight".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("c", "d", attrs([("weight", "1")]))
             .expect("edge add should succeed");
         insertion_b
-            .add_edge_with_attrs("b", "d", [("weight".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("b", "d", attrs([("weight", "1")]))
             .expect("edge add should succeed");
 
         let left = shortest_path_weighted(&insertion_a, "a", "d", "weight");
@@ -19329,16 +19346,16 @@ mod tests {
     fn multi_source_dijkstra_returns_expected_distances_and_predecessors() {
         let mut graph = Graph::strict();
         graph
-            .add_edge_with_attrs("a", "b", [("weight".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("a", "b", attrs([("weight", "1")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("b", "d", [("weight".to_owned(), "2".to_owned())].into())
+            .add_edge_with_attrs("b", "d", attrs([("weight", "2")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("c", "d", [("weight".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("c", "d", attrs([("weight", "1")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("d", "e", [("weight".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("d", "e", attrs([("weight", "1")]))
             .expect("edge add should succeed");
 
         let result = multi_source_dijkstra(&graph, &["a", "c"], "weight");
@@ -19372,7 +19389,7 @@ mod tests {
         let mut graph = Graph::strict();
         for (left, right) in [("a", "b"), ("b", "c"), ("c", "d"), ("a", "d")] {
             graph
-                .add_edge_with_attrs(left, right, [("weight".to_owned(), "1".to_owned())].into())
+                .add_edge_with_attrs(left, right, attrs([("weight", "1")]))
                 .expect("edge add should succeed");
         }
 
@@ -19385,7 +19402,7 @@ mod tests {
     fn multi_source_dijkstra_ignores_missing_sources() {
         let mut graph = Graph::strict();
         graph
-            .add_edge_with_attrs("a", "b", [("weight".to_owned(), "3".to_owned())].into())
+            .add_edge_with_attrs("a", "b", attrs([("weight", "3")]))
             .expect("edge add should succeed");
 
         let result = multi_source_dijkstra(&graph, &["missing", "a"], "weight");
@@ -19398,13 +19415,13 @@ mod tests {
     fn bellman_ford_shortest_paths_positive_weights_match_expected() {
         let mut graph = Graph::strict();
         graph
-            .add_edge_with_attrs("a", "b", [("weight".to_owned(), "2".to_owned())].into())
+            .add_edge_with_attrs("a", "b", attrs([("weight", "2")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("b", "c", [("weight".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("b", "c", attrs([("weight", "1")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("a", "c", [("weight".to_owned(), "10".to_owned())].into())
+            .add_edge_with_attrs("a", "c", attrs([("weight", "10")]))
             .expect("edge add should succeed");
 
         let result = bellman_ford_shortest_paths(&graph, "a", "weight");
@@ -19424,10 +19441,10 @@ mod tests {
     fn bellman_ford_shortest_paths_detects_negative_cycle() {
         let mut graph = Graph::strict();
         graph
-            .add_edge_with_attrs("a", "b", [("weight".to_owned(), "-1".to_owned())].into())
+            .add_edge_with_attrs("a", "b", attrs([("weight", "-1")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("b", "c", [("weight".to_owned(), "2".to_owned())].into())
+            .add_edge_with_attrs("b", "c", attrs([("weight", "2")]))
             .expect("edge add should succeed");
 
         let result = bellman_ford_shortest_paths(&graph, "a", "weight");
@@ -19449,22 +19466,22 @@ mod tests {
     fn max_flow_edmonds_karp_matches_expected_value() {
         let mut graph = Graph::strict();
         graph
-            .add_edge_with_attrs("s", "a", [("capacity".to_owned(), "3".to_owned())].into())
+            .add_edge_with_attrs("s", "a", attrs([("capacity", "3")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("s", "b", [("capacity".to_owned(), "2".to_owned())].into())
+            .add_edge_with_attrs("s", "b", attrs([("capacity", "2")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("a", "b", [("capacity".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("a", "b", attrs([("capacity", "1")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("a", "t", [("capacity".to_owned(), "2".to_owned())].into())
+            .add_edge_with_attrs("a", "t", attrs([("capacity", "2")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("b", "t", [("capacity".to_owned(), "3".to_owned())].into())
+            .add_edge_with_attrs("b", "t", attrs([("capacity", "3")]))
             .expect("edge add should succeed");
 
-        let result = max_flow_edmonds_karp(&graph, "s", "t", "capacity");
+        let result = max_flow_edmonds_karp(&graph, "s", "t", "capacity").expect("flow algorithm should succeed");
         assert!((result.value - 5.0).abs() <= 1e-12);
         assert_eq!(
             result.flows,
@@ -19503,55 +19520,55 @@ mod tests {
     fn max_flow_edmonds_karp_is_replay_stable() {
         let mut graph = Graph::strict();
         graph
-            .add_edge_with_attrs("s", "a", [("capacity".to_owned(), "4".to_owned())].into())
+            .add_edge_with_attrs("s", "a", attrs([("capacity", "4")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("s", "b", [("capacity".to_owned(), "2".to_owned())].into())
+            .add_edge_with_attrs("s", "b", attrs([("capacity", "2")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("a", "b", [("capacity".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("a", "b", attrs([("capacity", "1")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("a", "t", [("capacity".to_owned(), "2".to_owned())].into())
+            .add_edge_with_attrs("a", "t", attrs([("capacity", "2")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("b", "t", [("capacity".to_owned(), "3".to_owned())].into())
+            .add_edge_with_attrs("b", "t", attrs([("capacity", "3")]))
             .expect("edge add should succeed");
 
-        let left = max_flow_edmonds_karp(&graph, "s", "t", "capacity");
-        let right = max_flow_edmonds_karp(&graph, "s", "t", "capacity");
+        let left = max_flow_edmonds_karp(&graph, "s", "t", "capacity").expect("flow algorithm should succeed");
+        let right = max_flow_edmonds_karp(&graph, "s", "t", "capacity").expect("flow algorithm should succeed");
         assert!((left.value - right.value).abs() <= 1e-12);
         assert_eq!(left.witness, right.witness);
     }
 
     #[test]
-    fn max_flow_edmonds_karp_returns_zero_for_missing_nodes() {
+    fn max_flow_edmonds_karp_fails_for_missing_nodes() {
         let mut graph = Graph::strict();
         let _ = graph.add_node("only");
         let result = max_flow_edmonds_karp(&graph, "missing", "only", "capacity");
-        assert!((result.value - 0.0).abs() <= 1e-12);
+        assert_eq!(result, Err(FlowError::NodeNotFound("missing".to_owned())));
     }
 
     #[test]
     fn max_flow_edmonds_karp_directed_matches_expected_value() {
         let mut digraph = DiGraph::strict();
         digraph
-            .add_edge_with_attrs("s", "a", [("capacity".to_owned(), "3".to_owned())].into())
+            .add_edge_with_attrs("s", "a", attrs([("capacity", "3")]))
             .expect("edge add should succeed");
         digraph
-            .add_edge_with_attrs("s", "b", [("capacity".to_owned(), "2".to_owned())].into())
+            .add_edge_with_attrs("s", "b", attrs([("capacity", "2")]))
             .expect("edge add should succeed");
         digraph
-            .add_edge_with_attrs("a", "b", [("capacity".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("a", "b", attrs([("capacity", "1")]))
             .expect("edge add should succeed");
         digraph
-            .add_edge_with_attrs("a", "t", [("capacity".to_owned(), "2".to_owned())].into())
+            .add_edge_with_attrs("a", "t", attrs([("capacity", "2")]))
             .expect("edge add should succeed");
         digraph
-            .add_edge_with_attrs("b", "t", [("capacity".to_owned(), "3".to_owned())].into())
+            .add_edge_with_attrs("b", "t", attrs([("capacity", "3")]))
             .expect("edge add should succeed");
 
-        let result = max_flow_edmonds_karp_directed(&digraph, "s", "t", "capacity");
+        let result = max_flow_edmonds_karp_directed(&digraph, "s", "t", "capacity").expect("flow algorithm should succeed");
         assert!((result.value - 5.0).abs() <= 1e-12);
         assert_eq!(
             result.flows,
@@ -19590,13 +19607,13 @@ mod tests {
     fn max_flow_edmonds_karp_directed_respects_edge_orientation() {
         let mut digraph = DiGraph::strict();
         digraph
-            .add_edge_with_attrs("a", "s", [("capacity".to_owned(), "5".to_owned())].into())
+            .add_edge_with_attrs("a", "s", attrs([("capacity", "5")]))
             .expect("edge add should succeed");
         digraph
-            .add_edge_with_attrs("a", "t", [("capacity".to_owned(), "5".to_owned())].into())
+            .add_edge_with_attrs("a", "t", attrs([("capacity", "5")]))
             .expect("edge add should succeed");
 
-        let result = max_flow_edmonds_karp_directed(&digraph, "s", "t", "capacity");
+        let result = max_flow_edmonds_karp_directed(&digraph, "s", "t", "capacity").expect("flow algorithm should succeed");
         assert!((result.value - 0.0).abs() <= 1e-12);
         assert!(result.flows.is_empty());
     }
@@ -19605,22 +19622,22 @@ mod tests {
     fn minimum_cut_edmonds_karp_matches_expected_partition() {
         let mut graph = Graph::strict();
         graph
-            .add_edge_with_attrs("s", "a", [("capacity".to_owned(), "3".to_owned())].into())
+            .add_edge_with_attrs("s", "a", attrs([("capacity", "3")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("s", "b", [("capacity".to_owned(), "2".to_owned())].into())
+            .add_edge_with_attrs("s", "b", attrs([("capacity", "2")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("a", "b", [("capacity".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("a", "b", attrs([("capacity", "1")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("a", "t", [("capacity".to_owned(), "2".to_owned())].into())
+            .add_edge_with_attrs("a", "t", attrs([("capacity", "2")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("b", "t", [("capacity".to_owned(), "3".to_owned())].into())
+            .add_edge_with_attrs("b", "t", attrs([("capacity", "3")]))
             .expect("edge add should succeed");
 
-        let result = minimum_cut_edmonds_karp(&graph, "s", "t", "capacity");
+        let result = minimum_cut_edmonds_karp(&graph, "s", "t", "capacity").expect("flow algorithm should succeed");
         assert!((result.value - 5.0).abs() <= 1e-12);
         assert_eq!(
             result.source_partition,
@@ -19634,23 +19651,23 @@ mod tests {
     fn minimum_cut_edmonds_karp_is_replay_stable() {
         let mut graph = Graph::strict();
         graph
-            .add_edge_with_attrs("s", "a", [("capacity".to_owned(), "4".to_owned())].into())
+            .add_edge_with_attrs("s", "a", attrs([("capacity", "4")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("s", "b", [("capacity".to_owned(), "2".to_owned())].into())
+            .add_edge_with_attrs("s", "b", attrs([("capacity", "2")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("a", "b", [("capacity".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("a", "b", attrs([("capacity", "1")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("a", "t", [("capacity".to_owned(), "2".to_owned())].into())
+            .add_edge_with_attrs("a", "t", attrs([("capacity", "2")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("b", "t", [("capacity".to_owned(), "3".to_owned())].into())
+            .add_edge_with_attrs("b", "t", attrs([("capacity", "3")]))
             .expect("edge add should succeed");
 
-        let left = minimum_cut_edmonds_karp(&graph, "s", "t", "capacity");
-        let right = minimum_cut_edmonds_karp(&graph, "s", "t", "capacity");
+        let left = minimum_cut_edmonds_karp(&graph, "s", "t", "capacity").expect("flow algorithm should succeed");
+        let right = minimum_cut_edmonds_karp(&graph, "s", "t", "capacity").expect("flow algorithm should succeed");
         assert_eq!(left, right);
     }
 
@@ -19658,22 +19675,22 @@ mod tests {
     fn minimum_cut_edmonds_karp_directed_matches_networkx_partition() {
         let mut digraph = DiGraph::strict();
         digraph
-            .add_edge_with_attrs("s", "a", [("capacity".to_owned(), "3".to_owned())].into())
+            .add_edge_with_attrs("s", "a", attrs([("capacity", "3")]))
             .expect("edge add should succeed");
         digraph
-            .add_edge_with_attrs("s", "b", [("capacity".to_owned(), "2".to_owned())].into())
+            .add_edge_with_attrs("s", "b", attrs([("capacity", "2")]))
             .expect("edge add should succeed");
         digraph
-            .add_edge_with_attrs("a", "b", [("capacity".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("a", "b", attrs([("capacity", "1")]))
             .expect("edge add should succeed");
         digraph
-            .add_edge_with_attrs("a", "t", [("capacity".to_owned(), "2".to_owned())].into())
+            .add_edge_with_attrs("a", "t", attrs([("capacity", "2")]))
             .expect("edge add should succeed");
         digraph
-            .add_edge_with_attrs("b", "t", [("capacity".to_owned(), "3".to_owned())].into())
+            .add_edge_with_attrs("b", "t", attrs([("capacity", "3")]))
             .expect("edge add should succeed");
 
-        let result = minimum_cut_edmonds_karp_directed(&digraph, "s", "t", "capacity");
+        let result = minimum_cut_edmonds_karp_directed(&digraph, "s", "t", "capacity").expect("flow algorithm should succeed");
         assert!((result.value - 5.0).abs() <= 1e-12);
         assert_eq!(
             result.source_partition,
@@ -19684,35 +19701,33 @@ mod tests {
     }
 
     #[test]
-    fn minimum_cut_edmonds_karp_returns_empty_partitions_for_missing_nodes() {
+    fn minimum_cut_edmonds_karp_fails_for_missing_nodes() {
         let mut graph = Graph::strict();
         let _ = graph.add_node("only");
         let result = minimum_cut_edmonds_karp(&graph, "missing", "only", "capacity");
-        assert!((result.value - 0.0).abs() <= 1e-12);
-        assert!(result.source_partition.is_empty());
-        assert!(result.sink_partition.is_empty());
+        assert_eq!(result, Err(FlowError::NodeNotFound("missing".to_owned())));
     }
 
     #[test]
     fn minimum_st_edge_cut_edmonds_karp_matches_expected_edges() {
         let mut graph = Graph::strict();
         graph
-            .add_edge_with_attrs("s", "a", [("capacity".to_owned(), "3".to_owned())].into())
+            .add_edge_with_attrs("s", "a", attrs([("capacity", "3")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("s", "b", [("capacity".to_owned(), "2".to_owned())].into())
+            .add_edge_with_attrs("s", "b", attrs([("capacity", "2")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("a", "b", [("capacity".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("a", "b", attrs([("capacity", "1")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("a", "t", [("capacity".to_owned(), "2".to_owned())].into())
+            .add_edge_with_attrs("a", "t", attrs([("capacity", "2")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("b", "t", [("capacity".to_owned(), "3".to_owned())].into())
+            .add_edge_with_attrs("b", "t", attrs([("capacity", "3")]))
             .expect("edge add should succeed");
 
-        let result = minimum_st_edge_cut_edmonds_karp(&graph, "s", "t", "capacity");
+        let result = minimum_st_edge_cut_edmonds_karp(&graph, "s", "t", "capacity").expect("flow algorithm should succeed");
         assert!((result.value - 5.0).abs() <= 1e-12);
         assert_eq!(
             result.cut_edges,
@@ -19733,23 +19748,23 @@ mod tests {
     fn minimum_st_edge_cut_edmonds_karp_is_replay_stable() {
         let mut graph = Graph::strict();
         graph
-            .add_edge_with_attrs("s", "a", [("capacity".to_owned(), "4".to_owned())].into())
+            .add_edge_with_attrs("s", "a", attrs([("capacity", "4")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("s", "b", [("capacity".to_owned(), "2".to_owned())].into())
+            .add_edge_with_attrs("s", "b", attrs([("capacity", "2")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("a", "b", [("capacity".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("a", "b", attrs([("capacity", "1")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("a", "t", [("capacity".to_owned(), "2".to_owned())].into())
+            .add_edge_with_attrs("a", "t", attrs([("capacity", "2")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("b", "t", [("capacity".to_owned(), "3".to_owned())].into())
+            .add_edge_with_attrs("b", "t", attrs([("capacity", "3")]))
             .expect("edge add should succeed");
 
-        let left = minimum_st_edge_cut_edmonds_karp(&graph, "s", "t", "capacity");
-        let right = minimum_st_edge_cut_edmonds_karp(&graph, "s", "t", "capacity");
+        let left = minimum_st_edge_cut_edmonds_karp(&graph, "s", "t", "capacity").expect("flow algorithm should succeed");
+        let right = minimum_st_edge_cut_edmonds_karp(&graph, "s", "t", "capacity").expect("flow algorithm should succeed");
         assert_eq!(left, right);
     }
 
@@ -19757,23 +19772,23 @@ mod tests {
     fn edge_connectivity_edmonds_karp_matches_minimum_cut_value() {
         let mut graph = Graph::strict();
         graph
-            .add_edge_with_attrs("s", "a", [("capacity".to_owned(), "3".to_owned())].into())
+            .add_edge_with_attrs("s", "a", attrs([("capacity", "3")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("s", "b", [("capacity".to_owned(), "2".to_owned())].into())
+            .add_edge_with_attrs("s", "b", attrs([("capacity", "2")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("a", "b", [("capacity".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("a", "b", attrs([("capacity", "1")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("a", "t", [("capacity".to_owned(), "2".to_owned())].into())
+            .add_edge_with_attrs("a", "t", attrs([("capacity", "2")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("b", "t", [("capacity".to_owned(), "3".to_owned())].into())
+            .add_edge_with_attrs("b", "t", attrs([("capacity", "3")]))
             .expect("edge add should succeed");
 
-        let cut = minimum_cut_edmonds_karp(&graph, "s", "t", "capacity");
-        let connectivity = edge_connectivity_edmonds_karp(&graph, "s", "t", "capacity");
+        let cut = minimum_cut_edmonds_karp(&graph, "s", "t", "capacity").expect("flow algorithm should succeed");
+        let connectivity = edge_connectivity_edmonds_karp(&graph, "s", "t", "capacity").expect("flow algorithm should succeed");
         assert!((connectivity.value - cut.value).abs() <= 1e-12);
         assert_eq!(
             connectivity.witness.algorithm,
@@ -19782,11 +19797,14 @@ mod tests {
     }
 
     #[test]
-    fn edge_connectivity_edmonds_karp_returns_zero_for_missing_nodes() {
+    fn edge_connectivity_edmonds_karp_fails_for_missing_nodes() {
         let mut graph = Graph::strict();
         let _ = graph.add_node("only");
         let result = edge_connectivity_edmonds_karp(&graph, "missing", "only", "capacity");
-        assert!((result.value - 0.0).abs() <= 1e-12);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            FlowError::NodeNotFound(node) => assert_eq!(node, "missing"),
+        }
     }
 
     #[test]
@@ -20349,22 +20367,22 @@ mod tests {
     fn max_weight_matching_prefers_higher_total_weight() {
         let mut graph = Graph::strict();
         graph
-            .add_edge_with_attrs("1", "2", [("weight".to_owned(), "6".to_owned())].into())
+            .add_edge_with_attrs("1", "2", attrs([("weight", "6")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("1", "3", [("weight".to_owned(), "2".to_owned())].into())
+            .add_edge_with_attrs("1", "3", attrs([("weight", "2")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("2", "3", [("weight".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("2", "3", attrs([("weight", "1")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("2", "4", [("weight".to_owned(), "7".to_owned())].into())
+            .add_edge_with_attrs("2", "4", attrs([("weight", "7")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("3", "5", [("weight".to_owned(), "9".to_owned())].into())
+            .add_edge_with_attrs("3", "5", attrs([("weight", "9")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("4", "5", [("weight".to_owned(), "3".to_owned())].into())
+            .add_edge_with_attrs("4", "5", attrs([("weight", "3")]))
             .expect("edge add should succeed");
 
         let result = max_weight_matching(&graph, false, "weight");
@@ -20384,16 +20402,16 @@ mod tests {
     fn max_weight_matching_beats_greedy_local_choice() {
         let mut graph = Graph::strict();
         graph
-            .add_edge_with_attrs("a", "b", [("weight".to_owned(), "10".to_owned())].into())
+            .add_edge_with_attrs("a", "b", attrs([("weight", "10")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("a", "c", [("weight".to_owned(), "9".to_owned())].into())
+            .add_edge_with_attrs("a", "c", attrs([("weight", "9")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("b", "d", [("weight".to_owned(), "9".to_owned())].into())
+            .add_edge_with_attrs("b", "d", attrs([("weight", "9")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("c", "d", [("weight".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("c", "d", attrs([("weight", "1")]))
             .expect("edge add should succeed");
 
         let result = max_weight_matching(&graph, false, "weight");
@@ -20423,7 +20441,7 @@ mod tests {
                 .add_edge_with_attrs(
                     left,
                     right,
-                    [("weight".to_owned(), weight.to_owned())].into(),
+                    single_attr("weight", weight),
                 )
                 .expect("edge add should succeed");
         }
@@ -20442,7 +20460,7 @@ mod tests {
                 .add_edge_with_attrs(
                     left,
                     right,
-                    [("weight".to_owned(), weight.to_owned())].into(),
+                    single_attr("weight", weight),
                 )
                 .expect("edge add should succeed");
         }
@@ -20470,13 +20488,13 @@ mod tests {
     fn max_weight_matching_maxcardinality_prefers_larger_matching() {
         let mut graph = Graph::strict();
         graph
-            .add_edge_with_attrs("a", "b", [("weight".to_owned(), "100".to_owned())].into())
+            .add_edge_with_attrs("a", "b", attrs([("weight", "100")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("a", "c", [("weight".to_owned(), "60".to_owned())].into())
+            .add_edge_with_attrs("a", "c", attrs([("weight", "60")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("b", "d", [("weight".to_owned(), "39".to_owned())].into())
+            .add_edge_with_attrs("b", "d", attrs([("weight", "39")]))
             .expect("edge add should succeed");
 
         let default_result = max_weight_matching(&graph, false, "weight");
@@ -20506,16 +20524,16 @@ mod tests {
     fn min_weight_matching_uses_weight_inversion_contract() {
         let mut graph = Graph::strict();
         graph
-            .add_edge_with_attrs("a", "b", [("weight".to_owned(), "10".to_owned())].into())
+            .add_edge_with_attrs("a", "b", attrs([("weight", "10")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("a", "c", [("weight".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("a", "c", attrs([("weight", "1")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("b", "d", [("weight".to_owned(), "1".to_owned())].into())
+            .add_edge_with_attrs("b", "d", attrs([("weight", "1")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("c", "d", [("weight".to_owned(), "10".to_owned())].into())
+            .add_edge_with_attrs("c", "d", attrs([("weight", "10")]))
             .expect("edge add should succeed");
 
         let result = min_weight_matching(&graph, "weight");
@@ -20536,10 +20554,10 @@ mod tests {
         let mut graph = Graph::strict();
         graph.add_edge("a", "b").expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("a", "c", [("weight".to_owned(), "3".to_owned())].into())
+            .add_edge_with_attrs("a", "c", attrs([("weight", "3")]))
             .expect("edge add should succeed");
         graph
-            .add_edge_with_attrs("b", "c", [("weight".to_owned(), "2".to_owned())].into())
+            .add_edge_with_attrs("b", "c", attrs([("weight", "2")]))
             .expect("edge add should succeed");
 
         let result = min_weight_matching(&graph, "weight");
@@ -21635,8 +21653,10 @@ mod tests {
         let edge_betweenness = edge_betweenness_centrality(&graph);
         let pagerank_result = pagerank(&graph);
         let eigenvector_result = eigenvector_centrality(&graph);
-        let st_edge_cut = minimum_st_edge_cut_edmonds_karp(&graph, "a", "e", "capacity");
-        let pair_edge_connectivity = edge_connectivity_edmonds_karp(&graph, "a", "e", "capacity");
+        let st_edge_cut = minimum_st_edge_cut_edmonds_karp(&graph, "a", "e", "capacity")
+            .expect("flow algorithm should succeed");
+        let pair_edge_connectivity = edge_connectivity_edmonds_karp(&graph, "a", "e", "capacity")
+            .expect("flow algorithm should succeed");
         let global_edge_connectivity = global_edge_connectivity_edmonds_karp(&graph, "capacity");
         let global_min_edge_cut = global_minimum_edge_cut_edmonds_karp(&graph, "capacity");
         let articulation = articulation_points(&graph);
@@ -21965,10 +21985,10 @@ mod tests {
                 "P2C005-DC-3 eigenvector centrality order must match graph node order"
             );
 
-            let pair_connectivity_left =
-                edge_connectivity_edmonds_karp(&graph, &source, &target, "capacity");
-            let pair_connectivity_right =
-                edge_connectivity_edmonds_karp(&graph, &source, &target, "capacity");
+            let pair_connectivity_left = edge_connectivity_edmonds_karp(&graph, &source, &target, "capacity")
+                .expect("flow algorithm should succeed");
+            let pair_connectivity_right = edge_connectivity_edmonds_karp(&graph, &source, &target, "capacity")
+                .expect("flow algorithm should succeed");
             prop_assert!(
                 (pair_connectivity_left.value - pair_connectivity_right.value).abs() <= 1e-12,
                 "P2C005-INV-1 pair edge connectivity must be replay-stable"
@@ -21995,8 +22015,10 @@ mod tests {
                 "P2C005-INV-1 global edge connectivity should not exceed pair connectivity"
             );
 
-            let st_edge_cut_left = minimum_st_edge_cut_edmonds_karp(&graph, &source, &target, "capacity");
-            let st_edge_cut_right = minimum_st_edge_cut_edmonds_karp(&graph, &source, &target, "capacity");
+            let st_edge_cut_left = minimum_st_edge_cut_edmonds_karp(&graph, &source, &target, "capacity")
+                .expect("flow algorithm should succeed");
+            let st_edge_cut_right = minimum_st_edge_cut_edmonds_karp(&graph, &source, &target, "capacity")
+                .expect("flow algorithm should succeed");
             prop_assert_eq!(
                 &st_edge_cut_left.cut_edges, &st_edge_cut_right.cut_edges,
                 "P2C005-INV-1 minimum s-t edge cut edges must be replay-stable"
@@ -22479,14 +22501,14 @@ mod tests {
                 "P2C005-INV-2 eigenvector centrality scores must remain stable by node"
             );
 
-            let forward_pair_connectivity =
-                edge_connectivity_edmonds_karp(&forward, &source, &target, "capacity");
-            let forward_pair_connectivity_replay =
-                edge_connectivity_edmonds_karp(&forward, &source, &target, "capacity");
-            let reverse_pair_connectivity =
-                edge_connectivity_edmonds_karp(&reverse, &source, &target, "capacity");
-            let reverse_pair_connectivity_replay =
-                edge_connectivity_edmonds_karp(&reverse, &source, &target, "capacity");
+            let forward_pair_connectivity = edge_connectivity_edmonds_karp(&forward, &source, &target, "capacity")
+                .expect("flow algorithm should succeed");
+            let forward_pair_connectivity_replay = edge_connectivity_edmonds_karp(&forward, &source, &target, "capacity")
+                .expect("flow algorithm should succeed");
+            let reverse_pair_connectivity = edge_connectivity_edmonds_karp(&reverse, &source, &target, "capacity")
+                .expect("flow algorithm should succeed");
+            let reverse_pair_connectivity_replay = edge_connectivity_edmonds_karp(&reverse, &source, &target, "capacity")
+                .expect("flow algorithm should succeed");
             prop_assert!(
                 (forward_pair_connectivity.value - forward_pair_connectivity_replay.value).abs()
                     <= 1e-12,
@@ -22526,14 +22548,14 @@ mod tests {
                 "P2C005-INV-2 global edge connectivity values must remain stable across insertion perturbation"
             );
 
-            let forward_st_cut =
-                minimum_st_edge_cut_edmonds_karp(&forward, &source, &target, "capacity");
-            let forward_st_cut_replay =
-                minimum_st_edge_cut_edmonds_karp(&forward, &source, &target, "capacity");
-            let reverse_st_cut =
-                minimum_st_edge_cut_edmonds_karp(&reverse, &source, &target, "capacity");
-            let reverse_st_cut_replay =
-                minimum_st_edge_cut_edmonds_karp(&reverse, &source, &target, "capacity");
+            let forward_st_cut = minimum_st_edge_cut_edmonds_karp(&forward, &source, &target, "capacity")
+                .expect("flow algorithm should succeed");
+            let forward_st_cut_replay = minimum_st_edge_cut_edmonds_karp(&forward, &source, &target, "capacity")
+                .expect("flow algorithm should succeed");
+            let reverse_st_cut = minimum_st_edge_cut_edmonds_karp(&reverse, &source, &target, "capacity")
+                .expect("flow algorithm should succeed");
+            let reverse_st_cut_replay = minimum_st_edge_cut_edmonds_karp(&reverse, &source, &target, "capacity")
+                .expect("flow algorithm should succeed");
             prop_assert_eq!(
                 &forward_st_cut.cut_edges, &forward_st_cut_replay.cut_edges,
                 "P2C005-INV-2 minimum s-t edge cut must be replay-stable for forward insertion"
@@ -23815,7 +23837,7 @@ mod tests {
         // Diamond with equal weights: 0-1(w=1), 0-2(w=1), 1-3(w=1), 2-3(w=1)
         let mut g = Graph::strict();
         let mut attrs = BTreeMap::new();
-        attrs.insert("weight".to_owned(), "1.0".to_owned());
+        attrs.insert("weight".to_owned(), "1.0".into());
         g.add_edge_with_attrs("0", "1", attrs.clone()).unwrap();
         g.add_edge_with_attrs("0", "2", attrs.clone()).unwrap();
         g.add_edge_with_attrs("1", "3", attrs.clone()).unwrap();
@@ -23831,9 +23853,9 @@ mod tests {
         // 0-1(w=1), 1-2(w=1), 0-2(w=10) — only one shortest path
         let mut g = Graph::strict();
         let mut w1 = BTreeMap::new();
-        w1.insert("weight".to_owned(), "1.0".to_owned());
+        w1.insert("weight".to_owned(), "1.0".into());
         let mut w10 = BTreeMap::new();
-        w10.insert("weight".to_owned(), "10.0".to_owned());
+        w10.insert("weight".to_owned(), "10.0".into());
         g.add_edge_with_attrs("0", "1", w1.clone()).unwrap();
         g.add_edge_with_attrs("1", "2", w1.clone()).unwrap();
         g.add_edge_with_attrs("0", "2", w10).unwrap();
@@ -24832,9 +24854,9 @@ mod tests {
     #[test]
     fn max_spanning_tree_triangle() {
         let mut g = Graph::strict();
-        let _ = g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "1.0".to_owned())].into());
-        let _ = g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "3.0".to_owned())].into());
-        let _ = g.add_edge_with_attrs("a", "c", [("weight".to_owned(), "2.0".to_owned())].into());
+        let _ = g.add_edge_with_attrs("a", "b", attrs([("weight", "1.0")]));
+        let _ = g.add_edge_with_attrs("b", "c", attrs([("weight", "3.0")]));
+        let _ = g.add_edge_with_attrs("a", "c", attrs([("weight", "2.0")]));
         let result = maximum_spanning_tree(&g, "weight");
         // Max ST picks edges with weight 3.0 and 2.0
         assert_eq!(result.edges.len(), 2);
@@ -24853,11 +24875,11 @@ mod tests {
     #[test]
     fn number_of_spanning_arborescences_weighted() {
         let mut dg = DiGraph::strict();
-        dg.add_edge_with_attrs("a", "b", [("weight".to_owned(), "2.0".to_owned())].into())
+        dg.add_edge_with_attrs("a", "b", attrs([("weight", "2.0")]))
             .expect("edge add should succeed");
-        dg.add_edge_with_attrs("a", "c", [("weight".to_owned(), "3.0".to_owned())].into())
+        dg.add_edge_with_attrs("a", "c", attrs([("weight", "3.0")]))
             .expect("edge add should succeed");
-        dg.add_edge_with_attrs("b", "c", [("weight".to_owned(), "5.0".to_owned())].into())
+        dg.add_edge_with_attrs("b", "c", attrs([("weight", "5.0")]))
             .expect("edge add should succeed");
         assert!(
             (super::number_of_spanning_arborescences(&dg, "a", Some("weight")) - 16.0).abs()
@@ -24871,28 +24893,26 @@ mod tests {
         g.add_edge_with_attrs(
             "a",
             "b",
-            [
-                ("weight".to_owned(), "4.0".to_owned()),
-                ("partition".to_owned(), "EdgePartition.INCLUDED".to_owned()),
-            ]
-            .into(),
+            attrs([
+                ("weight", "4.0"),
+                ("partition", "EdgePartition.INCLUDED"),
+            ]),
         )
         .expect("edge add should succeed");
-        g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "1.0".to_owned())].into())
+        g.add_edge_with_attrs("b", "c", attrs([("weight", "1.0")]))
             .expect("edge add should succeed");
-        g.add_edge_with_attrs("a", "c", [("weight".to_owned(), "3.0".to_owned())].into())
+        g.add_edge_with_attrs("a", "c", attrs([("weight", "3.0")]))
             .expect("edge add should succeed");
         g.add_edge_with_attrs(
             "c",
             "d",
-            [
-                ("weight".to_owned(), "2.0".to_owned()),
-                ("partition".to_owned(), "EdgePartition.EXCLUDED".to_owned()),
-            ]
-            .into(),
+            attrs([
+                ("weight", "2.0"),
+                ("partition", "EdgePartition.EXCLUDED"),
+            ]),
         )
         .expect("edge add should succeed");
-        g.add_edge_with_attrs("b", "d", [("weight".to_owned(), "5.0".to_owned())].into())
+        g.add_edge_with_attrs("b", "d", attrs([("weight", "5.0")]))
             .expect("edge add should succeed");
 
         let result = super::partition_spanning_tree(&g, true, "weight", "partition", false)
@@ -24908,11 +24928,11 @@ mod tests {
     #[test]
     fn random_spanning_tree_from_samples_returns_tree() {
         let mut g = Graph::strict();
-        g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "2.0".to_owned())].into())
+        g.add_edge_with_attrs("a", "b", attrs([("weight", "2.0")]))
             .expect("edge add should succeed");
-        g.add_edge_with_attrs("a", "c", [("weight".to_owned(), "3.0".to_owned())].into())
+        g.add_edge_with_attrs("a", "c", attrs([("weight", "3.0")]))
             .expect("edge add should succeed");
-        g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "5.0".to_owned())].into())
+        g.add_edge_with_attrs("b", "c", attrs([("weight", "5.0")]))
             .expect("edge add should succeed");
 
         let tree = super::random_spanning_tree_from_samples(
@@ -25482,9 +25502,9 @@ mod tests {
     #[test]
     fn test_spanner_trivial_stretch_one_copies_graph() {
         let mut g = Graph::strict();
-        let _ = g.add_edge_with_attrs("0", "1", [("weight".to_owned(), "1.5".to_owned())].into());
-        let _ = g.add_edge_with_attrs("0", "2", [("weight".to_owned(), "2.5".to_owned())].into());
-        let _ = g.add_edge_with_attrs("1", "2", [("weight".to_owned(), "3.5".to_owned())].into());
+        let _ = g.add_edge_with_attrs("0", "1", attrs([("weight", "1.5")]));
+        let _ = g.add_edge_with_attrs("0", "2", attrs([("weight", "2.5")]));
+        let _ = g.add_edge_with_attrs("1", "2", attrs([("weight", "3.5")]));
         let sp = spanner(&g, 1.0, Some("weight"), Some(2)).unwrap();
         assert_eq!(sp.node_count(), g.node_count());
         assert_eq!(sp.edge_count(), g.edge_count());
@@ -25511,9 +25531,9 @@ mod tests {
     #[test]
     fn test_astar_path_simple() {
         let mut g = Graph::strict();
-        let _ = g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "1.0".to_owned())].into());
-        let _ = g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "1.0".to_owned())].into());
-        let _ = g.add_edge_with_attrs("a", "c", [("weight".to_owned(), "5.0".to_owned())].into());
+        let _ = g.add_edge_with_attrs("a", "b", attrs([("weight", "1.0")]));
+        let _ = g.add_edge_with_attrs("b", "c", attrs([("weight", "1.0")]));
+        let _ = g.add_edge_with_attrs("a", "c", attrs([("weight", "5.0")]));
 
         let path = astar_path(&g, "a", "c", "weight", None);
         assert_eq!(
@@ -25542,9 +25562,9 @@ mod tests {
     #[test]
     fn test_astar_path_with_heuristic() {
         let mut g = Graph::strict();
-        let _ = g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "1.0".to_owned())].into());
-        let _ = g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "1.0".to_owned())].into());
-        let _ = g.add_edge_with_attrs("a", "c", [("weight".to_owned(), "3.0".to_owned())].into());
+        let _ = g.add_edge_with_attrs("a", "b", attrs([("weight", "1.0")]));
+        let _ = g.add_edge_with_attrs("b", "c", attrs([("weight", "1.0")]));
+        let _ = g.add_edge_with_attrs("a", "c", attrs([("weight", "3.0")]));
 
         // Heuristic: estimate 0 for all (admissible)
         let h = |_: &str| 0.0;
@@ -25558,8 +25578,8 @@ mod tests {
     #[test]
     fn test_astar_path_length_simple() {
         let mut g = Graph::strict();
-        let _ = g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "2.0".to_owned())].into());
-        let _ = g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "3.0".to_owned())].into());
+        let _ = g.add_edge_with_attrs("a", "b", attrs([("weight", "2.0")]));
+        let _ = g.add_edge_with_attrs("b", "c", attrs([("weight", "3.0")]));
 
         let length = astar_path_length(&g, "a", "c", "weight", None);
         assert_eq!(length, Some(5.0));
@@ -25593,9 +25613,9 @@ mod tests {
     #[test]
     fn test_shortest_simple_paths_weighted() {
         let mut g = Graph::strict();
-        let _ = g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "1.0".to_owned())].into());
-        let _ = g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "1.0".to_owned())].into());
-        let _ = g.add_edge_with_attrs("a", "c", [("weight".to_owned(), "5.0".to_owned())].into());
+        let _ = g.add_edge_with_attrs("a", "b", attrs([("weight", "1.0")]));
+        let _ = g.add_edge_with_attrs("b", "c", attrs([("weight", "1.0")]));
+        let _ = g.add_edge_with_attrs("a", "c", attrs([("weight", "5.0")]));
 
         let paths = shortest_simple_paths(&g, "a", "c", Some("weight"));
         assert!(!paths.is_empty());
@@ -26092,13 +26112,13 @@ mod tests {
     #[test]
     fn test_maximum_branching_matches_networkx_tie_break_example() {
         let mut g = DiGraph::strict();
-        g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "5".to_owned())].into())
+        g.add_edge_with_attrs("a", "b", attrs([("weight", "5")]))
             .expect("edge add should succeed");
-        g.add_edge_with_attrs("c", "b", [("weight".to_owned(), "5".to_owned())].into())
+        g.add_edge_with_attrs("c", "b", attrs([("weight", "5")]))
             .expect("edge add should succeed");
-        g.add_edge_with_attrs("b", "d", [("weight".to_owned(), "4".to_owned())].into())
+        g.add_edge_with_attrs("b", "d", attrs([("weight", "4")]))
             .expect("edge add should succeed");
-        g.add_edge_with_attrs("c", "d", [("weight".to_owned(), "4".to_owned())].into())
+        g.add_edge_with_attrs("c", "d", attrs([("weight", "4")]))
             .expect("edge add should succeed");
 
         let result = maximum_branching(&g, "weight", 1.0);
@@ -26123,11 +26143,11 @@ mod tests {
     #[test]
     fn test_minimum_branching_prefers_negative_edge() {
         let mut g = DiGraph::strict();
-        g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "5".to_owned())].into())
+        g.add_edge_with_attrs("a", "b", attrs([("weight", "5")]))
             .expect("edge add should succeed");
-        g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "-10".to_owned())].into())
+        g.add_edge_with_attrs("b", "c", attrs([("weight", "-10")]))
             .expect("edge add should succeed");
-        g.add_edge_with_attrs("a", "c", [("weight".to_owned(), "1".to_owned())].into())
+        g.add_edge_with_attrs("a", "c", attrs([("weight", "1")]))
             .expect("edge add should succeed");
 
         let result = minimum_branching(&g, "weight", 1.0);
@@ -26145,13 +26165,13 @@ mod tests {
     #[test]
     fn test_maximum_spanning_arborescence_matches_expected_edges() {
         let mut g = DiGraph::strict();
-        g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "5".to_owned())].into())
+        g.add_edge_with_attrs("a", "b", attrs([("weight", "5")]))
             .expect("edge add should succeed");
-        g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "4".to_owned())].into())
+        g.add_edge_with_attrs("b", "c", attrs([("weight", "4")]))
             .expect("edge add should succeed");
-        g.add_edge_with_attrs("c", "a", [("weight".to_owned(), "3".to_owned())].into())
+        g.add_edge_with_attrs("c", "a", attrs([("weight", "3")]))
             .expect("edge add should succeed");
-        g.add_edge_with_attrs("a", "d", [("weight".to_owned(), "2".to_owned())].into())
+        g.add_edge_with_attrs("a", "d", attrs([("weight", "2")]))
             .expect("edge add should succeed");
 
         let result =
@@ -26182,7 +26202,7 @@ mod tests {
     #[test]
     fn test_maximum_spanning_arborescence_returns_none_when_disconnected() {
         let mut g = DiGraph::strict();
-        g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "5".to_owned())].into())
+        g.add_edge_with_attrs("a", "b", attrs([("weight", "5")]))
             .expect("edge add should succeed");
         g.add_node("c");
         assert!(maximum_spanning_arborescence(&g, "weight", 1.0).is_none());
@@ -26191,15 +26211,15 @@ mod tests {
     #[test]
     fn test_minimum_spanning_arborescence_matches_expected_edges() {
         let mut g = DiGraph::strict();
-        g.add_edge_with_attrs("s", "a", [("weight".to_owned(), "2".to_owned())].into())
+        g.add_edge_with_attrs("s", "a", attrs([("weight", "2")]))
             .expect("edge add should succeed");
-        g.add_edge_with_attrs("s", "b", [("weight".to_owned(), "5".to_owned())].into())
+        g.add_edge_with_attrs("s", "b", attrs([("weight", "5")]))
             .expect("edge add should succeed");
-        g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "1".to_owned())].into())
+        g.add_edge_with_attrs("a", "b", attrs([("weight", "1")]))
             .expect("edge add should succeed");
-        g.add_edge_with_attrs("a", "c", [("weight".to_owned(), "4".to_owned())].into())
+        g.add_edge_with_attrs("a", "c", attrs([("weight", "4")]))
             .expect("edge add should succeed");
-        g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "1".to_owned())].into())
+        g.add_edge_with_attrs("b", "c", attrs([("weight", "1")]))
             .expect("edge add should succeed");
 
         let result =
@@ -26341,9 +26361,9 @@ mod tests {
     #[test]
     fn test_dijkstra_path_length_weighted() {
         let mut g = Graph::strict();
-        let _ = g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "2.0".to_owned())].into());
-        let _ = g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "3.0".to_owned())].into());
-        let _ = g.add_edge_with_attrs("a", "c", [("weight".to_owned(), "10.0".to_owned())].into());
+        let _ = g.add_edge_with_attrs("a", "b", attrs([("weight", "2.0")]));
+        let _ = g.add_edge_with_attrs("b", "c", attrs([("weight", "3.0")]));
+        let _ = g.add_edge_with_attrs("a", "c", attrs([("weight", "10.0")]));
         // Shortest: a->b->c = 5.0, not a->c = 10.0
         assert_eq!(dijkstra_path_length(&g, "a", "c", "weight"), Some(5.0));
     }
@@ -26383,9 +26403,9 @@ mod tests {
     #[test]
     fn test_single_source_dijkstra_full() {
         let mut g = Graph::strict();
-        let _ = g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "1.0".to_owned())].into());
-        let _ = g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "2.0".to_owned())].into());
-        let _ = g.add_edge_with_attrs("a", "c", [("weight".to_owned(), "4.0".to_owned())].into());
+        let _ = g.add_edge_with_attrs("a", "b", attrs([("weight", "1.0")]));
+        let _ = g.add_edge_with_attrs("b", "c", attrs([("weight", "2.0")]));
+        let _ = g.add_edge_with_attrs("a", "c", attrs([("weight", "4.0")]));
         let (dists, paths) = single_source_dijkstra_full(&g, "a", "weight");
         assert_eq!(dists["a"], 0.0);
         assert_eq!(dists["b"], 1.0);
@@ -26632,9 +26652,9 @@ mod tests {
     #[test]
     fn test_negative_edge_cycle_detected() {
         let mut g = Graph::strict();
-        let _ = g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "-2.0".to_owned())].into());
-        let _ = g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "-3.0".to_owned())].into());
-        let _ = g.add_edge_with_attrs("c", "a", [("weight".to_owned(), "-1.0".to_owned())].into());
+        let _ = g.add_edge_with_attrs("a", "b", attrs([("weight", "-2.0")]));
+        let _ = g.add_edge_with_attrs("b", "c", attrs([("weight", "-3.0")]));
+        let _ = g.add_edge_with_attrs("c", "a", attrs([("weight", "-1.0")]));
         assert!(negative_edge_cycle(&g, "weight"));
     }
 
@@ -26682,8 +26702,8 @@ mod tests {
     #[test]
     fn test_path_weight_weighted() {
         let mut g = Graph::strict();
-        let _ = g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "3.5".to_owned())].into());
-        let _ = g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "1.5".to_owned())].into());
+        let _ = g.add_edge_with_attrs("a", "b", attrs([("weight", "3.5")]));
+        let _ = g.add_edge_with_attrs("b", "c", attrs([("weight", "1.5")]));
         assert_eq!(path_weight(&g, &["a", "b", "c"], "weight"), Some(5.0));
     }
 
@@ -27276,11 +27296,11 @@ mod tests {
     #[test]
     fn test_find_negative_cycle_positive_cycle() {
         let mut g = Graph::strict();
-        g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "1.0".to_owned())].into())
+        g.add_edge_with_attrs("a", "b", attrs([("weight", "1.0")]))
             .unwrap();
-        g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "2.0".to_owned())].into())
+        g.add_edge_with_attrs("b", "c", attrs([("weight", "2.0")]))
             .unwrap();
-        g.add_edge_with_attrs("c", "a", [("weight".to_owned(), "3.0".to_owned())].into())
+        g.add_edge_with_attrs("c", "a", attrs([("weight", "3.0")]))
             .unwrap();
         assert_eq!(find_negative_cycle(&g, "a", "weight"), None);
     }
@@ -27288,11 +27308,11 @@ mod tests {
     #[test]
     fn test_find_negative_cycle_exists() {
         let mut g = Graph::strict();
-        g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "-2.0".to_owned())].into())
+        g.add_edge_with_attrs("a", "b", attrs([("weight", "-2.0")]))
             .unwrap();
-        g.add_edge_with_attrs("b", "c", [("weight".to_owned(), "-3.0".to_owned())].into())
+        g.add_edge_with_attrs("b", "c", attrs([("weight", "-3.0")]))
             .unwrap();
-        g.add_edge_with_attrs("c", "a", [("weight".to_owned(), "-1.0".to_owned())].into())
+        g.add_edge_with_attrs("c", "a", attrs([("weight", "-1.0")]))
             .unwrap();
         let cycle = find_negative_cycle(&g, "a", "weight");
         assert!(cycle.is_some());
@@ -27396,7 +27416,7 @@ mod tests {
     #[test]
     fn test_is_weighted() {
         let mut g = Graph::strict();
-        g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "1.0".to_owned())].into())
+        g.add_edge_with_attrs("a", "b", attrs([("weight", "1.0")]))
             .unwrap();
         assert!(is_weighted(&g, "weight"));
         assert!(!is_weighted(&g, "cost"));
@@ -27405,12 +27425,12 @@ mod tests {
     #[test]
     fn test_is_negatively_weighted() {
         let mut g = Graph::strict();
-        g.add_edge_with_attrs("a", "b", [("weight".to_owned(), "-1.0".to_owned())].into())
+        g.add_edge_with_attrs("a", "b", attrs([("weight", "-1.0")]))
             .unwrap();
         assert!(is_negatively_weighted(&g, "weight"));
 
         let mut g2 = Graph::strict();
-        g2.add_edge_with_attrs("a", "b", [("weight".to_owned(), "1.0".to_owned())].into())
+        g2.add_edge_with_attrs("a", "b", attrs([("weight", "1.0")]))
             .unwrap();
         assert!(!is_negatively_weighted(&g2, "weight"));
     }
@@ -27609,7 +27629,7 @@ mod tests {
         let _ = g.add_edge("b", "c");
         let _ = g.add_edge("c", "a");
         // Give d a high weight but it's isolated
-        g.add_node_with_attrs("d", [("weight".to_owned(), "100".to_owned())].into());
+        g.add_node_with_attrs("d", attrs([("weight", "100")]));
         let (_clique, weight) = max_weight_clique(&g, "weight");
         // d alone (weight 100) vs triangle (weight 3)
         assert!(weight >= 100.0);
@@ -28188,9 +28208,9 @@ mod tests {
     fn test_cut_size_directed_counts_both_directions() {
         let mut d = DiGraph::strict();
         let mut forward = BTreeMap::new();
-        forward.insert("weight".to_owned(), "-2".to_owned());
+        forward.insert("weight".to_owned(), "-2".into());
         let mut reverse = BTreeMap::new();
-        reverse.insert("weight".to_owned(), "5".to_owned());
+        reverse.insert("weight".to_owned(), "5".into());
         let _ = d.add_edge_with_attrs("a", "b", forward);
         let _ = d.add_edge_with_attrs("b", "a", reverse);
         assert!((cut_size_directed(&d, &["a"], Some(&["b"]), Some("weight")) - 3.0).abs() < 1e-9);
@@ -28210,9 +28230,9 @@ mod tests {
     fn test_normalized_cut_size_directed_supports_signed_weights() {
         let mut d = DiGraph::strict();
         let mut forward = BTreeMap::new();
-        forward.insert("weight".to_owned(), "-2".to_owned());
+        forward.insert("weight".to_owned(), "-2".into());
         let mut reverse = BTreeMap::new();
-        reverse.insert("weight".to_owned(), "5".to_owned());
+        reverse.insert("weight".to_owned(), "5".into());
         let _ = d.add_edge_with_attrs("a", "b", forward);
         let _ = d.add_edge_with_attrs("b", "a", reverse);
         let result = normalized_cut_size_directed(&d, &["a"], Some(&["b"]), Some("weight"));

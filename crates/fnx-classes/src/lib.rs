@@ -1093,7 +1093,7 @@ impl MultiGraph {
 #[cfg(test)]
 mod tests {
     use super::{AttrMap, Graph, GraphError, MultiGraph};
-    use fnx_runtime::{CompatibilityMode, DecisionAction, DecisionRecord};
+    use fnx_runtime::{CgseValue, CompatibilityMode, DecisionAction, DecisionRecord};
     use proptest::prelude::*;
     use std::collections::BTreeSet;
 
@@ -1237,13 +1237,13 @@ mod tests {
     fn repeated_edge_updates_attrs_in_place() {
         let mut graph = Graph::strict();
         let mut first = AttrMap::new();
-        first.insert("weight".to_owned(), "1".to_owned());
+        first.insert("weight".to_owned(), "1".into());
         graph
             .add_edge_with_attrs("a", "b", first)
             .expect("edge insert should succeed");
 
         let mut second = AttrMap::new();
-        second.insert("color".to_owned(), "blue".to_owned());
+        second.insert("color".to_owned(), "blue".into());
         graph
             .add_edge_with_attrs("b", "a", second)
             .expect("edge update should succeed");
@@ -1251,8 +1251,8 @@ mod tests {
         let attrs = graph
             .edge_attrs("a", "b")
             .expect("edge attrs should be present");
-        assert_eq!(attrs.get("weight"), Some(&"1".to_owned()));
-        assert_eq!(attrs.get("color"), Some(&"blue".to_owned()));
+        assert_eq!(attrs.get("weight"), Some(&CgseValue::String("1".to_owned())));
+        assert_eq!(attrs.get("color"), Some(&CgseValue::String("blue".to_owned())));
         assert_eq!(graph.edge_count(), 1);
     }
 
@@ -1270,7 +1270,7 @@ mod tests {
     fn strict_mode_fails_closed_for_unknown_incompatible_feature() {
         let mut graph = Graph::strict();
         let mut attrs = AttrMap::new();
-        attrs.insert("__fnx_incompatible_decoder".to_owned(), "v2".to_owned());
+        attrs.insert("__fnx_incompatible_decoder".to_owned(), "v2".into());
         let err = graph
             .add_edge_with_attrs("a", "b", attrs)
             .expect_err("strict mode should fail closed");
@@ -1345,13 +1345,13 @@ mod tests {
         let mut graph = Graph::strict();
 
         let mut first_attrs = AttrMap::new();
-        first_attrs.insert("weight".to_owned(), "7".to_owned());
+        first_attrs.insert("weight".to_owned(), "7".into());
         graph
             .add_edge_with_attrs("a", "b", first_attrs)
             .expect("edge insert should succeed");
 
         let mut second_attrs = AttrMap::new();
-        second_attrs.insert("color".to_owned(), "green".to_owned());
+        second_attrs.insert("color".to_owned(), "green".into());
         graph
             .add_edge_with_attrs("b", "c", second_attrs)
             .expect("edge insert should succeed");
@@ -1496,9 +1496,9 @@ mod tests {
                 let right = node_name(right_id);
                 let mut attrs = AttrMap::new();
                 if attrs_variant == 1 {
-                    attrs.insert("weight".to_owned(), (left_id % 5).to_string());
+                    attrs.insert("weight".to_owned(), (left_id % 5).to_string().into());
                 } else if attrs_variant == 2 {
-                    attrs.insert("tag".to_owned(), format!("k{}", right_id % 4));
+                    attrs.insert("tag".to_owned(), format!("k{}", right_id % 4).into());
                 }
                 prop_assert!(
                     graph_left
@@ -1526,7 +1526,7 @@ mod tests {
             let left = node_name(left_id);
             let right = node_name(right_id);
             let mut attrs = AttrMap::new();
-            attrs.insert("weight".to_owned(), weight.to_string());
+            attrs.insert("weight".to_owned(), weight.to_string().into());
 
             prop_assert!(
                 graph
@@ -1581,13 +1581,13 @@ mod tests {
                 match attrs_kind {
                     0 => {}
                     1 => {
-                        attrs.insert("weight".to_owned(), (left_id % 9).to_string());
+                        attrs.insert("weight".to_owned(), (left_id % 9).to_string().into());
                     }
                     2 => {
-                        attrs.insert("color".to_owned(), format!("c{}", right_id % 6));
+                        attrs.insert("color".to_owned(), format!("c{}", right_id % 6).into());
                     }
                     _ => {
-                        attrs.insert("__fnx_incompatible_decoder".to_owned(), "v2".to_owned());
+                        attrs.insert("__fnx_incompatible_decoder".to_owned(), "v2".into());
                     }
                 }
                 let _ = graph.add_edge_with_attrs(left, right, attrs);

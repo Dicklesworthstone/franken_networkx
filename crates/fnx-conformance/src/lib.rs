@@ -1659,7 +1659,8 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
                 capacity_attr,
             } => {
                 let result =
-                    max_flow_edmonds_karp(&context.graph, &source, &target, &capacity_attr);
+                    max_flow_edmonds_karp(&context.graph, &source, &target, &capacity_attr)
+                        .expect("flow algorithm should succeed");
                 context.max_flow_result = Some(result.value);
                 context.witness = Some(result.witness);
             }
@@ -1669,7 +1670,8 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
                 capacity_attr,
             } => {
                 let result =
-                    minimum_cut_edmonds_karp(&context.graph, &source, &target, &capacity_attr);
+                    minimum_cut_edmonds_karp(&context.graph, &source, &target, &capacity_attr)
+                        .expect("flow algorithm should succeed");
                 context.minimum_cut_result = Some(result.clone());
                 context.witness = Some(result.witness);
             }
@@ -1683,7 +1685,8 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
                     &source,
                     &target,
                     &capacity_attr,
-                );
+                )
+                .expect("flow algorithm should succeed");
                 context.minimum_st_edge_cut_result = Some(result.clone());
                 context.witness = Some(result.witness);
             }
@@ -1697,7 +1700,8 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
                     &source,
                     &target,
                     &capacity_attr,
-                );
+                )
+                .expect("flow algorithm should succeed");
                 context.edge_connectivity_result = Some(result.value);
                 context.witness = Some(result.witness);
             }

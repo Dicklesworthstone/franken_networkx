@@ -14,10 +14,11 @@ use fnx_algorithms::{
     pagerank, shortest_path_unweighted, shortest_path_weighted,
 };
 use fnx_classes::Graph;
+use fnx_runtime::CgseValue;
 
-fn attr(key: &str, val: &str) -> BTreeMap<String, String> {
+fn attr(key: &str, val: &str) -> BTreeMap<String, CgseValue> {
     let mut m = BTreeMap::new();
-    m.insert(key.to_owned(), val.to_owned());
+    m.insert(key.to_owned(), val.to_owned().into());
     m
 }
 
@@ -241,7 +242,7 @@ fn bench_max_flow(c: &mut Criterion) {
             BenchmarkId::new("parallel_paths", &label),
             &label,
             |b, _| {
-                b.iter(|| max_flow_edmonds_karp(&g, "s", "t", "capacity"));
+                b.iter(|| max_flow_edmonds_karp(&g, "s", "t", "capacity").expect("flow algorithm should succeed"));
             },
         );
     }
@@ -257,7 +258,7 @@ fn bench_minimum_cut(c: &mut Criterion) {
             BenchmarkId::new("parallel_paths", &label),
             &label,
             |b, _| {
-                b.iter(|| minimum_cut_edmonds_karp(&g, "s", "t", "capacity"));
+                b.iter(|| minimum_cut_edmonds_karp(&g, "s", "t", "capacity").expect("flow algorithm should succeed"));
             },
         );
     }
