@@ -1369,6 +1369,134 @@ def union_all(graphs):
     return result
 
 
+# ---------------------------------------------------------------------------
+# Spectral graph theory — numpy/scipy based
+# ---------------------------------------------------------------------------
+
+
+def laplacian_matrix(G, nodelist=None, weight='weight'):
+    """Return the Laplacian matrix of *G* as a SciPy sparse array.
+
+    ``L = D - A`` where D is the degree matrix and A is the adjacency matrix.
+
+    Parameters
+    ----------
+    G : Graph
+    nodelist : list, optional
+    weight : str or None, optional
+
+    Returns
+    -------
+    scipy.sparse array
+    """
+    import numpy as np
+    import scipy.sparse
+
+    A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight)
+    n = A.shape[0]
+    D = scipy.sparse.diags(np.asarray(A.sum(axis=1)).flatten())
+    return D - A
+
+
+def normalized_laplacian_matrix(G, nodelist=None, weight='weight'):
+    """Return the normalized Laplacian matrix of *G*.
+
+    ``L_norm = D^{-1/2} L D^{-1/2}`` where L is the Laplacian.
+
+    Returns
+    -------
+    scipy.sparse array
+    """
+    import numpy as np
+    import scipy.sparse
+
+    A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight)
+    n = A.shape[0]
+    d = np.asarray(A.sum(axis=1)).flatten()
+    # Avoid division by zero for isolated nodes
+    d_inv_sqrt = np.zeros_like(d)
+    nonzero = d > 0
+    d_inv_sqrt[nonzero] = 1.0 / np.sqrt(d[nonzero])
+    D_inv_sqrt = scipy.sparse.diags(d_inv_sqrt)
+    I = scipy.sparse.eye(n)
+    return I - D_inv_sqrt @ A @ D_inv_sqrt
+
+
+def laplacian_spectrum(G, weight='weight'):
+    """Return the eigenvalues of the Laplacian matrix of *G*, sorted.
+
+    Returns
+    -------
+    numpy.ndarray
+    """
+    import numpy as np
+
+    L = laplacian_matrix(G, weight=weight)
+    return np.sort(np.linalg.eigvalsh(L.toarray()))
+
+
+def adjacency_spectrum(G, weight='weight'):
+    """Return the eigenvalues of the adjacency matrix of *G*, sorted.
+
+    Returns
+    -------
+    numpy.ndarray
+    """
+    import numpy as np
+
+    A = to_numpy_array(G, weight=weight)
+    return np.sort(np.linalg.eigvalsh(A))
+
+
+def algebraic_connectivity(G, weight='weight', normalized=False):
+    """Return the algebraic connectivity of *G*.
+
+    The algebraic connectivity is the second-smallest eigenvalue of the
+    Laplacian matrix (Fiedler value).
+
+    Parameters
+    ----------
+    G : Graph
+        Must be connected.
+    weight : str or None, optional
+    normalized : bool, optional
+        Use normalized Laplacian if True.
+
+    Returns
+    -------
+    float
+    """
+    if normalized:
+        spectrum = np.sort(np.linalg.eigvalsh(
+            normalized_laplacian_matrix(G, weight=weight).toarray()
+        ))
+    else:
+        spectrum = laplacian_spectrum(G, weight=weight)
+    if len(spectrum) < 2:
+        return 0.0
+    return float(spectrum[1])
+
+
+def fiedler_vector(G, weight='weight', normalized=False):
+    """Return the Fiedler vector of *G*.
+
+    The Fiedler vector is the eigenvector corresponding to the
+    algebraic connectivity (second-smallest Laplacian eigenvalue).
+
+    Returns
+    -------
+    numpy.ndarray
+    """
+    import numpy as np
+
+    if normalized:
+        L = normalized_laplacian_matrix(G, weight=weight).toarray()
+    else:
+        L = laplacian_matrix(G, weight=weight).toarray()
+    eigenvalues, eigenvectors = np.linalg.eigh(L)
+    return eigenvectors[:, 1]
+
+
 # Drawing — thin delegation to NetworkX/matplotlib (lazy import)
 from franken_networkx.drawing import (
     draw,

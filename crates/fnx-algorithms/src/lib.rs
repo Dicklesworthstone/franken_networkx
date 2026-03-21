@@ -3984,7 +3984,7 @@ fn edge_capacity_or_default(graph: &Graph, left: &str, right: &str, capacity_att
     graph
         .edge_attrs(left, right)
         .and_then(|attrs| attrs.get(capacity_attr))
-        .and_then(|raw| raw.parse::<f64>().ok())
+        .and_then(|raw| raw.as_f64())
         .filter(|value| value.is_finite() && *value >= 0.0)
         .unwrap_or(1.0)
 }
@@ -3998,7 +3998,7 @@ fn edge_capacity_or_default_directed(
     digraph
         .edge_attrs(left, right)
         .and_then(|attrs| attrs.get(capacity_attr))
-        .and_then(|raw| raw.parse::<f64>().ok())
+        .and_then(|raw| raw.as_f64())
         .filter(|value| value.is_finite() && *value >= 0.0)
         .unwrap_or(1.0)
 }
@@ -4888,7 +4888,7 @@ fn spanning_tree_edge_weight_from_attrs(
 ) -> f64 {
     weight_attr
         .and_then(|attr| attrs.and_then(|items| items.get(attr)))
-        .and_then(|raw| raw.parse::<f64>().ok())
+        .and_then(|raw| raw.as_f64())
         .filter(|value| value.is_finite())
         .unwrap_or(1.0)
 }
@@ -5146,7 +5146,7 @@ pub fn partition_spanning_tree(
                 let raw_weight = graph
                     .edge_attrs(node, neighbor)
                     .and_then(|attrs| attrs.get(weight_attr))
-                    .and_then(|raw| raw.parse::<f64>().ok());
+                    .and_then(|raw| raw.as_f64());
                 if raw_weight.is_some_and(f64::is_nan) {
                     if ignore_nan {
                         ordinal += 1;
@@ -5171,7 +5171,8 @@ pub fn partition_spanning_tree(
                     graph
                         .edge_attrs(node, neighbor)
                         .and_then(|attrs| attrs.get(partition_attr))
-                        .map(String::as_str),
+                        .as_ref()
+                        .map(|value| value.as_str()),
                 ) {
                     PartitionState::Included => included_edges.push(entry),
                     PartitionState::Excluded => {}
@@ -11979,12 +11980,12 @@ pub fn min_weighted_vertex_cover(graph: &Graph, weight_attr: &str) -> HashMap<St
                     let w_u = graph
                         .node_attrs(node)
                         .and_then(|a| a.get(weight_attr))
-                        .and_then(|v| v.parse::<f64>().ok())
+                        .and_then(|v| v.as_f64())
                         .unwrap_or(1.0);
                     let w_v = graph
                         .node_attrs(nbr)
                         .and_then(|a| a.get(weight_attr))
-                        .and_then(|v| v.parse::<f64>().ok())
+                        .and_then(|v| v.as_f64())
                         .unwrap_or(1.0);
                     cover.insert(node.to_string(), w_u);
                     cover.insert(nbr.to_string(), w_v);
@@ -12342,7 +12343,7 @@ fn spanner_weight_for_edge(
                 .edge_attrs(left, right)
                 .and_then(|attrs| attrs.get(attr))
         })
-        .and_then(|raw| raw.parse::<f64>().ok())
+        .and_then(|raw| raw.as_f64())
         .unwrap_or(1.0);
 
     SpannerEdgeWeight {
@@ -14636,7 +14637,7 @@ pub fn find_negative_cycle(graph: &Graph, source: &str, weight_attr: &str) -> Op
                 let v = node_to_idx[v_str];
                 let w = graph
                     .edge_attrs(u_str, v_str)
-                    .and_then(|attrs| attrs.get(weight_attr).and_then(|v| v.parse::<f64>().ok()))
+                    .and_then(|attrs| attrs.get(weight_attr).and_then(|v| v.as_f64()))
                     .unwrap_or(1.0);
                 edges.push((u, v, w));
             }
@@ -16355,7 +16356,7 @@ pub fn is_negatively_weighted(graph: &Graph, weight_attr: &str) -> bool {
                 if graph
                     .edge_attrs(u, v)
                     .and_then(|attrs| attrs.get(weight_attr))
-                    .and_then(|val| val.parse::<f64>().ok())
+                    .and_then(|val| val.as_f64())
                     .is_some_and(|w| w < 0.0)
                 {
                     return true;
@@ -18401,7 +18402,7 @@ pub fn max_weight_clique(graph: &Graph, weight_attr: &str) -> (Vec<String>, f64)
             graph
                 .node_attrs(node)
                 .and_then(|attrs| attrs.get(weight_attr))
-                .and_then(|v| v.parse::<f64>().ok())
+                .and_then(|v| v.as_f64())
                 .unwrap_or(1.0)
         })
         .collect();

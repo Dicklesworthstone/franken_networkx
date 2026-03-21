@@ -2121,11 +2121,18 @@ pub fn min_edge_cover(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<(PyO
 
 fn flow_terminals(
     py: Python<'_>,
+    gr: &GraphRef<'_>,
     source: &Bound<'_, PyAny>,
     sink: &Bound<'_, PyAny>,
 ) -> PyResult<(String, String)> {
     let s = node_key_to_string(py, source)?;
+    if !gr.has_node(&s) {
+        return Err(NetworkXError::new_err(format!("node {s} not in graph")));
+    }
     let t = node_key_to_string(py, sink)?;
+    if !gr.has_node(&t) {
+        return Err(NetworkXError::new_err(format!("node {t} not in graph")));
+    }
     if s == t {
         return Err(NetworkXError::new_err("source and sink are the same node"));
     }
@@ -2143,7 +2150,7 @@ pub fn maximum_flow(
     capacity: &str,
 ) -> PyResult<(f64, PyObject)> {
     let gr = extract_graph(g)?;
-    let (s, t) = flow_terminals(py, source, sink)?;
+    let (s, t) = flow_terminals(py, &gr, source, sink)?;
     let cap = capacity.to_owned();
     let result = match &gr {
         GraphRef::Undirected(pg) => {
@@ -2183,7 +2190,7 @@ pub fn maximum_flow_value(
     capacity: &str,
 ) -> PyResult<f64> {
     let gr = extract_graph(g)?;
-    let (s, t) = flow_terminals(py, source, sink)?;
+    let (s, t) = flow_terminals(py, &gr, source, sink)?;
     let cap = capacity.to_owned();
     match &gr {
         GraphRef::Undirected(pg) => {
@@ -2225,7 +2232,7 @@ pub fn minimum_cut_value(
     capacity: &str,
 ) -> PyResult<f64> {
     let gr = extract_graph(g)?;
-    let (s, t) = flow_terminals(py, source, sink)?;
+    let (s, t) = flow_terminals(py, &gr, source, sink)?;
     let cap = capacity.to_owned();
     match &gr {
         GraphRef::Undirected(pg) => {
@@ -2267,7 +2274,7 @@ pub fn minimum_cut(
     capacity: &str,
 ) -> PyResult<(f64, PyObject)> {
     let gr = extract_graph(g)?;
-    let (s, t) = flow_terminals(py, source, sink)?;
+    let (s, t) = flow_terminals(py, &gr, source, sink)?;
     let cap = capacity.to_owned();
     let cut = match &gr {
         GraphRef::Undirected(pg) => {

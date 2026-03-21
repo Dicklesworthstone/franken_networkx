@@ -4,7 +4,8 @@ use fnx_classes::digraph::{DiGraph, DiGraphSnapshot};
 use fnx_classes::{AttrMap, Graph, GraphError, GraphSnapshot};
 use fnx_dispatch::{BackendRegistry, BackendSpec, DispatchError, DispatchRequest};
 use fnx_runtime::{
-    CompatibilityMode, DecisionAction, DecisionRecord, EvidenceLedger, EvidenceTerm, unix_time_ms,
+    CgseValue, CompatibilityMode, DecisionAction, DecisionRecord, EvidenceLedger, EvidenceTerm,
+    unix_time_ms,
 };
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::{Reader, Writer};
@@ -842,8 +843,11 @@ impl EdgeListEngine {
                             writer
                                 .write_event(Event::Start(data_elem))
                                 .map_err(|e| xml_write_err("data_start", e))?;
+                            let attr_text = attr_value.as_str();
                             writer
-                                .write_event(Event::Text(BytesText::new(attr_value)))
+                                .write_event(Event::Text(BytesText::new(
+                                    attr_value.as_str().as_str(),
+                                )))
                                 .map_err(|e| xml_write_err("data_text", e))?;
                             writer
                                 .write_event(Event::End(BytesEnd::new("data")))
@@ -879,8 +883,9 @@ impl EdgeListEngine {
                         writer
                             .write_event(Event::Start(data_elem))
                             .map_err(|e| xml_write_err("data_start", e))?;
+                        let attr_text = attr_value.as_str();
                         writer
-                            .write_event(Event::Text(BytesText::new(attr_value)))
+                            .write_event(Event::Text(BytesText::new(attr_value.as_str().as_str())))
                             .map_err(|e| xml_write_err("data_text", e))?;
                         writer
                             .write_event(Event::End(BytesEnd::new("data")))
@@ -1216,9 +1221,9 @@ impl EdgeListEngine {
                 {
                     let value = std::mem::take(current_data_text);
                     if current_node.is_some() && current_edge.is_none() {
-                        pending_node_attrs.insert(attr_name.clone(), value);
+                        pending_node_attrs.insert(attr_name.clone(), CgseValue::String(value));
                     } else if current_edge.is_some() {
-                        pending_edge_attrs.insert(attr_name.clone(), value);
+                        pending_edge_attrs.insert(attr_name.clone(), CgseValue::String(value));
                     }
                 }
                 current_data_text.clear();
@@ -1481,7 +1486,10 @@ impl EdgeListEngine {
                 }
                 key => {
                     if pos + 1 < tokens.len() && tokens[pos + 1] != "[" && tokens[pos + 1] != "]" {
-                        attrs.insert(key.to_owned(), gml_unescape(&tokens[pos + 1]));
+                        attrs.insert(
+                            key.to_owned(),
+                            CgseValue::String(gml_unescape(&tokens[pos + 1])),
+                        );
                         pos += 2;
                     } else {
                         pos += 1;
@@ -1518,7 +1526,10 @@ impl EdgeListEngine {
                 }
                 key => {
                     if pos + 1 < tokens.len() && tokens[pos + 1] != "[" && tokens[pos + 1] != "]" {
-                        attrs.insert(key.to_owned(), gml_unescape(&tokens[pos + 1]));
+                        attrs.insert(
+                            key.to_owned(),
+                            CgseValue::String(gml_unescape(&tokens[pos + 1])),
+                        );
                         pos += 2;
                     } else {
                         pos += 1;
@@ -1628,11 +1639,12 @@ fn gml_escape(s: &str) -> String {
 }
 
 /// Format a value for GML: try numeric, otherwise quote it.
-fn gml_value_str(value: &str) -> String {
-    if value.parse::<i64>().is_ok() || value.parse::<f64>().is_ok() {
-        value.to_owned()
+fn gml_value_str(value: &CgseValue) -> String {
+    let s = value.as_str();
+    if value.as_f64().is_some() || s.parse::<i64>().is_ok() {
+        s
     } else {
-        format!("\"{}\"", gml_escape(value))
+        format!("\"{}\"", gml_escape(&s))
     }
 }
 
@@ -1739,7 +1751,7 @@ fn encode_attrs(attrs: &AttrMap) -> String {
     }
     attrs
         .iter()
-        .map(|(k, v)| format!("{}={}", attr_escape(k), attr_escape(v)))
+        .map(|(k, v)| format!("{}={}", attr_escape(k), attr_escape(&v.as_str())))
         .collect::<Vec<String>>()
         .join(";")
 }
@@ -1770,7 +1782,7 @@ fn decode_attrs(
             warnings.push(warning);
             continue;
         };
-        attrs.insert(attr_unescape(key), attr_unescape(value));
+        attrs.insert(attr_unescape(key), CgseValue::String(attr_unescape(value)));
     }
     Ok(attrs)
 }

@@ -438,10 +438,10 @@ impl Graph {
         if let Some(neighbors) = self.adjacency.get(node) {
             let neighbor_names: Vec<String> = neighbors.iter().cloned().collect();
             for neighbor in neighbor_names {
-                if neighbor != node {
-                    if let Some(remote_neighbors) = self.adjacency.get_mut(&neighbor) {
-                        remote_neighbors.shift_remove(node);
-                    }
+                if neighbor != node
+                    && let Some(remote_neighbors) = self.adjacency.get_mut(&neighbor)
+                {
+                    remote_neighbors.shift_remove(node);
                 }
             }
         }
@@ -938,10 +938,10 @@ impl MultiGraph {
         if let Some(neighbors) = self.adjacency.get(node) {
             let neighbor_names: Vec<String> = neighbors.keys().cloned().collect();
             for neighbor in neighbor_names {
-                if neighbor != node {
-                    if let Some(remote_neighbors) = self.adjacency.get_mut(&neighbor) {
-                        remote_neighbors.shift_remove(node);
-                    }
+                if neighbor != node
+                    && let Some(remote_neighbors) = self.adjacency.get_mut(&neighbor)
+                {
+                    remote_neighbors.shift_remove(node);
                 }
             }
         }

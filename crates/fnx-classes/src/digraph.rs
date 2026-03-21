@@ -484,10 +484,10 @@ impl DiGraph {
         // 1. Remove node from its successors' predecessor lists.
         if let Some(succs) = self.successors.get(node) {
             for target in succs.iter() {
-                if target != node {
-                    if let Some(preds) = self.predecessors.get_mut(target) {
-                        preds.shift_remove(node);
-                    }
+                if target != node
+                    && let Some(preds) = self.predecessors.get_mut(target)
+                {
+                    preds.shift_remove(node);
                 }
             }
         }
@@ -495,16 +495,17 @@ impl DiGraph {
         // 2. Remove node from its predecessors' successor lists.
         if let Some(preds) = self.predecessors.get(node) {
             for source in preds.iter() {
-                if source != node {
-                    if let Some(succs) = self.successors.get_mut(source) {
-                        succs.shift_remove(node);
-                    }
+                if source != node
+                    && let Some(succs) = self.successors.get_mut(source)
+                {
+                    succs.shift_remove(node);
                 }
             }
         }
 
         // 3. Remove all incident edges from the edges map using retain (O(E)).
-        self.edges.retain(|key, _| key.source != node && key.target != node);
+        self.edges
+            .retain(|key, _| key.source != node && key.target != node);
 
         self.successors.shift_remove(node);
         self.predecessors.shift_remove(node);
@@ -1035,10 +1036,10 @@ impl MultiDiGraph {
         // 1. Remove node from its successors' predecessor lists.
         if let Some(succs) = self.successors.get(node) {
             for target in succs.keys() {
-                if target != node {
-                    if let Some(preds) = self.predecessors.get_mut(target) {
-                        preds.shift_remove(node);
-                    }
+                if target != node
+                    && let Some(preds) = self.predecessors.get_mut(target)
+                {
+                    preds.shift_remove(node);
                 }
             }
         }
@@ -1046,17 +1047,19 @@ impl MultiDiGraph {
         // 2. Remove node from its predecessors' successor lists.
         if let Some(preds) = self.predecessors.get(node) {
             for source in preds.keys() {
-                if source != node {
-                    if let Some(succs) = self.successors.get_mut(source) {
-                        succs.shift_remove(node);
-                    }
+                if source != node
+                    && let Some(succs) = self.successors.get_mut(source)
+                {
+                    succs.shift_remove(node);
                 }
             }
         }
 
         // 3. Remove all incident edges from edges and next_edge_key maps using retain (O(E)).
-        self.edges.retain(|key, _| key.source != node && key.target != node);
-        self.next_edge_key.retain(|key, _| key.source != node && key.target != node);
+        self.edges
+            .retain(|key, _| key.source != node && key.target != node);
+        self.next_edge_key
+            .retain(|key, _| key.source != node && key.target != node);
 
         self.successors.shift_remove(node);
         self.predecessors.shift_remove(node);

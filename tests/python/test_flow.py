@@ -133,3 +133,34 @@ class TestFlow:
 
             with pytest.raises(nx.NetworkXError, match="source and sink are the same node"):
                 nx_flow_fn(DG_nx, "s", "s")
+
+    def test_flow_bindings_reject_missing_endpoints(self, fnx, nx):
+        DG_fnx, DG_nx = _directed_flow_pair(
+            fnx,
+            nx,
+            [
+                ("a", "b", 1.0),
+            ],
+        )
+
+        cases = (
+            ("s", "b", "node s not in graph"),
+            ("a", "t", "node t not in graph"),
+            ("s", "t", "node s not in graph"),
+        )
+
+        for source, sink, message in cases:
+            for name in (
+                "maximum_flow",
+                "maximum_flow_value",
+                "minimum_cut",
+                "minimum_cut_value",
+            ):
+                fnx_flow_fn = getattr(fnx, name)
+                nx_flow_fn = getattr(nx, name)
+
+                with pytest.raises(fnx.NetworkXError, match=message):
+                    fnx_flow_fn(DG_fnx, source, sink)
+
+                with pytest.raises(nx.NetworkXError, match=message):
+                    nx_flow_fn(DG_nx, source, sink)
