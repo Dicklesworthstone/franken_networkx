@@ -1714,6 +1714,263 @@ def random_tree(n, seed=None):
     return G
 
 
+# ---------------------------------------------------------------------------
+# Structural hole / brokerage metrics
+# ---------------------------------------------------------------------------
+
+
+def constraint(G, nodes=None, weight=None):
+    """Return Burt's constraint for nodes in *G*.
+
+    Constraint measures how much a node's connections are to interconnected
+    alters (low constraint = structural hole position).
+
+    Parameters
+    ----------
+    G : Graph
+    nodes : iterable, optional
+    weight : str or None, optional
+
+    Returns
+    -------
+    dict
+        ``{node: constraint_value}``
+    """
+    if nodes is None:
+        nodes = list(G.nodes())
+
+    result = {}
+    for v in nodes:
+        v_nbrs = set(G.neighbors(v))
+        if not v_nbrs:
+            result[v] = 0.0
+            continue
+
+        total = 0.0
+        for w in v_nbrs:
+            # Direct proportion of v's network invested in w
+            p_vw = 1.0 / len(v_nbrs)
+            # Indirect constraint via mutual contacts
+            indirect = 0.0
+            for q in v_nbrs:
+                if q == w:
+                    continue
+                q_nbrs = set(G.neighbors(q))
+                if w in q_nbrs:
+                    p_vq = 1.0 / len(v_nbrs)
+                    q_all = set(G.neighbors(q))
+                    p_qw = 1.0 / len(q_all) if q_all else 0.0
+                    indirect += p_vq * p_qw
+            total += (p_vw + indirect) ** 2
+        result[v] = total
+
+    return result
+
+
+def effective_size(G, nodes=None, weight=None):
+    """Return the effective size of each node's ego network.
+
+    Effective size is the number of alters minus the average degree of
+    alters within the ego network (not counting ties to ego).
+
+    Parameters
+    ----------
+    G : Graph
+    nodes : iterable, optional
+    weight : str or None, optional
+
+    Returns
+    -------
+    dict
+        ``{node: effective_size}``
+    """
+    if nodes is None:
+        nodes = list(G.nodes())
+
+    result = {}
+    for v in nodes:
+        v_nbrs = set(G.neighbors(v))
+        n = len(v_nbrs)
+        if n == 0:
+            result[v] = 0.0
+            continue
+        # Count ties among alters (excluding ego)
+        redundancy = 0.0
+        for u in v_nbrs:
+            u_nbrs = set(G.neighbors(u))
+            ties_to_alters = len(u_nbrs & v_nbrs)
+            redundancy += ties_to_alters / n if n > 0 else 0
+        result[v] = n - redundancy
+    return result
+
+
+def dispersion(G, u=None, v=None, normalized=True, alpha=1.0, b=0.0, c=0.0):
+    """Return the dispersion between node pairs in *G*.
+
+    Dispersion measures tie strength: high dispersion means u's and v's
+    mutual friends are not well connected to each other.
+
+    Parameters
+    ----------
+    G : Graph
+    u, v : node, optional
+        If both given, return a single float. Otherwise return a dict.
+    normalized : bool, optional
+    alpha, b, c : float, optional
+        Parameters for the normalization formula.
+
+    Returns
+    -------
+    float or dict
+    """
+    if u is not None and v is not None:
+        return _dispersion_pair(G, u, v, normalized, alpha, b, c)
+
+    nodes = [u] if u is not None else list(G.nodes())
+    result = {}
+    for node in nodes:
+        result[node] = {}
+        for nbr in G.neighbors(node):
+            result[node][nbr] = _dispersion_pair(G, node, nbr, normalized, alpha, b, c)
+    if u is not None:
+        return result[u]
+    return result
+
+
+def _dispersion_pair(G, u, v, normalized, alpha, b, c):
+    u_nbrs = set(G.neighbors(u))
+    v_nbrs = set(G.neighbors(v))
+    common = (u_nbrs & v_nbrs) - {u, v}
+
+    if not common:
+        return 0.0
+
+    # Count pairs of common neighbors that are NOT connected
+    disp = 0.0
+    common_list = list(common)
+    for i in range(len(common_list)):
+        for j in range(i + 1, len(common_list)):
+            s, t = common_list[i], common_list[j]
+            if not G.has_edge(s, t):
+                s_nbrs = set(G.neighbors(s))
+                t_nbrs = set(G.neighbors(t))
+                # Check they don't share neighbors in common set
+                shared_in_common = (s_nbrs & t_nbrs) & common
+                if not shared_in_common:
+                    disp += 1.0
+
+    if normalized and len(common) > 0:
+        return (disp + b) / (len(common) + c) ** alpha if len(common) + c > 0 else 0.0
+    return disp
+
+
+def closeness_vitality(G, node=None, weight=None, wiener_index=None):
+    """Return the closeness vitality of nodes.
+
+    Closeness vitality of a node is the change in the Wiener index
+    of the graph when that node is removed.
+
+    Parameters
+    ----------
+    G : Graph
+    node : node, optional
+        If given, return vitality for just this node.
+    weight : str or None, optional
+    wiener_index : float, optional
+        Precomputed Wiener index.
+
+    Returns
+    -------
+    float or dict
+    """
+    if wiener_index is None:
+        try:
+            from franken_networkx._fnx import wiener_index as compute_wi
+            wi = compute_wi(G)
+        except Exception:
+            wi = 0.0
+            for u in G.nodes():
+                lengths = single_source_shortest_path_length(G, u)
+                wi += sum(lengths.values())
+            wi /= 2.0  # Each pair counted twice
+    else:
+        wi = wiener_index
+
+    if node is not None:
+        H = G.copy()
+        H.remove_node(node)
+        if H.number_of_nodes() == 0:
+            return 0.0
+        try:
+            from franken_networkx._fnx import wiener_index as compute_wi
+            wi_without = compute_wi(H)
+        except Exception:
+            wi_without = 0.0
+            for u in H.nodes():
+                lengths = single_source_shortest_path_length(H, u)
+                wi_without += sum(lengths.values())
+            wi_without /= 2.0
+        return wi - wi_without
+
+    result = {}
+    for n in G.nodes():
+        result[n] = closeness_vitality(G, node=n, wiener_index=wi)
+    return result
+
+
+def spectral_ordering(G, normalized=False):
+    """Return nodes ordered by the Fiedler vector (spectral bisection ordering).
+
+    Parameters
+    ----------
+    G : Graph
+    normalized : bool, optional
+
+    Returns
+    -------
+    list
+        Nodes sorted by Fiedler vector components.
+    """
+    import numpy as np
+
+    fv = fiedler_vector(G, normalized=normalized)
+    nodelist = list(G.nodes())
+    order = np.argsort(fv)
+    return [nodelist[i] for i in order]
+
+
+def bellman_ford_predecessor_and_distance(G, source, weight='weight'):
+    """Return predecessors and distances from Bellman-Ford.
+
+    Parameters
+    ----------
+    G : Graph or DiGraph
+    source : node
+    weight : str, optional
+
+    Returns
+    -------
+    (pred, dist) : tuple of dicts
+        pred maps each node to its predecessor list.
+        dist maps each node to its distance from source.
+    """
+    from franken_networkx._fnx import (
+        single_source_bellman_ford_path_length,
+        single_source_bellman_ford_path,
+    )
+    dist = single_source_bellman_ford_path_length(G, source, weight=weight)
+    paths = single_source_bellman_ford_path(G, source, weight=weight)
+
+    pred = {}
+    for node, path in paths.items():
+        if len(path) >= 2:
+            pred[node] = [path[-2]]
+        else:
+            pred[node] = []
+
+    return pred, dist
+
+
 # Drawing — thin delegation to NetworkX/matplotlib (lazy import)
 from franken_networkx.drawing import (
     draw,
@@ -2517,6 +2774,12 @@ __all__ = [
     "caveman_graph",
     "connected_caveman_graph",
     "random_tree",
+    "constraint",
+    "effective_size",
+    "dispersion",
+    "closeness_vitality",
+    "spectral_ordering",
+    "bellman_ford_predecessor_and_distance",
     # Algorithms — graph operators
     "union",
     "intersection",
