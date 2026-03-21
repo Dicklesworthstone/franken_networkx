@@ -549,6 +549,11 @@ from franken_networkx._fnx import (
 from franken_networkx._fnx import gnp_random_graph
 from franken_networkx._fnx import watts_strogatz_graph
 from franken_networkx._fnx import barabasi_albert_graph
+from franken_networkx._fnx import erdos_renyi_graph
+from franken_networkx._fnx import newman_watts_strogatz_graph
+from franken_networkx._fnx import connected_watts_strogatz_graph
+from franken_networkx._fnx import random_regular_graph
+from franken_networkx._fnx import powerlaw_cluster_graph
 
 # Read/write — graph I/O
 from franken_networkx._fnx import (
@@ -1494,6 +1499,11 @@ __all__ = [
     # Generators — random
     "gnp_random_graph",
     "watts_strogatz_graph",
+    "erdos_renyi_graph",
+    "newman_watts_strogatz_graph",
+    "connected_watts_strogatz_graph",
+    "random_regular_graph",
+    "powerlaw_cluster_graph",
     "barabasi_albert_graph",
     # Read/write — graph I/O
     "node_link_data",
