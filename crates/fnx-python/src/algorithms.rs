@@ -5986,6 +5986,15 @@ fn is_planar(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     Ok(py.allow_threads(|| fnx_algorithms::is_planar(inner)))
 }
 
+/// Check if a graph is chordal (every cycle of length 4+ has a chord).
+#[pyfunction]
+#[pyo3(signature = (g,))]
+fn is_chordal(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    Ok(py.allow_threads(|| fnx_algorithms::is_chordal(inner)))
+}
+
 /// Find the barycenter of a connected graph.
 ///
 /// The barycenter is the set of nodes minimizing the sum of shortest
@@ -8187,6 +8196,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(faster_could_be_isomorphic, m)?)?;
     // Planarity
     m.add_function(wrap_pyfunction!(is_planar, m)?)?;
+    // Chordality
+    m.add_function(wrap_pyfunction!(is_chordal, m)?)?;
     // Barycenter
     m.add_function(wrap_pyfunction!(barycenter, m)?)?;
     // Approximation algorithms

@@ -392,6 +392,7 @@ from franken_networkx._fnx import (
 
 # Planarity
 from franken_networkx._fnx import is_planar
+from franken_networkx._fnx import is_chordal
 
 # Barycenter
 from franken_networkx._fnx import barycenter
@@ -1711,6 +1712,7 @@ __all__ = [
     "is_attracting_component",
     # Algorithms — planarity
     "is_planar",
+    "is_chordal",
     # Algorithms — barycenter
     "barycenter",
     # Generators — classic

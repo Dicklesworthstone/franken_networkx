@@ -13561,6 +13561,85 @@ fn lr_planarity_test(n: usize, adj: &[Vec<usize>]) -> bool {
     true
 }
 
+// ── Chordality ─────────────────────────────────────────────────────────────
+
+/// Check whether a graph is chordal (every cycle of length 4+ has a chord).
+///
+/// Uses Maximum Cardinality Search (MCS): a graph is chordal iff MCS
+/// produces a perfect elimination ordering.
+#[must_use]
+pub fn is_chordal(graph: &Graph) -> bool {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n <= 3 {
+        return true;
+    }
+
+    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+    let mut adj: Vec<HashSet<usize>> = vec![HashSet::new(); n];
+    for edge in graph.edges_ordered() {
+        let i = idx[edge.left.as_str()];
+        let j = idx[edge.right.as_str()];
+        if i != j {
+            adj[i].insert(j);
+            adj[j].insert(i);
+        }
+    }
+
+    // Maximum Cardinality Search
+    let mut weight = vec![0_usize; n];
+    let mut order = Vec::with_capacity(n);
+    let mut numbered = vec![false; n];
+
+    for _ in 0..n {
+        // Pick unnumbered node with max weight (break ties by index for determinism)
+        let v = (0..n)
+            .filter(|&i| !numbered[i])
+            .max_by_key(|&i| (weight[i], std::cmp::Reverse(i)))
+            .unwrap();
+        order.push(v);
+        numbered[v] = true;
+        for &w in &adj[v] {
+            if !numbered[w] {
+                weight[w] += 1;
+            }
+        }
+    }
+
+    // MCS numbers vertices from n down to 1 conceptually: the first chosen
+    // vertex gets the highest number. Reverse the order so position[v]
+    // corresponds to PEO numbering (first chosen = highest position).
+    order.reverse();
+
+    let position: Vec<usize> = {
+        let mut pos = vec![0; n];
+        for (i, &v) in order.iter().enumerate() {
+            pos[v] = i;
+        }
+        pos
+    };
+
+    // Check PEO: for each node v, its neighbors with HIGHER position
+    // (numbered later in PEO = chosen earlier by MCS) must form a clique.
+    for (idx_in_order, &v) in order.iter().enumerate() {
+        let later_neighbors: Vec<usize> = adj[v]
+            .iter()
+            .filter(|&&w| position[w] > idx_in_order)
+            .copied()
+            .collect();
+
+        for i in 0..later_neighbors.len() {
+            for j in (i + 1)..later_neighbors.len() {
+                if !adj[later_neighbors[i]].contains(&later_neighbors[j]) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    true
+}
+
 // ── Barycenter ──────────────────────────────────────────────────────────────
 
 /// Find the barycenter of a connected graph.
