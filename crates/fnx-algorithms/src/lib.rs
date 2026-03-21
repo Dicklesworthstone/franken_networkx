@@ -6249,17 +6249,147 @@ pub fn is_forest(graph: &Graph) -> IsForestResult {
 /// processing nodes in lexicographic order for determinism.
 #[must_use]
 pub fn greedy_color(graph: &Graph) -> GreedyColorResult {
+    greedy_color_with_strategy(graph, "largest_first")
+}
+
+/// Greedy graph coloring with a specified node ordering strategy.
+///
+/// Strategies:
+/// - `"largest_first"`: descending degree order
+/// - `"smallest_last"`: reverse of iterative smallest-degree removal
+/// - `"random_sequential"`: insertion order (no sorting)
+/// - `"DSATUR"` / `"saturation_largest_first"`: dynamic saturation ordering
+/// - any other: lexicographic (canonical) order
+#[must_use]
+pub fn greedy_color_with_strategy(graph: &Graph, strategy: &str) -> GreedyColorResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     let mut color_map: HashMap<&str, usize> = HashMap::new();
     let mut max_color = 0usize;
     let mut edges_scanned = 0usize;
 
-    // Process nodes in sorted (canonical) order
-    let mut sorted_nodes = nodes.clone();
-    sorted_nodes.sort_unstable();
+    let ordered_nodes: Vec<&str> = match strategy {
+        "largest_first" => {
+            let mut by_degree: Vec<&str> = nodes.clone();
+            by_degree.sort_unstable_by(|a, b| {
+                graph.degree(b).cmp(&graph.degree(a)).then_with(|| a.cmp(b))
+            });
+            by_degree
+        }
+        "smallest_last" => {
+            // Iteratively remove the smallest-degree node, then reverse
+            let mut remaining: Vec<&str> = nodes.clone();
+            let mut order = Vec::with_capacity(n);
+            let mut removed = HashSet::new();
+            for _ in 0..n {
+                let best = remaining
+                    .iter()
+                    .filter(|nd| !removed.contains(*nd))
+                    .min_by(|a, b| {
+                        let deg_a = graph
+                            .neighbors(*a)
+                            .map_or(0, |nbrs| nbrs.iter().filter(|nb| !removed.contains(*nb)).count());
+                        let deg_b = graph
+                            .neighbors(*b)
+                            .map_or(0, |nbrs| nbrs.iter().filter(|nb| !removed.contains(*nb)).count());
+                        deg_a.cmp(&deg_b).then_with(|| a.cmp(b))
+                    })
+                    .copied();
+                if let Some(node) = best {
+                    order.push(node);
+                    removed.insert(node);
+                }
+            }
+            order.reverse();
+            order
+        }
+        "random_sequential" => {
+            // Use insertion order (no sorting)
+            nodes.clone()
+        }
+        "DSATUR" | "saturation_largest_first" => {
+            // DSATUR: dynamically pick uncolored node with highest saturation
+            // (number of distinct colors in its neighborhood)
+            let mut ordered = Vec::with_capacity(n);
+            let mut colored: HashMap<&str, usize> = HashMap::new();
+            let all_nodes: Vec<&str> = nodes.clone();
 
-    for &node in &sorted_nodes {
+            for _ in 0..n {
+                let best = all_nodes
+                    .iter()
+                    .filter(|nd| !colored.contains_key(*nd))
+                    .max_by(|a, b| {
+                        let sat_a = graph
+                            .neighbors(a)
+                            .map_or(0, |nbrs| {
+                                nbrs.iter()
+                                    .filter_map(|nb| colored.get(nb))
+                                    .collect::<HashSet<_>>()
+                                    .len()
+                            });
+                        let sat_b = graph
+                            .neighbors(b)
+                            .map_or(0, |nbrs| {
+                                nbrs.iter()
+                                    .filter_map(|nb| colored.get(nb))
+                                    .collect::<HashSet<_>>()
+                                    .len()
+                            });
+                        sat_a
+                            .cmp(&sat_b)
+                            .then_with(|| graph.degree(b).cmp(&graph.degree(a)))
+                            .then_with(|| a.cmp(b))
+                    })
+                    .copied();
+                if let Some(node) = best {
+                    // Color it immediately for saturation tracking
+                    let mut neighbor_colors = HashSet::new();
+                    if let Some(neighbors) = graph.neighbors_iter(node) {
+                        for neighbor in neighbors {
+                            if let Some(&c) = colored.get(neighbor) {
+                                neighbor_colors.insert(c);
+                            }
+                        }
+                    }
+                    let mut color = 0;
+                    while neighbor_colors.contains(&color) {
+                        color += 1;
+                    }
+                    colored.insert(node, color);
+                    ordered.push(node);
+                }
+            }
+
+            // For DSATUR, we already colored during ordering — return early
+            let coloring: Vec<NodeColor> = ordered
+                .iter()
+                .map(|&node| NodeColor {
+                    node: node.to_owned(),
+                    color: colored[node],
+                })
+                .collect();
+            let num_colors = colored.values().copied().max().map_or(0, |m| m + 1);
+            return GreedyColorResult {
+                coloring,
+                num_colors,
+                witness: ComplexityWitness {
+                    algorithm: "greedy_color".to_owned(),
+                    complexity_claim: "O(|V|^2 * deg)".to_owned(),
+                    nodes_touched: n,
+                    edges_scanned: 0,
+                    queue_peak: 0,
+                },
+            };
+        }
+        _ => {
+            // Default: lexicographic
+            let mut sorted = nodes.clone();
+            sorted.sort_unstable();
+            sorted
+        }
+    };
+
+    for &node in &ordered_nodes {
         let mut neighbor_colors = HashSet::new();
         if let Some(neighbors) = graph.neighbors_iter(node) {
             for neighbor in neighbors {
