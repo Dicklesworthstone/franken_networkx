@@ -483,7 +483,7 @@ impl DiGraph {
 
         // 1. Remove node from its successors' predecessor lists.
         if let Some(succs) = self.successors.get(node) {
-            for target in succs {
+            for target in succs.iter() {
                 if target != node {
                     if let Some(preds) = self.predecessors.get_mut(target) {
                         preds.shift_remove(node);
@@ -494,7 +494,7 @@ impl DiGraph {
 
         // 2. Remove node from its predecessors' successor lists.
         if let Some(preds) = self.predecessors.get(node) {
-            for source in preds {
+            for source in preds.iter() {
                 if source != node {
                     if let Some(succs) = self.successors.get_mut(source) {
                         succs.shift_remove(node);

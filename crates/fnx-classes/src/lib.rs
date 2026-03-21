@@ -435,7 +435,7 @@ impl Graph {
 
         // 1. Remove node from its neighbors' adjacency lists.
         if let Some(neighbors) = self.adjacency.get(node) {
-            let neighbor_names: Vec<String> = neighbors.keys().cloned().collect();
+            let neighbor_names: Vec<String> = neighbors.iter().cloned().collect();
             for neighbor in neighbor_names {
                 if neighbor != node {
                     if let Some(remote_neighbors) = self.adjacency.get_mut(&neighbor) {
