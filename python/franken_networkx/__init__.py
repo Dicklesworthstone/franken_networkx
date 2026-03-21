@@ -1971,6 +1971,243 @@ def bellman_ford_predecessor_and_distance(G, source, weight='weight'):
     return pred, dist
 
 
+# ---------------------------------------------------------------------------
+# Communicability and subgraph centrality (matrix exponential)
+# ---------------------------------------------------------------------------
+
+
+def communicability(G):
+    """Return communicability between all pairs of nodes.
+
+    Based on the matrix exponential of the adjacency matrix.
+
+    Returns
+    -------
+    dict of dicts
+        ``result[u][v]`` is the communicability between u and v.
+    """
+    import numpy as np
+
+    nodelist = list(G.nodes())
+    A = to_numpy_array(G, nodelist=nodelist, weight=None)
+    expA = _matrix_exp(A)
+    n = len(nodelist)
+    result = {}
+    for i in range(n):
+        result[nodelist[i]] = {}
+        for j in range(n):
+            result[nodelist[i]][nodelist[j]] = float(expA[i, j])
+    return result
+
+
+def subgraph_centrality(G):
+    """Return the subgraph centrality for each node.
+
+    The subgraph centrality is the diagonal of the matrix exponential
+    of the adjacency matrix.
+
+    Returns
+    -------
+    dict
+        ``{node: centrality}``
+    """
+    import numpy as np
+
+    nodelist = list(G.nodes())
+    A = to_numpy_array(G, nodelist=nodelist, weight=None)
+    expA = _matrix_exp(A)
+    return {nodelist[i]: float(expA[i, i]) for i in range(len(nodelist))}
+
+
+def _matrix_exp(A):
+    """Compute matrix exponential using eigendecomposition."""
+    import numpy as np
+
+    eigenvalues, eigenvectors = np.linalg.eigh(A)
+    return eigenvectors @ np.diag(np.exp(eigenvalues)) @ eigenvectors.T
+
+
+# ---------------------------------------------------------------------------
+# Assortativity / mixing helpers
+# ---------------------------------------------------------------------------
+
+
+def degree_mixing_dict(G, normalized=False, weight=None):
+    """Return a dictionary of degree-degree mixing counts.
+
+    Returns
+    -------
+    dict of dicts
+        ``result[d1][d2]`` is the count of edges between nodes of
+        degree d1 and degree d2.
+    """
+    result = {}
+    for u, v in G.edges():
+        du = G.degree[u]
+        dv = G.degree[v]
+        result.setdefault(du, {})
+        result[du][dv] = result[du].get(dv, 0) + 1
+        if not G.is_directed():
+            result.setdefault(dv, {})
+            result[dv][du] = result[dv].get(du, 0) + 1
+    if normalized and result:
+        total = sum(sum(inner.values()) for inner in result.values())
+        if total > 0:
+            for d1 in result:
+                for d2 in result[d1]:
+                    result[d1][d2] /= total
+    return result
+
+
+def degree_mixing_matrix(G, normalized=True, weight=None):
+    """Return the degree mixing matrix of *G*.
+
+    Returns
+    -------
+    numpy.ndarray
+        2D array where entry (i,j) counts edges between nodes of
+        degree i and degree j.
+    """
+    import numpy as np
+
+    mixing = degree_mixing_dict(G, normalized=False, weight=weight)
+    if not mixing:
+        return np.array([[]])
+    max_deg = max(max(mixing.keys()), max(max(v.keys()) for v in mixing.values()))
+    M = np.zeros((max_deg + 1, max_deg + 1))
+    for d1, inner in mixing.items():
+        for d2, count in inner.items():
+            M[d1, d2] = count
+    if normalized:
+        total = M.sum()
+        if total > 0:
+            M /= total
+    return M
+
+
+def numeric_assortativity_coefficient(G, attribute, nodes=None):
+    """Return the numeric assortativity coefficient for a node attribute.
+
+    Parameters
+    ----------
+    G : Graph
+    attribute : str
+        Node attribute name containing numeric values.
+
+    Returns
+    -------
+    float
+        Pearson correlation of attribute values across edges.
+    """
+    import numpy as np
+
+    x_vals = []
+    y_vals = []
+    for u, v in G.edges():
+        u_attrs = G.nodes[u] if hasattr(G.nodes, '__getitem__') else {}
+        v_attrs = G.nodes[v] if hasattr(G.nodes, '__getitem__') else {}
+        if isinstance(u_attrs, dict) and isinstance(v_attrs, dict):
+            if attribute in u_attrs and attribute in v_attrs:
+                x_vals.append(float(u_attrs[attribute]))
+                y_vals.append(float(v_attrs[attribute]))
+
+    if len(x_vals) < 2:
+        return 0.0
+
+    x = np.array(x_vals)
+    y = np.array(y_vals)
+    return float(np.corrcoef(x, y)[0, 1])
+
+
+def attribute_assortativity_coefficient(G, attribute, nodes=None):
+    """Return the attribute assortativity coefficient.
+
+    For categorical attributes, this is the normalized modularity
+    of the attribute partition.
+
+    Parameters
+    ----------
+    G : Graph
+    attribute : str
+
+    Returns
+    -------
+    float
+    """
+    # Build partition from attribute values
+    partitions = {}
+    for node in G.nodes():
+        attrs = G.nodes[node] if hasattr(G.nodes, '__getitem__') else {}
+        if isinstance(attrs, dict) and attribute in attrs:
+            val = attrs[attribute]
+            partitions.setdefault(val, set()).add(node)
+
+    if not partitions:
+        return 0.0
+
+    communities = list(partitions.values())
+    try:
+        return modularity(G, communities)
+    except Exception:
+        return 0.0
+
+
+# ---------------------------------------------------------------------------
+# Multi-graph operators
+# ---------------------------------------------------------------------------
+
+
+def intersection_all(graphs):
+    """Return the intersection of all graphs in the iterable."""
+    graphs = list(graphs)
+    if not graphs:
+        return Graph()
+    result = graphs[0].copy()
+    for g in graphs[1:]:
+        result = intersection(result, g)
+    return result
+
+
+def disjoint_union_all(graphs):
+    """Return the disjoint union of all graphs in the iterable."""
+    result = Graph()
+    for i, g in enumerate(graphs):
+        for n in g.nodes():
+            result.add_node((i, n))
+        for u, v in g.edges():
+            result.add_edge((i, u), (i, v))
+    return result
+
+
+def rescale_layout(pos, scale=1.0):
+    """Rescale layout positions to fit within [-scale, scale].
+
+    Parameters
+    ----------
+    pos : dict
+        ``{node: (x, y)}`` positions.
+    scale : float, optional
+
+    Returns
+    -------
+    dict
+        Rescaled positions.
+    """
+    import numpy as np
+
+    if not pos:
+        return pos
+
+    coords = np.array(list(pos.values()))
+    center = coords.mean(axis=0)
+    coords -= center
+    max_extent = np.abs(coords).max()
+    if max_extent > 0:
+        coords *= scale / max_extent
+
+    return {node: tuple(coords[i]) for i, node in enumerate(pos)}
+
+
 # Drawing — thin delegation to NetworkX/matplotlib (lazy import)
 from franken_networkx.drawing import (
     draw,
@@ -2780,6 +3017,15 @@ __all__ = [
     "closeness_vitality",
     "spectral_ordering",
     "bellman_ford_predecessor_and_distance",
+    "communicability",
+    "subgraph_centrality",
+    "degree_mixing_dict",
+    "degree_mixing_matrix",
+    "numeric_assortativity_coefficient",
+    "attribute_assortativity_coefficient",
+    "intersection_all",
+    "disjoint_union_all",
+    "rescale_layout",
     # Algorithms — graph operators
     "union",
     "intersection",
