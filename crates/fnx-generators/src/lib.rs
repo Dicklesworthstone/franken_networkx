@@ -478,6 +478,350 @@ impl GraphGenerator {
         Ok((clamped, Some(warning)))
     }
 
+    /// Generate a Newman-Watts-Strogatz small-world graph.
+    ///
+    /// Like Watts-Strogatz but adds shortcut edges instead of rewiring,
+    /// guaranteeing the graph stays connected.
+    pub fn newman_watts_strogatz_graph(
+        &mut self,
+        n: usize,
+        k: usize,
+        p: f64,
+        seed: u64,
+    ) -> Result<GenerationReport, GenerationError> {
+        let (n, mut warnings) =
+            self.validate_n("newman_watts_strogatz_graph", n, MAX_N_GNP)?;
+        let (p, p_warning) =
+            self.validate_probability("newman_watts_strogatz_graph", p)?;
+        if let Some(warning) = p_warning {
+            warnings.push(warning);
+        }
+
+        if !k.is_multiple_of(2) {
+            return Err(GenerationError::FailClosed {
+                operation: "newman_watts_strogatz_graph",
+                reason: format!("k={k} must be even"),
+            });
+        }
+        if n < k || k < 2 {
+            return Err(GenerationError::FailClosed {
+                operation: "newman_watts_strogatz_graph",
+                reason: format!("requires n >= k >= 2, got n={n}, k={k}"),
+            });
+        }
+
+        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
+        let half_k = k / 2;
+        let mut rng = StdRng::seed_from_u64(seed);
+
+        // Step 1: Build ring lattice.
+        for i in 0..n {
+            for j in 1..=half_k {
+                let right = (i + j) % n;
+                let _ = graph.add_edge(node_labels[i].clone(), node_labels[right].clone());
+            }
+        }
+
+        // Step 2: Add shortcut edges with probability p (don't remove originals).
+        for i in 0..n {
+            for j in 1..=half_k {
+                if rng.random::<f64>() < p {
+                    let mut new_target = rng.random_range(0..n);
+                    let mut attempts = 0;
+                    while (new_target == i
+                        || graph.has_edge(&node_labels[i], &node_labels[new_target]))
+                        && attempts < n
+                    {
+                        new_target = rng.random_range(0..n);
+                        attempts += 1;
+                    }
+                    if attempts < n {
+                        let _ =
+                            graph.add_edge(node_labels[i].clone(), node_labels[new_target].clone());
+                    }
+                }
+            }
+        }
+
+        self.record(
+            "newman_watts_strogatz_graph",
+            DecisionAction::Allow,
+            0.08,
+            format!(
+                "generated newman-watts-strogatz graph with n={n}, k={k}, p={p}, seed={seed}"
+            ),
+        );
+        Ok(GenerationReport { graph, warnings })
+    }
+
+    /// Generate a connected Watts-Strogatz small-world graph.
+    ///
+    /// Repeatedly generates a Watts-Strogatz graph until a connected one is
+    /// found, incrementing the seed each attempt.
+    pub fn connected_watts_strogatz_graph(
+        &mut self,
+        n: usize,
+        k: usize,
+        p: f64,
+        seed: u64,
+    ) -> Result<GenerationReport, GenerationError> {
+        let max_tries = 100;
+        for attempt in 0..max_tries {
+            let report = self.watts_strogatz_graph(n, k, p, seed.wrapping_add(attempt))?;
+            // Check if the generated graph is connected via BFS.
+            let is_connected = {
+                let nodes = report.graph.nodes_ordered();
+                if nodes.len() <= 1 {
+                    true
+                } else {
+                    let mut visited = std::collections::HashSet::new();
+                    let mut queue = std::collections::VecDeque::new();
+                    visited.insert(nodes[0]);
+                    queue.push_back(nodes[0]);
+                    while let Some(current) = queue.pop_front() {
+                        if let Some(nbrs) = report.graph.neighbors(current) {
+                            for nb in nbrs {
+                                if visited.insert(nb) {
+                                    queue.push_back(nb);
+                                }
+                            }
+                        }
+                    }
+                    visited.len() == nodes.len()
+                }
+            };
+            if is_connected {
+                return Ok(report);
+            }
+        }
+        Err(GenerationError::FailClosed {
+            operation: "connected_watts_strogatz_graph",
+            reason: format!(
+                "failed to generate a connected graph after {max_tries} attempts"
+            ),
+        })
+    }
+
+    /// Generate a random k-regular graph on n nodes.
+    ///
+    /// Uses the pairing model: generate a random perfect matching on
+    /// n*k half-edges, then check for multi-edges. Retry if invalid.
+    pub fn random_regular_graph(
+        &mut self,
+        n: usize,
+        d: usize,
+        seed: u64,
+    ) -> Result<GenerationReport, GenerationError> {
+        let (n, warnings) = self.validate_n("random_regular_graph", n, MAX_N_GNP)?;
+
+        if n * d % 2 != 0 {
+            return Err(GenerationError::FailClosed {
+                operation: "random_regular_graph",
+                reason: format!("n*d must be even, got n={n}, d={d}"),
+            });
+        }
+        if d >= n {
+            return Err(GenerationError::FailClosed {
+                operation: "random_regular_graph",
+                reason: format!("d must be < n, got n={n}, d={d}"),
+            });
+        }
+
+        let mut rng = StdRng::seed_from_u64(seed);
+        let (_, node_labels) = graph_with_n_nodes(self.mode, n);
+        let max_tries = 100;
+
+        for _ in 0..max_tries {
+            // Create stubs: d copies of each node index
+            let mut stubs: Vec<usize> = Vec::with_capacity(n * d);
+            for i in 0..n {
+                for _ in 0..d {
+                    stubs.push(i);
+                }
+            }
+            // Fisher-Yates shuffle
+            for i in (1..stubs.len()).rev() {
+                let j = rng.random_range(0..=i);
+                stubs.swap(i, j);
+            }
+
+            // Pair consecutive stubs
+            let mut valid = true;
+            let mut graph = Graph::new(self.mode);
+            for label in &node_labels {
+                let _ = graph.add_node(label.clone());
+            }
+            let mut seen = std::collections::HashSet::new();
+
+            for pair in stubs.chunks_exact(2) {
+                let u = pair[0];
+                let v = pair[1];
+                if u == v {
+                    valid = false;
+                    break;
+                }
+                let edge = if u < v { (u, v) } else { (v, u) };
+                if !seen.insert(edge) {
+                    // Multi-edge — invalid
+                    valid = false;
+                    break;
+                }
+            }
+
+            if valid {
+                for pair in stubs.chunks_exact(2) {
+                    let _ = graph.add_edge(
+                        node_labels[pair[0]].clone(),
+                        node_labels[pair[1]].clone(),
+                    );
+                }
+                self.record(
+                    "random_regular_graph",
+                    DecisionAction::Allow,
+                    0.08,
+                    format!(
+                        "generated random regular graph with n={n}, d={d}, seed={seed}"
+                    ),
+                );
+                return Ok(GenerationReport { graph, warnings });
+            }
+        }
+
+        Err(GenerationError::FailClosed {
+            operation: "random_regular_graph",
+            reason: format!(
+                "failed to generate a valid regular graph after {max_tries} attempts"
+            ),
+        })
+    }
+
+    /// Generate a Holme-Kim powerlaw cluster graph.
+    ///
+    /// Like Barabási-Albert with an additional triangle-closing step:
+    /// after each preferential attachment, with probability `p` close a
+    /// triangle by connecting to a random neighbor of the target.
+    pub fn powerlaw_cluster_graph(
+        &mut self,
+        n: usize,
+        m: usize,
+        p: f64,
+        seed: u64,
+    ) -> Result<GenerationReport, GenerationError> {
+        let (n, mut warnings) =
+            self.validate_n("powerlaw_cluster_graph", n, MAX_N_GNP)?;
+        let (p, p_warning) =
+            self.validate_probability("powerlaw_cluster_graph", p)?;
+        if let Some(warning) = p_warning {
+            warnings.push(warning);
+        }
+
+        if m < 1 || m > n {
+            return Err(GenerationError::FailClosed {
+                operation: "powerlaw_cluster_graph",
+                reason: format!("requires 1 <= m <= n, got m={m}, n={n}"),
+            });
+        }
+
+        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
+        let mut rng = StdRng::seed_from_u64(seed);
+
+        // Start with a complete graph on m nodes
+        for i in 0..m {
+            for j in (i + 1)..m {
+                let _ = graph.add_edge(node_labels[i].clone(), node_labels[j].clone());
+            }
+        }
+
+        let mut repeated_nodes: Vec<usize> = Vec::new();
+        for i in 0..m {
+            for _ in 0..(m - 1) {
+                repeated_nodes.push(i);
+            }
+        }
+        if repeated_nodes.is_empty() {
+            for i in 0..m {
+                repeated_nodes.push(i);
+            }
+        }
+
+        for source in m..n {
+            let mut targets = Vec::with_capacity(m);
+            let mut target_set = std::collections::HashSet::new();
+
+            // First attachment: preferential
+            let idx = rng.random_range(0..repeated_nodes.len());
+            let first_target = repeated_nodes[idx];
+            target_set.insert(first_target);
+            targets.push(first_target);
+
+            // Remaining attachments: triad formation or preferential
+            let mut count = 1;
+            while count < m {
+                if rng.random::<f64>() < p {
+                    // Try to close a triangle
+                    let last_target = *targets.last().unwrap();
+                    let nbrs = graph
+                        .neighbors(&node_labels[last_target])
+                        .unwrap_or_default();
+                    let candidates: Vec<&str> = nbrs
+                        .into_iter()
+                        .filter(|nb| {
+                            let nb_idx = nb.parse::<usize>().unwrap_or(n);
+                            nb_idx != source && !target_set.contains(&nb_idx)
+                        })
+                        .collect();
+                    if !candidates.is_empty() {
+                        let chosen_name =
+                            candidates[rng.random_range(0..candidates.len())];
+                        let chosen_idx =
+                            chosen_name.parse::<usize>().unwrap_or(n);
+                        if chosen_idx < n {
+                            target_set.insert(chosen_idx);
+                            targets.push(chosen_idx);
+                            count += 1;
+                            continue;
+                        }
+                    }
+                }
+                // Fall back to preferential attachment
+                let mut attempts = 0;
+                loop {
+                    let idx = rng.random_range(0..repeated_nodes.len());
+                    let candidate = repeated_nodes[idx];
+                    if target_set.insert(candidate) {
+                        targets.push(candidate);
+                        count += 1;
+                        break;
+                    }
+                    attempts += 1;
+                    if attempts > repeated_nodes.len() {
+                        count = m; // break outer
+                        break;
+                    }
+                }
+            }
+
+            for &target in &targets {
+                let _ = graph.add_edge(
+                    node_labels[source].clone(),
+                    node_labels[target].clone(),
+                );
+                repeated_nodes.push(source);
+                repeated_nodes.push(target);
+            }
+        }
+
+        self.record(
+            "powerlaw_cluster_graph",
+            DecisionAction::Allow,
+            0.08,
+            format!(
+                "generated powerlaw cluster graph with n={n}, m={m}, p={p}, seed={seed}"
+            ),
+        );
+        Ok(GenerationReport { graph, warnings })
+    }
+
     fn record(
         &mut self,
         operation: &'static str,

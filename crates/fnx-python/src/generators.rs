@@ -180,6 +180,80 @@ pub fn barabasi_albert_graph(py: Python<'_>, n: usize, m: usize, seed: u64) -> P
     report_to_pygraph(py, report.graph)
 }
 
+/// Return an Erdős–Rényi random graph (alias for ``gnp_random_graph``).
+#[pyfunction]
+pub fn erdos_renyi_graph(py: Python<'_>, n: usize, p: f64, seed: u64) -> PyResult<PyGraph> {
+    gnp_random_graph(py, n, p, seed)
+}
+
+/// Return a Newman-Watts-Strogatz small-world graph.
+///
+/// Unlike ``watts_strogatz_graph``, shortcut edges are added without removing
+/// the original ring edges, guaranteeing the graph stays connected.
+#[pyfunction]
+pub fn newman_watts_strogatz_graph(
+    py: Python<'_>,
+    n: usize,
+    k: usize,
+    p: f64,
+    seed: u64,
+) -> PyResult<PyGraph> {
+    let mut gg = GraphGenerator::strict();
+    let report = gg
+        .newman_watts_strogatz_graph(n, k, p, seed)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    report_to_pygraph(py, report.graph)
+}
+
+/// Return a connected Watts-Strogatz small-world graph.
+///
+/// Repeatedly generates Watts-Strogatz graphs until a connected one is found.
+#[pyfunction]
+pub fn connected_watts_strogatz_graph(
+    py: Python<'_>,
+    n: usize,
+    k: usize,
+    p: f64,
+    seed: u64,
+) -> PyResult<PyGraph> {
+    let mut gg = GraphGenerator::strict();
+    let report = gg
+        .connected_watts_strogatz_graph(n, k, p, seed)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    report_to_pygraph(py, report.graph)
+}
+
+/// Return a random d-regular graph on n nodes.
+///
+/// The resulting graph has exactly ``n`` nodes, each with degree ``d``.
+/// Requires ``n * d`` to be even and ``d < n``.
+#[pyfunction]
+pub fn random_regular_graph(py: Python<'_>, d: usize, n: usize, seed: u64) -> PyResult<PyGraph> {
+    let mut gg = GraphGenerator::strict();
+    let report = gg
+        .random_regular_graph(n, d, seed)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    report_to_pygraph(py, report.graph)
+}
+
+/// Return a Holme-Kim powerlaw cluster graph.
+///
+/// Like Barabási-Albert with an additional triangle-closing step.
+#[pyfunction]
+pub fn powerlaw_cluster_graph(
+    py: Python<'_>,
+    n: usize,
+    m: usize,
+    p: f64,
+    seed: u64,
+) -> PyResult<PyGraph> {
+    let mut gg = GraphGenerator::strict();
+    let report = gg
+        .powerlaw_cluster_graph(n, m, p, seed)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    report_to_pygraph(py, report.graph)
+}
+
 // ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
@@ -193,5 +267,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(gnp_random_graph, m)?)?;
     m.add_function(wrap_pyfunction!(watts_strogatz_graph, m)?)?;
     m.add_function(wrap_pyfunction!(barabasi_albert_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(erdos_renyi_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(newman_watts_strogatz_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(connected_watts_strogatz_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(random_regular_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(powerlaw_cluster_graph, m)?)?;
     Ok(())
 }
