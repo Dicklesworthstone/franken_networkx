@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
-use fnx_classes::digraph::DiGraph;
-use fnx_classes::{AttrMap, Graph, GraphError, GraphSnapshot};
+use fnx_classes::digraph::{DiGraph, MultiDiGraph};
+use fnx_classes::{AttrMap, Graph, GraphError, GraphSnapshot, MultiGraph};
 use fnx_dispatch::{BackendRegistry, BackendSpec, DispatchError, DispatchRequest};
 use fnx_runtime::{
     CompatibilityMode, DecisionAction, DecisionRecord, EvidenceLedger, EvidenceTerm, unix_time_ms,
@@ -14,6 +14,8 @@ use std::fmt;
 pub struct EdgeRecord {
     pub left: String,
     pub right: String,
+    #[serde(default)]
+    pub key: Option<usize>,
     #[serde(default)]
     pub attrs: AttrMap,
 }
@@ -28,6 +30,8 @@ pub struct EdgeListPayload {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AdjacencyEntry {
     pub to: String,
+    #[serde(default)]
+    pub key: Option<usize>,
     #[serde(default)]
     pub attrs: AttrMap,
 }
@@ -47,6 +51,20 @@ pub struct ConvertReport {
 #[derive(Debug, Clone)]
 pub struct DiConvertReport {
     pub graph: DiGraph,
+    pub warnings: Vec<String>,
+    pub ledger: EvidenceLedger,
+}
+
+#[derive(Debug, Clone)]
+pub struct MultiConvertReport {
+    pub graph: MultiGraph,
+    pub warnings: Vec<String>,
+    pub ledger: EvidenceLedger,
+}
+
+#[derive(Debug, Clone)]
+pub struct MultiDiConvertReport {
+    pub graph: MultiDiGraph,
     pub warnings: Vec<String>,
     pub ledger: EvidenceLedger,
 }
@@ -195,6 +213,70 @@ impl GraphConverter {
         })
     }
 
+    pub fn multigraph_from_edge_list(
+        &mut self,
+        payload: &EdgeListPayload,
+    ) -> Result<MultiConvertReport, ConvertError> {
+        let feature = "convert_edge_list";
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "convert_edge_list".to_owned(),
+            requested_backend: None,
+            required_features: set([feature]),
+            risk_probability: 0.05,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let mut graph = MultiGraph::new(self.mode);
+        let mut warnings = Vec::new();
+
+        self.populate_from_edge_list(&mut graph, &mut warnings, payload)?;
+
+        self.record(
+            "convert_edge_list",
+            DecisionAction::Allow,
+            "multigraph edge-list conversion completed",
+            0.02,
+        );
+
+        Ok(MultiConvertReport {
+            graph,
+            warnings,
+            ledger: self.ledger.clone(),
+        })
+    }
+
+    pub fn multidigraph_from_edge_list(
+        &mut self,
+        payload: &EdgeListPayload,
+    ) -> Result<MultiDiConvertReport, ConvertError> {
+        let feature = "convert_edge_list";
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "convert_edge_list".to_owned(),
+            requested_backend: None,
+            required_features: set([feature]),
+            risk_probability: 0.05,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let mut graph = MultiDiGraph::new(self.mode);
+        let mut warnings = Vec::new();
+
+        self.populate_from_edge_list(&mut graph, &mut warnings, payload)?;
+
+        self.record(
+            "convert_edge_list",
+            DecisionAction::Allow,
+            "multidigraph edge-list conversion completed",
+            0.02,
+        );
+
+        Ok(MultiDiConvertReport {
+            graph,
+            warnings,
+            ledger: self.ledger.clone(),
+        })
+    }
+
     fn populate_from_edge_list<G>(
         &mut self,
         graph: &mut G,
@@ -258,7 +340,12 @@ impl GraphConverter {
                 );
                 continue;
             }
-            graph.add_edge_with_attrs(edge.left.clone(), edge.right.clone(), edge.attrs.clone())?;
+            graph.add_edge_with_key_and_attrs(
+                edge.left.clone(),
+                edge.right.clone(),
+                edge.key,
+                edge.attrs.clone(),
+            )?;
         }
         Ok(())
     }
@@ -327,6 +414,70 @@ impl GraphConverter {
         })
     }
 
+    pub fn multigraph_from_adjacency(
+        &mut self,
+        payload: &AdjacencyPayload,
+    ) -> Result<MultiConvertReport, ConvertError> {
+        let feature = "convert_adjacency";
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "convert_adjacency".to_owned(),
+            requested_backend: None,
+            required_features: set([feature]),
+            risk_probability: 0.08,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let mut graph = MultiGraph::new(self.mode);
+        let mut warnings = Vec::new();
+
+        self.populate_from_adjacency(&mut graph, &mut warnings, payload)?;
+
+        self.record(
+            "convert_adjacency",
+            DecisionAction::Allow,
+            "multigraph adjacency conversion completed",
+            0.03,
+        );
+
+        Ok(MultiConvertReport {
+            graph,
+            warnings,
+            ledger: self.ledger.clone(),
+        })
+    }
+
+    pub fn multidigraph_from_adjacency(
+        &mut self,
+        payload: &AdjacencyPayload,
+    ) -> Result<MultiDiConvertReport, ConvertError> {
+        let feature = "convert_adjacency";
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "convert_adjacency".to_owned(),
+            requested_backend: None,
+            required_features: set([feature]),
+            risk_probability: 0.08,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let mut graph = MultiDiGraph::new(self.mode);
+        let mut warnings = Vec::new();
+
+        self.populate_from_adjacency(&mut graph, &mut warnings, payload)?;
+
+        self.record(
+            "convert_adjacency",
+            DecisionAction::Allow,
+            "multidigraph adjacency conversion completed",
+            0.03,
+        );
+
+        Ok(MultiDiConvertReport {
+            graph,
+            warnings,
+            ledger: self.ledger.clone(),
+        })
+    }
+
     fn populate_from_adjacency<G>(
         &mut self,
         graph: &mut G,
@@ -386,9 +537,10 @@ impl GraphConverter {
                     );
                     continue;
                 }
-                graph.add_edge_with_attrs(
+                graph.add_edge_with_key_and_attrs(
                     node.clone(),
                     neighbor.to.clone(),
+                    neighbor.key,
                     neighbor.attrs.clone(),
                 )?;
             }
@@ -405,6 +557,13 @@ trait GraphLike {
         target: String,
         attrs: AttrMap,
     ) -> Result<bool, GraphError>;
+    fn add_edge_with_key_and_attrs(
+        &mut self,
+        source: String,
+        target: String,
+        key: Option<usize>,
+        attrs: AttrMap,
+    ) -> Result<usize, GraphError>;
 }
 
 impl GraphLike for Graph {
@@ -420,6 +579,15 @@ impl GraphLike for Graph {
         self.add_edge_with_attrs(source, target, attrs)
             .map(|_| true)
     }
+    fn add_edge_with_key_and_attrs(
+        &mut self,
+        source: String,
+        target: String,
+        _key: Option<usize>,
+        attrs: AttrMap,
+    ) -> Result<usize, GraphError> {
+        self.add_edge_with_attrs(source, target, attrs).map(|_| 0)
+    }
 }
 
 impl GraphLike for DiGraph {
@@ -434,6 +602,69 @@ impl GraphLike for DiGraph {
     ) -> Result<bool, GraphError> {
         self.add_edge_with_attrs(source, target, attrs)
             .map(|_| true)
+    }
+    fn add_edge_with_key_and_attrs(
+        &mut self,
+        source: String,
+        target: String,
+        _key: Option<usize>,
+        attrs: AttrMap,
+    ) -> Result<usize, GraphError> {
+        self.add_edge_with_attrs(source, target, attrs).map(|_| 0)
+    }
+}
+
+impl GraphLike for MultiGraph {
+    fn add_node(&mut self, node: String) -> bool {
+        self.add_node(node)
+    }
+    fn add_edge_with_attrs(
+        &mut self,
+        source: String,
+        target: String,
+        attrs: AttrMap,
+    ) -> Result<bool, GraphError> {
+        self.add_edge_with_attrs(source, target, attrs)
+            .map(|_| true)
+    }
+    fn add_edge_with_key_and_attrs(
+        &mut self,
+        source: String,
+        target: String,
+        key: Option<usize>,
+        attrs: AttrMap,
+    ) -> Result<usize, GraphError> {
+        match key {
+            Some(k) => self.add_edge_with_key_and_attrs(source, target, k, attrs),
+            None => self.add_edge_with_attrs(source, target, attrs),
+        }
+    }
+}
+
+impl GraphLike for MultiDiGraph {
+    fn add_node(&mut self, node: String) -> bool {
+        self.add_node(node)
+    }
+    fn add_edge_with_attrs(
+        &mut self,
+        source: String,
+        target: String,
+        attrs: AttrMap,
+    ) -> Result<bool, GraphError> {
+        self.add_edge_with_attrs(source, target, attrs)
+            .map(|_| true)
+    }
+    fn add_edge_with_key_and_attrs(
+        &mut self,
+        source: String,
+        target: String,
+        key: Option<usize>,
+        attrs: AttrMap,
+    ) -> Result<usize, GraphError> {
+        match key {
+            Some(k) => self.add_edge_with_key_and_attrs(source, target, k, attrs),
+            None => self.add_edge_with_attrs(source, target, attrs),
+        }
     }
 }
 
@@ -555,5 +786,33 @@ mod tests {
             .expect("conversion should succeed");
         assert!(report.graph.has_edge("a", "b"));
         assert!(!report.graph.has_edge("b", "a"));
+    }
+
+    #[test]
+    fn convert_multigraph_from_edge_list() {
+        let mut converter = GraphConverter::strict();
+        let payload = EdgeListPayload {
+            nodes: vec!["a".to_owned(), "b".to_owned()],
+            edges: vec![
+                EdgeRecord {
+                    left: "a".to_owned(),
+                    right: "b".to_owned(),
+                    key: Some(0),
+                    attrs: AttrMap::new(),
+                },
+                EdgeRecord {
+                    left: "a".to_owned(),
+                    right: "b".to_owned(),
+                    key: Some(1),
+                    attrs: AttrMap::new(),
+                },
+            ],
+        };
+
+        let report = converter
+            .multigraph_from_edge_list(&payload)
+            .expect("conversion should succeed");
+        assert_eq!(report.graph.node_count(), 2);
+        assert_eq!(report.graph.edge_count(), 2);
     }
 }

@@ -4,6 +4,7 @@ pub mod digraph;
 
 use fnx_runtime::{
     CompatibilityMode, DecisionAction, DecisionRecord, EvidenceLedger, EvidenceTerm, unix_time_ms,
+    CgseValue,
 };
 use indexmap::{IndexMap, IndexSet};
 use serde::{Deserialize, Serialize};
@@ -11,7 +12,7 @@ use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::fmt;
 
-pub type AttrMap = BTreeMap<String, String>;
+pub type AttrMap = BTreeMap<String, CgseValue>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct EdgeKey {

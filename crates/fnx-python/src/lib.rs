@@ -56,9 +56,37 @@ pub(crate) fn py_dict_to_attr_map(attrs: &Bound<'_, PyDict>) -> PyResult<AttrMap
     let mut rust_attrs = AttrMap::new();
     for (k, v) in attrs.iter() {
         let key: String = k.extract()?;
-        rust_attrs.insert(key, v.str()?.to_string());
+        let val = if let Ok(s) = v.extract::<String>() {
+            CgseValue::String(s)
+        } else if let Ok(f) = v.extract::<f64>() {
+            CgseValue::Float(f)
+        } else if let Ok(i) = v.extract::<i64>() {
+            CgseValue::Int(i)
+        } else if let Ok(b) = v.extract::<bool>() {
+            CgseValue::Bool(b)
+        } else {
+            CgseValue::String(v.str()?.to_string())
+        };
+        rust_attrs.insert(key, val);
     }
     Ok(rust_attrs)
+}
+
+pub(crate) fn cgse_value_to_py(py: Python<'_>, val: &CgseValue) -> PyObject {
+    match val {
+        CgseValue::String(s) => s.clone().into_pyobject(py).unwrap().into_any().unbind(),
+        CgseValue::Float(f) => f.into_pyobject(py).unwrap().into_any().unbind(),
+        CgseValue::Int(i) => i.into_pyobject(py).unwrap().into_any().unbind(),
+        CgseValue::Bool(b) => b.into_pyobject(py).unwrap().into_any().unbind(),
+    }
+}
+
+pub(crate) fn attr_map_to_py_dict(py: Python<'_>, attrs: &AttrMap) -> PyResult<Py<PyDict>> {
+    let dict = PyDict::new(py);
+    for (k, v) in attrs {
+        dict.set_item(k, cgse_value_to_py(py, v))?;
+    }
+    Ok(dict.unbind())
 }
 
 // ---------------------------------------------------------------------------

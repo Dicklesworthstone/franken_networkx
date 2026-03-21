@@ -39,6 +39,69 @@ pub enum DecisionAction {
     FailClosed,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CgseValue {
+    String(String),
+    Float(f64),
+    Int(i64),
+    Bool(bool),
+}
+
+impl Eq for CgseValue {}
+
+impl From<String> for CgseValue {
+    fn from(s: String) -> Self {
+        Self::String(s)
+    }
+}
+
+impl From<&str> for CgseValue {
+    fn from(s: &str) -> Self {
+        Self::String(s.to_owned())
+    }
+}
+
+impl From<f64> for CgseValue {
+    fn from(f: f64) -> Self {
+        Self::Float(f)
+    }
+}
+
+impl From<i64> for CgseValue {
+    fn from(i: i64) -> Self {
+        Self::Int(i)
+    }
+}
+
+impl From<bool> for CgseValue {
+    fn from(b: bool) -> Self {
+        Self::Bool(b)
+    }
+}
+
+impl CgseValue {
+    #[must_use]
+    pub fn as_f64(&self) -> Option<f64> {
+        match self {
+            Self::Float(f) => Some(*f),
+            Self::Int(i) => Some(*i as f64),
+            Self::String(s) => s.parse::<f64>().ok(),
+            Self::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
+        }
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> String {
+        match self {
+            Self::String(s) => s.clone(),
+            Self::Float(f) => f.to_string(),
+            Self::Int(i) => i.to_string(),
+            Self::Bool(b) => b.to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CgseOperationFamily {

@@ -973,7 +973,6 @@ pub fn shortest_path_weighted_directed(
         };
     }
 
-    let ordered_nodes = digraph.nodes_ordered();
     let mut distances: HashMap<&str, f64> = HashMap::new();
     let mut predecessors: HashMap<&str, &str> = HashMap::new();
     let mut pq = BinaryHeap::new();
@@ -3953,7 +3952,7 @@ fn edge_weight_or_default(graph: &Graph, left: &str, right: &str, weight_attr: &
     graph
         .edge_attrs(left, right)
         .and_then(|attrs| attrs.get(weight_attr))
-        .and_then(|raw| raw.parse::<f64>().ok())
+        .and_then(|val| val.as_f64())
         .filter(|value| value.is_finite() && *value >= 0.0)
         .unwrap_or(1.0)
 }
@@ -3962,7 +3961,7 @@ fn signed_edge_weight_or_default(graph: &Graph, left: &str, right: &str, weight_
     graph
         .edge_attrs(left, right)
         .and_then(|attrs| attrs.get(weight_attr))
-        .and_then(|raw| raw.parse::<f64>().ok())
+        .and_then(|val| val.as_f64())
         .filter(|value| value.is_finite())
         .unwrap_or(1.0)
 }
@@ -3976,7 +3975,7 @@ fn matching_edge_weight_or_default(
     graph
         .edge_attrs(left, right)
         .and_then(|attrs| attrs.get(weight_attr))
-        .and_then(|raw| raw.parse::<f64>().ok())
+        .and_then(|val| val.as_f64())
         .filter(|value| value.is_finite())
         .unwrap_or(1.0)
 }
@@ -15517,7 +15516,7 @@ fn directed_edge_weight_with_default(
     digraph
         .edge_attrs(source, target)
         .and_then(|attrs| attrs.get(weight_attr))
-        .and_then(|raw| raw.parse::<f64>().ok())
+        .and_then(|val| val.as_f64())
         .filter(|value| value.is_finite())
         .unwrap_or(default_weight)
 }
