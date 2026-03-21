@@ -2527,59 +2527,51 @@ fn edge_betweenness_centrality_generic<G: GraphView>(graph: &G) -> EdgeBetweenne
     let mut edges_scanned = 0usize;
     let mut queue_peak = 0usize;
 
-    for source in &nodes {
-        let mut stack = Vec::<&str>::with_capacity(n);
-        let mut predecessors = HashMap::<&str, Vec<&str>>::new();
-        let mut sigma = HashMap::<&str, f64>::new();
-        let mut distance = HashMap::<&str, i64>::new();
-        for node in &nodes {
-            predecessors.insert(*node, Vec::new());
-            sigma.insert(*node, 0.0);
-            distance.insert(*node, -1);
-        }
-        sigma.insert(*source, 1.0);
-        distance.insert(*source, 0);
+    for s in 0..n {
+        let mut stack = Vec::<usize>::with_capacity(n);
+        let mut predecessors = vec![Vec::<usize>::new(); n];
+        let mut sigma = vec![0.0; n];
+        let mut distance = vec![-1i64; n];
 
-        let mut queue = VecDeque::<&str>::new();
-        queue.push_back(source);
+        sigma[s] = 1.0;
+        distance[s] = 0;
+
+        let mut queue = VecDeque::<usize>::new();
+        queue.push_back(s);
         queue_peak = queue_peak.max(queue.len());
 
         while let Some(v) = queue.pop_front() {
             stack.push(v);
-            let dist_v = *distance.get(v).unwrap_or(&-1);
-            if let Some(neighbors) = graph.neighbors_iter(v) {
-                for w in neighbors {
+            let dist_v = distance[v];
+            if let Some(neighbors) = graph.neighbors_iter(nodes[v]) {
+                for w_name in neighbors {
                     edges_scanned += 1;
-                    if *distance.get(w).unwrap_or(&-1) < 0 {
-                        distance.insert(w, dist_v + 1);
+                    let w = graph.get_node_index(w_name).unwrap();
+                    if distance[w] < 0 {
+                        distance[w] = dist_v + 1;
                         queue.push_back(w);
                         queue_peak = queue_peak.max(queue.len());
                     }
-                    if *distance.get(w).unwrap_or(&-1) == dist_v + 1 {
-                        let sigma_v = *sigma.get(v).unwrap_or(&0.0);
-                        *sigma.entry(w).or_insert(0.0) += sigma_v;
-                        predecessors.entry(w).or_default().push(v);
+                    if distance[w] == dist_v + 1 {
+                        sigma[w] += sigma[v];
+                        predecessors[w].push(v);
                     }
                 }
             }
         }
         nodes_touched += stack.len();
 
-        let mut dependency = HashMap::<&str, f64>::new();
-        for node in &nodes {
-            dependency.insert(*node, 0.0);
-        }
-
+        let mut dependency = vec![0.0; n];
         while let Some(w) = stack.pop() {
-            let sigma_w = *sigma.get(w).unwrap_or(&0.0);
-            let delta_w = *dependency.get(w).unwrap_or(&0.0);
+            let sigma_w = sigma[w];
+            let delta_w = dependency[w];
             if sigma_w > 0.0 {
-                for v in predecessors.get(w).map(Vec::as_slice).unwrap_or(&[]) {
-                    let sigma_v = *sigma.get(v).unwrap_or(&0.0);
+                for &v in &predecessors[w] {
+                    let sigma_v = sigma[v];
                     let contribution = (sigma_v / sigma_w) * (1.0 + delta_w);
-                    let key = canonical_edge_key(v, w);
+                    let key = canonical_edge_key(nodes[v], nodes[w]);
                     *edge_scores.entry(key).or_insert(0.0) += contribution;
-                    *dependency.entry(v).or_insert(0.0) += contribution;
+                    dependency[v] += contribution;
                 }
             }
         }

@@ -1834,6 +1834,24 @@ __all__ = [
     "greedy_modularity_communities",
     "girvan_newman",
     "k_clique_communities",
+    # Attribute helpers
+    "set_node_attributes",
+    "get_node_attributes",
+    "set_edge_attributes",
+    "get_edge_attributes",
+    # Utility functions
+    "create_empty_copy",
+    "number_of_selfloops",
+    "selfloop_edges",
+    "nodes_with_selfloops",
+    "all_neighbors",
+    "add_path",
+    "add_cycle",
+    "add_star",
+    # Graph products
+    "cartesian_product",
+    "tensor_product",
+    "strong_product",
     # Algorithms — graph operators
     "union",
     "intersection",

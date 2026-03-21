@@ -411,18 +411,22 @@ impl PyMultiGraph {
                 n.repr()?
             )));
         }
+
+        // surgically remove attributes for incident edges before removing node from inner graph
+        if let Some(neighbors) = self.inner.neighbors(&canonical) {
+            for nb in neighbors {
+                if let Some(keys) = self.inner.edge_keys(&canonical, nb) {
+                    for key in keys {
+                        let ek = Self::edge_key(&canonical, nb, key);
+                        self.edge_py_attrs.remove(&ek);
+                    }
+                }
+            }
+        }
+
         self.inner.remove_node(&canonical);
         self.node_key_map.remove(&canonical);
         self.node_py_attrs.remove(&canonical);
-        let keys_to_remove: Vec<(String, String, usize)> = self
-            .edge_py_attrs
-            .keys()
-            .filter(|(u, v, _)| u == &canonical || v == &canonical)
-            .cloned()
-            .collect();
-        for k in keys_to_remove {
-            self.edge_py_attrs.remove(&k);
-        }
         Ok(())
     }
 
@@ -432,18 +436,19 @@ impl PyMultiGraph {
             let item = item?;
             let canonical = node_key_to_string(py, &item)?;
             if self.inner.has_node(&canonical) {
+                if let Some(neighbors) = self.inner.neighbors(&canonical) {
+                    for nb in neighbors {
+                        if let Some(keys) = self.inner.edge_keys(&canonical, nb) {
+                            for key in keys {
+                                let ek = Self::edge_key(&canonical, nb, key);
+                                self.edge_py_attrs.remove(&ek);
+                            }
+                        }
+                    }
+                }
                 self.inner.remove_node(&canonical);
                 self.node_key_map.remove(&canonical);
                 self.node_py_attrs.remove(&canonical);
-                let keys_to_remove: Vec<(String, String, usize)> = self
-                    .edge_py_attrs
-                    .keys()
-                    .filter(|(u, v, _)| u == &canonical || v == &canonical)
-                    .cloned()
-                    .collect();
-                for k in keys_to_remove {
-                    self.edge_py_attrs.remove(&k);
-                }
             }
         }
         Ok(())
@@ -1562,19 +1567,18 @@ impl PyGraph {
             )));
         }
         log::debug!(target: "franken_networkx", "remove_node: {canonical}");
+
+        // surgically remove attributes for incident edges before removing node from inner graph
+        if let Some(neighbors) = self.inner.neighbors(&canonical) {
+            for nb in neighbors {
+                let ek = Self::edge_key(&canonical, nb);
+                self.edge_py_attrs.remove(&ek);
+            }
+        }
+
         self.inner.remove_node(&canonical);
         self.node_key_map.remove(&canonical);
         self.node_py_attrs.remove(&canonical);
-        // Remove edges involving this node.
-        let keys_to_remove: Vec<(String, String)> = self
-            .edge_py_attrs
-            .keys()
-            .filter(|(u, v)| u == &canonical || v == &canonical)
-            .cloned()
-            .collect();
-        for k in keys_to_remove {
-            self.edge_py_attrs.remove(&k);
-        }
         Ok(())
     }
 
@@ -1585,18 +1589,15 @@ impl PyGraph {
             let item = item?;
             let canonical = node_key_to_string(py, &item)?;
             if self.inner.has_node(&canonical) {
+                if let Some(neighbors) = self.inner.neighbors(&canonical) {
+                    for nb in neighbors {
+                        let ek = Self::edge_key(&canonical, nb);
+                        self.edge_py_attrs.remove(&ek);
+                    }
+                }
                 self.inner.remove_node(&canonical);
                 self.node_key_map.remove(&canonical);
                 self.node_py_attrs.remove(&canonical);
-                let keys_to_remove: Vec<(String, String)> = self
-                    .edge_py_attrs
-                    .keys()
-                    .filter(|(u, v)| u == &canonical || v == &canonical)
-                    .cloned()
-                    .collect();
-                for k in keys_to_remove {
-                    self.edge_py_attrs.remove(&k);
-                }
             }
         }
         Ok(())
