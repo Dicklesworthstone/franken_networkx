@@ -492,12 +492,19 @@ mod tests {
             }],
         };
 
-        let report = converter.from_edge_list(&payload).expect("conversion should succeed");
+        let report = converter
+            .from_edge_list(&payload)
+            .expect("conversion should succeed");
         assert_eq!(report.graph.node_count(), 2);
         assert_eq!(report.graph.edge_count(), 1);
         assert_eq!(report.graph.node_attrs("a").unwrap().len(), 0);
         assert_eq!(
-            report.graph.edge_attrs("a", "b").unwrap().get("weight").unwrap(),
+            report
+                .graph
+                .edge_attrs("a", "b")
+                .unwrap()
+                .get("weight")
+                .unwrap(),
             "1.0"
         );
     }
@@ -515,11 +522,18 @@ mod tests {
         );
         let payload = AdjacencyPayload { adjacency };
 
-        let report = converter.from_adjacency(&payload).expect("conversion should succeed");
+        let report = converter
+            .from_adjacency(&payload)
+            .expect("conversion should succeed");
         assert_eq!(report.graph.node_count(), 2);
         assert_eq!(report.graph.edge_count(), 1);
         assert_eq!(
-            report.graph.edge_attrs("a", "b").unwrap().get("weight").unwrap(),
+            report
+                .graph
+                .edge_attrs("a", "b")
+                .unwrap()
+                .get("weight")
+                .unwrap(),
             "2.0"
         );
     }
@@ -536,7 +550,9 @@ mod tests {
             }],
         };
 
-        let report = converter.digraph_from_edge_list(&payload).expect("conversion should succeed");
+        let report = converter
+            .digraph_from_edge_list(&payload)
+            .expect("conversion should succeed");
         assert!(report.graph.has_edge("a", "b"));
         assert!(!report.graph.has_edge("b", "a"));
     }

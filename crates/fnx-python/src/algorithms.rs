@@ -48,7 +48,7 @@ pub(crate) enum GraphRef<'py> {
 
 enum WeightedGraphProjection<'a> {
     Borrowed(&'a fnx_classes::Graph),
-    Owned(fnx_classes::Graph),
+    Owned(Box<fnx_classes::Graph>),
 }
 
 impl WeightedGraphProjection<'_> {
@@ -62,7 +62,7 @@ impl WeightedGraphProjection<'_> {
 
 enum WeightedDiGraphProjection<'a> {
     Borrowed(&'a fnx_classes::digraph::DiGraph),
-    Owned(fnx_classes::digraph::DiGraph),
+    Owned(Box<fnx_classes::digraph::DiGraph>),
 }
 
 impl WeightedDiGraphProjection<'_> {
@@ -174,9 +174,9 @@ impl<'py> GraphRef<'py> {
         match self {
             GraphRef::Undirected(pg) => WeightedGraphProjection::Borrowed(&pg.inner),
             GraphRef::Directed { undirected, .. } => WeightedGraphProjection::Borrowed(undirected),
-            GraphRef::MultiUndirected { mg, .. } => WeightedGraphProjection::Owned(
+            GraphRef::MultiUndirected { mg, .. } => WeightedGraphProjection::Owned(Box::new(
                 multigraph_to_weighted_simple_graph(&mg.inner, weight_attr),
-            ),
+            )),
             GraphRef::MultiDirected { .. } => WeightedGraphProjection::Borrowed(self.undirected()),
         }
     }
@@ -187,9 +187,11 @@ impl<'py> GraphRef<'py> {
     ) -> Option<WeightedDiGraphProjection<'_>> {
         match self {
             GraphRef::Directed { dg, .. } => Some(WeightedDiGraphProjection::Borrowed(&dg.inner)),
-            GraphRef::MultiDirected { mdg, .. } => Some(WeightedDiGraphProjection::Owned(
-                multidigraph_to_weighted_simple_digraph(&mdg.inner, weight_attr),
-            )),
+            GraphRef::MultiDirected { mdg, .. } => {
+                Some(WeightedDiGraphProjection::Owned(Box::new(
+                    multidigraph_to_weighted_simple_digraph(&mdg.inner, weight_attr),
+                )))
+            }
             _ => None,
         }
     }

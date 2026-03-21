@@ -28198,9 +28198,14 @@ mod test_dijkstra_bug {
         let mut g = DiGraph::strict();
         g.add_edge("a", "b").unwrap();
         g.add_edge("b", "c").unwrap();
-        println!("successors of b: {:?}", g.successors("b"));
         let res = multi_source_dijkstra_directed(&g, &["b"], "weight");
-        println!("dists: {:?}", res.distances);
-        assert!(false); // force fail
+        let distances = res
+            .distances
+            .iter()
+            .map(|entry| (entry.node.as_str(), entry.distance))
+            .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(distances.get("b"), Some(&0.0));
+        assert_eq!(distances.get("c"), Some(&1.0));
+        assert!(!distances.contains_key("a"));
     }
 }
