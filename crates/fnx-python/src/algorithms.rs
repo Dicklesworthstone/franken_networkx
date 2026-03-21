@@ -251,7 +251,7 @@ fn multigraph_to_simple_graph(mg: &fnx_classes::MultiGraph) -> fnx_classes::Grap
 fn projected_weight(attrs: &AttrMap, weight_attr: &str) -> f64 {
     attrs
         .get(weight_attr)
-        .and_then(|raw| raw.parse::<f64>().ok())
+        .and_then(|raw| raw.as_f64())
         .filter(|weight| weight.is_finite())
         .unwrap_or(1.0)
 }
@@ -628,7 +628,7 @@ fn spanning_input_graph(
         let has_nan_weight = edge
             .attrs
             .get(weight)
-            .and_then(|weight_value| weight_value.parse::<f64>().ok())
+            .and_then(|weight_value| weight_value.as_f64())
             .is_some_and(f64::is_nan);
         if has_nan_weight {
             if ignore_nan {
@@ -1210,7 +1210,7 @@ pub fn shortest_path_length(
                         let attrs = inner.edge_attrs(&path[i], &path[i + 1]);
                         let w = attrs
                             .and_then(|a| a.get(_w))
-                            .and_then(|v| v.parse::<f64>().ok())
+                            .and_then(|v| v.as_f64())
                             .unwrap_or(1.0);
                         total += w;
                     }

@@ -845,9 +845,7 @@ impl EdgeListEngine {
                                 .map_err(|e| xml_write_err("data_start", e))?;
                             let attr_text = attr_value.as_str();
                             writer
-                                .write_event(Event::Text(BytesText::new(
-                                    attr_value.as_str().as_str(),
-                                )))
+                                .write_event(Event::Text(BytesText::new(&attr_text)))
                                 .map_err(|e| xml_write_err("data_text", e))?;
                             writer
                                 .write_event(Event::End(BytesEnd::new("data")))
@@ -885,7 +883,7 @@ impl EdgeListEngine {
                             .map_err(|e| xml_write_err("data_start", e))?;
                         let attr_text = attr_value.as_str();
                         writer
-                            .write_event(Event::Text(BytesText::new(attr_value.as_str().as_str())))
+                            .write_event(Event::Text(BytesText::new(&attr_text)))
                             .map_err(|e| xml_write_err("data_text", e))?;
                         writer
                             .write_event(Event::End(BytesEnd::new("data")))
@@ -1857,7 +1855,7 @@ mod tests {
                 let attrs = edge
                     .attrs
                     .iter()
-                    .map(|(key, value)| format!("{key}={value}"))
+                    .map(|(key, value)| format!("{key}={}", value.as_str()))
                     .collect::<Vec<String>>()
                     .join(";");
                 format!("{}>{}[{attrs}]", edge.left, edge.right)
@@ -1878,14 +1876,14 @@ mod tests {
             .add_edge_with_attrs(
                 "a".to_owned(),
                 "b".to_owned(),
-                BTreeMap::from([("weight".to_owned(), "1".to_owned())]),
+                BTreeMap::from([("weight".to_owned(), CgseValue::String("1".to_owned()))]),
             )
             .expect("edge add should succeed");
         graph
             .add_edge_with_attrs(
                 "a".to_owned(),
                 "c".to_owned(),
-                BTreeMap::from([("label".to_owned(), "blue".to_owned())]),
+                BTreeMap::from([("label".to_owned(), CgseValue::String("blue".to_owned()))]),
             )
             .expect("edge add should succeed");
         graph
@@ -1893,8 +1891,8 @@ mod tests {
                 "b".to_owned(),
                 "d".to_owned(),
                 BTreeMap::from([
-                    ("weight".to_owned(), "3".to_owned()),
-                    ("capacity".to_owned(), "7".to_owned()),
+                    ("weight".to_owned(), CgseValue::String("3".to_owned())),
+                    ("capacity".to_owned(), CgseValue::String("7".to_owned())),
                 ]),
             )
             .expect("edge add should succeed");

@@ -7,6 +7,7 @@
 
 use crate::{NetworkXError, NodeNotFound, PyGraph, node_key_to_string, unwrap_infallible};
 use fnx_classes::AttrMap;
+use fnx_runtime::CgseValue;
 use fnx_classes::digraph::{DiGraph, MultiDiGraph};
 use pyo3::exceptions::{PyKeyError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -245,7 +246,7 @@ impl PyMultiDiGraph {
         if let Some(a) = attr {
             for (k, v) in a.iter() {
                 let key: String = k.extract()?;
-                rust_attrs.insert(key.clone(), v.str()?.to_string());
+                rust_attrs.insert(key.clone(), CgseValue::String(v.str()?.to_string()));
                 py_dict.bind(py).set_item(k, v)?;
             }
         }
@@ -311,7 +312,7 @@ impl PyMultiDiGraph {
         if let Some(a) = attr {
             for (k, val) in a.iter() {
                 let attr_key: String = k.extract()?;
-                rust_attrs.insert(attr_key, val.str()?.to_string());
+                rust_attrs.insert(attr_key, CgseValue::String(val.str()?.to_string()));
             }
         }
         let actual_key = match key {
@@ -1538,7 +1539,7 @@ impl PyDiGraph {
             for (k, v) in a.iter() {
                 let key: String = k.extract()?;
                 let val_str = v.str()?.to_string();
-                rust_attrs.insert(key.clone(), val_str);
+                rust_attrs.insert(key.clone(), CgseValue::String(val_str));
                 py_dict.bind(py).set_item(k, v)?;
             }
         }
@@ -1669,7 +1670,7 @@ impl PyDiGraph {
             for (k, val) in a.iter() {
                 let key: String = k.extract()?;
                 let val_str = val.str()?.to_string();
-                rust_attrs.insert(key, val_str);
+                rust_attrs.insert(key, CgseValue::String(val_str));
                 py_dict.bind(py).set_item(k, val)?;
             }
         }

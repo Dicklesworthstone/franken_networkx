@@ -5172,7 +5172,8 @@ pub fn partition_spanning_tree(
                         .edge_attrs(node, neighbor)
                         .and_then(|attrs| attrs.get(partition_attr))
                         .as_ref()
-                        .map(|value| value.as_str()),
+                        .map(|value| value.as_str())
+                        .as_deref(),
                 ) {
                     PartitionState::Included => included_edges.push(entry),
                     PartitionState::Excluded => {}

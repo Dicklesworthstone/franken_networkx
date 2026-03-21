@@ -12,6 +12,7 @@ mod readwrite;
 mod views;
 
 use fnx_classes::{AttrMap, Graph, MultiGraph};
+use fnx_runtime::CgseValue;
 use pyo3::exceptions::{PyKeyError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyIterator, PyTuple};
@@ -72,22 +73,17 @@ pub(crate) fn py_dict_to_attr_map(attrs: &Bound<'_, PyDict>) -> PyResult<AttrMap
     Ok(rust_attrs)
 }
 
+use pyo3::IntoPyObjectExt;
+
 pub(crate) fn cgse_value_to_py(py: Python<'_>, val: &CgseValue) -> PyObject {
     match val {
-        CgseValue::String(s) => s.clone().into_pyobject(py).unwrap().into_any().unbind(),
-        CgseValue::Float(f) => f.into_pyobject(py).unwrap().into_any().unbind(),
-        CgseValue::Int(i) => i.into_pyobject(py).unwrap().into_any().unbind(),
-        CgseValue::Bool(b) => b.into_pyobject(py).unwrap().into_any().unbind(),
+        CgseValue::String(s) => s.into_py_any(py).unwrap(),
+        CgseValue::Float(f) => f.into_py_any(py).unwrap(),
+        CgseValue::Int(i) => i.into_py_any(py).unwrap(),
+        CgseValue::Bool(b) => b.into_py_any(py).unwrap(),
     }
 }
 
-pub(crate) fn attr_map_to_py_dict(py: Python<'_>, attrs: &AttrMap) -> PyResult<Py<PyDict>> {
-    let dict = PyDict::new(py);
-    for (k, v) in attrs {
-        dict.set_item(k, cgse_value_to_py(py, v))?;
-    }
-    Ok(dict.unbind())
-}
 
 // ---------------------------------------------------------------------------
 // PyGraph — the main graph class wrapping fnx_classes::Graph.
@@ -392,7 +388,7 @@ impl PyMultiGraph {
             for (k, v) in a.iter() {
                 let key: String = k.extract()?;
                 let val_str = v.str()?.to_string();
-                rust_attrs.insert(key.clone(), val_str);
+                rust_attrs.insert(key.clone(), CgseValue::String(val_str));
                 py_dict.bind(py).set_item(k, v)?;
             }
         }
@@ -511,7 +507,7 @@ impl PyMultiGraph {
         if let Some(a) = attr {
             for (k, val) in a.iter() {
                 let attr_key: String = k.extract()?;
-                rust_attrs.insert(attr_key, val.str()?.to_string());
+                rust_attrs.insert(attr_key, CgseValue::String(val.str()?.to_string()));
             }
         }
 
@@ -1541,7 +1537,7 @@ impl PyGraph {
             for (k, v) in a.iter() {
                 let key: String = k.extract()?;
                 let val_str = v.str()?.to_string();
-                rust_attrs.insert(key.clone(), val_str);
+                rust_attrs.insert(key.clone(), CgseValue::String(val_str));
                 py_dict.bind(py).set_item(k, v)?;
             }
         }
@@ -1671,7 +1667,7 @@ impl PyGraph {
             for (k, val) in a.iter() {
                 let key: String = k.extract()?;
                 let val_str = val.str()?.to_string();
-                rust_attrs.insert(key, val_str);
+                rust_attrs.insert(key, CgseValue::String(val_str));
                 py_dict.bind(py).set_item(k, val)?;
             }
         }
