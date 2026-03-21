@@ -4,7 +4,7 @@ Usage::
 
     import franken_networkx as fnx
 
-    G = fnx.Graph()
+    G = franken_networkx.Graph()
     G.add_edge("a", "b", weight=3.0)
     G.add_edge("b", "c", weight=1.5)
     path = fnx.shortest_path(G, "a", "c", weight="weight")
@@ -2841,103 +2841,191 @@ def all_topological_sorts(G):
     if not is_directed_acyclic_graph(G):
         raise NetworkXUnfeasible("Graph contains a cycle, not a DAG")
 
-    nodes = list(G.nodes())
-    n = len(nodes)
+    n = len(G)
     if n == 0:
         yield []
         return
 
-    # Build in-degree map
-    in_deg = {}
-    succs = {}
-    for node in nodes:
-        in_deg[node] = 0
-        succs[node] = []
-    for u, v in G.edges():
-        in_deg[v] = in_deg.get(v, 0) + 1
-        succs[u].append(v)
+    in_deg = dict(G.in_degree())
+    # Maintenance of the set of nodes with in-degree 0
+    zero_in_degree = [v for v, d in in_deg.items() if d == 0]
 
-    def _backtrack(in_deg, result, visited):
-        # Find all nodes with in-degree 0 that haven't been visited
-        candidates = sorted(n for n in nodes if in_deg[n] == 0 and n not in visited)
-        if not candidates:
-            if len(result) == n:
-                yield list(result)
+    def _backtrack(zero_in_degree, result):
+        if len(result) == n:
+            yield list(result)
             return
 
-        for node in candidates:
-            # Choose this node
+        for i in range(len(zero_in_degree)):
+            node = zero_in_degree[i]
+            # Copy zero_in_degree and remove current node
+            next_zero = zero_in_degree[:i] + zero_in_degree[i + 1 :]
             result.append(node)
-            visited.add(node)
-            # Decrease in-degree of successors
-            for s in succs[node]:
+
+            # Decrease in-degree of successors and add to next_zero if they become 0
+            # We must be careful not to mutate in_deg permanently here
+            decremented = []
+            for s in G.successors(node):
                 in_deg[s] -= 1
+                if in_deg[s] == 0:
+                    next_zero.append(s)
+                decremented.append(s)
+
             # Recurse
-            yield from _backtrack(in_deg, result, visited)
-            # Undo
-            for s in succs[node]:
+            yield from _backtrack(next_zero, result)
+
+            # Undo changes
+            for s in decremented:
                 in_deg[s] += 1
-            visited.remove(node)
             result.pop()
 
-    yield from _backtrack(dict(in_deg), [], set())
+    yield from _backtrack(zero_in_degree, [])
 
 
 def lowest_common_ancestor(G, node1, node2, default=None):
-    """Return the lowest common ancestor of *node1* and *node2* in a DAG.
-
-    The LCA is the deepest node that is an ancestor of both.
+    """Compute the lowest common ancestor of the given pair of nodes.
 
     Parameters
     ----------
-    G : DiGraph
-        Must be a DAG.
-    node1, node2 : node
-    default : object, optional
-        Returned if no common ancestor exists.
+    G : NetworkX directed graph
+
+    node1, node2 : nodes in the graph.
+
+    default : object
+        Returned if no common ancestor between `node1` and `node2`
 
     Returns
     -------
-    node or default
+    The lowest common ancestor of node1 and node2,
+    or default if they have no common ancestors.
     """
-    anc1 = set(ancestors(G, node1)) | {node1}
-    anc2 = set(ancestors(G, node2)) | {node2}
-    common = anc1 & anc2
-
-    if not common:
-        return default
-
-    # Find the deepest common ancestor (furthest from roots)
-    # Use topological order: the last common ancestor in topo order is the LCA
-    topo = topological_sort(G)
-    lca = default
-    for node in topo:
-        if node in common:
-            lca = node
-    return lca
+    ans = list(all_pairs_lowest_common_ancestor(G, pairs=[(node1, node2)]))
+    if ans:
+        return ans[0][1]
+    return default
 
 
 def all_pairs_lowest_common_ancestor(G, pairs=None):
-    """Yield LCA for all pairs (or specified pairs) in a DAG.
+    """Return the lowest common ancestor of all pairs or the provided pairs
 
     Parameters
     ----------
-    G : DiGraph
-        Must be a DAG.
-    pairs : iterable of (node, node), optional
-        If None, compute for all pairs.
+    G : NetworkX directed graph
+
+    pairs : iterable of pairs of nodes, optional (default: all pairs)
+        The pairs of nodes of interest.
+        If None, will find the LCA of all pairs of nodes.
 
     Yields
     ------
-    ((node1, node2), lca)
-    """
-    if pairs is None:
-        nodes = list(G.nodes())
-        pairs = [(u, v) for i, u in enumerate(nodes) for v in nodes[i:]]
+    ((node1, node2), lca) : 2-tuple
+        Where lca is least common ancestor of node1 and node2.
 
-    for u, v in pairs:
-        lca = lowest_common_ancestor(G, u, v)
-        yield ((u, v), lca)
+    Raises
+    ------
+    NetworkXPointlessConcept
+        If `G` is null.
+    NetworkXError
+        If `G` is not a DAG.
+    """
+    if not is_directed_acyclic_graph(G):
+        raise NetworkXError("LCA only defined on directed acyclic graphs.")
+    if len(G) == 0:
+        raise NetworkXPointlessConcept("LCA meaningless on null graphs.")
+
+    if pairs is None:
+        from itertools import combinations_with_replacement
+
+        pairs = combinations_with_replacement(G, 2)
+    else:
+        # Verify that each of the nodes in the provided pairs is in G
+        nodeset = set(G)
+        for u, v in pairs:
+            if u not in nodeset:
+                raise NodeNotFound(f"Node {u} not in G.")
+            if v not in nodeset:
+                raise NodeNotFound(f"Node {v} not in G.")
+
+    def generate_lca_from_pairs(G, pairs):
+        ancestor_cache = {}
+
+        for v, w in pairs:
+            if v not in ancestor_cache:
+                anc_v = ancestors(G, v)
+                anc_v.add(v)
+                ancestor_cache[v] = anc_v
+            if w not in ancestor_cache:
+                anc_w = ancestors(G, w)
+                anc_w.add(w)
+                ancestor_cache[w] = anc_w
+
+            common_ancestors = ancestor_cache[v] & ancestor_cache[w]
+
+            if common_ancestors:
+                # Find a common ancestor that has no successor in common_ancestors
+                # This matches NetworkX's search strategy for DAGs
+                common_ancestor = next(iter(common_ancestors))
+                while True:
+                    successor = None
+                    for lower_ancestor in G.successors(common_ancestor):
+                        if lower_ancestor in common_ancestors:
+                            successor = lower_ancestor
+                            break
+                    if successor is None:
+                        break
+                    common_ancestor = successor
+                yield ((v, w), common_ancestor)
+
+    return generate_lca_from_pairs(G, pairs)
+
+
+def root_to_leaf_paths(G):
+    """Yields root-to-leaf paths in a directed acyclic graph."""
+    roots = (v for v, d in G.in_degree() if d == 0)
+    leaves = (v for v, d in G.out_degree() if d == 0)
+    from itertools import product
+
+    for root, leaf in product(roots, leaves):
+        yield from all_simple_paths(G, root, leaf)
+
+
+def prefix_tree(paths):
+    """Creates a directed prefix tree from a list of paths."""
+    # Simplified implementation of prefix_tree for internal use by dag_to_branching
+    tree = DiGraph()
+    root = 0
+    tree.add_node(root, source=None)
+    nodes_count = 1
+
+    for path in paths:
+        parent = root
+        for node in path:
+            # Check if any successor of parent has node as source
+            found = None
+            for succ in tree.successors(parent):
+                if tree.nodes[succ].get("source") == node:
+                    found = succ
+                    break
+            if found is None:
+                new_node = nodes_count
+                nodes_count += 1
+                tree.add_node(new_node, source=node)
+                tree.add_edge(parent, new_node)
+                parent = new_node
+            else:
+                parent = found
+    return tree
+
+
+def dag_to_branching(G):
+    """Return a branching (forest of arborescences) from a DAG."""
+    if not is_directed_acyclic_graph(G):
+        raise HasACycle("dag_to_branching is only defined for acyclic graphs")
+
+    paths = root_to_leaf_paths(G)
+    B = prefix_tree(paths)
+    # Remove the synthetic root (0)
+    B.remove_node(0)
+    return B
 
 
 def transitive_closure_dag(G, topo_order=None):
@@ -2962,59 +3050,6 @@ def transitive_closure_dag(G, topo_order=None):
 
     # Use transitive_closure from Rust backend (already implemented)
     return transitive_closure(G)
-
-
-def dag_to_branching(G):
-    """Return a branching (forest of arborescences) from a DAG.
-
-    Each node in the branching represents a unique path from a root
-    to that node in the DAG. Nodes with multiple parents are duplicated.
-
-    Parameters
-    ----------
-    G : DiGraph
-        Must be a DAG.
-
-    Returns
-    -------
-    DiGraph
-        A branching where each node has at most one predecessor.
-    """
-    if not is_directed_acyclic_graph(G):
-        raise NetworkXUnfeasible("Graph contains a cycle, not a DAG")
-
-    B = DiGraph()
-    counter = [0]
-
-    def _make_id(original):
-        counter[0] += 1
-        return (original, counter[0])
-
-    # Find roots (nodes with no predecessors)
-    all_nodes = set(G.nodes())
-    has_pred = set()
-    for u, v in G.edges():
-        has_pred.add(v)
-    roots = all_nodes - has_pred
-
-    if not roots:
-        return B
-
-    # BFS from each root, duplicating nodes with multiple parents
-    for root in sorted(roots, key=str):
-        root_id = _make_id(root)
-        B.add_node(root_id)
-        queue = [(root, root_id)]
-        while queue:
-            node, node_id = queue.pop(0)
-            succs = list(G.successors(node)) if hasattr(G, 'successors') else []
-            for s in sorted(succs, key=str):
-                s_id = _make_id(s)
-                B.add_node(s_id)
-                B.add_edge(node_id, s_id)
-                queue.append((s, s_id))
-
-    return B
 
 
 # ---------------------------------------------------------------------------
@@ -3224,6 +3259,126 @@ def johnson(G, weight='weight'):
     """
     # For graphs without negative edges, just use all-pairs Dijkstra
     return all_pairs_dijkstra_path_length(G, weight=weight)
+
+
+# ---------------------------------------------------------------------------
+# Spectral & Matrix (numpy/scipy) — br-ulw
+# ---------------------------------------------------------------------------
+
+
+def bethe_hessian_matrix(G, r=None, nodelist=None):
+    """Return the Bethe Hessian matrix: H(r) = (r^2-1)*I - r*A + D."""
+    import numpy as np
+    import scipy.sparse
+    A = to_scipy_sparse_array(G, nodelist=nodelist, weight=None)
+    n = A.shape[0]
+    d = np.asarray(A.sum(axis=1)).flatten()
+    D = scipy.sparse.diags(d)
+    if r is None:
+        r = max(np.sqrt(d.mean()), 1.0) if n > 0 else 1.0
+    I = scipy.sparse.eye(n)
+    return (r ** 2 - 1) * I - r * A + D
+
+
+def bethe_hessian_spectrum(G, r=None):
+    """Return sorted eigenvalues of the Bethe Hessian matrix."""
+    import numpy as np
+    H = bethe_hessian_matrix(G, r=r)
+    return np.sort(np.linalg.eigvalsh(H.toarray()))
+
+
+def google_matrix(G, alpha=0.85, personalization=None, nodelist=None, weight='weight'):
+    """Return the Google PageRank matrix: alpha*S + (1-alpha)*v*e^T."""
+    import numpy as np
+    if nodelist is None:
+        nodelist = list(G.nodes())
+    n = len(nodelist)
+    if n == 0:
+        return np.array([[]])
+    A = to_numpy_array(G, nodelist=nodelist, weight=weight)
+    row_sums = A.sum(axis=1)
+    S = np.zeros_like(A)
+    for i in range(n):
+        if row_sums[i] > 0:
+            S[i, :] = A[i, :] / row_sums[i]
+        else:
+            S[i, :] = 1.0 / n
+    if personalization is None:
+        v = np.ones(n) / n
+    else:
+        idx_map = {node: i for i, node in enumerate(nodelist)}
+        v = np.array([personalization.get(node, 0) for node in nodelist], dtype=float)
+        s = v.sum()
+        v = v / s if s > 0 else np.ones(n) / n
+    return alpha * S + (1 - alpha) * np.outer(np.ones(n), v)
+
+
+def normalized_laplacian_spectrum(G, weight='weight'):
+    """Return sorted eigenvalues of the normalized Laplacian."""
+    import numpy as np
+    NL = normalized_laplacian_matrix(G, weight=weight)
+    return np.sort(np.linalg.eigvalsh(NL.toarray()))
+
+
+def directed_laplacian_matrix(G, nodelist=None, weight='weight', alpha=0.95):
+    """Return the directed Laplacian using PageRank stationary distribution."""
+    import numpy as np
+    if nodelist is None:
+        nodelist = list(G.nodes())
+    n = len(nodelist)
+    if n == 0:
+        return np.array([[]])
+    A = to_numpy_array(G, nodelist=nodelist, weight=weight)
+    row_sums = A.sum(axis=1)
+    row_sums[row_sums == 0] = 1
+    P = A / row_sums[:, np.newaxis]
+    G_mat = alpha * P + (1 - alpha) / n * np.ones((n, n))
+    vals, vecs = np.linalg.eig(G_mat.T)
+    idx = np.argmin(np.abs(vals - 1.0))
+    pi = np.real(vecs[:, idx])
+    pi = np.maximum(pi / pi.sum(), 0)
+    Phi = np.diag(pi)
+    return Phi - (Phi @ P + P.T @ Phi) / 2.0
+
+
+def directed_combinatorial_laplacian_matrix(G, nodelist=None, weight='weight', alpha=0.95):
+    """Return the directed combinatorial Laplacian: Phi*(I - P)."""
+    import numpy as np
+    if nodelist is None:
+        nodelist = list(G.nodes())
+    n = len(nodelist)
+    if n == 0:
+        return np.array([[]])
+    A = to_numpy_array(G, nodelist=nodelist, weight=weight)
+    row_sums = A.sum(axis=1)
+    row_sums[row_sums == 0] = 1
+    P = A / row_sums[:, np.newaxis]
+    G_mat = alpha * P + (1 - alpha) / n * np.ones((n, n))
+    vals, vecs = np.linalg.eig(G_mat.T)
+    idx = np.argmin(np.abs(vals - 1.0))
+    pi = np.real(vecs[:, idx])
+    pi = np.maximum(pi / pi.sum(), 0)
+    return np.diag(pi) @ (np.eye(n) - P)
+
+
+def attr_matrix(G, edge_attr=None, node_attr=None, normalized=False, rc_order=None, dtype=None):
+    """Construct a matrix from edge attributes."""
+    import numpy as np
+    nodelist = list(rc_order) if rc_order is not None else list(G.nodes())
+    n = len(nodelist)
+    idx = {node: i for i, node in enumerate(nodelist)}
+    M = np.zeros((n, n), dtype=dtype or np.float64)
+    for u, v, data in G.edges(data=True):
+        if u in idx and v in idx:
+            val = data.get(edge_attr, 1) if edge_attr and isinstance(data, dict) else 1
+            M[idx[u], idx[v]] = val
+            if not G.is_directed():
+                M[idx[v], idx[u]] = val
+    if normalized:
+        rs = M.sum(axis=1)
+        rs[rs == 0] = 1
+        M = M / rs[:, np.newaxis]
+    return M, nodelist
 
 
 # Drawing — thin delegation to NetworkX/matplotlib (lazy import)
@@ -4090,6 +4245,14 @@ __all__ = [
     "reconstruct_path",
     "generate_random_paths",
     "johnson",
+    # Spectral & Matrix
+    "bethe_hessian_matrix",
+    "bethe_hessian_spectrum",
+    "google_matrix",
+    "normalized_laplacian_spectrum",
+    "directed_laplacian_matrix",
+    "directed_combinatorial_laplacian_matrix",
+    "attr_matrix",
     # Algorithms — graph operators
     "union",
     "intersection",
