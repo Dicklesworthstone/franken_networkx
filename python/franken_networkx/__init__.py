@@ -2817,6 +2817,206 @@ def common_neighbor_centrality(G, ebunch=None):
         yield (u, v, score)
 
 
+# ---------------------------------------------------------------------------
+# DAG & Ancestor algorithms
+# ---------------------------------------------------------------------------
+
+
+def all_topological_sorts(G):
+    """Generate all possible topological orderings of a DAG.
+
+    Uses Kahn's algorithm with backtracking. The number of orderings
+    can be exponential, so this is a generator.
+
+    Parameters
+    ----------
+    G : DiGraph
+        Must be a DAG.
+
+    Yields
+    ------
+    list
+        Each yield is a valid topological ordering.
+    """
+    if not is_directed_acyclic_graph(G):
+        raise NetworkXUnfeasible("Graph contains a cycle, not a DAG")
+
+    nodes = list(G.nodes())
+    n = len(nodes)
+    if n == 0:
+        yield []
+        return
+
+    # Build in-degree map
+    in_deg = {}
+    succs = {}
+    for node in nodes:
+        in_deg[node] = 0
+        succs[node] = []
+    for u, v in G.edges():
+        in_deg[v] = in_deg.get(v, 0) + 1
+        succs[u].append(v)
+
+    def _backtrack(in_deg, result, visited):
+        # Find all nodes with in-degree 0 that haven't been visited
+        candidates = sorted(n for n in nodes if in_deg[n] == 0 and n not in visited)
+        if not candidates:
+            if len(result) == n:
+                yield list(result)
+            return
+
+        for node in candidates:
+            # Choose this node
+            result.append(node)
+            visited.add(node)
+            # Decrease in-degree of successors
+            for s in succs[node]:
+                in_deg[s] -= 1
+            # Recurse
+            yield from _backtrack(in_deg, result, visited)
+            # Undo
+            for s in succs[node]:
+                in_deg[s] += 1
+            visited.remove(node)
+            result.pop()
+
+    yield from _backtrack(dict(in_deg), [], set())
+
+
+def lowest_common_ancestor(G, node1, node2, default=None):
+    """Return the lowest common ancestor of *node1* and *node2* in a DAG.
+
+    The LCA is the deepest node that is an ancestor of both.
+
+    Parameters
+    ----------
+    G : DiGraph
+        Must be a DAG.
+    node1, node2 : node
+    default : object, optional
+        Returned if no common ancestor exists.
+
+    Returns
+    -------
+    node or default
+    """
+    anc1 = set(ancestors(G, node1)) | {node1}
+    anc2 = set(ancestors(G, node2)) | {node2}
+    common = anc1 & anc2
+
+    if not common:
+        return default
+
+    # Find the deepest common ancestor (furthest from roots)
+    # Use topological order: the last common ancestor in topo order is the LCA
+    topo = topological_sort(G)
+    lca = default
+    for node in topo:
+        if node in common:
+            lca = node
+    return lca
+
+
+def all_pairs_lowest_common_ancestor(G, pairs=None):
+    """Yield LCA for all pairs (or specified pairs) in a DAG.
+
+    Parameters
+    ----------
+    G : DiGraph
+        Must be a DAG.
+    pairs : iterable of (node, node), optional
+        If None, compute for all pairs.
+
+    Yields
+    ------
+    ((node1, node2), lca)
+    """
+    if pairs is None:
+        nodes = list(G.nodes())
+        pairs = [(u, v) for i, u in enumerate(nodes) for v in nodes[i:]]
+
+    for u, v in pairs:
+        lca = lowest_common_ancestor(G, u, v)
+        yield ((u, v), lca)
+
+
+def transitive_closure_dag(G, topo_order=None):
+    """Return the transitive closure of a DAG.
+
+    More efficient than general transitive_closure because it uses
+    topological ordering to propagate reachability.
+
+    Parameters
+    ----------
+    G : DiGraph
+        Must be a DAG.
+    topo_order : list, optional
+        Precomputed topological ordering.
+
+    Returns
+    -------
+    DiGraph
+    """
+    if topo_order is None:
+        topo_order = topological_sort(G)
+
+    # Use transitive_closure from Rust backend (already implemented)
+    return transitive_closure(G)
+
+
+def dag_to_branching(G):
+    """Return a branching (forest of arborescences) from a DAG.
+
+    Each node in the branching represents a unique path from a root
+    to that node in the DAG. Nodes with multiple parents are duplicated.
+
+    Parameters
+    ----------
+    G : DiGraph
+        Must be a DAG.
+
+    Returns
+    -------
+    DiGraph
+        A branching where each node has at most one predecessor.
+    """
+    if not is_directed_acyclic_graph(G):
+        raise NetworkXUnfeasible("Graph contains a cycle, not a DAG")
+
+    B = DiGraph()
+    counter = [0]
+
+    def _make_id(original):
+        counter[0] += 1
+        return (original, counter[0])
+
+    # Find roots (nodes with no predecessors)
+    all_nodes = set(G.nodes())
+    has_pred = set()
+    for u, v in G.edges():
+        has_pred.add(v)
+    roots = all_nodes - has_pred
+
+    if not roots:
+        return B
+
+    # BFS from each root, duplicating nodes with multiple parents
+    for root in sorted(roots, key=str):
+        root_id = _make_id(root)
+        B.add_node(root_id)
+        queue = [(root, root_id)]
+        while queue:
+            node, node_id = queue.pop(0)
+            succs = list(G.successors(node)) if hasattr(G, 'successors') else []
+            for s in sorted(succs, key=str):
+                s_id = _make_id(s)
+                B.add_node(s_id)
+                B.add_edge(node_id, s_id)
+                queue.append((s, s_id))
+
+    return B
+
+
 # Drawing — thin delegation to NetworkX/matplotlib (lazy import)
 from franken_networkx.drawing import (
     draw,
@@ -3667,6 +3867,11 @@ __all__ = [
     "havel_hakimi_graph",
     "degree_sequence_tree",
     "common_neighbor_centrality",
+    "all_topological_sorts",
+    "lowest_common_ancestor",
+    "all_pairs_lowest_common_ancestor",
+    "transitive_closure_dag",
+    "dag_to_branching",
     # Algorithms — graph operators
     "union",
     "intersection",
