@@ -377,8 +377,9 @@ class TestMultiGraphNxParity:
         )
         assert fnx.floyd_warshall(G, weight="cost") == dict(nx.floyd_warshall(N, weight="cost"))
 
-        _, fnx_fw_dists = fnx.floyd_warshall_predecessor_and_distance(G, weight="cost")
-        _, nx_fw_dists = nx.floyd_warshall_predecessor_and_distance(N, weight="cost")
+        fnx_preds, fnx_fw_dists = fnx.floyd_warshall_predecessor_and_distance(G, weight="cost")
+        nx_preds, nx_fw_dists = nx.floyd_warshall_predecessor_and_distance(N, weight="cost")
+        assert fnx_preds == nx_preds
         assert fnx_fw_dists == nx_fw_dists
 
     def test_weighted_multidigraph_shortest_path_family_uses_min_parallel_edge(self):

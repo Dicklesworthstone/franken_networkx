@@ -6924,8 +6924,9 @@ fn floyd_warshall_predecessor_and_distance(
     for (source, targets) in &preds {
         let inner_dict = PyDict::new(py);
         for (target, pred_list) in targets {
-            let py_preds: Vec<PyObject> = pred_list.iter().map(|n| gr.py_node_key(py, n)).collect();
-            inner_dict.set_item(gr.py_node_key(py, target), py_preds)?;
+            if let Some(predecessor) = pred_list.first() {
+                inner_dict.set_item(gr.py_node_key(py, target), gr.py_node_key(py, predecessor))?;
+            }
         }
         pred_outer.set_item(gr.py_node_key(py, source), inner_dict)?;
     }

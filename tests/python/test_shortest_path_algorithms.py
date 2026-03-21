@@ -18,6 +18,7 @@ Tests cover:
 import math
 import pytest
 import franken_networkx as fnx
+import networkx as nx
 
 
 # ---------------------------------------------------------------------------
@@ -322,8 +323,22 @@ class TestFloydWarshallPredecessorAndDistance:
 
     def test_predecessors_exist(self, weighted_triangle):
         preds, dists = fnx.floyd_warshall_predecessor_and_distance(weighted_triangle, weight="weight")
-        # Predecessor of c on path from a should include a or b
-        assert len(preds["a"]["c"]) > 0
+        assert preds["a"]["b"] == "a"
+        assert preds["a"]["c"] == "b"
+
+    def test_matches_networkx_on_tied_paths(self):
+        g_fnx = fnx.Graph()
+        g_nx = nx.Graph()
+        for graph in (g_fnx, g_nx):
+            graph.add_edge("a", "b", weight=1.0)
+            graph.add_edge("a", "c", weight=1.0)
+            graph.add_edge("b", "d", weight=1.0)
+            graph.add_edge("c", "d", weight=1.0)
+
+        fnx_preds, fnx_dists = fnx.floyd_warshall_predecessor_and_distance(g_fnx, weight="weight")
+        nx_preds, nx_dists = nx.floyd_warshall_predecessor_and_distance(g_nx, weight="weight")
+        assert fnx_preds == nx_preds
+        assert fnx_dists == nx_dists
 
 
 # ---------------------------------------------------------------------------
