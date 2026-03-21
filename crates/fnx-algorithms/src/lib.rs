@@ -651,6 +651,21 @@ pub struct EulerianPathResult {
     pub witness: ComplexityWitness,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FlowError {
+    NodeNotFound(String),
+}
+
+impl fmt::Display for FlowError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NodeNotFound(node) => write!(f, "node {node} not in graph"),
+        }
+    }
+}
+
+impl std::error::Error for FlowError {}
+
 #[derive(Debug, Clone)]
 struct FlowComputation {
     value: f64,
@@ -2767,13 +2782,13 @@ pub fn max_flow_edmonds_karp(
     source: &str,
     sink: &str,
     capacity_attr: &str,
-) -> MaxFlowResult {
-    let computation = compute_max_flow_residual(graph, source, sink, capacity_attr);
-    MaxFlowResult {
+) -> Result<MaxFlowResult, FlowError> {
+    let computation = compute_max_flow_residual(graph, source, sink, capacity_attr)?;
+    Ok(MaxFlowResult {
         value: computation.value,
         flows: computation.flows,
         witness: computation.witness,
-    }
+    })
 }
 
 #[must_use]
@@ -2782,13 +2797,13 @@ pub fn max_flow_edmonds_karp_directed(
     source: &str,
     sink: &str,
     capacity_attr: &str,
-) -> MaxFlowResult {
-    let computation = compute_max_flow_residual(digraph, source, sink, capacity_attr);
-    MaxFlowResult {
+) -> Result<MaxFlowResult, FlowError> {
+    let computation = compute_max_flow_residual(digraph, source, sink, capacity_attr)?;
+    Ok(MaxFlowResult {
         value: computation.value,
         flows: computation.flows,
         witness: computation.witness,
-    }
+    })
 }
 
 #[must_use]
@@ -2797,7 +2812,7 @@ pub fn minimum_cut_edmonds_karp(
     source: &str,
     sink: &str,
     capacity_attr: &str,
-) -> MinimumCutResult {
+) -> Result<MinimumCutResult, FlowError> {
     compute_minimum_cut_edmonds_karp(graph, source, sink, capacity_attr)
 }
 
@@ -2807,7 +2822,7 @@ pub fn minimum_cut_edmonds_karp_directed(
     source: &str,
     sink: &str,
     capacity_attr: &str,
-) -> MinimumCutResult {
+) -> Result<MinimumCutResult, FlowError> {
     compute_minimum_cut_edmonds_karp(digraph, source, sink, capacity_attr)
 }
 
@@ -3372,20 +3387,12 @@ fn compute_minimum_cut_edmonds_karp<G: FlowGraphView>(
     source: &str,
     sink: &str,
     capacity_attr: &str,
-) -> MinimumCutResult {
-    if !graph.has_flow_node(source) || !graph.has_flow_node(sink) {
-        return MinimumCutResult {
-            value: 0.0,
-            source_partition: Vec::new(),
-            sink_partition: Vec::new(),
-            witness: ComplexityWitness {
-                algorithm: "edmonds_karp_minimum_cut".to_owned(),
-                complexity_claim: "O(|V| * |E|^2)".to_owned(),
-                nodes_touched: 0,
-                edges_scanned: 0,
-                queue_peak: 0,
-            },
-        };
+) -> Result<MinimumCutResult, FlowError> {
+    if !graph.has_flow_node(source) {
+        return Err(FlowError::NodeNotFound(source.to_owned()));
+    }
+    if !graph.has_flow_node(sink) {
+        return Err(FlowError::NodeNotFound(sink.to_owned()));
     }
 
     let ordered_nodes = graph.flow_nodes_ordered();
@@ -3399,7 +3406,7 @@ fn compute_minimum_cut_edmonds_karp<G: FlowGraphView>(
                 sink_partition.push(node);
             }
         }
-        return MinimumCutResult {
+        return Ok(MinimumCutResult {
             value: 0.0,
             source_partition,
             sink_partition,
@@ -3410,10 +3417,10 @@ fn compute_minimum_cut_edmonds_karp<G: FlowGraphView>(
                 edges_scanned: 0,
                 queue_peak: 1,
             },
-        };
+        });
     }
 
-    let computation = compute_max_flow_residual(graph, source, sink, capacity_attr);
+    let computation = compute_max_flow_residual(graph, source, sink, capacity_attr)?;
     let mut reverse_residual = HashMap::<String, Vec<String>>::new();
     for node in &ordered_nodes {
         reverse_residual.entry(node.clone()).or_default();
@@ -3473,7 +3480,7 @@ fn compute_minimum_cut_edmonds_karp<G: FlowGraphView>(
         }
     }
 
-    MinimumCutResult {
+    Ok(MinimumCutResult {
         value: computation.value,
         source_partition,
         sink_partition,
@@ -3484,7 +3491,7 @@ fn compute_minimum_cut_edmonds_karp<G: FlowGraphView>(
             edges_scanned: computation.witness.edges_scanned + cut_edges_scanned,
             queue_peak: computation.witness.queue_peak.max(cut_queue_peak),
         },
-    }
+    })
 }
 
 fn compute_max_flow_residual<G: FlowGraphView>(
@@ -3492,24 +3499,16 @@ fn compute_max_flow_residual<G: FlowGraphView>(
     source: &str,
     sink: &str,
     capacity_attr: &str,
-) -> FlowComputation {
-    if !graph.has_flow_node(source) || !graph.has_flow_node(sink) {
-        return FlowComputation {
-            value: 0.0,
-            residual: HashMap::new(),
-            flows: Vec::new(),
-            witness: ComplexityWitness {
-                algorithm: "edmonds_karp_max_flow".to_owned(),
-                complexity_claim: "O(|V| * |E|^2)".to_owned(),
-                nodes_touched: 0,
-                edges_scanned: 0,
-                queue_peak: 0,
-            },
-        };
+) -> Result<FlowComputation, FlowError> {
+    if !graph.has_flow_node(source) {
+        return Err(FlowError::NodeNotFound(source.to_owned()));
+    }
+    if !graph.has_flow_node(sink) {
+        return Err(FlowError::NodeNotFound(sink.to_owned()));
     }
 
     if source == sink {
-        return FlowComputation {
+        return Ok(FlowComputation {
             value: 0.0,
             residual: HashMap::new(),
             flows: Vec::new(),
@@ -3520,7 +3519,7 @@ fn compute_max_flow_residual<G: FlowGraphView>(
                 edges_scanned: 0,
                 queue_peak: 1,
             },
-        };
+        });
     }
 
     let ordered_nodes = graph.flow_nodes_ordered();
@@ -3645,7 +3644,7 @@ fn compute_max_flow_residual<G: FlowGraphView>(
         total_flow += bottleneck;
     }
 
-    FlowComputation {
+    Ok(FlowComputation {
         value: total_flow,
         flows: flow_edges_from_residual(graph, &residual, capacity_attr),
         residual,
@@ -3656,7 +3655,7 @@ fn compute_max_flow_residual<G: FlowGraphView>(
             edges_scanned,
             queue_peak,
         },
-    }
+    })
 }
 
 fn matching_state(
