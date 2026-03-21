@@ -1466,6 +1466,8 @@ def algebraic_connectivity(G, weight='weight', normalized=False):
     -------
     float
     """
+    import numpy as np
+
     if normalized:
         spectrum = np.sort(np.linalg.eigvalsh(
             normalized_laplacian_matrix(G, weight=weight).toarray()
@@ -2287,6 +2289,13 @@ __all__ = [
     "disjoint_union",
     "compose_all",
     "union_all",
+    # Spectral
+    "laplacian_matrix",
+    "normalized_laplacian_matrix",
+    "laplacian_spectrum",
+    "adjacency_spectrum",
+    "algebraic_connectivity",
+    "fiedler_vector",
     # Algorithms — graph operators
     "union",
     "intersection",
