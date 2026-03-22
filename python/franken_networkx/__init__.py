@@ -4193,6 +4193,127 @@ def is_minimal_d_separator(G, x, y, z):
     return True
 
 
+# ---------------------------------------------------------------------------
+# Graph products (br-69m)
+# ---------------------------------------------------------------------------
+
+
+def corona_product(G, H):
+    """Return the corona product of *G* and *H*.
+
+    For each node v in G, add a copy of H and connect v to all nodes
+    in that copy.
+
+    Parameters
+    ----------
+    G, H : Graph
+
+    Returns
+    -------
+    Graph
+    """
+    result = Graph()
+    g_nodes = list(G.nodes())
+    h_nodes = list(H.nodes())
+
+    # Add G's nodes and edges
+    for n in g_nodes:
+        result.add_node(('G', n))
+    for u, v in G.edges():
+        result.add_edge(('G', u), ('G', v))
+
+    # For each node in G, add a copy of H connected to it
+    for g_node in g_nodes:
+        for h_node in h_nodes:
+            result.add_node((g_node, h_node))
+        for u, v in H.edges():
+            result.add_edge((g_node, u), (g_node, v))
+        # Connect g_node to all nodes in its H copy
+        for h_node in h_nodes:
+            result.add_edge(('G', g_node), (g_node, h_node))
+
+    return result
+
+
+def modular_product(G, H):
+    """Return the modular product of *G* and *H*.
+
+    Two nodes (u1,v1) and (u2,v2) are adjacent iff:
+    - u1-u2 is edge in G AND v1-v2 is edge in H, OR
+    - u1-u2 is NOT edge in G AND v1-v2 is NOT edge in H (and u1≠u2, v1≠v2).
+    """
+    result = Graph()
+    g_nodes = list(G.nodes())
+    h_nodes = list(H.nodes())
+
+    for u in g_nodes:
+        for v in h_nodes:
+            result.add_node((u, v))
+
+    for i, u1 in enumerate(g_nodes):
+        for u2 in g_nodes[i + 1:]:
+            for j, v1 in enumerate(h_nodes):
+                for v2 in h_nodes[j + 1:]:
+                    g_edge = G.has_edge(u1, u2)
+                    h_edge = H.has_edge(v1, v2)
+                    if (g_edge and h_edge) or (not g_edge and not h_edge):
+                        result.add_edge((u1, v1), (u2, v2))
+
+    return result
+
+
+def rooted_product(G, H, root):
+    """Return the rooted product of *G* and *H* at *root*.
+
+    Replace each node v in G with a copy of H, connecting v's copy of
+    *root* to the neighbors of v.
+    """
+    result = Graph()
+    g_nodes = list(G.nodes())
+    h_nodes = list(H.nodes())
+
+    # Add copies of H for each node in G
+    for g_node in g_nodes:
+        for h_node in h_nodes:
+            result.add_node((g_node, h_node))
+        for u, v in H.edges():
+            result.add_edge((g_node, u), (g_node, v))
+
+    # Connect copies via root
+    for u, v in G.edges():
+        result.add_edge((u, root), (v, root))
+
+    return result
+
+
+def lexicographic_product(G, H):
+    """Return the lexicographic product of *G* and *H*.
+
+    (u1,v1) and (u2,v2) are adjacent iff u1-u2 is an edge in G,
+    OR u1==u2 and v1-v2 is an edge in H.
+    """
+    result = Graph()
+    g_nodes = list(G.nodes())
+    h_nodes = list(H.nodes())
+
+    for u in g_nodes:
+        for v in h_nodes:
+            result.add_node((u, v))
+
+    # Edges from G (connects all H-pairs)
+    for u1, u2 in G.edges():
+        for v1 in h_nodes:
+            for v2 in h_nodes:
+                result.add_edge((u1, v1), (u2, v2))
+
+    # Edges from H (within same G-node)
+    for u in g_nodes:
+        for v1, v2 in H.edges():
+            result.add_edge((u, v1), (u, v2))
+
+    return result
+
+
 # Drawing — thin delegation to NetworkX/matplotlib (lazy import)
 from franken_networkx.drawing import (
     arf_layout,
@@ -4200,12 +4321,19 @@ from franken_networkx.drawing import (
     bipartite_layout,
     draw,
     draw_circular,
+    draw_forceatlas2,
     draw_kamada_kawai,
+    draw_networkx,
+    draw_networkx_edge_labels,
+    draw_networkx_edges,
+    draw_networkx_labels,
+    draw_networkx_nodes,
     draw_planar,
     draw_random,
     draw_shell,
     draw_spectral,
     draw_spring,
+    generate_network_text,
     circular_layout,
     forceatlas2_layout,
     fruchterman_reingold_layout,
@@ -4218,6 +4346,10 @@ from franken_networkx.drawing import (
     spiral_layout,
     spectral_layout,
     spring_layout,
+    to_latex,
+    to_latex_raw,
+    write_latex,
+    write_network_text,
 )
 
 
@@ -5097,6 +5229,11 @@ __all__ = [
     "is_at_free",
     "is_d_separator",
     "is_minimal_d_separator",
+    # Graph products
+    "corona_product",
+    "modular_product",
+    "rooted_product",
+    "lexicographic_product",
     # Algorithms — graph operators
     "union",
     "intersection",
@@ -5298,12 +5435,19 @@ __all__ = [
     # Drawing
     "draw",
     "draw_circular",
+    "draw_forceatlas2",
     "draw_kamada_kawai",
+    "draw_networkx",
+    "draw_networkx_edge_labels",
+    "draw_networkx_edges",
+    "draw_networkx_labels",
+    "draw_networkx_nodes",
     "draw_planar",
     "draw_random",
     "draw_shell",
     "draw_spectral",
     "draw_spring",
+    "generate_network_text",
     "arf_layout",
     "bfs_layout",
     "bipartite_layout",
@@ -5319,4 +5463,8 @@ __all__ = [
     "spiral_layout",
     "spectral_layout",
     "spring_layout",
+    "to_latex",
+    "to_latex_raw",
+    "write_latex",
+    "write_network_text",
 ]
