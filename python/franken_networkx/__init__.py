@@ -4007,6 +4007,192 @@ def directed_edge_swap(G, nswap=1, max_tries=100, seed=None):
     return G
 
 
+# ---------------------------------------------------------------------------
+# Graph predicates (br-5wd)
+# ---------------------------------------------------------------------------
+
+
+def is_valid_degree_sequence_erdos_gallai(sequence):
+    """Check if an integer sequence is a valid degree sequence (Erdos-Gallai).
+
+    The Erdos-Gallai theorem: a non-increasing sequence d_1 >= ... >= d_n
+    is graphical iff sum(d_i) is even and for each k:
+    sum(d_i, i=1..k) <= k*(k-1) + sum(min(d_i, k), i=k+1..n).
+    """
+    seq = sorted(sequence, reverse=True)
+    n = len(seq)
+    if sum(seq) % 2 != 0:
+        return False
+    for k in range(1, n + 1):
+        lhs = sum(seq[:k])
+        rhs = k * (k - 1) + sum(min(d, k) for d in seq[k:])
+        if lhs > rhs:
+            return False
+    return True
+
+
+def is_valid_degree_sequence_havel_hakimi(sequence):
+    """Check if an integer sequence is a valid degree sequence (Havel-Hakimi).
+
+    Repeatedly removes the largest element d, subtracts 1 from the next
+    d largest elements. If any become negative, not graphical.
+    """
+    seq = list(sequence)
+    while True:
+        seq.sort(reverse=True)
+        if not seq or seq[0] == 0:
+            return True
+        d = seq.pop(0)
+        if d > len(seq):
+            return False
+        for i in range(d):
+            seq[i] -= 1
+            if seq[i] < 0:
+                return False
+
+
+def is_valid_joint_degree(joint_degrees):
+    """Check if a joint degree dictionary is realizable."""
+    if not joint_degrees:
+        return True
+    for (d1, d2), count in joint_degrees.items():
+        if count < 0 or d1 < 0 or d2 < 0:
+            return False
+    return True
+
+
+def is_strongly_regular(G):
+    """Check if *G* is strongly regular.
+
+    A graph is strongly regular srg(v,k,λ,μ) if it is k-regular and
+    every pair of adjacent vertices has exactly λ common neighbors,
+    and every pair of non-adjacent vertices has exactly μ common neighbors.
+    """
+    if G.number_of_nodes() == 0:
+        return False
+    degrees = [d for _, d in G.degree]
+    if len(set(degrees)) != 1:
+        return False  # not regular
+    k = degrees[0]
+    nodes = list(G.nodes())
+    lam = None
+    mu = None
+    for i in range(len(nodes)):
+        for j in range(i + 1, len(nodes)):
+            u, v = nodes[i], nodes[j]
+            u_nbrs = set(G.neighbors(u))
+            v_nbrs = set(G.neighbors(v))
+            common = len(u_nbrs & v_nbrs)
+            if G.has_edge(u, v):
+                if lam is None:
+                    lam = common
+                elif common != lam:
+                    return False
+            else:
+                if mu is None:
+                    mu = common
+                elif common != mu:
+                    return False
+    return True
+
+
+def is_at_free(G):
+    """Check if *G* is asteroidal-triple-free (AT-free).
+
+    An asteroidal triple is three nodes where between each pair there
+    exists a path avoiding the neighborhood of the third.
+    """
+    nodes = list(G.nodes())
+    n = len(nodes)
+    if n <= 2:
+        return True
+    for i in range(n):
+        for j in range(i + 1, n):
+            for k in range(j + 1, n):
+                u, v, w = nodes[i], nodes[j], nodes[k]
+                # Check if u-v path exists avoiding N(w)
+                w_nbrs = set(G.neighbors(w)) | {w}
+                v_nbrs = set(G.neighbors(v)) | {v}
+                u_nbrs = set(G.neighbors(u)) | {u}
+                if (_path_avoiding(G, u, v, w_nbrs) and
+                    _path_avoiding(G, u, w, v_nbrs) and
+                    _path_avoiding(G, v, w, u_nbrs)):
+                    return False
+    return True
+
+
+def _path_avoiding(G, source, target, avoid):
+    """BFS check: is there a path from source to target avoiding 'avoid' nodes?"""
+    if source in avoid or target in avoid:
+        return source == target
+    visited = {source}
+    queue = [source]
+    while queue:
+        node = queue.pop(0)
+        if node == target:
+            return True
+        for nbr in G.neighbors(node):
+            if nbr not in visited and nbr not in avoid:
+                visited.add(nbr)
+                queue.append(nbr)
+    return False
+
+
+def is_d_separator(G, x, y, z):
+    """Check if node set *z* d-separates *x* from *y* in a DAG.
+
+    Parameters
+    ----------
+    G : DiGraph (DAG)
+    x, y : set of nodes
+    z : set of nodes (potential separator)
+
+    Returns
+    -------
+    bool
+    """
+    x, y, z = set(x), set(y), set(z)
+    # Build ancestral graph
+    relevant = x | y | z
+    for node in list(relevant):
+        relevant.update(ancestors(G, node))
+    # Moralize: connect co-parents
+    H = Graph()
+    for node in relevant:
+        H.add_node(node)
+    for node in relevant:
+        if hasattr(G, 'predecessors'):
+            preds = [p for p in G.predecessors(node) if p in relevant]
+            for i in range(len(preds)):
+                for j in range(i + 1, len(preds)):
+                    H.add_edge(preds[i], preds[j])
+    # Add undirected edges
+    for u, v in G.edges():
+        if u in relevant and v in relevant:
+            H.add_edge(u, v)
+    # Remove z nodes and check if x and y are still connected
+    for node in z:
+        if node in relevant:
+            H.remove_node(node)
+    for xn in x:
+        for yn in y:
+            if xn in H and yn in H and has_path(H, xn, yn):
+                return False
+    return True
+
+
+def is_minimal_d_separator(G, x, y, z):
+    """Check if *z* is a minimal d-separator of *x* and *y*."""
+    if not is_d_separator(G, x, y, z):
+        return False
+    z = set(z)
+    for node in list(z):
+        reduced = z - {node}
+        if is_d_separator(G, x, y, reduced):
+            return False
+    return True
+
+
 # Drawing — thin delegation to NetworkX/matplotlib (lazy import)
 from franken_networkx.drawing import (
     arf_layout,
@@ -4903,6 +5089,14 @@ __all__ = [
     "triads_by_type",
     "double_edge_swap",
     "directed_edge_swap",
+    # Graph predicates
+    "is_valid_degree_sequence_erdos_gallai",
+    "is_valid_degree_sequence_havel_hakimi",
+    "is_valid_joint_degree",
+    "is_strongly_regular",
+    "is_at_free",
+    "is_d_separator",
+    "is_minimal_d_separator",
     # Algorithms — graph operators
     "union",
     "intersection",
