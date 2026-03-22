@@ -392,6 +392,7 @@ fn validate_node_str(gr: &GraphRef<'_>, canonical: &str) -> PyResult<()> {
 }
 
 fn compute_single_shortest_path(
+    py: Python<'_>,
     inner: &fnx_classes::Graph,
     source: &str,
     target: &str,
@@ -400,16 +401,16 @@ fn compute_single_shortest_path(
 ) -> PyResult<Option<Vec<String>>> {
     match weight {
         None => {
-            let result = fnx_algorithms::shortest_path_unweighted(inner, source, target);
+            let result = py.allow_threads(|| fnx_algorithms::shortest_path_unweighted(inner, source, target));
             Ok(result.path)
         }
         Some(w) => match method {
             "dijkstra" => {
-                let result = fnx_algorithms::shortest_path_weighted(inner, source, target, w);
+                let result = py.allow_threads(|| fnx_algorithms::shortest_path_weighted(inner, source, target, w));
                 Ok(result.path)
             }
             "bellman-ford" => {
-                let result = fnx_algorithms::bellman_ford_shortest_paths(inner, source, w);
+                let result = py.allow_threads(|| fnx_algorithms::bellman_ford_shortest_paths(inner, source, w));
                 if result.negative_cycle_detected {
                     return Err(crate::NetworkXUnbounded::new_err(
                         "Negative cost cycle detected.",
@@ -448,6 +449,7 @@ fn compute_single_shortest_path(
 }
 
 fn compute_single_shortest_path_directed(
+    py: Python<'_>,
     inner: &fnx_classes::digraph::DiGraph,
     source: &str,
     target: &str,
@@ -456,17 +458,17 @@ fn compute_single_shortest_path_directed(
 ) -> PyResult<Option<Vec<String>>> {
     match weight {
         None => {
-            let result = fnx_algorithms::shortest_path_unweighted_directed(inner, source, target);
+            let result = py.allow_threads(|| fnx_algorithms::shortest_path_unweighted_directed(inner, source, target));
             Ok(result.path)
         }
         Some(w) => match method {
             "dijkstra" => {
                 let result =
-                    fnx_algorithms::shortest_path_weighted_directed(inner, source, target, w);
+                    py.allow_threads(|| fnx_algorithms::shortest_path_weighted_directed(inner, source, target, w));
                 Ok(result.path)
             }
             "bellman-ford" => {
-                let result = fnx_algorithms::bellman_ford_shortest_paths_directed(inner, source, w);
+                let result = py.allow_threads(|| fnx_algorithms::bellman_ford_shortest_paths_directed(inner, source, w));
                 if result.negative_cycle_detected {
                     return Err(crate::NetworkXUnbounded::new_err(
                         "Negative cost cycle detected.",
@@ -848,6 +850,7 @@ pub fn shortest_path(
                     validate_node(&gr, &t, tgt)?;
 
                     let path = compute_single_shortest_path_directed(
+                        py,
                         inner,
                         &s,
                         &t,
@@ -872,6 +875,7 @@ pub fn shortest_path(
                     let result = PyDict::new(py);
                     for node in inner.nodes_ordered() {
                         if let Some(p) = compute_single_shortest_path_directed(
+                            py,
                             inner,
                             &s,
                             node,
@@ -891,6 +895,7 @@ pub fn shortest_path(
                     let result = PyDict::new(py);
                     for node in inner.nodes_ordered() {
                         if let Some(p) = compute_single_shortest_path_directed(
+                            py,
                             inner,
                             node,
                             &t,
@@ -910,6 +915,7 @@ pub fn shortest_path(
                         let inner_dict = PyDict::new(py);
                         for tgt_node in inner.nodes_ordered() {
                             if let Some(p) = compute_single_shortest_path_directed(
+                                py,
                                 inner,
                                 src_node,
                                 tgt_node,
@@ -938,7 +944,7 @@ pub fn shortest_path(
                     validate_node(&gr, &t, tgt)?;
 
                     let path =
-                        compute_single_shortest_path(inner, &s, &t, Some(weight_attr), method)?;
+                        compute_single_shortest_path(py, inner, &s, &t, Some(weight_attr), method)?;
                     match path {
                         Some(p) => {
                             let py_path: Vec<PyObject> =
@@ -957,6 +963,7 @@ pub fn shortest_path(
                     let result = PyDict::new(py);
                     for node in inner.nodes_ordered() {
                         if let Some(p) = compute_single_shortest_path(
+                            py,
                             inner,
                             &s,
                             node,
@@ -976,6 +983,7 @@ pub fn shortest_path(
                     let result = PyDict::new(py);
                     for node in inner.nodes_ordered() {
                         if let Some(p) = compute_single_shortest_path(
+                            py,
                             inner,
                             node,
                             &t,
@@ -995,6 +1003,7 @@ pub fn shortest_path(
                         let inner_dict = PyDict::new(py);
                         for tgt_node in inner.nodes_ordered() {
                             if let Some(p) = compute_single_shortest_path(
+                                py,
                                 inner,
                                 src_node,
                                 tgt_node,
@@ -1021,7 +1030,7 @@ pub fn shortest_path(
                 validate_node(&gr, &s, src)?;
                 validate_node(&gr, &t, tgt)?;
 
-                let path = compute_single_shortest_path_directed(inner, &s, &t, None, method)?;
+                let path = compute_single_shortest_path_directed(py, inner, &s, &t, None, method)?;
                 match path {
                     Some(p) => {
                         let py_path: Vec<PyObject> =
@@ -1040,7 +1049,7 @@ pub fn shortest_path(
                 let result = PyDict::new(py);
                 for node in inner.nodes_ordered() {
                     if let Some(p) =
-                        compute_single_shortest_path_directed(inner, &s, node, None, method)?
+                        compute_single_shortest_path_directed(py, inner, &s, node, None, method)?
                     {
                         let py_path: Vec<PyObject> =
                             p.iter().map(|n| gr.py_node_key(py, n)).collect();
@@ -1055,7 +1064,7 @@ pub fn shortest_path(
                 let result = PyDict::new(py);
                 for node in inner.nodes_ordered() {
                     if let Some(p) =
-                        compute_single_shortest_path_directed(inner, node, &t, None, method)?
+                        compute_single_shortest_path_directed(py, inner, node, &t, None, method)?
                     {
                         let py_path: Vec<PyObject> =
                             p.iter().map(|n| gr.py_node_key(py, n)).collect();
@@ -1070,6 +1079,7 @@ pub fn shortest_path(
                     let inner_dict = PyDict::new(py);
                     for tgt_node in inner.nodes_ordered() {
                         if let Some(p) = compute_single_shortest_path_directed(
+                            py,
                             inner, src_node, tgt_node, None, method,
                         )? {
                             let py_path: Vec<PyObject> =
@@ -1092,7 +1102,7 @@ pub fn shortest_path(
                 validate_node(&gr, &s, src)?;
                 validate_node(&gr, &t, tgt)?;
 
-                let path = compute_single_shortest_path(inner, &s, &t, None, method)?;
+                let path = compute_single_shortest_path(py, inner, &s, &t, None, method)?;
                 match path {
                     Some(p) => {
                         let py_path: Vec<PyObject> =
@@ -1110,7 +1120,7 @@ pub fn shortest_path(
                 validate_node(&gr, &s, src)?;
                 let result = PyDict::new(py);
                 for node in inner.nodes_ordered() {
-                    if let Some(p) = compute_single_shortest_path(inner, &s, node, None, method)? {
+                    if let Some(p) = compute_single_shortest_path(py, inner, &s, node, None, method)? {
                         let py_path: Vec<PyObject> =
                             p.iter().map(|n| gr.py_node_key(py, n)).collect();
                         result.set_item(gr.py_node_key(py, node), py_path)?;
@@ -1123,7 +1133,7 @@ pub fn shortest_path(
                 validate_node(&gr, &t, tgt)?;
                 let result = PyDict::new(py);
                 for node in inner.nodes_ordered() {
-                    if let Some(p) = compute_single_shortest_path(inner, node, &t, None, method)? {
+                    if let Some(p) = compute_single_shortest_path(py, inner, node, &t, None, method)? {
                         let py_path: Vec<PyObject> =
                             p.iter().map(|n| gr.py_node_key(py, n)).collect();
                         result.set_item(gr.py_node_key(py, node), py_path)?;
@@ -1137,7 +1147,7 @@ pub fn shortest_path(
                     let inner_dict = PyDict::new(py);
                     for tgt_node in inner.nodes_ordered() {
                         if let Some(p) =
-                            compute_single_shortest_path(inner, src_node, tgt_node, None, method)?
+                            compute_single_shortest_path(py, inner, src_node, tgt_node, None, method)?
                         {
                             let py_path: Vec<PyObject> =
                                 p.iter().map(|n| gr.py_node_key(py, n)).collect();
