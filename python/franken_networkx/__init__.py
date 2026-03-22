@@ -5145,6 +5145,289 @@ def group_closeness_centrality(G, S, weight=None, H=None):
     return reachable / total_dist
 
 
+# ---------------------------------------------------------------------------
+# Traversal Extras (br-do1)
+# ---------------------------------------------------------------------------
+
+
+def bfs_beam_edges(G, source, value, width=None):
+    """BFS with beam search: keep only top-width nodes per level."""
+    visited = {source}
+    frontier = [source]
+    while frontier:
+        if width is not None:
+            frontier = sorted(frontier, key=value, reverse=True)[:width]
+        next_frontier = []
+        for node in frontier:
+            for nbr in G.neighbors(node):
+                if nbr not in visited:
+                    visited.add(nbr)
+                    next_frontier.append(nbr)
+                    yield (node, nbr)
+        frontier = next_frontier
+
+
+def bfs_labeled_edges(G, source, sort_neighbors=None):
+    """BFS yielding (u, v, label) with tree/forward/reverse/cross labels."""
+    visited = {source}
+    level = {source: 0}
+    queue = [source]
+    while queue:
+        next_queue = []
+        for node in queue:
+            nbrs = list(G.neighbors(node))
+            if sort_neighbors:
+                nbrs = sort_neighbors(nbrs)
+            for nbr in nbrs:
+                if nbr not in visited:
+                    visited.add(nbr)
+                    level[nbr] = level[node] + 1
+                    next_queue.append(nbr)
+                    yield (node, nbr, 'tree')
+                elif level.get(nbr, 0) == level[node]:
+                    yield (node, nbr, 'level')
+                elif level.get(nbr, 0) > level[node]:
+                    yield (node, nbr, 'forward')
+                else:
+                    yield (node, nbr, 'reverse')
+        queue = next_queue
+
+
+def dfs_labeled_edges(G, source=None, depth_limit=None):
+    """DFS yielding (u, v, label) with tree/forward/back/cross labels."""
+    if source is None:
+        sources = list(G.nodes())
+    else:
+        sources = [source]
+    visited = set()
+    finished = set()
+    for src in sources:
+        if src in visited:
+            continue
+        stack = [(src, iter(G.neighbors(src)), 0)]
+        visited.add(src)
+        yield (src, src, 'tree')
+        while stack:
+            parent, children, depth = stack[-1]
+            if depth_limit is not None and depth >= depth_limit:
+                stack.pop()
+                finished.add(parent)
+                continue
+            try:
+                child = next(children)
+                if child not in visited:
+                    visited.add(child)
+                    yield (parent, child, 'tree')
+                    stack.append((child, iter(G.neighbors(child)), depth + 1))
+                elif child not in finished:
+                    yield (parent, child, 'back')
+                else:
+                    yield (parent, child, 'forward')
+            except StopIteration:
+                stack.pop()
+                finished.add(parent)
+
+
+def generic_bfs_edges(G, source, neighbors=None, depth_limit=None, sort_neighbors=None):
+    """BFS with customizable neighbor function."""
+    if neighbors is None:
+        neighbors = G.neighbors
+    visited = {source}
+    queue = [(source, 0)]
+    while queue:
+        next_queue = []
+        for node, depth in queue:
+            if depth_limit is not None and depth >= depth_limit:
+                continue
+            nbrs = list(neighbors(node))
+            if sort_neighbors:
+                nbrs = sort_neighbors(nbrs)
+            for nbr in nbrs:
+                if nbr not in visited:
+                    visited.add(nbr)
+                    yield (node, nbr)
+                    next_queue.append((nbr, depth + 1))
+        queue = next_queue
+
+
+# ---------------------------------------------------------------------------
+# Utility Extras A (br-tnl)
+# ---------------------------------------------------------------------------
+
+
+def cn_soundarajan_hopcroft(G, ebunch=None, community='community'):
+    """Common Neighbor link prediction with community information."""
+    if ebunch is None:
+        ebunch = non_edges(G)
+    for u, v in ebunch:
+        u_nbrs = set(G.neighbors(u))
+        v_nbrs = set(G.neighbors(v))
+        common = u_nbrs & v_nbrs
+        score = len(common)
+        u_attrs = G.nodes[u] if hasattr(G.nodes, '__getitem__') else {}
+        v_attrs = G.nodes[v] if hasattr(G.nodes, '__getitem__') else {}
+        u_comm = u_attrs.get(community) if isinstance(u_attrs, dict) else None
+        v_comm = v_attrs.get(community) if isinstance(v_attrs, dict) else None
+        for w in common:
+            w_attrs = G.nodes[w] if hasattr(G.nodes, '__getitem__') else {}
+            w_comm = w_attrs.get(community) if isinstance(w_attrs, dict) else None
+            if u_comm is not None and u_comm == w_comm:
+                score += 1
+        yield (u, v, score)
+
+
+def ra_index_soundarajan_hopcroft(G, ebunch=None, community='community'):
+    """Resource Allocation link prediction with community information."""
+    if ebunch is None:
+        ebunch = non_edges(G)
+    for u, v in ebunch:
+        u_nbrs = set(G.neighbors(u))
+        v_nbrs = set(G.neighbors(v))
+        common = u_nbrs & v_nbrs
+        score = 0.0
+        u_attrs = G.nodes[u] if hasattr(G.nodes, '__getitem__') else {}
+        v_attrs = G.nodes[v] if hasattr(G.nodes, '__getitem__') else {}
+        u_comm = u_attrs.get(community) if isinstance(u_attrs, dict) else None
+        for w in common:
+            w_attrs = G.nodes[w] if hasattr(G.nodes, '__getitem__') else {}
+            w_comm = w_attrs.get(community) if isinstance(w_attrs, dict) else None
+            deg_w = G.degree[w]
+            if deg_w > 0:
+                bonus = 1.0 if (u_comm is not None and u_comm == w_comm) else 0.0
+                score += (1.0 + bonus) / deg_w
+        yield (u, v, score)
+
+
+def node_attribute_xy(G, attribute):
+    """Yield (x, y) pairs of attribute values for edges."""
+    for u, v in G.edges():
+        u_attrs = G.nodes[u] if hasattr(G.nodes, '__getitem__') else {}
+        v_attrs = G.nodes[v] if hasattr(G.nodes, '__getitem__') else {}
+        if isinstance(u_attrs, dict) and isinstance(v_attrs, dict):
+            x = u_attrs.get(attribute)
+            y = v_attrs.get(attribute)
+            if x is not None and y is not None:
+                yield (x, y)
+
+
+def node_degree_xy(G, x='out', y='in', weight=None, nodes=None):
+    """Yield (degree_x, degree_y) for each edge."""
+    for u, v in G.edges():
+        if nodes and (u not in nodes and v not in nodes):
+            continue
+        yield (G.degree[u], G.degree[v])
+
+
+def number_of_walks(G, walk_length):
+    """Count walks of given length via adjacency matrix power."""
+    import numpy as np
+    A = to_numpy_array(G, weight=None)
+    Ak = np.linalg.matrix_power(A.astype(int), walk_length)
+    nodelist = list(G.nodes())
+    result = {}
+    for i, u in enumerate(nodelist):
+        result[u] = {}
+        for j, v in enumerate(nodelist):
+            result[u][v] = int(Ak[i, j])
+    return result
+
+
+def recursive_simple_cycles(G):
+    """Find all simple cycles using recursive DFS."""
+    return list(simple_cycles(G))
+
+
+# ---------------------------------------------------------------------------
+# Utility Extras B (br-i1d)
+# ---------------------------------------------------------------------------
+
+
+def remove_node_attributes(G, name):
+    """Remove attribute *name* from all nodes."""
+    for node in G.nodes():
+        attrs = G.nodes[node] if hasattr(G.nodes, '__getitem__') else {}
+        if isinstance(attrs, dict) and name in attrs:
+            del attrs[name]
+
+
+def remove_edge_attributes(G, name):
+    """Remove attribute *name* from all edges."""
+    for u, v, data in G.edges(data=True):
+        if isinstance(data, dict) and name in data:
+            del data[name]
+
+
+def floyd_warshall_numpy(G, nodelist=None, weight='weight'):
+    """Floyd-Warshall via numpy matrix operations."""
+    import numpy as np
+    if nodelist is None:
+        nodelist = list(G.nodes())
+    n = len(nodelist)
+    A = to_numpy_array(G, nodelist=nodelist, weight=weight)
+    dist = np.full((n, n), np.inf)
+    np.fill_diagonal(dist, 0)
+    for i in range(n):
+        for j in range(n):
+            if A[i, j] != 0:
+                dist[i, j] = A[i, j]
+    for k in range(n):
+        dist = np.minimum(dist, dist[:, k:k+1] + dist[k:k+1, :])
+    return dist
+
+
+def harmonic_diameter(G, sp=None):
+    """Harmonic diameter: n*(n-1) / sum(1/d(u,v)) for all connected pairs."""
+    nodes = list(G.nodes())
+    n = len(nodes)
+    if n <= 1:
+        return 0.0
+    total_inv = 0.0
+    for u in nodes:
+        lengths = single_source_shortest_path_length(G, u)
+        for v, d in lengths.items():
+            if v != u and d > 0:
+                total_inv += 1.0 / d
+    if total_inv == 0:
+        return float('inf')
+    return n * (n - 1) / total_inv
+
+
+def global_parameters(G):
+    """Return global graph parameters as a tuple (intersection_array if distance-regular)."""
+    if not is_connected(G):
+        return None
+    d = diameter(G)
+    nodes = list(G.nodes())
+    # Check distance-regularity
+    b_params = []
+    c_params = []
+    for dist in range(d + 1):
+        b_vals = set()
+        c_vals = set()
+        for u in nodes:
+            lengths = single_source_shortest_path_length(G, u)
+            at_dist = [v for v, dd in lengths.items() if dd == dist]
+            for v in at_dist:
+                # b_i = number of neighbors of v at distance i+1 from u
+                b = sum(1 for nb in G.neighbors(v) if lengths.get(nb, -1) == dist + 1)
+                c = sum(1 for nb in G.neighbors(v) if lengths.get(nb, -1) == dist - 1)
+                b_vals.add(b)
+                c_vals.add(c)
+        if len(b_vals) > 1 or len(c_vals) > 1:
+            return None  # Not distance-regular
+        b_params.append(b_vals.pop() if b_vals else 0)
+        c_params.append(c_vals.pop() if c_vals else 0)
+    return (b_params, c_params)
+
+
+def intersection_array(G):
+    """Return the intersection array of a distance-regular graph."""
+    params = global_parameters(G)
+    if params is None:
+        raise NetworkXError("Graph is not distance-regular")
+    return params
+
+
 # Drawing — thin delegation to NetworkX/matplotlib (lazy import)
 from franken_networkx.drawing import (
     arf_layout,
@@ -5838,6 +6121,72 @@ def to_networkx_graph(data, create_using=None, multigraph_input=False):
     return _from_nx_graph(graph, create_using=create_using)
 
 
+def modularity_matrix(G, nodelist=None, weight=None):
+    """Return the modularity matrix of a graph."""
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+
+    return nx.modularity_matrix(_to_nx(G), nodelist=nodelist, weight=weight)
+
+
+def directed_modularity_matrix(G, nodelist=None, weight=None):
+    """Return the directed modularity matrix of a graph."""
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+
+    return nx.directed_modularity_matrix(_to_nx(G), nodelist=nodelist, weight=weight)
+
+
+def modularity_spectrum(G):
+    """Return the eigenvalues of the modularity matrix."""
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+
+    return nx.modularity_spectrum(_to_nx(G))
+
+
+def prominent_group(
+    G,
+    k,
+    weight=None,
+    C=None,
+    endpoints=False,
+    normalized=True,
+    greedy=False,
+):
+    """Return a prominent group using NetworkX's community helper."""
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+
+    return nx.prominent_group(
+        _to_nx(G),
+        k,
+        weight=weight,
+        C=C,
+        endpoints=endpoints,
+        normalized=normalized,
+        greedy=greedy,
+    )
+
+
+def within_inter_cluster(G, ebunch=None, delta=0.001, community='community'):
+    """Return within-cluster and inter-cluster edge counts."""
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+
+    return nx.within_inter_cluster(
+        _to_nx(G),
+        ebunch=ebunch,
+        delta=delta,
+        community=community,
+    )
+
+
 __all__ = [
     "__version__",
     # Graph classes
@@ -5869,6 +6218,11 @@ __all__ = [
     "cytoscape_graph",
     "attr_sparse_matrix",
     "to_networkx_graph",
+    "modularity_matrix",
+    "directed_modularity_matrix",
+    "modularity_spectrum",
+    "prominent_group",
+    "within_inter_cluster",
     "convert_node_labels_to_integers",
     # Exceptions
     "HasACycle",
@@ -6241,6 +6595,25 @@ __all__ = [
     "trophic_incoherence_parameter",
     "group_betweenness_centrality",
     "group_closeness_centrality",
+    # Traversal extras
+    "bfs_beam_edges",
+    "bfs_labeled_edges",
+    "dfs_labeled_edges",
+    "generic_bfs_edges",
+    # Utility extras A
+    "cn_soundarajan_hopcroft",
+    "ra_index_soundarajan_hopcroft",
+    "node_attribute_xy",
+    "node_degree_xy",
+    "number_of_walks",
+    "recursive_simple_cycles",
+    # Utility extras B
+    "remove_node_attributes",
+    "remove_edge_attributes",
+    "floyd_warshall_numpy",
+    "harmonic_diameter",
+    "global_parameters",
+    "intersection_array",
     # Algorithms — graph operators
     "union",
     "intersection",
