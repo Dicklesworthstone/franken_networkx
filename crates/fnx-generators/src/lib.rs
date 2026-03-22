@@ -348,42 +348,37 @@ impl GraphGenerator {
     ) -> Result<GenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("barabasi_albert_graph", n, MAX_N_GNP)?;
 
-        if m < 1 || m > n {
+        if m < 1 || m >= n {
             return Err(GenerationError::FailClosed {
                 operation: "barabasi_albert_graph",
-                reason: format!("requires 1 <= m <= n, got m={m}, n={n}"),
+                reason: format!("requires 1 <= m < n, got m={m}, n={n}"),
             });
         }
 
-        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
-        let mut rng = StdRng::seed_from_u64(seed);
-
-        // Start with a complete graph on the first m nodes (the "seed" graph).
-        for i in 0..m {
-            for j in (i + 1)..m {
-                let _ = graph.add_edge(node_labels[i].clone(), node_labels[j].clone());
-            }
-        }
+        // NetworkX default initial graph: star graph on m + 1 nodes (0..m).
+        let mut report = self.star_graph(m)?;
+        let mut graph = report.graph;
 
         // Maintain a "repeated list" of nodes for proportional-to-degree sampling.
         // Each time an edge (u, v) is added, both u and v appear once more.
         let mut repeated_nodes: Vec<usize> = Vec::new();
-        for i in 0..m {
-            for _ in 0..(m - 1) {
-                repeated_nodes.push(i);
-            }
+        // Star graph (m+1 nodes) has node 0 as center connected to nodes 1..m.
+        // Degree(0) = m, Degree(1..m) = 1.
+        for _ in 0..m {
+            repeated_nodes.push(0);
+        }
+        for i in 1..=m {
+            repeated_nodes.push(i);
         }
 
-        // When m=1 the initial K_1 has no edges, so repeated_nodes is empty.
-        // Seed it with each initial node once so the first attachment can proceed.
-        if repeated_nodes.is_empty() {
-            for i in 0..m {
-                repeated_nodes.push(i);
-            }
-        }
+        // Node labels are "0", "1", ..., "n-1"
+        let node_labels: Vec<String> = (0..n).map(|i| i.to_string()).collect();
 
-        // Grow the graph: add nodes m..n-1 one at a time.
-        for source in m..n {
+        let mut rng = StdRng::seed_from_u64(seed);
+        // Grow the graph: add nodes m+1..n-1 one at a time.
+        for source in (m + 1)..n {
+            graph.add_node(node_labels[source].clone());
+
             // Choose m distinct targets from existing nodes proportional to degree.
             let mut targets = Vec::with_capacity(m);
             let mut target_set = std::collections::HashSet::new();
@@ -410,7 +405,10 @@ impl GraphGenerator {
             0.08,
             format!("generated barabasi-albert graph with n={n}, m={m}, seed={seed}"),
         );
-        Ok(GenerationReport { graph, warnings })
+        Ok(GenerationReport {
+            graph,
+            warnings: report.warnings,
+        })
     }
 
     fn validate_n(
@@ -1109,9 +1107,9 @@ mod tests {
             .barabasi_albert_graph(20, 2, 42)
             .expect("barabasi-albert should succeed");
         assert_eq!(report.graph.node_count(), 20);
-        // Initial complete graph on m=2 nodes has 1 edge.
-        // Then 18 nodes are added, each with 2 edges → 1 + 18*2 = 37 edges.
-        assert_eq!(report.graph.edge_count(), 37);
+        // Initial star graph on m+1 = 3 nodes has 2 edges.
+        // Then 17 nodes are added, each with 2 edges → 2 + 17*2 = 36 edges.
+        assert_eq!(report.graph.edge_count(), 36);
     }
 
     #[test]
@@ -1141,22 +1139,19 @@ mod tests {
     }
 
     #[test]
-    fn barabasi_albert_rejects_m_gt_n() {
+    fn barabasi_albert_rejects_m_ge_n() {
         let mut gg = GraphGenerator::strict();
+        // m=n should fail
+        let err = gg
+            .barabasi_albert_graph(5, 5, 1)
+            .expect_err("m=n should fail");
+        assert!(matches!(err, GenerationError::FailClosed { .. }));
+
+        // m > n should fail
         let err = gg
             .barabasi_albert_graph(3, 5, 1)
             .expect_err("m > n should fail");
         assert!(matches!(err, GenerationError::FailClosed { .. }));
-    }
-
-    #[test]
-    fn barabasi_albert_m_equals_n_is_complete() {
-        let mut gg = GraphGenerator::strict();
-        let report = gg
-            .barabasi_albert_graph(5, 5, 42)
-            .expect("ba with m=n should succeed");
-        // m=n means we just get a complete graph on 5 nodes = 10 edges.
-        assert_eq!(report.graph.edge_count(), 10);
     }
 
     #[test]
@@ -1166,7 +1161,7 @@ mod tests {
             .barabasi_albert_graph(10, 1, 42)
             .expect("ba with m=1 should succeed");
         assert_eq!(report.graph.node_count(), 10);
-        // Initial K_1 has 0 edges; 9 new nodes each attach 1 edge → 9 edges.
+        // Initial star(1) has 1 edge; 8 new nodes each attach 1 edge → 1 + 8 = 9 edges.
         assert_eq!(report.graph.edge_count(), 9);
     }
 
