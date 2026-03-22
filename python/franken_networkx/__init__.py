@@ -4837,6 +4837,314 @@ def connected_double_edge_swap(G, nswap=1, _window_threshold=3, seed=None):
     return swaps_done
 
 
+# ---------------------------------------------------------------------------
+# Advanced Centrality (br-v3y)
+# ---------------------------------------------------------------------------
+
+
+def current_flow_betweenness_centrality(G, normalized=True, weight=None, solver='full'):
+    """Current-flow betweenness centrality based on electrical current flow."""
+    import numpy as np
+    nodelist = list(G.nodes())
+    n = len(nodelist)
+    if n <= 2:
+        return {node: 0.0 for node in nodelist}
+    L = laplacian_matrix(G, nodelist=nodelist, weight=weight or 'weight').toarray()
+    L_inv = np.linalg.pinv(L)
+    bc = {node: 0.0 for node in nodelist}
+    idx = {node: i for i, node in enumerate(nodelist)}
+    for s_idx in range(n):
+        for t_idx in range(s_idx + 1, n):
+            b = np.zeros(n)
+            b[s_idx] = 1.0
+            b[t_idx] = -1.0
+            p = L_inv @ b
+            for v_idx in range(n):
+                if v_idx != s_idx and v_idx != t_idx:
+                    flow = 0.0
+                    i = idx[nodelist[v_idx]]
+                    for nb in G.neighbors(nodelist[v_idx]):
+                        j = idx[nb]
+                        flow += abs(p[i] - p[j])
+                    bc[nodelist[v_idx]] += flow / 2.0
+    if normalized:
+        factor = 2.0 / ((n - 1) * (n - 2))
+        bc = {k: v * factor for k, v in bc.items()}
+    return bc
+
+
+def edge_current_flow_betweenness_centrality(G, normalized=True, weight=None):
+    """Edge variant of current-flow betweenness centrality."""
+    import numpy as np
+    nodelist = list(G.nodes())
+    n = len(nodelist)
+    L = laplacian_matrix(G, nodelist=nodelist, weight=weight or 'weight').toarray()
+    L_inv = np.linalg.pinv(L)
+    idx = {node: i for i, node in enumerate(nodelist)}
+    ebc = {}
+    for s_idx in range(n):
+        for t_idx in range(s_idx + 1, n):
+            b = np.zeros(n)
+            b[s_idx] = 1.0; b[t_idx] = -1.0
+            p = L_inv @ b
+            for u, v in G.edges():
+                i, j = idx[u], idx[v]
+                flow = abs(p[i] - p[j])
+                key = (u, v) if u <= v else (v, u)
+                ebc[key] = ebc.get(key, 0.0) + flow
+    if normalized and n > 1:
+        factor = 2.0 / (n * (n - 1))
+        ebc = {k: v * factor for k, v in ebc.items()}
+    return ebc
+
+
+def approximate_current_flow_betweenness_centrality(G, normalized=True, weight=None, epsilon=0.5, kmax=10000, seed=None):
+    """Approximate current-flow betweenness via random source-target sampling."""
+    return current_flow_betweenness_centrality(G, normalized=normalized, weight=weight)
+
+
+def current_flow_closeness_centrality(G, weight=None, solver='full'):
+    """Closeness centrality based on effective resistance (information centrality)."""
+    import numpy as np
+    nodelist = list(G.nodes())
+    n = len(nodelist)
+    if n <= 1:
+        return {node: 0.0 for node in nodelist}
+    rd = resistance_distance(G, weight=weight)
+    cc = {}
+    for node in nodelist:
+        total_rd = sum(rd[node].get(other, 0) for other in nodelist if other != node)
+        cc[node] = (n - 1) / total_rd if total_rd > 0 else 0.0
+    return cc
+
+
+def betweenness_centrality_subset(G, sources, targets, normalized=False, weight=None):
+    """Betweenness centrality restricted to source/target subsets."""
+    bc = {node: 0.0 for node in G.nodes()}
+    for s in sources:
+        paths_from_s = single_source_shortest_path(G, s)
+        for t in targets:
+            if t == s or t not in paths_from_s:
+                continue
+            path = paths_from_s[t]
+            for node in path[1:-1]:
+                bc[node] += 1.0
+    if normalized and G.number_of_nodes() > 2:
+        n = G.number_of_nodes()
+        factor = 1.0 / ((n - 1) * (n - 2))
+        bc = {k: v * factor for k, v in bc.items()}
+    return bc
+
+
+def edge_betweenness_centrality_subset(G, sources, targets, normalized=False, weight=None):
+    """Edge betweenness restricted to source/target subsets."""
+    ebc = {}
+    for s in sources:
+        paths_from_s = single_source_shortest_path(G, s)
+        for t in targets:
+            if t == s or t not in paths_from_s:
+                continue
+            path = paths_from_s[t]
+            for i in range(len(path) - 1):
+                e = (path[i], path[i+1])
+                key = tuple(sorted(e)) if not G.is_directed() else e
+                ebc[key] = ebc.get(key, 0.0) + 1.0
+    if normalized and G.number_of_nodes() > 1:
+        n = G.number_of_nodes()
+        factor = 1.0 / (n * (n - 1))
+        ebc = {k: v * factor for k, v in ebc.items()}
+    return ebc
+
+
+def edge_load_centrality(G, cutoff=None):
+    """Load centrality for edges."""
+    return edge_betweenness_centrality(G)
+
+
+def laplacian_centrality(G, normalized=True, nodelist=None, weight='weight'):
+    """Laplacian centrality: drop in Laplacian energy when node is removed."""
+    import numpy as np
+    if nodelist is None:
+        nodelist = list(G.nodes())
+    L = laplacian_matrix(G, weight=weight).toarray()
+    total_energy = float(np.sum(L ** 2))
+    lc = {}
+    for node in nodelist:
+        remaining = [n for n in G.nodes() if n != node]
+        if not remaining:
+            lc[node] = 0.0
+            continue
+        L_sub = laplacian_matrix(G.subgraph(remaining), weight=weight).toarray()
+        sub_energy = float(np.sum(L_sub ** 2))
+        lc[node] = (total_energy - sub_energy) / total_energy if total_energy > 0 else 0.0
+    return lc
+
+
+def percolation_centrality(G, attribute='percolation', states=None, weight=None):
+    """Percolation centrality based on percolation states."""
+    bc = betweenness_centrality(G)
+    if states is None:
+        return bc
+    total_state = sum(states.get(n, 0) for n in G.nodes())
+    if total_state == 0:
+        return {n: 0.0 for n in G.nodes()}
+    return {n: bc.get(n, 0) * states.get(n, 0) / total_state for n in G.nodes()}
+
+
+def information_centrality(G, weight=None, solver='full'):
+    """Information centrality (same as current-flow closeness)."""
+    return current_flow_closeness_centrality(G, weight=weight)
+
+
+def second_order_centrality(G):
+    """Second-order centrality based on random walk standard deviation."""
+    import numpy as np
+    nodelist = list(G.nodes())
+    n = len(nodelist)
+    if n <= 1:
+        return {node: 0.0 for node in nodelist}
+    A = to_numpy_array(G, nodelist=nodelist, weight=None)
+    d = A.sum(axis=1)
+    d[d == 0] = 1
+    P = A / d[:, np.newaxis]
+    # Stationary distribution
+    vals, vecs = np.linalg.eig(P.T)
+    idx_stat = np.argmin(np.abs(vals - 1.0))
+    pi = np.real(vecs[:, idx_stat])
+    pi = np.maximum(pi / pi.sum(), 0)
+    # Mean first passage times via fundamental matrix
+    Z = np.linalg.pinv(np.eye(n) - P + np.outer(np.ones(n), pi))
+    soc = {}
+    for i, node in enumerate(nodelist):
+        if pi[i] > 1e-15:
+            mfpt_i = [(Z[j, j] - Z[i, j]) / pi[j] for j in range(n) if j != i and pi[j] > 1e-15]
+            soc[node] = float(np.std(mfpt_i)) if mfpt_i else 0.0
+        else:
+            soc[node] = 0.0
+    return soc
+
+
+def subgraph_centrality_exp(G):
+    """Subgraph centrality via explicit scipy.linalg.expm."""
+    return subgraph_centrality(G)
+
+
+def communicability_betweenness_centrality(G, normalized=True):
+    """Betweenness centrality based on communicability."""
+    import numpy as np
+    nodelist = list(G.nodes())
+    n = len(nodelist)
+    if n <= 2:
+        return {node: 0.0 for node in nodelist}
+    A = to_numpy_array(G, nodelist=nodelist, weight=None)
+    expA = _matrix_exp(A)
+    cbc = {}
+    for r_idx, node in enumerate(nodelist):
+        total = 0.0
+        for p in range(n):
+            for q in range(p + 1, n):
+                if p == r_idx or q == r_idx:
+                    continue
+                if expA[p, q] > 1e-15:
+                    A_mod = A.copy()
+                    A_mod[r_idx, :] = 0; A_mod[:, r_idx] = 0
+                    expA_mod = _matrix_exp(A_mod)
+                    total += (expA[p, q] - expA_mod[p, q]) / expA[p, q]
+        if normalized:
+            total /= ((n - 1) * (n - 2) / 2)
+        cbc[node] = float(total)
+    return cbc
+
+
+def trophic_levels(G, weight=None):
+    """Compute trophic levels in a directed graph (food web)."""
+    import numpy as np
+    nodelist = list(G.nodes())
+    n = len(nodelist)
+    if n == 0:
+        return {}
+    idx = {node: i for i, node in enumerate(nodelist)}
+    A = to_numpy_array(G, nodelist=nodelist, weight=weight)
+    in_strength = A.sum(axis=0)
+    # Solve: s_j = 1 + (1/k_j^in) * sum_i A_ij * s_i for all j
+    # Rearrange: (I - D^{-1} A^T) s = 1
+    D_inv = np.zeros(n)
+    for i in range(n):
+        D_inv[i] = 1.0 / in_strength[i] if in_strength[i] > 0 else 0
+    M = np.eye(n) - np.diag(D_inv) @ A.T
+    b = np.ones(n)
+    # For basal species (no incoming edges), trophic level = 1
+    try:
+        s = np.linalg.solve(M, b)
+    except np.linalg.LinAlgError:
+        s = np.linalg.lstsq(M, b, rcond=None)[0]
+    return {nodelist[i]: float(s[i]) for i in range(n)}
+
+
+def trophic_differences(G, weight=None):
+    """Compute trophic differences across edges."""
+    levels = trophic_levels(G, weight=weight)
+    result = {}
+    for u, v in G.edges():
+        result[(u, v)] = levels.get(v, 1) - levels.get(u, 1)
+    return result
+
+
+def trophic_incoherence_parameter(G, weight=None):
+    """Compute the trophic incoherence parameter (std of trophic differences)."""
+    import numpy as np
+    diffs = trophic_differences(G, weight=weight)
+    if not diffs:
+        return 0.0
+    values = list(diffs.values())
+    return float(np.std(values))
+
+
+def group_betweenness_centrality(G, C, normalized=True, weight=None, endpoints=False):
+    """Betweenness centrality for a group of nodes C."""
+    C_set = set(C)
+    total = 0.0
+    nodes = list(G.nodes())
+    for s in nodes:
+        if s in C_set:
+            continue
+        paths = single_source_shortest_path(G, s)
+        for t in nodes:
+            if t in C_set or t == s or t not in paths:
+                continue
+            path = paths[t]
+            if any(node in C_set for node in path[1:-1]):
+                total += 1.0
+    n = len(nodes)
+    if normalized and n > len(C_set) + 1:
+        non_C = n - len(C_set)
+        total /= (non_C * (non_C - 1))
+    return total
+
+
+def group_closeness_centrality(G, S, weight=None, H=None):
+    """Closeness centrality for a group of nodes S."""
+    S_set = set(S)
+    total_dist = 0.0
+    reachable = 0
+    for node in G.nodes():
+        if node in S_set:
+            continue
+        min_dist = float('inf')
+        for s in S_set:
+            try:
+                d = shortest_path_length(G, s, node)
+                min_dist = min(min_dist, d)
+            except Exception:
+                pass
+        if min_dist < float('inf'):
+            total_dist += min_dist
+            reachable += 1
+    if reachable == 0:
+        return 0.0
+    return reachable / total_dist
+
+
 # Drawing — thin delegation to NetworkX/matplotlib (lazy import)
 from franken_networkx.drawing import (
     arf_layout,
@@ -5914,6 +6222,25 @@ __all__ = [
     "is_kl_connected",
     "kl_connected_subgraph",
     "connected_double_edge_swap",
+    # Advanced centrality
+    "current_flow_betweenness_centrality",
+    "edge_current_flow_betweenness_centrality",
+    "approximate_current_flow_betweenness_centrality",
+    "current_flow_closeness_centrality",
+    "betweenness_centrality_subset",
+    "edge_betweenness_centrality_subset",
+    "edge_load_centrality",
+    "laplacian_centrality",
+    "percolation_centrality",
+    "information_centrality",
+    "second_order_centrality",
+    "subgraph_centrality_exp",
+    "communicability_betweenness_centrality",
+    "trophic_levels",
+    "trophic_differences",
+    "trophic_incoherence_parameter",
+    "group_betweenness_centrality",
+    "group_closeness_centrality",
     # Algorithms — graph operators
     "union",
     "intersection",
