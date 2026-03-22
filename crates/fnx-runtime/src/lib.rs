@@ -1746,8 +1746,8 @@ impl LossMatrix {
     pub const fn strict_default() -> Self {
         Self {
             allow_false_negative: 100.0,
-            validate_cost: 4.0,
-            reject_false_positive: 20.0,
+            validate_cost: 25.0,
+            reject_false_positive: 60.0,
         }
     }
 
@@ -1755,8 +1755,8 @@ impl LossMatrix {
     pub const fn hardened_default() -> Self {
         Self {
             allow_false_negative: 120.0,
-            validate_cost: 5.0,
-            reject_false_positive: 30.0,
+            validate_cost: 30.0,
+            reject_false_positive: 70.0,
         }
     }
 }
@@ -1777,22 +1777,26 @@ pub fn decision_theoretic_action(
         return DecisionAction::FailClosed;
     }
 
-    let clamped = incompatibility_probability.clamp(0.0, 1.0);
+    let p = incompatibility_probability.clamp(0.0, 1.0);
     let loss = match mode {
         CompatibilityMode::Strict => LossMatrix::strict_default(),
         CompatibilityMode::Hardened => LossMatrix::hardened_default(),
     };
 
-    let allow_loss = clamped * loss.allow_false_negative;
-    let validate_loss = loss.validate_cost;
-    let fail_closed_loss = (1.0 - clamped) * loss.reject_false_positive;
+    // Expected loss for each action:
+    // If we ALLOW: we lose allow_false_negative if it IS incompatible (prob p).
+    let e_allow = p * loss.allow_false_negative;
+    // If we VALIDATE: we lose validate_cost regardless of state.
+    let e_validate = loss.validate_cost;
+    // If we FAIL_CLOSED: we lose reject_false_positive if it WAS compatible (prob 1-p).
+    let e_fail_closed = (1.0 - p) * loss.reject_false_positive;
 
-    if fail_closed_loss <= allow_loss && fail_closed_loss <= validate_loss {
-        DecisionAction::FailClosed
-    } else if validate_loss <= allow_loss {
+    if e_allow <= e_validate && e_allow <= e_fail_closed {
+        DecisionAction::Allow
+    } else if e_validate <= e_fail_closed {
         DecisionAction::FullValidate
     } else {
-        DecisionAction::Allow
+        DecisionAction::FailClosed
     }
 }
 

@@ -376,7 +376,7 @@ impl DiGraph {
             }],
         );
 
-        if action == DecisionAction::FailClosed {
+        if action == DecisionAction::FailClosed || action == DecisionAction::FullValidate {
             return Err(GraphError::FailClosed {
                 operation: "add_edge",
                 reason: "incompatible edge metadata".to_owned(),
@@ -902,7 +902,7 @@ impl MultiDiGraph {
             }],
         );
 
-        if action == DecisionAction::FailClosed {
+        if action == DecisionAction::FailClosed || action == DecisionAction::FullValidate {
             return Err(GraphError::FailClosed {
                 operation: "add_edge",
                 reason: "incompatible edge metadata".to_owned(),
@@ -1614,7 +1614,7 @@ mod tests {
     }
 
     #[test]
-    fn hardened_self_loop_records_full_validate() {
+    fn hardened_self_loop_records_allow() {
         let mut g = DiGraph::hardened();
         g.add_edge("loop", "loop").unwrap();
 
@@ -1626,7 +1626,7 @@ mod tests {
             .find(|r| r.operation == "add_edge")
             .expect("add_edge should emit ledger row");
         assert_decision_record_schema(record, CompatibilityMode::Hardened);
-        assert_eq!(record.action, DecisionAction::FullValidate);
+        assert_eq!(record.action, DecisionAction::Allow);
     }
 
     // -- Proptest -----------------------------------------------------------

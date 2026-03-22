@@ -48,6 +48,13 @@ def _from_nx_graph(graph, create_using=None):
     return result
 
 
+def _from_nx_graph_or_graphs(graph_or_graphs, create_using=None):
+    """Convert one NetworkX graph or a list of graphs into FrankenNetworkX objects."""
+    if isinstance(graph_or_graphs, list):
+        return [_from_nx_graph(graph) for graph in graph_or_graphs]
+    return _from_nx_graph(graph_or_graphs, create_using=create_using)
+
+
 def parse_adjlist(lines, comments="#", delimiter=None, create_using=None, nodetype=None):
     """Parse an adjacency-list line stream into a FrankenNetworkX graph."""
     import networkx as nx
@@ -90,6 +97,80 @@ def parse_gml(lines, label="label", destringizer=None):
 
     graph = nx.parse_gml(_normalize_lines(lines), label=label, destringizer=destringizer)
     return _from_nx_graph(graph)
+
+
+def from_graph6_bytes(bytes_in):
+    """Parse graph6 bytes into a FrankenNetworkX graph."""
+    import networkx as nx
+
+    return _from_nx_graph(nx.from_graph6_bytes(bytes_in))
+
+
+def to_graph6_bytes(G, nodes=None, header=True):
+    """Serialize a FrankenNetworkX graph to graph6 bytes through NetworkX."""
+    import networkx as nx
+
+    return nx.to_graph6_bytes(_to_nx(G), nodes=nodes, header=header)
+
+
+def read_graph6(path):
+    """Read graph6 files through NetworkX."""
+    import networkx as nx
+
+    return _from_nx_graph_or_graphs(nx.read_graph6(path))
+
+
+def write_graph6(G, path, nodes=None, header=True):
+    """Write graph6 files through NetworkX."""
+    import networkx as nx
+
+    return nx.write_graph6(_to_nx(G), path, nodes=nodes, header=header)
+
+
+def parse_graph6(string):
+    """Parse a graph6 string into a FrankenNetworkX graph."""
+    if isinstance(string, str):
+        data = string.encode("ascii")
+    else:
+        data = bytes(string)
+    return from_graph6_bytes(data)
+
+
+def from_sparse6_bytes(bytes_in):
+    """Parse sparse6 bytes into a FrankenNetworkX graph."""
+    import networkx as nx
+
+    return _from_nx_graph(nx.from_sparse6_bytes(bytes_in))
+
+
+def to_sparse6_bytes(G, nodes=None, header=True):
+    """Serialize a FrankenNetworkX graph to sparse6 bytes through NetworkX."""
+    import networkx as nx
+
+    return nx.to_sparse6_bytes(_to_nx(G), nodes=nodes, header=header)
+
+
+def read_sparse6(path):
+    """Read sparse6 files through NetworkX."""
+    import networkx as nx
+
+    return _from_nx_graph_or_graphs(nx.read_sparse6(path))
+
+
+def write_sparse6(G, path, nodes=None, header=True):
+    """Write sparse6 files through NetworkX."""
+    import networkx as nx
+
+    return nx.write_sparse6(_to_nx(G), path, nodes=nodes, header=header)
+
+
+def parse_sparse6(string):
+    """Parse a sparse6 string into a FrankenNetworkX graph."""
+    if isinstance(string, str):
+        data = string.encode("ascii")
+    else:
+        data = bytes(string)
+    return from_sparse6_bytes(data)
 
 
 def read_pajek(path, encoding="UTF-8"):
@@ -191,6 +272,41 @@ def parse_multiline_adjlist(
         edgetype=edgetype,
     )
     return _from_nx_graph(graph, create_using=create_using)
+
+
+def read_weighted_edgelist(
+    path,
+    comments="#",
+    delimiter=None,
+    create_using=None,
+    nodetype=None,
+    encoding="utf-8",
+):
+    """Read weighted edge lists through NetworkX."""
+    import networkx as nx
+
+    graph = nx.read_weighted_edgelist(
+        path,
+        comments=comments,
+        delimiter=delimiter,
+        create_using=None,
+        nodetype=nodetype,
+        encoding=encoding,
+    )
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def write_weighted_edgelist(G, path, comments="#", delimiter=" ", encoding="utf-8"):
+    """Write weighted edge lists through NetworkX."""
+    import networkx as nx
+
+    return nx.write_weighted_edgelist(
+        _to_nx(G),
+        path,
+        comments=comments,
+        delimiter=delimiter,
+        encoding=encoding,
+    )
 
 
 def generate_multiline_adjlist(G, delimiter=" "):

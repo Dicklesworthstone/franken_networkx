@@ -331,7 +331,7 @@ impl Graph {
             }],
         );
 
-        if action == DecisionAction::FailClosed {
+        if action == DecisionAction::FailClosed || action == DecisionAction::FullValidate {
             return Err(GraphError::FailClosed {
                 operation: "add_edge",
                 reason: "incompatible edge metadata".to_owned(),
@@ -799,7 +799,7 @@ impl MultiGraph {
             }],
         );
 
-        if action == DecisionAction::FailClosed {
+        if action == DecisionAction::FailClosed || action == DecisionAction::FullValidate {
             return Err(GraphError::FailClosed {
                 operation: "add_edge",
                 reason: "incompatible edge metadata".to_owned(),
@@ -1319,7 +1319,7 @@ mod tests {
     }
 
     #[test]
-    fn hardened_self_loop_records_full_validate_decision() {
+    fn hardened_self_loop_records_allow_decision() {
         let mut graph = Graph::hardened();
         graph
             .add_edge("loop", "loop")
@@ -1333,7 +1333,7 @@ mod tests {
             .find(|record| record.operation == "add_edge")
             .expect("add_edge operation should emit ledger row");
         assert_decision_record_schema(add_edge_record, CompatibilityMode::Hardened);
-        assert_eq!(add_edge_record.action, DecisionAction::FullValidate);
+        assert_eq!(add_edge_record.action, DecisionAction::Allow);
         assert!(
             add_edge_record
                 .evidence
@@ -1613,7 +1613,7 @@ mod tests {
                                 .any(|term| term.signal == "unknown_incompatible_feature")
                         );
                     } else {
-                        prop_assert_eq!(record.action, DecisionAction::FullValidate);
+                        prop_assert_eq!(record.action, DecisionAction::Allow);
                         // add_edge records two decisions: a pre-check (only
                         // unknown_incompatible_feature) and a post-check (with
                         // self_loop, edge_attr_count, etc.). Both are valid.

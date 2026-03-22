@@ -68,6 +68,8 @@ pub enum DurabilityError {
     HashMismatch,
 }
 
+pub const MAX_DURABILITY_FILE_SIZE: usize = 100 * 1024 * 1024; // 100MB
+
 pub fn generate_sidecar_for_file(
     artifact_path: &Path,
     sidecar_path: &Path,
@@ -76,6 +78,18 @@ pub fn generate_sidecar_for_file(
     mtu: u16,
     repair_symbols: u32,
 ) -> Result<ArtifactEnvelope, DurabilityError> {
+    let metadata = fs::metadata(artifact_path)?;
+    if metadata.len() > MAX_DURABILITY_FILE_SIZE as u64 {
+        return Err(DurabilityError::Io(std::io::Error::new(
+            std::io::ErrorKind::FileTooLarge,
+            format!(
+                "file size {} exceeds maximum allowed {} bytes",
+                metadata.len(),
+                MAX_DURABILITY_FILE_SIZE
+            ),
+        )));
+    }
+
     let data = fs::read(artifact_path)?;
     let source_hash = hash_bytes(&data);
     let encoder = Encoder::with_defaults(&data, mtu);
