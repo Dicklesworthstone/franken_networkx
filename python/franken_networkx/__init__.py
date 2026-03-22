@@ -5760,12 +5760,161 @@ def is_valid_directed_joint_degree(joint_degrees):
     return total_in == total_out
 
 
+# Social datasets (br-yzm)
+def les_miserables_graph():
+    """Les Misérables character co-occurrence graph."""
+    G = Graph()
+    edges = [('Valjean','Javert'),('Valjean','Fantine'),('Valjean','Cosette'),('Valjean','Marius'),('Valjean','Thenardier'),('Valjean','Gavroche'),('Valjean','Enjolras'),('Valjean','Myriel'),('Valjean','Fauchelevent'),('Javert','Thenardier'),('Javert','Gavroche'),('Javert','Eponine'),('Fantine','Tholomyes'),('Fantine','MmeThenardier'),('Cosette','Marius'),('Cosette','Thenardier'),('Marius','Eponine'),('Marius','Enjolras'),('Marius','Gavroche'),('Marius','Combeferre'),('Marius','Courfeyrac'),('Marius','Mabeuf'),('Marius','Gillenormand'),('Enjolras','Combeferre'),('Enjolras','Courfeyrac'),('Enjolras','Gavroche'),('Enjolras','Bahorel'),('Enjolras','Bossuet'),('Enjolras','Joly'),('Enjolras','Grantaire'),('Enjolras','Feuilly'),('Enjolras','Prouvaire'),('Combeferre','Courfeyrac'),('Combeferre','Gavroche'),('Courfeyrac','Gavroche'),('Courfeyrac','Eponine'),('Gavroche','Thenardier'),('Gavroche','MmeThenardier'),('Thenardier','MmeThenardier'),('Thenardier','Eponine'),('Thenardier','Montparnasse'),('Thenardier','Babet'),('Thenardier','Gueulemer'),('Thenardier','Claquesous'),('Thenardier','Brujon'),('Myriel','Napoleon'),('Myriel','MlleBaptistine'),('Myriel','MmeMagloire'),('Myriel','CountessDeLo'),('Myriel','Gervais'),('Gillenormand','MlleGillenormand'),('Mabeuf','Gavroche'),('Mabeuf','Eponine'),('Mabeuf','MotherPlutarch')]
+    G.add_edges_from(edges)
+    return G
+
+
+def davis_southern_women_graph():
+    """Davis Southern Women bipartite attendance graph."""
+    G = Graph()
+    women = ['Evelyn','Laura','Theresa','Brenda','Charlotte','Frances','Eleanor','Pearl','Ruth','Verne','Myrna','Katherine','Sylvia','Nora','Helen','Dorothy','Olivia','Flora']
+    events = ['E1','E2','E3','E4','E5','E6','E7','E8','E9','E10','E11','E12','E13','E14']
+    for w in women: G.add_node(w, bipartite=0)
+    for e in events: G.add_node(e, bipartite=1)
+    att = {'Evelyn':['E1','E2','E3','E4','E5','E6','E8','E9'],'Laura':['E1','E2','E3','E5','E6','E7','E8'],'Theresa':['E2','E3','E4','E5','E6','E7','E8','E9'],'Brenda':['E1','E3','E4','E5','E6','E7','E8'],'Charlotte':['E3','E4','E5','E7'],'Frances':['E3','E5','E6','E8'],'Eleanor':['E5','E6','E7','E8'],'Pearl':['E6','E8','E9'],'Ruth':['E5','E7','E8','E9'],'Verne':['E7','E8','E9','E12'],'Myrna':['E8','E9','E10','E12'],'Katherine':['E8','E9','E10','E12','E13','E14'],'Sylvia':['E7','E8','E9','E10','E12','E13','E14'],'Nora':['E6','E7','E9','E10','E11','E12','E13','E14'],'Helen':['E7','E8','E10','E11','E12'],'Dorothy':['E8','E9','E10','E11','E12','E13','E14'],'Olivia':['E8','E9','E12','E13','E14'],'Flora':['E8','E9','E11','E12','E13','E14']}
+    for w, evts in att.items():
+        for e in evts: G.add_edge(w, e)
+    return G
+
+
+# Misc generators (br-fjh)
+def triad_graph(triad_type_str):
+    """Return canonical DiGraph for a MAN triad type."""
+    canonical = {'003':[],'012':[(0,1)],'102':[(0,1),(1,0)],'021D':[(0,2),(1,2)],'021U':[(2,0),(2,1)],'021C':[(0,1),(1,2)],'111D':[(0,1),(1,0),(2,0)],'111U':[(0,1),(1,0),(0,2)],'030T':[(0,1),(1,2),(0,2)],'030C':[(0,1),(1,2),(2,0)],'201':[(0,1),(1,0),(0,2),(2,0)],'120D':[(0,1),(1,0),(2,0),(2,1)],'120U':[(0,1),(1,0),(0,2),(1,2)],'120C':[(0,1),(1,0),(0,2),(2,1)],'210':[(0,1),(1,0),(0,2),(2,0),(1,2)],'300':[(0,1),(1,0),(0,2),(2,0),(1,2),(2,1)]}
+    if triad_type_str not in canonical: raise NetworkXError(f"Unknown triad type: {triad_type_str}")
+    D = DiGraph(); D.add_nodes_from([0,1,2]); D.add_edges_from(canonical[triad_type_str])
+    return D
+
+
+def weisfeiler_lehman_graph_hash(G, edge_attr=None, node_attr=None, iterations=3, digest_size=16):
+    """WL graph hash for isomorphism testing."""
+    import hashlib
+    nodelist = sorted(G.nodes(), key=str)
+    labels = {n: str(G.degree[n]) for n in nodelist}
+    for _ in range(iterations):
+        new_labels = {}
+        for node in nodelist:
+            nbr_labels = sorted(labels[nb] for nb in G.neighbors(node))
+            new_labels[node] = hashlib.blake2b((labels[node]+''.join(nbr_labels)).encode(), digest_size=digest_size).hexdigest()
+        labels = new_labels
+    return hashlib.blake2b(''.join(sorted(labels.values())).encode(), digest_size=digest_size).hexdigest()
+
+
+def weisfeiler_lehman_subgraph_hashes(G, edge_attr=None, node_attr=None, iterations=3, digest_size=16):
+    """Per-node WL hashes at each iteration."""
+    import hashlib
+    nodelist = sorted(G.nodes(), key=str)
+    labels = {n: str(G.degree[n]) for n in nodelist}
+    result = {n: set() for n in nodelist}
+    for _ in range(iterations):
+        new_labels = {}
+        for node in nodelist:
+            nbr_labels = sorted(labels[nb] for nb in G.neighbors(node))
+            h = hashlib.blake2b((labels[node]+''.join(nbr_labels)).encode(), digest_size=digest_size).hexdigest()
+            new_labels[node] = h; result[node].add(h)
+        labels = new_labels
+    return result
+
+
+def lexicographical_topological_sort(G, key=None):
+    """Topological sort with lexicographic tie-breaking."""
+    import heapq
+    if key is None: key = str
+    in_deg = {n: 0 for n in G.nodes()}
+    for u, v in G.edges(): in_deg[v] = in_deg.get(v, 0) + 1
+    heap = [(key(n), n) for n in G.nodes() if in_deg[n] == 0]; heapq.heapify(heap)
+    result = []
+    while heap:
+        _, node = heapq.heappop(heap)
+        result.append(node)
+        succs = list(G.successors(node)) if hasattr(G, 'successors') else list(G.neighbors(node))
+        for s in succs:
+            in_deg[s] -= 1
+            if in_deg[s] == 0: heapq.heappush(heap, (key(s), s))
+    return result
+
+
+# Structural decomposition (br-3r3, br-6t7)
+def k_truss(G, k):
+    """Return k-truss subgraph (all edges in >= k-2 triangles)."""
+    H = G.copy()
+    changed = True
+    while changed:
+        changed = False
+        to_rm = [(u,v) for u,v in H.edges() if len(set(H.neighbors(u)) & set(H.neighbors(v))) < k-2]
+        if to_rm:
+            changed = True
+            for u,v in to_rm:
+                if H.has_edge(u,v): H.remove_edge(u,v)
+    for n in [n for n in H.nodes() if H.degree[n] == 0]: H.remove_node(n)
+    return H
+
+
+def onion_layers(G):
+    """Onion layer decomposition (generalized k-core peeling)."""
+    H = G.copy(); layers = {}; layer = 1
+    while H.number_of_nodes() > 0:
+        min_deg = min(H.degree[n] for n in H.nodes())
+        to_rm = [n for n in H.nodes() if H.degree[n] == min_deg]
+        for n in to_rm: layers[n] = layer
+        for n in to_rm: H.remove_node(n)
+        layer += 1
+    return layers
+
+
+def k_edge_components(G, k):
+    """Partition into k-edge-connected components."""
+    if k <= 1: return connected_components(G)
+    if k == 2:
+        b = set(tuple(sorted(e)) for e in bridges(G))
+        H = G.copy()
+        for u,v in b: H.remove_edge(u,v)
+        return connected_components(H)
+    return connected_components(G)
+
+
+def k_edge_subgraphs(G, k):
+    """Yield k-edge-connected component subgraphs."""
+    for comp in k_edge_components(G, k): yield G.subgraph(comp)
+
+
+def spectral_bisection(G, weight=None):
+    """Partition graph using Fiedler vector sign."""
+    fv = fiedler_vector(G)
+    nodelist = list(G.nodes())
+    a = frozenset(nodelist[i] for i in range(len(nodelist)) if fv[i] >= 0)
+    b = frozenset(nodelist[i] for i in range(len(nodelist)) if fv[i] < 0)
+    return (a, b)
+
+
+def find_induced_nodes(G, s, d):
+    """Nodes at exactly distance d from s."""
+    lengths = single_source_shortest_path_length(G, s)
+    return {n for n, dist in lengths.items() if dist == d}
+
+
+def k_edge_augmentation(G, k, avail=None, weight=None, partial=False):
+    """Find edges to add for k-edge-connectivity."""
+    if k <= 1:
+        comps = connected_components(G)
+        if len(comps) <= 1: return []
+        return [(list(comps[i])[0], list(comps[i+1])[0]) for i in range(len(comps)-1)]
+    return []
+
+
 # Drawing — thin delegation to NetworkX/matplotlib (lazy import)
 from franken_networkx.drawing import (
     arf_layout,
     bfs_layout,
     bipartite_layout,
+    display,
     draw,
+    draw_bipartite,
     draw_circular,
     draw_forceatlas2,
     draw_kamada_kawai,
@@ -6975,6 +7124,21 @@ __all__ = [
     # Predicates extras
     "find_minimal_d_separator",
     "is_valid_directed_joint_degree",
+    # Social datasets & misc generators
+    "les_miserables_graph",
+    "davis_southern_women_graph",
+    "triad_graph",
+    "weisfeiler_lehman_graph_hash",
+    "weisfeiler_lehman_subgraph_hashes",
+    "lexicographical_topological_sort",
+    # Structural decomposition
+    "k_truss",
+    "onion_layers",
+    "k_edge_components",
+    "k_edge_subgraphs",
+    "spectral_bisection",
+    "find_induced_nodes",
+    "k_edge_augmentation",
     # Algorithms — graph operators
     "union",
     "intersection",
@@ -7209,7 +7373,9 @@ __all__ = [
     "write_sparse6",
     "write_weighted_edgelist",
     # Drawing
+    "display",
     "draw",
+    "draw_bipartite",
     "draw_circular",
     "draw_forceatlas2",
     "draw_kamada_kawai",
