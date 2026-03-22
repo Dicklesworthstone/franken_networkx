@@ -4500,7 +4500,8 @@ pub fn ring_of_cliques(
     num_cliques: usize,
     clique_size: usize,
 ) -> PyResult<PyObject> {
-    let result = py.allow_threads(|| fnx_algorithms::ring_of_cliques(num_cliques, clique_size));
+    let result = py.allow_threads(|| fnx_algorithms::ring_of_cliques(num_cliques, clique_size))
+        .map_err(NetworkXError::new_err)?;
     rust_graph_to_py_standalone(py, &result)
 }
 
@@ -4511,8 +4512,7 @@ pub fn ring_of_cliques(
 #[pyfunction]
 #[pyo3(signature = (r, h))]
 pub fn balanced_tree(py: Python<'_>, r: usize, h: usize) -> PyResult<PyObject> {
-    let result = py.allow_threads(|| fnx_algorithms::balanced_tree(r, h))
-        .map_err(NetworkXError::new_err)?;
+    let result = py.allow_threads(|| fnx_algorithms::balanced_tree(r, h));
     rust_graph_to_py_standalone(py, &result)
 }
 
@@ -4747,8 +4747,7 @@ pub fn complete_multipartite_graph(py: Python<'_>, block_sizes: Vec<usize>) -> P
 #[pyfunction]
 #[pyo3(signature = (m, n))]
 pub fn grid_2d_graph(py: Python<'_>, m: usize, n: usize) -> PyResult<PyObject> {
-    let result = py.allow_threads(|| fnx_algorithms::grid_2d_graph(m, n))
-        .map_err(NetworkXError::new_err)?;
+    let result = py.allow_threads(|| fnx_algorithms::grid_2d_graph(m, n));
     rust_graph_to_py_standalone(py, &result)
 }
 
@@ -4767,16 +4766,14 @@ pub fn trivial_graph(py: Python<'_>) -> PyResult<PyObject> {
 #[pyfunction]
 #[pyo3(signature = (n,))]
 pub fn binomial_tree(py: Python<'_>, n: usize) -> PyResult<PyObject> {
-    let result = py.allow_threads(|| fnx_algorithms::binomial_tree(n))
-        .map_err(NetworkXError::new_err)?;
+    let result = py.allow_threads(|| fnx_algorithms::binomial_tree(n));
     rust_graph_to_py_standalone(py, &result)
 }
 
 #[pyfunction]
 #[pyo3(signature = (r, n))]
 pub fn full_rary_tree(py: Python<'_>, r: usize, n: usize) -> PyResult<PyObject> {
-    let result = py.allow_threads(|| fnx_algorithms::full_rary_tree(r, n))
-        .map_err(NetworkXError::new_err)?;
+    let result = py.allow_threads(|| fnx_algorithms::full_rary_tree(r, n));
     rust_graph_to_py_standalone(py, &result)
 }
 

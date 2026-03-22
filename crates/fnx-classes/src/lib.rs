@@ -438,10 +438,6 @@ impl Graph {
         if let Some(neighbors) = self.adjacency.get(node) {
             let neighbor_names: Vec<String> = neighbors.iter().cloned().collect();
             for neighbor in neighbor_names {
-                // Remove the edge (node, neighbor) from the edges map.
-                // Undirected edges use EdgeKey which is canonicalized.
-                self.edges.shift_remove(&EdgeKeyRef::new(node, &neighbor));
-
                 // Remove node from neighbor's adjacency list.
                 if neighbor != node
                     && let Some(remote_neighbors) = self.adjacency.get_mut(&neighbor)
@@ -450,6 +446,7 @@ impl Graph {
                 }
             }
         }
+        self.edges.retain(|k, _| k.left != node && k.right != node);
 
         // 2. Remove node from adjacency and nodes maps.
         self.adjacency.shift_remove(node);
@@ -939,10 +936,6 @@ impl MultiGraph {
         if let Some(neighbors) = self.adjacency.get(node) {
             let neighbor_names: Vec<String> = neighbors.keys().cloned().collect();
             for neighbor in neighbor_names {
-                let edge_key = EdgeKeyRef::new(node, &neighbor);
-                self.edges.shift_remove(&edge_key);
-                self.next_edge_key.shift_remove(&edge_key);
-
                 if neighbor != node
                     && let Some(remote_neighbors) = self.adjacency.get_mut(&neighbor)
                 {
@@ -950,6 +943,8 @@ impl MultiGraph {
                 }
             }
         }
+        self.edges.retain(|k, _| k.left != node && k.right != node);
+        self.next_edge_key.retain(|k, _| k.left != node && k.right != node);
 
         // 2. Remove node from adjacency and nodes maps.
         self.adjacency.shift_remove(node);

@@ -485,7 +485,6 @@ impl DiGraph {
         if let Some(succs) = self.successors.get(node) {
             let targets: Vec<String> = succs.iter().cloned().collect();
             for target in targets {
-                self.edges.shift_remove(&DirectedEdgeKeyRef::new(node, &target));
                 if target != node
                     && let Some(preds) = self.predecessors.get_mut(&target)
                 {
@@ -498,7 +497,6 @@ impl DiGraph {
         if let Some(preds) = self.predecessors.get(node) {
             let sources: Vec<String> = preds.iter().cloned().collect();
             for source in sources {
-                self.edges.shift_remove(&DirectedEdgeKeyRef::new(&source, node));
                 if source != node
                     && let Some(succs) = self.successors.get_mut(&source)
                 {
@@ -506,6 +504,8 @@ impl DiGraph {
                 }
             }
         }
+
+        self.edges.retain(|k, _| k.source != node && k.target != node);
 
         self.successors.shift_remove(node);
         self.predecessors.shift_remove(node);
@@ -1037,10 +1037,6 @@ impl MultiDiGraph {
         if let Some(succs) = self.successors.get(node) {
             let targets: Vec<String> = succs.keys().cloned().collect();
             for target in targets {
-                let edge_key = DirectedEdgeKeyRef::new(node, &target);
-                self.edges.shift_remove(&edge_key);
-                self.next_edge_key.shift_remove(&edge_key);
-
                 if target != node
                     && let Some(preds) = self.predecessors.get_mut(&target)
                 {
@@ -1053,10 +1049,6 @@ impl MultiDiGraph {
         if let Some(preds) = self.predecessors.get(node) {
             let sources: Vec<String> = preds.keys().cloned().collect();
             for source in sources {
-                let edge_key = DirectedEdgeKeyRef::new(&source, node);
-                self.edges.shift_remove(&edge_key);
-                self.next_edge_key.shift_remove(&edge_key);
-
                 if source != node
                     && let Some(succs) = self.successors.get_mut(&source)
                 {
@@ -1064,6 +1056,9 @@ impl MultiDiGraph {
                 }
             }
         }
+
+        self.edges.retain(|k, _| k.source != node && k.target != node);
+        self.next_edge_key.retain(|k, _| k.source != node && k.target != node);
 
         self.successors.shift_remove(node);
         self.predecessors.shift_remove(node);
