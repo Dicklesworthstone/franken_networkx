@@ -3900,6 +3900,113 @@ def triads_by_type(G):
     return result
 
 
+# ---------------------------------------------------------------------------
+# Edge swapping & rewiring (br-eo5)
+# ---------------------------------------------------------------------------
+
+
+def double_edge_swap(G, nswap=1, max_tries=100, seed=None):
+    """Swap two edges while preserving the degree sequence.
+
+    For each swap attempt, select edges (u,v) and (x,y) and replace
+    with (u,x) and (v,y) if no self-loops or parallel edges result.
+
+    Parameters
+    ----------
+    G : Graph
+        Modified in place.
+    nswap : int, optional
+        Number of swaps to perform.
+    max_tries : int, optional
+        Maximum attempts per swap.
+    seed : int or None, optional
+
+    Returns
+    -------
+    G : Graph
+        The modified graph.
+    """
+    import random as _random
+    rng = _random.Random(seed)
+
+    if G.number_of_edges() < 2:
+        return G
+
+    edges = list(G.edges())
+    swaps_done = 0
+    tries = 0
+
+    while swaps_done < nswap and tries < nswap * max_tries:
+        tries += 1
+        e1 = edges[rng.randint(0, len(edges) - 1)]
+        e2 = edges[rng.randint(0, len(edges) - 1)]
+        u, v = e1
+        x, y = e2
+        if len({u, v, x, y}) < 4:
+            continue
+        # Try swap: (u,v), (x,y) → (u,x), (v,y)
+        if not G.has_edge(u, x) and not G.has_edge(v, y) and u != x and v != y:
+            G.remove_edge(u, v)
+            G.remove_edge(x, y)
+            G.add_edge(u, x)
+            G.add_edge(v, y)
+            edges = list(G.edges())
+            swaps_done += 1
+
+    return G
+
+
+def directed_edge_swap(G, nswap=1, max_tries=100, seed=None):
+    """Swap two directed edges while preserving in/out degree sequences.
+
+    Select edges (u→v) and (x→y), replace with (u→y) and (x→v).
+
+    Parameters
+    ----------
+    G : DiGraph
+        Modified in place.
+    nswap : int, optional
+    max_tries : int, optional
+    seed : int or None, optional
+
+    Returns
+    -------
+    G : DiGraph
+    """
+    import random as _random
+    rng = _random.Random(seed)
+
+    if not G.is_directed():
+        raise NetworkXError("directed_edge_swap requires a directed graph")
+    if G.number_of_edges() < 2:
+        return G
+
+    edges = list(G.edges())
+    swaps_done = 0
+    tries = 0
+
+    while swaps_done < nswap and tries < nswap * max_tries:
+        tries += 1
+        e1 = edges[rng.randint(0, len(edges) - 1)]
+        e2 = edges[rng.randint(0, len(edges) - 1)]
+        u, v = e1
+        x, y = e2
+        if u == x or v == y:
+            continue
+        if u == y or x == v:
+            continue
+        # Swap: (u→v), (x→y) → (u→y), (x→v)
+        if not G.has_edge(u, y) and not G.has_edge(x, v):
+            G.remove_edge(u, v)
+            G.remove_edge(x, y)
+            G.add_edge(u, y)
+            G.add_edge(x, v)
+            edges = list(G.edges())
+            swaps_done += 1
+
+    return G
+
+
 # Drawing — thin delegation to NetworkX/matplotlib (lazy import)
 from franken_networkx.drawing import (
     arf_layout,
@@ -4794,6 +4901,8 @@ __all__ = [
     "triad_type",
     "is_triad",
     "triads_by_type",
+    "double_edge_swap",
+    "directed_edge_swap",
     # Algorithms — graph operators
     "union",
     "intersection",
