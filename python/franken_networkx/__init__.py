@@ -4314,6 +4314,245 @@ def lexicographic_product(G, H):
     return result
 
 
+# ---------------------------------------------------------------------------
+# Advanced metrics & indices (br-jxl)
+# ---------------------------------------------------------------------------
+
+
+def estrada_index(G):
+    """Return the Estrada index of *G*.
+
+    Sum of exp(eigenvalues) of the adjacency matrix.
+    """
+    import numpy as np
+    spec = adjacency_spectrum(G)
+    return float(np.sum(np.exp(spec)))
+
+
+def gutman_index(G, weight=None):
+    """Return the Gutman index (degree-distance) of *G*.
+
+    Sum over all pairs of deg(u)*deg(v)*dist(u,v).
+    """
+    nodes = list(G.nodes())
+    total = 0.0
+    for i, u in enumerate(nodes):
+        du = G.degree[u]
+        lengths = single_source_shortest_path_length(G, u)
+        for v, dist in lengths.items():
+            if v != u:
+                dv = G.degree[v]
+                total += du * dv * dist
+    return total / 2.0  # each pair counted twice
+
+
+def schultz_index(G, weight=None):
+    """Return the Schultz index of *G*.
+
+    Sum over all pairs of (deg(u)+deg(v))*dist(u,v).
+    """
+    nodes = list(G.nodes())
+    total = 0.0
+    for u in nodes:
+        du = G.degree[u]
+        lengths = single_source_shortest_path_length(G, u)
+        for v, dist in lengths.items():
+            if v != u:
+                dv = G.degree[v]
+                total += (du + dv) * dist
+    return total / 2.0
+
+
+def hyper_wiener_index(G):
+    """Return the hyper-Wiener index of *G*.
+
+    (W + sum(dist^2)) / 2 where W is the Wiener index.
+    """
+    nodes = list(G.nodes())
+    w = 0.0
+    w2 = 0.0
+    for u in nodes:
+        lengths = single_source_shortest_path_length(G, u)
+        for v, dist in lengths.items():
+            if v != u:
+                w += dist
+                w2 += dist * dist
+    return (w + w2) / 4.0  # divide by 4: pairs counted twice, plus the /2
+
+
+def resistance_distance(G, nodeA=None, nodeB=None, weight=None, invert_weight=True):
+    """Return the resistance distance between nodes.
+
+    Based on the pseudo-inverse of the Laplacian matrix.
+
+    Parameters
+    ----------
+    G : Graph
+    nodeA, nodeB : node, optional
+        If both given, return a single float. Otherwise return dict of dicts.
+    weight : str or None, optional
+    invert_weight : bool, optional
+
+    Returns
+    -------
+    float or dict of dicts
+    """
+    import numpy as np
+
+    nodelist = list(G.nodes())
+    n = len(nodelist)
+    if n == 0:
+        return {} if nodeA is None else 0.0
+
+    L = laplacian_matrix(G, nodelist=nodelist, weight=weight or 'weight').toarray()
+    # Pseudo-inverse of Laplacian
+    L_pinv = np.linalg.pinv(L)
+
+    idx = {node: i for i, node in enumerate(nodelist)}
+
+    if nodeA is not None and nodeB is not None:
+        i, j = idx[nodeA], idx[nodeB]
+        return float(L_pinv[i, i] + L_pinv[j, j] - 2 * L_pinv[i, j])
+
+    result = {}
+    for u in nodelist:
+        result[u] = {}
+        for v in nodelist:
+            i, j = idx[u], idx[v]
+            result[u][v] = float(L_pinv[i, i] + L_pinv[j, j] - 2 * L_pinv[i, j])
+    return result
+
+
+def kemeny_constant(G):
+    """Return the Kemeny constant of *G*.
+
+    Sum of 1/(1-lambda_i) for non-zero eigenvalues of the transition matrix.
+    """
+    import numpy as np
+
+    nodelist = list(G.nodes())
+    n = len(nodelist)
+    if n == 0:
+        return 0.0
+
+    A = to_numpy_array(G, nodelist=nodelist, weight=None)
+    d = A.sum(axis=1)
+    d[d == 0] = 1
+    P = A / d[:, np.newaxis]
+
+    eigenvalues = np.sort(np.linalg.eigvals(P))[::-1]
+    # Skip the eigenvalue at 1 (largest)
+    total = 0.0
+    for lam in eigenvalues[1:]:
+        lam_real = np.real(lam)
+        if abs(1 - lam_real) > 1e-10:
+            total += 1.0 / (1.0 - lam_real)
+    return float(total)
+
+
+def non_randomness(G, k=None):
+    """Return the non-randomness coefficient of *G*.
+
+    Compares the spectral radius to that of an Erdos-Renyi random graph.
+    """
+    import numpy as np
+
+    spec = adjacency_spectrum(G)
+    n = G.number_of_nodes()
+    m = G.number_of_edges()
+    if n < 2 or m == 0:
+        return 0.0
+
+    spectral_radius = float(np.max(np.abs(spec)))
+    # Expected spectral radius of ER graph with same density
+    p = 2 * m / (n * (n - 1))
+    expected_radius = max(np.sqrt(n * p * (1 - p)), p * (n - 1))
+    if expected_radius == 0:
+        return 0.0
+
+    return float((spectral_radius - expected_radius) / expected_radius)
+
+
+def sigma(G, niter=100, nrand=10, seed=None):
+    """Return the small-world sigma coefficient.
+
+    sigma = (C/C_rand) / (L/L_rand) where C is clustering, L is avg path.
+    sigma > 1 indicates small-world structure.
+    """
+    import random as _random
+    rng = _random.Random(seed)
+
+    C = transitivity(G)
+    try:
+        L = average_shortest_path_length(G)
+    except Exception:
+        return 0.0
+
+    # Generate random graph with same degree sequence
+    n = G.number_of_nodes()
+    m = G.number_of_edges()
+    C_rand_total = 0.0
+    L_rand_total = 0.0
+    for _ in range(nrand):
+        R = gnm_random_graph(n, m, seed=rng.randint(0, 2**31))
+        C_rand_total += transitivity(R)
+        try:
+            L_rand_total += average_shortest_path_length(R)
+        except Exception:
+            L_rand_total += L
+    C_rand = C_rand_total / nrand
+    L_rand = L_rand_total / nrand
+
+    if C_rand == 0 or L_rand == 0:
+        return 0.0
+    return (C / C_rand) / (L / L_rand)
+
+
+def omega(G, niter=5, nrand=5, seed=None):
+    """Return the small-world omega coefficient.
+
+    omega = L_rand/L - C/C_lattice.
+    omega near 0 = small-world, near -1 = lattice, near 1 = random.
+    """
+    import random as _random
+    rng = _random.Random(seed)
+
+    C = transitivity(G)
+    try:
+        L = average_shortest_path_length(G)
+    except Exception:
+        return 0.0
+
+    n = G.number_of_nodes()
+    m = G.number_of_edges()
+
+    L_rand_total = 0.0
+    for _ in range(nrand):
+        R = gnm_random_graph(n, m, seed=rng.randint(0, 2**31))
+        try:
+            L_rand_total += average_shortest_path_length(R)
+        except Exception:
+            L_rand_total += L
+    L_rand = L_rand_total / nrand
+
+    # Lattice reference: ring lattice has high clustering
+    k = max(2, 2 * m // n)
+    if k % 2 != 0:
+        k -= 1
+    k = max(k, 2)
+    if k <= n:
+        try:
+            C_lattice = transitivity(watts_strogatz_graph(n, k, 0, seed=42))
+        except Exception:
+            C_lattice = C
+    else:
+        C_lattice = C
+
+    if L == 0 or C_lattice == 0:
+        return 0.0
+    return L_rand / L - C / C_lattice
+
+
 # Drawing — thin delegation to NetworkX/matplotlib (lazy import)
 from franken_networkx.drawing import (
     arf_layout,
@@ -5234,6 +5473,16 @@ __all__ = [
     "modular_product",
     "rooted_product",
     "lexicographic_product",
+    # Advanced metrics
+    "estrada_index",
+    "gutman_index",
+    "schultz_index",
+    "hyper_wiener_index",
+    "resistance_distance",
+    "kemeny_constant",
+    "non_randomness",
+    "sigma",
+    "omega",
     # Algorithms — graph operators
     "union",
     "intersection",
