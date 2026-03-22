@@ -4939,6 +4939,41 @@ def from_pandas_edgelist(df, source='source', target='target', edge_attr=None,
     return G
 
 
+def from_pandas_adjacency(df, create_using=None):
+    """Return a graph from a Pandas adjacency DataFrame."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    graph = nx.from_pandas_adjacency(df, create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def to_pandas_adjacency(
+    G,
+    nodelist=None,
+    dtype=None,
+    order=None,
+    multigraph_weight=sum,
+    weight='weight',
+    nonedge=0.0,
+):
+    """Return the graph adjacency matrix as a Pandas DataFrame."""
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+
+    return nx.to_pandas_adjacency(
+        _to_nx(G),
+        nodelist=nodelist,
+        dtype=dtype,
+        order=order,
+        multigraph_weight=multigraph_weight,
+        weight=weight,
+        nonedge=nonedge,
+    )
+
+
 def to_numpy_array(G, nodelist=None, dtype=None, order=None,
                    multigraph_weight=sum, weight='weight', nonedge=0.0):
     """Return the adjacency matrix of G as a NumPy array.
@@ -5213,6 +5248,99 @@ def from_scipy_sparse_array(A, parallel_edges=False, create_using=None,
     return G
 
 
+def from_prufer_sequence(sequence):
+    """Return a tree decoded from a Prüfer sequence."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    return _from_nx_graph(nx.from_prufer_sequence(sequence))
+
+
+def to_prufer_sequence(T):
+    """Return the Prüfer sequence of a labeled tree."""
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+
+    return nx.to_prufer_sequence(_to_nx(T))
+
+
+def from_nested_tuple(sequence, sensible_relabeling=False):
+    """Return a tree built from a nested tuple representation."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    return _from_nx_graph(
+        nx.from_nested_tuple(sequence, sensible_relabeling=sensible_relabeling)
+    )
+
+
+def to_nested_tuple(T, root, canonical_form=False):
+    """Return a nested tuple representation of a rooted tree."""
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+
+    return nx.to_nested_tuple(_to_nx(T), root, canonical_form=canonical_form)
+
+
+def cytoscape_data(G, name='name', ident='id'):
+    """Return Cytoscape.js JSON data for a graph."""
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+
+    return nx.cytoscape_data(_to_nx(G), name=name, ident=ident)
+
+
+def cytoscape_graph(data, name='name', ident='id'):
+    """Return a graph decoded from Cytoscape.js JSON data."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    return _from_nx_graph(nx.cytoscape_graph(data, name=name, ident=ident))
+
+
+def attr_sparse_matrix(
+    G,
+    edge_attr=None,
+    node_attr=None,
+    normalized=False,
+    rc_order=None,
+    dtype=None,
+):
+    """Return a SciPy sparse attribute matrix using NetworkX's implementation."""
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+
+    return nx.attr_sparse_matrix(
+        _to_nx(G),
+        edge_attr=edge_attr,
+        node_attr=node_attr,
+        normalized=normalized,
+        rc_order=rc_order,
+        dtype=dtype,
+    )
+
+
+def to_networkx_graph(data, create_using=None, multigraph_input=False):
+    """Return a FrankenNetworkX graph from generic graph-like input."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    graph = nx.to_networkx_graph(
+        data,
+        create_using=None,
+        multigraph_input=multigraph_input,
+    )
+    return _from_nx_graph(graph, create_using=create_using)
+
+
 __all__ = [
     "__version__",
     # Graph classes
@@ -5229,11 +5357,21 @@ __all__ = [
     "from_dict_of_dicts",
     "from_dict_of_lists",
     "from_edgelist",
+    "from_pandas_adjacency",
     "from_pandas_edgelist",
+    "from_prufer_sequence",
+    "from_nested_tuple",
     "to_dict_of_dicts",
     "to_dict_of_lists",
     "to_edgelist",
+    "to_pandas_adjacency",
     "to_pandas_edgelist",
+    "to_prufer_sequence",
+    "to_nested_tuple",
+    "cytoscape_data",
+    "cytoscape_graph",
+    "attr_sparse_matrix",
+    "to_networkx_graph",
     "convert_node_labels_to_integers",
     # Exceptions
     "HasACycle",
