@@ -3729,6 +3729,177 @@ def flow_hierarchy(G, weight=None):
     return 1.0 - len(cycle_edges) / G.number_of_edges()
 
 
+# ---------------------------------------------------------------------------
+# Triad analysis (br-a59)
+# ---------------------------------------------------------------------------
+
+# 16 triad types in MAN notation
+_TRIAD_TYPES = [
+    '003', '012', '102', '021D', '021U', '021C', '111D', '111U',
+    '030T', '030C', '201', '120D', '120U', '120C', '210', '300',
+]
+
+
+def _classify_triad(G, u, v, w):
+    """Classify a 3-node subgraph into one of 16 triad types."""
+    # Count mutual (M), asymmetric (A), null (N) dyads
+    edges = set()
+    for a, b in [(u, v), (v, u), (u, w), (w, u), (v, w), (w, v)]:
+        if G.has_edge(a, b):
+            edges.add((a, b))
+
+    pairs = [(u, v), (u, w), (v, w)]
+    m = a = n = 0
+    for x, y in pairs:
+        fwd = (x, y) in edges
+        bwd = (y, x) in edges
+        if fwd and bwd:
+            m += 1
+        elif fwd or bwd:
+            a += 1
+        else:
+            n += 1
+
+    man = f'{m}{a}{n}'
+    total_edges = len(edges)
+
+    if man == '003':
+        return '003'
+    elif man == '012':
+        return '012'
+    elif man == '102':
+        return '102'
+    elif man == '021':
+        # 021D, 021U, 021C — distinguish by edge pattern
+        if total_edges == 2:
+            targets = [b for (_, b) in edges]
+            sources = [a for (a, _) in edges]
+            if len(set(targets)) == 1:
+                return '021D'  # both edges point to same node
+            elif len(set(sources)) == 1:
+                return '021U'  # both edges from same node
+            else:
+                return '021C'  # cycle pattern
+    elif man == '111':
+        # 111D vs 111U
+        if total_edges == 3:
+            return '111D'
+        return '111U'
+    elif man == '030':
+        # 030T vs 030C
+        # 030C is a directed 3-cycle
+        if (u, v) in edges and (v, w) in edges and (w, u) in edges:
+            return '030C'
+        if (u, w) in edges and (w, v) in edges and (v, u) in edges:
+            return '030C'
+        return '030T'
+    elif man == '201':
+        return '201'
+    elif man == '120':
+        if total_edges == 5:
+            return '120C'
+        return '120D'
+    elif man == '210':
+        return '210'
+    elif man == '300':
+        return '300'
+    return man
+
+
+def triadic_census(G):
+    """Count the frequency of each of the 16 triad types.
+
+    Parameters
+    ----------
+    G : DiGraph
+
+    Returns
+    -------
+    dict
+        ``{triad_type: count}`` for all 16 types.
+    """
+    if not G.is_directed():
+        raise NetworkXError("triadic_census requires a directed graph")
+
+    census = {t: 0 for t in _TRIAD_TYPES}
+    nodes = list(G.nodes())
+    n = len(nodes)
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            for k in range(j + 1, n):
+                ttype = _classify_triad(G, nodes[i], nodes[j], nodes[k])
+                if ttype in census:
+                    census[ttype] += 1
+
+    return census
+
+
+def all_triads(G):
+    """Generate all triads (3-node subgraphs) of a directed graph.
+
+    Parameters
+    ----------
+    G : DiGraph
+
+    Yields
+    ------
+    DiGraph
+        Each yielded graph is a 3-node subgraph.
+    """
+    if not G.is_directed():
+        raise NetworkXError("all_triads requires a directed graph")
+
+    nodes = list(G.nodes())
+    n = len(nodes)
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            for k in range(j + 1, n):
+                triad = G.subgraph([nodes[i], nodes[j], nodes[k]])
+                yield triad
+
+
+def triad_type(G):
+    """Return the triad type of a 3-node directed graph.
+
+    Parameters
+    ----------
+    G : DiGraph
+        Must have exactly 3 nodes.
+
+    Returns
+    -------
+    str
+        One of the 16 MAN triad type codes.
+    """
+    nodes = list(G.nodes())
+    if len(nodes) != 3:
+        raise NetworkXError("triad_type requires exactly 3 nodes")
+    return _classify_triad(G, nodes[0], nodes[1], nodes[2])
+
+
+def is_triad(G):
+    """Return True if *G* is a valid triad (3-node directed graph)."""
+    return G.is_directed() and G.number_of_nodes() == 3
+
+
+def triads_by_type(G):
+    """Group all triads of *G* by their type.
+
+    Returns
+    -------
+    dict
+        ``{triad_type: [list of triad subgraphs]}``
+    """
+    result = {t: [] for t in _TRIAD_TYPES}
+    for triad in all_triads(G):
+        ttype = triad_type(triad)
+        if ttype in result:
+            result[ttype].append(triad)
+    return result
+
+
 # Drawing — thin delegation to NetworkX/matplotlib (lazy import)
 from franken_networkx.drawing import (
     arf_layout,
@@ -4617,6 +4788,12 @@ __all__ = [
     "capacity_scaling",
     "network_simplex",
     "flow_hierarchy",
+    # Triads
+    "triadic_census",
+    "all_triads",
+    "triad_type",
+    "is_triad",
+    "triads_by_type",
     # Algorithms — graph operators
     "union",
     "intersection",
