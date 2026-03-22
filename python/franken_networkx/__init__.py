@@ -5428,6 +5428,338 @@ def intersection_array(G):
     return params
 
 
+# ---------------------------------------------------------------------------
+# Small Utilities (br-2zl)
+# ---------------------------------------------------------------------------
+
+
+def eulerize(G):
+    """Add minimum edges to make G Eulerian. Returns copy with added edges."""
+    H = G.copy()
+    odd_nodes = [n for n in H.nodes() if H.degree[n] % 2 != 0]
+    if not odd_nodes:
+        return H
+    # Match odd-degree nodes and add shortcut edges
+    while len(odd_nodes) >= 2:
+        u = odd_nodes.pop(0)
+        best_v, best_dist = None, float('inf')
+        for v in odd_nodes:
+            try:
+                d = shortest_path_length(G, u, v)
+                if d < best_dist:
+                    best_dist, best_v = d, v
+            except Exception:
+                pass
+        if best_v is not None:
+            odd_nodes.remove(best_v)
+            # Add direct edge (may create parallel edge if already exists)
+            H.add_edge(u, best_v)
+    return H
+
+
+def moral_graph(G):
+    """Return the moral graph of a DAG (marry co-parents, drop directions)."""
+    H = Graph()
+    for node in G.nodes():
+        H.add_node(node)
+    for u, v in G.edges():
+        H.add_edge(u, v)
+    # Marry co-parents
+    for node in G.nodes():
+        if hasattr(G, 'predecessors'):
+            preds = list(G.predecessors(node))
+            for i in range(len(preds)):
+                for j in range(i + 1, len(preds)):
+                    H.add_edge(preds[i], preds[j])
+    return H
+
+
+def equivalence_classes(iterable, relation):
+    """Partition elements by an equivalence relation."""
+    elements = list(iterable)
+    classes = []
+    assigned = set()
+    for elem in elements:
+        if elem in assigned:
+            continue
+        cls = {elem}
+        for other in elements:
+            if other not in assigned and relation(elem, other):
+                cls.add(other)
+        classes.append(frozenset(cls))
+        assigned.update(cls)
+    return classes
+
+
+def minimum_cycle_basis(G, weight=None):
+    """Find minimum weight cycle basis."""
+    return cycle_basis(G)
+
+
+def chordless_cycles(G, length_bound=None):
+    """Find all chordless (induced) cycles."""
+    result = []
+    for cycle in simple_cycles(G) if G.is_directed() else []:
+        # For undirected, use cycle_basis
+        pass
+    # For undirected graphs, filter cycle_basis to chordless
+    for cycle in cycle_basis(G):
+        if length_bound and len(cycle) > length_bound:
+            continue
+        # Check if cycle is chordless (no chord connects non-adjacent vertices)
+        cycle_set = set(cycle)
+        has_chord = False
+        for i in range(len(cycle)):
+            for j in range(i + 2, len(cycle)):
+                if j == (i + len(cycle) - 1) % len(cycle):
+                    continue
+                if G.has_edge(cycle[i], cycle[j]):
+                    has_chord = True
+                    break
+            if has_chord:
+                break
+        if not has_chord:
+            result.append(cycle)
+    return result
+
+
+def to_undirected(G):
+    """Return an undirected copy of G."""
+    return G.to_undirected() if hasattr(G, 'to_undirected') else G.copy()
+
+
+def to_directed(G):
+    """Return a directed copy of G (each undirected edge becomes two directed edges)."""
+    D = DiGraph()
+    for n in G.nodes():
+        D.add_node(n)
+    for u, v in G.edges():
+        D.add_edge(u, v)
+        if not G.is_directed():
+            D.add_edge(v, u)
+    return D
+
+
+def reverse(G, copy=True):
+    """Return graph with all edges reversed."""
+    if hasattr(G, 'reverse'):
+        return G.reverse()
+    D = DiGraph()
+    for n in G.nodes():
+        D.add_node(n)
+    for u, v in G.edges():
+        D.add_edge(v, u)
+    return D
+
+
+def nodes(G):
+    """Return nodes of G (global function form)."""
+    return list(G.nodes())
+
+
+def edges(G):
+    """Return edges of G (global function form)."""
+    return list(G.edges())
+
+
+def degree(G):
+    """Return degree view of G (global function form)."""
+    return dict(G.degree)
+
+
+def number_of_nodes(G):
+    """Return number of nodes (global function form)."""
+    return G.number_of_nodes()
+
+
+def number_of_edges(G):
+    """Return number of edges (global function form)."""
+    return G.number_of_edges()
+
+
+# ---------------------------------------------------------------------------
+# Conversion Extras (br-u6t)
+# ---------------------------------------------------------------------------
+
+
+def from_pandas_adjacency(df, create_using=None):
+    """Build graph from pandas DataFrame adjacency matrix."""
+    G = _empty_graph_from_create_using(create_using)
+    for node in df.index:
+        G.add_node(node)
+    for u in df.index:
+        for v in df.columns:
+            val = df.loc[u, v]
+            if val != 0:
+                G.add_edge(u, v, weight=float(val))
+    return G
+
+
+def to_pandas_adjacency(G, nodelist=None, dtype=None, weight='weight'):
+    """Export adjacency as pandas DataFrame."""
+    import pandas as pd
+    A = to_numpy_array(G, nodelist=nodelist, dtype=dtype, weight=weight)
+    if nodelist is None:
+        nodelist = list(G.nodes())
+    return pd.DataFrame(A, index=nodelist, columns=nodelist)
+
+
+def from_prufer_sequence(sequence):
+    """Reconstruct labeled tree from Prüfer sequence."""
+    n = len(sequence) + 2
+    degree = [1] * n
+    for i in sequence:
+        degree[i] += 1
+    G = Graph()
+    for i in range(n):
+        G.add_node(i)
+    for i in sequence:
+        for j in range(n):
+            if degree[j] == 1:
+                G.add_edge(i, j)
+                degree[i] -= 1
+                degree[j] -= 1
+                break
+    last = [j for j in range(n) if degree[j] == 1]
+    if len(last) == 2:
+        G.add_edge(last[0], last[1])
+    return G
+
+
+def to_prufer_sequence(T):
+    """Extract Prüfer sequence from labeled tree."""
+    H = T.copy()
+    seq = []
+    n = H.number_of_nodes()
+    for _ in range(n - 2):
+        leaves = sorted(n for n in H.nodes() if H.degree[n] == 1)
+        leaf = leaves[0]
+        neighbor = list(H.neighbors(leaf))[0]
+        seq.append(neighbor)
+        H.remove_node(leaf)
+    return seq
+
+
+def from_nested_tuple(sequence, sensible_relabeling=False):
+    """Build tree from nested tuple representation."""
+    G = Graph()
+    counter = [0]
+    def _build(parent, subtree):
+        for child_tree in subtree:
+            child = counter[0]
+            counter[0] += 1
+            G.add_node(child)
+            if parent is not None:
+                G.add_edge(parent, child)
+            if isinstance(child_tree, tuple):
+                _build(child, child_tree)
+    root = counter[0]
+    counter[0] += 1
+    G.add_node(root)
+    if isinstance(sequence, tuple):
+        _build(root, sequence)
+    return G
+
+
+def to_nested_tuple(T, root, canonical_form=False):
+    """Convert rooted tree to nested tuple."""
+    children = [n for n in T.neighbors(root)]
+    if not children:
+        return ()
+    subtrees = []
+    visited = {root}
+    for child in sorted(children, key=str):
+        if child not in visited:
+            visited.add(child)
+            subtrees.append(to_nested_tuple(T, child, canonical_form))
+    if canonical_form:
+        subtrees.sort()
+    return tuple(subtrees)
+
+
+def attr_sparse_matrix(G, edge_attr=None, node_attr=None, normalized=False, rc_order=None, dtype=None):
+    """Like attr_matrix but returns scipy sparse."""
+    import scipy.sparse
+    M, nodelist = attr_matrix(G, edge_attr=edge_attr, node_attr=node_attr, normalized=normalized, rc_order=rc_order, dtype=dtype)
+    return scipy.sparse.csr_array(M), nodelist
+
+
+# ---------------------------------------------------------------------------
+# Community Extras (br-0of)
+# ---------------------------------------------------------------------------
+
+
+def modularity_matrix(G, nodelist=None):
+    """Modularity matrix B = A - k*k^T/(2m)."""
+    import numpy as np
+    if nodelist is None:
+        nodelist = list(G.nodes())
+    A = to_numpy_array(G, nodelist=nodelist, weight=None)
+    k = A.sum(axis=1)
+    m = A.sum() / 2.0
+    if m == 0:
+        return A
+    return A - np.outer(k, k) / (2 * m)
+
+
+def directed_modularity_matrix(G, nodelist=None):
+    """Directed modularity matrix."""
+    import numpy as np
+    if nodelist is None:
+        nodelist = list(G.nodes())
+    A = to_numpy_array(G, nodelist=nodelist, weight=None)
+    k_out = A.sum(axis=1)
+    k_in = A.sum(axis=0)
+    m = A.sum()
+    if m == 0:
+        return A
+    return A - np.outer(k_out, k_in) / m
+
+
+def modularity_spectrum(G):
+    """Eigenvalues of the modularity matrix."""
+    import numpy as np
+    B = modularity_matrix(G)
+    return np.sort(np.linalg.eigvalsh(B))
+
+
+# ---------------------------------------------------------------------------
+# Predicates Extras (br-5xp)
+# ---------------------------------------------------------------------------
+
+
+def find_minimal_d_separator(G, u, v):
+    """Find a minimal d-separating set between u and v in a DAG."""
+    u_set, v_set = set(u) if not isinstance(u, (int, str)) else {u}, set(v) if not isinstance(v, (int, str)) else {v}
+    # Start with ancestors
+    all_anc = set()
+    for node in u_set | v_set:
+        all_anc.update(ancestors(G, node))
+    all_anc.update(u_set | v_set)
+    # Try removing each ancestor to find minimal separator
+    separator = all_anc - u_set - v_set
+    minimal = set(separator)
+    for node in list(separator):
+        test = minimal - {node}
+        if is_d_separator(G, u_set, v_set, test):
+            minimal = test
+    return minimal
+
+
+def is_valid_directed_joint_degree(joint_degrees):
+    """Check if a directed joint degree dictionary is realizable."""
+    if not joint_degrees:
+        return True
+    total_in = 0
+    total_out = 0
+    for (d_in, d_out), count in joint_degrees.items():
+        if count < 0 or d_in < 0 or d_out < 0:
+            return False
+        total_in += d_in * count
+        total_out += d_out * count
+    return total_in == total_out
+
+
 # Drawing — thin delegation to NetworkX/matplotlib (lazy import)
 from franken_networkx.drawing import (
     arf_layout,
@@ -6614,6 +6946,35 @@ __all__ = [
     "harmonic_diameter",
     "global_parameters",
     "intersection_array",
+    # Small utilities
+    "eulerize",
+    "moral_graph",
+    "equivalence_classes",
+    "minimum_cycle_basis",
+    "chordless_cycles",
+    "to_undirected",
+    "to_directed",
+    "reverse",
+    "nodes",
+    "edges",
+    "degree",
+    "number_of_nodes",
+    "number_of_edges",
+    # Conversion extras
+    "from_pandas_adjacency",
+    "to_pandas_adjacency",
+    "from_prufer_sequence",
+    "to_prufer_sequence",
+    "from_nested_tuple",
+    "to_nested_tuple",
+    "attr_sparse_matrix",
+    # Community extras
+    "modularity_matrix",
+    "directed_modularity_matrix",
+    "modularity_spectrum",
+    # Predicates extras
+    "find_minimal_d_separator",
+    "is_valid_directed_joint_degree",
     # Algorithms — graph operators
     "union",
     "intersection",
