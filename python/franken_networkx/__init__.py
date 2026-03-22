@@ -4648,6 +4648,195 @@ def omega(G, niter=5, nrand=5, seed=None):
     return L_rand / L - C / C_lattice
 
 
+# ---------------------------------------------------------------------------
+# Connectivity & Disjoint Paths (br-ak4)
+# ---------------------------------------------------------------------------
+
+
+def edge_disjoint_paths(G, s, t, flow_func=None, cutoff=None):
+    """Find edge-disjoint paths from s to t via max-flow decomposition."""
+    H = DiGraph()
+    for u, v in G.edges():
+        H.add_edge(u, v, capacity=1)
+        if not G.is_directed():
+            H.add_edge(v, u, capacity=1)
+    flow_result = maximum_flow(H, s, t)
+    if isinstance(flow_result, tuple):
+        _, flow_dict = flow_result
+    else:
+        flow_dict = flow_result
+    flow_edges = {}
+    for u in flow_dict:
+        if isinstance(flow_dict[u], dict):
+            for v, f in flow_dict[u].items():
+                if f > 0:
+                    flow_edges.setdefault(u, {})[v] = f
+    max_paths = cutoff or sum(flow_edges.get(s, {}).values())
+    paths_found = 0
+    while paths_found < max_paths:
+        path = [s]
+        visited = {s}
+        found = False
+        while path:
+            cur = path[-1]
+            if cur == t:
+                found = True
+                break
+            moved = False
+            for nbr, f in list(flow_edges.get(cur, {}).items()):
+                if f > 0 and nbr not in visited:
+                    path.append(nbr)
+                    visited.add(nbr)
+                    moved = True
+                    break
+            if not moved:
+                path.pop()
+        if not found:
+            break
+        for i in range(len(path) - 1):
+            flow_edges[path[i]][path[i+1]] -= 1
+        yield list(path)
+        paths_found += 1
+
+
+def node_disjoint_paths(G, s, t, flow_func=None, cutoff=None):
+    """Find node-disjoint paths from s to t via node-splitting."""
+    H = DiGraph()
+    for node in G.nodes():
+        if node == s or node == t:
+            H.add_node(node)
+        else:
+            H.add_edge((node, 'in'), (node, 'out'), capacity=1)
+    for u, v in G.edges():
+        u_out = u if (u == s or u == t) else (u, 'out')
+        v_in = v if (v == s or v == t) else (v, 'in')
+        H.add_edge(u_out, v_in, capacity=1)
+        if not G.is_directed():
+            v_out = v if (v == s or v == t) else (v, 'out')
+            u_in = u if (u == s or u == t) else (u, 'in')
+            H.add_edge(v_out, u_in, capacity=1)
+    for path in edge_disjoint_paths(H, s, t, cutoff=cutoff):
+        orig = []
+        for node in path:
+            n = node[0] if isinstance(node, tuple) else node
+            if not orig or orig[-1] != n:
+                orig.append(n)
+        yield orig
+
+
+def all_node_cuts(G, k=None, flow_func=None):
+    """Enumerate all minimum node cuts."""
+    if k is None:
+        k = global_node_connectivity(G)
+    if k == 0:
+        return
+    nodes = list(G.nodes())
+    seen = set()
+    for i in range(len(nodes)):
+        for j in range(i+1, len(nodes)):
+            if G.has_edge(nodes[i], nodes[j]):
+                continue
+            cut = minimum_node_cut(G)
+            if len(cut) == k:
+                frozen = frozenset(cut)
+                if frozen not in seen:
+                    seen.add(frozen)
+                    yield set(cut)
+
+
+def connected_dominating_set(G, start_with=None):
+    """Find a connected dominating set via greedy spanning-tree approach."""
+    if G.number_of_nodes() == 0:
+        return set()
+    nodes = list(G.nodes())
+    if start_with is None:
+        start_with = max(nodes, key=lambda n: G.degree[n])
+    ds = {start_with}
+    dominated = set(G.neighbors(start_with)) | {start_with}
+    while dominated != set(nodes):
+        best, best_gain = None, -1
+        for node in nodes:
+            if node in ds:
+                continue
+            if not any(nb in ds for nb in G.neighbors(node)):
+                continue
+            gain = len(set(G.neighbors(node)) - dominated)
+            if gain > best_gain:
+                best_gain, best = gain, node
+        if best is None:
+            break
+        ds.add(best)
+        dominated.update(G.neighbors(best))
+        dominated.add(best)
+    return ds
+
+
+def is_connected_dominating_set(G, S):
+    """Check if S is a connected dominating set."""
+    S = set(S)
+    for node in G.nodes():
+        if node not in S and not any(nb in S for nb in G.neighbors(node)):
+            return False
+    if len(S) <= 1:
+        return True
+    return is_connected(G.subgraph(S))
+
+
+def is_kl_connected(G, k, l, low_memory=False):
+    """Test if G is (k,l)-connected."""
+    from itertools import combinations
+    nodes = list(G.nodes())
+    if len(nodes) <= k:
+        return True
+    for removed in combinations(nodes, k - 1):
+        remaining = [n for n in nodes if n not in set(removed)]
+        if remaining and number_connected_components(G.subgraph(remaining)) > l:
+            return False
+    return True
+
+
+def kl_connected_subgraph(G, k, l, low_memory=False):
+    """Return maximal (k,l)-connected subgraph."""
+    H = G.copy()
+    changed = True
+    while changed:
+        changed = False
+        for node in list(H.nodes()):
+            test = H.copy()
+            test.remove_node(node)
+            if test.number_of_nodes() > 0 and not is_kl_connected(test, k, l):
+                H.remove_node(node)
+                changed = True
+                break
+    return H
+
+
+def connected_double_edge_swap(G, nswap=1, _window_threshold=3, seed=None):
+    """Swap edges maintaining connectivity and degree sequence."""
+    import random as _random
+    rng = _random.Random(seed)
+    if G.number_of_edges() < 2:
+        return 0
+    swaps_done = 0
+    for _ in range(nswap * 100):
+        if swaps_done >= nswap:
+            break
+        edges = list(G.edges())
+        e1 = edges[rng.randint(0, len(edges)-1)]
+        e2 = edges[rng.randint(0, len(edges)-1)]
+        u, v = e1; x, y = e2
+        if len({u,v,x,y}) < 4 or G.has_edge(u,x) or G.has_edge(v,y):
+            continue
+        G.remove_edge(u,v); G.remove_edge(x,y)
+        G.add_edge(u,x); G.add_edge(v,y)
+        if not is_connected(G):
+            G.remove_edge(u,x); G.remove_edge(v,y)
+            G.add_edge(u,v); G.add_edge(x,y)
+        else:
+            swaps_done += 1
+    return swaps_done
+
+
 # Drawing — thin delegation to NetworkX/matplotlib (lazy import)
 from franken_networkx.drawing import (
     arf_layout,
@@ -5716,6 +5905,15 @@ __all__ = [
     "non_randomness",
     "sigma",
     "omega",
+    # Connectivity & disjoint paths
+    "edge_disjoint_paths",
+    "node_disjoint_paths",
+    "all_node_cuts",
+    "connected_dominating_set",
+    "is_connected_dominating_set",
+    "is_kl_connected",
+    "kl_connected_subgraph",
+    "connected_double_edge_swap",
     # Algorithms — graph operators
     "union",
     "intersection",
