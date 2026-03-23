@@ -6574,6 +6574,113 @@ def gnr_graph(n, p, create_using=None, seed=None):
     return _from_nx_graph(graph, create_using=create_using)
 
 
+def dual_barabasi_albert_graph(
+    n,
+    m1,
+    m2,
+    p,
+    seed=None,
+    initial_graph=None,
+    create_using=None,
+):
+    """Return a dual Barabasi-Albert preferential attachment graph."""
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    graph = nx.dual_barabasi_albert_graph(
+        n,
+        m1,
+        m2,
+        p,
+        seed=seed,
+        initial_graph=None if initial_graph is None else _to_nx(initial_graph),
+        create_using=None,
+    )
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def extended_barabasi_albert_graph(n, m, p, q, seed=None, create_using=None):
+    """Return an extended Barabasi-Albert graph."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    graph = nx.extended_barabasi_albert_graph(
+        n,
+        m,
+        p,
+        q,
+        seed=seed,
+        create_using=None,
+    )
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def scale_free_graph(
+    n,
+    alpha=0.41,
+    beta=0.54,
+    gamma=0.05,
+    delta_in=0.2,
+    delta_out=0,
+    seed=None,
+    initial_graph=None,
+):
+    """Return a directed scale-free MultiDiGraph."""
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    return _from_nx_graph(
+        nx.scale_free_graph(
+            n,
+            alpha=alpha,
+            beta=beta,
+            gamma=gamma,
+            delta_in=delta_in,
+            delta_out=delta_out,
+            seed=seed,
+            initial_graph=None if initial_graph is None else _to_nx(initial_graph),
+        )
+    )
+
+
+def random_powerlaw_tree(n, gamma=3, seed=None, tries=100, create_using=None):
+    """Return a random tree with a power-law degree distribution."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    graph = nx.random_powerlaw_tree(
+        n,
+        gamma=gamma,
+        seed=seed,
+        tries=tries,
+        create_using=None,
+    )
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def random_powerlaw_tree_sequence(n, gamma=3, seed=None, tries=100):
+    """Return a degree sequence suitable for a random power-law tree."""
+    import networkx as nx
+
+    return nx.random_powerlaw_tree_sequence(n, gamma=gamma, seed=seed, tries=tries)
+
+
+def gn_graph(n, kernel=None, create_using=None, seed=None):
+    """Return a growing network graph with kernel-weighted attachment."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    graph = nx.gn_graph(n, kernel=kernel, create_using=None, seed=seed)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
 def fast_gnp_random_graph(n, p, seed=None, directed=False, create_using=None):
     """Return a fast Erdos-Renyi random graph."""
     import networkx as nx
@@ -7412,6 +7519,12 @@ __all__ = [
     "random_regular_graph",
     "powerlaw_cluster_graph",
     "barabasi_albert_graph",
+    "dual_barabasi_albert_graph",
+    "extended_barabasi_albert_graph",
+    "scale_free_graph",
+    "random_powerlaw_tree",
+    "random_powerlaw_tree_sequence",
+    "gn_graph",
     # Read/write — graph I/O
     "node_link_data",
     "node_link_graph",
