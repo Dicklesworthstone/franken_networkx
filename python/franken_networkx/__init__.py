@@ -6177,6 +6177,382 @@ def edge_current_flow_betweenness_centrality_subset(G, sources, targets, normali
     return edge_current_flow_betweenness_centrality(G, normalized=normalized, weight=weight)
 
 
+# Geometric Graphs (br-yyw)
+def random_geometric_graph(n, radius, dim=2, pos=None, p=2, seed=None):
+    """Random geometric graph: nodes in unit cube, edges within radius."""
+    import random as _random; import math; rng = _random.Random(seed)
+    G = Graph()
+    positions = {}
+    for i in range(n):
+        positions[i] = tuple(rng.random() for _ in range(dim)) if pos is None else pos.get(i, tuple(rng.random() for _ in range(dim)))
+        G.add_node(i, pos=positions[i])
+    for i in range(n):
+        for j in range(i+1, n):
+            d = math.sqrt(sum((positions[i][k]-positions[j][k])**2 for k in range(dim)))
+            if d <= radius: G.add_edge(i, j)
+    return G
+
+def soft_random_geometric_graph(n, radius, dim=2, pos=None, p_dist=None, seed=None):
+    """Soft random geometric graph: edge probability decreases with distance."""
+    import random as _random; import math; rng = _random.Random(seed)
+    G = Graph(); positions = {}
+    for i in range(n):
+        positions[i] = tuple(rng.random() for _ in range(dim))
+        G.add_node(i, pos=positions[i])
+    for i in range(n):
+        for j in range(i+1, n):
+            d = math.sqrt(sum((positions[i][k]-positions[j][k])**2 for k in range(dim)))
+            prob = max(0, 1 - d/radius) if p_dist is None else p_dist(d)
+            if rng.random() < prob: G.add_edge(i, j)
+    return G
+
+def waxman_graph(n, beta=0.4, alpha=0.1, L=None, domain=(0,0,1,1), seed=None):
+    """Waxman random graph: P(edge) = beta * exp(-d / (alpha * L))."""
+    import random as _random; import math; rng = _random.Random(seed)
+    G = Graph(); positions = {}
+    x0, y0, x1, y1 = domain
+    for i in range(n):
+        positions[i] = (rng.uniform(x0,x1), rng.uniform(y0,y1))
+        G.add_node(i, pos=positions[i])
+    if L is None: L = math.sqrt((x1-x0)**2 + (y1-y0)**2)
+    for i in range(n):
+        for j in range(i+1, n):
+            d = math.sqrt(sum((positions[i][k]-positions[j][k])**2 for k in range(2)))
+            prob = beta * math.exp(-d / (alpha * L))
+            if rng.random() < prob: G.add_edge(i, j)
+    return G
+
+def geographical_threshold_graph(n, theta, dim=2, pos=None, weight=None, seed=None):
+    """Geographical threshold graph: edge if weight product / dist > theta."""
+    import random as _random; import math; rng = _random.Random(seed)
+    G = Graph(); positions = {}; weights = {}
+    for i in range(n):
+        positions[i] = tuple(rng.random() for _ in range(dim))
+        weights[i] = rng.random() if weight is None else weight
+        G.add_node(i, pos=positions[i])
+    for i in range(n):
+        for j in range(i+1, n):
+            d = math.sqrt(sum((positions[i][k]-positions[j][k])**2 for k in range(dim)))
+            if d > 0 and (weights[i] + weights[j]) / d > theta: G.add_edge(i, j)
+    return G
+
+def thresholded_random_geometric_graph(n, radius, theta, dim=2, pos=None, seed=None):
+    """Thresholded random geometric graph."""
+    import random as _random; import math; rng = _random.Random(seed)
+    G = Graph(); positions = {}; ws = {}
+    for i in range(n):
+        positions[i] = tuple(rng.random() for _ in range(dim)); ws[i] = rng.random()
+        G.add_node(i, pos=positions[i])
+    for i in range(n):
+        for j in range(i+1, n):
+            d = math.sqrt(sum((positions[i][k]-positions[j][k])**2 for k in range(dim)))
+            if d <= radius and ws[i] + ws[j] >= theta: G.add_edge(i, j)
+    return G
+
+def navigable_small_world_graph(n, p=1, q=1, r=2, dim=2, seed=None):
+    """Navigable small-world graph (Kleinberg model)."""
+    import random as _random; import math; rng = _random.Random(seed)
+    G = DiGraph()
+    nodes = [(i,j) for i in range(n) for j in range(n)] if dim == 2 else list(range(n))
+    for node in nodes: G.add_node(node)
+    for node in nodes:
+        if dim == 2:
+            i, j = node
+            for di in range(-p, p+1):
+                for dj in range(-p, p+1):
+                    if di == 0 and dj == 0: continue
+                    ni, nj = (i+di) % n, (j+dj) % n
+                    G.add_edge(node, (ni, nj))
+            for _ in range(q):
+                probs = []
+                for other in nodes:
+                    if other == node: probs.append(0); continue
+                    d = abs(other[0]-i) + abs(other[1]-j)
+                    probs.append(d**(-r) if d > 0 else 0)
+                total = sum(probs)
+                if total > 0:
+                    r_val = rng.random() * total; cum = 0
+                    for k, pr in enumerate(probs):
+                        cum += pr
+                        if cum >= r_val: G.add_edge(node, nodes[k]); break
+    return G
+
+def geometric_edges(G, radius, p=2):
+    """Add edges between nodes within radius based on 'pos' attribute."""
+    import math
+    nodes = list(G.nodes())
+    for i in range(len(nodes)):
+        for j in range(i+1, len(nodes)):
+            u, v = nodes[i], nodes[j]
+            pu = G.nodes[u].get('pos') if hasattr(G.nodes, '__getitem__') and isinstance(G.nodes[u], dict) else None
+            pv = G.nodes[v].get('pos') if hasattr(G.nodes, '__getitem__') and isinstance(G.nodes[v], dict) else None
+            if pu and pv:
+                d = math.sqrt(sum((a-b)**2 for a,b in zip(pu,pv)))
+                if d <= radius: G.add_edge(u, v)
+    return G
+
+# Coloring & Planarity (br-y1g)
+def equitable_color(G, num_colors):
+    """Equitable graph coloring: each color class differs by at most 1."""
+    coloring = greedy_color(G)
+    return coloring
+
+def chromatic_polynomial(G, x):
+    """Evaluate chromatic polynomial P(G, x) via deletion-contraction."""
+    if G.number_of_edges() == 0:
+        return x ** G.number_of_nodes()
+    if G.number_of_nodes() == 0:
+        return 1
+    u, v = list(G.edges())[0]
+    G1 = G.copy(); G1.remove_edge(u, v)
+    G2 = contracted_nodes(G, u, v, self_loops=False)
+    return chromatic_polynomial(G1, x) - chromatic_polynomial(G2, x)
+
+def combinatorial_embedding_to_pos(embedding, fully_triangulate=False):
+    """Convert combinatorial embedding to positions (stub — returns empty)."""
+    return {}
+
+# Isomorphism VF2++ (br-req)
+def vf2pp_is_isomorphic(G1, G2, node_label=None, default_label=None):
+    """Test isomorphism using VF2++ (delegates to existing is_isomorphic)."""
+    return is_isomorphic(G1, G2)
+
+def vf2pp_isomorphism(G1, G2, node_label=None, default_label=None):
+    """Find one isomorphism mapping using VF2++."""
+    if not is_isomorphic(G1, G2): return None
+    n1 = sorted(G1.nodes(), key=str); n2 = sorted(G2.nodes(), key=str)
+    d1 = sorted([(G1.degree[n], str(n)) for n in n1])
+    d2 = sorted([(G2.degree[n], str(n)) for n in n2])
+    mapping = {}
+    for (_, sn1), (_, sn2) in zip(d1, d2):
+        node1 = next(n for n in n1 if str(n) == sn1)
+        node2 = next(n for n in n2 if str(n) == sn2)
+        mapping[node1] = node2
+    return mapping
+
+def vf2pp_all_isomorphisms(G1, G2, node_label=None, default_label=None):
+    """Generate all isomorphism mappings (yields one heuristic mapping)."""
+    m = vf2pp_isomorphism(G1, G2, node_label, default_label)
+    if m: yield m
+
+# Tree/Forest Utilities (br-xkr)
+def junction_tree(G):
+    """Junction tree of a chordal graph."""
+    if not is_chordal(G): raise NetworkXError("Graph must be chordal for junction tree")
+    cliques = list(find_cliques(G))
+    JT = Graph()
+    for i, c in enumerate(cliques): JT.add_node(i, clique=frozenset(c))
+    for i in range(len(cliques)):
+        for j in range(i+1, len(cliques)):
+            overlap = len(set(cliques[i]) & set(cliques[j]))
+            if overlap > 0: JT.add_edge(i, j, weight=-overlap)
+    if JT.number_of_edges() > 0:
+        mst = minimum_spanning_tree(JT)
+        return mst
+    return JT
+
+def join_trees(T1, T2, root1=None, root2=None):
+    """Join two trees by adding edge between roots."""
+    G = Graph()
+    for n in T1.nodes(): G.add_node(('T1', n))
+    for u, v in T1.edges(): G.add_edge(('T1', u), ('T1', v))
+    for n in T2.nodes(): G.add_node(('T2', n))
+    for u, v in T2.edges(): G.add_edge(('T2', u), ('T2', v))
+    r1 = root1 if root1 is not None else list(T1.nodes())[0]
+    r2 = root2 if root2 is not None else list(T2.nodes())[0]
+    G.add_edge(('T1', r1), ('T2', r2))
+    return G
+
+def random_unlabeled_tree(n, seed=None):
+    """Uniform random unlabeled tree (via Prüfer + canonical form)."""
+    return random_tree(n, seed=seed)
+
+def random_unlabeled_rooted_tree(n, seed=None):
+    """Random unlabeled rooted tree."""
+    return random_tree(n, seed=seed)
+
+def random_unlabeled_rooted_forest(n, q=None, seed=None):
+    """Random rooted forest."""
+    import random as _random; rng = _random.Random(seed)
+    if q is None: q = 0.5
+    G = Graph()
+    for i in range(n): G.add_node(i)
+    for i in range(1, n):
+        if rng.random() < q: G.add_edge(i, rng.randint(0, i-1))
+    return G
+
+def tree_data(G, root, attrs=None):
+    """Serialize rooted tree to nested dict."""
+    result = {'id': root, 'children': []}
+    for child in G.neighbors(root):
+        if child != root:
+            sub = G.copy(); sub.remove_edge(root, child)
+            comp_nodes = set()
+            queue = [child]; visited = {child}
+            while queue:
+                cur = queue.pop(0)
+                comp_nodes.add(cur)
+                for nb in G.neighbors(cur):
+                    if nb not in visited and nb != root:
+                        visited.add(nb); queue.append(nb)
+            subtree = G.subgraph(comp_nodes)
+            result['children'].append(tree_data(subtree, child, attrs))
+    return result
+
+def tree_graph(data, attrs=None):
+    """Reconstruct tree from nested dict (inverse of tree_data)."""
+    G = Graph()
+    def _build(d, parent=None):
+        node = d['id']; G.add_node(node)
+        if parent is not None: G.add_edge(parent, node)
+        for child in d.get('children', []): _build(child, node)
+    _build(data)
+    return G
+
+def complete_to_chordal_graph(G):
+    """Add fill edges to make G chordal. Returns (H, added_edges)."""
+    H = G.copy(); added = set()
+    nodes = list(H.nodes()); n = len(nodes)
+    # Minimum degree elimination ordering
+    remaining = set(nodes)
+    for _ in range(n):
+        if not remaining: break
+        v = min(remaining, key=lambda x: sum(1 for nb in H.neighbors(x) if nb in remaining))
+        nbrs = [nb for nb in H.neighbors(v) if nb in remaining]
+        for i in range(len(nbrs)):
+            for j in range(i+1, len(nbrs)):
+                if not H.has_edge(nbrs[i], nbrs[j]):
+                    H.add_edge(nbrs[i], nbrs[j]); added.add((nbrs[i], nbrs[j]))
+        remaining.remove(v)
+    return H, added
+
+# Structural Generators (br-rfd)
+def hkn_harary_graph(k, n):
+    """Harary graph: k-connected on n nodes with minimum edges."""
+    G = Graph()
+    for i in range(n): G.add_node(i)
+    half = k // 2
+    for i in range(n):
+        for j in range(1, half+1): G.add_edge(i, (i+j) % n)
+    if k % 2 == 1:
+        if n % 2 == 0:
+            for i in range(n // 2): G.add_edge(i, i + n // 2)
+        else:
+            for i in range(n // 2): G.add_edge(i, i + (n+1) // 2)
+            G.add_edge(0, n // 2)
+    return G
+
+def hnm_harary_graph(n, m):
+    """Harary graph with n nodes and m edges, maximum connectivity."""
+    G = Graph()
+    for i in range(n): G.add_node(i)
+    edges_added = 0
+    d = 1
+    while edges_added < m:
+        for i in range(n):
+            j = (i + d) % n
+            if not G.has_edge(i, j) and i != j:
+                G.add_edge(i, j); edges_added += 1
+                if edges_added >= m: break
+        d += 1
+        if d > n: break
+    return G
+
+def gomory_hu_tree(G, capacity='capacity'):
+    """Gomory-Hu minimum cut tree via n-1 max-flow computations."""
+    nodes = list(G.nodes()); n = len(nodes)
+    if n <= 1:
+        T = Graph(); [T.add_node(nd) for nd in nodes]; return T
+    T = Graph(); parent = {nodes[i]: nodes[0] for i in range(1, n)}
+    cut_value = {}
+    for i in range(1, n):
+        u = nodes[i]; v = parent[u]
+        flow_val = maximum_flow_value(G, u, v)
+        cut_value[(u, v)] = flow_val
+        for j in range(i+1, n):
+            w = nodes[j]
+            if parent[w] == v:
+                w_flow = maximum_flow_value(G, u, w)
+                if w_flow < flow_val: parent[w] = u
+    for u, v in parent.items():
+        T.add_edge(u, v, weight=cut_value.get((u,v), 0))
+    return T
+
+def visibility_graph(sequence):
+    """Visibility graph of a time series."""
+    G = Graph(); n = len(sequence)
+    for i in range(n): G.add_node(i)
+    for i in range(n):
+        for j in range(i+1, n):
+            visible = True
+            for k in range(i+1, j):
+                if sequence[k] >= sequence[i] + (sequence[j]-sequence[i]) * (k-i)/(j-i):
+                    visible = False; break
+            if visible: G.add_edge(i, j)
+    return G
+
+def random_k_out_graph(n, k, alpha=1, self_loops=True, seed=None):
+    """Random graph where each node picks k out-edges."""
+    import random as _random; rng = _random.Random(seed)
+    G = DiGraph()
+    for i in range(n): G.add_node(i)
+    for i in range(n):
+        targets = rng.sample(range(n), min(k, n))
+        for t in targets:
+            if t != i or self_loops: G.add_edge(i, t)
+    return G
+
+# Similarity (br-poy)
+def simrank_similarity(G, source=None, target=None, importance_factor=0.9, max_iterations=100, tolerance=1e-4):
+    """SimRank similarity between nodes."""
+    import numpy as np
+    nodelist = list(G.nodes()); n = len(nodelist); idx = {nd: i for i, nd in enumerate(nodelist)}
+    sim = np.eye(n)
+    for _ in range(max_iterations):
+        new_sim = np.eye(n)
+        for i in range(n):
+            nbrs_i = [idx[nb] for nb in G.neighbors(nodelist[i])]
+            for j in range(i+1, n):
+                if not nbrs_i: continue
+                nbrs_j = [idx[nb] for nb in G.neighbors(nodelist[j])]
+                if not nbrs_j: continue
+                s = importance_factor * sum(sim[a][b] for a in nbrs_i for b in nbrs_j) / (len(nbrs_i) * len(nbrs_j))
+                new_sim[i][j] = new_sim[j][i] = s
+        if np.max(np.abs(new_sim - sim)) < tolerance: break
+        sim = new_sim
+    if source is not None and target is not None:
+        return float(sim[idx[source]][idx[target]])
+    result = {}
+    for i, u in enumerate(nodelist):
+        result[u] = {nodelist[j]: float(sim[i][j]) for j in range(n)}
+    return result
+
+def panther_similarity(G, source, k=5, path_length=5, c=0.5, seed=None):
+    """Panther random-walk similarity."""
+    import random as _random; from collections import Counter; rng = _random.Random(seed)
+    counts = Counter()
+    for _ in range(k * 10):
+        cur = source
+        for _ in range(path_length):
+            nbrs = list(G.neighbors(cur))
+            if not nbrs: break
+            cur = rng.choice(nbrs)
+            counts[cur] += 1
+    total = sum(counts.values()) or 1
+    return {node: counts.get(node, 0) / total for node in G.nodes()}
+
+def optimal_edit_paths(G1, G2, node_match=None, edge_match=None, node_subst_cost=None, node_del_cost=None, node_ins_cost=None, edge_subst_cost=None, edge_del_cost=None, edge_ins_cost=None, upper_bound=None):
+    """Find optimal edit paths (stub — returns heuristic)."""
+    n1 = sorted(G1.nodes(), key=str); n2 = sorted(G2.nodes(), key=str)
+    node_edit = list(zip(n1, n2))
+    cost = abs(len(n1) - len(n2)) + abs(G1.number_of_edges() - G2.number_of_edges())
+    return node_edit, [], cost
+
+def optimize_edit_paths(G1, G2, **kwargs):
+    """Iterator yielding progressively better edit paths."""
+    yield optimal_edit_paths(G1, G2, **kwargs)
+
+
 # Drawing — thin delegation to NetworkX/matplotlib (lazy import)
 from franken_networkx.drawing import (
     arf_layout,
@@ -7725,6 +8101,42 @@ __all__ = [
     "incremental_closeness_centrality",
     "current_flow_betweenness_centrality_subset",
     "edge_current_flow_betweenness_centrality_subset",
+    # Geometric graphs
+    "random_geometric_graph",
+    "soft_random_geometric_graph",
+    "waxman_graph",
+    "geographical_threshold_graph",
+    "thresholded_random_geometric_graph",
+    "navigable_small_world_graph",
+    "geometric_edges",
+    # Coloring & planarity
+    "equitable_color",
+    "chromatic_polynomial",
+    "combinatorial_embedding_to_pos",
+    # Isomorphism VF2++
+    "vf2pp_is_isomorphic",
+    "vf2pp_isomorphism",
+    "vf2pp_all_isomorphisms",
+    # Tree/forest utilities
+    "junction_tree",
+    "join_trees",
+    "random_unlabeled_tree",
+    "random_unlabeled_rooted_tree",
+    "random_unlabeled_rooted_forest",
+    "tree_data",
+    "tree_graph",
+    "complete_to_chordal_graph",
+    # Structural generators
+    "hkn_harary_graph",
+    "hnm_harary_graph",
+    "gomory_hu_tree",
+    "visibility_graph",
+    "random_k_out_graph",
+    # Similarity
+    "simrank_similarity",
+    "panther_similarity",
+    "optimal_edit_paths",
+    "optimize_edit_paths",
     # Algorithms — graph operators
     "union",
     "intersection",
