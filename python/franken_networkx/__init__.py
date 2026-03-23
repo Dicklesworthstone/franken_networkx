@@ -5777,7 +5777,7 @@ def davis_southern_women_graph():
 # Misc generators (br-fjh)
 def triad_graph(triad_type_str):
     """Return canonical DiGraph for a MAN triad type."""
-    canonical = {'003':[],'012':[(0,1)],'102':[(0,1),(1,0)],'021D':[(0,2),(1,2)],'021U':[(2,0),(2,1)],'021C':[(0,1),(1,2)],'111D':[(0,1),(1,0),(2,0)],'111U':[(0,1),(1,0),(0,2)],'030T':[(0,1),(1,2),(0,2)],'030C':[(0,1),(1,2),(2,0)],'201':[(0,1),(1,0),(0,2),(2,0)],'120D':[(0,1),(1,0),(2,0),(2,1)],'120U':[(0,1),(1,0),(0,2),(1,2)],'120C':[(0,1),(1,0),(0,2),(2,1)],'210':[(0,1),(1,0),(0,2),(2,0),(1,2)],'300':[(0,1),(1,0),(0,2),(2,0),(1,2),(2,1)]}
+    canonical = {'003':[],'012':[(0,1)],'102':[(0,1),(1,0)],'021D':[(2,0),(2,1)],'021U':[(0,2),(1,2)],'021C':[(0,1),(1,2)],'111D':[(0,1),(1,0),(2,0)],'111U':[(0,1),(1,0),(0,2)],'030T':[(0,1),(1,2),(0,2)],'030C':[(0,1),(1,2),(2,0)],'201':[(0,1),(1,0),(0,2),(2,0)],'120D':[(0,1),(1,0),(2,0),(2,1)],'120U':[(0,1),(1,0),(0,2),(1,2)],'120C':[(0,1),(1,0),(0,2),(2,1)],'210':[(0,1),(1,0),(0,2),(2,0),(1,2)],'300':[(0,1),(1,0),(0,2),(2,0),(1,2),(2,1)]}
     if triad_type_str not in canonical: raise NetworkXError(f"Unknown triad type: {triad_type_str}")
     D = DiGraph(); D.add_nodes_from([0,1,2]); D.add_edges_from(canonical[triad_type_str])
     return D
@@ -6651,6 +6651,96 @@ def directed_havel_hakimi_graph(in_deg_sequence, out_deg_sequence, create_using=
     return _from_nx_graph(graph, create_using=create_using)
 
 
+def stochastic_block_model(
+    sizes,
+    p,
+    nodelist=None,
+    seed=None,
+    directed=False,
+    selfloops=False,
+    sparse=True,
+):
+    """Return a stochastic block model graph."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    return _from_nx_graph(
+        nx.stochastic_block_model(
+            sizes,
+            p,
+            nodelist=nodelist,
+            seed=seed,
+            directed=directed,
+            selfloops=selfloops,
+            sparse=sparse,
+        )
+    )
+
+
+def planted_partition_graph(l, k, p_in, p_out, seed=None, directed=False):
+    """Return a planted partition random graph."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    return _from_nx_graph(
+        nx.planted_partition_graph(
+            l,
+            k,
+            p_in,
+            p_out,
+            seed=seed,
+            directed=directed,
+        )
+    )
+
+
+def gaussian_random_partition_graph(n, s, v, p_in, p_out, directed=False, seed=None):
+    """Return a Gaussian random partition graph."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    return _from_nx_graph(
+        nx.gaussian_random_partition_graph(
+            n,
+            s,
+            v,
+            p_in,
+            p_out,
+            directed=directed,
+            seed=seed,
+        )
+    )
+
+
+def relaxed_caveman_graph(l, k, p, seed=None):
+    """Return a relaxed caveman graph."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    return _from_nx_graph(nx.relaxed_caveman_graph(l, k, p, seed=seed))
+
+
+def random_partition_graph(sizes, p_in, p_out, seed=None, directed=False):
+    """Return a random partition graph."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    return _from_nx_graph(
+        nx.random_partition_graph(
+            sizes,
+            p_in,
+            p_out,
+            seed=seed,
+            directed=directed,
+        )
+    )
+
+
 __all__ = [
     "__version__",
     # Graph classes
@@ -6695,6 +6785,11 @@ __all__ = [
     "joint_degree_graph",
     "expected_degree_graph",
     "directed_havel_hakimi_graph",
+    "stochastic_block_model",
+    "planted_partition_graph",
+    "gaussian_random_partition_graph",
+    "relaxed_caveman_graph",
+    "random_partition_graph",
     "convert_node_labels_to_integers",
     # Exceptions
     "HasACycle",
