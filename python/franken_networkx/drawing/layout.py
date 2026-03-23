@@ -5,10 +5,10 @@ def _to_nx(G):
     """Convert a FrankenNetworkX graph to a NetworkX graph for drawing."""
     import networkx as nx
 
-    if G.is_directed():
-        H = nx.DiGraph()
+    if G.is_multigraph():
+        H = nx.MultiDiGraph() if G.is_directed() else nx.MultiGraph()
     else:
-        H = nx.Graph()
+        H = nx.DiGraph() if G.is_directed() else nx.Graph()
     for n, attrs in G.nodes(data=True):
         H.add_node(n, **attrs)
     for u, v, d in G.edges(data=True):
