@@ -3017,7 +3017,7 @@ def all_topological_sorts(G):
         yield []
         return
 
-    in_deg = dict(G.in_degree())
+    in_deg = dict(G.in_degree)
     # Maintenance of the set of nodes with in-degree 0
     zero_in_degree = [v for v, d in in_deg.items() if d == 0]
 
@@ -3121,11 +3121,11 @@ def all_pairs_lowest_common_ancestor(G, pairs=None):
 
         for v, w in pairs:
             if v not in ancestor_cache:
-                anc_v = ancestors(G, v)
+                anc_v = set(ancestors(G, v))
                 anc_v.add(v)
                 ancestor_cache[v] = anc_v
             if w not in ancestor_cache:
-                anc_w = ancestors(G, w)
+                anc_w = set(ancestors(G, w))
                 anc_w.add(w)
                 ancestor_cache[w] = anc_w
 
@@ -3151,12 +3151,12 @@ def all_pairs_lowest_common_ancestor(G, pairs=None):
 
 def root_to_leaf_paths(G):
     """Yields root-to-leaf paths in a directed acyclic graph."""
-    roots = (v for v, d in G.in_degree() if d == 0)
-    leaves = (v for v, d in G.out_degree() if d == 0)
-    from itertools import product
+    roots = [v for v, d in G.in_degree if d == 0]
+    leaves = [v for v, d in G.out_degree if d == 0]
 
-    for root, leaf in product(roots, leaves):
-        yield from all_simple_paths(G, root, leaf)
+    for root in roots:
+        for leaf in leaves:
+            yield from all_simple_paths(G, root, leaf)
 
 
 def prefix_tree(paths):
@@ -7784,6 +7784,53 @@ def gn_graph(n, kernel=None, create_using=None, seed=None):
     return _from_nx_graph(graph, create_using=create_using)
 
 
+def LCF_graph(n, shift_list, repeats, create_using=None):
+    """Return the cubic Hamiltonian graph defined by Lederberg-Coxeter-Fruchte."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    graph = nx.LCF_graph(n, shift_list, repeats, create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def LFR_benchmark_graph(
+    n,
+    tau1,
+    tau2,
+    mu,
+    average_degree=None,
+    min_degree=None,
+    max_degree=None,
+    min_community=None,
+    max_community=None,
+    tol=1e-07,
+    max_iters=500,
+    seed=None,
+):
+    """Return an LFR benchmark graph."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    return _from_nx_graph(
+        nx.LFR_benchmark_graph(
+            n,
+            tau1,
+            tau2,
+            mu,
+            average_degree=average_degree,
+            min_degree=min_degree,
+            max_degree=max_degree,
+            min_community=min_community,
+            max_community=max_community,
+            tol=tol,
+            max_iters=max_iters,
+            seed=seed,
+        )
+    )
+
+
 def hexagonal_lattice_graph(
     m,
     n,
@@ -8804,6 +8851,8 @@ __all__ = [
     "random_powerlaw_tree",
     "random_powerlaw_tree_sequence",
     "gn_graph",
+    "LCF_graph",
+    "LFR_benchmark_graph",
     "hexagonal_lattice_graph",
     "triangular_lattice_graph",
     "grid_graph",
