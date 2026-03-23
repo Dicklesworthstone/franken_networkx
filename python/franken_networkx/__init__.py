@@ -6681,6 +6681,96 @@ def gn_graph(n, kernel=None, create_using=None, seed=None):
     return _from_nx_graph(graph, create_using=create_using)
 
 
+def hexagonal_lattice_graph(
+    m,
+    n,
+    periodic=False,
+    with_positions=True,
+    create_using=None,
+):
+    """Return a hexagonal lattice graph."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    graph = nx.hexagonal_lattice_graph(
+        m,
+        n,
+        periodic=periodic,
+        with_positions=with_positions,
+        create_using=None,
+    )
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def triangular_lattice_graph(
+    m,
+    n,
+    periodic=False,
+    with_positions=True,
+    create_using=None,
+):
+    """Return a triangular lattice graph."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    graph = nx.triangular_lattice_graph(
+        m,
+        n,
+        periodic=periodic,
+        with_positions=with_positions,
+        create_using=None,
+    )
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def grid_graph(dim, periodic=False):
+    """Return an n-dimensional grid graph."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    return _from_nx_graph(nx.grid_graph(dim, periodic=periodic))
+
+
+def lattice_reference(G, niter=5, D=None, connectivity=True, seed=None):
+    """Return a lattice-like rewiring of *G* preserving degree sequence."""
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    return _from_nx_graph(
+        nx.lattice_reference(
+            _to_nx(G),
+            niter=niter,
+            D=D,
+            connectivity=connectivity,
+            seed=seed,
+        )
+    )
+
+
+def margulis_gabber_galil_graph(n, create_using=None):
+    """Return a Margulis-Gabber-Galil expander graph."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    graph = nx.margulis_gabber_galil_graph(n, create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def sudoku_graph(n=3):
+    """Return the Sudoku constraint graph of order *n*."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    return _from_nx_graph(nx.sudoku_graph(n))
+
+
 def fast_gnp_random_graph(n, p, seed=None, directed=False, create_using=None):
     """Return a fast Erdos-Renyi random graph."""
     import networkx as nx
@@ -7525,6 +7615,12 @@ __all__ = [
     "random_powerlaw_tree",
     "random_powerlaw_tree_sequence",
     "gn_graph",
+    "hexagonal_lattice_graph",
+    "triangular_lattice_graph",
+    "grid_graph",
+    "lattice_reference",
+    "margulis_gabber_galil_graph",
+    "sudoku_graph",
     # Read/write — graph I/O
     "node_link_data",
     "node_link_graph",
