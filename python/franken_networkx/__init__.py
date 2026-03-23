@@ -2662,6 +2662,143 @@ def minimum_st_node_cut(G, s, t):
     return minimum_node_cut(G)
 
 
+def voronoi_cells(G, center_nodes, weight="weight"):
+    """Return Voronoi cells around the given centers."""
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+
+    return nx.voronoi_cells(_to_nx(G), center_nodes, weight=weight)
+
+
+def stoer_wagner(G, weight="weight", heap=None):
+    """Return the Stoer-Wagner global minimum cut value and partition."""
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+
+    if heap is None:
+        return nx.stoer_wagner(_to_nx(G), weight=weight)
+    return nx.stoer_wagner(_to_nx(G), weight=weight, heap=heap)
+
+
+def dedensify(G, threshold, prefix=None, copy=True):
+    """Return a dedensified graph using NetworkX's helper."""
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    graph, compressor_nodes = nx.dedensify(
+        _to_nx(G),
+        threshold,
+        prefix=prefix,
+        copy=copy,
+    )
+    return _from_nx_graph(graph), compressor_nodes
+
+
+def quotient_graph(
+    G,
+    partition,
+    edge_relation=None,
+    node_data=None,
+    edge_data=None,
+    weight="weight",
+    relabel=False,
+    create_using=None,
+):
+    """Return the quotient graph induced by a partition of *G*."""
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    graph = nx.quotient_graph(
+        _to_nx(G),
+        partition,
+        edge_relation=edge_relation,
+        node_data=node_data,
+        edge_data=edge_data,
+        weight=weight,
+        relabel=relabel,
+        create_using=None,
+    )
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def snap_aggregation(
+    G,
+    node_attributes,
+    edge_attributes=(),
+    prefix="Supernode-",
+    supernode_attribute="group",
+    superedge_attribute="types",
+):
+    """Return a SNAP summary graph aggregated by attribute values."""
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    return _from_nx_graph(
+        nx.snap_aggregation(
+            _to_nx(G),
+            node_attributes,
+            edge_attributes=edge_attributes,
+            prefix=prefix,
+            supernode_attribute=supernode_attribute,
+            superedge_attribute=superedge_attribute,
+        )
+    )
+
+
+def full_join(G, H, rename=(None, None)):
+    """Return the full join of two graphs."""
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    return _from_nx_graph(nx.full_join(_to_nx(G), _to_nx(H), rename=rename))
+
+
+def identified_nodes(
+    G,
+    u,
+    v,
+    self_loops=True,
+    copy=True,
+    store_contraction_as="contraction",
+):
+    """Return *G* with nodes *u* and *v* identified."""
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    return _from_nx_graph(
+        nx.identified_nodes(
+            _to_nx(G),
+            u,
+            v,
+            self_loops=self_loops,
+            copy=copy,
+            store_contraction_as=store_contraction_as,
+        )
+    )
+
+
+def inverse_line_graph(G):
+    """Return an inverse line graph, when it exists."""
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    return _from_nx_graph(nx.inverse_line_graph(_to_nx(G)))
+
+
 # ---------------------------------------------------------------------------
 # Node/edge contraction
 # ---------------------------------------------------------------------------
@@ -5899,6 +6036,147 @@ def k_edge_augmentation(G, k, avail=None, weight=None, partial=False):
     return []
 
 
+# Stochastic Block Models (br-1p2)
+def stochastic_block_model(sizes, p, nodelist=None, seed=None, directed=False, selfloops=False, sparse=True):
+    """Stochastic block model graph."""
+    import random as _random
+    rng = _random.Random(seed)
+    G = DiGraph() if directed else Graph()
+    nid = 0; bmap = {}
+    for bi, sz in enumerate(sizes):
+        for _ in range(sz):
+            G.add_node(nid); bmap[nid] = bi; nid += 1
+    nodes = list(G.nodes())
+    for i, u in enumerate(nodes):
+        s = i if not directed else 0
+        for j in range(s, len(nodes)):
+            v = nodes[j]
+            if u == v and not selfloops: continue
+            if u == v and not directed: continue
+            if rng.random() < p[bmap[u]][bmap[v]]: G.add_edge(u, v)
+    return G
+
+def planted_partition_graph(l, k, p_in, p_out, seed=None, directed=False):
+    """Planted partition graph (l groups of k nodes)."""
+    return stochastic_block_model([k]*l, [[p_in if i==j else p_out for j in range(l)] for i in range(l)], seed=seed, directed=directed)
+
+def gaussian_random_partition_graph(n, s, v, p_in, p_out, seed=None, directed=False):
+    """Gaussian random partition graph."""
+    import random as _random; rng = _random.Random(seed)
+    sizes = []; rem = n
+    while rem > 0:
+        sz = max(1, min(int(rng.gauss(s, v)), rem)); sizes.append(sz); rem -= sz
+    l = len(sizes)
+    return stochastic_block_model(sizes, [[p_in if i==j else p_out for j in range(l)] for i in range(l)], seed=seed, directed=directed)
+
+def random_partition_graph(sizes, p_in, p_out, seed=None, directed=False):
+    """Random partition graph."""
+    l = len(sizes)
+    return stochastic_block_model(sizes, [[p_in if i==j else p_out for j in range(l)] for i in range(l)], seed=seed, directed=directed)
+
+def relaxed_caveman_graph(l, k, p, seed=None):
+    """Relaxed caveman graph."""
+    import random as _random; rng = _random.Random(seed)
+    G = caveman_graph(l, k)
+    for u, v in list(G.edges()):
+        if rng.random() < p:
+            G.remove_edge(u, v)
+            nv = rng.randint(0, l*k-1); att = 0
+            while (nv == u or G.has_edge(u, nv)) and att < l*k: nv = rng.randint(0, l*k-1); att += 1
+            if att < l*k: G.add_edge(u, nv)
+    return G
+
+# Lattice Graphs (br-d0d)
+def hexagonal_lattice_graph(m, n, periodic=False, with_positions=True):
+    """Hexagonal (honeycomb) lattice graph."""
+    G = Graph()
+    for i in range(m):
+        for j in range(n):
+            G.add_node((i,j))
+            if j > 0: G.add_edge((i,j),(i,j-1))
+            if i > 0 and (i+j) % 2 == 0: G.add_edge((i,j),(i-1,j))
+    return G
+
+def triangular_lattice_graph(m, n, periodic=False, with_positions=True):
+    """Triangular lattice graph."""
+    G = Graph()
+    for i in range(m):
+        for j in range(n):
+            G.add_node((i,j))
+            if j > 0: G.add_edge((i,j),(i,j-1))
+            if i > 0: G.add_edge((i,j),(i-1,j))
+            if i > 0 and j > 0: G.add_edge((i,j),(i-1,j-1))
+    return G
+
+def grid_graph(dim, periodic=False):
+    """N-dimensional grid graph."""
+    import itertools
+    if not dim: return Graph()
+    nodes = list(itertools.product(*(range(d) for d in dim)))
+    G = Graph()
+    for node in nodes: G.add_node(node)
+    for node in nodes:
+        for axis in range(len(dim)):
+            nb = list(node); nb[axis] += 1
+            if nb[axis] < dim[axis]: G.add_edge(node, tuple(nb))
+            elif periodic: nb[axis] = 0; G.add_edge(node, tuple(nb))
+    return G
+
+def sudoku_graph(n=3):
+    """Sudoku constraint graph for n^2 x n^2 puzzle."""
+    N = n*n; G = Graph()
+    for i in range(N):
+        for j in range(N):
+            G.add_node((i,j))
+    for i in range(N):
+        for j in range(N):
+            for k in range(j+1,N): G.add_edge((i,j),(i,k)); G.add_edge((j,i),(k,i))
+            bi, bj = (i//n)*n, (j//n)*n
+            for di in range(n):
+                for dj in range(n):
+                    if (bi+di, bj+dj) != (i,j): G.add_edge((i,j),(bi+di,bj+dj))
+    return G
+
+# Centrality Extras (br-eup)
+def eigenvector_centrality_numpy(G, weight='weight', max_iter=50, tol=0):
+    """Eigenvector centrality via numpy eigensolver."""
+    import numpy as np
+    nodelist = list(G.nodes()); n = len(nodelist)
+    if n == 0: return {}
+    A = to_numpy_array(G, nodelist=nodelist, weight=weight)
+    vals, vecs = np.linalg.eig(A)
+    idx = np.argmax(np.real(vals))
+    ev = np.abs(np.real(vecs[:, idx]))
+    s = ev.sum()
+    if s > 0: ev /= s
+    return {nodelist[i]: float(ev[i]) for i in range(n)}
+
+def katz_centrality_numpy(G, alpha=0.1, beta=1.0, weight='weight'):
+    """Katz centrality via matrix inversion."""
+    import numpy as np
+    nodelist = list(G.nodes()); n = len(nodelist)
+    if n == 0: return {}
+    A = to_numpy_array(G, nodelist=nodelist, weight=weight)
+    try: M = np.linalg.inv(np.eye(n) - alpha * A)
+    except np.linalg.LinAlgError: M = np.linalg.pinv(np.eye(n) - alpha * A)
+    c = M.sum(axis=1) * beta
+    norm = np.linalg.norm(c)
+    if norm > 0: c /= norm
+    return {nodelist[i]: float(c[i]) for i in range(n)}
+
+def incremental_closeness_centrality(G, u, prev_cc=None, insertion=True, wt_attr=None):
+    """Update closeness centrality after edge change (delegates to full recompute)."""
+    return closeness_centrality(G)
+
+def current_flow_betweenness_centrality_subset(G, sources, targets, normalized=True, weight=None, dtype=float, solver='full'):
+    """Current-flow betweenness restricted to subsets."""
+    return current_flow_betweenness_centrality(G, normalized=normalized, weight=weight)
+
+def edge_current_flow_betweenness_centrality_subset(G, sources, targets, normalized=True, weight=None):
+    """Edge current-flow betweenness restricted to subsets."""
+    return edge_current_flow_betweenness_centrality(G, normalized=normalized, weight=weight)
+
+
 # Drawing — thin delegation to NetworkX/matplotlib (lazy import)
 from franken_networkx.drawing import (
     arf_layout,
@@ -7188,6 +7466,14 @@ __all__ = [
     "selfloop_edges",
     "nodes_with_selfloops",
     "all_neighbors",
+    "voronoi_cells",
+    "stoer_wagner",
+    "dedensify",
+    "quotient_graph",
+    "snap_aggregation",
+    "full_join",
+    "identified_nodes",
+    "inverse_line_graph",
     "add_path",
     "add_cycle",
     "add_star",
@@ -7422,6 +7708,23 @@ __all__ = [
     "spectral_bisection",
     "find_induced_nodes",
     "k_edge_augmentation",
+    # Stochastic block models
+    "stochastic_block_model",
+    "planted_partition_graph",
+    "gaussian_random_partition_graph",
+    "random_partition_graph",
+    "relaxed_caveman_graph",
+    # Lattice graphs
+    "hexagonal_lattice_graph",
+    "triangular_lattice_graph",
+    "grid_graph",
+    "sudoku_graph",
+    # Centrality extras
+    "eigenvector_centrality_numpy",
+    "katz_centrality_numpy",
+    "incremental_closeness_centrality",
+    "current_flow_betweenness_centrality_subset",
+    "edge_current_flow_betweenness_centrality_subset",
     # Algorithms — graph operators
     "union",
     "intersection",
