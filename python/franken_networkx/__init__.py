@@ -1159,10 +1159,7 @@ def local_bridges(G, with_span=True):
             # For local bridges, span > 2
             span = 2  # through a common neighbor
             if with_span:
-                # Not a local bridge (span == 2), skip
-                pass
-            # Only yield if it's a local bridge (span > 2)
-            # Having common neighbors means span = 2, not a local bridge
+                pass  # span == 2, not a local bridge — skip
     return result
 
 
@@ -5499,10 +5496,7 @@ def minimum_cycle_basis(G, weight=None):
 def chordless_cycles(G, length_bound=None):
     """Find all chordless (induced) cycles."""
     result = []
-    for cycle in simple_cycles(G) if G.is_directed() else []:
-        # For undirected, use cycle_basis
-        pass
-    # For undirected graphs, filter cycle_basis to chordless
+    # Use cycle_basis and filter to chordless
     for cycle in cycle_basis(G):
         if length_bound and len(cycle) > length_bound:
             continue
@@ -5661,17 +5655,14 @@ def from_nested_tuple(sequence, sensible_relabeling=False):
     return G
 
 
-def to_nested_tuple(T, root, canonical_form=False):
+def to_nested_tuple(T, root, canonical_form=False, _parent=None):
     """Convert rooted tree to nested tuple."""
-    children = [n for n in T.neighbors(root)]
+    children = [n for n in T.neighbors(root) if n != _parent]
     if not children:
         return ()
     subtrees = []
-    visited = {root}
     for child in sorted(children, key=str):
-        if child not in visited:
-            visited.add(child)
-            subtrees.append(to_nested_tuple(T, child, canonical_form))
+        subtrees.append(to_nested_tuple(T, child, canonical_form, _parent=root))
     if canonical_form:
         subtrees.sort()
     return tuple(subtrees)
@@ -5717,10 +5708,11 @@ def directed_modularity_matrix(G, nodelist=None):
 
 
 def modularity_spectrum(G):
-    """Eigenvalues of the modularity matrix."""
+    """Eigenvalues of the modularity matrix, sorted by real part."""
     import numpy as np
     B = modularity_matrix(G)
-    return np.sort(np.linalg.eigvalsh(B))
+    evals = np.linalg.eigvalsh(B)
+    return np.sort(np.real(evals))
 
 
 # ---------------------------------------------------------------------------
@@ -6200,40 +6192,6 @@ def from_pandas_edgelist(df, source='source', target='target', edge_attr=None,
     return G
 
 
-def from_pandas_adjacency(df, create_using=None):
-    """Return a graph from a Pandas adjacency DataFrame."""
-    import networkx as nx
-
-    from franken_networkx.readwrite import _from_nx_graph
-
-    graph = nx.from_pandas_adjacency(df, create_using=None)
-    return _from_nx_graph(graph, create_using=create_using)
-
-
-def to_pandas_adjacency(
-    G,
-    nodelist=None,
-    dtype=None,
-    order=None,
-    multigraph_weight=sum,
-    weight='weight',
-    nonedge=0.0,
-):
-    """Return the graph adjacency matrix as a Pandas DataFrame."""
-    import networkx as nx
-
-    from franken_networkx.drawing.layout import _to_nx
-
-    return nx.to_pandas_adjacency(
-        _to_nx(G),
-        nodelist=nodelist,
-        dtype=dtype,
-        order=order,
-        multigraph_weight=multigraph_weight,
-        weight=weight,
-        nonedge=nonedge,
-    )
-
 
 def to_numpy_array(G, nodelist=None, dtype=None, order=None,
                    multigraph_weight=sum, weight='weight', nonedge=0.0):
@@ -6324,94 +6282,6 @@ def from_numpy_array(A, parallel_edges=False, create_using=None):
                 G.add_edge(i, j, weight=float(val))
 
     return G
-
-
-def from_dict_of_dicts(d, create_using=None, multigraph_input=False):
-    """Return a graph from a dictionary of dictionaries.
-
-    Parameters
-    ----------
-    d : dict of dicts
-        Adjacency representation. ``d[u][v]`` gives the edge data dict for
-        edge (u, v).
-    create_using : Graph constructor, optional
-        Graph type to create. Default ``Graph()``.
-    multigraph_input : bool, optional
-        Ignored (multigraphs not yet supported). Present for API compat.
-
-    Returns
-    -------
-    G : Graph or DiGraph
-    """
-    G = _empty_graph_from_create_using(create_using)
-
-    # Add all keys as nodes first (preserves isolated nodes like NetworkX).
-    for u in d:
-        G.add_node(u)
-
-    for u, nbrs in d.items():
-        for v, data in nbrs.items():
-            if isinstance(data, dict):
-                G.add_edge(u, v, **data)
-            else:
-                G.add_edge(u, v)
-
-    return G
-
-
-def from_edgelist(edgelist, create_using=None):
-    """Return a graph from a list of edges.
-
-    Parameters
-    ----------
-    edgelist : iterable
-        Each element is a tuple (u, v) or (u, v, d) where d is a dict of
-        edge attributes.
-    create_using : Graph constructor, optional
-        Graph type to create. Default ``Graph()``.
-
-    Returns
-    -------
-    G : Graph or DiGraph
-    """
-    G = _empty_graph_from_create_using(create_using)
-
-    G.add_edges_from(edgelist)
-    return G
-
-
-def to_dict_of_dicts(G, nodelist=None, edge_data=None):
-    """Return adjacency representation as a dictionary of dictionaries.
-
-    Parameters
-    ----------
-    G : Graph or DiGraph
-        The input graph.
-    nodelist : list, optional
-        Use only nodes in *nodelist*. Default: all nodes.
-    edge_data : object, optional
-        If provided, use this as the edge data instead of the edge
-        attribute dict.
-
-    Returns
-    -------
-    d : dict
-        ``d[u][v]`` is the edge data for (u, v).
-    """
-    if nodelist is None:
-        nodelist = list(G.nodes())
-    nodeset = set(nodelist)
-
-    d = {}
-    for u in nodelist:
-        d[u] = {}
-        for v, data in G[u].items():
-            if v in nodeset:
-                if edge_data is not None:
-                    d[u][v] = edge_data
-                else:
-                    d[u][v] = dict(data) if hasattr(data, 'items') else data
-    return d
 
 
 def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight='weight',
@@ -6509,124 +6379,140 @@ def from_scipy_sparse_array(A, parallel_edges=False, create_using=None,
     return G
 
 
-def from_prufer_sequence(sequence):
-    """Return a tree decoded from a Prüfer sequence."""
-    import networkx as nx
+def from_dict_of_dicts(d, create_using=None, multigraph_input=False):
+    """Return a graph from a dictionary of dictionaries.
 
-    from franken_networkx.readwrite import _from_nx_graph
+    Parameters
+    ----------
+    d : dict of dicts
+        Adjacency representation. ``d[u][v]`` gives the edge data dict for
+        edge (u, v).
+    create_using : Graph constructor, optional
+        Graph type to create. Default ``Graph()``.
+    multigraph_input : bool, optional
+        Ignored (multigraphs not yet supported). Present for API compat.
 
-    return _from_nx_graph(nx.from_prufer_sequence(sequence))
+    Returns
+    -------
+    G : Graph or DiGraph
+    """
+    G = _empty_graph_from_create_using(create_using)
 
+    # Add all keys as nodes first (preserves isolated nodes like NetworkX).
+    for u in d:
+        G.add_node(u)
 
-def to_prufer_sequence(T):
-    """Return the Prüfer sequence of a labeled tree."""
-    import networkx as nx
+    for u, nbrs in d.items():
+        for v, data in nbrs.items():
+            if isinstance(data, dict):
+                G.add_edge(u, v, **data)
+            else:
+                G.add_edge(u, v)
 
-    from franken_networkx.drawing.layout import _to_nx
-
-    return nx.to_prufer_sequence(_to_nx(T))
-
-
-def from_nested_tuple(sequence, sensible_relabeling=False):
-    """Return a tree built from a nested tuple representation."""
-    import networkx as nx
-
-    from franken_networkx.readwrite import _from_nx_graph
-
-    return _from_nx_graph(
-        nx.from_nested_tuple(sequence, sensible_relabeling=sensible_relabeling)
-    )
-
-
-def to_nested_tuple(T, root, canonical_form=False):
-    """Return a nested tuple representation of a rooted tree."""
-    import networkx as nx
-
-    from franken_networkx.drawing.layout import _to_nx
-
-    return nx.to_nested_tuple(_to_nx(T), root, canonical_form=canonical_form)
+    return G
 
 
-def cytoscape_data(G, name='name', ident='id'):
-    """Return Cytoscape.js JSON data for a graph."""
-    import networkx as nx
+def from_edgelist(edgelist, create_using=None):
+    """Return a graph from a list of edges.
 
-    from franken_networkx.drawing.layout import _to_nx
+    Parameters
+    ----------
+    edgelist : iterable
+        Each element is a tuple (u, v) or (u, v, d) where d is a dict of
+        edge attributes.
+    create_using : Graph constructor, optional
+        Graph type to create. Default ``Graph()``.
 
-    return nx.cytoscape_data(_to_nx(G), name=name, ident=ident)
+    Returns
+    -------
+    G : Graph or DiGraph
+    """
+    G = _empty_graph_from_create_using(create_using)
 
-
-def cytoscape_graph(data, name='name', ident='id'):
-    """Return a graph decoded from Cytoscape.js JSON data."""
-    import networkx as nx
-
-    from franken_networkx.readwrite import _from_nx_graph
-
-    return _from_nx_graph(nx.cytoscape_graph(data, name=name, ident=ident))
-
-
-def attr_sparse_matrix(
-    G,
-    edge_attr=None,
-    node_attr=None,
-    normalized=False,
-    rc_order=None,
-    dtype=None,
-):
-    """Return a SciPy sparse attribute matrix using NetworkX's implementation."""
-    import networkx as nx
-
-    from franken_networkx.drawing.layout import _to_nx
-
-    return nx.attr_sparse_matrix(
-        _to_nx(G),
-        edge_attr=edge_attr,
-        node_attr=node_attr,
-        normalized=normalized,
-        rc_order=rc_order,
-        dtype=dtype,
-    )
+    G.add_edges_from(edgelist)
+    return G
 
 
-def to_networkx_graph(data, create_using=None, multigraph_input=False):
-    """Return a FrankenNetworkX graph from generic graph-like input."""
-    import networkx as nx
+def to_dict_of_dicts(G, nodelist=None, edge_data=None):
+    """Return adjacency representation as a dictionary of dictionaries.
 
-    from franken_networkx.readwrite import _from_nx_graph
+    Parameters
+    ----------
+    G : Graph or DiGraph
+        The input graph.
+    nodelist : list, optional
+        Use only nodes in *nodelist*. Default: all nodes.
+    edge_data : object, optional
+        If provided, use this as the edge data instead of the edge
+        attribute dict.
 
-    graph = nx.to_networkx_graph(
-        data,
-        create_using=None,
-        multigraph_input=multigraph_input,
-    )
-    return _from_nx_graph(graph, create_using=create_using)
+    Returns
+    -------
+    d : dict
+        ``d[u][v]`` is the edge data for (u, v).
+    """
+    if nodelist is None:
+        nodelist = list(G.nodes())
+    nodeset = set(nodelist)
+
+    d = {}
+    for u in nodelist:
+        d[u] = {}
+        for v, data in G[u].items():
+            if v in nodeset:
+                if edge_data is not None:
+                    d[u][v] = edge_data
+                else:
+                    d[u][v] = dict(data) if hasattr(data, 'items') else data
+    return d
 
 
-def modularity_matrix(G, nodelist=None, weight=None):
-    """Return the modularity matrix of a graph."""
-    import networkx as nx
+def cytoscape_data(G, attrs=None):
+    """Export graph to Cytoscape.js JSON format."""
+    elements = []
+    for node in G.nodes():
+        el = {"data": {"id": str(node)}}
+        if hasattr(G.nodes, '__getitem__'):
+            a = G.nodes[node]
+            if isinstance(a, dict):
+                el["data"].update({str(k): v for k, v in a.items()})
+        elements.append(el)
+    for u, v, data in G.edges(data=True):
+        el = {"data": {"source": str(u), "target": str(v)}}
+        if isinstance(data, dict):
+            el["data"].update({str(k): v for k, v in data.items()})
+        elements.append(el)
+    return {"elements": elements}
 
-    from franken_networkx.drawing.layout import _to_nx
 
-    return nx.modularity_matrix(_to_nx(G), nodelist=nodelist, weight=weight)
+def cytoscape_graph(data, attrs=None):
+    """Build graph from Cytoscape.js JSON format."""
+    G = Graph()
+    for el in data.get("elements", []):
+        d = el.get("data", {})
+        if "source" in d and "target" in d:
+            G.add_edge(d["source"], d["target"])
+        elif "id" in d:
+            G.add_node(d["id"])
+    return G
 
 
-def directed_modularity_matrix(G, nodelist=None, weight=None):
-    """Return the directed modularity matrix of a graph."""
-    import networkx as nx
-
-    from franken_networkx.drawing.layout import _to_nx
-
-    return nx.directed_modularity_matrix(_to_nx(G), nodelist=nodelist, weight=weight)
-
-
-def modularity_spectrum(G):
-    """Return the eigenvalues of the modularity matrix."""
-    import networkx as nx
-
-    from franken_networkx.drawing.layout import _to_nx
-
-    return nx.modularity_spectrum(_to_nx(G))
+def to_networkx_graph(data, create_using=None):
+    """Convert various formats to a graph (universal dispatcher)."""
+    if isinstance(data, dict):
+        if all(isinstance(v, dict) for v in data.values()):
+            return from_dict_of_dicts(data, create_using=create_using)
+        else:
+            return from_dict_of_lists(data, create_using=create_using)
+    if isinstance(data, (list, tuple)):
+        return from_edgelist(data, create_using=create_using)
+    try:
+        import numpy as np
+        if isinstance(data, np.ndarray):
+            return from_numpy_array(data, create_using=create_using)
+    except ImportError:
+        pass
+    raise NetworkXError(f"Cannot convert {type(data)} to graph")
 
 
 def prominent_group(
@@ -6668,6 +6554,103 @@ def within_inter_cluster(G, ebunch=None, delta=0.001, community='community'):
     )
 
 
+def gnc_graph(n, create_using=None, seed=None):
+    """Return a growing network with copying model graph."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    graph = nx.gnc_graph(n, create_using=None, seed=seed)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def gnr_graph(n, p, create_using=None, seed=None):
+    """Return a growing network with redirection model graph."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    graph = nx.gnr_graph(n, p, create_using=None, seed=seed)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def fast_gnp_random_graph(n, p, seed=None, directed=False, create_using=None):
+    """Return a fast Erdos-Renyi random graph."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    graph = nx.fast_gnp_random_graph(
+        n,
+        p,
+        seed=seed,
+        directed=directed,
+        create_using=None,
+    )
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def directed_configuration_model(
+    in_degree_sequence,
+    out_degree_sequence,
+    create_using=None,
+    seed=None,
+):
+    """Return a directed configuration model graph."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    graph = nx.directed_configuration_model(
+        in_degree_sequence,
+        out_degree_sequence,
+        create_using=None,
+        seed=seed,
+    )
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def directed_joint_degree_graph(in_degrees, out_degrees, nkk, seed=None):
+    """Return a directed graph matching a directed joint-degree distribution."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    return _from_nx_graph(nx.directed_joint_degree_graph(in_degrees, out_degrees, nkk, seed=seed))
+
+
+def joint_degree_graph(joint_degrees, seed=None):
+    """Return an undirected graph matching a joint-degree distribution."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    return _from_nx_graph(nx.joint_degree_graph(joint_degrees, seed=seed))
+
+
+def expected_degree_graph(w, seed=None, selfloops=True):
+    """Return a Chung-Lu expected-degree random graph."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    return _from_nx_graph(nx.expected_degree_graph(w, seed=seed, selfloops=selfloops))
+
+
+def directed_havel_hakimi_graph(in_deg_sequence, out_deg_sequence, create_using=None):
+    """Return a directed graph with prescribed in/out degree sequences."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    graph = nx.directed_havel_hakimi_graph(
+        in_deg_sequence,
+        out_deg_sequence,
+        create_using=None,
+    )
+    return _from_nx_graph(graph, create_using=create_using)
+
+
 __all__ = [
     "__version__",
     # Graph classes
@@ -6704,6 +6687,14 @@ __all__ = [
     "modularity_spectrum",
     "prominent_group",
     "within_inter_cluster",
+    "gnc_graph",
+    "gnr_graph",
+    "fast_gnp_random_graph",
+    "directed_configuration_model",
+    "directed_joint_degree_graph",
+    "joint_degree_graph",
+    "expected_degree_graph",
+    "directed_havel_hakimi_graph",
     "convert_node_labels_to_integers",
     # Exceptions
     "HasACycle",
