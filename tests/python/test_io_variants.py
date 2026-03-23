@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import franken_networkx as fnx
+import networkx as nx
 
 
 def test_parse_and_generate_adjlist_round_trip():
@@ -48,3 +49,18 @@ def test_graphml_variant_writers_delegate_to_core_writer(tmp_path: Path):
 
     assert "<graphml" in xml_path.read_text(encoding="utf-8")
     assert "<graphml" in lxml_path.read_text(encoding="utf-8")
+
+
+def test_parse_and_generate_graphml_honor_networkx_kwargs(tmp_path: Path):
+    graph_nx = nx.path_graph(3)
+    path = tmp_path / "typed.graphml"
+    nx.write_graphml(graph_nx, path)
+
+    graphml = path.read_text(encoding="utf-8")
+    parsed = fnx.parse_graphml(graphml, node_type=int)
+    graph = fnx.path_graph(2)
+    generated = list(fnx.generate_graphml(graph, prettyprint=False, named_key_ids=True))
+    expected = list(nx.generate_graphml(nx.path_graph(2), prettyprint=False, named_key_ids=True))
+
+    assert list(parsed.nodes()) == [0, 1, 2]
+    assert generated == expected

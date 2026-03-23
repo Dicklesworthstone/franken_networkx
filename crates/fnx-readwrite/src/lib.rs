@@ -1223,7 +1223,7 @@ impl EdgeListEngine {
                 {
                     let raw_value = std::mem::take(current_data_text);
                     let value = if _attr_type == "string" {
-                        CgseValue::String(raw_value.clone())
+                        CgseValue::String(raw_value)
                     } else {
                         CgseValue::parse_relaxed(&raw_value)
                     };

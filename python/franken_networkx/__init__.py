@@ -181,9 +181,9 @@ def all_simple_paths(G, source, target, cutoff=None):
             stack.pop()
             visited.discard(parent)
             continue
-        if child == target:
+        if child == target and len(path) <= cutoff_val:
             result.append(path + [child])
-        elif child not in visited and len(path) < cutoff_val + 1:
+        elif child not in visited and len(path) < cutoff_val:
             visited.add(child)
             stack.append((child, iter(G.successors(child)), path + [child]))
     return result
@@ -1662,8 +1662,6 @@ def florentine_families_graph():
         ("Salviati", "Pazzi"),
     ]
     G.add_edges_from(edges)
-    # Add the Pucci isolate
-    G.add_node("Pucci")
     return G
 
 
@@ -6733,25 +6731,45 @@ def goldberg_radzik(G, source, weight='weight'):
     pred, dist = bellman_ford_predecessor_and_distance(G, source, weight=weight)
     return pred, dist
 
-def parse_graphml(graphml_string, node_type=str, edge_key_type=int):
+def parse_graphml(
+    graphml_string,
+    node_type=str,
+    edge_key_type=int,
+    force_multigraph=False,
+):
     """Parse a GraphML string."""
-    import tempfile, os
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.graphml', delete=False) as f:
-        f.write(graphml_string); path = f.name
-    try:
-        return read_graphml(path)
-    finally:
-        os.unlink(path)
+    import networkx as nx
 
-def generate_graphml(G, prettyprint=True, named_key_ids=False, edge_id_from_attribute=None):
+    from franken_networkx.readwrite import _from_nx_graph
+
+    graph = nx.parse_graphml(
+        graphml_string,
+        node_type=node_type,
+        edge_key_type=edge_key_type,
+        force_multigraph=force_multigraph,
+    )
+    return _from_nx_graph(graph)
+
+
+def generate_graphml(
+    G,
+    encoding="utf-8",
+    prettyprint=True,
+    named_key_ids=False,
+    edge_id_from_attribute=None,
+):
     """Generate GraphML lines."""
-    import tempfile, os
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.graphml', delete=False) as f:
-        path = f.name
-    write_graphml(G, path)
-    with open(path) as f:
-        for line in f: yield line.rstrip()
-    os.unlink(path)
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+
+    yield from nx.generate_graphml(
+        _to_nx(G),
+        encoding=encoding,
+        prettyprint=prettyprint,
+        named_key_ids=named_key_ids,
+        edge_id_from_attribute=edge_id_from_attribute,
+    )
 
 # Generators
 def mycielskian(G):

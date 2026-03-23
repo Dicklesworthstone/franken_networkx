@@ -17,9 +17,12 @@ fnx-readwrite = { path = "../fnx-readwrite" }
 fnx-convert = { path = "../fnx-convert" }
 fnx-views = { path = "../fnx-views" }
 fnx-runtime = { path = "../fnx-runtime" }
-pyo3 = { version = "0.23", features = ["extension-module", "abi3-py310", "multiple-pymethods"] }
+pyo3 = { version = "0.23", features = ["abi3-py310", "multiple-pymethods"] }
 pyo3-log = "0.12"
 log = "0.4"
+
+[features]
+extension-module = ["pyo3/extension-module"]
 
 [dev-dependencies]
 proptest = "1.10.0"
