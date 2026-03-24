@@ -801,6 +801,338 @@ impl GraphGenerator {
         Ok(GenerationReport { graph, warnings })
     }
 
+    /// Fast G(n,p) random graph using Batagelj-Brandes algorithm.
+    ///
+    /// O(n + m) expected time instead of O(n²) for the naive approach.
+    /// Generates the same graph topology as `gnp_random_graph` but skips
+    /// over non-edges using geometric distribution sampling.
+    pub fn fast_gnp_random_graph(
+        &mut self,
+        n: usize,
+        p: f64,
+        seed: u64,
+        directed: bool,
+    ) -> Result<GenerationReport, GenerationError> {
+        let (n, mut warnings) = self.validate_n("fast_gnp_random_graph", n, MAX_N_GNP)?;
+        let (p, p_warning) = self.validate_probability("fast_gnp_random_graph", p)?;
+        if let Some(warning) = p_warning {
+            warnings.push(warning);
+        }
+
+        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
+        if n < 2 || p <= 0.0 {
+            self.record(
+                "fast_gnp_random_graph",
+                DecisionAction::Allow,
+                0.05,
+                format!("fast_gnp empty: n={n}, p={p}"),
+            );
+            return Ok(GenerationReport { graph, warnings });
+        }
+        if p >= 1.0 {
+            // Complete graph
+            for i in 0..n {
+                let start = if directed { 0 } else { i + 1 };
+                for j in start..n {
+                    if i != j {
+                        graph
+                            .add_edge(node_labels[i].clone(), node_labels[j].clone())
+                            .map_err(|err| GenerationError::FailClosed {
+                                operation: "fast_gnp_random_graph",
+                                reason: err.to_string(),
+                            })?;
+                    }
+                }
+            }
+            self.record(
+                "fast_gnp_random_graph",
+                DecisionAction::Allow,
+                0.05,
+                format!("fast_gnp complete: n={n}, p={p}"),
+            );
+            return Ok(GenerationReport { graph, warnings });
+        }
+
+        let mut rng = StdRng::seed_from_u64(seed);
+        let lp = (1.0 - p).ln();
+
+        if directed {
+            // Directed: iterate over all n*(n-1) possible edges
+            let mut v: isize = 0;
+            let mut w: isize = -1;
+            loop {
+                let lr: f64 = (1.0 - rng.random::<f64>()).ln();
+                w += 1 + (lr / lp) as isize;
+                // Skip self-loop
+                if v == w {
+                    w += 1;
+                }
+                while w >= n as isize && v < n as isize - 1 {
+                    w -= n as isize;
+                    v += 1;
+                    if v == w {
+                        w += 1;
+                    }
+                }
+                if v >= n as isize - 1 {
+                    break;
+                }
+                graph
+                    .add_edge(
+                        node_labels[v as usize].clone(),
+                        node_labels[w as usize].clone(),
+                    )
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation: "fast_gnp_random_graph",
+                        reason: err.to_string(),
+                    })?;
+            }
+        } else {
+            // Undirected: iterate over n*(n-1)/2 possible edges
+            let mut v: isize = 1;
+            let mut w: isize = -1;
+            loop {
+                let lr: f64 = (1.0 - rng.random::<f64>()).ln();
+                w += 1 + (lr / lp) as isize;
+                while w >= v && v < n as isize {
+                    w -= v;
+                    v += 1;
+                }
+                if v >= n as isize {
+                    break;
+                }
+                graph
+                    .add_edge(
+                        node_labels[w as usize].clone(),
+                        node_labels[v as usize].clone(),
+                    )
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation: "fast_gnp_random_graph",
+                        reason: err.to_string(),
+                    })?;
+            }
+        }
+
+        self.record(
+            "fast_gnp_random_graph",
+            DecisionAction::Allow,
+            0.08,
+            format!("generated fast_gnp graph: n={n}, p={p}, directed={directed}, seed={seed}"),
+        );
+        Ok(GenerationReport { graph, warnings })
+    }
+
+    /// Generate a growing network digraph (GN model).
+    ///
+    /// Nodes are added one at a time. Each new node connects to an existing
+    /// node chosen uniformly at random from all existing nodes.
+    pub fn gn_graph(
+        &mut self,
+        n: usize,
+        seed: u64,
+    ) -> Result<GenerationReport, GenerationError> {
+        let (n, warnings) = self.validate_n("gn_graph", n, MAX_N_GENERIC)?;
+        let mut graph = Graph::new(self.mode);
+        if n == 0 {
+            self.record("gn_graph", DecisionAction::Allow, 0.05, "gn_graph n=0".to_owned());
+            return Ok(GenerationReport { graph, warnings });
+        }
+        let _ = graph.add_node("0".to_owned());
+        let mut rng = StdRng::seed_from_u64(seed);
+        for i in 1..n {
+            let target = rng.random_range(0..i);
+            graph
+                .add_edge(i.to_string(), target.to_string())
+                .map_err(|err| GenerationError::FailClosed {
+                    operation: "gn_graph",
+                    reason: err.to_string(),
+                })?;
+        }
+
+        self.record(
+            "gn_graph",
+            DecisionAction::Allow,
+            0.08,
+            format!("generated gn_graph: n={n}, seed={seed}"),
+        );
+        Ok(GenerationReport { graph, warnings })
+    }
+
+    /// Generate a growing network with redirection digraph (GNR model).
+    ///
+    /// Each new node tries to connect to a random existing node; with
+    /// probability `p`, it redirects to that node's predecessor instead.
+    pub fn gnr_graph(
+        &mut self,
+        n: usize,
+        p: f64,
+        seed: u64,
+    ) -> Result<GenerationReport, GenerationError> {
+        let (n, warnings) = self.validate_n("gnr_graph", n, MAX_N_GENERIC)?;
+        let mut graph = Graph::new(self.mode);
+        if n == 0 {
+            self.record("gnr_graph", DecisionAction::Allow, 0.05, "gnr_graph n=0".to_owned());
+            return Ok(GenerationReport { graph, warnings });
+        }
+        let _ = graph.add_node("0".to_owned());
+        let mut rng = StdRng::seed_from_u64(seed);
+        for i in 1..n {
+            let src = i.to_string();
+            let _ = graph.add_node(src.clone());
+            let mut target = rng.random_range(0..i);
+            let draw: f64 = rng.random();
+            if draw < p {
+                // Redirect to predecessor of target (first in-neighbor)
+                let target_name = target.to_string();
+                if let Some(predecessors) = graph.neighbors(&target_name) {
+                    if let Some(pred) = predecessors.first() {
+                        if let Ok(pred_idx) = pred.parse::<usize>() {
+                            target = pred_idx;
+                        }
+                    }
+                }
+            }
+            let _ = graph.add_edge(src, target.to_string());
+        }
+
+        self.record(
+            "gnr_graph",
+            DecisionAction::Allow,
+            0.08,
+            format!("generated gnr_graph: n={n}, p={p}, seed={seed}"),
+        );
+        Ok(GenerationReport { graph, warnings })
+    }
+
+    /// Generate a growing network with copying digraph (GNC model).
+    ///
+    /// Each new node connects to a random existing node AND to all of
+    /// that node's predecessors.
+    pub fn gnc_graph(
+        &mut self,
+        n: usize,
+        seed: u64,
+    ) -> Result<GenerationReport, GenerationError> {
+        let (n, warnings) = self.validate_n("gnc_graph", n, MAX_N_GENERIC)?;
+        let mut graph = Graph::new(self.mode);
+        if n == 0 {
+            self.record("gnc_graph", DecisionAction::Allow, 0.05, "gnc_graph n=0".to_owned());
+            return Ok(GenerationReport { graph, warnings });
+        }
+        let _ = graph.add_node("0".to_owned());
+        let mut rng = StdRng::seed_from_u64(seed);
+        for i in 1..n {
+            let src = i.to_string();
+            let _ = graph.add_node(src.clone());
+            let target = rng.random_range(0..i);
+            let target_name = target.to_string();
+            let _ = graph.add_edge(src.clone(), target_name.clone());
+            // Copy: connect to all predecessors of target
+            if let Some(preds) = graph.neighbors(&target_name) {
+                let preds_owned: Vec<String> = preds.into_iter().map(|s| s.to_owned()).collect();
+                for pred in preds_owned {
+                    if pred != src {
+                        let _ = graph.add_edge(src.clone(), pred);
+                    }
+                }
+            }
+        }
+
+        self.record(
+            "gnc_graph",
+            DecisionAction::Allow,
+            0.08,
+            format!("generated gnc_graph: n={n}, seed={seed}"),
+        );
+        Ok(GenerationReport { graph, warnings })
+    }
+
+    /// Generate a scale-free directed graph using Bollobás's model.
+    ///
+    /// At each step, add a new node→existing (prob α), existing→new (prob β),
+    /// or existing→existing (prob γ). Target selection uses preferential
+    /// attachment via in-degree. α + β + γ must equal 1.
+    pub fn scale_free_graph(
+        &mut self,
+        n: usize,
+        alpha: f64,
+        beta: f64,
+        gamma: f64,
+        seed: u64,
+    ) -> Result<GenerationReport, GenerationError> {
+        let (n, warnings) = self.validate_n("scale_free_graph", n, MAX_N_GNP)?;
+        let sum = alpha + beta + gamma;
+        if (sum - 1.0).abs() > 1e-6 {
+            return Err(GenerationError::FailClosed {
+                operation: "scale_free_graph",
+                reason: format!("alpha + beta + gamma must = 1.0, got {sum}"),
+            });
+        }
+        if n < 3 {
+            return Err(GenerationError::FailClosed {
+                operation: "scale_free_graph",
+                reason: "n must be >= 3".to_owned(),
+            });
+        }
+
+        let mut graph = Graph::new(self.mode);
+        // Initial triangle: 0→1, 2→0
+        let _ = graph.add_node("0".to_owned());
+        let _ = graph.add_node("1".to_owned());
+        let _ = graph.add_node("2".to_owned());
+        let _ = graph.add_edge("0".to_owned(), "1".to_owned());
+        let _ = graph.add_edge("2".to_owned(), "0".to_owned());
+
+        let mut rng = StdRng::seed_from_u64(seed);
+        // Track in-degree + out-degree for preferential attachment
+        let mut in_deg: Vec<usize> = vec![1, 1, 0]; // in-degree of each node
+        let mut out_deg: Vec<usize> = vec![1, 0, 1]; // out-degree of each node
+        let mut node_count = 3usize;
+
+        while node_count < n {
+            let r: f64 = rng.random();
+            if r < alpha {
+                // New node → existing (preferential by in-degree)
+                let target = weighted_choice(&in_deg, &mut rng);
+                let src = node_count;
+                let _ = graph.add_edge(src.to_string(), target.to_string());
+                in_deg[target] += 1;
+                in_deg.push(0);
+                out_deg.push(1);
+                node_count += 1;
+            } else if r < alpha + beta {
+                // Existing → existing (src by out-degree, target by in-degree)
+                if node_count < 2 {
+                    continue;
+                }
+                let src = weighted_choice(&out_deg, &mut rng);
+                let target = weighted_choice(&in_deg, &mut rng);
+                if src != target {
+                    let _ = graph.add_edge(src.to_string(), target.to_string());
+                    out_deg[src] += 1;
+                    in_deg[target] += 1;
+                }
+            } else {
+                // Existing → new (preferential by out-degree)
+                let src = weighted_choice(&out_deg, &mut rng);
+                let target = node_count;
+                let _ = graph.add_edge(src.to_string(), target.to_string());
+                out_deg[src] += 1;
+                in_deg.push(1);
+                out_deg.push(0);
+                node_count += 1;
+            }
+        }
+
+        self.record(
+            "scale_free_graph",
+            DecisionAction::Allow,
+            0.08,
+            format!("generated scale_free_graph: n={n}, α={alpha}, β={beta}, γ={gamma}, seed={seed}"),
+        );
+        Ok(GenerationReport { graph, warnings })
+    }
+
     fn record(
         &mut self,
         operation: &'static str,
@@ -826,6 +1158,23 @@ impl GraphGenerator {
             }],
         });
     }
+}
+
+/// Weighted random choice: select index with probability proportional to weights.
+/// Falls back to uniform if all weights are zero.
+fn weighted_choice(weights: &[usize], rng: &mut StdRng) -> usize {
+    let total: usize = weights.iter().sum();
+    if total == 0 {
+        return rng.random_range(0..weights.len());
+    }
+    let mut r = rng.random_range(0..total);
+    for (i, &w) in weights.iter().enumerate() {
+        if r < w {
+            return i;
+        }
+        r -= w;
+    }
+    weights.len() - 1
 }
 
 fn graph_with_n_nodes(mode: CompatibilityMode, n: usize) -> (Graph, Vec<String>) {

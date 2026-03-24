@@ -692,11 +692,10 @@ def projected_graph(B, nodes, multigraph=False):
     for n in node_set:
         G.add_node(n)
 
-    for u in node_set:
+    node_list = list(node_set)
+    for i, u in enumerate(node_list):
         nbrs_u = set(B.neighbors(u)) - node_set
-        for v in node_set:
-            if v <= u:
-                continue
+        for v in node_list[i + 1:]:
             nbrs_v = set(B.neighbors(v)) - node_set
             if nbrs_u & nbrs_v:
                 G.add_edge(u, v)
@@ -1160,43 +1159,30 @@ def has_bridges(G):
 def local_bridges(G, with_span=True):
     """Yield local bridges in *G*.
 
-    A local bridge is an edge whose removal would increase the shortest
-    distance between its endpoints. If ``with_span`` is True, yields
+    A local bridge is an edge whose endpoints have no common neighbors,
+    giving it a span of infinity. If ``with_span`` is True, yields
     ``(u, v, span)`` tuples; otherwise yields ``(u, v)`` tuples.
+
+    Only edges with no common neighbors (span > 2) are yielded,
+    matching NetworkX's definition.
     """
-    result = []
     for u, v in G.edges():
         if u == v:
             continue
-        # Check if u and v share any common neighbor
-        u_nbrs = set(G.neighbors(u))
-        v_nbrs = set(G.neighbors(v))
-        common = u_nbrs & v_nbrs
-        if not common:
-            # No common neighbor → removing this edge disconnects or increases
-            # distance to infinity
+        u_nbrs = set(G.neighbors(u)) - {v}
+        v_nbrs = set(G.neighbors(v)) - {u}
+        if not (u_nbrs & v_nbrs):
             if with_span:
-                result.append((u, v, float('inf')))
+                yield (u, v, float('inf'))
             else:
-                result.append((u, v))
-        else:
-            # Span = length of shortest path NOT using (u,v)
-            # For local bridges, span > 2
-            span = 2  # through a common neighbor
-            if with_span:
-                pass  # span == 2, not a local bridge — skip
-    return result
+                yield (u, v)
 
 
 def minimum_edge_cut(G, s=None, t=None):
-    """Return a minimum edge cut of *G*.
-
-    If *s* and *t* are given, return a minimum s-t edge cut.
-    Otherwise, return a global minimum edge cut.
-    """
-    if s is not None and t is not None:
-        return minimum_cut(G, s, t)
-    return minimum_cut(G, list(G.nodes())[0], list(G.nodes())[1])
+    """Return a minimum edge cut of *G*."""
+    import networkx as nx
+    from franken_networkx.drawing.layout import _to_nx
+    return set(nx.minimum_edge_cut(_to_nx(G), s=s, t=t))
 
 
 def stochastic_graph(G, copy=True, weight='weight'):
@@ -1381,37 +1367,72 @@ def power(G, k):
 
 
 def disjoint_union(G, H):
-    """Return the disjoint union of *G* and *H*.
-
-    Nodes are relabeled to avoid collisions: G's nodes become ``(0, n)``
-    and H's nodes become ``(1, n)``.
-    """
+    """Return the disjoint union of *G* and *H*."""
     import networkx as nx
-
     from franken_networkx.drawing.layout import _to_nx
     from franken_networkx.readwrite import _from_nx_graph
-
     return _from_nx_graph(nx.disjoint_union(_to_nx(G), _to_nx(H)))
 
 
 def compose_all(graphs):
     """Return the composition of all graphs in the iterable."""
-    import networkx as nx
-
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
-
-    return _from_nx_graph(nx.compose_all([_to_nx(graph) for graph in graphs]))
+    graphs = list(graphs)
+    if not graphs:
+        raise ValueError("cannot apply compose_all to an empty sequence")
+    R = graphs[0].copy()
+    for H in graphs[1:]:
+        R.graph.update(H.graph)
+        for n in H.nodes():
+            R.add_node(n, **H.nodes[n])
+        if R.is_multigraph():
+            for u, v, key, d in H.edges(keys=True, data=True):
+                R.add_edge(u, v, key=key, **d)
+        else:
+            for u, v, d in H.edges(data=True):
+                R.add_edge(u, v, **d)
+    return R
 
 
 def union_all(graphs, rename=()):
-    """Return the union of all graphs in the iterable."""
-    import networkx as nx
+    """Return the union of all graphs in the iterable.
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+    Parameters
+    ----------
+    graphs : iterable of Graph
+        Graphs to union.
+    rename : tuple of str or None, optional
+        Prefixes to apply to node names of each graph. If provided, must be
+        the same length as *graphs*. Default ``()`` means no renaming.
+    """
+    graphs = list(graphs)
+    if not graphs:
+        raise ValueError("cannot apply union_all to an empty sequence")
+    if rename and len(rename) != len(graphs):
+        raise ValueError("rename must have the same length as graphs")
 
-    return _from_nx_graph(nx.union_all([_to_nx(graph) for graph in graphs], rename=rename))
+    R = graphs[0].__class__()
+    for i, G in enumerate(graphs):
+        prefix = rename[i] if rename and i < len(rename) else None
+        R.graph.update(G.graph)
+
+        def _rename(n, _prefix=prefix):
+            return f"{_prefix}{n}" if _prefix is not None else n
+
+        for n in G.nodes():
+            new_n = _rename(n)
+            if new_n in R:
+                raise NetworkXError(
+                    f"Node {new_n} already exists in the union graph. "
+                    "Use rename to avoid name collisions."
+                )
+            R.add_node(new_n, **G.nodes[n])
+        if R.is_multigraph():
+            for u, v, key, d in G.edges(keys=True, data=True):
+                R.add_edge(_rename(u), _rename(v), key=key, **d)
+        else:
+            for u, v, d in G.edges(data=True):
+                R.add_edge(_rename(u), _rename(v), **d)
+    return R
 
 
 # ---------------------------------------------------------------------------
@@ -2201,23 +2222,41 @@ def attribute_assortativity_coefficient(G, attribute, nodes=None):
 
 
 def intersection_all(graphs):
-    """Return the intersection of all graphs in the iterable."""
-    import networkx as nx
+    """Return the intersection of all graphs in the iterable.
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
-
-    return _from_nx_graph(nx.intersection_all([_to_nx(graph) for graph in graphs]))
+    The intersection contains nodes in all graphs and edges present in all
+    graphs. Node and edge attributes come from the first graph.
+    """
+    graphs = list(graphs)
+    if not graphs:
+        raise ValueError("cannot apply intersection_all to an empty sequence")
+    R = graphs[0].copy()
+    # Keep only nodes present in every graph
+    common_nodes = set(graphs[0].nodes())
+    for G in graphs[1:]:
+        common_nodes &= set(G.nodes())
+    # Remove nodes not common to all graphs
+    to_remove = [n for n in list(R.nodes()) if n not in common_nodes]
+    for n in to_remove:
+        R.remove_node(n)
+    # Keep only edges present in every graph
+    edges_to_remove = []
+    for u, v in list(R.edges()):
+        for G in graphs[1:]:
+            if not G.has_edge(u, v):
+                edges_to_remove.append((u, v))
+                break
+    for u, v in edges_to_remove:
+        R.remove_edge(u, v)
+    return R
 
 
 def disjoint_union_all(graphs):
     """Return the disjoint union of all graphs in the iterable."""
     import networkx as nx
-
     from franken_networkx.drawing.layout import _to_nx
     from franken_networkx.readwrite import _from_nx_graph
-
-    return _from_nx_graph(nx.disjoint_union_all([_to_nx(graph) for graph in graphs]))
+    return _from_nx_graph(nx.disjoint_union_all([_to_nx(g) for g in graphs]))
 
 
 def rescale_layout(pos, scale=1.0):
@@ -2259,12 +2298,32 @@ _FROZEN_GRAPHS = set()
 def freeze(G):
     """Modify *G* so that mutation raises an error. Returns *G*."""
     _FROZEN_GRAPHS.add(id(G))
+    for name in (
+        "add_node",
+        "add_nodes_from",
+        "remove_node",
+        "remove_nodes_from",
+        "add_edge",
+        "add_edges_from",
+        "add_weighted_edges_from",
+        "remove_edge",
+        "remove_edges_from",
+        "clear",
+        "clear_edges",
+    ):
+        if hasattr(G, name):
+            setattr(G, name, _frozen)
+    G.frozen = True
     return G
 
 
 def is_frozen(G):
     """Return True if *G* is frozen."""
-    return id(G) in _FROZEN_GRAPHS
+    return getattr(G, "frozen", False) or id(G) in _FROZEN_GRAPHS
+
+
+def _frozen(*args, **kwargs):
+    raise NetworkXError("Frozen graph can't be modified")
 
 
 # ---------------------------------------------------------------------------
@@ -2652,57 +2711,257 @@ def all_pairs_node_connectivity(G, nbunch=None, flow_func=None):
 
 
 def minimum_st_node_cut(G, s, t):
-    """Return the minimum s-t node cut.
+    """Return the minimum s-t node cut."""
+    import networkx as nx
+    from franken_networkx.drawing.layout import _to_nx
+    return set(nx.minimum_node_cut(_to_nx(G), s, t))
+
+
+def voronoi_cells(G, center_nodes, weight="weight"):
+    """Return Voronoi cells around the given centers.
+
+    Each node is assigned to its nearest center. Uses Dijkstra from each
+    center node to determine assignment. Unreachable nodes are placed in a
+    cell keyed by ``"unreachable"``.
 
     Parameters
     ----------
     G : Graph
-    s, t : node
+    center_nodes : iterable
+        Nodes used as Voronoi centers.
+    weight : str, optional
+        Edge attribute to use as weight (default ``"weight"``).
 
     Returns
     -------
-    set
-        Minimum node cut separating s from t.
+    dict
+        ``{center: set_of_nodes}`` mapping.
     """
-    # Use global minimum_node_cut as approximation
-    # (exact s-t cut requires augmented flow which delegates to Rust)
-    return minimum_node_cut(G)
+    import heapq
 
+    center_nodes = list(center_nodes)
+    if not center_nodes:
+        raise NetworkXError("center_nodes must not be empty")
+    for c in center_nodes:
+        if c not in G:
+            raise NodeNotFound(f"Node {c} is not in G")
 
-def voronoi_cells(G, center_nodes, weight="weight"):
-    """Return Voronoi cells around the given centers."""
-    import networkx as nx
+    # Multi-source Dijkstra: find nearest center for every node
+    nearest = {}   # node -> center
+    dist = {}      # node -> distance to nearest center
+    pq = []        # (distance, tie-break counter, node, center)
+    counter = 0
+    for c in center_nodes:
+        dist[c] = 0
+        nearest[c] = c
+        heapq.heappush(pq, (0, counter, c, c))
+        counter += 1
 
-    from franken_networkx.drawing.layout import _to_nx
+    while pq:
+        d, _, u, center = heapq.heappop(pq)
+        if d > dist.get(u, float("inf")):
+            continue
+        for v in G.neighbors(u):
+            # Determine edge weight
+            edge_data = G.edges[u, v]
+            w = edge_data.get(weight, 1) if weight is not None else 1
+            new_dist = d + w
+            if new_dist < dist.get(v, float("inf")):
+                dist[v] = new_dist
+                nearest[v] = center
+                heapq.heappush(pq, (new_dist, counter, v, center))
+                counter += 1
 
-    return nx.voronoi_cells(_to_nx(G), center_nodes, weight=weight)
+    cells = {c: set() for c in center_nodes}
+    unreachable = set()
+    for n in G.nodes():
+        if n in nearest:
+            cells[nearest[n]].add(n)
+        else:
+            unreachable.add(n)
+    if unreachable:
+        cells["unreachable"] = unreachable
+    return cells
 
 
 def stoer_wagner(G, weight="weight", heap=None):
-    """Return the Stoer-Wagner global minimum cut value and partition."""
-    import networkx as nx
+    """Return the Stoer-Wagner global minimum cut value and partition.
 
-    from franken_networkx.drawing.layout import _to_nx
+    Parameters
+    ----------
+    G : Graph
+        Undirected graph (must be connected).
+    weight : str, optional
+        Edge attribute name for weights (default ``"weight"``).
+    heap : class, optional
+        Ignored (kept for API compatibility with NetworkX).
 
-    if heap is None:
-        return nx.stoer_wagner(_to_nx(G), weight=weight)
-    return nx.stoer_wagner(_to_nx(G), weight=weight, heap=heap)
+    Returns
+    -------
+    cut_value : float
+        Weight of the minimum cut.
+    partition : tuple of sets
+        The two sets of nodes that form the minimum cut partition.
+    """
+    import heapq
+
+    n = G.number_of_nodes()
+    if n < 2:
+        raise NetworkXError(
+            "graph has less than two nodes; cannot compute minimum cut"
+        )
+
+    nodes = list(G.nodes())
+    # Build adjacency with weights
+    # merged[u][v] = total weight between super-nodes u and v
+    merged = {u: {} for u in nodes}
+    for u, v, d in G.edges(data=True):
+        w = d.get(weight, 1) if weight is not None else 1
+        merged[u][v] = merged[u].get(v, 0) + w
+        merged[v][u] = merged[v].get(u, 0) + w
+
+    # Track which original nodes are merged into each super-node
+    groups = {n: {n} for n in nodes}
+    active = set(nodes)
+
+    best_cut = float("inf")
+    best_partition = None
+
+    for _ in range(n - 1):
+        # Minimum cut phase: maximum adjacency ordering
+        active_list = list(active)
+        start = active_list[0]
+
+        # key[v] = total weight of edges from v to the "found" set A
+        key = {v: 0 for v in active}
+        in_A = set()
+        counter = 0
+
+        # Use a max-heap (negate weights)
+        pq = [(-key[v], counter, v) for v in active]
+        counter += 1
+        import heapq as _heapq
+        _heapq.heapify(pq)
+
+        last = None
+        second_last = None
+
+        while len(in_A) < len(active):
+            while True:
+                neg_w, _, u = _heapq.heappop(pq)
+                if u not in in_A:
+                    break
+            second_last = last
+            last = u
+            in_A.add(u)
+            for v, w in merged[u].items():
+                if v not in in_A and v in active:
+                    key[v] += w
+                    _heapq.heappush(pq, (-key[v], counter, v))
+                    counter += 1
+
+        # The cut of the phase is key[last]
+        cut_of_phase = key[last]
+        if cut_of_phase < best_cut:
+            best_cut = cut_of_phase
+            best_partition = (frozenset(groups[last]),
+                              frozenset().union(*(groups[v] for v in active if v != last)))
+
+        # Merge last into second_last
+        if second_last is None:
+            break
+        groups[second_last] |= groups[last]
+        del groups[last]
+        active.remove(last)
+
+        # Update merged adjacency
+        for v, w in merged[last].items():
+            if v == second_last or v not in active:
+                continue
+            merged[second_last][v] = merged[second_last].get(v, 0) + w
+            merged[v][second_last] = merged[v].get(second_last, 0) + w
+        # Remove last from all adjacencies
+        for v in list(merged[last]):
+            if v in merged:
+                merged[v].pop(last, None)
+        del merged[last]
+
+    return best_cut, (sorted(best_partition[0]), sorted(best_partition[1]))
 
 
 def dedensify(G, threshold, prefix=None, copy=True):
-    """Return a dedensified graph using NetworkX's helper."""
-    import networkx as nx
+    """Return a dedensified graph by adding compressor nodes.
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+    Reduces edges to high-degree nodes by adding compressor nodes that
+    summarize multiple edges to those high-degree nodes.
 
-    graph, compressor_nodes = nx.dedensify(
-        _to_nx(G),
-        threshold,
-        prefix=prefix,
-        copy=copy,
-    )
-    return _from_nx_graph(graph), compressor_nodes
+    Parameters
+    ----------
+    G : Graph or DiGraph
+        Input graph.
+    threshold : int
+        Minimum degree (in-degree for directed) above which a node is
+        considered high-degree. Must be >= 2.
+    prefix : str or None, optional
+        Prefix for compressor node labels.
+    copy : bool, optional
+        If True, work on a copy of *G*.
+
+    Returns
+    -------
+    H : Graph or DiGraph
+        Dedensified graph.
+    compressor_nodes : set
+        Set of compressor node labels that were added.
+    """
+    if threshold < 2:
+        raise NetworkXError("The degree threshold must be >= 2")
+
+    # Determine high-degree nodes
+    if G.is_directed():
+        degrees = list(G.in_degree)
+    else:
+        degrees = list(G.degree)
+    high_degree_nodes = {n for n, d in degrees if d > threshold}
+
+    # For each node, find which high-degree neighbors it connects to
+    auxiliary = {}
+    for node in G.nodes():
+        if G.is_directed():
+            nbrs = set(G.successors(node))
+        else:
+            nbrs = set(G.neighbors(node))
+        high_degree_nbrs = frozenset(high_degree_nodes & nbrs)
+        if high_degree_nbrs:
+            auxiliary.setdefault(high_degree_nbrs, set()).add(node)
+
+    if copy:
+        H = G.copy()
+    else:
+        H = G
+
+    compressor_nodes = set()
+    for high_deg_group, low_deg_group in auxiliary.items():
+        low_count = len(low_deg_group)
+        high_count = len(high_deg_group)
+        old_edges = high_count * low_count
+        new_edges = high_count + low_count
+        if old_edges <= new_edges:
+            continue
+        # Name the compressor by concatenating high-degree node names
+        compression_node = "".join(str(node) for node in high_deg_group)
+        if prefix:
+            compression_node = str(prefix) + compression_node
+        for node in low_deg_group:
+            for high_node in high_deg_group:
+                if H.has_edge(node, high_node):
+                    H.remove_edge(node, high_node)
+            H.add_edge(node, compression_node)
+        for node in high_deg_group:
+            H.add_edge(compression_node, node)
+        compressor_nodes.add(compression_node)
+
+    return H, compressor_nodes
 
 
 def quotient_graph(
@@ -2715,23 +2974,101 @@ def quotient_graph(
     relabel=False,
     create_using=None,
 ):
-    """Return the quotient graph induced by a partition of *G*."""
-    import networkx as nx
+    """Return the quotient graph induced by a partition of *G*.
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+    Parameters
+    ----------
+    G : Graph or DiGraph
+    partition : iterable of sets, or callable
+        If iterable, each element is a set of nodes forming one block.
+        If callable, it should be a function ``f(u, v)`` that returns True
+        when *u* and *v* belong to the same block.
+    edge_relation : callable or None
+        ``f(block_u, block_v)`` -> bool. Default: edge exists if any
+        cross-block edge exists in G.
+    node_data : callable or None
+        ``f(block)`` -> dict of node attributes for the block node.
+    edge_data : callable or None
+        ``f(block_u, block_v)`` -> dict of edge attributes.
+    weight : str
+        Attribute name used when ``edge_data`` is None (sums weights).
+    relabel : bool
+        If True, relabel block nodes to consecutive integers.
+    create_using : graph constructor or None
+        Type of graph to create.
 
-    graph = nx.quotient_graph(
-        _to_nx(G),
-        partition,
-        edge_relation=edge_relation,
-        node_data=node_data,
-        edge_data=edge_data,
-        weight=weight,
-        relabel=relabel,
-        create_using=None,
-    )
-    return _from_nx_graph(graph, create_using=create_using)
+    Returns
+    -------
+    Graph or DiGraph
+    """
+    # Normalize partition
+    if callable(partition):
+        # Build partition from equivalence relation
+        remaining = set(G.nodes())
+        blocks = []
+        while remaining:
+            seed = next(iter(remaining))
+            block = {seed}
+            for n in list(remaining):
+                if n != seed and partition(seed, n):
+                    block.add(n)
+            blocks.append(frozenset(block))
+            remaining -= block
+        partition = blocks
+    else:
+        partition = [frozenset(b) for b in partition]
+
+    # Default edge relation: any edge between blocks
+    if edge_relation is None:
+        def edge_relation(block_u, block_v):
+            for u in block_u:
+                for v in block_v:
+                    if G.has_edge(u, v):
+                        return True
+            return False
+
+    if create_using is not None:
+        H = _empty_graph_from_create_using(create_using)
+    else:
+        H = G.__class__()
+
+    # Add block nodes
+    for block in partition:
+        node_label = block
+        if node_data is not None:
+            H.add_node(node_label, **node_data(block))
+        else:
+            H.add_node(node_label)
+
+    # Add edges between blocks
+    for i, block_u in enumerate(partition):
+        for j, block_v in enumerate(partition):
+            if i >= j and not G.is_directed():
+                if i == j:
+                    continue
+            if i == j:
+                continue
+            if edge_relation(block_u, block_v):
+                if edge_data is not None:
+                    H.add_edge(block_u, block_v, **edge_data(block_u, block_v))
+                else:
+                    # Sum weights of cross-block edges
+                    total = 0
+                    count = 0
+                    for u in block_u:
+                        for v in block_v:
+                            if G.has_edge(u, v):
+                                d = G.edges[u, v]
+                                total += d.get(weight, 1) if weight else 1
+                                count += 1
+                    attrs = {weight: total} if weight and count else {}
+                    H.add_edge(block_u, block_v, **attrs)
+
+    if relabel:
+        mapping = {block: i for i, block in enumerate(partition)}
+        H = relabel_nodes(H, mapping)
+
+    return H
 
 
 def snap_aggregation(
@@ -2742,32 +3079,178 @@ def snap_aggregation(
     supernode_attribute="group",
     superedge_attribute="types",
 ):
-    """Return a SNAP summary graph aggregated by attribute values."""
-    import networkx as nx
+    """Return a SNAP summary graph aggregated by attribute values.
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+    Groups nodes by their attribute values and neighbor-group structure
+    (SNAP algorithm).
 
-    return _from_nx_graph(
-        nx.snap_aggregation(
-            _to_nx(G),
-            node_attributes,
-            edge_attributes=edge_attributes,
-            prefix=prefix,
-            supernode_attribute=supernode_attribute,
-            superedge_attribute=superedge_attribute,
-        )
-    )
+    Parameters
+    ----------
+    G : Graph or DiGraph
+    node_attributes : iterable of str
+        Node attribute names used for initial grouping.
+    edge_attributes : iterable of str, optional
+        Edge attributes to consider for edge typing.
+    prefix : str, optional
+        Prefix for supernode labels.
+    supernode_attribute : str, optional
+        Name of the attribute on supernodes that holds the set of grouped
+        nodes.
+    superedge_attribute : str, optional
+        Name of the attribute on superedges that holds edge type info.
+
+    Returns
+    -------
+    Graph or DiGraph
+    """
+    from collections import Counter, defaultdict
+
+    if isinstance(node_attributes, str):
+        node_attributes = [node_attributes]
+    edge_attributes = tuple(edge_attributes)
+
+    # Build edge_types mapping: edge -> tuple of attribute values
+    edge_types = {}
+    for u, v, d in G.edges(data=True):
+        etype = tuple(d.get(attr) for attr in edge_attributes)
+        edge_types[(u, v)] = etype
+    if not G.is_directed():
+        for (u, v), etype in list(edge_types.items()):
+            edge_types[(v, u)] = etype
+
+    # Initial grouping by node attribute values
+    group_lookup = {}
+    for n in G.nodes():
+        group_lookup[n] = tuple(G.nodes[n].get(attr) for attr in node_attributes)
+    groups = defaultdict(set)
+    for node, node_type in group_lookup.items():
+        groups[node_type].add(node)
+
+    # Iterative splitting (mirrors NX _snap_eligible_group / _snap_split)
+    def _eligible_group():
+        nbr_info = {}
+        for group_id in groups:
+            current_group = groups[group_id]
+            for node in current_group:
+                nbr_info[node] = {gid: Counter() for gid in groups}
+                for nbr in G.neighbors(node):
+                    edge_key = (node, nbr)
+                    etype = edge_types.get(edge_key, ())
+                    neighbor_gid = group_lookup[nbr]
+                    nbr_info[node][neighbor_gid][etype] += 1
+
+            group_size = len(current_group)
+            for other_gid in groups:
+                edge_counts = Counter()
+                for node in current_group:
+                    edge_counts.update(nbr_info[node][other_gid].keys())
+                if not all(count == group_size for count in edge_counts.values()):
+                    return group_id, nbr_info
+
+        return None, nbr_info
+
+    def _split(nbr_info, group_id):
+        new_group_mappings = defaultdict(set)
+        for node in groups[group_id]:
+            signature = tuple(
+                frozenset(etypes) for etypes in nbr_info[node].values()
+            )
+            new_group_mappings[signature].add(node)
+
+        new_subgroups = sorted(new_group_mappings.values(), key=len)
+        for new_group in new_subgroups[:-1]:
+            new_gid = len(groups)
+            groups[new_gid] = new_group
+            groups[group_id] -= new_group
+            for node in new_group:
+                group_lookup[node] = new_gid
+
+    eligible_gid, nbr_info = _eligible_group()
+    while eligible_gid is not None:
+        _split(nbr_info, eligible_gid)
+        eligible_gid, nbr_info = _eligible_group()
+
+    # Build the summary graph
+    output = G.__class__()
+    node_label_lookup = {}
+    for index, group_id in enumerate(groups):
+        group_set = groups[group_id]
+        supernode = f"{prefix}{index}"
+        node_label_lookup[group_id] = supernode
+        supernode_attributes = {
+            attr: G.nodes[next(iter(group_set))].get(attr) for attr in node_attributes
+        }
+        supernode_attributes[supernode_attribute] = group_set
+        output.add_node(supernode, **supernode_attributes)
+
+    for group_id in groups:
+        group_set = groups[group_id]
+        source_supernode = node_label_lookup[group_id]
+        rep_node = next(iter(group_set))
+        for other_gid, group_edge_types in nbr_info[rep_node].items():
+            if group_edge_types:
+                target_supernode = node_label_lookup[other_gid]
+                edge_type_list = [
+                    dict(zip(edge_attributes, etype))
+                    for etype in group_edge_types
+                ]
+                superedge_attrs = {superedge_attribute: edge_type_list}
+                if not output.has_edge(source_supernode, target_supernode):
+                    output.add_edge(source_supernode, target_supernode, **superedge_attrs)
+                elif G.is_directed():
+                    output.add_edge(source_supernode, target_supernode, **superedge_attrs)
+
+    return output
 
 
 def full_join(G, H, rename=(None, None)):
-    """Return the full join of two graphs."""
-    import networkx as nx
+    """Return the full join of two graphs.
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+    The full join is the union of G and H plus all edges between every
+    node in G and every node in H.
 
-    return _from_nx_graph(nx.full_join(_to_nx(G), _to_nx(H), rename=rename))
+    Parameters
+    ----------
+    G, H : Graph
+    rename : tuple of (str or None, str or None)
+        Prefixes for node labels of G and H to avoid collisions.
+
+    Returns
+    -------
+    Graph
+    """
+    R = G.__class__()
+    prefix_g, prefix_h = rename
+
+    def _rg(n):
+        return f"{prefix_g}{n}" if prefix_g is not None else n
+
+    def _rh(n):
+        return f"{prefix_h}{n}" if prefix_h is not None else n
+
+    g_nodes = []
+    for n in G.nodes():
+        new_n = _rg(n)
+        R.add_node(new_n, **G.nodes[n])
+        g_nodes.append(new_n)
+
+    h_nodes = []
+    for n in H.nodes():
+        new_n = _rh(n)
+        R.add_node(new_n, **H.nodes[n])
+        h_nodes.append(new_n)
+
+    for u, v, d in G.edges(data=True):
+        R.add_edge(_rg(u), _rg(v), **d)
+    for u, v, d in H.edges(data=True):
+        R.add_edge(_rh(u), _rh(v), **d)
+
+    # Full join: connect every node in G to every node in H
+    for gn in g_nodes:
+        for hn in h_nodes:
+            R.add_edge(gn, hn)
+
+    return R
 
 
 def identified_nodes(
@@ -2778,22 +3261,69 @@ def identified_nodes(
     copy=True,
     store_contraction_as="contraction",
 ):
-    """Return *G* with nodes *u* and *v* identified."""
-    import networkx as nx
+    """Return *G* with nodes *u* and *v* identified (contracted).
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+    Node *v* is merged into node *u*: all edges incident to *v* are
+    redirected to *u*, and *v* is removed.
 
-    return _from_nx_graph(
-        nx.identified_nodes(
-            _to_nx(G),
-            u,
-            v,
-            self_loops=self_loops,
-            copy=copy,
-            store_contraction_as=store_contraction_as,
-        )
-    )
+    Parameters
+    ----------
+    G : Graph or DiGraph
+    u, v : nodes
+        *v* is merged into *u*.
+    self_loops : bool, optional
+        If False, self-loops created by the contraction are removed.
+    copy : bool, optional
+        If True, work on a copy of *G*.
+    store_contraction_as : str, optional
+        Attribute name under which contraction info is stored on *u*.
+
+    Returns
+    -------
+    Graph or DiGraph
+    """
+    # Build a new graph preserving node order from G (skip v)
+    H = G.__class__()
+    v_data = dict(G.nodes[v]) if v in G else {}
+
+    # Add all nodes except v, preserving insertion order from G
+    for n in G.nodes():
+        if n == v:
+            continue
+        attrs = dict(G.nodes[n])
+        if n == u and store_contraction_as:
+            contraction = attrs.get(store_contraction_as, {})
+            contraction[v] = v_data
+            attrs[store_contraction_as] = contraction
+        H.add_node(n, **attrs)
+
+    # Add edges, redirecting v -> u
+    added_edges = set()
+    for src, dst, d in G.edges(data=True):
+        new_src = u if src == v else src
+        new_dst = u if dst == v else dst
+        if new_src == new_dst and not self_loops:
+            continue
+        if G.is_directed():
+            edge_key = (new_src, new_dst)
+        else:
+            try:
+                edge_key = (min(new_src, new_dst), max(new_src, new_dst))
+            except TypeError:
+                edge_key = (new_src, new_dst)
+        if edge_key not in added_edges:
+            H.add_edge(new_src, new_dst, **d)
+            added_edges.add(edge_key)
+
+    if not copy:
+        G.clear()
+        for n in H.nodes():
+            G.add_node(n, **H.nodes[n])
+        for s, t, d_attr in H.edges(data=True):
+            G.add_edge(s, t, **d_attr)
+        return G
+
+    return H
 
 
 def inverse_line_graph(G):
@@ -3880,9 +4410,12 @@ def capacity_scaling(G, demand='demand', capacity='capacity', weight='weight',
 
     Returns
     -------
-    dict of dicts
+    tuple
+        ``(flowCost, flowDict)`` matching NetworkX's return signature.
     """
-    return min_cost_flow(G, demand=demand, capacity=capacity, weight=weight)
+    flow = min_cost_flow(G, demand=demand, capacity=capacity, weight=weight)
+    cost = cost_of_flow(G, flow, weight=weight)
+    return cost, flow
 
 
 def network_simplex(G, demand='demand', capacity='capacity', weight='weight'):
@@ -4900,22 +5433,9 @@ def node_disjoint_paths(G, s, t, flow_func=None, cutoff=None):
 
 def all_node_cuts(G, k=None, flow_func=None):
     """Enumerate all minimum node cuts."""
-    if k is None:
-        k = global_node_connectivity(G)
-    if k == 0:
-        return
-    nodes = list(G.nodes())
-    seen = set()
-    for i in range(len(nodes)):
-        for j in range(i+1, len(nodes)):
-            if G.has_edge(nodes[i], nodes[j]):
-                continue
-            cut = minimum_node_cut(G)
-            if len(cut) == k:
-                frozen = frozenset(cut)
-                if frozen not in seen:
-                    seen.add(frozen)
-                    yield set(cut)
+    import networkx as nx
+    from franken_networkx.drawing.layout import _to_nx
+    yield from (set(c) for c in nx.all_node_cuts(_to_nx(G), k=k, flow_func=flow_func))
 
 
 def connected_dominating_set(G, start_with=None):
@@ -5696,19 +6216,22 @@ def chordless_cycles(G, length_bound=None):
 
 def to_undirected(G):
     """Return an undirected copy of G."""
-    return G.to_undirected() if hasattr(G, 'to_undirected') else G.copy()
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    return _from_nx_graph(nx.to_undirected(_to_nx(G)))
 
 
 def to_directed(G):
     """Return a directed copy of G (each undirected edge becomes two directed edges)."""
-    D = DiGraph()
-    for n in G.nodes():
-        D.add_node(n)
-    for u, v in G.edges():
-        D.add_edge(u, v)
-        if not G.is_directed():
-            D.add_edge(v, u)
-    return D
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    return _from_nx_graph(nx.to_directed(_to_nx(G)))
 
 
 def reverse(G, copy=True):
@@ -7195,15 +7718,33 @@ def relabel_nodes(G, mapping, copy=True):
     H : Graph or DiGraph
         The relabeled graph. If ``copy=False``, this is the same object as G.
     """
-    import networkx as nx
+    if callable(mapping):
+        _map = {n: mapping(n) for n in G.nodes()}
+    else:
+        _map = mapping
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
-
-    relabeled = nx.relabel_nodes(_to_nx(G), mapping, copy=True)
     if copy:
-        return _from_nx_graph(relabeled)
-    return _from_nx_graph(relabeled, create_using=G)
+        H = G.__class__()
+        H.graph.update(G.graph)
+        for n in G.nodes():
+            new_n = _map.get(n, n)
+            H.add_node(new_n, **G.nodes[n])
+        for u, v, d in G.edges(data=True):
+            H.add_edge(_map.get(u, u), _map.get(v, v), **d)
+        return H
+    else:
+        # In-place relabeling: collect all data, clear, re-add
+        node_data = [(n, dict(G.nodes[n])) for n in G.nodes()]
+        edge_data = [(u, v, dict(d)) for u, v, d in G.edges(data=True)]
+        graph_attrs = dict(G.graph)
+        G.clear()
+        G.graph.update(graph_attrs)
+        for n, attrs in node_data:
+            new_n = _map.get(n, n)
+            G.add_node(new_n, **attrs)
+        for u, v, d in edge_data:
+            G.add_edge(_map.get(u, u), _map.get(v, v), **d)
+        return G
 
 
 def to_dict_of_lists(G, nodelist=None):
@@ -7298,7 +7839,8 @@ def convert_node_labels_to_integers(G, first_label=0, ordering='default',
         Starting integer label. Default ``0``.
     ordering : str, optional
         Node ordering strategy. Default ``'default'`` (uses ``G.nodes()``
-        iteration order).
+        iteration order).  Also supports ``'sorted'``, ``'increasing degree'``,
+        and ``'decreasing degree'``.
     label_attribute : str or None, optional
         If given, store old label under this node attribute name.
 
@@ -7307,19 +7849,25 @@ def convert_node_labels_to_integers(G, first_label=0, ordering='default',
     H : Graph or DiGraph
         A new graph with integer node labels.
     """
-    import networkx as nx
+    if ordering == 'default':
+        nodes = list(G.nodes())
+    elif ordering == 'sorted':
+        nodes = sorted(G.nodes())
+    elif ordering == 'increasing degree':
+        nodes = sorted(G.nodes(), key=lambda n: G.degree[n])
+    elif ordering == 'decreasing degree':
+        nodes = sorted(G.nodes(), key=lambda n: G.degree[n], reverse=True)
+    else:
+        raise NetworkXError(f"Unknown node ordering: {ordering}")
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+    mapping = {old: first_label + i for i, old in enumerate(nodes)}
+    H = relabel_nodes(G, mapping, copy=True)
 
-    return _from_nx_graph(
-        nx.convert_node_labels_to_integers(
-            _to_nx(G),
-            first_label=first_label,
-            ordering=ordering,
-            label_attribute=label_attribute,
-        )
-    )
+    if label_attribute is not None:
+        for old, new in mapping.items():
+            H.nodes[new][label_attribute] = old
+
+    return H
 
 
 def to_pandas_edgelist(G, source='source', target='target', nodelist=None,
@@ -7783,23 +8331,17 @@ def within_inter_cluster(G, ebunch=None, delta=0.001, community='community'):
 
 
 def gnc_graph(n, create_using=None, seed=None):
-    """Return a growing network with copying model graph."""
+    """Return a growing network with copying (GNC) digraph."""
     import networkx as nx
-
     from franken_networkx.readwrite import _from_nx_graph
-
-    graph = nx.gnc_graph(n, create_using=None, seed=seed)
-    return _from_nx_graph(graph, create_using=create_using)
+    return _from_nx_graph(nx.gnc_graph(n, create_using=None, seed=seed), create_using=create_using)
 
 
 def gnr_graph(n, p, create_using=None, seed=None):
-    """Return a growing network with redirection model graph."""
+    """Return a growing network with redirection (GNR) digraph."""
     import networkx as nx
-
     from franken_networkx.readwrite import _from_nx_graph
-
-    graph = nx.gnr_graph(n, p, create_using=None, seed=seed)
-    return _from_nx_graph(graph, create_using=create_using)
+    return _from_nx_graph(nx.gnr_graph(n, p, create_using=None, seed=seed), create_using=create_using)
 
 
 def dual_barabasi_albert_graph(
@@ -7900,13 +8442,10 @@ def random_powerlaw_tree_sequence(n, gamma=3, seed=None, tries=100):
 
 
 def gn_graph(n, kernel=None, create_using=None, seed=None):
-    """Return a growing network graph with kernel-weighted attachment."""
+    """Return a growing network (GN) digraph."""
     import networkx as nx
-
     from franken_networkx.readwrite import _from_nx_graph
-
-    graph = nx.gn_graph(n, kernel=kernel, create_using=None, seed=seed)
-    return _from_nx_graph(graph, create_using=create_using)
+    return _from_nx_graph(nx.gn_graph(n, kernel=kernel, create_using=None, seed=seed), create_using=create_using)
 
 
 def LCF_graph(n, shift_list, repeats, create_using=None):
@@ -8047,19 +8586,9 @@ def sudoku_graph(n=3):
 
 
 def fast_gnp_random_graph(n, p, seed=None, directed=False, create_using=None):
-    """Return a fast Erdos-Renyi random graph."""
-    import networkx as nx
-
-    from franken_networkx.readwrite import _from_nx_graph
-
-    graph = nx.fast_gnp_random_graph(
-        n,
-        p,
-        seed=seed,
-        directed=directed,
-        create_using=None,
-    )
-    return _from_nx_graph(graph, create_using=create_using)
+    """Return a fast G(n,p) random graph (Batagelj-Brandes O(n+m) algorithm)."""
+    from franken_networkx._fnx import fast_gnp_random_graph as _rust_fast_gnp
+    return _rust_fast_gnp(n, p, seed=seed if seed is not None else 0, directed=directed)
 
 
 def directed_configuration_model(

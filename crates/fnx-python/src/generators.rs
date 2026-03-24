@@ -256,6 +256,102 @@ pub fn powerlaw_cluster_graph(
     report_to_pygraph(py, report.graph)
 }
 
+/// Return a fast G(n,p) random graph (Batagelj-Brandes O(n+m) algorithm).
+#[pyfunction]
+#[pyo3(signature = (n, p, seed=None, directed=false, create_using=None))]
+pub fn fast_gnp_random_graph(
+    py: Python<'_>,
+    n: usize,
+    p: f64,
+    seed: Option<u64>,
+    directed: bool,
+    create_using: Option<&Bound<'_, PyAny>>,
+) -> PyResult<PyGraph> {
+    let _ = create_using; // accepted for API compat, ignored
+    let actual_seed = seed.unwrap_or(0);
+    let mut gg = GraphGenerator::strict();
+    let report = gg
+        .fast_gnp_random_graph(n, p, actual_seed, directed)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    report_to_pygraph(py, report.graph)
+}
+
+/// Return a growing network digraph (GN model).
+#[pyfunction]
+#[pyo3(signature = (n, seed=None, create_using=None))]
+pub fn gn_graph(
+    py: Python<'_>,
+    n: usize,
+    seed: Option<u64>,
+    create_using: Option<&Bound<'_, PyAny>>,
+) -> PyResult<PyGraph> {
+    let _ = create_using;
+    let actual_seed = seed.unwrap_or(0);
+    let mut gg = GraphGenerator::strict();
+    let report = gg
+        .gn_graph(n, actual_seed)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    report_to_pygraph(py, report.graph)
+}
+
+/// Return a growing network with redirection digraph (GNR model).
+#[pyfunction]
+#[pyo3(signature = (n, p, seed=None, create_using=None))]
+pub fn gnr_graph(
+    py: Python<'_>,
+    n: usize,
+    p: f64,
+    seed: Option<u64>,
+    create_using: Option<&Bound<'_, PyAny>>,
+) -> PyResult<PyGraph> {
+    let _ = create_using;
+    let actual_seed = seed.unwrap_or(0);
+    let mut gg = GraphGenerator::strict();
+    let report = gg
+        .gnr_graph(n, p, actual_seed)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    report_to_pygraph(py, report.graph)
+}
+
+/// Return a growing network with copying digraph (GNC model).
+#[pyfunction]
+#[pyo3(signature = (n, seed=None, create_using=None))]
+pub fn gnc_graph(
+    py: Python<'_>,
+    n: usize,
+    seed: Option<u64>,
+    create_using: Option<&Bound<'_, PyAny>>,
+) -> PyResult<PyGraph> {
+    let _ = create_using;
+    let actual_seed = seed.unwrap_or(0);
+    let mut gg = GraphGenerator::strict();
+    let report = gg
+        .gnc_graph(n, actual_seed)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    report_to_pygraph(py, report.graph)
+}
+
+/// Return a scale-free directed graph.
+#[pyfunction]
+#[pyo3(signature = (n, alpha=0.41, beta=0.54, gamma=0.05, seed=None, create_using=None))]
+pub fn scale_free_graph(
+    py: Python<'_>,
+    n: usize,
+    alpha: f64,
+    beta: f64,
+    gamma: f64,
+    seed: Option<u64>,
+    create_using: Option<&Bound<'_, PyAny>>,
+) -> PyResult<PyGraph> {
+    let _ = create_using;
+    let actual_seed = seed.unwrap_or(0);
+    let mut gg = GraphGenerator::strict();
+    let report = gg
+        .scale_free_graph(n, alpha, beta, gamma, actual_seed)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+    report_to_pygraph(py, report.graph)
+}
+
 // ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
@@ -274,5 +370,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(connected_watts_strogatz_graph, m)?)?;
     m.add_function(wrap_pyfunction!(random_regular_graph, m)?)?;
     m.add_function(wrap_pyfunction!(powerlaw_cluster_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(fast_gnp_random_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(gn_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(gnr_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(gnc_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(scale_free_graph, m)?)?;
     Ok(())
 }

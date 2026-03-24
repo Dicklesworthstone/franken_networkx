@@ -519,6 +519,44 @@ class TestDelegateFixes:
         )
 
     @needs_nx
+    def test_directed_undirected_conversion_and_freeze_delegate(self):
+        graph = fnx.MultiGraph()
+        graph.graph["name"] = "base"
+        graph.add_node("a", color="red")
+        graph.add_edge("a", "b", key=4, weight=2)
+
+        graph_nx = nx.MultiGraph()
+        graph_nx.graph["name"] = "base"
+        graph_nx.add_node("a", color="red")
+        graph_nx.add_edge("a", "b", key=4, weight=2)
+
+        directed = fnx.to_directed(graph)
+        directed_nx = nx.to_directed(graph_nx)
+        assert directed.is_directed()
+        assert directed.is_multigraph()
+        assert dict(directed.graph) == directed_nx.graph
+        assert sorted(directed.nodes(data=True)) == sorted(directed_nx.nodes(data=True))
+        assert sorted(directed.edges(keys=True, data=True)) == sorted(
+            directed_nx.edges(keys=True, data=True)
+        )
+
+        undirected = fnx.to_undirected(directed)
+        undirected_nx = nx.to_undirected(directed_nx)
+        assert not undirected.is_directed()
+        assert undirected.is_multigraph()
+        assert dict(undirected.graph) == undirected_nx.graph
+        assert sorted(undirected.nodes(data=True)) == sorted(undirected_nx.nodes(data=True))
+        assert sorted(undirected.edges(keys=True, data=True)) == sorted(
+            undirected_nx.edges(keys=True, data=True)
+        )
+
+        frozen = fnx.freeze(fnx.Graph())
+        assert frozen is not None
+        assert fnx.is_frozen(frozen)
+        with pytest.raises(fnx.NetworkXError, match="Frozen graph can't be modified"):
+            frozen.add_edge(1, 2)
+
+    @needs_nx
     def test_graph_atlas_helpers_match_networkx(self):
         atlas = fnx.graph_atlas(6)
         atlas_nx = nx.graph_atlas(6)

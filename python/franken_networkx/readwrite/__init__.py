@@ -12,6 +12,27 @@ def _normalize_lines(lines):
     return list(lines)
 
 
+def _new_graph(create_using=None):
+    """Return an empty FrankenNetworkX graph from *create_using*."""
+    import franken_networkx as fnx
+
+    if create_using is None:
+        return fnx.Graph()
+    if isinstance(create_using, type):
+        return create_using()
+    create_using.clear()
+    return create_using
+
+
+def _strip_comment(line, comments):
+    """Strip inline comments and return the cleaned line (empty string if comment-only)."""
+    if comments:
+        idx = line.find(comments)
+        if idx >= 0:
+            line = line[:idx]
+    return line.strip()
+
+
 def _empty_like_nx_graph(graph, create_using=None):
     """Build an empty FrankenNetworkX graph matching the NetworkX result shape."""
     import franken_networkx as fnx
@@ -57,16 +78,21 @@ def _from_nx_graph_or_graphs(graph_or_graphs, create_using=None):
 
 def parse_adjlist(lines, comments="#", delimiter=None, create_using=None, nodetype=None):
     """Parse an adjacency-list line stream into a FrankenNetworkX graph."""
-    import networkx as nx
-
-    graph = nx.parse_adjlist(
-        _normalize_lines(lines),
-        comments=comments,
-        delimiter=delimiter,
-        create_using=None,
-        nodetype=nodetype,
-    )
-    return _from_nx_graph(graph, create_using=create_using)
+    G = _new_graph(create_using)
+    for line in _normalize_lines(lines):
+        line = _strip_comment(line, comments)
+        if not line:
+            continue
+        vlist = line.strip().split(delimiter)
+        u = vlist.pop(0)
+        if nodetype is not None:
+            u = nodetype(u)
+        G.add_node(u)
+        for v in vlist:
+            if nodetype is not None:
+                v = nodetype(v)
+            G.add_edge(u, v)
+    return G
 
 
 def parse_edgelist(
@@ -78,17 +104,45 @@ def parse_edgelist(
     data=True,
 ):
     """Parse an edge-list line stream into a FrankenNetworkX graph."""
-    import networkx as nx
+    G = _new_graph(create_using)
+    for line in _normalize_lines(lines):
+        line = _strip_comment(line, comments)
+        if not line:
+            continue
+        # Split the line into tokens
+        if isinstance(data, bool) and data:
+            # Format: u v {key:val, ...}  -- data is a Python dict literal
+            # Find the dict portion if present
+            brace = line.find("{")
+            if brace >= 0:
+                head = line[:brace].strip()
+                tail = line[brace:]
+                tokens = head.split(delimiter)
+                edgedata = dict(eval(tail))  # noqa: S307
+            else:
+                tokens = line.strip().split(delimiter)
+                edgedata = {}
+        elif isinstance(data, bool) and not data:
+            tokens = line.strip().split(delimiter)
+            edgedata = {}
+        else:
+            # data is a list of (name, type) tuples
+            tokens = line.strip().split(delimiter)
+            edge_tokens = tokens[2:]
+            tokens = tokens[:2]
+            edgedata = {}
+            for (name, tp), val in zip(data, edge_tokens):
+                edgedata[name] = tp(val)
 
-    graph = nx.parse_edgelist(
-        _normalize_lines(lines),
-        comments=comments,
-        delimiter=delimiter,
-        create_using=None,
-        nodetype=nodetype,
-        data=data,
-    )
-    return _from_nx_graph(graph, create_using=create_using)
+        if len(tokens) < 2:
+            continue
+        u = tokens[0]
+        v = tokens[1]
+        if nodetype is not None:
+            u = nodetype(u)
+            v = nodetype(v)
+        G.add_edge(u, v, **edgedata)
+    return G
 
 
 def parse_gml(lines, label="label", destringizer=None):
@@ -224,32 +278,24 @@ def read_multiline_adjlist(
     edgetype=None,
     encoding="utf-8",
 ):
-    """Read multiline adjacency lists through NetworkX."""
-    import networkx as nx
-
-    graph = nx.read_multiline_adjlist(
-        path,
+    """Read a multiline adjacency list file into a FrankenNetworkX graph."""
+    with open(path, encoding=encoding) as fh:
+        lines = fh.readlines()
+    return parse_multiline_adjlist(
+        lines,
         comments=comments,
         delimiter=delimiter,
-        create_using=None,
+        create_using=create_using,
         nodetype=nodetype,
         edgetype=edgetype,
-        encoding=encoding,
     )
-    return _from_nx_graph(graph, create_using=create_using)
 
 
 def write_multiline_adjlist(G, path, delimiter=" ", comments="#", encoding="utf-8"):
-    """Write multiline adjacency lists through NetworkX."""
-    import networkx as nx
-
-    return nx.write_multiline_adjlist(
-        _to_nx(G),
-        path,
-        delimiter=delimiter,
-        comments=comments,
-        encoding=encoding,
-    )
+    """Write a multiline adjacency list to *path*."""
+    with open(path, "w", encoding=encoding) as fh:
+        for line in generate_multiline_adjlist(G, delimiter=delimiter):
+            fh.write(line + "\n")
 
 
 def parse_multiline_adjlist(
@@ -261,17 +307,37 @@ def parse_multiline_adjlist(
     edgetype=None,
 ):
     """Parse multiline adjacency-list text or lines into a FrankenNetworkX graph."""
-    import networkx as nx
-
-    graph = nx.parse_multiline_adjlist(
-        iter(_normalize_lines(lines)),
-        comments=comments,
-        delimiter=delimiter,
-        create_using=None,
-        nodetype=nodetype,
-        edgetype=edgetype,
-    )
-    return _from_nx_graph(graph, create_using=create_using)
+    G = _new_graph(create_using)
+    it = iter(_normalize_lines(lines))
+    while True:
+        # Read the next non-comment, non-blank line (node header)
+        try:
+            header = next(it)
+        except StopIteration:
+            break
+        header = _strip_comment(header, comments)
+        if not header:
+            continue
+        parts = header.split(delimiter)
+        node = parts[0]
+        if nodetype is not None:
+            node = nodetype(node)
+        n_nbrs = int(parts[1]) if len(parts) > 1 else 0
+        G.add_node(node)
+        # Read the neighbor lines
+        for _ in range(n_nbrs):
+            nbr_line = next(it)
+            nbr_line = _strip_comment(nbr_line, comments)
+            if not nbr_line:
+                continue
+            nbr_parts = nbr_line.split(delimiter)
+            nbr = nbr_parts[0]
+            if edgetype is not None:
+                nbr = edgetype(nbr)
+            elif nodetype is not None:
+                nbr = nodetype(nbr)
+            G.add_edge(node, nbr)
+    return G
 
 
 def read_weighted_edgelist(
@@ -282,52 +348,96 @@ def read_weighted_edgelist(
     nodetype=None,
     encoding="utf-8",
 ):
-    """Read weighted edge lists through NetworkX."""
-    import networkx as nx
+    """Read a weighted edge list file into a FrankenNetworkX graph.
 
-    graph = nx.read_weighted_edgelist(
-        path,
+    Each line has the format: ``u v weight``.
+    """
+    with open(path, encoding=encoding) as fh:
+        lines = fh.readlines()
+    return parse_edgelist(
+        lines,
         comments=comments,
         delimiter=delimiter,
-        create_using=None,
+        create_using=create_using,
         nodetype=nodetype,
-        encoding=encoding,
+        data=[("weight", float)],
     )
-    return _from_nx_graph(graph, create_using=create_using)
 
 
 def write_weighted_edgelist(G, path, comments="#", delimiter=" ", encoding="utf-8"):
-    """Write weighted edge lists through NetworkX."""
-    import networkx as nx
+    """Write a weighted edge list to *path*.
 
-    return nx.write_weighted_edgelist(
-        _to_nx(G),
-        path,
-        comments=comments,
-        delimiter=delimiter,
-        encoding=encoding,
-    )
+    Each line has the format ``u<delimiter>v<delimiter>weight``.
+    """
+    with open(path, "w", encoding=encoding) as fh:
+        for u, v, d in G.edges(data=True):
+            w = d.get("weight", 1.0)
+            fh.write(delimiter.join([str(u), str(v), str(w)]) + "\n")
 
 
 def generate_multiline_adjlist(G, delimiter=" "):
-    """Yield multiline adjacency-list lines through NetworkX."""
-    import networkx as nx
+    """Yield multiline adjacency-list lines from a FrankenNetworkX graph.
 
-    yield from nx.generate_multiline_adjlist(_to_nx(G), delimiter=delimiter)
+    Format per node (two or more lines):
+        node_label<delimiter>degree
+        neighbor1<delimiter>{edge_data}
+        neighbor2<delimiter>{edge_data}
+        ...
+    """
+    directed = G.is_directed()
+    seen = set()
+    for node, adj in G.adjacency():
+        if isinstance(adj, dict):
+            nbr_items = list(adj.items())
+        else:
+            nbr_items = [(x[0] if isinstance(x, (list, tuple)) else x, {}) for x in adj]
+        if not directed:
+            nbr_items = [(n, d) for n, d in nbr_items if n not in seen]
+        yield delimiter.join([str(node), str(len(nbr_items))])
+        for nbr, d in nbr_items:
+            yield delimiter.join([str(nbr), str(d)])
+        seen.add(node)
 
 
 def generate_adjlist(G, delimiter=" "):
-    """Yield adjacency-list lines using NetworkX's generator."""
-    import networkx as nx
+    """Yield adjacency-list lines from a FrankenNetworkX graph.
 
-    yield from nx.generate_adjlist(_to_nx(G), delimiter=delimiter)
+    Each line has the form ``node<delimiter>neighbor1<delimiter>neighbor2 ...``.
+    """
+    directed = G.is_directed()
+    seen = set()
+    for node, adj in G.adjacency():
+        if isinstance(adj, dict):
+            nbrs = adj.keys()
+        else:
+            nbrs = [x[0] if isinstance(x, (list, tuple)) else x for x in adj]
+        if not directed:
+            # Only emit each undirected edge once
+            nbrs = [n for n in nbrs if n not in seen]
+        yield delimiter.join([str(node)] + [str(n) for n in nbrs])
+        seen.add(node)
 
 
 def generate_edgelist(G, delimiter=" ", data=True):
-    """Yield edge-list lines using NetworkX's generator."""
-    import networkx as nx
+    """Yield edge-list lines from a FrankenNetworkX graph.
 
-    yield from nx.generate_edgelist(_to_nx(G), delimiter=delimiter, data=data)
+    Each line has the form ``u<delimiter>v<delimiter>{attr_dict}`` when *data*
+    is ``True``, ``u<delimiter>v`` when *data* is ``False``, or
+    ``u<delimiter>v<delimiter>val1<delimiter>val2 ...`` when *data* is a list
+    of attribute keys.
+    """
+    if data is True:
+        for u, v, d in G.edges(data=True):
+            yield delimiter.join([str(u), str(v), str(d)])
+    elif data is False:
+        for u, v in G.edges():
+            yield delimiter.join([str(u), str(v)])
+    else:
+        # data is a list of attribute keys
+        for u, v, d in G.edges(data=True):
+            bits = [str(u), str(v)]
+            bits.extend(str(d.get(k, "")) for k in data)
+            yield delimiter.join(bits)
 
 
 def generate_gml(G, stringizer=None):
