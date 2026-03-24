@@ -20898,6 +20898,355 @@ pub fn connected_dominating_set(graph: &Graph) -> Vec<String> {
     result
 }
 
+// ---------------------------------------------------------------------------
+// Triadic census (directed)
+// ---------------------------------------------------------------------------
+
+/// Triadic census for a directed graph.
+///
+/// Counts the 16 MAN triad types. Returns a map from triad name to count.
+#[must_use]
+pub fn triadic_census(digraph: &DiGraph) -> std::collections::HashMap<String, usize> {
+    use std::collections::{HashMap, HashSet};
+
+    let triad_names = [
+        "003", "012", "102", "021D", "021U", "021C", "111D", "111U",
+        "030T", "030C", "201", "120D", "120U", "120C", "210", "300",
+    ];
+    let mut census: HashMap<String, usize> = triad_names.iter().map(|&n| (n.to_owned(), 0)).collect();
+
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+    if n < 3 {
+        // For fewer than 3 nodes, all triads are 003
+        let total_possible = if n < 3 { 0 } else { n * (n - 1) * (n - 2) / 6 };
+        *census.get_mut("003").unwrap() = total_possible;
+        return census;
+    }
+
+    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+
+    // Build adjacency sets for fast lookup
+    let mut succ_set: Vec<HashSet<usize>> = vec![HashSet::new(); n];
+    for edge in digraph.edges_ordered() {
+        let u = idx[edge.left.as_str()];
+        let v = idx[edge.right.as_str()];
+        succ_set[u].insert(v);
+    }
+
+    // Classify each triple
+    for i in 0..n {
+        for j in (i + 1)..n {
+            for k in (j + 1)..n {
+                // Count directed edges among {i, j, k}
+                let ij = succ_set[i].contains(&j);
+                let ji = succ_set[j].contains(&i);
+                let ik = succ_set[i].contains(&k);
+                let ki = succ_set[k].contains(&i);
+                let jk = succ_set[j].contains(&k);
+                let kj = succ_set[k].contains(&j);
+
+                let mutual_count = usize::from(ij && ji)
+                    + usize::from(ik && ki)
+                    + usize::from(jk && kj);
+                let asym_count = usize::from(ij ^ ji)
+                    + usize::from(ik ^ ki)
+                    + usize::from(jk ^ kj);
+                let null_count = usize::from(!ij && !ji)
+                    + usize::from(!ik && !ki)
+                    + usize::from(!jk && !kj);
+
+                let triad_type = match (mutual_count, asym_count, null_count) {
+                    (0, 0, 3) => "003",
+                    (0, 1, 2) => "012",
+                    (1, 0, 2) => "102",
+                    (0, 2, 1) => {
+                        // 021D, 021U, or 021C
+                        // Find the two asymmetric dyads
+                        let edges: Vec<(usize, usize)> = [
+                            (i, j, ij, ji),
+                            (i, k, ik, ki),
+                            (j, k, jk, kj),
+                        ]
+                        .iter()
+                        .filter_map(|&(a, b, ab, ba)| {
+                            if ab && !ba {
+                                Some((a, b))
+                            } else if ba && !ab {
+                                Some((b, a))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                        if edges.len() == 2 {
+                            let (s1, t1) = edges[0];
+                            let (s2, t2) = edges[1];
+                            if s1 == s2 {
+                                "021D" // Same source: diverging
+                            } else if t1 == t2 {
+                                "021U" // Same target: converging
+                            } else {
+                                "021C" // Chain
+                            }
+                        } else {
+                            "021C"
+                        }
+                    }
+                    (1, 1, 1) => {
+                        // 111D or 111U
+                        // Find the mutual pair and the asymmetric edge
+                        let mut mutual_nodes = HashSet::new();
+                        if ij && ji { mutual_nodes.insert(i); mutual_nodes.insert(j); }
+                        if ik && ki { mutual_nodes.insert(i); mutual_nodes.insert(k); }
+                        if jk && kj { mutual_nodes.insert(j); mutual_nodes.insert(k); }
+
+                        // Find asymmetric edge source
+                        let asym_src = [(i, j, ij, ji), (i, k, ik, ki), (j, k, jk, kj)]
+                            .iter()
+                            .find_map(|&(a, b, ab, ba)| {
+                                if ab && !ba { Some(a) }
+                                else if ba && !ab { Some(b) }
+                                else { None }
+                            });
+
+                        match asym_src {
+                            Some(src) if mutual_nodes.contains(&src) => "111D",
+                            _ => "111U",
+                        }
+                    }
+                    (0, 3, 0) => {
+                        // 030T or 030C
+                        // Check if it's a cycle (030C) or transitive (030T)
+                        let is_cycle = (ij && jk && ki) || (ji && kj && ik);
+                        if is_cycle { "030C" } else { "030T" }
+                    }
+                    (2, 0, 1) => "201",
+                    (1, 2, 0) => {
+                        // 120D, 120U, or 120C
+                        let mut mutual_pair = (0, 0);
+                        if ij && ji { mutual_pair = (i, j); }
+                        else if ik && ki { mutual_pair = (i, k); }
+                        else if jk && kj { mutual_pair = (j, k); }
+
+                        let (m1, m2) = mutual_pair;
+                        let other = [i, j, k].iter().find(|&&x| x != m1 && x != m2).copied().unwrap_or(0);
+
+                        // Two asymmetric edges involve 'other' and the mutual pair
+                        let to_other_from_m1 = succ_set[m1].contains(&other);
+                        let to_other_from_m2 = succ_set[m2].contains(&other);
+                        let from_other_to_m1 = succ_set[other].contains(&m1);
+                        let from_other_to_m2 = succ_set[other].contains(&m2);
+
+                        if to_other_from_m1 && to_other_from_m2 {
+                            "120D" // Both mutual nodes point to other
+                        } else if from_other_to_m1 && from_other_to_m2 {
+                            "120U" // Other points to both mutual nodes
+                        } else {
+                            "120C" // One in each direction
+                        }
+                    }
+                    (2, 1, 0) => "210",
+                    (3, 0, 0) => "300",
+                    _ => "003",
+                };
+
+                *census.get_mut(triad_type).unwrap() += 1;
+            }
+        }
+    }
+
+    census
+}
+
+// ---------------------------------------------------------------------------
+// Attribute mixing dictionary
+// ---------------------------------------------------------------------------
+
+/// Attribute mixing dictionary: count edges by (source_attr, target_attr).
+///
+/// For each edge, looks up the given attribute on both endpoints.
+#[must_use]
+pub fn attribute_mixing_dict(
+    graph: &Graph,
+    attribute: &str,
+) -> std::collections::HashMap<(String, String), usize> {
+    let mut mixing = std::collections::HashMap::new();
+    for edge in graph.edges_ordered() {
+        let u_val = graph
+            .node_attrs(&edge.left)
+            .and_then(|a| a.get(attribute))
+            .map(|v| v.as_str())
+            .unwrap_or_default();
+        let v_val = graph
+            .node_attrs(&edge.right)
+            .and_then(|a| a.get(attribute))
+            .map(|v| v.as_str())
+            .unwrap_or_default();
+        *mixing.entry((u_val.clone(), v_val.clone())).or_insert(0) += 1;
+        if u_val != v_val {
+            *mixing.entry((v_val, u_val)).or_insert(0) += 1;
+        }
+    }
+    mixing
+}
+
+// ---------------------------------------------------------------------------
+// Attribute assortativity coefficient
+// ---------------------------------------------------------------------------
+
+/// Attribute assortativity coefficient.
+///
+/// Measures the correlation between node attributes across edges.
+/// Returns a value in [-1, 1]. Positive means similar-attribute nodes
+/// tend to connect.
+#[must_use]
+pub fn attribute_assortativity(
+    graph: &Graph,
+    attribute: &str,
+) -> f64 {
+    let mixing = attribute_mixing_dict(graph, attribute);
+    if mixing.is_empty() {
+        return 0.0;
+    }
+
+    // Collect unique attribute values
+    let mut attr_values: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (a, b) in mixing.keys() {
+        attr_values.insert(a.clone());
+        attr_values.insert(b.clone());
+    }
+    let values: Vec<String> = attr_values.into_iter().collect();
+    let k = values.len();
+    let val_idx: std::collections::HashMap<&str, usize> =
+        values.iter().enumerate().map(|(i, v)| (v.as_str(), i)).collect();
+
+    // Build mixing matrix (normalized)
+    let total: usize = mixing.values().sum();
+    if total == 0 {
+        return 0.0;
+    }
+    let mut e = vec![vec![0.0f64; k]; k];
+    for ((a, b), &count) in &mixing {
+        if let (Some(&ai), Some(&bi)) = (val_idx.get(a.as_str()), val_idx.get(b.as_str())) {
+            e[ai][bi] = count as f64 / total as f64;
+        }
+    }
+
+    // Compute assortativity r = (tr(e) - ||e²||) / (1 - ||e²||)
+    let trace: f64 = (0..k).map(|i| e[i][i]).sum();
+    let row_sums: Vec<f64> = (0..k).map(|i| e[i].iter().sum::<f64>()).collect();
+    let col_sums: Vec<f64> = (0..k).map(|j| (0..k).map(|i| e[i][j]).sum::<f64>()).collect();
+    let e_squared: f64 = (0..k).map(|i| row_sums[i] * col_sums[i]).sum();
+
+    if (1.0 - e_squared).abs() < 1e-15 {
+        1.0
+    } else {
+        (trace - e_squared) / (1.0 - e_squared)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AT-free graph detection
+// ---------------------------------------------------------------------------
+
+/// Check if graph is asteroidal-triple-free (AT-free).
+///
+/// A graph is AT-free if for every triple (u, v, w), there exists a path
+/// from one pair that uses a neighbor of the third.
+#[must_use]
+pub fn is_at_free(graph: &Graph) -> bool {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n < 3 {
+        return true;
+    }
+    let idx: std::collections::HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+
+    // For each triple, check the AT condition
+    for i in 0..n {
+        let i_closed: std::collections::HashSet<usize> = {
+            let mut s = std::collections::HashSet::new();
+            s.insert(i);
+            for nb in graph.neighbors(nodes[i]).unwrap_or_default() {
+                if let Some(&ni) = idx.get(nb) {
+                    s.insert(ni);
+                }
+            }
+            s
+        };
+        for j in (i + 1)..n {
+            let j_closed: std::collections::HashSet<usize> = {
+                let mut s = std::collections::HashSet::new();
+                s.insert(j);
+                for nb in graph.neighbors(nodes[j]).unwrap_or_default() {
+                    if let Some(&ni) = idx.get(nb) {
+                        s.insert(ni);
+                    }
+                }
+                s
+            };
+            for k in (j + 1)..n {
+                let k_closed: std::collections::HashSet<usize> = {
+                    let mut s = std::collections::HashSet::new();
+                    s.insert(k);
+                    for nb in graph.neighbors(nodes[k]).unwrap_or_default() {
+                        if let Some(&ni) = idx.get(nb) {
+                            s.insert(ni);
+                        }
+                    }
+                    s
+                };
+
+                // Check if path j→k avoiding N[i] exists
+                let jk_avoiding_i = bfs_avoiding(n, j, k, &i_closed, graph, &nodes, &idx);
+                let ik_avoiding_j = bfs_avoiding(n, i, k, &j_closed, graph, &nodes, &idx);
+                let ij_avoiding_k = bfs_avoiding(n, i, j, &k_closed, graph, &nodes, &idx);
+
+                if jk_avoiding_i && ik_avoiding_j && ij_avoiding_k {
+                    return false; // Found an asteroidal triple
+                }
+            }
+        }
+    }
+    true
+}
+
+fn bfs_avoiding(
+    n: usize,
+    source: usize,
+    target: usize,
+    avoid: &std::collections::HashSet<usize>,
+    graph: &Graph,
+    nodes: &[&str],
+    idx: &std::collections::HashMap<&str, usize>,
+) -> bool {
+    if avoid.contains(&source) || avoid.contains(&target) {
+        return false;
+    }
+    let mut visited = vec![false; n];
+    visited[source] = true;
+    let mut queue = std::collections::VecDeque::new();
+    queue.push_back(source);
+    while let Some(v) = queue.pop_front() {
+        if v == target {
+            return true;
+        }
+        if let Some(nbrs) = graph.neighbors(nodes[v]) {
+            for nb in nbrs {
+                if let Some(&ni) = idx.get(nb) {
+                    if !visited[ni] && !avoid.contains(&ni) {
+                        visited[ni] = true;
+                        queue.push_back(ni);
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

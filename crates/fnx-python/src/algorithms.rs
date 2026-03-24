@@ -8625,6 +8625,70 @@ pub fn connected_dominating_set_rust(
     Ok(result.iter().map(|n| gr.py_node_key(py, n)).collect())
 }
 
+// ---------------------------------------------------------------------------
+// Triadic census
+// ---------------------------------------------------------------------------
+
+/// Return the triadic census of a directed graph.
+#[pyfunction]
+pub fn triadic_census_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    let dg = gr
+        .digraph()
+        .ok_or_else(|| crate::NetworkXError::new_err("triadic_census requires a DiGraph"))?;
+    let result = py.allow_threads(|| fnx_algorithms::triadic_census(dg));
+    let dict = PyDict::new(py);
+    for (name, count) in &result {
+        dict.set_item(name, count)?;
+    }
+    Ok(dict.unbind())
+}
+
+// ---------------------------------------------------------------------------
+// Attribute mixing / assortativity
+// ---------------------------------------------------------------------------
+
+/// Return attribute mixing dictionary.
+#[pyfunction]
+pub fn attribute_mixing_dict_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    attribute: &str,
+) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::attribute_mixing_dict(inner, attribute));
+    let dict = PyDict::new(py);
+    for ((a, b), count) in &result {
+        dict.set_item((a.as_str(), b.as_str()), count)?;
+    }
+    Ok(dict.unbind())
+}
+
+/// Return attribute assortativity coefficient.
+#[pyfunction]
+pub fn attribute_assortativity_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    attribute: &str,
+) -> PyResult<f64> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    Ok(py.allow_threads(|| fnx_algorithms::attribute_assortativity(inner, attribute)))
+}
+
+// ---------------------------------------------------------------------------
+// AT-free
+// ---------------------------------------------------------------------------
+
+/// Check if graph is asteroidal-triple-free.
+#[pyfunction]
+pub fn is_at_free_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    Ok(py.allow_threads(|| fnx_algorithms::is_at_free(inner)))
+}
+
 // Registration
 // ===========================================================================
 
@@ -9030,5 +9094,12 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(degree_mixing_dict_rust, m)?)?;
     // Connected dominating set
     m.add_function(wrap_pyfunction!(connected_dominating_set_rust, m)?)?;
+    // Triadic census
+    m.add_function(wrap_pyfunction!(triadic_census_rust, m)?)?;
+    // Attribute mixing/assortativity
+    m.add_function(wrap_pyfunction!(attribute_mixing_dict_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(attribute_assortativity_rust, m)?)?;
+    // AT-free
+    m.add_function(wrap_pyfunction!(is_at_free_rust, m)?)?;
     Ok(())
 }

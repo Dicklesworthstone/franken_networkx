@@ -332,6 +332,11 @@ class TestGenerators:
             fnx.connected_watts_strogatz_graph(12, 4, 0.2, tries=0, seed=42)
 
     def test_random_generators_support_create_using_via_networkx_fallback(self):
+        balanced = fnx.balanced_tree(2, 2, create_using=fnx.Graph())
+        full = fnx.full_rary_tree(2, 7, create_using=fnx.Graph())
+        binomial = fnx.binomial_tree(3, create_using=fnx.Graph())
+        bipartite = fnx.complete_bipartite_graph(2, 3, create_using=fnx.Graph())
+        periodic_grid = fnx.grid_2d_graph(2, 3, periodic=True, create_using=fnx.Graph())
         ws = fnx.watts_strogatz_graph(7, 3, 0.0, seed=42, create_using=fnx.Graph())
         ba = fnx.barabasi_albert_graph(8, 2, seed=42, create_using=fnx.Graph())
         gnp = fnx.gnp_random_graph(7, 0.2, seed=42, create_using=fnx.Graph())
@@ -341,6 +346,11 @@ class TestGenerators:
         regular = fnx.random_regular_graph(2, 6, seed=42, create_using=fnx.Graph())
         cluster = fnx.powerlaw_cluster_graph(10, 2, 0.5, seed=42, create_using=fnx.Graph())
 
+        assert isinstance(balanced, fnx.Graph)
+        assert isinstance(full, fnx.Graph)
+        assert isinstance(binomial, fnx.Graph)
+        assert isinstance(bipartite, fnx.Graph)
+        assert isinstance(periodic_grid, fnx.Graph)
         assert isinstance(ws, fnx.Graph)
         assert isinstance(ba, fnx.Graph)
         assert isinstance(gnp, fnx.Graph)
@@ -357,6 +367,13 @@ class TestGenerators:
 
         graph = fnx.barabasi_albert_graph(6, 1, seed=42, initial_graph=initial)
         expected = nx.barabasi_albert_graph(6, 1, seed=42, initial_graph=expected_initial)
+
+        assert sorted(graph.edges()) == sorted(expected.edges())
+
+    @needs_nx
+    def test_grid_2d_graph_supports_periodic_fallback(self):
+        graph = fnx.grid_2d_graph(2, 3, periodic=True)
+        expected = nx.grid_2d_graph(2, 3, periodic=True)
 
         assert sorted(graph.edges()) == sorted(expected.edges())
 

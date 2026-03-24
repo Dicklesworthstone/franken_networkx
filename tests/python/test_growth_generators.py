@@ -67,6 +67,11 @@ def test_native_random_generators_do_not_fallback_to_networkx(monkeypatch):
     def fail(*args, **kwargs):
         raise AssertionError("networkx fallback was used")
 
+    monkeypatch.setattr(nx, "balanced_tree", fail)
+    monkeypatch.setattr(nx, "full_rary_tree", fail)
+    monkeypatch.setattr(nx, "binomial_tree", fail)
+    monkeypatch.setattr(nx, "complete_bipartite_graph", fail)
+    monkeypatch.setattr(nx, "grid_2d_graph", fail)
     monkeypatch.setattr(nx, "gnp_random_graph", fail)
     monkeypatch.setattr(nx, "erdos_renyi_graph", fail)
     monkeypatch.setattr(nx, "fast_gnp_random_graph", fail)
@@ -77,6 +82,11 @@ def test_native_random_generators_do_not_fallback_to_networkx(monkeypatch):
     monkeypatch.setattr(nx, "random_regular_graph", fail)
     monkeypatch.setattr(nx, "powerlaw_cluster_graph", fail)
 
+    assert fnx.balanced_tree(2, 2).number_of_nodes() == 7
+    assert fnx.full_rary_tree(2, 7).number_of_nodes() == 7
+    assert fnx.binomial_tree(3).number_of_nodes() == 8
+    assert fnx.complete_bipartite_graph(2, 3).number_of_nodes() == 5
+    assert fnx.grid_2d_graph(2, 3).number_of_nodes() == 6
     assert fnx.gnp_random_graph(7, 0.2, seed=42).number_of_nodes() == 7
     assert fnx.erdos_renyi_graph(7, 0.2, seed=42).number_of_nodes() == 7
     assert fnx.fast_gnp_random_graph(7, 0.2, seed=42).number_of_nodes() == 7

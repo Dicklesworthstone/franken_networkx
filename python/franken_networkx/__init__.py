@@ -274,7 +274,7 @@ from franken_networkx._fnx import (
 
 # Classic graph generators
 from franken_networkx._fnx import (
-    balanced_tree,
+    balanced_tree as _rust_balanced_tree,
     barbell_graph,
     bull_graph,
     chvatal_graph,
@@ -307,13 +307,13 @@ from franken_networkx._fnx import (
     turan_graph,
     windmill_graph,
     hypercube_graph,
-    complete_bipartite_graph,
+    complete_bipartite_graph as _rust_complete_bipartite_graph,
     complete_multipartite_graph,
-    grid_2d_graph,
+    grid_2d_graph as _rust_grid_2d_graph,
     null_graph,
     trivial_graph,
-    binomial_tree,
-    full_rary_tree,
+    binomial_tree as _rust_binomial_tree,
+    full_rary_tree as _rust_full_rary_tree,
     circulant_graph,
     kneser_graph,
     paley_graph,
@@ -2382,6 +2382,66 @@ def barabasi_albert_graph(
         initial_graph=None if initial_graph is None else _to_nx(initial_graph),
         create_using=None,
     )
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def balanced_tree(r, h, create_using=None):
+    """Return the perfectly balanced r-ary tree of height h."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_balanced_tree(r, h)
+
+    graph = nx.balanced_tree(r, h, create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def full_rary_tree(r, n, create_using=None):
+    """Return a full r-ary tree with n nodes."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_full_rary_tree(r, n)
+
+    graph = nx.full_rary_tree(r, n, create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def binomial_tree(n, create_using=None):
+    """Return the binomial tree of order n."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_binomial_tree(n)
+
+    graph = nx.binomial_tree(n, create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def complete_bipartite_graph(n1, n2, create_using=None):
+    """Return the complete bipartite graph K_(n1,n2)."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_complete_bipartite_graph(n1, n2)
+
+    graph = nx.complete_bipartite_graph(n1, n2, create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def grid_2d_graph(m, n, periodic=False, create_using=None):
+    """Return the two-dimensional grid graph."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if periodic == False and create_using is None:
+        return _rust_grid_2d_graph(m, n)
+
+    graph = nx.grid_2d_graph(m, n, periodic=periodic, create_using=None)
     return _from_nx_graph(graph, create_using=create_using)
 
 
