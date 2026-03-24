@@ -603,6 +603,13 @@ def scale_free_graph(
     initial_graph: Optional[MultiDiGraph] = None,
 ) -> MultiDiGraph: ...
 def erdos_renyi_graph(n: int, p: float, seed: int) -> Graph: ...
+def fast_gnp_random_graph(
+    n: int,
+    p: float,
+    seed: Optional[int] = None,
+    directed: bool = False,
+    create_using: Any = None,
+) -> Graph | DiGraph: ...
 def newman_watts_strogatz_graph(n: int, k: int, p: float, seed: int) -> Graph: ...
 def connected_watts_strogatz_graph(
     n: int, k: int, p: float, tries: int = 100, seed: int = 0

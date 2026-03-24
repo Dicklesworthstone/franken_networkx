@@ -579,14 +579,14 @@ from franken_networkx._fnx import (
 )
 
 # Graph generators — random
-from franken_networkx._fnx import gnp_random_graph
-from franken_networkx._fnx import watts_strogatz_graph
-from franken_networkx._fnx import barabasi_albert_graph
-from franken_networkx._fnx import erdos_renyi_graph
-from franken_networkx._fnx import newman_watts_strogatz_graph
-from franken_networkx._fnx import connected_watts_strogatz_graph
-from franken_networkx._fnx import random_regular_graph
-from franken_networkx._fnx import powerlaw_cluster_graph
+from franken_networkx._fnx import gnp_random_graph as _rust_gnp_random_graph
+from franken_networkx._fnx import watts_strogatz_graph as _rust_watts_strogatz_graph
+from franken_networkx._fnx import barabasi_albert_graph as _rust_barabasi_albert_graph
+from franken_networkx._fnx import erdos_renyi_graph as _rust_erdos_renyi_graph
+from franken_networkx._fnx import newman_watts_strogatz_graph as _rust_newman_watts_strogatz_graph
+from franken_networkx._fnx import connected_watts_strogatz_graph as _rust_connected_watts_strogatz_graph
+from franken_networkx._fnx import random_regular_graph as _rust_random_regular_graph
+from franken_networkx._fnx import powerlaw_cluster_graph as _rust_powerlaw_cluster_graph
 
 # Read/write — graph I/O
 from franken_networkx._fnx import (
@@ -2291,11 +2291,98 @@ def info(G, n=None):
 # ---------------------------------------------------------------------------
 
 
+def _native_random_seed(seed):
+    """Return a Rust-compatible u64 seed, preserving random None semantics."""
+    if seed is not None:
+        return seed
+
+    import random as _random
+
+    return _random.randrange(1 << 64)
+
+
 def binomial_graph(n, p, seed=None):
     """Return a G(n,p) random graph (alias for ``gnp_random_graph``)."""
-    if seed is None:
-        seed = 0
     return gnp_random_graph(n, p, seed=seed)
+
+
+def gnp_random_graph(n, p, seed=None, directed=False, create_using=None):
+    """Return a G(n,p) random graph."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if not directed and create_using is None:
+        return _rust_gnp_random_graph(n, p, seed=_native_random_seed(seed))
+
+    graph = nx.gnp_random_graph(
+        n,
+        p,
+        seed=seed,
+        directed=directed,
+        create_using=None,
+    )
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def erdos_renyi_graph(n, p, seed=None, directed=False, create_using=None):
+    """Return a G(n,p) random graph (alias for ``gnp_random_graph``)."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if not directed and create_using is None:
+        return _rust_erdos_renyi_graph(n, p, seed=_native_random_seed(seed))
+
+    graph = nx.erdos_renyi_graph(
+        n,
+        p,
+        seed=seed,
+        directed=directed,
+        create_using=None,
+    )
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def watts_strogatz_graph(n, k, p, seed=None, create_using=None):
+    """Return a Watts-Strogatz small-world graph."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_watts_strogatz_graph(n, k, p, seed=_native_random_seed(seed))
+
+    graph = nx.watts_strogatz_graph(
+        n,
+        k,
+        p,
+        seed=seed,
+        create_using=None,
+    )
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def barabasi_albert_graph(
+    n,
+    m,
+    seed=None,
+    initial_graph=None,
+    create_using=None,
+):
+    """Return a Barabasi-Albert preferential attachment graph."""
+    import networkx as nx
+    from franken_networkx.drawing.layout import _to_nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if initial_graph is None and create_using is None:
+        return _rust_barabasi_albert_graph(n, m, seed=_native_random_seed(seed))
+
+    graph = nx.barabasi_albert_graph(
+        n,
+        m,
+        seed=seed,
+        initial_graph=None if initial_graph is None else _to_nx(initial_graph),
+        create_using=None,
+    )
+    return _from_nx_graph(graph, create_using=create_using)
 
 
 def gnm_random_graph(n, m, seed=None):
@@ -8275,8 +8362,83 @@ def sudoku_graph(n=3):
 
 def fast_gnp_random_graph(n, p, seed=None, directed=False, create_using=None):
     """Return a fast G(n,p) random graph (Batagelj-Brandes O(n+m) algorithm)."""
+    import networkx as nx
     from franken_networkx._fnx import fast_gnp_random_graph as _rust_fast_gnp
-    return _rust_fast_gnp(n, p, seed=seed if seed is not None else 0, directed=directed)
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_fast_gnp(
+            n,
+            p,
+            seed=_native_random_seed(seed),
+            directed=directed,
+        )
+
+    graph = nx.fast_gnp_random_graph(
+        n,
+        p,
+        seed=seed,
+        directed=directed,
+        create_using=None,
+    )
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def newman_watts_strogatz_graph(n, k, p, seed=None, create_using=None):
+    """Return a Newman-Watts-Strogatz small-world graph."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_newman_watts_strogatz_graph(n, k, p, seed=_native_random_seed(seed))
+    graph = nx.newman_watts_strogatz_graph(n, k, p, seed=seed, create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def connected_watts_strogatz_graph(n, k, p, tries=100, seed=None, create_using=None):
+    """Return a connected Watts-Strogatz small-world graph."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_connected_watts_strogatz_graph(
+            n,
+            k,
+            p,
+            tries=tries,
+            seed=_native_random_seed(seed),
+        )
+    graph = nx.connected_watts_strogatz_graph(
+        n,
+        k,
+        p,
+        tries=tries,
+        seed=seed,
+        create_using=None,
+    )
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def random_regular_graph(d, n, seed=None, create_using=None):
+    """Return a random d-regular graph."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_random_regular_graph(d, n, seed=_native_random_seed(seed))
+    graph = nx.random_regular_graph(d, n, seed=seed, create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def powerlaw_cluster_graph(n, m, p, seed=None, create_using=None):
+    """Return a powerlaw-cluster graph."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_powerlaw_cluster_graph(n, m, p, seed=_native_random_seed(seed))
+    graph = nx.powerlaw_cluster_graph(n, m, p, seed=seed, create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
 
 
 def directed_configuration_model(

@@ -61,3 +61,28 @@ def test_native_gnc_and_gnr_graphs_do_not_fallback_to_networkx(monkeypatch):
 
     assert sorted(gnc.edges()) == [(1, 0), (2, 0), (3, 0), (3, 1), (4, 0), (5, 0), (5, 1), (5, 3)]
     assert sorted(gnr.edges()) == [(1, 0), (2, 0), (3, 1), (4, 3), (5, 0)]
+
+
+def test_native_random_generators_do_not_fallback_to_networkx(monkeypatch):
+    def fail(*args, **kwargs):
+        raise AssertionError("networkx fallback was used")
+
+    monkeypatch.setattr(nx, "gnp_random_graph", fail)
+    monkeypatch.setattr(nx, "erdos_renyi_graph", fail)
+    monkeypatch.setattr(nx, "fast_gnp_random_graph", fail)
+    monkeypatch.setattr(nx, "watts_strogatz_graph", fail)
+    monkeypatch.setattr(nx, "barabasi_albert_graph", fail)
+    monkeypatch.setattr(nx, "newman_watts_strogatz_graph", fail)
+    monkeypatch.setattr(nx, "connected_watts_strogatz_graph", fail)
+    monkeypatch.setattr(nx, "random_regular_graph", fail)
+    monkeypatch.setattr(nx, "powerlaw_cluster_graph", fail)
+
+    assert fnx.gnp_random_graph(7, 0.2, seed=42).number_of_nodes() == 7
+    assert fnx.erdos_renyi_graph(7, 0.2, seed=42).number_of_nodes() == 7
+    assert fnx.fast_gnp_random_graph(7, 0.2, seed=42).number_of_nodes() == 7
+    assert fnx.watts_strogatz_graph(7, 3, 0.0, seed=42).number_of_nodes() == 7
+    assert fnx.barabasi_albert_graph(8, 2, seed=42).number_of_nodes() == 8
+    assert fnx.newman_watts_strogatz_graph(7, 3, 0.0, seed=42).number_of_nodes() == 7
+    assert fnx.connected_watts_strogatz_graph(12, 4, 0.2, tries=5, seed=42).number_of_nodes() == 12
+    assert fnx.random_regular_graph(2, 6, seed=42).number_of_nodes() == 6
+    assert fnx.powerlaw_cluster_graph(10, 2, 0.5, seed=42).number_of_nodes() == 10

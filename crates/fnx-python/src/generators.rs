@@ -337,14 +337,27 @@ pub fn fast_gnp_random_graph(
     seed: Option<u64>,
     directed: bool,
     create_using: Option<&Bound<'_, PyAny>>,
-) -> PyResult<PyGraph> {
+) -> PyResult<PyObject> {
     let _ = create_using; // accepted for API compat, ignored
     let actual_seed = seed.unwrap_or(0);
     let mut gg = GraphGenerator::strict();
+    if directed {
+        let report = gg
+            .fast_gnp_random_digraph(n, p, actual_seed)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
+        return Ok(report_to_pydigraph(py, report.graph)?
+            .into_pyobject(py)?
+            .into_any()
+            .unbind());
+    }
+
     let report = gg
-        .fast_gnp_random_graph(n, p, actual_seed, directed)
+        .fast_gnp_random_graph(n, p, actual_seed, false)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
-    report_to_pygraph(py, report.graph)
+    Ok(report_to_pygraph(py, report.graph)?
+        .into_pyobject(py)?
+        .into_any()
+        .unbind())
 }
 
 /// Return a growing network digraph (GN model).

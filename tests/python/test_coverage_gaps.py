@@ -331,6 +331,44 @@ class TestGenerators:
         with pytest.raises(ValueError, match="Maximum number of tries exceeded"):
             fnx.connected_watts_strogatz_graph(12, 4, 0.2, tries=0, seed=42)
 
+    def test_random_generators_support_create_using_via_networkx_fallback(self):
+        ws = fnx.watts_strogatz_graph(7, 3, 0.0, seed=42, create_using=fnx.Graph())
+        ba = fnx.barabasi_albert_graph(8, 2, seed=42, create_using=fnx.Graph())
+        gnp = fnx.gnp_random_graph(7, 0.2, seed=42, create_using=fnx.Graph())
+        er = fnx.erdos_renyi_graph(7, 0.2, seed=42, create_using=fnx.Graph())
+        fast = fnx.fast_gnp_random_graph(7, 0.2, seed=42, create_using=fnx.Graph())
+        graph = fnx.newman_watts_strogatz_graph(7, 3, 0.0, seed=42, create_using=fnx.Graph())
+        regular = fnx.random_regular_graph(2, 6, seed=42, create_using=fnx.Graph())
+        cluster = fnx.powerlaw_cluster_graph(10, 2, 0.5, seed=42, create_using=fnx.Graph())
+
+        assert isinstance(ws, fnx.Graph)
+        assert isinstance(ba, fnx.Graph)
+        assert isinstance(gnp, fnx.Graph)
+        assert isinstance(er, fnx.Graph)
+        assert isinstance(fast, fnx.Graph)
+        assert isinstance(graph, fnx.Graph)
+        assert isinstance(regular, fnx.Graph)
+        assert isinstance(cluster, fnx.Graph)
+
+    @needs_nx
+    def test_barabasi_albert_supports_initial_graph_fallback(self):
+        initial = fnx.path_graph(3)
+        expected_initial = nx.path_graph(3)
+
+        graph = fnx.barabasi_albert_graph(6, 1, seed=42, initial_graph=initial)
+        expected = nx.barabasi_albert_graph(6, 1, seed=42, initial_graph=expected_initial)
+
+        assert sorted(graph.edges()) == sorted(expected.edges())
+
+    def test_gnp_random_graph_supports_directed_fallback(self):
+        directed = fnx.gnp_random_graph(8, 0.2, seed=42, directed=True)
+        er_directed = fnx.erdos_renyi_graph(8, 0.2, seed=42, directed=True)
+        fast_directed = fnx.fast_gnp_random_graph(8, 0.2, seed=42, directed=True)
+
+        assert directed.is_directed()
+        assert er_directed.is_directed()
+        assert fast_directed.is_directed()
+
 
 # ---------------------------------------------------------------------------
 # Misc

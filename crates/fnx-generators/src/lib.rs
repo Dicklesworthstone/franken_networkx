@@ -827,6 +827,13 @@ impl GraphGenerator {
         seed: u64,
         directed: bool,
     ) -> Result<GenerationReport, GenerationError> {
+        if directed {
+            return Err(GenerationError::FailClosed {
+                operation: "fast_gnp_random_graph",
+                reason: "directed graphs are produced by fast_gnp_random_digraph".to_owned(),
+            });
+        }
+
         let (n, mut warnings) = self.validate_n("fast_gnp_random_graph", n, MAX_N_GNP)?;
         let (p, p_warning) = self.validate_probability("fast_gnp_random_graph", p)?;
         if let Some(warning) = p_warning {
@@ -846,16 +853,13 @@ impl GraphGenerator {
         if p >= 1.0 {
             // Complete graph
             for i in 0..n {
-                let start = if directed { 0 } else { i + 1 };
-                for j in start..n {
-                    if i != j {
-                        graph
-                            .add_edge(node_labels[i].clone(), node_labels[j].clone())
-                            .map_err(|err| GenerationError::FailClosed {
-                                operation: "fast_gnp_random_graph",
-                                reason: err.to_string(),
-                            })?;
-                    }
+                for j in (i + 1)..n {
+                    graph
+                        .add_edge(node_labels[i].clone(), node_labels[j].clone())
+                        .map_err(|err| GenerationError::FailClosed {
+                            operation: "fast_gnp_random_graph",
+                            reason: err.to_string(),
+                        })?;
                 }
             }
             self.record(
@@ -870,61 +874,28 @@ impl GraphGenerator {
         let mut rng = StdRng::seed_from_u64(seed);
         let lp = (1.0 - p).ln();
 
-        if directed {
-            // Directed: iterate over all n*(n-1) possible edges
-            let mut v: isize = 0;
-            let mut w: isize = -1;
-            loop {
-                let lr: f64 = (1.0 - rng.random::<f64>()).ln();
-                w += 1 + (lr / lp) as isize;
-                // Skip self-loop
-                if v == w {
-                    w += 1;
-                }
-                while w >= n as isize && v < n as isize - 1 {
-                    w -= n as isize;
-                    v += 1;
-                    if v == w {
-                        w += 1;
-                    }
-                }
-                if v >= n as isize - 1 {
-                    break;
-                }
-                graph
-                    .add_edge(
-                        node_labels[v as usize].clone(),
-                        node_labels[w as usize].clone(),
-                    )
-                    .map_err(|err| GenerationError::FailClosed {
-                        operation: "fast_gnp_random_graph",
-                        reason: err.to_string(),
-                    })?;
+        // Undirected: iterate over n*(n-1)/2 possible edges
+        let mut v: isize = 1;
+        let mut w: isize = -1;
+        loop {
+            let lr: f64 = (1.0 - rng.random::<f64>()).ln();
+            w += 1 + (lr / lp) as isize;
+            while w >= v && v < n as isize {
+                w -= v;
+                v += 1;
             }
-        } else {
-            // Undirected: iterate over n*(n-1)/2 possible edges
-            let mut v: isize = 1;
-            let mut w: isize = -1;
-            loop {
-                let lr: f64 = (1.0 - rng.random::<f64>()).ln();
-                w += 1 + (lr / lp) as isize;
-                while w >= v && v < n as isize {
-                    w -= v;
-                    v += 1;
-                }
-                if v >= n as isize {
-                    break;
-                }
-                graph
-                    .add_edge(
-                        node_labels[w as usize].clone(),
-                        node_labels[v as usize].clone(),
-                    )
-                    .map_err(|err| GenerationError::FailClosed {
-                        operation: "fast_gnp_random_graph",
-                        reason: err.to_string(),
-                    })?;
+            if v >= n as isize {
+                break;
             }
+            graph
+                .add_edge(
+                    node_labels[w as usize].clone(),
+                    node_labels[v as usize].clone(),
+                )
+                .map_err(|err| GenerationError::FailClosed {
+                    operation: "fast_gnp_random_graph",
+                    reason: err.to_string(),
+                })?;
         }
 
         self.record(
@@ -934,6 +905,90 @@ impl GraphGenerator {
             format!("generated fast_gnp graph: n={n}, p={p}, directed={directed}, seed={seed}"),
         );
         Ok(GenerationReport { graph, warnings })
+    }
+
+    pub fn fast_gnp_random_digraph(
+        &mut self,
+        n: usize,
+        p: f64,
+        seed: u64,
+    ) -> Result<DiGenerationReport, GenerationError> {
+        let (n, mut warnings) = self.validate_n("fast_gnp_random_digraph", n, MAX_N_GNP)?;
+        let (p, p_warning) = self.validate_probability("fast_gnp_random_digraph", p)?;
+        if let Some(warning) = p_warning {
+            warnings.push(warning);
+        }
+
+        let (mut graph, node_labels) = digraph_with_n_nodes(self.mode, n);
+        if n < 2 || p <= 0.0 {
+            self.record(
+                "fast_gnp_random_digraph",
+                DecisionAction::Allow,
+                0.05,
+                format!("fast_gnp digraph empty: n={n}, p={p}"),
+            );
+            return Ok(DiGenerationReport { graph, warnings });
+        }
+        if p >= 1.0 {
+            for i in 0..n {
+                for j in 0..n {
+                    if i != j {
+                        graph
+                            .add_edge(node_labels[i].clone(), node_labels[j].clone())
+                            .map_err(|err| GenerationError::FailClosed {
+                                operation: "fast_gnp_random_digraph",
+                                reason: err.to_string(),
+                            })?;
+                    }
+                }
+            }
+            self.record(
+                "fast_gnp_random_digraph",
+                DecisionAction::Allow,
+                0.05,
+                format!("fast_gnp digraph complete: n={n}, p={p}"),
+            );
+            return Ok(DiGenerationReport { graph, warnings });
+        }
+
+        let mut rng = StdRng::seed_from_u64(seed);
+        let lp = (1.0 - p).ln();
+        let mut v: isize = 0;
+        let mut w: isize = -1;
+        loop {
+            let lr: f64 = (1.0 - rng.random::<f64>()).ln();
+            w += 1 + (lr / lp) as isize;
+            if v == w {
+                w += 1;
+            }
+            while w >= n as isize && v < n as isize - 1 {
+                w -= n as isize;
+                v += 1;
+                if v == w {
+                    w += 1;
+                }
+            }
+            if v >= n as isize - 1 {
+                break;
+            }
+            graph
+                .add_edge(
+                    node_labels[v as usize].clone(),
+                    node_labels[w as usize].clone(),
+                )
+                .map_err(|err| GenerationError::FailClosed {
+                    operation: "fast_gnp_random_digraph",
+                    reason: err.to_string(),
+                })?;
+        }
+
+        self.record(
+            "fast_gnp_random_digraph",
+            DecisionAction::Allow,
+            0.08,
+            format!("generated fast_gnp digraph: n={n}, p={p}, seed={seed}"),
+        );
+        Ok(DiGenerationReport { graph, warnings })
     }
 
     /// Generate a growing network digraph (GN model).
@@ -1378,6 +1433,17 @@ fn degree_state_from_graph(graph: &MultiDiGraph, out_degree: bool) -> Vec<usize>
 
 fn graph_with_n_nodes(mode: CompatibilityMode, n: usize) -> (Graph, Vec<String>) {
     let mut graph = Graph::new(mode);
+    let mut node_labels = Vec::with_capacity(n);
+    for i in 0..n {
+        let node_label = i.to_string();
+        let _ = graph.add_node(node_label.clone());
+        node_labels.push(node_label);
+    }
+    (graph, node_labels)
+}
+
+fn digraph_with_n_nodes(mode: CompatibilityMode, n: usize) -> (DiGraph, Vec<String>) {
+    let mut graph = DiGraph::new(mode);
     let mut node_labels = Vec::with_capacity(n);
     for i in 0..n {
         let node_label = i.to_string();
@@ -1856,6 +1922,22 @@ mod tests {
                 ("5".to_owned(), "0".to_owned(), 0),
             ]
         );
+    }
+
+    #[test]
+    fn fast_gnp_random_digraph_is_directed_and_seed_reproducible() {
+        let mut gg = GraphGenerator::strict();
+        let report = gg
+            .fast_gnp_random_digraph(6, 0.4, 7)
+            .expect("fast_gnp_random_digraph should succeed");
+        assert!(report.graph.is_directed());
+        assert_eq!(report.graph.node_count(), 6);
+
+        let snapshot = report.graph.snapshot();
+        let report_again = gg
+            .fast_gnp_random_digraph(6, 0.4, 7)
+            .expect("fast_gnp_random_digraph replay should succeed");
+        assert_eq!(snapshot, report_again.graph.snapshot());
     }
 
     #[test]
