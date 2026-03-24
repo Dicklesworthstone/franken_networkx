@@ -19100,6 +19100,7 @@ pub fn stoer_wagner(graph: &Graph, weight_attr: &str) -> Option<StoerWagnerResul
                 merged[i] = merged[s];
             }
         }
+        #[allow(clippy::needless_range_loop)]
         for j in 0..n {
             w[s][j] += w[t][j];
             w[j][s] += w[j][t];
@@ -19460,13 +19461,12 @@ pub fn voronoi_cells(
         let d = dist[v];
         if let Some(nbrs) = graph.neighbors(nodes[v]) {
             for nb in nbrs {
-                if let Some(&ni) = idx.get(nb) {
-                    if dist[ni] > d + 1 {
+                if let Some(&ni) = idx.get(nb)
+                    && dist[ni] > d + 1 {
                         dist[ni] = d + 1;
                         nearest[ni] = nearest[v];
                         queue.push_back(ni);
                     }
-                }
             }
         }
     }
@@ -19704,11 +19704,10 @@ pub fn min_cost_flow(
     // Parse demands
     let mut demand = vec![0.0f64; n];
     for (i, &node) in nodes.iter().enumerate() {
-        if let Some(attrs) = digraph.node_attrs(node) {
-            if let Some(d) = attrs.get(demand_attr) {
+        if let Some(attrs) = digraph.node_attrs(node)
+            && let Some(d) = attrs.get(demand_attr) {
                 demand[i] = d.as_str().parse::<f64>().unwrap_or(0.0);
             }
-        }
     }
 
     // Build residual graph
@@ -20074,13 +20073,9 @@ pub fn node_disjoint_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec
         let mut path = Vec::new();
         for &idx_val in &raw_path {
             let orig = idx_val % n;
-            // Only add when we enter a node (via in-copy)
-            if idx_val < n && (path.is_empty() || path.last() != Some(&nodes[orig].to_owned())) {
-                path.push(nodes[orig].to_owned());
-            } else if idx_val >= n
-                && (path.is_empty() || path.last() != Some(&nodes[orig].to_owned()))
-            {
-                path.push(nodes[orig].to_owned());
+            let node_str = nodes[orig].to_owned();
+            if path.is_empty() || path.last() != Some(&node_str) {
+                path.push(node_str);
             }
         }
         // Deduplicate consecutive entries

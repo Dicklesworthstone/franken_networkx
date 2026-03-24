@@ -8363,6 +8363,41 @@ pub fn node_disjoint_paths_rust(
         .collect())
 }
 
+// ---------------------------------------------------------------------------
+// Clustering coefficient (Rust)
+// ---------------------------------------------------------------------------
+
+/// Return clustering coefficient for each node.
+#[pyfunction]
+pub fn clustering_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::clustering_coefficient(inner));
+    let dict = PyDict::new(py);
+    for score in &result.scores {
+        dict.set_item(gr.py_node_key(py, &score.node), score.score)?;
+    }
+    Ok(dict.unbind())
+}
+
+/// Return average clustering coefficient.
+#[pyfunction]
+pub fn average_clustering_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::clustering_coefficient(inner));
+    Ok(result.average_clustering)
+}
+
+/// Return transitivity.
+#[pyfunction]
+pub fn transitivity_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::clustering_coefficient(inner));
+    Ok(result.transitivity)
+}
+
 // Registration
 // ===========================================================================
 
@@ -8748,5 +8783,9 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Edge/node disjoint paths
     m.add_function(wrap_pyfunction!(edge_disjoint_paths_rust, m)?)?;
     m.add_function(wrap_pyfunction!(node_disjoint_paths_rust, m)?)?;
+    // Clustering (Rust)
+    m.add_function(wrap_pyfunction!(clustering_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(average_clustering_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(transitivity_rust, m)?)?;
     Ok(())
 }

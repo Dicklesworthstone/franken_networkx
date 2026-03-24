@@ -255,11 +255,10 @@ impl Graph {
         let node = node.into();
         let existed = self.nodes.contains_key(&node);
         let mut changed = !existed;
-        let attrs_for_change_check = attrs.clone();
         let attrs_count = {
             let bucket = self.nodes.entry(node.clone()).or_default();
-            if !attrs_for_change_check.is_empty()
-                && attrs_for_change_check
+            if !attrs.is_empty()
+                && attrs
                     .iter()
                     .any(|(key, value)| bucket.get(key) != Some(value))
             {
@@ -444,9 +443,9 @@ impl Graph {
                 {
                     remote_neighbors.shift_remove(node);
                 }
+                self.edges.shift_remove(&EdgeKey::new(node, &neighbor));
             }
         }
-        self.edges.retain(|k, _| k.left != node && k.right != node);
 
         // 2. Remove node from adjacency and nodes maps.
         self.adjacency.shift_remove(node);
@@ -475,19 +474,6 @@ impl Graph {
                             attrs: attrs.clone(),
                         });
                     }
-                }
-            }
-        }
-
-        // Keep a deterministic fallback path if adjacency/edge indexes diverge.
-        if ordered.len() < self.edges.len() {
-            for (key, attrs) in &self.edges {
-                if seen.insert(key.clone()) {
-                    ordered.push(EdgeSnapshot {
-                        left: key.left.clone(),
-                        right: key.right.clone(),
-                        attrs: attrs.clone(),
-                    });
                 }
             }
         }
@@ -703,11 +689,10 @@ impl MultiGraph {
         let node = node.into();
         let existed = self.nodes.contains_key(&node);
         let mut changed = !existed;
-        let attrs_for_change_check = attrs.clone();
         let attrs_count = {
             let bucket = self.nodes.entry(node.clone()).or_default();
-            if !attrs_for_change_check.is_empty()
-                && attrs_for_change_check
+            if !attrs.is_empty()
+                && attrs
                     .iter()
                     .any(|(key, value)| bucket.get(key) != Some(value))
             {
@@ -826,10 +811,9 @@ impl MultiGraph {
         let edge_attr_count = {
             let edge_bucket = self.edges.entry(edge_key.clone()).or_default();
             changed = !edge_bucket.contains_key(&key);
-            let attrs_for_change_check = attrs.clone();
             let edge_attrs = edge_bucket.entry(key).or_default();
-            if !attrs_for_change_check.is_empty()
-                && attrs_for_change_check
+            if !attrs.is_empty()
+                && attrs
                     .iter()
                     .any(|(attr_key, value)| edge_attrs.get(attr_key) != Some(value))
             {
@@ -838,13 +822,11 @@ impl MultiGraph {
             edge_attrs.extend(attrs);
             edge_bucket.len()
         };
-        if explicit_key.is_none() {
-            let next_key = key.saturating_add(1);
-            self.next_edge_key
-                .entry(edge_key)
-                .and_modify(|next| *next = (*next).max(next_key))
-                .or_insert(next_key);
-        }
+        let next_key = key.saturating_add(1);
+        self.next_edge_key
+            .entry(edge_key)
+            .and_modify(|next| *next = (*next).max(next_key))
+            .or_insert(next_key);
 
         self.adjacency
             .entry(left.clone())
@@ -943,11 +925,11 @@ impl MultiGraph {
                 {
                     remote_neighbors.shift_remove(node);
                 }
+                let k = EdgeKey::new(node, &neighbor);
+                self.edges.shift_remove(&k);
+                self.next_edge_key.shift_remove(&k);
             }
         }
-        self.edges.retain(|k, _| k.left != node && k.right != node);
-        self.next_edge_key
-            .retain(|k, _| k.left != node && k.right != node);
 
         // 2. Remove node from adjacency and nodes maps.
         self.adjacency.shift_remove(node);
@@ -978,22 +960,6 @@ impl MultiGraph {
                                 attrs: attrs.clone(),
                             });
                         }
-                    }
-                }
-            }
-        }
-
-        if ordered.len() < self.edge_count() {
-            for (pair, edge_bucket) in &self.edges {
-                for (key, attrs) in edge_bucket {
-                    let instance = (pair.left.clone(), pair.right.clone(), *key);
-                    if seen.insert(instance.clone()) {
-                        ordered.push(MultiEdgeSnapshot {
-                            left: instance.0,
-                            right: instance.1,
-                            key: instance.2,
-                            attrs: attrs.clone(),
-                        });
                     }
                 }
             }

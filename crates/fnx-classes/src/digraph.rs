@@ -298,11 +298,10 @@ impl DiGraph {
         let node = node.into();
         let existed = self.nodes.contains_key(&node);
         let mut changed = !existed;
-        let attrs_for_change_check = attrs.clone();
         let attrs_count = {
             let bucket = self.nodes.entry(node.clone()).or_default();
-            if !attrs_for_change_check.is_empty()
-                && attrs_for_change_check
+            if !attrs.is_empty()
+                && attrs
                     .iter()
                     .any(|(key, value)| bucket.get(key) != Some(value))
             {
@@ -490,6 +489,7 @@ impl DiGraph {
                 {
                     preds.shift_remove(node);
                 }
+                self.edges.shift_remove(&DirectedEdgeKey::new(node, &target));
             }
         }
 
@@ -502,11 +502,9 @@ impl DiGraph {
                 {
                     succs.shift_remove(node);
                 }
+                self.edges.shift_remove(&DirectedEdgeKey::new(&source, node));
             }
         }
-
-        self.edges
-            .retain(|k, _| k.source != node && k.target != node);
 
         self.successors.shift_remove(node);
         self.predecessors.shift_remove(node);
@@ -524,15 +522,11 @@ impl DiGraph {
     #[must_use]
     pub fn edges_ordered(&self) -> Vec<EdgeSnapshot> {
         let mut ordered = Vec::with_capacity(self.edges.len());
-        let mut seen = HashSet::<DirectedEdgeKey>::with_capacity(self.edges.len());
 
         for node in self.nodes.keys() {
             if let Some(succs) = self.successors.get(node) {
                 for target in succs {
                     let key = DirectedEdgeKey::new(node, target);
-                    if !seen.insert(key.clone()) {
-                        continue;
-                    }
                     if let Some(attrs) = self.edges.get(&key) {
                         ordered.push(EdgeSnapshot {
                             left: node.clone(),
@@ -540,20 +534,6 @@ impl DiGraph {
                             attrs: attrs.clone(),
                         });
                     }
-                }
-            }
-        }
-
-        // Fallback: any edges not captured via adjacency iteration.
-        if ordered.len() < self.edges.len() {
-            for (key, attrs) in &self.edges {
-                let dk = DirectedEdgeKey::new(&key.source, &key.target);
-                if seen.insert(dk) {
-                    ordered.push(EdgeSnapshot {
-                        left: key.source.clone(),
-                        right: key.target.clone(),
-                        attrs: attrs.clone(),
-                    });
                 }
             }
         }
@@ -805,11 +785,10 @@ impl MultiDiGraph {
         let node = node.into();
         let existed = self.nodes.contains_key(&node);
         let mut changed = !existed;
-        let attrs_for_change_check = attrs.clone();
         let attrs_count = {
             let bucket = self.nodes.entry(node.clone()).or_default();
-            if !attrs_for_change_check.is_empty()
-                && attrs_for_change_check
+            if !attrs.is_empty()
+                && attrs
                     .iter()
                     .any(|(key, value)| bucket.get(key) != Some(value))
             {
@@ -928,12 +907,11 @@ impl MultiDiGraph {
             explicit_key.unwrap_or_else(|| self.next_edge_key.get(&edge_key).copied().unwrap_or(0));
         let mut changed;
         let edge_attr_count = {
-            let edge_bucket = self.edges.entry(edge_key).or_default();
+            let edge_bucket = self.edges.entry(edge_key.clone()).or_default();
             changed = !edge_bucket.contains_key(&key);
-            let attrs_for_change_check = attrs.clone();
             let edge_attrs = edge_bucket.entry(key).or_default();
-            if !attrs_for_change_check.is_empty()
-                && attrs_for_change_check
+            if !attrs.is_empty()
+                && attrs
                     .iter()
                     .any(|(attr_key, value)| edge_attrs.get(attr_key) != Some(value))
             {
@@ -942,13 +920,11 @@ impl MultiDiGraph {
             edge_attrs.extend(attrs);
             edge_bucket.len()
         };
-        if explicit_key.is_none() {
-            let next_key = key.saturating_add(1);
-            self.next_edge_key
-                .entry(DirectedEdgeKey::new(&source, &target))
-                .and_modify(|next| *next = (*next).max(next_key))
-                .or_insert(next_key);
-        }
+        let next_key = key.saturating_add(1);
+        self.next_edge_key
+            .entry(edge_key)
+            .and_modify(|next| *next = (*next).max(next_key))
+            .or_insert(next_key);
 
         self.successors
             .entry(source.clone())
@@ -1043,6 +1019,9 @@ impl MultiDiGraph {
                 {
                     preds.shift_remove(node);
                 }
+                let k = DirectedEdgeKey::new(node, &target);
+                self.edges.shift_remove(&k);
+                self.next_edge_key.shift_remove(&k);
             }
         }
 
@@ -1055,13 +1034,11 @@ impl MultiDiGraph {
                 {
                     succs.shift_remove(node);
                 }
+                let k = DirectedEdgeKey::new(&source, node);
+                self.edges.shift_remove(&k);
+                self.next_edge_key.shift_remove(&k);
             }
         }
-
-        self.edges
-            .retain(|k, _| k.source != node && k.target != node);
-        self.next_edge_key
-            .retain(|k, _| k.source != node && k.target != node);
 
         self.successors.shift_remove(node);
         self.predecessors.shift_remove(node);
@@ -1073,7 +1050,6 @@ impl MultiDiGraph {
     #[must_use]
     pub fn edges_ordered(&self) -> Vec<MultiDiEdgeSnapshot> {
         let mut ordered = Vec::with_capacity(self.edge_count());
-        let mut seen = HashSet::<(String, String, usize)>::with_capacity(self.edge_count());
 
         for node in self.nodes.keys() {
             if let Some(neighbors) = self.successors.get(node) {
@@ -1081,33 +1057,13 @@ impl MultiDiGraph {
                     let pair = DirectedEdgeKey::new(node, target);
                     if let Some(edge_bucket) = self.edges.get(&pair) {
                         for (key, attrs) in edge_bucket {
-                            let instance = (pair.source.clone(), pair.target.clone(), *key);
-                            if !seen.insert(instance.clone()) {
-                                continue;
-                            }
                             ordered.push(MultiDiEdgeSnapshot {
-                                source: instance.0,
-                                target: instance.1,
-                                key: instance.2,
+                                source: node.clone(),
+                                target: target.clone(),
+                                key: *key,
                                 attrs: attrs.clone(),
                             });
                         }
-                    }
-                }
-            }
-        }
-
-        if ordered.len() < self.edge_count() {
-            for (pair, edge_bucket) in &self.edges {
-                for (key, attrs) in edge_bucket {
-                    let instance = (pair.source.clone(), pair.target.clone(), *key);
-                    if seen.insert(instance.clone()) {
-                        ordered.push(MultiDiEdgeSnapshot {
-                            source: instance.0,
-                            target: instance.1,
-                            key: instance.2,
-                            attrs: attrs.clone(),
-                        });
                     }
                 }
             }
