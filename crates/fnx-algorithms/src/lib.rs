@@ -19819,6 +19819,391 @@ pub fn min_cost_flow(
     Some(MinCostFlowResult { flow, cost: total_cost })
 }
 
+// ---------------------------------------------------------------------------
+// Edge-disjoint paths (max flow based)
+// ---------------------------------------------------------------------------
+
+/// Find edge-disjoint paths between source and target.
+///
+/// Uses iterative BFS to find augmenting paths in a unit-capacity residual
+/// graph. The number of paths equals the max flow (edge connectivity).
+#[must_use]
+pub fn edge_disjoint_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec<String>> {
+    if source == target || !graph.has_node(source) || !graph.has_node(target) {
+        return Vec::new();
+    }
+
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    let idx: std::collections::HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+
+    let s = match idx.get(source) {
+        Some(&i) => i,
+        None => return Vec::new(),
+    };
+    let t = match idx.get(target) {
+        Some(&i) => i,
+        None => return Vec::new(),
+    };
+
+    // Build residual capacity matrix (unit capacities, undirected)
+    let mut cap = vec![vec![0i32; n]; n];
+    for edge in graph.edges_ordered() {
+        let i = idx[edge.left.as_str()];
+        let j = idx[edge.right.as_str()];
+        cap[i][j] = 1;
+        cap[j][i] = 1;
+    }
+
+    let mut paths = Vec::new();
+
+    // Find augmenting paths via BFS
+    loop {
+        let mut parent = vec![None::<usize>; n];
+        let mut visited = vec![false; n];
+        visited[s] = true;
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(s);
+
+        while let Some(v) = queue.pop_front() {
+            if v == t {
+                break;
+            }
+            for j in 0..n {
+                if !visited[j] && cap[v][j] > 0 {
+                    visited[j] = true;
+                    parent[j] = Some(v);
+                    queue.push_back(j);
+                }
+            }
+        }
+
+        if !visited[t] {
+            break; // No more augmenting paths
+        }
+
+        // Trace path and update residual
+        let mut path = Vec::new();
+        let mut v = t;
+        while let Some(p) = parent[v] {
+            path.push(nodes[v].to_owned());
+            cap[p][v] -= 1;
+            cap[v][p] += 1;
+            v = p;
+        }
+        path.push(nodes[s].to_owned());
+        path.reverse();
+        paths.push(path);
+    }
+
+    paths
+}
+
+/// Find edge-disjoint paths in a directed graph.
+#[must_use]
+pub fn edge_disjoint_paths_directed(
+    digraph: &DiGraph,
+    source: &str,
+    target: &str,
+) -> Vec<Vec<String>> {
+    if source == target || !digraph.has_node(source) || !digraph.has_node(target) {
+        return Vec::new();
+    }
+
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+    let idx: std::collections::HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+
+    let s = match idx.get(source) {
+        Some(&i) => i,
+        None => return Vec::new(),
+    };
+    let t = match idx.get(target) {
+        Some(&i) => i,
+        None => return Vec::new(),
+    };
+
+    let mut cap = vec![vec![0i32; n]; n];
+    for edge in digraph.edges_ordered() {
+        let i = idx[edge.left.as_str()];
+        let j = idx[edge.right.as_str()];
+        cap[i][j] = 1;
+    }
+
+    let mut paths = Vec::new();
+
+    loop {
+        let mut parent = vec![None::<usize>; n];
+        let mut visited = vec![false; n];
+        visited[s] = true;
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(s);
+
+        while let Some(v) = queue.pop_front() {
+            if v == t {
+                break;
+            }
+            for j in 0..n {
+                if !visited[j] && cap[v][j] > 0 {
+                    visited[j] = true;
+                    parent[j] = Some(v);
+                    queue.push_back(j);
+                }
+            }
+        }
+
+        if !visited[t] {
+            break;
+        }
+
+        let mut path = Vec::new();
+        let mut v = t;
+        while let Some(p) = parent[v] {
+            path.push(nodes[v].to_owned());
+            cap[p][v] -= 1;
+            cap[v][p] += 1;
+            v = p;
+        }
+        path.push(nodes[s].to_owned());
+        path.reverse();
+        paths.push(path);
+    }
+
+    paths
+}
+
+// ---------------------------------------------------------------------------
+// Node-disjoint paths
+// ---------------------------------------------------------------------------
+
+/// Find node-disjoint paths between source and target.
+///
+/// Splits each node (except s, t) into two copies connected by a unit-capacity
+/// edge, then finds edge-disjoint paths in the split graph.
+#[must_use]
+pub fn node_disjoint_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec<String>> {
+    if source == target || !graph.has_node(source) || !graph.has_node(target) {
+        return Vec::new();
+    }
+
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    let idx: std::collections::HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+
+    let s = match idx.get(source) {
+        Some(&i) => i,
+        None => return Vec::new(),
+    };
+    let t = match idx.get(target) {
+        Some(&i) => i,
+        None => return Vec::new(),
+    };
+
+    // Split graph: node i becomes i_in (i) and i_out (i + n)
+    // Internal edge: i_in → i_out with capacity 1 (except s, t: capacity n)
+    let nn = 2 * n;
+    let mut cap = vec![vec![0i32; nn]; nn];
+
+    // Internal edges
+    for i in 0..n {
+        let capacity = if i == s || i == t {
+            n as i32
+        } else {
+            1
+        };
+        cap[i][i + n] = capacity;
+    }
+
+    // Graph edges: u_out → v_in and v_out → u_in (undirected)
+    for edge in graph.edges_ordered() {
+        let u = idx[edge.left.as_str()];
+        let v = idx[edge.right.as_str()];
+        cap[u + n][v] = 1;
+        cap[v + n][u] = 1;
+    }
+
+    let s_out = s + n;
+    let t_in = t;
+
+    let mut paths = Vec::new();
+
+    loop {
+        let mut parent = vec![None::<usize>; nn];
+        let mut visited = vec![false; nn];
+        visited[s_out] = true;
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(s_out);
+
+        while let Some(v) = queue.pop_front() {
+            if v == t_in {
+                break;
+            }
+            for j in 0..nn {
+                if !visited[j] && cap[v][j] > 0 {
+                    visited[j] = true;
+                    parent[j] = Some(v);
+                    queue.push_back(j);
+                }
+            }
+        }
+
+        if !visited[t_in] {
+            break;
+        }
+
+        // Trace and extract original nodes
+        let mut raw_path = Vec::new();
+        let mut v = t_in;
+        while v != s_out {
+            if let Some(p) = parent[v] {
+                cap[p][v] -= 1;
+                cap[v][p] += 1;
+                v = p;
+            } else {
+                break;
+            }
+            raw_path.push(v);
+        }
+        raw_path.push(s_out);
+        raw_path.reverse();
+
+        // Convert split-node indices back to original nodes
+        let mut path = Vec::new();
+        for &idx_val in &raw_path {
+            let orig = idx_val % n;
+            // Only add when we enter a node (via in-copy)
+            if idx_val < n && (path.is_empty() || path.last() != Some(&nodes[orig].to_owned())) {
+                path.push(nodes[orig].to_owned());
+            } else if idx_val >= n
+                && (path.is_empty() || path.last() != Some(&nodes[orig].to_owned()))
+            {
+                path.push(nodes[orig].to_owned());
+            }
+        }
+        // Deduplicate consecutive entries
+        path.dedup();
+        if path.len() >= 2 {
+            paths.push(path);
+        }
+    }
+
+    paths
+}
+
+// ---------------------------------------------------------------------------
+// Random path generation
+// ---------------------------------------------------------------------------
+
+/// Generate random paths from source by random walking.
+///
+/// At each step, pick a random neighbor. Terminates when the path reaches
+/// `path_length` nodes or a dead end.
+pub fn generate_random_paths(
+    graph: &Graph,
+    sample_size: usize,
+    path_length: usize,
+    seed: u64,
+) -> Vec<Vec<String>> {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 || sample_size == 0 {
+        return Vec::new();
+    }
+
+    // Simple LCG for deterministic random without rand dependency
+    let mut rng_state = seed.wrapping_add(1);
+    let mut next_rand = || -> usize {
+        rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        (rng_state >> 33) as usize
+    };
+
+    let mut paths = Vec::with_capacity(sample_size);
+    for _ in 0..sample_size {
+        let start_idx = next_rand() % n;
+        let mut path = vec![nodes[start_idx].to_owned()];
+        let mut current = nodes[start_idx];
+
+        for _ in 1..path_length {
+            let nbrs: Vec<&str> = graph.neighbors(current).unwrap_or_default();
+            if nbrs.is_empty() {
+                break;
+            }
+            let next = nbrs[next_rand() % nbrs.len()];
+            path.push(next.to_owned());
+            current = next;
+        }
+        paths.push(path);
+    }
+
+    paths
+}
+
+// ---------------------------------------------------------------------------
+// Graph complement (Rust implementation)
+// ---------------------------------------------------------------------------
+
+/// Return the complement of the graph.
+///
+/// The complement has the same nodes but edges where the original has none.
+#[must_use]
+pub fn complement_graph(graph: &Graph) -> Graph {
+    let nodes = graph.nodes_ordered();
+    let mut result = Graph::new(graph.mode());
+    for &node in &nodes {
+        let _ = result.add_node(node.to_owned());
+    }
+    for i in 0..nodes.len() {
+        for j in (i + 1)..nodes.len() {
+            if !graph.has_edge(nodes[i], nodes[j]) {
+                let _ = result.add_edge(nodes[i].to_owned(), nodes[j].to_owned());
+            }
+        }
+    }
+    result
+}
+
+/// Return the complement of a directed graph.
+#[must_use]
+pub fn complement_digraph(digraph: &DiGraph) -> DiGraph {
+    let nodes = digraph.nodes_ordered();
+    let mut result = DiGraph::new(digraph.mode());
+    for &node in &nodes {
+        result.add_node(node.to_owned());
+    }
+    for &u in &nodes {
+        for &v in &nodes {
+            if u != v && !digraph.has_edge(u, v) {
+                let _ = result.add_edge(u.to_owned(), v.to_owned());
+            }
+        }
+    }
+    result
+}
+
+// ---------------------------------------------------------------------------
+// Reverse digraph
+// ---------------------------------------------------------------------------
+
+/// Return the reverse of a directed graph (all edges reversed).
+#[must_use]
+pub fn reverse_digraph(digraph: &DiGraph) -> DiGraph {
+    let mut result = DiGraph::new(digraph.mode());
+    for node in digraph.nodes_ordered() {
+        result.add_node(node.to_owned());
+    }
+    for edge in digraph.edges_ordered() {
+        let _ = result.add_edge_with_attrs(
+            edge.right.clone(),
+            edge.left.clone(),
+            edge.attrs.clone(),
+        );
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

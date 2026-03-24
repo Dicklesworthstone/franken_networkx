@@ -8310,6 +8310,59 @@ pub fn is_d_separator_rust(
     Ok(py.allow_threads(|| fnx_algorithms::is_d_separator(dg, &x_set, &y_set, &z_set)))
 }
 
+// ---------------------------------------------------------------------------
+// Edge-disjoint paths
+// ---------------------------------------------------------------------------
+
+/// Find edge-disjoint paths between source and target.
+#[pyfunction]
+pub fn edge_disjoint_paths_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    target: &Bound<'_, PyAny>,
+) -> PyResult<Vec<Vec<PyObject>>> {
+    let gr = extract_graph(g)?;
+    let s = node_key_to_string(py, source)?;
+    let t = node_key_to_string(py, target)?;
+    let result = if gr.is_directed() {
+        let dg = gr.digraph().ok_or_else(|| {
+            crate::NetworkXError::new_err("expected directed graph")
+        })?;
+        py.allow_threads(|| fnx_algorithms::edge_disjoint_paths_directed(dg, &s, &t))
+    } else {
+        let inner = gr.undirected();
+        py.allow_threads(|| fnx_algorithms::edge_disjoint_paths(inner, &s, &t))
+    };
+    Ok(result
+        .into_iter()
+        .map(|path| path.iter().map(|n| gr.py_node_key(py, n)).collect())
+        .collect())
+}
+
+// ---------------------------------------------------------------------------
+// Node-disjoint paths
+// ---------------------------------------------------------------------------
+
+/// Find node-disjoint paths between source and target.
+#[pyfunction]
+pub fn node_disjoint_paths_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: &Bound<'_, PyAny>,
+    target: &Bound<'_, PyAny>,
+) -> PyResult<Vec<Vec<PyObject>>> {
+    let gr = extract_graph(g)?;
+    let s = node_key_to_string(py, source)?;
+    let t = node_key_to_string(py, target)?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::node_disjoint_paths(inner, &s, &t));
+    Ok(result
+        .into_iter()
+        .map(|path| path.iter().map(|n| gr.py_node_key(py, n)).collect())
+        .collect())
+}
+
 // Registration
 // ===========================================================================
 
@@ -8692,5 +8745,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(voronoi_cells_rust, m)?)?;
     // D-separation
     m.add_function(wrap_pyfunction!(is_d_separator_rust, m)?)?;
+    // Edge/node disjoint paths
+    m.add_function(wrap_pyfunction!(edge_disjoint_paths_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(node_disjoint_paths_rust, m)?)?;
     Ok(())
 }

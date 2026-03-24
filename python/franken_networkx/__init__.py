@@ -8078,7 +8078,7 @@ def scale_free_graph(
     from franken_networkx.drawing.layout import _to_nx
     from franken_networkx.readwrite import _from_nx_graph
 
-    if initial_graph is None:
+    if initial_graph is None or isinstance(initial_graph, MultiDiGraph):
         return _fnx.scale_free_graph(
             n,
             alpha=alpha,
@@ -8087,7 +8087,7 @@ def scale_free_graph(
             delta_in=delta_in,
             delta_out=delta_out,
             seed=seed,
-            create_using=None,
+            initial_graph=initial_graph,
         )
 
     return _from_nx_graph(

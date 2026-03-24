@@ -404,7 +404,7 @@ pub fn gnc_graph(
 
 /// Return a scale-free directed graph.
 #[pyfunction]
-#[pyo3(signature = (n, alpha=0.41, beta=0.54, gamma=0.05, delta_in=0.2, delta_out=0.0, seed=None, create_using=None))]
+#[pyo3(signature = (n, alpha=0.41, beta=0.54, gamma=0.05, delta_in=0.2, delta_out=0.0, seed=None, initial_graph=None))]
 pub fn scale_free_graph(
     py: Python<'_>,
     n: usize,
@@ -414,13 +414,25 @@ pub fn scale_free_graph(
     delta_in: f64,
     delta_out: f64,
     seed: Option<u64>,
-    create_using: Option<&Bound<'_, PyAny>>,
+    initial_graph: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Py<PyMultiDiGraph>> {
-    let _ = create_using;
+    let initial = match initial_graph {
+        None => None,
+        Some(graph) => Some(graph.extract::<PyRef<'_, PyMultiDiGraph>>()?.inner.clone()),
+    };
     let actual_seed = seed.unwrap_or(0);
     let mut gg = GraphGenerator::strict();
     let report = gg
-        .scale_free_graph(n, alpha, beta, gamma, delta_in, delta_out, actual_seed)
+        .scale_free_graph(
+            n,
+            alpha,
+            beta,
+            gamma,
+            delta_in,
+            delta_out,
+            initial,
+            actual_seed,
+        )
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("{e:?}")))?;
     Py::new(py, report_to_pymultidigraph(py, report.graph)?)
 }

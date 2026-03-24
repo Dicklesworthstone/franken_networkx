@@ -61,3 +61,19 @@ def test_native_scale_free_and_gn_graphs_do_not_fallback_to_networkx(monkeypatch
     assert Counter(list(scale_free.edges())) == Counter(
         [(0, 1), (1, 2), (1, 0), (2, 0), (2, 1), (3, 0), (3, 0), (3, 0), (4, 0), (5, 0)]
     )
+
+
+def test_native_scale_free_graph_supports_initial_graph(monkeypatch):
+    def fail(*args, **kwargs):
+        raise AssertionError("networkx fallback was used")
+
+    monkeypatch.setattr(nx, "scale_free_graph", fail)
+
+    initial = fnx.MultiDiGraph()
+    initial.add_edge(7, 8)
+    graph = fnx.scale_free_graph(4, seed=1, initial_graph=initial)
+
+    assert isinstance(graph, fnx.MultiDiGraph)
+    assert Counter(list(graph.edges(keys=True))) == Counter(
+        [(7, 8, 0), (9, 8, 0), (10, 8, 0)]
+    )

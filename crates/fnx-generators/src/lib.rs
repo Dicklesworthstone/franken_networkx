@@ -1120,6 +1120,7 @@ impl GraphGenerator {
         gamma: f64,
         delta_in: f64,
         delta_out: f64,
+        initial_graph: Option<MultiDiGraph>,
         seed: u64,
     ) -> Result<MultiDiGenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("scale_free_graph", n, MAX_N_GNP)?;
@@ -1162,31 +1163,20 @@ impl GraphGenerator {
             });
         }
 
-        let mut graph = MultiDiGraph::new(self.mode);
-        graph
-            .add_edge_with_attrs("0".to_owned(), "1".to_owned(), fnx_classes::AttrMap::new())
-            .map_err(|err| GenerationError::FailClosed {
-                operation: "scale_free_graph",
-                reason: err.to_string(),
-            })?;
-        graph
-            .add_edge_with_attrs("1".to_owned(), "2".to_owned(), fnx_classes::AttrMap::new())
-            .map_err(|err| GenerationError::FailClosed {
-                operation: "scale_free_graph",
-                reason: err.to_string(),
-            })?;
-        graph
-            .add_edge_with_attrs("2".to_owned(), "0".to_owned(), fnx_classes::AttrMap::new())
-            .map_err(|err| GenerationError::FailClosed {
-                operation: "scale_free_graph",
-                reason: err.to_string(),
-            })?;
-
+        let mut graph =
+            initial_graph.unwrap_or_else(|| default_scale_free_initial_graph(self.mode));
         let mut rng = PythonRandom::new(seed);
-        let mut out_state = vec![0usize, 1, 2];
-        let mut in_state = vec![0usize, 1, 2];
-        let mut node_list = vec![0usize, 1, 2];
-        let mut cursor = 3usize;
+        let mut out_state = degree_state_from_graph(&graph, true);
+        let mut in_state = degree_state_from_graph(&graph, false);
+        let mut node_list = graph
+            .nodes_ordered()
+            .into_iter()
+            .filter_map(|node| node.parse::<usize>().ok())
+            .collect::<Vec<usize>>();
+        let mut cursor = node_list
+            .iter()
+            .max()
+            .map_or(0, |node| node.saturating_add(1));
 
         while graph.node_count() < n.max(3) {
             let r = rng.random();
@@ -1363,6 +1353,29 @@ fn choose_scale_free_node(
     candidates[rng.choice_index(candidates.len())]
 }
 
+fn default_scale_free_initial_graph(mode: CompatibilityMode) -> MultiDiGraph {
+    let mut graph = MultiDiGraph::new(mode);
+    let _ = graph.add_edge_with_attrs("0".to_owned(), "1".to_owned(), fnx_classes::AttrMap::new());
+    let _ = graph.add_edge_with_attrs("1".to_owned(), "2".to_owned(), fnx_classes::AttrMap::new());
+    let _ = graph.add_edge_with_attrs("2".to_owned(), "0".to_owned(), fnx_classes::AttrMap::new());
+    graph
+}
+
+fn degree_state_from_graph(graph: &MultiDiGraph, out_degree: bool) -> Vec<usize> {
+    let mut state = Vec::new();
+    for node in graph.nodes_ordered() {
+        if let Ok(index) = node.parse::<usize>() {
+            let degree = if out_degree {
+                graph.out_degree(node)
+            } else {
+                graph.in_degree(node)
+            };
+            state.extend(std::iter::repeat_n(index, degree));
+        }
+    }
+    state
+}
+
 fn graph_with_n_nodes(mode: CompatibilityMode, n: usize) -> (Graph, Vec<String>) {
     let mut graph = Graph::new(mode);
     let mut node_labels = Vec::with_capacity(n);
@@ -1378,6 +1391,7 @@ fn graph_with_n_nodes(mode: CompatibilityMode, n: usize) -> (Graph, Vec<String>)
 mod tests {
     use super::{GenerationError, GraphGenerator, MAX_N_COMPLETE, MAX_N_GENERIC, MAX_N_STAR};
     use fnx_classes::Graph;
+    use fnx_classes::digraph::MultiDiGraph;
     use fnx_runtime::{
         CompatibilityMode, DecisionAction, ForensicsBundleIndex, StructuredTestLog, TestKind,
         TestStatus, canonical_environment_fingerprint, structured_test_log_schema_version,
@@ -1792,7 +1806,7 @@ mod tests {
     fn scale_free_graph_is_directed_multigraph_and_seed_reproducible() {
         let mut gg = GraphGenerator::strict();
         let report = gg
-            .scale_free_graph(6, 0.41, 0.54, 0.05, 0.2, 0.0, 1)
+            .scale_free_graph(6, 0.41, 0.54, 0.05, 0.2, 0.0, None, 1)
             .expect("scale_free_graph should succeed");
         assert!(report.graph.is_directed());
         assert!(report.graph.is_multigraph());
@@ -1809,7 +1823,7 @@ mod tests {
         assert!(edge_set.contains(&("2".to_owned(), "0".to_owned(), 0)));
 
         let report_again = gg
-            .scale_free_graph(6, 0.41, 0.54, 0.05, 0.2, 0.0, 1)
+            .scale_free_graph(6, 0.41, 0.54, 0.05, 0.2, 0.0, None, 1)
             .expect("scale_free_graph replay should succeed");
         assert_eq!(snapshot, report_again.graph.snapshot());
     }
@@ -1818,7 +1832,7 @@ mod tests {
     fn scale_free_graph_matches_networkx_seeded_example() {
         let mut gg = GraphGenerator::strict();
         let report = gg
-            .scale_free_graph(6, 0.41, 0.54, 0.05, 0.2, 0.0, 1)
+            .scale_free_graph(6, 0.41, 0.54, 0.05, 0.2, 0.0, None, 1)
             .expect("scale_free_graph should succeed");
         let edges = report
             .graph
@@ -1840,6 +1854,34 @@ mod tests {
                 ("3".to_owned(), "0".to_owned(), 2),
                 ("4".to_owned(), "0".to_owned(), 0),
                 ("5".to_owned(), "0".to_owned(), 0),
+            ]
+        );
+    }
+
+    #[test]
+    fn scale_free_graph_respects_initial_multidigraph() {
+        let mut initial = MultiDiGraph::strict();
+        initial
+            .add_edge_with_attrs("7".to_owned(), "8".to_owned(), fnx_classes::AttrMap::new())
+            .expect("initial edge should be valid");
+
+        let mut gg = GraphGenerator::strict();
+        let report = gg
+            .scale_free_graph(4, 0.41, 0.54, 0.05, 0.2, 0.0, Some(initial), 1)
+            .expect("scale_free_graph should accept initial graph");
+        let edges = report
+            .graph
+            .snapshot()
+            .edges
+            .into_iter()
+            .map(|edge| (edge.source, edge.target, edge.key))
+            .collect::<Vec<(String, String, usize)>>();
+        assert_eq!(
+            edges,
+            vec![
+                ("7".to_owned(), "8".to_owned(), 0),
+                ("9".to_owned(), "8".to_owned(), 0),
+                ("10".to_owned(), "8".to_owned(), 0),
             ]
         );
     }
