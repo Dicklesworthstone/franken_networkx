@@ -505,6 +505,18 @@ class TestGenerators:
         tree_payload = {"name": "root", "kids": [{"name": "leaf"}]}
         tree = fnx.tree_graph(tree_payload, ident="name", children="kids")
         expected_tree = nx.tree_graph(tree_payload, ident="name", children="kids")
+        tree_export = fnx.tree_data(
+            nx.DiGraph([(0, 1)]),
+            0,
+            ident="name",
+            children="kids",
+        )
+        expected_tree_export = nx.tree_data(
+            nx.DiGraph([(0, 1)]),
+            0,
+            ident="name",
+            children="kids",
+        )
 
         adjacency_data = fnx.adjacency_data(
             fnx.path_graph(3),
@@ -533,6 +545,32 @@ class TestGenerators:
             name="label",
             ident="value",
         )
+        cytoscape_data = fnx.cytoscape_data(
+            fnx.path_graph(2),
+            name="label",
+            ident="value",
+        )
+        expected_cytoscape_data = nx.cytoscape_data(
+            nx.path_graph(2),
+            name="label",
+            ident="value",
+        )
+        node_link_export = fnx.node_link_data(
+            fnx.path_graph(2),
+            edges="links",
+            nodes="vertices",
+            source="src",
+            target="dst",
+            name="name",
+        )
+        expected_node_link_export = nx.node_link_data(
+            nx.path_graph(2),
+            edges="links",
+            nodes="vertices",
+            source="src",
+            target="dst",
+            name="name",
+        )
 
         projected_source = fnx.complete_bipartite_graph(2, 2)
         projected = fnx.projected_graph(projected_source, [0, 1], multigraph=True)
@@ -555,6 +593,9 @@ class TestGenerators:
         assert sorted(node_link_graph.edges()) == sorted(expected_node_link.edges())
         assert adjacency_data == expected_adjacency_data
         assert sorted(tree.edges()) == sorted(expected_tree.edges())
+        assert tree_export == expected_tree_export
+        assert node_link_export == expected_node_link_export
+        assert cytoscape_data == expected_cytoscape_data
         assert sorted(cytoscape.edges()) == sorted(expected_cytoscape.edges())
         assert isinstance(projected, fnx.MultiGraph)
         assert sorted(projected.edges(keys=True)) == sorted(expected_projected.edges(keys=True))
