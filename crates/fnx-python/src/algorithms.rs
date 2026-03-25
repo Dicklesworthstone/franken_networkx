@@ -5629,11 +5629,18 @@ fn rust_graph_to_py_with_source_edge_attrs(
     Ok(py_graph.into_pyobject(py)?.into_any().unbind())
 }
 
-/// Convert a Rust Graph to a Python Graph using string node keys directly.
+/// Convert a Rust Graph to a Python Graph using NetworkX-style integer labels
+/// when the canonical keys are numeric.
 fn rust_graph_to_py_standalone(py: Python<'_>, result: &fnx_classes::Graph) -> PyResult<PyObject> {
     let mut py_graph = PyGraph::new_empty(py)?;
     for node in result.nodes_ordered() {
-        let py_key = node.to_owned().into_pyobject(py)?.into_any().unbind();
+        let py_key = if let Ok(i) = node.parse::<i64>() {
+            crate::unwrap_infallible(i.into_pyobject(py)).into_any().unbind()
+        } else {
+            crate::unwrap_infallible(node.to_owned().into_pyobject(py))
+                .into_any()
+                .unbind()
+        };
         py_graph.node_key_map.insert(node.to_owned(), py_key);
         py_graph
             .node_py_attrs
@@ -8747,6 +8754,195 @@ pub fn identified_nodes_rust(
     Ok(pg.into_pyobject(py)?.into_any().unbind())
 }
 
+// ---------------------------------------------------------------------------
+// All triads
+// ---------------------------------------------------------------------------
+
+/// Enumerate all non-null triads in a directed graph.
+#[pyfunction]
+pub fn all_triads_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Vec<(PyObject, PyObject, PyObject, String)>> {
+    let gr = extract_graph(g)?;
+    let dg = gr
+        .digraph()
+        .ok_or_else(|| crate::NetworkXError::new_err("all_triads requires a DiGraph"))?;
+    let result = py.allow_threads(|| fnx_algorithms::all_triads(dg));
+    Ok(result
+        .into_iter()
+        .map(|(a, b, c, t)| (gr.py_node_key(py, &a), gr.py_node_key(py, &b), gr.py_node_key(py, &c), t))
+        .collect())
+}
+
+// ---------------------------------------------------------------------------
+// Node degree xy
+// ---------------------------------------------------------------------------
+
+/// Return (source_degree, target_degree) pairs for each edge.
+#[pyfunction]
+#[pyo3(signature = (g, x="out", y="in", weight=None, nodes=None))]
+pub fn node_degree_xy_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    x: &str,
+    y: &str,
+    weight: Option<&str>,
+    nodes: Option<Vec<Bound<'_, PyAny>>>,
+) -> PyResult<Vec<(usize, usize)>> {
+    let _ = weight;
+    let _ = nodes;
+    let gr = extract_graph(g)?;
+    let result = if gr.is_directed() {
+        let dg = gr.digraph().unwrap();
+        py.allow_threads(|| fnx_algorithms::node_degree_xy_directed(dg, x, y))
+    } else {
+        let inner = gr.undirected();
+        py.allow_threads(|| fnx_algorithms::node_degree_xy(inner))
+    };
+    Ok(result)
+}
+
+// ---------------------------------------------------------------------------
+// Dedensify
+// ---------------------------------------------------------------------------
+
+/// Return a dedensified graph with compressor nodes.
+#[pyfunction]
+#[pyo3(signature = (g, threshold, prefix=None, copy=true))]
+pub fn dedensify_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    threshold: usize,
+    prefix: Option<&str>,
+    copy: bool,
+) -> PyResult<(PyObject, Vec<String>)> {
+    let _ = prefix;
+    let _ = copy;
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let (result_graph, compressors) = py.allow_threads(|| fnx_algorithms::dedensify(inner, threshold));
+    let pg = crate::PyGraph {
+        inner: result_graph,
+        node_key_map: std::collections::HashMap::new(),
+        node_py_attrs: std::collections::HashMap::new(),
+        edge_py_attrs: std::collections::HashMap::new(),
+        graph_attrs: PyDict::new(py).unbind(),
+    };
+    Ok((pg.into_pyobject(py)?.into_any().unbind(), compressors))
+}
+
+// ---------------------------------------------------------------------------
+// Numeric assortativity
+// ---------------------------------------------------------------------------
+
+/// Numeric assortativity coefficient for a scalar node attribute.
+#[pyfunction]
+pub fn numeric_assortativity_coefficient_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    attribute: &str,
+) -> PyResult<f64> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    Ok(py.allow_threads(|| fnx_algorithms::numeric_assortativity_coefficient(inner, attribute)))
+}
+
+// ---------------------------------------------------------------------------
+// Group closeness centrality
+// ---------------------------------------------------------------------------
+
+/// Group closeness centrality.
+#[pyfunction]
+pub fn group_closeness_centrality_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    group: Vec<Bound<'_, PyAny>>,
+) -> PyResult<f64> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let group_keys: Vec<String> = group
+        .iter()
+        .map(|n| node_key_to_string(py, n))
+        .collect::<PyResult<_>>()?;
+    let group_refs: Vec<&str> = group_keys.iter().map(String::as_str).collect();
+    Ok(py.allow_threads(|| fnx_algorithms::group_closeness_centrality(inner, &group_refs)))
+}
+
+// ---------------------------------------------------------------------------
+// Get node/edge attributes
+// ---------------------------------------------------------------------------
+
+/// Get a specific attribute from all nodes.
+#[pyfunction]
+pub fn get_node_attributes_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    name: &str,
+) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::get_node_attributes(inner, name));
+    let dict = PyDict::new(py);
+    for (node, val) in &result {
+        dict.set_item(gr.py_node_key(py, node), val.as_str())?;
+    }
+    Ok(dict.unbind())
+}
+
+/// Get a specific attribute from all edges.
+#[pyfunction]
+pub fn get_edge_attributes_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    name: &str,
+) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::get_edge_attributes(inner, name));
+    let dict = PyDict::new(py);
+    for ((u, v), val) in &result {
+        dict.set_item(
+            (gr.py_node_key(py, u), gr.py_node_key(py, v)),
+            val.as_str(),
+        )?;
+    }
+    Ok(dict.unbind())
+}
+
+// ---------------------------------------------------------------------------
+// Quotient graph
+// ---------------------------------------------------------------------------
+
+/// Build a quotient graph from a partition.
+#[pyfunction]
+pub fn quotient_graph_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    partition: Vec<Vec<Bound<'_, PyAny>>>,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let partition_keys: Vec<Vec<String>> = partition
+        .iter()
+        .map(|block| {
+            block
+                .iter()
+                .map(|n| node_key_to_string(py, n))
+                .collect::<PyResult<Vec<String>>>()
+        })
+        .collect::<PyResult<_>>()?;
+    let result = py.allow_threads(|| fnx_algorithms::quotient_graph(inner, &partition_keys));
+    let pg = crate::PyGraph {
+        inner: result,
+        node_key_map: std::collections::HashMap::new(),
+        node_py_attrs: std::collections::HashMap::new(),
+        edge_py_attrs: std::collections::HashMap::new(),
+        graph_attrs: PyDict::new(py).unbind(),
+    };
+    Ok(pg.into_pyobject(py)?.into_any().unbind())
+}
+
 // Registration
 // ===========================================================================
 
@@ -9242,5 +9438,11 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(full_join_rust, m)?)?;
     // Identified nodes
     m.add_function(wrap_pyfunction!(identified_nodes_rust, m)?)?;
+    // All triads
+    m.add_function(wrap_pyfunction!(all_triads_rust, m)?)?;
+    // Node degree xy
+    m.add_function(wrap_pyfunction!(node_degree_xy_rust, m)?)?;
+    // Dedensify
+    m.add_function(wrap_pyfunction!(dedensify_rust, m)?)?;
     Ok(())
 }

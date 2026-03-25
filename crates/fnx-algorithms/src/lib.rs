@@ -21726,6 +21726,599 @@ pub fn identified_nodes(graph: &Graph, u: &str, v: &str) -> Graph {
     result
 }
 
+// ---------------------------------------------------------------------------
+// Connected double edge swap
+// ---------------------------------------------------------------------------
+
+/// Degree-preserving double edge swaps maintaining connectivity.
+///
+/// After each swap, checks if the graph remains connected and reverts
+/// if not. Returns the number of successful swaps.
+pub fn connected_double_edge_swap_seeded(
+    graph: &mut Graph,
+    nswap: usize,
+    seed: u64,
+) -> usize {
+    if graph.edge_count() < 2 {
+        return 0;
+    }
+
+    let mut rng_state = seed.wrapping_add(1);
+    let mut next_rand = || -> usize {
+        rng_state = rng_state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        (rng_state >> 33) as usize
+    };
+
+    let mut swaps_done = 0usize;
+    let max_tries = nswap.saturating_mul(100);
+
+    for _ in 0..max_tries {
+        if swaps_done >= nswap {
+            break;
+        }
+        let edges: Vec<(String, String)> = graph
+            .edges_ordered()
+            .iter()
+            .map(|e| (e.left.clone(), e.right.clone()))
+            .collect();
+        let m = edges.len();
+        if m < 2 {
+            break;
+        }
+        let i1 = next_rand() % m;
+        let i2 = next_rand() % m;
+        if i1 == i2 {
+            continue;
+        }
+
+        let (ref u, ref v) = edges[i1];
+        let (ref x, ref y) = edges[i2];
+
+        let mut nodes = std::collections::HashSet::new();
+        nodes.insert(u.as_str());
+        nodes.insert(v.as_str());
+        nodes.insert(x.as_str());
+        nodes.insert(y.as_str());
+        if nodes.len() < 4 || graph.has_edge(u, x) || graph.has_edge(v, y) {
+            continue;
+        }
+
+        // Swap
+        let _ = graph.remove_edge(u, v);
+        let _ = graph.remove_edge(x, y);
+        let _ = graph.add_edge(u.clone(), x.clone());
+        let _ = graph.add_edge(v.clone(), y.clone());
+
+        // Check connectivity
+        if !is_connected(graph).is_connected {
+            // Revert
+            let _ = graph.remove_edge(u, x);
+            let _ = graph.remove_edge(v, y);
+            let _ = graph.add_edge(u.clone(), v.clone());
+            let _ = graph.add_edge(x.clone(), y.clone());
+        } else {
+            swaps_done += 1;
+        }
+    }
+
+    swaps_done
+}
+
+// ---------------------------------------------------------------------------
+// All triads (directed)
+// ---------------------------------------------------------------------------
+
+/// Enumerate all triads in a directed graph.
+///
+/// Returns a list of (node1, node2, node3, triad_type) tuples.
+/// The triad type is one of the 16 MAN classification types.
+#[must_use]
+pub fn all_triads(digraph: &DiGraph) -> Vec<(String, String, String, String)> {
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+    if n < 3 {
+        return Vec::new();
+    }
+
+    let idx: std::collections::HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+
+    let mut succ_set: Vec<std::collections::HashSet<usize>> = vec![std::collections::HashSet::new(); n];
+    for edge in digraph.edges_ordered() {
+        let u = idx[edge.left.as_str()];
+        let v = idx[edge.right.as_str()];
+        succ_set[u].insert(v);
+    }
+
+    let mut result = Vec::new();
+    for i in 0..n {
+        for j in (i + 1)..n {
+            for k in (j + 1)..n {
+                let ij = succ_set[i].contains(&j);
+                let ji = succ_set[j].contains(&i);
+                let ik = succ_set[i].contains(&k);
+                let ki = succ_set[k].contains(&i);
+                let jk = succ_set[j].contains(&k);
+                let kj = succ_set[k].contains(&j);
+
+                let edge_count = usize::from(ij) + usize::from(ji) + usize::from(ik)
+                    + usize::from(ki) + usize::from(jk) + usize::from(kj);
+
+                // Skip null triads (003) — too many to enumerate
+                if edge_count == 0 {
+                    continue;
+                }
+
+                // Classify using the triadic_census logic
+                let mutual_count = usize::from(ij && ji)
+                    + usize::from(ik && ki)
+                    + usize::from(jk && kj);
+                let asym_count = usize::from(ij ^ ji)
+                    + usize::from(ik ^ ki)
+                    + usize::from(jk ^ kj);
+
+                let triad_type = match (mutual_count, asym_count, 3 - mutual_count - asym_count) {
+                    (0, 1, 2) => "012",
+                    (1, 0, 2) => "102",
+                    (0, 2, 1) => "021",
+                    (1, 1, 1) => "111",
+                    (0, 3, 0) => "030",
+                    (2, 0, 1) => "201",
+                    (1, 2, 0) => "120",
+                    (2, 1, 0) => "210",
+                    (3, 0, 0) => "300",
+                    _ => "003",
+                };
+
+                result.push((
+                    nodes[i].to_owned(),
+                    nodes[j].to_owned(),
+                    nodes[k].to_owned(),
+                    triad_type.to_owned(),
+                ));
+            }
+        }
+    }
+
+    result
+}
+
+// ---------------------------------------------------------------------------
+// Node degree xy (for assortativity)
+// ---------------------------------------------------------------------------
+
+/// Yield (source_degree, target_degree) for each edge.
+///
+/// For directed graphs, `x` controls source degree type ('in'/'out'/'inout')
+/// and `y` controls target degree type.
+pub fn node_degree_xy(graph: &Graph) -> Vec<(usize, usize)> {
+    let mut result = Vec::new();
+    for edge in graph.edges_ordered() {
+        let du = graph.neighbors(&edge.left).unwrap_or_default().len();
+        let dv = graph.neighbors(&edge.right).unwrap_or_default().len();
+        result.push((du, dv));
+    }
+    result
+}
+
+/// Directed variant: use out-degree for source, in-degree for target.
+pub fn node_degree_xy_directed(
+    digraph: &DiGraph,
+    x_type: &str,
+    y_type: &str,
+) -> Vec<(usize, usize)> {
+    let mut result = Vec::new();
+    for edge in digraph.edges_ordered() {
+        let du = match x_type {
+            "in" => digraph.predecessors(&edge.left).map_or(0, |p| p.len()),
+            "out" => digraph.neighbor_count(&edge.left),
+            _ => {
+                digraph.neighbor_count(&edge.left)
+                    + digraph.predecessors(&edge.left).map_or(0, |p| p.len())
+            }
+        };
+        let dv = match y_type {
+            "in" => digraph.predecessors(&edge.right).map_or(0, |p| p.len()),
+            "out" => digraph.neighbor_count(&edge.right),
+            _ => {
+                digraph.neighbor_count(&edge.right)
+                    + digraph.predecessors(&edge.right).map_or(0, |p| p.len())
+            }
+        };
+        result.push((du, dv));
+    }
+    result
+}
+
+// ---------------------------------------------------------------------------
+// Dedensify
+// ---------------------------------------------------------------------------
+
+/// Dedensify a graph by compressing high-degree neighborhoods.
+///
+/// For each node with degree >= threshold, if multiple nodes share the
+/// same high-degree neighbor set, replace those edges with a compressor
+/// node. Returns the modified graph and a set of compressor node names.
+#[must_use]
+pub fn dedensify(
+    graph: &Graph,
+    threshold: usize,
+) -> (Graph, Vec<String>) {
+    let mut result = Graph::new(graph.mode());
+    let nodes = graph.nodes_ordered();
+
+    // Copy all nodes
+    for &node in &nodes {
+        let _ = result.add_node(node.to_owned());
+    }
+    // Copy all edges initially
+    for edge in graph.edges_ordered() {
+        let _ = result.add_edge(edge.left.clone(), edge.right.clone());
+    }
+
+    let mut compressor_names = Vec::new();
+    let mut compressor_id = 0usize;
+
+    // Find high-degree nodes
+    let high_degree: Vec<&str> = nodes
+        .iter()
+        .filter(|&&n| graph.neighbors(n).unwrap_or_default().len() >= threshold)
+        .copied()
+        .collect();
+
+    for &hd_node in &high_degree {
+        let hd_nbrs: std::collections::HashSet<&str> = graph
+            .neighbors(hd_node)
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+
+        // Group non-high-degree neighbors by their neighbor set intersection
+        // with high-degree nodes
+        let mut groups: std::collections::HashMap<Vec<String>, Vec<String>> =
+            std::collections::HashMap::new();
+
+        for &nbr in &hd_nbrs {
+            if graph.neighbors(nbr).unwrap_or_default().len() >= threshold {
+                continue; // Skip other high-degree nodes
+            }
+            let mut nbr_hd: Vec<String> = graph
+                .neighbors(nbr)
+                .unwrap_or_default()
+                .iter()
+                .filter(|&&n| {
+                    n != hd_node
+                        && graph.neighbors(n).unwrap_or_default().len() >= threshold
+                        && hd_nbrs.contains(n)
+                })
+                .map(|&s| s.to_owned())
+                .collect();
+            nbr_hd.sort();
+            groups
+                .entry(nbr_hd)
+                .or_default()
+                .push(nbr.to_owned());
+        }
+
+        // For groups with enough members, add a compressor
+        for (_, group_nodes) in &groups {
+            if group_nodes.len() < 2 {
+                continue;
+            }
+            // Check if compression saves edges
+            // Current: group_nodes.len() edges to hd_node
+            // After: 1 edge (compressor→hd_node) + group_nodes.len() edges (each→compressor)
+            // Savings: group_nodes.len() - 1 - 1 = group_nodes.len() - 2
+            if group_nodes.len() < 3 {
+                continue; // Need at least 3 to save edges
+            }
+
+            let comp_name = format!("_compressor_{compressor_id}");
+            compressor_id += 1;
+            let _ = result.add_node(comp_name.clone());
+            let _ = result.add_edge(comp_name.clone(), hd_node.to_owned());
+
+            for gn in group_nodes {
+                let _ = result.remove_edge(gn, hd_node);
+                let _ = result.add_edge(gn.clone(), comp_name.clone());
+            }
+
+            compressor_names.push(comp_name);
+        }
+    }
+
+    (result, compressor_names)
+}
+
+// ---------------------------------------------------------------------------
+// Attribute assortativity coefficient (numeric)
+// ---------------------------------------------------------------------------
+
+/// Numeric assortativity coefficient for a scalar node attribute.
+///
+/// Computes Pearson correlation of attribute values across edges.
+/// Returns a value in [-1, 1].
+#[must_use]
+pub fn numeric_assortativity_coefficient(
+    graph: &Graph,
+    attribute: &str,
+) -> f64 {
+    let mut sum_xy = 0.0f64;
+    let mut sum_x = 0.0f64;
+    let mut sum_y = 0.0f64;
+    let mut sum_x2 = 0.0f64;
+    let mut sum_y2 = 0.0f64;
+    let mut m = 0usize;
+
+    for edge in graph.edges_ordered() {
+        let x_val = graph
+            .node_attrs(&edge.left)
+            .and_then(|a| a.get(attribute))
+            .and_then(|v| v.as_str().parse::<f64>().ok())
+            .unwrap_or(0.0);
+        let y_val = graph
+            .node_attrs(&edge.right)
+            .and_then(|a| a.get(attribute))
+            .and_then(|v| v.as_str().parse::<f64>().ok())
+            .unwrap_or(0.0);
+
+        sum_xy += x_val * y_val;
+        sum_x += x_val;
+        sum_y += y_val;
+        sum_x2 += x_val * x_val;
+        sum_y2 += y_val * y_val;
+        m += 1;
+
+        // Undirected: also count reverse direction
+        sum_xy += y_val * x_val;
+        sum_x += y_val;
+        sum_y += x_val;
+        sum_x2 += y_val * y_val;
+        sum_y2 += x_val * x_val;
+        m += 1;
+    }
+
+    if m == 0 {
+        return 0.0;
+    }
+
+    let mf = m as f64;
+    let numerator = mf * sum_xy - sum_x * sum_y;
+    let denom_x = (mf * sum_x2 - sum_x * sum_x).sqrt();
+    let denom_y = (mf * sum_y2 - sum_y * sum_y).sqrt();
+    let denominator = denom_x * denom_y;
+
+    if denominator.abs() < ASSORTATIVITY_EPSILON {
+        0.0
+    } else {
+        numerator / denominator
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Group closeness centrality
+// ---------------------------------------------------------------------------
+
+/// Group closeness centrality: closeness of a SET of nodes.
+///
+/// Measures how close a group of nodes is to all other nodes.
+/// Uses multi-source BFS from the group.
+#[must_use]
+pub fn group_closeness_centrality(
+    graph: &Graph,
+    group: &[&str],
+) -> f64 {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 || group.is_empty() {
+        return 0.0;
+    }
+
+    let idx: std::collections::HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+
+    // Multi-source BFS from group
+    let mut dist = vec![usize::MAX; n];
+    let mut queue = std::collections::VecDeque::new();
+    let group_set: std::collections::HashSet<&str> = group.iter().copied().collect();
+
+    for &g in group {
+        if let Some(&gi) = idx.get(g) {
+            dist[gi] = 0;
+            queue.push_back(gi);
+        }
+    }
+
+    while let Some(v) = queue.pop_front() {
+        if let Some(nbrs) = graph.neighbors(nodes[v]) {
+            for nb in nbrs {
+                if let Some(&ni) = idx.get(nb) {
+                    if dist[ni] == usize::MAX {
+                        dist[ni] = dist[v] + 1;
+                        queue.push_back(ni);
+                    }
+                }
+            }
+        }
+    }
+
+    // Sum of distances from non-group nodes
+    let non_group_count = n - group_set.len();
+    if non_group_count == 0 {
+        return 1.0;
+    }
+
+    let total_dist: usize = dist
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !group_set.contains(nodes[*i]))
+        .map(|(_, &d)| if d == usize::MAX { 0 } else { d })
+        .sum();
+
+    if total_dist == 0 {
+        return 0.0;
+    }
+
+    (non_group_count as f64) / (total_dist as f64)
+}
+
+// ---------------------------------------------------------------------------
+// Get node/edge attributes (bulk)
+// ---------------------------------------------------------------------------
+
+/// Get a specific attribute from all nodes.
+///
+/// Returns a map from node name to attribute value (as string).
+/// Nodes without the attribute are omitted.
+#[must_use]
+pub fn get_node_attributes(
+    graph: &Graph,
+    name: &str,
+) -> std::collections::HashMap<String, String> {
+    let mut result = std::collections::HashMap::new();
+    for node in graph.nodes_ordered() {
+        if let Some(attrs) = graph.node_attrs(node) {
+            if let Some(value) = attrs.get(name) {
+                result.insert(node.to_owned(), value.as_str());
+            }
+        }
+    }
+    result
+}
+
+/// Get a specific attribute from all edges.
+#[must_use]
+pub fn get_edge_attributes(
+    graph: &Graph,
+    name: &str,
+) -> std::collections::HashMap<(String, String), String> {
+    let mut result = std::collections::HashMap::new();
+    for edge in graph.edges_ordered() {
+        if let Some(value) = edge.attrs.get(name) {
+            result.insert(
+                (edge.left.clone(), edge.right.clone()),
+                value.as_str(),
+            );
+        }
+    }
+    result
+}
+
+// ---------------------------------------------------------------------------
+// Resource allocation index (Soundarajan-Hopcroft)
+// ---------------------------------------------------------------------------
+
+/// RA-index Soundarajan-Hopcroft link prediction.
+///
+/// Like resource_allocation_index but with community bonus: common
+/// neighbors in the same community as BOTH u and v get extra weight.
+pub fn ra_index_soundarajan_hopcroft(
+    graph: &Graph,
+    ebunch: &[(String, String)],
+    community_attr: &str,
+) -> Vec<(String, String, f64)> {
+    let mut result = Vec::with_capacity(ebunch.len());
+
+    for (u, v) in ebunch {
+        let u_nbrs: std::collections::HashSet<&str> = graph
+            .neighbors(u)
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+        let v_nbrs: std::collections::HashSet<&str> = graph
+            .neighbors(v)
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+
+        let u_comm = graph
+            .node_attrs(u)
+            .and_then(|a| a.get(community_attr))
+            .map(|v| v.as_str());
+        let v_comm = graph
+            .node_attrs(v)
+            .and_then(|a| a.get(community_attr))
+            .map(|v| v.as_str());
+
+        let common: Vec<&str> = u_nbrs.intersection(&v_nbrs).copied().collect();
+        let mut score = 0.0;
+        for &w in &common {
+            let deg_w = graph.neighbors(w).unwrap_or_default().len();
+            if deg_w == 0 {
+                continue;
+            }
+            let w_comm = graph
+                .node_attrs(w)
+                .and_then(|a| a.get(community_attr))
+                .map(|v| v.as_str());
+
+            // Bonus only if u, v, and w all share the same community
+            let bonus = if u_comm.is_some()
+                && u_comm == v_comm
+                && u_comm == w_comm
+            {
+                1.0
+            } else {
+                0.0
+            };
+            score += (1.0 + bonus) / deg_w as f64;
+        }
+
+        result.push((u.clone(), v.clone(), score));
+    }
+
+    result
+}
+
+// ---------------------------------------------------------------------------
+// Quotient graph
+// ---------------------------------------------------------------------------
+
+/// Build a quotient graph from a partition.
+///
+/// Each block in the partition becomes a single node. Edges exist between
+/// blocks if any edge connects their members.
+#[must_use]
+pub fn quotient_graph(
+    graph: &Graph,
+    partition: &[Vec<String>],
+) -> Graph {
+    let mut result = Graph::new(graph.mode());
+
+    // Map each node to its block index
+    let mut node_to_block: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for (i, block) in partition.iter().enumerate() {
+        for node in block {
+            node_to_block.insert(node.as_str(), i);
+        }
+    }
+
+    // Add block nodes
+    for i in 0..partition.len() {
+        let _ = result.add_node(i.to_string());
+    }
+
+    // Add edges between blocks
+    let mut seen_edges: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
+    for edge in graph.edges_ordered() {
+        if let (Some(&bi), Some(&bj)) = (
+            node_to_block.get(edge.left.as_str()),
+            node_to_block.get(edge.right.as_str()),
+        ) {
+            if bi != bj {
+                let key = if bi < bj { (bi, bj) } else { (bj, bi) };
+                if seen_edges.insert(key) {
+                    let _ = result.add_edge(key.0.to_string(), key.1.to_string());
+                }
+            }
+        }
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

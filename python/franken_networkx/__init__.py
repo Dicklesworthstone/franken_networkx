@@ -277,47 +277,47 @@ from franken_networkx._fnx import (
     balanced_tree as _rust_balanced_tree,
     barbell_graph as _rust_barbell_graph,
     bull_graph as _rust_bull_graph,
-    chvatal_graph,
+    chvatal_graph as _rust_chvatal_graph,
     cubical_graph as _rust_cubical_graph,
-    desargues_graph,
+    desargues_graph as _rust_desargues_graph,
     diamond_graph as _rust_diamond_graph,
-    dodecahedral_graph,
-    frucht_graph,
-    heawood_graph,
+    dodecahedral_graph as _rust_dodecahedral_graph,
+    frucht_graph as _rust_frucht_graph,
+    heawood_graph as _rust_heawood_graph,
     house_graph as _rust_house_graph,
     house_x_graph as _rust_house_x_graph,
-    icosahedral_graph,
-    krackhardt_kite_graph,
-    moebius_kantor_graph,
-    octahedral_graph,
+    icosahedral_graph as _rust_icosahedral_graph,
+    krackhardt_kite_graph as _rust_krackhardt_kite_graph,
+    moebius_kantor_graph as _rust_moebius_kantor_graph,
+    octahedral_graph as _rust_octahedral_graph,
     pappus_graph,
     petersen_graph as _rust_petersen_graph,
     sedgewick_maze_graph,
     tetrahedral_graph as _rust_tetrahedral_graph,
-    truncated_cube_graph,
-    truncated_tetrahedron_graph,
-    tutte_graph,
+    truncated_cube_graph as _rust_truncated_cube_graph,
+    truncated_tetrahedron_graph as _rust_truncated_tetrahedron_graph,
+    tutte_graph as _rust_tutte_graph,
     hoffman_singleton_graph,
-    generalized_petersen_graph,
+    generalized_petersen_graph as _rust_generalized_petersen_graph,
     wheel_graph as _rust_wheel_graph,
     ladder_graph as _rust_ladder_graph,
     circular_ladder_graph as _rust_circular_ladder_graph,
     lollipop_graph as _rust_lollipop_graph,
     tadpole_graph as _rust_tadpole_graph,
     turan_graph,
-    windmill_graph,
+    windmill_graph as _rust_windmill_graph,
     hypercube_graph,
     complete_bipartite_graph as _rust_complete_bipartite_graph,
-    complete_multipartite_graph,
+    complete_multipartite_graph as _rust_complete_multipartite_graph,
     grid_2d_graph as _rust_grid_2d_graph,
-    null_graph,
-    trivial_graph,
+    null_graph as _rust_null_graph,
+    trivial_graph as _rust_trivial_graph,
     binomial_tree as _rust_binomial_tree,
     full_rary_tree as _rust_full_rary_tree,
-    circulant_graph,
+    circulant_graph as _rust_circulant_graph,
     kneser_graph,
-    paley_graph,
-    chordal_cycle_graph,
+    paley_graph as _rust_paley_graph,
+    chordal_cycle_graph as _rust_chordal_cycle_graph,
 )
 
 # Algorithm functions — single-source shortest paths
@@ -571,11 +571,11 @@ from franken_networkx._fnx import (
 
 # Graph generators — classic
 from franken_networkx._fnx import (
-    complete_graph,
-    cycle_graph,
-    empty_graph,
-    path_graph,
-    star_graph,
+    complete_graph as _rust_complete_graph,
+    cycle_graph as _rust_cycle_graph,
+    empty_graph as _rust_empty_graph,
+    path_graph as _rust_path_graph,
+    star_graph as _rust_star_graph,
 )
 
 # Graph generators — random
@@ -638,6 +638,76 @@ from franken_networkx.readwrite import (
     write_sparse6,
     write_weighted_edgelist,
 )
+
+
+def complete_graph(n, create_using=None):
+    """Return the complete graph K_n."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_complete_graph(n)
+
+    graph = nx.complete_graph(n, create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def cycle_graph(n, create_using=None):
+    """Return the cycle graph C_n."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_cycle_graph(n)
+
+    graph = nx.cycle_graph(n, create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def empty_graph(n=0, create_using=None, default=Graph):
+    """Return the empty graph with n nodes and zero edges."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None and default in (Graph, nx.Graph):
+        return _rust_empty_graph(n)
+
+    default_graph = default
+    if default is Graph:
+        default_graph = nx.Graph
+    elif default is DiGraph:
+        default_graph = nx.DiGraph
+    elif default is MultiGraph:
+        default_graph = nx.MultiGraph
+    elif default is MultiDiGraph:
+        default_graph = nx.MultiDiGraph
+
+    graph = nx.empty_graph(n, create_using=None, default=default_graph)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def path_graph(n, create_using=None):
+    """Return the path graph P_n."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_path_graph(n)
+
+    graph = nx.path_graph(n, create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def star_graph(n, create_using=None):
+    """Return the star graph on n + 1 nodes."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_star_graph(n)
+
+    graph = nx.star_graph(n, create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
 
 
 # ---------------------------------------------------------------------------
@@ -2601,6 +2671,232 @@ def tetrahedral_graph(create_using=None):
     return _from_nx_graph(graph, create_using=create_using)
 
 
+def desargues_graph(create_using=None):
+    """Return the Desargues graph."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_desargues_graph()
+
+    graph = nx.desargues_graph(create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def dodecahedral_graph(create_using=None):
+    """Return the dodecahedral graph."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_dodecahedral_graph()
+
+    graph = nx.dodecahedral_graph(create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def heawood_graph(create_using=None):
+    """Return the Heawood graph."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_heawood_graph()
+
+    graph = nx.heawood_graph(create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def moebius_kantor_graph(create_using=None):
+    """Return the Moebius-Kantor graph."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_moebius_kantor_graph()
+
+    graph = nx.moebius_kantor_graph(create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def octahedral_graph(create_using=None):
+    """Return the octahedral graph."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_octahedral_graph()
+
+    graph = nx.octahedral_graph(create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def truncated_cube_graph(create_using=None):
+    """Return the truncated cube graph."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_truncated_cube_graph()
+
+    graph = nx.truncated_cube_graph(create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def truncated_tetrahedron_graph(create_using=None):
+    """Return the truncated tetrahedron graph."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_truncated_tetrahedron_graph()
+
+    graph = nx.truncated_tetrahedron_graph(create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def chvatal_graph(create_using=None):
+    """Return the Chvatal graph."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_chvatal_graph()
+
+    graph = nx.chvatal_graph(create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def frucht_graph(create_using=None):
+    """Return the Frucht graph."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_frucht_graph()
+
+    graph = nx.frucht_graph(create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def icosahedral_graph(create_using=None):
+    """Return the icosahedral graph."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_icosahedral_graph()
+
+    graph = nx.icosahedral_graph(create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def krackhardt_kite_graph(create_using=None):
+    """Return the Krackhardt kite graph."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_krackhardt_kite_graph()
+
+    graph = nx.krackhardt_kite_graph(create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def null_graph(create_using=None):
+    """Return the null graph."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_null_graph()
+
+    graph = nx.null_graph(create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def trivial_graph(create_using=None):
+    """Return the trivial graph."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_trivial_graph()
+
+    graph = nx.trivial_graph(create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def circulant_graph(n, offsets, create_using=None):
+    """Return the circulant graph on n nodes with the given offsets."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_circulant_graph(n, offsets)
+
+    graph = nx.circulant_graph(n, offsets, create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def paley_graph(p, create_using=None):
+    """Return the Paley graph or digraph of order p."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_paley_graph(p)
+
+    graph = nx.paley_graph(p, create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def chordal_cycle_graph(p, create_using=None):
+    """Return the chordal cycle graph on p nodes."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_chordal_cycle_graph(p)
+
+    graph = nx.chordal_cycle_graph(p, create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def tutte_graph(create_using=None):
+    """Return the Tutte graph."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_tutte_graph()
+
+    graph = nx.tutte_graph(create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def generalized_petersen_graph(n, k, create_using=None):
+    """Return the generalized Petersen graph G(n, k)."""
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    if create_using is None:
+        return _rust_generalized_petersen_graph(n, k)
+
+    graph = nx.generalized_petersen_graph(n, k, create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def windmill_graph(n, k):
+    """Generate a windmill graph with n cliques of size k sharing one node."""
+    return _rust_windmill_graph(k, n)
+
+
+def complete_multipartite_graph(*subset_sizes):
+    """Return the complete multipartite graph with the given subset sizes."""
+    return _rust_complete_multipartite_graph(subset_sizes)
+
+
 def gnm_random_graph(n, m, seed=None):
     """Return a G(n,m) random graph with exactly *m* edges.
 
@@ -2780,9 +3076,14 @@ def attribute_mixing_matrix(G, attribute, normalized=True):
 # ---------------------------------------------------------------------------
 
 
-def dense_gnm_random_graph(n, m, seed=None):
-    """Return a dense G(n,m) random graph. Alias for ``gnm_random_graph``."""
-    return gnm_random_graph(n, m, seed=seed)
+def dense_gnm_random_graph(n, m, seed=None, create_using=None):
+    """Return a dense G(n,m) random graph."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    graph = nx.dense_gnm_random_graph(n, m, seed=seed, create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
 
 
 def random_labeled_tree(n, seed=None):
@@ -3499,40 +3800,14 @@ def configuration_model(deg_sequence, seed=None):
     return G
 
 
-def havel_hakimi_graph(deg_sequence):
-    """Return a simple graph with the given degree sequence using
-    the Havel-Hakimi algorithm.
+def havel_hakimi_graph(deg_sequence, create_using=None):
+    """Return a simple graph with the given degree sequence."""
+    import networkx as nx
 
-    Parameters
-    ----------
-    deg_sequence : list of int
+    from franken_networkx.readwrite import _from_nx_graph
 
-    Returns
-    -------
-    Graph
-    """
-    seq = sorted(enumerate(deg_sequence), key=lambda x: -x[1])
-    G = Graph()
-    for i in range(len(deg_sequence)):
-        G.add_node(i)
-
-    while seq:
-        seq.sort(key=lambda x: -x[1])
-        if seq[0][1] == 0:
-            break
-        node, degree = seq[0]
-        seq[0] = (node, 0)
-        if degree > len(seq) - 1:
-            raise ValueError("Non-graphical degree sequence")
-        for j in range(1, degree + 1):
-            target, target_deg = seq[j]
-            if target_deg <= 0:
-                raise ValueError("Non-graphical degree sequence")
-            G.add_edge(node, target)
-            seq[j] = (target, target_deg - 1)
-        seq = [(n, d) for n, d in seq if d > 0]
-
-    return G
+    graph = nx.havel_hakimi_graph(deg_sequence, create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
 
 
 def degree_sequence_tree(deg_sequence):
@@ -6924,36 +7199,24 @@ def complete_to_chordal_graph(G):
     return H, added
 
 # Structural Generators (br-rfd)
-def hkn_harary_graph(k, n):
-    """Harary graph: k-connected on n nodes with minimum edges."""
-    G = Graph()
-    for i in range(n): G.add_node(i)
-    half = k // 2
-    for i in range(n):
-        for j in range(1, half+1): G.add_edge(i, (i+j) % n)
-    if k % 2 == 1:
-        if n % 2 == 0:
-            for i in range(n // 2): G.add_edge(i, i + n // 2)
-        else:
-            for i in range(n // 2): G.add_edge(i, i + (n+1) // 2)
-            G.add_edge(0, n // 2)
-    return G
+def hkn_harary_graph(k, n, create_using=None):
+    """Return the Harary graph H_{k,n}."""
+    import networkx as nx
 
-def hnm_harary_graph(n, m):
-    """Harary graph with n nodes and m edges, maximum connectivity."""
-    G = Graph()
-    for i in range(n): G.add_node(i)
-    edges_added = 0
-    d = 1
-    while edges_added < m:
-        for i in range(n):
-            j = (i + d) % n
-            if not G.has_edge(i, j) and i != j:
-                G.add_edge(i, j); edges_added += 1
-                if edges_added >= m: break
-        d += 1
-        if d > n: break
-    return G
+    from franken_networkx.readwrite import _from_nx_graph
+
+    graph = nx.hkn_harary_graph(k, n, create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
+
+
+def hnm_harary_graph(n, m, create_using=None):
+    """Return the Harary graph on n nodes and m edges."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    graph = nx.hnm_harary_graph(n, m, create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
 
 def gomory_hu_tree(G, capacity='capacity'):
     """Gomory-Hu minimum cut tree via n-1 max-flow computations."""
@@ -7331,15 +7594,14 @@ def mycielski_graph(n):
     for _ in range(n - 2): G = mycielskian(G)
     return G
 
-def dorogovtsev_goltsev_mendes_graph(n):
-    """Pseudofractal scale-free network."""
-    G = Graph(); G.add_edge(0, 1); next_id = 2
-    for _ in range(n):
-        new_edges = []
-        for u, v in list(G.edges()):
-            G.add_node(next_id); new_edges.append((next_id, u)); new_edges.append((next_id, v)); next_id += 1
-        G.add_edges_from(new_edges)
-    return G
+def dorogovtsev_goltsev_mendes_graph(n, create_using=None):
+    """Return the Dorogovtsev-Goltsev-Mendes graph."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    graph = nx.dorogovtsev_goltsev_mendes_graph(n, create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
 
 def prefix_tree_recursive(paths):
     """Recursive variant of prefix_tree."""
@@ -7368,9 +7630,14 @@ def random_lobster(n, p1, p2, seed=None):
             if rng.random() < p2: G.add_edge(nid - 1, nid); nid += 1
     return G
 
-def random_lobster_graph(n, p1, p2, seed=None):
-    """Alias for random_lobster."""
-    return random_lobster(n, p1, p2, seed=seed)
+def random_lobster_graph(n, p1, p2, seed=None, create_using=None):
+    """Return a random lobster graph."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    graph = nx.random_lobster(n, p1, p2, seed=seed, create_using=None)
+    return _from_nx_graph(graph, create_using=create_using)
 
 def random_shell_graph(constructor, seed=None):
     """Multi-shell random graph."""
@@ -7380,13 +7647,14 @@ def random_shell_graph(constructor, seed=None):
 
     return _from_nx_graph(nx.random_shell_graph(constructor, seed=seed))
 
-def random_clustered_graph(joint_degree_sequence, seed=None):
+def random_clustered_graph(joint_degree_sequence, seed=None, create_using=None):
     """Random graph from joint degree sequence."""
     import networkx as nx
 
     from franken_networkx.readwrite import _from_nx_graph
 
-    return _from_nx_graph(nx.random_clustered_graph(joint_degree_sequence, seed=seed))
+    graph = nx.random_clustered_graph(joint_degree_sequence, create_using=None, seed=seed)
+    return _from_nx_graph(graph, create_using=create_using)
 
 def random_cograph(n, seed=None):
     """Random cograph via recursive split."""
