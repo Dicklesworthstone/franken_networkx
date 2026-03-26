@@ -308,8 +308,10 @@ def test_multigraph_extended_surface(fnx):
     assert isinstance(same_kind, fnx.MultiGraph)
     assert same_kind.number_of_edges("a", "b") == 2
 
-    with pytest.raises(fnx.NetworkXNotImplemented):
-        g.to_directed()
+    directed_graph = g.to_directed()
+    assert isinstance(directed_graph, fnx.MultiDiGraph)
+    assert directed_graph.is_directed()
+    assert directed_graph.number_of_edges() == 2 * g.number_of_edges()
 
     g.update(edges=[("b", "c", {"weight": 4.0})], nodes=[("d", {"shape": "square"})])
     assert g.has_node("d")

@@ -1102,11 +1102,53 @@ impl PyMultiGraph {
         self.copy(py)
     }
 
-    /// Not implemented — raises ``NetworkXNotImplemented``.
-    fn to_directed(&self) -> PyResult<()> {
-        Err(NetworkXNotImplemented::new_err(
-            "to_directed() is not yet supported for MultiGraph.",
-        ))
+    /// Return a directed copy of the graph.
+    fn to_directed(&self, py: Python<'_>) -> PyResult<crate::digraph::PyMultiDiGraph> {
+        let mut mdg = crate::digraph::PyMultiDiGraph {
+            inner: fnx_classes::digraph::MultiDiGraph::strict(),
+            node_key_map: HashMap::new(),
+            node_py_attrs: HashMap::new(),
+            edge_py_attrs: HashMap::new(),
+            graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
+        };
+
+        for (canonical, py_key) in &self.node_key_map {
+            mdg.inner.add_node(canonical.clone());
+            mdg.node_key_map.insert(canonical.clone(), py_key.clone_ref(py));
+            if let Some(attrs) = self.node_py_attrs.get(canonical) {
+                mdg.node_py_attrs.insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
+            }
+        }
+
+        for edge in self.inner.edges_ordered() {
+            let u = &edge.left;
+            let v = &edge.right;
+            let k = edge.key;
+
+            let rust_attrs = edge.attrs.clone();
+            
+            let mut py_attrs_copy = None;
+            let ek = PyMultiGraph::edge_key(u, v, k);
+            if let Some(py_attrs) = self.edge_py_attrs.get(&ek) {
+                py_attrs_copy = Some(py_attrs.bind(py).copy()?.unbind());
+            }
+
+            let new_k1 = mdg.inner.add_edge_with_attrs(u.clone(), v.clone(), rust_attrs.clone())
+                .map_err(|e| crate::NetworkXError::new_err(e.to_string()))?;
+            if let Some(pa) = &py_attrs_copy {
+                mdg.edge_py_attrs.insert((u.clone(), v.clone(), new_k1), pa.clone_ref(py));
+            }
+
+            if u != v {
+                let new_k2 = mdg.inner.add_edge_with_attrs(v.clone(), u.clone(), rust_attrs)
+                    .map_err(|e| crate::NetworkXError::new_err(e.to_string()))?;
+                if let Some(pa) = py_attrs_copy {
+                    mdg.edge_py_attrs.insert((v.clone(), u.clone(), new_k2), pa);
+                }
+            }
+        }
+
+        Ok(mdg)
     }
 
     // -----------------------------------------------------------------------
@@ -2214,11 +2256,47 @@ impl PyGraph {
         self.copy(py)
     }
 
-    /// Not implemented — raises ``NetworkXNotImplemented``.
-    fn to_directed(&self) -> PyResult<()> {
-        Err(NetworkXNotImplemented::new_err(
-            "to_directed() is not yet supported. Use DiGraph directly (when available).",
-        ))
+    /// Return a directed copy of the graph.
+    fn to_directed(&self, py: Python<'_>) -> PyResult<Py<crate::digraph::PyDiGraph>> {
+        let mut dg = crate::digraph::PyDiGraph::new_empty(py)?;
+        
+        for (canonical, py_key) in &self.node_key_map {
+            dg.inner.add_node(canonical.clone());
+            dg.node_key_map.insert(canonical.clone(), py_key.clone_ref(py));
+            if let Some(attrs) = self.node_py_attrs.get(canonical) {
+                dg.node_py_attrs.insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
+            }
+        }
+        
+        for edge in self.inner.edges_ordered() {
+            let u = &edge.left;
+            let v = &edge.right;
+            
+            let rust_attrs = edge.attrs.clone();
+            let mut py_attrs_copy = None;
+            let ek = PyGraph::edge_key(u, v);
+            
+            if let Some(py_attrs) = self.edge_py_attrs.get(&ek) {
+                py_attrs_copy = Some(py_attrs.bind(py).copy()?.unbind());
+            }
+            
+            dg.inner.add_edge_with_attrs(u.clone(), v.clone(), rust_attrs.clone())
+                .map_err(|e| crate::NetworkXError::new_err(e.to_string()))?;
+            if u != v {
+                dg.inner.add_edge_with_attrs(v.clone(), u.clone(), rust_attrs)
+                    .map_err(|e| crate::NetworkXError::new_err(e.to_string()))?;
+            }
+            
+            if let Some(pa) = py_attrs_copy {
+                dg.edge_py_attrs.insert((u.clone(), v.clone()), pa.clone_ref(py));
+                if u != v {
+                    dg.edge_py_attrs.insert((v.clone(), u.clone()), pa);
+                }
+            }
+        }
+        
+        dg.graph_attrs = self.graph_attrs.bind(py).copy()?.unbind();
+        Py::new(py, dg)
     }
 
     /// Update the graph from edges and/or nodes.

@@ -22913,6 +22913,81 @@ pub fn all_pairs_node_connectivity(graph: &Graph) -> std::collections::HashMap<(
     result
 }
 
+/// Tutte polynomial via deletion-contraction. Exponential time.
+pub fn tutte_polynomial(graph: &Graph, x: f64, y: f64) -> f64 {
+    if graph.edge_count() == 0 { return 1.0; }
+    let edge = &graph.edges_ordered()[0];
+    let u = edge.left.clone(); let v = edge.right.clone();
+    if u == v {
+        let mut g2 = graph.clone(); let _ = g2.remove_edge(&u, &v);
+        return y * tutte_polynomial(&g2, x, y);
+    }
+    let mut g_no_e = graph.clone(); let _ = g_no_e.remove_edge(&u, &v);
+    if !has_path(&g_no_e, &u, &v).has_path {
+        return x * tutte_polynomial(&identified_nodes(&g_no_e, &u, &v), x, y);
+    }
+    tutte_polynomial(&g_no_e, x, y) + tutte_polynomial(&identified_nodes(&g_no_e, &u, &v), x, y)
+}
+
+/// Stochastic block model graph.
+pub fn stochastic_block_model(sizes: &[usize], p: &[Vec<f64>], seed: u64) -> Graph {
+    let mut graph = Graph::strict();
+    let mut rng = seed.wrapping_add(1);
+    let mut rand_f64 = || -> f64 { rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407); (rng >> 11) as f64 / (1u64 << 53) as f64 };
+    let total: usize = sizes.iter().sum();
+    for i in 0..total { let _ = graph.add_node(i.to_string()); }
+    let mut bmap = Vec::with_capacity(total);
+    for (bi, &sz) in sizes.iter().enumerate() { for _ in 0..sz { bmap.push(bi); } }
+    for i in 0..total { for j in (i+1)..total { if rand_f64() < p[bmap[i]][bmap[j]] { let _ = graph.add_edge(i.to_string(), j.to_string()); } } }
+    graph
+}
+
+/// Partial duplication graph.
+pub fn partial_duplication_graph(n: usize, p: f64, seed: u64) -> Graph {
+    let mut g = Graph::strict();
+    if n == 0 { return g; }
+    let _ = g.add_node("0".to_owned());
+    if n == 1 { return g; }
+    let _ = g.add_node("1".to_owned()); let _ = g.add_edge("0".to_owned(), "1".to_owned());
+    let mut rng = seed.wrapping_add(1);
+    for i in 2..n {
+        let nn = i.to_string(); let _ = g.add_node(nn.clone());
+        let existing = g.nodes_ordered();
+        rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let ti = ((rng >> 33) as usize) % (existing.len() - 1);
+        let target = existing[ti].to_owned();
+        let nbrs: Vec<String> = g.neighbors(&target).unwrap_or_default().iter().map(|&s| s.to_owned()).collect();
+        for nb in nbrs {
+            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let r = (rng >> 11) as f64 / (1u64 << 53) as f64;
+            if nb != nn && r < p { let _ = g.add_edge(nn.clone(), nb); }
+        }
+        if g.neighbors(&nn).unwrap_or_default().is_empty() { let _ = g.add_edge(nn, target); }
+    }
+    g
+}
+
+/// Relaxed caveman graph.
+pub fn relaxed_caveman_graph(l: usize, k: usize, p: f64, seed: u64) -> Graph {
+    let mut g = Graph::strict();
+    let mut rng = seed.wrapping_add(1);
+    let total = l * k;
+    for i in 0..total { let _ = g.add_node(i.to_string()); }
+    for c in 0..l { let s = c * k; for i in s..s+k { for j in (i+1)..s+k { let _ = g.add_edge(i.to_string(), j.to_string()); } } }
+    let edges: Vec<(String, String)> = g.edges_ordered().iter().map(|e| (e.left.clone(), e.right.clone())).collect();
+    for (u, v) in edges {
+        rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let r = (rng >> 11) as f64 / (1u64 << 53) as f64;
+        if r < p {
+            let _ = g.remove_edge(&u, &v);
+            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let t = (((rng >> 33) as usize) % total).to_string();
+            if t != u && !g.has_edge(&u, &t) { let _ = g.add_edge(u, t); }
+        }
+    }
+    g
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
