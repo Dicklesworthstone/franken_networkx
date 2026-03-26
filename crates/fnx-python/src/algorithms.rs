@@ -9194,6 +9194,79 @@ pub fn graph_info_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<String>
     })
 }
 
+// ---------------------------------------------------------------------------
+// All pairs LCA
+// ---------------------------------------------------------------------------
+
+/// Find LCA for given pairs in a DAG.
+#[pyfunction]
+pub fn all_pairs_lca_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    pairs: Vec<(Bound<'_, PyAny>, Bound<'_, PyAny>)>,
+) -> PyResult<Vec<((PyObject, PyObject), PyObject)>> {
+    let gr = extract_graph(g)?;
+    let dg = gr.digraph().ok_or_else(|| crate::NetworkXError::new_err("LCA requires DiGraph"))?;
+    let pair_keys: Vec<(String, String)> = pairs.iter()
+        .map(|(u, v)| Ok((node_key_to_string(py, u)?, node_key_to_string(py, v)?)))
+        .collect::<PyResult<_>>()?;
+    let result = py.allow_threads(|| fnx_algorithms::all_pairs_lowest_common_ancestor(dg, &pair_keys));
+    Ok(result.into_iter().map(|((u, v), lca)| {
+        ((gr.py_node_key(py, &u), gr.py_node_key(py, &v)), gr.py_node_key(py, &lca))
+    }).collect())
+}
+
+// ---------------------------------------------------------------------------
+// Generate edgelist
+// ---------------------------------------------------------------------------
+
+/// Generate edgelist lines.
+#[pyfunction]
+#[pyo3(signature = (g, delimiter=" "))]
+pub fn generate_edgelist_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    delimiter: &str,
+) -> PyResult<Vec<String>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    Ok(py.allow_threads(|| fnx_algorithms::generate_edgelist(inner, delimiter)))
+}
+
+// ---------------------------------------------------------------------------
+// Group betweenness centrality
+// ---------------------------------------------------------------------------
+
+/// Group betweenness centrality.
+#[pyfunction]
+pub fn group_betweenness_centrality_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    group: Vec<Bound<'_, PyAny>>,
+) -> PyResult<f64> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let keys: Vec<String> = group.iter().map(|n| node_key_to_string(py, n)).collect::<PyResult<_>>()?;
+    let refs: Vec<&str> = keys.iter().map(String::as_str).collect();
+    Ok(py.allow_threads(|| fnx_algorithms::group_betweenness_centrality(inner, &refs)))
+}
+
+// ---------------------------------------------------------------------------
+// Attribute assortativity coefficient
+// ---------------------------------------------------------------------------
+
+/// Attribute assortativity coefficient.
+#[pyfunction]
+pub fn attribute_assortativity_coefficient_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    attribute: &str,
+) -> PyResult<f64> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    Ok(py.allow_threads(|| fnx_algorithms::attribute_assortativity_coefficient(inner, attribute)))
+}
+
 // Registration
 // ===========================================================================
 
@@ -9731,5 +9804,13 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(generic_bfs_edges_rust, m)?)?;
     // Graph info
     m.add_function(wrap_pyfunction!(graph_info_rust, m)?)?;
+    // LCA
+    m.add_function(wrap_pyfunction!(all_pairs_lca_rust, m)?)?;
+    // Generate edgelist
+    m.add_function(wrap_pyfunction!(generate_edgelist_rust, m)?)?;
+    // Group betweenness
+    m.add_function(wrap_pyfunction!(group_betweenness_centrality_rust, m)?)?;
+    // Attribute assortativity
+    m.add_function(wrap_pyfunction!(attribute_assortativity_coefficient_rust, m)?)?;
     Ok(())
 }

@@ -268,7 +268,6 @@ def test_backend_multigraph_conversion_roundtrip(fnx):
 @timed
 def test_multigraph_extended_surface(fnx):
     log.info("--- test_multigraph_extended_surface ---")
-    import pytest
 
     g = fnx.MultiGraph()
     g.graph["name"] = "mg-extended"
@@ -323,7 +322,6 @@ def test_multigraph_extended_surface(fnx):
 @timed
 def test_multidigraph_extended_surface(fnx):
     log.info("--- test_multidigraph_extended_surface ---")
-    import pytest
 
     g = fnx.MultiDiGraph()
     g.graph["name"] = "mdg-extended"

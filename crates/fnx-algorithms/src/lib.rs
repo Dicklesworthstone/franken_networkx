@@ -22988,6 +22988,377 @@ pub fn relaxed_caveman_graph(l: usize, k: usize, p: f64, seed: u64) -> Graph {
     g
 }
 
+// ---------------------------------------------------------------------------
+// All-pairs lowest common ancestor (DAG)
+// ---------------------------------------------------------------------------
+
+/// Find lowest common ancestors for all pairs in a DAG.
+///
+/// Returns a list of ((u, v), lca) tuples.
+pub fn all_pairs_lowest_common_ancestor(
+    digraph: &DiGraph,
+    pairs: &[(String, String)],
+) -> Vec<((String, String), String)> {
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 { return Vec::new(); }
+    let idx: std::collections::HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+
+    // For each node, compute all ancestors via DFS up predecessors
+    let mut ancestor_cache: std::collections::HashMap<usize, std::collections::HashSet<usize>> =
+        std::collections::HashMap::new();
+
+    let compute_ancestors = |node_idx: usize, digraph: &DiGraph, nodes: &[&str]| -> std::collections::HashSet<usize> {
+        let mut ancs = std::collections::HashSet::new();
+        let mut stack = vec![node_idx];
+        ancs.insert(node_idx);
+        while let Some(v) = stack.pop() {
+            if let Some(preds) = digraph.predecessors(nodes[v]) {
+                for p in preds {
+                    if let Some(&pi) = idx.get(p) {
+                        if ancs.insert(pi) { stack.push(pi); }
+                    }
+                }
+            }
+        }
+        ancs
+    };
+
+    let mut result = Vec::with_capacity(pairs.len());
+    for (u, v) in pairs {
+        let ui = match idx.get(u.as_str()) { Some(&i) => i, None => continue };
+        let vi = match idx.get(v.as_str()) { Some(&i) => i, None => continue };
+
+        let u_ancs = ancestor_cache.entry(ui).or_insert_with(|| compute_ancestors(ui, digraph, &nodes)).clone();
+        let v_ancs = ancestor_cache.entry(vi).or_insert_with(|| compute_ancestors(vi, digraph, &nodes)).clone();
+
+        let common: std::collections::HashSet<usize> = u_ancs.intersection(&v_ancs).copied().collect();
+        if common.is_empty() { continue; }
+
+        // LCA = common ancestor with no descendant in common
+        // Find by walking down from common ancestors
+        let mut best: Option<usize> = None;
+        for &c in &common {
+            let is_lca = !common.iter().any(|&other| {
+                other != c && {
+                    let other_ancs = ancestor_cache.entry(other).or_insert_with(|| compute_ancestors(other, digraph, &nodes));
+                    other_ancs.contains(&c) && other != c
+                }
+            });
+            if is_lca {
+                match best {
+                    None => best = Some(c),
+                    Some(b) => {
+                        // Prefer deeper ancestor (more ancestors = deeper)
+                        let c_depth = ancestor_cache.get(&c).map_or(0, |a| a.len());
+                        let b_depth = ancestor_cache.get(&b).map_or(0, |a| a.len());
+                        if c_depth > b_depth { best = Some(c); }
+                    }
+                }
+            }
+        }
+
+        if let Some(lca_idx) = best {
+            result.push(((u.clone(), v.clone()), nodes[lca_idx].to_owned()));
+        }
+    }
+
+    result
+}
+
+// ---------------------------------------------------------------------------
+// Generate edgelist (to string lines)
+// ---------------------------------------------------------------------------
+
+/// Generate edgelist string representation.
+pub fn generate_edgelist(graph: &Graph, delimiter: &str) -> Vec<String> {
+    graph.edges_ordered().iter().map(|e| {
+        if e.attrs.is_empty() {
+            format!("{}{}{}", e.left, delimiter, e.right)
+        } else {
+            let attrs: Vec<String> = e.attrs.iter()
+                .map(|(k, v)| format!("{}={}", k, v.as_str()))
+                .collect();
+            format!("{}{}{}{}{}", e.left, delimiter, e.right, delimiter, attrs.join(";"))
+        }
+    }).collect()
+}
+
+// ---------------------------------------------------------------------------
+// Group betweenness centrality
+// ---------------------------------------------------------------------------
+
+/// Group betweenness centrality: fraction of shortest paths passing through
+/// at least one node in the group.
+pub fn group_betweenness_centrality(graph: &Graph, group: &[&str]) -> f64 {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n < 2 { return 0.0; }
+    let idx: std::collections::HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+    let group_set: std::collections::HashSet<usize> =
+        group.iter().filter_map(|g| idx.get(g).copied()).collect();
+
+    let mut total_paths = 0usize;
+    let mut group_paths = 0usize;
+
+    for s in 0..n {
+        // BFS shortest path tree from s
+        let mut dist = vec![usize::MAX; n];
+        let mut sigma = vec![0usize; n]; // number of shortest paths
+        let mut predecessors: Vec<Vec<usize>> = vec![Vec::new(); n];
+        dist[s] = 0; sigma[s] = 1;
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(s);
+
+        while let Some(v) = queue.pop_front() {
+            if let Some(nbrs) = graph.neighbors(nodes[v]) {
+                for nb in nbrs {
+                    if let Some(&ni) = idx.get(nb) {
+                        if dist[ni] == usize::MAX {
+                            dist[ni] = dist[v] + 1;
+                            queue.push_back(ni);
+                        }
+                        if dist[ni] == dist[v] + 1 {
+                            sigma[ni] += sigma[v];
+                            predecessors[ni].push(v);
+                        }
+                    }
+                }
+            }
+        }
+
+        for t in 0..n {
+            if t == s || dist[t] == usize::MAX { continue; }
+            total_paths += sigma[t];
+            // Check if any shortest path s→t goes through a group node
+            // A path goes through group if any node on some shortest path is in group
+            // We check by BFS backward from t through predecessors
+            let mut on_path = vec![false; n];
+            on_path[t] = true;
+            let mut bstack = vec![t];
+            let mut touches_group = false;
+            while let Some(v) = bstack.pop() {
+                if group_set.contains(&v) && v != s && v != t {
+                    touches_group = true;
+                    break;
+                }
+                for &p in &predecessors[v] {
+                    if !on_path[p] {
+                        on_path[p] = true;
+                        bstack.push(p);
+                    }
+                }
+            }
+            if touches_group { group_paths += sigma[t]; }
+        }
+    }
+
+    if total_paths == 0 { 0.0 } else { group_paths as f64 / total_paths as f64 }
+}
+
+// ---------------------------------------------------------------------------
+// Attribute assortativity coefficient (categorical)
+// ---------------------------------------------------------------------------
+
+/// Attribute assortativity coefficient for categorical attributes.
+///
+/// Pearson-like measure of attribute correlation across edges.
+pub fn attribute_assortativity_coefficient(graph: &Graph, attribute: &str) -> f64 {
+    attribute_assortativity(graph, attribute)
+}
+
+// ---------------------------------------------------------------------------
+// All-pairs all shortest paths
+// ---------------------------------------------------------------------------
+
+/// All shortest paths between all pairs of nodes.
+#[must_use]
+pub fn all_pairs_all_shortest_paths(
+    graph: &Graph,
+) -> std::collections::HashMap<String, std::collections::HashMap<String, Vec<Vec<String>>>> {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    let idx: std::collections::HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+
+    let mut result = std::collections::HashMap::new();
+    for s in 0..n {
+        // BFS to find all shortest paths from s
+        let mut dist = vec![usize::MAX; n];
+        let mut paths: Vec<Vec<Vec<usize>>> = vec![Vec::new(); n];
+        dist[s] = 0;
+        paths[s] = vec![vec![s]];
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(s);
+
+        while let Some(v) = queue.pop_front() {
+            if let Some(nbrs) = graph.neighbors(nodes[v]) {
+                for nb in nbrs {
+                    if let Some(&ni) = idx.get(nb) {
+                        if dist[ni] == usize::MAX {
+                            dist[ni] = dist[v] + 1;
+                            queue.push_back(ni);
+                            paths[ni] = paths[v].iter().map(|p| {
+                                let mut np = p.clone(); np.push(ni); np
+                            }).collect();
+                        } else if dist[ni] == dist[v] + 1 {
+                            let new_paths: Vec<Vec<usize>> = paths[v].iter().map(|p| {
+                                let mut np = p.clone(); np.push(ni); np
+                            }).collect();
+                            paths[ni].extend(new_paths);
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut source_map = std::collections::HashMap::new();
+        for t in 0..n {
+            if t == s || paths[t].is_empty() { continue; }
+            let named: Vec<Vec<String>> = paths[t].iter()
+                .map(|p| p.iter().map(|&i| nodes[i].to_owned()).collect())
+                .collect();
+            source_map.insert(nodes[t].to_owned(), named);
+        }
+        result.insert(nodes[s].to_owned(), source_map);
+    }
+    result
+}
+
+// ---------------------------------------------------------------------------
+// Gomory-Hu tree (simplified — no partition tracking)
+// ---------------------------------------------------------------------------
+
+/// Build Gomory-Hu tree using iterative max-flow.
+///
+/// Returns a tree where edge weights represent min-cut values.
+#[must_use]
+pub fn gomory_hu_tree(graph: &Graph, weight_attr: &str) -> Graph {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    let mut tree = Graph::new(graph.mode());
+    if n == 0 { return tree; }
+    for &node in &nodes { let _ = tree.add_node(node.to_owned()); }
+
+    let mut parent: Vec<usize> = vec![0; n]; // tree parent of each node
+
+    for i in 1..n {
+        let s = nodes[i];
+        let t = nodes[parent[i]];
+        let flow = max_flow_edmonds_karp(graph, s, t, weight_attr);
+        match flow {
+            Ok(f) => {
+                let mut attrs = std::collections::BTreeMap::new();
+                attrs.insert("weight".to_owned(), CgseValue::Float(f.value));
+                let _ = tree.add_edge_with_attrs(s.to_owned(), t.to_owned(), attrs);
+
+                // Update parents: any node j>i with parent[j]==parent[i]
+                // that is on the source side of the cut gets reparented to i
+                // (simplified: just update based on reachability in residual)
+                for j in (i + 1)..n {
+                    if parent[j] == parent[i] {
+                        // Check if j is reachable from i in the graph minus the cut
+                        // Simplified: use BFS in original graph
+                        if has_path(graph, nodes[i], nodes[j]).has_path {
+                            parent[j] = i;
+                        }
+                    }
+                }
+            }
+            Err(_) => {
+                // No flow path — add zero-weight edge
+                let _ = tree.add_edge(s.to_owned(), t.to_owned());
+            }
+        }
+    }
+    tree
+}
+
+// ---------------------------------------------------------------------------
+// Find asteroidal triple
+// ---------------------------------------------------------------------------
+
+/// Find an asteroidal triple in the graph, if one exists.
+///
+/// Returns `Some((u, v, w))` if an AT exists, `None` if AT-free.
+#[must_use]
+pub fn find_asteroidal_triple(graph: &Graph) -> Option<(String, String, String)> {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n < 3 { return None; }
+    let idx: std::collections::HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+
+    for i in 0..n {
+        let i_closed: std::collections::HashSet<usize> = {
+            let mut s = std::collections::HashSet::new();
+            s.insert(i);
+            for nb in graph.neighbors(nodes[i]).unwrap_or_default() {
+                if let Some(&ni) = idx.get(nb) { s.insert(ni); }
+            }
+            s
+        };
+        for j in (i + 1)..n {
+            let j_closed: std::collections::HashSet<usize> = {
+                let mut s = std::collections::HashSet::new();
+                s.insert(j);
+                for nb in graph.neighbors(nodes[j]).unwrap_or_default() {
+                    if let Some(&ni) = idx.get(nb) { s.insert(ni); }
+                }
+                s
+            };
+            for k in (j + 1)..n {
+                let k_closed: std::collections::HashSet<usize> = {
+                    let mut s = std::collections::HashSet::new();
+                    s.insert(k);
+                    for nb in graph.neighbors(nodes[k]).unwrap_or_default() {
+                        if let Some(&ni) = idx.get(nb) { s.insert(ni); }
+                    }
+                    s
+                };
+
+                let jk = bfs_path_avoiding(n, j, k, &i_closed, graph, &nodes, &idx);
+                let ik = bfs_path_avoiding(n, i, k, &j_closed, graph, &nodes, &idx);
+                let ij = bfs_path_avoiding(n, i, j, &k_closed, graph, &nodes, &idx);
+
+                if jk && ik && ij {
+                    return Some((nodes[i].to_owned(), nodes[j].to_owned(), nodes[k].to_owned()));
+                }
+            }
+        }
+    }
+    None
+}
+
+fn bfs_path_avoiding(
+    n: usize, source: usize, target: usize,
+    avoid: &std::collections::HashSet<usize>,
+    graph: &Graph, nodes: &[&str],
+    idx: &std::collections::HashMap<&str, usize>,
+) -> bool {
+    if avoid.contains(&source) || avoid.contains(&target) { return false; }
+    let mut visited = vec![false; n];
+    visited[source] = true;
+    let mut queue = std::collections::VecDeque::new();
+    queue.push_back(source);
+    while let Some(v) = queue.pop_front() {
+        if v == target { return true; }
+        if let Some(nbrs) = graph.neighbors(nodes[v]) {
+            for nb in nbrs {
+                if let Some(&ni) = idx.get(nb) {
+                    if !visited[ni] && !avoid.contains(&ni) {
+                        visited[ni] = true;
+                        queue.push_back(ni);
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

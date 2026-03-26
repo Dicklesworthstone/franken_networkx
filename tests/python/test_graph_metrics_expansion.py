@@ -272,27 +272,27 @@ class TestAverageNodeConnectivity:
 
 class TestIsKEdgeConnected:
     def test_k0_always_true(self, path5):
-        assert fnx.is_k_edge_connected(path5, 0) == True
+        assert fnx.is_k_edge_connected(path5, 0)
 
     def test_k1_connected(self, path5):
-        assert fnx.is_k_edge_connected(path5, 1) == True
+        assert fnx.is_k_edge_connected(path5, 1)
 
     def test_k2_path_false(self, path5):
         # Path graph is 1-edge-connected, not 2
-        assert fnx.is_k_edge_connected(path5, 2) == False
+        assert not fnx.is_k_edge_connected(path5, 2)
 
     def test_k3_complete(self, k4):
         # K4 is 3-edge-connected
-        assert fnx.is_k_edge_connected(k4, 3) == True
+        assert fnx.is_k_edge_connected(k4, 3)
 
     def test_k4_complete_false(self, k4):
-        assert fnx.is_k_edge_connected(k4, 4) == False
+        assert not fnx.is_k_edge_connected(k4, 4)
 
     def test_disconnected_false(self):
         G = fnx.Graph()
         G.add_node(0)
         G.add_node(1)
-        assert fnx.is_k_edge_connected(G, 1) == False
+        assert not fnx.is_k_edge_connected(G, 1)
 
     def test_directed_raises(self):
         D = fnx.DiGraph()

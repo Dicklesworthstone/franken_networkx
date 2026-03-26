@@ -3,7 +3,6 @@
 Tests cover node/edge counts for all named and parametric generators.
 """
 
-import pytest
 import franken_networkx as fnx
 
 

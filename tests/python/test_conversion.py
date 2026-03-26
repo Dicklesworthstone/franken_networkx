@@ -236,7 +236,6 @@ class TestNumpyArray:
         pytest.importorskip("numpy")
 
     def test_round_trip(self):
-        import numpy as np
 
         G = fnx.Graph()
         G.add_edge(0, 1, weight=2.0)
@@ -252,7 +251,6 @@ class TestNumpyArray:
         assert H.number_of_edges() == 2
 
     def test_nonedge_value(self):
-        import numpy as np
 
         G = fnx.Graph()
         G.add_node(0)
@@ -322,7 +320,6 @@ class TestPandasEdgelist:
         assert H.number_of_edges() == 2
 
     def test_custom_columns(self):
-        import pandas as pd
 
         G = fnx.Graph()
         G.add_edge(0, 1)

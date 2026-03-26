@@ -10,7 +10,6 @@ Tests cover:
 - group_out_degree_centrality
 """
 
-import math
 import pytest
 import franken_networkx as fnx
 

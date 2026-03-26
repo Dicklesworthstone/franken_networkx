@@ -3,7 +3,6 @@
 import importlib.util
 
 import pytest
-from conftest import assert_sets_equal
 
 HAS_SCIPY = importlib.util.find_spec("scipy") is not None
 

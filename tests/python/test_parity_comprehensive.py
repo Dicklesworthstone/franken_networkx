@@ -4,7 +4,6 @@ Cross-validates every function against NetworkX where possible.
 Tests basic functionality, edge cases, and return type correctness.
 """
 
-import math
 import pytest
 import franken_networkx as fnx
 
@@ -394,8 +393,8 @@ class TestGenerators:
         G = fnx.mycielskian(fnx.complete_graph(2))
         assert G.number_of_nodes() > 2
 
-    def test_random_lobster(self):
-        G = fnx.random_lobster(10, 0.5, 0.3, seed=42)
+    def test_random_lobster_graph(self):
+        G = fnx.random_lobster_graph(10, 0.5, 0.3, seed=42)
         assert fnx.is_connected(G)
 
     def test_interval_graph(self):

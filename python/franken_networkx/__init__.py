@@ -919,33 +919,17 @@ def set_node_attributes(G, values, name=None):
     name : str, optional
         Attribute name. Required when *values* is a dict of scalars or a scalar.
     """
-    if isinstance(values, dict):
-        if name is not None:
-            for node, val in values.items():
-                if hasattr(G.nodes, '__getitem__'):
-                    try:
-                        G.nodes[node][name] = val
-                    except (KeyError, TypeError):
-                        pass
-        else:
-            for node, attrs in values.items():
-                if isinstance(attrs, dict) and hasattr(G.nodes, '__getitem__'):
-                    try:
-                        G.nodes[node].update(attrs)
-                    except (KeyError, TypeError):
-                        pass
-    else:
-        if name is None:
-            raise ValueError("name is required when values is not a dictionary")
-        for node in G.nodes():
-            if hasattr(G.nodes, '__getitem__'):
-                try:
-                    G.nodes[node][name] = values
-                except (KeyError, TypeError):
-                    pass
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    graph = _to_nx(G)
+    nx.set_node_attributes(graph, values, name=name)
+    _from_nx_graph(graph, create_using=G)
 
 
-def get_node_attributes(G, name):
+def get_node_attributes(G, name, default=None):
     """Return a dictionary of node attributes keyed by node.
 
     Parameters
@@ -960,13 +944,10 @@ def get_node_attributes(G, name):
     dict
         ``{node: value}`` for nodes that have the attribute.
     """
-    result = {}
-    for node in G.nodes():
-        if hasattr(G.nodes, '__getitem__'):
-            attrs = G.nodes[node]
-            if isinstance(attrs, dict) and name in attrs:
-                result[node] = attrs[name]
-    return result
+    import networkx as nx
+    from franken_networkx.drawing.layout import _to_nx
+
+    return nx.get_node_attributes(_to_nx(G), name, default=default)
 
 
 def set_edge_attributes(G, values, name=None):
@@ -982,28 +963,17 @@ def set_edge_attributes(G, values, name=None):
     name : str, optional
         Attribute name. Required when *values* is a scalar.
     """
-    if isinstance(values, dict):
-        if name is not None:
-            for (u, v), val in values.items():
-                data = G.get_edge_data(u, v)
-                if isinstance(data, dict):
-                    data[name] = val
-        else:
-            for (u, v), attrs in values.items():
-                if isinstance(attrs, dict):
-                    data = G.get_edge_data(u, v)
-                    if isinstance(data, dict):
-                        data.update(attrs)
-    else:
-        if name is None:
-            raise ValueError("name is required when values is not a dictionary")
-        for u, v in G.edges():
-            data = G.get_edge_data(u, v)
-            if isinstance(data, dict):
-                data[name] = values
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    graph = _to_nx(G)
+    nx.set_edge_attributes(graph, values, name=name)
+    _from_nx_graph(graph, create_using=G)
 
 
-def get_edge_attributes(G, name):
+def get_edge_attributes(G, name, default=None):
     """Return a dictionary of edge attributes keyed by ``(u, v)``.
 
     Parameters
@@ -1018,11 +988,10 @@ def get_edge_attributes(G, name):
     dict
         ``{(u, v): value}`` for edges that have the attribute.
     """
-    result = {}
-    for u, v, data in G.edges(data=True):
-        if isinstance(data, dict) and name in data:
-            result[(u, v)] = data[name]
-    return result
+    import networkx as nx
+    from franken_networkx.drawing.layout import _to_nx
+
+    return nx.get_edge_attributes(_to_nx(G), name, default=default)
 
 
 def create_empty_copy(G, with_data=True):
@@ -1456,7 +1425,7 @@ def laplacian_matrix(G, nodelist=None, weight='weight'):
     import scipy.sparse
 
     A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight)
-    n = A.shape[0]
+    A.shape[0]
     D = scipy.sparse.diags(np.asarray(A.sum(axis=1)).flatten(), dtype=float)
     return D - A
 
@@ -2297,7 +2266,7 @@ def info(G, n=None):
     lines = [f"Name: {name}", f"Type: {typ}",
              f"Number of nodes: {n_nodes}", f"Number of edges: {n_edges}"]
     if n_nodes > 0:
-        degs = [d for _, d in G.degree]
+        [d for _, d in G.degree]
         lines.append(f"Average degree: {2.0 * n_edges / n_nodes:.4f}")
     return "\n".join(lines)
 
@@ -2454,7 +2423,7 @@ def grid_2d_graph(m, n, periodic=False, create_using=None):
     import networkx as nx
     from franken_networkx.readwrite import _from_nx_graph
 
-    if periodic == False and create_using is None:
+    if not periodic and create_using is None:
         return _rust_grid_2d_graph(m, n)
 
     graph = nx.grid_2d_graph(m, n, periodic=periodic, create_using=None)
@@ -3126,8 +3095,8 @@ def node_link_graph(
     from franken_networkx.readwrite import _from_nx_graph
 
     if (
-        directed == False
-        and multigraph == True
+        not directed
+        and multigraph
         and source == "source"
         and target == "target"
         and name == "id"
@@ -3212,7 +3181,7 @@ def generalized_degree(G, nodes=None):
     if nodes is None:
         nodes = list(G.nodes())
 
-    tri = triangles(G)
+    triangles(G)
     result = {}
     for v in nodes:
         nbrs = set(G.neighbors(v))
@@ -4391,7 +4360,7 @@ def google_matrix(G, alpha=0.85, personalization=None, nodelist=None, weight='we
     if personalization is None:
         v = np.ones(n) / n
     else:
-        idx_map = {node: i for i, node in enumerate(nodelist)}
+        {node: i for i, node in enumerate(nodelist)}
         v = np.array([personalization.get(node, 0) for node in nodelist], dtype=float)
         s = v.sum()
         v = v / s if s > 0 else np.ones(n) / n
@@ -5246,7 +5215,7 @@ def is_strongly_regular(G):
     degrees = [d for _, d in G.degree]
     if len(set(degrees)) != 1:
         return False  # not regular
-    k = degrees[0]
+    degrees[0]
     nodes = list(G.nodes())
     lam = None
     mu = None
@@ -6019,7 +5988,7 @@ def trophic_levels(G, weight=None):
     n = len(nodelist)
     if n == 0:
         return {}
-    idx = {node: i for i, node in enumerate(nodelist)}
+    {node: i for i, node in enumerate(nodelist)}
     A = to_numpy_array(G, nodelist=nodelist, weight=weight)
     in_strength = A.sum(axis=0)
     # Solve: s_j = 1 + (1/k_j^in) * sum_i A_ij * s_i for all j
@@ -7664,7 +7633,7 @@ def random_lobster_graph(n, p1, p2, seed=None, create_using=None):
 
     from franken_networkx.readwrite import _from_nx_graph
 
-    graph = nx.random_lobster(n, p1, p2, seed=seed, create_using=None)
+    graph = nx.random_lobster_graph(n, p1, p2, seed=seed, create_using=None)
     return _from_nx_graph(graph, create_using=create_using)
 
 def random_shell_graph(constructor, seed=None):
@@ -8163,7 +8132,7 @@ def to_pandas_edgelist(G, source='source', target='target', nodelist=None,
     df : pandas.DataFrame
     """
     import networkx as nx
-
+    from franken_networkx.drawing.layout import _to_nx
     return nx.to_pandas_edgelist(
         _to_nx(G),
         source=source,
@@ -8509,6 +8478,7 @@ def within_inter_cluster(G, ebunch=None, delta=0.001, community='community'):
 def gnc_graph(n, create_using=None, seed=None):
     """Return a growing network with copying (GNC) digraph."""
     import networkx as nx
+    from franken_networkx import _fnx
     from franken_networkx.readwrite import _from_nx_graph
     if create_using is None:
         return _fnx.gnc_graph(n, seed=seed, create_using=None)
@@ -8518,6 +8488,7 @@ def gnc_graph(n, create_using=None, seed=None):
 def gnr_graph(n, p, create_using=None, seed=None):
     """Return a growing network with redirection (GNR) digraph."""
     import networkx as nx
+    from franken_networkx import _fnx
     from franken_networkx.readwrite import _from_nx_graph
     if create_using is None:
         return _fnx.gnr_graph(n, p, seed=seed, create_using=None)
@@ -8636,6 +8607,7 @@ def random_powerlaw_tree_sequence(n, gamma=3, seed=None, tries=100):
 def gn_graph(n, kernel=None, create_using=None, seed=None):
     """Return a growing network (GN) digraph."""
     import networkx as nx
+    from franken_networkx import _fnx
     from franken_networkx.readwrite import _from_nx_graph
     if kernel is None and create_using is None:
         return _fnx.gn_graph(n, seed=seed, create_using=None)

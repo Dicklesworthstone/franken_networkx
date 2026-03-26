@@ -768,7 +768,7 @@ class TestGenerators:
     @needs_nx
     def test_tabular_and_matrix_exporters_preserve_networkx_contract(self):
         np = pytest.importorskip("numpy")
-        pd = pytest.importorskip("pandas")
+        pytest.importorskip("pandas")
 
         graph = fnx.MultiGraph()
         graph.add_edge("a", "b", key=7, weight=3)
@@ -823,6 +823,56 @@ class TestGenerators:
         assert np.array_equal(matrix, expected_matrix)
         assert pandas_adjacency.equals(expected_pandas_adjacency)
         assert np.array_equal(sparse.toarray(), expected_sparse.toarray())
+
+    @needs_nx
+    def test_attribute_accessors_preserve_defaults_and_multigraph_keys(self):
+        graph = fnx.MultiGraph()
+        graph.add_edge("a", "b", key=7, weight=3)
+        graph.add_edge("a", "b", key=8)
+        graph.add_node("a", color="red")
+        graph.add_node("b")
+
+        expected_graph = nx.MultiGraph()
+        expected_graph.add_edge("a", "b", key=7, weight=3)
+        expected_graph.add_edge("a", "b", key=8)
+        expected_graph.add_node("a", color="red")
+        expected_graph.add_node("b")
+
+        assert fnx.get_node_attributes(graph, "color", default=None) == nx.get_node_attributes(
+            expected_graph,
+            "color",
+            default=None,
+        )
+        assert fnx.get_edge_attributes(graph, "weight", default=0) == nx.get_edge_attributes(
+            expected_graph,
+            "weight",
+            default=0,
+        )
+
+    @needs_nx
+    def test_attribute_mutators_preserve_networkx_multigraph_contract(self):
+        graph = fnx.MultiGraph()
+        graph.add_edge("a", "b", key=7)
+        graph.add_edge("a", "b", key=8)
+        graph.add_node("a")
+        graph.add_node("b")
+
+        expected_graph = nx.MultiGraph()
+        expected_graph.add_edge("a", "b", key=7)
+        expected_graph.add_edge("a", "b", key=8)
+        expected_graph.add_node("a")
+        expected_graph.add_node("b")
+
+        fnx.set_edge_attributes(graph, {("a", "b", 7): 5}, "weight")
+        nx.set_edge_attributes(expected_graph, {("a", "b", 7): 5}, "weight")
+
+        fnx.set_node_attributes(graph, "blue", "color")
+        nx.set_node_attributes(expected_graph, "blue", "color")
+
+        assert sorted(graph.edges(keys=True, data=True)) == sorted(
+            expected_graph.edges(keys=True, data=True)
+        )
+        assert dict(graph.nodes(data=True)) == dict(expected_graph.nodes(data=True))
 
     @needs_nx
     def test_harary_and_havel_hakimi_wrappers_match_networkx(self):

@@ -7,10 +7,9 @@ Run with: python -m pytest tests/python/test_hypothesis.py -v --hypothesis-seed=
 """
 
 import logging
-import math
 
 import pytest
-from hypothesis import given, settings, assume, HealthCheck
+from hypothesis import given, settings, HealthCheck
 from hypothesis import strategies as st
 
 log = logging.getLogger("fnx_hypothesis")
