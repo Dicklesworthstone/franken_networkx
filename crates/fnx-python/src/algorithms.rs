@@ -14,6 +14,7 @@ use pyo3::exceptions::{PyIndexError, PyValueError, PyZeroDivisionError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
 use std::collections::{HashMap, HashSet};
+use std::cell::OnceCell;
 
 type SpanningEdgeSamples = (Vec<(String, String)>, Vec<f64>);
 
@@ -25,24 +26,24 @@ type SpanningEdgeSamples = (Vec<(String, String)>, Vec<f64>);
 /// MultiGraph, or MultiDiGraph.
 ///
 /// For undirected graphs, borrows the inner `Graph` directly.
-/// For directed graphs, converts to undirected once and stores the result.
-/// For multigraphs, converts to simple graph (collapsing parallel edges).
+/// For directed graphs, converts to undirected lazily and stores the result.
+/// For multigraphs, converts to simple graph (collapsing parallel edges) lazily.
 pub(crate) enum GraphRef<'py> {
     Undirected(PyRef<'py, PyGraph>),
     Directed {
         dg: PyRef<'py, PyDiGraph>,
-        undirected: Box<fnx_classes::Graph>,
+        undirected: OnceCell<Box<fnx_classes::Graph>>,
     },
-    /// MultiGraph converted to simple undirected Graph.
+    /// MultiGraph converted to simple undirected Graph lazily.
     MultiUndirected {
         mg: PyRef<'py, PyMultiGraph>,
-        simple: Box<fnx_classes::Graph>,
+        simple: OnceCell<Box<fnx_classes::Graph>>,
     },
-    /// MultiDiGraph converted to simple DiGraph (+ its undirected projection).
+    /// MultiDiGraph converted to simple DiGraph (+ its undirected projection) lazily.
     MultiDirected {
         mdg: PyRef<'py, PyMultiDiGraph>,
-        simple_dg: Box<fnx_classes::digraph::DiGraph>,
-        undirected: Box<fnx_classes::Graph>,
+        simple_dg: OnceCell<Box<fnx_classes::digraph::DiGraph>>,
+        undirected: OnceCell<Box<fnx_classes::Graph>>,
     },
 }
 
@@ -79,10 +80,18 @@ impl<'py> GraphRef<'py> {
     pub(crate) fn undirected(&self) -> &fnx_classes::Graph {
         match self {
             GraphRef::Undirected(pg) => &pg.inner,
-            GraphRef::Directed { undirected, .. } | GraphRef::MultiDirected { undirected, .. } => {
-                undirected
+            GraphRef::Directed { dg, undirected } => {
+                undirected.get_or_init(|| Box::new(dg.inner.to_undirected()))
             }
-            GraphRef::MultiUndirected { simple, .. } => simple,
+            GraphRef::MultiUndirected { mg, simple } => {
+                simple.get_or_init(|| Box::new(multigraph_to_simple_graph(&mg.inner)))
+            }
+            GraphRef::MultiDirected { mdg, simple_dg, undirected } => {
+                undirected.get_or_init(|| {
+                    let simple = simple_dg.get_or_init(|| Box::new(multidigraph_to_simple_digraph(&mdg.inner)));
+                    Box::new(simple.to_undirected())
+                })
+            }
         }
     }
 
@@ -122,7 +131,9 @@ impl<'py> GraphRef<'py> {
     pub(crate) fn digraph(&self) -> Option<&fnx_classes::digraph::DiGraph> {
         match self {
             GraphRef::Directed { dg, .. } => Some(&dg.inner),
-            GraphRef::MultiDirected { simple_dg, .. } => Some(simple_dg),
+            GraphRef::MultiDirected { mdg, simple_dg, .. } => {
+                Some(simple_dg.get_or_init(|| Box::new(multidigraph_to_simple_digraph(&mdg.inner))))
+            }
             _ => None,
         }
     }
@@ -173,7 +184,7 @@ impl<'py> GraphRef<'py> {
     fn weighted_undirected_projection(&self, weight_attr: &str) -> WeightedGraphProjection<'_> {
         match self {
             GraphRef::Undirected(pg) => WeightedGraphProjection::Borrowed(&pg.inner),
-            GraphRef::Directed { undirected, .. } => WeightedGraphProjection::Borrowed(undirected),
+            GraphRef::Directed { .. } => WeightedGraphProjection::Borrowed(self.undirected()),
             GraphRef::MultiUndirected { mg, .. } => WeightedGraphProjection::Owned(Box::new(
                 multigraph_to_weighted_simple_graph(&mg.inner, weight_attr),
             )),
@@ -203,26 +214,20 @@ pub(crate) fn extract_graph<'py>(g: &'py Bound<'py, PyAny>) -> PyResult<GraphRef
     if let Ok(pg) = g.extract::<PyRef<'py, PyGraph>>() {
         Ok(GraphRef::Undirected(pg))
     } else if let Ok(dg) = g.extract::<PyRef<'py, PyDiGraph>>() {
-        let undirected = dg.inner.to_undirected();
         Ok(GraphRef::Directed {
             dg,
-            undirected: Box::new(undirected),
+            undirected: OnceCell::new(),
         })
     } else if let Ok(mg) = g.extract::<PyRef<'py, PyMultiGraph>>() {
-        // Convert MultiGraph to simple Graph by collapsing parallel edges.
-        let simple = multigraph_to_simple_graph(&mg.inner);
         Ok(GraphRef::MultiUndirected {
             mg,
-            simple: Box::new(simple),
+            simple: OnceCell::new(),
         })
     } else if let Ok(mdg) = g.extract::<PyRef<'py, PyMultiDiGraph>>() {
-        // Convert MultiDiGraph to simple DiGraph and its undirected projection.
-        let simple_di = multidigraph_to_simple_digraph(&mdg.inner);
-        let undirected = simple_di.to_undirected();
         Ok(GraphRef::MultiDirected {
             mdg,
-            simple_dg: Box::new(simple_di),
-            undirected: Box::new(undirected),
+            simple_dg: OnceCell::new(),
+            undirected: OnceCell::new(),
         })
     } else {
         Err(pyo3::exceptions::PyTypeError::new_err(
@@ -1167,7 +1172,8 @@ pub fn shortest_path(
                     validate_node(&gr, &s, src)?;
                     validate_node(&gr, &t, tgt)?;
 
-                    let path = compute_single_shortest_path_directed(py, inner, &s, &t, None, method)?;
+                    let path =
+                        compute_single_shortest_path_directed(py, inner, &s, &t, None, method)?;
                     match path {
                         Some(p) => {
                             let py_path: Vec<PyObject> =
@@ -1183,10 +1189,12 @@ pub fn shortest_path(
                 (Some(src), None) => {
                     let s = node_key_to_string(py, src)?;
                     validate_node(&gr, &s, src)?;
-                    let paths = compute_single_source_shortest_paths_directed(py, inner, &s, None, method)?;
+                    let paths =
+                        compute_single_source_shortest_paths_directed(py, inner, &s, None, method)?;
                     let result = PyDict::new(py);
                     for (node, p) in paths {
-                        let py_path: Vec<PyObject> = p.iter().map(|n| gr.py_node_key(py, n)).collect();
+                        let py_path: Vec<PyObject> =
+                            p.iter().map(|n| gr.py_node_key(py, n)).collect();
                         result.set_item(gr.py_node_key(py, &node), py_path)?;
                     }
                     Ok(result.into_any().unbind())
@@ -1197,12 +1205,7 @@ pub fn shortest_path(
                     let result = PyDict::new(py);
                     for node in inner.nodes_ordered() {
                         if let Some(p) = compute_single_shortest_path_directed(
-                            py,
-                            inner,
-                            node,
-                            &t,
-                            None,
-                            method,
+                            py, inner, node, &t, None, method,
                         )? {
                             let py_path: Vec<PyObject> =
                                 p.iter().map(|n| gr.py_node_key(py, n)).collect();
@@ -1215,8 +1218,9 @@ pub fn shortest_path(
                     let result = PyDict::new(py);
                     for src_node in inner.nodes_ordered() {
                         let inner_dict = PyDict::new(py);
-                        let paths =
-                            compute_single_source_shortest_paths_directed(py, inner, src_node, None, method)?;
+                        let paths = compute_single_source_shortest_paths_directed(
+                            py, inner, src_node, None, method,
+                        )?;
                         for (tgt_node, p) in paths {
                             let py_path: Vec<PyObject> =
                                 p.iter().map(|n| gr.py_node_key(py, n)).collect();
@@ -1256,7 +1260,8 @@ pub fn shortest_path(
                     let paths = compute_single_source_shortest_paths(py, inner, &s, None, method)?;
                     let result = PyDict::new(py);
                     for (node, p) in paths {
-                        let py_path: Vec<PyObject> = p.iter().map(|n| gr.py_node_key(py, n)).collect();
+                        let py_path: Vec<PyObject> =
+                            p.iter().map(|n| gr.py_node_key(py, n)).collect();
                         result.set_item(gr.py_node_key(py, &node), py_path)?;
                     }
                     Ok(result.into_any().unbind())
@@ -1268,7 +1273,8 @@ pub fn shortest_path(
                     let result = PyDict::new(py);
                     for (node, mut p) in paths {
                         p.reverse();
-                        let py_path: Vec<PyObject> = p.iter().map(|n| gr.py_node_key(py, n)).collect();
+                        let py_path: Vec<PyObject> =
+                            p.iter().map(|n| gr.py_node_key(py, n)).collect();
                         result.set_item(gr.py_node_key(py, &node), py_path)?;
                     }
                     Ok(result.into_any().unbind())
@@ -1277,8 +1283,9 @@ pub fn shortest_path(
                     let result = PyDict::new(py);
                     for src_node in inner.nodes_ordered() {
                         let inner_dict = PyDict::new(py);
-                        let paths =
-                            compute_single_source_shortest_paths(py, inner, src_node, None, method)?;
+                        let paths = compute_single_source_shortest_paths(
+                            py, inner, src_node, None, method,
+                        )?;
                         for (tgt_node, p) in paths {
                             let py_path: Vec<PyObject> =
                                 p.iter().map(|n| gr.py_node_key(py, n)).collect();
@@ -1652,14 +1659,14 @@ pub fn density(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
         GraphRef::Directed { dg, .. } => {
             (dg.inner.nodes_ordered().len(), dg.inner.edge_count(), true)
         }
-        GraphRef::MultiUndirected { simple, .. } => {
+        GraphRef::MultiUndirected { .. } => {
+            let simple = gr.undirected();
             (simple.nodes_ordered().len(), simple.edge_count(), false)
         }
-        GraphRef::MultiDirected { simple_dg, .. } => (
-            simple_dg.nodes_ordered().len(),
-            simple_dg.edge_count(),
-            true,
-        ),
+        GraphRef::MultiDirected { .. } => {
+            let simple_dg = gr.digraph().unwrap();
+            (simple_dg.nodes_ordered().len(), simple_dg.edge_count(), true)
+        }
     };
     if n < 2 {
         return Ok(0.0);
@@ -2040,10 +2047,14 @@ pub fn pagerank(
         _ => {
             if gr.is_directed() {
                 let inner = gr.digraph().unwrap();
-                py.allow_threads(|| fnx_algorithms::pagerank_with_params(inner, alpha, max_iter, tol))
+                py.allow_threads(|| {
+                    fnx_algorithms::pagerank_with_params(inner, alpha, max_iter, tol)
+                })
             } else {
                 let inner = gr.undirected();
-                py.allow_threads(|| fnx_algorithms::pagerank_with_params(inner, alpha, max_iter, tol))
+                py.allow_threads(|| {
+                    fnx_algorithms::pagerank_with_params(inner, alpha, max_iter, tol)
+                })
             }
         }
     };
@@ -5633,7 +5644,9 @@ fn rust_graph_to_py_standalone(py: Python<'_>, result: &fnx_classes::Graph) -> P
     let mut py_graph = PyGraph::new_empty(py)?;
     for node in result.nodes_ordered() {
         let py_key = if let Ok(i) = node.parse::<i64>() {
-            crate::unwrap_infallible(i.into_pyobject(py)).into_any().unbind()
+            crate::unwrap_infallible(i.into_pyobject(py))
+                .into_any()
+                .unbind()
         } else {
             crate::unwrap_infallible(node.to_owned().into_pyobject(py))
                 .into_any()
@@ -5755,7 +5768,7 @@ fn modularity(
     weight: &str,
 ) -> PyResult<f64> {
     let gr = extract_graph(g)?;
-    
+
     let mut comms_strs = Vec::new();
     for comm in communities.try_iter()? {
         let comm = comm?;
@@ -5768,7 +5781,7 @@ fn modularity(
         }
         comms_strs.push(comm_strs);
     }
-    
+
     let inner = gr.undirected();
     Ok(py.allow_threads(|| fnx_algorithms::modularity(inner, &comms_strs, resolution, weight)))
 }
@@ -8266,9 +8279,8 @@ pub fn chain_decomposition(
         Some(r) => Some(node_key_to_string(py, r)?),
         None => None,
     };
-    let result = py.allow_threads(|| {
-        fnx_algorithms::chain_decomposition(inner, root_key.as_deref())
-    });
+    let result =
+        py.allow_threads(|| fnx_algorithms::chain_decomposition(inner, root_key.as_deref()));
     Ok(result
         .into_iter()
         .map(|chain| {
@@ -8425,9 +8437,9 @@ pub fn edge_disjoint_paths_rust(
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, target)?;
     let result = if gr.is_directed() {
-        let dg = gr.digraph().ok_or_else(|| {
-            crate::NetworkXError::new_err("expected directed graph")
-        })?;
+        let dg = gr
+            .digraph()
+            .ok_or_else(|| crate::NetworkXError::new_err("expected directed graph"))?;
         py.allow_threads(|| fnx_algorithms::edge_disjoint_paths_directed(dg, &s, &t))
     } else {
         let inner = gr.undirected();
@@ -8550,11 +8562,7 @@ pub fn flow_hierarchy_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64
 
 /// Return the k-th power of graph G.
 #[pyfunction]
-pub fn power_rust(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    k: usize,
-) -> PyResult<PyObject> {
+pub fn power_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::power(inner, k));
@@ -8723,7 +8731,11 @@ pub fn is_at_free_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
 
 /// Return the full join of two graphs.
 #[pyfunction]
-pub fn full_join_rust(py: Python<'_>, g1: &Bound<'_, PyAny>, g2: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+pub fn full_join_rust(
+    py: Python<'_>,
+    g1: &Bound<'_, PyAny>,
+    g2: &Bound<'_, PyAny>,
+) -> PyResult<PyObject> {
     let gr1 = extract_graph(g1)?;
     let gr2 = extract_graph(g2)?;
     let inner1 = gr1.undirected();
@@ -8783,7 +8795,14 @@ pub fn all_triads_rust(
     let result = py.allow_threads(|| fnx_algorithms::all_triads(dg));
     Ok(result
         .into_iter()
-        .map(|(a, b, c, t)| (gr.py_node_key(py, &a), gr.py_node_key(py, &b), gr.py_node_key(py, &c), t))
+        .map(|(a, b, c, t)| {
+            (
+                gr.py_node_key(py, &a),
+                gr.py_node_key(py, &b),
+                gr.py_node_key(py, &c),
+                t,
+            )
+        })
         .collect())
 }
 
@@ -8833,7 +8852,8 @@ pub fn dedensify_rust(
     let _ = copy;
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
-    let (result_graph, compressors) = py.allow_threads(|| fnx_algorithms::dedensify(inner, threshold));
+    let (result_graph, compressors) =
+        py.allow_threads(|| fnx_algorithms::dedensify(inner, threshold));
     let pg = crate::PyGraph {
         inner: result_graph,
         node_key_map: std::collections::HashMap::new(),
@@ -8914,10 +8934,7 @@ pub fn get_edge_attributes_rust(
     let result = py.allow_threads(|| fnx_algorithms::get_edge_attributes(inner, name));
     let dict = PyDict::new(py);
     for ((u, v), val) in &result {
-        dict.set_item(
-            (gr.py_node_key(py, u), gr.py_node_key(py, v)),
-            val.as_str(),
-        )?;
+        dict.set_item((gr.py_node_key(py, u), gr.py_node_key(py, v)), val.as_str())?;
     }
     Ok(dict.unbind())
 }
@@ -8963,7 +8980,9 @@ pub fn quotient_graph_rust(
 #[pyfunction]
 pub fn moral_graph_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
-    let dg = gr.digraph().ok_or_else(|| crate::NetworkXError::new_err("moral_graph requires DiGraph"))?;
+    let dg = gr
+        .digraph()
+        .ok_or_else(|| crate::NetworkXError::new_err("moral_graph requires DiGraph"))?;
     let result = py.allow_threads(|| fnx_algorithms::moral_graph(dg));
     let pg = crate::PyGraph {
         inner: result,
@@ -9020,11 +9039,17 @@ pub fn harmonic_diameter_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<
 
 /// Return self-loop edges.
 #[pyfunction]
-pub fn selfloop_edges_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<(PyObject, PyObject)>> {
+pub fn selfloop_edges_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Vec<(PyObject, PyObject)>> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::selfloop_edges(inner));
-    Ok(result.iter().map(|(u, v)| (gr.py_node_key(py, u), gr.py_node_key(py, v))).collect())
+    Ok(result
+        .iter()
+        .map(|(u, v)| (gr.py_node_key(py, u), gr.py_node_key(py, v)))
+        .collect())
 }
 
 /// Count self-loops.
@@ -9081,8 +9106,12 @@ pub fn cn_soundarajan_hopcroft_rust(
         .iter()
         .map(|(u, v)| Ok((node_key_to_string(py, u)?, node_key_to_string(py, v)?)))
         .collect::<PyResult<_>>()?;
-    let result = py.allow_threads(|| fnx_algorithms::cn_soundarajan_hopcroft(inner, &pairs, community));
-    Ok(result.into_iter().map(|(u, v, s)| (gr.py_node_key(py, &u), gr.py_node_key(py, &v), s)).collect())
+    let result =
+        py.allow_threads(|| fnx_algorithms::cn_soundarajan_hopcroft(inner, &pairs, community));
+    Ok(result
+        .into_iter()
+        .map(|(u, v, s)| (gr.py_node_key(py, &u), gr.py_node_key(py, &v), s))
+        .collect())
 }
 
 // ---------------------------------------------------------------------------
@@ -9099,7 +9128,9 @@ pub fn triad_type_rust(
     w: &Bound<'_, PyAny>,
 ) -> PyResult<String> {
     let gr = extract_graph(g)?;
-    let dg = gr.digraph().ok_or_else(|| crate::NetworkXError::new_err("triad_type requires DiGraph"))?;
+    let dg = gr
+        .digraph()
+        .ok_or_else(|| crate::NetworkXError::new_err("triad_type requires DiGraph"))?;
     let uk = node_key_to_string(py, u)?;
     let vk = node_key_to_string(py, v)?;
     let wk = node_key_to_string(py, w)?;
@@ -9123,7 +9154,10 @@ pub fn bfs_beam_edges_rust(
     let inner = gr.undirected();
     let s = node_key_to_string(py, source)?;
     let result = py.allow_threads(|| fnx_algorithms::bfs_beam_edges(inner, &s, width));
-    Ok(result.iter().map(|(u, v)| (gr.py_node_key(py, u), gr.py_node_key(py, v))).collect())
+    Ok(result
+        .iter()
+        .map(|(u, v)| (gr.py_node_key(py, u), gr.py_node_key(py, v)))
+        .collect())
 }
 
 // ---------------------------------------------------------------------------
@@ -9138,7 +9172,9 @@ pub fn all_neighbors_directed_rust(
     node: &Bound<'_, PyAny>,
 ) -> PyResult<Vec<PyObject>> {
     let gr = extract_graph(g)?;
-    let dg = gr.digraph().ok_or_else(|| crate::NetworkXError::new_err("requires DiGraph"))?;
+    let dg = gr
+        .digraph()
+        .ok_or_else(|| crate::NetworkXError::new_err("requires DiGraph"))?;
     let n = node_key_to_string(py, node)?;
     let result = py.allow_threads(|| fnx_algorithms::all_neighbors_directed(dg, &n));
     Ok(result.iter().map(|n| gr.py_node_key(py, n)).collect())
@@ -9150,11 +9186,17 @@ pub fn all_neighbors_directed_rust(
 
 /// Return local bridges.
 #[pyfunction]
-pub fn local_bridges_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<(PyObject, PyObject)>> {
+pub fn local_bridges_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Vec<(PyObject, PyObject)>> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::local_bridges_list(inner));
-    Ok(result.iter().map(|(u, v)| (gr.py_node_key(py, u), gr.py_node_key(py, v))).collect())
+    Ok(result
+        .iter()
+        .map(|(u, v)| (gr.py_node_key(py, u), gr.py_node_key(py, v)))
+        .collect())
 }
 
 // ---------------------------------------------------------------------------
@@ -9174,7 +9216,10 @@ pub fn generic_bfs_edges_rust(
     let inner = gr.undirected();
     let s = node_key_to_string(py, source)?;
     let result = py.allow_threads(|| fnx_algorithms::generic_bfs_edges(inner, &s, depth_limit));
-    Ok(result.iter().map(|(u, v)| (gr.py_node_key(py, u), gr.py_node_key(py, v))).collect())
+    Ok(result
+        .iter()
+        .map(|(u, v)| (gr.py_node_key(py, u), gr.py_node_key(py, v)))
+        .collect())
 }
 
 // ---------------------------------------------------------------------------
@@ -9206,14 +9251,24 @@ pub fn all_pairs_lca_rust(
     pairs: Vec<(Bound<'_, PyAny>, Bound<'_, PyAny>)>,
 ) -> PyResult<Vec<((PyObject, PyObject), PyObject)>> {
     let gr = extract_graph(g)?;
-    let dg = gr.digraph().ok_or_else(|| crate::NetworkXError::new_err("LCA requires DiGraph"))?;
-    let pair_keys: Vec<(String, String)> = pairs.iter()
+    let dg = gr
+        .digraph()
+        .ok_or_else(|| crate::NetworkXError::new_err("LCA requires DiGraph"))?;
+    let pair_keys: Vec<(String, String)> = pairs
+        .iter()
         .map(|(u, v)| Ok((node_key_to_string(py, u)?, node_key_to_string(py, v)?)))
         .collect::<PyResult<_>>()?;
-    let result = py.allow_threads(|| fnx_algorithms::all_pairs_lowest_common_ancestor(dg, &pair_keys));
-    Ok(result.into_iter().map(|((u, v), lca)| {
-        ((gr.py_node_key(py, &u), gr.py_node_key(py, &v)), gr.py_node_key(py, &lca))
-    }).collect())
+    let result =
+        py.allow_threads(|| fnx_algorithms::all_pairs_lowest_common_ancestor(dg, &pair_keys));
+    Ok(result
+        .into_iter()
+        .map(|((u, v), lca)| {
+            (
+                (gr.py_node_key(py, &u), gr.py_node_key(py, &v)),
+                gr.py_node_key(py, &lca),
+            )
+        })
+        .collect())
 }
 
 // ---------------------------------------------------------------------------
@@ -9246,7 +9301,10 @@ pub fn group_betweenness_centrality_rust(
 ) -> PyResult<f64> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
-    let keys: Vec<String> = group.iter().map(|n| node_key_to_string(py, n)).collect::<PyResult<_>>()?;
+    let keys: Vec<String> = group
+        .iter()
+        .map(|n| node_key_to_string(py, n))
+        .collect::<PyResult<_>>()?;
     let refs: Vec<&str> = keys.iter().map(String::as_str).collect();
     Ok(py.allow_threads(|| fnx_algorithms::group_betweenness_centrality(inner, &refs)))
 }
@@ -9274,7 +9332,11 @@ pub fn attribute_assortativity_coefficient_rust(
 /// Build Gomory-Hu tree.
 #[pyfunction]
 #[pyo3(signature = (g, weight="weight"))]
-pub fn gomory_hu_tree_rust(py: Python<'_>, g: &Bound<'_, PyAny>, weight: &str) -> PyResult<PyObject> {
+pub fn gomory_hu_tree_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: &str,
+) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::gomory_hu_tree(inner, weight));
@@ -9294,11 +9356,20 @@ pub fn gomory_hu_tree_rust(py: Python<'_>, g: &Bound<'_, PyAny>, weight: &str) -
 
 /// Find an asteroidal triple (or None if AT-free).
 #[pyfunction]
-pub fn find_asteroidal_triple_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Option<(PyObject, PyObject, PyObject)>> {
+pub fn find_asteroidal_triple_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Option<(PyObject, PyObject, PyObject)>> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::find_asteroidal_triple(inner));
-    Ok(result.map(|(u, v, w)| (gr.py_node_key(py, &u), gr.py_node_key(py, &v), gr.py_node_key(py, &w))))
+    Ok(result.map(|(u, v, w)| {
+        (
+            gr.py_node_key(py, &u),
+            gr.py_node_key(py, &v),
+            gr.py_node_key(py, &w),
+        )
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -9340,17 +9411,21 @@ pub fn spanning_tree_iterator_rust(
 ) -> PyResult<Vec<PyObject>> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
-    let trees = py.allow_threads(|| fnx_algorithms::spanning_tree_iterator(inner, weight, max_count));
-    trees.into_iter().map(|t| {
-        let pg = crate::PyGraph {
-            inner: t,
-            node_key_map: std::collections::HashMap::new(),
-            node_py_attrs: std::collections::HashMap::new(),
-            edge_py_attrs: std::collections::HashMap::new(),
-            graph_attrs: PyDict::new(py).unbind(),
-        };
-        Ok(pg.into_pyobject(py)?.into_any().unbind())
-    }).collect()
+    let trees =
+        py.allow_threads(|| fnx_algorithms::spanning_tree_iterator(inner, weight, max_count));
+    trees
+        .into_iter()
+        .map(|t| {
+            let pg = crate::PyGraph {
+                inner: t,
+                node_key_map: std::collections::HashMap::new(),
+                node_py_attrs: std::collections::HashMap::new(),
+                edge_py_attrs: std::collections::HashMap::new(),
+                graph_attrs: PyDict::new(py).unbind(),
+            };
+            Ok(pg.into_pyobject(py)?.into_any().unbind())
+        })
+        .collect()
 }
 
 /// Enumerate spanning arborescences.
@@ -9363,18 +9438,22 @@ pub fn arborescence_iterator_rust(
     max_count: usize,
 ) -> PyResult<Vec<PyObject>> {
     let gr = extract_graph(g)?;
-    let dg = gr.digraph().ok_or_else(|| crate::NetworkXError::new_err("requires DiGraph"))?;
+    let dg = gr
+        .digraph()
+        .ok_or_else(|| crate::NetworkXError::new_err("requires DiGraph"))?;
     let arbs = py.allow_threads(|| fnx_algorithms::arborescence_iterator(dg, weight, max_count));
-    arbs.into_iter().map(|a| {
-        let pg = crate::digraph::PyDiGraph {
-            inner: a,
-            node_key_map: std::collections::HashMap::new(),
-            node_py_attrs: std::collections::HashMap::new(),
-            edge_py_attrs: std::collections::HashMap::new(),
-            graph_attrs: PyDict::new(py).unbind(),
-        };
-        Ok(pg.into_pyobject(py)?.into_any().unbind())
-    }).collect()
+    arbs.into_iter()
+        .map(|a| {
+            let pg = crate::digraph::PyDiGraph {
+                inner: a,
+                node_key_map: std::collections::HashMap::new(),
+                node_py_attrs: std::collections::HashMap::new(),
+                edge_py_attrs: std::collections::HashMap::new(),
+                graph_attrs: PyDict::new(py).unbind(),
+            };
+            Ok(pg.into_pyobject(py)?.into_any().unbind())
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -9427,7 +9506,8 @@ pub fn all_pairs_all_shortest_paths_rust(
     for (source, targets) in &result {
         let inner_dict = PyDict::new(py);
         for (target, paths) in targets {
-            let py_paths: Vec<Vec<PyObject>> = paths.iter()
+            let py_paths: Vec<Vec<PyObject>> = paths
+                .iter()
                 .map(|p| p.iter().map(|n| gr.py_node_key(py, n)).collect())
                 .collect();
             inner_dict.set_item(gr.py_node_key(py, target), py_paths)?;
@@ -9981,7 +10061,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Group betweenness
     m.add_function(wrap_pyfunction!(group_betweenness_centrality_rust, m)?)?;
     // Attribute assortativity
-    m.add_function(wrap_pyfunction!(attribute_assortativity_coefficient_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        attribute_assortativity_coefficient_rust,
+        m
+    )?)?;
     // Gomory-Hu tree
     m.add_function(wrap_pyfunction!(gomory_hu_tree_rust, m)?)?;
     // Find asteroidal triple

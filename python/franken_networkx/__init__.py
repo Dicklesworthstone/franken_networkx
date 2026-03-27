@@ -3163,18 +3163,15 @@ def all_pairs_node_connectivity(G, nbunch=None, flow_func=None):
     dict of dicts
         ``result[u][v]`` is the node connectivity between u and v.
     """
-    if nbunch is None:
-        nbunch = list(G.nodes())
+    import networkx as nx
 
-    result = {}
-    for u in nbunch:
-        result[u] = {}
-        for v in nbunch:
-            if u == v:
-                result[u][v] = 0
-            else:
-                result[u][v] = node_connectivity(G, u, v)
-    return result
+    from franken_networkx.drawing.layout import _to_nx
+
+    return nx.all_pairs_node_connectivity(
+        _to_nx(G),
+        nbunch=nbunch,
+        flow_func=flow_func,
+    )
 
 
 def minimum_st_node_cut(G, s, t):

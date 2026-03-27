@@ -927,6 +927,15 @@ class TestGenerators:
         )
 
     @needs_nx
+    def test_all_pairs_node_connectivity_matches_networkx(self):
+        graph = fnx.path_graph(4)
+        expected_graph = nx.path_graph(4)
+
+        assert fnx.all_pairs_node_connectivity(graph) == nx.all_pairs_node_connectivity(
+            expected_graph
+        )
+
+    @needs_nx
     def test_harary_and_havel_hakimi_wrappers_match_networkx(self):
         hakimi = fnx.havel_hakimi_graph([3, 3, 2, 2, 2], create_using=fnx.Graph())
         expected_hakimi = nx.havel_hakimi_graph([3, 3, 2, 2, 2], create_using=nx.Graph())

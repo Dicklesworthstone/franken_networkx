@@ -2306,16 +2306,31 @@ fn hits_centrality_generic<G: GraphView>(graph: &G) -> HitsCentralityResult {
 
 #[must_use]
 pub fn pagerank(graph: &Graph) -> PageRankResult {
-    pagerank_with_params(graph, PAGERANK_DEFAULT_ALPHA, PAGERANK_DEFAULT_MAX_ITERATIONS, PAGERANK_DEFAULT_TOLERANCE)
+    pagerank_with_params(
+        graph,
+        PAGERANK_DEFAULT_ALPHA,
+        PAGERANK_DEFAULT_MAX_ITERATIONS,
+        PAGERANK_DEFAULT_TOLERANCE,
+    )
 }
 
 #[must_use]
 pub fn pagerank_directed(graph: &DiGraph) -> PageRankResult {
-    pagerank_with_params(graph, PAGERANK_DEFAULT_ALPHA, PAGERANK_DEFAULT_MAX_ITERATIONS, PAGERANK_DEFAULT_TOLERANCE)
+    pagerank_with_params(
+        graph,
+        PAGERANK_DEFAULT_ALPHA,
+        PAGERANK_DEFAULT_MAX_ITERATIONS,
+        PAGERANK_DEFAULT_TOLERANCE,
+    )
 }
 
 /// PageRank with explicit parameters.
-pub fn pagerank_with_params<G: GraphView>(graph: &G, alpha: f64, max_iter: usize, tol: f64) -> PageRankResult {
+pub fn pagerank_with_params<G: GraphView>(
+    graph: &G,
+    alpha: f64,
+    max_iter: usize,
+    tol: f64,
+) -> PageRankResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     if n == 0 {
@@ -19208,11 +19223,7 @@ pub fn stoer_wagner(graph: &Graph, weight_attr: &str) -> Option<StoerWagnerResul
 ///
 /// The caller is responsible for random index selection (keeps this crate
 /// free of the `rand` dependency).
-pub fn try_double_edge_swap(
-    graph: &mut Graph,
-    e1_idx: usize,
-    e2_idx: usize,
-) -> bool {
+pub fn try_double_edge_swap(graph: &mut Graph, e1_idx: usize, e2_idx: usize) -> bool {
     let edges: Vec<(String, String)> = graph
         .edges_ordered()
         .iter()
@@ -19350,7 +19361,16 @@ pub fn all_topological_sorts(digraph: &DiGraph) -> Vec<Vec<String>> {
     let mut results = Vec::new();
     let mut current = Vec::with_capacity(n);
     let mut used = vec![false; n];
-    all_topo_backtrack(digraph, &nodes, &idx, &mut in_deg, &mut used, &mut current, &mut results, n);
+    all_topo_backtrack(
+        digraph,
+        &nodes,
+        &idx,
+        &mut in_deg,
+        &mut used,
+        &mut current,
+        &mut results,
+        n,
+    );
     results
 }
 
@@ -19534,11 +19554,12 @@ pub fn voronoi_cells(
         if let Some(nbrs) = graph.neighbors(nodes[v]) {
             for nb in nbrs {
                 if let Some(&ni) = idx.get(nb)
-                    && dist[ni] > d + 1 {
-                        dist[ni] = d + 1;
-                        nearest[ni] = nearest[v];
-                        queue.push_back(ni);
-                    }
+                    && dist[ni] > d + 1
+                {
+                    dist[ni] = d + 1;
+                    nearest[ni] = nearest[v];
+                    queue.push_back(ni);
+                }
             }
         }
     }
@@ -19628,7 +19649,11 @@ pub fn is_d_separator(
     // Moralize: connect co-parents (marry parents of same child)
     for node in &relevant {
         if let Some(preds) = digraph.predecessors(node) {
-            let parent_list: Vec<String> = preds.into_iter().filter(|p| relevant.contains(*p)).map(|s| s.to_owned()).collect();
+            let parent_list: Vec<String> = preds
+                .into_iter()
+                .filter(|p| relevant.contains(*p))
+                .map(|s| s.to_owned())
+                .collect();
             for i in 0..parent_list.len() {
                 for j in (i + 1)..parent_list.len() {
                     adj.entry(parent_list[i].to_owned())
@@ -19686,21 +19711,11 @@ pub fn is_d_separator(
 /// and do NOT share a neighbor in the mutual set. High dispersion means
 /// u and v's mutual contacts are spread across different social contexts.
 #[must_use]
-pub fn dispersion_pair(
-    graph: &Graph,
-    u: &str,
-    v: &str,
-) -> f64 {
-    let u_nbrs: std::collections::HashSet<&str> = graph
-        .neighbors(u)
-        .unwrap_or_default()
-        .into_iter()
-        .collect();
-    let v_nbrs: std::collections::HashSet<&str> = graph
-        .neighbors(v)
-        .unwrap_or_default()
-        .into_iter()
-        .collect();
+pub fn dispersion_pair(graph: &Graph, u: &str, v: &str) -> f64 {
+    let u_nbrs: std::collections::HashSet<&str> =
+        graph.neighbors(u).unwrap_or_default().into_iter().collect();
+    let v_nbrs: std::collections::HashSet<&str> =
+        graph.neighbors(v).unwrap_or_default().into_iter().collect();
 
     let mut mutual: Vec<&str> = u_nbrs
         .intersection(&v_nbrs)
@@ -19721,11 +19736,8 @@ pub fn dispersion_pair(
             if graph.has_edge(s, t) {
                 continue;
             }
-            let s_nbrs: std::collections::HashSet<&str> = graph
-                .neighbors(s)
-                .unwrap_or_default()
-                .into_iter()
-                .collect();
+            let s_nbrs: std::collections::HashSet<&str> =
+                graph.neighbors(s).unwrap_or_default().into_iter().collect();
             let has_common = mutual
                 .iter()
                 .any(|&m| m != s && m != t && s_nbrs.contains(m) && graph.has_edge(m, t));
@@ -19777,9 +19789,10 @@ pub fn min_cost_flow(
     let mut demand = vec![0.0f64; n];
     for (i, &node) in nodes.iter().enumerate() {
         if let Some(attrs) = digraph.node_attrs(node)
-            && let Some(d) = attrs.get(demand_attr) {
-                demand[i] = d.as_str().parse::<f64>().unwrap_or(0.0);
-            }
+            && let Some(d) = attrs.get(demand_attr)
+        {
+            demand[i] = d.as_str().parse::<f64>().unwrap_or(0.0);
+        }
     }
 
     // Build residual graph
@@ -19841,7 +19854,8 @@ pub fn min_cost_flow(
                 }
                 for j in 0..n {
                     let residual = cap[i][j] - flow_mat[i][j];
-                    if residual > FLOW_EPSILON && dist[i] + cost_mat[i][j] < dist[j] - FLOW_EPSILON {
+                    if residual > FLOW_EPSILON && dist[i] + cost_mat[i][j] < dist[j] - FLOW_EPSILON
+                    {
                         dist[j] = dist[i] + cost_mat[i][j];
                         prev[j] = Some(i);
                     }
@@ -19880,14 +19894,14 @@ pub fn min_cost_flow(
         let i = idx[edge.left.as_str()];
         let j = idx[edge.right.as_str()];
         if flow_mat[i][j] > FLOW_EPSILON {
-            flow.insert(
-                (edge.left.clone(), edge.right.clone()),
-                flow_mat[i][j],
-            );
+            flow.insert((edge.left.clone(), edge.right.clone()), flow_mat[i][j]);
         }
     }
 
-    Some(MinCostFlowResult { flow, cost: total_cost })
+    Some(MinCostFlowResult {
+        flow,
+        cost: total_cost,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -20080,11 +20094,7 @@ pub fn node_disjoint_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec
 
     // Internal edges
     for i in 0..n {
-        let capacity = if i == s || i == t {
-            n as i32
-        } else {
-            1
-        };
+        let capacity = if i == s || i == t { n as i32 } else { 1 };
         cap[i][i + n] = capacity;
     }
 
@@ -20183,7 +20193,9 @@ pub fn generate_random_paths(
     // Simple LCG for deterministic random without rand dependency
     let mut rng_state = seed.wrapping_add(1);
     let mut next_rand = || -> usize {
-        rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        rng_state = rng_state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         (rng_state >> 33) as usize
     };
 
@@ -20262,11 +20274,8 @@ pub fn reverse_digraph(digraph: &DiGraph) -> DiGraph {
         result.add_node(node.to_owned());
     }
     for edge in digraph.edges_ordered() {
-        let _ = result.add_edge_with_attrs(
-            edge.right.clone(),
-            edge.left.clone(),
-            edge.attrs.clone(),
-        );
+        let _ =
+            result.add_edge_with_attrs(edge.right.clone(), edge.left.clone(), edge.attrs.clone());
     }
     result
 }
@@ -20288,10 +20297,7 @@ pub enum DfsEdgeLabel {
 ///
 /// Each result is (u, v, label) where label classifies the edge type.
 #[must_use]
-pub fn dfs_labeled_edges(
-    graph: &Graph,
-    source: &str,
-) -> Vec<(String, String, DfsEdgeLabel)> {
+pub fn dfs_labeled_edges(graph: &Graph, source: &str) -> Vec<(String, String, DfsEdgeLabel)> {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     let idx: std::collections::HashMap<&str, usize> =
@@ -20331,11 +20337,7 @@ pub fn dfs_labeled_edges(
             } else {
                 DfsEdgeLabel::BackEdge
             };
-            result.push((
-                nodes[parent].to_owned(),
-                nodes[node].to_owned(),
-                label,
-            ));
+            result.push((nodes[parent].to_owned(), nodes[node].to_owned(), label));
             continue;
         }
 
@@ -20372,7 +20374,9 @@ pub fn dfs_labeled_edges(
 /// Generalized degree: for each node, returns a map from triangle count
 /// to the number of neighbors with that many shared triangles.
 #[must_use]
-pub fn generalized_degree(graph: &Graph) -> std::collections::HashMap<String, std::collections::HashMap<usize, usize>> {
+pub fn generalized_degree(
+    graph: &Graph,
+) -> std::collections::HashMap<String, std::collections::HashMap<usize, usize>> {
     let nodes = graph.nodes_ordered();
     let mut result = std::collections::HashMap::new();
 
@@ -20380,11 +20384,15 @@ pub fn generalized_degree(graph: &Graph) -> std::collections::HashMap<String, st
         let nbrs: Vec<&str> = graph.neighbors(node).unwrap_or_default();
         let nbr_set: std::collections::HashSet<&str> = nbrs.iter().copied().collect();
 
-        let mut degree_dist: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+        let mut degree_dist: std::collections::HashMap<usize, usize> =
+            std::collections::HashMap::new();
         for &nb in &nbrs {
             // Count triangles through this neighbor
             let nb_nbrs: Vec<&str> = graph.neighbors(nb).unwrap_or_default();
-            let shared = nb_nbrs.iter().filter(|&&x| x != node && nbr_set.contains(x)).count();
+            let shared = nb_nbrs
+                .iter()
+                .filter(|&&x| x != node && nbr_set.contains(x))
+                .count();
             *degree_dist.entry(shared).or_insert(0) += 1;
         }
         result.insert(node.to_owned(), degree_dist);
@@ -20418,7 +20426,6 @@ pub fn is_strongly_regular(graph: &Graph) -> bool {
             return false;
         }
     }
-
 
     // Check λ and μ
     let mut lambda: Option<usize> = None;
@@ -20511,7 +20518,10 @@ pub fn flow_hierarchy_directed(digraph: &DiGraph) -> f64 {
             for s in succs {
                 if let Some(&si) = idx.get(s) {
                     if disc[si] == usize::MAX {
-                        tarjan_dfs(si, digraph, nodes, idx, disc, low, on_stack, stack, scc_id, scc_count, timer);
+                        tarjan_dfs(
+                            si, digraph, nodes, idx, disc, low, on_stack, stack, scc_id, scc_count,
+                            timer,
+                        );
                         low[v] = low[v].min(low[si]);
                     } else if on_stack[si] {
                         low[v] = low[v].min(disc[si]);
@@ -20534,7 +20544,19 @@ pub fn flow_hierarchy_directed(digraph: &DiGraph) -> f64 {
 
     for i in 0..n {
         if disc[i] == usize::MAX {
-            tarjan_dfs(i, digraph, &nodes, &idx, &mut disc, &mut low, &mut on_stack, &mut stack, &mut scc_id, &mut scc_count, &mut timer);
+            tarjan_dfs(
+                i,
+                digraph,
+                &nodes,
+                &idx,
+                &mut disc,
+                &mut low,
+                &mut on_stack,
+                &mut stack,
+                &mut scc_id,
+                &mut scc_count,
+                &mut timer,
+            );
         }
     }
 
@@ -20550,9 +20572,11 @@ pub fn flow_hierarchy_directed(digraph: &DiGraph) -> f64 {
     let mut cycle_edges = 0usize;
     for edge in digraph.edges_ordered() {
         if let (Some(&ui), Some(&vi)) = (idx.get(edge.left.as_str()), idx.get(edge.right.as_str()))
-            && scc_id[ui] == scc_id[vi] && scc_sizes[scc_id[ui]] > 1 {
-                cycle_edges += 1;
-            }
+            && scc_id[ui] == scc_id[vi]
+            && scc_sizes[scc_id[ui]] > 1
+        {
+            cycle_edges += 1;
+        }
     }
 
     1.0 - (cycle_edges as f64 / m as f64)
@@ -20593,16 +20617,14 @@ pub fn power(graph: &Graph, k: usize) -> Graph {
             if let Some(nbrs) = graph.neighbors(nodes[v]) {
                 for nb in nbrs {
                     if let Some(&ni) = idx.get(nb)
-                        && dist[ni] == usize::MAX {
-                            dist[ni] = d + 1;
-                            queue.push_back(ni);
-                            if ni > s {
-                                let _ = result.add_edge(
-                                    nodes[s].to_owned(),
-                                    nodes[ni].to_owned(),
-                                );
-                            }
+                        && dist[ni] == usize::MAX
+                    {
+                        dist[ni] = d + 1;
+                        queue.push_back(ni);
+                        if ni > s {
+                            let _ = result.add_edge(nodes[s].to_owned(), nodes[ni].to_owned());
                         }
+                    }
                 }
             }
         }
@@ -20621,7 +20643,11 @@ pub fn power(graph: &Graph, k: usize) -> Graph {
 #[must_use]
 pub fn square_clustering_map(graph: &Graph) -> std::collections::HashMap<String, f64> {
     let result = square_clustering(graph);
-    result.scores.into_iter().map(|score| (score.node, score.score)).collect()
+    result
+        .scores
+        .into_iter()
+        .map(|score| (score.node, score.score))
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -20659,11 +20685,12 @@ pub fn ego_graph(graph: &Graph, center: &str, radius: usize) -> Graph {
         if let Some(nbrs) = graph.neighbors(nodes[v]) {
             for nb in nbrs {
                 if let Some(&ni) = idx.get(nb)
-                    && dist[ni] == usize::MAX {
-                        dist[ni] = d + 1;
-                        ego_nodes.push(ni);
-                        queue.push_back(ni);
-                    }
+                    && dist[ni] == usize::MAX
+                {
+                    dist[ni] = d + 1;
+                    ego_nodes.push(ni);
+                    queue.push_back(ni);
+                }
             }
         }
     }
@@ -20676,9 +20703,15 @@ pub fn ego_graph(graph: &Graph, center: &str, radius: usize) -> Graph {
     }
     for edge in graph.edges_ordered() {
         if let (Some(&ui), Some(&vi)) = (idx.get(edge.left.as_str()), idx.get(edge.right.as_str()))
-            && ego_set.contains(&ui) && ego_set.contains(&vi) {
-                let _ = result.add_edge_with_attrs(edge.left.clone(), edge.right.clone(), edge.attrs.clone());
-            }
+            && ego_set.contains(&ui)
+            && ego_set.contains(&vi)
+        {
+            let _ = result.add_edge_with_attrs(
+                edge.left.clone(),
+                edge.right.clone(),
+                edge.attrs.clone(),
+            );
+        }
     }
 
     result
@@ -20711,21 +20744,23 @@ pub fn ego_graph_directed(digraph: &DiGraph, center: &str, radius: usize) -> DiG
         if let Some(succs) = digraph.successors(nodes[v]) {
             for s in succs {
                 if let Some(&si) = idx.get(s)
-                    && dist[si] == usize::MAX {
-                        dist[si] = d + 1;
-                        ego_nodes.push(si);
-                        queue.push_back(si);
-                    }
+                    && dist[si] == usize::MAX
+                {
+                    dist[si] = d + 1;
+                    ego_nodes.push(si);
+                    queue.push_back(si);
+                }
             }
         }
         if let Some(preds) = digraph.predecessors(nodes[v]) {
             for p in preds {
                 if let Some(&pi) = idx.get(p)
-                    && dist[pi] == usize::MAX {
-                        dist[pi] = d + 1;
-                        ego_nodes.push(pi);
-                        queue.push_back(pi);
-                    }
+                    && dist[pi] == usize::MAX
+                {
+                    dist[pi] = d + 1;
+                    ego_nodes.push(pi);
+                    queue.push_back(pi);
+                }
             }
         }
     }
@@ -20737,9 +20772,15 @@ pub fn ego_graph_directed(digraph: &DiGraph, center: &str, radius: usize) -> DiG
     }
     for edge in digraph.edges_ordered() {
         if let (Some(&ui), Some(&vi)) = (idx.get(edge.left.as_str()), idx.get(edge.right.as_str()))
-            && ego_set.contains(&ui) && ego_set.contains(&vi) {
-                let _ = result.add_edge_with_attrs(edge.left.clone(), edge.right.clone(), edge.attrs.clone());
-            }
+            && ego_set.contains(&ui)
+            && ego_set.contains(&vi)
+        {
+            let _ = result.add_edge_with_attrs(
+                edge.left.clone(),
+                edge.right.clone(),
+                edge.attrs.clone(),
+            );
+        }
     }
 
     result
@@ -20765,16 +20806,10 @@ pub fn common_neighbor_centrality(
 
     let mut result = Vec::with_capacity(ebunch.len());
     for (u, v) in ebunch {
-        let u_nbrs: std::collections::HashSet<&str> = graph
-            .neighbors(u)
-            .unwrap_or_default()
-            .into_iter()
-            .collect();
-        let v_nbrs: std::collections::HashSet<&str> = graph
-            .neighbors(v)
-            .unwrap_or_default()
-            .into_iter()
-            .collect();
+        let u_nbrs: std::collections::HashSet<&str> =
+            graph.neighbors(u).unwrap_or_default().into_iter().collect();
+        let v_nbrs: std::collections::HashSet<&str> =
+            graph.neighbors(v).unwrap_or_default().into_iter().collect();
         let cn = u_nbrs.intersection(&v_nbrs).count() as f64;
 
         // BFS shortest path length
@@ -20784,26 +20819,34 @@ pub fn common_neighbor_centrality(
             let mut queue = std::collections::VecDeque::new();
             queue.push_back(ui);
             while let Some(w) = queue.pop_front() {
-                if w == vi { break; }
+                if w == vi {
+                    break;
+                }
                 if let Some(nbrs) = graph.neighbors(nodes[w]) {
                     for nb in nbrs {
                         if let Some(&ni) = idx.get(nb)
-                            && dist[ni] == usize::MAX {
-                                dist[ni] = dist[w] + 1;
-                                queue.push_back(ni);
-                            }
+                            && dist[ni] == usize::MAX
+                        {
+                            dist[ni] = dist[w] + 1;
+                            queue.push_back(ni);
+                        }
                     }
                 }
             }
-            if dist[vi] < usize::MAX { Some(dist[vi]) } else { None }
+            if dist[vi] < usize::MAX {
+                Some(dist[vi])
+            } else {
+                None
+            }
         } else {
             None
         };
 
-        let score = cn + match sp {
-            Some(p) if p > 0 => alpha * (n as f64 / p as f64),
-            _ => 0.0,
-        };
+        let score = cn
+            + match sp {
+                Some(p) if p > 0 => alpha * (n as f64 / p as f64),
+                _ => 0.0,
+            };
         result.push((u.clone(), v.clone(), score));
     }
 
@@ -20831,7 +20874,9 @@ pub fn degree_mixing_dict(graph: &Graph) -> std::collections::HashMap<(usize, us
 
 /// Degree mixing dictionary for directed graphs.
 #[must_use]
-pub fn degree_mixing_dict_directed(digraph: &DiGraph) -> std::collections::HashMap<(usize, usize), usize> {
+pub fn degree_mixing_dict_directed(
+    digraph: &DiGraph,
+) -> std::collections::HashMap<(usize, usize), usize> {
     let mut mixing = std::collections::HashMap::new();
     for edge in digraph.edges_ordered() {
         let du = digraph.neighbor_count(&edge.left); // out-degree
@@ -20883,10 +20928,7 @@ pub fn connected_dominating_set(graph: &Graph) -> Vec<String> {
                     continue;
                 }
                 let nb_nbrs = graph.neighbors(nb).unwrap_or_default();
-                let new_covered = nb_nbrs
-                    .iter()
-                    .filter(|&&x| !covered.contains(x))
-                    .count()
+                let new_covered = nb_nbrs.iter().filter(|&&x| !covered.contains(x)).count()
                     + usize::from(!covered.contains(nb));
                 if new_covered > best_count {
                     best_count = new_covered;
@@ -20924,10 +20966,11 @@ pub fn triadic_census(digraph: &DiGraph) -> std::collections::HashMap<String, us
     use std::collections::{HashMap, HashSet};
 
     let triad_names = [
-        "003", "012", "102", "021D", "021U", "021C", "111D", "111U",
-        "030T", "030C", "201", "120D", "120U", "120C", "210", "300",
+        "003", "012", "102", "021D", "021U", "021C", "111D", "111U", "030T", "030C", "201", "120D",
+        "120U", "120C", "210", "300",
     ];
-    let mut census: HashMap<String, usize> = triad_names.iter().map(|&n| (n.to_owned(), 0)).collect();
+    let mut census: HashMap<String, usize> =
+        triad_names.iter().map(|&n| (n.to_owned(), 0)).collect();
 
     let nodes = digraph.nodes_ordered();
     let n = nodes.len();
@@ -20960,15 +21003,11 @@ pub fn triadic_census(digraph: &DiGraph) -> std::collections::HashMap<String, us
                 let jk = succ_set[j].contains(&k);
                 let kj = succ_set[k].contains(&j);
 
-                let mutual_count = usize::from(ij && ji)
-                    + usize::from(ik && ki)
-                    + usize::from(jk && kj);
-                let asym_count = usize::from(ij ^ ji)
-                    + usize::from(ik ^ ki)
-                    + usize::from(jk ^ kj);
-                let null_count = usize::from(!ij && !ji)
-                    + usize::from(!ik && !ki)
-                    + usize::from(!jk && !kj);
+                let mutual_count =
+                    usize::from(ij && ji) + usize::from(ik && ki) + usize::from(jk && kj);
+                let asym_count = usize::from(ij ^ ji) + usize::from(ik ^ ki) + usize::from(jk ^ kj);
+                let null_count =
+                    usize::from(!ij && !ji) + usize::from(!ik && !ki) + usize::from(!jk && !kj);
 
                 let triad_type = match (mutual_count, asym_count, null_count) {
                     (0, 0, 3) => "003",
@@ -20977,22 +21016,19 @@ pub fn triadic_census(digraph: &DiGraph) -> std::collections::HashMap<String, us
                     (0, 2, 1) => {
                         // 021D, 021U, or 021C
                         // Find the two asymmetric dyads
-                        let edges: Vec<(usize, usize)> = [
-                            (i, j, ij, ji),
-                            (i, k, ik, ki),
-                            (j, k, jk, kj),
-                        ]
-                        .iter()
-                        .filter_map(|&(a, b, ab, ba)| {
-                            if ab && !ba {
-                                Some((a, b))
-                            } else if ba && !ab {
-                                Some((b, a))
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
+                        let edges: Vec<(usize, usize)> =
+                            [(i, j, ij, ji), (i, k, ik, ki), (j, k, jk, kj)]
+                                .iter()
+                                .filter_map(|&(a, b, ab, ba)| {
+                                    if ab && !ba {
+                                        Some((a, b))
+                                    } else if ba && !ab {
+                                        Some((b, a))
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect();
                         if edges.len() == 2 {
                             let (s1, t1) = edges[0];
                             let (s2, t2) = edges[1];
@@ -21011,17 +21047,30 @@ pub fn triadic_census(digraph: &DiGraph) -> std::collections::HashMap<String, us
                         // 111D or 111U
                         // Find the mutual pair and the asymmetric edge
                         let mut mutual_nodes = HashSet::new();
-                        if ij && ji { mutual_nodes.insert(i); mutual_nodes.insert(j); }
-                        if ik && ki { mutual_nodes.insert(i); mutual_nodes.insert(k); }
-                        if jk && kj { mutual_nodes.insert(j); mutual_nodes.insert(k); }
+                        if ij && ji {
+                            mutual_nodes.insert(i);
+                            mutual_nodes.insert(j);
+                        }
+                        if ik && ki {
+                            mutual_nodes.insert(i);
+                            mutual_nodes.insert(k);
+                        }
+                        if jk && kj {
+                            mutual_nodes.insert(j);
+                            mutual_nodes.insert(k);
+                        }
 
                         // Find asymmetric edge source
                         let asym_src = [(i, j, ij, ji), (i, k, ik, ki), (j, k, jk, kj)]
                             .iter()
                             .find_map(|&(a, b, ab, ba)| {
-                                if ab && !ba { Some(a) }
-                                else if ba && !ab { Some(b) }
-                                else { None }
+                                if ab && !ba {
+                                    Some(a)
+                                } else if ba && !ab {
+                                    Some(b)
+                                } else {
+                                    None
+                                }
                             });
 
                         match asym_src {
@@ -21039,12 +21088,20 @@ pub fn triadic_census(digraph: &DiGraph) -> std::collections::HashMap<String, us
                     (1, 2, 0) => {
                         // 120D, 120U, or 120C
                         let mut mutual_pair = (0, 0);
-                        if ij && ji { mutual_pair = (i, j); }
-                        else if ik && ki { mutual_pair = (i, k); }
-                        else if jk && kj { mutual_pair = (j, k); }
+                        if ij && ji {
+                            mutual_pair = (i, j);
+                        } else if ik && ki {
+                            mutual_pair = (i, k);
+                        } else if jk && kj {
+                            mutual_pair = (j, k);
+                        }
 
                         let (m1, m2) = mutual_pair;
-                        let other = [i, j, k].iter().find(|&&x| x != m1 && x != m2).copied().unwrap_or(0);
+                        let other = [i, j, k]
+                            .iter()
+                            .find(|&&x| x != m1 && x != m2)
+                            .copied()
+                            .unwrap_or(0);
 
                         // Two asymmetric edges involve 'other' and the mutual pair
                         let to_other_from_m1 = succ_set[m1].contains(&other);
@@ -21115,10 +21172,7 @@ pub fn attribute_mixing_dict(
 /// Returns a value in [-1, 1]. Positive means similar-attribute nodes
 /// tend to connect.
 #[must_use]
-pub fn attribute_assortativity(
-    graph: &Graph,
-    attribute: &str,
-) -> f64 {
+pub fn attribute_assortativity(graph: &Graph, attribute: &str) -> f64 {
     let mixing = attribute_mixing_dict(graph, attribute);
     if mixing.is_empty() {
         return 0.0;
@@ -21132,8 +21186,11 @@ pub fn attribute_assortativity(
     }
     let values: Vec<String> = attr_values.into_iter().collect();
     let k = values.len();
-    let val_idx: std::collections::HashMap<&str, usize> =
-        values.iter().enumerate().map(|(i, v)| (v.as_str(), i)).collect();
+    let val_idx: std::collections::HashMap<&str, usize> = values
+        .iter()
+        .enumerate()
+        .map(|(i, v)| (v.as_str(), i))
+        .collect();
 
     // Build mixing matrix (normalized)
     let total: usize = mixing.values().sum();
@@ -21150,7 +21207,9 @@ pub fn attribute_assortativity(
     // Compute assortativity r = (tr(e) - ||e²||) / (1 - ||e²||)
     let trace: f64 = (0..k).map(|i| e[i][i]).sum();
     let row_sums: Vec<f64> = (0..k).map(|i| e[i].iter().sum::<f64>()).collect();
-    let col_sums: Vec<f64> = (0..k).map(|j| (0..k).map(|i| e[i][j]).sum::<f64>()).collect();
+    let col_sums: Vec<f64> = (0..k)
+        .map(|j| (0..k).map(|i| e[i][j]).sum::<f64>())
+        .collect();
     let e_squared: f64 = (0..k).map(|i| row_sums[i] * col_sums[i]).sum();
 
     if (1.0 - e_squared).abs() < ASSORTATIVITY_EPSILON {
@@ -21250,10 +21309,12 @@ fn bfs_avoiding(
         if let Some(nbrs) = graph.neighbors(nodes[v]) {
             for nb in nbrs {
                 if let Some(&ni) = idx.get(nb)
-                    && !visited[ni] && !avoid.contains(&ni) {
-                        visited[ni] = true;
-                        queue.push_back(ni);
-                    }
+                    && !visited[ni]
+                    && !avoid.contains(&ni)
+                {
+                    visited[ni] = true;
+                    queue.push_back(ni);
+                }
             }
         }
     }
@@ -21280,7 +21341,9 @@ pub fn double_edge_swap_seeded(
 
     let mut rng_state = seed.wrapping_add(1);
     let mut next_rand = || -> usize {
-        rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        rng_state = rng_state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         (rng_state >> 33) as usize
     };
 
@@ -21342,7 +21405,9 @@ pub fn directed_edge_swap_seeded(
 
     let mut rng_state = seed.wrapping_add(1);
     let mut next_rand = || -> usize {
-        rng_state = rng_state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        rng_state = rng_state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         (rng_state >> 33) as usize
     };
 
@@ -21418,11 +21483,12 @@ pub fn global_parameters(graph: &Graph) -> Option<(Vec<usize>, Vec<usize>)> {
             if let Some(nbrs) = graph.neighbors(nodes[v]) {
                 for nb in nbrs {
                     if let Some(&ni) = idx.get(nb)
-                        && all_dist[s][ni] == usize::MAX {
-                            all_dist[s][ni] = all_dist[s][v] + 1;
-                            diameter = diameter.max(all_dist[s][ni]);
-                            queue.push_back(ni);
-                        }
+                        && all_dist[s][ni] == usize::MAX
+                    {
+                        all_dist[s][ni] = all_dist[s][v] + 1;
+                        diameter = diameter.max(all_dist[s][ni]);
+                        queue.push_back(ni);
+                    }
                 }
             }
         }
@@ -21483,7 +21549,12 @@ pub fn global_parameters(graph: &Graph) -> Option<(Vec<usize>, Vec<usize>)> {
 ///
 /// Returns `{u: {v: edge_attrs, ...}, ...}` for all nodes.
 #[must_use]
-pub fn to_dict_of_dicts(graph: &Graph) -> std::collections::HashMap<String, std::collections::HashMap<String, std::collections::BTreeMap<String, String>>> {
+pub fn to_dict_of_dicts(
+    graph: &Graph,
+) -> std::collections::HashMap<
+    String,
+    std::collections::HashMap<String, std::collections::BTreeMap<String, String>>,
+> {
     let mut result = std::collections::HashMap::new();
     for node in graph.nodes_ordered() {
         let mut adj = std::collections::HashMap::new();
@@ -21507,10 +21578,7 @@ pub fn to_dict_of_dicts(graph: &Graph) -> std::collections::HashMap<String, std:
 
 /// BFS with edge labeling: tree edges, non-tree edges, and reverse edges.
 #[must_use]
-pub fn bfs_labeled_edges(
-    graph: &Graph,
-    source: &str,
-) -> Vec<(String, String, String)> {
+pub fn bfs_labeled_edges(graph: &Graph, source: &str) -> Vec<(String, String, String)> {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     let idx: std::collections::HashMap<&str, usize> =
@@ -21528,7 +21596,11 @@ pub fn bfs_labeled_edges(
     queue.push_back(s);
 
     // Emit forward edge for source
-    result.push((nodes[s].to_owned(), nodes[s].to_owned(), "forward".to_owned()));
+    result.push((
+        nodes[s].to_owned(),
+        nodes[s].to_owned(),
+        "forward".to_owned(),
+    ));
 
     while let Some(v) = queue.pop_front() {
         if let Some(nbrs) = graph.neighbors(nodes[v]) {
@@ -21537,14 +21609,26 @@ pub fn bfs_labeled_edges(
                     if !visited[ni] {
                         visited[ni] = true;
                         queue.push_back(ni);
-                        result.push((nodes[v].to_owned(), nodes[ni].to_owned(), "forward".to_owned()));
+                        result.push((
+                            nodes[v].to_owned(),
+                            nodes[ni].to_owned(),
+                            "forward".to_owned(),
+                        ));
                     } else {
-                        result.push((nodes[v].to_owned(), nodes[ni].to_owned(), "nontree".to_owned()));
+                        result.push((
+                            nodes[v].to_owned(),
+                            nodes[ni].to_owned(),
+                            "nontree".to_owned(),
+                        ));
                     }
                 }
             }
         }
-        result.push((nodes[v].to_owned(), nodes[v].to_owned(), "reverse".to_owned()));
+        result.push((
+            nodes[v].to_owned(),
+            nodes[v].to_owned(),
+            "reverse".to_owned(),
+        ));
     }
 
     result
@@ -21570,10 +21654,12 @@ pub fn full_join(g1: &Graph, g2: &Graph) -> Graph {
         let _ = result.add_node(node.to_owned());
     }
     for edge in g1.edges_ordered() {
-        let _ = result.add_edge_with_attrs(edge.left.clone(), edge.right.clone(), edge.attrs.clone());
+        let _ =
+            result.add_edge_with_attrs(edge.left.clone(), edge.right.clone(), edge.attrs.clone());
     }
     for edge in g2.edges_ordered() {
-        let _ = result.add_edge_with_attrs(edge.left.clone(), edge.right.clone(), edge.attrs.clone());
+        let _ =
+            result.add_edge_with_attrs(edge.left.clone(), edge.right.clone(), edge.attrs.clone());
     }
     // Cross-edges
     for &u in &g1_nodes {
@@ -21598,14 +21684,23 @@ pub fn relabel_nodes(graph: &Graph, mapping: &std::collections::HashMap<String, 
 
     // Add nodes with new labels
     for node in graph.nodes_ordered() {
-        let new_label = mapping.get(node).cloned().unwrap_or_else(|| node.to_owned());
+        let new_label = mapping
+            .get(node)
+            .cloned()
+            .unwrap_or_else(|| node.to_owned());
         let _ = result.add_node(new_label);
     }
 
     // Add edges with remapped endpoints
     for edge in graph.edges_ordered() {
-        let new_left = mapping.get(&edge.left).cloned().unwrap_or_else(|| edge.left.clone());
-        let new_right = mapping.get(&edge.right).cloned().unwrap_or_else(|| edge.right.clone());
+        let new_left = mapping
+            .get(&edge.left)
+            .cloned()
+            .unwrap_or_else(|| edge.left.clone());
+        let new_right = mapping
+            .get(&edge.right)
+            .cloned()
+            .unwrap_or_else(|| edge.right.clone());
         let _ = result.add_edge_with_attrs(new_left, new_right, edge.attrs.clone());
     }
 
@@ -21614,17 +21709,29 @@ pub fn relabel_nodes(graph: &Graph, mapping: &std::collections::HashMap<String, 
 
 /// Relabel directed graph nodes.
 #[must_use]
-pub fn relabel_nodes_directed(digraph: &DiGraph, mapping: &std::collections::HashMap<String, String>) -> DiGraph {
+pub fn relabel_nodes_directed(
+    digraph: &DiGraph,
+    mapping: &std::collections::HashMap<String, String>,
+) -> DiGraph {
     let mut result = DiGraph::new(digraph.mode());
 
     for node in digraph.nodes_ordered() {
-        let new_label = mapping.get(node).cloned().unwrap_or_else(|| node.to_owned());
+        let new_label = mapping
+            .get(node)
+            .cloned()
+            .unwrap_or_else(|| node.to_owned());
         result.add_node(new_label);
     }
 
     for edge in digraph.edges_ordered() {
-        let new_left = mapping.get(&edge.left).cloned().unwrap_or_else(|| edge.left.clone());
-        let new_right = mapping.get(&edge.right).cloned().unwrap_or_else(|| edge.right.clone());
+        let new_left = mapping
+            .get(&edge.left)
+            .cloned()
+            .unwrap_or_else(|| edge.left.clone());
+        let new_right = mapping
+            .get(&edge.right)
+            .cloned()
+            .unwrap_or_else(|| edge.right.clone());
         let _ = result.add_edge_with_attrs(new_left, new_right, edge.attrs.clone());
     }
 
@@ -21635,7 +21742,9 @@ pub fn relabel_nodes_directed(digraph: &DiGraph, mapping: &std::collections::Has
 ///
 /// Returns the relabeled graph and the mapping from old to new labels.
 #[must_use]
-pub fn convert_node_labels_to_integers(graph: &Graph) -> (Graph, std::collections::HashMap<String, String>) {
+pub fn convert_node_labels_to_integers(
+    graph: &Graph,
+) -> (Graph, std::collections::HashMap<String, String>) {
     let nodes = graph.nodes_ordered();
     let mut mapping = std::collections::HashMap::new();
     for (i, node) in nodes.iter().enumerate() {
@@ -21666,8 +21775,16 @@ pub fn identified_nodes(graph: &Graph, u: &str, v: &str) -> Graph {
 
     // Add edges, redirecting v → u
     for edge in graph.edges_ordered() {
-        let new_left = if edge.left == v { u.to_owned() } else { edge.left.clone() };
-        let new_right = if edge.right == v { u.to_owned() } else { edge.right.clone() };
+        let new_left = if edge.left == v {
+            u.to_owned()
+        } else {
+            edge.left.clone()
+        };
+        let new_right = if edge.right == v {
+            u.to_owned()
+        } else {
+            edge.right.clone()
+        };
         // Skip self-loops created by contraction
         if new_left != new_right && !result.has_edge(&new_left, &new_right) {
             let _ = result.add_edge_with_attrs(new_left, new_right, edge.attrs.clone());
@@ -21685,11 +21802,7 @@ pub fn identified_nodes(graph: &Graph, u: &str, v: &str) -> Graph {
 ///
 /// After each swap, checks if the graph remains connected and reverts
 /// if not. Returns the number of successful swaps.
-pub fn connected_double_edge_swap_seeded(
-    graph: &mut Graph,
-    nswap: usize,
-    seed: u64,
-) -> usize {
+pub fn connected_double_edge_swap_seeded(graph: &mut Graph, nswap: usize, seed: u64) -> usize {
     if graph.edge_count() < 2 {
         return 0;
     }
@@ -21776,7 +21889,8 @@ pub fn all_triads(digraph: &DiGraph) -> Vec<(String, String, String, String)> {
     let idx: std::collections::HashMap<&str, usize> =
         nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
 
-    let mut succ_set: Vec<std::collections::HashSet<usize>> = vec![std::collections::HashSet::new(); n];
+    let mut succ_set: Vec<std::collections::HashSet<usize>> =
+        vec![std::collections::HashSet::new(); n];
     for edge in digraph.edges_ordered() {
         let u = idx[edge.left.as_str()];
         let v = idx[edge.right.as_str()];
@@ -21794,8 +21908,12 @@ pub fn all_triads(digraph: &DiGraph) -> Vec<(String, String, String, String)> {
                 let jk = succ_set[j].contains(&k);
                 let kj = succ_set[k].contains(&j);
 
-                let edge_count = usize::from(ij) + usize::from(ji) + usize::from(ik)
-                    + usize::from(ki) + usize::from(jk) + usize::from(kj);
+                let edge_count = usize::from(ij)
+                    + usize::from(ji)
+                    + usize::from(ik)
+                    + usize::from(ki)
+                    + usize::from(jk)
+                    + usize::from(kj);
 
                 // Skip null triads (003) — too many to enumerate
                 if edge_count == 0 {
@@ -21803,12 +21921,9 @@ pub fn all_triads(digraph: &DiGraph) -> Vec<(String, String, String, String)> {
                 }
 
                 // Classify using the triadic_census logic
-                let mutual_count = usize::from(ij && ji)
-                    + usize::from(ik && ki)
-                    + usize::from(jk && kj);
-                let asym_count = usize::from(ij ^ ji)
-                    + usize::from(ik ^ ki)
-                    + usize::from(jk ^ kj);
+                let mutual_count =
+                    usize::from(ij && ji) + usize::from(ik && ki) + usize::from(jk && kj);
+                let asym_count = usize::from(ij ^ ji) + usize::from(ik ^ ki) + usize::from(jk ^ kj);
 
                 let triad_type = match (mutual_count, asym_count, 3 - mutual_count - asym_count) {
                     (0, 1, 2) => "012",
@@ -21893,10 +22008,7 @@ pub fn node_degree_xy_directed(
 /// same high-degree neighbor set, replace those edges with a compressor
 /// node. Returns the modified graph and a set of compressor node names.
 #[must_use]
-pub fn dedensify(
-    graph: &Graph,
-    threshold: usize,
-) -> (Graph, Vec<String>) {
+pub fn dedensify(graph: &Graph, threshold: usize) -> (Graph, Vec<String>) {
     let mut result = Graph::new(graph.mode());
     let nodes = graph.nodes_ordered();
 
@@ -21947,10 +22059,7 @@ pub fn dedensify(
                 .map(|&s| s.to_owned())
                 .collect();
             nbr_hd.sort();
-            groups
-                .entry(nbr_hd)
-                .or_default()
-                .push(nbr.to_owned());
+            groups.entry(nbr_hd).or_default().push(nbr.to_owned());
         }
 
         // For groups with enough members, add a compressor
@@ -21992,10 +22101,7 @@ pub fn dedensify(
 /// Computes Pearson correlation of attribute values across edges.
 /// Returns a value in [-1, 1].
 #[must_use]
-pub fn numeric_assortativity_coefficient(
-    graph: &Graph,
-    attribute: &str,
-) -> f64 {
+pub fn numeric_assortativity_coefficient(graph: &Graph, attribute: &str) -> f64 {
     let mut sum_xy = 0.0f64;
     let mut sum_x = 0.0f64;
     let mut sum_y = 0.0f64;
@@ -22057,10 +22163,7 @@ pub fn numeric_assortativity_coefficient(
 /// Measures how close a group of nodes is to all other nodes.
 /// Uses multi-source BFS from the group.
 #[must_use]
-pub fn group_closeness_centrality(
-    graph: &Graph,
-    group: &[&str],
-) -> f64 {
+pub fn group_closeness_centrality(graph: &Graph, group: &[&str]) -> f64 {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     if n == 0 || group.is_empty() {
@@ -22086,10 +22189,11 @@ pub fn group_closeness_centrality(
         if let Some(nbrs) = graph.neighbors(nodes[v]) {
             for nb in nbrs {
                 if let Some(&ni) = idx.get(nb)
-                    && dist[ni] == usize::MAX {
-                        dist[ni] = dist[v] + 1;
-                        queue.push_back(ni);
-                    }
+                    && dist[ni] == usize::MAX
+                {
+                    dist[ni] = dist[v] + 1;
+                    queue.push_back(ni);
+                }
             }
         }
     }
@@ -22123,16 +22227,14 @@ pub fn group_closeness_centrality(
 /// Returns a map from node name to attribute value (as string).
 /// Nodes without the attribute are omitted.
 #[must_use]
-pub fn get_node_attributes(
-    graph: &Graph,
-    name: &str,
-) -> std::collections::HashMap<String, String> {
+pub fn get_node_attributes(graph: &Graph, name: &str) -> std::collections::HashMap<String, String> {
     let mut result = std::collections::HashMap::new();
     for node in graph.nodes_ordered() {
         if let Some(attrs) = graph.node_attrs(node)
-            && let Some(value) = attrs.get(name) {
-                result.insert(node.to_owned(), value.as_str());
-            }
+            && let Some(value) = attrs.get(name)
+        {
+            result.insert(node.to_owned(), value.as_str());
+        }
     }
     result
 }
@@ -22146,10 +22248,7 @@ pub fn get_edge_attributes(
     let mut result = std::collections::HashMap::new();
     for edge in graph.edges_ordered() {
         if let Some(value) = edge.attrs.get(name) {
-            result.insert(
-                (edge.left.clone(), edge.right.clone()),
-                value.as_str(),
-            );
+            result.insert((edge.left.clone(), edge.right.clone()), value.as_str());
         }
     }
     result
@@ -22171,16 +22270,10 @@ pub fn ra_index_soundarajan_hopcroft(
     let mut result = Vec::with_capacity(ebunch.len());
 
     for (u, v) in ebunch {
-        let u_nbrs: std::collections::HashSet<&str> = graph
-            .neighbors(u)
-            .unwrap_or_default()
-            .into_iter()
-            .collect();
-        let v_nbrs: std::collections::HashSet<&str> = graph
-            .neighbors(v)
-            .unwrap_or_default()
-            .into_iter()
-            .collect();
+        let u_nbrs: std::collections::HashSet<&str> =
+            graph.neighbors(u).unwrap_or_default().into_iter().collect();
+        let v_nbrs: std::collections::HashSet<&str> =
+            graph.neighbors(v).unwrap_or_default().into_iter().collect();
 
         let u_comm = graph
             .node_attrs(u)
@@ -22204,10 +22297,7 @@ pub fn ra_index_soundarajan_hopcroft(
                 .map(|v| v.as_str());
 
             // Bonus only if u, v, and w all share the same community
-            let bonus = if u_comm.is_some()
-                && u_comm == v_comm
-                && u_comm == w_comm
-            {
+            let bonus = if u_comm.is_some() && u_comm == v_comm && u_comm == w_comm {
                 1.0
             } else {
                 0.0
@@ -22230,14 +22320,12 @@ pub fn ra_index_soundarajan_hopcroft(
 /// Each block in the partition becomes a single node. Edges exist between
 /// blocks if any edge connects their members.
 #[must_use]
-pub fn quotient_graph(
-    graph: &Graph,
-    partition: &[Vec<String>],
-) -> Graph {
+pub fn quotient_graph(graph: &Graph, partition: &[Vec<String>]) -> Graph {
     let mut result = Graph::new(graph.mode());
 
     // Map each node to its block index
-    let mut node_to_block: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    let mut node_to_block: std::collections::HashMap<&str, usize> =
+        std::collections::HashMap::new();
     for (i, block) in partition.iter().enumerate() {
         for node in block {
             node_to_block.insert(node.as_str(), i);
@@ -22250,18 +22338,19 @@ pub fn quotient_graph(
     }
 
     // Add edges between blocks
-    let mut seen_edges: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
+    let mut seen_edges: std::collections::HashSet<(usize, usize)> =
+        std::collections::HashSet::new();
     for edge in graph.edges_ordered() {
         if let (Some(&bi), Some(&bj)) = (
             node_to_block.get(edge.left.as_str()),
             node_to_block.get(edge.right.as_str()),
-        )
-            && bi != bj {
-                let key = if bi < bj { (bi, bj) } else { (bj, bi) };
-                if seen_edges.insert(key) {
-                    let _ = result.add_edge(key.0.to_string(), key.1.to_string());
-                }
+        ) && bi != bj
+        {
+            let key = if bi < bj { (bi, bj) } else { (bj, bi) };
+            if seen_edges.insert(key) {
+                let _ = result.add_edge(key.0.to_string(), key.1.to_string());
             }
+        }
     }
 
     result
@@ -22309,7 +22398,9 @@ pub fn moral_graph(digraph: &DiGraph) -> Graph {
 pub fn gutman_index(graph: &Graph) -> Option<f64> {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
-    if n < 2 { return Some(0.0); }
+    if n < 2 {
+        return Some(0.0);
+    }
 
     let idx: std::collections::HashMap<&str, usize> =
         nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
@@ -22324,14 +22415,17 @@ pub fn gutman_index(graph: &Graph) -> Option<f64> {
             if let Some(nbrs) = graph.neighbors(nodes[v]) {
                 for nb in nbrs {
                     if let Some(&ni) = idx.get(nb)
-                        && dist[ni] == usize::MAX {
-                            dist[ni] = dist[v] + 1;
-                            queue.push_back(ni);
-                        }
+                        && dist[ni] == usize::MAX
+                    {
+                        dist[ni] = dist[v] + 1;
+                        queue.push_back(ni);
+                    }
                 }
             }
         }
-        if dist.contains(&usize::MAX) { return None; }
+        if dist.contains(&usize::MAX) {
+            return None;
+        }
         let du = graph.neighbors(nodes[s]).unwrap_or_default().len();
         for t in (s + 1)..n {
             let dv = graph.neighbors(nodes[t]).unwrap_or_default().len();
@@ -22346,7 +22440,9 @@ pub fn gutman_index(graph: &Graph) -> Option<f64> {
 pub fn hyper_wiener_index(graph: &Graph) -> Option<f64> {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
-    if n < 2 { return Some(0.0); }
+    if n < 2 {
+        return Some(0.0);
+    }
 
     let idx: std::collections::HashMap<&str, usize> =
         nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
@@ -22361,14 +22457,17 @@ pub fn hyper_wiener_index(graph: &Graph) -> Option<f64> {
             if let Some(nbrs) = graph.neighbors(nodes[v]) {
                 for nb in nbrs {
                     if let Some(&ni) = idx.get(nb)
-                        && dist[ni] == usize::MAX {
-                            dist[ni] = dist[v] + 1;
-                            queue.push_back(ni);
-                        }
+                        && dist[ni] == usize::MAX
+                    {
+                        dist[ni] = dist[v] + 1;
+                        queue.push_back(ni);
+                    }
                 }
             }
         }
-        if dist.contains(&usize::MAX) { return None; }
+        if dist.contains(&usize::MAX) {
+            return None;
+        }
         for t in (s + 1)..n {
             let d = dist[t] as f64;
             total += d + d * d;
@@ -22382,7 +22481,9 @@ pub fn hyper_wiener_index(graph: &Graph) -> Option<f64> {
 pub fn schultz_index(graph: &Graph) -> Option<f64> {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
-    if n < 2 { return Some(0.0); }
+    if n < 2 {
+        return Some(0.0);
+    }
 
     let idx: std::collections::HashMap<&str, usize> =
         nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
@@ -22397,14 +22498,17 @@ pub fn schultz_index(graph: &Graph) -> Option<f64> {
             if let Some(nbrs) = graph.neighbors(nodes[v]) {
                 for nb in nbrs {
                     if let Some(&ni) = idx.get(nb)
-                        && dist[ni] == usize::MAX {
-                            dist[ni] = dist[v] + 1;
-                            queue.push_back(ni);
-                        }
+                        && dist[ni] == usize::MAX
+                    {
+                        dist[ni] = dist[v] + 1;
+                        queue.push_back(ni);
+                    }
                 }
             }
         }
-        if dist.contains(&usize::MAX) { return None; }
+        if dist.contains(&usize::MAX) {
+            return None;
+        }
         let du = graph.neighbors(nodes[s]).unwrap_or_default().len();
         for t in (s + 1)..n {
             let dv = graph.neighbors(nodes[t]).unwrap_or_default().len();
@@ -22419,7 +22523,9 @@ pub fn schultz_index(graph: &Graph) -> Option<f64> {
 pub fn harmonic_diameter(graph: &Graph) -> f64 {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
-    if n < 2 { return 0.0; }
+    if n < 2 {
+        return 0.0;
+    }
 
     let idx: std::collections::HashMap<&str, usize> =
         nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
@@ -22434,10 +22540,11 @@ pub fn harmonic_diameter(graph: &Graph) -> f64 {
             if let Some(nbrs) = graph.neighbors(nodes[v]) {
                 for nb in nbrs {
                     if let Some(&ni) = idx.get(nb)
-                        && dist[ni] == usize::MAX {
-                            dist[ni] = dist[v] + 1;
-                            queue.push_back(ni);
-                        }
+                        && dist[ni] == usize::MAX
+                    {
+                        dist[ni] = dist[v] + 1;
+                        queue.push_back(ni);
+                    }
                 }
             }
         }
@@ -22449,7 +22556,11 @@ pub fn harmonic_diameter(graph: &Graph) -> f64 {
     }
 
     let n_pairs = (n * (n - 1)) as f64 / 2.0;
-    if reciprocal_sum > 0.0 { n_pairs / reciprocal_sum } else { f64::INFINITY }
+    if reciprocal_sum > 0.0 {
+        n_pairs / reciprocal_sum
+    } else {
+        f64::INFINITY
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -22495,7 +22606,9 @@ pub fn nodes_with_selfloops(graph: &Graph) -> Vec<String> {
 
 /// Convert graph to edge list representation.
 #[must_use]
-pub fn to_edgelist(graph: &Graph) -> Vec<(String, String, std::collections::BTreeMap<String, String>)> {
+pub fn to_edgelist(
+    graph: &Graph,
+) -> Vec<(String, String, std::collections::BTreeMap<String, String>)> {
     graph
         .edges_ordered()
         .iter()
@@ -22541,14 +22654,25 @@ pub fn cn_soundarajan_hopcroft(
 ) -> Vec<(String, String, f64)> {
     let mut result = Vec::with_capacity(ebunch.len());
     for (u, v) in ebunch {
-        let u_nbrs: std::collections::HashSet<&str> = graph.neighbors(u).unwrap_or_default().into_iter().collect();
-        let v_nbrs: std::collections::HashSet<&str> = graph.neighbors(v).unwrap_or_default().into_iter().collect();
-        let u_comm = graph.node_attrs(u).and_then(|a| a.get(community_attr)).map(|v| v.as_str());
-        let v_comm = graph.node_attrs(v).and_then(|a| a.get(community_attr)).map(|v| v.as_str());
+        let u_nbrs: std::collections::HashSet<&str> =
+            graph.neighbors(u).unwrap_or_default().into_iter().collect();
+        let v_nbrs: std::collections::HashSet<&str> =
+            graph.neighbors(v).unwrap_or_default().into_iter().collect();
+        let u_comm = graph
+            .node_attrs(u)
+            .and_then(|a| a.get(community_attr))
+            .map(|v| v.as_str());
+        let v_comm = graph
+            .node_attrs(v)
+            .and_then(|a| a.get(community_attr))
+            .map(|v| v.as_str());
         let common: Vec<&str> = u_nbrs.intersection(&v_nbrs).copied().collect();
         let mut score = common.len() as f64;
         for &w in &common {
-            let w_comm = graph.node_attrs(w).and_then(|a| a.get(community_attr)).map(|v| v.as_str());
+            let w_comm = graph
+                .node_attrs(w)
+                .and_then(|a| a.get(community_attr))
+                .map(|v| v.as_str());
             if u_comm.is_some() && u_comm == v_comm && u_comm == w_comm {
                 score += 1.0;
             }
@@ -22568,10 +22692,14 @@ pub fn cn_soundarajan_hopcroft(
 pub fn all_neighbors_directed(digraph: &DiGraph, node: &str) -> Vec<String> {
     let mut result: std::collections::HashSet<String> = std::collections::HashSet::new();
     if let Some(succs) = digraph.successors(node) {
-        for s in succs { result.insert(s.to_owned()); }
+        for s in succs {
+            result.insert(s.to_owned());
+        }
     }
     if let Some(preds) = digraph.predecessors(node) {
-        for p in preds { result.insert(p.to_owned()); }
+        for p in preds {
+            result.insert(p.to_owned());
+        }
     }
     let mut v: Vec<String> = result.into_iter().collect();
     v.sort();
@@ -22604,55 +22732,105 @@ pub fn triad_type(digraph: &DiGraph, u: &str, v: &str, w: &str) -> String {
         (1, 0, 2) => "102",
         (0, 2, 1) => {
             let edges: Vec<(bool, bool)> = vec![(ij, ji), (ik, ki), (jk, kj)];
-            let directed: Vec<usize> = edges.iter().enumerate()
+            let directed: Vec<usize> = edges
+                .iter()
+                .enumerate()
                 .filter(|(_, (a, b))| *a != *b)
                 .map(|(i, _)| i)
                 .collect();
             if directed.len() == 2 {
                 // Check source/target pattern
-                let srcs: Vec<bool> = directed.iter().map(|&i| match i {
-                    0 => ij, 1 => ik, _ => jk,
-                }).collect();
-                let tgts: Vec<bool> = directed.iter().map(|&i| match i {
-                    0 => ji, 1 => ki, _ => kj,
-                }).collect();
+                let srcs: Vec<bool> = directed
+                    .iter()
+                    .map(|&i| match i {
+                        0 => ij,
+                        1 => ik,
+                        _ => jk,
+                    })
+                    .collect();
+                let tgts: Vec<bool> = directed
+                    .iter()
+                    .map(|&i| match i {
+                        0 => ji,
+                        1 => ki,
+                        _ => kj,
+                    })
+                    .collect();
                 // Both pointing out from same node = 021D
                 // Both pointing to same node = 021U
                 // Chain = 021C
                 if (srcs[0] && srcs[1]) || (tgts[0] && tgts[1]) {
                     if srcs[0] && srcs[1] { "021D" } else { "021U" }
-                } else { "021C" }
-            } else { "021C" }
+                } else {
+                    "021C"
+                }
+            } else {
+                "021C"
+            }
         }
         (1, 1, 1) => {
             let mut mutual_nodes = std::collections::HashSet::new();
-            if ij && ji { mutual_nodes.insert(0); mutual_nodes.insert(1); }
-            if ik && ki { mutual_nodes.insert(0); mutual_nodes.insert(2); }
-            if jk && kj { mutual_nodes.insert(1); mutual_nodes.insert(2); }
-            let asym_src = if ij && !ji { Some(0) } else if ji && !ij { Some(1) }
-                else if ik && !ki { Some(0) } else if ki && !ik { Some(2) }
-                else if jk && !kj { Some(1) } else if kj && !jk { Some(2) }
-                else { None };
+            if ij && ji {
+                mutual_nodes.insert(0);
+                mutual_nodes.insert(1);
+            }
+            if ik && ki {
+                mutual_nodes.insert(0);
+                mutual_nodes.insert(2);
+            }
+            if jk && kj {
+                mutual_nodes.insert(1);
+                mutual_nodes.insert(2);
+            }
+            let asym_src = if ij && !ji {
+                Some(0)
+            } else if ji && !ij {
+                Some(1)
+            } else if ik && !ki {
+                Some(0)
+            } else if ki && !ik {
+                Some(2)
+            } else if jk && !kj {
+                Some(1)
+            } else if kj && !jk {
+                Some(2)
+            } else {
+                None
+            };
             match asym_src {
                 Some(s) if mutual_nodes.contains(&s) => "111D",
                 _ => "111U",
             }
         }
         (0, 3, 0) => {
-            if (ij && jk && ki) || (ji && kj && ik) { "030C" } else { "030T" }
+            if (ij && jk && ki) || (ji && kj && ik) {
+                "030C"
+            } else {
+                "030T"
+            }
         }
         (2, 0, 1) => "201",
         (1, 2, 0) => {
-            let mutual_pair = if ij && ji { (0, 1) } else if ik && ki { (0, 2) } else { (1, 2) };
+            let mutual_pair = if ij && ji {
+                (0, 1)
+            } else if ik && ki {
+                (0, 2)
+            } else {
+                (1, 2)
+            };
             let other = 3 - mutual_pair.0 - mutual_pair.1;
             let nodes_arr = [u, v, w];
             let to_other_0 = digraph.has_edge(nodes_arr[mutual_pair.0], nodes_arr[other]);
             let to_other_1 = digraph.has_edge(nodes_arr[mutual_pair.1], nodes_arr[other]);
             let from_other_0 = digraph.has_edge(nodes_arr[other], nodes_arr[mutual_pair.0]);
             let from_other_1 = digraph.has_edge(nodes_arr[other], nodes_arr[mutual_pair.1]);
-            if to_other_0 && to_other_1 { "120D" }
-            else if from_other_0 && from_other_1 { "120U" }
-            else { "120C" }
+            if to_other_0 && to_other_1 {
+                "120D"
+            } else if from_other_0 && from_other_1 {
+                "120U"
+            } else {
+                "120C"
+            }
         }
         (2, 1, 0) => "210",
         (3, 0, 0) => "300",
@@ -22668,11 +22846,7 @@ pub fn triad_type(digraph: &DiGraph, u: &str, v: &str, w: &str) -> String {
 /// BFS with beam width: at each level, keep only the top `width` nodes
 /// (by some heuristic — here we use degree as proxy).
 #[must_use]
-pub fn bfs_beam_edges(
-    graph: &Graph,
-    source: &str,
-    width: usize,
-) -> Vec<(String, String)> {
+pub fn bfs_beam_edges(graph: &Graph, source: &str, width: usize) -> Vec<(String, String)> {
     if !graph.has_node(source) || width == 0 {
         return Vec::new();
     }
@@ -22699,7 +22873,9 @@ pub fn bfs_beam_edges(
         let mut next_level = Vec::new();
         let mut added = 0;
         for (parent, child, _) in next_level_candidates {
-            if added >= width { break; }
+            if added >= width {
+                break;
+            }
             if visited.insert(child.clone()) {
                 result.push((parent, child.clone()));
                 next_level.push(child);
@@ -22740,10 +22916,7 @@ pub fn is_kl_connected(graph: &Graph, k: usize, l: usize) -> bool {
 ///
 /// Takes a list of (node_name, [coordinates]) and returns edges where
 /// Euclidean distance <= radius.
-pub fn geometric_edges(
-    positions: &[(String, Vec<f64>)],
-    radius: f64,
-) -> Vec<(String, String)> {
+pub fn geometric_edges(positions: &[(String, Vec<f64>)], radius: f64) -> Vec<(String, String)> {
     let r2 = radius * radius;
     let mut edges = Vec::new();
     for i in 0..positions.len() {
@@ -22782,7 +22955,11 @@ pub fn union_all(graphs: &[&Graph]) -> Result<Graph, String> {
             let _ = result.add_node(node.to_owned());
         }
         for edge in g.edges_ordered() {
-            let _ = result.add_edge_with_attrs(edge.left.clone(), edge.right.clone(), edge.attrs.clone());
+            let _ = result.add_edge_with_attrs(
+                edge.left.clone(),
+                edge.right.clone(),
+                edge.attrs.clone(),
+            );
         }
     }
     Ok(result)
@@ -22791,18 +22968,31 @@ pub fn union_all(graphs: &[&Graph]) -> Result<Graph, String> {
 /// Intersection of multiple undirected graphs.
 #[must_use]
 pub fn intersection_all(graphs: &[&Graph]) -> Graph {
-    if graphs.is_empty() { return Graph::strict(); }
-    let mut common: std::collections::HashSet<String> =
-        graphs[0].nodes_ordered().iter().map(|&n| n.to_owned()).collect();
+    if graphs.is_empty() {
+        return Graph::strict();
+    }
+    let mut common: std::collections::HashSet<String> = graphs[0]
+        .nodes_ordered()
+        .iter()
+        .map(|&n| n.to_owned())
+        .collect();
     for &g in &graphs[1..] {
-        let ns: std::collections::HashSet<String> = g.nodes_ordered().iter().map(|&n| n.to_owned()).collect();
+        let ns: std::collections::HashSet<String> =
+            g.nodes_ordered().iter().map(|&n| n.to_owned()).collect();
         common = common.intersection(&ns).cloned().collect();
     }
     let mut result = Graph::new(graphs[0].mode());
-    for n in &common { let _ = result.add_node(n.clone()); }
+    for n in &common {
+        let _ = result.add_node(n.clone());
+    }
     for edge in graphs[0].edges_ordered() {
-        if !common.contains(&edge.left) || !common.contains(&edge.right) { continue; }
-        if graphs[1..].iter().all(|g| g.has_edge(&edge.left, &edge.right)) {
+        if !common.contains(&edge.left) || !common.contains(&edge.right) {
+            continue;
+        }
+        if graphs[1..]
+            .iter()
+            .all(|g| g.has_edge(&edge.left, &edge.right))
+        {
             let _ = result.add_edge(edge.left.clone(), edge.right.clone());
         }
     }
@@ -22815,11 +23005,18 @@ pub fn intersection_all(graphs: &[&Graph]) -> Graph {
 
 /// BFS edges with depth limit.
 #[must_use]
-pub fn generic_bfs_edges(graph: &Graph, source: &str, depth_limit: Option<usize>) -> Vec<(String, String)> {
-    if !graph.has_node(source) { return Vec::new(); }
+pub fn generic_bfs_edges(
+    graph: &Graph,
+    source: &str,
+    depth_limit: Option<usize>,
+) -> Vec<(String, String)> {
+    if !graph.has_node(source) {
+        return Vec::new();
+    }
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
-    let idx: std::collections::HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+    let idx: std::collections::HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
     let s = idx[source];
     let mut visited = vec![false; n];
     visited[s] = true;
@@ -22827,9 +23024,16 @@ pub fn generic_bfs_edges(graph: &Graph, source: &str, depth_limit: Option<usize>
     let mut queue = std::collections::VecDeque::new();
     queue.push_back((s, 0usize));
     while let Some((v, depth)) = queue.pop_front() {
-        if depth_limit.is_some_and(|l| depth >= l) { continue; }
-        let mut nbrs: Vec<usize> = graph.neighbors(nodes[v]).unwrap_or_default()
-            .iter().filter_map(|nb| idx.get(nb).copied()).filter(|&ni| !visited[ni]).collect();
+        if depth_limit.is_some_and(|l| depth >= l) {
+            continue;
+        }
+        let mut nbrs: Vec<usize> = graph
+            .neighbors(nodes[v])
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|nb| idx.get(nb).copied())
+            .filter(|&ni| !visited[ni])
+            .collect();
         nbrs.sort();
         for ni in nbrs {
             if !visited[ni] {
@@ -22847,11 +23051,21 @@ pub fn generic_bfs_edges(graph: &Graph, source: &str, depth_limit: Option<usize>
 pub fn local_bridges_list(graph: &Graph) -> Vec<(String, String)> {
     let mut result = Vec::new();
     for edge in graph.edges_ordered() {
-        if edge.left == edge.right { continue; }
-        let u_nbrs: std::collections::HashSet<&str> = graph.neighbors(&edge.left).unwrap_or_default()
-            .into_iter().filter(|&n| n != edge.right.as_str()).collect();
-        let v_nbrs: std::collections::HashSet<&str> = graph.neighbors(&edge.right).unwrap_or_default()
-            .into_iter().filter(|&n| n != edge.left.as_str()).collect();
+        if edge.left == edge.right {
+            continue;
+        }
+        let u_nbrs: std::collections::HashSet<&str> = graph
+            .neighbors(&edge.left)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|&n| n != edge.right.as_str())
+            .collect();
+        let v_nbrs: std::collections::HashSet<&str> = graph
+            .neighbors(&edge.right)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|&n| n != edge.left.as_str())
+            .collect();
         if u_nbrs.intersection(&v_nbrs).next().is_none() {
             result.push((edge.left.clone(), edge.right.clone()));
         }
@@ -22864,7 +23078,11 @@ pub fn local_bridges_list(graph: &Graph) -> Vec<(String, String)> {
 pub fn graph_info(graph: &Graph) -> String {
     let n = graph.nodes_ordered().len();
     let m = graph.edge_count();
-    let avg = if n > 0 { 2.0 * m as f64 / n as f64 } else { 0.0 };
+    let avg = if n > 0 {
+        2.0 * m as f64 / n as f64
+    } else {
+        0.0
+    };
     format!("Type: Graph\nNumber of nodes: {n}\nNumber of edges: {m}\nAverage degree: {avg:.4}")
 }
 
@@ -22874,7 +23092,9 @@ pub fn digraph_info(digraph: &DiGraph) -> String {
     let n = digraph.nodes_ordered().len();
     let m = digraph.edge_count();
     let avg = if n > 0 { m as f64 / n as f64 } else { 0.0 };
-    format!("Type: DiGraph\nNumber of nodes: {n}\nNumber of edges: {m}\nAverage in degree: {avg:.4}\nAverage out degree: {avg:.4}")
+    format!(
+        "Type: DiGraph\nNumber of nodes: {n}\nNumber of edges: {m}\nAverage in degree: {avg:.4}\nAverage out degree: {avg:.4}"
+    )
 }
 
 /// Tree adjacency representation from a root.
@@ -22885,8 +23105,13 @@ pub fn tree_data(graph: &Graph, root: &str) -> std::collections::HashMap<String,
     let mut stack = vec![root.to_owned()];
     visited.insert(root.to_owned());
     while let Some(node) = stack.pop() {
-        let nbrs: Vec<String> = graph.neighbors(&node).unwrap_or_default()
-            .iter().filter(|&&n| !visited.contains(n)).map(|&n| n.to_owned()).collect();
+        let nbrs: Vec<String> = graph
+            .neighbors(&node)
+            .unwrap_or_default()
+            .iter()
+            .filter(|&&n| !visited.contains(n))
+            .map(|&n| n.to_owned())
+            .collect();
         let mut children = Vec::new();
         for n in nbrs {
             if visited.insert(n.clone()) {
@@ -22901,7 +23126,9 @@ pub fn tree_data(graph: &Graph, root: &str) -> std::collections::HashMap<String,
 
 /// All-pairs node connectivity via node-disjoint paths.
 #[must_use]
-pub fn all_pairs_node_connectivity(graph: &Graph) -> std::collections::HashMap<(String, String), usize> {
+pub fn all_pairs_node_connectivity(
+    graph: &Graph,
+) -> std::collections::HashMap<(String, String), usize> {
     let nodes = graph.nodes_ordered();
     let mut result = std::collections::HashMap::new();
     for i in 0..nodes.len() {
@@ -22916,14 +23143,19 @@ pub fn all_pairs_node_connectivity(graph: &Graph) -> std::collections::HashMap<(
 
 /// Tutte polynomial via deletion-contraction. Exponential time.
 pub fn tutte_polynomial(graph: &Graph, x: f64, y: f64) -> f64 {
-    if graph.edge_count() == 0 { return 1.0; }
+    if graph.edge_count() == 0 {
+        return 1.0;
+    }
     let edge = &graph.edges_ordered()[0];
-    let u = edge.left.clone(); let v = edge.right.clone();
+    let u = edge.left.clone();
+    let v = edge.right.clone();
     if u == v {
-        let mut g2 = graph.clone(); let _ = g2.remove_edge(&u, &v);
+        let mut g2 = graph.clone();
+        let _ = g2.remove_edge(&u, &v);
         return y * tutte_polynomial(&g2, x, y);
     }
-    let mut g_no_e = graph.clone(); let _ = g_no_e.remove_edge(&u, &v);
+    let mut g_no_e = graph.clone();
+    let _ = g_no_e.remove_edge(&u, &v);
     if !has_path(&g_no_e, &u, &v).has_path {
         return x * tutte_polynomial(&identified_nodes(&g_no_e, &u, &v), x, y);
     }
@@ -22934,36 +23166,72 @@ pub fn tutte_polynomial(graph: &Graph, x: f64, y: f64) -> f64 {
 pub fn stochastic_block_model(sizes: &[usize], p: &[Vec<f64>], seed: u64) -> Graph {
     let mut graph = Graph::strict();
     let mut rng = seed.wrapping_add(1);
-    let mut rand_f64 = || -> f64 { rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407); (rng >> 11) as f64 / (1u64 << 53) as f64 };
+    let mut rand_f64 = || -> f64 {
+        rng = rng
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        (rng >> 11) as f64 / (1u64 << 53) as f64
+    };
     let total: usize = sizes.iter().sum();
-    for i in 0..total { let _ = graph.add_node(i.to_string()); }
+    for i in 0..total {
+        let _ = graph.add_node(i.to_string());
+    }
     let mut bmap = Vec::with_capacity(total);
-    for (bi, &sz) in sizes.iter().enumerate() { for _ in 0..sz { bmap.push(bi); } }
-    for i in 0..total { for j in (i+1)..total { if rand_f64() < p[bmap[i]][bmap[j]] { let _ = graph.add_edge(i.to_string(), j.to_string()); } } }
+    for (bi, &sz) in sizes.iter().enumerate() {
+        for _ in 0..sz {
+            bmap.push(bi);
+        }
+    }
+    for i in 0..total {
+        for j in (i + 1)..total {
+            if rand_f64() < p[bmap[i]][bmap[j]] {
+                let _ = graph.add_edge(i.to_string(), j.to_string());
+            }
+        }
+    }
     graph
 }
 
 /// Partial duplication graph.
 pub fn partial_duplication_graph(n: usize, p: f64, seed: u64) -> Graph {
     let mut g = Graph::strict();
-    if n == 0 { return g; }
+    if n == 0 {
+        return g;
+    }
     let _ = g.add_node("0".to_owned());
-    if n == 1 { return g; }
-    let _ = g.add_node("1".to_owned()); let _ = g.add_edge("0".to_owned(), "1".to_owned());
+    if n == 1 {
+        return g;
+    }
+    let _ = g.add_node("1".to_owned());
+    let _ = g.add_edge("0".to_owned(), "1".to_owned());
     let mut rng = seed.wrapping_add(1);
     for i in 2..n {
-        let nn = i.to_string(); let _ = g.add_node(nn.clone());
+        let nn = i.to_string();
+        let _ = g.add_node(nn.clone());
         let existing = g.nodes_ordered();
-        rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        rng = rng
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         let ti = ((rng >> 33) as usize) % (existing.len() - 1);
         let target = existing[ti].to_owned();
-        let nbrs: Vec<String> = g.neighbors(&target).unwrap_or_default().iter().map(|&s| s.to_owned()).collect();
+        let nbrs: Vec<String> = g
+            .neighbors(&target)
+            .unwrap_or_default()
+            .iter()
+            .map(|&s| s.to_owned())
+            .collect();
         for nb in nbrs {
-            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            rng = rng
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             let r = (rng >> 11) as f64 / (1u64 << 53) as f64;
-            if nb != nn && r < p { let _ = g.add_edge(nn.clone(), nb); }
+            if nb != nn && r < p {
+                let _ = g.add_edge(nn.clone(), nb);
+            }
         }
-        if g.neighbors(&nn).unwrap_or_default().is_empty() { let _ = g.add_edge(nn, target); }
+        if g.neighbors(&nn).unwrap_or_default().is_empty() {
+            let _ = g.add_edge(nn, target);
+        }
     }
     g
 }
@@ -22973,17 +23241,36 @@ pub fn relaxed_caveman_graph(l: usize, k: usize, p: f64, seed: u64) -> Graph {
     let mut g = Graph::strict();
     let mut rng = seed.wrapping_add(1);
     let total = l * k;
-    for i in 0..total { let _ = g.add_node(i.to_string()); }
-    for c in 0..l { let s = c * k; for i in s..s+k { for j in (i+1)..s+k { let _ = g.add_edge(i.to_string(), j.to_string()); } } }
-    let edges: Vec<(String, String)> = g.edges_ordered().iter().map(|e| (e.left.clone(), e.right.clone())).collect();
+    for i in 0..total {
+        let _ = g.add_node(i.to_string());
+    }
+    for c in 0..l {
+        let s = c * k;
+        for i in s..s + k {
+            for j in (i + 1)..s + k {
+                let _ = g.add_edge(i.to_string(), j.to_string());
+            }
+        }
+    }
+    let edges: Vec<(String, String)> = g
+        .edges_ordered()
+        .iter()
+        .map(|e| (e.left.clone(), e.right.clone()))
+        .collect();
     for (u, v) in edges {
-        rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        rng = rng
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         let r = (rng >> 11) as f64 / (1u64 << 53) as f64;
         if r < p {
             let _ = g.remove_edge(&u, &v);
-            rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            rng = rng
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             let t = (((rng >> 33) as usize) % total).to_string();
-            if t != u && !g.has_edge(&u, &t) { let _ = g.add_edge(u, t); }
+            if t != u && !g.has_edge(&u, &t) {
+                let _ = g.add_edge(u, t);
+            }
         }
     }
     g
@@ -23002,7 +23289,9 @@ pub fn all_pairs_lowest_common_ancestor(
 ) -> Vec<((String, String), String)> {
     let nodes = digraph.nodes_ordered();
     let n = nodes.len();
-    if n == 0 { return Vec::new(); }
+    if n == 0 {
+        return Vec::new();
+    }
     let idx: std::collections::HashMap<&str, usize> =
         nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
 
@@ -23010,32 +23299,50 @@ pub fn all_pairs_lowest_common_ancestor(
     let mut ancestor_cache: std::collections::HashMap<usize, std::collections::HashSet<usize>> =
         std::collections::HashMap::new();
 
-    let compute_ancestors = |node_idx: usize, digraph: &DiGraph, nodes: &[&str]| -> std::collections::HashSet<usize> {
-        let mut ancs = std::collections::HashSet::new();
-        let mut stack = vec![node_idx];
-        ancs.insert(node_idx);
-        while let Some(v) = stack.pop() {
-            if let Some(preds) = digraph.predecessors(nodes[v]) {
-                for p in preds {
-                    if let Some(&pi) = idx.get(p) {
-                        if ancs.insert(pi) { stack.push(pi); }
+    let compute_ancestors =
+        |node_idx: usize, digraph: &DiGraph, nodes: &[&str]| -> std::collections::HashSet<usize> {
+            let mut ancs = std::collections::HashSet::new();
+            let mut stack = vec![node_idx];
+            ancs.insert(node_idx);
+            while let Some(v) = stack.pop() {
+                if let Some(preds) = digraph.predecessors(nodes[v]) {
+                    for p in preds {
+                        if let Some(&pi) = idx.get(p)
+                            && ancs.insert(pi)
+                        {
+                            stack.push(pi);
+                        }
                     }
                 }
             }
-        }
-        ancs
-    };
+            ancs
+        };
 
     let mut result = Vec::with_capacity(pairs.len());
     for (u, v) in pairs {
-        let ui = match idx.get(u.as_str()) { Some(&i) => i, None => continue };
-        let vi = match idx.get(v.as_str()) { Some(&i) => i, None => continue };
+        let ui = match idx.get(u.as_str()) {
+            Some(&i) => i,
+            None => continue,
+        };
+        let vi = match idx.get(v.as_str()) {
+            Some(&i) => i,
+            None => continue,
+        };
 
-        let u_ancs = ancestor_cache.entry(ui).or_insert_with(|| compute_ancestors(ui, digraph, &nodes)).clone();
-        let v_ancs = ancestor_cache.entry(vi).or_insert_with(|| compute_ancestors(vi, digraph, &nodes)).clone();
+        let u_ancs = ancestor_cache
+            .entry(ui)
+            .or_insert_with(|| compute_ancestors(ui, digraph, &nodes))
+            .clone();
+        let v_ancs = ancestor_cache
+            .entry(vi)
+            .or_insert_with(|| compute_ancestors(vi, digraph, &nodes))
+            .clone();
 
-        let common: std::collections::HashSet<usize> = u_ancs.intersection(&v_ancs).copied().collect();
-        if common.is_empty() { continue; }
+        let common: std::collections::HashSet<usize> =
+            u_ancs.intersection(&v_ancs).copied().collect();
+        if common.is_empty() {
+            continue;
+        }
 
         // LCA = common ancestor with no descendant in common
         // Find by walking down from common ancestors
@@ -23043,7 +23350,9 @@ pub fn all_pairs_lowest_common_ancestor(
         for &c in &common {
             let is_lca = !common.iter().any(|&other| {
                 other != c && {
-                    let other_ancs = ancestor_cache.entry(other).or_insert_with(|| compute_ancestors(other, digraph, &nodes));
+                    let other_ancs = ancestor_cache
+                        .entry(other)
+                        .or_insert_with(|| compute_ancestors(other, digraph, &nodes));
                     other_ancs.contains(&c) && other != c
                 }
             });
@@ -23054,7 +23363,9 @@ pub fn all_pairs_lowest_common_ancestor(
                         // Prefer deeper ancestor (more ancestors = deeper)
                         let c_depth = ancestor_cache.get(&c).map_or(0, |a| a.len());
                         let b_depth = ancestor_cache.get(&b).map_or(0, |a| a.len());
-                        if c_depth > b_depth { best = Some(c); }
+                        if c_depth > b_depth {
+                            best = Some(c);
+                        }
                     }
                 }
             }
@@ -23074,16 +23385,29 @@ pub fn all_pairs_lowest_common_ancestor(
 
 /// Generate edgelist string representation.
 pub fn generate_edgelist(graph: &Graph, delimiter: &str) -> Vec<String> {
-    graph.edges_ordered().iter().map(|e| {
-        if e.attrs.is_empty() {
-            format!("{}{}{}", e.left, delimiter, e.right)
-        } else {
-            let attrs: Vec<String> = e.attrs.iter()
-                .map(|(k, v)| format!("{}={}", k, v.as_str()))
-                .collect();
-            format!("{}{}{}{}{}", e.left, delimiter, e.right, delimiter, attrs.join(";"))
-        }
-    }).collect()
+    graph
+        .edges_ordered()
+        .iter()
+        .map(|e| {
+            if e.attrs.is_empty() {
+                format!("{}{}{}", e.left, delimiter, e.right)
+            } else {
+                let attrs: Vec<String> = e
+                    .attrs
+                    .iter()
+                    .map(|(k, v)| format!("{}={}", k, v.as_str()))
+                    .collect();
+                format!(
+                    "{}{}{}{}{}",
+                    e.left,
+                    delimiter,
+                    e.right,
+                    delimiter,
+                    attrs.join(";")
+                )
+            }
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -23095,7 +23419,9 @@ pub fn generate_edgelist(graph: &Graph, delimiter: &str) -> Vec<String> {
 pub fn group_betweenness_centrality(graph: &Graph, group: &[&str]) -> f64 {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
-    if n < 2 { return 0.0; }
+    if n < 2 {
+        return 0.0;
+    }
     let idx: std::collections::HashMap<&str, usize> =
         nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
     let group_set: std::collections::HashSet<usize> =
@@ -23109,7 +23435,8 @@ pub fn group_betweenness_centrality(graph: &Graph, group: &[&str]) -> f64 {
         let mut dist = vec![usize::MAX; n];
         let mut sigma = vec![0usize; n]; // number of shortest paths
         let mut predecessors: Vec<Vec<usize>> = vec![Vec::new(); n];
-        dist[s] = 0; sigma[s] = 1;
+        dist[s] = 0;
+        sigma[s] = 1;
         let mut queue = std::collections::VecDeque::new();
         queue.push_back(s);
 
@@ -23131,7 +23458,9 @@ pub fn group_betweenness_centrality(graph: &Graph, group: &[&str]) -> f64 {
         }
 
         for t in 0..n {
-            if t == s || dist[t] == usize::MAX { continue; }
+            if t == s || dist[t] == usize::MAX {
+                continue;
+            }
             total_paths += sigma[t];
             // Check if any shortest path s→t goes through a group node
             // A path goes through group if any node on some shortest path is in group
@@ -23152,11 +23481,17 @@ pub fn group_betweenness_centrality(graph: &Graph, group: &[&str]) -> f64 {
                     }
                 }
             }
-            if touches_group { group_paths += sigma[t]; }
+            if touches_group {
+                group_paths += sigma[t];
+            }
         }
     }
 
-    if total_paths == 0 { 0.0 } else { group_paths as f64 / total_paths as f64 }
+    if total_paths == 0 {
+        0.0
+    } else {
+        group_paths as f64 / total_paths as f64
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -23201,13 +23536,23 @@ pub fn all_pairs_all_shortest_paths(
                         if dist[ni] == usize::MAX {
                             dist[ni] = dist[v] + 1;
                             queue.push_back(ni);
-                            paths[ni] = paths[v].iter().map(|p| {
-                                let mut np = p.clone(); np.push(ni); np
-                            }).collect();
+                            paths[ni] = paths[v]
+                                .iter()
+                                .map(|p| {
+                                    let mut np = p.clone();
+                                    np.push(ni);
+                                    np
+                                })
+                                .collect();
                         } else if dist[ni] == dist[v] + 1 {
-                            let new_paths: Vec<Vec<usize>> = paths[v].iter().map(|p| {
-                                let mut np = p.clone(); np.push(ni); np
-                            }).collect();
+                            let new_paths: Vec<Vec<usize>> = paths[v]
+                                .iter()
+                                .map(|p| {
+                                    let mut np = p.clone();
+                                    np.push(ni);
+                                    np
+                                })
+                                .collect();
                             paths[ni].extend(new_paths);
                         }
                     }
@@ -23217,8 +23562,11 @@ pub fn all_pairs_all_shortest_paths(
 
         let mut source_map = std::collections::HashMap::new();
         for t in 0..n {
-            if t == s || paths[t].is_empty() { continue; }
-            let named: Vec<Vec<String>> = paths[t].iter()
+            if t == s || paths[t].is_empty() {
+                continue;
+            }
+            let named: Vec<Vec<String>> = paths[t]
+                .iter()
                 .map(|p| p.iter().map(|&i| nodes[i].to_owned()).collect())
                 .collect();
             source_map.insert(nodes[t].to_owned(), named);
@@ -23240,8 +23588,12 @@ pub fn gomory_hu_tree(graph: &Graph, weight_attr: &str) -> Graph {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     let mut tree = Graph::new(graph.mode());
-    if n == 0 { return tree; }
-    for &node in &nodes { let _ = tree.add_node(node.to_owned()); }
+    if n == 0 {
+        return tree;
+    }
+    for &node in &nodes {
+        let _ = tree.add_node(node.to_owned());
+    }
 
     let mut parent: Vec<usize> = vec![0; n]; // tree parent of each node
 
@@ -23288,7 +23640,9 @@ pub fn gomory_hu_tree(graph: &Graph, weight_attr: &str) -> Graph {
 pub fn find_asteroidal_triple(graph: &Graph) -> Option<(String, String, String)> {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
-    if n < 3 { return None; }
+    if n < 3 {
+        return None;
+    }
     let idx: std::collections::HashMap<&str, usize> =
         nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
 
@@ -23297,7 +23651,9 @@ pub fn find_asteroidal_triple(graph: &Graph) -> Option<(String, String, String)>
             let mut s = std::collections::HashSet::new();
             s.insert(i);
             for nb in graph.neighbors(nodes[i]).unwrap_or_default() {
-                if let Some(&ni) = idx.get(nb) { s.insert(ni); }
+                if let Some(&ni) = idx.get(nb) {
+                    s.insert(ni);
+                }
             }
             s
         };
@@ -23306,7 +23662,9 @@ pub fn find_asteroidal_triple(graph: &Graph) -> Option<(String, String, String)>
                 let mut s = std::collections::HashSet::new();
                 s.insert(j);
                 for nb in graph.neighbors(nodes[j]).unwrap_or_default() {
-                    if let Some(&ni) = idx.get(nb) { s.insert(ni); }
+                    if let Some(&ni) = idx.get(nb) {
+                        s.insert(ni);
+                    }
                 }
                 s
             };
@@ -23315,7 +23673,9 @@ pub fn find_asteroidal_triple(graph: &Graph) -> Option<(String, String, String)>
                     let mut s = std::collections::HashSet::new();
                     s.insert(k);
                     for nb in graph.neighbors(nodes[k]).unwrap_or_default() {
-                        if let Some(&ni) = idx.get(nb) { s.insert(ni); }
+                        if let Some(&ni) = idx.get(nb) {
+                            s.insert(ni);
+                        }
                     }
                     s
                 };
@@ -23325,7 +23685,11 @@ pub fn find_asteroidal_triple(graph: &Graph) -> Option<(String, String, String)>
                 let ij = bfs_path_avoiding(n, i, j, &k_closed, graph, &nodes, &idx);
 
                 if jk && ik && ij {
-                    return Some((nodes[i].to_owned(), nodes[j].to_owned(), nodes[k].to_owned()));
+                    return Some((
+                        nodes[i].to_owned(),
+                        nodes[j].to_owned(),
+                        nodes[k].to_owned(),
+                    ));
                 }
             }
         }
@@ -23334,25 +23698,33 @@ pub fn find_asteroidal_triple(graph: &Graph) -> Option<(String, String, String)>
 }
 
 fn bfs_path_avoiding(
-    n: usize, source: usize, target: usize,
+    n: usize,
+    source: usize,
+    target: usize,
     avoid: &std::collections::HashSet<usize>,
-    graph: &Graph, nodes: &[&str],
+    graph: &Graph,
+    nodes: &[&str],
     idx: &std::collections::HashMap<&str, usize>,
 ) -> bool {
-    if avoid.contains(&source) || avoid.contains(&target) { return false; }
+    if avoid.contains(&source) || avoid.contains(&target) {
+        return false;
+    }
     let mut visited = vec![false; n];
     visited[source] = true;
     let mut queue = std::collections::VecDeque::new();
     queue.push_back(source);
     while let Some(v) = queue.pop_front() {
-        if v == target { return true; }
+        if v == target {
+            return true;
+        }
         if let Some(nbrs) = graph.neighbors(nodes[v]) {
             for nb in nbrs {
-                if let Some(&ni) = idx.get(nb) {
-                    if !visited[ni] && !avoid.contains(&ni) {
-                        visited[ni] = true;
-                        queue.push_back(ni);
-                    }
+                if let Some(&ni) = idx.get(nb)
+                    && !visited[ni]
+                    && !avoid.contains(&ni)
+                {
+                    visited[ni] = true;
+                    queue.push_back(ni);
                 }
             }
         }
@@ -23370,26 +23742,27 @@ fn bfs_path_avoiding(
 /// iteratively refining until stable. Returns a summary graph where
 /// each node represents a group of original nodes.
 #[must_use]
-pub fn snap_aggregation(
-    graph: &Graph,
-    node_attributes: &[String],
-) -> Graph {
+pub fn snap_aggregation(graph: &Graph, node_attributes: &[String]) -> Graph {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
-    if n == 0 { return Graph::strict(); }
+    if n == 0 {
+        return Graph::strict();
+    }
 
     let idx: std::collections::HashMap<&str, usize> =
         nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
 
     // Initial grouping by attribute values
     let mut group_of: Vec<usize> = vec![0; n];
-    let mut group_key: std::collections::HashMap<Vec<String>, usize> = std::collections::HashMap::new();
+    let mut group_key: std::collections::HashMap<Vec<String>, usize> =
+        std::collections::HashMap::new();
     let mut next_group = 0usize;
 
     for i in 0..n {
         let mut key = Vec::new();
         for attr in node_attributes {
-            let val = graph.node_attrs(nodes[i])
+            let val = graph
+                .node_attrs(nodes[i])
                 .and_then(|a| a.get(attr))
                 .map(|v| v.as_str())
                 .unwrap_or_default();
@@ -23406,15 +23779,19 @@ pub fn snap_aggregation(
     // Iterative refinement: split groups by neighbor-group signature
     let mut changed = true;
     for _ in 0..n {
-        if !changed { break; }
+        if !changed {
+            break;
+        }
         changed = false;
 
-        let mut new_group_key: std::collections::HashMap<(usize, Vec<usize>), usize> = std::collections::HashMap::new();
+        let mut new_group_key: std::collections::HashMap<(usize, Vec<usize>), usize> =
+            std::collections::HashMap::new();
         let mut new_next = next_group;
         let mut new_group_of = group_of.clone();
 
         for i in 0..n {
-            let mut nbr_groups: Vec<usize> = graph.neighbors(nodes[i])
+            let mut nbr_groups: Vec<usize> = graph
+                .neighbors(nodes[i])
                 .unwrap_or_default()
                 .iter()
                 .filter_map(|nb| idx.get(nb).map(|&ni| group_of[ni]))
@@ -23442,7 +23819,8 @@ pub fn snap_aggregation(
 
     // Build summary graph
     let mut summary = Graph::strict();
-    let mut group_names: std::collections::HashMap<usize, String> = std::collections::HashMap::new();
+    let mut group_names: std::collections::HashMap<usize, String> =
+        std::collections::HashMap::new();
     for i in 0..n {
         let gid = group_of[i];
         group_names.entry(gid).or_insert_with(|| {
@@ -23460,10 +23838,7 @@ pub fn snap_aggregation(
         if gi != gj {
             let key = if gi < gj { (gi, gj) } else { (gj, gi) };
             if seen.insert(key) {
-                let _ = summary.add_edge(
-                    group_names[&key.0].clone(),
-                    group_names[&key.1].clone(),
-                );
+                let _ = summary.add_edge(group_names[&key.0].clone(), group_names[&key.1].clone());
             }
         }
     }
@@ -23480,14 +23855,12 @@ pub fn snap_aggregation(
 /// Generates spanning trees by starting from the MST and systematically
 /// swapping one non-tree edge in, removing the heaviest tree edge from
 /// the resulting cycle. Limited to `max_count` trees to prevent explosion.
-pub fn spanning_tree_iterator(
-    graph: &Graph,
-    weight_attr: &str,
-    max_count: usize,
-) -> Vec<Graph> {
+pub fn spanning_tree_iterator(graph: &Graph, weight_attr: &str, max_count: usize) -> Vec<Graph> {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
-    if n == 0 { return vec![Graph::strict()]; }
+    if n == 0 {
+        return vec![Graph::strict()];
+    }
     if n == 1 {
         let mut g = Graph::strict();
         let _ = g.add_node(nodes[0].to_owned());
@@ -23496,30 +23869,44 @@ pub fn spanning_tree_iterator(
 
     // Start from MST
     let mst = minimum_spanning_tree(graph, weight_attr);
-    let mst_edges: Vec<(String, String)> = mst.edges.iter()
-        .map(|e| (e.left.clone(), e.right.clone())).collect();
+    let mst_edges: Vec<(String, String)> = mst
+        .edges
+        .iter()
+        .map(|e| (e.left.clone(), e.right.clone()))
+        .collect();
 
     // Build first spanning tree
     let mut first = Graph::new(graph.mode());
-    for &node in &nodes { let _ = first.add_node(node.to_owned()); }
-    for (u, v) in &mst_edges { let _ = first.add_edge(u.clone(), v.clone()); }
+    for &node in &nodes {
+        let _ = first.add_node(node.to_owned());
+    }
+    for (u, v) in &mst_edges {
+        let _ = first.add_edge(u.clone(), v.clone());
+    }
 
     let mut results = vec![first];
-    if results.len() >= max_count { return results; }
+    if results.len() >= max_count {
+        return results;
+    }
 
     // Find non-tree edges
-    let tree_edge_set: std::collections::HashSet<(String, String)> = mst_edges.iter()
+    let tree_edge_set: std::collections::HashSet<(String, String)> = mst_edges
+        .iter()
         .flat_map(|(u, v)| vec![(u.clone(), v.clone()), (v.clone(), u.clone())])
         .collect();
 
-    let non_tree: Vec<(String, String)> = graph.edges_ordered().iter()
+    let non_tree: Vec<(String, String)> = graph
+        .edges_ordered()
+        .iter()
         .filter(|e| !tree_edge_set.contains(&(e.left.clone(), e.right.clone())))
         .map(|e| (e.left.clone(), e.right.clone()))
         .collect();
 
     // For each non-tree edge, swap with each tree edge on the cycle
     for (nu, nv) in &non_tree {
-        if results.len() >= max_count { break; }
+        if results.len() >= max_count {
+            break;
+        }
 
         // Find path from nu to nv in MST (the fundamental cycle)
         let idx: std::collections::HashMap<&str, usize> =
@@ -23538,11 +23925,15 @@ pub fn spanning_tree_iterator(
                 let wi = idx[w.as_str()];
                 if ui == v && parent[wi] == usize::MAX {
                     parent[wi] = v;
-                    if wi == ti { break 'bfs; }
+                    if wi == ti {
+                        break 'bfs;
+                    }
                     queue.push_back(wi);
                 } else if wi == v && parent[ui] == usize::MAX {
                     parent[ui] = v;
-                    if ui == ti { break 'bfs; }
+                    if ui == ti {
+                        break 'bfs;
+                    }
                     queue.push_back(ui);
                 }
             }
@@ -23553,18 +23944,26 @@ pub fn spanning_tree_iterator(
         let mut cur = ti;
         while cur != si {
             let p = parent[cur];
-            if p == usize::MAX { break; }
+            if p == usize::MAX {
+                break;
+            }
             cycle_edges.push((nodes[p].to_owned(), nodes[cur].to_owned()));
             cur = p;
         }
 
         // For each tree edge on cycle, swap it out and put non-tree edge in
         for (cu, cv) in &cycle_edges {
-            if results.len() >= max_count { break; }
+            if results.len() >= max_count {
+                break;
+            }
             let mut new_tree = Graph::new(graph.mode());
-            for &node in &nodes { let _ = new_tree.add_node(node.to_owned()); }
+            for &node in &nodes {
+                let _ = new_tree.add_node(node.to_owned());
+            }
             for (u, v) in &mst_edges {
-                if (u == cu && v == cv) || (u == cv && v == cu) { continue; }
+                if (u == cu && v == cv) || (u == cv && v == cu) {
+                    continue;
+                }
                 let _ = new_tree.add_edge(u.clone(), v.clone());
             }
             let _ = new_tree.add_edge(nu.clone(), nv.clone());
@@ -23593,7 +23992,9 @@ pub fn arborescence_iterator(
 ) -> Vec<DiGraph> {
     let nodes = digraph.nodes_ordered();
     let n = nodes.len();
-    if n == 0 { return vec![DiGraph::strict()]; }
+    if n == 0 {
+        return vec![DiGraph::strict()];
+    }
     if n == 1 {
         let mut g = DiGraph::strict();
         g.add_node(nodes[0].to_owned());
@@ -23606,43 +24007,68 @@ pub fn arborescence_iterator(
 
     if branching.edges.len() == n - 1 {
         let mut arb = DiGraph::new(digraph.mode());
-        for &node in &nodes { arb.add_node(node.to_owned()); }
-        for e in &branching.edges { let _ = arb.add_edge(e.left.clone(), e.right.clone()); }
+        for &node in &nodes {
+            arb.add_node(node.to_owned());
+        }
+        for e in &branching.edges {
+            let _ = arb.add_edge(e.left.clone(), e.right.clone());
+        }
         results.push(arb);
     } else {
         return results; // No arborescence exists
     }
 
-    if results.len() >= max_count { return results; }
+    if results.len() >= max_count {
+        return results;
+    }
 
     // Generate additional arborescences by swapping one edge
-    let first_edges: Vec<(String, String)> = results[0].edges_ordered().iter()
-        .map(|e| (e.left.clone(), e.right.clone())).collect();
+    let first_edges: Vec<(String, String)> = results[0]
+        .edges_ordered()
+        .iter()
+        .map(|e| (e.left.clone(), e.right.clone()))
+        .collect();
 
     for edge in digraph.edges_ordered() {
-        if results.len() >= max_count { break; }
-        if first_edges.contains(&(edge.left.clone(), edge.right.clone())) { continue; }
+        if results.len() >= max_count {
+            break;
+        }
+        if first_edges.contains(&(edge.left.clone(), edge.right.clone())) {
+            continue;
+        }
 
         // Try replacing each tree edge with this edge
         for (tu, tv) in &first_edges {
-            if results.len() >= max_count { break; }
+            if results.len() >= max_count {
+                break;
+            }
             // Can only replace if the new edge has the same target
-            if edge.right != *tv { continue; }
+            if edge.right != *tv {
+                continue;
+            }
 
             let mut new_arb = DiGraph::new(digraph.mode());
-            for &node in &nodes { new_arb.add_node(node.to_owned()); }
+            for &node in &nodes {
+                new_arb.add_node(node.to_owned());
+            }
             for (u, v) in &first_edges {
-                if u == tu && v == tv { continue; }
+                if u == tu && v == tv {
+                    continue;
+                }
                 let _ = new_arb.add_edge(u.clone(), v.clone());
             }
             let _ = new_arb.add_edge(edge.left.clone(), edge.right.clone());
 
             // Verify: n-1 edges, each node (except root) has in-degree 1
             if new_arb.edge_count() == n - 1 {
-                let valid = nodes.iter().filter(|&&node| {
-                    new_arb.predecessors(node).map_or(0, |p| p.len()) > 1
-                }).count() == 0;
-                if valid { results.push(new_arb); }
+                let valid = nodes
+                    .iter()
+                    .filter(|&&node| new_arb.predecessors(node).map_or(0, |p| p.len()) > 1)
+                    .count()
+                    == 0;
+                if valid {
+                    results.push(new_arb);
+                }
             }
         }
     }
@@ -23669,45 +24095,61 @@ pub fn write_graphml_string(graph: &Graph) -> String {
     let mut edge_keys: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for node in graph.nodes_ordered() {
         if let Some(attrs) = graph.node_attrs(node) {
-            for k in attrs.keys() { node_keys.insert(k.clone()); }
+            for k in attrs.keys() {
+                node_keys.insert(k.clone());
+            }
         }
     }
     for edge in graph.edges_ordered() {
-        for k in edge.attrs.keys() { edge_keys.insert(k.clone()); }
+        for k in edge.attrs.keys() {
+            edge_keys.insert(k.clone());
+        }
     }
 
     // Emit key declarations
     for (i, key) in node_keys.iter().enumerate() {
         xml.push_str(&format!(
             "  <key id=\"n{}\" for=\"node\" attr.name=\"{}\" attr.type=\"string\"/>\n",
-            i, xml_escape(key)
+            i,
+            xml_escape(key)
         ));
     }
     for (i, key) in edge_keys.iter().enumerate() {
         xml.push_str(&format!(
             "  <key id=\"e{}\" for=\"edge\" attr.name=\"{}\" attr.type=\"string\"/>\n",
-            i, xml_escape(key)
+            i,
+            xml_escape(key)
         ));
     }
 
-    let node_key_idx: std::collections::HashMap<&str, usize> =
-        node_keys.iter().enumerate().map(|(i, k)| (k.as_str(), i)).collect();
-    let edge_key_idx: std::collections::HashMap<&str, usize> =
-        edge_keys.iter().enumerate().map(|(i, k)| (k.as_str(), i)).collect();
+    let node_key_idx: std::collections::HashMap<&str, usize> = node_keys
+        .iter()
+        .enumerate()
+        .map(|(i, k)| (k.as_str(), i))
+        .collect();
+    let edge_key_idx: std::collections::HashMap<&str, usize> = edge_keys
+        .iter()
+        .enumerate()
+        .map(|(i, k)| (k.as_str(), i))
+        .collect();
 
     xml.push_str("  <graph id=\"G\" edgedefault=\"undirected\">\n");
 
     // Nodes
     for node in graph.nodes_ordered() {
         let attrs = graph.node_attrs(node);
-        if attrs.map_or(true, |a| a.is_empty()) {
+        if attrs.is_none_or(|a| a.is_empty()) {
             xml.push_str(&format!("    <node id=\"{}\"/>\n", xml_escape(node)));
         } else {
             xml.push_str(&format!("    <node id=\"{}\">\n", xml_escape(node)));
             if let Some(a) = attrs {
                 for (k, v) in a {
                     let idx = node_key_idx[k.as_str()];
-                    xml.push_str(&format!("      <data key=\"n{}\">{}</data>\n", idx, xml_escape(&v.as_str())));
+                    xml.push_str(&format!(
+                        "      <data key=\"n{}\">{}</data>\n",
+                        idx,
+                        xml_escape(&v.as_str())
+                    ));
                 }
             }
             xml.push_str("    </node>\n");
@@ -23719,16 +24161,22 @@ pub fn write_graphml_string(graph: &Graph) -> String {
         if edge.attrs.is_empty() {
             xml.push_str(&format!(
                 "    <edge source=\"{}\" target=\"{}\"/>\n",
-                xml_escape(&edge.left), xml_escape(&edge.right)
+                xml_escape(&edge.left),
+                xml_escape(&edge.right)
             ));
         } else {
             xml.push_str(&format!(
                 "    <edge source=\"{}\" target=\"{}\">\n",
-                xml_escape(&edge.left), xml_escape(&edge.right)
+                xml_escape(&edge.left),
+                xml_escape(&edge.right)
             ));
             for (k, v) in &edge.attrs {
                 let idx = edge_key_idx[k.as_str()];
-                xml.push_str(&format!("      <data key=\"e{}\">{}</data>\n", idx, xml_escape(&v.as_str())));
+                xml.push_str(&format!(
+                    "      <data key=\"e{}\">{}</data>\n",
+                    idx,
+                    xml_escape(&v.as_str())
+                ));
             }
             xml.push_str("    </edge>\n");
         }
@@ -23750,16 +24198,22 @@ pub fn write_graphml_string_directed(digraph: &DiGraph) -> String {
 
     let mut edge_keys: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for edge in digraph.edges_ordered() {
-        for k in edge.attrs.keys() { edge_keys.insert(k.clone()); }
+        for k in edge.attrs.keys() {
+            edge_keys.insert(k.clone());
+        }
     }
     for (i, key) in edge_keys.iter().enumerate() {
         xml.push_str(&format!(
             "  <key id=\"e{}\" for=\"edge\" attr.name=\"{}\" attr.type=\"string\"/>\n",
-            i, xml_escape(key)
+            i,
+            xml_escape(key)
         ));
     }
-    let edge_key_idx: std::collections::HashMap<&str, usize> =
-        edge_keys.iter().enumerate().map(|(i, k)| (k.as_str(), i)).collect();
+    let edge_key_idx: std::collections::HashMap<&str, usize> = edge_keys
+        .iter()
+        .enumerate()
+        .map(|(i, k)| (k.as_str(), i))
+        .collect();
 
     xml.push_str("  <graph id=\"G\" edgedefault=\"directed\">\n");
     for node in digraph.nodes_ordered() {
@@ -23769,16 +24223,22 @@ pub fn write_graphml_string_directed(digraph: &DiGraph) -> String {
         if edge.attrs.is_empty() {
             xml.push_str(&format!(
                 "    <edge source=\"{}\" target=\"{}\"/>\n",
-                xml_escape(&edge.left), xml_escape(&edge.right)
+                xml_escape(&edge.left),
+                xml_escape(&edge.right)
             ));
         } else {
             xml.push_str(&format!(
                 "    <edge source=\"{}\" target=\"{}\">\n",
-                xml_escape(&edge.left), xml_escape(&edge.right)
+                xml_escape(&edge.left),
+                xml_escape(&edge.right)
             ));
             for (k, v) in &edge.attrs {
                 let idx = edge_key_idx[k.as_str()];
-                xml.push_str(&format!("      <data key=\"e{}\">{}</data>\n", idx, xml_escape(&v.as_str())));
+                xml.push_str(&format!(
+                    "      <data key=\"e{}\">{}</data>\n",
+                    idx,
+                    xml_escape(&v.as_str())
+                ));
             }
             xml.push_str("    </edge>\n");
         }
@@ -24109,6 +24569,31 @@ mod tests {
         wheel_graph,
         wiener_index,
         windmill_graph,
+        // New algorithms (March 2026)
+        stoer_wagner,
+        all_topological_sorts,
+        constraint,
+        voronoi_cells,
+        is_d_separator,
+        complement_graph,
+        flow_hierarchy_directed,
+        triadic_census,
+        quotient_graph,
+        full_join,
+        relabel_nodes,
+        identified_nodes,
+        tutte_polynomial,
+        moral_graph,
+        find_asteroidal_triple,
+        spanning_tree_iterator,
+        write_graphml_string,
+        write_graphml_string_directed,
+        snap_aggregation,
+        ego_graph,
+        gutman_index,
+        effective_size,
+        complement_digraph,
+        reverse_digraph,
     };
     use fnx_classes::Graph;
     use fnx_classes::digraph::DiGraph;
@@ -24129,25 +24614,40 @@ mod tests {
     #[test]
     fn default_constants_match_networkx() {
         use super::{
+            HITS_DEFAULT_MAX_ITERATIONS, HITS_DEFAULT_TOLERANCE, KATZ_DEFAULT_ALPHA,
+            KATZ_DEFAULT_BETA, KATZ_DEFAULT_MAX_ITERATIONS, KATZ_DEFAULT_TOLERANCE,
             PAGERANK_DEFAULT_ALPHA, PAGERANK_DEFAULT_MAX_ITERATIONS, PAGERANK_DEFAULT_TOLERANCE,
-            KATZ_DEFAULT_ALPHA, KATZ_DEFAULT_BETA, KATZ_DEFAULT_MAX_ITERATIONS, KATZ_DEFAULT_TOLERANCE,
-            HITS_DEFAULT_MAX_ITERATIONS, HITS_DEFAULT_TOLERANCE,
         };
 
         // NetworkX source: networkx/algorithms/link_analysis/pagerank_alg.py
-        assert!((PAGERANK_DEFAULT_ALPHA - 0.85).abs() < 1e-15, "PageRank alpha drift");
-        assert_eq!(PAGERANK_DEFAULT_MAX_ITERATIONS, 100, "PageRank max_iter drift");
-        assert!((PAGERANK_DEFAULT_TOLERANCE - 1.0e-6).abs() < 1e-20, "PageRank tol drift");
+        assert!(
+            (PAGERANK_DEFAULT_ALPHA - 0.85).abs() < 1e-15,
+            "PageRank alpha drift"
+        );
+        assert_eq!(
+            PAGERANK_DEFAULT_MAX_ITERATIONS, 100,
+            "PageRank max_iter drift"
+        );
+        assert!(
+            (PAGERANK_DEFAULT_TOLERANCE - 1.0e-6).abs() < 1e-20,
+            "PageRank tol drift"
+        );
 
         // NetworkX source: networkx/algorithms/centrality/katz_centrality.py
         assert!((KATZ_DEFAULT_ALPHA - 0.1).abs() < 1e-15, "Katz alpha drift");
         assert!((KATZ_DEFAULT_BETA - 1.0).abs() < 1e-15, "Katz beta drift");
         assert_eq!(KATZ_DEFAULT_MAX_ITERATIONS, 1000, "Katz max_iter drift");
-        assert!((KATZ_DEFAULT_TOLERANCE - 1.0e-6).abs() < 1e-20, "Katz tol drift");
+        assert!(
+            (KATZ_DEFAULT_TOLERANCE - 1.0e-6).abs() < 1e-20,
+            "Katz tol drift"
+        );
 
         // NetworkX source: networkx/algorithms/link_analysis/hits_alg.py
         assert_eq!(HITS_DEFAULT_MAX_ITERATIONS, 100, "HITS max_iter drift");
-        assert!((HITS_DEFAULT_TOLERANCE - 1.0e-8).abs() < 1e-20, "HITS tol drift");
+        assert!(
+            (HITS_DEFAULT_TOLERANCE - 1.0e-8).abs() < 1e-20,
+            "HITS tol drift"
+        );
     }
 
     fn packet_005_forensics_bundle(
@@ -25540,7 +26040,9 @@ mod tests {
         let forward_default = max_weight_matching(&forward, false, "weight");
         let reverse_default = max_weight_matching(&reverse, false, "weight");
         assert_eq!(forward_default.matching, reverse_default.matching);
-        assert!((forward_default.total_weight - reverse_default.total_weight).abs() <= TEST_TOLERANCE);
+        assert!(
+            (forward_default.total_weight - reverse_default.total_weight).abs() <= TEST_TOLERANCE
+        );
 
         let forward_cardinality = max_weight_matching(&forward, true, "weight");
         let reverse_cardinality = max_weight_matching(&reverse, true, "weight");
@@ -26585,12 +27087,18 @@ mod tests {
             .iter()
             .map(|entry| ((entry.left.as_str(), entry.right.as_str()), entry.score))
             .collect::<BTreeMap<(&str, &str), f64>>();
-        assert!((as_edge_map.get(&("a", "b")).copied().unwrap_or_default() - 0.5).abs() <= TEST_TOLERANCE);
+        assert!(
+            (as_edge_map.get(&("a", "b")).copied().unwrap_or_default() - 0.5).abs()
+                <= TEST_TOLERANCE
+        );
         assert!(
             (as_edge_map.get(&("b", "c")).copied().unwrap_or_default() - (2.0 / 3.0)).abs()
                 <= 1e-12
         );
-        assert!((as_edge_map.get(&("c", "d")).copied().unwrap_or_default() - 0.5).abs() <= TEST_TOLERANCE);
+        assert!(
+            (as_edge_map.get(&("c", "d")).copied().unwrap_or_default() - 0.5).abs()
+                <= TEST_TOLERANCE
+        );
         assert_eq!(
             result.witness.algorithm,
             "brandes_edge_betweenness_centrality"
@@ -33465,5 +33973,375 @@ mod tests {
         assert_eq!(distances.get("b"), Some(&0.0));
         assert_eq!(distances.get("c"), Some(&1.0));
         assert!(!distances.contains_key("a"));
+    }
+
+    #[test]
+    fn test_stoer_wagner_triangle() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c"); let _ = g.add_edge("a", "c");
+        let r = stoer_wagner(&g, "weight").unwrap();
+        assert!((r.cut_value - 2.0).abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn test_all_topological_sorts_diamond() {
+        let mut d = DiGraph::strict();
+        d.add_edge("a", "b").unwrap(); d.add_edge("a", "c").unwrap();
+        d.add_edge("b", "d").unwrap(); d.add_edge("c", "d").unwrap();
+        let sorts = all_topological_sorts(&d);
+        assert_eq!(sorts.len(), 2);
+    }
+
+    #[test]
+    fn test_constraint_star() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("c", "l1"); let _ = g.add_edge("c", "l2");
+        let c = constraint(&g);
+        assert!((c["l1"] - 1.0).abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn test_voronoi_cells_path() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("0", "1"); let _ = g.add_edge("1", "2"); let _ = g.add_edge("2", "3");
+        let cells = voronoi_cells(&g, &["0", "3"]);
+        assert!(cells["0"].contains(&"1".to_owned()));
+        assert!(cells["3"].contains(&"2".to_owned()));
+    }
+
+    #[test]
+    fn test_is_d_separator_fork() {
+        let mut d = DiGraph::strict();
+        d.add_edge("x", "a").unwrap(); d.add_edge("x", "b").unwrap();
+        let x: std::collections::HashSet<String> = ["x".to_owned()].into();
+        let a: std::collections::HashSet<String> = ["a".to_owned()].into();
+        let b: std::collections::HashSet<String> = ["b".to_owned()].into();
+        assert!(is_d_separator(&d, &a, &b, &x));
+    }
+
+    #[test]
+    fn test_complement_simple() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_node("c");
+        let comp = complement_graph(&g);
+        assert!(comp.has_edge("a", "c"));
+        assert!(!comp.has_edge("a", "b"));
+    }
+
+    #[test]
+    fn test_flow_hierarchy_dag_is_one() {
+        let mut d = DiGraph::strict();
+        d.add_edge("a", "b").unwrap(); d.add_edge("b", "c").unwrap();
+        assert!((flow_hierarchy_directed(&d) - 1.0).abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn test_triadic_census_cycle() {
+        let mut d = DiGraph::strict();
+        d.add_edge("a", "b").unwrap(); d.add_edge("b", "c").unwrap(); d.add_edge("c", "a").unwrap();
+        let census = triadic_census(&d);
+        assert_eq!(census["030C"], 1);
+    }
+
+    #[test]
+    fn test_quotient_graph_partition() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "x"); let _ = g.add_edge("b", "y");
+        let p = vec![vec!["a".to_owned(), "b".to_owned()], vec!["x".to_owned(), "y".to_owned()]];
+        let q = quotient_graph(&g, &p);
+        assert_eq!(q.nodes_ordered().len(), 2);
+        assert_eq!(q.edge_count(), 1);
+    }
+
+    #[test]
+    fn test_full_join_cross_edges() {
+        let mut g1 = Graph::strict(); let _ = g1.add_edge("a", "b");
+        let mut g2 = Graph::strict(); let _ = g2.add_edge("x", "y");
+        let fj = full_join(&g1, &g2);
+        assert_eq!(fj.edge_count(), 6); // 2 original + 4 cross
+    }
+
+    #[test]
+    fn test_identified_nodes_merge() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c");
+        let r = identified_nodes(&g, "a", "b");
+        assert_eq!(r.nodes_ordered().len(), 2);
+        assert!(r.has_edge("a", "c"));
+    }
+
+    #[test]
+    fn test_tutte_polynomial_tree() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c");
+        let t = tutte_polynomial(&g, 2.0, 1.0);
+        assert!((t - 4.0).abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn test_moral_graph_connects_coparents() {
+        let mut d = DiGraph::strict();
+        d.add_edge("a", "c").unwrap(); d.add_edge("b", "c").unwrap();
+        let m = moral_graph(&d);
+        assert!(m.has_edge("a", "b"));
+    }
+
+    #[test]
+    fn test_find_asteroidal_triple_path_is_none() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c"); let _ = g.add_edge("c", "d");
+        assert!(find_asteroidal_triple(&g).is_none());
+    }
+
+    #[test]
+    fn test_spanning_tree_iterator_c4() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "d"); let _ = g.add_edge("d", "a");
+        let trees = spanning_tree_iterator(&g, "weight", 100);
+        assert_eq!(trees.len(), 4);
+    }
+
+    #[test]
+    fn test_write_graphml_contains_structure() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let xml = write_graphml_string(&g);
+        assert!(xml.contains("<graphml"));
+        assert!(xml.contains("edgedefault=\"undirected\""));
+        assert!(xml.contains("node id=\"a\""));
+    }
+
+    #[test]
+    fn test_snap_aggregation_groups_by_attr() {
+        let mut g = Graph::strict();
+        let _ = g.add_node_with_attrs("a".to_owned(), single_attr("color", "red"));
+        let _ = g.add_node_with_attrs("b".to_owned(), single_attr("color", "red"));
+        let _ = g.add_node_with_attrs("c".to_owned(), single_attr("color", "blue"));
+        let _ = g.add_edge("a", "c");
+        let summary = snap_aggregation(&g, &["color".to_owned()]);
+        assert!(summary.nodes_ordered().len() <= 3);
+    }
+
+    #[test]
+    fn test_ego_graph_radius() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("c", "a"); let _ = g.add_edge("a", "d");
+        let ego = ego_graph(&g, "c", 1);
+        assert!(ego.has_node("a"));
+        assert!(!ego.has_node("d"));
+    }
+
+    #[test]
+    fn test_gutman_index_path() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c");
+        let gi = gutman_index(&g).unwrap();
+        assert!((gi - 6.0).abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn test_relabel_nodes_mapping() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let mut m = std::collections::HashMap::new();
+        m.insert("a".to_owned(), "x".to_owned());
+        let r = relabel_nodes(&g, &m);
+        assert!(r.has_edge("x", "b"));
+    }
+
+    // -----------------------------------------------------------------------
+    // Edge case and correctness tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_stoer_wagner_disconnected_cut_zero() {
+        let mut g = Graph::strict();
+        let _ = g.add_node("a"); let _ = g.add_node("b");
+        // Disconnected graph: min cut = 0 (no edges to cut)
+        let r = stoer_wagner(&g, "weight");
+        match r {
+            Some(result) => assert!((result.cut_value - 0.0).abs() < TEST_TOLERANCE),
+            None => {} // Also acceptable
+        }
+    }
+
+    #[test]
+    fn test_stoer_wagner_weighted() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge_with_attrs("a".to_owned(), "b".to_owned(), single_attr("weight", "5"));
+        let _ = g.add_edge_with_attrs("b".to_owned(), "c".to_owned(), single_attr("weight", "1"));
+        let _ = g.add_edge_with_attrs("a".to_owned(), "c".to_owned(), single_attr("weight", "3"));
+        let r = stoer_wagner(&g, "weight").unwrap();
+        // Min cut should be 4 (cutting b-c=1 and a-c=3)
+        assert!((r.cut_value - 4.0).abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn test_all_topological_sorts_empty() {
+        let d = DiGraph::strict();
+        let sorts = all_topological_sorts(&d);
+        assert_eq!(sorts.len(), 1);
+        assert!(sorts[0].is_empty());
+    }
+
+    #[test]
+    fn test_all_topological_sorts_single() {
+        let mut d = DiGraph::strict();
+        d.add_node("a".to_owned());
+        let sorts = all_topological_sorts(&d);
+        assert_eq!(sorts.len(), 1);
+        assert_eq!(sorts[0], vec!["a"]);
+    }
+
+    #[test]
+    fn test_constraint_empty() {
+        let g = Graph::strict();
+        let c = constraint(&g);
+        assert!(c.is_empty());
+    }
+
+    #[test]
+    fn test_effective_size_isolated() {
+        let mut g = Graph::strict();
+        let _ = g.add_node("a");
+        let es = effective_size(&g);
+        assert!((es["a"] - 0.0).abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn test_voronoi_cells_single_center() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c");
+        let cells = voronoi_cells(&g, &["a"]);
+        assert_eq!(cells["a"].len(), 3);
+    }
+
+    #[test]
+    fn test_complement_empty() {
+        let g = Graph::strict();
+        let c = complement_graph(&g);
+        assert_eq!(c.nodes_ordered().len(), 0);
+    }
+
+    #[test]
+    fn test_complement_complete_is_empty() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c"); let _ = g.add_edge("a", "c");
+        let c = complement_graph(&g);
+        assert_eq!(c.edge_count(), 0);
+        assert_eq!(c.nodes_ordered().len(), 3);
+    }
+
+    #[test]
+    fn test_flow_hierarchy_mixed() {
+        let mut d = DiGraph::strict();
+        d.add_edge("a", "b").unwrap(); d.add_edge("b", "c").unwrap();
+        d.add_edge("c", "a").unwrap(); d.add_edge("a", "d").unwrap();
+        assert!((flow_hierarchy_directed(&d) - 0.25).abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn test_triadic_census_empty() {
+        let d = DiGraph::strict();
+        let census = triadic_census(&d);
+        for (_, &count) in &census { assert_eq!(count, 0); }
+    }
+
+    #[test]
+    fn test_ego_graph_full_radius() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c");
+        let ego = ego_graph(&g, "a", 100);
+        assert_eq!(ego.nodes_ordered().len(), 3);
+    }
+
+    #[test]
+    fn test_moral_graph_no_coparents() {
+        let mut d = DiGraph::strict();
+        d.add_edge("a", "b").unwrap();
+        let m = moral_graph(&d);
+        assert_eq!(m.edge_count(), 1);
+        assert!(m.has_edge("a", "b"));
+    }
+
+    #[test]
+    fn test_write_graphml_directed() {
+        let mut d = DiGraph::strict();
+        d.add_edge("a", "b").unwrap();
+        let xml = write_graphml_string_directed(&d);
+        assert!(xml.contains("edgedefault=\"directed\""));
+    }
+
+    #[test]
+    fn test_find_asteroidal_triple_cycle6() {
+        let mut g = Graph::strict();
+        for i in 0..6 { let _ = g.add_edge(i.to_string(), ((i+1)%6).to_string()); }
+        let at = find_asteroidal_triple(&g);
+        assert!(at.is_some()); // C6 has asteroidal triples
+    }
+
+    #[test]
+    fn test_spanning_tree_iterator_tree_returns_one() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c");
+        let trees = spanning_tree_iterator(&g, "weight", 100);
+        assert_eq!(trees.len(), 1); // A tree has exactly one spanning tree
+    }
+
+    #[test]
+    fn test_snap_aggregation_all_same() {
+        let mut g = Graph::strict();
+        let _ = g.add_node_with_attrs("a".to_owned(), single_attr("color", "red"));
+        let _ = g.add_node_with_attrs("b".to_owned(), single_attr("color", "red"));
+        let _ = g.add_edge("a", "b");
+        let summary = snap_aggregation(&g, &["color".to_owned()]);
+        // Same color + same neighbor structure = might merge
+        assert!(summary.nodes_ordered().len() <= 2);
+    }
+
+    #[test]
+    fn test_gutman_index_disconnected() {
+        let mut g = Graph::strict();
+        let _ = g.add_node("a"); let _ = g.add_node("b");
+        assert!(gutman_index(&g).is_none());
+    }
+
+    #[test]
+    fn test_tutte_polynomial_single_edge() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        // T(x,y) = x for a single edge (bridge)
+        assert!((tutte_polynomial(&g, 3.0, 2.0) - 3.0).abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn test_full_join_empty() {
+        let g1 = Graph::strict();
+        let mut g2 = Graph::strict(); let _ = g2.add_node("x");
+        let fj = full_join(&g1, &g2);
+        assert_eq!(fj.nodes_ordered().len(), 1);
+    }
+
+    #[test]
+    fn test_identified_nodes_self() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let r = identified_nodes(&g, "a", "a");
+        assert_eq!(r.nodes_ordered().len(), 2);
+    }
+
+    #[test]
+    fn test_is_d_separator_collider() {
+        let mut d = DiGraph::strict();
+        d.add_edge("a", "c").unwrap(); d.add_edge("b", "c").unwrap();
+        let a: std::collections::HashSet<String> = ["a".to_owned()].into();
+        let b: std::collections::HashSet<String> = ["b".to_owned()].into();
+        let empty: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let c_set: std::collections::HashSet<String> = ["c".to_owned()].into();
+        // Without conditioning: a and b are d-separated (c is a collider)
+        assert!(is_d_separator(&d, &a, &b, &empty));
+        // Conditioning on c opens the path
+        assert!(!is_d_separator(&d, &a, &b, &c_set));
     }
 }

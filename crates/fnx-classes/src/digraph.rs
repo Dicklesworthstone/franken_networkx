@@ -489,7 +489,8 @@ impl DiGraph {
                 {
                     preds.shift_remove(node);
                 }
-                self.edges.shift_remove(&DirectedEdgeKey::new(node, &target));
+                self.edges
+                    .shift_remove(&DirectedEdgeKey::new(node, &target));
             }
         }
 
@@ -502,7 +503,8 @@ impl DiGraph {
                 {
                     succs.shift_remove(node);
                 }
-                self.edges.shift_remove(&DirectedEdgeKey::new(&source, node));
+                self.edges
+                    .shift_remove(&DirectedEdgeKey::new(&source, node));
             }
         }
 

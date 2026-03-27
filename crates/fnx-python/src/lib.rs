@@ -1078,6 +1078,15 @@ impl PyMultiGraph {
         }
 
         for canonical in &involved_nodes {
+            let rust_attrs = self
+                .node_py_attrs
+                .get(canonical)
+                .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
+                .transpose()?
+                .unwrap_or_default();
+            new_graph
+                .inner
+                .add_node_with_attrs(canonical.clone(), rust_attrs);
             if let Some(py_key) = self.node_key_map.get(canonical) {
                 new_graph
                     .node_key_map
@@ -1114,9 +1123,11 @@ impl PyMultiGraph {
 
         for (canonical, py_key) in &self.node_key_map {
             mdg.inner.add_node(canonical.clone());
-            mdg.node_key_map.insert(canonical.clone(), py_key.clone_ref(py));
+            mdg.node_key_map
+                .insert(canonical.clone(), py_key.clone_ref(py));
             if let Some(attrs) = self.node_py_attrs.get(canonical) {
-                mdg.node_py_attrs.insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
+                mdg.node_py_attrs
+                    .insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
             }
         }
 
@@ -1126,21 +1137,26 @@ impl PyMultiGraph {
             let k = edge.key;
 
             let rust_attrs = edge.attrs.clone();
-            
+
             let mut py_attrs_copy = None;
             let ek = PyMultiGraph::edge_key(u, v, k);
             if let Some(py_attrs) = self.edge_py_attrs.get(&ek) {
                 py_attrs_copy = Some(py_attrs.bind(py).copy()?.unbind());
             }
 
-            let new_k1 = mdg.inner.add_edge_with_attrs(u.clone(), v.clone(), rust_attrs.clone())
+            let new_k1 = mdg
+                .inner
+                .add_edge_with_attrs(u.clone(), v.clone(), rust_attrs.clone())
                 .map_err(|e| crate::NetworkXError::new_err(e.to_string()))?;
             if let Some(pa) = &py_attrs_copy {
-                mdg.edge_py_attrs.insert((u.clone(), v.clone(), new_k1), pa.clone_ref(py));
+                mdg.edge_py_attrs
+                    .insert((u.clone(), v.clone(), new_k1), pa.clone_ref(py));
             }
 
             if u != v {
-                let new_k2 = mdg.inner.add_edge_with_attrs(v.clone(), u.clone(), rust_attrs)
+                let new_k2 = mdg
+                    .inner
+                    .add_edge_with_attrs(v.clone(), u.clone(), rust_attrs)
                     .map_err(|e| crate::NetworkXError::new_err(e.to_string()))?;
                 if let Some(pa) = py_attrs_copy {
                     mdg.edge_py_attrs.insert((v.clone(), u.clone(), new_k2), pa);
@@ -1510,7 +1526,13 @@ impl PyGraph {
             // If it's another PyGraph, copy it.
             if let Ok(other) = data.extract::<PyRef<'_, PyGraph>>() {
                 for (canonical, py_key) in &other.node_key_map {
-                    g.inner.add_node(canonical.clone());
+                    let rust_attrs = other
+                        .node_py_attrs
+                        .get(canonical)
+                        .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
+                        .transpose()?
+                        .unwrap_or_default();
+                    g.inner.add_node_with_attrs(canonical.clone(), rust_attrs);
                     g.node_key_map
                         .insert(canonical.clone(), py_key.clone_ref(py));
                     if let Some(attrs) = other.node_py_attrs.get(canonical) {
@@ -1519,7 +1541,10 @@ impl PyGraph {
                     }
                 }
                 for ((u, v), attrs) in &other.edge_py_attrs {
-                    let _ = g.inner.add_edge(u.clone(), v.clone());
+                    let rust_attrs = py_dict_to_attr_map(attrs.bind(py))?;
+                    let _ = g
+                        .inner
+                        .add_edge_with_attrs(u.clone(), v.clone(), rust_attrs);
                     g.edge_py_attrs
                         .insert((u.clone(), v.clone()), attrs.bind(py).copy()?.unbind());
                 }
@@ -1531,7 +1556,12 @@ impl PyGraph {
                         let merged = PyDict::new(py);
                         match tuple.len() {
                             2 => {
-                                g.add_edge(py, &tuple.get_item(0)?, &tuple.get_item(1)?, Some(&merged))?;
+                                g.add_edge(
+                                    py,
+                                    &tuple.get_item(0)?,
+                                    &tuple.get_item(1)?,
+                                    Some(&merged),
+                                )?;
                             }
                             3 => {
                                 if let Ok(d) = tuple.get_item(2)?.downcast::<PyDict>() {
@@ -2121,7 +2151,15 @@ impl PyGraph {
         };
         // Copy nodes
         for (canonical, py_key) in &self.node_key_map {
-            new_graph.inner.add_node(canonical.clone());
+            let rust_attrs = self
+                .node_py_attrs
+                .get(canonical)
+                .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
+                .transpose()?
+                .unwrap_or_default();
+            new_graph
+                .inner
+                .add_node_with_attrs(canonical.clone(), rust_attrs);
             new_graph
                 .node_key_map
                 .insert(canonical.clone(), py_key.clone_ref(py));
@@ -2133,7 +2171,10 @@ impl PyGraph {
         }
         // Copy edges
         for ((u, v), attrs) in &self.edge_py_attrs {
-            let _ = new_graph.inner.add_edge(u.clone(), v.clone());
+            let rust_attrs = py_dict_to_attr_map(attrs.bind(py))?;
+            let _ = new_graph
+                .inner
+                .add_edge_with_attrs(u.clone(), v.clone(), rust_attrs);
             new_graph
                 .edge_py_attrs
                 .insert((u.clone(), v.clone()), attrs.bind(py).copy()?.unbind());
@@ -2166,7 +2207,15 @@ impl PyGraph {
 
         // Add kept nodes
         for canonical in &keep {
-            new_graph.inner.add_node(canonical.clone());
+            let rust_attrs = self
+                .node_py_attrs
+                .get(canonical)
+                .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
+                .transpose()?
+                .unwrap_or_default();
+            new_graph
+                .inner
+                .add_node_with_attrs(canonical.clone(), rust_attrs);
             if let Some(py_key) = self.node_key_map.get(canonical) {
                 new_graph
                     .node_key_map
@@ -2182,7 +2231,10 @@ impl PyGraph {
         // Add edges where both endpoints are in the subgraph
         for ((u, v), attrs) in &self.edge_py_attrs {
             if keep.contains(u) && keep.contains(v) {
-                let _ = new_graph.inner.add_edge(u.clone(), v.clone());
+                let rust_attrs = py_dict_to_attr_map(attrs.bind(py))?;
+                let _ = new_graph
+                    .inner
+                    .add_edge_with_attrs(u.clone(), v.clone(), rust_attrs);
                 new_graph
                     .edge_py_attrs
                     .insert((u.clone(), v.clone()), attrs.bind(py).copy()?.unbind());
@@ -2225,7 +2277,15 @@ impl PyGraph {
 
         // Add nodes
         for canonical in &nodes_needed {
-            new_graph.inner.add_node(canonical.clone());
+            let rust_attrs = self
+                .node_py_attrs
+                .get(canonical)
+                .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
+                .transpose()?
+                .unwrap_or_default();
+            new_graph
+                .inner
+                .add_node_with_attrs(canonical.clone(), rust_attrs);
             if let Some(py_key) = self.node_key_map.get(canonical) {
                 new_graph
                     .node_key_map
@@ -2240,7 +2300,15 @@ impl PyGraph {
 
         // Add edges
         for (u, v) in &keep_edges {
-            let _ = new_graph.inner.add_edge(u.clone(), v.clone());
+            let rust_attrs = self
+                .edge_py_attrs
+                .get(&(u.clone(), v.clone()))
+                .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
+                .transpose()?
+                .unwrap_or_default();
+            let _ = new_graph
+                .inner
+                .add_edge_with_attrs(u.clone(), v.clone(), rust_attrs);
             if let Some(attrs) = self.edge_py_attrs.get(&(u.clone(), v.clone())) {
                 new_graph
                     .edge_py_attrs
@@ -2259,42 +2327,53 @@ impl PyGraph {
     /// Return a directed copy of the graph.
     fn to_directed(&self, py: Python<'_>) -> PyResult<Py<crate::digraph::PyDiGraph>> {
         let mut dg = crate::digraph::PyDiGraph::new_empty(py)?;
-        
+
         for (canonical, py_key) in &self.node_key_map {
-            dg.inner.add_node(canonical.clone());
-            dg.node_key_map.insert(canonical.clone(), py_key.clone_ref(py));
+            let rust_attrs = self
+                .node_py_attrs
+                .get(canonical)
+                .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
+                .transpose()?
+                .unwrap_or_default();
+            dg.inner.add_node_with_attrs(canonical.clone(), rust_attrs);
+            dg.node_key_map
+                .insert(canonical.clone(), py_key.clone_ref(py));
             if let Some(attrs) = self.node_py_attrs.get(canonical) {
-                dg.node_py_attrs.insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
+                dg.node_py_attrs
+                    .insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
             }
         }
-        
+
         for edge in self.inner.edges_ordered() {
             let u = &edge.left;
             let v = &edge.right;
-            
+
             let rust_attrs = edge.attrs.clone();
             let mut py_attrs_copy = None;
             let ek = PyGraph::edge_key(u, v);
-            
+
             if let Some(py_attrs) = self.edge_py_attrs.get(&ek) {
                 py_attrs_copy = Some(py_attrs.bind(py).copy()?.unbind());
             }
-            
-            dg.inner.add_edge_with_attrs(u.clone(), v.clone(), rust_attrs.clone())
+
+            dg.inner
+                .add_edge_with_attrs(u.clone(), v.clone(), rust_attrs.clone())
                 .map_err(|e| crate::NetworkXError::new_err(e.to_string()))?;
             if u != v {
-                dg.inner.add_edge_with_attrs(v.clone(), u.clone(), rust_attrs)
+                dg.inner
+                    .add_edge_with_attrs(v.clone(), u.clone(), rust_attrs)
                     .map_err(|e| crate::NetworkXError::new_err(e.to_string()))?;
             }
-            
+
             if let Some(pa) = py_attrs_copy {
-                dg.edge_py_attrs.insert((u.clone(), v.clone()), pa.clone_ref(py));
+                dg.edge_py_attrs
+                    .insert((u.clone(), v.clone()), pa.clone_ref(py));
                 if u != v {
                     dg.edge_py_attrs.insert((v.clone(), u.clone()), pa);
                 }
             }
         }
-        
+
         dg.graph_attrs = self.graph_attrs.bind(py).copy()?.unbind();
         Py::new(py, dg)
     }
