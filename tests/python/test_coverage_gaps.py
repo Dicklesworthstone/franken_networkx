@@ -993,15 +993,23 @@ class TestGenerators:
 
         graph = fnx.path_graph(4)
 
-        assert BackendInterface.can_run("shortest_path", (graph,), {}) is True
-        assert BackendInterface.can_run("node_connectivity", (graph, 0, 3), {}) is False
+        assert BackendInterface.can_run("shortest_path", (graph,), {})
+        assert not BackendInterface.can_run("node_connectivity", (graph, 0, 3), {})
         assert (
-            BackendInterface.can_run(
+            not BackendInterface.can_run(
                 "average_shortest_path_length",
                 (graph,),
                 {"method": "dijkstra"},
             )
-            is False
+        )
+        assert BackendInterface.should_run("shortest_path", (graph,), {})
+        assert not BackendInterface.should_run("node_connectivity", (graph, 0, 3), {})
+        assert (
+            not BackendInterface.should_run(
+                "average_shortest_path_length",
+                (graph,),
+                {"method": "dijkstra"},
+            )
         )
 
     @needs_nx

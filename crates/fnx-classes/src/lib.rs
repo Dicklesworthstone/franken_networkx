@@ -636,12 +636,7 @@ impl MultiGraph {
             .map(|neighbors| neighbors.keys().map(String::as_str).collect::<Vec<&str>>())
     }
 
-    #[must_use]
-    pub fn edge_keys(&self, left: &str, right: &str) -> Option<Vec<usize>> {
-        self.edges
-            .get(&EdgeKeyRef::new(left, right))
-            .map(|edge_bucket| edge_bucket.keys().copied().collect::<Vec<usize>>())
-    }
+    // edge_keys already defined above with Iterator return type
 
     #[must_use]
     pub fn node_attrs(&self, node: &str) -> Option<&AttrMap> {

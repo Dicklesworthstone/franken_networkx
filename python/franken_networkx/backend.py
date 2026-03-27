@@ -470,7 +470,7 @@ class BackendInterface:
     @staticmethod
     def should_run(name, args, kwargs):
         """Return True if this backend should run (performance heuristic)."""
-        return name in _SUPPORTED_ALGORITHMS
+        return BackendInterface.can_run(name, args, kwargs)
 
     # Make algorithm functions available as attributes for dispatch
     def __getattr__(self, name):
