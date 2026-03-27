@@ -150,6 +150,45 @@ def test_rust_write_graphml_preserves_graph_attrs(tmp_path: Path):
     assert '<data key="g2">3</data>' in content
 
 
+def test_raw_write_graphml_string_preserves_graph_attrs_and_compact_mode():
+    graph = fnx.Graph()
+    graph.graph["label"] = "demo"
+    graph.graph["version"] = 3
+    graph.add_node("a", score=3)
+    graph.add_node("b")
+    graph.add_edge("a", "b", eid="E1", weight=2)
+
+    xml = _fnx.write_graphml_string_rust(
+        graph,
+        prettyprint=False,
+        named_key_ids=True,
+        edge_id_from_attribute="eid",
+    )
+
+    assert 'for="graph" attr.name="label"' in xml
+    assert 'for="graph" attr.name="version"' in xml
+    assert '<data key="label">demo</data>' in xml
+    assert '<data key="version">3</data>' in xml
+    assert 'id="E1"' in xml
+    assert "\n" not in xml
+
+
+def test_raw_write_graphml_string_fails_closed_for_multigraphs():
+    multigraph = fnx.MultiGraph()
+    multigraph.add_edge("a", "b", key=0, weight=1)
+    multigraph.add_edge("a", "b", key=1, weight=2)
+
+    with pytest.raises(TypeError, match="does not support MultiGraph"):
+        _fnx.write_graphml_string_rust(multigraph)
+
+    multidigraph = fnx.MultiDiGraph()
+    multidigraph.add_edge("a", "b", key=0, weight=1)
+    multidigraph.add_edge("a", "b", key=1, weight=2)
+
+    with pytest.raises(TypeError, match="does not support .*MultiDiGraph"):
+        _fnx.write_graphml_string_rust(multidigraph)
+
+
 def test_raw_node_link_data_preserves_graph_attrs_and_directed_flag():
     graph = fnx.DiGraph()
     graph.add_edge("a", "b")

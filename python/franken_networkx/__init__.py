@@ -32,6 +32,93 @@ class EdgePartition(Enum):
     INCLUDED = 1
     EXCLUDED = 2
 
+
+class SpanningTreeIterator:
+    """Iterate over all spanning trees of a graph in weight-sorted order.
+
+    Uses the Janssens-Sörensen partition scheme with modified Kruskal's
+    algorithm.  Matches NetworkX ``SpanningTreeIterator`` semantics.
+
+    Parameters
+    ----------
+    G : Graph
+        Undirected graph.
+    weight : str, default "weight"
+        Edge attribute used as weight.
+    minimum : bool, default True
+        If True, yield trees in increasing weight order; otherwise decreasing.
+    ignore_nan : bool, default False
+        Ignored (present for NX API compat).
+    """
+
+    def __init__(self, G, weight="weight", minimum=True, ignore_nan=False):
+        self.G = G
+        self.weight = weight
+        self.minimum = minimum
+        self._trees = None
+        self._index = 0
+
+    def __iter__(self):
+        from franken_networkx._fnx import spanning_tree_iterator_rust
+        self._trees = spanning_tree_iterator_rust(
+            self.G, self.weight, self.minimum, 2**31,
+        )
+        self._index = 0
+        return self
+
+    def __next__(self):
+        if self._trees is None:
+            raise StopIteration
+        if self._index >= len(self._trees):
+            raise StopIteration
+        tree = self._trees[self._index]
+        self._index += 1
+        return tree
+
+
+class ArborescenceIterator:
+    """Iterate over all spanning arborescences of a digraph in weight-sorted order.
+
+    Uses the Janssens-Sörensen partition scheme with Edmonds' algorithm.
+    Matches NetworkX ``ArborescenceIterator`` semantics.
+
+    Parameters
+    ----------
+    G : DiGraph
+        Directed graph.
+    weight : str, default "weight"
+        Edge attribute used as weight.
+    minimum : bool, default True
+        If True, yield arborescences in increasing weight order.
+    init_partition : tuple, optional
+        ``(included_edges, excluded_edges)`` — not yet supported.
+    """
+
+    def __init__(self, G, weight="weight", minimum=True, init_partition=None):
+        self.G = G
+        self.weight = weight
+        self.minimum = minimum
+        self._arbs = None
+        self._index = 0
+
+    def __iter__(self):
+        from franken_networkx._fnx import arborescence_iterator_rust
+        self._arbs = arborescence_iterator_rust(
+            self.G, self.weight, self.minimum, 2**31,
+        )
+        self._index = 0
+        return self
+
+    def __next__(self):
+        if self._arbs is None:
+            raise StopIteration
+        if self._index >= len(self._arbs):
+            raise StopIteration
+        arb = self._arbs[self._index]
+        self._index += 1
+        return arb
+
+
 # Exception hierarchy
 from franken_networkx._fnx import (
     HasACycle,
@@ -9000,6 +9087,8 @@ __all__ = [
     "hopcroft_karp_matching",
     "core_number",
     "EdgePartition",
+    "SpanningTreeIterator",
+    "ArborescenceIterator",
     "greedy_color",
     "is_bipartite",
     "is_forest",

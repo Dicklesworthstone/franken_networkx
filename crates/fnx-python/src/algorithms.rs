@@ -13,8 +13,8 @@ use fnx_classes::AttrMap;
 use pyo3::exceptions::{PyIndexError, PyValueError, PyZeroDivisionError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
-use std::collections::{HashMap, HashSet};
 use std::cell::OnceCell;
+use std::collections::{HashMap, HashSet};
 
 type SpanningEdgeSamples = (Vec<(String, String)>, Vec<f64>);
 
@@ -86,12 +86,15 @@ impl<'py> GraphRef<'py> {
             GraphRef::MultiUndirected { mg, simple } => {
                 simple.get_or_init(|| Box::new(multigraph_to_simple_graph(&mg.inner)))
             }
-            GraphRef::MultiDirected { mdg, simple_dg, undirected } => {
-                undirected.get_or_init(|| {
-                    let simple = simple_dg.get_or_init(|| Box::new(multidigraph_to_simple_digraph(&mdg.inner)));
-                    Box::new(simple.to_undirected())
-                })
-            }
+            GraphRef::MultiDirected {
+                mdg,
+                simple_dg,
+                undirected,
+            } => undirected.get_or_init(|| {
+                let simple =
+                    simple_dg.get_or_init(|| Box::new(multidigraph_to_simple_digraph(&mdg.inner)));
+                Box::new(simple.to_undirected())
+            }),
         }
     }
 
@@ -145,6 +148,24 @@ impl<'py> GraphRef<'py> {
             GraphRef::Directed { dg, .. } => &dg.node_key_map,
             GraphRef::MultiUndirected { mg, .. } => &mg.node_key_map,
             GraphRef::MultiDirected { mdg, .. } => &mdg.node_key_map,
+        }
+    }
+
+    fn node_attrs_for(&self, canonical: &str) -> Option<&Py<PyDict>> {
+        match self {
+            GraphRef::Undirected(pg) => pg.node_py_attrs.get(canonical),
+            GraphRef::Directed { dg, .. } => dg.node_py_attrs.get(canonical),
+            GraphRef::MultiUndirected { mg, .. } => mg.node_py_attrs.get(canonical),
+            GraphRef::MultiDirected { mdg, .. } => mdg.node_py_attrs.get(canonical),
+        }
+    }
+
+    fn graph_attrs(&self) -> &Py<PyDict> {
+        match self {
+            GraphRef::Undirected(pg) => &pg.graph_attrs,
+            GraphRef::Directed { dg, .. } => &dg.graph_attrs,
+            GraphRef::MultiUndirected { mg, .. } => &mg.graph_attrs,
+            GraphRef::MultiDirected { mdg, .. } => &mdg.graph_attrs,
         }
     }
 
@@ -1695,7 +1716,11 @@ pub fn density(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
         }
         GraphRef::MultiDirected { .. } => {
             let simple_dg = gr.digraph().unwrap();
-            (simple_dg.nodes_ordered().len(), simple_dg.edge_count(), true)
+            (
+                simple_dg.nodes_ordered().len(),
+                simple_dg.edge_count(),
+                true,
+            )
         }
     };
     if n < 2 {
@@ -5707,6 +5732,67 @@ fn rust_graph_to_py_standalone(py: Python<'_>, result: &fnx_classes::Graph) -> P
     Ok(py_graph.into_pyobject(py)?.into_any().unbind())
 }
 
+fn rust_graph_to_py_subgraph(
+    py: Python<'_>,
+    result: &fnx_classes::Graph,
+    source_gr: &GraphRef<'_>,
+) -> PyResult<PyObject> {
+    let mut py_graph = PyGraph::new_empty(py)?;
+    py_graph.graph_attrs = source_gr.graph_attrs().bind(py).copy()?.unbind();
+    for node in result.nodes_ordered() {
+        py_graph
+            .node_key_map
+            .insert(node.to_owned(), source_gr.py_node_key(py, node));
+        let attrs = match source_gr.node_attrs_for(node) {
+            Some(d) => d.bind(py).copy()?.unbind(),
+            None => PyDict::new(py).unbind(),
+        };
+        py_graph.node_py_attrs.insert(node.to_owned(), attrs);
+        py_graph.inner.add_node(node);
+    }
+    for edge in result.edges_ordered() {
+        let _ = py_graph.inner.add_edge(&edge.left, &edge.right);
+        let ek = PyGraph::edge_key(&edge.left, &edge.right);
+        let attrs = match source_gr.edge_attrs_for_undirected(&edge.left, &edge.right) {
+            Some(d) => d.bind(py).copy()?.unbind(),
+            None => PyDict::new(py).unbind(),
+        };
+        py_graph.edge_py_attrs.insert(ek, attrs);
+    }
+    Ok(py_graph.into_pyobject(py)?.into_any().unbind())
+}
+
+fn rust_digraph_to_py_subgraph(
+    py: Python<'_>,
+    result: &fnx_classes::digraph::DiGraph,
+    source_gr: &GraphRef<'_>,
+) -> PyResult<PyObject> {
+    let mut py_graph = PyDiGraph::new_empty(py)?;
+    py_graph.graph_attrs = source_gr.graph_attrs().bind(py).copy()?.unbind();
+    for node in result.nodes_ordered() {
+        py_graph
+            .node_key_map
+            .insert(node.to_owned(), source_gr.py_node_key(py, node));
+        let attrs = match source_gr.node_attrs_for(node) {
+            Some(d) => d.bind(py).copy()?.unbind(),
+            None => PyDict::new(py).unbind(),
+        };
+        py_graph.node_py_attrs.insert(node.to_owned(), attrs);
+        py_graph.inner.add_node(node);
+    }
+    for edge in result.edges_ordered() {
+        let _ = py_graph.inner.add_edge(&edge.left, &edge.right);
+        let attrs = match source_gr.edge_attrs_for_directed(&edge.left, &edge.right) {
+            Some(d) => d.bind(py).copy()?.unbind(),
+            None => PyDict::new(py).unbind(),
+        };
+        py_graph
+            .edge_py_attrs
+            .insert((edge.left.clone(), edge.right.clone()), attrs);
+    }
+    Ok(py_graph.into_pyobject(py)?.into_any().unbind())
+}
+
 #[pyfunction]
 #[pyo3(signature = (g, h))]
 fn union(py: Python<'_>, g: &Bound<'_, PyAny>, h: &Bound<'_, PyAny>) -> PyResult<PyObject> {
@@ -9439,76 +9525,100 @@ pub fn snap_aggregation_rust(
 // Spanning tree / arborescence iterators
 // ---------------------------------------------------------------------------
 
-/// Enumerate spanning trees.
+/// Enumerate spanning trees in weight-sorted order (Janssens-Sörensen partition scheme).
 #[pyfunction]
-#[pyo3(signature = (g, weight="weight", max_count=100))]
+#[pyo3(signature = (g, weight="weight", minimum=true, max_count=100))]
 pub fn spanning_tree_iterator_rust(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     weight: &str,
+    minimum: bool,
     max_count: usize,
 ) -> PyResult<Vec<PyObject>> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
-    let trees =
-        py.allow_threads(|| fnx_algorithms::spanning_tree_iterator(inner, weight, max_count));
+    let w = weight.to_owned();
+    let trees = py.allow_threads(move || {
+        fnx_algorithms::spanning_tree_iterator_ordered(inner, &w, minimum, max_count)
+    });
     trees
         .into_iter()
-        .map(|t| {
-            let pg = crate::PyGraph {
-                inner: t,
-                node_key_map: std::collections::HashMap::new(),
-                node_py_attrs: std::collections::HashMap::new(),
-                edge_py_attrs: std::collections::HashMap::new(),
-                graph_attrs: PyDict::new(py).unbind(),
-            };
-            Ok(pg.into_pyobject(py)?.into_any().unbind())
-        })
+        .map(|t| rust_graph_to_py_subgraph(py, &t, &gr))
         .collect()
 }
 
-/// Enumerate spanning arborescences.
+/// Enumerate spanning arborescences in weight-sorted order (partition scheme).
 #[pyfunction]
-#[pyo3(signature = (g, weight="weight", max_count=100))]
+#[pyo3(signature = (g, weight="weight", minimum=true, max_count=100))]
 pub fn arborescence_iterator_rust(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     weight: &str,
+    minimum: bool,
     max_count: usize,
 ) -> PyResult<Vec<PyObject>> {
     let gr = extract_graph(g)?;
     let dg = gr
         .digraph()
         .ok_or_else(|| crate::NetworkXError::new_err("requires DiGraph"))?;
-    let arbs = py.allow_threads(|| fnx_algorithms::arborescence_iterator(dg, weight, max_count));
+    let w = weight.to_owned();
+    let arbs = py.allow_threads(move || {
+        fnx_algorithms::arborescence_iterator_ordered(dg, &w, minimum, max_count)
+    });
     arbs.into_iter()
-        .map(|a| {
-            let pg = crate::digraph::PyDiGraph {
-                inner: a,
-                node_key_map: std::collections::HashMap::new(),
-                node_py_attrs: std::collections::HashMap::new(),
-                edge_py_attrs: std::collections::HashMap::new(),
-                graph_attrs: PyDict::new(py).unbind(),
-            };
-            Ok(pg.into_pyobject(py)?.into_any().unbind())
-        })
+        .map(|a| rust_digraph_to_py_subgraph(py, &a, &gr))
         .collect()
 }
 
 // ---------------------------------------------------------------------------
-// GraphML writer (Rust)
+// GraphML writer (Rust) — full NX-compatible with type inference
 // ---------------------------------------------------------------------------
 
-/// Generate GraphML XML string.
+/// Generate GraphML XML string with full NX-compatible options.
 #[pyfunction]
-pub fn write_graphml_string_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<String> {
+#[pyo3(signature = (g, prettyprint=true, infer_numeric_types=false, named_key_ids=false, edge_id_from_attribute=None))]
+pub fn write_graphml_string_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    prettyprint: bool,
+    infer_numeric_types: bool,
+    named_key_ids: bool,
+    edge_id_from_attribute: Option<String>,
+) -> PyResult<String> {
     let gr = extract_graph(g)?;
+    if matches!(
+        gr,
+        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. }
+    ) {
+        return Err(pyo3::exceptions::PyTypeError::new_err(
+            "write_graphml_string_rust does not support MultiGraph or MultiDiGraph without losing parallel edges",
+        ));
+    }
+    let graph_attrs = crate::py_dict_to_attr_map(gr.graph_attrs().bind(py))?;
+    let config = fnx_algorithms::GraphMLWriterConfig {
+        prettyprint,
+        infer_numeric_types,
+        named_key_ids,
+        edge_id_from_attribute,
+    };
     Ok(if gr.is_directed() {
         let dg = gr.digraph().unwrap();
-        py.allow_threads(|| fnx_algorithms::write_graphml_string_directed(dg))
+        py.allow_threads(|| {
+            fnx_algorithms::write_graphml_string_directed_config_with_graph_attrs(
+                dg,
+                Some(&graph_attrs),
+                &config,
+            )
+        })
     } else {
         let inner = gr.undirected();
-        py.allow_threads(|| fnx_algorithms::write_graphml_string(inner))
+        py.allow_threads(|| {
+            fnx_algorithms::write_graphml_string_config_with_graph_attrs(
+                inner,
+                Some(&graph_attrs),
+                &config,
+            )
+        })
     })
 }
 

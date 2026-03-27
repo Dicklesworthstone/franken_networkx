@@ -4,6 +4,7 @@ boundary and cuts, is_simple_path, matching validators, simple_cycles, find_cycl
 import pytest
 
 import franken_networkx as fnx
+import franken_networkx._fnx as _fnx
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +132,40 @@ class TestBranchingConstructors:
             fnx.maximum_spanning_arborescence(D)
         with pytest.raises(fnx.NetworkXPointlessConcept):
             fnx.minimum_spanning_arborescence(D)
+
+    def test_spanning_tree_iterator_rust_preserves_keys_and_attrs(self):
+        graph = fnx.Graph()
+        graph.graph["label"] = "demo"
+        graph.add_node(10, color="red")
+        graph.add_node(20, color="blue")
+        graph.add_edge(10, 20, weight=7, tag="x")
+
+        tree = _fnx.spanning_tree_iterator_rust(graph, max_count=1)[0]
+
+        assert list(tree.nodes()) == [10, 20]
+        assert list(tree.edges()) == [(10, 20)]
+        assert tree.nodes[10]["color"] == "red"
+        assert tree.nodes[20]["color"] == "blue"
+        assert tree.edges[10, 20]["weight"] == 7
+        assert tree.edges[10, 20]["tag"] == "x"
+        assert dict(tree.graph) == {"label": "demo"}
+
+    def test_arborescence_iterator_rust_preserves_keys_and_attrs(self):
+        digraph = fnx.DiGraph()
+        digraph.graph["name"] = "demo"
+        digraph.add_node(1, role="root")
+        digraph.add_node(2, role="leaf")
+        digraph.add_edge(1, 2, weight=3, tag="keep")
+
+        arb = _fnx.arborescence_iterator_rust(digraph, max_count=1)[0]
+
+        assert list(arb.nodes()) == [1, 2]
+        assert list(arb.edges()) == [(1, 2)]
+        assert arb.nodes[1]["role"] == "root"
+        assert arb.nodes[2]["role"] == "leaf"
+        assert arb.edges[1, 2]["weight"] == 3
+        assert arb.edges[1, 2]["tag"] == "keep"
+        assert dict(arb.graph) == {"name": "demo"}
 
 
 # ---------------------------------------------------------------------------
