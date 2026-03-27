@@ -1116,6 +1116,40 @@ impl EdgeListEngine {
         })
     }
 
+    pub fn graphml_declares_directed(&mut self, input: &str) -> Result<bool, ReadWriteError> {
+        let mut reader = Reader::from_str(input);
+        reader.config_mut().trim_text(true);
+        let mut buffer = Vec::new();
+
+        loop {
+            match reader.read_event_into(&mut buffer) {
+                Ok(Event::Start(element)) | Ok(Event::Empty(element))
+                    if element.name().as_ref() == b"graph" =>
+                {
+                    for attr in element.attributes() {
+                        let attr = attr.map_err(|err| ReadWriteError::FailClosed {
+                            operation: "read_graphml",
+                            reason: format!("graphml attribute parse error: {err}"),
+                        })?;
+                        if attr.key.as_ref() == b"edgedefault" {
+                            return Ok(attr.value.as_ref() == b"directed");
+                        }
+                    }
+                    return Ok(false);
+                }
+                Ok(Event::Eof) => return Ok(false),
+                Err(err) => {
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_graphml",
+                        reason: format!("graphml directed detection failed: {err}"),
+                    });
+                }
+                _ => {}
+            }
+            buffer.clear();
+        }
+    }
+
     pub fn read_digraph_graphml(
         &mut self,
         input: &str,
@@ -1597,6 +1631,29 @@ impl EdgeListEngine {
             graph_attrs,
             warnings,
         })
+    }
+
+    pub fn gml_declares_directed(&mut self, input: &str) -> Result<bool, ReadWriteError> {
+        let tokens = gml_tokenize(input);
+        let mut pos = 0;
+
+        while pos < tokens.len() {
+            if tokens[pos] == "graph" && pos + 1 < tokens.len() && tokens[pos + 1] == "[" {
+                pos += 2;
+                break;
+            }
+            pos += 1;
+        }
+
+        while pos + 1 < tokens.len() {
+            match tokens[pos].as_str() {
+                "directed" => return Ok(tokens[pos + 1] == "1"),
+                "node" | "edge" | "]" => return Ok(false),
+                _ => pos += 1,
+            }
+        }
+
+        Ok(false)
     }
 
     /// Parse GML into a generic graph. Returns whether directed=1 was declared.
@@ -2403,6 +2460,44 @@ mod tests {
             Some(&CgseValue::String("demo".to_owned()))
         );
         assert_eq!(parsed.graph_attrs.get("version"), Some(&CgseValue::Int(3)));
+    }
+
+    #[test]
+    fn graphml_declares_directed_handles_single_quotes() {
+        let input = r#"<?xml version='1.0' encoding='UTF-8'?>
+<graphml xmlns='http://graphml.graphdrawing.org/xmlns'>
+  <graph id='G' edgedefault='directed'>
+    <node id='a'/>
+    <node id='b'/>
+    <edge source='a' target='b'/>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        assert!(
+            engine
+                .graphml_declares_directed(input)
+                .expect("graphml directed detection should succeed")
+        );
+    }
+
+    #[test]
+    fn gml_declares_directed_ignores_attribute_text() {
+        let input = r#"graph [
+  label "mentions directed 1"
+  directed 0
+  node [
+    id 0
+    label "a"
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        assert!(
+            !engine
+                .gml_declares_directed(input)
+                .expect("gml directed detection should succeed")
+        );
     }
 
     #[test]

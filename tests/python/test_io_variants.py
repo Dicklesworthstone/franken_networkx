@@ -190,3 +190,59 @@ def test_raw_serializers_fail_closed_for_multigraphs(tmp_path: Path):
 
     with pytest.raises(TypeError):
         _fnx.write_graphml(graph, tmp_path / "graph.graphml")
+
+
+def test_raw_node_link_graph_fails_closed_for_multigraph_payload():
+    payload = {
+        "mode": "strict",
+        "directed": False,
+        "multigraph": True,
+        "graph_attrs": {},
+        "nodes": ["a", "b"],
+        "edges": [
+            {"left": "a", "right": "b", "attrs": {"w": 1}},
+            {"left": "a", "right": "b", "attrs": {"w": 2}},
+        ],
+    }
+
+    with pytest.raises(TypeError):
+        _fnx.node_link_graph(payload)
+
+
+def test_raw_read_graphml_detects_directed_with_single_quotes(tmp_path: Path):
+    path = tmp_path / "directed.graphml"
+    path.write_text(
+        "<?xml version='1.0' encoding='UTF-8'?>\n"
+        "<graphml xmlns='http://graphml.graphdrawing.org/xmlns'>\n"
+        "  <graph id='G' edgedefault='directed'>\n"
+        "    <node id='a'/>\n"
+        "    <node id='b'/>\n"
+        "    <edge source='a' target='b'/>\n"
+        "  </graph>\n"
+        "</graphml>\n",
+        encoding="utf-8",
+    )
+
+    graph = _fnx.read_graphml(path)
+
+    assert graph.is_directed()
+    assert graph.has_edge("a", "b")
+
+
+def test_raw_read_gml_ignores_directed_text_in_graph_attrs(tmp_path: Path):
+    path = tmp_path / "graph.gml"
+    path.write_text(
+        'graph [\n'
+        '  label "mentions directed 1"\n'
+        "  directed 0\n"
+        '  node [ id 0 label "a" ]\n'
+        '  node [ id 1 label "b" ]\n'
+        "  edge [ source 0 target 1 ]\n"
+        "]\n",
+        encoding="utf-8",
+    )
+
+    graph = _fnx.read_gml(path)
+
+    assert not graph.is_directed()
+    assert graph.has_edge("a", "b")

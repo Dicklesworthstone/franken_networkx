@@ -172,20 +172,20 @@ impl<'py> GraphRef<'py> {
                 mg.edge_py_attrs.get(&ek)
             }
             GraphRef::MultiDirected { mdg, .. } => {
-                if let Some(keys) = mdg.inner.edge_keys(left, right) {
-                    if let Some(key) = keys.first() {
-                        let ek = (left.to_owned(), right.to_owned(), *key);
-                        if let Some(attrs) = mdg.edge_py_attrs.get(&ek) {
-                            return Some(attrs);
-                        }
+                if let Some(keys) = mdg.inner.edge_keys(left, right)
+                    && let Some(key) = keys.first()
+                {
+                    let ek = (left.to_owned(), right.to_owned(), *key);
+                    if let Some(attrs) = mdg.edge_py_attrs.get(&ek) {
+                        return Some(attrs);
                     }
                 }
-                if let Some(keys) = mdg.inner.edge_keys(right, left) {
-                    if let Some(key) = keys.first() {
-                        let ek = (right.to_owned(), left.to_owned(), *key);
-                        if let Some(attrs) = mdg.edge_py_attrs.get(&ek) {
-                            return Some(attrs);
-                        }
+                if let Some(keys) = mdg.inner.edge_keys(right, left)
+                    && let Some(key) = keys.first()
+                {
+                    let ek = (right.to_owned(), left.to_owned(), *key);
+                    if let Some(attrs) = mdg.edge_py_attrs.get(&ek) {
+                        return Some(attrs);
                     }
                 }
                 None
@@ -194,6 +194,7 @@ impl<'py> GraphRef<'py> {
     }
 
     /// Look up edge attributes from the original graph for a directed edge.
+    #[allow(dead_code)]
     fn edge_attrs_for_directed(&self, source: &str, target: &str) -> Option<&Py<PyDict>> {
         match self {
             GraphRef::Directed { dg, .. } => {

@@ -334,6 +334,16 @@ fn node_link_graph(py: Python<'_>, data: &Bound<'_, PyAny>) -> PyResult<PyObject
     let json_mod = py.import("json")?;
     let json_str: String = json_mod.call_method1("dumps", (data,))?.extract()?;
     let mut engine = EdgeListEngine::hardened();
+    let multigraph = data
+        .get_item("multigraph")
+        .ok()
+        .and_then(|value| value.extract::<bool>().ok())
+        .unwrap_or(false);
+    if multigraph {
+        return Err(pyo3::exceptions::PyTypeError::new_err(
+            "node_link_graph does not support multigraph payloads without losing parallel edges",
+        ));
+    }
     let directed = data
         .get_item("directed")
         .ok()
@@ -367,8 +377,10 @@ fn read_graphml(py: Python<'_>, path: &Bound<'_, PyAny>) -> PyResult<PyObject> {
     let input = read_input(py, path)?;
     let mut engine = EdgeListEngine::hardened();
 
-    // Check if input says it's directed.
-    if input.contains("edgedefault=\"directed\"") {
+    if py
+        .allow_threads(|| engine.graphml_declares_directed(&input))
+        .map_err(rw_error_to_py)?
+    {
         let report = py
             .allow_threads(|| engine.read_digraph_graphml(&input))
             .map_err(rw_error_to_py)?;
@@ -436,8 +448,10 @@ fn read_gml(py: Python<'_>, path: &Bound<'_, PyAny>) -> PyResult<PyObject> {
     let input = read_input(py, path)?;
     let mut engine = EdgeListEngine::hardened();
 
-    // Auto-detect directed from content
-    if input.contains("directed 1") {
+    if py
+        .allow_threads(|| engine.gml_declares_directed(&input))
+        .map_err(rw_error_to_py)?
+    {
         let report = py
             .allow_threads(|| engine.read_digraph_gml(&input))
             .map_err(rw_error_to_py)?;

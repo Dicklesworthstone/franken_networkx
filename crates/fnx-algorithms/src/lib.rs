@@ -19430,7 +19430,8 @@ pub fn stoer_wagner(graph: &Graph, weight_attr: &str) -> Option<StoerWagnerResul
         let wt = edge
             .attrs
             .get(weight_attr)
-            .and_then(|v| v.as_str().parse::<f64>().ok())
+            .and_then(|val| val.as_f64())
+            .filter(|value| value.is_finite() && *value >= 0.0)
             .unwrap_or(1.0);
         w[i][j] += wt;
         w[j][i] += wt;
@@ -20109,7 +20110,7 @@ pub fn min_cost_flow(
         if let Some(attrs) = digraph.node_attrs(node)
             && let Some(d) = attrs.get(demand_attr)
         {
-            demand[i] = d.as_str().parse::<f64>().unwrap_or(0.0);
+            demand[i] = d.as_f64().unwrap_or(0.0);
         }
     }
 
@@ -20127,12 +20128,12 @@ pub fn min_cost_flow(
         let c = edge
             .attrs
             .get(capacity_attr)
-            .map(|v| v.as_str().parse::<f64>().unwrap_or(f64::MAX))
+            .and_then(|v| v.as_f64())
             .unwrap_or(f64::MAX);
         let w = edge
             .attrs
             .get(weight_attr)
-            .map(|v| v.as_str().parse::<f64>().unwrap_or(0.0))
+            .and_then(|v| v.as_f64())
             .unwrap_or(0.0);
         cap[i][j] += c;
         cost_mat[i][j] = w;
@@ -22431,12 +22432,12 @@ pub fn numeric_assortativity_coefficient(graph: &Graph, attribute: &str) -> f64 
         let x_val = graph
             .node_attrs(&edge.left)
             .and_then(|a| a.get(attribute))
-            .and_then(|v| v.as_str().parse::<f64>().ok())
+            .and_then(|v| v.as_f64())
             .unwrap_or(0.0);
         let y_val = graph
             .node_attrs(&edge.right)
             .and_then(|a| a.get(attribute))
-            .and_then(|v| v.as_str().parse::<f64>().ok())
+            .and_then(|v| v.as_f64())
             .unwrap_or(0.0);
 
         sum_xy += x_val * y_val;
@@ -34825,7 +34826,7 @@ mod tests {
     fn test_triadic_census_empty() {
         let d = DiGraph::strict();
         let census = triadic_census(&d);
-        for (_, &count) in &census { assert_eq!(count, 0); }
+        for &count in census.values() { assert_eq!(count, 0); }
     }
 
     #[test]
@@ -35187,5 +35188,4 @@ mod tests {
         // Actually a-c is direct (1 hop), a-b-c is 2 hops, so only 1 shortest
         assert_eq!(paths["a"]["c"].len(), 1);
     }
-}
 }
