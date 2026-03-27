@@ -732,13 +732,6 @@ impl MultiDiGraph {
     }
 
     #[must_use]
-    pub fn edge_keys(&self, source: &str, target: &str) -> Option<Vec<usize>> {
-        self.edges
-            .get(&DirectedEdgeKeyRef::new(source, target))
-            .map(|edge_bucket| edge_bucket.keys().copied().collect::<Vec<usize>>())
-    }
-
-    #[must_use]
     pub fn node_attrs(&self, node: &str) -> Option<&AttrMap> {
         self.nodes.get(node)
     }

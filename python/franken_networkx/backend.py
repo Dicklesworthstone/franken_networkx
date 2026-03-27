@@ -11,6 +11,7 @@ Usage::
 """
 
 import logging
+import inspect
 
 import franken_networkx as fnx
 
@@ -457,7 +458,12 @@ class BackendInterface:
     @staticmethod
     def can_run(name, args, kwargs):
         """Return True if this backend can run the named algorithm."""
-        if name not in _SUPPORTED_ALGORITHMS:
+        fn = _SUPPORTED_ALGORITHMS.get(name)
+        if fn is None:
+            return False
+        try:
+            inspect.signature(fn).bind_partial(*args, **kwargs)
+        except TypeError:
             return False
         return True
 

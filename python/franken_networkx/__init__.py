@@ -3086,7 +3086,7 @@ def node_link_graph(
 # ---------------------------------------------------------------------------
 
 
-def load_centrality(G, normalized=True, weight=None):
+def load_centrality(G, v=None, cutoff=None, normalized=True, weight=None):
     """Return the load centrality for each node.
 
     Load centrality is similar to betweenness centrality but counts the
@@ -3095,7 +3095,17 @@ def load_centrality(G, normalized=True, weight=None):
 
     For unweighted graphs, this is equivalent to betweenness centrality.
     """
-    return betweenness_centrality(G)
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+
+    return nx.load_centrality(
+        _to_nx(G),
+        v=v,
+        cutoff=cutoff,
+        normalized=normalized,
+        weight=weight,
+    )
 
 
 def degree_pearson_correlation_coefficient(G, x='out', y='in', weight=None, nodes=None):

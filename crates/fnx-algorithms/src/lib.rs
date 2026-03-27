@@ -24907,6 +24907,37 @@ mod tests {
         effective_size,
         complement_digraph,
         reverse_digraph,
+        edge_disjoint_paths,
+        node_disjoint_paths,
+        power,
+        degree_mixing_dict,
+        connected_dominating_set,
+        selfloop_edges,
+        number_of_selfloops,
+        nodes_with_selfloops,
+        to_edgelist,
+        to_dict_of_lists,
+        generate_edgelist,
+        generic_bfs_edges,
+        local_bridges_list,
+        graph_info,
+        tree_data,
+        harmonic_diameter,
+        schultz_index,
+        hyper_wiener_index,
+        stochastic_block_model,
+        partial_duplication_graph,
+        relaxed_caveman_graph,
+        union_all,
+        intersection_all,
+        get_node_attributes,
+        get_edge_attributes,
+        group_closeness_centrality,
+        group_betweenness_centrality,
+        all_pairs_lowest_common_ancestor,
+        bfs_beam_edges,
+        geometric_edges,
+        all_pairs_all_shortest_paths,
     };
     use fnx_classes::Graph;
     use fnx_classes::digraph::DiGraph;
@@ -34656,5 +34687,268 @@ mod tests {
         assert!(is_d_separator(&d, &a, &b, &empty));
         // Conditioning on c opens the path
         assert!(!is_d_separator(&d, &a, &b, &c_set));
+    }
+
+    // -----------------------------------------------------------------------
+    // Batch tests for remaining untested functions
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_edge_disjoint_paths_triangle() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c"); let _ = g.add_edge("a", "c");
+        let paths = edge_disjoint_paths(&g, "a", "c");
+        assert_eq!(paths.len(), 2);
+    }
+
+    #[test]
+    fn test_node_disjoint_paths_parallel() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("s", "a"); let _ = g.add_edge("a", "t");
+        let _ = g.add_edge("s", "b"); let _ = g.add_edge("b", "t");
+        let paths = node_disjoint_paths(&g, "s", "t");
+        assert_eq!(paths.len(), 2);
+    }
+
+    #[test]
+    fn test_power_path() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c");
+        let p2 = power(&g, 2);
+        assert!(p2.has_edge("a", "c")); // distance 2 in original
+    }
+
+    #[test]
+    fn test_degree_mixing_dict_path() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c");
+        let m = degree_mixing_dict(&g);
+        assert!(m.contains_key(&(1, 2)) || m.contains_key(&(2, 1)));
+    }
+
+    #[test]
+    fn test_connected_dominating_set_covers() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c"); let _ = g.add_edge("c", "d");
+        let ds = connected_dominating_set(&g);
+        // Every node must be in ds or adjacent to a node in ds
+        let ds_set: HashSet<String> = ds.into_iter().collect();
+        for node in g.nodes_ordered() {
+            let dominated = ds_set.contains(node) ||
+                g.neighbors(node).unwrap_or_default().iter().any(|nb| ds_set.contains(*nb));
+            assert!(dominated, "Node {} not dominated", node);
+        }
+    }
+
+    #[test]
+    fn test_selfloop_functions() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "a"); let _ = g.add_edge("a", "b");
+        assert_eq!(selfloop_edges(&g).len(), 1);
+        assert_eq!(number_of_selfloops(&g), 1);
+        assert_eq!(nodes_with_selfloops(&g), vec!["a"]);
+    }
+
+    #[test]
+    fn test_to_edgelist_path() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c");
+        let el = to_edgelist(&g);
+        assert_eq!(el.len(), 2);
+    }
+
+    #[test]
+    fn test_to_dict_of_lists_path() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c");
+        let dl = to_dict_of_lists(&g);
+        assert_eq!(dl.len(), 3);
+        assert!(dl["b"].contains(&"a".to_owned()));
+        assert!(dl["b"].contains(&"c".to_owned()));
+    }
+
+    #[test]
+    fn test_generate_edgelist_format() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let lines = generate_edgelist(&g, " ");
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].contains("a") && lines[0].contains("b"));
+    }
+
+    #[test]
+    fn test_generic_bfs_edges_depth() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c"); let _ = g.add_edge("c", "d");
+        let edges = generic_bfs_edges(&g, "a", Some(2));
+        assert_eq!(edges.len(), 2); // a-b, b-c only
+    }
+
+    #[test]
+    fn test_local_bridges_list_path() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c");
+        // All edges in a path are local bridges (no common neighbors)
+        assert_eq!(local_bridges_list(&g).len(), 2);
+    }
+
+    #[test]
+    fn test_graph_info_format() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let info = graph_info(&g);
+        assert!(info.contains("Number of nodes: 2"));
+        assert!(info.contains("Number of edges: 1"));
+    }
+
+    #[test]
+    fn test_tree_data_path() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c");
+        let td = tree_data(&g, "a");
+        assert!(td.contains_key("a"));
+        assert!(td["a"].contains(&"b".to_owned()));
+    }
+
+    #[test]
+    fn test_harmonic_diameter_path() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c");
+        let hd = harmonic_diameter(&g);
+        assert!(hd > 0.0 && hd < 100.0);
+    }
+
+    #[test]
+    fn test_schultz_index_path() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c");
+        let si = schultz_index(&g).unwrap();
+        assert!(si > 0.0);
+    }
+
+    #[test]
+    fn test_hyper_wiener_index_path() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c");
+        let hw = hyper_wiener_index(&g).unwrap();
+        assert!(hw > 0.0);
+    }
+
+    #[test]
+    fn test_stochastic_block_model_sizes() {
+        let g = stochastic_block_model(&[3, 3], &[vec![0.9, 0.1], vec![0.1, 0.9]], 42);
+        assert_eq!(g.nodes_ordered().len(), 6);
+    }
+
+    #[test]
+    fn test_partial_duplication_graph_size() {
+        let g = partial_duplication_graph(10, 0.5, 42);
+        assert_eq!(g.nodes_ordered().len(), 10);
+    }
+
+    #[test]
+    fn test_relaxed_caveman_graph_structure() {
+        let g = relaxed_caveman_graph(3, 4, 0.0, 42);
+        assert_eq!(g.nodes_ordered().len(), 12);
+        // With p=0, no rewiring: 3 cliques of K4, each has 6 edges = 18 total
+        assert_eq!(g.edge_count(), 18);
+    }
+
+    #[test]
+    fn test_union_all_disjoint() {
+        let mut g1 = Graph::strict(); let _ = g1.add_edge("a", "b");
+        let mut g2 = Graph::strict(); let _ = g2.add_edge("x", "y");
+        let u = union_all(&[&g1, &g2]).unwrap();
+        assert_eq!(u.nodes_ordered().len(), 4);
+        assert_eq!(u.edge_count(), 2);
+    }
+
+    #[test]
+    fn test_intersection_all_common() {
+        let mut g1 = Graph::strict();
+        let _ = g1.add_edge("a", "b"); let _ = g1.add_edge("b", "c");
+        let mut g2 = Graph::strict();
+        let _ = g2.add_edge("a", "b"); let _ = g2.add_edge("a", "c");
+        let inter = intersection_all(&[&g1, &g2]);
+        assert_eq!(inter.edge_count(), 1); // Only a-b in both
+        assert!(inter.has_edge("a", "b"));
+    }
+
+    #[test]
+    fn test_get_node_attributes() {
+        let mut g = Graph::strict();
+        let _ = g.add_node_with_attrs("a".to_owned(), single_attr("color", "red"));
+        let _ = g.add_node_with_attrs("b".to_owned(), single_attr("color", "blue"));
+        let attrs = get_node_attributes(&g, "color");
+        assert_eq!(attrs["a"], "red");
+        assert_eq!(attrs["b"], "blue");
+    }
+
+    #[test]
+    fn test_get_edge_attributes() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge_with_attrs("a".to_owned(), "b".to_owned(), single_attr("weight", "5"));
+        let attrs = get_edge_attributes(&g, "weight");
+        assert_eq!(attrs.len(), 1);
+    }
+
+    #[test]
+    fn test_group_closeness_centrality_hub() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("c", "a"); let _ = g.add_edge("c", "b");
+        let _ = g.add_edge("c", "d"); let _ = g.add_edge("c", "e");
+        let gcc = group_closeness_centrality(&g, &["c"]);
+        assert!((gcc - 1.0).abs() < TEST_TOLERANCE); // Hub reaches all in 1 step
+    }
+
+    #[test]
+    fn test_group_betweenness_centrality_center() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "d"); let _ = g.add_edge("d", "e");
+        let gbc = group_betweenness_centrality(&g, &["c"]);
+        assert!(gbc > 0.0); // c is on many shortest paths
+    }
+
+    #[test]
+    fn test_all_pairs_lowest_common_ancestor() {
+        let mut d = DiGraph::strict();
+        d.add_edge("r", "a").unwrap(); d.add_edge("r", "b").unwrap();
+        let results = all_pairs_lowest_common_ancestor(&d, &[("a".to_owned(), "b".to_owned())]);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].1, "r"); // LCA of a,b is r
+    }
+
+    #[test]
+    fn test_bfs_beam_edges_width() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("a", "c");
+        let _ = g.add_edge("b", "d"); let _ = g.add_edge("c", "e");
+        let edges = bfs_beam_edges(&g, "a", 1);
+        // Width=1: only explore 1 node per level
+        assert!(edges.len() >= 1 && edges.len() <= 3);
+    }
+
+    #[test]
+    fn test_geometric_edges_within_radius() {
+        let positions = vec![
+            ("a".to_owned(), vec![0.0, 0.0]),
+            ("b".to_owned(), vec![1.0, 0.0]),
+            ("c".to_owned(), vec![10.0, 0.0]),
+        ];
+        let edges = geometric_edges(&positions, 2.0);
+        assert_eq!(edges.len(), 1); // Only a-b within radius 2
+        assert_eq!(edges[0], ("a".to_owned(), "b".to_owned()));
+    }
+
+    #[test]
+    fn test_all_pairs_all_shortest_paths_triangle() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c"); let _ = g.add_edge("a", "c");
+        let paths = all_pairs_all_shortest_paths(&g);
+        assert_eq!(paths.len(), 3); // 3 sources
+        // a→c has 2 shortest paths: direct and via b
+        // Actually a-c is direct (1 hop), a-b-c is 2 hops, so only 1 shortest
+        assert_eq!(paths["a"]["c"].len(), 1);
     }
 }

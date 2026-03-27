@@ -971,6 +971,40 @@ class TestGenerators:
         assert fnx.generalized_degree(graph) == nx.generalized_degree(expected_graph)
 
     @needs_nx
+    def test_load_centrality_matches_networkx_weighted_contract(self):
+        graph = fnx.MultiGraph()
+        graph.add_edge(0, 1, key=7, weight=2)
+        graph.add_edge(2, 1, key=8, weight=3)
+        graph.add_edge(2, 3, key=9, weight=4)
+
+        expected_graph = nx.MultiGraph()
+        expected_graph.add_edge(0, 1, key=7, weight=2)
+        expected_graph.add_edge(2, 1, key=8, weight=3)
+        expected_graph.add_edge(2, 3, key=9, weight=4)
+
+        assert fnx.load_centrality(graph, normalized=False, weight="weight") == nx.load_centrality(
+            expected_graph,
+            normalized=False,
+            weight="weight",
+        )
+
+    def test_backend_can_run_rejects_incompatible_signatures(self):
+        from franken_networkx.backend import BackendInterface
+
+        graph = fnx.path_graph(4)
+
+        assert BackendInterface.can_run("shortest_path", (graph,), {}) is True
+        assert BackendInterface.can_run("node_connectivity", (graph, 0, 3), {}) is False
+        assert (
+            BackendInterface.can_run(
+                "average_shortest_path_length",
+                (graph,),
+                {"method": "dijkstra"},
+            )
+            is False
+        )
+
+    @needs_nx
     def test_harary_and_havel_hakimi_wrappers_match_networkx(self):
         hakimi = fnx.havel_hakimi_graph([3, 3, 2, 2, 2], create_using=fnx.Graph())
         expected_hakimi = nx.havel_hakimi_graph([3, 3, 2, 2, 2], create_using=nx.Graph())
