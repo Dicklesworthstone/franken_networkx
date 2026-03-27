@@ -209,6 +209,20 @@ def test_raw_node_link_graph_fails_closed_for_multigraph_payload():
         _fnx.node_link_graph(payload)
 
 
+def test_raw_node_link_graph_rejects_non_bool_flags():
+    payload = {
+        "mode": "strict",
+        "directed": "yes",
+        "multigraph": False,
+        "graph_attrs": {},
+        "nodes": ["a", "b"],
+        "edges": [{"left": "a", "right": "b", "attrs": {}}],
+    }
+
+    with pytest.raises(TypeError):
+        _fnx.node_link_graph(payload)
+
+
 def test_raw_read_graphml_detects_directed_with_single_quotes(tmp_path: Path):
     path = tmp_path / "directed.graphml"
     path.write_text(

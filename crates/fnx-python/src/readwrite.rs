@@ -179,6 +179,18 @@ fn reject_multigraph_write(gr: &GraphRef<'_>, operation: &str) -> PyResult<()> {
     }
 }
 
+fn bool_payload_flag(data: &Bound<'_, PyAny>, key: &str) -> PyResult<Option<bool>> {
+    match data.get_item(key) {
+        Ok(value) => value.extract::<bool>().map(Some).map_err(|_| {
+            pyo3::exceptions::PyTypeError::new_err(format!(
+                "node_link_graph expected `{key}` to be a bool when present"
+            ))
+        }),
+        Err(err) if err.is_instance_of::<pyo3::exceptions::PyKeyError>(data.py()) => Ok(None),
+        Err(err) => Err(err),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Edge list
 // ---------------------------------------------------------------------------
@@ -334,21 +346,13 @@ fn node_link_graph(py: Python<'_>, data: &Bound<'_, PyAny>) -> PyResult<PyObject
     let json_mod = py.import("json")?;
     let json_str: String = json_mod.call_method1("dumps", (data,))?.extract()?;
     let mut engine = EdgeListEngine::hardened();
-    let multigraph = data
-        .get_item("multigraph")
-        .ok()
-        .and_then(|value| value.extract::<bool>().ok())
-        .unwrap_or(false);
+    let multigraph = bool_payload_flag(data, "multigraph")?.unwrap_or(false);
     if multigraph {
         return Err(pyo3::exceptions::PyTypeError::new_err(
             "node_link_graph does not support multigraph payloads without losing parallel edges",
         ));
     }
-    let directed = data
-        .get_item("directed")
-        .ok()
-        .and_then(|value| value.extract::<bool>().ok())
-        .unwrap_or(false);
+    let directed = bool_payload_flag(data, "directed")?.unwrap_or(false);
 
     if directed {
         let report = engine
