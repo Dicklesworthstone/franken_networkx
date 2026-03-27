@@ -201,7 +201,8 @@ impl<'py> GraphRef<'py> {
                 dg.edge_py_attrs.get(&ek)
             }
             GraphRef::MultiDirected { mdg, .. } => {
-                let key = mdg.inner.edge_keys(source, target)?.next()?;
+                let key = mdg.inner.edge_keys(source, target)?.first().copied()?;
+                let key = &key;
                 let ek = (source.to_owned(), target.to_owned(), *key);
                 mdg.edge_py_attrs.get(&ek)
             }

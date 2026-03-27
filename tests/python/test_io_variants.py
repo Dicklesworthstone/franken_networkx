@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import franken_networkx as fnx
+import franken_networkx._fnx as _fnx
 import networkx as nx
 
 
@@ -146,3 +147,30 @@ def test_rust_write_graphml_preserves_graph_attrs(tmp_path: Path):
     assert '<data key="g0">demo</data>' in content
     assert '<data key="g1">true</data>' in content
     assert '<data key="g2">3</data>' in content
+
+
+def test_raw_node_link_data_preserves_graph_attrs_and_directed_flag():
+    graph = fnx.DiGraph()
+    graph.add_edge("a", "b")
+    graph.graph["name"] = "demo"
+    graph.graph["version"] = 3
+
+    payload = _fnx.node_link_data(graph)
+
+    assert payload["directed"] is True
+    assert payload["graph_attrs"] == {"name": "demo", "version": 3}
+
+
+def test_raw_node_link_graph_preserves_directed_type_and_graph_attrs():
+    payload = {
+        "mode": "strict",
+        "directed": True,
+        "graph_attrs": {"name": "demo", "version": 3},
+        "nodes": ["a", "b"],
+        "edges": [{"left": "a", "right": "b", "attrs": {}}],
+    }
+
+    graph = _fnx.node_link_graph(payload)
+
+    assert graph.is_directed()
+    assert dict(graph.graph) == {"name": "demo", "version": 3}

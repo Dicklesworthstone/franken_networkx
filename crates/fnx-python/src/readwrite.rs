@@ -5,8 +5,8 @@
 //! Internally delegates to `fnx_readwrite::EdgeListEngine`.
 
 use crate::algorithms::{GraphRef, extract_graph};
-use crate::digraph::{PyDiGraph, PyMultiDiGraph};
-use crate::{PyGraph, PyMultiGraph, py_dict_to_attr_map};
+use crate::digraph::PyDiGraph;
+use crate::{PyGraph, py_dict_to_attr_map};
 use fnx_readwrite::{DiReadWriteReport, EdgeListEngine, ReadWriteReport};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -276,17 +276,20 @@ fn write_adjlist(py: Python<'_>, g: &Bound<'_, PyAny>, path: &Bound<'_, PyAny>) 
 #[pyo3(signature = (g,))]
 fn node_link_data(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
+    let graph_attrs = graph_ref_attrs(&gr, py)?;
     let mut engine = EdgeListEngine::hardened();
     let json_str = match &gr {
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
-            py.allow_threads(|| engine.write_json_graph(inner))
+            py.allow_threads(|| engine.write_json_graph_with_graph_attrs(inner, &graph_attrs))
                 .map_err(rw_error_to_py)?
         }
         GraphRef::Directed { dg, .. } => {
             let inner = &dg.inner;
-            py.allow_threads(|| engine.write_digraph_json_graph(inner))
-                .map_err(rw_error_to_py)?
+            py.allow_threads(|| {
+                engine.write_digraph_json_graph_with_graph_attrs(inner, &graph_attrs)
+            })
+            .map_err(rw_error_to_py)?
         }
         _ => {
             if gr.is_directed() {
@@ -295,11 +298,13 @@ fn node_link_data(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
                         "expected directed graph backend for directed graph value",
                     )
                 })?;
-                py.allow_threads(|| engine.write_digraph_json_graph(inner))
-                    .map_err(rw_error_to_py)?
+                py.allow_threads(|| {
+                    engine.write_digraph_json_graph_with_graph_attrs(inner, &graph_attrs)
+                })
+                .map_err(rw_error_to_py)?
             } else {
                 let inner = gr.undirected();
-                py.allow_threads(|| engine.write_json_graph(inner))
+                py.allow_threads(|| engine.write_json_graph_with_graph_attrs(inner, &graph_attrs))
                     .map_err(rw_error_to_py)?
             }
         }
@@ -315,12 +320,27 @@ fn node_link_graph(py: Python<'_>, data: &Bound<'_, PyAny>) -> PyResult<PyObject
     let json_mod = py.import("json")?;
     let json_str: String = json_mod.call_method1("dumps", (data,))?.extract()?;
     let mut engine = EdgeListEngine::hardened();
+    let directed = data
+        .get_item("directed")
+        .ok()
+        .and_then(|value| value.extract::<bool>().ok())
+        .unwrap_or(false);
 
-    let report = engine.read_json_graph(&json_str).map_err(rw_error_to_py)?;
-    Ok(report_to_pygraph(py, report)?
-        .into_pyobject(py)?
-        .into_any()
-        .unbind())
+    if directed {
+        let report = engine
+            .read_digraph_json_graph(&json_str)
+            .map_err(rw_error_to_py)?;
+        Ok(di_report_to_pydigraph(py, report)?
+            .into_pyobject(py)?
+            .into_any()
+            .unbind())
+    } else {
+        let report = engine.read_json_graph(&json_str).map_err(rw_error_to_py)?;
+        Ok(report_to_pygraph(py, report)?
+            .into_pyobject(py)?
+            .into_any()
+            .unbind())
+    }
 }
 
 // ---------------------------------------------------------------------------

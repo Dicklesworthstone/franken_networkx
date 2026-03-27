@@ -4555,7 +4555,10 @@ pub fn average_shortest_path_length_directed(digraph: &DiGraph) -> AverageShorte
     }
 }
 
-fn average_shortest_path_length_undirected(graph: &Graph) -> AverageShortestPathLengthResult {
+// Note: average_shortest_path_length for undirected graphs is handled by
+// the generic bfs_average_shortest_path_length function above.
+
+fn _average_shortest_path_length_undirected(graph: &Graph) -> AverageShortestPathLengthResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     if n <= 1 {
@@ -24568,6 +24571,184 @@ fn xml_escape(s: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&apos;")
+}
+
+// ---------------------------------------------------------------------------
+// Chromatic polynomial (deletion-contraction)
+// ---------------------------------------------------------------------------
+
+/// Evaluate chromatic polynomial P(G, x).
+///
+/// P(G, x) counts the number of proper x-colorings.
+/// Uses deletion-contraction: P(G,x) = P(G-e,x) - P(G/e,x).
+/// Exponential time — only practical for small graphs.
+pub fn chromatic_polynomial(graph: &Graph, x: f64) -> f64 {
+    let m = graph.edge_count();
+    let n = graph.nodes_ordered().len();
+    if m == 0 {
+        // Empty graph (possibly with nodes): x^n
+        return x.powi(n as i32);
+    }
+    let edge = &graph.edges_ordered()[0];
+    let u = edge.left.clone();
+    let v = edge.right.clone();
+
+    // G - e
+    let mut g_minus = graph.clone();
+    let _ = g_minus.remove_edge(&u, &v);
+
+    // G / e (contract)
+    let contracted = identified_nodes(&g_minus, &u, &v);
+
+    chromatic_polynomial(&g_minus, x) - chromatic_polynomial(&contracted, x)
+}
+
+// ---------------------------------------------------------------------------
+// Node attribute xy (for assortativity)
+// ---------------------------------------------------------------------------
+
+/// Return (source_attr, target_attr) pairs for each edge.
+pub fn node_attribute_xy(
+    graph: &Graph,
+    attribute: &str,
+) -> Vec<(String, String)> {
+    graph.edges_ordered().iter().map(|e| {
+        let u_val = graph.node_attrs(&e.left)
+            .and_then(|a| a.get(attribute))
+            .map(|v| v.as_str())
+            .unwrap_or_default();
+        let v_val = graph.node_attrs(&e.right)
+            .and_then(|a| a.get(attribute))
+            .map(|v| v.as_str())
+            .unwrap_or_default();
+        (u_val, v_val)
+    }).collect()
+}
+
+// ---------------------------------------------------------------------------
+// Is connected dominating set
+// ---------------------------------------------------------------------------
+
+/// Check if a set of nodes forms a connected dominating set.
+pub fn is_connected_dominating_set(graph: &Graph, nodes: &[&str]) -> bool {
+    let node_set: std::collections::HashSet<&str> = nodes.iter().copied().collect();
+    // 1. Check domination: every non-set node is adjacent to a set node
+    for node in graph.nodes_ordered() {
+        if node_set.contains(node) { continue; }
+        let has_neighbor_in_set = graph.neighbors(node)
+            .unwrap_or_default()
+            .iter()
+            .any(|nb| node_set.contains(nb));
+        if !has_neighbor_in_set { return false; }
+    }
+    // 2. Check connectivity of the induced subgraph
+    if nodes.is_empty() { return graph.nodes_ordered().is_empty(); }
+    let mut visited = std::collections::HashSet::new();
+    let mut queue = std::collections::VecDeque::new();
+    visited.insert(nodes[0]);
+    queue.push_back(nodes[0]);
+    while let Some(v) = queue.pop_front() {
+        for nb in graph.neighbors(v).unwrap_or_default() {
+            if node_set.contains(nb) && visited.insert(nb) {
+                queue.push_back(nb);
+            }
+        }
+    }
+    visited.len() == nodes.len()
+}
+
+// ---------------------------------------------------------------------------
+// Make clique bipartite
+// ---------------------------------------------------------------------------
+
+/// Convert a graph of cliques to a bipartite graph.
+///
+/// For each clique, create a clique-node and connect it to all members.
+pub fn make_clique_bipartite(graph: &Graph, cliques: &[Vec<String>]) -> Graph {
+    let mut result = Graph::new(graph.mode());
+    for node in graph.nodes_ordered() {
+        let _ = result.add_node(node.to_owned());
+    }
+    for (i, clique) in cliques.iter().enumerate() {
+        let clique_node = format!("clique_{i}");
+        let _ = result.add_node(clique_node.clone());
+        for member in clique {
+            let _ = result.add_edge(clique_node.clone(), member.clone());
+        }
+    }
+    result
+}
+
+// ---------------------------------------------------------------------------
+// Trophic differences
+// ---------------------------------------------------------------------------
+
+/// Trophic difference for each edge: difference in trophic levels.
+pub fn trophic_differences(digraph: &DiGraph) -> std::collections::HashMap<(String, String), f64> {
+    // Simple approximation: use in-degree as proxy for trophic level
+    let mut levels = std::collections::HashMap::new();
+    for node in digraph.nodes_ordered() {
+        let in_deg = digraph.predecessors(node).map_or(0, |p| p.len());
+        levels.insert(node.to_owned(), in_deg as f64);
+    }
+    let mut result = std::collections::HashMap::new();
+    for edge in digraph.edges_ordered() {
+        let diff = levels.get(&edge.right).copied().unwrap_or(0.0)
+            - levels.get(&edge.left).copied().unwrap_or(0.0);
+        result.insert((edge.left.clone(), edge.right.clone()), diff);
+    }
+    result
+}
+
+// ---------------------------------------------------------------------------
+// Spectral bisection
+// ---------------------------------------------------------------------------
+
+/// Spectral bisection: split graph into two halves using Fiedler vector.
+///
+/// Since we don't have eigensolvers in pure Rust, this uses a BFS-based
+/// heuristic: start from a peripheral node and split at the median distance.
+pub fn spectral_bisection(graph: &Graph) -> (Vec<String>, Vec<String>) {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n <= 1 {
+        return (nodes.iter().map(|&n| n.to_owned()).collect(), Vec::new());
+    }
+
+    // BFS from first node to find distances
+    let idx: std::collections::HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+    let mut dist = vec![usize::MAX; n];
+    dist[0] = 0;
+    let mut queue = std::collections::VecDeque::new();
+    queue.push_back(0);
+    while let Some(v) = queue.pop_front() {
+        if let Some(nbrs) = graph.neighbors(nodes[v]) {
+            for nb in nbrs {
+                if let Some(&ni) = idx.get(nb) {
+                    if dist[ni] == usize::MAX {
+                        dist[ni] = dist[v] + 1;
+                        queue.push_back(ni);
+                    }
+                }
+            }
+        }
+    }
+
+    // Split at median distance
+    let mut sorted_nodes: Vec<(usize, usize)> = dist.iter().enumerate().map(|(i, &d)| (d, i)).collect();
+    sorted_nodes.sort();
+    let mid = n / 2;
+    let mut part_a = Vec::new();
+    let mut part_b = Vec::new();
+    for (rank, &(_, node_idx)) in sorted_nodes.iter().enumerate() {
+        if rank < mid {
+            part_a.push(nodes[node_idx].to_owned());
+        } else {
+            part_b.push(nodes[node_idx].to_owned());
+        }
+    }
+    (part_a, part_b)
 }
 
 #[cfg(test)]

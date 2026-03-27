@@ -26,6 +26,7 @@ use fnx_runtime::{
 };
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::{Reader, Writer};
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::io::Cursor;
@@ -42,6 +43,17 @@ pub struct DiReadWriteReport {
     pub graph: DiGraph,
     pub graph_attrs: AttrMap,
     pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct JsonGraphPayload {
+    pub mode: CompatibilityMode,
+    #[serde(default)]
+    pub directed: bool,
+    #[serde(default)]
+    pub graph_attrs: AttrMap,
+    pub nodes: Vec<String>,
+    pub edges: Vec<fnx_classes::EdgeSnapshot>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -522,6 +534,14 @@ impl EdgeListEngine {
     }
 
     pub fn write_json_graph(&mut self, graph: &Graph) -> Result<String, ReadWriteError> {
+        self.write_json_graph_with_graph_attrs(graph, &AttrMap::new())
+    }
+
+    pub fn write_json_graph_with_graph_attrs(
+        &mut self,
+        graph: &Graph,
+        graph_attrs: &AttrMap,
+    ) -> Result<String, ReadWriteError> {
         self.dispatch.resolve(&DispatchRequest {
             operation: "write_json_graph".to_owned(),
             requested_backend: None,
@@ -531,8 +551,15 @@ impl EdgeListEngine {
         })?;
 
         let snapshot = graph.snapshot();
+        let payload = JsonGraphPayload {
+            mode: snapshot.mode,
+            directed: false,
+            graph_attrs: graph_attrs.clone(),
+            nodes: snapshot.nodes,
+            edges: snapshot.edges,
+        };
         let serialized =
-            serde_json::to_string_pretty(&snapshot).map_err(|err| ReadWriteError::FailClosed {
+            serde_json::to_string_pretty(&payload).map_err(|err| ReadWriteError::FailClosed {
                 operation: "write_json_graph",
                 reason: format!("json serialization failed: {err}"),
             })?;
@@ -547,6 +574,14 @@ impl EdgeListEngine {
     }
 
     pub fn write_digraph_json_graph(&mut self, graph: &DiGraph) -> Result<String, ReadWriteError> {
+        self.write_digraph_json_graph_with_graph_attrs(graph, &AttrMap::new())
+    }
+
+    pub fn write_digraph_json_graph_with_graph_attrs(
+        &mut self,
+        graph: &DiGraph,
+        graph_attrs: &AttrMap,
+    ) -> Result<String, ReadWriteError> {
         self.dispatch.resolve(&DispatchRequest {
             operation: "write_json_graph".to_owned(),
             requested_backend: None,
@@ -556,8 +591,15 @@ impl EdgeListEngine {
         })?;
 
         let snapshot = graph.snapshot();
+        let payload = JsonGraphPayload {
+            mode: snapshot.mode,
+            directed: true,
+            graph_attrs: graph_attrs.clone(),
+            nodes: snapshot.nodes,
+            edges: snapshot.edges,
+        };
         let serialized =
-            serde_json::to_string_pretty(&snapshot).map_err(|err| ReadWriteError::FailClosed {
+            serde_json::to_string_pretty(&payload).map_err(|err| ReadWriteError::FailClosed {
                 operation: "write_json_graph",
                 reason: format!("json serialization failed: {err}"),
             })?;
@@ -580,29 +622,38 @@ impl EdgeListEngine {
             unknown_incompatible_feature: false,
         })?;
 
-        let parsed: GraphSnapshot = match serde_json::from_str(input) {
+        let parsed: JsonGraphPayload = match serde_json::from_str(input) {
             Ok(value) => value,
-            Err(err) => {
-                let warning = format!("json parse error: {err}");
-                if self.mode == CompatibilityMode::Strict {
-                    self.record("read_json_graph", DecisionAction::FailClosed, &warning, 1.0);
-                    return Err(ReadWriteError::FailClosed {
-                        operation: "read_json_graph",
-                        reason: warning,
+            Err(err) => match serde_json::from_str::<GraphSnapshot>(input) {
+                Ok(legacy) => JsonGraphPayload {
+                    mode: legacy.mode,
+                    directed: false,
+                    graph_attrs: AttrMap::new(),
+                    nodes: legacy.nodes,
+                    edges: legacy.edges,
+                },
+                Err(_) => {
+                    let warning = format!("json parse error: {err}");
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_json_graph", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_json_graph",
+                            reason: warning,
+                        });
+                    }
+                    self.record(
+                        "read_json_graph",
+                        DecisionAction::FullValidate,
+                        &warning,
+                        0.8,
+                    );
+                    return Ok(ReadWriteReport {
+                        graph: Graph::new(self.mode),
+                        graph_attrs: AttrMap::new(),
+                        warnings: vec![warning],
                     });
                 }
-                self.record(
-                    "read_json_graph",
-                    DecisionAction::FullValidate,
-                    &warning,
-                    0.8,
-                );
-                return Ok(ReadWriteReport {
-                    graph: Graph::new(self.mode),
-                    graph_attrs: AttrMap::new(),
-                    warnings: vec![warning],
-                });
-            }
+            },
         };
 
         let mut graph = Graph::new(self.mode);
@@ -659,7 +710,7 @@ impl EdgeListEngine {
 
         Ok(ReadWriteReport {
             graph,
-            graph_attrs: AttrMap::new(),
+            graph_attrs: parsed.graph_attrs,
             warnings,
         })
     }
@@ -676,29 +727,38 @@ impl EdgeListEngine {
             unknown_incompatible_feature: false,
         })?;
 
-        let parsed: DiGraphSnapshot = match serde_json::from_str(input) {
+        let parsed: JsonGraphPayload = match serde_json::from_str(input) {
             Ok(value) => value,
-            Err(err) => {
-                let warning = format!("json parse error: {err}");
-                if self.mode == CompatibilityMode::Strict {
-                    self.record("read_json_graph", DecisionAction::FailClosed, &warning, 1.0);
-                    return Err(ReadWriteError::FailClosed {
-                        operation: "read_json_graph",
-                        reason: warning,
+            Err(err) => match serde_json::from_str::<DiGraphSnapshot>(input) {
+                Ok(legacy) => JsonGraphPayload {
+                    mode: legacy.mode,
+                    directed: true,
+                    graph_attrs: AttrMap::new(),
+                    nodes: legacy.nodes,
+                    edges: legacy.edges,
+                },
+                Err(_) => {
+                    let warning = format!("json parse error: {err}");
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_json_graph", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_json_graph",
+                            reason: warning,
+                        });
+                    }
+                    self.record(
+                        "read_json_graph",
+                        DecisionAction::FullValidate,
+                        &warning,
+                        0.8,
+                    );
+                    return Ok(DiReadWriteReport {
+                        graph: DiGraph::new(self.mode),
+                        graph_attrs: AttrMap::new(),
+                        warnings: vec![warning],
                     });
                 }
-                self.record(
-                    "read_json_graph",
-                    DecisionAction::FullValidate,
-                    &warning,
-                    0.8,
-                );
-                return Ok(DiReadWriteReport {
-                    graph: DiGraph::new(self.mode),
-                    graph_attrs: AttrMap::new(),
-                    warnings: vec![warning],
-                });
-            }
+            },
         };
 
         let mut graph = DiGraph::new(self.mode);
@@ -755,7 +815,7 @@ impl EdgeListEngine {
 
         Ok(DiReadWriteReport {
             graph,
-            graph_attrs: AttrMap::new(),
+            graph_attrs: parsed.graph_attrs,
             warnings,
         })
     }
@@ -2292,6 +2352,57 @@ mod tests {
             parsed.graph.node_attrs("a").unwrap().get("color").unwrap(),
             &CgseValue::String("red".to_owned())
         );
+    }
+
+    #[test]
+    fn write_json_graph_preserves_graph_attrs_and_directed_flag() {
+        let mut graph = DiGraph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        let graph_attrs = BTreeMap::from([
+            ("name".to_owned(), CgseValue::String("demo".to_owned())),
+            ("version".to_owned(), CgseValue::Int(3)),
+        ]);
+
+        let mut engine = EdgeListEngine::strict();
+        let payload = engine
+            .write_digraph_json_graph_with_graph_attrs(&graph, &graph_attrs)
+            .expect("json graph write should succeed");
+
+        assert!(payload.contains("\"directed\": true"));
+        assert!(payload.contains("\"graph_attrs\""));
+        assert!(payload.contains("\"name\": \"demo\""));
+        assert!(payload.contains("\"version\": 3"));
+    }
+
+    #[test]
+    fn read_json_graph_preserves_graph_attrs() {
+        let input = r#"{
+  "mode": "strict",
+  "directed": false,
+  "graph_attrs": {
+    "name": "demo",
+    "version": 3
+  },
+  "nodes": ["a", "b"],
+  "edges": [
+    {
+      "left": "a",
+      "right": "b",
+      "attrs": {}
+    }
+  ]
+}"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let parsed = engine
+            .read_json_graph(input)
+            .expect("json graph read should succeed");
+
+        assert_eq!(
+            parsed.graph_attrs.get("name"),
+            Some(&CgseValue::String("demo".to_owned()))
+        );
+        assert_eq!(parsed.graph_attrs.get("version"), Some(&CgseValue::Int(3)));
     }
 
     #[test]
