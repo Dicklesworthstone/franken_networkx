@@ -166,13 +166,14 @@ impl<'py> GraphRef<'py> {
                 dg.edge_py_attrs.get(&ek2)
             }
             GraphRef::MultiUndirected { mg, .. } => {
-                let key = mg.inner.edge_keys(left, right)?.next()?;
+                let keys = mg.inner.edge_keys(left, right)?;
+                let key = keys.first()?;
                 let ek = PyMultiGraph::edge_key(left, right, *key);
                 mg.edge_py_attrs.get(&ek)
             }
             GraphRef::MultiDirected { mdg, .. } => {
-                if let Some(mut keys) = mdg.inner.edge_keys(left, right) {
-                    if let Some(key) = keys.next() {
+                if let Some(keys) = mdg.inner.edge_keys(left, right) {
+                    if let Some(key) = keys.first() {
                         let ek = (left.to_owned(), right.to_owned(), *key);
                         if let Some(attrs) = mdg.edge_py_attrs.get(&ek) {
                             return Some(attrs);
@@ -3274,22 +3275,12 @@ pub fn all_simple_paths(
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, target)?;
 
-    let result = match &gr {
-        GraphRef::Directed { dg, .. } => {
-            py.allow_threads(|| fnx_algorithms::all_simple_paths_directed(&dg.inner, &s, &t, cutoff))
-        }
-        GraphRef::Undirected(pg) => {
-            py.allow_threads(|| fnx_algorithms::all_simple_paths(&pg.inner, &s, &t, cutoff))
-        }
-        _ => {
-            if gr.is_directed() {
-                let dg = gr.digraph().expect("is_directed is true");
-                py.allow_threads(|| fnx_algorithms::all_simple_paths_directed(dg, &s, &t, cutoff))
-            } else {
-                let inner = gr.undirected();
-                py.allow_threads(|| fnx_algorithms::all_simple_paths(inner, &s, &t, cutoff))
-            }
-        }
+    let result = if gr.is_directed() {
+        let dg = gr.digraph().expect("is_directed is true");
+        py.allow_threads(|| fnx_algorithms::all_simple_paths_directed(dg, &s, &t, cutoff))
+    } else {
+        let inner = gr.undirected();
+        py.allow_threads(|| fnx_algorithms::all_simple_paths(inner, &s, &t, cutoff))
     };
 
     Ok(result
@@ -5468,9 +5459,11 @@ pub fn wiener_index(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
     let gr = extract_graph(g)?;
     require_undirected(&gr, "wiener_index")?;
     let inner = gr.undirected();
-    match py.allow_threads(|| fnx_algorithms::wiener_index(inner)) {
-        Some(w) => Ok(w),
-        None => Err(NetworkXError::new_err("Graph is not connected.")),
+    let w = py.allow_threads(|| fnx_algorithms::wiener_index(inner));
+    if w.is_infinite() {
+        Err(NetworkXError::new_err("Graph is not connected."))
+    } else {
+        Ok(w)
     }
 }
 

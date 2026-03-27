@@ -30176,7 +30176,7 @@ mod tests {
         let mut g = Graph::strict();
         let _ = g.add_edge("0", "1");
         let _ = g.add_edge("1", "2");
-        let w = wiener_index(&g).unwrap();
+        let w = wiener_index(&g);
         assert!((w - 4.0).abs() < TEST_TOLERANCE);
     }
 
@@ -30188,23 +30188,23 @@ mod tests {
         let _ = g.add_edge("0", "1");
         let _ = g.add_edge("1", "2");
         let _ = g.add_edge("0", "2");
-        let w = wiener_index(&g).unwrap();
+        let w = wiener_index(&g);
         assert!((w - 3.0).abs() < TEST_TOLERANCE);
     }
 
     #[test]
-    fn wiener_index_disconnected_returns_none() {
+    fn wiener_index_disconnected_returns_infinity() {
         let mut g = Graph::strict();
         g.add_node("a");
         g.add_node("b");
-        assert!(wiener_index(&g).is_none());
+        assert!(wiener_index(&g).is_infinite());
     }
 
     #[test]
     fn wiener_index_single_node() {
         let mut g = Graph::strict();
         g.add_node("a");
-        assert!((wiener_index(&g).unwrap() - 0.0).abs() < TEST_TOLERANCE);
+        assert!((wiener_index(&g) - 0.0).abs() < TEST_TOLERANCE);
     }
 
     // -----------------------------------------------------------------------

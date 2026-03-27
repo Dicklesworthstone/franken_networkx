@@ -71,3 +71,77 @@ def test_parse_and_generate_graphml_honor_networkx_kwargs(tmp_path: Path):
 
     assert list(parsed.nodes()) == [0, 1, 2]
     assert generated == expected
+
+
+def test_rust_read_gml_preserves_graph_attrs(tmp_path: Path):
+    path = tmp_path / "graph.gml"
+    path.write_text(
+        'graph [\n'
+        '  directed 0\n'
+        '  label "demo"\n'
+        '  owner "qa"\n'
+        '  node [ id 0 label "a" ]\n'
+        '  node [ id 1 label "b" ]\n'
+        '  edge [ source 0 target 1 ]\n'
+        ']\n',
+        encoding="utf-8",
+    )
+
+    graph = fnx.read_gml(path)
+
+    assert dict(graph.graph) == {"label": "demo", "owner": "qa"}
+
+
+def test_rust_read_graphml_preserves_graph_attrs(tmp_path: Path):
+    path = tmp_path / "graph.graphml"
+    path.write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">\n'
+        '  <key id="g0" for="graph" attr.name="name" attr.type="string"/>\n'
+        '  <key id="g1" for="graph" attr.name="version" attr.type="int"/>\n'
+        '  <graph id="G" edgedefault="undirected">\n'
+        '    <data key="g0">demo</data>\n'
+        '    <data key="g1">3</data>\n'
+        '    <node id="a"/>\n'
+        '    <node id="b"/>\n'
+        '    <edge source="a" target="b"/>\n'
+        '  </graph>\n'
+        '</graphml>\n',
+        encoding="utf-8",
+    )
+
+    graph = fnx.read_graphml(path)
+
+    assert dict(graph.graph) == {"name": "demo", "version": 3}
+
+
+def test_rust_write_gml_preserves_graph_attrs(tmp_path: Path):
+    graph = fnx.Graph()
+    graph.add_edge("a", "b")
+    graph.graph["label"] = "demo"
+    graph.graph["owner"] = "qa"
+    path = tmp_path / "graph.gml"
+
+    fnx.write_gml(graph, path)
+
+    content = path.read_text(encoding="utf-8")
+    assert 'label "demo"' in content
+    assert 'owner "qa"' in content
+
+
+def test_rust_write_graphml_preserves_graph_attrs(tmp_path: Path):
+    graph = fnx.Graph()
+    graph.add_edge("a", "b")
+    graph.graph["name"] = "demo"
+    graph.graph["version"] = 3
+    graph.graph["public"] = True
+    path = tmp_path / "graph.graphml"
+
+    fnx.write_graphml(graph, path)
+
+    content = path.read_text(encoding="utf-8")
+    assert 'for="graph" attr.name="name" attr.type="string"' in content
+    assert 'for="graph" attr.name="version" attr.type="int"' in content
+    assert 'for="graph" attr.name="public" attr.type="boolean"' in content
+    assert '<data key="g0">demo</data>' in content
+    assert "<data key=" in content

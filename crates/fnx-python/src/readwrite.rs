@@ -4,9 +4,9 @@
 //! Each write function accepts a Graph or DiGraph and a file path or file-like object.
 //! Internally delegates to `fnx_readwrite::EdgeListEngine`.
 
-use crate::PyGraph;
 use crate::algorithms::{GraphRef, extract_graph};
-use crate::digraph::PyDiGraph;
+use crate::digraph::{PyDiGraph, PyMultiDiGraph};
+use crate::{PyGraph, PyMultiGraph, py_dict_to_attr_map};
 use fnx_readwrite::{DiReadWriteReport, EdgeListEngine, ReadWriteReport};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
@@ -64,6 +64,7 @@ fn write_output(py: Python<'_>, dest: &Bound<'_, PyAny>, content: &str) -> PyRes
 
 /// Convert a `ReadWriteReport` into a `PyGraph`.
 fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGraph> {
+    let graph_attrs = report.graph_attrs;
     let g = report.graph;
     let mut node_key_map = HashMap::new();
     let mut node_py_attrs = HashMap::new();
@@ -93,17 +94,23 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
         edge_py_attrs.insert(key, d.unbind());
     }
 
+    let py_graph_attrs = PyDict::new(py);
+    for (k, v) in &graph_attrs {
+        py_graph_attrs.set_item(k, crate::cgse_value_to_py(py, v))?;
+    }
+
     Ok(PyGraph {
         inner: g,
         node_key_map,
         node_py_attrs,
         edge_py_attrs,
-        graph_attrs: PyDict::new(py).unbind(),
+        graph_attrs: py_graph_attrs.unbind(),
     })
 }
 
 /// Convert a `DiReadWriteReport` into a `PyDiGraph`.
 fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult<PyDiGraph> {
+    let graph_attrs = report.graph_attrs;
     let g = report.graph;
     let mut node_key_map = HashMap::new();
     let mut node_py_attrs = HashMap::new();
@@ -133,17 +140,32 @@ fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult
         edge_py_attrs.insert(key, d.unbind());
     }
 
+    let py_graph_attrs = PyDict::new(py);
+    for (k, v) in &graph_attrs {
+        py_graph_attrs.set_item(k, crate::cgse_value_to_py(py, v))?;
+    }
+
     Ok(PyDiGraph {
         inner: g,
         node_key_map,
         node_py_attrs,
         edge_py_attrs,
-        graph_attrs: PyDict::new(py).unbind(),
+        graph_attrs: py_graph_attrs.unbind(),
     })
 }
 
 fn rw_error_to_py(e: fnx_readwrite::ReadWriteError) -> PyErr {
     pyo3::exceptions::PyIOError::new_err(format!("{e}"))
+}
+
+fn graph_ref_attrs(gr: &GraphRef<'_>, py: Python<'_>) -> PyResult<fnx_classes::AttrMap> {
+    let py_attrs = match gr {
+        GraphRef::Undirected(pg) => pg.graph_attrs.bind(py),
+        GraphRef::Directed { dg, .. } => dg.graph_attrs.bind(py),
+        GraphRef::MultiUndirected { mg, .. } => mg.graph_attrs.bind(py),
+        GraphRef::MultiDirected { mdg, .. } => mdg.graph_attrs.bind(py),
+    };
+    py_dict_to_attr_map(py_attrs)
 }
 
 // ---------------------------------------------------------------------------
@@ -335,16 +357,17 @@ fn read_graphml(py: Python<'_>, path: &Bound<'_, PyAny>) -> PyResult<PyObject> {
 #[pyo3(signature = (g, path))]
 fn write_graphml(py: Python<'_>, g: &Bound<'_, PyAny>, path: &Bound<'_, PyAny>) -> PyResult<()> {
     let gr = extract_graph(g)?;
+    let graph_attrs = graph_ref_attrs(&gr, py)?;
     let mut engine = EdgeListEngine::hardened();
     let content = match &gr {
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
-            py.allow_threads(|| engine.write_graphml(inner))
+            py.allow_threads(|| engine.write_graphml_with_graph_attrs(inner, &graph_attrs))
                 .map_err(rw_error_to_py)?
         }
         GraphRef::Directed { dg, .. } => {
             let inner = &dg.inner;
-            py.allow_threads(|| engine.write_digraph_graphml(inner))
+            py.allow_threads(|| engine.write_digraph_graphml_with_graph_attrs(inner, &graph_attrs))
                 .map_err(rw_error_to_py)?
         }
         _ => {
@@ -354,11 +377,11 @@ fn write_graphml(py: Python<'_>, g: &Bound<'_, PyAny>, path: &Bound<'_, PyAny>) 
                         "expected directed graph backend for directed graph value",
                     )
                 })?;
-                py.allow_threads(|| engine.write_digraph_graphml(inner))
+                py.allow_threads(|| engine.write_digraph_graphml_with_graph_attrs(inner, &graph_attrs))
                     .map_err(rw_error_to_py)?
             } else {
                 let inner = gr.undirected();
-                py.allow_threads(|| engine.write_graphml(inner))
+                py.allow_threads(|| engine.write_graphml_with_graph_attrs(inner, &graph_attrs))
                     .map_err(rw_error_to_py)?
             }
         }
@@ -400,16 +423,17 @@ fn read_gml(py: Python<'_>, path: &Bound<'_, PyAny>) -> PyResult<PyObject> {
 #[pyo3(signature = (g, path))]
 fn write_gml(py: Python<'_>, g: &Bound<'_, PyAny>, path: &Bound<'_, PyAny>) -> PyResult<()> {
     let gr = extract_graph(g)?;
+    let graph_attrs = graph_ref_attrs(&gr, py)?;
     let mut engine = EdgeListEngine::hardened();
     let content = match &gr {
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
-            py.allow_threads(|| engine.write_gml(inner))
+            py.allow_threads(|| engine.write_gml_with_graph_attrs(inner, &graph_attrs))
                 .map_err(rw_error_to_py)?
         }
         GraphRef::Directed { dg, .. } => {
             let inner = &dg.inner;
-            py.allow_threads(|| engine.write_digraph_gml(inner))
+            py.allow_threads(|| engine.write_digraph_gml_with_graph_attrs(inner, &graph_attrs))
                 .map_err(rw_error_to_py)?
         }
         _ => {
@@ -417,11 +441,11 @@ fn write_gml(py: Python<'_>, g: &Bound<'_, PyAny>, path: &Bound<'_, PyAny>) -> P
                 let inner = gr.digraph().ok_or_else(|| {
                     pyo3::exceptions::PyTypeError::new_err("expected directed graph")
                 })?;
-                py.allow_threads(|| engine.write_digraph_gml(inner))
+                py.allow_threads(|| engine.write_digraph_gml_with_graph_attrs(inner, &graph_attrs))
                     .map_err(rw_error_to_py)?
             } else {
                 let inner = gr.undirected();
-                py.allow_threads(|| engine.write_gml(inner))
+                py.allow_threads(|| engine.write_gml_with_graph_attrs(inner, &graph_attrs))
                     .map_err(rw_error_to_py)?
             }
         }

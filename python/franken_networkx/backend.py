@@ -462,7 +462,7 @@ class BackendInterface:
         if fn is None:
             return False
         try:
-            inspect.signature(fn).bind_partial(*args, **kwargs)
+            inspect.signature(fn).bind(*args, **kwargs)
         except TypeError:
             return False
         return True

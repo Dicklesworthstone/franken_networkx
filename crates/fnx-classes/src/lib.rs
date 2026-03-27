@@ -599,8 +599,17 @@ impl MultiGraph {
         self.edges.values().map(IndexMap::len).sum()
     }
 
+    /// Return edge keys as Vec (needed by Python bindings).
+    #[must_use]
+    pub fn edge_keys(&self, left: &str, right: &str) -> Option<Vec<usize>> {
+        self.adjacency
+            .get(left)?
+            .get(right)
+            .map(|keys| keys.iter().copied().collect())
+    }
+
     /// Return an iterator over keys for edges between left and right.
-    pub fn edge_keys(&self, left: &str, right: &str) -> Option<impl Iterator<Item = &usize>> {
+    pub fn edge_keys_iter(&self, left: &str, right: &str) -> Option<impl Iterator<Item = &usize>> {
         self.adjacency
             .get(left)?
             .get(right)
@@ -636,7 +645,13 @@ impl MultiGraph {
             .map(|neighbors| neighbors.keys().map(String::as_str).collect::<Vec<&str>>())
     }
 
-    // edge_keys already defined above with Iterator return type
+    #[must_use]
+    pub fn edge_keys_vec(&self, left: &str, right: &str) -> Vec<usize> {
+        self.edges
+            .get(&EdgeKeyRef::new(left, right))
+            .map(|edge_bucket| edge_bucket.keys().copied().collect::<Vec<usize>>())
+            .unwrap_or_default()
+    }
 
     #[must_use]
     pub fn node_attrs(&self, node: &str) -> Option<&AttrMap> {

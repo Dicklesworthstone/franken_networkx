@@ -33,12 +33,14 @@ use std::io::Cursor;
 #[derive(Debug, Clone)]
 pub struct ReadWriteReport {
     pub graph: Graph,
+    pub graph_attrs: AttrMap,
     pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct DiReadWriteReport {
     pub graph: DiGraph,
+    pub graph_attrs: AttrMap,
     pub warnings: Vec<String>,
 }
 
@@ -315,7 +317,11 @@ impl EdgeListEngine {
             0.04,
         );
 
-        Ok(ReadWriteReport { graph, warnings })
+        Ok(ReadWriteReport {
+            graph,
+            graph_attrs: AttrMap::new(),
+            warnings,
+        })
     }
 
     pub fn read_digraph_edgelist(
@@ -389,7 +395,11 @@ impl EdgeListEngine {
             0.04,
         );
 
-        Ok(DiReadWriteReport { graph, warnings })
+        Ok(DiReadWriteReport {
+            graph,
+            graph_attrs: AttrMap::new(),
+            warnings,
+        })
     }
 
     pub fn read_adjlist(&mut self, input: &str) -> Result<ReadWriteReport, ReadWriteError> {
@@ -443,7 +453,11 @@ impl EdgeListEngine {
             0.04,
         );
 
-        Ok(ReadWriteReport { graph, warnings })
+        Ok(ReadWriteReport {
+            graph,
+            graph_attrs: AttrMap::new(),
+            warnings,
+        })
     }
 
     pub fn read_digraph_adjlist(
@@ -500,7 +514,11 @@ impl EdgeListEngine {
             0.04,
         );
 
-        Ok(DiReadWriteReport { graph, warnings })
+        Ok(DiReadWriteReport {
+            graph,
+            graph_attrs: AttrMap::new(),
+            warnings,
+        })
     }
 
     pub fn write_json_graph(&mut self, graph: &Graph) -> Result<String, ReadWriteError> {
@@ -581,6 +599,7 @@ impl EdgeListEngine {
                 );
                 return Ok(ReadWriteReport {
                     graph: Graph::new(self.mode),
+                    graph_attrs: AttrMap::new(),
                     warnings: vec![warning],
                 });
             }
@@ -638,7 +657,11 @@ impl EdgeListEngine {
             0.04,
         );
 
-        Ok(ReadWriteReport { graph, warnings })
+        Ok(ReadWriteReport {
+            graph,
+            graph_attrs: AttrMap::new(),
+            warnings,
+        })
     }
 
     pub fn read_digraph_json_graph(
@@ -672,6 +695,7 @@ impl EdgeListEngine {
                 );
                 return Ok(DiReadWriteReport {
                     graph: DiGraph::new(self.mode),
+                    graph_attrs: AttrMap::new(),
                     warnings: vec![warning],
                 });
             }
@@ -729,10 +753,22 @@ impl EdgeListEngine {
             0.04,
         );
 
-        Ok(DiReadWriteReport { graph, warnings })
+        Ok(DiReadWriteReport {
+            graph,
+            graph_attrs: AttrMap::new(),
+            warnings,
+        })
     }
 
     pub fn write_graphml(&mut self, graph: &Graph) -> Result<String, ReadWriteError> {
+        self.write_graphml_with_graph_attrs(graph, &AttrMap::new())
+    }
+
+    pub fn write_graphml_with_graph_attrs(
+        &mut self,
+        graph: &Graph,
+        graph_attrs: &AttrMap,
+    ) -> Result<String, ReadWriteError> {
         self.dispatch.resolve(&DispatchRequest {
             operation: "write_graphml".to_owned(),
             requested_backend: None,
@@ -741,10 +777,18 @@ impl EdgeListEngine {
             unknown_incompatible_feature: false,
         })?;
 
-        self.write_graphml_impl(graph, false)
+        self.write_graphml_impl(graph, graph_attrs, false)
     }
 
     pub fn write_digraph_graphml(&mut self, graph: &DiGraph) -> Result<String, ReadWriteError> {
+        self.write_digraph_graphml_with_graph_attrs(graph, &AttrMap::new())
+    }
+
+    pub fn write_digraph_graphml_with_graph_attrs(
+        &mut self,
+        graph: &DiGraph,
+        graph_attrs: &AttrMap,
+    ) -> Result<String, ReadWriteError> {
         self.dispatch.resolve(&DispatchRequest {
             operation: "write_graphml".to_owned(),
             requested_backend: None,
@@ -753,10 +797,15 @@ impl EdgeListEngine {
             unknown_incompatible_feature: false,
         })?;
 
-        self.write_graphml_impl(graph, true)
+        self.write_graphml_impl(graph, graph_attrs, true)
     }
 
-    fn write_graphml_impl<G>(&mut self, graph: &G, directed: bool) -> Result<String, ReadWriteError>
+    fn write_graphml_impl<G>(
+        &mut self,
+        graph: &G,
+        graph_attrs: &AttrMap,
+        directed: bool,
+    ) -> Result<String, ReadWriteError>
     where
         G: GraphLikeRead,
     {
@@ -777,9 +826,14 @@ impl EdgeListEngine {
             .write_event(Event::Start(graphml_start))
             .map_err(|e| xml_write_err("graphml_start", e))?;
 
-        // Collect all distinct attribute keys from nodes and edges.
+        // Collect all distinct attribute keys from graph, nodes, and edges.
+        let mut graph_attr_keys = BTreeSet::new();
         let mut node_attr_keys = BTreeSet::new();
         let mut edge_attr_keys = BTreeSet::new();
+
+        for key in graph_attrs.keys() {
+            graph_attr_keys.insert(key.clone());
+        }
 
         let nodes = graph.nodes_ordered();
         for node_id in &nodes {
@@ -797,8 +851,24 @@ impl EdgeListEngine {
             }
         }
 
-        // Emit <key> declarations for node attributes.
+        // Emit <key> declarations for graph attributes.
         let mut key_counter = 0_usize;
+        let mut graph_key_ids: BTreeMap<String, String> = BTreeMap::new();
+        for attr_name in &graph_attr_keys {
+            let key_id = format!("g{key_counter}");
+            key_counter += 1;
+            let mut key_elem = BytesStart::new("key");
+            key_elem.push_attribute(("id", key_id.as_str()));
+            key_elem.push_attribute(("for", "graph"));
+            key_elem.push_attribute(("attr.name", attr_name.as_str()));
+            key_elem.push_attribute(("attr.type", graphml_attr_type(&graph_attrs[attr_name])));
+            writer
+                .write_event(Event::Empty(key_elem))
+                .map_err(|e| xml_write_err("key_graph", e))?;
+            graph_key_ids.insert(attr_name.clone(), key_id);
+        }
+
+        // Emit <key> declarations for node attributes.
         let mut node_key_ids: BTreeMap<String, String> = BTreeMap::new();
         for attr_name in &node_attr_keys {
             let key_id = format!("n{key_counter}");
@@ -840,6 +910,23 @@ impl EdgeListEngine {
         writer
             .write_event(Event::Start(graph_elem))
             .map_err(|e| xml_write_err("graph_start", e))?;
+
+        for (attr_name, attr_value) in graph_attrs {
+            if let Some(key_id) = graph_key_ids.get(attr_name) {
+                let mut data_elem = BytesStart::new("data");
+                data_elem.push_attribute(("key", key_id.as_str()));
+                writer
+                    .write_event(Event::Start(data_elem))
+                    .map_err(|e| xml_write_err("graph_data_start", e))?;
+                let attr_text = attr_value.as_str();
+                writer
+                    .write_event(Event::Text(BytesText::new(&attr_text)))
+                    .map_err(|e| xml_write_err("graph_data_text", e))?;
+                writer
+                    .write_event(Event::End(BytesEnd::new("data")))
+                    .map_err(|e| xml_write_err("graph_data_end", e))?;
+            }
+        }
 
         // Emit <node> elements.
         for node_id in &nodes {
@@ -950,9 +1037,10 @@ impl EdgeListEngine {
         })?;
 
         let mut graph = Graph::new(self.mode);
+        let mut graph_attrs = AttrMap::new();
         let mut warnings = Vec::new();
 
-        self.read_graphml_into(&mut graph, &mut warnings, input)?;
+        self.read_graphml_into(&mut graph, &mut graph_attrs, &mut warnings, input)?;
 
         self.record(
             "read_graphml",
@@ -961,7 +1049,11 @@ impl EdgeListEngine {
             0.04,
         );
 
-        Ok(ReadWriteReport { graph, warnings })
+        Ok(ReadWriteReport {
+            graph,
+            graph_attrs,
+            warnings,
+        })
     }
 
     pub fn read_digraph_graphml(
@@ -977,9 +1069,10 @@ impl EdgeListEngine {
         })?;
 
         let mut graph = DiGraph::new(self.mode);
+        let mut graph_attrs = AttrMap::new();
         let mut warnings = Vec::new();
 
-        self.read_graphml_into(&mut graph, &mut warnings, input)?;
+        self.read_graphml_into(&mut graph, &mut graph_attrs, &mut warnings, input)?;
 
         self.record(
             "read_graphml",
@@ -988,12 +1081,17 @@ impl EdgeListEngine {
             0.04,
         );
 
-        Ok(DiReadWriteReport { graph, warnings })
+        Ok(DiReadWriteReport {
+            graph,
+            graph_attrs,
+            warnings,
+        })
     }
 
     fn read_graphml_into<G>(
         &mut self,
         graph: &mut G,
+        graph_attrs: &mut AttrMap,
         warnings: &mut Vec<String>,
         input: &str,
     ) -> Result<(), ReadWriteError>
@@ -1010,6 +1108,7 @@ impl EdgeListEngine {
         let mut current_data_key: Option<String> = None;
         let mut current_data_text = String::new();
 
+        let mut pending_graph_attrs: AttrMap = AttrMap::new();
         let mut pending_node_attrs: AttrMap = AttrMap::new();
         let mut pending_edge_attrs: AttrMap = AttrMap::new();
 
@@ -1026,6 +1125,7 @@ impl EdgeListEngine {
                         &mut current_edge,
                         &mut current_data_key,
                         &mut current_data_text,
+                        &mut pending_graph_attrs,
                         &mut pending_node_attrs,
                         &mut pending_edge_attrs,
                     )?;
@@ -1041,6 +1141,7 @@ impl EdgeListEngine {
                         &mut current_edge,
                         &mut current_data_key,
                         &mut current_data_text,
+                        &mut pending_graph_attrs,
                         &mut pending_node_attrs,
                         &mut pending_edge_attrs,
                     )?;
@@ -1053,8 +1154,10 @@ impl EdgeListEngine {
                         &mut current_edge,
                         &mut current_data_key,
                         &mut current_data_text,
+                        &mut pending_graph_attrs,
                         &mut pending_node_attrs,
                         &mut pending_edge_attrs,
+                        graph_attrs,
                         &key_registry,
                     )?;
                 }
@@ -1071,8 +1174,10 @@ impl EdgeListEngine {
                         &mut current_edge,
                         &mut current_data_key,
                         &mut current_data_text,
+                        &mut pending_graph_attrs,
                         &mut pending_node_attrs,
                         &mut pending_edge_attrs,
+                        graph_attrs,
                         &key_registry,
                     )?;
                 }
@@ -1108,6 +1213,7 @@ impl EdgeListEngine {
         current_edge: &mut Option<(String, String)>,
         current_data_key: &mut Option<String>,
         current_data_text: &mut String,
+        pending_graph_attrs: &mut AttrMap,
         pending_node_attrs: &mut AttrMap,
         pending_edge_attrs: &mut AttrMap,
     ) -> Result<(), ReadWriteError>
@@ -1145,6 +1251,7 @@ impl EdgeListEngine {
             }
             b"graph" => {
                 *in_graph = true;
+                pending_graph_attrs.clear();
             }
             b"node" if *in_graph => {
                 let mut node_id = String::new();
@@ -1226,8 +1333,10 @@ impl EdgeListEngine {
         current_edge: &mut Option<(String, String)>,
         current_data_key: &mut Option<String>,
         current_data_text: &mut String,
+        pending_graph_attrs: &mut AttrMap,
         pending_node_attrs: &mut AttrMap,
         pending_edge_attrs: &mut AttrMap,
+        graph_attrs: &mut AttrMap,
         key_registry: &BTreeMap<String, (String, String, String)>,
     ) -> Result<(), ReadWriteError>
     where
@@ -1248,6 +1357,8 @@ impl EdgeListEngine {
                         pending_node_attrs.insert(_attr_name.clone(), value);
                     } else if current_edge.is_some() {
                         pending_edge_attrs.insert(_attr_name.clone(), value);
+                    } else {
+                        pending_graph_attrs.insert(_attr_name.clone(), value);
                     }
                 }
                 current_data_text.clear();
@@ -1284,6 +1395,7 @@ impl EdgeListEngine {
                 pending_edge_attrs.clear();
             }
             b"graph" => {
+                *graph_attrs = std::mem::take(pending_graph_attrs);
                 *in_graph = false;
             }
             _ => {}
@@ -1297,22 +1409,42 @@ impl EdgeListEngine {
 
     /// Write an undirected graph to GML format.
     pub fn write_gml(&mut self, graph: &Graph) -> Result<String, ReadWriteError> {
-        self.write_gml_impl(graph, false)
+        self.write_gml_with_graph_attrs(graph, &AttrMap::new())
+    }
+
+    pub fn write_gml_with_graph_attrs(
+        &mut self,
+        graph: &Graph,
+        graph_attrs: &AttrMap,
+    ) -> Result<String, ReadWriteError> {
+        self.write_gml_impl(graph, graph_attrs, false)
     }
 
     /// Write a directed graph to GML format.
     pub fn write_digraph_gml(&mut self, graph: &DiGraph) -> Result<String, ReadWriteError> {
-        self.write_gml_impl(graph, true)
+        self.write_digraph_gml_with_graph_attrs(graph, &AttrMap::new())
+    }
+
+    pub fn write_digraph_gml_with_graph_attrs(
+        &mut self,
+        graph: &DiGraph,
+        graph_attrs: &AttrMap,
+    ) -> Result<String, ReadWriteError> {
+        self.write_gml_impl(graph, graph_attrs, true)
     }
 
     fn write_gml_impl(
         &mut self,
         graph: &dyn GraphLikeRead,
+        graph_attrs: &AttrMap,
         directed: bool,
     ) -> Result<String, ReadWriteError> {
         let mut out = String::new();
         out.push_str("graph [\n");
         out.push_str(&format!("  directed {}\n", if directed { 1 } else { 0 }));
+        for (key, value) in graph_attrs {
+            out.push_str(&format!("  {} {}\n", key, gml_value_str(value)));
+        }
 
         // Build node-name → id map (use integer label if parseable, otherwise assign sequentially)
         let mut label_to_id: BTreeMap<String, i64> = BTreeMap::new();
@@ -1369,8 +1501,9 @@ impl EdgeListEngine {
     /// Read a GML string into an undirected graph.
     pub fn read_gml(&mut self, input: &str) -> Result<ReadWriteReport, ReadWriteError> {
         let mut graph = Graph::new(self.mode);
+        let mut graph_attrs = AttrMap::new();
         let mut warnings = Vec::new();
-        let is_directed = self.read_gml_into(&mut graph, &mut warnings, input)?;
+        let is_directed = self.read_gml_into(&mut graph, &mut graph_attrs, &mut warnings, input)?;
         if is_directed {
             warnings.push("GML declares directed=1 but read into undirected Graph".to_owned());
         }
@@ -1380,27 +1513,37 @@ impl EdgeListEngine {
             "gml parse completed",
             0.04,
         );
-        Ok(ReadWriteReport { graph, warnings })
+        Ok(ReadWriteReport {
+            graph,
+            graph_attrs,
+            warnings,
+        })
     }
 
     /// Read a GML string into a directed graph.
     pub fn read_digraph_gml(&mut self, input: &str) -> Result<DiReadWriteReport, ReadWriteError> {
         let mut graph = DiGraph::new(self.mode);
+        let mut graph_attrs = AttrMap::new();
         let mut warnings = Vec::new();
-        let _ = self.read_gml_into(&mut graph, &mut warnings, input)?;
+        let _ = self.read_gml_into(&mut graph, &mut graph_attrs, &mut warnings, input)?;
         self.record(
             "read_gml",
             DecisionAction::Allow,
             "digraph gml parse completed",
             0.04,
         );
-        Ok(DiReadWriteReport { graph, warnings })
+        Ok(DiReadWriteReport {
+            graph,
+            graph_attrs,
+            warnings,
+        })
     }
 
     /// Parse GML into a generic graph. Returns whether directed=1 was declared.
     fn read_gml_into<G>(
         &mut self,
         graph: &mut G,
+        graph_attrs: &mut AttrMap,
         warnings: &mut Vec<String>,
         input: &str,
     ) -> Result<bool, ReadWriteError>
@@ -1468,6 +1611,16 @@ impl EdgeListEngine {
                     pos = new_pos;
                 }
                 "]" => break,
+                key if pos + 1 < tokens.len()
+                    && tokens[pos + 1] != "["
+                    && tokens[pos + 1] != "]" =>
+                {
+                    graph_attrs.insert(
+                        key.to_owned(),
+                        CgseValue::String(gml_unescape(&tokens[pos + 1])),
+                    );
+                    pos += 2;
+                }
                 _ => {
                     pos += 1;
                 }
@@ -1669,6 +1822,15 @@ fn gml_value_str(value: &CgseValue) -> String {
         s
     } else {
         format!("\"{}\"", gml_escape(&s))
+    }
+}
+
+fn graphml_attr_type(value: &CgseValue) -> &'static str {
+    match value {
+        CgseValue::String(_) => "string",
+        CgseValue::Float(_) => "double",
+        CgseValue::Int(_) => "int",
+        CgseValue::Bool(_) => "boolean",
     }
 }
 
@@ -2130,6 +2292,107 @@ mod tests {
             parsed.graph.node_attrs("a").unwrap().get("color").unwrap(),
             &CgseValue::String("red".to_owned())
         );
+    }
+
+    #[test]
+    fn read_gml_preserves_graph_attrs() {
+        let input = r#"graph [
+  directed 0
+  label "demo"
+  owner "qa"
+  node [
+    id 0
+    label "a"
+  ]
+  node [
+    id 1
+    label "b"
+  ]
+  edge [
+    source 0
+    target 1
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let parsed = engine.read_gml(input).expect("gml read should succeed");
+
+        assert_eq!(
+            parsed.graph_attrs.get("label"),
+            Some(&CgseValue::String("demo".to_owned()))
+        );
+        assert_eq!(
+            parsed.graph_attrs.get("owner"),
+            Some(&CgseValue::String("qa".to_owned()))
+        );
+    }
+
+    #[test]
+    fn read_graphml_preserves_graph_attrs() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <key id="g0" for="graph" attr.name="name" attr.type="string"/>
+  <key id="g1" for="graph" attr.name="version" attr.type="int"/>
+  <graph id="G" edgedefault="undirected">
+    <data key="g0">demo</data>
+    <data key="g1">3</data>
+    <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b"/>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let parsed = engine
+            .read_graphml(input)
+            .expect("graphml read should succeed");
+
+        assert_eq!(
+            parsed.graph_attrs.get("name"),
+            Some(&CgseValue::String("demo".to_owned()))
+        );
+        assert_eq!(parsed.graph_attrs.get("version"), Some(&CgseValue::Int(3)));
+    }
+
+    #[test]
+    fn write_gml_preserves_graph_attrs() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        let graph_attrs = BTreeMap::from([
+            ("label".to_owned(), CgseValue::String("demo".to_owned())),
+            ("owner".to_owned(), CgseValue::String("qa".to_owned())),
+        ]);
+
+        let mut engine = EdgeListEngine::strict();
+        let gml = engine
+            .write_gml_with_graph_attrs(&graph, &graph_attrs)
+            .expect("gml write should succeed");
+
+        assert!(gml.contains("  label \"demo\"\n"));
+        assert!(gml.contains("  owner \"qa\"\n"));
+    }
+
+    #[test]
+    fn write_graphml_preserves_graph_attrs() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        let graph_attrs = BTreeMap::from([
+            ("name".to_owned(), CgseValue::String("demo".to_owned())),
+            ("version".to_owned(), CgseValue::Int(3)),
+            ("public".to_owned(), CgseValue::Bool(true)),
+        ]);
+
+        let mut engine = EdgeListEngine::strict();
+        let xml = engine
+            .write_graphml_with_graph_attrs(&graph, &graph_attrs)
+            .expect("graphml write should succeed");
+
+        assert!(xml.contains(r#"<key id="g0" for="graph" attr.name="name" attr.type="string"/>"#));
+        assert!(xml.contains(r#"<key id="g1" for="graph" attr.name="public" attr.type="boolean"/>"#));
+        assert!(xml.contains(r#"<key id="g2" for="graph" attr.name="version" attr.type="int"/>"#));
+        assert!(xml.contains(r#"<data key="g0">demo</data>"#));
+        assert!(xml.contains(r#"<data key="g1">true</data>"#));
+        assert!(xml.contains(r#"<data key="g2">3</data>"#));
     }
 
     #[test]
