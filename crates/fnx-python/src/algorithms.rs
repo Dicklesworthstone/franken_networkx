@@ -1980,7 +1980,21 @@ pub fn katz_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDi
 /// nodes : dict
 ///     Dictionary of nodes with betweenness centrality as the value.
 #[pyfunction]
-pub fn betweenness_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+#[pyo3(signature = (g, k=None, normalized=true, weight=None, endpoints=false, seed=None))]
+pub fn betweenness_centrality(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    k: Option<Bound<'_, PyAny>>,
+    normalized: bool,
+    weight: Option<&str>,
+    endpoints: bool,
+    seed: Option<Bound<'_, PyAny>>,
+) -> PyResult<Py<PyDict>> {
+    if k.is_some() || !normalized || weight.is_some() || endpoints || seed.is_some() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "franken_networkx currently only supports default parameters for betweenness_centrality",
+        ));
+    }
     let gr = extract_graph(g)?;
     log::info!(target: "franken_networkx", "betweenness_centrality: nodes={}", gr.undirected().node_count());
     let result = match &gr {
@@ -2041,7 +2055,20 @@ pub fn edge_betweenness_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyRe
 
 /// Return the eigenvector centrality for all nodes.
 #[pyfunction]
-pub fn eigenvector_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+#[pyo3(signature = (g, max_iter=100, tol=1.0e-6, nstart=None, weight="weight"))]
+pub fn eigenvector_centrality(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    max_iter: usize,
+    tol: f64,
+    nstart: Option<Bound<'_, PyAny>>,
+    weight: Option<&str>,
+) -> PyResult<Py<PyDict>> {
+    if max_iter != 100 || (tol - 1.0e-6).abs() > f64::EPSILON || nstart.is_some() || weight.is_some_and(|w| w != "weight") {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "franken_networkx currently only supports default parameters for eigenvector_centrality",
+        ));
+    }
     let gr = extract_graph(g)?;
     let result = match &gr {
         GraphRef::Undirected(pg) => {
@@ -2078,16 +2105,23 @@ pub fn eigenvector_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<
 /// pagerank : dict
 ///     Dictionary of nodes with PageRank as value.
 #[pyfunction]
-#[pyo3(signature = (g, alpha=0.85, max_iter=100, tol=1.0e-6, weight="weight"))]
+#[pyo3(signature = (g, alpha=0.85, personalization=None, max_iter=100, tol=1.0e-6, nstart=None, weight="weight", dangling=None))]
 pub fn pagerank(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     alpha: f64,
+    personalization: Option<Bound<'_, PyAny>>,
     max_iter: usize,
     tol: f64,
-    weight: &str,
+    nstart: Option<Bound<'_, PyAny>>,
+    weight: Option<&str>,
+    dangling: Option<Bound<'_, PyAny>>,
 ) -> PyResult<Py<PyDict>> {
-    let _ = weight; // weight attr threading deferred to Rust internals
+    if personalization.is_some() || nstart.is_some() || dangling.is_some() || weight.is_some_and(|w| w != "weight") {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "franken_networkx currently only supports default parameters for pagerank",
+        ));
+    }
     let gr = extract_graph(g)?;
     log::info!(target: "franken_networkx", "pagerank: nodes={}", gr.undirected().node_count());
     let result = match &gr {
@@ -2118,7 +2152,20 @@ pub fn pagerank(
 
 /// Return HITS hubs and authorities scores.
 #[pyfunction]
-pub fn hits(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<(Py<PyDict>, Py<PyDict>)> {
+#[pyo3(signature = (g, max_iter=100, tol=1.0e-8, nstart=None, normalized=true))]
+pub fn hits(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    max_iter: usize,
+    tol: f64,
+    nstart: Option<Bound<'_, PyAny>>,
+    normalized: bool,
+) -> PyResult<(Py<PyDict>, Py<PyDict>)> {
+    if max_iter != 100 || (tol - 1.0e-8).abs() > f64::EPSILON || nstart.is_some() || !normalized {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "franken_networkx currently only supports default parameters for hits",
+        ));
+    }
     let gr = extract_graph(g)?;
     let result = match &gr {
         GraphRef::Undirected(pg) => {
@@ -9592,6 +9639,14 @@ pub fn arborescence_iterator_rust(
     let arbs = py.allow_threads(move || {
         fnx_algorithms::arborescence_iterator_ordered(dg, &w, minimum, max_count)
     });
+    if arbs.is_empty() {
+        let message = if minimum {
+            "No minimum spanning arborescence in G."
+        } else {
+            "No maximum spanning arborescence in G."
+        };
+        return Err(crate::NetworkXError::new_err(message));
+    }
     arbs.into_iter()
         .map(|a| rust_digraph_to_py_subgraph(py, &a, &gr))
         .collect()
