@@ -17,6 +17,7 @@ Or as a NetworkX backend (zero code changes required)::
 """
 
 from enum import Enum
+import math
 
 from franken_networkx._fnx import __version__
 
@@ -31,6 +32,34 @@ class EdgePartition(Enum):
     OPEN = 0
     INCLUDED = 1
     EXCLUDED = 2
+
+
+def _nan_filtered_graph(G, weight, ignore_nan):
+    if G.is_directed():
+        H = G.__class__()
+    else:
+        H = G.__class__()
+    H.graph.update(dict(G.graph))
+    H.add_nodes_from(G.nodes(data=True))
+
+    if G.is_multigraph():
+        for u, v, key, attrs in G.edges(keys=True, data=True):
+            edge_weight = attrs.get(weight, 1)
+            if isinstance(edge_weight, float) and math.isnan(edge_weight):
+                if ignore_nan:
+                    continue
+                raise ValueError(f"NaN found as an edge weight. Edge {(u, v, dict(attrs))}")
+            H.add_edge(u, v, key=key, **dict(attrs))
+    else:
+        for u, v, attrs in G.edges(data=True):
+            edge_weight = attrs.get(weight, 1)
+            if isinstance(edge_weight, float) and math.isnan(edge_weight):
+                if ignore_nan:
+                    continue
+                raise ValueError(f"NaN found as an edge weight. Edge {(u, v, dict(attrs))}")
+            H.add_edge(u, v, **dict(attrs))
+
+    return H
 
 
 class SpanningTreeIterator:
@@ -55,13 +84,19 @@ class SpanningTreeIterator:
         self.G = G
         self.weight = weight
         self.minimum = minimum
+        self.ignore_nan = ignore_nan
         self._trees = None
         self._index = 0
 
     def __iter__(self):
         from franken_networkx._fnx import spanning_tree_iterator_rust
+        from franken_networkx._fnx import NetworkXNotImplemented
+
+        if self.G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+        graph = _nan_filtered_graph(self.G, self.weight, self.ignore_nan)
         self._trees = spanning_tree_iterator_rust(
-            self.G, self.weight, self.minimum, 2**31,
+            graph, self.weight, self.minimum, 2**31,
         )
         self._index = 0
         return self
@@ -95,6 +130,12 @@ class ArborescenceIterator:
     """
 
     def __init__(self, G, weight="weight", minimum=True, init_partition=None):
+        if init_partition is not None:
+            from franken_networkx._fnx import NetworkXNotImplemented
+
+            raise NetworkXNotImplemented(
+                "ArborescenceIterator does not yet support init_partition",
+            )
         self.G = G
         self.weight = weight
         self.minimum = minimum
@@ -103,6 +144,10 @@ class ArborescenceIterator:
 
     def __iter__(self):
         from franken_networkx._fnx import arborescence_iterator_rust
+        from franken_networkx._fnx import NetworkXNotImplemented
+
+        if not self.G.is_directed():
+            raise NetworkXNotImplemented("not implemented for undirected type")
         self._arbs = arborescence_iterator_rust(
             self.G, self.weight, self.minimum, 2**31,
         )

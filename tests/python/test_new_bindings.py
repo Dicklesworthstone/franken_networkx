@@ -167,6 +167,47 @@ class TestBranchingConstructors:
         assert arb.edges[1, 2]["tag"] == "keep"
         assert dict(arb.graph) == {"name": "demo"}
 
+    def test_arborescence_iterator_rejects_unsupported_init_partition(self):
+        digraph = fnx.DiGraph()
+        digraph.add_edge("a", "b", weight=1)
+        digraph.add_edge("b", "a", weight=2)
+
+        with pytest.raises(fnx.NetworkXNotImplemented, match="init_partition"):
+            fnx.ArborescenceIterator(
+                digraph,
+                weight="weight",
+                minimum=True,
+                init_partition=([], [("a", "b")]),
+            )
+
+    def test_spanning_tree_iterator_honors_ignore_nan(self):
+        graph = fnx.Graph()
+        graph.add_edge("a", "b", weight=float("nan"))
+        graph.add_edge("b", "c", weight=1.0)
+        graph.add_edge("a", "c", weight=2.0)
+
+        with pytest.raises(ValueError, match="NaN found as an edge weight"):
+            list(fnx.SpanningTreeIterator(graph, weight="weight", ignore_nan=False))
+
+        trees = list(fnx.SpanningTreeIterator(graph, weight="weight", ignore_nan=True))
+
+        assert len(trees) == 1
+        assert sorted(trees[0].edges()) == [("a", "c"), ("b", "c")]
+
+    def test_spanning_tree_iterator_rejects_directed_graphs(self):
+        digraph = fnx.DiGraph()
+        digraph.add_edge("a", "b", weight=1)
+
+        with pytest.raises(fnx.NetworkXNotImplemented, match="directed type"):
+            next(iter(fnx.SpanningTreeIterator(digraph)))
+
+    def test_arborescence_iterator_rejects_undirected_graphs(self):
+        graph = fnx.Graph()
+        graph.add_edge("a", "b", weight=1)
+
+        with pytest.raises(fnx.NetworkXNotImplemented, match="undirected type"):
+            next(iter(fnx.ArborescenceIterator(graph)))
+
 
 # ---------------------------------------------------------------------------
 # is_isolate, isolates, number_of_isolates
