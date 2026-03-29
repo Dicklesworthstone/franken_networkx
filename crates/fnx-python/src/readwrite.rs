@@ -354,6 +354,7 @@ fn node_link_data(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
 
 #[pyfunction]
 #[pyo3(signature = (data, directed=false, multigraph=true, attrs=None, source="source", target="target", name="id", key="key", link="links"))]
+#[allow(unused_variables)]
 fn node_link_graph(
     py: Python<'_>,
     data: &Bound<'_, PyAny>,

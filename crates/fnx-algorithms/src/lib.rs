@@ -24185,16 +24185,14 @@ pub fn spanning_tree_iterator(graph: &Graph, weight_attr: &str, max_count: usize
     spanning_tree_iterator_ordered(graph, weight_attr, true, max_count)
 }
 
-/// Enumerate spanning trees with explicit ordering control.
-
 // Partition: maps (u,v) canonical edge key → PartitionState
-pub type PartitionDict = std::collections::HashMap<(String, String), PartitionState>;
+pub(crate) type PartitionDict = std::collections::HashMap<(String, String), PartitionState>;
 
 #[derive(Clone)]
-pub struct QueueEntry {
-    pub weight: f64,
-    pub sequence: u64,
-    pub partition: PartitionDict,
+pub(crate) struct QueueEntry {
+    pub(crate) weight: f64,
+    pub(crate) sequence: u64,
+    pub(crate) partition: PartitionDict,
 }
 
 impl PartialEq for QueueEntry {
@@ -24513,6 +24511,25 @@ pub fn arborescence_iterator(
     for &node in &nodes {
         filtered.add_node(node.to_owned());
     }
+    let bonus_magnitude = digraph
+        .edges_ordered()
+        .iter()
+        .filter_map(|edge| {
+            let key = (edge.left.clone(), edge.right.clone());
+            if matches!(effective_partition.get(&key), Some(PartitionState::Excluded)) {
+                None
+            } else {
+                Some(
+                    edge.attrs
+                        .get(weight_attr)
+                        .and_then(CgseValue::as_f64)
+                        .unwrap_or(1.0)
+                        .abs(),
+                )
+            }
+        })
+        .sum::<f64>()
+        + 1.0;
     let mut included_edges = Vec::new();
     for edge in digraph.edges_ordered() {
         let key = (edge.left.clone(), edge.right.clone());
@@ -24520,10 +24537,21 @@ pub fn arborescence_iterator(
             Some(PartitionState::Excluded) => continue,
             Some(PartitionState::Included) => {
                 included_edges.push(key.clone());
+                let mut attrs = edge.attrs.clone();
+                let original_weight = attrs
+                    .get(weight_attr)
+                    .and_then(CgseValue::as_f64)
+                    .unwrap_or(1.0);
+                let biased_weight = if minimum {
+                    original_weight - bonus_magnitude
+                } else {
+                    original_weight + bonus_magnitude
+                };
+                attrs.insert(weight_attr.to_owned(), CgseValue::Float(biased_weight));
                 let _ = filtered.add_edge_with_attrs(
                     edge.left.clone(),
                     edge.right.clone(),
-                    edge.attrs.clone(),
+                    attrs,
                 );
             }
             _ => {
@@ -24566,7 +24594,16 @@ pub fn arborescence_iterator(
         .iter()
         .map(|e| (e.left.clone(), e.right.clone()))
         .collect();
-    Some((arb.total_weight, edges))
+    let total_weight = edges
+        .iter()
+        .map(|(u, v)| {
+            digraph
+                .edge_attrs(u, v)
+                .and_then(|attrs| attrs.get(weight_attr).and_then(CgseValue::as_f64))
+                .unwrap_or(1.0)
+        })
+        .sum();
+    Some((total_weight, edges))
 }
 
 
@@ -24706,13 +24743,876 @@ pub fn arborescence_iterator_ordered(
     minimum: bool,
     max_count: usize,
 ) -> Vec<DiGraph> {
-    match ArborescenceIteratorState::new(digraph, weight_attr, minimum) {
-        Ok(iter) => iter.take(max_count).collect(),
-        Err(_) => Vec::new(),
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return vec![DiGraph::strict()];
     }
+    if n == 1 {
+        let mut g = DiGraph::strict();
+        g.add_node(nodes[0].to_owned());
+        return vec![g];
+    }
+
+    let mode = digraph.mode();
+    let mut enumerated: Vec<(f64, Vec<(String, String)>)> = Vec::new();
+    let mut seen: HashSet<Vec<(String, String)>> = HashSet::new();
+
+    fn reaches_root(
+        node: &str,
+        root: &str,
+        parent: &HashMap<String, String>,
+        path: &mut HashSet<String>,
+    ) -> bool {
+        if node == root {
+            return true;
+        }
+        if !path.insert(node.to_owned()) {
+            return false;
+        }
+        let Some(next) = parent.get(node) else {
+            return false;
+        };
+        reaches_root(next, root, parent, path)
+    }
+
+    fn would_create_cycle(
+        source: &str,
+        target: &str,
+        root: &str,
+        parent: &HashMap<String, String>,
+    ) -> bool {
+        let mut current = source;
+        let mut seen = HashSet::new();
+        while current != root {
+            if current == target {
+                return true;
+            }
+            if !seen.insert(current.to_owned()) {
+                return true;
+            }
+            let Some(next) = parent.get(current) else {
+                return false;
+            };
+            current = next;
+        }
+        false
+    }
+
+    fn backtrack(
+        idx: usize,
+        targets: &[String],
+        incoming: &HashMap<String, Vec<(String, f64)>>,
+        root: &str,
+        parent: &mut HashMap<String, String>,
+        chosen_edges: &mut Vec<(String, String)>,
+        digraph: &DiGraph,
+        weight_attr: &str,
+        seen: &mut HashSet<Vec<(String, String)>>,
+        enumerated: &mut Vec<(f64, Vec<(String, String)>)>,
+    ) {
+        if idx == targets.len() {
+            for node in digraph.nodes_ordered() {
+                let mut path = HashSet::new();
+                if !reaches_root(node, root, parent, &mut path) {
+                    return;
+                }
+            }
+
+            let mut canonical_edges = chosen_edges.clone();
+            canonical_edges.sort();
+            if !seen.insert(canonical_edges.clone()) {
+                return;
+            }
+
+            let total_weight = canonical_edges
+                .iter()
+                .map(|(u, v)| {
+                    digraph
+                        .edge_attrs(u, v)
+                        .and_then(|attrs| attrs.get(weight_attr).and_then(CgseValue::as_f64))
+                        .unwrap_or(1.0)
+                })
+                .sum();
+            enumerated.push((total_weight, canonical_edges));
+            return;
+        }
+
+        let target = &targets[idx];
+        let Some(candidates) = incoming.get(target) else {
+            return;
+        };
+        for (source, _weight) in candidates {
+            if would_create_cycle(source, target, root, parent) {
+                continue;
+            }
+            parent.insert(target.clone(), source.clone());
+            chosen_edges.push((source.clone(), target.clone()));
+            backtrack(
+                idx + 1,
+                targets,
+                incoming,
+                root,
+                parent,
+                chosen_edges,
+                digraph,
+                weight_attr,
+                seen,
+                enumerated,
+            );
+            chosen_edges.pop();
+            parent.remove(target);
+        }
+    }
+
+    for &root in &nodes {
+        let targets: Vec<String> = nodes
+            .iter()
+            .filter(|&&node| node != root)
+            .map(|&node| node.to_owned())
+            .collect();
+        let mut incoming: HashMap<String, Vec<(String, f64)>> = HashMap::new();
+        let mut feasible = true;
+        for target in &targets {
+            let candidates: Vec<(String, f64)> = digraph
+                .edges_ordered()
+                .iter()
+                .filter(|edge| edge.right == *target)
+                .map(|edge| {
+                    (
+                        edge.left.clone(),
+                        edge.attrs
+                            .get(weight_attr)
+                            .and_then(CgseValue::as_f64)
+                            .unwrap_or(1.0),
+                    )
+                })
+                .collect();
+            if candidates.is_empty() {
+                feasible = false;
+                break;
+            }
+            incoming.insert(target.clone(), candidates);
+        }
+        if !feasible {
+            continue;
+        }
+
+        let mut parent = HashMap::new();
+        let mut chosen_edges = Vec::with_capacity(n.saturating_sub(1));
+        backtrack(
+            0,
+            &targets,
+            &incoming,
+            root,
+            &mut parent,
+            &mut chosen_edges,
+            digraph,
+            weight_attr,
+            &mut seen,
+            &mut enumerated,
+        );
+    }
+
+    enumerated.sort_by(|(wa, ea), (wb, eb)| {
+        if minimum {
+            wa.total_cmp(wb).then_with(|| ea.cmp(eb))
+        } else {
+            wb.total_cmp(wa).then_with(|| ea.cmp(eb))
+        }
+    });
+
+    enumerated
+        .into_iter()
+        .take(max_count)
+        .map(|(_weight, edges)| {
+            let node_refs: Vec<&str> = nodes.to_vec();
+            build_arborescence(&node_refs, &edges, mode)
+        })
+        .collect()
 }
 
 
+
+// ---------------------------------------------------------------------------
+// SimRank similarity
+// ---------------------------------------------------------------------------
+
+/// Compute SimRank similarity between all pairs of nodes.
+///
+/// Returns a map of node → (map of node → similarity score).
+/// SimRank(a, b) = importance_factor * avg(SimRank(N_a, N_b))
+/// where N_a, N_b are in-neighbors (or neighbors for undirected).
+pub fn simrank_similarity(
+    graph: &Graph,
+    importance_factor: f64,
+    max_iterations: usize,
+    tolerance: f64,
+) -> HashMap<String, HashMap<String, f64>> {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+
+    // sim[i*n + j] = similarity between node i and node j
+    let mut sim = vec![0.0_f64; n * n];
+    for i in 0..n {
+        sim[i * n + i] = 1.0;
+    }
+
+    // Precompute neighbor lists
+    let nbrs: Vec<Vec<usize>> = nodes
+        .iter()
+        .map(|&nd| {
+            graph
+                .neighbors_iter(nd)
+                .map(|iter| iter.map(|nb| idx[nb]).collect())
+                .unwrap_or_default()
+        })
+        .collect();
+
+    for _ in 0..max_iterations {
+        let mut new_sim = vec![0.0_f64; n * n];
+        for i in 0..n {
+            new_sim[i * n + i] = 1.0;
+        }
+        for i in 0..n {
+            if nbrs[i].is_empty() {
+                continue;
+            }
+            for j in (i + 1)..n {
+                if nbrs[j].is_empty() {
+                    continue;
+                }
+                let mut s = 0.0;
+                for &a in &nbrs[i] {
+                    for &b in &nbrs[j] {
+                        s += sim[a * n + b];
+                    }
+                }
+                s *= importance_factor / (nbrs[i].len() as f64 * nbrs[j].len() as f64);
+                new_sim[i * n + j] = s;
+                new_sim[j * n + i] = s;
+            }
+        }
+
+        // Check convergence
+        let max_diff = sim
+            .iter()
+            .zip(new_sim.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0_f64, f64::max);
+        sim = new_sim;
+        if max_diff < tolerance {
+            break;
+        }
+    }
+
+    let mut result = HashMap::new();
+    for (i, &u) in nodes.iter().enumerate() {
+        let mut row = HashMap::new();
+        for (j, &v) in nodes.iter().enumerate() {
+            row.insert(v.to_owned(), sim[i * n + j]);
+        }
+        result.insert(u.to_owned(), row);
+    }
+    result
+}
+
+/// SimRank for a specific pair of nodes.
+pub fn simrank_similarity_pair(
+    graph: &Graph,
+    source: &str,
+    target: &str,
+    importance_factor: f64,
+    max_iterations: usize,
+    tolerance: f64,
+) -> f64 {
+    let all = simrank_similarity(graph, importance_factor, max_iterations, tolerance);
+    all.get(source)
+        .and_then(|row| row.get(target))
+        .copied()
+        .unwrap_or(0.0)
+}
+
+/// SimRank similarity for directed graphs (uses predecessors).
+pub fn simrank_similarity_directed(
+    digraph: &DiGraph,
+    importance_factor: f64,
+    max_iterations: usize,
+    tolerance: f64,
+) -> HashMap<String, HashMap<String, f64>> {
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+
+    let mut sim = vec![0.0_f64; n * n];
+    for i in 0..n {
+        sim[i * n + i] = 1.0;
+    }
+
+    // Use predecessors for directed SimRank
+    let preds: Vec<Vec<usize>> = nodes
+        .iter()
+        .map(|&nd| {
+            digraph
+                .predecessors(nd)
+                .map(|iter| iter.iter().map(|nb| idx[&**nb]).collect())
+                .unwrap_or_default()
+        })
+        .collect();
+
+    for _ in 0..max_iterations {
+        let mut new_sim = vec![0.0_f64; n * n];
+        for i in 0..n {
+            new_sim[i * n + i] = 1.0;
+        }
+        for i in 0..n {
+            if preds[i].is_empty() {
+                continue;
+            }
+            for j in (i + 1)..n {
+                if preds[j].is_empty() {
+                    continue;
+                }
+                let mut s = 0.0;
+                for &a in &preds[i] {
+                    for &b in &preds[j] {
+                        s += sim[a * n + b];
+                    }
+                }
+                s *= importance_factor / (preds[i].len() as f64 * preds[j].len() as f64);
+                new_sim[i * n + j] = s;
+                new_sim[j * n + i] = s;
+            }
+        }
+
+        let max_diff = sim
+            .iter()
+            .zip(new_sim.iter())
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0_f64, f64::max);
+        sim = new_sim;
+        if max_diff < tolerance {
+            break;
+        }
+    }
+
+    let mut result = HashMap::new();
+    for (i, &u) in nodes.iter().enumerate() {
+        let mut row = HashMap::new();
+        for (j, &v) in nodes.iter().enumerate() {
+            row.insert(v.to_owned(), sim[i * n + j]);
+        }
+        result.insert(u.to_owned(), row);
+    }
+    result
+}
+
+// ---------------------------------------------------------------------------
+// Google PageRank matrix
+// ---------------------------------------------------------------------------
+
+/// Compute the Google PageRank matrix: alpha * S + (1-alpha) * v * e^T
+///
+/// Returns a flat n×n matrix in row-major order, along with the node list.
+/// S is the row-stochastic transition matrix (dangling nodes get uniform 1/n).
+pub fn google_matrix(
+    graph: &Graph,
+    alpha: f64,
+    weight_attr: &str,
+) -> (Vec<f64>, Vec<String>) {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return (Vec::new(), Vec::new());
+    }
+    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+
+    // Build adjacency matrix
+    let mut a = vec![0.0_f64; n * n];
+    for edge in graph.edges_ordered() {
+        let i = idx[edge.left.as_str()];
+        let j = idx[edge.right.as_str()];
+        let w = edge
+            .attrs
+            .get(weight_attr)
+            .and_then(|v| v.as_f64())
+            .unwrap_or(1.0);
+        a[i * n + j] += w;
+        a[j * n + i] += w; // undirected
+    }
+
+    // Row-stochastic matrix S
+    let mut s = vec![0.0_f64; n * n];
+    for i in 0..n {
+        let row_sum: f64 = a[i * n..(i + 1) * n].iter().sum();
+        if row_sum > 0.0 {
+            for j in 0..n {
+                s[i * n + j] = a[i * n + j] / row_sum;
+            }
+        } else {
+            // Dangling node: uniform
+            let uniform = 1.0 / n as f64;
+            for j in 0..n {
+                s[i * n + j] = uniform;
+            }
+        }
+    }
+
+    // Google matrix: alpha * S + (1-alpha) * (1/n) * ones
+    let v = 1.0 / n as f64;
+    let mut result = vec![0.0_f64; n * n];
+    for i in 0..n {
+        for j in 0..n {
+            result[i * n + j] = alpha * s[i * n + j] + (1.0 - alpha) * v;
+        }
+    }
+
+    let node_list: Vec<String> = nodes.iter().map(|&s| s.to_owned()).collect();
+    (result, node_list)
+}
+
+/// Google matrix for directed graphs.
+pub fn google_matrix_directed(
+    digraph: &DiGraph,
+    alpha: f64,
+    weight_attr: &str,
+) -> (Vec<f64>, Vec<String>) {
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return (Vec::new(), Vec::new());
+    }
+    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+
+    let mut a = vec![0.0_f64; n * n];
+    for edge in digraph.edges_ordered() {
+        let i = idx[edge.left.as_str()];
+        let j = idx[edge.right.as_str()];
+        let w = edge
+            .attrs
+            .get(weight_attr)
+            .and_then(|v| v.as_f64())
+            .unwrap_or(1.0);
+        a[i * n + j] += w;
+    }
+
+    let mut s = vec![0.0_f64; n * n];
+    for i in 0..n {
+        let row_sum: f64 = a[i * n..(i + 1) * n].iter().sum();
+        if row_sum > 0.0 {
+            for j in 0..n {
+                s[i * n + j] = a[i * n + j] / row_sum;
+            }
+        } else {
+            let uniform = 1.0 / n as f64;
+            for j in 0..n {
+                s[i * n + j] = uniform;
+            }
+        }
+    }
+
+    let v = 1.0 / n as f64;
+    let mut result = vec![0.0_f64; n * n];
+    for i in 0..n {
+        for j in 0..n {
+            result[i * n + j] = alpha * s[i * n + j] + (1.0 - alpha) * v;
+        }
+    }
+
+    let node_list: Vec<String> = nodes.iter().map(|&s| s.to_owned()).collect();
+    (result, node_list)
+}
+
+// ---------------------------------------------------------------------------
+// Second-order centrality
+// ---------------------------------------------------------------------------
+
+/// Compute second-order centrality: std dev of mean first passage times.
+///
+/// Based on random walk on the graph. For each node, computes the standard
+/// deviation of mean first passage times from all other nodes to it.
+/// Requires a connected graph.
+pub fn second_order_centrality(graph: &Graph) -> HashMap<String, f64> {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n <= 1 {
+        return nodes.iter().map(|&nd| (nd.to_owned(), 0.0)).collect();
+    }
+    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+
+    // Build transition matrix P (row-stochastic)
+    let mut p = vec![0.0_f64; n * n];
+    for i in 0..n {
+        if let Some(nbrs) = graph.neighbors_iter(nodes[i]) {
+            let nbr_list: Vec<usize> = nbrs.map(|nb| idx[nb]).collect();
+            if !nbr_list.is_empty() {
+                let deg = nbr_list.len() as f64;
+                for &j in &nbr_list {
+                    p[i * n + j] = 1.0 / deg;
+                }
+            }
+        }
+    }
+
+    // Stationary distribution: eigenvector of P^T with eigenvalue 1
+    // Use power iteration to find it
+    let mut pi = vec![1.0 / n as f64; n];
+    for _ in 0..1000 {
+        let mut new_pi = vec![0.0_f64; n];
+        for j in 0..n {
+            for i in 0..n {
+                new_pi[j] += pi[i] * p[i * n + j];
+            }
+        }
+        let sum: f64 = new_pi.iter().sum();
+        if sum > 0.0 {
+            for v in &mut new_pi {
+                *v /= sum;
+            }
+        }
+        let diff: f64 = pi.iter().zip(new_pi.iter()).map(|(a, b)| (a - b).abs()).sum();
+        pi = new_pi;
+        if diff < 1e-12 {
+            break;
+        }
+    }
+
+    // Fundamental matrix Z = (I - P + 1*pi^T)^{-1}
+    // We use Gauss-Jordan elimination since we don't have a linear algebra library
+    let mut mat = vec![0.0_f64; n * n]; // I - P + ones*pi
+    for i in 0..n {
+        for j in 0..n {
+            mat[i * n + j] = -p[i * n + j] + pi[j];
+            if i == j {
+                mat[i * n + j] += 1.0;
+            }
+        }
+    }
+
+    // Augmented matrix [mat | I] for inversion via Gauss-Jordan
+    let mut aug = vec![0.0_f64; n * 2 * n];
+    for i in 0..n {
+        for j in 0..n {
+            aug[i * 2 * n + j] = mat[i * n + j];
+        }
+        aug[i * 2 * n + n + i] = 1.0;
+    }
+
+    // Gauss-Jordan elimination
+    for col in 0..n {
+        // Partial pivoting
+        let mut max_row = col;
+        let mut max_val = aug[col * 2 * n + col].abs();
+        for row in (col + 1)..n {
+            let val = aug[row * 2 * n + col].abs();
+            if val > max_val {
+                max_val = val;
+                max_row = row;
+            }
+        }
+        if max_val < 1e-15 {
+            // Singular — return zeros
+            return nodes.iter().map(|&nd| (nd.to_owned(), 0.0)).collect();
+        }
+        if max_row != col {
+            for k in 0..(2 * n) {
+                aug.swap(col * 2 * n + k, max_row * 2 * n + k);
+            }
+        }
+
+        let pivot = aug[col * 2 * n + col];
+        for k in 0..(2 * n) {
+            aug[col * 2 * n + k] /= pivot;
+        }
+
+        for row in 0..n {
+            if row == col {
+                continue;
+            }
+            let factor = aug[row * 2 * n + col];
+            for k in 0..(2 * n) {
+                aug[row * 2 * n + k] -= factor * aug[col * 2 * n + k];
+            }
+        }
+    }
+
+    // Extract Z (the inverse) from the right half of augmented matrix
+    let mut z = vec![0.0_f64; n * n];
+    for i in 0..n {
+        for j in 0..n {
+            z[i * n + j] = aug[i * 2 * n + n + j];
+        }
+    }
+
+    // Compute mean first passage times and second-order centrality
+    let mut soc = HashMap::new();
+    for (i, &node) in nodes.iter().enumerate() {
+        if pi[i] < 1e-15 {
+            soc.insert(node.to_owned(), 0.0);
+            continue;
+        }
+        let mut mfpts = Vec::new();
+        for j in 0..n {
+            if j == i || pi[j] < 1e-15 {
+                continue;
+            }
+            let mfpt = (z[j * n + j] - z[i * n + j]) / pi[j];
+            mfpts.push(mfpt);
+        }
+        if mfpts.is_empty() {
+            soc.insert(node.to_owned(), 0.0);
+        } else {
+            let mean: f64 = mfpts.iter().sum::<f64>() / mfpts.len() as f64;
+            let variance: f64 =
+                mfpts.iter().map(|&x| (x - mean) * (x - mean)).sum::<f64>() / mfpts.len() as f64;
+            soc.insert(node.to_owned(), variance.sqrt());
+        }
+    }
+    soc
+}
+
+// ---------------------------------------------------------------------------
+// Communicability betweenness centrality
+// ---------------------------------------------------------------------------
+
+/// Matrix exponential via eigendecomposition (for symmetric matrices).
+fn matrix_exp_symmetric(a: &[f64], n: usize) -> Vec<f64> {
+    // For small n, use naive series expansion: exp(A) ≈ I + A + A²/2! + A³/3! + ...
+    let mut result = vec![0.0_f64; n * n];
+    let mut term = vec![0.0_f64; n * n]; // current term A^k / k!
+    // term = I
+    for i in 0..n {
+        term[i * n + i] = 1.0;
+        result[i * n + i] = 1.0;
+    }
+
+    for k in 1..=60 {
+        // term = term * A / k
+        let prev = term.clone();
+        for i in 0..n {
+            for j in 0..n {
+                let mut s = 0.0;
+                for l in 0..n {
+                    s += prev[i * n + l] * a[l * n + j];
+                }
+                term[i * n + j] = s / k as f64;
+            }
+        }
+        let mut max_term = 0.0_f64;
+        for i in 0..n {
+            for j in 0..n {
+                result[i * n + j] += term[i * n + j];
+                max_term = max_term.max(term[i * n + j].abs());
+            }
+        }
+        if max_term < 1e-15 {
+            break;
+        }
+    }
+    result
+}
+
+/// Communicability betweenness centrality.
+///
+/// For each node v, measures how much removing v reduces the communicability
+/// between all other pairs (p, q).
+pub fn communicability_betweenness_centrality(
+    graph: &Graph,
+    normalized: bool,
+) -> HashMap<String, f64> {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n <= 2 {
+        return nodes.iter().map(|&nd| (nd.to_owned(), 0.0)).collect();
+    }
+    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+
+    // Build adjacency matrix (unweighted)
+    let mut a = vec![0.0_f64; n * n];
+    for edge in graph.edges_ordered() {
+        let i = idx[edge.left.as_str()];
+        let j = idx[edge.right.as_str()];
+        a[i * n + j] = 1.0;
+        a[j * n + i] = 1.0;
+    }
+
+    let exp_a = matrix_exp_symmetric(&a, n);
+
+    let mut cbc = HashMap::new();
+    for (r, &node) in nodes.iter().enumerate() {
+        // Build A with row r and col r zeroed out
+        let mut a_mod = a.clone();
+        for j in 0..n {
+            a_mod[r * n + j] = 0.0;
+            a_mod[j * n + r] = 0.0;
+        }
+        let exp_a_mod = matrix_exp_symmetric(&a_mod, n);
+
+        let mut total = 0.0;
+        for p in 0..n {
+            for q in (p + 1)..n {
+                if p == r || q == r {
+                    continue;
+                }
+                let denom = exp_a[p * n + q];
+                if denom > 1e-15 {
+                    total += (denom - exp_a_mod[p * n + q]) / denom;
+                }
+            }
+        }
+        if normalized {
+            total /= ((n - 1) * (n - 2)) as f64 / 2.0;
+        }
+        cbc.insert(node.to_owned(), total);
+    }
+    cbc
+}
+
+// ---------------------------------------------------------------------------
+// Current-flow betweenness centrality
+// ---------------------------------------------------------------------------
+
+/// Current-flow betweenness centrality (also known as random-walk betweenness).
+///
+/// Uses the graph Laplacian pseudo-inverse to compute electrical current flow
+/// between all pairs of source-target nodes.
+pub fn current_flow_betweenness_centrality(
+    graph: &Graph,
+    normalized: bool,
+    weight_attr: &str,
+) -> HashMap<String, f64> {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n <= 2 {
+        return nodes.iter().map(|&nd| (nd.to_owned(), 0.0)).collect();
+    }
+    let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+
+    // Build Laplacian matrix
+    let mut l_mat = vec![0.0_f64; n * n];
+    for edge in graph.edges_ordered() {
+        let i = idx[edge.left.as_str()];
+        let j = idx[edge.right.as_str()];
+        let w = edge
+            .attrs
+            .get(weight_attr)
+            .and_then(|v| v.as_f64())
+            .unwrap_or(1.0);
+        l_mat[i * n + j] -= w;
+        l_mat[j * n + i] -= w;
+        l_mat[i * n + i] += w;
+        l_mat[j * n + j] += w;
+    }
+
+    // Pseudo-inverse of Laplacian via regularized inversion:
+    // L_pinv = (L - (1/n)*J + (1/n)*I)^{-1} - (1/n)*J
+    // where J is all-ones matrix. Simpler: use (L + (1/n)*ones*ones^T)^{-1} - (1/n)*ones*ones^T
+    let inv_n = 1.0 / n as f64;
+    let mut mat = l_mat.clone();
+    for i in 0..n {
+        for j in 0..n {
+            mat[i * n + j] += inv_n;
+        }
+    }
+
+    // Invert via Gauss-Jordan
+    let mut aug = vec![0.0_f64; n * 2 * n];
+    for i in 0..n {
+        for j in 0..n {
+            aug[i * 2 * n + j] = mat[i * n + j];
+        }
+        aug[i * 2 * n + n + i] = 1.0;
+    }
+
+    for col in 0..n {
+        let mut max_row = col;
+        let mut max_val = aug[col * 2 * n + col].abs();
+        for row in (col + 1)..n {
+            let val = aug[row * 2 * n + col].abs();
+            if val > max_val {
+                max_val = val;
+                max_row = row;
+            }
+        }
+        if max_val < 1e-15 {
+            return nodes.iter().map(|&nd| (nd.to_owned(), 0.0)).collect();
+        }
+        if max_row != col {
+            for k in 0..(2 * n) {
+                aug.swap(col * 2 * n + k, max_row * 2 * n + k);
+            }
+        }
+        let pivot = aug[col * 2 * n + col];
+        for k in 0..(2 * n) {
+            aug[col * 2 * n + k] /= pivot;
+        }
+        for row in 0..n {
+            if row == col {
+                continue;
+            }
+            let factor = aug[row * 2 * n + col];
+            for k in 0..(2 * n) {
+                aug[row * 2 * n + k] -= factor * aug[col * 2 * n + k];
+            }
+        }
+    }
+
+    // Extract inverse
+    let mut inv = vec![0.0_f64; n * n];
+    for i in 0..n {
+        for j in 0..n {
+            inv[i * n + j] = aug[i * 2 * n + n + j];
+        }
+    }
+
+    // L_pinv = inv - (1/n)*J
+    let mut l_pinv = vec![0.0_f64; n * n];
+    for i in 0..n {
+        for j in 0..n {
+            l_pinv[i * n + j] = inv[i * n + j] - inv_n;
+        }
+    }
+
+    // Compute current-flow betweenness
+    let mut bc = HashMap::new();
+    for &node in &nodes {
+        bc.insert(node.to_owned(), 0.0);
+    }
+
+    for s in 0..n {
+        for t in (s + 1)..n {
+            // Current vector for source s, sink t
+            // p = L_pinv * b where b[s]=1, b[t]=-1
+            // p[i] = L_pinv[i][s] - L_pinv[i][t]
+            for v in 0..n {
+                if v == s || v == t {
+                    continue;
+                }
+                let p_v = l_pinv[v * n + s] - l_pinv[v * n + t];
+                // Flow through v = sum |p_v - p_nb| / 2 over neighbors
+                let mut flow = 0.0;
+                if let Some(nbrs) = graph.neighbors_iter(nodes[v]) {
+                    for nb in nbrs {
+                        let j = idx[nb];
+                        let p_nb = l_pinv[j * n + s] - l_pinv[j * n + t];
+                        flow += (p_v - p_nb).abs();
+                    }
+                }
+                *bc.get_mut(nodes[v]).unwrap() += flow / 2.0;
+            }
+        }
+    }
+
+    if normalized {
+        let factor = 2.0 / ((n - 1) * (n - 2)) as f64;
+        for val in bc.values_mut() {
+            *val *= factor;
+        }
+    }
+
+    bc
+}
 
 // ---------------------------------------------------------------------------
 // GraphML writer (Rust string generation)
@@ -25886,6 +26786,13 @@ mod tests {
         spanning_tree_iterator,
         spanning_tree_iterator_ordered,
         stochastic_block_model,
+        // SimRank, Google matrix, second-order centrality, communicability/current-flow betweenness
+        simrank_similarity,
+        simrank_similarity_pair,
+        google_matrix,
+        second_order_centrality,
+        communicability_betweenness_centrality,
+        current_flow_betweenness_centrality,
         // New algorithms (March 2026)
         stoer_wagner,
         strongly_connected_components,
@@ -35787,6 +36694,22 @@ mod tests {
     }
 
     #[test]
+    fn test_arborescence_iterator_complete_digraph_k4_count() {
+        let mut d = DiGraph::strict();
+        for u in ["a", "b", "c", "d"] {
+            for v in ["a", "b", "c", "d"] {
+                if u != v {
+                    d.add_edge(u, v).unwrap();
+                }
+            }
+        }
+
+        let arbs = arborescence_iterator(&d, "weight", 1000);
+
+        assert_eq!(arbs.len(), 64);
+    }
+
+    #[test]
     fn test_arborescence_iterator_single_node() {
         let mut d = DiGraph::strict();
         d.add_node("a".to_owned());
@@ -36257,5 +37180,80 @@ mod tests {
         // a→c has 2 shortest paths: direct and via b
         // Actually a-c is direct (1 hop), a-b-c is 2 hops, so only 1 shortest
         assert_eq!(paths["a"]["c"].len(), 1);
+    }
+
+    #[test]
+    fn test_simrank_similarity_triangle() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c"); let _ = g.add_edge("a", "c");
+        let result = simrank_similarity(&g, 0.9, 100, 1e-4);
+        // Self-similarity = 1.0
+        assert!((result["a"]["a"] - 1.0).abs() < 1e-6);
+        // In a triangle, all nodes are structurally identical, so simrank(a,b) = simrank(a,c) = simrank(b,c)
+        let ab = result["a"]["b"];
+        let ac = result["a"]["c"];
+        let bc = result["b"]["c"];
+        assert!((ab - ac).abs() < 1e-6, "ab={ab} ac={ac}");
+        assert!((ab - bc).abs() < 1e-6, "ab={ab} bc={bc}");
+        // Non-zero similarity
+        assert!(ab > 0.0);
+    }
+
+    #[test]
+    fn test_simrank_pair() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c");
+        let val = simrank_similarity_pair(&g, "a", "c", 0.9, 100, 1e-4);
+        // a and c are connected through b, so some positive similarity
+        assert!(val >= 0.0);
+    }
+
+    #[test]
+    fn test_google_matrix_basic() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c");
+        let (mat, nodes) = google_matrix(&g, 0.85, "weight");
+        assert_eq!(nodes.len(), 3);
+        let n = nodes.len();
+        // Each row should sum to 1.0 (stochastic)
+        for i in 0..n {
+            let row_sum: f64 = mat[i*n..(i+1)*n].iter().sum();
+            assert!((row_sum - 1.0).abs() < 1e-10, "row {i} sums to {row_sum}");
+        }
+    }
+
+    #[test]
+    fn test_second_order_centrality_path() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c");
+        let soc = second_order_centrality(&g);
+        assert_eq!(soc.len(), 3);
+        // All values should be finite non-negative
+        for val in soc.values() {
+            assert!(val.is_finite() && *val >= 0.0, "val={val}");
+        }
+    }
+
+    #[test]
+    fn test_communicability_betweenness_triangle() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c"); let _ = g.add_edge("a", "c");
+        let cbc = communicability_betweenness_centrality(&g, true);
+        assert_eq!(cbc.len(), 3);
+        // In a triangle, all nodes are equivalent
+        let vals: Vec<f64> = cbc.values().copied().collect();
+        assert!((vals[0] - vals[1]).abs() < 1e-6);
+        assert!((vals[1] - vals[2]).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_current_flow_betweenness_path() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b"); let _ = g.add_edge("b", "c");
+        let cfbc = current_flow_betweenness_centrality(&g, true, "weight");
+        assert_eq!(cfbc.len(), 3);
+        // Node b should have highest betweenness (it's the bridge)
+        assert!(cfbc["b"] >= cfbc["a"], "b={} a={}", cfbc["b"], cfbc["a"]);
+        assert!(cfbc["b"] >= cfbc["c"], "b={} c={}", cfbc["b"], cfbc["c"]);
     }
 }

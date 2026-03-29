@@ -9615,7 +9615,7 @@ impl SpanningTreeIteratorRust {
         match next_tree {
             Some(t) => {
                 let g_bound = slf.original_graph.bind(py);
-                let gr = extract_graph(&g_bound)?;
+                let gr = extract_graph(g_bound)?;
                 Ok(Some(rust_graph_to_py_subgraph(py, &t, &gr)?))
             }
             None => Ok(None),
@@ -9625,7 +9625,8 @@ impl SpanningTreeIteratorRust {
 
 #[pyclass(unsendable, name="arborescence_iterator_rust")]
 pub struct ArborescenceIteratorRust {
-    inner: fnx_algorithms::ArborescenceIteratorState,
+    items: Vec<fnx_classes::digraph::DiGraph>,
+    index: usize,
     original_graph: PyObject,
 }
 
@@ -9634,7 +9635,6 @@ impl ArborescenceIteratorRust {
     #[new]
     #[pyo3(signature = (g, weight="weight", minimum=true, max_count=100))]
     fn new(_py: Python<'_>, g: &Bound<'_, PyAny>, weight: &str, minimum: bool, max_count: usize) -> PyResult<Self> {
-        let _ = max_count;
         let gr = extract_graph(g)?;
         if !gr.is_directed() {
             return Err(crate::NetworkXNotImplemented::new_err(
@@ -9649,10 +9649,23 @@ impl ArborescenceIteratorRust {
                 "not implemented for multigraph type",
             ));
         }
-        let inner_state = fnx_algorithms::ArborescenceIteratorState::new(gr.digraph().unwrap(), weight, minimum)
-            .map_err(|e| crate::NetworkXError::new_err(e))?;
+        let items = fnx_algorithms::arborescence_iterator_ordered(
+            gr.digraph().unwrap(),
+            weight,
+            minimum,
+            max_count,
+        );
+        if items.is_empty() && gr.digraph().unwrap().node_count() > 1 {
+            let message = if minimum {
+                "No minimum spanning arborescence in G."
+            } else {
+                "No maximum spanning arborescence in G."
+            };
+            return Err(crate::NetworkXError::new_err(message));
+        }
         Ok(Self {
-            inner: inner_state,
+            items,
+            index: 0,
             original_graph: g.clone().unbind(),
         })
     }
@@ -9662,15 +9675,14 @@ impl ArborescenceIteratorRust {
     }
 
     fn __next__(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<Option<PyObject>> {
-        let next_tree = slf.inner.next();
-        match next_tree {
-            Some(t) => {
-                let g_bound = slf.original_graph.bind(py);
-                let gr = extract_graph(&g_bound)?;
-                Ok(Some(rust_digraph_to_py_subgraph(py, &t, &gr)?))
-            }
-            None => Ok(None),
+        if slf.index >= slf.items.len() {
+            return Ok(None);
         }
+        let tree = slf.items[slf.index].clone();
+        slf.index += 1;
+        let g_bound = slf.original_graph.bind(py);
+        let gr = extract_graph(g_bound)?;
+        Ok(Some(rust_digraph_to_py_subgraph(py, &tree, &gr)?))
     }
 }
 
@@ -9844,6 +9856,178 @@ pub fn bfs_labeled_edges_rust(
         .into_iter()
         .map(|(u, v, label)| (gr.py_node_key(py, &u), gr.py_node_key(py, &v), label))
         .collect())
+}
+
+// ---------------------------------------------------------------------------
+// SimRank similarity
+// ---------------------------------------------------------------------------
+
+/// SimRank similarity between all pairs.
+#[pyfunction]
+#[pyo3(signature = (g, source=None, target=None, importance_factor=0.9, max_iterations=100, tolerance=1e-4))]
+pub fn simrank_similarity_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    source: Option<&Bound<'_, PyAny>>,
+    target: Option<&Bound<'_, PyAny>>,
+    importance_factor: f64,
+    max_iterations: usize,
+    tolerance: f64,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    if let (Some(src), Some(tgt)) = (source, target) {
+        let s = node_key_to_string(py, src)?;
+        let t = node_key_to_string(py, tgt)?;
+        if gr.is_directed() {
+            let dg = gr.digraph().unwrap();
+            let val = py.allow_threads(|| {
+                let all = fnx_algorithms::simrank_similarity_directed(dg, importance_factor, max_iterations, tolerance);
+                all.get(&s).and_then(|row| row.get(&t)).copied().unwrap_or(0.0)
+            });
+            Ok(val.into_pyobject(py)?.into_any().unbind())
+        } else {
+            let inner = gr.undirected();
+            let val = py.allow_threads(|| {
+                fnx_algorithms::simrank_similarity_pair(inner, &s, &t, importance_factor, max_iterations, tolerance)
+            });
+            Ok(val.into_pyobject(py)?.into_any().unbind())
+        }
+    } else {
+        if gr.is_directed() {
+            let dg = gr.digraph().unwrap();
+            let result = py.allow_threads(|| {
+                fnx_algorithms::simrank_similarity_directed(dg, importance_factor, max_iterations, tolerance)
+            });
+            let dict = PyDict::new(py);
+            for (u, row) in &result {
+                let inner_dict = PyDict::new(py);
+                for (v, val) in row {
+                    inner_dict.set_item(gr.py_node_key(py, v), val)?;
+                }
+                dict.set_item(gr.py_node_key(py, u), inner_dict)?;
+            }
+            Ok(dict.into_any().unbind())
+        } else {
+            let inner = gr.undirected();
+            let result = py.allow_threads(|| {
+                fnx_algorithms::simrank_similarity(inner, importance_factor, max_iterations, tolerance)
+            });
+            let dict = PyDict::new(py);
+            for (u, row) in &result {
+                let inner_dict = PyDict::new(py);
+                for (v, val) in row {
+                    inner_dict.set_item(gr.py_node_key(py, v), val)?;
+                }
+                dict.set_item(gr.py_node_key(py, u), inner_dict)?;
+            }
+            Ok(dict.into_any().unbind())
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Google matrix
+// ---------------------------------------------------------------------------
+
+/// Google PageRank matrix.
+#[pyfunction]
+#[pyo3(signature = (g, alpha=0.85, weight="weight"))]
+pub fn google_matrix_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    alpha: f64,
+    weight: &str,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    let w = weight.to_owned();
+    let (mat, node_list) = if gr.is_directed() {
+        let dg = gr.digraph().unwrap();
+        py.allow_threads(|| fnx_algorithms::google_matrix_directed(dg, alpha, &w))
+    } else {
+        let inner = gr.undirected();
+        py.allow_threads(|| fnx_algorithms::google_matrix(inner, alpha, &w))
+    };
+    // Return as list of lists (Python doesn't have numpy here)
+    let n = node_list.len();
+    let outer = pyo3::types::PyList::empty(py);
+    for i in 0..n {
+        let row = pyo3::types::PyList::empty(py);
+        for j in 0..n {
+            row.append(mat[i * n + j])?;
+        }
+        outer.append(row)?;
+    }
+    Ok(outer.into_any().unbind())
+}
+
+// ---------------------------------------------------------------------------
+// Second-order centrality
+// ---------------------------------------------------------------------------
+
+/// Second-order centrality.
+#[pyfunction]
+pub fn second_order_centrality_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::second_order_centrality(inner));
+    let dict = PyDict::new(py);
+    for (node, val) in &result {
+        dict.set_item(gr.py_node_key(py, node), val)?;
+    }
+    Ok(dict.into_any().unbind())
+}
+
+// ---------------------------------------------------------------------------
+// Communicability betweenness centrality
+// ---------------------------------------------------------------------------
+
+/// Communicability betweenness centrality.
+#[pyfunction]
+#[pyo3(signature = (g, normalized=true))]
+pub fn communicability_betweenness_centrality_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    normalized: bool,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| {
+        fnx_algorithms::communicability_betweenness_centrality(inner, normalized)
+    });
+    let dict = PyDict::new(py);
+    for (node, val) in &result {
+        dict.set_item(gr.py_node_key(py, node), val)?;
+    }
+    Ok(dict.into_any().unbind())
+}
+
+// ---------------------------------------------------------------------------
+// Current-flow betweenness centrality
+// ---------------------------------------------------------------------------
+
+/// Current-flow betweenness centrality.
+#[pyfunction]
+#[pyo3(signature = (g, normalized=true, weight="weight"))]
+pub fn current_flow_betweenness_centrality_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    normalized: bool,
+    weight: &str,
+) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let w = weight.to_owned();
+    let result = py.allow_threads(|| {
+        fnx_algorithms::current_flow_betweenness_centrality(inner, normalized, &w)
+    });
+    let dict = PyDict::new(py);
+    for (node, val) in &result {
+        dict.set_item(gr.py_node_key(py, node), val)?;
+    }
+    Ok(dict.into_any().unbind())
 }
 
 /// Register all algorithm functions into the Python module.
@@ -10332,5 +10516,11 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // All-pairs
     m.add_function(wrap_pyfunction!(all_pairs_node_connectivity_rust, m)?)?;
     m.add_function(wrap_pyfunction!(all_pairs_all_shortest_paths_rust, m)?)?;
+    // SimRank, Google matrix, second-order centrality, communicability/current-flow betweenness
+    m.add_function(wrap_pyfunction!(simrank_similarity_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(google_matrix_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(second_order_centrality_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(communicability_betweenness_centrality_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(current_flow_betweenness_centrality_rust, m)?)?;
     Ok(())
 }
