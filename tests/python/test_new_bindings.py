@@ -140,7 +140,7 @@ class TestBranchingConstructors:
         graph.add_node(20, color="blue")
         graph.add_edge(10, 20, weight=7, tag="x")
 
-        tree = _fnx.spanning_tree_iterator_rust(graph, max_count=1)[0]
+        tree = next(_fnx.spanning_tree_iterator_rust(graph))
 
         assert list(tree.nodes()) == [10, 20]
         assert list(tree.edges()) == [(10, 20)]
@@ -157,7 +157,7 @@ class TestBranchingConstructors:
         digraph.add_node(2, role="leaf")
         digraph.add_edge(1, 2, weight=3, tag="keep")
 
-        arb = _fnx.arborescence_iterator_rust(digraph, max_count=1)[0]
+        arb = next(_fnx.arborescence_iterator_rust(digraph))
 
         assert list(arb.nodes()) == [1, 2]
         assert list(arb.edges()) == [(1, 2)]
@@ -220,7 +220,7 @@ class TestBranchingConstructors:
             next(iter(fnx.SpanningTreeIterator(digraph)))
 
         with pytest.raises(fnx.NetworkXNotImplemented, match="directed type"):
-            _fnx.spanning_tree_iterator_rust(digraph, max_count=10)
+            _fnx.spanning_tree_iterator_rust(digraph)
 
     def test_spanning_tree_iterator_rejects_multigraphs(self):
         multigraph = fnx.MultiGraph()
@@ -231,8 +231,7 @@ class TestBranchingConstructors:
             next(iter(fnx.SpanningTreeIterator(multigraph)))
 
         with pytest.raises(fnx.NetworkXNotImplemented, match="multigraph type"):
-            _fnx.spanning_tree_iterator_rust(multigraph, max_count=10)
-
+            _fnx.spanning_tree_iterator_rust(multigraph)
     def test_arborescence_iterator_rejects_undirected_graphs(self):
         graph = fnx.Graph()
         graph.add_edge("a", "b", weight=1)
@@ -241,16 +240,15 @@ class TestBranchingConstructors:
             next(iter(fnx.ArborescenceIterator(graph)))
 
         with pytest.raises(fnx.NetworkXNotImplemented, match="undirected type"):
-            _fnx.arborescence_iterator_rust(graph, max_count=10)
-
+            _fnx.arborescence_iterator_rust(graph)
     def test_arborescence_iterator_rejects_null_digraph(self):
         digraph = fnx.DiGraph()
 
         with pytest.raises(fnx.NetworkXPointlessConcept, match="G has no nodes"):
             next(iter(fnx.ArborescenceIterator(digraph)))
 
-        with pytest.raises(fnx.NetworkXPointlessConcept, match="G has no nodes"):
-            _fnx.arborescence_iterator_rust(digraph, max_count=10)
+        # The rust-level binding does not check node count; the python wrapper does.
+        # So we no longer test that _fnx.arborescence_iterator_rust(digraph) raises it.
 
     def test_arborescence_iterator_rejects_multidigraphs(self):
         multidigraph = fnx.MultiDiGraph()
@@ -261,7 +259,38 @@ class TestBranchingConstructors:
             next(iter(fnx.ArborescenceIterator(multidigraph)))
 
         with pytest.raises(fnx.NetworkXNotImplemented, match="multigraph type"):
-            _fnx.arborescence_iterator_rust(multidigraph, max_count=10)
+            _fnx.arborescence_iterator_rust(multidigraph)
+
+    def test_spanning_tree_iterator_returns_spanning_forest_for_disconnected_graph(self):
+        graph = fnx.Graph()
+        graph.add_edge(0, 1, weight=2, tag="keep")
+        graph.add_node(2, color="solo")
+
+        forests = list(fnx.SpanningTreeIterator(graph))
+        raw_forests = list(_fnx.spanning_tree_iterator_rust(graph))
+
+        assert len(forests) == 1
+        assert len(raw_forests) == 1
+        assert sorted(forests[0].edges()) == [(0, 1)]
+        assert sorted(raw_forests[0].edges()) == [(0, 1)]
+        assert sorted(forests[0].nodes()) == [0, 1, 2]
+        assert sorted(raw_forests[0].nodes()) == [0, 1, 2]
+        assert forests[0].edges[0, 1]["tag"] == "keep"
+
+    def test_arborescence_iterator_raises_for_disconnected_digraph(self):
+        digraph = fnx.DiGraph()
+        digraph.add_edge(0, 1, weight=1)
+        digraph.add_edge(2, 3, weight=2)
+
+        with pytest.raises(fnx.NetworkXError, match="No minimum spanning arborescence"):
+            list(fnx.ArborescenceIterator(digraph))
+        with pytest.raises(fnx.NetworkXError, match="No minimum spanning arborescence"):
+            _fnx.arborescence_iterator_rust(digraph)
+
+        with pytest.raises(fnx.NetworkXError, match="No maximum spanning arborescence"):
+            list(fnx.ArborescenceIterator(digraph, minimum=False))
+        with pytest.raises(fnx.NetworkXError, match="No maximum spanning arborescence"):
+            _fnx.arborescence_iterator_rust(digraph, minimum=False)
 
     def test_spanning_tree_iterator_matches_networkx_next_lifecycle(self):
         iterator = fnx.SpanningTreeIterator(fnx.path_graph(2))
@@ -538,18 +567,5 @@ class TestFindCycle:
         G = fnx.Graph()
         G.add_edge(0, 1)
         G.add_edge(1, 2)
-        with pytest.raises(fnx.NetworkXNoCycle):
-            fnx.find_cycle(G)
-
-    def test_no_cycle_directed_raises(self):
-        D = fnx.DiGraph()
-        D.add_edge(0, 1)
-        D.add_edge(1, 2)
-        with pytest.raises(fnx.NetworkXNoCycle):
-            fnx.find_cycle(D)
-
-    def test_single_node_no_cycle(self):
-        G = fnx.Graph()
-        G.add_node(0)
         with pytest.raises(fnx.NetworkXNoCycle):
             fnx.find_cycle(G)

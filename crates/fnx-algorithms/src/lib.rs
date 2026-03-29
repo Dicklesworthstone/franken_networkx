@@ -24186,230 +24186,280 @@ pub fn spanning_tree_iterator(graph: &Graph, weight_attr: &str, max_count: usize
 }
 
 /// Enumerate spanning trees with explicit ordering control.
+
+// Partition: maps (u,v) canonical edge key → PartitionState
+pub type PartitionDict = std::collections::HashMap<(String, String), PartitionState>;
+
+#[derive(Clone)]
+pub struct QueueEntry {
+    pub weight: f64,
+    pub sequence: u64,
+    pub partition: PartitionDict,
+}
+
+impl PartialEq for QueueEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.weight == other.weight && self.sequence == other.sequence
+    }
+}
+impl Eq for QueueEntry {}
+
+impl PartialOrd for QueueEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for QueueEntry {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other
+            .weight
+            .total_cmp(&self.weight)
+            .then_with(|| other.sequence.cmp(&self.sequence))
+    }
+}
+
+// Build a copy of the graph with partition state written into edge attrs
+fn build_partitioned_graph(
+    graph: &Graph,
+    partition: &PartitionDict,
+    partition_attr: &str,
+) -> Graph {
+    let mut g = Graph::new(graph.mode());
+    for node in graph.nodes_ordered() {
+        let _ = g.add_node(node.to_owned());
+    }
+    for edge in graph.edges_ordered() {
+        let key = canonical_contracted_edge_key(&edge.left, &edge.right);
+        let mut attrs = edge.attrs.clone();
+        match partition.get(&key) {
+            Some(PartitionState::Included) => {
+                attrs.insert(
+                    partition_attr.to_owned(),
+                    fnx_runtime::CgseValue::String("included".to_owned()),
+                );
+            }
+            Some(PartitionState::Excluded) => {
+                attrs.insert(
+                    partition_attr.to_owned(),
+                    fnx_runtime::CgseValue::String("excluded".to_owned()),
+                );
+            }
+            _ => {
+                attrs.remove(partition_attr);
+            }
+        }
+        let _ = g.add_edge_with_attrs(edge.left.clone(), edge.right.clone(), attrs);
+    }
+    g
+}
+
+// Compute MST for a partition; returns (weight, tree_edges) or None if infeasible
+fn compute_partition_mst(
+    graph: &Graph,
+    partition: &PartitionDict,
+    minimum: bool,
+    weight_attr: &str,
+    partition_attr: &str,
+) -> Option<(f64, Vec<(String, String)>)> {
+    let pg = build_partitioned_graph(graph, partition, partition_attr);
+    let result = partition_spanning_tree(&pg, minimum, weight_attr, partition_attr, false);
+    match result {
+        Ok(mst) => {
+            let n = pg.nodes_ordered().len();
+            if mst.edges.len() == n.saturating_sub(1) {
+                let edges: Vec<(String, String)> = mst
+                    .edges
+                    .iter()
+                    .map(|e| (e.left.clone(), e.right.clone()))
+                    .collect();
+                Some((mst.total_weight, edges))
+            } else {
+                None
+            }
+        }
+        Err(_) => None,
+    }
+}
+
+fn build_tree(
+    nodes: &[&str],
+    edges: &[(String, String)],
+    mode: fnx_runtime::CompatibilityMode,
+) -> Graph {
+    let mut tree = Graph::new(mode);
+    for &node in nodes {
+        let _ = tree.add_node(node.to_owned());
+    }
+    for (u, v) in edges {
+        let _ = tree.add_edge(u.clone(), v.clone());
+    }
+    tree
+}
+
+pub struct SpanningTreeIteratorState {
+    graph: Graph,
+    weight_attr: String,
+    minimum: bool,
+    seq: u64,
+    heap: std::collections::BinaryHeap<QueueEntry>,
+    nodes: Vec<String>,
+    mode: fnx_runtime::CompatibilityMode,
+    is_connected: bool,
+    yielded_forest: bool,
+}
+
+impl SpanningTreeIteratorState {
+    pub fn new(graph: &Graph, weight_attr: &str, minimum: bool) -> Self {
+        let nodes: Vec<String> = graph.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+        let n = nodes.len();
+        let mode = graph.mode();
+        let mut is_conn = is_connected(graph).is_connected;
+        let mut heap = std::collections::BinaryHeap::new();
+        let mut seq = 0u64;
+
+        if n <= 1 {
+            // empty or singleton graph logic
+            is_conn = false; 
+        } else if is_conn {
+            let empty_partition = std::collections::HashMap::new();
+            if let Some((init_weight, _)) = compute_partition_mst(
+                graph,
+                &empty_partition,
+                minimum,
+                weight_attr,
+                "___spanning_tree_partition___",
+            ) {
+                heap.push(QueueEntry {
+                    weight: if minimum { init_weight } else { -init_weight },
+                    sequence: seq,
+                    partition: empty_partition,
+                });
+                seq += 1;
+            }
+        }
+
+        Self {
+            graph: graph.clone(),
+            weight_attr: weight_attr.to_owned(),
+            minimum,
+            seq,
+            heap,
+            nodes,
+            mode,
+            is_connected: is_conn,
+            yielded_forest: false,
+        }
+    }
+}
+
+impl Iterator for SpanningTreeIteratorState {
+    type Item = Graph;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let n = self.nodes.len();
+        if n == 0 {
+            if !self.yielded_forest {
+                self.yielded_forest = true;
+                return Some(Graph::strict());
+            }
+            return None;
+        }
+        if n == 1 {
+            if !self.yielded_forest {
+                self.yielded_forest = true;
+                let mut g = Graph::strict();
+                let _ = g.add_node(self.nodes[0].clone());
+                return Some(g);
+            }
+            return None;
+        }
+
+        if !self.is_connected {
+            if !self.yielded_forest {
+                self.yielded_forest = true;
+                let forest = if self.minimum {
+                    minimum_spanning_tree(&self.graph, &self.weight_attr)
+                } else {
+                    maximum_spanning_tree(&self.graph, &self.weight_attr)
+                };
+                let forest_edges: Vec<(String, String)> = forest
+                    .edges
+                    .iter()
+                    .map(|edge| (edge.left.clone(), edge.right.clone()))
+                    .collect();
+                let nodes_refs: Vec<&str> = self.nodes.iter().map(|s| s.as_str()).collect();
+                return Some(build_tree(&nodes_refs, &forest_edges, self.mode));
+            }
+            return None;
+        }
+
+        let partition_attr = "___spanning_tree_partition___";
+        while let Some(entry) = self.heap.pop() {
+            let Some((_weight, tree_edges)) = compute_partition_mst(
+                &self.graph,
+                &entry.partition,
+                self.minimum,
+                &self.weight_attr,
+                partition_attr,
+            ) else {
+                continue;
+            };
+
+            let nodes_refs: Vec<&str> = self.nodes.iter().map(|s| s.as_str()).collect();
+            let tree = build_tree(&nodes_refs, &tree_edges, self.mode);
+
+            // Janssens-Sörensen child partition generation
+            let mut p1 = entry.partition.clone();
+            let mut p2 = entry.partition.clone();
+
+            for (eu, ev) in &tree_edges {
+                let key = canonical_contracted_edge_key(eu, ev);
+                if entry.partition.contains_key(&key) {
+                    continue;
+                }
+
+                p1.insert(key.clone(), PartitionState::Excluded);
+                p2.insert(key.clone(), PartitionState::Included);
+
+                if let Some((p1_weight, p1_edges)) = compute_partition_mst(
+                    &self.graph,
+                    &p1,
+                    self.minimum,
+                    &self.weight_attr,
+                    partition_attr,
+                ) {
+                    let p1_tree = build_tree(&nodes_refs, &p1_edges, self.mode);
+                    if is_connected(&p1_tree).is_connected {
+                        self.heap.push(QueueEntry {
+                            weight: if self.minimum { p1_weight } else { -p1_weight },
+                            sequence: self.seq,
+                            partition: p1.clone(),
+                        });
+                        self.seq += 1;
+                    }
+                }
+
+                p1 = p2.clone();
+            }
+
+            return Some(tree);
+        }
+
+        None
+    }
+}
+
 pub fn spanning_tree_iterator_ordered(
     graph: &Graph,
     weight_attr: &str,
     minimum: bool,
     max_count: usize,
 ) -> Vec<Graph> {
-    use std::cmp::Ordering;
-    use std::collections::BinaryHeap;
-
-    let nodes = graph.nodes_ordered();
-    let n = nodes.len();
-    if n == 0 {
-        return vec![Graph::strict()];
-    }
-    if n == 1 {
-        let mut g = Graph::strict();
-        let _ = g.add_node(nodes[0].to_owned());
-        return vec![g];
-    }
-
-    // Check connectivity first
-    if !is_connected(graph).is_connected {
-        return Vec::new();
-    }
-
-    // Partition: maps (u,v) canonical edge key → PartitionState
-    type PartitionDict = HashMap<(String, String), PartitionState>;
-
-    #[derive(Clone)]
-    struct QueueEntry {
-        weight: f64,
-        sequence: u64,
-        partition: PartitionDict,
-    }
-
-    impl PartialEq for QueueEntry {
-        fn eq(&self, other: &Self) -> bool {
-            self.weight == other.weight && self.sequence == other.sequence
-        }
-    }
-    impl Eq for QueueEntry {}
-
-    impl PartialOrd for QueueEntry {
-        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-            Some(self.cmp(other))
-        }
-    }
-    impl Ord for QueueEntry {
-        fn cmp(&self, other: &Self) -> Ordering {
-            // BinaryHeap is max-heap; reverse for min-first
-            other
-                .weight
-                .total_cmp(&self.weight)
-                .then_with(|| other.sequence.cmp(&self.sequence))
-        }
-    }
-
-    let partition_attr = "___spanning_tree_partition___";
-
-    // Build a copy of the graph with partition state written into edge attrs
-    fn build_partitioned_graph(
-        graph: &Graph,
-        partition: &PartitionDict,
-        partition_attr: &str,
-    ) -> Graph {
-        let mut g = Graph::new(graph.mode());
-        for node in graph.nodes_ordered() {
-            let _ = g.add_node(node.to_owned());
-        }
-        for edge in graph.edges_ordered() {
-            let key = canonical_contracted_edge_key(&edge.left, &edge.right);
-            let mut attrs = edge.attrs.clone();
-            match partition.get(&key) {
-                Some(PartitionState::Included) => {
-                    attrs.insert(
-                        partition_attr.to_owned(),
-                        CgseValue::String("included".to_owned()),
-                    );
-                }
-                Some(PartitionState::Excluded) => {
-                    attrs.insert(
-                        partition_attr.to_owned(),
-                        CgseValue::String("excluded".to_owned()),
-                    );
-                }
-                _ => {
-                    attrs.remove(partition_attr);
-                }
-            }
-            let _ = g.add_edge_with_attrs(edge.left.clone(), edge.right.clone(), attrs);
-        }
-        g
-    }
-
-    // Compute MST for a partition; returns (weight, tree_edges) or None if infeasible
-    fn compute_partition_mst(
-        graph: &Graph,
-        partition: &PartitionDict,
-        minimum: bool,
-        weight_attr: &str,
-        partition_attr: &str,
-    ) -> Option<(f64, Vec<(String, String)>)> {
-        let pg = build_partitioned_graph(graph, partition, partition_attr);
-        let result = partition_spanning_tree(&pg, minimum, weight_attr, partition_attr, false);
-        match result {
-            Ok(mst) => {
-                let n = pg.nodes_ordered().len();
-                if mst.edges.len() == n.saturating_sub(1) {
-                    let edges: Vec<(String, String)> = mst
-                        .edges
-                        .iter()
-                        .map(|e| (e.left.clone(), e.right.clone()))
-                        .collect();
-                    Some((mst.total_weight, edges))
-                } else {
-                    None
-                }
-            }
-            Err(_) => None,
-        }
-    }
-
-    fn build_tree(
-        nodes: &[&str],
-        edges: &[(String, String)],
-        mode: fnx_runtime::CompatibilityMode,
-    ) -> Graph {
-        let mut tree = Graph::new(mode);
-        for &node in nodes {
-            let _ = tree.add_node(node.to_owned());
-        }
-        for (u, v) in edges {
-            let _ = tree.add_edge(u.clone(), v.clone());
-        }
-        tree
-    }
-
-    let mode = graph.mode();
-    let mut seq = 0u64;
-    let mut heap = BinaryHeap::new();
-
-    // Initial MST with empty partition
-    let empty_partition: PartitionDict = HashMap::new();
-    let Some((init_weight, _)) = compute_partition_mst(
-        graph,
-        &empty_partition,
-        minimum,
-        weight_attr,
-        partition_attr,
-    ) else {
-        return Vec::new();
-    };
-
-    heap.push(QueueEntry {
-        weight: if minimum { init_weight } else { -init_weight },
-        sequence: seq,
-        partition: empty_partition,
-    });
-    seq += 1;
-
-    let mut results = Vec::new();
-
-    while let Some(entry) = heap.pop() {
-        if results.len() >= max_count {
-            break;
-        }
-
-        // Re-compute to get tree edges
-        let Some((_weight, tree_edges)) = compute_partition_mst(
-            graph,
-            &entry.partition,
-            minimum,
-            weight_attr,
-            partition_attr,
-        ) else {
-            continue;
-        };
-
-        let tree = build_tree(&nodes, &tree_edges, mode);
-        results.push(tree);
-
-        if results.len() >= max_count {
-            break;
-        }
-
-        // Janssens-Sörensen child partition generation
-        let mut p1 = entry.partition.clone();
-        let mut p2 = entry.partition.clone();
-
-        for (eu, ev) in &tree_edges {
-            let key = canonical_contracted_edge_key(eu, ev);
-            if entry.partition.contains_key(&key) {
-                continue; // Already partitioned, skip
-            }
-
-            // p1: exclude this edge
-            p1.insert(key.clone(), PartitionState::Excluded);
-            // p2: include this edge (accumulates)
-            p2.insert(key.clone(), PartitionState::Included);
-
-            // Check feasibility of p1
-            if let Some((p1_weight, p1_edges)) =
-                compute_partition_mst(graph, &p1, minimum, weight_attr, partition_attr)
-            {
-                let p1_tree = build_tree(&nodes, &p1_edges, mode);
-                if is_connected(&p1_tree).is_connected {
-                    heap.push(QueueEntry {
-                        weight: if minimum { p1_weight } else { -p1_weight },
-                        sequence: seq,
-                        partition: p1.clone(),
-                    });
-                    seq += 1;
-                }
-            }
-
-            // For next iteration, p1 starts from p2
-            p1 = p2.clone();
-        }
-    }
-
-    results
+    SpanningTreeIteratorState::new(graph, weight_attr, minimum)
+        .take(max_count)
+        .collect()
 }
 
-// ---------------------------------------------------------------------------
 // Arborescence iterator (enumerate spanning arborescences)
 // ---------------------------------------------------------------------------
 
@@ -24430,225 +24480,239 @@ pub fn arborescence_iterator(
 }
 
 /// Enumerate arborescences with explicit ordering control.
+    fn find_arborescence(
+    digraph: &DiGraph,
+    partition: &PartitionDict,
+    minimum: bool,
+    weight_attr: &str,
+) -> Option<(f64, Vec<(String, String)>)> {
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+
+    // Apply in-degree-1 constraint: if an edge is INCLUDED to target v,
+    // all other incoming edges to v must be EXCLUDED
+    let mut effective_partition = partition.clone();
+    let mut included_targets: HashMap<String, String> = HashMap::new();
+    for ((src, tgt), state) in partition {
+        if matches!(state, PartitionState::Included) {
+            included_targets.insert(tgt.clone(), src.clone());
+        }
+    }
+    for edge in digraph.edges_ordered() {
+        if let Some(inc_src) = included_targets.get(edge.right.as_str())
+            && edge.left.as_str() != inc_src.as_str()
+        {
+            effective_partition
+                .entry((edge.left.clone(), edge.right.clone()))
+                .or_insert(PartitionState::Excluded);
+        }
+    }
+
+    // Build a filtered digraph with only non-excluded edges
+    let mut filtered = DiGraph::new(digraph.mode());
+    for &node in &nodes {
+        filtered.add_node(node.to_owned());
+    }
+    let mut included_edges = Vec::new();
+    for edge in digraph.edges_ordered() {
+        let key = (edge.left.clone(), edge.right.clone());
+        match effective_partition.get(&key) {
+            Some(PartitionState::Excluded) => continue,
+            Some(PartitionState::Included) => {
+                included_edges.push(key.clone());
+                let _ = filtered.add_edge_with_attrs(
+                    edge.left.clone(),
+                    edge.right.clone(),
+                    edge.attrs.clone(),
+                );
+            }
+            _ => {
+                let _ = filtered.add_edge_with_attrs(
+                    edge.left.clone(),
+                    edge.right.clone(),
+                    edge.attrs.clone(),
+                );
+            }
+        }
+    }
+
+    // Use spanning arborescence (not branching!) — tries all roots
+    let arb = if minimum {
+        minimum_spanning_arborescence(&filtered, weight_attr, 1.0)
+    } else {
+        maximum_spanning_arborescence(&filtered, weight_attr, 1.0)
+    };
+
+    let arb = arb?;
+
+    if arb.edges.len() != n.saturating_sub(1) {
+        return None;
+    }
+
+    // Verify all included edges are in the result
+    let result_edges: HashSet<(String, String)> = arb
+        .edges
+        .iter()
+        .map(|e| (e.left.clone(), e.right.clone()))
+        .collect();
+    for ie in &included_edges {
+        if !result_edges.contains(ie) {
+            return None;
+        }
+    }
+
+    let edges: Vec<(String, String)> = arb
+        .edges
+        .iter()
+        .map(|e| (e.left.clone(), e.right.clone()))
+        .collect();
+    Some((arb.total_weight, edges))
+}
+
+
+    fn build_arborescence(
+    nodes: &[&str],
+    edges: &[(String, String)],
+    mode: fnx_runtime::CompatibilityMode,
+) -> DiGraph {
+    let mut arb = DiGraph::new(mode);
+    for &node in nodes {
+        arb.add_node(node.to_owned());
+    }
+    for (u, v) in edges {
+        let _ = arb.add_edge(u.clone(), v.clone());
+    }
+    arb
+}
+
+
+
+pub struct ArborescenceIteratorState {
+    digraph: DiGraph,
+    weight_attr: String,
+    minimum: bool,
+    seq: u64,
+    heap: std::collections::BinaryHeap<QueueEntry>,
+    nodes: Vec<String>,
+    mode: fnx_runtime::CompatibilityMode,
+    yielded_forest: bool,
+}
+
+impl ArborescenceIteratorState {
+    pub fn new(digraph: &DiGraph, weight_attr: &str, minimum: bool) -> Result<Self, String> {
+        let nodes: Vec<String> = digraph.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
+        let n = nodes.len();
+        let mode = digraph.mode();
+        let mut heap = std::collections::BinaryHeap::new();
+        let mut seq = 0u64;
+
+        if n > 1 {
+            let empty_partition = std::collections::HashMap::new();
+            if let Some((init_weight, _)) = find_arborescence(digraph, &empty_partition, minimum, weight_attr) {
+                heap.push(QueueEntry {
+                    weight: if minimum { init_weight } else { -init_weight },
+                    sequence: seq,
+                    partition: empty_partition,
+                });
+                seq += 1;
+            } else {
+                let msg = if minimum {
+                    "No minimum spanning arborescence in graph."
+                } else {
+                    "No maximum spanning arborescence in graph."
+                };
+                return Err(msg.to_owned());
+            }
+        }
+
+        Ok(Self {
+            digraph: digraph.clone(),
+            weight_attr: weight_attr.to_owned(),
+            minimum,
+            seq,
+            heap,
+            nodes,
+            mode,
+            yielded_forest: false,
+        })
+    }
+}
+
+impl Iterator for ArborescenceIteratorState {
+    type Item = DiGraph;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let n = self.nodes.len();
+        if n == 0 {
+            if !self.yielded_forest {
+                self.yielded_forest = true;
+                return Some(DiGraph::strict());
+            }
+            return None;
+        }
+        if n == 1 {
+            if !self.yielded_forest {
+                self.yielded_forest = true;
+                let mut g = DiGraph::strict();
+                g.add_node(self.nodes[0].clone());
+                return Some(g);
+            }
+            return None;
+        }
+
+        while let Some(entry) = self.heap.pop() {
+            let Some((_weight, arb_edges)) =
+                find_arborescence(&self.digraph, &entry.partition, self.minimum, &self.weight_attr)
+            else {
+                continue;
+            };
+
+            let nodes_refs: Vec<&str> = self.nodes.iter().map(|s| s.as_str()).collect();
+            let arb = build_arborescence(&nodes_refs, &arb_edges, self.mode);
+
+            let mut p1 = entry.partition.clone();
+            let mut p2 = entry.partition.clone();
+
+            for (eu, ev) in &arb_edges {
+                let key = (eu.clone(), ev.clone());
+                if entry.partition.contains_key(&key) {
+                    continue;
+                }
+
+                p1.insert(key.clone(), PartitionState::Excluded);
+                p2.insert(key.clone(), PartitionState::Included);
+
+                if let Some((p1_weight, _)) = find_arborescence(&self.digraph, &p1, self.minimum, &self.weight_attr) {
+                    self.heap.push(QueueEntry {
+                        weight: if self.minimum { p1_weight } else { -p1_weight },
+                        sequence: self.seq,
+                        partition: p1.clone(),
+                    });
+                    self.seq += 1;
+                }
+
+                p1 = p2.clone();
+            }
+
+            return Some(arb);
+        }
+        None
+    }
+}
+
 pub fn arborescence_iterator_ordered(
     digraph: &DiGraph,
     weight_attr: &str,
     minimum: bool,
     max_count: usize,
 ) -> Vec<DiGraph> {
-    use std::cmp::Ordering;
-    use std::collections::BinaryHeap;
-
-    let nodes = digraph.nodes_ordered();
-    let n = nodes.len();
-    if n == 0 {
-        return vec![DiGraph::strict()];
+    match ArborescenceIteratorState::new(digraph, weight_attr, minimum) {
+        Ok(iter) => iter.take(max_count).collect(),
+        Err(_) => Vec::new(),
     }
-    if n == 1 {
-        let mut g = DiGraph::strict();
-        g.add_node(nodes[0].to_owned());
-        return vec![g];
-    }
-
-    type PartitionDict = HashMap<(String, String), PartitionState>;
-
-    #[derive(Clone)]
-    struct QueueEntry {
-        weight: f64,
-        sequence: u64,
-        partition: PartitionDict,
-    }
-
-    impl PartialEq for QueueEntry {
-        fn eq(&self, other: &Self) -> bool {
-            self.weight == other.weight && self.sequence == other.sequence
-        }
-    }
-    impl Eq for QueueEntry {}
-    impl PartialOrd for QueueEntry {
-        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-            Some(self.cmp(other))
-        }
-    }
-    impl Ord for QueueEntry {
-        fn cmp(&self, other: &Self) -> Ordering {
-            other
-                .weight
-                .total_cmp(&self.weight)
-                .then_with(|| other.sequence.cmp(&self.sequence))
-        }
-    }
-
-    // Find arborescence using Edmonds' algorithm, returning edge list and total weight.
-    // Respects partition by pre-filtering edges.
-    fn find_arborescence(
-        digraph: &DiGraph,
-        partition: &PartitionDict,
-        minimum: bool,
-        weight_attr: &str,
-    ) -> Option<(f64, Vec<(String, String)>)> {
-        let nodes = digraph.nodes_ordered();
-        let n = nodes.len();
-
-        // Apply in-degree-1 constraint: if an edge is INCLUDED to target v,
-        // all other incoming edges to v must be EXCLUDED
-        let mut effective_partition = partition.clone();
-        let mut included_targets: HashMap<String, String> = HashMap::new();
-        for ((src, tgt), state) in partition {
-            if matches!(state, PartitionState::Included) {
-                included_targets.insert(tgt.clone(), src.clone());
-            }
-        }
-        for edge in digraph.edges_ordered() {
-            if let Some(inc_src) = included_targets.get(edge.right.as_str())
-                && edge.left.as_str() != inc_src.as_str()
-            {
-                effective_partition
-                    .entry((edge.left.clone(), edge.right.clone()))
-                    .or_insert(PartitionState::Excluded);
-            }
-        }
-
-        // Build a filtered digraph with only non-excluded edges
-        let mut filtered = DiGraph::new(digraph.mode());
-        for &node in &nodes {
-            filtered.add_node(node.to_owned());
-        }
-        let mut included_edges = Vec::new();
-        for edge in digraph.edges_ordered() {
-            let key = (edge.left.clone(), edge.right.clone());
-            match effective_partition.get(&key) {
-                Some(PartitionState::Excluded) => continue,
-                Some(PartitionState::Included) => {
-                    included_edges.push(key.clone());
-                    let _ = filtered.add_edge_with_attrs(
-                        edge.left.clone(),
-                        edge.right.clone(),
-                        edge.attrs.clone(),
-                    );
-                }
-                _ => {
-                    let _ = filtered.add_edge_with_attrs(
-                        edge.left.clone(),
-                        edge.right.clone(),
-                        edge.attrs.clone(),
-                    );
-                }
-            }
-        }
-
-        // Use spanning arborescence (not branching!) — tries all roots
-        let arb = if minimum {
-            minimum_spanning_arborescence(&filtered, weight_attr, 1.0)
-        } else {
-            maximum_spanning_arborescence(&filtered, weight_attr, 1.0)
-        };
-
-        let arb = arb?;
-
-        if arb.edges.len() != n.saturating_sub(1) {
-            return None;
-        }
-
-        // Verify all included edges are in the result
-        let result_edges: HashSet<(String, String)> = arb
-            .edges
-            .iter()
-            .map(|e| (e.left.clone(), e.right.clone()))
-            .collect();
-        for ie in &included_edges {
-            if !result_edges.contains(ie) {
-                return None;
-            }
-        }
-
-        let edges: Vec<(String, String)> = arb
-            .edges
-            .iter()
-            .map(|e| (e.left.clone(), e.right.clone()))
-            .collect();
-        Some((arb.total_weight, edges))
-    }
-
-    fn build_arborescence(
-        nodes: &[&str],
-        edges: &[(String, String)],
-        mode: fnx_runtime::CompatibilityMode,
-    ) -> DiGraph {
-        let mut arb = DiGraph::new(mode);
-        for &node in nodes {
-            arb.add_node(node.to_owned());
-        }
-        for (u, v) in edges {
-            let _ = arb.add_edge(u.clone(), v.clone());
-        }
-        arb
-    }
-
-    let mode = digraph.mode();
-    let mut seq = 0u64;
-    let mut heap = BinaryHeap::new();
-
-    let empty_partition: PartitionDict = HashMap::new();
-    let Some((init_weight, _)) = find_arborescence(digraph, &empty_partition, minimum, weight_attr)
-    else {
-        return Vec::new();
-    };
-
-    heap.push(QueueEntry {
-        weight: if minimum { init_weight } else { -init_weight },
-        sequence: seq,
-        partition: empty_partition,
-    });
-    seq += 1;
-
-    let mut results = Vec::new();
-
-    while let Some(entry) = heap.pop() {
-        if results.len() >= max_count {
-            break;
-        }
-
-        let Some((_weight, arb_edges)) =
-            find_arborescence(digraph, &entry.partition, minimum, weight_attr)
-        else {
-            continue;
-        };
-
-        results.push(build_arborescence(&nodes, &arb_edges, mode));
-
-        if results.len() >= max_count {
-            break;
-        }
-
-        // Generate child partitions
-        let mut p1 = entry.partition.clone();
-        let mut p2 = entry.partition.clone();
-
-        for (eu, ev) in &arb_edges {
-            let key = (eu.clone(), ev.clone());
-            if entry.partition.contains_key(&key) {
-                continue;
-            }
-
-            p1.insert(key.clone(), PartitionState::Excluded);
-            p2.insert(key.clone(), PartitionState::Included);
-
-            if let Some((p1_weight, _)) = find_arborescence(digraph, &p1, minimum, weight_attr) {
-                heap.push(QueueEntry {
-                    weight: if minimum { p1_weight } else { -p1_weight },
-                    sequence: seq,
-                    partition: p1.clone(),
-                });
-                seq += 1;
-            }
-
-            p1 = p2.clone();
-        }
-    }
-
-    results
 }
+
+
 
 // ---------------------------------------------------------------------------
 // GraphML writer (Rust string generation)
@@ -35602,6 +35666,20 @@ mod tests {
             assert_eq!(t.edge_count(), 2);
             assert_eq!(t.nodes_ordered().len(), 3);
         }
+    }
+
+    #[test]
+    fn test_spanning_tree_iterator_returns_single_forest_when_disconnected() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge_with_attrs("a", "b", single_attr("weight", "2.0"));
+        let _ = g.add_node("c");
+
+        let trees = spanning_tree_iterator_ordered(&g, "weight", true, 100);
+
+        assert_eq!(trees.len(), 1);
+        assert_eq!(trees[0].nodes_ordered(), vec!["a", "b", "c"]);
+        assert_eq!(trees[0].edge_count(), 1);
+        assert!(trees[0].has_edge("a", "b"));
     }
 
     #[test]

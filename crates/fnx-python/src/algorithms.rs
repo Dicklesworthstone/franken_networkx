@@ -9569,87 +9569,109 @@ pub fn snap_aggregation_rust(
 }
 
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
 // Spanning tree / arborescence iterators
 // ---------------------------------------------------------------------------
 
-/// Enumerate spanning trees in weight-sorted order (Janssens-Sörensen partition scheme).
-#[pyfunction]
-#[pyo3(signature = (g, weight="weight", minimum=true, max_count=100))]
-pub fn spanning_tree_iterator_rust(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    weight: &str,
-    minimum: bool,
-    max_count: usize,
-) -> PyResult<Vec<PyObject>> {
-    let gr = extract_graph(g)?;
-    if gr.is_directed() {
-        return Err(crate::NetworkXNotImplemented::new_err(
-            "not implemented for directed type",
-        ));
-    }
-    if matches!(
-        gr,
-        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. }
-    ) {
-        return Err(crate::NetworkXNotImplemented::new_err(
-            "not implemented for multigraph type",
-        ));
-    }
-    let inner = gr.undirected();
-    let w = weight.to_owned();
-    let trees = py.allow_threads(move || {
-        fnx_algorithms::spanning_tree_iterator_ordered(inner, &w, minimum, max_count)
-    });
-    trees
-        .into_iter()
-        .map(|t| rust_graph_to_py_subgraph(py, &t, &gr))
-        .collect()
+#[pyclass(unsendable, name="spanning_tree_iterator_rust")]
+pub struct SpanningTreeIteratorRust {
+    inner: fnx_algorithms::SpanningTreeIteratorState,
+    original_graph: PyObject,
 }
 
-/// Enumerate spanning arborescences in weight-sorted order (partition scheme).
-#[pyfunction]
-#[pyo3(signature = (g, weight="weight", minimum=true, max_count=100))]
-pub fn arborescence_iterator_rust(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-    weight: &str,
-    minimum: bool,
-    max_count: usize,
-) -> PyResult<Vec<PyObject>> {
-    let gr = extract_graph(g)?;
-    if !gr.is_directed() {
-        return Err(crate::NetworkXNotImplemented::new_err(
-            "not implemented for undirected type",
-        ));
+#[pymethods]
+impl SpanningTreeIteratorRust {
+    #[new]
+    #[pyo3(signature = (g, weight="weight", minimum=true, _max_count=100))]
+    fn new(_py: Python<'_>, g: &Bound<'_, PyAny>, weight: &str, minimum: bool, _max_count: usize) -> PyResult<Self> {
+        let gr = extract_graph(g)?;
+        if gr.is_directed() {
+            return Err(crate::NetworkXNotImplemented::new_err(
+                "not implemented for directed type",
+            ));
+        }
+        if matches!(
+            gr,
+            GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. }
+        ) {
+            return Err(crate::NetworkXNotImplemented::new_err(
+                "not implemented for multigraph type",
+            ));
+        }
+        let inner_state = fnx_algorithms::SpanningTreeIteratorState::new(gr.undirected(), weight, minimum);
+        Ok(Self {
+            inner: inner_state,
+            original_graph: g.clone().unbind(),
+        })
     }
-    if matches!(
-        gr,
-        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. }
-    ) {
-        return Err(crate::NetworkXNotImplemented::new_err(
-            "not implemented for multigraph type",
-        ));
+
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
     }
-    let dg = gr.digraph().expect("directed type checked above");
-    if dg.node_count() == 0 {
-        return Err(crate::NetworkXPointlessConcept::new_err("G has no nodes."));
+
+    fn __next__(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<Option<PyObject>> {
+        let next_tree = slf.inner.next();
+        match next_tree {
+            Some(t) => {
+                let g_bound = slf.original_graph.bind(py);
+                let gr = extract_graph(&g_bound)?;
+                Ok(Some(rust_graph_to_py_subgraph(py, &t, &gr)?))
+            }
+            None => Ok(None),
+        }
     }
-    let w = weight.to_owned();
-    let arbs = py.allow_threads(move || {
-        fnx_algorithms::arborescence_iterator_ordered(dg, &w, minimum, max_count)
-    });
-    if arbs.is_empty() {
-        let message = if minimum {
-            "No minimum spanning arborescence in G."
-        } else {
-            "No maximum spanning arborescence in G."
-        };
-        return Err(crate::NetworkXError::new_err(message));
+}
+
+#[pyclass(unsendable, name="arborescence_iterator_rust")]
+pub struct ArborescenceIteratorRust {
+    inner: fnx_algorithms::ArborescenceIteratorState,
+    original_graph: PyObject,
+}
+
+#[pymethods]
+impl ArborescenceIteratorRust {
+    #[new]
+    #[pyo3(signature = (g, weight="weight", minimum=true, max_count=100))]
+    fn new(_py: Python<'_>, g: &Bound<'_, PyAny>, weight: &str, minimum: bool, max_count: usize) -> PyResult<Self> {
+        let _ = max_count;
+        let gr = extract_graph(g)?;
+        if !gr.is_directed() {
+            return Err(crate::NetworkXNotImplemented::new_err(
+                "not implemented for undirected type",
+            ));
+        }
+        if matches!(
+            gr,
+            GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. }
+        ) {
+            return Err(crate::NetworkXNotImplemented::new_err(
+                "not implemented for multigraph type",
+            ));
+        }
+        let inner_state = fnx_algorithms::ArborescenceIteratorState::new(gr.digraph().unwrap(), weight, minimum)
+            .map_err(|e| crate::NetworkXError::new_err(e))?;
+        Ok(Self {
+            inner: inner_state,
+            original_graph: g.clone().unbind(),
+        })
     }
-    arbs.into_iter()
-        .map(|a| rust_digraph_to_py_subgraph(py, &a, &gr))
-        .collect()
+
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<Option<PyObject>> {
+        let next_tree = slf.inner.next();
+        match next_tree {
+            Some(t) => {
+                let g_bound = slf.original_graph.bind(py);
+                let gr = extract_graph(&g_bound)?;
+                Ok(Some(rust_digraph_to_py_subgraph(py, &t, &gr)?))
+            }
+            None => Ok(None),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -10303,8 +10325,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // SNAP aggregation
     m.add_function(wrap_pyfunction!(snap_aggregation_rust, m)?)?;
     // Iterators
-    m.add_function(wrap_pyfunction!(spanning_tree_iterator_rust, m)?)?;
-    m.add_function(wrap_pyfunction!(arborescence_iterator_rust, m)?)?;
+    m.add_class::<SpanningTreeIteratorRust>()?;
+    m.add_class::<ArborescenceIteratorRust>()?;
     // GraphML writer
     m.add_function(wrap_pyfunction!(write_graphml_string_rust, m)?)?;
     // All-pairs

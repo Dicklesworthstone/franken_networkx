@@ -258,8 +258,20 @@ fn read_adjlist(py: Python<'_>, path: &Bound<'_, PyAny>) -> PyResult<PyGraph> {
 }
 
 #[pyfunction]
-#[pyo3(signature = (g, path))]
-fn write_adjlist(py: Python<'_>, g: &Bound<'_, PyAny>, path: &Bound<'_, PyAny>) -> PyResult<()> {
+#[pyo3(signature = (g, path, comments="#", delimiter=" ", encoding="utf-8"))]
+fn write_adjlist(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    path: &Bound<'_, PyAny>,
+    comments: &str,
+    delimiter: &str,
+    encoding: &str,
+) -> PyResult<()> {
+    if comments != "#" || delimiter != " " || encoding != "utf-8" {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "franken_networkx currently only supports default parameters for write_adjlist",
+        ));
+    }
     let gr = extract_graph(g)?;
     reject_multigraph_write(&gr, "write_adjlist")?;
     let mut engine = EdgeListEngine::hardened();
@@ -341,8 +353,24 @@ fn node_link_data(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
 }
 
 #[pyfunction]
-#[pyo3(signature = (data,))]
-fn node_link_graph(py: Python<'_>, data: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+#[pyo3(signature = (data, directed=false, multigraph=true, attrs=None, source="source", target="target", name="id", key="key", link="links"))]
+fn node_link_graph(
+    py: Python<'_>,
+    data: &Bound<'_, PyAny>,
+    directed: bool,
+    multigraph: bool,
+    attrs: Option<Bound<'_, PyAny>>,
+    source: &str,
+    target: &str,
+    name: &str,
+    key: &str,
+    link: &str,
+) -> PyResult<PyObject> {
+    if attrs.is_some() || source != "source" || target != "target" || name != "id" || key != "key" || link != "links" {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "franken_networkx currently only supports default parameters for node_link_graph",
+        ));
+    }
     let json_mod = py.import("json")?;
     let json_str: String = json_mod.call_method1("dumps", (data,))?.extract()?;
     let mut engine = EdgeListEngine::hardened();
@@ -447,8 +475,18 @@ fn write_graphml(py: Python<'_>, g: &Bound<'_, PyAny>, path: &Bound<'_, PyAny>) 
 // ---------------------------------------------------------------------------
 
 #[pyfunction]
-#[pyo3(signature = (path,))]
-fn read_gml(py: Python<'_>, path: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+#[pyo3(signature = (path, label="label", destringizer=None))]
+fn read_gml(
+    py: Python<'_>,
+    path: &Bound<'_, PyAny>,
+    label: Option<&str>,
+    destringizer: Option<Bound<'_, PyAny>>,
+) -> PyResult<PyObject> {
+    if label != Some("label") || destringizer.is_some() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "franken_networkx currently only supports default parameters for read_gml",
+        ));
+    }
     let input = read_input(py, path)?;
     let mut engine = EdgeListEngine::hardened();
 

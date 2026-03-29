@@ -62,6 +62,7 @@ def _nan_filtered_graph(G, weight, ignore_nan):
     return H
 
 
+
 class SpanningTreeIterator:
     """Iterate over all spanning trees of a graph in weight-sorted order.
 
@@ -85,8 +86,7 @@ class SpanningTreeIterator:
         self.weight = weight
         self.minimum = minimum
         self.ignore_nan = ignore_nan
-        self._trees = None
-        self._index = 0
+
 
     def __iter__(self):
         from franken_networkx._fnx import spanning_tree_iterator_rust
@@ -97,24 +97,22 @@ class SpanningTreeIterator:
         if self.G.is_multigraph():
             raise NetworkXNotImplemented("not implemented for multigraph type")
         graph = _nan_filtered_graph(self.G, self.weight, self.ignore_nan)
-        self._trees = spanning_tree_iterator_rust(
-            graph, self.weight, self.minimum, 2**31,
+        self._iterator = spanning_tree_iterator_rust(
+            graph, self.weight, self.minimum, 100
         )
-        self._index = 0
         return self
 
     def __next__(self):
-        if not hasattr(self, "_trees") or self._trees is None:
+        if not hasattr(self, '_iterator') or self._iterator is None:
             raise AttributeError(
-                "'SpanningTreeIterator' object has no attribute 'partition_queue'",
+                "'SpanningTreeIterator' object has no attribute 'partition_queue'"
             )
-        if self._index >= len(self._trees):
+        try:
+            return next(self._iterator)
+        except StopIteration:
             del self.G
-            del self._trees
+            del self._iterator
             raise StopIteration
-        tree = self._trees[self._index]
-        self._index += 1
-        return tree
 
 
 class ArborescenceIterator:
@@ -140,8 +138,7 @@ class ArborescenceIterator:
         self.weight = weight
         self.minimum = minimum
         self.init_partition = init_partition
-        self._arbs = None
-        self._index = 0
+
 
     def __iter__(self):
         from franken_networkx._fnx import arborescence_iterator_rust
@@ -158,24 +155,22 @@ class ArborescenceIterator:
             raise NetworkXNotImplemented("not implemented for multigraph type")
         if self.G.number_of_nodes() == 0:
             raise NetworkXPointlessConcept("G has no nodes.")
-        self._arbs = arborescence_iterator_rust(
-            self.G, self.weight, self.minimum, 2**31,
+        self._iterator = arborescence_iterator_rust(
+            self.G, self.weight, self.minimum, 100
         )
-        self._index = 0
         return self
 
     def __next__(self):
-        if not hasattr(self, "_arbs") or self._arbs is None:
+        if not hasattr(self, '_iterator') or self._iterator is None:
             raise AttributeError(
                 "'ArborescenceIterator' object has no attribute 'partition_queue'",
             )
-        if self._index >= len(self._arbs):
+        try:
+            return next(self._iterator)
+        except StopIteration:
             del self.G
-            del self._arbs
+            del self._iterator
             raise StopIteration
-        arb = self._arbs[self._index]
-        self._index += 1
-        return arb
 
 
 # Exception hierarchy
