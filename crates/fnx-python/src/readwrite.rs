@@ -367,7 +367,13 @@ fn node_link_graph(
     key: &str,
     link: &str,
 ) -> PyResult<PyObject> {
-    if attrs.is_some() || source != "source" || target != "target" || name != "id" || key != "key" || link != "links" {
+    if attrs.is_some()
+        || source != "source"
+        || target != "target"
+        || name != "id"
+        || key != "key"
+        || link != "links"
+    {
         return Err(crate::NetworkXNotImplemented::new_err(
             "franken_networkx currently only supports default parameters for node_link_graph",
         ));

@@ -148,6 +148,31 @@ class TestBranchingConstructors:
         with pytest.raises(fnx.NetworkXPointlessConcept):
             fnx.minimum_spanning_arborescence(D)
 
+    def test_spanning_arborescence_supports_partition_constraints(self):
+        fnx_graph = fnx.DiGraph()
+        nx_graph = nx.DiGraph()
+        for u in range(4):
+            for v in range(4):
+                if u != v:
+                    fnx_graph.add_edge(u, v, weight=1)
+                    nx_graph.add_edge(u, v, weight=1)
+
+        fnx_graph.edges[0, 1]["partition"] = fnx.EdgePartition.INCLUDED
+        fnx_graph.edges[0, 2]["partition"] = fnx.EdgePartition.EXCLUDED
+        nx_graph.edges[0, 1]["partition"] = nx.EdgePartition.INCLUDED
+        nx_graph.edges[0, 2]["partition"] = nx.EdgePartition.EXCLUDED
+
+        assert sorted(
+            fnx.minimum_spanning_arborescence(fnx_graph, partition="partition").edges()
+        ) == sorted(
+            nx.minimum_spanning_arborescence(nx_graph, partition="partition").edges()
+        )
+        assert sorted(
+            fnx.maximum_spanning_arborescence(fnx_graph, partition="partition").edges()
+        ) == sorted(
+            nx.maximum_spanning_arborescence(nx_graph, partition="partition").edges()
+        )
+
     def test_spanning_tree_iterator_rust_preserves_keys_and_attrs(self):
         graph = fnx.Graph()
         graph.graph["label"] = "demo"
@@ -412,6 +437,47 @@ class TestBranchingConstructors:
         assert sorted(fnx.minimum_spanning_arborescence(fnx_graph).edges()) == sorted(
             nx.minimum_spanning_arborescence(nx_graph).edges()
         )
+
+    def test_complete_digraph_k4_arborescence_iterator_matches_networkx_prefix(self):
+        nx_graph = nx.DiGraph()
+        fnx_graph = fnx.DiGraph()
+        for u in range(4):
+            for v in range(4):
+                if u != v:
+                    nx_graph.add_edge(u, v, weight=1)
+                    fnx_graph.add_edge(u, v, weight=1)
+
+        nx_prefix = [sorted(tree.edges()) for _, tree in zip(range(12), nx.ArborescenceIterator(nx_graph))]
+        fnx_prefix = [sorted(tree.edges()) for _, tree in zip(range(12), fnx.ArborescenceIterator(fnx_graph))]
+
+        assert fnx_prefix == nx_prefix
+
+    def test_complete_digraph_k4_arborescence_iterator_init_partition_matches_networkx(self):
+        nx_graph = nx.DiGraph()
+        fnx_graph = fnx.DiGraph()
+        for u in range(4):
+            for v in range(4):
+                if u != v:
+                    nx_graph.add_edge(u, v, weight=1)
+                    fnx_graph.add_edge(u, v, weight=1)
+
+        partition = ([(0, 1)], [(0, 2)])
+        nx_prefix = [
+            sorted(tree.edges())
+            for _, tree in zip(
+                range(5),
+                nx.ArborescenceIterator(nx_graph, init_partition=partition),
+            )
+        ]
+        fnx_prefix = [
+            sorted(tree.edges())
+            for _, tree in zip(
+                range(5),
+                fnx.ArborescenceIterator(fnx_graph, init_partition=partition),
+            )
+        ]
+
+        assert fnx_prefix == nx_prefix
 
     def test_spanning_tree_iterator_matches_networkx_next_lifecycle(self):
         iterator = fnx.SpanningTreeIterator(fnx.path_graph(2))

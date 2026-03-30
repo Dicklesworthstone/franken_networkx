@@ -693,7 +693,11 @@ impl MultiDiGraph {
     }
 
     /// Edge keys as iterator.
-    pub fn edge_keys_iter(&self, source: &str, target: &str) -> Option<impl Iterator<Item = &usize>> {
+    pub fn edge_keys_iter(
+        &self,
+        source: &str,
+        target: &str,
+    ) -> Option<impl Iterator<Item = &usize>> {
         self.successors
             .get(source)?
             .get(target)
