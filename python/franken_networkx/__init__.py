@@ -5526,29 +5526,7 @@ def all_node_cuts(G, k=None, flow_func=None):
 
 def connected_dominating_set(G, start_with=None):
     """Find a connected dominating set via greedy spanning-tree approach."""
-    if G.number_of_nodes() == 0:
-        return set()
-    nodes = list(G.nodes())
-    if start_with is None:
-        start_with = max(nodes, key=lambda n: G.degree[n])
-    ds = {start_with}
-    dominated = set(G.neighbors(start_with)) | {start_with}
-    while dominated != set(nodes):
-        best, best_gain = None, -1
-        for node in nodes:
-            if node in ds:
-                continue
-            if not any(nb in ds for nb in G.neighbors(node)):
-                continue
-            gain = len(set(G.neighbors(node)) - dominated)
-            if gain > best_gain:
-                best_gain, best = gain, node
-        if best is None:
-            break
-        ds.add(best)
-        dominated.update(G.neighbors(best))
-        dominated.add(best)
-    return ds
+    return set(_fnx.connected_dominating_set_rust(G))
 
 
 def is_connected_dominating_set(G, S):
@@ -5624,58 +5602,12 @@ def connected_double_edge_swap(G, nswap=1, _window_threshold=3, seed=None):
 
 def current_flow_betweenness_centrality(G, normalized=True, weight=None, solver='full'):
     """Current-flow betweenness centrality based on electrical current flow."""
-    import numpy as np
-    nodelist = list(G.nodes())
-    n = len(nodelist)
-    if n <= 2:
-        return {node: 0.0 for node in nodelist}
-    L = laplacian_matrix(G, nodelist=nodelist, weight=weight or 'weight').toarray()
-    L_inv = np.linalg.pinv(L)
-    bc = {node: 0.0 for node in nodelist}
-    idx = {node: i for i, node in enumerate(nodelist)}
-    for s_idx in range(n):
-        for t_idx in range(s_idx + 1, n):
-            b = np.zeros(n)
-            b[s_idx] = 1.0
-            b[t_idx] = -1.0
-            p = L_inv @ b
-            for v_idx in range(n):
-                if v_idx != s_idx and v_idx != t_idx:
-                    flow = 0.0
-                    i = idx[nodelist[v_idx]]
-                    for nb in G.neighbors(nodelist[v_idx]):
-                        j = idx[nb]
-                        flow += abs(p[i] - p[j])
-                    bc[nodelist[v_idx]] += flow / 2.0
-    if normalized:
-        factor = 2.0 / ((n - 1) * (n - 2))
-        bc = {k: v * factor for k, v in bc.items()}
-    return bc
+    return _fnx.current_flow_betweenness_centrality_rust(G, normalized, weight or 'weight')
 
 
 def edge_current_flow_betweenness_centrality(G, normalized=True, weight=None):
     """Edge variant of current-flow betweenness centrality."""
-    import numpy as np
-    nodelist = list(G.nodes())
-    n = len(nodelist)
-    L = laplacian_matrix(G, nodelist=nodelist, weight=weight or 'weight').toarray()
-    L_inv = np.linalg.pinv(L)
-    idx = {node: i for i, node in enumerate(nodelist)}
-    ebc = {}
-    for s_idx in range(n):
-        for t_idx in range(s_idx + 1, n):
-            b = np.zeros(n)
-            b[s_idx] = 1.0; b[t_idx] = -1.0
-            p = L_inv @ b
-            for u, v in G.edges():
-                i, j = idx[u], idx[v]
-                flow = abs(p[i] - p[j])
-                key = tuple(sorted((u, v), key=str))
-                ebc[key] = ebc.get(key, 0.0) + flow
-    if normalized and n > 1:
-        factor = 2.0 / (n * (n - 1))
-        ebc = {k: v * factor for k, v in ebc.items()}
-    return ebc
+    return _fnx.edge_current_flow_betweenness_centrality_rust(G, normalized, weight or 'weight')
 
 
 def approximate_current_flow_betweenness_centrality(G, normalized=True, weight=None, epsilon=0.5, kmax=10000, seed=None):
@@ -5766,30 +5698,7 @@ def subgraph_centrality_exp(G):
 
 def communicability_betweenness_centrality(G, normalized=True):
     """Betweenness centrality based on communicability."""
-    import numpy as np
-    nodelist = list(G.nodes())
-    n = len(nodelist)
-    if n <= 2:
-        return {node: 0.0 for node in nodelist}
-    A = to_numpy_array(G, nodelist=nodelist, weight=None)
-    expA = _matrix_exp(A)
-    cbc = {}
-    for r_idx, node in enumerate(nodelist):
-        A_mod = A.copy()
-        A_mod[r_idx, :] = 0
-        A_mod[:, r_idx] = 0
-        expA_mod = _matrix_exp(A_mod)
-        total = 0.0
-        for p in range(n):
-            for q in range(p + 1, n):
-                if p == r_idx or q == r_idx:
-                    continue
-                if expA[p, q] > 1e-15:
-                    total += (expA[p, q] - expA_mod[p, q]) / expA[p, q]
-        if normalized:
-            total /= ((n - 1) * (n - 2) / 2)
-        cbc[node] = float(total)
-    return cbc
+    return _fnx.communicability_betweenness_centrality_rust(G, normalized)
 
 
 def trophic_levels(G, weight=None):

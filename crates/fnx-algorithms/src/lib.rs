@@ -1957,7 +1957,7 @@ fn harmonic_centrality_generic<G: GraphView>(graph: &G) -> HarmonicCentralityRes
                 harmonic += 1.0 / (d as f64);
             }
 
-            if let Some(neighbors) = graph.neighbors_iter(nodes[u]) {
+            if let Some(neighbors) = graph.in_neighbors_iter(nodes[u]) {
                 for v_name in neighbors {
                     edges_scanned += 1;
                     let v = graph.get_node_index(v_name).unwrap();
