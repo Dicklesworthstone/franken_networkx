@@ -38132,6 +38132,3 @@ mod tests {
         assert!(g.edge_count() > 0);
     }
 }
-unt() > 0);
-    }
-}
