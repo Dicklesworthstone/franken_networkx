@@ -1159,11 +1159,7 @@ def create_empty_copy(G, with_data=True):
 
 def number_of_selfloops(G):
     """Return the number of self-loop edges in *G*."""
-    count = 0
-    for u, v in G.edges():
-        if u == v:
-            count += 1
-    return count
+    return _fnx.number_of_selfloops_rust(G)
 
 
 def selfloop_edges(G, data=False):
@@ -1183,12 +1179,12 @@ def selfloop_edges(G, data=False):
     """
     if data:
         return [(u, v, d) for u, v, d in G.edges(data=True) if u == v]
-    return [(u, v) for u, v in G.edges() if u == v]
+    return _fnx.selfloop_edges_rust(G)
 
 
 def nodes_with_selfloops(G):
     """Return nodes that have self-loops."""
-    return list({u for u, v in G.edges() if u == v})
+    return _fnx.nodes_with_selfloops_rust(G)
 
 
 def all_neighbors(G, node):
@@ -1440,29 +1436,7 @@ def power(G, k):
     The k-th power G^k has the same nodes as G. Two nodes u, v are
     adjacent in G^k iff their shortest path distance in G is <= k.
     """
-    H = G.__class__()
-    for n in G.nodes():
-        H.add_node(n)
-
-    nodes = list(G.nodes())
-    for u in nodes:
-        # BFS to find all nodes within distance k
-        visited = {u: 0}
-        frontier = [u]
-        for dist in range(1, k + 1):
-            next_frontier = []
-            for node in frontier:
-                for nbr in G.neighbors(node):
-                    if nbr not in visited:
-                        visited[nbr] = dist
-                        next_frontier.append(nbr)
-                        if nbr != u:
-                            H.add_edge(u, nbr)
-            frontier = next_frontier
-            if not frontier:
-                break
-
-    return H
+    return _fnx.power_rust(G, k)
 
 
 def disjoint_union(G, H):
@@ -4894,23 +4868,7 @@ def flow_hierarchy(G, weight=None):
     float
         Value in [0, 1]. 1 means no edges are in cycles (DAG).
     """
-    m = G.number_of_edges()
-    if m == 0:
-        return 1.0
-
-    # An edge is in a cycle iff both endpoints are in the same SCC of size > 1.
-    sccs = strongly_connected_components(G)
-    nontrivial_scc_nodes = set()
-    for scc in sccs:
-        if len(scc) > 1:
-            nontrivial_scc_nodes.update(scc)
-
-    cycle_edge_count = sum(
-        1 for u, v in G.edges()
-        if u in nontrivial_scc_nodes and v in nontrivial_scc_nodes
-    )
-
-    return 1.0 - cycle_edge_count / m
+    return _fnx.flow_hierarchy_rust(G)
 
 
 # ---------------------------------------------------------------------------
@@ -5062,19 +5020,7 @@ def triadic_census(G):
     """
     if not G.is_directed():
         raise NetworkXError("triadic_census requires a directed graph")
-
-    census = {t: 0 for t in _TRIAD_TYPES}
-    nodes = list(G.nodes())
-    n = len(nodes)
-
-    for i in range(n):
-        for j in range(i + 1, n):
-            for k in range(j + 1, n):
-                ttype = _classify_triad(G, nodes[i], nodes[j], nodes[k])
-                if ttype in census:
-                    census[ttype] += 1
-
-    return census
+    return _fnx.triadic_census_rust(G)
 
 
 def all_triads(G):
@@ -5118,7 +5064,7 @@ def triad_type(G):
     nodes = list(G.nodes())
     if len(nodes) != 3:
         raise NetworkXError("triad_type requires exactly 3 nodes")
-    return _classify_triad(G, nodes[0], nodes[1], nodes[2])
+    return _fnx.triad_type_rust(G, nodes[0], nodes[1], nodes[2])
 
 
 def is_triad(G):

@@ -24670,12 +24670,11 @@ pub(crate) type PartitionDict = std::collections::HashMap<(String, String), Part
 #[derive(Clone)]
 pub(crate) struct QueueEntry {
     pub(crate) weight: f64,
-    pub(crate) ordinal: usize,
     pub(crate) partition: PartitionDict,
 }
 
 fn queue_entry_lt(left: &QueueEntry, right: &QueueEntry) -> bool {
-    left.weight < right.weight || (left.weight == right.weight && left.ordinal < right.ordinal)
+    left.weight < right.weight
 }
 
 fn partition_heap_push(heap: &mut Vec<QueueEntry>, entry: QueueEntry) {
@@ -24813,7 +24812,6 @@ pub struct SpanningTreeIteratorState {
     weight_attr: String,
     minimum: bool,
     heap: Vec<QueueEntry>,
-    next_ordinal: usize,
     nodes: Vec<String>,
     mode: fnx_runtime::CompatibilityMode,
     is_connected: bool,
@@ -24848,7 +24846,6 @@ impl SpanningTreeIteratorState {
                     &mut heap,
                     QueueEntry {
                         weight: if minimum { init_weight } else { -init_weight },
-                        ordinal: 0,
                         partition: empty_partition,
                     },
                 );
@@ -24860,7 +24857,6 @@ impl SpanningTreeIteratorState {
             weight_attr: weight_attr.to_owned(),
             minimum,
             heap,
-            next_ordinal: 1,
             nodes,
             mode,
             is_connected: is_conn,
@@ -24951,11 +24947,9 @@ impl Iterator for SpanningTreeIteratorState {
                             &mut self.heap,
                             QueueEntry {
                                 weight: if self.minimum { p1_weight } else { -p1_weight },
-                                ordinal: self.next_ordinal,
                                 partition: p1.clone(),
                             },
                         );
-                        self.next_ordinal += 1;
                     }
                 }
 
@@ -25079,12 +25073,31 @@ fn build_arborescence(
     arb
 }
 
+fn order_directed_edges_like_graph(
+    digraph: &DiGraph,
+    edges: &[(String, String)],
+) -> Vec<(String, String)> {
+    let edge_rank = digraph
+        .edges_ordered()
+        .into_iter()
+        .enumerate()
+        .map(|(idx, edge)| ((edge.left, edge.right), idx))
+        .collect::<HashMap<_, _>>();
+
+    let mut ordered = edges.to_vec();
+    ordered.sort_by(|left, right| {
+        let left_rank = edge_rank.get(left).copied().unwrap_or(usize::MAX);
+        let right_rank = edge_rank.get(right).copied().unwrap_or(usize::MAX);
+        left_rank.cmp(&right_rank).then_with(|| left.cmp(right))
+    });
+    ordered
+}
+
 pub struct ArborescenceIteratorState {
     digraph: DiGraph,
     weight_attr: String,
     minimum: bool,
     heap: Vec<QueueEntry>,
-    next_ordinal: usize,
     nodes: Vec<String>,
     mode: fnx_runtime::CompatibilityMode,
     yielded_forest: bool,
@@ -25110,7 +25123,6 @@ impl ArborescenceIteratorState {
                     &mut heap,
                     QueueEntry {
                         weight: if minimum { init_weight } else { -init_weight },
-                        ordinal: 0,
                         partition: empty_partition,
                     },
                 );
@@ -25129,7 +25141,6 @@ impl ArborescenceIteratorState {
             weight_attr: weight_attr.to_owned(),
             minimum,
             heap,
-            next_ordinal: 1,
             nodes,
             mode,
             yielded_forest: false,
@@ -25169,14 +25180,16 @@ impl Iterator for ArborescenceIteratorState {
                 continue;
             };
 
+            let ordered_arb_edges = order_directed_edges_like_graph(&self.digraph, &arb_edges);
             let nodes_refs: Vec<&str> = self.nodes.iter().map(|s| s.as_str()).collect();
-            let arb = build_arborescence(&nodes_refs, &arb_edges, self.mode);
+            let arb = build_arborescence(&nodes_refs, &ordered_arb_edges, self.mode);
+            let ordered_edges = arb.edges_ordered();
 
             let mut p1 = entry.partition.clone();
             let mut p2 = entry.partition.clone();
 
-            for (eu, ev) in &arb_edges {
-                let key = (eu.clone(), ev.clone());
+            for edge in ordered_edges {
+                let key = (edge.left.clone(), edge.right.clone());
                 if entry.partition.contains_key(&key) {
                     continue;
                 }
@@ -25191,11 +25204,9 @@ impl Iterator for ArborescenceIteratorState {
                         &mut self.heap,
                         QueueEntry {
                             weight: if self.minimum { p1_weight } else { -p1_weight },
-                            ordinal: self.next_ordinal,
                             partition: p1.clone(),
                         },
                     );
-                    self.next_ordinal += 1;
                 }
 
                 p1 = p2.clone();
@@ -25246,12 +25257,10 @@ pub fn arborescence_iterator_ordered_with_partition(
     };
 
     let mut heap = Vec::new();
-    let mut next_ordinal = 1usize;
     partition_heap_push(
         &mut heap,
         QueueEntry {
             weight: if minimum { init_weight } else { -init_weight },
-            ordinal: 0,
             partition: initial_partition,
         },
     );
@@ -25268,7 +25277,8 @@ pub fn arborescence_iterator_ordered_with_partition(
             continue;
         };
 
-        let arb = build_arborescence(&nodes_refs, &arb_edges, mode);
+        let ordered_arb_edges = order_directed_edges_like_graph(digraph, &arb_edges);
+        let arb = build_arborescence(&nodes_refs, &ordered_arb_edges, mode);
         let ordered_edges = arb.edges_ordered();
         results.push(arb);
 
@@ -25289,11 +25299,9 @@ pub fn arborescence_iterator_ordered_with_partition(
                     &mut heap,
                     QueueEntry {
                         weight: if minimum { p1_weight } else { -p1_weight },
-                        ordinal: next_ordinal,
                         partition: p1.clone(),
                     },
                 );
-                next_ordinal += 1;
             }
 
             p1 = p2.clone();
@@ -37461,6 +37469,60 @@ mod tests {
         let arbs = arborescence_iterator(&d, "weight", 1000);
 
         assert_eq!(arbs.len(), 64);
+    }
+
+    #[test]
+    fn test_arborescence_iterator_complete_digraph_k4_prefix_matches_networkx_order() {
+        let mut d = DiGraph::strict();
+        for u in ["a", "b", "c", "d"] {
+            for v in ["a", "b", "c", "d"] {
+                if u != v {
+                    let _ = d.add_edge_with_attrs(u, v, single_attr("weight", "1.0"));
+                }
+            }
+        }
+
+        let arbs = crate::arborescence_iterator_ordered(&d, "weight", true, 5);
+        let prefixes = arbs
+            .into_iter()
+            .map(|arb| {
+                arb.edges_ordered()
+                    .into_iter()
+                    .map(|edge| (edge.left, edge.right))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            prefixes,
+            vec![
+                vec![
+                    ("a".to_owned(), "b".to_owned()),
+                    ("a".to_owned(), "c".to_owned()),
+                    ("c".to_owned(), "d".to_owned()),
+                ],
+                vec![
+                    ("a".to_owned(), "c".to_owned()),
+                    ("c".to_owned(), "b".to_owned()),
+                    ("d".to_owned(), "a".to_owned()),
+                ],
+                vec![
+                    ("a".to_owned(), "b".to_owned()),
+                    ("b".to_owned(), "c".to_owned()),
+                    ("c".to_owned(), "d".to_owned()),
+                ],
+                vec![
+                    ("a".to_owned(), "d".to_owned()),
+                    ("b".to_owned(), "c".to_owned()),
+                    ("d".to_owned(), "b".to_owned()),
+                ],
+                vec![
+                    ("a".to_owned(), "c".to_owned()),
+                    ("a".to_owned(), "d".to_owned()),
+                    ("c".to_owned(), "b".to_owned()),
+                ],
+            ]
+        );
     }
 
     #[test]
