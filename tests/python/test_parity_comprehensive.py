@@ -183,8 +183,8 @@ class TestFlowAlgorithms:
 
     def test_network_simplex(self):
         D = fnx.DiGraph()
-        D.add_node(0, demand=2)
-        D.add_node(1, demand=-2)
+        D.add_node(0, demand=-2)
+        D.add_node(1, demand=2)
         D.add_edge(0, 1, capacity=10, weight=3)
         cost, flow = fnx.network_simplex(D)
         assert cost == 6.0

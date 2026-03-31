@@ -4492,8 +4492,8 @@ def min_cost_flow(G, demand='demand', capacity='capacity', weight='weight'):
     Uses the successive shortest paths algorithm with Bellman-Ford.
 
     Each node may have a ``demand`` attribute:
-    - Positive demand = supply (source)
-    - Negative demand = demand (sink)
+    - Negative demand = supply (source, has excess flow to send)
+    - Positive demand = demand (sink, needs flow)
     - Zero or missing = transshipment node
 
     Parameters
@@ -4546,11 +4546,11 @@ def min_cost_flow(G, demand='demand', capacity='capacity', weight='weight'):
         flow.setdefault(u, {})[v] = 0
 
     # Build residual graph and run successive shortest paths
-    # Create a super-source and super-sink
-    sources = [n for n in nodes if node_demand[n] > 0]
-    sinks = [n for n in nodes if node_demand[n] < 0]
-    remaining_supply = {n: node_demand[n] for n in sources}
-    remaining_demand = {n: -node_demand[n] for n in sinks}
+    # NetworkX convention: negative demand = supply, positive = demand
+    sources = [n for n in nodes if node_demand[n] < 0]
+    sinks = [n for n in nodes if node_demand[n] > 0]
+    remaining_supply = {n: -node_demand[n] for n in sources}
+    remaining_demand = {n: node_demand[n] for n in sinks}
 
     # Successive shortest paths: augment along shortest cost path
     for _ in range(n * n):  # upper bound on iterations

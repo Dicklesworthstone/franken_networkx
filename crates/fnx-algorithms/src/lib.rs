@@ -21952,10 +21952,9 @@ pub fn attribute_mixing_dict(
             .and_then(|a| a.get(attribute))
             .map(|v| v.as_str())
             .unwrap_or_default();
+        // Undirected: count both directions for every edge
         *mixing.entry((u_val.clone(), v_val.clone())).or_insert(0) += 1;
-        if u_val != v_val {
-            *mixing.entry((v_val, u_val)).or_insert(0) += 1;
-        }
+        *mixing.entry((v_val, u_val)).or_insert(0) += 1;
     }
     mixing
 }
@@ -22002,18 +22001,26 @@ pub fn attribute_assortativity(graph: &Graph, attribute: &str) -> f64 {
         }
     }
 
-    // Compute assortativity r = (tr(e) - ||e²||) / (1 - ||e²||)
+    // Compute assortativity r = (tr(e) - sum(e@e)) / (1 - sum(e@e))
+    // per Newman (2003) Eq. (2)
     let trace: f64 = (0..k).map(|i| e[i][i]).sum();
-    let row_sums: Vec<f64> = (0..k).map(|i| e[i].iter().sum::<f64>()).collect();
-    let col_sums: Vec<f64> = (0..k)
-        .map(|j| (0..k).map(|i| e[i][j]).sum::<f64>())
-        .collect();
-    let e_squared: f64 = (0..k).map(|i| row_sums[i] * col_sums[i]).sum();
+    // Compute sum of all elements of e@e (matrix product)
+    let mut e_sq_sum: f64 = 0.0;
+    for i in 0..k {
+        for j in 0..k {
+            let mut dot = 0.0;
+            for m in 0..k {
+                dot += e[i][m] * e[m][j];
+            }
+            e_sq_sum += dot;
+        }
+    }
 
-    if (1.0 - e_squared).abs() < ASSORTATIVITY_EPSILON {
-        1.0
+    let denom = 1.0 - e_sq_sum;
+    if denom.abs() < ASSORTATIVITY_EPSILON {
+        f64::NAN
     } else {
-        (trace - e_squared) / (1.0 - e_squared)
+        (trace - e_sq_sum) / denom
     }
 }
 
@@ -22900,56 +22907,81 @@ pub fn dedensify(graph: &Graph, threshold: usize) -> (Graph, Vec<String>) {
 /// Returns a value in [-1, 1].
 #[must_use]
 pub fn numeric_assortativity_coefficient(graph: &Graph, attribute: &str) -> f64 {
-    let mut sum_xy = 0.0f64;
-    let mut sum_x = 0.0f64;
-    let mut sum_y = 0.0f64;
-    let mut sum_x2 = 0.0f64;
-    let mut sum_y2 = 0.0f64;
-    let mut m = 0usize;
+    // Newman (2003) Eq. (21): Pearson correlation via mixing matrix marginals.
+    // Collect unique numeric attribute values
+    let mut val_set = std::collections::BTreeSet::new();
+    for node in graph.nodes_ordered() {
+        if let Some(attrs) = graph.node_attrs(node) {
+            if let Some(v) = attrs.get(attribute) {
+                val_set.insert(v.as_f64().unwrap_or(0.0).to_bits());
+            }
+        }
+    }
+    let values: Vec<f64> = val_set.iter().map(|&b| f64::from_bits(b)).collect();
+    let k = values.len();
+    if k == 0 {
+        return 0.0;
+    }
+    let val_idx: std::collections::HashMap<u64, usize> =
+        val_set.iter().enumerate().map(|(i, &b)| (b, i)).collect();
 
+    // Build mixing matrix (normalized) — count both directions for undirected
+    let mut counts = vec![vec![0usize; k]; k];
+    let mut total = 0usize;
     for edge in graph.edges_ordered() {
-        let x_val = graph
+        let x_bits = graph
             .node_attrs(&edge.left)
             .and_then(|a| a.get(attribute))
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
-        let y_val = graph
+            .map(|v| v.as_f64().unwrap_or(0.0).to_bits())
+            .unwrap_or(0u64);
+        let y_bits = graph
             .node_attrs(&edge.right)
             .and_then(|a| a.get(attribute))
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
-
-        sum_xy += x_val * y_val;
-        sum_x += x_val;
-        sum_y += y_val;
-        sum_x2 += x_val * x_val;
-        sum_y2 += y_val * y_val;
-        m += 1;
-
-        // Undirected: also count reverse direction
-        sum_xy += y_val * x_val;
-        sum_x += y_val;
-        sum_y += x_val;
-        sum_x2 += y_val * y_val;
-        sum_y2 += x_val * x_val;
-        m += 1;
+            .map(|v| v.as_f64().unwrap_or(0.0).to_bits())
+            .unwrap_or(0u64);
+        if let (Some(&xi), Some(&yi)) = (val_idx.get(&x_bits), val_idx.get(&y_bits)) {
+            counts[xi][yi] += 1;
+            counts[yi][xi] += 1;
+            total += 2;
+        }
     }
-
-    if m == 0 {
+    if total == 0 {
         return 0.0;
     }
 
-    let mf = m as f64;
-    let numerator = mf * sum_xy - sum_x * sum_y;
-    let denom_x = (mf * sum_x2 - sum_x * sum_x).sqrt();
-    let denom_y = (mf * sum_y2 - sum_y * sum_y).sqrt();
-    let denominator = denom_x * denom_y;
-
-    if denominator.abs() < ASSORTATIVITY_EPSILON {
-        0.0
-    } else {
-        numerator / denominator
+    // Normalize to mixing matrix M
+    let tf = total as f64;
+    let mut m_mat = vec![vec![0.0f64; k]; k];
+    for i in 0..k {
+        for j in 0..k {
+            m_mat[i][j] = counts[i][j] as f64 / tf;
+        }
     }
+
+    // Column marginals a, row marginals b
+    let a: Vec<f64> = (0..k).map(|j| (0..k).map(|i| m_mat[i][j]).sum::<f64>()).collect();
+    let b: Vec<f64> = (0..k).map(|i| m_mat[i].iter().sum::<f64>()).collect();
+
+    // Variance of marginals
+    let mean_a: f64 = (0..k).map(|i| a[i] * values[i]).sum();
+    let var_a: f64 = (0..k).map(|i| a[i] * values[i] * values[i]).sum::<f64>() - mean_a * mean_a;
+    let mean_b: f64 = (0..k).map(|i| b[i] * values[i]).sum();
+    let var_b: f64 = (0..k).map(|i| b[i] * values[i] * values[i]).sum::<f64>() - mean_b * mean_b;
+
+    let denom = (var_a * var_b).sqrt();
+    if denom.abs() < ASSORTATIVITY_EPSILON {
+        return 0.0;
+    }
+
+    // Compute sum_ij x_i * y_j * (M_ij - a_i * b_j)
+    let mut numerator = 0.0f64;
+    for i in 0..k {
+        for j in 0..k {
+            numerator += values[i] * values[j] * (m_mat[i][j] - a[i] * b[j]);
+        }
+    }
+
+    numerator / denom
 }
 
 // ---------------------------------------------------------------------------

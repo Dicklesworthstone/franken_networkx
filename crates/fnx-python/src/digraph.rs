@@ -1065,7 +1065,7 @@ impl PyMultiDiGraph {
 
             let new_k = ug
                 .inner
-                .add_edge_with_attrs(u.clone(), v.clone(), rust_attrs)
+                .add_edge_with_key_and_attrs(u.clone(), v.clone(), k, rust_attrs)
                 .map_err(|e| crate::NetworkXError::new_err(e.to_string()))?;
 
             if let Some(pa) = py_attrs_copy {
