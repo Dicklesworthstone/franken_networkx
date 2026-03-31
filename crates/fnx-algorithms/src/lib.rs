@@ -23529,41 +23529,30 @@ pub fn triad_type(digraph: &DiGraph, u: &str, v: &str, w: &str) -> String {
         (0, 1, 2) => "012",
         (1, 0, 2) => "102",
         (0, 2, 1) => {
-            let edges: Vec<(bool, bool)> = vec![(ij, ji), (ik, ki), (jk, kj)];
-            let directed: Vec<usize> = edges
-                .iter()
-                .enumerate()
-                .filter(|(_, (a, b))| *a != *b)
-                .map(|(i, _)| i)
-                .collect();
-            if directed.len() == 2 {
-                // Check source/target pattern
-                let srcs: Vec<bool> = directed
-                    .iter()
-                    .map(|&i| match i {
-                        0 => ij,
-                        1 => ik,
-                        _ => jk,
-                    })
-                    .collect();
-                let tgts: Vec<bool> = directed
-                    .iter()
-                    .map(|&i| match i {
-                        0 => ji,
-                        1 => ki,
-                        _ => kj,
-                    })
-                    .collect();
-                // Both pointing out from same node = 021D
-                // Both pointing to same node = 021U
-                // Chain = 021C
-                if (srcs[0] && srcs[1]) || (tgts[0] && tgts[1]) {
-                    if srcs[0] && srcs[1] { "021D" } else { "021U" }
-                } else {
-                    "021C"
-                }
+            // Determine source node (0=u, 1=v, 2=w) for each directed edge.
+            // pair 0 (u,v): src = 0 if ij else 1
+            // pair 1 (u,w): src = 0 if ik else 2
+            // pair 2 (v,w): src = 1 if jk else 2
+            let mut src_nodes = Vec::new();
+            let mut tgt_nodes = Vec::new();
+            if ij ^ ji {
+                src_nodes.push(if ij { 0 } else { 1 });
+                tgt_nodes.push(if ij { 1 } else { 0 });
+            }
+            if ik ^ ki {
+                src_nodes.push(if ik { 0 } else { 2 });
+                tgt_nodes.push(if ik { 2 } else { 0 });
+            }
+            if jk ^ kj {
+                src_nodes.push(if jk { 1 } else { 2 });
+                tgt_nodes.push(if jk { 2 } else { 1 });
+            }
+            if src_nodes.len() == 2 && src_nodes[0] == src_nodes[1] {
+                "021D" // Both edges originate from the same node
+            } else if tgt_nodes.len() == 2 && tgt_nodes[0] == tgt_nodes[1] {
+                "021U" // Both edges point to the same node
             } else {
-                "021C"
+                "021C" // Chain pattern
             }
         }
         (1, 1, 1) => {
@@ -23596,8 +23585,8 @@ pub fn triad_type(digraph: &DiGraph, u: &str, v: &str, w: &str) -> String {
                 None
             };
             match asym_src {
-                Some(s) if mutual_nodes.contains(&s) => "111D",
-                _ => "111U",
+                Some(s) if mutual_nodes.contains(&s) => "111U",
+                _ => "111D",
             }
         }
         (0, 3, 0) => {
@@ -23623,9 +23612,9 @@ pub fn triad_type(digraph: &DiGraph, u: &str, v: &str, w: &str) -> String {
             let from_other_0 = digraph.has_edge(nodes_arr[other], nodes_arr[mutual_pair.0]);
             let from_other_1 = digraph.has_edge(nodes_arr[other], nodes_arr[mutual_pair.1]);
             if to_other_0 && to_other_1 {
-                "120D"
+                "120U" // Both mutual nodes point to other
             } else if from_other_0 && from_other_1 {
-                "120U"
+                "120D" // Other points to both mutual nodes
             } else {
                 "120C"
             }

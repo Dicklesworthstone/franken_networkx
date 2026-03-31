@@ -150,13 +150,36 @@ class TestFlowAlgorithms:
         flow = {0: {1: 3}}
         assert fnx.cost_of_flow(D, flow) == 6.0
 
+    @needs_nx
     def test_min_cost_flow(self):
+        D = fnx.DiGraph()
+        D.add_node(0, demand=-3)
+        D.add_node(1, demand=3)
+        D.add_edge(0, 1, capacity=10, weight=1)
+
+        expected = nx.DiGraph()
+        expected.add_node(0, demand=-3)
+        expected.add_node(1, demand=3)
+        expected.add_edge(0, 1, capacity=10, weight=1)
+
+        assert fnx.min_cost_flow(D) == nx.min_cost_flow(expected)
+
+    @needs_nx
+    def test_min_cost_flow_rejects_networkx_unfeasible_demand_signs(self):
         D = fnx.DiGraph()
         D.add_node(0, demand=3)
         D.add_node(1, demand=-3)
         D.add_edge(0, 1, capacity=10, weight=1)
-        flow = fnx.min_cost_flow(D)
-        assert flow[0][1] == 3.0
+
+        expected = nx.DiGraph()
+        expected.add_node(0, demand=3)
+        expected.add_node(1, demand=-3)
+        expected.add_edge(0, 1, capacity=10, weight=1)
+
+        with pytest.raises(nx.NetworkXUnfeasible):
+            nx.min_cost_flow(expected)
+        with pytest.raises(fnx.NetworkXUnfeasible):
+            fnx.min_cost_flow(D)
 
     def test_network_simplex(self):
         D = fnx.DiGraph()

@@ -1010,33 +1010,7 @@ def k_clique_communities(G, k):
     """
     if k < 2:
         raise ValueError("k must be >= 2")
-
-    cliques = [frozenset(c) for c in find_cliques(G) if len(c) >= k]
-
-    # Build adjacency between k-cliques (share k-1 nodes)
-    clique_graph = {}
-    for i, c1 in enumerate(cliques):
-        clique_graph[i] = set()
-        for j, c2 in enumerate(cliques):
-            if i != j and len(c1 & c2) >= k - 1:
-                clique_graph[i].add(j)
-
-    # Find connected components in the clique graph
-    visited = set()
-    for start in range(len(cliques)):
-        if start in visited:
-            continue
-        component = set()
-        queue = [start]
-        while queue:
-            node = queue.pop()
-            if node in visited:
-                continue
-            visited.add(node)
-            component.add(node)
-            queue.extend(clique_graph.get(node, set()) - visited)
-        # Union all cliques in this component
-        community = frozenset().union(*(cliques[i] for i in component))
+    for community in _fnx.k_clique_communities_rust(G, k):
         yield community
 
 
@@ -2131,15 +2105,10 @@ def degree_mixing_dict(G, normalized=False, weight=None):
         ``result[d1][d2]`` is the count of edges between nodes of
         degree d1 and degree d2.
     """
+    flat = _fnx.degree_mixing_dict_rust(G)
     result = {}
-    for u, v in G.edges():
-        du = G.degree[u]
-        dv = G.degree[v]
-        result.setdefault(du, {})
-        result[du][dv] = result[du].get(dv, 0) + 1
-        if not G.is_directed():
-            result.setdefault(dv, {})
-            result[dv][du] = result[dv].get(du, 0) + 1
+    for (du, dv), count in flat.items():
+        result.setdefault(du, {})[dv] = result.setdefault(du, {}).get(dv, 0) + count
     if normalized and result:
         total = sum(sum(inner.values()) for inner in result.values())
         if total > 0:
@@ -2188,25 +2157,17 @@ def numeric_assortativity_coefficient(G, attribute, nodes=None):
     -------
     float
         Pearson correlation of attribute values across edges.
+
+    Raises
+    ------
+    KeyError
+        If any node is missing the attribute.
     """
-    import numpy as np
+    import networkx as nx
 
-    x_vals = []
-    y_vals = []
-    for u, v in G.edges():
-        u_attrs = G.nodes[u] if hasattr(G.nodes, '__getitem__') else {}
-        v_attrs = G.nodes[v] if hasattr(G.nodes, '__getitem__') else {}
-        if isinstance(u_attrs, dict) and isinstance(v_attrs, dict):
-            if attribute in u_attrs and attribute in v_attrs:
-                x_vals.append(float(u_attrs[attribute]))
-                y_vals.append(float(v_attrs[attribute]))
+    from franken_networkx.drawing.layout import _to_nx
 
-    if len(x_vals) < 2:
-        return 0.0
-
-    x = np.array(x_vals)
-    y = np.array(y_vals)
-    return float(np.corrcoef(x, y)[0, 1])
+    return nx.numeric_assortativity_coefficient(_to_nx(G), attribute, nodes=nodes)
 
 
 def attribute_assortativity_coefficient(G, attribute, nodes=None):
@@ -2224,22 +2185,11 @@ def attribute_assortativity_coefficient(G, attribute, nodes=None):
     -------
     float
     """
-    # Build partition from attribute values
-    partitions = {}
-    for node in G.nodes():
-        attrs = G.nodes[node] if hasattr(G.nodes, '__getitem__') else {}
-        if isinstance(attrs, dict) and attribute in attrs:
-            val = attrs[attribute]
-            partitions.setdefault(val, set()).add(node)
+    import networkx as nx
 
-    if not partitions:
-        return 0.0
+    from franken_networkx.drawing.layout import _to_nx
 
-    communities = list(partitions.values())
-    try:
-        return modularity(G, communities)
-    except Exception:
-        return 0.0
+    return nx.attribute_assortativity_coefficient(_to_nx(G), attribute, nodes=nodes)
 
 
 # ---------------------------------------------------------------------------
@@ -3964,45 +3914,8 @@ def all_topological_sorts(G):
     """
     if not is_directed_acyclic_graph(G):
         raise NetworkXUnfeasible("Graph contains a cycle, not a DAG")
-
-    n = len(G)
-    if n == 0:
-        yield []
-        return
-
-    in_deg = dict(G.in_degree)
-    # Maintenance of the set of nodes with in-degree 0
-    zero_in_degree = [v for v, d in in_deg.items() if d == 0]
-
-    def _backtrack(zero_in_degree, result):
-        if len(result) == n:
-            yield list(result)
-            return
-
-        for i in range(len(zero_in_degree)):
-            node = zero_in_degree[i]
-            # Copy zero_in_degree and remove current node
-            next_zero = zero_in_degree[:i] + zero_in_degree[i + 1 :]
-            result.append(node)
-
-            # Decrease in-degree of successors and add to next_zero if they become 0
-            # We must be careful not to mutate in_deg permanently here
-            decremented = []
-            for s in G.successors(node):
-                in_deg[s] -= 1
-                if in_deg[s] == 0:
-                    next_zero.append(s)
-                decremented.append(s)
-
-            # Recurse
-            yield from _backtrack(next_zero, result)
-
-            # Undo changes
-            for s in decremented:
-                in_deg[s] += 1
-            result.pop()
-
-    yield from _backtrack(zero_in_degree, [])
+    for ordering in _fnx.all_topological_sorts_rust(G):
+        yield ordering
 
 
 def lowest_common_ancestor(G, node1, node2, default=None):
@@ -5256,32 +5169,7 @@ def is_strongly_regular(G):
     every pair of adjacent vertices has exactly λ common neighbors,
     and every pair of non-adjacent vertices has exactly μ common neighbors.
     """
-    if G.number_of_nodes() == 0:
-        return False
-    degrees = [d for _, d in G.degree]
-    if len(set(degrees)) != 1:
-        return False  # not regular
-    degrees[0]
-    nodes = list(G.nodes())
-    lam = None
-    mu = None
-    for i in range(len(nodes)):
-        for j in range(i + 1, len(nodes)):
-            u, v = nodes[i], nodes[j]
-            u_nbrs = set(G.neighbors(u))
-            v_nbrs = set(G.neighbors(v))
-            common = len(u_nbrs & v_nbrs)
-            if G.has_edge(u, v):
-                if lam is None:
-                    lam = common
-                elif common != lam:
-                    return False
-            else:
-                if mu is None:
-                    mu = common
-                elif common != mu:
-                    return False
-    return True
+    return _fnx.is_strongly_regular_rust(G)
 
 
 def is_at_free(G):
@@ -5290,23 +5178,7 @@ def is_at_free(G):
     An asteroidal triple is three nodes where between each pair there
     exists a path avoiding the neighborhood of the third.
     """
-    nodes = list(G.nodes())
-    n = len(nodes)
-    if n <= 2:
-        return True
-    for i in range(n):
-        for j in range(i + 1, n):
-            for k in range(j + 1, n):
-                u, v, w = nodes[i], nodes[j], nodes[k]
-                # Check if u-v path exists avoiding N(w)
-                w_nbrs = set(G.neighbors(w)) | {w}
-                v_nbrs = set(G.neighbors(v)) | {v}
-                u_nbrs = set(G.neighbors(u)) | {u}
-                if (_path_avoiding(G, u, v, w_nbrs) and
-                    _path_avoiding(G, u, w, v_nbrs) and
-                    _path_avoiding(G, v, w, u_nbrs)):
-                    return False
-    return True
+    return _fnx.is_at_free_rust(G)
 
 
 def _path_avoiding(G, source, target, avoid):
@@ -5434,16 +5306,7 @@ def gutman_index(G, weight=None):
 
     Sum over all pairs of deg(u)*deg(v)*dist(u,v).
     """
-    nodes = list(G.nodes())
-    total = 0.0
-    for i, u in enumerate(nodes):
-        du = G.degree[u]
-        lengths = single_source_shortest_path_length(G, u)
-        for v, dist in lengths.items():
-            if v != u:
-                dv = G.degree[v]
-                total += du * dv * dist
-    return total / 2.0  # each pair counted twice
+    return _fnx.gutman_index_rust(G)
 
 
 def schultz_index(G, weight=None):
@@ -5451,16 +5314,7 @@ def schultz_index(G, weight=None):
 
     Sum over all pairs of (deg(u)+deg(v))*dist(u,v).
     """
-    nodes = list(G.nodes())
-    total = 0.0
-    for u in nodes:
-        du = G.degree[u]
-        lengths = single_source_shortest_path_length(G, u)
-        for v, dist in lengths.items():
-            if v != u:
-                dv = G.degree[v]
-                total += (du + dv) * dist
-    return total / 2.0
+    return _fnx.schultz_index_rust(G)
 
 
 def hyper_wiener_index(G):
@@ -5468,16 +5322,7 @@ def hyper_wiener_index(G):
 
     (W + sum(dist^2)) / 2 where W is the Wiener index.
     """
-    nodes = list(G.nodes())
-    w = 0.0
-    w2 = 0.0
-    for u in nodes:
-        lengths = single_source_shortest_path_length(G, u)
-        for v, dist in lengths.items():
-            if v != u:
-                w += dist
-                w2 += dist * dist
-    return (w + w2) / 4.0  # divide by 4: pairs counted twice, plus the /2
+    return _fnx.hyper_wiener_index_rust(G)
 
 
 def resistance_distance(G, nodeA=None, nodeB=None, weight=None, invert_weight=True):
@@ -5660,73 +5505,16 @@ def omega(G, niter=5, nrand=5, seed=None):
 
 def edge_disjoint_paths(G, s, t, flow_func=None, cutoff=None):
     """Find edge-disjoint paths from s to t via max-flow decomposition."""
-    H = DiGraph()
-    for u, v in G.edges():
-        H.add_edge(u, v, capacity=1)
-        if not G.is_directed():
-            H.add_edge(v, u, capacity=1)
-    flow_result = maximum_flow(H, s, t)
-    if isinstance(flow_result, tuple):
-        _, flow_dict = flow_result
-    else:
-        flow_dict = flow_result
-    flow_edges = {}
-    for u in flow_dict:
-        if isinstance(flow_dict[u], dict):
-            for v, f in flow_dict[u].items():
-                if f > 0:
-                    flow_edges.setdefault(u, {})[v] = f
-    max_paths = cutoff or sum(flow_edges.get(s, {}).values())
-    paths_found = 0
-    while paths_found < max_paths:
-        path = [s]
-        visited = {s}
-        found = False
-        while path:
-            cur = path[-1]
-            if cur == t:
-                found = True
-                break
-            moved = False
-            for nbr, f in list(flow_edges.get(cur, {}).items()):
-                if f > 0 and nbr not in visited:
-                    path.append(nbr)
-                    visited.add(nbr)
-                    moved = True
-                    break
-            if not moved:
-                path.pop()
-        if not found:
-            break
-        for i in range(len(path) - 1):
-            flow_edges[path[i]][path[i+1]] -= 1
-        yield list(path)
-        paths_found += 1
+    paths = _fnx.edge_disjoint_paths_rust(G, s, t)
+    for path in paths:
+        yield path
 
 
 def node_disjoint_paths(G, s, t, flow_func=None, cutoff=None):
     """Find node-disjoint paths from s to t via node-splitting."""
-    H = DiGraph()
-    for node in G.nodes():
-        if node == s or node == t:
-            H.add_node(node)
-        else:
-            H.add_edge((node, 'in'), (node, 'out'), capacity=1)
-    for u, v in G.edges():
-        u_out = u if (u == s or u == t) else (u, 'out')
-        v_in = v if (v == s or v == t) else (v, 'in')
-        H.add_edge(u_out, v_in, capacity=1)
-        if not G.is_directed():
-            v_out = v if (v == s or v == t) else (v, 'out')
-            u_in = u if (u == s or u == t) else (u, 'in')
-            H.add_edge(v_out, u_in, capacity=1)
-    for path in edge_disjoint_paths(H, s, t, cutoff=cutoff):
-        orig = []
-        for node in path:
-            n = node[0] if isinstance(node, tuple) else node
-            if not orig or orig[-1] != n:
-                orig.append(n)
-        yield orig
+    paths = _fnx.node_disjoint_paths_rust(G, s, t)
+    for path in paths:
+        yield path
 
 
 def all_node_cuts(G, k=None, flow_func=None):
@@ -5968,30 +5756,7 @@ def information_centrality(G, weight=None, solver='full'):
 
 def second_order_centrality(G):
     """Second-order centrality based on random walk standard deviation."""
-    import numpy as np
-    nodelist = list(G.nodes())
-    n = len(nodelist)
-    if n <= 1:
-        return {node: 0.0 for node in nodelist}
-    A = to_numpy_array(G, nodelist=nodelist, weight=None)
-    d = A.sum(axis=1)
-    d[d == 0] = 1
-    P = A / d[:, np.newaxis]
-    # Stationary distribution
-    vals, vecs = np.linalg.eig(P.T)
-    idx_stat = np.argmin(np.abs(vals - 1.0))
-    pi = np.real(vecs[:, idx_stat])
-    pi = np.maximum(pi / pi.sum(), 0)
-    # Mean first passage times via fundamental matrix
-    Z = np.linalg.pinv(np.eye(n) - P + np.outer(np.ones(n), pi))
-    soc = {}
-    for i, node in enumerate(nodelist):
-        if pi[i] > 1e-15:
-            mfpt_i = [(Z[j, j] - Z[i, j]) / pi[j] for j in range(n) if j != i and pi[j] > 1e-15]
-            soc[node] = float(np.std(mfpt_i)) if mfpt_i else 0.0
-        else:
-            soc[node] = 0.0
-    return soc
+    return _fnx.second_order_centrality_rust(G)
 
 
 def subgraph_centrality_exp(G):
@@ -6073,47 +5838,12 @@ def trophic_incoherence_parameter(G, weight=None):
 
 def group_betweenness_centrality(G, C, normalized=True, weight=None, endpoints=False):
     """Betweenness centrality for a group of nodes C."""
-    C_set = set(C)
-    total = 0.0
-    nodes = list(G.nodes())
-    for s in nodes:
-        if s in C_set:
-            continue
-        paths = single_source_shortest_path(G, s)
-        for t in nodes:
-            if t in C_set or t == s or t not in paths:
-                continue
-            path = paths[t]
-            if any(node in C_set for node in path[1:-1]):
-                total += 1.0
-    n = len(nodes)
-    if normalized and n > len(C_set) + 1:
-        non_C = n - len(C_set)
-        total /= (non_C * (non_C - 1))
-    return total
+    return _fnx.group_betweenness_centrality_rust(G, list(C))
 
 
 def group_closeness_centrality(G, S, weight=None, H=None):
     """Closeness centrality for a group of nodes S."""
-    S_set = set(S)
-    total_dist = 0.0
-    reachable = 0
-    for node in G.nodes():
-        if node in S_set:
-            continue
-        min_dist = float('inf')
-        for s in S_set:
-            try:
-                d = shortest_path_length(G, s, node)
-                min_dist = min(min_dist, d)
-            except Exception:
-                pass
-        if min_dist < float('inf'):
-            total_dist += min_dist
-            reachable += 1
-    if reachable == 0:
-        return 0.0
-    return reachable / total_dist
+    return _fnx.group_closeness_centrality_rust(G, list(S))
 
 
 # ---------------------------------------------------------------------------
@@ -6366,19 +6096,7 @@ def floyd_warshall_numpy(G, nodelist=None, weight='weight'):
 
 def harmonic_diameter(G, sp=None):
     """Harmonic diameter: n*(n-1) / sum(1/d(u,v)) for all connected pairs."""
-    nodes = list(G.nodes())
-    n = len(nodes)
-    if n <= 1:
-        return 0.0
-    total_inv = 0.0
-    for u in nodes:
-        lengths = single_source_shortest_path_length(G, u)
-        for v, d in lengths.items():
-            if v != u and d > 0:
-                total_inv += 1.0 / d
-    if total_inv == 0:
-        return float('inf')
-    return n * (n - 1) / total_inv
+    return _fnx.harmonic_diameter_rust(G)
 
 
 def global_parameters(G):
@@ -7273,23 +6991,7 @@ def hnm_harary_graph(n, m, create_using=None):
 
 def gomory_hu_tree(G, capacity='capacity'):
     """Gomory-Hu minimum cut tree via n-1 max-flow computations."""
-    nodes = list(G.nodes()); n = len(nodes)
-    if n <= 1:
-        T = Graph(); [T.add_node(nd) for nd in nodes]; return T
-    T = Graph(); parent = {nodes[i]: nodes[0] for i in range(1, n)}
-    cut_value = {}
-    for i in range(1, n):
-        u = nodes[i]; v = parent[u]
-        flow_val = maximum_flow_value(G, u, v)
-        cut_value[(u, v)] = flow_val
-        for j in range(i+1, n):
-            w = nodes[j]
-            if parent[w] == v:
-                w_flow = maximum_flow_value(G, u, w)
-                if w_flow < flow_val: parent[w] = u
-    for u, v in parent.items():
-        T.add_edge(u, v, weight=cut_value.get((u,v), 0))
-    return T
+    return _fnx.gomory_hu_tree_rust(G, capacity)
 
 def visibility_graph(sequence):
     """Visibility graph of a time series."""
@@ -7318,34 +7020,7 @@ def random_k_out_graph(n, k, alpha=1, self_loops=True, seed=None):
 # Similarity (br-poy)
 def simrank_similarity(G, source=None, target=None, importance_factor=0.9, max_iterations=100, tolerance=1e-4):
     """SimRank similarity between nodes."""
-    import numpy as np
-    nodelist = list(G.nodes()); n = len(nodelist); idx = {nd: i for i, nd in enumerate(nodelist)}
-    directed = G.is_directed()
-    sim = np.eye(n)
-    for _ in range(max_iterations):
-        new_sim = np.eye(n)
-        for i in range(n):
-            if directed:
-                nbrs_i = [idx[nb] for nb in G.predecessors(nodelist[i])]
-            else:
-                nbrs_i = [idx[nb] for nb in G.neighbors(nodelist[i])]
-            for j in range(i+1, n):
-                if not nbrs_i: continue
-                if directed:
-                    nbrs_j = [idx[nb] for nb in G.predecessors(nodelist[j])]
-                else:
-                    nbrs_j = [idx[nb] for nb in G.neighbors(nodelist[j])]
-                if not nbrs_j: continue
-                s = importance_factor * sum(sim[a][b] for a in nbrs_i for b in nbrs_j) / (len(nbrs_i) * len(nbrs_j))
-                new_sim[i][j] = new_sim[j][i] = s
-        if np.max(np.abs(new_sim - sim)) < tolerance: break
-        sim = new_sim
-    if source is not None and target is not None:
-        return float(sim[idx[source]][idx[target]])
-    result = {}
-    for i, u in enumerate(nodelist):
-        result[u] = {nodelist[j]: float(sim[i][j]) for j in range(n)}
-    return result
+    return _fnx.simrank_similarity_rust(G, source, target, importance_factor, max_iterations, tolerance)
 
 def panther_similarity(
     G,
@@ -7830,15 +7505,7 @@ def graph_atlas_g():
 
 def find_asteroidal_triple(G):
     """Find an asteroidal triple (if exists)."""
-    nodes = list(G.nodes())
-    from itertools import combinations
-    for u, v, w in combinations(nodes, 3):
-        u_nbrs = set(G.neighbors(u)) | {u}
-        v_nbrs = set(G.neighbors(v)) | {v}
-        w_nbrs = set(G.neighbors(w)) | {w}
-        if (_path_avoiding(G, v, w, u_nbrs) and _path_avoiding(G, u, w, v_nbrs) and _path_avoiding(G, u, v, w_nbrs)):
-            return (u, v, w)
-    return None
+    return _fnx.find_asteroidal_triple_rust(G)
 
 def is_perfect_graph(G):
     """Check if G is perfect (no odd holes or odd anti-holes >= 5)."""
@@ -8056,10 +7723,10 @@ def to_dict_of_lists(G, nodelist=None):
     d : dict
         ``d[u]`` is the list of neighbors of node u.
     """
-    if nodelist is None:
-        nodelist = list(G.nodes())
-    nodeset = set(nodelist)
-    return {n: [nb for nb in G.neighbors(n) if nb in nodeset] for n in nodelist}
+    if nodelist is not None:
+        nodeset = set(nodelist)
+        return {n: [nb for nb in G.neighbors(n) if nb in nodeset] for n in nodelist}
+    return _fnx.to_dict_of_lists_rust(G)
 
 
 def _empty_graph_from_create_using(create_using):

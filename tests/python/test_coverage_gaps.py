@@ -4,6 +4,8 @@ Covers graph operators, community detection, dominating sets,
 planarity, transitive operations, and remaining shortest path variants.
 """
 
+import math
+
 import pytest
 
 import franken_networkx as fnx
@@ -925,6 +927,34 @@ class TestGenerators:
             fnx.attribute_mixing_matrix(graph, "missing", normalized=True),
             nx.attribute_mixing_matrix(expected_graph, "missing", normalized=True),
         )
+
+    @needs_nx
+    def test_attribute_assortativity_matches_networkx_nan_contract(self):
+        graph = fnx.Graph()
+        graph.add_edge("a", "b")
+        graph.nodes["a"]["color"] = "red"
+        graph.nodes["b"]["color"] = "red"
+
+        expected_graph = nx.Graph()
+        expected_graph.add_edge("a", "b")
+        expected_graph.nodes["a"]["color"] = "red"
+        expected_graph.nodes["b"]["color"] = "red"
+
+        expected = nx.attribute_assortativity_coefficient(expected_graph, "color")
+        actual = fnx.attribute_assortativity_coefficient(graph, "color")
+
+        assert math.isnan(expected)
+        assert math.isnan(actual)
+
+    @needs_nx
+    def test_numeric_assortativity_missing_attribute_matches_networkx_error(self):
+        graph = fnx.path_graph(3)
+        expected_graph = nx.path_graph(3)
+
+        with pytest.raises(KeyError):
+            nx.numeric_assortativity_coefficient(expected_graph, "missing")
+        with pytest.raises(KeyError):
+            fnx.numeric_assortativity_coefficient(graph, "missing")
 
     @needs_nx
     def test_all_pairs_node_connectivity_matches_networkx(self):
