@@ -25269,13 +25269,14 @@ pub fn arborescence_iterator_ordered_with_partition(
         };
 
         let arb = build_arborescence(&nodes_refs, &arb_edges, mode);
+        let ordered_edges = arb.edges_ordered();
         results.push(arb);
 
         let mut p1 = entry.partition.clone();
         let mut p2 = entry.partition.clone();
 
-        for (source, target) in &arb_edges {
-            let key = (source.clone(), target.clone());
+        for edge in ordered_edges {
+            let key = (edge.left.clone(), edge.right.clone());
             if entry.partition.contains_key(&key) {
                 continue;
             }
@@ -38129,5 +38130,8 @@ mod tests {
         assert_eq!(g.node_count(), 9); // 3x3 grid
         // Should have local edges + some long-range edges
         assert!(g.edge_count() > 0);
+    }
+}
+unt() > 0);
     }
 }
