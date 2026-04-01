@@ -75,6 +75,7 @@ const ASSORTATIVITY_EPSILON: f64 = 1.0e-15;
 #[derive(Copy, Clone, PartialEq)]
 struct DijkstraState<T: Copy + PartialEq + Ord> {
     dist: f64,
+    seq: u64,
     node: T,
 }
 
@@ -88,12 +89,13 @@ impl<T: Copy + PartialEq + Ord> PartialOrd for DijkstraState<T> {
 
 impl<T: Copy + PartialEq + Ord> Ord for DijkstraState<T> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        // Min-heap: reverse the comparison
+        // Min-heap: reverse the comparison.
+        // Tie-break by insertion order (FIFO) to match NetworkX heapq behavior.
         other
             .dist
             .partial_cmp(&self.dist)
             .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| other.node.cmp(&self.node))
+            .then_with(|| other.seq.cmp(&self.seq))
     }
 }
 
@@ -947,10 +949,13 @@ pub fn shortest_path_weighted(
     let mut predecessors: HashMap<&str, &str> = HashMap::new();
     let mut distances: HashMap<&str, f64> = HashMap::new();
     let mut pq = BinaryHeap::new();
+    let mut seq_counter: u64 = 0;
 
     distances.insert(source, 0.0);
+    seq_counter += 1;
     pq.push(DijkstraState {
         dist: 0.0,
+        seq: seq_counter,
         node: source,
     });
 
@@ -958,7 +963,7 @@ pub fn shortest_path_weighted(
     let mut edges_scanned = 0usize;
     let mut queue_peak = 1usize;
 
-    while let Some(DijkstraState { dist: d, node: u }) = pq.pop() {
+    while let Some(DijkstraState { dist: d, node: u, .. }) = pq.pop() {
         if d > *distances.get(u).unwrap_or(&f64::INFINITY) + DISTANCE_COMPARISON_EPSILON {
             continue;
         }
@@ -979,8 +984,10 @@ pub fn shortest_path_weighted(
                         nodes_touched += 1;
                     }
                     predecessors.insert(v, u);
+                    seq_counter += 1;
                     pq.push(DijkstraState {
                         dist: next_dist,
+                        seq: seq_counter,
                         node: v,
                     });
                     queue_peak = queue_peak.max(pq.len());
@@ -1050,10 +1057,13 @@ pub fn shortest_path_weighted_directed(
     let mut distances: HashMap<&str, f64> = HashMap::new();
     let mut predecessors: HashMap<&str, &str> = HashMap::new();
     let mut pq = BinaryHeap::new();
+    let mut seq_counter: u64 = 0;
 
     distances.insert(source, 0.0);
+    seq_counter += 1;
     pq.push(DijkstraState {
         dist: 0.0,
+        seq: seq_counter,
         node: source,
     });
 
@@ -1061,7 +1071,7 @@ pub fn shortest_path_weighted_directed(
     let mut edges_scanned = 0usize;
     let mut queue_peak = 1usize;
 
-    while let Some(DijkstraState { dist: d, node: u }) = pq.pop() {
+    while let Some(DijkstraState { dist: d, node: u, .. }) = pq.pop() {
         if d > *distances.get(u).unwrap_or(&f64::INFINITY) + DISTANCE_COMPARISON_EPSILON {
             continue;
         }
@@ -1082,8 +1092,10 @@ pub fn shortest_path_weighted_directed(
                         nodes_touched += 1;
                     }
                     predecessors.insert(v, u);
+                    seq_counter += 1;
                     pq.push(DijkstraState {
                         dist: next_dist,
+                        seq: seq_counter,
                         node: v,
                     });
                     queue_peak = queue_peak.max(pq.len());
@@ -1128,6 +1140,7 @@ pub fn multi_source_dijkstra(
     let mut distances = vec![f64::INFINITY; n];
     let mut predecessors: Vec<Option<usize>> = vec![None; n];
     let mut pq = BinaryHeap::new();
+    let mut seq_counter: u64 = 0;
 
     let mut nodes_touched = 0usize;
     let mut edges_scanned = 0usize;
@@ -1138,8 +1151,10 @@ pub fn multi_source_dijkstra(
             && distances[s_idx].is_infinite()
         {
             distances[s_idx] = 0.0;
+            seq_counter += 1;
             pq.push(DijkstraState {
                 dist: 0.0,
+                seq: seq_counter,
                 node: s_idx,
             });
             nodes_touched += 1;
@@ -1151,6 +1166,7 @@ pub fn multi_source_dijkstra(
     while let Some(DijkstraState {
         dist: d,
         node: u_idx,
+        ..
     }) = pq.pop()
     {
         if d > distances[u_idx] {
@@ -1171,8 +1187,10 @@ pub fn multi_source_dijkstra(
                     }
                     distances[v_idx] = next_dist;
                     predecessors[v_idx] = Some(u_idx);
+                    seq_counter += 1;
                     pq.push(DijkstraState {
                         dist: next_dist,
+                        seq: seq_counter,
                         node: v_idx,
                     });
                     queue_peak = queue_peak.max(pq.len());
@@ -1219,6 +1237,7 @@ pub fn multi_source_dijkstra_directed(
     let mut distances = vec![f64::INFINITY; n];
     let mut predecessors: Vec<Option<usize>> = vec![None; n];
     let mut pq = BinaryHeap::new();
+    let mut seq_counter: u64 = 0;
 
     let mut nodes_touched = 0usize;
     let mut edges_scanned = 0usize;
@@ -1229,8 +1248,10 @@ pub fn multi_source_dijkstra_directed(
             && distances[s_idx].is_infinite()
         {
             distances[s_idx] = 0.0;
+            seq_counter += 1;
             pq.push(DijkstraState {
                 dist: 0.0,
+                seq: seq_counter,
                 node: s_idx,
             });
             nodes_touched += 1;
@@ -1242,6 +1263,7 @@ pub fn multi_source_dijkstra_directed(
     while let Some(DijkstraState {
         dist: d,
         node: u_idx,
+        ..
     }) = pq.pop()
     {
         if d > distances[u_idx] {
@@ -1266,8 +1288,10 @@ pub fn multi_source_dijkstra_directed(
                     }
                     distances[v_idx] = next_dist;
                     predecessors[v_idx] = Some(u_idx);
+                    seq_counter += 1;
                     pq.push(DijkstraState {
                         dist: next_dist,
+                        seq: seq_counter,
                         node: v_idx,
                     });
                     queue_peak = queue_peak.max(pq.len());
@@ -11328,16 +11352,19 @@ pub fn all_shortest_paths_weighted(
     let mut dist: HashMap<&str, f64> = HashMap::new();
     let mut preds: HashMap<&str, Vec<&str>> = HashMap::new();
     let mut pq = BinaryHeap::new();
+    let mut seq_counter: u64 = 0;
 
     dist.insert(source, 0.0);
+    seq_counter += 1;
     pq.push(DijkstraState {
         dist: 0.0,
+        seq: seq_counter,
         node: source,
     });
 
     let mut target_dist = f64::INFINITY;
 
-    while let Some(DijkstraState { dist: d, node: u }) = pq.pop() {
+    while let Some(DijkstraState { dist: d, node: u, .. }) = pq.pop() {
         if d > target_dist + DISTANCE_COMPARISON_EPSILON {
             break;
         }
@@ -11359,8 +11386,10 @@ pub fn all_shortest_paths_weighted(
                 if next_dist < current_dist_v - DISTANCE_COMPARISON_EPSILON {
                     dist.insert(v, next_dist);
                     preds.insert(v, vec![u]);
+                    seq_counter += 1;
                     pq.push(DijkstraState {
                         dist: next_dist,
+                        seq: seq_counter,
                         node: v,
                     });
                 } else if (next_dist - current_dist_v).abs() < DISTANCE_COMPARISON_EPSILON {
@@ -15927,14 +15956,17 @@ pub fn single_source_dijkstra_directed(
 
     let mut distances: HashMap<String, f64> = HashMap::new();
     let mut pq = BinaryHeap::new();
+    let mut seq_counter: u64 = 0;
 
     distances.insert(source.to_owned(), 0.0);
+    seq_counter += 1;
     pq.push(DijkstraState {
         dist: 0.0,
+        seq: seq_counter,
         node: source,
     });
 
-    while let Some(DijkstraState { dist: d, node: u }) = pq.pop() {
+    while let Some(DijkstraState { dist: d, node: u, .. }) = pq.pop() {
         if d > *distances.get(u).unwrap_or(&f64::INFINITY) + DISTANCE_COMPARISON_EPSILON {
             continue;
         }
@@ -15947,8 +15979,10 @@ pub fn single_source_dijkstra_directed(
 
                 if next_dist < current_dist_v - DISTANCE_COMPARISON_EPSILON {
                     distances.insert(v.to_owned(), next_dist);
+                    seq_counter += 1;
                     pq.push(DijkstraState {
                         dist: next_dist,
+                        seq: seq_counter,
                         node: v,
                     });
                 }
@@ -21124,20 +21158,19 @@ pub fn node_disjoint_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec
             break;
         }
 
-        // Trace and extract original nodes
-        let mut raw_path = Vec::new();
+        // Trace augmenting path from t_in back to s_out and update residual
+        let mut raw_path = vec![t_in];
         let mut v = t_in;
         while v != s_out {
             if let Some(p) = parent[v] {
                 cap[p][v] -= 1;
                 cap[v][p] += 1;
+                raw_path.push(p);
                 v = p;
             } else {
                 break;
             }
-            raw_path.push(v);
         }
-        raw_path.push(s_out);
         raw_path.reverse();
 
         // Convert split-node indices back to original nodes

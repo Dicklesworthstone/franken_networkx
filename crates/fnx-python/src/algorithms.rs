@@ -129,6 +129,55 @@ impl<'py> GraphRef<'py> {
         )
     }
 
+    fn node_count_original(&self) -> usize {
+        match self {
+            GraphRef::Undirected(pg) => pg.inner.node_count(),
+            GraphRef::Directed { dg, .. } => dg.inner.node_count(),
+            GraphRef::MultiUndirected { mg, .. } => mg.inner.node_count(),
+            GraphRef::MultiDirected { mdg, .. } => mdg.inner.node_count(),
+        }
+    }
+
+    fn edge_count_original(&self) -> usize {
+        match self {
+            GraphRef::Undirected(pg) => pg.inner.edge_count(),
+            GraphRef::Directed { dg, .. } => dg.inner.edge_count(),
+            GraphRef::MultiUndirected { mg, .. } => mg.inner.edge_count(),
+            GraphRef::MultiDirected { mdg, .. } => mdg.inner.edge_count(),
+        }
+    }
+
+    fn total_degree_sequence(&self) -> Vec<usize> {
+        let mut degrees: Vec<usize> = match self {
+            GraphRef::Undirected(pg) => pg
+                .inner
+                .nodes_ordered()
+                .iter()
+                .map(|node| pg.inner.degree(node))
+                .collect(),
+            GraphRef::Directed { dg, .. } => dg
+                .inner
+                .nodes_ordered()
+                .iter()
+                .map(|node| dg.inner.degree(node))
+                .collect(),
+            GraphRef::MultiUndirected { mg, .. } => mg
+                .inner
+                .nodes_ordered()
+                .iter()
+                .map(|node| mg.inner.degree(node))
+                .collect(),
+            GraphRef::MultiDirected { mdg, .. } => mdg
+                .inner
+                .nodes_ordered()
+                .iter()
+                .map(|node| mdg.inner.degree(node))
+                .collect(),
+        };
+        degrees.sort_unstable();
+        degrees
+    }
+
     /// Is this a multigraph?
     pub(crate) fn is_multigraph(&self) -> bool {
         matches!(
@@ -2456,10 +2505,7 @@ pub fn graph_clique_number(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usi
 
 /// Return a maximal matching as a set of edge tuples.
 #[pyfunction]
-pub fn maximal_matching(
-    py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-) -> PyResult<Py<pyo3::types::PySet>> {
+pub fn maximal_matching(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<pyo3::types::PySet>> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::maximal_matching(inner));
@@ -2485,7 +2531,7 @@ pub fn max_weight_matching(
     let inner = gr.undirected();
     let w = weight.to_owned();
     let result = py.allow_threads(move || fnx_algorithms::max_weight_matching(inner, false, &w));
-    
+
     let set = pyo3::types::PySet::empty(py)?;
     for (u, v) in result.matching {
         let py_u = gr.py_node_key(py, &u);
@@ -2508,7 +2554,7 @@ pub fn min_weight_matching(
     let inner = gr.undirected();
     let w = weight.to_owned();
     let result = py.allow_threads(move || fnx_algorithms::min_weight_matching(inner, &w));
-    
+
     let set = pyo3::types::PySet::empty(py)?;
     for (u, v) in result.matching {
         let py_u = gr.py_node_key(py, &u);
@@ -6310,6 +6356,11 @@ fn is_isomorphic(py: Python<'_>, g1: &Bound<'_, PyAny>, g2: &Bound<'_, PyAny>) -
             "Graphs G1 and G2 are not of the same type.",
         ));
     }
+    if gr1.node_count_original() != gr2.node_count_original()
+        || gr1.edge_count_original() != gr2.edge_count_original()
+    {
+        return Ok(false);
+    }
 
     if gr1.is_directed() {
         let dg1 = gr1.digraph().unwrap();
@@ -6332,6 +6383,12 @@ fn could_be_isomorphic(
 ) -> PyResult<bool> {
     let gr1 = extract_graph(g1)?;
     let gr2 = extract_graph(g2)?;
+    if gr1.node_count_original() != gr2.node_count_original()
+        || gr1.edge_count_original() != gr2.edge_count_original()
+        || gr1.total_degree_sequence() != gr2.total_degree_sequence()
+    {
+        return Ok(false);
+    }
     if gr1.is_directed() || gr2.is_directed() {
         return Err(NetworkXNotImplemented::new_err(
             "not implemented for directed type",
@@ -6352,6 +6409,12 @@ fn fast_could_be_isomorphic(
 ) -> PyResult<bool> {
     let gr1 = extract_graph(g1)?;
     let gr2 = extract_graph(g2)?;
+    if gr1.node_count_original() != gr2.node_count_original()
+        || gr1.edge_count_original() != gr2.edge_count_original()
+        || gr1.total_degree_sequence() != gr2.total_degree_sequence()
+    {
+        return Ok(false);
+    }
     if gr1.is_directed() || gr2.is_directed() {
         return Err(NetworkXNotImplemented::new_err(
             "not implemented for directed type",
@@ -6611,25 +6674,15 @@ fn spanner(
 #[pyfunction]
 #[pyo3(signature = (g1, g2))]
 fn faster_could_be_isomorphic(
-    py: Python<'_>,
+    _py: Python<'_>,
     g1: &Bound<'_, PyAny>,
     g2: &Bound<'_, PyAny>,
 ) -> PyResult<bool> {
     let gr1 = extract_graph(g1)?;
     let gr2 = extract_graph(g2)?;
-    if gr1.is_directed() && gr2.is_directed() {
-        let dg1 = gr1
-            .digraph()
-            .expect("directed graph ref should expose digraph");
-        let dg2 = gr2
-            .digraph()
-            .expect("directed graph ref should expose digraph");
-        Ok(py.allow_threads(|| fnx_algorithms::faster_could_be_isomorphic_directed(dg1, dg2)))
-    } else {
-        let inner1 = gr1.undirected();
-        let inner2 = gr2.undirected();
-        Ok(py.allow_threads(|| fnx_algorithms::faster_could_be_isomorphic(inner1, inner2)))
-    }
+    Ok(gr1.node_count_original() == gr2.node_count_original()
+        && gr1.edge_count_original() == gr2.edge_count_original()
+        && gr1.total_degree_sequence() == gr2.total_degree_sequence())
 }
 
 /// Check if a graph is planar (can be drawn without edge crossings).

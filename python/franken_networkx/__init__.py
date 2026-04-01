@@ -3229,13 +3229,19 @@ def all_pairs_node_connectivity(G, nbunch=None, flow_func=None):
     dict of dicts
         ``result[u][v]`` is the node connectivity between u and v.
     """
-    import networkx as nx
+    if nbunch is not None or flow_func is not None:
+        import networkx as nx
 
-    from franken_networkx.drawing.layout import _to_nx
+        from franken_networkx.drawing.layout import _to_nx
 
-    return nx.all_pairs_node_connectivity(
-        _to_nx(G), nbunch=nbunch, flow_func=flow_func,
-    )
+        return nx.all_pairs_node_connectivity(
+            _to_nx(G), nbunch=nbunch, flow_func=flow_func,
+        )
+    flat = _fnx.all_pairs_node_connectivity_rust(G)
+    result = {}
+    for (u, v), conn in flat.items():
+        result.setdefault(u, {})[v] = conn
+    return result
 
 
 def minimum_st_node_cut(G, s, t):

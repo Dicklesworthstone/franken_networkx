@@ -116,6 +116,21 @@ class TestIsIsomorphic:
         with pytest.raises(fnx.NetworkXError, match="not of the same type"):
             fnx.is_isomorphic(graph, digraph)
 
+    def test_graph_and_single_edge_multigraph_are_isomorphic(self):
+        graph = fnx.Graph()
+        graph.add_edge(0, 1)
+        multigraph = fnx.MultiGraph()
+        multigraph.add_edge("a", "b", key=0)
+        assert fnx.is_isomorphic(graph, multigraph)
+
+    def test_graph_and_parallel_edge_multigraph_are_not_isomorphic(self):
+        graph = fnx.Graph()
+        graph.add_edge(0, 1)
+        multigraph = fnx.MultiGraph()
+        multigraph.add_edge("a", "b", key=0)
+        multigraph.add_edge("a", "b", key=1)
+        assert not fnx.is_isomorphic(graph, multigraph)
+
 
 # ---------------------------------------------------------------------------
 # could_be_isomorphic
@@ -153,6 +168,22 @@ class TestCouldBeIsomorphic:
         with pytest.raises(fnx.NetworkXNotImplemented, match="directed type"):
             fnx.could_be_isomorphic(g1, g2)
 
+    def test_graph_and_parallel_edge_multigraph_return_false(self):
+        graph = fnx.Graph()
+        graph.add_edge(0, 1)
+        multigraph = fnx.MultiGraph()
+        multigraph.add_edge("a", "b", key=0)
+        multigraph.add_edge("a", "b", key=1)
+        assert not fnx.could_be_isomorphic(graph, multigraph)
+
+    def test_digraph_and_single_edge_multidigraph_raise_not_implemented(self):
+        digraph = fnx.DiGraph()
+        digraph.add_edge(0, 1)
+        multidigraph = fnx.MultiDiGraph()
+        multidigraph.add_edge("a", "b", key=0)
+        with pytest.raises(fnx.NetworkXNotImplemented, match="directed type"):
+            fnx.could_be_isomorphic(digraph, multidigraph)
+
 
 # ---------------------------------------------------------------------------
 # fast_could_be_isomorphic
@@ -184,6 +215,22 @@ class TestFastCouldBeIsomorphic:
         with pytest.raises(fnx.NetworkXNotImplemented, match="directed type"):
             fnx.fast_could_be_isomorphic(g1, g2)
 
+    def test_graph_and_parallel_edge_multigraph_return_false(self):
+        graph = fnx.Graph()
+        graph.add_edge(0, 1)
+        multigraph = fnx.MultiGraph()
+        multigraph.add_edge("a", "b", key=0)
+        multigraph.add_edge("a", "b", key=1)
+        assert not fnx.fast_could_be_isomorphic(graph, multigraph)
+
+    def test_digraph_and_single_edge_multidigraph_raise_not_implemented(self):
+        digraph = fnx.DiGraph()
+        digraph.add_edge(0, 1)
+        multidigraph = fnx.MultiDiGraph()
+        multidigraph.add_edge("a", "b", key=0)
+        with pytest.raises(fnx.NetworkXNotImplemented, match="directed type"):
+            fnx.fast_could_be_isomorphic(digraph, multidigraph)
+
 
 class TestFasterCouldBeIsomorphic:
     def test_directed_graphs_use_total_degree_sequence(self):
@@ -202,3 +249,33 @@ class TestFasterCouldBeIsomorphic:
         g2.add_edge("a", "b")
         g2.add_edge("b", "a")
         assert not fnx.faster_could_be_isomorphic(g1, g2)
+
+    def test_mixed_graph_and_digraph_can_match(self):
+        graph = fnx.Graph()
+        graph.add_edge(0, 1)
+        digraph = fnx.DiGraph()
+        digraph.add_edge("a", "b")
+        assert fnx.faster_could_be_isomorphic(graph, digraph)
+
+    def test_mixed_graph_and_reciprocal_digraph_do_not_match(self):
+        graph = fnx.Graph()
+        graph.add_edge(0, 1)
+        digraph = fnx.DiGraph()
+        digraph.add_edge("a", "b")
+        digraph.add_edge("b", "a")
+        assert not fnx.faster_could_be_isomorphic(graph, digraph)
+
+    def test_graph_and_parallel_edge_multigraph_do_not_match(self):
+        graph = fnx.Graph()
+        graph.add_edge(0, 1)
+        multigraph = fnx.MultiGraph()
+        multigraph.add_edge("a", "b", key=0)
+        multigraph.add_edge("a", "b", key=1)
+        assert not fnx.faster_could_be_isomorphic(graph, multigraph)
+
+    def test_digraph_and_single_edge_multidigraph_can_match(self):
+        digraph = fnx.DiGraph()
+        digraph.add_edge(0, 1)
+        multidigraph = fnx.MultiDiGraph()
+        multidigraph.add_edge("a", "b", key=0)
+        assert fnx.faster_could_be_isomorphic(digraph, multidigraph)
