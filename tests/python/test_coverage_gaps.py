@@ -1025,7 +1025,7 @@ class TestGenerators:
 
         assert BackendInterface.can_run("shortest_path", (graph,), {})
         assert not BackendInterface.can_run("shortest_path", (), {})
-        assert not BackendInterface.can_run("node_connectivity", (graph, 0, 3), {})
+        assert not BackendInterface.can_run("node_connectivity", (graph, 0, 3, "extra"), {})
         assert (
             not BackendInterface.can_run(
                 "average_shortest_path_length",
@@ -1035,7 +1035,7 @@ class TestGenerators:
         )
         assert BackendInterface.should_run("shortest_path", (graph,), {})
         assert not BackendInterface.should_run("shortest_path", (), {})
-        assert not BackendInterface.should_run("node_connectivity", (graph, 0, 3), {})
+        assert not BackendInterface.should_run("node_connectivity", (graph, 0, 3, "extra"), {})
         assert (
             not BackendInterface.should_run(
                 "average_shortest_path_length",

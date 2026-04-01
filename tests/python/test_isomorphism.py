@@ -131,6 +131,30 @@ class TestIsIsomorphic:
         multigraph.add_edge("a", "b", key=1)
         assert not fnx.is_isomorphic(graph, multigraph)
 
+    def test_node_match_callback_changes_result(self):
+        g1 = fnx.Graph()
+        g1.add_node(1, color="red")
+        g1.add_node(2, color="blue")
+        g1.add_edge(1, 2, weight=1)
+        g2 = fnx.Graph()
+        g2.add_node("a", color="red")
+        g2.add_node("b", color="green")
+        g2.add_edge("a", "b", weight=1)
+        assert fnx.is_isomorphic(g1, g2)
+        assert not fnx.is_isomorphic(g1, g2, node_match=lambda left, right: left == right)
+
+    def test_edge_match_callback_changes_result(self):
+        g1 = fnx.Graph()
+        g1.add_node(1, color="red")
+        g1.add_node(2, color="blue")
+        g1.add_edge(1, 2, weight=1)
+        g2 = fnx.Graph()
+        g2.add_node("a", color="red")
+        g2.add_node("b", color="blue")
+        g2.add_edge("a", "b", weight=2)
+        assert fnx.is_isomorphic(g1, g2)
+        assert not fnx.is_isomorphic(g1, g2, edge_match=lambda left, right: left == right)
+
 
 # ---------------------------------------------------------------------------
 # could_be_isomorphic
@@ -279,3 +303,34 @@ class TestFasterCouldBeIsomorphic:
         multidigraph = fnx.MultiDiGraph()
         multidigraph.add_edge("a", "b", key=0)
         assert fnx.faster_could_be_isomorphic(digraph, multidigraph)
+
+
+class TestVf2ppIsIsomorphic:
+    def test_node_label_changes_result(self):
+        g1 = fnx.Graph()
+        g1.add_node(1, color="red")
+        g1.add_node(2, color="blue")
+        g1.add_edge(1, 2)
+        g2 = fnx.Graph()
+        g2.add_node("a", color="red")
+        g2.add_node("b", color="green")
+        g2.add_edge("a", "b")
+        assert fnx.vf2pp_is_isomorphic(g1, g2)
+        assert not fnx.vf2pp_is_isomorphic(g1, g2, node_label="color")
+
+    def test_default_label_fills_missing_node_attributes(self):
+        g1 = fnx.Graph()
+        g1.add_node(1, color="red")
+        g1.add_node(2)
+        g1.add_edge(1, 2)
+        g2 = fnx.Graph()
+        g2.add_node("a", color="red")
+        g2.add_node("b", color="blue")
+        g2.add_edge("a", "b")
+        assert not fnx.vf2pp_is_isomorphic(g1, g2, node_label="color")
+        assert fnx.vf2pp_is_isomorphic(
+            g1,
+            g2,
+            node_label="color",
+            default_label="blue",
+        )

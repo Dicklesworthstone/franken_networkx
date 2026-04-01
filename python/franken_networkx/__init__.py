@@ -559,7 +559,7 @@ from franken_networkx._fnx import (
     could_be_isomorphic,
     fast_could_be_isomorphic,
     faster_could_be_isomorphic,
-    is_isomorphic,
+    is_isomorphic as _is_isomorphic_rust,
 )
 
 # Planarity
@@ -6775,9 +6775,35 @@ def combinatorial_embedding_to_pos(embedding, fully_triangulate=False):
     )
 
 # Isomorphism VF2++ (br-req)
+def is_isomorphic(G1, G2, node_match=None, edge_match=None):
+    """Test graph isomorphism, preserving NetworkX callback semantics."""
+    if node_match is None and edge_match is None:
+        return _is_isomorphic_rust(G1, G2)
+
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+
+    return nx.is_isomorphic(
+        _to_nx(G1),
+        _to_nx(G2),
+        node_match=node_match,
+        edge_match=edge_match,
+    )
+
+
 def vf2pp_is_isomorphic(G1, G2, node_label=None, default_label=None):
-    """Test isomorphism using VF2++ (delegates to existing is_isomorphic)."""
-    return is_isomorphic(G1, G2)
+    """Test isomorphism using VF2++."""
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+
+    return nx.vf2pp_is_isomorphic(
+        _to_nx(G1),
+        _to_nx(G2),
+        node_label=node_label,
+        default_label=default_label,
+    )
 
 def vf2pp_isomorphism(G1, G2, node_label=None, default_label=None):
     """Find one isomorphism mapping using VF2++."""

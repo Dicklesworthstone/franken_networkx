@@ -8542,6 +8542,19 @@ pub fn minimum_node_cut_directed(
         };
     }
 
+    if digraph.has_edge(source, sink) || digraph.has_edge(sink, source) {
+        return MinimumNodeCutResult {
+            cut_nodes: vec![],
+            witness: ComplexityWitness {
+                algorithm: "minimum_node_cut_directed".to_owned(),
+                complexity_claim: "O(|V| * |E|^2)".to_owned(),
+                nodes_touched: n,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
     let mut residual = build_node_split_auxiliary_directed(digraph);
     let s_out = format!("{source}_out");
     let t_in = format!("{sink}_in");
@@ -8689,17 +8702,45 @@ fn minimum_node_cut_directed_same_node(digraph: &DiGraph, node: &str) -> Minimum
         }
     }
 
-    let mut cut_nodes: Vec<String> = Vec::new();
+    let mut cut_edges = Vec::<(String, String)>::new();
     for current in &nodes {
-        if *current == node {
-            continue;
-        }
         let n_in = format!("{current}_in");
         let n_out = format!("{current}_out");
+
         if visited.contains(&n_in) && !visited.contains(&n_out) {
-            cut_nodes.push((*current).to_owned());
+            cut_edges.push((n_in.clone(), n_out.clone()));
+        }
+
+        if let Some(succs) = digraph.successors_iter(current) {
+            for nb in succs {
+                if nb == *current {
+                    continue;
+                }
+                let nb_in = format!("{nb}_in");
+                if visited.contains(&n_out) && !visited.contains(&nb_in) {
+                    cut_edges.push((n_out.clone(), nb_in.clone()));
+                }
+            }
         }
     }
+
+    let mut cut_nodes_set = HashSet::new();
+    for (u, v) in cut_edges {
+        let u_name = u
+            .strip_suffix("_in")
+            .or_else(|| u.strip_suffix("_out"))
+            .unwrap_or(&u);
+        let v_name = v
+            .strip_suffix("_in")
+            .or_else(|| v.strip_suffix("_out"))
+            .unwrap_or(&v);
+        cut_nodes_set.insert(u_name.to_owned());
+        cut_nodes_set.insert(v_name.to_owned());
+    }
+
+    cut_nodes_set.remove(node);
+
+    let mut cut_nodes: Vec<String> = cut_nodes_set.into_iter().collect();
     cut_nodes.sort();
 
     MinimumNodeCutResult {

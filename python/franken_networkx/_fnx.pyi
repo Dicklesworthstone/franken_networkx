@@ -913,10 +913,33 @@ def s_metric(g: Graph) -> float: ...
 # Graph isomorphism
 # ---------------------------------------------------------------------------
 
-def is_isomorphic(g1: IsomorphismGraph, g2: IsomorphismGraph) -> bool: ...
+def is_isomorphic(
+    g1: IsomorphismGraph,
+    g2: IsomorphismGraph,
+    node_match: Optional[Any] = None,
+    edge_match: Optional[Any] = None,
+) -> bool: ...
 def could_be_isomorphic(g1: IsomorphismGraph, g2: IsomorphismGraph) -> bool: ...
 def fast_could_be_isomorphic(g1: IsomorphismGraph, g2: IsomorphismGraph) -> bool: ...
 def faster_could_be_isomorphic(g1: IsomorphismGraph, g2: IsomorphismGraph) -> bool: ...
+def vf2pp_is_isomorphic(
+    g1: IsomorphismGraph,
+    g2: IsomorphismGraph,
+    node_label: Optional[str] = None,
+    default_label: Optional[Any] = None,
+) -> bool: ...
+def vf2pp_isomorphism(
+    g1: IsomorphismGraph,
+    g2: IsomorphismGraph,
+    node_label: Optional[str] = None,
+    default_label: Optional[Any] = None,
+) -> Optional[dict[Any, Any]]: ...
+def vf2pp_all_isomorphisms(
+    g1: IsomorphismGraph,
+    g2: IsomorphismGraph,
+    node_label: Optional[str] = None,
+    default_label: Optional[Any] = None,
+) -> Iterator[dict[Any, Any]]: ...
 
 # ---------------------------------------------------------------------------
 # A* shortest path
