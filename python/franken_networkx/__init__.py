@@ -2105,10 +2105,15 @@ def degree_mixing_dict(G, normalized=False, weight=None):
         ``result[d1][d2]`` is the count of edges between nodes of
         degree d1 and degree d2.
     """
-    flat = _fnx.degree_mixing_dict_rust(G)
     result = {}
-    for (du, dv), count in flat.items():
-        result.setdefault(du, {})[dv] = result.setdefault(du, {}).get(dv, 0) + count
+    for u, v in G.edges():
+        du = G.degree[u]
+        dv = G.degree[v]
+        result.setdefault(du, {})
+        result[du][dv] = result[du].get(dv, 0) + 1
+        if not G.is_directed():
+            result.setdefault(dv, {})
+            result[dv][du] = result[dv].get(du, 0) + 1
     if normalized and result:
         total = sum(sum(inner.values()) for inner in result.values())
         if total > 0:
@@ -5694,7 +5699,11 @@ def information_centrality(G, weight=None, solver='full'):
 
 def second_order_centrality(G):
     """Second-order centrality based on random walk standard deviation."""
-    return _fnx.second_order_centrality_rust(G)
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+
+    return nx.second_order_centrality(_to_nx(G))
 
 
 def subgraph_centrality_exp(G):
@@ -5753,7 +5762,13 @@ def trophic_incoherence_parameter(G, weight=None):
 
 def group_betweenness_centrality(G, C, normalized=True, weight=None, endpoints=False):
     """Betweenness centrality for a group of nodes C."""
-    return _fnx.group_betweenness_centrality_rust(G, list(C))
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+
+    return nx.group_betweenness_centrality(
+        _to_nx(G), C, normalized=normalized, weight=weight, endpoints=endpoints,
+    )
 
 
 def group_closeness_centrality(G, S, weight=None, H=None):
@@ -5936,27 +5951,17 @@ def node_attribute_xy(G, attribute):
 
 def node_degree_xy(G, x='out', y='in', weight=None, nodes=None):
     """Yield (degree_x, degree_y) for each edge."""
-    directed = G.is_directed()
-    for u, v in G.edges():
-        if nodes and (u not in nodes and v not in nodes):
-            continue
-        if directed:
-            if x == 'in':
-                du = G.in_degree(u, weight=weight)
-            elif x == 'out':
-                du = G.out_degree(u, weight=weight)
-            else:
-                du = G.degree(u, weight=weight)
-            if y == 'in':
-                dv = G.in_degree(v, weight=weight)
-            elif y == 'out':
-                dv = G.out_degree(v, weight=weight)
-            else:
-                dv = G.degree(v, weight=weight)
-        else:
-            du = G.degree(u, weight=weight)
-            dv = G.degree(v, weight=weight)
-        yield (du, dv)
+    if weight is None and nodes is None:
+        from franken_networkx._fnx import node_degree_xy_rust
+
+        yield from node_degree_xy_rust(G, x, y, weight, nodes)
+        return
+
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+
+    yield from nx.node_degree_xy(_to_nx(G), x=x, y=y, weight=weight, nodes=nodes)
 
 
 def number_of_walks(G, walk_length):
