@@ -325,6 +325,18 @@ class TestGlobalNodeConnectivity:
         assert fnx.global_node_connectivity(D) == 0
 
 
+class TestHyperWienerIndex:
+    def test_path_graph_matches_networkx(self):
+        path_fnx = fnx.path_graph(4)
+        path_nx = nx.path_graph(4)
+        assert fnx.hyper_wiener_index(path_fnx) == nx.hyper_wiener_index(path_nx)
+
+    def test_cycle_graph_matches_networkx(self):
+        cycle_fnx = fnx.cycle_graph(4)
+        cycle_nx = nx.cycle_graph(4)
+        assert fnx.hyper_wiener_index(cycle_fnx) == nx.hyper_wiener_index(cycle_nx)
+
+
 # ---------------------------------------------------------------------------
 # all_pairs_dijkstra
 # ---------------------------------------------------------------------------

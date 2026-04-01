@@ -23598,7 +23598,7 @@ pub fn gutman_index(graph: &Graph) -> Option<f64> {
     Some(total)
 }
 
-/// Hyper-Wiener index: sum of d(u,v) + d(u,v)^2 for all pairs, divided by 2.
+/// Hyper-Wiener index over unordered node pairs.
 #[must_use]
 pub fn hyper_wiener_index(graph: &Graph) -> Option<f64> {
     let nodes = graph.nodes_ordered();
@@ -23636,7 +23636,7 @@ pub fn hyper_wiener_index(graph: &Graph) -> Option<f64> {
             total += d + d * d;
         }
     }
-    Some(total / 2.0)
+    Some(total)
 }
 
 /// Schultz index: sum of (deg(u) + deg(v)) * d(u,v) for all pairs.
@@ -38253,7 +38253,17 @@ mod tests {
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
         let hw = hyper_wiener_index(&g).unwrap();
-        assert!(hw > 0.0);
+        assert_eq!(hw, 10.0);
+    }
+
+    #[test]
+    fn test_hyper_wiener_index_path_four_nodes() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "d");
+        let hw = hyper_wiener_index(&g).unwrap();
+        assert_eq!(hw, 30.0);
     }
 
     #[test]

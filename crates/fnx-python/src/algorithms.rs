@@ -4600,14 +4600,14 @@ pub fn lexicographic_topological_sort(
 
 /// Return True if the directed graph G is a directed acyclic graph (DAG).
 #[pyfunction]
-pub fn is_directed_acyclic_graph(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
+pub fn is_directed_acyclic_graph(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
     if !gr.is_directed() {
         return Ok(false);
     }
     {
         let dg_ref = gr.digraph().expect("is_directed checked above");
-        Ok(fnx_algorithms::is_directed_acyclic_graph(dg_ref))
+        Ok(py.allow_threads(|| fnx_algorithms::is_directed_acyclic_graph(dg_ref)))
     }
 }
 
@@ -4913,16 +4913,24 @@ pub fn all_pairs_shortest_path_length(
 
 /// Return whether the graph has no edges.
 #[pyfunction]
-pub fn is_empty(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
+pub fn is_empty(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
     match &gr {
-        GraphRef::Undirected(pg) => Ok(fnx_algorithms::is_empty(&pg.inner)),
-        GraphRef::Directed { dg, .. } => Ok(fnx_algorithms::is_empty_directed(&dg.inner)),
+        GraphRef::Undirected(pg) => {
+            let inner = &pg.inner;
+            Ok(py.allow_threads(|| fnx_algorithms::is_empty(inner)))
+        }
+        GraphRef::Directed { dg, .. } => {
+            let inner = &dg.inner;
+            Ok(py.allow_threads(|| fnx_algorithms::is_empty_directed(inner)))
+        }
         _ => {
             if gr.is_directed() {
-                Ok(fnx_algorithms::is_empty_directed(gr.digraph().unwrap()))
+                let inner = gr.digraph().unwrap();
+                Ok(py.allow_threads(|| fnx_algorithms::is_empty_directed(inner)))
             } else {
-                Ok(fnx_algorithms::is_empty(gr.undirected()))
+                let inner = gr.undirected();
+                Ok(py.allow_threads(|| fnx_algorithms::is_empty(inner)))
             }
         }
     }
@@ -5532,7 +5540,7 @@ pub fn number_strongly_connected_components(
 
 /// Return whether the directed graph is strongly connected.
 #[pyfunction]
-pub fn is_strongly_connected(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
+pub fn is_strongly_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
     if !gr.is_directed() {
         return Err(crate::NetworkXNotImplemented::new_err(
@@ -5541,7 +5549,7 @@ pub fn is_strongly_connected(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<
     }
     {
         let dg_ref = gr.digraph().expect("is_directed checked above");
-        Ok(fnx_algorithms::is_strongly_connected(dg_ref))
+        Ok(py.allow_threads(|| fnx_algorithms::is_strongly_connected(dg_ref)))
     }
 }
 
@@ -10967,3 +10975,4 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     Ok(())
 }
+

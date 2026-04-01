@@ -87,6 +87,19 @@ class TestConnectivity:
 
         assert_sets_equal(fnx.minimum_node_cut(D_fnx), nx.minimum_node_cut(D_nx))
 
+    def test_minimum_node_cut_directed_three_cycle(self, fnx, nx):
+        D_fnx = fnx.DiGraph()
+        D_fnx.add_edge("a", "b")
+        D_fnx.add_edge("b", "c")
+        D_fnx.add_edge("c", "a")
+
+        D_nx = nx.DiGraph()
+        D_nx.add_edge("a", "b")
+        D_nx.add_edge("b", "c")
+        D_nx.add_edge("c", "a")
+
+        assert_sets_equal(fnx.minimum_node_cut(D_fnx), nx.minimum_node_cut(D_nx))
+
     def test_minimum_node_cut_disconnected_raises(self, fnx, nx):
         G_fnx = fnx.Graph()
         G_fnx.add_node(0)
