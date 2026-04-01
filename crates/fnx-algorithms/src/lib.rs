@@ -963,7 +963,10 @@ pub fn shortest_path_weighted(
     let mut edges_scanned = 0usize;
     let mut queue_peak = 1usize;
 
-    while let Some(DijkstraState { dist: d, node: u, .. }) = pq.pop() {
+    while let Some(DijkstraState {
+        dist: d, node: u, ..
+    }) = pq.pop()
+    {
         if d > *distances.get(u).unwrap_or(&f64::INFINITY) + DISTANCE_COMPARISON_EPSILON {
             continue;
         }
@@ -1071,7 +1074,10 @@ pub fn shortest_path_weighted_directed(
     let mut edges_scanned = 0usize;
     let mut queue_peak = 1usize;
 
-    while let Some(DijkstraState { dist: d, node: u, .. }) = pq.pop() {
+    while let Some(DijkstraState {
+        dist: d, node: u, ..
+    }) = pq.pop()
+    {
         if d > *distances.get(u).unwrap_or(&f64::INFINITY) + DISTANCE_COMPARISON_EPSILON {
             continue;
         }
@@ -3113,6 +3119,20 @@ pub fn edge_connectivity_edmonds_karp(
             edges_scanned: cut.witness.edges_scanned,
             queue_peak: cut.witness.queue_peak,
         },
+    })
+}
+
+pub fn edge_connectivity_edmonds_karp_directed(
+    digraph: &DiGraph,
+    source: &str,
+    target: &str,
+    capacity_attr: &str,
+) -> Result<EdgeConnectivityResult, FlowError> {
+    minimum_cut_edmonds_karp_directed(digraph, source, target, capacity_attr).map(|c| {
+        EdgeConnectivityResult {
+            value: c.value,
+            witness: c.witness,
+        }
     })
 }
 
@@ -7604,7 +7624,7 @@ pub fn degree_assortativity_coefficient(graph: &Graph) -> DegreeAssortativityRes
     let denominator = denom_x * denom_y;
 
     let coefficient = if denominator.abs() < ASSORTATIVITY_EPSILON {
-        0.0
+        f64::NAN
     } else {
         numerator / denominator
     };
@@ -7961,10 +7981,10 @@ fn aux_max_flow(
 
 /// Build auxiliary directed graph for node connectivity:
 /// Each node v → v_in, v_out with capacity 1.0.
-/// Each original edge (u,v) → u_out→v_in and v_out→u_in with large capacity.
+/// Each original edge (u,v) → u_out→v_in and v_out→u_in with capacity 1.0.
 fn build_node_split_auxiliary(graph: &Graph) -> HashMap<String, HashMap<String, f64>> {
     let nodes = graph.nodes_ordered();
-    let large_cap = (nodes.len() + 1) as f64;
+    let cap = 1.0;
     let mut residual: HashMap<String, HashMap<String, f64>> = HashMap::new();
 
     for node in &nodes {
@@ -7994,11 +8014,11 @@ fn build_node_split_auxiliary(graph: &Graph) -> HashMap<String, HashMap<String, 
                     continue;
                 }
                 let nb_in = format!("{nb}_in");
-                // u_out → v_in with large capacity
+                // u_out → v_in with capacity 1
                 residual
                     .entry(n_out.clone())
                     .or_default()
-                    .insert(nb_in.clone(), large_cap);
+                    .insert(nb_in.clone(), cap);
                 // reverse for residual
                 residual
                     .entry(nb_in.clone())
@@ -8014,10 +8034,10 @@ fn build_node_split_auxiliary(graph: &Graph) -> HashMap<String, HashMap<String, 
 
 /// Build auxiliary directed graph for node connectivity on a directed graph.
 /// Each node v -> v_in, v_out with capacity 1.0.
-/// Each original arc (u, v) -> u_out -> v_in with large capacity.
+/// Each original arc (u, v) -> u_out -> v_in with capacity 1.0.
 fn build_node_split_auxiliary_directed(digraph: &DiGraph) -> HashMap<String, HashMap<String, f64>> {
     let nodes = digraph.nodes_ordered();
-    let large_cap = (nodes.len() + 1) as f64;
+    let cap = 1.0;
     let mut residual: HashMap<String, HashMap<String, f64>> = HashMap::new();
 
     for node in &nodes {
@@ -8047,7 +8067,7 @@ fn build_node_split_auxiliary_directed(digraph: &DiGraph) -> HashMap<String, Has
                 residual
                     .entry(n_out.clone())
                     .or_default()
-                    .insert(succ_in.clone(), large_cap);
+                    .insert(succ_in.clone(), cap);
                 residual
                     .entry(succ_in.clone())
                     .or_default()
@@ -8529,43 +8549,83 @@ pub fn minimum_node_cut_directed(
     let mut stats = (0_usize, 0_usize, 0_usize);
     let _flow = aux_max_flow(&mut residual, &s_out, &t_in, &mut stats);
 
-    let mut visited = HashSet::<String>::new();
+    let mut sink_reachable = HashSet::<String>::new();
     let mut queue = VecDeque::<String>::new();
-    queue.push_back(s_out.clone());
-    visited.insert(s_out);
+    queue.push_back(t_in.clone());
+    sink_reachable.insert(t_in.clone());
+
+    // Traverse backwards from sink in the residual graph
+    // reverse_residual has edges (v, u) if residual capacity u -> v is > 0
+    let mut reverse_residual = HashMap::<String, Vec<String>>::new();
+    for (u, caps) in &residual {
+        for (v, &cap) in caps {
+            if cap > 0.0 {
+                reverse_residual
+                    .entry(v.clone())
+                    .or_default()
+                    .push(u.clone());
+            }
+        }
+    }
 
     while let Some(current) = queue.pop_front() {
-        let neighbors: Vec<String> = residual
-            .get(&current)
-            .map(|caps| caps.keys().cloned().collect())
-            .unwrap_or_default();
-        for nb in neighbors {
-            if visited.contains(&nb) {
-                continue;
-            }
-            let cap = residual
-                .get(&current)
-                .and_then(|caps| caps.get(&nb))
-                .copied()
-                .unwrap_or(0.0);
-            if cap > 0.0 {
-                visited.insert(nb.clone());
-                queue.push_back(nb);
+        if let Some(preds) = reverse_residual.get(&current) {
+            for pred in preds {
+                if sink_reachable.insert(pred.clone()) {
+                    queue.push_back(pred.clone());
+                }
             }
         }
     }
 
-    let mut cut_nodes: Vec<String> = Vec::new();
+    // Cut edges are those from !sink_reachable to sink_reachable in the original H graph.
+    // The original H graph is exactly the initial residual graph before flow (all capacities were 1.0).
+    // Wait, we don't have the original H, but we know its structure!
+    // Every node x has x_in -> x_out.
+    // Every edge x -> y has x_out -> y_in.
+    let mut cut_edges = Vec::<(String, String)>::new();
     for node in &nodes {
-        if *node == source || *node == sink {
-            continue;
-        }
         let n_in = format!("{node}_in");
         let n_out = format!("{node}_out");
-        if visited.contains(&n_in) && !visited.contains(&n_out) {
-            cut_nodes.push((*node).to_owned());
+
+        // Internal edge: n_in -> n_out
+        if !sink_reachable.contains(&n_in) && sink_reachable.contains(&n_out) {
+            cut_edges.push((n_in.clone(), n_out.clone()));
+        }
+
+        // External edges: n_out -> nb_in
+        if let Some(succs) = digraph.successors_iter(node) {
+            for nb in succs {
+                if nb == *node {
+                    continue;
+                }
+                let nb_in = format!("{nb}_in");
+                if !sink_reachable.contains(&n_out) && sink_reachable.contains(&nb_in) {
+                    cut_edges.push((n_out.clone(), nb_in.clone()));
+                }
+            }
         }
     }
+
+    let mut cut_nodes_set = HashSet::new();
+    for (u, v) in cut_edges {
+        // Extract original node name. Strip "_in" or "_out".
+        let u_name = u
+            .strip_suffix("_in")
+            .or_else(|| u.strip_suffix("_out"))
+            .unwrap_or(&u);
+        let v_name = v
+            .strip_suffix("_in")
+            .or_else(|| v.strip_suffix("_out"))
+            .unwrap_or(&v);
+        cut_nodes_set.insert(u_name.to_owned());
+        cut_nodes_set.insert(v_name.to_owned());
+    }
+
+    cut_nodes_set.remove(source);
+    cut_nodes_set.remove(sink);
+
+    let mut cut_nodes: Vec<String> = cut_nodes_set.into_iter().collect();
     cut_nodes.sort();
 
     MinimumNodeCutResult {
@@ -11364,7 +11424,10 @@ pub fn all_shortest_paths_weighted(
 
     let mut target_dist = f64::INFINITY;
 
-    while let Some(DijkstraState { dist: d, node: u, .. }) = pq.pop() {
+    while let Some(DijkstraState {
+        dist: d, node: u, ..
+    }) = pq.pop()
+    {
         if d > target_dist + DISTANCE_COMPARISON_EPSILON {
             break;
         }
@@ -15966,7 +16029,10 @@ pub fn single_source_dijkstra_directed(
         node: source,
     });
 
-    while let Some(DijkstraState { dist: d, node: u, .. }) = pq.pop() {
+    while let Some(DijkstraState {
+        dist: d, node: u, ..
+    }) = pq.pop()
+    {
         if d > *distances.get(u).unwrap_or(&f64::INFINITY) + DISTANCE_COMPARISON_EPSILON {
             continue;
         }
@@ -23196,7 +23262,7 @@ pub fn numeric_assortativity_coefficient(graph: &Graph, attribute: &str) -> f64 
 
     let denom = (var_a * var_b).sqrt();
     if denom.abs() < ASSORTATIVITY_EPSILON {
-        return 0.0;
+        return f64::NAN;
     }
 
     // Compute sum_ij x_i * y_j * (M_ij - a_i * b_j)

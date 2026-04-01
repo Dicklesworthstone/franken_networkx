@@ -1927,14 +1927,41 @@ pub fn number_connected_components(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyRe
 
 /// Return the node connectivity of the graph.
 #[pyfunction]
-pub fn node_connectivity(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usize> {
+#[pyo3(signature = (g, s=None, t=None))]
+pub fn node_connectivity(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    s: Option<&Bound<'_, PyAny>>,
+    t: Option<&Bound<'_, PyAny>>,
+) -> PyResult<usize> {
     let gr = extract_graph(g)?;
-    if gr.is_directed() {
-        let dg = gr.digraph().expect("is_directed checked above");
-        Ok(py.allow_threads(|| fnx_algorithms::node_connectivity_directed_global(dg).value))
+
+    if s.is_some() != t.is_some() {
+        return Err(NetworkXError::new_err(
+            "Both s and t must be specified, or neither.",
+        ));
+    }
+
+    if let (Some(source), Some(sink)) = (s, t) {
+        let (s_name, t_name) = flow_terminals(py, &gr, source, sink)?;
+        if gr.is_directed() {
+            let dg = gr.digraph().expect("is_directed checked above");
+            Ok(py.allow_threads(|| {
+                fnx_algorithms::node_connectivity_directed(dg, &s_name, &t_name).value
+            }))
+        } else {
+            let inner = gr.undirected();
+            Ok(py
+                .allow_threads(|| fnx_algorithms::node_connectivity(inner, &s_name, &t_name).value))
+        }
     } else {
-        let inner = gr.undirected();
-        Ok(py.allow_threads(|| fnx_algorithms::global_node_connectivity(inner).value))
+        if gr.is_directed() {
+            let dg = gr.digraph().expect("is_directed checked above");
+            Ok(py.allow_threads(|| fnx_algorithms::node_connectivity_directed_global(dg).value))
+        } else {
+            let inner = gr.undirected();
+            Ok(py.allow_threads(|| fnx_algorithms::global_node_connectivity(inner).value))
+        }
     }
 }
 
@@ -1984,20 +2011,57 @@ pub fn minimum_node_cut(
 
 /// Return the edge connectivity of the graph.
 #[pyfunction]
-#[pyo3(signature = (g, capacity="capacity"))]
-pub fn edge_connectivity(py: Python<'_>, g: &Bound<'_, PyAny>, capacity: &str) -> PyResult<f64> {
+#[pyo3(signature = (g, s=None, t=None, cutoff=None))]
+pub fn edge_connectivity(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    s: Option<&Bound<'_, PyAny>>,
+    t: Option<&Bound<'_, PyAny>>,
+    cutoff: Option<f64>,
+) -> PyResult<f64> {
     let gr = extract_graph(g)?;
-    let cap = capacity.to_owned();
-    if gr.is_directed() {
-        let dg = gr.digraph().expect("is_directed checked above");
-        Ok(py.allow_threads(move || {
-            fnx_algorithms::global_edge_connectivity_edmonds_karp_directed(dg, &cap).value
-        }))
+
+    if s.is_some() != t.is_some() {
+        return Err(NetworkXError::new_err(
+            "Both s and t must be specified, or neither.",
+        ));
+    }
+
+    if cutoff.is_some() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "franken_networkx currently does not support the cutoff parameter for edge_connectivity",
+        ));
+    }
+
+    let cap = "capacity".to_owned();
+
+    if let (Some(source), Some(sink)) = (s, t) {
+        let (s_name, t_name) = flow_terminals(py, &gr, source, sink)?;
+        if gr.is_directed() {
+            let dg = gr.digraph().expect("is_directed checked above");
+            let result = py.allow_threads(move || {
+                fnx_algorithms::edge_connectivity_edmonds_karp_directed(dg, &s_name, &t_name, &cap)
+            });
+            Ok(result.map_err(flow_py_error)?.value)
+        } else {
+            let inner = gr.undirected();
+            let result = py.allow_threads(move || {
+                fnx_algorithms::edge_connectivity_edmonds_karp(inner, &s_name, &t_name, &cap)
+            });
+            Ok(result.map_err(flow_py_error)?.value)
+        }
     } else {
-        let inner = gr.undirected();
-        Ok(py.allow_threads(move || {
-            fnx_algorithms::global_edge_connectivity_edmonds_karp(inner, &cap).value
-        }))
+        if gr.is_directed() {
+            let dg = gr.digraph().expect("is_directed checked above");
+            Ok(py.allow_threads(move || {
+                fnx_algorithms::global_edge_connectivity_edmonds_karp_directed(dg, &cap).value
+            }))
+        } else {
+            let inner = gr.undirected();
+            Ok(py.allow_threads(move || {
+                fnx_algorithms::global_edge_connectivity_edmonds_karp(inner, &cap).value
+            }))
+        }
     }
 }
 
