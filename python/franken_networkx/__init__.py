@@ -3234,9 +3234,7 @@ def all_pairs_node_connectivity(G, nbunch=None, flow_func=None):
     from franken_networkx.drawing.layout import _to_nx
 
     return nx.all_pairs_node_connectivity(
-        _to_nx(G),
-        nbunch=nbunch,
-        flow_func=flow_func,
+        _to_nx(G), nbunch=nbunch, flow_func=flow_func,
     )
 
 
@@ -4207,12 +4205,14 @@ def all_pairs_all_shortest_paths(G, weight=None):
     (source, paths_dict)
         Where paths_dict maps target -> path.
     """
-    for source in G.nodes():
-        if weight is None:
-            paths = single_source_shortest_path(G, source)
-        else:
+    if weight is not None:
+        for source in G.nodes():
             paths = single_source_dijkstra_path(G, source, weight=weight)
-        yield (source, paths)
+            yield (source, paths)
+        return
+    result = _fnx.all_pairs_all_shortest_paths_rust(G)
+    for source, paths_dict in result.items():
+        yield (source, paths_dict)
 
 
 def reconstruct_path(sources, targets, pred):
@@ -5779,28 +5779,31 @@ def bfs_beam_edges(G, source, value, width=None):
 
 def bfs_labeled_edges(G, source, sort_neighbors=None):
     """BFS yielding (u, v, label) with tree/forward/reverse/cross labels."""
-    visited = {source}
-    level = {source: 0}
-    queue = [source]
-    while queue:
-        next_queue = []
-        for node in queue:
-            nbrs = list(G.neighbors(node))
-            if sort_neighbors:
-                nbrs = sort_neighbors(nbrs)
-            for nbr in nbrs:
-                if nbr not in visited:
-                    visited.add(nbr)
-                    level[nbr] = level[node] + 1
-                    next_queue.append(nbr)
-                    yield (node, nbr, 'tree')
-                elif level.get(nbr, 0) == level[node]:
-                    yield (node, nbr, 'level')
-                elif level.get(nbr, 0) > level[node]:
-                    yield (node, nbr, 'forward')
-                else:
-                    yield (node, nbr, 'reverse')
-        queue = next_queue
+    if sort_neighbors is not None:
+        # Fall back to Python when custom sort is needed
+        visited = {source}
+        level = {source: 0}
+        queue = [source]
+        while queue:
+            next_queue = []
+            for node in queue:
+                nbrs = sort_neighbors(list(G.neighbors(node)))
+                for nbr in nbrs:
+                    if nbr not in visited:
+                        visited.add(nbr)
+                        level[nbr] = level[node] + 1
+                        next_queue.append(nbr)
+                        yield (node, nbr, 'tree')
+                    elif level.get(nbr, 0) == level[node]:
+                        yield (node, nbr, 'level')
+                    elif level.get(nbr, 0) > level[node]:
+                        yield (node, nbr, 'forward')
+                    else:
+                        yield (node, nbr, 'reverse')
+            queue = next_queue
+        return
+    for edge in _fnx.bfs_labeled_edges_rust(G, source):
+        yield edge
 
 
 def dfs_labeled_edges(G, source=None, depth_limit=None):
@@ -5840,24 +5843,28 @@ def dfs_labeled_edges(G, source=None, depth_limit=None):
 
 def generic_bfs_edges(G, source, neighbors=None, depth_limit=None, sort_neighbors=None):
     """BFS with customizable neighbor function."""
-    if neighbors is None:
-        neighbors = G.neighbors
-    visited = {source}
-    queue = [(source, 0)]
-    while queue:
-        next_queue = []
-        for node, depth in queue:
-            if depth_limit is not None and depth >= depth_limit:
-                continue
-            nbrs = list(neighbors(node))
-            if sort_neighbors:
-                nbrs = sort_neighbors(nbrs)
-            for nbr in nbrs:
-                if nbr not in visited:
-                    visited.add(nbr)
-                    yield (node, nbr)
-                    next_queue.append((nbr, depth + 1))
-        queue = next_queue
+    if neighbors is not None or sort_neighbors is not None:
+        if neighbors is None:
+            neighbors = G.neighbors
+        visited = {source}
+        queue = [(source, 0)]
+        while queue:
+            next_queue = []
+            for node, depth in queue:
+                if depth_limit is not None and depth >= depth_limit:
+                    continue
+                nbrs = list(neighbors(node))
+                if sort_neighbors:
+                    nbrs = sort_neighbors(nbrs)
+                for nbr in nbrs:
+                    if nbr not in visited:
+                        visited.add(nbr)
+                        yield (node, nbr)
+                        next_queue.append((nbr, depth + 1))
+            queue = next_queue
+        return
+    for edge in _fnx.generic_bfs_edges_rust(G, source, depth_limit):
+        yield edge
 
 
 # ---------------------------------------------------------------------------
@@ -6010,30 +6017,7 @@ def harmonic_diameter(G, sp=None):
 
 def global_parameters(G):
     """Return global graph parameters as a tuple (intersection_array if distance-regular)."""
-    if not is_connected(G):
-        return None
-    d = diameter(G)
-    nodes = list(G.nodes())
-    # Check distance-regularity
-    b_params = []
-    c_params = []
-    for dist in range(d + 1):
-        b_vals = set()
-        c_vals = set()
-        for u in nodes:
-            lengths = single_source_shortest_path_length(G, u)
-            at_dist = [v for v, dd in lengths.items() if dd == dist]
-            for v in at_dist:
-                # b_i = number of neighbors of v at distance i+1 from u
-                b = sum(1 for nb in G.neighbors(v) if lengths.get(nb, -1) == dist + 1)
-                c = sum(1 for nb in G.neighbors(v) if lengths.get(nb, -1) == dist - 1)
-                b_vals.add(b)
-                c_vals.add(c)
-        if len(b_vals) > 1 or len(c_vals) > 1:
-            return None  # Not distance-regular
-        b_params.append(b_vals.pop() if b_vals else 0)
-        c_params.append(c_vals.pop() if c_vals else 0)
-    return (b_params, c_params)
+    return _fnx.global_parameters_rust(G)
 
 
 def intersection_array(G):

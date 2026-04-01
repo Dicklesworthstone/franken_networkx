@@ -90,6 +90,32 @@ class TestIsIsomorphic:
         # Path: degree seq [1,2,2,1]; Star: degree seq [3,1,1,1]
         assert not fnx.is_isomorphic(path, star)
 
+    def test_directed_relabeled_path_isomorphic(self):
+        g1 = fnx.DiGraph()
+        g1.add_edge(0, 1)
+        g1.add_edge(1, 2)
+        g2 = fnx.DiGraph()
+        g2.add_edge("a", "b")
+        g2.add_edge("b", "c")
+        assert fnx.is_isomorphic(g1, g2)
+
+    def test_directed_orientation_changes_non_isomorphic(self):
+        g1 = fnx.DiGraph()
+        g1.add_edge(0, 1)
+        g1.add_edge(1, 2)
+        g2 = fnx.DiGraph()
+        g2.add_edge("a", "b")
+        g2.add_edge("c", "b")
+        assert not fnx.is_isomorphic(g1, g2)
+
+    def test_mixed_graph_types_raise(self):
+        graph = fnx.Graph()
+        graph.add_edge(0, 1)
+        digraph = fnx.DiGraph()
+        digraph.add_edge(0, 1)
+        with pytest.raises(fnx.NetworkXError, match="not of the same type"):
+            fnx.is_isomorphic(graph, digraph)
+
 
 # ---------------------------------------------------------------------------
 # could_be_isomorphic
@@ -119,6 +145,14 @@ class TestCouldBeIsomorphic:
     def test_empty(self):
         assert fnx.could_be_isomorphic(fnx.Graph(), fnx.Graph())
 
+    def test_directed_graphs_not_supported(self):
+        g1 = fnx.DiGraph()
+        g1.add_edge(0, 1)
+        g2 = fnx.DiGraph()
+        g2.add_edge("a", "b")
+        with pytest.raises(fnx.NetworkXNotImplemented, match="directed type"):
+            fnx.could_be_isomorphic(g1, g2)
+
 
 # ---------------------------------------------------------------------------
 # fast_could_be_isomorphic
@@ -141,3 +175,30 @@ class TestFastCouldBeIsomorphic:
 
     def test_empty(self):
         assert fnx.fast_could_be_isomorphic(fnx.Graph(), fnx.Graph())
+
+    def test_directed_graphs_not_supported(self):
+        g1 = fnx.DiGraph()
+        g1.add_edge(0, 1)
+        g2 = fnx.DiGraph()
+        g2.add_edge("a", "b")
+        with pytest.raises(fnx.NetworkXNotImplemented, match="directed type"):
+            fnx.fast_could_be_isomorphic(g1, g2)
+
+
+class TestFasterCouldBeIsomorphic:
+    def test_directed_graphs_use_total_degree_sequence(self):
+        g1 = fnx.DiGraph()
+        g1.add_edge(0, 1)
+        g1.add_edge(1, 2)
+        g2 = fnx.DiGraph()
+        g2.add_edge("a", "b")
+        g2.add_edge("b", "c")
+        assert fnx.faster_could_be_isomorphic(g1, g2)
+
+    def test_directed_total_degree_mismatch_returns_false(self):
+        g1 = fnx.DiGraph()
+        g1.add_edge(0, 1)
+        g2 = fnx.DiGraph()
+        g2.add_edge("a", "b")
+        g2.add_edge("b", "a")
+        assert not fnx.faster_could_be_isomorphic(g1, g2)

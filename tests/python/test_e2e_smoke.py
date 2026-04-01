@@ -374,7 +374,8 @@ def test_multidigraph_extended_surface(fnx):
     undirected_graph = g.to_undirected()
     assert isinstance(undirected_graph, fnx.MultiGraph)
     assert not undirected_graph.is_directed()
-    assert undirected_graph.number_of_edges() == g.number_of_edges()
+    # "a"->"b" key=0 and "b"->"a" key=0 merge into a single undirected edge.
+    assert undirected_graph.number_of_edges() == 2
 
     g.update(edges=[("c", "a", {"weight": 4.0})], nodes=[("d", {"shape": "sink"})])
     assert g.has_node("d")

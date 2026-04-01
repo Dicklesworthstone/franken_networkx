@@ -73,26 +73,27 @@ const FLOW_EPSILON: f64 = 1.0e-10;
 const ASSORTATIVITY_EPSILON: f64 = 1.0e-15;
 
 #[derive(Copy, Clone, PartialEq)]
-struct DijkstraState<T: Copy + PartialEq> {
+struct DijkstraState<T: Copy + PartialEq + Ord> {
     dist: f64,
     node: T,
 }
 
-impl<T: Copy + PartialEq> Eq for DijkstraState<T> {}
+impl<T: Copy + PartialEq + Ord> Eq for DijkstraState<T> {}
 
-impl<T: Copy + PartialEq> PartialOrd for DijkstraState<T> {
+impl<T: Copy + PartialEq + Ord> PartialOrd for DijkstraState<T> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<T: Copy + PartialEq> Ord for DijkstraState<T> {
+impl<T: Copy + PartialEq + Ord> Ord for DijkstraState<T> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         // Min-heap: reverse the comparison
         other
             .dist
             .partial_cmp(&self.dist)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| other.node.cmp(&self.node))
     }
 }
 
@@ -13788,7 +13789,7 @@ pub fn astar_path(
                 .f_score
                 .partial_cmp(&self.f_score)
                 .unwrap_or(Ordering::Equal)
-                .then_with(|| self.node.cmp(&other.node))
+                .then_with(|| other.node.cmp(&self.node))
         }
     }
 
@@ -13913,7 +13914,7 @@ pub fn shortest_simple_paths(
                     .cost
                     .partial_cmp(&self.cost)
                     .unwrap_or(Ordering::Equal)
-                    .then_with(|| self.node.cmp(&other.node))
+                    .then_with(|| other.node.cmp(&self.node))
             }
         }
 
@@ -13992,8 +13993,27 @@ pub fn shortest_simple_paths(
         return Vec::new();
     };
 
+    #[derive(PartialEq, Eq)]
+    struct CandidatePath {
+        cost: OrderedF64,
+        path: Vec<String>,
+    }
+    impl PartialOrd for CandidatePath {
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+    impl Ord for CandidatePath {
+        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+            other
+                .cost
+                .cmp(&self.cost)
+                .then_with(|| other.path.cmp(&self.path))
+        }
+    }
+
     let mut result = vec![first_path];
-    let mut candidates: BTreeMap<OrderedF64, Vec<String>> = BTreeMap::new();
+    let mut candidates: BinaryHeap<CandidatePath> = BinaryHeap::new();
     let mut found_paths: HashSet<Vec<String>> = HashSet::new();
     found_paths.insert(result[0].clone());
 
@@ -14027,13 +14047,16 @@ pub fn shortest_simple_paths(
                 if !found_paths.contains(&total_path) {
                     let cost = path_cost(&total_path);
                     found_paths.insert(total_path.clone());
-                    candidates.insert(OrderedF64(cost), total_path);
+                    candidates.push(CandidatePath {
+                        cost: OrderedF64(cost),
+                        path: total_path,
+                    });
                 }
             }
         }
 
-        if let Some((_, path)) = candidates.pop_first() {
-            result.push(path);
+        if let Some(candidate) = candidates.pop() {
+            result.push(candidate.path);
         } else {
             break;
         }
@@ -14191,6 +14214,140 @@ pub fn is_isomorphic(g1: &Graph, g2: &Graph) -> bool {
     )
 }
 
+/// Check if two directed graphs are isomorphic.
+///
+/// Returns true if there exists a bijective mapping between the
+/// node sets that preserves directed adjacency.
+///
+/// NetworkX equivalent: `networkx.algorithms.isomorphism.is_isomorphic`
+pub fn is_isomorphic_directed(g1: &DiGraph, g2: &DiGraph) -> bool {
+    let nodes1 = g1.nodes_ordered();
+    let nodes2 = g2.nodes_ordered();
+
+    // Quick checks
+    if nodes1.len() != nodes2.len() {
+        return false;
+    }
+    let n = nodes1.len();
+    if n == 0 {
+        return true;
+    }
+
+    let edge_count1 = g1.edges_ordered().len();
+    let edge_count2 = g2.edges_ordered().len();
+    if edge_count1 != edge_count2 {
+        return false;
+    }
+
+    // Check in/out degree sequences match
+    let mut deg1: Vec<(usize, usize)> = nodes1
+        .iter()
+        .map(|n| (g1.in_degree(n), g1.out_degree(n)))
+        .collect();
+    let mut deg2: Vec<(usize, usize)> = nodes2
+        .iter()
+        .map(|n| (g2.in_degree(n), g2.out_degree(n)))
+        .collect();
+    deg1.sort_unstable();
+    deg2.sort_unstable();
+    if deg1 != deg2 {
+        return false;
+    }
+
+    // Build directed adjacency matrices for fast lookup
+    let idx1: HashMap<&str, usize> = nodes1.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+    let idx2: HashMap<&str, usize> = nodes2.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+
+    let mut adj1 = vec![vec![false; n]; n];
+    let mut adj2 = vec![vec![false; n]; n];
+
+    for edge in g1.edges_ordered() {
+        let i = idx1[edge.left.as_str()];
+        let j = idx1[edge.right.as_str()];
+        adj1[i][j] = true;
+    }
+    for edge in g2.edges_ordered() {
+        let i = idx2[edge.left.as_str()];
+        let j = idx2[edge.right.as_str()];
+        adj2[i][j] = true;
+    }
+
+    // Group nodes by degree for pruning
+    let deg1_map: Vec<(usize, usize)> = nodes1
+        .iter()
+        .map(|n| (g1.in_degree(n), g1.out_degree(n)))
+        .collect();
+    let deg2_map: Vec<(usize, usize)> = nodes2
+        .iter()
+        .map(|n| (g2.in_degree(n), g2.out_degree(n)))
+        .collect();
+
+    let mut mapping: Vec<Option<usize>> = vec![None; n];
+    let mut used: Vec<bool> = vec![false; n];
+
+    #[allow(clippy::too_many_arguments)]
+    fn backtrack(
+        depth: usize,
+        n: usize,
+        adj1: &[Vec<bool>],
+        adj2: &[Vec<bool>],
+        deg1: &[(usize, usize)],
+        deg2: &[(usize, usize)],
+        mapping: &mut [Option<usize>],
+        used: &mut [bool],
+    ) -> bool {
+        if depth == n {
+            return true;
+        }
+
+        let u = depth;
+
+        for v in 0..n {
+            if used[v] {
+                continue;
+            }
+            if deg1[u] != deg2[v] {
+                continue;
+            }
+            let mut consistent = true;
+            for prev_u in 0..depth {
+                if let Some(prev_v) = mapping[prev_u]
+                    && (adj1[u][prev_u] != adj2[v][prev_v] || adj1[prev_u][u] != adj2[prev_v][v])
+                {
+                    consistent = false;
+                    break;
+                }
+            }
+            if !consistent {
+                continue;
+            }
+
+            mapping[u] = Some(v);
+            used[v] = true;
+
+            if backtrack(depth + 1, n, adj1, adj2, deg1, deg2, mapping, used) {
+                return true;
+            }
+
+            mapping[u] = None;
+            used[v] = false;
+        }
+
+        false
+    }
+
+    backtrack(
+        0,
+        n,
+        &adj1,
+        &adj2,
+        &deg1_map,
+        &deg2_map,
+        &mut mapping,
+        &mut used,
+    )
+}
+
 /// Fast check whether two graphs could possibly be isomorphic.
 ///
 /// Compares order, size, and degree sequences. Returns false only
@@ -14268,12 +14425,46 @@ pub fn could_be_isomorphic(g1: &Graph, g2: &Graph) -> bool {
     true
 }
 
-/// Fastest check: only compares order and size.
+/// Fastest NetworkX pre-check: compares order, size, and degree sequence.
 ///
 /// NetworkX equivalent: `networkx.algorithms.isomorphism.faster_could_be_isomorphic`
 pub fn faster_could_be_isomorphic(g1: &Graph, g2: &Graph) -> bool {
-    g1.nodes_ordered().len() == g2.nodes_ordered().len()
-        && g1.edges_ordered().len() == g2.edges_ordered().len()
+    let nodes1 = g1.nodes_ordered();
+    let nodes2 = g2.nodes_ordered();
+
+    if nodes1.len() != nodes2.len() {
+        return false;
+    }
+    if g1.edges_ordered().len() != g2.edges_ordered().len() {
+        return false;
+    }
+
+    let mut deg1: Vec<usize> = nodes1.iter().map(|n| g1.degree(n)).collect();
+    let mut deg2: Vec<usize> = nodes2.iter().map(|n| g2.degree(n)).collect();
+    deg1.sort_unstable();
+    deg2.sort_unstable();
+    deg1 == deg2
+}
+
+/// Directed counterpart to `faster_could_be_isomorphic`.
+///
+/// NetworkX uses total degree for the `"d"` property on directed graphs.
+pub fn faster_could_be_isomorphic_directed(g1: &DiGraph, g2: &DiGraph) -> bool {
+    let nodes1 = g1.nodes_ordered();
+    let nodes2 = g2.nodes_ordered();
+
+    if nodes1.len() != nodes2.len() {
+        return false;
+    }
+    if g1.edges_ordered().len() != g2.edges_ordered().len() {
+        return false;
+    }
+
+    let mut deg1: Vec<usize> = nodes1.iter().map(|n| g1.degree(n)).collect();
+    let mut deg2: Vec<usize> = nodes2.iter().map(|n| g2.degree(n)).collect();
+    deg1.sort_unstable();
+    deg2.sort_unstable();
+    deg1 == deg2
 }
 
 /// Fast check: compares order, size, and degree sequence only (no triangles).
@@ -22911,10 +23102,10 @@ pub fn numeric_assortativity_coefficient(graph: &Graph, attribute: &str) -> f64 
     // Collect unique numeric attribute values
     let mut val_set = std::collections::BTreeSet::new();
     for node in graph.nodes_ordered() {
-        if let Some(attrs) = graph.node_attrs(node) {
-            if let Some(v) = attrs.get(attribute) {
-                val_set.insert(v.as_f64().unwrap_or(0.0).to_bits());
-            }
+        if let Some(attrs) = graph.node_attrs(node)
+            && let Some(v) = attrs.get(attribute)
+        {
+            val_set.insert(v.as_f64().unwrap_or(0.0).to_bits());
         }
     }
     let values: Vec<f64> = val_set.iter().map(|&b| f64::from_bits(b)).collect();
@@ -22959,7 +23150,9 @@ pub fn numeric_assortativity_coefficient(graph: &Graph, attribute: &str) -> f64 
     }
 
     // Column marginals a, row marginals b
-    let a: Vec<f64> = (0..k).map(|j| (0..k).map(|i| m_mat[i][j]).sum::<f64>()).collect();
+    let a: Vec<f64> = (0..k)
+        .map(|j| (0..k).map(|i| m_mat[i][j]).sum::<f64>())
+        .collect();
     let b: Vec<f64> = (0..k).map(|i| m_mat[i].iter().sum::<f64>()).collect();
 
     // Variance of marginals

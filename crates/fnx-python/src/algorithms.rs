@@ -6,8 +6,8 @@
 
 use crate::digraph::{PyDiGraph, PyMultiDiGraph};
 use crate::{
-    NetworkXError, NetworkXNoCycle, NetworkXNoPath, NetworkXUnfeasible, NodeNotFound, PyGraph,
-    PyMultiGraph, node_key_to_string,
+    NetworkXError, NetworkXNoCycle, NetworkXNoPath, NetworkXNotImplemented, NetworkXUnfeasible,
+    NodeNotFound, PyGraph, PyMultiGraph, node_key_to_string,
 };
 use fnx_classes::AttrMap;
 use pyo3::exceptions::{PyIndexError, PyValueError, PyZeroDivisionError};
@@ -2459,15 +2459,18 @@ pub fn graph_clique_number(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usi
 pub fn maximal_matching(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
-) -> PyResult<Vec<(PyObject, PyObject)>> {
+) -> PyResult<Py<pyo3::types::PySet>> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::maximal_matching(inner));
-    Ok(result
-        .matching
-        .iter()
-        .map(|(u, v)| (gr.py_node_key(py, u), gr.py_node_key(py, v)))
-        .collect())
+    let set = pyo3::types::PySet::empty(py)?;
+    for (u, v) in result.matching {
+        let py_u = gr.py_node_key(py, &u);
+        let py_v = gr.py_node_key(py, &v);
+        let tuple = pyo3::types::PyTuple::new(py, &[py_u, py_v])?;
+        set.add(tuple)?;
+    }
+    Ok(set.unbind())
 }
 
 /// Return a max-weight matching as a set of edge tuples.
@@ -2477,16 +2480,20 @@ pub fn max_weight_matching(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     weight: &str,
-) -> PyResult<Vec<(PyObject, PyObject)>> {
+) -> PyResult<Py<pyo3::types::PySet>> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
     let w = weight.to_owned();
     let result = py.allow_threads(move || fnx_algorithms::max_weight_matching(inner, false, &w));
-    Ok(result
-        .matching
-        .iter()
-        .map(|(u, v)| (gr.py_node_key(py, u), gr.py_node_key(py, v)))
-        .collect())
+    
+    let set = pyo3::types::PySet::empty(py)?;
+    for (u, v) in result.matching {
+        let py_u = gr.py_node_key(py, &u);
+        let py_v = gr.py_node_key(py, &v);
+        let tuple = pyo3::types::PyTuple::new(py, &[py_u, py_v])?;
+        set.add(tuple)?;
+    }
+    Ok(set.unbind())
 }
 
 /// Return a min-weight matching as a set of edge tuples.
@@ -2496,30 +2503,39 @@ pub fn min_weight_matching(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     weight: &str,
-) -> PyResult<Vec<(PyObject, PyObject)>> {
+) -> PyResult<Py<pyo3::types::PySet>> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
     let w = weight.to_owned();
     let result = py.allow_threads(move || fnx_algorithms::min_weight_matching(inner, &w));
-    Ok(result
-        .matching
-        .iter()
-        .map(|(u, v)| (gr.py_node_key(py, u), gr.py_node_key(py, v)))
-        .collect())
+    
+    let set = pyo3::types::PySet::empty(py)?;
+    for (u, v) in result.matching {
+        let py_u = gr.py_node_key(py, &u);
+        let py_v = gr.py_node_key(py, &v);
+        let tuple = pyo3::types::PyTuple::new(py, &[py_u, py_v])?;
+        set.add(tuple)?;
+    }
+    Ok(set.unbind())
 }
 
 /// Return a minimum edge cover as a set of edge tuples.
 #[pyfunction]
-pub fn min_edge_cover(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<(PyObject, PyObject)>> {
+pub fn min_edge_cover(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<pyo3::types::PySet>> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::min_edge_cover(inner));
     match result {
-        Some(r) => Ok(r
-            .edges
-            .iter()
-            .map(|(u, v)| (gr.py_node_key(py, u), gr.py_node_key(py, v)))
-            .collect()),
+        Some(r) => {
+            let set = pyo3::types::PySet::empty(py)?;
+            for (u, v) in r.edges {
+                let py_u = gr.py_node_key(py, &u);
+                let py_v = gr.py_node_key(py, &v);
+                let tuple = pyo3::types::PyTuple::new(py, &[py_u, py_v])?;
+                set.add(tuple)?;
+            }
+            Ok(set.unbind())
+        }
         None => Err(NetworkXError::new_err(
             "Graph has a node with no edge incident on it, so no edge cover exists.",
         )),
@@ -6288,9 +6304,22 @@ fn shortest_simple_paths(
 fn is_isomorphic(py: Python<'_>, g1: &Bound<'_, PyAny>, g2: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr1 = extract_graph(g1)?;
     let gr2 = extract_graph(g2)?;
-    let inner1 = gr1.undirected();
-    let inner2 = gr2.undirected();
-    Ok(py.allow_threads(|| fnx_algorithms::is_isomorphic(inner1, inner2)))
+
+    if gr1.is_directed() != gr2.is_directed() {
+        return Err(NetworkXError::new_err(
+            "Graphs G1 and G2 are not of the same type.",
+        ));
+    }
+
+    if gr1.is_directed() {
+        let dg1 = gr1.digraph().unwrap();
+        let dg2 = gr2.digraph().unwrap();
+        Ok(py.allow_threads(|| fnx_algorithms::is_isomorphic_directed(dg1, dg2)))
+    } else {
+        let inner1 = gr1.undirected();
+        let inner2 = gr2.undirected();
+        Ok(py.allow_threads(|| fnx_algorithms::is_isomorphic(inner1, inner2)))
+    }
 }
 
 /// Check if two graphs could be isomorphic (degree sequence heuristic).
@@ -6303,6 +6332,11 @@ fn could_be_isomorphic(
 ) -> PyResult<bool> {
     let gr1 = extract_graph(g1)?;
     let gr2 = extract_graph(g2)?;
+    if gr1.is_directed() || gr2.is_directed() {
+        return Err(NetworkXNotImplemented::new_err(
+            "not implemented for directed type",
+        ));
+    }
     let inner1 = gr1.undirected();
     let inner2 = gr2.undirected();
     Ok(py.allow_threads(|| fnx_algorithms::could_be_isomorphic(inner1, inner2)))
@@ -6318,6 +6352,11 @@ fn fast_could_be_isomorphic(
 ) -> PyResult<bool> {
     let gr1 = extract_graph(g1)?;
     let gr2 = extract_graph(g2)?;
+    if gr1.is_directed() || gr2.is_directed() {
+        return Err(NetworkXNotImplemented::new_err(
+            "not implemented for directed type",
+        ));
+    }
     let inner1 = gr1.undirected();
     let inner2 = gr2.undirected();
     Ok(py.allow_threads(|| fnx_algorithms::fast_could_be_isomorphic(inner1, inner2)))
@@ -6578,9 +6617,19 @@ fn faster_could_be_isomorphic(
 ) -> PyResult<bool> {
     let gr1 = extract_graph(g1)?;
     let gr2 = extract_graph(g2)?;
-    let inner1 = gr1.undirected();
-    let inner2 = gr2.undirected();
-    Ok(py.allow_threads(|| fnx_algorithms::faster_could_be_isomorphic(inner1, inner2)))
+    if gr1.is_directed() && gr2.is_directed() {
+        let dg1 = gr1
+            .digraph()
+            .expect("directed graph ref should expose digraph");
+        let dg2 = gr2
+            .digraph()
+            .expect("directed graph ref should expose digraph");
+        Ok(py.allow_threads(|| fnx_algorithms::faster_could_be_isomorphic_directed(dg1, dg2)))
+    } else {
+        let inner1 = gr1.undirected();
+        let inner2 = gr2.undirected();
+        Ok(py.allow_threads(|| fnx_algorithms::faster_could_be_isomorphic(inner1, inner2)))
+    }
 }
 
 /// Check if a graph is planar (can be drawn without edge crossings).
