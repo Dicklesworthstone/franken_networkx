@@ -21994,9 +21994,7 @@ pub fn degree_mixing_dict(graph: &Graph) -> std::collections::HashMap<(usize, us
         let du = graph.neighbors(&edge.left).unwrap_or_default().len();
         let dv = graph.neighbors(&edge.right).unwrap_or_default().len();
         *mixing.entry((du, dv)).or_insert(0) += 1;
-        if du != dv {
-            *mixing.entry((dv, du)).or_insert(0) += 1;
-        }
+        *mixing.entry((dv, du)).or_insert(0) += 1;
     }
     mixing
 }
@@ -24579,16 +24577,23 @@ pub fn group_betweenness_centrality(graph: &Graph, group: &[&str]) -> f64 {
     let group_set: std::collections::HashSet<usize> =
         group.iter().filter_map(|g| idx.get(g).copied()).collect();
 
-    let mut total_paths = 0usize;
-    let mut group_paths = 0usize;
+    let c = group_set.len();
+    if n <= c + 1 {
+        return 0.0;
+    }
+
+    let mut gbc_sum = 0.0;
 
     for s in 0..n {
-        // BFS shortest path tree from s
+        if group_set.contains(&s) {
+            continue;
+        }
         let mut dist = vec![usize::MAX; n];
-        let mut sigma = vec![0usize; n]; // number of shortest paths
-        let mut predecessors: Vec<Vec<usize>> = vec![Vec::new(); n];
+        let mut sigma = vec![0usize; n];
+        let mut sigma_no_c = vec![0usize; n];
         dist[s] = 0;
         sigma[s] = 1;
+        sigma_no_c[s] = 1;
         let mut queue = std::collections::VecDeque::new();
         queue.push_back(s);
 
@@ -24602,7 +24607,9 @@ pub fn group_betweenness_centrality(graph: &Graph, group: &[&str]) -> f64 {
                         }
                         if dist[ni] == dist[v] + 1 {
                             sigma[ni] += sigma[v];
-                            predecessors[ni].push(v);
+                            if !group_set.contains(&v) {
+                                sigma_no_c[ni] += sigma_no_c[v];
+                            }
                         }
                     }
                 }
@@ -24610,40 +24617,17 @@ pub fn group_betweenness_centrality(graph: &Graph, group: &[&str]) -> f64 {
         }
 
         for t in 0..n {
-            if t == s || dist[t] == usize::MAX {
+            if t == s || dist[t] == usize::MAX || group_set.contains(&t) {
                 continue;
             }
-            total_paths += sigma[t];
-            // Check if any shortest path s→t goes through a group node
-            // A path goes through group if any node on some shortest path is in group
-            // We check by BFS backward from t through predecessors
-            let mut on_path = vec![false; n];
-            on_path[t] = true;
-            let mut bstack = vec![t];
-            let mut touches_group = false;
-            while let Some(v) = bstack.pop() {
-                if group_set.contains(&v) && v != s && v != t {
-                    touches_group = true;
-                    break;
-                }
-                for &p in &predecessors[v] {
-                    if !on_path[p] {
-                        on_path[p] = true;
-                        bstack.push(p);
-                    }
-                }
-            }
-            if touches_group {
-                group_paths += sigma[t];
-            }
+            let paths_through_c = sigma[t].saturating_sub(sigma_no_c[t]);
+            gbc_sum += paths_through_c as f64 / sigma[t] as f64;
         }
     }
 
-    if total_paths == 0 {
-        0.0
-    } else {
-        group_paths as f64 / total_paths as f64
-    }
+    let non_group = n - c;
+    let scale = 1.0 / ((non_group * (non_group - 1)) as f64);
+    gbc_sum * scale
 }
 
 // ---------------------------------------------------------------------------
@@ -26297,53 +26281,34 @@ pub fn second_order_centrality(graph: &Graph) -> HashMap<String, f64> {
     }
     let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
 
-    // Build transition matrix P (row-stochastic)
+    let mut d_max = 0;
+    for &node in &nodes {
+        d_max = d_max.max(graph.neighbor_count(node));
+    }
+    let d_max_f = d_max as f64;
+
+    // Build transition matrix P (row-stochastic) for Metropolis-Hastings random walk
     let mut p = vec![0.0_f64; n * n];
     for i in 0..n {
-        if let Some(nbrs) = graph.neighbors_iter(nodes[i]) {
-            let nbr_list: Vec<usize> = nbrs.map(|nb| idx[nb]).collect();
-            if !nbr_list.is_empty() {
-                let deg = nbr_list.len() as f64;
-                for &j in &nbr_list {
-                    p[i * n + j] = 1.0 / deg;
-                }
+        let u = nodes[i];
+        let deg = graph.neighbor_count(u) as f64;
+        if let Some(nbrs) = graph.neighbors_iter(u) {
+            for nb in nbrs {
+                let j = idx[nb];
+                p[i * n + j] += 1.0 / d_max_f;
             }
         }
-    }
-
-    // Stationary distribution: eigenvector of P^T with eigenvalue 1
-    // Use power iteration to find it
-    let mut pi = vec![1.0 / n as f64; n];
-    for _ in 0..1000 {
-        let mut new_pi = vec![0.0_f64; n];
-        for j in 0..n {
-            for i in 0..n {
-                new_pi[j] += pi[i] * p[i * n + j];
-            }
-        }
-        let sum: f64 = new_pi.iter().sum();
-        if sum > 0.0 {
-            for v in &mut new_pi {
-                *v /= sum;
-            }
-        }
-        let diff: f64 = pi
-            .iter()
-            .zip(new_pi.iter())
-            .map(|(a, b)| (a - b).abs())
-            .sum();
-        pi = new_pi;
-        if diff < 1e-12 {
-            break;
-        }
+        // Self-loop to balance
+        p[i * n + i] += (d_max_f - deg) / d_max_f;
     }
 
     // Fundamental matrix Z = (I - P + 1*pi^T)^{-1}
-    // We use Gauss-Jordan elimination since we don't have a linear algebra library
+    // For balanced random walk, stationary distribution is uniform pi = 1/n
     let mut mat = vec![0.0_f64; n * n]; // I - P + ones*pi
+    let pi_val = 1.0 / n as f64;
     for i in 0..n {
         for j in 0..n {
-            mat[i * n + j] = -p[i * n + j] + pi[j];
+            mat[i * n + j] = -p[i * n + j] + pi_val;
             if i == j {
                 mat[i * n + j] += 1.0;
             }
@@ -26405,29 +26370,15 @@ pub fn second_order_centrality(graph: &Graph) -> HashMap<String, f64> {
         }
     }
 
-    // Compute mean first passage times and second-order centrality
+    // Compute second-order centrality
+    // SOC_i = sqrt(2 * n^2 * Z_{ii} - n*(n+1))
     let mut soc = HashMap::new();
+    let n_f = n as f64;
     for (i, &node) in nodes.iter().enumerate() {
-        if pi[i] < 1e-15 {
-            soc.insert(node.to_owned(), 0.0);
-            continue;
-        }
-        let mut mfpts = Vec::new();
-        for j in 0..n {
-            if j == i || pi[j] < 1e-15 {
-                continue;
-            }
-            let mfpt = (z[j * n + j] - z[i * n + j]) / pi[j];
-            mfpts.push(mfpt);
-        }
-        if mfpts.is_empty() {
-            soc.insert(node.to_owned(), 0.0);
-        } else {
-            let mean: f64 = mfpts.iter().sum::<f64>() / mfpts.len() as f64;
-            let variance: f64 =
-                mfpts.iter().map(|&x| (x - mean) * (x - mean)).sum::<f64>() / mfpts.len() as f64;
-            soc.insert(node.to_owned(), variance.sqrt());
-        }
+        let z_ii = z[i * n + i];
+        let val = 2.0 * n_f * n_f * z_ii - n_f * (n_f + 1.0);
+        let val = if val < 0.0 { 0.0 } else { val };
+        soc.insert(node.to_owned(), val.sqrt());
     }
     soc
 }
