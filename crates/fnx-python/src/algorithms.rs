@@ -3077,6 +3077,35 @@ pub fn core_number(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>>
     Ok(dict.unbind())
 }
 
+/// Reconstruct labeled tree from Prüfer sequence.
+#[pyfunction]
+pub fn from_prufer_sequence_rust(py: Python<'_>, sequence: Vec<usize>) -> PyResult<PyObject> {
+    let result = py.allow_threads(|| fnx_algorithms::from_prufer_sequence(&sequence));
+    let edges = PyList::new(
+        py,
+        result.edges.iter().map(|(u, v)| {
+            PyTuple::new(
+                py,
+                [
+                    u.into_pyobject(py).unwrap().into_any(),
+                    v.into_pyobject(py).unwrap().into_any(),
+                ],
+            )
+            .unwrap()
+            .into_any()
+        }),
+    )?;
+    Ok(edges.into_any().unbind())
+}
+
+/// Extract Prüfer sequence from labeled tree.
+#[pyfunction]
+pub fn to_prufer_sequence_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<usize>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    Ok(py.allow_threads(|| fnx_algorithms::to_prufer_sequence(inner)))
+}
+
 /// Onion layer decomposition (generalized k-core peeling).
 #[pyfunction]
 pub fn onion_layers_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
@@ -4074,8 +4103,24 @@ pub fn bfs_layers(
             .collect());
     }
 
-    // If it's iterable, try extracting nodes from it
-    // For now we support single source only (most common usage)
+    // Try as iterable of source nodes
+    if let Ok(iter) = sources.try_iter() {
+        let source_keys: Vec<String> = iter
+            .map(|item| node_key_to_string(py, &item?))
+            .collect::<PyResult<Vec<_>>>()?;
+        let source_refs: Vec<&str> = source_keys.iter().map(String::as_str).collect();
+        let layers = if gr.is_directed() {
+            fnx_algorithms::bfs_layers_directed_multi(gr.digraph().unwrap(), &source_refs)
+        } else {
+            let inner = gr.undirected();
+            py.allow_threads(|| fnx_algorithms::bfs_layers_multi(inner, &source_refs))
+        };
+        return Ok(layers
+            .into_iter()
+            .map(|layer| layer.iter().map(|n| gr.py_node_key(py, n)).collect())
+            .collect());
+    }
+
     Err(NodeNotFound::new_err(format!(
         "The node {} is not in the graph.",
         sources.repr()?
@@ -7162,21 +7207,33 @@ fn is_simple_path(
 // Matching validators — is_matching, is_maximal_matching, is_perfect_matching
 // ===========================================================================
 
+/// Extract edge pairs from any iterable of 2-tuples (list, set, etc.).
+fn extract_matching_edges(
+    py: Python<'_>,
+    matching: &Bound<'_, PyAny>,
+) -> PyResult<Vec<(String, String)>> {
+    let mut edges = Vec::new();
+    for item in matching.try_iter()? {
+        let pair = item?;
+        let u = pair.get_item(0)?;
+        let v = pair.get_item(1)?;
+        edges.push((node_key_to_string(py, &u)?, node_key_to_string(py, &v)?));
+    }
+    Ok(edges)
+}
+
 /// Return True if `matching` is a valid matching of `G`.
 #[pyfunction]
 #[pyo3(signature = (g, matching))]
 fn is_matching(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
-    matching: Vec<(Bound<'_, PyAny>, Bound<'_, PyAny>)>,
+    matching: &Bound<'_, PyAny>,
 ) -> PyResult<bool> {
     let gr = extract_graph(g)?;
     require_undirected(&gr, "is_matching")?;
     let inner = gr.undirected();
-    let edges: Vec<(String, String)> = matching
-        .iter()
-        .map(|(u, v)| Ok((node_key_to_string(py, u)?, node_key_to_string(py, v)?)))
-        .collect::<PyResult<_>>()?;
+    let edges = extract_matching_edges(py, matching)?;
     Ok(fnx_algorithms::is_matching(inner, &edges))
 }
 
@@ -7186,15 +7243,12 @@ fn is_matching(
 fn is_maximal_matching(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
-    matching: Vec<(Bound<'_, PyAny>, Bound<'_, PyAny>)>,
+    matching: &Bound<'_, PyAny>,
 ) -> PyResult<bool> {
     let gr = extract_graph(g)?;
     require_undirected(&gr, "is_maximal_matching")?;
     let inner = gr.undirected();
-    let edges: Vec<(String, String)> = matching
-        .iter()
-        .map(|(u, v)| Ok((node_key_to_string(py, u)?, node_key_to_string(py, v)?)))
-        .collect::<PyResult<_>>()?;
+    let edges = extract_matching_edges(py, matching)?;
     Ok(fnx_algorithms::is_maximal_matching(inner, &edges))
 }
 
@@ -7204,15 +7258,12 @@ fn is_maximal_matching(
 fn is_perfect_matching(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
-    matching: Vec<(Bound<'_, PyAny>, Bound<'_, PyAny>)>,
+    matching: &Bound<'_, PyAny>,
 ) -> PyResult<bool> {
     let gr = extract_graph(g)?;
     require_undirected(&gr, "is_perfect_matching")?;
     let inner = gr.undirected();
-    let edges: Vec<(String, String)> = matching
-        .iter()
-        .map(|(u, v)| Ok((node_key_to_string(py, u)?, node_key_to_string(py, v)?)))
-        .collect::<PyResult<_>>()?;
+    let edges = extract_matching_edges(py, matching)?;
     Ok(fnx_algorithms::is_perfect_matching(inner, &edges))
 }
 
@@ -10569,6 +10620,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(greedy_color, m)?)?;
     m.add_function(wrap_pyfunction!(core_number, m)?)?;
     m.add_function(wrap_pyfunction!(onion_layers_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(from_prufer_sequence_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(to_prufer_sequence_rust, m)?)?;
     m.add_function(wrap_pyfunction!(k_truss_rust, m)?)?;
     m.add_function(wrap_pyfunction!(number_of_spanning_trees, m)?)?;
     m.add_function(wrap_pyfunction!(partition_spanning_tree, m)?)?;

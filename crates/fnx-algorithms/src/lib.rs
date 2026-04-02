@@ -732,6 +732,11 @@ pub struct KTrussResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PruferResult {
+    pub edges: Vec<(usize, usize)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FlowError {
     NodeNotFound(String),
 }
@@ -1794,7 +1799,25 @@ pub fn degree_centrality_directed(graph: &DiGraph) -> DegreeCentralityResult {
             },
         };
     }
-    let denominator = if n <= 1 { 1.0 } else { (n - 1) as f64 };
+    if n <= 1 {
+        return DegreeCentralityResult {
+            scores: nodes
+                .iter()
+                .map(|nd| CentralityScore {
+                    node: (*nd).to_owned(),
+                    score: 1.0,
+                })
+                .collect(),
+            witness: ComplexityWitness {
+                algorithm: "degree_centrality_directed".to_owned(),
+                complexity_claim: "O(|V| + |E|)".to_owned(),
+                nodes_touched: n,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+    let denominator = (n - 1) as f64;
     let mut edges_scanned = 0usize;
     let mut scores = Vec::with_capacity(n);
     for node in &nodes {
@@ -1836,7 +1859,27 @@ fn degree_centrality_generic<G: GraphView>(graph: &G) -> DegreeCentralityResult 
         };
     }
 
-    let denominator = if n <= 1 { 1.0 } else { (n - 1) as f64 };
+    // NetworkX returns centrality 1.0 for all nodes when n <= 1
+    if n <= 1 {
+        return DegreeCentralityResult {
+            scores: nodes
+                .iter()
+                .map(|nd| CentralityScore {
+                    node: (*nd).to_owned(),
+                    score: 1.0,
+                })
+                .collect(),
+            witness: ComplexityWitness {
+                algorithm: "degree_centrality".to_owned(),
+                complexity_claim: "O(|V| + |E|)".to_owned(),
+                nodes_touched: n,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    let denominator = (n - 1) as f64;
     let mut edges_scanned = 0usize;
     let mut scores = Vec::with_capacity(n);
     for node in nodes {
@@ -7721,6 +7764,81 @@ pub fn k_truss(graph: &Graph, k: usize) -> KTrussResult {
     }
 }
 
+/// Reconstruct a labeled tree from a Prüfer sequence.
+///
+/// Given a sequence of `n - 2` integers in `[0, n)`, returns the `n - 1`
+/// edges of the corresponding labeled tree on `n` nodes.
+///
+/// Matches `networkx.from_prufer_sequence`.
+#[must_use]
+pub fn from_prufer_sequence(sequence: &[usize]) -> PruferResult {
+    let n = sequence.len() + 2;
+    let mut degree = vec![1_usize; n];
+    for &i in sequence {
+        degree[i] += 1;
+    }
+    let mut edges: Vec<(usize, usize)> = Vec::with_capacity(n - 1);
+    for &i in sequence {
+        for j in 0..n {
+            if degree[j] == 1 {
+                edges.push((i.min(j), i.max(j)));
+                degree[i] -= 1;
+                degree[j] -= 1;
+                break;
+            }
+        }
+    }
+    let last: Vec<usize> = (0..n).filter(|&j| degree[j] == 1).collect();
+    if last.len() == 2 {
+        edges.push((last[0].min(last[1]), last[0].max(last[1])));
+    }
+    PruferResult { edges }
+}
+
+/// Extract the Prüfer sequence from a labeled tree.
+///
+/// The tree must have integer node labels `0..n`. Repeatedly removes the
+/// smallest leaf, appending its neighbor to the sequence, until only two
+/// nodes remain.
+///
+/// Matches `networkx.to_prufer_sequence`.
+#[must_use]
+pub fn to_prufer_sequence(graph: &Graph) -> Vec<usize> {
+    let n = graph.node_count();
+    if n <= 2 {
+        return Vec::new();
+    }
+
+    // Build mutable adjacency for integer-labeled tree
+    let mut adj: Vec<HashSet<usize>> = vec![HashSet::new(); n];
+    for edge in graph.edges_ordered() {
+        if let (Ok(u), Ok(v)) = (edge.left.parse::<usize>(), edge.right.parse::<usize>()) {
+            adj[u].insert(v);
+            adj[v].insert(u);
+        }
+    }
+
+    let mut seq: Vec<usize> = Vec::with_capacity(n - 2);
+    let mut alive: Vec<bool> = vec![true; n];
+
+    for _ in 0..(n - 2) {
+        // Find smallest alive leaf
+        let leaf = (0..n)
+            .find(|&v| alive[v] && adj[v].iter().filter(|&&u| alive[u]).count() == 1)
+            .expect("tree invariant: leaf must exist");
+
+        let neighbor = *adj[leaf]
+            .iter()
+            .find(|&&u| alive[u])
+            .expect("leaf has one neighbor");
+
+        seq.push(neighbor);
+        alive[leaf] = false;
+    }
+
+    seq
+}
+
 /// Computes the average neighbor degree for each node.
 ///
 /// For node v with neighbors N(v), the average neighbor degree is:
@@ -11177,6 +11295,70 @@ pub fn bfs_layers(graph: &Graph, source: &str) -> Vec<Vec<String>> {
     layers
 }
 
+/// BFS layers from multiple sources on an undirected graph.
+/// Layer 0 = all sources, Layer 1 = neighbors of any source not already visited, etc.
+/// Matches `networkx.bfs_layers` with an iterable of sources.
+#[must_use]
+pub fn bfs_layers_multi(graph: &Graph, sources: &[&str]) -> Vec<Vec<String>> {
+    let mut layers: Vec<Vec<String>> = Vec::new();
+    let mut visited: HashSet<&str> = HashSet::new();
+
+    let mut current_layer: Vec<&str> = Vec::new();
+    for &s in sources {
+        if graph.has_node(s) && visited.insert(s) {
+            current_layer.push(s);
+        }
+    }
+
+    while !current_layer.is_empty() {
+        layers.push(current_layer.iter().map(|&s| s.to_owned()).collect());
+        let mut next_layer: Vec<&str> = Vec::new();
+        for &node in &current_layer {
+            if let Some(neighbors) = graph.neighbors(node) {
+                for neighbor in neighbors {
+                    if visited.insert(neighbor) {
+                        next_layer.push(neighbor);
+                    }
+                }
+            }
+        }
+        current_layer = next_layer;
+    }
+
+    layers
+}
+
+/// BFS layers from multiple sources on a directed graph.
+#[must_use]
+pub fn bfs_layers_directed_multi(digraph: &DiGraph, sources: &[&str]) -> Vec<Vec<String>> {
+    let mut layers: Vec<Vec<String>> = Vec::new();
+    let mut visited: HashSet<&str> = HashSet::new();
+
+    let mut current_layer: Vec<&str> = Vec::new();
+    for &s in sources {
+        if digraph.has_node(s) && visited.insert(s) {
+            current_layer.push(s);
+        }
+    }
+
+    while !current_layer.is_empty() {
+        layers.push(current_layer.iter().map(|&s| s.to_owned()).collect());
+        let mut next_layer: Vec<&str> = Vec::new();
+        for &node in &current_layer {
+            if let Some(succs) = digraph.successors(node) {
+                for succ in succs {
+                    if visited.insert(succ) {
+                        next_layer.push(succ);
+                    }
+                }
+            }
+        }
+        current_layer = next_layer;
+    }
+
+    layers
+}
+
 /// BFS layers from `source` on a directed graph.
 #[must_use]
 pub fn bfs_layers_directed(digraph: &DiGraph, source: &str) -> Vec<Vec<String>> {
@@ -13378,31 +13560,41 @@ pub fn degree_histogram(graph: &Graph) -> Vec<usize> {
 
 /// 2-approximation for minimum weighted vertex cover.
 ///
-/// For each edge (u,v), if neither endpoint is already in the cover,
-/// add both. This guarantees a cover whose total weight is at most
-/// twice the optimal.
+/// Local-ratio algorithm for approximate minimum weighted vertex cover.
 ///
-/// NetworkX equivalent: `networkx.algorithms.approximation.vertex_cover.min_weighted_vertex_cover`
+/// For each uncovered edge (u,v), add the cheaper endpoint to the cover
+/// and subtract its cost from the other endpoint's remaining cost.
+/// Guarantees total weight at most twice the optimal.
+///
+/// Matches `networkx.algorithms.approximation.vertex_cover.min_weighted_vertex_cover`.
 pub fn min_weighted_vertex_cover(graph: &Graph, weight_attr: &str) -> HashMap<String, f64> {
     let nodes = graph.nodes_ordered();
     let mut cover: HashMap<String, f64> = HashMap::new();
+
+    // Mutable cost tracking per node
+    let mut cost: HashMap<&str, f64> = HashMap::new();
+    for &node in &nodes {
+        let w = graph
+            .node_attrs(node)
+            .and_then(|a| a.get(weight_attr))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(1.0);
+        cost.insert(node, w);
+    }
 
     for &node in &nodes {
         if let Some(nbrs) = graph.neighbors(node) {
             for &nbr in &nbrs {
                 if node < nbr && !cover.contains_key(node) && !cover.contains_key(nbr) {
-                    let w_u = graph
-                        .node_attrs(node)
-                        .and_then(|a| a.get(weight_attr))
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(1.0);
-                    let w_v = graph
-                        .node_attrs(nbr)
-                        .and_then(|a| a.get(weight_attr))
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or(1.0);
-                    cover.insert(node.to_string(), w_u);
-                    cover.insert(nbr.to_string(), w_v);
+                    let cu = cost[node];
+                    let cv = cost[nbr];
+                    if cu <= cv {
+                        cover.insert(node.to_owned(), cu);
+                        cost.insert(nbr, cv - cu);
+                    } else {
+                        cover.insert(nbr.to_owned(), cv);
+                        cost.insert(node, cu - cv);
+                    }
                 }
             }
         }
@@ -29999,14 +30191,14 @@ mod tests {
     }
 
     #[test]
-    fn degree_centrality_singleton_is_zero() {
+    fn degree_centrality_singleton_is_one() {
         let mut graph = Graph::strict();
         let _ = graph.add_node("solo");
         let result = degree_centrality(&graph);
         assert_eq!(result.scores.len(), 1);
         assert_eq!(result.scores[0].node, "solo");
-        // NetworkX returns 0.0 for isolated singleton (degree=0, denominator=1)
-        assert!((result.scores[0].score - 0.0).abs() <= TEST_TOLERANCE);
+        // NetworkX returns 1.0 for all nodes when n <= 1
+        assert!((result.scores[0].score - 1.0).abs() <= TEST_TOLERANCE);
     }
 
     #[test]
@@ -34483,10 +34675,10 @@ mod tests {
         let mut g = Graph::strict();
         let _ = g.add_edge("x", "y");
         let cover = min_weighted_vertex_cover(&g, "weight");
-        // Both endpoints should be added (2-approx)
-        assert_eq!(cover.len(), 2);
-        assert!(cover.contains_key("x"));
-        assert!(cover.contains_key("y"));
+        // Local-ratio adds only the cheaper endpoint (equal weight → lexicographically first)
+        assert_eq!(cover.len(), 1);
+        // The edge must be covered
+        assert!(cover.contains_key("x") || cover.contains_key("y"));
     }
 
     #[test]

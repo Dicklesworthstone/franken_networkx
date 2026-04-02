@@ -255,6 +255,23 @@ class TestMultiDiGraphAlgorithms:
         cond = fnx.condensation(mdg_cycle)
         assert cond is not None
 
+    def test_condensation_honors_supplied_scc(self):
+        D = fnx.MultiDiGraph()
+        D.add_edge("a", "b")
+        D.add_edge("b", "a")
+        D.add_edge("b", "c")
+        D.add_edge("c", "d")
+        D.add_edge("d", "c")
+
+        supplied_scc = [{"c", "d"}, {"a", "b"}]
+        cond = fnx.condensation(D, supplied_scc)
+
+        assert cond.number_of_nodes() == 2
+        assert set(cond.nodes[0]["members"]) == {"c", "d"}
+        assert set(cond.nodes[1]["members"]) == {"a", "b"}
+        assert cond.graph["mapping"] == {"c": 0, "d": 0, "a": 1, "b": 1}
+        assert list(cond.edges()) == [(1, 0)]
+
     def test_ancestors_descendants(self, mdg_dag):
         anc = fnx.ancestors(mdg_dag, 3)
         assert 0 in anc

@@ -20,7 +20,7 @@ struct Config {
     seed: u64,
 }
 
-fn parse_config() -> Config {
+fn parse_config() -> Result<Config, String> {
     let mut config = Config {
         topology: Topology::Grid,
         width: 80,
@@ -34,45 +34,44 @@ fn parse_config() -> Config {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--topology" => {
-                let value = args.next().expect("missing value for --topology");
+                let value = args.next().ok_or("missing value for --topology")?;
                 config.topology = match value.as_str() {
                     "grid" => Topology::Grid,
                     "line" => Topology::Line,
                     "star" => Topology::Star,
                     "complete" => Topology::Complete,
                     "erdos_renyi" => Topology::ErdosRenyi,
-                    _ => panic!("unsupported --topology value: {value}"),
+                    _ => return Err(format!("unsupported --topology value: {value}")),
                 };
             }
             "--width" => {
-                let value = args.next().expect("missing value for --width");
-                config.width = value.parse::<usize>().expect("invalid --width");
+                let value = args.next().ok_or("missing value for --width")?;
+                config.width = value.parse::<usize>().map_err(|_| "invalid --width")?;
             }
             "--height" => {
-                let value = args.next().expect("missing value for --height");
-                config.height = value.parse::<usize>().expect("invalid --height");
+                let value = args.next().ok_or("missing value for --height")?;
+                config.height = value.parse::<usize>().map_err(|_| "invalid --height")?;
             }
             "--nodes" => {
-                let value = args.next().expect("missing value for --nodes");
-                config.nodes = value.parse::<usize>().expect("invalid --nodes");
+                let value = args.next().ok_or("missing value for --nodes")?;
+                config.nodes = value.parse::<usize>().map_err(|_| "invalid --nodes")?;
             }
             "--edge-prob" => {
-                let value = args.next().expect("missing value for --edge-prob");
-                config.edge_prob = value.parse::<f64>().expect("invalid --edge-prob");
+                let value = args.next().ok_or("missing value for --edge-prob")?;
+                config.edge_prob = value.parse::<f64>().map_err(|_| "invalid --edge-prob")?;
             }
             "--seed" => {
-                let value = args.next().expect("missing value for --seed");
-                config.seed = value.parse::<u64>().expect("invalid --seed");
+                let value = args.next().ok_or("missing value for --seed")?;
+                config.seed = value.parse::<u64>().map_err(|_| "invalid --seed")?;
             }
-            _ => panic!("unsupported argument: {arg}"),
+            _ => return Err(format!("unsupported argument: {arg}")),
         }
     }
 
-    assert!(
-        (0.0..=1.0).contains(&config.edge_prob),
-        "--edge-prob must be in [0.0, 1.0]"
-    );
-    config
+    if !(0.0..=1.0).contains(&config.edge_prob) {
+        return Err("--edge-prob must be in [0.0, 1.0]".to_string());
+    }
+    Ok(config)
 }
 
 fn lcg_next(state: &mut u64) -> u64 {
@@ -87,7 +86,7 @@ fn random_unit_f64(state: &mut u64) -> f64 {
     sample as f64 / ((1u64 << 53) as f64)
 }
 
-fn build_graph(config: &Config) -> (Graph, String, String, &'static str) {
+fn build_graph(config: &Config) -> Result<(Graph, String, String, &'static str), String> {
     let mut graph = Graph::strict();
 
     match config.topology {
@@ -101,41 +100,41 @@ fn build_graph(config: &Config) -> (Graph, String, String, &'static str) {
                         let right = format!("{}:{y}", x + 1);
                         graph
                             .add_edge(node.clone(), right)
-                            .expect("grid edge add should succeed");
+                            .map_err(|_| "grid edge add should succeed")?;
                     }
                     if y + 1 < height {
                         let down = format!("{x}:{}", y + 1);
                         graph
                             .add_edge(node, down)
-                            .expect("grid edge add should succeed");
+                            .map_err(|_| "grid edge add should succeed")?;
                     }
                 }
             }
             let source = "0:0".to_string();
             let target = format!("{}:{}", width - 1, height - 1);
-            (graph, source, target, "grid")
+            Ok((graph, source, target, "grid"))
         }
         Topology::Line => {
             let nodes = config.nodes.max(2);
             for idx in 0..nodes - 1 {
                 graph
                     .add_edge(idx.to_string(), (idx + 1).to_string())
-                    .expect("line edge add should succeed");
+                    .map_err(|_| "line edge add should succeed")?;
             }
             let source = "0".to_string();
             let target = (nodes - 1).to_string();
-            (graph, source, target, "line")
+            Ok((graph, source, target, "line"))
         }
         Topology::Star => {
             let nodes = config.nodes.max(2);
             for idx in 1..nodes {
                 graph
                     .add_edge("0".to_string(), idx.to_string())
-                    .expect("star edge add should succeed");
+                    .map_err(|_| "star edge add should succeed")?;
             }
             let source = "1".to_string();
             let target = (nodes - 1).to_string();
-            (graph, source, target, "star")
+            Ok((graph, source, target, "star"))
         }
         Topology::Complete => {
             let nodes = config.nodes.max(2);
@@ -143,12 +142,12 @@ fn build_graph(config: &Config) -> (Graph, String, String, &'static str) {
                 for right in left + 1..nodes {
                     graph
                         .add_edge(left.to_string(), right.to_string())
-                        .expect("complete edge add should succeed");
+                        .map_err(|_| "complete edge add should succeed")?;
                 }
             }
             let source = "0".to_string();
             let target = (nodes - 1).to_string();
-            (graph, source, target, "complete")
+            Ok((graph, source, target, "complete"))
         }
         Topology::ErdosRenyi => {
             let nodes = config.nodes.max(2);
@@ -157,27 +156,27 @@ fn build_graph(config: &Config) -> (Graph, String, String, &'static str) {
             for idx in 0..nodes - 1 {
                 graph
                     .add_edge(idx.to_string(), (idx + 1).to_string())
-                    .expect("erdos_renyi backbone edge add should succeed");
+                    .map_err(|_| "erdos_renyi backbone edge add should succeed")?;
             }
             for left in 0..nodes {
                 for right in left + 1..nodes {
                     if random_unit_f64(&mut state) < config.edge_prob {
                         graph
                             .add_edge(left.to_string(), right.to_string())
-                            .expect("erdos_renyi edge add should succeed");
+                            .map_err(|_| "erdos_renyi edge add should succeed")?;
                     }
                 }
             }
             let source = "0".to_string();
             let target = (nodes - 1).to_string();
-            (graph, source, target, "erdos_renyi")
+            Ok((graph, source, target, "erdos_renyi"))
         }
     }
 }
 
-fn main() {
-    let config = parse_config();
-    let (graph, source, target, topology_label) = build_graph(&config);
+fn main() -> Result<(), String> {
+    let config = parse_config()?;
+    let (graph, source, target, topology_label) = build_graph(&config)?;
     let result = shortest_path_unweighted(&graph, &source, &target);
     println!(
         "topology={topology_label} path_len={} nodes_touched={} edges_scanned={}",
@@ -185,4 +184,5 @@ fn main() {
         result.witness.nodes_touched,
         result.witness.edges_scanned
     );
+    Ok(())
 }

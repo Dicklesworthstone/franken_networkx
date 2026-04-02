@@ -196,8 +196,26 @@ from franken_networkx._fnx import (
     has_path,
     multi_source_dijkstra,
     shortest_path,
-    shortest_path_length,
+    shortest_path_length as _shortest_path_length_raw,
 )
+
+
+def shortest_path_length(G, source=None, target=None, weight=None, method='dijkstra'):
+    """Return shortest path length between source and target.
+
+    If *source* and *target* are both None, return an iterator over
+    ``(node, dict)`` pairs for all nodes.
+    If only *source* is given, return a dict mapping target to length.
+    If both are given, return a single number.
+    Matches ``networkx.shortest_path_length``.
+    """
+    if source is not None and target is not None:
+        return _shortest_path_length_raw(G, source, target, weight=weight)
+    if source is not None:
+        return dict(single_source_shortest_path_length(G, source))
+    if target is not None:
+        return dict(single_target_shortest_path_length(G, target))
+    return dict(all_pairs_shortest_path_length(G))
 
 # Algorithm functions — connectivity
 from franken_networkx._fnx import (
@@ -411,6 +429,36 @@ def condensation(G, scc=None):
     of original nodes in that SCC) and C.graph['mapping'] maps original
     nodes to SCC indices. This matches the NetworkX API.
     """
+    if scc is not None:
+        cond_dg = DiGraph()
+        mapping = {}
+        members = {}
+        components = [set(component) for component in scc]
+
+        for idx, component in enumerate(components):
+            members[idx] = component
+            for node in component:
+                mapping[node] = idx
+
+        missing = set(G.nodes()) - set(mapping)
+        if missing:
+            raise NetworkXError(
+                f"condensation scc is missing graph nodes: {sorted(missing)!r}"
+            )
+
+        cond_dg.add_nodes_from(range(len(components)))
+        for idx, member_set in members.items():
+            cond_dg.nodes[idx]["members"] = member_set
+
+        for u, v in G.edges():
+            cu = mapping[u]
+            cv = mapping[v]
+            if cu != cv:
+                cond_dg.add_edge(cu, cv)
+
+        cond_dg.graph["mapping"] = mapping
+        return cond_dg
+
     cond_dg, mapping = _condensation_raw(G)
     # Build members: reverse the mapping to get {scc_idx: set of nodes}
     members = {}
@@ -6238,38 +6286,19 @@ def to_pandas_adjacency(
 
 def from_prufer_sequence(sequence):
     """Reconstruct labeled tree from Prüfer sequence."""
+    edges = _fnx.from_prufer_sequence_rust(list(sequence))
     n = len(sequence) + 2
-    degree = [1] * n
-    for i in sequence:
-        degree[i] += 1
     G = Graph()
     for i in range(n):
         G.add_node(i)
-    for i in sequence:
-        for j in range(n):
-            if degree[j] == 1:
-                G.add_edge(i, j)
-                degree[i] -= 1
-                degree[j] -= 1
-                break
-    last = [j for j in range(n) if degree[j] == 1]
-    if len(last) == 2:
-        G.add_edge(last[0], last[1])
+    for u, v in edges:
+        G.add_edge(u, v)
     return G
 
 
 def to_prufer_sequence(T):
     """Extract Prüfer sequence from labeled tree."""
-    H = T.copy()
-    seq = []
-    n = H.number_of_nodes()
-    for _ in range(n - 2):
-        leaves = sorted(n for n in H.nodes() if H.degree[n] == 1)
-        leaf = leaves[0]
-        neighbor = list(H.neighbors(leaf))[0]
-        seq.append(neighbor)
-        H.remove_node(leaf)
-    return seq
+    return _fnx.to_prufer_sequence_rust(T)
 
 
 def from_nested_tuple(sequence, sensible_relabeling=False):
