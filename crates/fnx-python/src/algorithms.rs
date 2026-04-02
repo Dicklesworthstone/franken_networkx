@@ -3077,6 +3077,40 @@ pub fn core_number(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>>
     Ok(dict.unbind())
 }
 
+/// Onion layer decomposition (generalized k-core peeling).
+#[pyfunction]
+pub fn onion_layers_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::onion_layers(inner));
+    let dict = PyDict::new(py);
+    for nl in &result.layers {
+        dict.set_item(gr.py_node_key(py, &nl.node), nl.layer)?;
+    }
+    Ok(dict.unbind())
+}
+
+/// Return the k-truss subgraph.
+#[pyfunction]
+pub fn k_truss_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::k_truss(inner, k));
+    let dict = PyDict::new(py);
+    let nodes = PyList::new(py, result.nodes.iter().map(|n| gr.py_node_key(py, n)))?;
+    let edges = PyList::new(
+        py,
+        result.edges.iter().map(|(u, v)| {
+            PyTuple::new(py, [gr.py_node_key(py, u), gr.py_node_key(py, v)])
+                .unwrap()
+                .into_any()
+        }),
+    )?;
+    dict.set_item("nodes", nodes)?;
+    dict.set_item("edges", edges)?;
+    Ok(dict.unbind())
+}
+
 /// Return a minimum spanning tree or forest on an undirected graph.
 ///
 /// Parameters
@@ -10534,6 +10568,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(bipartite_sets, m)?)?;
     m.add_function(wrap_pyfunction!(greedy_color, m)?)?;
     m.add_function(wrap_pyfunction!(core_number, m)?)?;
+    m.add_function(wrap_pyfunction!(onion_layers_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(k_truss_rust, m)?)?;
     m.add_function(wrap_pyfunction!(number_of_spanning_trees, m)?)?;
     m.add_function(wrap_pyfunction!(partition_spanning_tree, m)?)?;
     m.add_function(wrap_pyfunction!(random_spanning_tree, m)?)?;
@@ -10975,4 +11011,3 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     Ok(())
 }
-

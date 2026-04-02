@@ -369,11 +369,22 @@ from franken_networkx._fnx import (
     dfs_tree,
 )
 
-# Algorithm functions — reciprocity
-from franken_networkx._fnx import (
-    overall_reciprocity,
-    reciprocity,
-)
+# Algorithm functions — reciprocity (wrapped to match NetworkX API)
+from franken_networkx._fnx import overall_reciprocity
+from franken_networkx._fnx import reciprocity as _reciprocity_raw
+
+
+def reciprocity(G, nodes=None):
+    """Compute reciprocity for a directed graph.
+
+    If *nodes* is None, return the overall reciprocity of the graph (float).
+    If *nodes* is a single node, return the reciprocity for that node (float).
+    If *nodes* is an iterable of nodes, return a dict mapping each node to
+    its reciprocity.  Matches ``networkx.reciprocity``.
+    """
+    if nodes is None:
+        return overall_reciprocity(G)
+    return _reciprocity_raw(G, nodes)
 
 # Algorithm functions — Wiener index
 from franken_networkx._fnx import (
@@ -386,10 +397,31 @@ from franken_networkx._fnx import (
     maximum_spanning_tree,
 )
 
-# Algorithm functions — condensation
-from franken_networkx._fnx import (
-    condensation,
-)
+# Algorithm functions — condensation (wrapped to match NetworkX API)
+from franken_networkx._fnx import condensation as _condensation_raw
+
+
+def condensation(G, scc=None):
+    """Return the condensation of G.
+
+    The condensation of a directed graph contracts each strongly connected
+    component into a single node. The resulting graph is a DAG.
+
+    Returns a DiGraph C where each node has a 'members' attribute (the set
+    of original nodes in that SCC) and C.graph['mapping'] maps original
+    nodes to SCC indices. This matches the NetworkX API.
+    """
+    cond_dg, mapping = _condensation_raw(G)
+    # Build members: reverse the mapping to get {scc_idx: set of nodes}
+    members = {}
+    for node, scc_idx in mapping.items():
+        members.setdefault(scc_idx, set()).add(node)
+    # Set 'members' attribute on each node
+    for scc_idx, member_set in members.items():
+        cond_dg.nodes[scc_idx]['members'] = member_set
+    cond_dg.graph['mapping'] = mapping
+    return cond_dg
+
 
 # Algorithm functions — all-pairs shortest paths
 from franken_networkx._fnx import (
@@ -2096,7 +2128,7 @@ def _matrix_exp(A):
 # ---------------------------------------------------------------------------
 
 
-def degree_mixing_dict(G, normalized=False, weight=None):
+def degree_mixing_dict(G, x='out', y='in', weight=None, nodes=None, normalized=False):
     """Return a dictionary of degree-degree mixing counts.
 
     Returns
@@ -2105,22 +2137,18 @@ def degree_mixing_dict(G, normalized=False, weight=None):
         ``result[d1][d2]`` is the count of edges between nodes of
         degree d1 and degree d2.
     """
-    result = {}
-    for u, v in G.edges():
-        du = G.degree[u]
-        dv = G.degree[v]
-        result.setdefault(du, {})
-        result[du][dv] = result[du].get(dv, 0) + 1
-        if not G.is_directed():
-            result.setdefault(dv, {})
-            result[dv][du] = result[dv].get(du, 0) + 1
-    if normalized and result:
-        total = sum(sum(inner.values()) for inner in result.values())
-        if total > 0:
-            for d1 in result:
-                for d2 in result[d1]:
-                    result[d1][d2] /= total
-    return result
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+
+    return nx.degree_mixing_dict(
+        _to_nx(G),
+        x=x,
+        y=y,
+        weight=weight,
+        nodes=nodes,
+        normalized=normalized,
+    )
 
 
 def degree_mixing_matrix(G, normalized=True, weight=None):
@@ -6433,29 +6461,18 @@ def lexicographical_topological_sort(G, key=None):
 # Structural decomposition (br-3r3, br-6t7)
 def k_truss(G, k):
     """Return k-truss subgraph (all edges in >= k-2 triangles)."""
-    H = G.copy()
-    changed = True
-    while changed:
-        changed = False
-        to_rm = [(u,v) for u,v in H.edges() if len(set(H.neighbors(u)) & set(H.neighbors(v))) < k-2]
-        if to_rm:
-            changed = True
-            for u,v in to_rm:
-                if H.has_edge(u,v): H.remove_edge(u,v)
-    for n in [n for n in H.nodes() if H.degree[n] == 0]: H.remove_node(n)
+    result = _fnx.k_truss_rust(G, k)
+    H = Graph()
+    for n in result["nodes"]:
+        H.add_node(n)
+    for u, v in result["edges"]:
+        H.add_edge(u, v)
     return H
 
 
 def onion_layers(G):
     """Onion layer decomposition (generalized k-core peeling)."""
-    H = G.copy(); layers = {}; layer = 1
-    while H.number_of_nodes() > 0:
-        min_deg = min(H.degree[n] for n in H.nodes())
-        to_rm = [n for n in H.nodes() if H.degree[n] == min_deg]
-        for n in to_rm: layers[n] = layer
-        for n in to_rm: H.remove_node(n)
-        layer += 1
-    return layers
+    return _fnx.onion_layers_rust(G)
 
 
 def k_edge_components(G, k):

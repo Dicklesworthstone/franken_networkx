@@ -713,6 +713,25 @@ pub struct EulerianPathResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NodeOnionLayer {
+    pub node: String,
+    pub layer: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OnionLayersResult {
+    pub layers: Vec<NodeOnionLayer>,
+    pub witness: ComplexityWitness,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KTrussResult {
+    pub nodes: Vec<String>,
+    pub edges: Vec<(String, String)>,
+    pub witness: ComplexityWitness,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FlowError {
     NodeNotFound(String),
 }
@@ -7477,6 +7496,231 @@ pub fn core_number(graph: &Graph) -> CoreNumberResult {
     }
 }
 
+/// Onion layer decomposition (generalized k-core peeling).
+///
+/// Iteratively removes all nodes with minimum degree, assigning them to
+/// successive layers. Layer 1 contains nodes with the smallest degree in the
+/// original graph, layer 2 contains nodes with the smallest degree after
+/// removing layer 1, and so on.
+///
+/// Matches `networkx.algorithms.core.onion_layers`.
+#[must_use]
+pub fn onion_layers(graph: &Graph) -> OnionLayersResult {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+
+    if n == 0 {
+        return OnionLayersResult {
+            layers: Vec::new(),
+            witness: ComplexityWitness {
+                algorithm: "onion_layers".to_owned(),
+                complexity_claim: "O(|V| * |E|)".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    // Build adjacency in a mutable structure for peeling
+    let mut adj: HashMap<&str, HashSet<&str>> = HashMap::new();
+    let mut edges_scanned = 0_usize;
+    for &node in &nodes {
+        let nbrs: HashSet<&str> = graph
+            .neighbors_iter(node)
+            .map(|it| it.collect())
+            .unwrap_or_default();
+        adj.insert(node, nbrs);
+    }
+
+    let mut remaining: HashSet<&str> = nodes.iter().copied().collect();
+    let mut result: Vec<NodeOnionLayer> = Vec::with_capacity(n);
+    let mut layer = 1_usize;
+
+    while !remaining.is_empty() {
+        // Find minimum degree among remaining nodes
+        let min_deg = remaining
+            .iter()
+            .map(|&node| {
+                adj.get(node)
+                    .map(|s| s.iter().filter(|&&nb| remaining.contains(nb)).count())
+                    .unwrap_or(0)
+            })
+            .min()
+            .unwrap_or(0);
+
+        // Collect all nodes with minimum degree (sorted for determinism)
+        let mut to_remove: Vec<&str> = remaining
+            .iter()
+            .filter(|&&node| {
+                edges_scanned += 1;
+                let deg = adj
+                    .get(node)
+                    .map(|s| s.iter().filter(|&&nb| remaining.contains(nb)).count())
+                    .unwrap_or(0);
+                deg == min_deg
+            })
+            .copied()
+            .collect();
+        to_remove.sort_unstable();
+
+        for &node in &to_remove {
+            result.push(NodeOnionLayer {
+                node: node.to_owned(),
+                layer,
+            });
+            remaining.remove(node);
+        }
+
+        layer += 1;
+    }
+
+    result.sort_by(|a, b| a.node.cmp(&b.node));
+
+    OnionLayersResult {
+        layers: result,
+        witness: ComplexityWitness {
+            algorithm: "onion_layers".to_owned(),
+            complexity_claim: "O(|V| * |E|)".to_owned(),
+            nodes_touched: n,
+            edges_scanned,
+            queue_peak: 0,
+        },
+    }
+}
+
+/// Return the k-truss subgraph of a graph.
+///
+/// The k-truss is the maximal subgraph where every edge participates in at
+/// least `k - 2` triangles. Iteratively removes edges that do not meet this
+/// threshold, then removes isolated nodes.
+///
+/// Matches `networkx.algorithms.core.k_truss`.
+#[must_use]
+pub fn k_truss(graph: &Graph, k: usize) -> KTrussResult {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+
+    if n == 0 || k < 2 {
+        return KTrussResult {
+            nodes: if k < 2 {
+                nodes.iter().map(|s| (*s).to_owned()).collect()
+            } else {
+                Vec::new()
+            },
+            edges: if k < 2 {
+                graph
+                    .edges_ordered()
+                    .iter()
+                    .map(|e| (e.left.clone(), e.right.clone()))
+                    .collect()
+            } else {
+                Vec::new()
+            },
+            witness: ComplexityWitness {
+                algorithm: "k_truss".to_owned(),
+                complexity_claim: "O(|E|^{3/2})".to_owned(),
+                nodes_touched: n,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    let threshold = k.saturating_sub(2);
+
+    // Build mutable adjacency
+    let mut adj: HashMap<String, HashSet<String>> = HashMap::new();
+    for &node in &nodes {
+        adj.entry(node.to_owned()).or_default();
+        if let Some(nbrs) = graph.neighbors_iter(node) {
+            for nb in nbrs {
+                if nb != node {
+                    adj.entry(node.to_owned())
+                        .or_default()
+                        .insert(nb.to_owned());
+                }
+            }
+        }
+    }
+
+    let mut edges_scanned = 0_usize;
+    let mut changed = true;
+    while changed {
+        changed = false;
+        // Collect edges to remove
+        let mut to_remove: Vec<(String, String)> = Vec::new();
+        let current_nodes: Vec<String> = adj.keys().cloned().collect();
+        for u in &current_nodes {
+            let u_nbrs: Vec<String> = adj
+                .get(u)
+                .map(|s| s.iter().cloned().collect())
+                .unwrap_or_default();
+            for v in &u_nbrs {
+                if u < v {
+                    // Count common neighbors (triangles through this edge)
+                    edges_scanned += 1;
+                    let v_nbrs = adj.get(v).cloned().unwrap_or_default();
+                    let common = adj
+                        .get(u)
+                        .map(|s| s.iter().filter(|w| v_nbrs.contains(*w)).count())
+                        .unwrap_or(0);
+                    if common < threshold {
+                        to_remove.push((u.clone(), v.clone()));
+                    }
+                }
+            }
+        }
+
+        if !to_remove.is_empty() {
+            changed = true;
+            for (u, v) in &to_remove {
+                if let Some(s) = adj.get_mut(u) {
+                    s.remove(v);
+                }
+                if let Some(s) = adj.get_mut(v) {
+                    s.remove(u);
+                }
+            }
+        }
+    }
+
+    // Remove isolated nodes
+    let result_nodes: Vec<String> = {
+        let mut ns: Vec<String> = adj
+            .iter()
+            .filter(|(_, nbrs)| !nbrs.is_empty())
+            .map(|(n, _)| n.clone())
+            .collect();
+        ns.sort();
+        ns
+    };
+
+    let mut result_edges: Vec<(String, String)> = Vec::new();
+    for u in &result_nodes {
+        if let Some(nbrs) = adj.get(u) {
+            for v in nbrs {
+                if u.as_str() < v.as_str() {
+                    result_edges.push((u.clone(), v.clone()));
+                }
+            }
+        }
+    }
+    result_edges.sort();
+
+    KTrussResult {
+        nodes: result_nodes,
+        edges: result_edges,
+        witness: ComplexityWitness {
+            algorithm: "k_truss".to_owned(),
+            complexity_claim: "O(|E|^{3/2})".to_owned(),
+            nodes_touched: n,
+            edges_scanned,
+            queue_peak: 0,
+        },
+    }
+}
+
 /// Computes the average neighbor degree for each node.
 ///
 /// For node v with neighbors N(v), the average neighbor degree is:
@@ -7984,7 +8228,7 @@ fn aux_max_flow(
 /// Each original edge (u,v) → u_out→v_in and v_out→u_in with capacity 1.0.
 fn build_node_split_auxiliary(graph: &Graph) -> HashMap<String, HashMap<String, f64>> {
     let nodes = graph.nodes_ordered();
-    let cap = 1.0;
+    let edge_cap = f64::INFINITY;
     let mut residual: HashMap<String, HashMap<String, f64>> = HashMap::new();
 
     for node in &nodes {
@@ -8014,11 +8258,11 @@ fn build_node_split_auxiliary(graph: &Graph) -> HashMap<String, HashMap<String, 
                     continue;
                 }
                 let nb_in = format!("{nb}_in");
-                // u_out → v_in with capacity 1
+                // u_out → v_in with infinite capacity (forces min cut onto internal node edges)
                 residual
                     .entry(n_out.clone())
                     .or_default()
-                    .insert(nb_in.clone(), cap);
+                    .insert(nb_in.clone(), edge_cap);
                 // reverse for residual
                 residual
                     .entry(nb_in.clone())
@@ -8034,10 +8278,10 @@ fn build_node_split_auxiliary(graph: &Graph) -> HashMap<String, HashMap<String, 
 
 /// Build auxiliary directed graph for node connectivity on a directed graph.
 /// Each node v -> v_in, v_out with capacity 1.0.
-/// Each original arc (u, v) -> u_out -> v_in with capacity 1.0.
+/// Each original arc (u, v) -> u_out -> v_in with infinite capacity.
 fn build_node_split_auxiliary_directed(digraph: &DiGraph) -> HashMap<String, HashMap<String, f64>> {
     let nodes = digraph.nodes_ordered();
-    let cap = 1.0;
+    let edge_cap = f64::INFINITY;
     let mut residual: HashMap<String, HashMap<String, f64>> = HashMap::new();
 
     for node in &nodes {
@@ -8067,7 +8311,7 @@ fn build_node_split_auxiliary_directed(digraph: &DiGraph) -> HashMap<String, Has
                 residual
                     .entry(n_out.clone())
                     .or_default()
-                    .insert(succ_in.clone(), cap);
+                    .insert(succ_in.clone(), edge_cap);
                 residual
                     .entry(succ_in.clone())
                     .or_default()
@@ -8458,6 +8702,19 @@ pub fn minimum_node_cut(graph: &Graph, source: &str, sink: &str) -> MinimumNodeC
         };
     }
 
+    if graph.has_edge(source, sink) {
+        return MinimumNodeCutResult {
+            cut_nodes: vec![],
+            witness: ComplexityWitness {
+                algorithm: "minimum_node_cut".to_owned(),
+                complexity_claim: "O(|V| * |E|^2)".to_owned(),
+                nodes_touched: n,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
     let mut residual = build_node_split_auxiliary(graph);
     let s_out = format!("{source}_out");
     let t_in = format!("{sink}_in");
@@ -8465,35 +8722,37 @@ pub fn minimum_node_cut(graph: &Graph, source: &str, sink: &str) -> MinimumNodeC
     let mut stats = (0_usize, 0_usize, 0_usize);
     let _flow = aux_max_flow(&mut residual, &s_out, &t_in, &mut stats);
 
-    // BFS from s_out on residual to find reachable set
-    let mut visited = HashSet::<String>::new();
+    // Traverse backwards from the sink in the residual graph.
+    // The saturated internal edges crossing into the sink-reachable side
+    // correspond to the minimum node cut in the original graph.
+    let mut sink_reachable = HashSet::<String>::new();
     let mut queue = VecDeque::<String>::new();
-    queue.push_back(s_out.clone());
-    visited.insert(s_out);
+    queue.push_back(t_in.clone());
+    sink_reachable.insert(t_in.clone());
 
-    while let Some(current) = queue.pop_front() {
-        let neighbors: Vec<String> = residual
-            .get(&current)
-            .map(|caps| caps.keys().cloned().collect())
-            .unwrap_or_default();
-        for nb in neighbors {
-            if visited.contains(&nb) {
-                continue;
-            }
-            let cap = residual
-                .get(&current)
-                .and_then(|caps| caps.get(&nb))
-                .copied()
-                .unwrap_or(0.0);
+    let mut reverse_residual = HashMap::<String, Vec<String>>::new();
+    for (u, caps) in &residual {
+        for (v, &cap) in caps {
             if cap > 0.0 {
-                visited.insert(nb.clone());
-                queue.push_back(nb);
+                reverse_residual
+                    .entry(v.clone())
+                    .or_default()
+                    .push(u.clone());
             }
         }
     }
 
-    // Cut nodes are those where v_in is reachable but v_out is not (saturated internal edge)
-    // Exclude source and sink from the cut set
+    while let Some(current) = queue.pop_front() {
+        if let Some(preds) = reverse_residual.get(&current) {
+            for pred in preds {
+                if sink_reachable.insert(pred.clone()) {
+                    queue.push_back(pred.clone());
+                }
+            }
+        }
+    }
+
+    // Cut nodes are those whose internal edge crosses into the sink-reachable side.
     let mut cut_nodes: Vec<String> = Vec::new();
     for node in &nodes {
         if *node == source || *node == sink {
@@ -8501,7 +8760,7 @@ pub fn minimum_node_cut(graph: &Graph, source: &str, sink: &str) -> MinimumNodeC
         }
         let n_in = format!("{node}_in");
         let n_out = format!("{node}_out");
-        if visited.contains(&n_in) && !visited.contains(&n_out) {
+        if !sink_reachable.contains(&n_in) && sink_reachable.contains(&n_out) {
             cut_nodes.push((*node).to_owned());
         }
     }
@@ -8817,7 +9076,7 @@ pub fn global_minimum_node_cut(graph: &Graph) -> MinimumNodeCutResult {
         let result = minimum_node_cut(graph, v, w);
         total_edges_scanned += result.witness.edges_scanned;
         max_queue_peak = max_queue_peak.max(result.witness.queue_peak);
-        if result.cut_nodes.len() < min_cut.len() {
+        if should_replace_minimum_node_cut(&min_cut, &result.cut_nodes) {
             min_cut = result.cut_nodes;
         }
     }
@@ -8839,7 +9098,7 @@ pub fn global_minimum_node_cut(graph: &Graph) -> MinimumNodeCutResult {
             let result = minimum_node_cut(graph, x, y);
             total_edges_scanned += result.witness.edges_scanned;
             max_queue_peak = max_queue_peak.max(result.witness.queue_peak);
-            if result.cut_nodes.len() < min_cut.len() {
+            if should_replace_minimum_node_cut(&min_cut, &result.cut_nodes) {
                 min_cut = result.cut_nodes;
             }
         }
@@ -12676,35 +12935,76 @@ pub fn label_propagation_communities(graph: &Graph) -> Vec<Vec<String>> {
     // Each node starts with its own label
     let mut labels: Vec<usize> = (0..n).collect();
 
+    // Semi-synchronous label propagation using graph coloring.
+    // Partition nodes into independent sets (colors), then process each
+    // color class in turn.  Within a color class, all nodes can be updated
+    // simultaneously since they share no edges. This avoids oscillation
+    // and produces deterministic results matching NetworkX's
+    // label_propagation_communities.
+
+    // Step 1: Greedy coloring to partition into independent sets
+    let mut node_color: Vec<usize> = vec![0; n];
+    let mut max_color = 0_usize;
+    for (i, &node) in nodes.iter().enumerate() {
+        let mut used_colors: HashSet<usize> = HashSet::new();
+        if let Some(nbrs) = graph.neighbors(node) {
+            for nbr in &nbrs {
+                let j = node_to_idx[nbr];
+                if j < i {
+                    used_colors.insert(node_color[j]);
+                }
+            }
+        }
+        let mut c = 0;
+        while used_colors.contains(&c) {
+            c += 1;
+        }
+        node_color[i] = c;
+        max_color = max_color.max(c);
+    }
+
+    // Build color classes (sorted node indices per color)
+    let mut color_classes: Vec<Vec<usize>> = vec![Vec::new(); max_color + 1];
+    for (i, &c) in node_color.iter().enumerate() {
+        color_classes[c].push(i);
+    }
+
+    // Step 2: Iterate, processing one color class at a time
     let max_iterations = 100;
     for _ in 0..max_iterations {
         let mut changed = false;
 
-        for (i, &node) in nodes.iter().enumerate() {
-            let nbrs = match graph.neighbors(node) {
-                Some(ns) if !ns.is_empty() => ns,
-                _ => continue,
-            };
+        for color_class in &color_classes {
+            for &i in color_class {
+                let node = nodes[i];
+                let nbrs = match graph.neighbors(node) {
+                    Some(ns) if !ns.is_empty() => ns,
+                    _ => continue,
+                };
 
-            // Count label frequencies among neighbors
-            let mut freq: HashMap<usize, usize> = HashMap::new();
-            for nbr in &nbrs {
-                let j = node_to_idx[nbr];
-                *freq.entry(labels[j]).or_insert(0) += 1;
-            }
+                let mut freq: HashMap<usize, usize> = HashMap::new();
+                for nbr in &nbrs {
+                    let j = node_to_idx[nbr];
+                    *freq.entry(labels[j]).or_insert(0) += 1;
+                }
 
-            // Find max frequency, break ties by smallest label (deterministic)
-            let max_count = *freq.values().max().unwrap_or(&0);
-            let best_label = freq
-                .iter()
-                .filter(|kv| *kv.1 == max_count)
-                .map(|kv| *kv.0)
-                .min()
-                .unwrap_or(labels[i]);
+                let max_count = *freq.values().max().unwrap_or(&0);
+                let current_label = labels[i];
+                let current_has_max = freq.get(&current_label).is_some_and(|&c| c == max_count);
 
-            if best_label != labels[i] {
-                labels[i] = best_label;
-                changed = true;
+                if !current_has_max {
+                    let best_label = freq
+                        .iter()
+                        .filter(|kv| *kv.1 == max_count)
+                        .map(|kv| *kv.0)
+                        .min()
+                        .unwrap_or(current_label);
+
+                    if best_label != current_label {
+                        labels[i] = best_label;
+                        changed = true;
+                    }
+                }
             }
         }
 
@@ -33368,6 +33668,48 @@ mod tests {
 
         let result = super::global_minimum_node_cut_directed(&dg);
         assert_eq!(result.cut_nodes, vec!["0"]);
+    }
+
+    #[test]
+    fn minimum_node_cut_is_symmetric_for_leaf_source_regression() {
+        let mut g = Graph::strict();
+        for node in ["a", "b", "c", "d", "e"] {
+            g.add_node(node);
+        }
+        for (u, v) in [
+            ("a", "b"),
+            ("a", "c"),
+            ("b", "c"),
+            ("b", "d"),
+            ("c", "d"),
+            ("d", "e"),
+        ] {
+            g.add_edge(u, v).unwrap();
+        }
+
+        assert_eq!(super::minimum_node_cut(&g, "a", "e").cut_nodes, vec!["d"]);
+        assert_eq!(super::minimum_node_cut(&g, "e", "a").cut_nodes, vec!["d"]);
+    }
+
+    #[test]
+    fn global_minimum_node_cut_matches_node_connectivity_fixture_regression() {
+        let mut g = Graph::strict();
+        for node in ["a", "b", "c", "d", "e"] {
+            g.add_node(node);
+        }
+        for (u, v) in [
+            ("a", "b"),
+            ("a", "c"),
+            ("b", "c"),
+            ("b", "d"),
+            ("c", "d"),
+            ("d", "e"),
+        ] {
+            g.add_edge(u, v).unwrap();
+        }
+
+        assert_eq!(super::global_node_connectivity(&g).value, 1);
+        assert_eq!(super::global_minimum_node_cut(&g).cut_nodes, vec!["d"]);
     }
 
     // -----------------------------------------------------------------------
