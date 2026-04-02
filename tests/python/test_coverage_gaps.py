@@ -244,6 +244,17 @@ class TestTransitiveOperations:
         assert tc.has_edge(0, 2)  # transitively reachable
         assert tc.has_edge(0, 1)
 
+    def test_transitive_closure_default_is_non_reflexive_even_with_existing_self_loop(self):
+        D = fnx.DiGraph()
+        D.add_edge(1, 1)
+        D.add_edge(1, 2)
+
+        tc = fnx.transitive_closure(D)
+
+        assert tc.has_edge(1, 1)
+        assert tc.has_edge(1, 2)
+        assert not tc.has_edge(2, 2)
+
     def test_transitive_reduction(self):
         D = fnx.DiGraph()
         D.add_edge(0, 1)

@@ -1580,8 +1580,14 @@ impl EdgeListEngine {
 
         for edge in graph.edges_ordered() {
             out.push_str("  edge [\n");
-            let src_id = label_to_id.get(&edge.left).copied().unwrap_or(0);
-            let tgt_id = label_to_id.get(&edge.right).copied().unwrap_or(0);
+            let src_id = label_to_id.get(&edge.left).copied().ok_or_else(|| ReadWriteError::FailClosed {
+                operation: "write_gml",
+                reason: format!("edge source node '{}' missing from node mapping", edge.left),
+            })?;
+            let tgt_id = label_to_id.get(&edge.right).copied().ok_or_else(|| ReadWriteError::FailClosed {
+                operation: "write_gml",
+                reason: format!("edge target node '{}' missing from node mapping", edge.right),
+            })?;
             out.push_str(&format!("    source {src_id}\n"));
             out.push_str(&format!("    target {tgt_id}\n"));
             for (key, value) in &edge.attrs {
@@ -1780,10 +1786,13 @@ impl EdgeListEngine {
                     return Ok((id, label, attrs, pos));
                 }
                 "id" if pos + 1 < tokens.len() => {
-                    id = tokens[pos + 1].parse::<i64>().map_err(|_| ReadWriteError::FailClosed {
-                        operation: "read_gml",
-                        reason: format!("invalid node id '{}'", tokens[pos + 1]),
-                    })?;
+                    id =
+                        tokens[pos + 1]
+                            .parse::<i64>()
+                            .map_err(|_| ReadWriteError::FailClosed {
+                                operation: "read_gml",
+                                reason: format!("invalid node id '{}'", tokens[pos + 1]),
+                            })?;
                     pos += 2;
                 }
                 "label" if pos + 1 < tokens.len() => {
@@ -1823,11 +1832,23 @@ impl EdgeListEngine {
                     return Ok((source, target, attrs, pos));
                 }
                 "source" if pos + 1 < tokens.len() => {
-                    source = tokens[pos + 1].parse::<i64>().unwrap_or(0);
+                    source =
+                        tokens[pos + 1]
+                            .parse::<i64>()
+                            .map_err(|_| ReadWriteError::FailClosed {
+                                operation: "read_gml",
+                                reason: format!("invalid edge source id '{}'", tokens[pos + 1]),
+                            })?;
                     pos += 2;
                 }
                 "target" if pos + 1 < tokens.len() => {
-                    target = tokens[pos + 1].parse::<i64>().unwrap_or(0);
+                    target =
+                        tokens[pos + 1]
+                            .parse::<i64>()
+                            .map_err(|_| ReadWriteError::FailClosed {
+                                operation: "read_gml",
+                                reason: format!("invalid edge target id '{}'", tokens[pos + 1]),
+                            })?;
                     pos += 2;
                 }
                 key => {
