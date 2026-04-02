@@ -11606,9 +11606,11 @@ pub fn lexicographic_topological_sort(digraph: &DiGraph) -> Option<Vec<String>> 
 /// from u to v in G. Self-loops are added for each node.
 /// Matches `networkx.transitive_closure(G)`.
 #[must_use]
-pub fn transitive_closure(digraph: &DiGraph) -> DiGraph {
+pub fn transitive_closure(digraph: &DiGraph, reflexive: Option<bool>) -> DiGraph {
     let mut result = DiGraph::strict();
     let nodes = digraph.nodes_ordered();
+
+    let add_all_self_loops = reflexive == Some(true);
 
     // Add all nodes
     for &node in &nodes {
@@ -11617,10 +11619,12 @@ pub fn transitive_closure(digraph: &DiGraph) -> DiGraph {
 
     // For each node, find all reachable nodes via BFS and add edges
     for &source in &nodes {
-        // Self-loop
-        let _ = result.add_edge(source, source);
+        // Preserve existing self-loops or add new ones if reflexive=true
+        if add_all_self_loops || digraph.has_edge(source, source) {
+            let _ = result.add_edge(source, source);
+        }
 
-        // BFS from source
+        // BFS from source to find all reachable nodes
         let mut visited: HashSet<&str> = HashSet::new();
         let mut queue: VecDeque<&str> = VecDeque::new();
         visited.insert(source);
@@ -33910,24 +33914,28 @@ mod tests {
 
     #[test]
     fn transitive_closure_chain() {
-        // a -> b -> c => closure has a->a, a->b, a->c, b->b, b->c, c->c
+        // a -> b -> c => closure has a->b, a->c, b->c (no self-loops by default)
         let mut dg = DiGraph::strict();
         dg.add_edge("a", "b").unwrap();
         dg.add_edge("b", "c").unwrap();
-        let tc = transitive_closure(&dg);
+        let tc = transitive_closure(&dg, None);
         assert!(tc.has_edge("a", "b"));
         assert!(tc.has_edge("a", "c")); // transitive
         assert!(tc.has_edge("b", "c"));
-        assert!(tc.has_edge("a", "a")); // self-loop
-        assert!(tc.has_edge("b", "b"));
-        assert!(tc.has_edge("c", "c"));
+        assert!(!tc.has_edge("a", "a")); // no self-loops (default)
         assert!(!tc.has_edge("c", "a")); // no reverse
+
+        // With reflexive=true, self-loops are added
+        let tc_refl = transitive_closure(&dg, Some(true));
+        assert!(tc_refl.has_edge("a", "a"));
+        assert!(tc_refl.has_edge("b", "b"));
+        assert!(tc_refl.has_edge("c", "c"));
     }
 
     #[test]
     fn transitive_closure_empty() {
         let dg = DiGraph::strict();
-        let tc = transitive_closure(&dg);
+        let tc = transitive_closure(&dg, None);
         assert_eq!(tc.node_count(), 0);
     }
 

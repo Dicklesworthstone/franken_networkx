@@ -5753,7 +5753,12 @@ pub fn is_weakly_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<boo
 
 /// Return the transitive closure of a directed graph.
 #[pyfunction]
-pub fn transitive_closure(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+#[pyo3(signature = (g, reflexive=false))]
+pub fn transitive_closure(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    reflexive: bool,
+) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
     if !gr.is_directed() {
         return Err(crate::NetworkXNotImplemented::new_err(
@@ -5762,7 +5767,7 @@ pub fn transitive_closure(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyOb
     }
     {
         let dg_ref = gr.digraph().expect("is_directed checked above");
-        let result = fnx_algorithms::transitive_closure(dg_ref);
+        let result = fnx_algorithms::transitive_closure(dg_ref, Some(reflexive));
         let mut py_dg = PyDiGraph::new_empty(py)?;
         for node in result.nodes_ordered() {
             let py_key = gr.py_node_key(py, node);

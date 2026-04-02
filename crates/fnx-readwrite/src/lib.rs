@@ -1542,18 +1542,27 @@ impl EdgeListEngine {
 
         // Build node-name → id map (use integer label if parseable, otherwise assign sequentially)
         let mut label_to_id: BTreeMap<String, i64> = BTreeMap::new();
+        let mut used_ids = std::collections::HashSet::new();
+
+        // First pass: reserve parsed integer IDs
+        for node_name in graph.nodes_ordered() {
+            if let Ok(id) = node_name.parse::<i64>() {
+                label_to_id.insert(node_name.to_owned(), id);
+                used_ids.insert(id);
+            }
+        }
+
+        // Second pass: assign remaining nodes to unused sequential IDs
         let mut next_id: i64 = 0;
         for node_name in graph.nodes_ordered() {
-            let id = node_name.parse::<i64>().unwrap_or_else(|_| {
-                let assigned = next_id;
+            if !label_to_id.contains_key(node_name) {
+                while used_ids.contains(&next_id) {
+                    next_id += 1;
+                }
+                label_to_id.insert(node_name.to_owned(), next_id);
+                used_ids.insert(next_id);
                 next_id += 1;
-                assigned
-            });
-            // Ensure sequential IDs don't collide with parsed integer IDs
-            if node_name.parse::<i64>().is_ok() {
-                next_id = next_id.max(id + 1);
             }
-            label_to_id.insert(node_name.to_owned(), id);
         }
 
         for node_name in graph.nodes_ordered() {
@@ -1771,7 +1780,10 @@ impl EdgeListEngine {
                     return Ok((id, label, attrs, pos));
                 }
                 "id" if pos + 1 < tokens.len() => {
-                    id = tokens[pos + 1].parse::<i64>().unwrap_or(0);
+                    id = tokens[pos + 1].parse::<i64>().map_err(|_| ReadWriteError::FailClosed {
+                        operation: "read_gml",
+                        reason: format!("invalid node id '{}'", tokens[pos + 1]),
+                    })?;
                     pos += 2;
                 }
                 "label" if pos + 1 < tokens.len() => {
