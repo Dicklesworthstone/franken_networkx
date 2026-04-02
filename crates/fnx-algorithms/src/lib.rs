@@ -4404,6 +4404,110 @@ pub fn clustering_coefficient(graph: &Graph) -> ClusteringCoefficientResult {
     }
 }
 
+/// Directed clustering coefficient (Fagiolo 2007).
+///
+/// For each node u: `c_u = T(u) / (2 * (deg_tot(u) * (deg_tot(u)-1) - 2 * deg_recip(u)))`
+/// where `T(u)` is the count of directed triangles through u,
+/// `deg_tot(u) = in_deg(u) + out_deg(u)`, and
+/// `deg_recip(u)` is the number of mutual edges at u.
+///
+/// Matches `networkx.clustering` for directed graphs.
+#[must_use]
+pub fn clustering_coefficient_directed(digraph: &DiGraph) -> ClusteringCoefficientResult {
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return ClusteringCoefficientResult {
+            scores: Vec::new(),
+            average_clustering: 0.0,
+            transitivity: 0.0,
+            witness: ComplexityWitness {
+                algorithm: "clustering_coefficient_directed".to_owned(),
+                complexity_claim: "O(|V| * d_max^2)".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    let mut scores = Vec::with_capacity(n);
+    let mut edges_scanned = 0_usize;
+
+    for &node in &nodes {
+        let preds: HashSet<&str> = digraph
+            .predecessors(node)
+            .map(|p| p.into_iter().filter(|&x| x != node).collect())
+            .unwrap_or_default();
+        let succs: HashSet<&str> = digraph
+            .successors(node)
+            .map(|s| s.into_iter().filter(|&x| x != node).collect())
+            .unwrap_or_default();
+
+        let dtotal = preds.len() + succs.len();
+        let dbidirectional = preds.iter().filter(|&&p| succs.contains(p)).count();
+
+        let denominator = dtotal * dtotal.saturating_sub(1) - 2 * dbidirectional;
+        if denominator == 0 {
+            scores.push(CentralityScore {
+                node: node.to_owned(),
+                score: 0.0,
+            });
+            continue;
+        }
+
+        // Count directed triangles through this node.
+        // NX iterates chain(preds, succs), counting bidirectional neighbors
+        // twice. We replicate this by iterating preds then succs separately.
+        let mut directed_triangles = 0_usize;
+
+        let all_neighbors_with_dups: Vec<&str> =
+            preds.iter().copied().chain(succs.iter().copied()).collect();
+
+        for &j in &all_neighbors_with_dups {
+            edges_scanned += 1;
+            let jpreds: HashSet<&str> = digraph
+                .predecessors(j)
+                .map(|p| p.into_iter().filter(|&x| x != j).collect())
+                .unwrap_or_default();
+            let jsuccs: HashSet<&str> = digraph
+                .successors(j)
+                .map(|s| s.into_iter().filter(|&x| x != j).collect())
+                .unwrap_or_default();
+
+            directed_triangles += preds.intersection(&jpreds).count();
+            directed_triangles += preds.intersection(&jsuccs).count();
+            directed_triangles += succs.intersection(&jpreds).count();
+            directed_triangles += succs.intersection(&jsuccs).count();
+        }
+
+        let coeff = (directed_triangles as f64) / (2.0 * denominator as f64);
+        scores.push(CentralityScore {
+            node: node.to_owned(),
+            score: coeff,
+        });
+    }
+
+    let average_clustering = if n == 0 {
+        0.0
+    } else {
+        scores.iter().map(|s| s.score).sum::<f64>() / (n as f64)
+    };
+
+    ClusteringCoefficientResult {
+        scores,
+        average_clustering,
+        transitivity: 0.0, // transitivity not well-defined for directed graphs in NX
+        witness: ComplexityWitness {
+            algorithm: "clustering_coefficient_directed".to_owned(),
+            complexity_claim: "O(|V| * d_max^2)".to_owned(),
+            nodes_touched: n,
+            edges_scanned,
+            queue_peak: 0,
+        },
+    }
+}
+
 #[must_use]
 pub fn distance_measures(graph: &Graph) -> DistanceMeasuresResult {
     let nodes = graph.nodes_ordered();

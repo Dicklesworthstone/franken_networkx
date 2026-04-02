@@ -1580,13 +1580,25 @@ impl EdgeListEngine {
 
         for edge in graph.edges_ordered() {
             out.push_str("  edge [\n");
-            let src_id = label_to_id.get(&edge.left).copied().ok_or_else(|| ReadWriteError::FailClosed {
-                operation: "write_gml",
-                reason: format!("edge source node '{}' missing from node mapping", edge.left),
-            })?;
-            let tgt_id = label_to_id.get(&edge.right).copied().ok_or_else(|| ReadWriteError::FailClosed {
-                operation: "write_gml",
-                reason: format!("edge target node '{}' missing from node mapping", edge.right),
+            let src_id =
+                label_to_id
+                    .get(&edge.left)
+                    .copied()
+                    .ok_or_else(|| ReadWriteError::FailClosed {
+                        operation: "write_gml",
+                        reason: format!(
+                            "edge source node '{}' missing from node mapping",
+                            edge.left
+                        ),
+                    })?;
+            let tgt_id = label_to_id.get(&edge.right).copied().ok_or_else(|| {
+                ReadWriteError::FailClosed {
+                    operation: "write_gml",
+                    reason: format!(
+                        "edge target node '{}' missing from node mapping",
+                        edge.right
+                    ),
+                }
             })?;
             out.push_str(&format!("    source {src_id}\n"));
             out.push_str(&format!("    target {tgt_id}\n"));

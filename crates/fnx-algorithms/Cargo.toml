@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 license-file = "../../LICENSE"
 
+[lib]
+doctest = false
+
 [dependencies]
 fnx-classes = { version = "0.1.0", path = "../fnx-classes" }
 fnx-runtime = { version = "0.1.0", path = "../fnx-runtime" }

@@ -2499,8 +2499,13 @@ pub fn voterank(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>>
 #[pyfunction]
 pub fn clustering(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
     let gr = extract_graph(g)?;
-    let inner = gr.undirected();
-    let result = py.allow_threads(|| fnx_algorithms::clustering_coefficient(inner));
+    let result = if gr.is_directed() {
+        let dg = gr.digraph().expect("is_directed checked");
+        py.allow_threads(|| fnx_algorithms::clustering_coefficient_directed(dg))
+    } else {
+        let inner = gr.undirected();
+        py.allow_threads(|| fnx_algorithms::clustering_coefficient(inner))
+    };
     centrality_to_dict(py, &gr, &result.scores)
 }
 
@@ -2508,8 +2513,14 @@ pub fn clustering(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> 
 #[pyfunction]
 pub fn average_clustering(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
     let gr = extract_graph(g)?;
-    let inner = gr.undirected();
-    Ok(py.allow_threads(|| fnx_algorithms::clustering_coefficient(inner).average_clustering))
+    let result = if gr.is_directed() {
+        let dg = gr.digraph().expect("is_directed checked");
+        py.allow_threads(|| fnx_algorithms::clustering_coefficient_directed(dg))
+    } else {
+        let inner = gr.undirected();
+        py.allow_threads(|| fnx_algorithms::clustering_coefficient(inner))
+    };
+    Ok(result.average_clustering)
 }
 
 /// Return the transitivity (global clustering coefficient).
@@ -2524,6 +2535,7 @@ pub fn transitivity(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
 #[pyfunction]
 pub fn triangles(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
     let gr = extract_graph(g)?;
+    require_undirected(&gr, "triangles")?;
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::triangles(inner));
     let dict = PyDict::new(py);
