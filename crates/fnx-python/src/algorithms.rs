@@ -2453,24 +2453,29 @@ pub fn degree_assortativity_coefficient(py: Python<'_>, g: &Bound<'_, PyAny>) ->
 
 /// Return a list of nodes in decreasing voterank order.
 #[pyfunction]
-pub fn voterank(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
+#[pyo3(signature = (g, number_of_nodes=None))]
+pub fn voterank(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    number_of_nodes: Option<usize>,
+) -> PyResult<Vec<PyObject>> {
     let gr = extract_graph(g)?;
     let result = match &gr {
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
-            py.allow_threads(|| fnx_algorithms::voterank(inner))
+            py.allow_threads(|| fnx_algorithms::voterank(inner, number_of_nodes))
         }
         GraphRef::Directed { dg, .. } => {
             let inner = &dg.inner;
-            py.allow_threads(|| fnx_algorithms::voterank_directed(inner))
+            py.allow_threads(|| fnx_algorithms::voterank_directed(inner, number_of_nodes))
         }
         _ => {
             if gr.is_directed() {
                 let inner = gr.digraph().unwrap();
-                py.allow_threads(|| fnx_algorithms::voterank_directed(inner))
+                py.allow_threads(|| fnx_algorithms::voterank_directed(inner, number_of_nodes))
             } else {
                 let inner = gr.undirected();
-                py.allow_threads(|| fnx_algorithms::voterank(inner))
+                py.allow_threads(|| fnx_algorithms::voterank(inner, number_of_nodes))
             }
         }
     };
@@ -6088,6 +6093,7 @@ pub fn resource_allocation_index(
 // Graph Operators
 // ===========================================================================
 
+#[allow(dead_code)]
 fn rust_graph_to_py(
     py: Python<'_>,
     result: &fnx_classes::Graph,
@@ -6096,6 +6102,46 @@ fn rust_graph_to_py(
     let mut py_graph = PyGraph::new_empty(py)?;
     for node in result.nodes_ordered() {
         let py_key = source_gr.py_node_key(py, node);
+        py_graph.node_key_map.insert(node.to_owned(), py_key);
+        py_graph
+            .node_py_attrs
+            .insert(node.to_owned(), pyo3::types::PyDict::new(py).unbind());
+        py_graph.inner.add_node(node);
+    }
+    for edge in result.edges_ordered() {
+        let _ = py_graph.inner.add_edge(&edge.left, &edge.right);
+        let ek = PyGraph::edge_key(&edge.left, &edge.right);
+        py_graph
+            .edge_py_attrs
+            .insert(ek, pyo3::types::PyDict::new(py).unbind());
+    }
+    Ok(py_graph.into_pyobject(py)?.into_any().unbind())
+}
+
+/// Convert Rust Graph to Python Graph, looking up node keys from two source
+/// graphs (for binary operators like compose/union where nodes come from both).
+fn rust_graph_to_py_binary(
+    py: Python<'_>,
+    result: &fnx_classes::Graph,
+    gr1: &GraphRef<'_>,
+    gr2: &GraphRef<'_>,
+) -> PyResult<PyObject> {
+    let mut py_graph = PyGraph::new_empty(py)?;
+    for node in result.nodes_ordered() {
+        // Try gr1 first, then gr2; if node exists in neither, parse as integer or keep as string
+        let py_key = if gr1.has_node(node) {
+            gr1.py_node_key(py, node)
+        } else if gr2.has_node(node) {
+            gr2.py_node_key(py, node)
+        } else if let Ok(i) = node.parse::<i64>() {
+            crate::unwrap_infallible(i.into_pyobject(py))
+                .into_any()
+                .unbind()
+        } else {
+            crate::unwrap_infallible(node.to_owned().into_pyobject(py))
+                .into_any()
+                .unbind()
+        };
         py_graph.node_key_map.insert(node.to_owned(), py_key);
         py_graph
             .node_py_attrs
@@ -6240,7 +6286,7 @@ fn union(py: Python<'_>, g: &Bound<'_, PyAny>, h: &Bound<'_, PyAny>) -> PyResult
     let inner1 = gr1.undirected();
     let inner2 = gr2.undirected();
     let result = py.allow_threads(|| fnx_algorithms::graph_union(inner1, inner2));
-    rust_graph_to_py(py, &result, &gr1)
+    rust_graph_to_py_binary(py, &result, &gr1, &gr2)
 }
 
 #[pyfunction]
@@ -6251,7 +6297,7 @@ fn intersection(py: Python<'_>, g: &Bound<'_, PyAny>, h: &Bound<'_, PyAny>) -> P
     let inner1 = gr1.undirected();
     let inner2 = gr2.undirected();
     let result = py.allow_threads(|| fnx_algorithms::graph_intersection(inner1, inner2));
-    rust_graph_to_py(py, &result, &gr1)
+    rust_graph_to_py_binary(py, &result, &gr1, &gr2)
 }
 
 #[pyfunction]
@@ -6262,7 +6308,7 @@ fn compose(py: Python<'_>, g: &Bound<'_, PyAny>, h: &Bound<'_, PyAny>) -> PyResu
     let inner1 = gr1.undirected();
     let inner2 = gr2.undirected();
     let result = py.allow_threads(|| fnx_algorithms::graph_compose(inner1, inner2));
-    rust_graph_to_py(py, &result, &gr1)
+    rust_graph_to_py_binary(py, &result, &gr1, &gr2)
 }
 
 #[pyfunction]
@@ -6273,7 +6319,7 @@ fn difference(py: Python<'_>, g: &Bound<'_, PyAny>, h: &Bound<'_, PyAny>) -> PyR
     let inner1 = gr1.undirected();
     let inner2 = gr2.undirected();
     let result = py.allow_threads(|| fnx_algorithms::graph_difference(inner1, inner2));
-    rust_graph_to_py(py, &result, &gr1)
+    rust_graph_to_py_binary(py, &result, &gr1, &gr2)
 }
 
 #[pyfunction]
@@ -6288,7 +6334,7 @@ fn symmetric_difference(
     let inner1 = gr1.undirected();
     let inner2 = gr2.undirected();
     let result = py.allow_threads(|| fnx_algorithms::graph_symmetric_difference(inner1, inner2));
-    rust_graph_to_py(py, &result, &gr1)
+    rust_graph_to_py_binary(py, &result, &gr1, &gr2)
 }
 
 #[pyfunction]

@@ -1,5 +1,7 @@
 """Conformance tests: shortest path algorithms — fnx vs nx oracle."""
 
+from collections.abc import Iterator
+
 import pytest
 
 
@@ -19,6 +21,15 @@ class TestShortestPath:
     def test_shortest_path_length(self, fnx, nx, path_graph):
         G_fnx, G_nx = path_graph
         assert fnx.shortest_path_length(G_fnx, "a", "e") == nx.shortest_path_length(G_nx, "a", "e")
+
+    def test_shortest_path_length_all_pairs_returns_iterator(self, fnx, nx, path_graph):
+        G_fnx, G_nx = path_graph
+
+        fnx_result = fnx.shortest_path_length(G_fnx)
+        nx_result = nx.shortest_path_length(G_nx)
+
+        assert isinstance(fnx_result, Iterator)
+        assert list(fnx_result) == list(nx_result)
 
     def test_has_path_true(self, fnx, nx, path_graph):
         G_fnx, G_nx = path_graph

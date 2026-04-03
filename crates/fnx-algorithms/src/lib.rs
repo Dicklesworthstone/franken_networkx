@@ -7669,54 +7669,62 @@ pub fn onion_layers(graph: &Graph) -> OnionLayersResult {
         };
     }
 
-    // Build adjacency in a mutable structure for peeling
-    let mut adj: HashMap<&str, HashSet<&str>> = HashMap::new();
+    // Build adjacency and track degrees incrementally
+    let node_to_idx: HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
+    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
     let mut edges_scanned = 0_usize;
-    for &node in &nodes {
-        let nbrs: HashSet<&str> = graph
-            .neighbors_iter(node)
-            .map(|it| it.collect())
-            .unwrap_or_default();
-        adj.insert(node, nbrs);
+    for (i, &node) in nodes.iter().enumerate() {
+        if let Some(nbrs) = graph.neighbors_iter(node) {
+            for nb in nbrs {
+                if let Some(&j) = node_to_idx.get(nb)
+                    && j != i
+                {
+                    adj[i].push(j);
+                }
+            }
+        }
     }
 
-    let mut remaining: HashSet<&str> = nodes.iter().copied().collect();
+    // Maintain degree of each node in the remaining subgraph
+    let mut degree: Vec<usize> = adj.iter().map(|a| a.len()).collect();
+    let mut alive: Vec<bool> = vec![true; n];
     let mut result: Vec<NodeOnionLayer> = Vec::with_capacity(n);
     let mut layer = 1_usize;
+    let mut remaining_count = n;
 
-    while !remaining.is_empty() {
-        // Find minimum degree among remaining nodes
-        let min_deg = remaining
-            .iter()
-            .map(|&node| {
-                adj.get(node)
-                    .map(|s| s.iter().filter(|&&nb| remaining.contains(nb)).count())
-                    .unwrap_or(0)
-            })
+    while remaining_count > 0 {
+        // Find minimum degree among alive nodes
+        let min_deg = (0..n)
+            .filter(|&i| alive[i])
+            .map(|i| degree[i])
             .min()
             .unwrap_or(0);
 
         // Collect all nodes with minimum degree (sorted for determinism)
-        let mut to_remove: Vec<&str> = remaining
-            .iter()
-            .filter(|&&node| {
-                edges_scanned += 1;
-                let deg = adj
-                    .get(node)
-                    .map(|s| s.iter().filter(|&&nb| remaining.contains(nb)).count())
-                    .unwrap_or(0);
-                deg == min_deg
-            })
-            .copied()
+        let mut to_remove: Vec<usize> = (0..n)
+            .filter(|&i| alive[i] && degree[i] == min_deg)
             .collect();
         to_remove.sort_unstable();
 
-        for &node in &to_remove {
+        // Mark them as removed and update neighbor degrees
+        for &idx in &to_remove {
+            alive[idx] = false;
+            remaining_count -= 1;
             result.push(NodeOnionLayer {
-                node: node.to_owned(),
+                node: nodes[idx].to_owned(),
                 layer,
             });
-            remaining.remove(node);
+        }
+
+        // Decrement degrees of neighbors of removed nodes
+        for &idx in &to_remove {
+            for &nb in &adj[idx] {
+                if alive[nb] {
+                    edges_scanned += 1;
+                    degree[nb] = degree[nb].saturating_sub(1);
+                }
+            }
         }
 
         layer += 1;
@@ -8114,16 +8122,16 @@ pub fn degree_assortativity_coefficient(graph: &Graph) -> DegreeAssortativityRes
 /// neighbors' vote powers are reduced by `1/avg_degree`. Repeats until no
 /// more nodes receive votes.
 #[must_use]
-pub fn voterank(graph: &Graph) -> VoterankResult {
-    voterank_generic(graph)
+pub fn voterank(graph: &Graph, number_of_nodes: Option<usize>) -> VoterankResult {
+    voterank_generic(graph, number_of_nodes)
 }
 
 #[must_use]
-pub fn voterank_directed(graph: &DiGraph) -> VoterankResult {
-    voterank_generic(graph)
+pub fn voterank_directed(graph: &DiGraph, number_of_nodes: Option<usize>) -> VoterankResult {
+    voterank_generic(graph, number_of_nodes)
 }
 
-fn voterank_generic<G: GraphView>(graph: &G) -> VoterankResult {
+fn voterank_generic<G: GraphView>(graph: &G, number_of_nodes: Option<usize>) -> VoterankResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     if n == 0 {
@@ -8155,8 +8163,12 @@ fn voterank_generic<G: GraphView>(graph: &G) -> VoterankResult {
     let mut ranked: Vec<String> = Vec::new();
     let mut selected: HashSet<&str> = HashSet::new();
     let mut edges_scanned = 0usize;
+    let max_nodes = number_of_nodes.unwrap_or(n);
 
     loop {
+        if ranked.len() >= max_nodes {
+            break;
+        }
         // Accumulate votes
         let mut scores: HashMap<&str, f64> = HashMap::new();
         for &node in &nodes {
@@ -8289,7 +8301,11 @@ pub fn find_cliques(graph: &Graph) -> FindCliquesResult {
         // Choose pivot: node in P ∪ X that maximizes |P ∩ N(pivot)|
         let pivot = p
             .union(&x)
-            .max_by_key(|&&v| p.intersection(&adj[v]).count())
+            .max_by(|&&u, &&v| {
+                let deg_u = p.intersection(&adj[u]).count();
+                let deg_v = p.intersection(&adj[v]).count();
+                deg_u.cmp(&deg_v).then_with(|| u.cmp(&v))
+            })
             .copied()
             .unwrap(); // safe: P is non-empty
 
@@ -13352,14 +13368,14 @@ pub fn greedy_modularity_communities(
             }
         }
     }
-    m /= 2.0; // Each edge counted twice
+    m /= 2.0;
 
     if m == 0.0 {
         return nodes.iter().map(|&nd| vec![nd.to_owned()]).collect();
     }
 
-    // Weighted degree
-    let k: Vec<f64> = nodes
+    // Weighted degree (a_i = k_i / (2m))
+    let a: Vec<f64> = nodes
         .iter()
         .map(|&nd| {
             graph
@@ -13367,95 +13383,155 @@ pub fn greedy_modularity_communities(
                 .unwrap_or_default()
                 .iter()
                 .map(|nbr| edge_weight_or_default(graph, nd, nbr, weight_attr))
-                .sum()
+                .sum::<f64>()
+                / (2.0 * m)
         })
         .collect();
 
-    // Community assignment
+    // Each node starts in its own community (indexed by node index).
+    // community[i] = canonical community id for node i.
     let mut community: Vec<usize> = (0..n).collect();
+    // comm_a[c] = sum of a_i for all nodes in community c
+    let mut comm_a: Vec<f64> = a.clone();
+    // alive[c] = whether community c still exists
+    let mut alive: Vec<bool> = vec![true; n];
 
-    // Precompute initial delta-Q for each edge
-    // delta_Q(i,j) = 2 * (e_ij/(2m) - resolution * k_i * k_j / (2m)^2)
-    // We use a heap of merge candidates
-    let mut improved = true;
+    // Sparse delta-Q matrix: dq[i][j] = deltaQ for merging communities i and j.
+    // Only stored for adjacent community pairs (connected by at least one edge).
+    let mut dq: Vec<HashMap<usize, f64>> = vec![HashMap::new(); n];
 
-    while improved {
-        improved = false;
-
-        // Build community -> members mapping
-        let mut comm_members: HashMap<usize, Vec<usize>> = HashMap::new();
-        for (i, &c) in community.iter().enumerate() {
-            comm_members.entry(c).or_default().push(i);
-        }
-
-        let comm_ids: Vec<usize> = {
-            let mut ids: Vec<usize> = comm_members.keys().copied().collect();
-            ids.sort_unstable();
-            ids
-        };
-
-        if comm_ids.len() <= 1 {
-            break;
-        }
-
-        // Find the pair of communities with the best merge delta-Q
-        let mut best_delta = f64::NEG_INFINITY;
-        let mut best_pair = (0, 0);
-
-        for ci_idx in 0..comm_ids.len() {
-            for cj_idx in (ci_idx + 1)..comm_ids.len() {
-                let ci = comm_ids[ci_idx];
-                let cj = comm_ids[cj_idx];
-
-                // e_ij: sum of weights between communities ci and cj, divided by 2m
-                let mut e_ij = 0.0;
-                if let Some(members_i) = comm_members.get(&ci) {
-                    for &mi in members_i {
-                        if let Some(nbrs) = graph.neighbors(nodes[mi]) {
-                            for nbr in &nbrs {
-                                let j = node_to_idx[nbr];
-                                if community[j] == cj {
-                                    e_ij +=
-                                        edge_weight_or_default(graph, nodes[mi], nbr, weight_attr);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if e_ij == 0.0 {
-                    continue; // No edges between these communities
-                }
-
-                // a_i: sum of degrees in community ci / (2m)
-                let a_i: f64 = comm_members
-                    .get(&ci)
-                    .map_or(0.0, |ms| ms.iter().map(|&idx| k[idx]).sum::<f64>())
-                    / (2.0 * m);
-                let a_j: f64 = comm_members
-                    .get(&cj)
-                    .map_or(0.0, |ms| ms.iter().map(|&idx| k[idx]).sum::<f64>())
-                    / (2.0 * m);
-
-                let delta = e_ij / (2.0 * m) - resolution * a_i * a_j;
-
-                if delta > best_delta || (delta == best_delta && (ci, cj) < best_pair) {
-                    best_delta = delta;
-                    best_pair = (ci, cj);
+    // Initialize delta-Q for each edge
+    for &u_node in &nodes {
+        let u = node_to_idx[u_node];
+        if let Some(nbrs) = graph.neighbors(u_node) {
+            for nbr in &nbrs {
+                let v = node_to_idx[nbr];
+                if u < v {
+                    let w = edge_weight_or_default(graph, u_node, nbr, weight_attr);
+                    let e_uv = w / (2.0 * m);
+                    let delta = e_uv - resolution * a[u] * a[v];
+                    *dq[u].entry(v).or_insert(0.0) += delta;
+                    *dq[v].entry(u).or_insert(0.0) += delta;
                 }
             }
         }
+    }
 
-        if best_delta > 0.0 {
-            // Merge best_pair.1 into best_pair.0
-            let (keep, merge) = best_pair;
-            for c in &mut community {
-                if *c == merge {
-                    *c = keep;
-                }
-            }
-            improved = true;
+    // Use a BinaryHeap: (deltaQ, -(min(ci,cj)), -(max(ci,cj))) for deterministic tie-break
+    use std::collections::BinaryHeap;
+
+    #[derive(PartialEq)]
+    struct MergeCandidate {
+        delta: f64,
+        ci: usize,
+        cj: usize,
+    }
+
+    impl Eq for MergeCandidate {}
+
+    impl PartialOrd for MergeCandidate {
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            Some(self.cmp(other))
         }
+    }
+
+    impl Ord for MergeCandidate {
+        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+            self.delta
+                .partial_cmp(&other.delta)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| other.ci.cmp(&self.ci))
+                .then_with(|| other.cj.cmp(&self.cj))
+        }
+    }
+
+    let mut heap: BinaryHeap<MergeCandidate> = BinaryHeap::new();
+    for ci in 0..n {
+        for (&cj, &d) in &dq[ci] {
+            if ci < cj {
+                heap.push(MergeCandidate { delta: d, ci, cj });
+            }
+        }
+    }
+
+    // Greedy merge loop
+    while let Some(MergeCandidate { delta, ci, cj }) = heap.pop() {
+        // Skip stale entries (communities already merged)
+        if !alive[ci] || !alive[cj] {
+            continue;
+        }
+        // Check delta is still current
+        let current_delta = dq[ci].get(&cj).copied().unwrap_or(f64::NEG_INFINITY);
+        if (current_delta - delta).abs() > 1e-12 {
+            continue; // Stale
+        }
+        if delta <= 0.0 {
+            break; // No more beneficial merges
+        }
+
+        // Merge cj into ci
+        alive[cj] = false;
+
+        // Update community assignments
+        for c in &mut community {
+            if *c == cj {
+                *c = ci;
+            }
+        }
+
+        // Save old a values before merge
+        let a_ci = comm_a[ci];
+        let a_cj = comm_a[cj];
+
+        // Update comm_a
+        comm_a[ci] += comm_a[cj];
+
+        // Collect all neighbors of both ci and cj (excluding each other)
+        let ci_nbrs: HashSet<usize> = dq[ci]
+            .keys()
+            .copied()
+            .filter(|&k| k != cj && alive[k])
+            .collect();
+        let cj_nbrs: HashSet<usize> = dq[cj]
+            .keys()
+            .copied()
+            .filter(|&k| k != ci && alive[k])
+            .collect();
+        let all_nbrs: HashSet<usize> = ci_nbrs.union(&cj_nbrs).copied().collect();
+
+        // Drain cj's entries
+        let cj_dq: HashMap<usize, f64> = dq[cj].drain().collect();
+
+        for ck in &all_nbrs {
+            let ck = *ck;
+            // For non-adjacent pairs, use -resolution * a_x * a_ck as the implicit delta
+            let d_ik = dq[ci]
+                .get(&ck)
+                .copied()
+                .unwrap_or(-resolution * a_ci * comm_a[ck]);
+            let d_jk = cj_dq
+                .get(&ck)
+                .copied()
+                .unwrap_or(-resolution * a_cj * comm_a[ck]);
+            let new_d = d_ik + d_jk;
+
+            dq[ci].insert(ck, new_d);
+            dq[ck].insert(ci, new_d);
+            dq[ck].remove(&cj);
+
+            // Only push to heap if potentially beneficial
+            if new_d > 0.0 {
+                let (lo, hi) = if ci < ck { (ci, ck) } else { (ck, ci) };
+                heap.push(MergeCandidate {
+                    delta: new_d,
+                    ci: lo,
+                    cj: hi,
+                });
+            }
+        }
+
+        // Remove ci -> cj entry
+        dq[ci].remove(&cj);
     }
 
     // Collect final communities
@@ -13728,11 +13804,16 @@ pub fn maximum_independent_set(graph: &Graph) -> Vec<String> {
     while !remaining.is_empty() {
         let min_node = remaining
             .iter()
-            .min_by_key(|node| {
-                graph
-                    .neighbors(node)
+            .min_by(|&a, &b| {
+                let deg_a = graph
+                    .neighbors(a)
                     .map(|nbrs| nbrs.iter().filter(|&n| remaining.contains(*n)).count())
-                    .unwrap_or(0)
+                    .unwrap_or(0);
+                let deg_b = graph
+                    .neighbors(b)
+                    .map(|nbrs| nbrs.iter().filter(|&n| remaining.contains(*n)).count())
+                    .unwrap_or(0);
+                deg_a.cmp(&deg_b).then_with(|| a.cmp(b))
             })
             .unwrap()
             .clone();
@@ -14356,11 +14437,16 @@ pub fn max_clique_approx(graph: &Graph) -> Vec<String> {
         // Greedy: pick candidate with most neighbors in the candidate set
         let chosen = candidates
             .iter()
-            .max_by_key(|&c| {
-                graph
-                    .neighbors(c)
+            .max_by(|&a, &b| {
+                let deg_a = graph
+                    .neighbors(a)
                     .map(|nbrs| nbrs.iter().filter(|&&n| candidates.contains(n)).count())
-                    .unwrap_or(0)
+                    .unwrap_or(0);
+                let deg_b = graph
+                    .neighbors(b)
+                    .map(|nbrs| nbrs.iter().filter(|&&n| candidates.contains(n)).count())
+                    .unwrap_or(0);
+                deg_a.cmp(&deg_b).then_with(|| a.cmp(b))
             })
             .cloned()
             .unwrap();
@@ -18635,7 +18721,11 @@ pub fn find_cliques_recursive(graph: &Graph) -> Vec<Vec<String>> {
         // Choose pivot with maximum connections to p
         let pivot = p
             .union(x)
-            .max_by_key(|&&v| adj[v].intersection(p).count())
+            .max_by(|&&u, &&v| {
+                let deg_u = adj[u].intersection(p).count();
+                let deg_v = adj[v].intersection(p).count();
+                deg_u.cmp(&deg_v).then_with(|| u.cmp(&v))
+            })
             .copied();
         let Some(pivot) = pivot else { return };
         let candidates: Vec<usize> = p.difference(&adj[pivot]).copied().collect();

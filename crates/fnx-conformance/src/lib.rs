@@ -1908,7 +1908,7 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
                 context.witness = Some(result.witness);
             }
             Operation::VoterankQuery => {
-                let result = voterank(&context.graph);
+                let result = voterank(&context.graph, None);
                 context.voterank_result = Some(result.clone());
                 context.witness = Some(result.witness);
             }

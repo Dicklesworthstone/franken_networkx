@@ -20,6 +20,7 @@ from enum import Enum
 import math
 import sys
 
+from franken_networkx import _fnx
 from franken_networkx._fnx import __version__
 
 # Core graph classes
@@ -215,7 +216,8 @@ def shortest_path_length(G, source=None, target=None, weight=None, method='dijks
         return dict(single_source_shortest_path_length(G, source))
     if target is not None:
         return dict(single_target_shortest_path_length(G, target))
-    return dict(all_pairs_shortest_path_length(G))
+    all_pairs = all_pairs_shortest_path_length(G)
+    return ((node, all_pairs[node]) for node in G.nodes())
 
 # Algorithm functions — connectivity
 from franken_networkx._fnx import (
@@ -1607,7 +1609,7 @@ def normalized_laplacian_matrix(G, nodelist=None, weight='weight'):
     n = A.shape[0]
     d = np.asarray(A.sum(axis=1)).flatten()
     # Avoid division by zero for isolated nodes
-    d_inv_sqrt = np.zeros_like(d)
+    d_inv_sqrt = np.zeros_like(d, dtype=float)
     nonzero = d > 0
     d_inv_sqrt[nonzero] = 1.0 / np.sqrt(d[nonzero])
     D_inv_sqrt = scipy.sparse.diags(d_inv_sqrt)
@@ -6593,57 +6595,6 @@ def relaxed_caveman_graph(l, k, p, seed=None):
             if att < l*k: G.add_edge(u, nv)
     return G
 
-# Lattice Graphs (br-d0d)
-def hexagonal_lattice_graph(m, n, periodic=False, with_positions=True):
-    """Hexagonal (honeycomb) lattice graph."""
-    G = Graph()
-    for i in range(m):
-        for j in range(n):
-            G.add_node((i,j))
-            if j > 0: G.add_edge((i,j),(i,j-1))
-            if i > 0 and (i+j) % 2 == 0: G.add_edge((i,j),(i-1,j))
-    return G
-
-def triangular_lattice_graph(m, n, periodic=False, with_positions=True):
-    """Triangular lattice graph."""
-    G = Graph()
-    for i in range(m):
-        for j in range(n):
-            G.add_node((i,j))
-            if j > 0: G.add_edge((i,j),(i,j-1))
-            if i > 0: G.add_edge((i,j),(i-1,j))
-            if i > 0 and j > 0: G.add_edge((i,j),(i-1,j-1))
-    return G
-
-def grid_graph(dim, periodic=False):
-    """N-dimensional grid graph."""
-    import itertools
-    if not dim: return Graph()
-    nodes = list(itertools.product(*(range(d) for d in dim)))
-    G = Graph()
-    for node in nodes: G.add_node(node)
-    for node in nodes:
-        for axis in range(len(dim)):
-            nb = list(node); nb[axis] += 1
-            if nb[axis] < dim[axis]: G.add_edge(node, tuple(nb))
-            elif periodic: nb[axis] = 0; G.add_edge(node, tuple(nb))
-    return G
-
-def sudoku_graph(n=3):
-    """Sudoku constraint graph for n^2 x n^2 puzzle."""
-    N = n*n; G = Graph()
-    for i in range(N):
-        for j in range(N):
-            G.add_node((i,j))
-    for i in range(N):
-        for j in range(N):
-            for k in range(j+1,N): G.add_edge((i,j),(i,k)); G.add_edge((j,i),(k,i))
-            bi, bj = (i//n)*n, (j//n)*n
-            for di in range(n):
-                for dj in range(n):
-                    if (bi+di, bj+dj) != (i,j): G.add_edge((i,j),(bi+di,bj+dj))
-    return G
-
 # Centrality Extras (br-eup)
 def eigenvector_centrality_numpy(G, weight='weight', max_iter=50, tol=0):
     """Eigenvector centrality via numpy eigensolver."""
@@ -7100,11 +7051,7 @@ def neighbors(G, n):
     """Return neighbors of n (global function form)."""
     return iter(G.neighbors(n))
 
-def config():
-    """Return configuration namespace (stub)."""
-    class _Config:
-        backend_priority = []
-    return _Config()
+
 
 def describe(G):
     """Return detailed graph description."""
@@ -7481,6 +7428,7 @@ def graph_atlas_g():
 
 def find_asteroidal_triple(G):
     """Find an asteroidal triple (if exists)."""
+    from franken_networkx import _fnx
     return _fnx.find_asteroidal_triple_rust(G)
 
 def is_perfect_graph(G):
