@@ -1349,6 +1349,35 @@ def add_star(G, nodes, **attr):
         G.add_edge(center, spoke, **attr)
 
 
+def _validate_product_graph_types(G, H, *, allow_directed=True, allow_multigraph=True):
+    if G.is_directed() != H.is_directed():
+        raise NetworkXError("G and H must be both directed or both undirected")
+    if G.is_directed() and not allow_directed:
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if (G.is_multigraph() or H.is_multigraph()) and not allow_multigraph:
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+
+
+def _product_graph_class(G, H):
+    if G.is_directed():
+        return MultiDiGraph if (G.is_multigraph() or H.is_multigraph()) else DiGraph
+    return MultiGraph if (G.is_multigraph() or H.is_multigraph()) else Graph
+
+
+def _product_node_attrs(g_attrs, h_attrs):
+    merged = {}
+    for key in set(g_attrs) | set(h_attrs):
+        merged[key] = (g_attrs.get(key), h_attrs.get(key))
+    return merged
+
+
+def _paired_edge_attrs(g_attrs, h_attrs):
+    merged = {}
+    for key in set(g_attrs) | set(h_attrs):
+        merged[key] = (g_attrs.get(key), h_attrs.get(key))
+    return merged
+
+
 def cartesian_product(G, H):
     """Return the Cartesian product of *G* and *H*.
 
@@ -1357,12 +1386,32 @@ def cartesian_product(G, H):
     ``(v1, v2)`` is an edge in *H*, or ``v1 == v2`` and ``(u1, u2)``
     is an edge in *G*.
     """
-    import networkx as nx
+    _validate_product_graph_types(G, H)
+    P = _product_graph_class(G, H)()
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+    for g, g_attrs in G.nodes(data=True):
+        for h, h_attrs in H.nodes(data=True):
+            P.add_node((g, h), **_product_node_attrs(dict(g_attrs), dict(h_attrs)))
 
-    return _from_nx_graph(nx.cartesian_product(_to_nx(G), _to_nx(H)))
+    if G.is_multigraph():
+        for u, v, key, attrs in G.edges(keys=True, data=True):
+            for h in H.nodes():
+                P.add_edge((u, h), (v, h), key=key, **dict(attrs))
+    else:
+        for u, v, attrs in G.edges(data=True):
+            for h in H.nodes():
+                P.add_edge((u, h), (v, h), **dict(attrs))
+
+    if H.is_multigraph():
+        for u, v, key, attrs in H.edges(keys=True, data=True):
+            for g in G.nodes():
+                P.add_edge((g, u), (g, v), key=key, **dict(attrs))
+    else:
+        for u, v, attrs in H.edges(data=True):
+            for g in G.nodes():
+                P.add_edge((g, u), (g, v), **dict(attrs))
+
+    return P
 
 
 def tensor_product(G, H):
@@ -1371,12 +1420,35 @@ def tensor_product(G, H):
     Two nodes ``(u1, v1)`` and ``(u2, v2)`` are adjacent iff
     ``(u1, u2)`` is an edge in *G* AND ``(v1, v2)`` is an edge in *H*.
     """
-    import networkx as nx
+    _validate_product_graph_types(G, H)
+    P = _product_graph_class(G, H)()
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+    for g, g_attrs in G.nodes(data=True):
+        for h, h_attrs in H.nodes(data=True):
+            P.add_node((g, h), **_product_node_attrs(dict(g_attrs), dict(h_attrs)))
 
-    return _from_nx_graph(nx.tensor_product(_to_nx(G), _to_nx(H)))
+    if G.is_multigraph():
+        g_edges = list(G.edges(keys=True, data=True))
+    else:
+        g_edges = [(u, v, None, attrs) for u, v, attrs in G.edges(data=True)]
+    if H.is_multigraph():
+        h_edges = list(H.edges(keys=True, data=True))
+    else:
+        h_edges = [(u, v, None, attrs) for u, v, attrs in H.edges(data=True)]
+
+    for gu, gv, gk, g_attrs in g_edges:
+        for hu, hv, hk, h_attrs in h_edges:
+            edge_attrs = _paired_edge_attrs(dict(g_attrs), dict(h_attrs))
+            if P.is_multigraph():
+                P.add_edge((gu, hu), (gv, hv), **edge_attrs)
+                if not G.is_directed():
+                    P.add_edge((gu, hv), (gv, hu), **edge_attrs)
+            else:
+                P.add_edge((gu, hu), (gv, hv), **edge_attrs)
+                if not G.is_directed():
+                    P.add_edge((gu, hv), (gv, hu), **edge_attrs)
+
+    return P
 
 
 def strong_product(G, H):
@@ -1384,12 +1456,31 @@ def strong_product(G, H):
 
     Union of Cartesian and tensor products.
     """
-    import networkx as nx
+    _validate_product_graph_types(G, H)
+    P = cartesian_product(G, H)
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+    if G.is_multigraph():
+        g_edges = list(G.edges(keys=True, data=True))
+    else:
+        g_edges = [(u, v, None, attrs) for u, v, attrs in G.edges(data=True)]
+    if H.is_multigraph():
+        h_edges = list(H.edges(keys=True, data=True))
+    else:
+        h_edges = [(u, v, None, attrs) for u, v, attrs in H.edges(data=True)]
 
-    return _from_nx_graph(nx.strong_product(_to_nx(G), _to_nx(H)))
+    for gu, gv, gk, g_attrs in g_edges:
+        for hu, hv, hk, h_attrs in h_edges:
+            edge_attrs = _paired_edge_attrs(dict(g_attrs), dict(h_attrs))
+            if P.is_multigraph():
+                P.add_edge((gu, hu), (gv, hv), **edge_attrs)
+                if not G.is_directed():
+                    P.add_edge((gu, hv), (gv, hu), **edge_attrs)
+            else:
+                P.add_edge((gu, hu), (gv, hv), **edge_attrs)
+                if not G.is_directed():
+                    P.add_edge((gu, hv), (gv, hu), **edge_attrs)
+
+    return P
 
 
 # ---------------------------------------------------------------------------
@@ -5468,12 +5559,32 @@ def corona_product(G, H):
     -------
     Graph
     """
-    import networkx as nx
+    _validate_product_graph_types(G, H, allow_directed=False, allow_multigraph=not G.is_multigraph())
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+    P = _product_graph_class(G, H)()
+    P.add_nodes_from(G.nodes())
 
-    return _from_nx_graph(nx.corona_product(_to_nx(G), _to_nx(H)))
+    if G.is_multigraph():
+        for u, v, key in G.edges(keys=True):
+            P.add_edge(u, v, key=key)
+    else:
+        for u, v in G.edges():
+            P.add_edge(u, v)
+
+    for g in G.nodes():
+        for h in H.nodes():
+            P.add_node((g, h))
+            P.add_edge(g, (g, h))
+        if H.is_multigraph():
+            for u, v, key, attrs in H.edges(keys=True, data=True):
+                P.add_edge((g, u), (g, v), key=key, **dict(attrs))
+        else:
+            for u, v, attrs in H.edges(data=True):
+                P.add_edge((g, u), (g, v), **dict(attrs))
+
+    return P
 
 
 def modular_product(G, H):
@@ -5483,12 +5594,31 @@ def modular_product(G, H):
     - u1-u2 is edge in G AND v1-v2 is edge in H, OR
     - u1-u2 is NOT edge in G AND v1-v2 is NOT edge in H (and u1≠u2, v1≠v2).
     """
-    import networkx as nx
+    _validate_product_graph_types(G, H, allow_directed=False, allow_multigraph=False)
+    P = Graph()
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+    for g, g_attrs in G.nodes(data=True):
+        for h, h_attrs in H.nodes(data=True):
+            P.add_node((g, h), **_product_node_attrs(dict(g_attrs), dict(h_attrs)))
 
-    return _from_nx_graph(nx.modular_product(_to_nx(G), _to_nx(H)))
+    g_nodes = list(G.nodes())
+    h_nodes = list(H.nodes())
+    for g_left_index, g_left in enumerate(g_nodes):
+        for g_right in g_nodes[g_left_index + 1:]:
+            g_adjacent = G.has_edge(g_left, g_right)
+            for h_left_index, h_left in enumerate(h_nodes):
+                for h_right in h_nodes[h_left_index + 1:]:
+                    h_adjacent = H.has_edge(h_left, h_right)
+                    if g_adjacent != h_adjacent:
+                        continue
+                    attrs = _paired_edge_attrs(
+                        dict(G[g_left][g_right]) if g_adjacent else {},
+                        dict(H[h_left][h_right]) if h_adjacent else {},
+                    )
+                    P.add_edge((g_left, h_left), (g_right, h_right), **attrs)
+                    P.add_edge((g_left, h_right), (g_right, h_left), **attrs)
+
+    return P
 
 
 def rooted_product(G, H, root):
@@ -5497,12 +5627,27 @@ def rooted_product(G, H, root):
     Replace each node v in G with a copy of H, connecting v's copy of
     *root* to the neighbors of v.
     """
-    import networkx as nx
+    _validate_product_graph_types(G, H, allow_directed=not G.is_directed(), allow_multigraph=False)
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph() or H.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if root not in H:
+        raise NodeNotFound("root must be a vertex in H")
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+    P = Graph()
+    for g in G.nodes():
+        for h in H.nodes():
+            P.add_node((g, h))
 
-    return _from_nx_graph(nx.rooted_product(_to_nx(G), _to_nx(H), root))
+    for g in G.nodes():
+        for u, v in H.edges():
+            P.add_edge((g, u), (g, v))
+
+    for u, v in G.edges():
+        P.add_edge((u, root), (v, root))
+
+    return P
 
 
 def lexicographic_product(G, H):
@@ -5511,12 +5656,34 @@ def lexicographic_product(G, H):
     (u1,v1) and (u2,v2) are adjacent iff u1-u2 is an edge in G,
     OR u1==u2 and v1-v2 is an edge in H.
     """
-    import networkx as nx
+    _validate_product_graph_types(G, H)
+    P = _product_graph_class(G, H)()
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+    for g, g_attrs in G.nodes(data=True):
+        for h, h_attrs in H.nodes(data=True):
+            P.add_node((g, h), **_product_node_attrs(dict(g_attrs), dict(h_attrs)))
 
-    return _from_nx_graph(nx.lexicographic_product(_to_nx(G), _to_nx(H)))
+    if G.is_multigraph():
+        for u, v, key, attrs in G.edges(keys=True, data=True):
+            for hu in H.nodes():
+                for hv in H.nodes():
+                    P.add_edge((u, hu), (v, hv), key=key, **dict(attrs))
+    else:
+        for u, v, attrs in G.edges(data=True):
+            for hu in H.nodes():
+                for hv in H.nodes():
+                    P.add_edge((u, hu), (v, hv), **dict(attrs))
+
+    if H.is_multigraph():
+        for u, v, key, attrs in H.edges(keys=True, data=True):
+            for g in G.nodes():
+                P.add_edge((g, u), (g, v), key=key, **dict(attrs))
+    else:
+        for u, v, attrs in H.edges(data=True):
+            for g in G.nodes():
+                P.add_edge((g, u), (g, v), **dict(attrs))
+
+    return P
 
 
 # ---------------------------------------------------------------------------
