@@ -16,6 +16,7 @@ Or as a NetworkX backend (zero code changes required)::
     # Now all supported algorithms dispatch to Rust automatically.
 """
 
+from collections.abc import Mapping
 from enum import Enum
 import math
 import sys
@@ -1101,6 +1102,25 @@ def k_clique_communities(G, k):
 # ---------------------------------------------------------------------------
 
 
+def _edge_attribute_dict(G, edge):
+    if G.is_multigraph():
+        u, v, key = edge
+        try:
+            return G[u][v][key]
+        except KeyError:
+            if G.is_directed():
+                raise
+            return G[v][u][key]
+
+    u, v = edge
+    try:
+        return G[u][v]
+    except KeyError:
+        if G.is_directed():
+            raise
+        return G[v][u]
+
+
 def set_node_attributes(G, values, name=None):
     """Set node attributes from a dictionary or scalar.
 
@@ -1115,14 +1135,24 @@ def set_node_attributes(G, values, name=None):
     name : str, optional
         Attribute name. Required when *values* is a dict of scalars or a scalar.
     """
-    import networkx as nx
+    if isinstance(values, Mapping):
+        if name is not None:
+            for node, value in values.items():
+                if G.has_node(node):
+                    G.nodes[node][name] = value
+            return
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+        for node, attrs in values.items():
+            if G.has_node(node):
+                G.nodes[node].update(attrs)
+        return
 
-    graph = _to_nx(G)
-    nx.set_node_attributes(graph, values, name=name)
-    _from_nx_graph(graph, create_using=G)
+    if name is not None:
+        for node in G.nodes():
+            G.nodes[node][name] = values
+        return
+
+    values.items()
 
 
 def get_node_attributes(G, name, default=None):
@@ -1140,10 +1170,15 @@ def get_node_attributes(G, name, default=None):
     dict
         ``{node: value}`` for nodes that have the attribute.
     """
-    import networkx as nx
-    from franken_networkx.drawing.layout import _to_nx
-
-    return nx.get_node_attributes(_to_nx(G), name, default=default)
+    result = {}
+    include_missing = default is not None
+    for node in G.nodes():
+        attrs = G.nodes[node]
+        if name in attrs:
+            result[node] = attrs[name]
+        elif include_missing:
+            result[node] = default
+    return result
 
 
 def set_edge_attributes(G, values, name=None):
@@ -1159,14 +1194,32 @@ def set_edge_attributes(G, values, name=None):
     name : str, optional
         Attribute name. Required when *values* is a scalar.
     """
-    import networkx as nx
+    if isinstance(values, Mapping):
+        if name is not None:
+            for edge, value in values.items():
+                try:
+                    _edge_attribute_dict(G, edge)[name] = value
+                except (KeyError, ValueError):
+                    continue
+            return
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+        for edge, attrs in values.items():
+            try:
+                _edge_attribute_dict(G, edge).update(attrs)
+            except (KeyError, ValueError):
+                continue
+        return
 
-    graph = _to_nx(G)
-    nx.set_edge_attributes(graph, values, name=name)
-    _from_nx_graph(graph, create_using=G)
+    if name is not None:
+        if G.is_multigraph():
+            for u, v, key, attrs in G.edges(keys=True, data=True):
+                attrs[name] = values
+        else:
+            for u, v, attrs in G.edges(data=True):
+                attrs[name] = values
+        return
+
+    values.items()
 
 
 def get_edge_attributes(G, name, default=None):
@@ -1184,10 +1237,22 @@ def get_edge_attributes(G, name, default=None):
     dict
         ``{(u, v): value}`` for edges that have the attribute.
     """
-    import networkx as nx
-    from franken_networkx.drawing.layout import _to_nx
+    result = {}
+    include_missing = default is not None
+    if G.is_multigraph():
+        for u, v, key, attrs in G.edges(keys=True, data=True):
+            if name in attrs:
+                result[(u, v, key)] = attrs[name]
+            elif include_missing:
+                result[(u, v, key)] = default
+        return result
 
-    return nx.get_edge_attributes(_to_nx(G), name, default=default)
+    for u, v, attrs in G.edges(data=True):
+        if name in attrs:
+            result[(u, v)] = attrs[name]
+        elif include_missing:
+            result[(u, v)] = default
+    return result
 
 
 def create_empty_copy(G, with_data=True):
@@ -1205,12 +1270,13 @@ def create_empty_copy(G, with_data=True):
     H : Graph
         A graph with the same nodes but no edges.
     """
-    import networkx as nx
-
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
-
-    return _from_nx_graph(nx.create_empty_copy(_to_nx(G), with_data=with_data))
+    H = G.__class__()
+    H.graph.update(dict(G.graph))
+    if with_data:
+        H.add_nodes_from((node, dict(attrs)) for node, attrs in G.nodes(data=True))
+    else:
+        H.add_nodes_from(G.nodes())
+    return H
 
 
 def number_of_selfloops(G):
@@ -1361,9 +1427,57 @@ def local_bridges(G, with_span=True, weight=None):
 
 def minimum_edge_cut(G, s=None, t=None):
     """Return a minimum edge cut of *G*."""
-    import networkx as nx
-    from franken_networkx.drawing.layout import _to_nx
-    return set(nx.minimum_edge_cut(_to_nx(G), s=s, t=t))
+    def cut_edges_for_partition(source_partition, sink_partition):
+        source_set = set(source_partition)
+        sink_set = set(sink_partition)
+        cut_edges = set()
+        if G.is_multigraph():
+            for u, v, key in G.edges(keys=True):
+                if G.is_directed():
+                    if u in source_set and v in sink_set:
+                        cut_edges.add((u, v, key))
+                elif (u in source_set and v in sink_set) or (u in sink_set and v in source_set):
+                    cut_edges.add((u, v, key))
+            return cut_edges
+
+        for u, v in G.edges():
+            if G.is_directed():
+                if u in source_set and v in sink_set:
+                    cut_edges.add((u, v))
+            elif (u in source_set and v in sink_set) or (u in sink_set and v in source_set):
+                cut_edges.add((u, v))
+        return cut_edges
+
+    if s is not None or t is not None:
+        _, partition = minimum_cut(G, s, t)
+        source_partition, sink_partition = partition
+        return cut_edges_for_partition(source_partition, sink_partition)
+
+    nodes = list(G.nodes())
+    if len(nodes) < 2:
+        return set()
+
+    best_pair = None
+    best_cut = None
+    if G.is_directed():
+        candidate_pairs = ((u, v) for u in nodes for v in nodes if u != v)
+    else:
+        candidate_pairs = (
+            (nodes[left_index], nodes[right_index])
+            for left_index in range(len(nodes))
+            for right_index in range(left_index + 1, len(nodes))
+        )
+
+    for source, sink in candidate_pairs:
+        candidate_cut = minimum_edge_cut(G, source, sink)
+        candidate_key = (len(candidate_cut), (source, sink))
+        if best_cut is None or candidate_key < (len(best_cut), best_pair):
+            best_pair = (source, sink)
+            best_cut = candidate_cut
+            if not best_cut:
+                break
+
+    return best_cut if best_cut is not None else set()
 
 
 def stochastic_graph(G, copy=True, weight='weight'):
@@ -1384,20 +1498,45 @@ def stochastic_graph(G, copy=True, weight='weight'):
 
 def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
     """Return the ego graph of node *n* within *radius* hops."""
-    import networkx as nx
+    if distance is not None or undirected:
+        import networkx as nx
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+        from franken_networkx.drawing.layout import _to_nx
+        from franken_networkx.readwrite import _from_nx_graph
 
-    graph = nx.ego_graph(
-        _to_nx(G),
-        n,
-        radius=radius,
-        center=center,
-        undirected=undirected,
-        distance=distance,
-    )
-    return _from_nx_graph(graph)
+        graph = nx.ego_graph(
+            _to_nx(G),
+            n,
+            radius=radius,
+            center=center,
+            undirected=undirected,
+            distance=distance,
+        )
+        return _from_nx_graph(graph)
+
+    raw_graph = _fnx.ego_graph_rust(G, n, radius=radius, undirected=undirected)
+    canonical_to_node = {str(node): node for node in G.nodes()}
+
+    graph = G.__class__()
+    graph.graph.update(dict(G.graph))
+    for raw_node in raw_graph.nodes():
+        node = canonical_to_node.get(raw_node, raw_node)
+        graph.add_node(node, **dict(G.nodes[node]))
+
+    if G.is_multigraph():
+        for raw_u, raw_v, key in raw_graph.edges(keys=True):
+            u = canonical_to_node.get(raw_u, raw_u)
+            v = canonical_to_node.get(raw_v, raw_v)
+            graph.add_edge(u, v, key=key, **dict(G[u][v][key]))
+    else:
+        for raw_u, raw_v in raw_graph.edges():
+            u = canonical_to_node.get(raw_u, raw_u)
+            v = canonical_to_node.get(raw_v, raw_v)
+            graph.add_edge(u, v, **dict(G[u][v]))
+
+    if not center and n in graph:
+        graph.remove_node(n)
+    return graph
 
 
 def k_core(G, k=None, core_number=None):
@@ -3312,7 +3451,7 @@ def all_pairs_node_connectivity(G, nbunch=None, flow_func=None):
     dict of dicts
         ``result[u][v]`` is the node connectivity between u and v.
     """
-    if nbunch is not None or flow_func is not None:
+    if flow_func is not None:
         import networkx as nx
 
         from franken_networkx.drawing.layout import _to_nx
@@ -3324,14 +3463,19 @@ def all_pairs_node_connectivity(G, nbunch=None, flow_func=None):
     result = {}
     for (u, v), conn in flat.items():
         result.setdefault(u, {})[v] = conn
+    if nbunch is not None:
+        wanted = set(nbunch)
+        return {
+            u: {v: conn for v, conn in nbrs.items() if v in wanted}
+            for u, nbrs in result.items()
+            if u in wanted
+        }
     return result
 
 
 def minimum_st_node_cut(G, s, t):
     """Return the minimum s-t node cut."""
-    import networkx as nx
-    from franken_networkx.drawing.layout import _to_nx
-    return set(nx.minimum_node_cut(_to_nx(G), s, t))
+    return set(minimum_node_cut(G, s, t))
 
 
 def voronoi_cells(G, center_nodes, weight="weight"):
@@ -5801,7 +5945,6 @@ def trophic_levels(G, weight=None):
     n = len(nodelist)
     if n == 0:
         return {}
-    {node: i for i, node in enumerate(nodelist)}
     A = to_numpy_array(G, nodelist=nodelist, weight=weight)
     in_strength = A.sum(axis=0)
     # Solve: s_j = 1 + (1/k_j^in) * sum_i A_ij * s_i for all j
@@ -6029,17 +6172,47 @@ def node_attribute_xy(G, attribute):
 
 def node_degree_xy(G, x='out', y='in', weight=None, nodes=None):
     """Yield (degree_x, degree_y) for each edge."""
-    if weight is None and nodes is None:
-        from franken_networkx._fnx import node_degree_xy_rust
+    node_set = set(G) if nodes is None else set(nodes)
 
-        yield from node_degree_xy_rust(G, x, y, weight, nodes)
+    def directed_degree_map(mode):
+        result = {}
+        for node in G:
+            if node not in node_set:
+                continue
+            total = 0
+            neighbors = G.predecessors(node) if mode == 'in' else G.successors(node)
+            for neighbor in neighbors:
+                if mode == 'in':
+                    edge_bucket = G[neighbor][node]
+                else:
+                    edge_bucket = G[node][neighbor]
+                if G.is_multigraph():
+                    for attrs in edge_bucket.values():
+                        total += attrs.get(weight, 1) if weight is not None else 1
+                else:
+                    total += edge_bucket.get(weight, 1) if weight is not None else 1
+            result[node] = total
+        return result
+
+    if G.is_directed():
+        xdeg = directed_degree_map(x)
+        ydeg = directed_degree_map(y)
+        for u in node_set:
+            for v in G.successors(u):
+                if v in node_set:
+                    yield (xdeg[u], ydeg[v])
         return
 
-    import networkx as nx
-
-    from franken_networkx.drawing.layout import _to_nx
-
-    yield from nx.node_degree_xy(_to_nx(G), x=x, y=y, weight=weight, nodes=nodes)
+    deg = {node: degree(G, node, weight=weight) for node in G if node in node_set}
+    for u in node_set:
+        for v in G.neighbors(u):
+            if v not in node_set:
+                continue
+            if G.is_multigraph():
+                for _key in G[u][v]:
+                    yield (deg[u], deg[v])
+            else:
+                yield (deg[u], deg[v])
 
 
 def number_of_walks(G, walk_length):
@@ -6179,60 +6352,113 @@ def chordless_cycles(G, length_bound=None):
 
 def to_undirected(G):
     """Return an undirected copy of G."""
-    import networkx as nx
-
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
-
-    return _from_nx_graph(nx.to_undirected(_to_nx(G)))
+    return G.to_undirected()
 
 
 def to_directed(G):
     """Return a directed copy of G (each undirected edge becomes two directed edges)."""
-    import networkx as nx
+    directed = G.to_directed()
+    if not G.is_multigraph():
+        return directed
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
-
-    return _from_nx_graph(nx.to_directed(_to_nx(G)))
+    result = G.__class__().to_directed()
+    result.graph.update(dict(G.graph))
+    for node, attrs in G.nodes(data=True):
+        result.add_node(node, **dict(attrs))
+    for u, v, key, attrs in G.edges(keys=True, data=True):
+        result.add_edge(u, v, key=key, **dict(attrs))
+        result.add_edge(v, u, key=key, **dict(attrs))
+    return result
 
 
 def reverse(G, copy=True):
     """Return graph with all edges reversed."""
-    import networkx as nx
-
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
-
-    reversed_graph = nx.reverse(_to_nx(G), copy=True)
+    reversed_graph = G.reverse()
     if copy:
-        return _from_nx_graph(reversed_graph)
-    return _from_nx_graph(reversed_graph, create_using=G)
+        return reversed_graph
+    return reversed_graph
 
 
 def nodes(G):
     """Return nodes of G (global function form)."""
-    from franken_networkx.drawing.layout import _to_nx
-
-    return _to_nx(G).nodes
+    return G.nodes
 
 
 def edges(G, nbunch=None):
     """Return edges of G (global function form)."""
-    import networkx as nx
+    if nbunch is None:
+        return G.edges
+    if G.is_directed():
+        return G.edges(nbunch=nbunch)
 
-    from franken_networkx.drawing.layout import _to_nx
+    nbunch_nodes = set(nbunch)
+    if G.is_multigraph():
+        seen = set()
+        result = []
+        for u in nbunch_nodes:
+            if u not in G:
+                continue
+            for v, keydict in G[u].items():
+                for key in keydict:
+                    marker = (frozenset((u, v)), key)
+                    if marker in seen:
+                        continue
+                    seen.add(marker)
+                    result.append((u, v))
+        return result
 
-    return nx.edges(_to_nx(G), nbunch=nbunch)
+    seen = set()
+    result = []
+    for u in nbunch_nodes:
+        if u not in G:
+            continue
+        for v in G[u]:
+            marker = frozenset((u, v))
+            if marker in seen:
+                continue
+            seen.add(marker)
+            result.append((u, v))
+    return result
 
 
 def degree(G, nbunch=None, weight=None):
     """Return degree view of G (global function form)."""
-    import networkx as nx
+    if weight is None:
+        if nbunch is None:
+            return G.degree
+        if isinstance(nbunch, (str, bytes)) or not hasattr(nbunch, "__iter__"):
+            return G.degree[nbunch]
+        return ((node, G.degree[node]) for node in nbunch)
 
-    from franken_networkx.drawing.layout import _to_nx
+    def weighted_degree(node):
+        total = 0
+        if G.is_multigraph():
+            if G.is_directed():
+                for _, _, _, attrs in G.edges(nbunch=[node], keys=True, data=True):
+                    total += attrs.get(weight, 1)
+                for src, _, _, attrs in G.in_edges(nbunch=[node], keys=True, data=True):
+                    if src != node:
+                        total += attrs.get(weight, 1)
+            else:
+                for _, _, _, attrs in G.edges(nbunch=[node], keys=True, data=True):
+                    total += attrs.get(weight, 1)
+        else:
+            if G.is_directed():
+                for _, _, attrs in G.edges(nbunch=[node], data=True):
+                    total += attrs.get(weight, 1)
+                for src, _, attrs in G.in_edges(nbunch=[node], data=True):
+                    if src != node:
+                        total += attrs.get(weight, 1)
+            else:
+                for _, _, attrs in G.edges(nbunch=[node], data=True):
+                    total += attrs.get(weight, 1)
+        return total
 
-    return nx.degree(_to_nx(G), nbunch=nbunch, weight=weight)
+    if nbunch is None:
+        return ((node, weighted_degree(node)) for node in G.nodes)
+    if isinstance(nbunch, (str, bytes)) or not hasattr(nbunch, "__iter__"):
+        return weighted_degree(nbunch)
+    return ((node, weighted_degree(node)) for node in nbunch)
 
 
 def number_of_nodes(G):

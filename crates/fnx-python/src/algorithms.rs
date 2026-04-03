@@ -1975,9 +1975,14 @@ pub fn minimum_node_cut(
     t: Option<Bound<'_, PyAny>>,
     flow_func: Option<Bound<'_, PyAny>>,
 ) -> PyResult<Vec<PyObject>> {
-    if s.is_some() || t.is_some() || flow_func.is_some() {
+    if s.is_some() != t.is_some() {
+        return Err(NetworkXError::new_err(
+            "Both s and t must be specified, or neither.",
+        ));
+    }
+    if flow_func.is_some() {
         return Err(crate::NetworkXNotImplemented::new_err(
-            "franken_networkx currently only supports default parameters for minimum_node_cut",
+            "franken_networkx currently only supports the default flow_func for minimum_node_cut",
         ));
     }
     let gr = extract_graph(g)?;
@@ -1989,18 +1994,29 @@ pub fn minimum_node_cut(
             "not implemented for multigraph type",
         ));
     }
-    let result = if gr.is_directed() {
-        let dg = gr.digraph().expect("is_directed checked above");
-        if !py.allow_threads(|| fnx_algorithms::is_weakly_connected(dg)) {
-            return Err(NetworkXError::new_err("Input graph is not connected"));
+    let result = if let (Some(source), Some(sink)) = (s.as_ref(), t.as_ref()) {
+        let (s_name, t_name) = flow_terminals(py, &gr, source, sink)?;
+        if gr.is_directed() {
+            let dg = gr.digraph().expect("is_directed checked above");
+            py.allow_threads(|| fnx_algorithms::minimum_node_cut_directed(dg, &s_name, &t_name))
+        } else {
+            let inner = gr.undirected();
+            py.allow_threads(|| fnx_algorithms::minimum_node_cut(inner, &s_name, &t_name))
         }
-        py.allow_threads(|| fnx_algorithms::global_minimum_node_cut_directed(dg))
     } else {
-        let inner = gr.undirected();
-        if !py.allow_threads(|| fnx_algorithms::is_connected(inner).is_connected) {
-            return Err(NetworkXError::new_err("Input graph is not connected"));
+        if gr.is_directed() {
+            let dg = gr.digraph().expect("is_directed checked above");
+            if !py.allow_threads(|| fnx_algorithms::is_weakly_connected(dg)) {
+                return Err(NetworkXError::new_err("Input graph is not connected"));
+            }
+            py.allow_threads(|| fnx_algorithms::global_minimum_node_cut_directed(dg))
+        } else {
+            let inner = gr.undirected();
+            if !py.allow_threads(|| fnx_algorithms::is_connected(inner).is_connected) {
+                return Err(NetworkXError::new_err("Input graph is not connected"));
+            }
+            py.allow_threads(|| fnx_algorithms::global_minimum_node_cut(inner))
         }
-        py.allow_threads(|| fnx_algorithms::global_minimum_node_cut(inner))
     };
     Ok(result
         .cut_nodes
