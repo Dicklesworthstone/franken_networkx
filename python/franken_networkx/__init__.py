@@ -370,25 +370,195 @@ from franken_networkx._fnx import (
     tree_broadcast_time,
 )
 
-# Algorithm functions — traversal (BFS)
+# Algorithm functions — traversal (BFS) — wrapped for sort_neighbors support
 from franken_networkx._fnx import (
-    bfs_edges,
+    bfs_edges as _bfs_edges_raw,
     bfs_layers,
-    bfs_predecessors,
-    bfs_successors,
-    bfs_tree,
+    bfs_predecessors as _bfs_predecessors_raw,
+    bfs_successors as _bfs_successors_raw,
+    bfs_tree as _bfs_tree_raw,
     descendants_at_distance,
 )
 
-# Algorithm functions — traversal (DFS)
+# Algorithm functions — traversal (DFS) — wrapped for sort_neighbors support
 from franken_networkx._fnx import (
-    dfs_edges,
-    dfs_postorder_nodes,
-    dfs_predecessors,
-    dfs_preorder_nodes,
-    dfs_successors,
-    dfs_tree,
+    dfs_edges as _dfs_edges_raw,
+    dfs_postorder_nodes as _dfs_postorder_nodes_raw,
+    dfs_predecessors as _dfs_predecessors_raw,
+    dfs_preorder_nodes as _dfs_preorder_nodes_raw,
+    dfs_successors as _dfs_successors_raw,
+    dfs_tree as _dfs_tree_raw,
 )
+
+
+def _py_bfs_edges(G, source, depth_limit=None, sort_neighbors=None):
+    """Python-level BFS with sort_neighbors support."""
+    from collections import deque
+    visited = {source}
+    queue = deque([(source, 0)])
+    max_depth = depth_limit if depth_limit is not None else float('inf')
+    while queue:
+        node, depth = queue.popleft()
+        if depth >= max_depth:
+            continue
+        nbrs = list(G.neighbors(node))
+        if sort_neighbors is not None:
+            nbrs = list(sort_neighbors(nbrs))
+        for neighbor in nbrs:
+            if neighbor not in visited:
+                visited.add(neighbor)
+                yield (node, neighbor)
+                queue.append((neighbor, depth + 1))
+
+
+def _py_dfs_edges(G, source, depth_limit=None, sort_neighbors=None):
+    """Python-level DFS with sort_neighbors support."""
+    visited = set()
+    max_depth = depth_limit if depth_limit is not None else float('inf')
+    stack = [(source, 0, iter([source]))]
+    while stack:
+        parent, depth, children = stack[-1]
+        try:
+            child = next(children)
+        except StopIteration:
+            stack.pop()
+            continue
+        if child not in visited:
+            visited.add(child)
+            if parent != child:
+                yield (parent, child)
+            if depth < max_depth:
+                nbrs = list(G.neighbors(child))
+                if sort_neighbors is not None:
+                    nbrs = list(sort_neighbors(nbrs))
+                stack.append((child, depth + 1, iter(nbrs)))
+
+
+def bfs_edges(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
+    """Iterate edges in BFS order from source."""
+    if sort_neighbors is not None:
+        return list(_py_bfs_edges(G, source, depth_limit, sort_neighbors))
+    return _bfs_edges_raw(G, source, reverse=reverse, depth_limit=depth_limit)
+
+
+def dfs_edges(G, source=None, depth_limit=None, sort_neighbors=None):
+    """Iterate edges in DFS order from source."""
+    if sort_neighbors is not None:
+        if source is None:
+            source = next(iter(G.nodes()))
+        return list(_py_dfs_edges(G, source, depth_limit, sort_neighbors))
+    return _dfs_edges_raw(G, source=source, depth_limit=depth_limit)
+
+
+def bfs_predecessors(G, source, depth_limit=None, sort_neighbors=None):
+    """Return (node, predecessor) pairs from BFS."""
+    if sort_neighbors is not None:
+        preds = {}
+        for u, v in _py_bfs_edges(G, source, depth_limit, sort_neighbors):
+            preds[v] = u
+        return preds
+    return _bfs_predecessors_raw(G, source, depth_limit=depth_limit)
+
+
+def bfs_successors(G, source, depth_limit=None, sort_neighbors=None):
+    """Return (node, [successors]) pairs from BFS."""
+    if sort_neighbors is not None:
+        from collections import defaultdict
+        succs = defaultdict(list)
+        for u, v in _py_bfs_edges(G, source, depth_limit, sort_neighbors):
+            succs[u].append(v)
+        return dict(succs)
+    return _bfs_successors_raw(G, source, depth_limit=depth_limit)
+
+
+def bfs_tree(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
+    """Return BFS tree rooted at source."""
+    if sort_neighbors is not None:
+        T = Graph()
+        T.add_node(source)
+        for u, v in _py_bfs_edges(G, source, depth_limit, sort_neighbors):
+            T.add_edge(u, v)
+        return T
+    return _bfs_tree_raw(G, source, reverse=reverse, depth_limit=depth_limit)
+
+
+def dfs_predecessors(G, source=None, depth_limit=None, sort_neighbors=None):
+    """Return (node, predecessor) dict from DFS."""
+    if sort_neighbors is not None:
+        if source is None:
+            source = next(iter(G.nodes()))
+        preds = {}
+        for u, v in _py_dfs_edges(G, source, depth_limit, sort_neighbors):
+            preds[v] = u
+        return preds
+    return _dfs_predecessors_raw(G, source=source, depth_limit=depth_limit)
+
+
+def dfs_successors(G, source=None, depth_limit=None, sort_neighbors=None):
+    """Return (node, [successors]) dict from DFS."""
+    if sort_neighbors is not None:
+        if source is None:
+            source = next(iter(G.nodes()))
+        from collections import defaultdict
+        succs = defaultdict(list)
+        for u, v in _py_dfs_edges(G, source, depth_limit, sort_neighbors):
+            succs[u].append(v)
+        return dict(succs)
+    return _dfs_successors_raw(G, source=source, depth_limit=depth_limit)
+
+
+def dfs_preorder_nodes(G, source=None, depth_limit=None, sort_neighbors=None):
+    """Yield nodes in DFS preorder from source."""
+    if sort_neighbors is not None:
+        if source is None:
+            source = next(iter(G.nodes()))
+        yield source
+        for _, v in _py_dfs_edges(G, source, depth_limit, sort_neighbors):
+            yield v
+        return
+    yield from _dfs_preorder_nodes_raw(G, source=source, depth_limit=depth_limit)
+
+
+def dfs_postorder_nodes(G, source=None, depth_limit=None, sort_neighbors=None):
+    """Yield nodes in DFS postorder from source."""
+    if sort_neighbors is not None:
+        if source is None:
+            source = next(iter(G.nodes()))
+        # Post-order: children before parent
+        visited = set()
+        max_depth = depth_limit if depth_limit is not None else float('inf')
+        stack = [(source, False, 0)]
+        while stack:
+            node, processed, depth = stack.pop()
+            if processed:
+                yield node
+                continue
+            if node in visited:
+                continue
+            visited.add(node)
+            stack.append((node, True, depth))
+            if depth < max_depth:
+                nbrs = list(G.neighbors(node))
+                if sort_neighbors is not None:
+                    nbrs = list(sort_neighbors(nbrs))
+                for child in reversed(nbrs):
+                    if child not in visited:
+                        stack.append((child, False, depth + 1))
+        return
+    yield from _dfs_postorder_nodes_raw(G, source=source, depth_limit=depth_limit)
+
+
+def dfs_tree(G, source=None, depth_limit=None, sort_neighbors=None):
+    """Return DFS tree rooted at source."""
+    if sort_neighbors is not None:
+        if source is None:
+            source = next(iter(G.nodes()))
+        T = Graph() if not G.is_directed() else DiGraph()
+        T.add_node(source)
+        for u, v in _py_dfs_edges(G, source, depth_limit, sort_neighbors):
+            T.add_edge(u, v)
+        return T
+    return _dfs_tree_raw(G, source=source, depth_limit=depth_limit)
 
 # Algorithm functions — reciprocity (wrapped to match NetworkX API)
 from franken_networkx._fnx import overall_reciprocity
@@ -1573,13 +1743,20 @@ def minimum_edge_cut(G, s=None, t=None):
 
 def stochastic_graph(G, copy=True, weight='weight'):
     """Return the stochastic graph of *G* (row-normalized adjacency)."""
-    import networkx as nx
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
-
-    graph = nx.stochastic_graph(_to_nx(G), copy=copy, weight=weight)
-    return _from_nx_graph(graph, create_using=G if not copy else None)
+    graph = _copy_graph_shallow(G) if copy else G
+    degree = {node: 0 for node in graph.nodes()}
+    if graph.is_multigraph():
+        for u, _, _, attrs in graph.edges(keys=True, data=True):
+            degree[u] += attrs.get(weight, 1)
+    else:
+        for u, _, attrs in graph.edges(data=True):
+            degree[u] += attrs.get(weight, 1)
+    for u, v, attrs in graph.edges(data=True):
+        attrs[weight] = 0 if degree[u] == 0 else attrs.get(weight, 1) / degree[u]
+    return graph
 
 
 # ---------------------------------------------------------------------------
@@ -1693,27 +1870,66 @@ def line_graph(G, create_using=None):
     The line graph L(G) has a node for each edge in G. Two nodes in L(G)
     are adjacent iff the corresponding edges in G share an endpoint.
     """
-    import networkx as nx
+    graph = _empty_graph_from_create_using(create_using, default=G.__class__)
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+    if G.is_directed():
+        if G.is_multigraph():
+            edge_iter = G.edges(keys=True)
+        else:
+            edge_iter = G.edges()
 
-    graph = nx.line_graph(_to_nx(G), create_using=None)
-    return _from_nx_graph(graph, create_using=create_using)
+        for from_node in edge_iter:
+            graph.add_node(from_node)
+            head = from_node[1]
+            if G.is_multigraph():
+                for neighbor, keyed_attrs in G[head].items():
+                    for key in keyed_attrs:
+                        graph.add_edge(from_node, (head, neighbor, key))
+            else:
+                for neighbor in G[head]:
+                    graph.add_edge(from_node, (head, neighbor))
+        return graph
+
+    node_index = {node: index for index, node in enumerate(G)}
+
+    def canonical_edge(edge):
+        return tuple(sorted(edge[:2], key=node_index.get)) + edge[2:]
+
+    def edge_key(edge):
+        return node_index[edge[0]], node_index[edge[1]]
+
+    edges = set()
+    for node in G:
+        if G.is_multigraph():
+            incident = [
+                canonical_edge((node, neighbor, key))
+                for neighbor, keyed_attrs in G[node].items()
+                for key in keyed_attrs
+            ]
+        else:
+            incident = [canonical_edge((node, neighbor)) for neighbor in G[node]]
+        if len(incident) == 1:
+            graph.add_node(incident[0])
+        for index, left in enumerate(incident):
+            for right in incident[index + 1:]:
+                edges.add(tuple(sorted((left, right), key=edge_key)))
+
+    graph.add_edges_from(edges)
+    return graph
 
 
 def make_max_clique_graph(G, create_using=None):
     """Return the maximal-clique intersection graph of *G*."""
-    import networkx as nx
-
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
-
-    if create_using is None:
-        return _rust_make_max_clique_graph(G)
-
-    graph = nx.make_max_clique_graph(_to_nx(G), create_using=None)
-    return _from_nx_graph(graph, create_using=create_using)
+    graph = _empty_graph_from_create_using(create_using, default=G.__class__)
+    cliques = list(find_cliques(G))
+    for index in range(len(cliques)):
+        graph.add_node(index)
+    for left_index, left in enumerate(cliques):
+        left_nodes = set(left)
+        for right_index in range(left_index + 1, len(cliques)):
+            if left_nodes & set(cliques[right_index]):
+                graph.add_edge(left_index, right_index)
+    return graph
 
 
 def power(G, k):
@@ -1722,15 +1938,31 @@ def power(G, k):
     The k-th power G^k has the same nodes as G. Two nodes u, v are
     adjacent in G^k iff their shortest path distance in G is <= k.
     """
-    return _fnx.power_rust(G, k)
+    raw_graph = _fnx.power_rust(G, k)
+    canonical_to_node = {str(node): node for node in G.nodes()}
+
+    graph = G.__class__()
+    for raw_node in raw_graph.nodes():
+        graph.add_node(canonical_to_node.get(raw_node, raw_node))
+    if graph.is_multigraph():
+        for raw_u, raw_v, key in raw_graph.edges(keys=True):
+            graph.add_edge(
+                canonical_to_node.get(raw_u, raw_u),
+                canonical_to_node.get(raw_v, raw_v),
+                key=key,
+            )
+    else:
+        for raw_u, raw_v in raw_graph.edges():
+            graph.add_edge(
+                canonical_to_node.get(raw_u, raw_u),
+                canonical_to_node.get(raw_v, raw_v),
+            )
+    return graph
 
 
 def disjoint_union(G, H):
     """Return the disjoint union of *G* and *H*."""
-    import networkx as nx
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
-    return _from_nx_graph(nx.disjoint_union(_to_nx(G), _to_nx(H)))
+    return disjoint_union_all([G, H])
 
 
 def compose_all(graphs):
@@ -2542,10 +2774,20 @@ def intersection_all(graphs):
 
 def disjoint_union_all(graphs):
     """Return the disjoint union of all graphs in the iterable."""
-    import networkx as nx
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
-    return _from_nx_graph(nx.disjoint_union_all([_to_nx(g) for g in graphs]))
+    graphs = list(graphs)
+    if not graphs:
+        raise ValueError("cannot apply disjoint_union_all to an empty list")
+
+    _validate_same_graph_family(graphs)
+
+    relabeled = []
+    first_label = 0
+    for graph in graphs:
+        relabeled.append(
+            convert_node_labels_to_integers(graph, first_label=first_label),
+        )
+        first_label += len(graph)
+    return union_all(relabeled)
 
 
 def rescale_layout(pos, scale=1.0):
@@ -3465,6 +3707,10 @@ def load_centrality(G, v=None, cutoff=None, normalized=True, weight=None):
 
     For unweighted graphs, this is equivalent to betweenness centrality.
     """
+    if cutoff is None and weight is None:
+        result = betweenness_centrality(G, normalized=normalized)
+        return result if v is None else result[v]
+
     import networkx as nx
 
     from franken_networkx.drawing.layout import _to_nx
@@ -6078,7 +6324,12 @@ def percolation_centrality(G, attribute='percolation', states=None, weight=None)
 
     from franken_networkx.drawing.layout import _to_nx
 
-    return nx.percolation_centrality(_to_nx(G), states=states, weight=weight)
+    return nx.percolation_centrality(
+        _to_nx(G),
+        attribute=attribute,
+        states=states,
+        weight=weight,
+    )
 
 
 def information_centrality(G, weight=None, solver='full'):
@@ -6088,6 +6339,9 @@ def information_centrality(G, weight=None, solver='full'):
 
 def second_order_centrality(G):
     """Second-order centrality based on random walk standard deviation."""
+    if not G.is_directed() and not _graph_has_edge_attribute(G, "weight"):
+        return _fnx.second_order_centrality_rust(G)
+
     import networkx as nx
 
     from franken_networkx.drawing.layout import _to_nx
@@ -6150,6 +6404,13 @@ def trophic_incoherence_parameter(G, weight=None):
 
 def group_betweenness_centrality(G, C, normalized=True, weight=None, endpoints=False):
     """Betweenness centrality for a group of nodes C."""
+    if not G.is_directed() and weight is None and not endpoints:
+        value = _fnx.group_betweenness_centrality_rust(G, list(C))
+        if normalized:
+            return value
+        remaining = len(G) - len(set(C))
+        return value * remaining * (remaining - 1) / 2
+
     import networkx as nx
 
     from franken_networkx.drawing.layout import _to_nx
@@ -6161,7 +6422,14 @@ def group_betweenness_centrality(G, C, normalized=True, weight=None, endpoints=F
 
 def group_closeness_centrality(G, S, weight=None, H=None):
     """Closeness centrality for a group of nodes S."""
-    return _fnx.group_closeness_centrality_rust(G, list(S))
+    if not G.is_directed() and weight is None and H is None:
+        return _fnx.group_closeness_centrality_rust(G, list(S))
+
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+
+    return nx.group_closeness_centrality(_to_nx(G), S, weight=weight)
 
 
 # ---------------------------------------------------------------------------
@@ -6929,13 +7197,56 @@ def find_induced_nodes(G, s, d):
 
 
 def k_edge_augmentation(G, k, avail=None, weight=None, partial=False):
-    """Find edges to add for k-edge-connectivity."""
-    if k <= 1:
+    """Find edges to add to make G k-edge-connected.
+
+    Parameters
+    ----------
+    G : Graph
+    k : int
+        Target edge connectivity.
+    avail : iterable of edges, optional
+        Candidate edges. If None, any non-existing edge may be used.
+    weight : str, optional
+        Edge attribute for minimizing total weight of added edges.
+    partial : bool
+        If True, return best-effort even when full k-connectivity
+        is not achievable.
+
+    Returns
+    -------
+    list of (u, v) edges to add.
+
+    Notes
+    -----
+    For k=1 with no avail/weight, uses a fast native implementation
+    that connects components. For k>=2, delegates to NetworkX's
+    algorithm which handles bridge augmentation (k=2) and greedy
+    partial augmentation (k>=3).
+    """
+    if k <= 0:
+        return []
+
+    # Fast native path for k=1 (connect components)
+    if k == 1 and avail is None and weight is None:
         comps = list(connected_components(G))
         if len(comps) <= 1:
             return []
-        return [(list(comps[i])[0], list(comps[i + 1])[0]) for i in range(len(comps) - 1)]
-    return []
+        return [
+            (list(comps[i])[0], list(comps[i + 1])[0])
+            for i in range(len(comps) - 1)
+        ]
+
+    # For k>=2 or when avail/weight are specified, delegate to NetworkX
+    # which has optimized implementations for bridge augmentation (k=2)
+    # and greedy partial augmentation (k>=3).
+    import networkx as nx
+    from franken_networkx.drawing.layout import _to_nx
+
+    return list(
+        nx.k_edge_augmentation(
+            _to_nx(G), k, avail=avail, weight=weight, partial=partial,
+        )
+    )
 
 
 # Stochastic Block Models (br-1p2)
@@ -8007,21 +8318,32 @@ def relabel_nodes(G, mapping, copy=True):
         for n in G.nodes():
             new_n = _map.get(n, n)
             H.add_node(new_n, **G.nodes[n])
-        for u, v, d in G.edges(data=True):
-            H.add_edge(_map.get(u, u), _map.get(v, v), **d)
+        if G.is_multigraph():
+            for u, v, key, d in G.edges(keys=True, data=True):
+                H.add_edge(_map.get(u, u), _map.get(v, v), key=key, **d)
+        else:
+            for u, v, d in G.edges(data=True):
+                H.add_edge(_map.get(u, u), _map.get(v, v), **d)
         return H
     else:
         # In-place relabeling: collect all data, clear, re-add
         node_data = [(n, dict(G.nodes[n])) for n in G.nodes()]
-        edge_data = [(u, v, dict(d)) for u, v, d in G.edges(data=True)]
+        if G.is_multigraph():
+            edge_data = [(u, v, key, dict(d)) for u, v, key, d in G.edges(keys=True, data=True)]
+        else:
+            edge_data = [(u, v, dict(d)) for u, v, d in G.edges(data=True)]
         graph_attrs = dict(G.graph)
         G.clear()
         G.graph.update(graph_attrs)
         for n, attrs in node_data:
             new_n = _map.get(n, n)
             G.add_node(new_n, **attrs)
-        for u, v, d in edge_data:
-            G.add_edge(_map.get(u, u), _map.get(v, v), **d)
+        if G.is_multigraph():
+            for u, v, key, d in edge_data:
+                G.add_edge(_map.get(u, u), _map.get(v, v), key=key, **d)
+        else:
+            for u, v, d in edge_data:
+                G.add_edge(_map.get(u, u), _map.get(v, v), **d)
         return G
 
 
@@ -8046,10 +8368,10 @@ def to_dict_of_lists(G, nodelist=None):
     return _fnx.to_dict_of_lists_rust(G)
 
 
-def _empty_graph_from_create_using(create_using):
+def _empty_graph_from_create_using(create_using, default=Graph):
     """Normalize NetworkX-style ``create_using`` inputs to an empty graph."""
     if create_using is None:
-        return Graph()
+        return default()
 
     if isinstance(create_using, type):
         return create_using()
@@ -8058,6 +8380,43 @@ def _empty_graph_from_create_using(create_using):
     if hasattr(G, "clear"):
         G.clear()
     return G
+
+
+def _copy_graph_shallow(G):
+    """Return a shallow graph copy preserving graph, node, and edge attrs."""
+    H = G.__class__()
+    H.graph.update(dict(G.graph))
+    for node, attrs in G.nodes(data=True):
+        H.add_node(node, **dict(attrs))
+    if G.is_multigraph():
+        for u, v, key, attrs in G.edges(keys=True, data=True):
+            H.add_edge(u, v, key=key, **dict(attrs))
+    else:
+        for u, v, attrs in G.edges(data=True):
+            H.add_edge(u, v, **dict(attrs))
+    return H
+
+
+def _validate_same_graph_family(graphs):
+    """Raise on mixed directedness or multigraph-ness, matching NetworkX."""
+    if not graphs:
+        return
+
+    first = graphs[0]
+    directed = first.is_directed()
+    multigraph = first.is_multigraph()
+    for G in graphs[1:]:
+        if G.is_directed() != directed:
+            raise NetworkXError("All graphs must be directed or undirected.")
+        if G.is_multigraph() != multigraph:
+            raise NetworkXError("All graphs must be graphs or multigraphs.")
+
+
+def _graph_has_edge_attribute(G, name):
+    """Return True when any edge carries attribute ``name``."""
+    if G.is_multigraph():
+        return any(name in attrs for _, _, _, attrs in G.edges(keys=True, data=True))
+    return any(name in attrs for _, _, attrs in G.edges(data=True))
 
 
 def from_dict_of_lists(d, create_using=None):

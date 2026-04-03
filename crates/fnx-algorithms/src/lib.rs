@@ -16799,47 +16799,41 @@ pub fn single_source_dijkstra_full_directed(
         return (distances, HashMap::new());
     }
 
-    let mut settled = HashSet::<String>::new();
+    let mut pq = BinaryHeap::new();
+    let mut seq_counter: u64 = 0;
+
     distances.insert(source.to_owned(), 0.0);
     predecessors.insert(source.to_owned(), None);
+    seq_counter += 1;
+    pq.push(DijkstraState {
+        dist: 0.0,
+        seq: seq_counter,
+        node: source,
+    });
 
-    let ordered_nodes = digraph.nodes_ordered();
-
-    loop {
-        let mut current: Option<(&str, f64)> = None;
-        for &node in &ordered_nodes {
-            if settled.contains(node) {
-                continue;
-            }
-            let Some(&d) = distances.get(node) else {
-                continue;
-            };
-            match current {
-                None => current = Some((node, d)),
-                Some((_, best)) if d < best => current = Some((node, d)),
-                _ => {}
-            }
+    while let Some(DijkstraState {
+        dist: d, node: u, ..
+    }) = pq.pop()
+    {
+        if d > *distances.get(u).unwrap_or(&f64::INFINITY) + DISTANCE_COMPARISON_EPSILON {
+            continue;
         }
 
-        let Some((cur, cur_dist)) = current else {
-            break;
-        };
-        settled.insert(cur.to_owned());
+        if let Some(successors) = digraph.successors_iter(u) {
+            for v in successors {
+                let weight = digraph_edge_weight_or_default(digraph, u, v, weight_attr);
+                let next_dist = d + weight;
+                let current_dist_v = *distances.get(v).unwrap_or(&f64::INFINITY);
 
-        if let Some(neighbors) = digraph.successors(cur) {
-            for nbr in neighbors {
-                if settled.contains(nbr) {
-                    continue;
-                }
-                let w = digraph_edge_weight_or_default(digraph, cur, nbr, weight_attr);
-                let new_dist = cur_dist + w;
-                let update = match distances.get(nbr) {
-                    Some(&existing) => new_dist + DISTANCE_COMPARISON_EPSILON < existing,
-                    None => true,
-                };
-                if update {
-                    distances.insert(nbr.to_owned(), new_dist);
-                    predecessors.insert(nbr.to_owned(), Some(cur.to_owned()));
+                if next_dist < current_dist_v - DISTANCE_COMPARISON_EPSILON {
+                    distances.insert(v.to_owned(), next_dist);
+                    predecessors.insert(v.to_owned(), Some(u.to_owned()));
+                    seq_counter += 1;
+                    pq.push(DijkstraState {
+                        dist: next_dist,
+                        seq: seq_counter,
+                        node: v,
+                    });
                 }
             }
         }
@@ -17663,7 +17657,16 @@ pub fn in_degree_centrality(digraph: &DiGraph) -> Vec<CentralityScore> {
     if n == 0 {
         return Vec::new();
     }
-    let denom = if n <= 1 { 1.0 } else { (n - 1) as f64 };
+    if n == 1 {
+        return nodes
+            .iter()
+            .map(|&node| CentralityScore {
+                node: node.to_owned(),
+                score: 1.0,
+            })
+            .collect();
+    }
+    let denom = (n - 1) as f64;
     nodes
         .iter()
         .map(|&node| {

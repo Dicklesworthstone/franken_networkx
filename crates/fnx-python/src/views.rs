@@ -22,11 +22,24 @@ pub struct NodeView {
     data: NodeViewData,
 }
 
-#[derive(Clone)]
 enum NodeViewData {
     NoData,
     AllData,
     Attr(String),
+    AttrWithDefault(String, PyObject),
+}
+
+impl Clone for NodeViewData {
+    fn clone(&self) -> Self {
+        match self {
+            Self::NoData => Self::NoData,
+            Self::AllData => Self::AllData,
+            Self::Attr(s) => Self::Attr(s.clone()),
+            Self::AttrWithDefault(s, obj) => {
+                Python::with_gil(|py| Self::AttrWithDefault(s.clone(), obj.clone_ref(py)))
+            }
+        }
+    }
 }
 
 #[pymethods]
@@ -67,6 +80,18 @@ impl NodeView {
                         .get(*n)
                         .and_then(|dict| dict.bind(py).get_item(attr.as_str()).ok().flatten())
                         .map_or_else(|| py.None(), |v| v.unbind());
+                    tuple_object(py, &[py_key, val])
+                })
+                .collect::<PyResult<Vec<_>>>()?,
+            NodeViewData::AttrWithDefault(attr, default) => nodes
+                .iter()
+                .map(|n| {
+                    let py_key = g.py_node_key(py, n);
+                    let val = g
+                        .node_py_attrs
+                        .get(*n)
+                        .and_then(|dict| dict.bind(py).get_item(attr.as_str()).ok().flatten())
+                        .map_or_else(|| default.clone_ref(py), |v| v.unbind());
                     tuple_object(py, &[py_key, val])
                 })
                 .collect::<PyResult<Vec<_>>>()?,
@@ -114,8 +139,12 @@ impl NodeView {
         data: Option<&Bound<'_, PyAny>>,
         default: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<NodeView>> {
-        let _ = default; // reserved for future use
-        let view_data = parse_data_param(data)?;
+        let mut view_data = parse_data_param(data)?;
+        // When a specific attribute is requested and default is provided,
+        // upgrade to AttrWithDefault so iteration uses the default value
+        if let (Some(def), NodeViewData::Attr(attr)) = (default, &view_data) {
+            view_data = NodeViewData::AttrWithDefault(attr.clone(), def.clone().unbind());
+        }
         Py::new(
             py,
             NodeView {
@@ -183,6 +212,12 @@ impl EdgeView {
                             .map_or_else(|| py.None(), |v| v.unbind());
                         tuple_object(py, &[py_u, py_v, val])
                     }
+                    NodeViewData::AttrWithDefault(attr_name, def_val) => {
+                        let val = attrs
+                            .and_then(|d| d.bind(py).get_item(attr_name.as_str()).ok().flatten())
+                            .map_or_else(|| def_val.clone_ref(py), |v| v.unbind());
+                        tuple_object(py, &[py_u, py_v, val])
+                    }
                 }
             })
             .collect::<PyResult<Vec<_>>>()?;
@@ -230,7 +265,6 @@ impl EdgeView {
         nbunch: Option<&Bound<'_, PyAny>>,
         default: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<PyObject> {
-        let _ = default;
         // If nbunch is provided, filter edges
         if let Some(nb) = nbunch {
             let iter = PyIterator::from_object(nb)?;
@@ -240,7 +274,10 @@ impl EdgeView {
                 let item = item?;
                 node_set.insert(node_key_to_string(py, &item)?);
             }
-            let view_data = parse_data_param(data)?;
+            let mut view_data = parse_data_param(data)?;
+            if let (Some(def), NodeViewData::Attr(attr)) = (default, &view_data) {
+                view_data = NodeViewData::AttrWithDefault(attr.clone(), def.clone().unbind());
+            }
             let items: Vec<PyObject> = g
                 .inner
                 .edges_ordered()
@@ -268,12 +305,23 @@ impl EdgeView {
                                 .map_or_else(|| py.None(), |v| v.unbind());
                             tuple_object(py, &[py_u, py_v, val])
                         }
+                        NodeViewData::AttrWithDefault(attr_name, def_val) => {
+                            let val = attrs
+                                .and_then(|d| {
+                                    d.bind(py).get_item(attr_name.as_str()).ok().flatten()
+                                })
+                                .map_or_else(|| def_val.clone_ref(py), |v| v.unbind());
+                            tuple_object(py, &[py_u, py_v, val])
+                        }
                     }
                 })
                 .collect::<PyResult<Vec<_>>>()?;
             Ok(items.into_pyobject(py)?.into_any().unbind())
         } else {
-            let view_data = parse_data_param(data)?;
+            let mut view_data = parse_data_param(data)?;
+            if let (Some(def), NodeViewData::Attr(attr)) = (default, &view_data) {
+                view_data = NodeViewData::AttrWithDefault(attr.clone(), def.clone().unbind());
+            }
             let view = Py::new(
                 py,
                 EdgeView {

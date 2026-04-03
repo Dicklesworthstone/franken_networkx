@@ -2625,11 +2625,24 @@ impl PyDiGraph {
 // DiGraph views
 // ===========================================================================
 
-#[derive(Clone)]
 enum ViewData {
     NoData,
     AllData,
     Attr(String),
+    AttrWithDefault(String, PyObject),
+}
+
+impl Clone for ViewData {
+    fn clone(&self) -> Self {
+        match self {
+            Self::NoData => Self::NoData,
+            Self::AllData => Self::AllData,
+            Self::Attr(s) => Self::Attr(s.clone()),
+            Self::AttrWithDefault(s, obj) => {
+                Python::with_gil(|py| Self::AttrWithDefault(s.clone(), obj.clone_ref(py)))
+            }
+        }
+    }
 }
 
 fn parse_view_data(data: Option<&Bound<'_, PyAny>>) -> PyResult<ViewData> {
@@ -2703,6 +2716,18 @@ impl DiNodeView {
                     tuple_object(py, &[py_key, val])
                 })
                 .collect::<PyResult<Vec<_>>>()?,
+            ViewData::AttrWithDefault(attr, def_val) => nodes
+                .iter()
+                .map(|n| {
+                    let py_key = g.py_node_key(py, n);
+                    let val = g
+                        .node_py_attrs
+                        .get(*n)
+                        .and_then(|dict| dict.bind(py).get_item(attr.as_str()).ok().flatten())
+                        .map_or_else(|| def_val.clone_ref(py), |v| v.unbind());
+                    tuple_object(py, &[py_key, val])
+                })
+                .collect::<PyResult<Vec<_>>>()?,
         };
         Py::new(
             py,
@@ -2734,8 +2759,10 @@ impl DiNodeView {
         data: Option<&Bound<'_, PyAny>>,
         default: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<DiNodeView>> {
-        let _ = default;
-        let view_data = parse_view_data(data)?;
+        let mut view_data = parse_view_data(data)?;
+        if let (Some(def), ViewData::Attr(attr)) = (default, &view_data) {
+            view_data = ViewData::AttrWithDefault(attr.clone(), def.clone().unbind());
+        }
         Py::new(
             py,
             DiNodeView {
@@ -2797,6 +2824,15 @@ impl DiEdgeView {
                             .map_or_else(|| py.None(), |v| v.unbind());
                         tuple_object(py, &[py_u, py_v, val])
                     }
+                    ViewData::AttrWithDefault(attr_name, def_val) => {
+                        let val = attrs
+                            .bind(py)
+                            .get_item(attr_name.as_str())
+                            .ok()
+                            .flatten()
+                            .map_or_else(|| def_val.clone_ref(py), |v| v.unbind());
+                        tuple_object(py, &[py_u, py_v, val])
+                    }
                 }
             })
             .collect::<PyResult<Vec<_>>>()?;
@@ -2836,7 +2872,6 @@ impl DiEdgeView {
         nbunch: Option<&Bound<'_, PyAny>>,
         default: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<PyObject> {
-        let _ = default;
         if let Some(nb) = nbunch {
             let iter = PyIterator::from_object(nb)?;
             let g = self.graph.borrow(py);
@@ -2845,7 +2880,10 @@ impl DiEdgeView {
                 let item = item?;
                 node_set.insert(node_key_to_string(py, &item)?);
             }
-            let view_data = parse_view_data(data)?;
+            let mut view_data = parse_view_data(data)?;
+            if let (Some(def), ViewData::Attr(attr)) = (default, &view_data) {
+                view_data = ViewData::AttrWithDefault(attr.clone(), def.clone().unbind());
+            }
             let items: Vec<PyObject> = g
                 .edge_py_attrs
                 .iter()
@@ -2868,12 +2906,24 @@ impl DiEdgeView {
                                 .map_or_else(|| py.None(), |v| v.unbind());
                             tuple_object(py, &[py_u, py_v, val])
                         }
+                        ViewData::AttrWithDefault(attr_name, def_val) => {
+                            let val = attrs
+                                .bind(py)
+                                .get_item(attr_name.as_str())
+                                .ok()
+                                .flatten()
+                                .map_or_else(|| def_val.clone_ref(py), |v| v.unbind());
+                            tuple_object(py, &[py_u, py_v, val])
+                        }
                     }
                 })
                 .collect::<PyResult<Vec<_>>>()?;
             Ok(items.into_pyobject(py)?.into_any().unbind())
         } else {
-            let view_data = parse_view_data(data)?;
+            let mut view_data = parse_view_data(data)?;
+            if let (Some(def), ViewData::Attr(attr)) = (default, &view_data) {
+                view_data = ViewData::AttrWithDefault(attr.clone(), def.clone().unbind());
+            }
             let view = Py::new(
                 py,
                 DiEdgeView {

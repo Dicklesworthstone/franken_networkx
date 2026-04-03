@@ -520,15 +520,11 @@ fn compute_single_shortest_path(
         }
         Some(w) => match method {
             "dijkstra" => {
-                let result = py.allow_threads(|| {
-                    fnx_algorithms::shortest_path_weighted(inner, source, target, w)
-                });
+                let result = fnx_algorithms::shortest_path_weighted(inner, source, target, w);
                 Ok(result.path)
             }
             "bellman-ford" => {
-                let result = py.allow_threads(|| {
-                    fnx_algorithms::bellman_ford_shortest_paths(inner, source, w)
-                });
+                let result = fnx_algorithms::bellman_ford_shortest_paths(inner, source, w);
                 if result.negative_cycle_detected {
                     return Err(crate::NetworkXUnbounded::new_err(
                         "Negative cost cycle detected.",
@@ -567,7 +563,7 @@ fn compute_single_shortest_path(
 }
 
 fn compute_single_shortest_path_directed(
-    py: Python<'_>,
+    _py: Python<'_>,
     inner: &fnx_classes::digraph::DiGraph,
     source: &str,
     target: &str,
@@ -576,22 +572,17 @@ fn compute_single_shortest_path_directed(
 ) -> PyResult<Option<Vec<String>>> {
     match weight {
         None => {
-            let result = py.allow_threads(|| {
-                fnx_algorithms::shortest_path_unweighted_directed(inner, source, target)
-            });
+            let result = fnx_algorithms::shortest_path_unweighted_directed(inner, source, target);
             Ok(result.path)
         }
         Some(w) => match method {
             "dijkstra" => {
-                let result = py.allow_threads(|| {
-                    fnx_algorithms::shortest_path_weighted_directed(inner, source, target, w)
-                });
+                let result =
+                    fnx_algorithms::shortest_path_weighted_directed(inner, source, target, w);
                 Ok(result.path)
             }
             "bellman-ford" => {
-                let result = py.allow_threads(|| {
-                    fnx_algorithms::bellman_ford_shortest_paths_directed(inner, source, w)
-                });
+                let result = fnx_algorithms::bellman_ford_shortest_paths_directed(inner, source, w);
                 if result.negative_cycle_detected {
                     return Err(crate::NetworkXUnbounded::new_err(
                         "Negative cost cycle detected.",
@@ -641,49 +632,44 @@ fn compute_single_source_shortest_paths(
             Ok(py
                 .allow_threads(|| fnx_algorithms::single_source_shortest_path(inner, source, None)))
         }
-        Some(w) => {
-            match method {
-                "dijkstra" => Ok(py.allow_threads(|| {
-                    fnx_algorithms::single_source_dijkstra_path(inner, source, w)
-                })),
-                "bellman-ford" => {
-                    let result = py.allow_threads(|| {
-                        fnx_algorithms::single_source_bellman_ford_path(inner, source, w)
-                    });
-                    match result {
-                        Some(paths) => Ok(paths),
-                        None => Err(crate::NetworkXUnbounded::new_err(
-                            "Negative cost cycle detected.",
-                        )),
-                    }
+        Some(w) => match method {
+            "dijkstra" => Ok(fnx_algorithms::single_source_dijkstra_path(
+                inner, source, w,
+            )),
+            "bellman-ford" => {
+                let result = fnx_algorithms::single_source_bellman_ford_path(inner, source, w);
+                match result {
+                    Some(paths) => Ok(paths),
+                    None => Err(crate::NetworkXUnbounded::new_err(
+                        "Negative cost cycle detected.",
+                    )),
                 }
-                other => Err(NetworkXError::new_err(format!(
-                    "Method {other} not supported for shortest_path."
-                ))),
             }
-        }
+            other => Err(NetworkXError::new_err(format!(
+                "Method {other} not supported for shortest_path."
+            ))),
+        },
     }
 }
 
 fn compute_single_source_shortest_paths_directed(
-    py: Python<'_>,
+    _py: Python<'_>,
     inner: &fnx_classes::digraph::DiGraph,
     source: &str,
     weight: Option<&str>,
     method: &str,
 ) -> PyResult<std::collections::HashMap<String, Vec<String>>> {
     match weight {
-        None => Ok(py.allow_threads(|| {
-            fnx_algorithms::single_source_shortest_path_directed(inner, source, None)
-        })),
+        None => Ok(fnx_algorithms::single_source_shortest_path_directed(
+            inner, source, None,
+        )),
         Some(w) => match method {
-            "dijkstra" => Ok(py.allow_threads(|| {
-                fnx_algorithms::single_source_dijkstra_path_directed(inner, source, w)
-            })),
+            "dijkstra" => Ok(fnx_algorithms::single_source_dijkstra_path_directed(
+                inner, source, w,
+            )),
             "bellman-ford" => {
-                let result = py.allow_threads(|| {
-                    fnx_algorithms::single_source_bellman_ford_path_directed(inner, source, w)
-                });
+                let result =
+                    fnx_algorithms::single_source_bellman_ford_path_directed(inner, source, w);
                 match result {
                     Some(paths) => Ok(paths),
                     None => Err(crate::NetworkXUnbounded::new_err(
@@ -1645,19 +1631,15 @@ pub fn dijkstra_path(
     validate_node(&gr, &t, target)?;
 
     let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
-        py.allow_threads(|| {
-            fnx_algorithms::shortest_path_weighted_directed(
-                weighted_projection.as_ref(),
-                &s,
-                &t,
-                weight,
-            )
-        })
+        fnx_algorithms::shortest_path_weighted_directed(
+            weighted_projection.as_ref(),
+            &s,
+            &t,
+            weight,
+        )
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
-        py.allow_threads(|| {
-            fnx_algorithms::shortest_path_weighted(weighted_projection.as_ref(), &s, &t, weight)
-        })
+        fnx_algorithms::shortest_path_weighted(weighted_projection.as_ref(), &s, &t, weight)
     };
     match result.path {
         Some(p) => Ok(p.iter().map(|n| gr.py_node_key(py, n)).collect()),
@@ -1688,18 +1670,14 @@ pub fn bellman_ford_path(
     validate_node(&gr, &t, target)?;
 
     let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
-        py.allow_threads(|| {
-            fnx_algorithms::bellman_ford_shortest_paths_directed(
-                weighted_projection.as_ref(),
-                &s,
-                weight,
-            )
-        })
+        fnx_algorithms::bellman_ford_shortest_paths_directed(
+            weighted_projection.as_ref(),
+            &s,
+            weight,
+        )
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
-        py.allow_threads(|| {
-            fnx_algorithms::bellman_ford_shortest_paths(weighted_projection.as_ref(), &s, weight)
-        })
+        fnx_algorithms::bellman_ford_shortest_paths(weighted_projection.as_ref(), &s, weight)
     };
     if result.negative_cycle_detected {
         return Err(crate::NetworkXUnbounded::new_err(
@@ -1764,22 +1742,14 @@ pub fn multi_source_dijkstra(
     let source_refs: Vec<&str> = source_strs.iter().map(String::as_str).collect();
 
     let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
-        py.allow_threads(|| {
-            fnx_algorithms::multi_source_dijkstra_directed(
-                weighted_projection.as_ref(),
-                &source_refs,
-                weight,
-            )
-        })
+        fnx_algorithms::multi_source_dijkstra_directed(
+            weighted_projection.as_ref(),
+            &source_refs,
+            weight,
+        )
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
-        py.allow_threads(|| {
-            fnx_algorithms::multi_source_dijkstra(
-                weighted_projection.as_ref(),
-                &source_refs,
-                weight,
-            )
-        })
+        fnx_algorithms::multi_source_dijkstra(weighted_projection.as_ref(), &source_refs, weight)
     };
 
     let dist_dict = PyDict::new(py);
@@ -1947,9 +1917,7 @@ pub fn node_connectivity(
         let (s_name, t_name) = flow_terminals(py, &gr, source, sink)?;
         if gr.is_directed() {
             let dg = gr.digraph().expect("is_directed checked above");
-            Ok(py.allow_threads(|| {
-                fnx_algorithms::node_connectivity_directed(dg, &s_name, &t_name).value
-            }))
+            Ok(fnx_algorithms::node_connectivity_directed(dg, &s_name, &t_name).value)
         } else {
             let inner = gr.undirected();
             Ok(py
@@ -2392,14 +2360,10 @@ pub fn pagerank(
         _ => {
             if gr.is_directed() {
                 let inner = gr.digraph().unwrap();
-                py.allow_threads(|| {
-                    fnx_algorithms::pagerank_with_params(inner, alpha, max_iter, tol)
-                })
+                fnx_algorithms::pagerank_with_params(inner, alpha, max_iter, tol)
             } else {
                 let inner = gr.undirected();
-                py.allow_threads(|| {
-                    fnx_algorithms::pagerank_with_params(inner, alpha, max_iter, tol)
-                })
+                fnx_algorithms::pagerank_with_params(inner, alpha, max_iter, tol)
             }
         }
     };
@@ -3905,9 +3869,7 @@ pub fn bfs_edges(
         _ => {
             if gr.is_directed() {
                 let inner = gr.digraph().unwrap();
-                py.allow_threads(|| {
-                    fnx_algorithms::bfs_edges_directed(inner, &source_key, depth_limit)
-                })
+                fnx_algorithms::bfs_edges_directed(inner, &source_key, depth_limit)
             } else {
                 let inner = gr.undirected();
 
@@ -3957,9 +3919,7 @@ pub fn bfs_tree(
         _ => {
             if gr.is_directed() {
                 let inner = gr.digraph().unwrap();
-                py.allow_threads(|| {
-                    fnx_algorithms::bfs_edges_directed(inner, &source_key, depth_limit)
-                })
+                fnx_algorithms::bfs_edges_directed(inner, &source_key, depth_limit)
             } else {
                 let inner = gr.undirected();
 
@@ -4014,9 +3974,9 @@ pub fn bfs_predecessors(
     }
 
     let preds = match &gr {
-        GraphRef::Directed { dg, .. } => py.allow_threads(|| {
+        GraphRef::Directed { dg, .. } => {
             fnx_algorithms::bfs_predecessors_directed(&dg.inner, &source_key, depth_limit)
-        }),
+        }
 
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
@@ -4033,9 +3993,7 @@ pub fn bfs_predecessors(
             } else {
                 let inner = gr.undirected();
 
-                py.allow_threads(|| {
-                    fnx_algorithms::bfs_predecessors(inner, &source_key, depth_limit)
-                })
+                fnx_algorithms::bfs_predecessors(inner, &source_key, depth_limit)
             }
         }
     };
@@ -4067,9 +4025,9 @@ pub fn bfs_successors(
     }
 
     let succs = match &gr {
-        GraphRef::Directed { dg, .. } => py.allow_threads(|| {
+        GraphRef::Directed { dg, .. } => {
             fnx_algorithms::bfs_successors_directed(&dg.inner, &source_key, depth_limit)
-        }),
+        }
 
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
@@ -4117,7 +4075,7 @@ pub fn bfs_layers(
         // Single source
         let layers = match &gr {
             GraphRef::Directed { dg, .. } => {
-                py.allow_threads(|| fnx_algorithms::bfs_layers_directed(&dg.inner, &source_key))
+                fnx_algorithms::bfs_layers_directed(&dg.inner, &source_key)
             }
 
             GraphRef::Undirected(pg) => {
@@ -4183,16 +4141,14 @@ pub fn descendants_at_distance(
     }
 
     let nodes = match &gr {
-        GraphRef::Directed { dg, .. } => py.allow_threads(|| {
+        GraphRef::Directed { dg, .. } => {
             fnx_algorithms::descendants_at_distance_directed(&dg.inner, &source_key, distance)
-        }),
+        }
 
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
 
-            py.allow_threads(|| {
-                fnx_algorithms::descendants_at_distance(inner, &source_key, distance)
-            })
+            fnx_algorithms::descendants_at_distance(inner, &source_key, distance)
         }
         _ => {
             if gr.is_directed() {
@@ -4204,9 +4160,7 @@ pub fn descendants_at_distance(
             } else {
                 let inner = gr.undirected();
 
-                py.allow_threads(|| {
-                    fnx_algorithms::descendants_at_distance(inner, &source_key, distance)
-                })
+                fnx_algorithms::descendants_at_distance(inner, &source_key, distance)
             }
         }
     };
@@ -4254,9 +4208,9 @@ pub fn dfs_edges(
     };
 
     let edges = match &gr {
-        GraphRef::Directed { dg, .. } => py.allow_threads(|| {
+        GraphRef::Directed { dg, .. } => {
             fnx_algorithms::dfs_edges_directed(&dg.inner, &source_key, depth_limit)
-        }),
+        }
 
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
@@ -4363,9 +4317,9 @@ pub fn dfs_predecessors(
     };
 
     let preds = match &gr {
-        GraphRef::Directed { dg, .. } => py.allow_threads(|| {
+        GraphRef::Directed { dg, .. } => {
             fnx_algorithms::dfs_predecessors_directed(&dg.inner, &source_key, depth_limit)
-        }),
+        }
 
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
@@ -4382,9 +4336,7 @@ pub fn dfs_predecessors(
             } else {
                 let inner = gr.undirected();
 
-                py.allow_threads(|| {
-                    fnx_algorithms::dfs_predecessors(inner, &source_key, depth_limit)
-                })
+                fnx_algorithms::dfs_predecessors(inner, &source_key, depth_limit)
             }
         }
     };
@@ -4430,9 +4382,9 @@ pub fn dfs_successors(
     };
 
     let succs = match &gr {
-        GraphRef::Directed { dg, .. } => py.allow_threads(|| {
+        GraphRef::Directed { dg, .. } => {
             fnx_algorithms::dfs_successors_directed(&dg.inner, &source_key, depth_limit)
-        }),
+        }
 
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
@@ -4496,9 +4448,9 @@ pub fn dfs_preorder_nodes(
     };
 
     let nodes = match &gr {
-        GraphRef::Directed { dg, .. } => py.allow_threads(|| {
+        GraphRef::Directed { dg, .. } => {
             fnx_algorithms::dfs_preorder_nodes_directed(&dg.inner, &source_key, depth_limit)
-        }),
+        }
 
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
@@ -4515,9 +4467,7 @@ pub fn dfs_preorder_nodes(
             } else {
                 let inner = gr.undirected();
 
-                py.allow_threads(|| {
-                    fnx_algorithms::dfs_preorder_nodes(inner, &source_key, depth_limit)
-                })
+                fnx_algorithms::dfs_preorder_nodes(inner, &source_key, depth_limit)
             }
         }
     };
@@ -4559,16 +4509,14 @@ pub fn dfs_postorder_nodes(
     };
 
     let nodes = match &gr {
-        GraphRef::Directed { dg, .. } => py.allow_threads(|| {
+        GraphRef::Directed { dg, .. } => {
             fnx_algorithms::dfs_postorder_nodes_directed(&dg.inner, &source_key, depth_limit)
-        }),
+        }
 
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
 
-            py.allow_threads(|| {
-                fnx_algorithms::dfs_postorder_nodes(inner, &source_key, depth_limit)
-            })
+            fnx_algorithms::dfs_postorder_nodes(inner, &source_key, depth_limit)
         }
         _ => {
             if gr.is_directed() {
@@ -4580,9 +4528,7 @@ pub fn dfs_postorder_nodes(
             } else {
                 let inner = gr.undirected();
 
-                py.allow_threads(|| {
-                    fnx_algorithms::dfs_postorder_nodes(inner, &source_key, depth_limit)
-                })
+                fnx_algorithms::dfs_postorder_nodes(inner, &source_key, depth_limit)
             }
         }
     };
@@ -4839,9 +4785,7 @@ pub fn all_shortest_paths(
             }
             (None, _) => {
                 let dg_ref = gr.digraph().expect("is_directed checked above");
-                py.allow_threads(|| {
-                    fnx_algorithms::all_shortest_paths_directed(dg_ref, &source_key, &target_key)
-                })
+                fnx_algorithms::all_shortest_paths_directed(dg_ref, &source_key, &target_key)
             }
         }
     } else {
@@ -4852,12 +4796,12 @@ pub fn all_shortest_paths(
                     "bellman-ford method for all_shortest_paths on undirected graphs is not supported (negative weights create implicit negative cycles)",
                 ));
             }
-            (Some(w), _) => py.allow_threads(|| {
+            (Some(w), _) => {
                 fnx_algorithms::all_shortest_paths_weighted(inner, &source_key, &target_key, w)
-            }),
-            (None, "unweighted") | (None, _) => py.allow_threads(|| {
+            }
+            (None, "unweighted") | (None, _) => {
                 fnx_algorithms::all_shortest_paths(inner, &source_key, &target_key)
-            }),
+            }
         }
     };
 
@@ -4886,7 +4830,7 @@ pub fn all_shortest_paths(
 #[pyfunction]
 pub fn complement(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
     if let Ok(pg) = g.extract::<PyRef<'_, PyGraph>>() {
-        let result = py.allow_threads(|| fnx_algorithms::complement(&pg.inner));
+        let result = fnx_algorithms::complement(&pg.inner);
 
         let mut py_graph = PyGraph::new_empty(py)?;
         // Add nodes
@@ -4909,7 +4853,7 @@ pub fn complement(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
 
         Ok(py_graph.into_pyobject(py)?.into_any().unbind())
     } else if let Ok(dg) = g.extract::<PyRef<'_, PyDiGraph>>() {
-        let result = py.allow_threads(|| fnx_algorithms::complement_directed(&dg.inner));
+        let result = fnx_algorithms::complement_directed(&dg.inner);
 
         let mut py_dg = PyDiGraph::new_empty(py)?;
         for node in result.nodes_ordered() {
@@ -5489,13 +5433,13 @@ pub fn grid_2d_graph(py: Python<'_>, m: usize, n: usize) -> PyResult<PyObject> {
 
 #[pyfunction]
 pub fn null_graph(py: Python<'_>) -> PyResult<PyObject> {
-    let result = py.allow_threads(|| fnx_algorithms::null_graph());
+    let result = py.allow_threads(fnx_algorithms::null_graph);
     rust_graph_to_py_standalone(py, &result)
 }
 
 #[pyfunction]
 pub fn trivial_graph(py: Python<'_>) -> PyResult<PyObject> {
-    let result = py.allow_threads(|| fnx_algorithms::trivial_graph());
+    let result = py.allow_threads(fnx_algorithms::trivial_graph);
     rust_graph_to_py_standalone(py, &result)
 }
 
@@ -5589,9 +5533,7 @@ pub fn single_source_shortest_path_length(
     require_undirected(&gr, "single_source_shortest_path_length")?;
     let inner = gr.undirected();
     let source_key = node_key_to_string(py, source)?;
-    let result = py.allow_threads(|| {
-        fnx_algorithms::single_source_shortest_path_length(inner, &source_key, cutoff)
-    });
+    let result = fnx_algorithms::single_source_shortest_path_length(inner, &source_key, cutoff);
     let dict = pyo3::types::PyDict::new(py);
     for (node, length) in &result {
         dict.set_item(gr.py_node_key(py, node), *length)?;
@@ -5661,7 +5603,7 @@ pub fn strongly_connected_components(
 /// Return the number of strongly connected components.
 #[pyfunction]
 pub fn number_strongly_connected_components(
-    _py: Python<'_>,
+    py: Python<'_>,
     g: &Bound<'_, PyAny>,
 ) -> PyResult<usize> {
     let gr = extract_graph(g)?;
@@ -5770,10 +5712,7 @@ pub fn weakly_connected_components(
 
 /// Return the number of weakly connected components.
 #[pyfunction]
-pub fn number_weakly_connected_components(
-    _py: Python<'_>,
-    g: &Bound<'_, PyAny>,
-) -> PyResult<usize> {
+pub fn number_weakly_connected_components(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usize> {
     let gr = extract_graph(g)?;
     if !gr.is_directed() {
         return Err(crate::NetworkXNotImplemented::new_err(
@@ -5894,7 +5833,7 @@ pub fn transitive_reduction(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py
 ///
 /// Matches `networkx.overall_reciprocity(G)`.
 #[pyfunction]
-pub fn overall_reciprocity(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
+pub fn overall_reciprocity(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
     let gr = extract_graph(g)?;
     if !gr.is_directed() {
         return Err(NetworkXError::new_err(
@@ -6559,9 +6498,7 @@ fn astar_path_length(
         };
         fnx_algorithms::astar_path_length(inner, &src_key, &tgt_key, weight, Some(&h))
     } else {
-        py.allow_threads(|| {
-            fnx_algorithms::astar_path_length(inner, &src_key, &tgt_key, weight, None)
-        })
+        fnx_algorithms::astar_path_length(inner, &src_key, &tgt_key, weight, None)
     };
 
     match result {
@@ -6980,7 +6917,7 @@ fn barycenter(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
 /// Return True if `G` is an arborescence (a directed rooted tree).
 #[pyfunction]
 #[pyo3(signature = (g,))]
-fn is_arborescence(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
+fn is_arborescence(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
     if !gr.is_directed() {
         return Ok(false);
@@ -6994,7 +6931,7 @@ fn is_arborescence(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
 /// Return True if `G` is a branching (a directed forest).
 #[pyfunction]
 #[pyo3(signature = (g,))]
-fn is_branching(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
+fn is_branching(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
     if !gr.is_directed() {
         return Ok(false);
@@ -7017,12 +6954,8 @@ fn is_isolate(py: Python<'_>, g: &Bound<'_, PyAny>, node: &Bound<'_, PyAny>) -> 
     let key = node_key_to_string(py, node)?;
     validate_node(&gr, &key, node)?;
     match &gr {
-        GraphRef::Undirected(pg) => {
-            Ok(py.allow_threads(|| fnx_algorithms::is_isolate(&pg.inner, &key)))
-        }
-        GraphRef::Directed { dg, .. } => {
-            Ok(py.allow_threads(|| fnx_algorithms::is_isolate_directed(&dg.inner, &key)))
-        }
+        GraphRef::Undirected(pg) => Ok(fnx_algorithms::is_isolate(&pg.inner, &key)),
+        GraphRef::Directed { dg, .. } => Ok(fnx_algorithms::is_isolate_directed(&dg.inner, &key)),
         _ => {
             if gr.is_directed() {
                 Ok(fnx_algorithms::is_isolate_directed(
@@ -7030,7 +6963,7 @@ fn is_isolate(py: Python<'_>, g: &Bound<'_, PyAny>, node: &Bound<'_, PyAny>) -> 
                     &key,
                 ))
             } else {
-                Ok(py.allow_threads(|| fnx_algorithms::is_isolate(gr.undirected()), &key))
+                Ok(fnx_algorithms::is_isolate(gr.undirected(), &key))
             }
         }
     }
@@ -7042,15 +6975,13 @@ fn is_isolate(py: Python<'_>, g: &Bound<'_, PyAny>, node: &Bound<'_, PyAny>) -> 
 fn isolates(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
     let gr = extract_graph(g)?;
     let result = match &gr {
-        GraphRef::Undirected(pg) => py.allow_threads(|| fnx_algorithms::isolates(&pg.inner)),
-        GraphRef::Directed { dg, .. } => {
-            py.allow_threads(|| fnx_algorithms::isolates_directed(&dg.inner))
-        }
+        GraphRef::Undirected(pg) => fnx_algorithms::isolates(&pg.inner),
+        GraphRef::Directed { dg, .. } => fnx_algorithms::isolates_directed(&dg.inner),
         _ => {
             if gr.is_directed() {
-                py.allow_threads(|| fnx_algorithms::isolates_directed(gr.digraph()).unwrap())
+                fnx_algorithms::isolates_directed(gr.digraph().unwrap())
             } else {
-                py.allow_threads(|| fnx_algorithms::isolates(gr.undirected()))
+                fnx_algorithms::isolates(gr.undirected())
             }
         }
     };
@@ -7063,19 +6994,15 @@ fn isolates(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
 fn number_of_isolates(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usize> {
     let gr = extract_graph(g)?;
     match &gr {
-        GraphRef::Undirected(pg) => {
-            Ok(py.allow_threads(|| fnx_algorithms::number_of_isolates(&pg.inner)))
-        }
-        GraphRef::Directed { dg, .. } => {
-            Ok(py.allow_threads(|| fnx_algorithms::number_of_isolates_directed(&dg.inner)))
-        }
+        GraphRef::Undirected(pg) => Ok(fnx_algorithms::number_of_isolates(&pg.inner)),
+        GraphRef::Directed { dg, .. } => Ok(fnx_algorithms::number_of_isolates_directed(&dg.inner)),
         _ => {
             if gr.is_directed() {
                 Ok(fnx_algorithms::number_of_isolates_directed(
                     gr.digraph().unwrap(),
                 ))
             } else {
-                Ok(py.allow_threads(|| fnx_algorithms::number_of_isolates(gr.undirected())))
+                Ok(fnx_algorithms::number_of_isolates(gr.undirected()))
             }
         }
     }
@@ -7110,12 +7037,12 @@ fn edge_boundary(
     let s1_refs: Vec<&str> = s1.iter().map(|s| s.as_str()).collect();
     let s2_refs: Option<Vec<&str>> = s2.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect());
     let result = match &gr {
-        GraphRef::Undirected(pg) => py.allow_threads(|| {
+        GraphRef::Undirected(pg) => {
             fnx_algorithms::edge_boundary(&pg.inner, &s1_refs, s2_refs.as_deref())
-        }),
-        GraphRef::Directed { dg, .. } => py.allow_threads(|| {
+        }
+        GraphRef::Directed { dg, .. } => {
             fnx_algorithms::edge_boundary_directed(&dg.inner, &s1_refs, s2_refs.as_deref())
-        }),
+        }
         _ => {
             if gr.is_directed() {
                 fnx_algorithms::edge_boundary_directed(
@@ -7124,11 +7051,7 @@ fn edge_boundary(
                     s2_refs.as_deref(),
                 )
             } else {
-                py.allow_threads(
-                    || fnx_algorithms::edge_boundary(gr.undirected()),
-                    &s1_refs,
-                    s2_refs.as_deref(),
-                )
+                fnx_algorithms::edge_boundary(gr.undirected(), &s1_refs, s2_refs.as_deref())
             }
         }
     };
@@ -7163,12 +7086,12 @@ fn node_boundary(
     let s1_refs: Vec<&str> = s1.iter().map(|s| s.as_str()).collect();
     let s2_refs: Option<Vec<&str>> = s2.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect());
     let result = match &gr {
-        GraphRef::Undirected(pg) => py.allow_threads(|| {
+        GraphRef::Undirected(pg) => {
             fnx_algorithms::node_boundary(&pg.inner, &s1_refs, s2_refs.as_deref())
-        }),
-        GraphRef::Directed { dg, .. } => py.allow_threads(|| {
+        }
+        GraphRef::Directed { dg, .. } => {
             fnx_algorithms::node_boundary_directed(&dg.inner, &s1_refs, s2_refs.as_deref())
-        }),
+        }
         _ => {
             if gr.is_directed() {
                 fnx_algorithms::node_boundary_directed(
@@ -7177,11 +7100,7 @@ fn node_boundary(
                     s2_refs.as_deref(),
                 )
             } else {
-                py.allow_threads(
-                    || fnx_algorithms::node_boundary(gr.undirected()),
-                    &s1_refs,
-                    s2_refs.as_deref(),
-                )
+                fnx_algorithms::node_boundary(gr.undirected(), &s1_refs, s2_refs.as_deref())
             }
         }
     };
@@ -7214,14 +7133,12 @@ fn cut_size(
     let s1_refs: Vec<&str> = s1.iter().map(|s| s.as_str()).collect();
     let s2_refs: Option<Vec<&str>> = s2.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect());
     Ok(match &gr {
-        GraphRef::Undirected(pg) => py.allow_threads(
-            || fnx_algorithms::cut_size(&pg.inner, &s1_refs, s2_refs.as_deref()),
-            weight,
-        ),
-        GraphRef::Directed { dg, .. } => py.allow_threads(
-            || fnx_algorithms::cut_size_directed(&dg.inner, &s1_refs, s2_refs.as_deref()),
-            weight,
-        ),
+        GraphRef::Undirected(pg) => {
+            fnx_algorithms::cut_size(&pg.inner, &s1_refs, s2_refs.as_deref(), weight)
+        }
+        GraphRef::Directed { dg, .. } => {
+            fnx_algorithms::cut_size_directed(&dg.inner, &s1_refs, s2_refs.as_deref(), weight)
+        }
         _ => {
             if gr.is_directed() {
                 fnx_algorithms::cut_size_directed(
@@ -7231,12 +7148,7 @@ fn cut_size(
                     weight,
                 )
             } else {
-                py.allow_threads(
-                    || fnx_algorithms::cut_size(gr.undirected()),
-                    &s1_refs,
-                    s2_refs.as_deref(),
-                    weight,
-                )
+                fnx_algorithms::cut_size(gr.undirected(), &s1_refs, s2_refs.as_deref(), weight)
             }
         }
     })
@@ -7268,10 +7180,9 @@ fn normalized_cut_size(
     let s1_refs: Vec<&str> = s1.iter().map(|s| s.as_str()).collect();
     let s2_refs: Option<Vec<&str>> = s2.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect());
     let result = match &gr {
-        GraphRef::Undirected(pg) => py.allow_threads(
-            || fnx_algorithms::normalized_cut_size(&pg.inner, &s1_refs, s2_refs.as_deref()),
-            weight,
-        ),
+        GraphRef::Undirected(pg) => {
+            fnx_algorithms::normalized_cut_size(&pg.inner, &s1_refs, s2_refs.as_deref(), weight)
+        }
         GraphRef::Directed { dg, .. } => fnx_algorithms::normalized_cut_size_directed(
             &dg.inner,
             &s1_refs,
@@ -7318,9 +7229,7 @@ fn is_simple_path(
         .collect::<PyResult<_>>()?;
     let key_refs: Vec<&str> = keys.iter().map(|s| s.as_str()).collect();
     match &gr {
-        GraphRef::Undirected(pg) => {
-            Ok(py.allow_threads(|| fnx_algorithms::is_simple_path(&pg.inner, &key_refs)))
-        }
+        GraphRef::Undirected(pg) => Ok(fnx_algorithms::is_simple_path(&pg.inner, &key_refs)),
         GraphRef::Directed { dg, .. } => Ok(fnx_algorithms::is_simple_path_directed(
             &dg.inner, &key_refs,
         )),
@@ -7331,10 +7240,7 @@ fn is_simple_path(
                     &key_refs,
                 ))
             } else {
-                Ok(py.allow_threads(
-                    || fnx_algorithms::is_simple_path(gr.undirected()),
-                    &key_refs,
-                ))
+                Ok(fnx_algorithms::is_simple_path(gr.undirected(), &key_refs))
             }
         }
     }
@@ -7435,17 +7341,13 @@ fn simple_cycles(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<Vec<PyObj
 fn find_cycle(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<(PyObject, PyObject)>> {
     let gr = extract_graph(g)?;
     let result = match &gr {
-        GraphRef::Undirected(pg) => {
-            py.allow_threads(|| fnx_algorithms::find_cycle_undirected(&pg.inner))
-        }
-        GraphRef::Directed { dg, .. } => {
-            py.allow_threads(|| fnx_algorithms::find_cycle_directed(&dg.inner))
-        }
+        GraphRef::Undirected(pg) => fnx_algorithms::find_cycle_undirected(&pg.inner),
+        GraphRef::Directed { dg, .. } => fnx_algorithms::find_cycle_directed(&dg.inner),
         _ => {
             if gr.is_directed() {
-                py.allow_threads(|| fnx_algorithms::find_cycle_directed(gr.digraph()).unwrap())
+                fnx_algorithms::find_cycle_directed(gr.digraph().unwrap())
             } else {
-                py.allow_threads(|| fnx_algorithms::find_cycle_undirected(gr.undirected()))
+                fnx_algorithms::find_cycle_undirected(gr.undirected())
             }
         }
     };
@@ -7482,20 +7384,10 @@ fn dijkstra_path_length(
     validate_node(&gr, &s, source)?;
     validate_node(&gr, &t, target)?;
     let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
-        py.allow_threads(
-            || fnx_algorithms::dijkstra_path_length_directed(weighted_projection.as_ref()),
-            &s,
-            &t,
-            weight,
-        )
+        fnx_algorithms::dijkstra_path_length_directed(weighted_projection.as_ref(), &s, &t, weight)
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
-        py.allow_threads(
-            || fnx_algorithms::dijkstra_path_length(weighted_projection.as_ref()),
-            &s,
-            &t,
-            weight,
-        )
+        fnx_algorithms::dijkstra_path_length(weighted_projection.as_ref(), &s, &t, weight)
     };
     match result {
         Some(d) => Ok(d),
@@ -7538,12 +7430,7 @@ fn bellman_ford_path_length(
         }
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
-        py.allow_threads(
-            || fnx_algorithms::bellman_ford_path_length(weighted_projection.as_ref()),
-            &s,
-            &t,
-            weight,
-        )
+        fnx_algorithms::bellman_ford_path_length(weighted_projection.as_ref(), &s, &t, weight)
     };
     match result {
         Ok(d) => Ok(d),
@@ -7571,11 +7458,8 @@ fn single_source_dijkstra(
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s)?;
     let weighted_projection = gr.weighted_undirected_projection(weight);
-    let (dists, paths) = py.allow_threads(
-        || fnx_algorithms::single_source_dijkstra_full(weighted_projection.as_ref()),
-        &s,
-        weight,
-    );
+    let (dists, paths) =
+        fnx_algorithms::single_source_dijkstra_full(weighted_projection.as_ref(), &s, weight);
     let dist_dict = PyDict::new(py);
     for (node, d) in &dists {
         dist_dict.set_item(gr.py_node_key(py, node), d)?;
@@ -7602,11 +7486,8 @@ fn single_source_dijkstra_path(
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s)?;
     let weighted_projection = gr.weighted_undirected_projection(weight);
-    let paths = py.allow_threads(
-        || fnx_algorithms::single_source_dijkstra_path(weighted_projection.as_ref()),
-        &s,
-        weight,
-    );
+    let paths =
+        fnx_algorithms::single_source_dijkstra_path(weighted_projection.as_ref(), &s, weight);
     let dict = PyDict::new(py);
     for (node, path) in &paths {
         let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
@@ -7655,11 +7536,8 @@ fn single_source_bellman_ford(
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s)?;
     let weighted_projection = gr.weighted_undirected_projection(weight);
-    let result = py.allow_threads(
-        || fnx_algorithms::single_source_bellman_ford(weighted_projection.as_ref()),
-        &s,
-        weight,
-    );
+    let result =
+        fnx_algorithms::single_source_bellman_ford(weighted_projection.as_ref(), &s, weight);
     match result {
         Some((dists, paths)) => {
             let dist_dict = PyDict::new(py);
@@ -7693,11 +7571,8 @@ fn single_source_bellman_ford_path(
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s)?;
     let weighted_projection = gr.weighted_undirected_projection(weight);
-    let result = py.allow_threads(
-        || fnx_algorithms::single_source_bellman_ford_path(weighted_projection.as_ref()),
-        &s,
-        weight,
-    );
+    let result =
+        fnx_algorithms::single_source_bellman_ford_path(weighted_projection.as_ref(), &s, weight);
     match result {
         Some(paths) => {
             let dict = PyDict::new(py);
@@ -7759,11 +7634,7 @@ fn single_target_shortest_path(
     require_undirected(&gr, "single_target_shortest_path")?;
     let t = node_key_to_string(py, target)?;
     validate_node_str(&gr, &t)?;
-    let result = py.allow_threads(
-        || fnx_algorithms::single_target_shortest_path(gr.undirected()),
-        &t,
-        cutoff,
-    );
+    let result = fnx_algorithms::single_target_shortest_path(gr.undirected(), &t, cutoff);
     let dict = PyDict::new(py);
     for (node, path) in &result {
         let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
@@ -7785,11 +7656,7 @@ fn single_target_shortest_path_length(
     require_undirected(&gr, "single_target_shortest_path_length")?;
     let t = node_key_to_string(py, target)?;
     validate_node_str(&gr, &t)?;
-    let result = py.allow_threads(
-        || fnx_algorithms::single_target_shortest_path_length(gr.undirected()),
-        &t,
-        cutoff,
-    );
+    let result = fnx_algorithms::single_target_shortest_path_length(gr.undirected(), &t, cutoff);
     let dict = PyDict::new(py);
     for (node, length) in &result {
         dict.set_item(gr.py_node_key(py, node), *length)?;
@@ -7810,17 +7677,13 @@ fn all_pairs_dijkstra_path_length(
         let dg = gr
             .weighted_digraph_projection(weight)
             .expect("is_directed checked above");
-        py.allow_threads(|| {
-            fnx_algorithms::all_pairs_dijkstra_directed(dg.as_ref(), weight)
-                .into_iter()
-                .map(|(source, (dists, _paths))| (source, dists))
-                .collect::<HashMap<_, _>>()
-        })
+        fnx_algorithms::all_pairs_dijkstra_directed(dg.as_ref(), weight)
+            .into_iter()
+            .map(|(source, (dists, _paths))| (source, dists))
+            .collect::<HashMap<_, _>>()
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
-        py.allow_threads(|| {
-            fnx_algorithms::all_pairs_dijkstra_path_length(weighted_projection.as_ref(), weight)
-        })
+        fnx_algorithms::all_pairs_dijkstra_path_length(weighted_projection.as_ref(), weight)
     };
     let outer_dict = PyDict::new(py);
     for (source, targets) in &result {
@@ -7846,17 +7709,13 @@ fn all_pairs_dijkstra_path(
         let dg = gr
             .weighted_digraph_projection(weight)
             .expect("is_directed checked above");
-        py.allow_threads(|| {
-            fnx_algorithms::all_pairs_dijkstra_directed(dg.as_ref(), weight)
-                .into_iter()
-                .map(|(source, (_dists, paths))| (source, paths))
-                .collect::<HashMap<_, _>>()
-        })
+        fnx_algorithms::all_pairs_dijkstra_directed(dg.as_ref(), weight)
+            .into_iter()
+            .map(|(source, (_dists, paths))| (source, paths))
+            .collect::<HashMap<_, _>>()
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
-        py.allow_threads(|| {
-            fnx_algorithms::all_pairs_dijkstra_path(weighted_projection.as_ref(), weight)
-        })
+        fnx_algorithms::all_pairs_dijkstra_path(weighted_projection.as_ref(), weight)
     };
     let outer_dict = PyDict::new(py);
     for (source, targets) in &result {
@@ -7881,9 +7740,8 @@ fn all_pairs_bellman_ford_path_length(
     let gr = extract_graph(g)?;
     require_undirected(&gr, "all_pairs_bellman_ford_path_length")?;
     let weighted_projection = gr.weighted_undirected_projection(weight);
-    let result = py.allow_threads(|| {
-        fnx_algorithms::all_pairs_bellman_ford_path_length(weighted_projection.as_ref(), weight)
-    });
+    let result =
+        fnx_algorithms::all_pairs_bellman_ford_path_length(weighted_projection.as_ref(), weight);
     match result {
         Some(data) => {
             let outer_dict = PyDict::new(py);
@@ -7913,9 +7771,7 @@ fn all_pairs_bellman_ford_path(
     let gr = extract_graph(g)?;
     require_undirected(&gr, "all_pairs_bellman_ford_path")?;
     let weighted_projection = gr.weighted_undirected_projection(weight);
-    let result = py.allow_threads(|| {
-        fnx_algorithms::all_pairs_bellman_ford_path(weighted_projection.as_ref(), weight)
-    });
+    let result = fnx_algorithms::all_pairs_bellman_ford_path(weighted_projection.as_ref(), weight);
     match result {
         Some(data) => {
             let outer_dict = PyDict::new(py);
@@ -7967,12 +7823,10 @@ fn floyd_warshall_predecessor_and_distance(
     let gr = extract_graph(g)?;
     require_undirected(&gr, "floyd_warshall_predecessor_and_distance")?;
     let weighted_projection = gr.weighted_undirected_projection(weight);
-    let (dists, preds) = py.allow_threads(|| {
-        fnx_algorithms::floyd_warshall_predecessor_and_distance(
-            weighted_projection.as_ref(),
-            weight,
-        )
-    });
+    let (dists, preds) = fnx_algorithms::floyd_warshall_predecessor_and_distance(
+        weighted_projection.as_ref(),
+        weight,
+    );
     let dist_outer = PyDict::new(py);
     for (source, targets) in &dists {
         let inner_dict = PyDict::new(py);
@@ -8012,11 +7866,7 @@ fn bidirectional_shortest_path(
     let t = node_key_to_string(py, target)?;
     validate_node(&gr, &s, source)?;
     validate_node(&gr, &t, target)?;
-    let result = py.allow_threads(
-        || fnx_algorithms::bidirectional_shortest_path(gr.undirected()),
-        &s,
-        &t,
-    );
+    let result = fnx_algorithms::bidirectional_shortest_path(gr.undirected(), &s, &t);
     match result {
         Some(path) => Ok(path.iter().map(|n| gr.py_node_key(py, n)).collect()),
         None => Err(NetworkXNoPath::new_err(format!(
@@ -8029,13 +7879,14 @@ fn bidirectional_shortest_path(
 /// Return True if a negative edge cycle exists in the graph.
 #[pyfunction]
 #[pyo3(signature = (g, weight="weight"))]
-fn negative_edge_cycle(py: Python<'_>, g: &Bound<'_, PyAny>, weight: &str) -> PyResult<bool> {
+fn negative_edge_cycle(_py: Python<'_>, g: &Bound<'_, PyAny>, weight: &str) -> PyResult<bool> {
     let gr = extract_graph(g)?;
     require_undirected(&gr, "negative_edge_cycle")?;
     let weighted_projection = gr.weighted_undirected_projection(weight);
-    Ok(py.allow_threads(|| {
-        fnx_algorithms::negative_edge_cycle(weighted_projection.as_ref(), weight)
-    }))
+    Ok(fnx_algorithms::negative_edge_cycle(
+        weighted_projection.as_ref(),
+        weight,
+    ))
 }
 
 /// Return the predecessor dictionary from BFS.
@@ -8051,7 +7902,7 @@ fn predecessor_fn(
     require_undirected(&gr, "predecessor")?;
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s)?;
-    let result = py.allow_threads(|| fnx_algorithms::predecessor(gr.undirected()), &s, cutoff);
+    let result = fnx_algorithms::predecessor(gr.undirected(), &s, cutoff);
     let dict = PyDict::new(py);
     for (node, preds) in &result {
         let py_preds: Vec<PyObject> = preds.iter().map(|n| gr.py_node_key(py, n)).collect();
@@ -8076,29 +7927,19 @@ fn path_weight(
         .collect::<PyResult<_>>()?;
     let path_refs: Vec<&str> = path_strs.iter().map(String::as_str).collect();
     let result = match &gr {
-        GraphRef::Undirected(pg) => {
-            py.allow_threads(|| fnx_algorithms::path_weight(&pg.inner, &path_refs, weight))
-        }
+        GraphRef::Undirected(pg) => fnx_algorithms::path_weight(&pg.inner, &path_refs, weight),
         GraphRef::Directed { dg, .. } => {
-            py.allow_threads(|| fnx_algorithms::path_weight_directed(&dg.inner, &path_refs, weight))
+            fnx_algorithms::path_weight_directed(&dg.inner, &path_refs, weight)
         }
         GraphRef::MultiUndirected { .. } => {
             let weighted_projection = gr.weighted_undirected_projection(weight);
-            py.allow_threads(
-                || fnx_algorithms::path_weight(weighted_projection.as_ref()),
-                &path_refs,
-                weight,
-            )
+            fnx_algorithms::path_weight(weighted_projection.as_ref(), &path_refs, weight)
         }
         GraphRef::MultiDirected { .. } => {
             let weighted_projection = gr
                 .weighted_digraph_projection(weight)
                 .expect("multidigraph");
-            py.allow_threads(
-                || fnx_algorithms::path_weight_directed(weighted_projection.as_ref()),
-                &path_refs,
-                weight,
-            )
+            fnx_algorithms::path_weight_directed(weighted_projection.as_ref(), &path_refs, weight)
         }
     };
     match result {
@@ -8154,9 +7995,7 @@ pub fn local_reaching_centrality(
     let node = node_key_to_string(py, v)?;
     validate_node(&gr, &node, v)?;
     match &gr {
-        GraphRef::Undirected(pg) => {
-            Ok(py.allow_threads(|| fnx_algorithms::local_reaching_centrality(&pg.inner, &node)))
-        }
+        GraphRef::Undirected(pg) => Ok(fnx_algorithms::local_reaching_centrality(&pg.inner, &node)),
         GraphRef::Directed { dg, .. } => Ok(fnx_algorithms::local_reaching_centrality_directed(
             &dg.inner, &node,
         )),
@@ -8181,9 +8020,7 @@ pub fn local_reaching_centrality(
 pub fn global_reaching_centrality(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
     let gr = extract_graph(g)?;
     match &gr {
-        GraphRef::Undirected(pg) => {
-            Ok(py.allow_threads(|| fnx_algorithms::global_reaching_centrality(&pg.inner)))
-        }
+        GraphRef::Undirected(pg) => Ok(fnx_algorithms::global_reaching_centrality(&pg.inner)),
         GraphRef::Directed { dg, .. } => Ok(fnx_algorithms::global_reaching_centrality_directed(
             &dg.inner,
         )),
@@ -8193,11 +8030,7 @@ pub fn global_reaching_centrality(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyRe
                     gr.digraph().unwrap(),
                 ))
             } else {
-                Ok(
-                    py.allow_threads(|| {
-                        fnx_algorithms::global_reaching_centrality(gr.undirected())
-                    }),
-                )
+                Ok(fnx_algorithms::global_reaching_centrality(gr.undirected()))
             }
         }
     }
@@ -8297,7 +8130,7 @@ pub fn node_connected_component(
 
 /// Return True if the graph is biconnected.
 #[pyfunction]
-pub fn is_biconnected(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
+pub fn is_biconnected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
     require_undirected(&gr, "is_biconnected")?;
     let inner = gr.undirected();
@@ -8342,7 +8175,7 @@ pub fn biconnected_component_edges(
 
 /// Return True if the directed graph is semiconnected.
 #[pyfunction]
-pub fn is_semiconnected(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
+pub fn is_semiconnected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
     if !gr.is_directed() {
         return Err(crate::NetworkXNotImplemented::new_err(
@@ -8405,7 +8238,7 @@ pub fn attracting_components(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<V
 
 /// Return the number of attracting components.
 #[pyfunction]
-pub fn number_attracting_components(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usize> {
+pub fn number_attracting_components(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usize> {
     let gr = extract_graph(g)?;
     if !gr.is_directed() {
         return Err(crate::NetworkXNotImplemented::new_err(
@@ -8467,11 +8300,7 @@ pub fn find_negative_cycle(
     require_undirected(&gr, "find_negative_cycle")?;
     let src = node_key_to_string(py, source)?;
     let weighted_projection = gr.weighted_undirected_projection(weight);
-    match py.allow_threads(
-        || fnx_algorithms::find_negative_cycle(weighted_projection.as_ref()),
-        &src,
-        weight,
-    ) {
+    match fnx_algorithms::find_negative_cycle(weighted_projection.as_ref(), &src, weight) {
         Some(cycle) => Ok(cycle.iter().map(|n| gr.py_node_key(py, n)).collect()),
         None => Err(crate::NetworkXError::new_err("No negative cycle found.")),
     }
@@ -8484,25 +8313,25 @@ pub fn find_negative_cycle(
 #[pyfunction]
 #[pyo3(signature = (sequence,))]
 pub fn is_graphical(sequence: Vec<usize>) -> bool {
-    py.allow_threads(|| fnx_algorithms::is_graphical(&sequence))
+    fnx_algorithms::is_graphical(&sequence)
 }
 
 #[pyfunction]
 #[pyo3(signature = (sequence,))]
 pub fn is_digraphical(sequence: Vec<(usize, usize)>) -> bool {
-    py.allow_threads(|| fnx_algorithms::is_digraphical(&sequence))
+    fnx_algorithms::is_digraphical(&sequence)
 }
 
 #[pyfunction]
 #[pyo3(signature = (sequence,))]
 pub fn is_multigraphical(sequence: Vec<usize>) -> bool {
-    py.allow_threads(|| fnx_algorithms::is_multigraphical(&sequence))
+    fnx_algorithms::is_multigraphical(&sequence)
 }
 
 #[pyfunction]
 #[pyo3(signature = (sequence,))]
 pub fn is_pseudographical(sequence: Vec<usize>) -> bool {
-    py.allow_threads(|| fnx_algorithms::is_pseudographical(&sequence))
+    fnx_algorithms::is_pseudographical(&sequence)
 }
 
 #[pyfunction]
@@ -8534,7 +8363,7 @@ pub fn is_tournament(g: &Bound<'_, PyAny>) -> PyResult<bool> {
     }
     {
         let dg_ref = gr.digraph().expect("is_directed checked above");
-        Ok(py.allow_threads(|| fnx_algorithms::is_tournament(dg_ref)))
+        Ok(fnx_algorithms::is_tournament(dg_ref))
     }
 }
 
@@ -8594,18 +8423,13 @@ pub fn edge_bfs(
     let gr = extract_graph(g)?;
     let src = node_key_to_string(py, source)?;
     let result = match &gr {
-        GraphRef::Undirected(pg) => py.allow_threads(|| fnx_algorithms::edge_bfs(&pg.inner, &src)),
-        GraphRef::Directed { dg, .. } => {
-            py.allow_threads(|| fnx_algorithms::edge_bfs_directed(&dg.inner, &src))
-        }
+        GraphRef::Undirected(pg) => fnx_algorithms::edge_bfs(&pg.inner, &src),
+        GraphRef::Directed { dg, .. } => fnx_algorithms::edge_bfs_directed(&dg.inner, &src),
         _ => {
             if gr.is_directed() {
-                py.allow_threads(
-                    || fnx_algorithms::edge_bfs_directed(gr.digraph()).unwrap(),
-                    &src,
-                )
+                fnx_algorithms::edge_bfs_directed(gr.digraph().unwrap(), &src)
             } else {
-                py.allow_threads(|| fnx_algorithms::edge_bfs(gr.undirected()), &src)
+                fnx_algorithms::edge_bfs(gr.undirected(), &src)
             }
         }
     };
@@ -8710,7 +8534,7 @@ pub fn is_aperiodic(g: &Bound<'_, PyAny>) -> PyResult<bool> {
     }
     {
         let dg_ref = gr.digraph().expect("is_directed checked above");
-        Ok(py.allow_threads(|| fnx_algorithms::is_aperiodic(dg_ref)))
+        Ok(fnx_algorithms::is_aperiodic(dg_ref))
     }
 }
 
@@ -8805,7 +8629,7 @@ fn volume(py: Python<'_>, g: &Bound<'_, PyAny>, nodes: Vec<Bound<'_, PyAny>>) ->
         .map(|n| node_key_to_string(py, n))
         .collect::<PyResult<_>>()?;
     let refs: Vec<&str> = node_strs.iter().map(|s| s.as_str()).collect();
-    Ok(py.allow_threads(|| fnx_algorithms::volume(gr.undirected()), &refs))
+    Ok(fnx_algorithms::volume(gr.undirected(), &refs))
 }
 
 /// Return the boundary expansion of a set of nodes.
@@ -8822,10 +8646,7 @@ fn boundary_expansion(
         .map(|n| node_key_to_string(py, n))
         .collect::<PyResult<_>>()?;
     let refs: Vec<&str> = node_strs.iter().map(|s| s.as_str()).collect();
-    Ok(py.allow_threads(
-        || fnx_algorithms::boundary_expansion(gr.undirected()),
-        &refs,
-    ))
+    Ok(fnx_algorithms::boundary_expansion(gr.undirected(), &refs))
 }
 
 /// Return the conductance of a set of nodes.
@@ -8842,7 +8663,7 @@ fn conductance(
         .map(|n| node_key_to_string(py, n))
         .collect::<PyResult<_>>()?;
     let refs: Vec<&str> = node_strs.iter().map(|s| s.as_str()).collect();
-    Ok(py.allow_threads(|| fnx_algorithms::conductance(gr.undirected()), &refs))
+    Ok(fnx_algorithms::conductance(gr.undirected(), &refs))
 }
 
 /// Return the edge expansion of a set of nodes.
@@ -8859,7 +8680,7 @@ fn edge_expansion(
         .map(|n| node_key_to_string(py, n))
         .collect::<PyResult<_>>()?;
     let refs: Vec<&str> = node_strs.iter().map(|s| s.as_str()).collect();
-    Ok(py.allow_threads(|| fnx_algorithms::edge_expansion(gr.undirected()), &refs))
+    Ok(fnx_algorithms::edge_expansion(gr.undirected(), &refs))
 }
 
 /// Return the node expansion of a set of nodes.
@@ -8876,7 +8697,7 @@ fn node_expansion(
         .map(|n| node_key_to_string(py, n))
         .collect::<PyResult<_>>()?;
     let refs: Vec<&str> = node_strs.iter().map(|s| s.as_str()).collect();
-    Ok(py.allow_threads(|| fnx_algorithms::node_expansion(gr.undirected()), &refs))
+    Ok(fnx_algorithms::node_expansion(gr.undirected(), &refs))
 }
 
 /// Return the mixing expansion of a set of nodes.
@@ -8893,7 +8714,7 @@ fn mixing_expansion(
         .map(|n| node_key_to_string(py, n))
         .collect::<PyResult<_>>()?;
     let refs: Vec<&str> = node_strs.iter().map(|s| s.as_str()).collect();
-    Ok(py.allow_threads(|| fnx_algorithms::mixing_expansion(gr.undirected()), &refs))
+    Ok(fnx_algorithms::mixing_expansion(gr.undirected(), &refs))
 }
 
 /// Return all non-edges of the graph.
@@ -8928,7 +8749,7 @@ fn non_edges(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<(PyObject, Py
                 }
                 missing
             } else {
-                py.allow_threads(|| fnx_algorithms::non_edges(gr.undirected()))
+                fnx_algorithms::non_edges(gr.undirected())
             }
         }
     };
@@ -10381,22 +10202,18 @@ pub fn write_graphml_string_rust(
     };
     Ok(if gr.is_directed() {
         let dg = gr.digraph().unwrap();
-        py.allow_threads(|| {
-            fnx_algorithms::write_graphml_string_directed_config_with_graph_attrs(
-                dg,
-                Some(&graph_attrs),
-                &config,
-            )
-        })
+        fnx_algorithms::write_graphml_string_directed_config_with_graph_attrs(
+            dg,
+            Some(&graph_attrs),
+            &config,
+        )
     } else {
         let inner = gr.undirected();
-        py.allow_threads(|| {
-            fnx_algorithms::write_graphml_string_config_with_graph_attrs(
-                inner,
-                Some(&graph_attrs),
-                &config,
-            )
-        })
+        fnx_algorithms::write_graphml_string_config_with_graph_attrs(
+            inner,
+            Some(&graph_attrs),
+            &config,
+        )
     })
 }
 
@@ -10455,7 +10272,7 @@ pub fn all_pairs_all_shortest_paths_rust(
 #[pyfunction]
 #[pyo3(signature = (g, nswap=1, max_tries=100, seed=None))]
 pub fn double_edge_swap_rust(
-    py: Python<'_>,
+    _py: Python<'_>,
     g: &Bound<'_, PyAny>,
     nswap: usize,
     max_tries: usize,
@@ -10466,14 +10283,12 @@ pub fn double_edge_swap_rust(
         GraphRef::Undirected(pg) => {
             // Safety: we need mutable access. Clone, swap, copy back.
             let mut graph_copy = pg.inner.clone();
-            let swaps = py.allow_threads(|| {
-                fnx_algorithms::double_edge_swap_seeded(
-                    &mut graph_copy,
-                    nswap,
-                    max_tries,
-                    seed.unwrap_or(0),
-                )
-            });
+            let swaps = fnx_algorithms::double_edge_swap_seeded(
+                &mut graph_copy,
+                nswap,
+                max_tries,
+                seed.unwrap_or(0),
+            );
             // We can't mutate through the PyRef, so return count only
             // The Python wrapper handles in-place mutation
             Ok(swaps)
@@ -10557,29 +10372,25 @@ pub fn simrank_similarity_rust(
             Ok(val.into_pyobject(py)?.into_any().unbind())
         } else {
             let inner = gr.undirected();
-            let val = py.allow_threads(|| {
-                fnx_algorithms::simrank_similarity_pair(
-                    inner,
-                    &s,
-                    &t,
-                    importance_factor,
-                    max_iterations,
-                    tolerance,
-                )
-            });
+            let val = fnx_algorithms::simrank_similarity_pair(
+                inner,
+                &s,
+                &t,
+                importance_factor,
+                max_iterations,
+                tolerance,
+            );
             Ok(val.into_pyobject(py)?.into_any().unbind())
         }
     } else {
         if gr.is_directed() {
             let dg = gr.digraph().unwrap();
-            let result = py.allow_threads(|| {
-                fnx_algorithms::simrank_similarity_directed(
-                    dg,
-                    importance_factor,
-                    max_iterations,
-                    tolerance,
-                )
-            });
+            let result = fnx_algorithms::simrank_similarity_directed(
+                dg,
+                importance_factor,
+                max_iterations,
+                tolerance,
+            );
             let dict = PyDict::new(py);
             for (u, row) in &result {
                 let inner_dict = PyDict::new(py);
@@ -10591,14 +10402,12 @@ pub fn simrank_similarity_rust(
             Ok(dict.into_any().unbind())
         } else {
             let inner = gr.undirected();
-            let result = py.allow_threads(|| {
-                fnx_algorithms::simrank_similarity(
-                    inner,
-                    importance_factor,
-                    max_iterations,
-                    tolerance,
-                )
-            });
+            let result = fnx_algorithms::simrank_similarity(
+                inner,
+                importance_factor,
+                max_iterations,
+                tolerance,
+            );
             let dict = PyDict::new(py);
             for (u, row) in &result {
                 let inner_dict = PyDict::new(py);
@@ -10678,9 +10487,7 @@ pub fn communicability_betweenness_centrality_rust(
 ) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
-    let result = py.allow_threads(|| {
-        fnx_algorithms::communicability_betweenness_centrality(inner, normalized)
-    });
+    let result = fnx_algorithms::communicability_betweenness_centrality(inner, normalized);
     let dict = PyDict::new(py);
     for (node, val) in &result {
         dict.set_item(gr.py_node_key(py, node), val)?;
@@ -10704,9 +10511,7 @@ pub fn current_flow_betweenness_centrality_rust(
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
     let w = weight.to_owned();
-    let result = py.allow_threads(|| {
-        fnx_algorithms::current_flow_betweenness_centrality(inner, normalized, &w)
-    });
+    let result = fnx_algorithms::current_flow_betweenness_centrality(inner, normalized, &w);
     let dict = PyDict::new(py);
     for (node, val) in &result {
         dict.set_item(gr.py_node_key(py, node), val)?;
@@ -10755,9 +10560,7 @@ pub fn edge_current_flow_betweenness_centrality_rust(
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
     let w = weight.to_owned();
-    let result = py.allow_threads(|| {
-        fnx_algorithms::edge_current_flow_betweenness_centrality(inner, normalized, &w)
-    });
+    let result = fnx_algorithms::edge_current_flow_betweenness_centrality(inner, normalized, &w);
     let dict = PyDict::new(py);
     for ((u, v), val) in &result {
         let key = (gr.py_node_key(py, u), gr.py_node_key(py, v));
