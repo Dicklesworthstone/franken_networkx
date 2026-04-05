@@ -128,6 +128,60 @@ class TestConnectivity:
         with pytest.raises(fnx.NetworkXError):
             fnx.minimum_node_cut(D_fnx)
 
+    def test_all_node_cuts_cycle_graph_matches_nx(self, fnx, nx):
+        G_fnx = fnx.cycle_graph(5)
+        G_nx = nx.cycle_graph(5)
+
+        actual = {frozenset(cut) for cut in fnx.all_node_cuts(G_fnx)}
+        expected = {frozenset(cut) for cut in nx.all_node_cuts(G_nx)}
+
+        assert actual == expected
+
+    def test_all_node_cuts_respects_explicit_k(self, fnx, nx):
+        G_fnx = fnx.cycle_graph(5)
+        G_nx = nx.cycle_graph(5)
+
+        actual = list(fnx.all_node_cuts(G_fnx, k=3))
+        expected = list(nx.all_node_cuts(G_nx, k=3))
+
+        assert actual == expected == []
+
+    def test_all_node_cuts_directed_raises(self, fnx, nx):
+        D_fnx = fnx.DiGraph()
+        D_fnx.add_edges_from([(0, 1), (1, 2), (2, 0)])
+
+        with pytest.raises(nx.NetworkXNotImplemented):
+            list(nx.all_node_cuts(nx.DiGraph([(0, 1), (1, 2), (2, 0)])))
+        with pytest.raises(fnx.NetworkXNotImplemented):
+            list(fnx.all_node_cuts(D_fnx))
+
+    def test_all_node_cuts_disconnected_raises(self, fnx, nx):
+        G_fnx = fnx.Graph()
+        G_fnx.add_nodes_from([0, 1])
+
+        G_nx = nx.Graph()
+        G_nx.add_nodes_from([0, 1])
+
+        with pytest.raises(nx.NetworkXError):
+            next(nx.all_node_cuts(G_nx))
+        with pytest.raises(fnx.NetworkXError):
+            next(fnx.all_node_cuts(G_fnx))
+
+    def test_all_node_cuts_with_flow_func_matches_nx(self, fnx, nx):
+        G_fnx = fnx.cycle_graph(5)
+        G_nx = nx.cycle_graph(5)
+
+        actual = {frozenset(cut) for cut in fnx.all_node_cuts(
+            G_fnx,
+            flow_func=nx.algorithms.flow.shortest_augmenting_path,
+        )}
+        expected = {frozenset(cut) for cut in nx.all_node_cuts(
+            G_nx,
+            flow_func=nx.algorithms.flow.shortest_augmenting_path,
+        )}
+
+        assert actual == expected
+
     def test_edge_connectivity_directed(self, fnx, nx):
         D_fnx = fnx.DiGraph()
         D_fnx.add_edge(0, 1)

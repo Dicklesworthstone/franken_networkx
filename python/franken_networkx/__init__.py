@@ -18,6 +18,7 @@ Or as a NetworkX backend (zero code changes required)::
 
 from collections.abc import Mapping
 from enum import Enum
+from itertools import combinations
 import math
 import sys
 
@@ -6388,9 +6389,50 @@ def node_disjoint_paths(G, s, t, flow_func=None, cutoff=None):
 
 def all_node_cuts(G, k=None, flow_func=None):
     """Enumerate all minimum node cuts."""
-    import networkx as nx
-    from franken_networkx.drawing.layout import _to_nx
-    yield from (set(c) for c in nx.all_node_cuts(_to_nx(G), k=k, flow_func=flow_func))
+    if flow_func is not None:
+        import networkx as nx
+
+        from franken_networkx.drawing.layout import _to_nx
+
+        yield from (set(c) for c in nx.all_node_cuts(_to_nx(G), k=k, flow_func=flow_func))
+        return
+
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if not is_connected(G):
+        raise NetworkXError("Input graph is disconnected.")
+
+    node_count = len(G)
+    if node_count <= 1 or density(G) == 1:
+        return
+
+    connectivity = node_connectivity(G)
+    if k is None:
+        k = connectivity
+    elif not isinstance(k, int):
+        raise TypeError("k must be an integer or None")
+    elif k != connectivity:
+        return
+
+    if k < 0:
+        k = max(0, node_count + k)
+    if k == 0 or k >= node_count:
+        return
+
+    def is_separating_set(cut):
+        if len(cut) == node_count - 1:
+            return True
+        return not is_connected(restricted_view(G, cut, []))
+
+    seen = set()
+    for cut_tuple in combinations(list(G.nodes()), k):
+        cut = set(cut_tuple)
+        frozen = frozenset(cut)
+        if frozen in seen:
+            continue
+        if is_separating_set(cut):
+            seen.add(frozen)
+            yield cut
 
 
 def connected_dominating_set(G, start_with=None):
@@ -7750,6 +7792,10 @@ def is_isomorphic(G1, G2, node_match=None, edge_match=None):
 
 def vf2pp_is_isomorphic(G1, G2, node_label=None, default_label=None):
     """Test isomorphism using VF2++."""
+    # Fast path: when no label matching needed, use Rust is_isomorphic
+    if node_label is None:
+        return _is_isomorphic_rust(G1, G2)
+
     import networkx as nx
 
     from franken_networkx.drawing.layout import _to_nx
