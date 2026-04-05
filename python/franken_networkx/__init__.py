@@ -2649,16 +2649,8 @@ def degree_mixing_dict(G, x='out', y='in', weight=None, nodes=None, normalized=F
         ``result[d1][d2]`` is the count of edges between nodes of
         degree d1 and degree d2.
     """
-    import networkx as nx
-
-    from franken_networkx.drawing.layout import _to_nx
-
-    return nx.degree_mixing_dict(
-        _to_nx(G),
-        x=x,
-        y=y,
-        weight=weight,
-        nodes=nodes,
+    return mixing_dict(
+        node_degree_xy(G, x=x, y=y, weight=weight, nodes=nodes),
         normalized=normalized,
     )
 
@@ -2708,11 +2700,24 @@ def numeric_assortativity_coefficient(G, attribute, nodes=None):
     KeyError
         If any node is missing the attribute.
     """
-    import networkx as nx
+    import numpy as np
 
-    from franken_networkx.drawing.layout import _to_nx
-
-    return nx.numeric_assortativity_coefficient(_to_nx(G), attribute, nodes=nodes)
+    if nodes is None:
+        nodes = G.nodes
+    values = {G.nodes[node][attribute] for node in nodes}
+    mapping = {value: index for index, value in enumerate(values)}
+    matrix = attribute_mixing_matrix(G, attribute, nodes=nodes, mapping=mapping)
+    if matrix.sum() != 1.0:
+        matrix = matrix / matrix.sum()
+    labels = np.array(list(mapping.keys()))
+    indices = list(mapping.values())
+    a = matrix.sum(axis=0)
+    b = matrix.sum(axis=1)
+    vara = (a[indices] * labels**2).sum() - ((a[indices] * labels).sum()) ** 2
+    varb = (b[indices] * labels**2).sum() - ((b[indices] * labels).sum()) ** 2
+    xy = np.outer(labels, labels)
+    ab = np.outer(a[indices], b[indices])
+    return float((xy * (matrix - ab)).sum() / np.sqrt(vara * varb))
 
 
 def attribute_assortativity_coefficient(G, attribute, nodes=None):
@@ -2730,11 +2735,11 @@ def attribute_assortativity_coefficient(G, attribute, nodes=None):
     -------
     float
     """
-    import networkx as nx
-
-    from franken_networkx.drawing.layout import _to_nx
-
-    return nx.attribute_assortativity_coefficient(_to_nx(G), attribute, nodes=nodes)
+    matrix = attribute_mixing_matrix(G, attribute, nodes=nodes)
+    if matrix.sum() != 1.0:
+        matrix = matrix / matrix.sum()
+    squared_sum = (matrix @ matrix).sum()
+    return float((matrix.trace() - squared_sum) / (1 - squared_sum))
 
 
 # ---------------------------------------------------------------------------
@@ -2965,12 +2970,43 @@ def barabasi_albert_graph(
     create_using=None,
 ):
     """Return a Barabasi-Albert preferential attachment graph."""
+    import random as _random
     import networkx as nx
-    from franken_networkx.drawing.layout import _to_nx
     from franken_networkx.readwrite import _from_nx_graph
 
     if initial_graph is None and create_using is None:
         return _rust_barabasi_albert_graph(n, m, seed=_native_random_seed(seed))
+
+    if create_using is None and initial_graph is not None:
+        if m < 1 or m >= n:
+            raise NetworkXError(
+                f"Barabasi-Albert network must have m >= 1 and m < n, m = {m}, n = {n}"
+            )
+        if len(initial_graph) < m or len(initial_graph) > n:
+            raise NetworkXError(
+                f"Barabasi-Albert initial graph needs between m={m} and n={n} nodes"
+            )
+
+        graph = Graph()
+        graph.graph.update(dict(initial_graph.graph))
+        for node, node_attrs in initial_graph.nodes(data=True):
+            graph.add_node(node, **dict(node_attrs))
+        for u, v, edge_attrs in initial_graph.edges(data=True):
+            graph.add_edge(u, v, **dict(edge_attrs))
+        rng = _random.Random(seed)
+        repeated_nodes = [node for node, degree_value in graph.degree for _ in range(degree_value)]
+        source = len(graph)
+        while source < n:
+            targets = set()
+            while len(targets) < m:
+                targets.add(rng.choice(repeated_nodes))
+            graph.add_edges_from((source, target) for target in targets)
+            repeated_nodes.extend(targets)
+            repeated_nodes.extend([source] * m)
+            source += 1
+        return graph
+
+    from franken_networkx.drawing.layout import _to_nx
 
     graph = nx.barabasi_albert_graph(
         n,
@@ -3554,16 +3590,28 @@ def attribute_mixing_dict(G, attribute, nodes=None, normalized=False):
         ``result[a][b]`` counts edges between nodes with attribute
         values a and b.
     """
-    import networkx as nx
+    if nodes is None:
+        nodes = set(G)
+    else:
+        nodes = set(nodes)
 
-    from franken_networkx.drawing.layout import _to_nx
+    def attribute_pairs():
+        Gnodes = G.nodes
+        for u, nbrsdict in G.adjacency():
+            if u not in nodes:
+                continue
+            uattr = Gnodes[u].get(attribute, None)
+            if G.is_multigraph():
+                for v, keys in nbrsdict.items():
+                    vattr = Gnodes[v].get(attribute, None)
+                    for _ in keys:
+                        yield (uattr, vattr)
+            else:
+                for v in nbrsdict:
+                    vattr = Gnodes[v].get(attribute, None)
+                    yield (uattr, vattr)
 
-    return nx.attribute_mixing_dict(
-        _to_nx(G),
-        attribute,
-        nodes=nodes,
-        normalized=normalized,
-    )
+    return mixing_dict(attribute_pairs(), normalized=normalized)
 
 
 def attribute_mixing_matrix(G, attribute, nodes=None, mapping=None, normalized=True):
@@ -3573,17 +3621,24 @@ def attribute_mixing_matrix(G, attribute, nodes=None, mapping=None, normalized=T
     -------
     numpy.ndarray
     """
-    import networkx as nx
+    import numpy as np
 
-    from franken_networkx.drawing.layout import _to_nx
+    mixing = attribute_mixing_dict(G, attribute, nodes=nodes, normalized=False)
+    if mapping is None:
+        keys = list(mixing)
+        mapping = {key: index for index, key in enumerate(keys)}
 
-    return nx.attribute_mixing_matrix(
-        _to_nx(G),
-        attribute,
-        nodes=nodes,
-        mapping=mapping,
-        normalized=normalized,
-    )
+    matrix = np.zeros((len(mapping), len(mapping)))
+    for left, inner in mixing.items():
+        if left not in mapping:
+            continue
+        for right, value in inner.items():
+            if right not in mapping:
+                continue
+            matrix[mapping[left], mapping[right]] = value
+    if normalized and matrix.sum() > 0:
+        matrix = matrix / matrix.sum()
+    return matrix
 
 
 # ---------------------------------------------------------------------------
@@ -3602,7 +3657,9 @@ def dense_gnm_random_graph(n, m, seed=None, create_using=None):
 
 
 def random_labeled_tree(n, seed=None):
-    """Return a uniformly random labeled tree. Alias for ``random_tree``."""
+    """Return a uniformly random labeled tree."""
+    if n == 0:
+        raise NetworkXPointlessConcept("the null graph is not a tree")
     return random_tree(n, seed=seed)
 
 
@@ -3613,14 +3670,33 @@ def random_labeled_tree(n, seed=None):
 
 def adjacency_data(G, attrs=None):
     """Return adjacency-data format suitable for JSON serialization."""
-    import networkx as nx
+    attrs = {"id": "id", "key": "key"} if attrs is None else attrs
+    multigraph = G.is_multigraph()
+    id_ = attrs["id"]
+    key = None if not multigraph else attrs["key"]
+    if id_ == key:
+        raise NetworkXError("Attribute names are not unique.")
 
-    from franken_networkx.drawing.layout import _to_nx
-
-    return nx.adjacency_data(
-        _to_nx(G),
-        attrs={"id": "id", "key": "key"} if attrs is None else attrs,
-    )
+    data = {
+        "directed": G.is_directed(),
+        "multigraph": multigraph,
+        "graph": list(G.graph.items()),
+        "nodes": [],
+        "adjacency": [],
+    }
+    for node, node_attrs in G.nodes(data=True):
+        data["nodes"].append({**node_attrs, id_: node})
+        neighbors = []
+        nbrdict = G.adj[node]
+        if multigraph:
+            for nbr, keydict in nbrdict.items():
+                for edge_key, edge_attrs in keydict.items():
+                    neighbors.append({**edge_attrs, id_: nbr, key: edge_key})
+        else:
+            for nbr, edge_attrs in nbrdict.items():
+                neighbors.append({**edge_attrs, id_: nbr})
+        data["adjacency"].append(neighbors)
+    return data
 
 
 def node_link_data(
@@ -3633,19 +3709,34 @@ def node_link_data(
     nodes="nodes",
 ):
     """Return node-link data suitable for JSON serialization."""
-    import networkx as nx
+    internal_names = [source, target, name]
+    if G.is_multigraph():
+        internal_names.append(key)
+    if len(set(internal_names)) != len(internal_names):
+        raise NetworkXError("Attribute names are not unique.")
 
-    from franken_networkx.drawing.layout import _to_nx
-
-    return nx.node_link_data(
-        _to_nx(G),
-        source=source,
-        target=target,
-        name=name,
-        key=key,
-        edges=edges,
-        nodes=nodes,
-    )
+    payload = {
+        "directed": G.is_directed(),
+        "multigraph": G.is_multigraph(),
+        "graph": dict(G.graph),
+        nodes: [{**node_attrs, name: node} for node, node_attrs in G.nodes(data=True)],
+    }
+    edge_payloads = []
+    if G.is_multigraph():
+        for u, v, edge_key, edge_attrs in G.edges(keys=True, data=True):
+            edge_payloads.append(
+                {
+                    **edge_attrs,
+                    source: u,
+                    target: v,
+                    key: edge_key,
+                }
+            )
+    else:
+        for u, v, edge_attrs in G.edges(data=True):
+            edge_payloads.append({**edge_attrs, source: u, target: v})
+    payload[edges] = edge_payloads
+    return payload
 
 
 def adjacency_graph(data, directed=False, multigraph=True, attrs=None):
@@ -3730,17 +3821,11 @@ def degree_pearson_correlation_coefficient(G, x='out', y='in', weight=None, node
     For undirected graphs, this is equivalent to
     ``degree_assortativity_coefficient``.
     """
-    import networkx as nx
+    import scipy as sp
 
-    from franken_networkx.drawing.layout import _to_nx
-
-    return nx.degree_pearson_correlation_coefficient(
-        _to_nx(G),
-        x=x,
-        y=y,
-        weight=weight,
-        nodes=nodes,
-    )
+    values = list(node_degree_xy(G, x=x, y=y, weight=weight, nodes=nodes))
+    left, right = zip(*values)
+    return float(sp.stats.pearsonr(left, right)[0])
 
 
 def average_degree(G):
@@ -3773,11 +3858,27 @@ def generalized_degree(G, nodes=None):
         ``{node: Counter}`` where Counter maps triangle count to
         number of edges with that many triangles.
     """
-    import networkx as nx
+    from collections import Counter
 
-    from franken_networkx.drawing.layout import _to_nx
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
 
-    return nx.generalized_degree(_to_nx(G), nodes=nodes)
+    def _generalized_degree_for(node):
+        counter = Counter()
+        for nbr in G.neighbors(node):
+            if nbr == node:
+                continue
+            shared = set(G.neighbors(node)) & set(G.neighbors(nbr))
+            shared.discard(node)
+            shared.discard(nbr)
+            counter[len(shared)] += 1
+        return counter
+
+    if nodes in G:
+        return _generalized_degree_for(nodes)
+    if nodes is None:
+        nodes = G.nodes()
+    return {node: _generalized_degree_for(node) for node in nodes}
 
 
 def all_pairs_node_connectivity(G, nbunch=None, flow_func=None):
@@ -4288,12 +4389,134 @@ def identified_nodes(
 
 def inverse_line_graph(G):
     """Return an inverse line graph, when it exists."""
-    import networkx as nx
+    from collections import defaultdict
+    from itertools import combinations
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+    def _triangles_local(graph, edge):
+        u, v = edge
+        if u not in graph:
+            raise NetworkXError(f"Vertex {u} not in graph")
+        if v not in graph[u]:
+            raise NetworkXError(f"Edge ({u}, {v}) not in graph")
+        triangle_list = []
+        for x in graph[u]:
+            if x in graph[v]:
+                triangle_list.append((u, v, x))
+        return triangle_list
 
-    return _from_nx_graph(nx.inverse_line_graph(_to_nx(G)))
+    def _odd_triangle_local(graph, triangle):
+        for u in triangle:
+            if u not in graph:
+                raise NetworkXError(f"Vertex {u} not in graph")
+        for u, v in combinations(triangle, 2):
+            if u not in graph[v]:
+                raise NetworkXError(f"Edge ({u}, {v}) not in graph")
+
+        triangle_neighbors = defaultdict(int)
+        for triangle_node in triangle:
+            for neighbor in graph[triangle_node]:
+                if neighbor not in triangle:
+                    triangle_neighbors[neighbor] += 1
+        return any(count in (1, 3) for count in triangle_neighbors.values())
+
+    def _select_starting_cell_local(graph, starting_edge=None):
+        if starting_edge is None:
+            edge = next(iter(graph.edges()))
+        else:
+            edge = starting_edge
+            if edge[0] not in graph.nodes():
+                raise NetworkXError(f"Vertex {edge[0]} not in graph")
+            if edge[1] not in graph[edge[0]]:
+                raise NetworkXError(f"starting_edge ({edge[0]}, {edge[1]}) is not in the Graph")
+        edge_triangles = _triangles_local(graph, edge)
+        triangle_count = len(edge_triangles)
+        if triangle_count == 0:
+            return edge
+        if triangle_count == 1:
+            triangle = edge_triangles[0]
+            a, b, c = triangle
+            ac_edges = len(_triangles_local(graph, (a, c)))
+            bc_edges = len(_triangles_local(graph, (b, c)))
+            if ac_edges == 1:
+                if bc_edges == 1:
+                    return triangle
+                return _select_starting_cell_local(graph, starting_edge=(b, c))
+            return _select_starting_cell_local(graph, starting_edge=(a, c))
+
+        odd_triangles = [triangle for triangle in edge_triangles if _odd_triangle_local(graph, triangle)]
+        odd_count = len(odd_triangles)
+        if triangle_count == 2 and odd_count == 0:
+            return edge_triangles[-1]
+        if triangle_count - 1 <= odd_count <= triangle_count:
+            triangle_nodes = set()
+            for triangle in odd_triangles:
+                triangle_nodes.update(triangle)
+            for u in triangle_nodes:
+                for v in triangle_nodes:
+                    if u != v and v not in graph[u]:
+                        raise NetworkXError(
+                            "G is not a line graph (odd triangles do not form complete subgraph)"
+                        )
+            return tuple(triangle_nodes)
+        raise NetworkXError("G is not a line graph (incorrect number of odd triangles around starting edge)")
+
+    def _find_partition_local(graph, starting_cell):
+        graph_partition = graph.copy()
+        partition = [starting_cell]
+        graph_partition.remove_edges_from(list(combinations(starting_cell, 2)))
+        partitioned_vertices = list(starting_cell)
+        while graph_partition.number_of_edges() > 0:
+            u = partitioned_vertices.pop()
+            if len(graph_partition[u]) != 0:
+                new_cell = [u] + list(graph_partition[u])
+                for cell_u in new_cell:
+                    for cell_v in new_cell:
+                        if cell_u != cell_v and cell_v not in graph_partition[cell_u]:
+                            raise NetworkXError(
+                                "G is not a line graph (partition cell not a complete subgraph)"
+                            )
+                partition.append(tuple(new_cell))
+                graph_partition.remove_edges_from(list(combinations(new_cell, 2)))
+                partitioned_vertices += new_cell
+        return partition
+
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.number_of_nodes() == 0:
+        return empty_graph(1)
+    if G.number_of_nodes() == 1:
+        vertex = next(iter(G.nodes()))
+        return Graph([((vertex, 0), (vertex, 1))])
+    if G.number_of_nodes() > 1 and G.number_of_edges() == 0:
+        raise NetworkXError(
+            "inverse_line_graph() doesn't work on an edgeless graph. Please use this function on each component separately."
+        )
+    if number_of_selfloops(G) != 0:
+        raise NetworkXError(
+            "A line graph as generated by NetworkX has no selfloops, so G has no inverse line graph. Please remove the selfloops from G and try again."
+        )
+
+    starting_cell = _select_starting_cell_local(G)
+    partition = _find_partition_local(G, starting_cell)
+    partition_count = {u: 0 for u in G.nodes()}
+    for cell in partition:
+        for u in cell:
+            partition_count[u] += 1
+    if max(partition_count.values()) > 2:
+        raise NetworkXError("G is not a line graph (vertex found in more than two partition cells)")
+
+    singleton_cells = tuple((u,) for u, count in partition_count.items() if count == 1)
+    H = Graph()
+    for node in partition:
+        H.add_node(node)
+    for node in singleton_cells:
+        H.add_node(node)
+    for left, right in combinations(H.nodes(), 2):
+        if any(item in right for item in left):
+            H.add_edge(left, right)
+    return H
 
 
 # ---------------------------------------------------------------------------
@@ -6595,25 +6818,30 @@ def ra_index_soundarajan_hopcroft(G, ebunch=None, community='community'):
 
 def node_attribute_xy(G, attribute):
     """Yield (x, y) pairs of attribute values for edges."""
-    for u, v in G.edges():
-        u_attrs = G.nodes[u] if hasattr(G.nodes, '__getitem__') else {}
-        v_attrs = G.nodes[v] if hasattr(G.nodes, '__getitem__') else {}
-        if isinstance(u_attrs, dict) and isinstance(v_attrs, dict):
-            x = u_attrs.get(attribute)
-            y = v_attrs.get(attribute)
-            if x is not None and y is not None:
+    for u, nbrsdict in G.adjacency():
+        u_attrs = G.nodes[u] if hasattr(G.nodes, "__getitem__") else {}
+        x = u_attrs.get(attribute) if isinstance(u_attrs, dict) else None
+        if G.is_multigraph():
+            for v, keys in nbrsdict.items():
+                v_attrs = G.nodes[v] if hasattr(G.nodes, "__getitem__") else {}
+                y = v_attrs.get(attribute) if isinstance(v_attrs, dict) else None
+                for _ in keys:
+                    yield (x, y)
+        else:
+            for v in nbrsdict:
+                v_attrs = G.nodes[v] if hasattr(G.nodes, "__getitem__") else {}
+                y = v_attrs.get(attribute) if isinstance(v_attrs, dict) else None
                 yield (x, y)
 
 
 def node_degree_xy(G, x='out', y='in', weight=None, nodes=None):
     """Yield (degree_x, degree_y) for each edge."""
     node_set = set(G) if nodes is None else set(nodes)
+    present_nodes = [node for node in G if node in node_set]
 
     def directed_degree_map(mode):
         result = {}
-        for node in G:
-            if node not in node_set:
-                continue
+        for node in present_nodes:
             total = 0
             neighbors = G.predecessors(node) if mode == 'in' else G.successors(node)
             for neighbor in neighbors:
@@ -6632,14 +6860,14 @@ def node_degree_xy(G, x='out', y='in', weight=None, nodes=None):
     if G.is_directed():
         xdeg = directed_degree_map(x)
         ydeg = directed_degree_map(y)
-        for u in node_set:
+        for u in present_nodes:
             for v in G.successors(u):
                 if v in node_set:
                     yield (xdeg[u], ydeg[v])
         return
 
-    deg = {node: degree(G, node, weight=weight) for node in G if node in node_set}
-    for u in node_set:
+    deg = {node: degree(G, node, weight=weight) for node in present_nodes}
+    for u in present_nodes:
         for v in G.neighbors(u):
             if v not in node_set:
                 continue
@@ -6782,7 +7010,7 @@ def chordless_cycles(G, length_bound=None):
 
     from franken_networkx.drawing.layout import _to_nx
 
-    return list(nx.chordless_cycles(_to_nx(G), length_bound=length_bound))
+    yield from nx.chordless_cycles(_to_nx(G), length_bound=length_bound)
 
 
 def to_undirected(G):
@@ -6934,10 +7162,10 @@ def to_pandas_adjacency(
     nonedge=0.0,
 ):
     """Export adjacency as pandas DataFrame."""
-    import networkx as nx
+    import pandas as pd
 
-    return nx.to_pandas_adjacency(
-        _to_nx(G),
+    matrix = to_numpy_array(
+        G,
         nodelist=nodelist,
         dtype=dtype,
         order=order,
@@ -6945,6 +7173,9 @@ def to_pandas_adjacency(
         weight=weight,
         nonedge=nonedge,
     )
+    if nodelist is None:
+        nodelist = list(G)
+    return pd.DataFrame(data=matrix, index=nodelist, columns=nodelist)
 
 
 def from_prufer_sequence(sequence):
@@ -7108,9 +7339,31 @@ def davis_southern_women_graph():
 # Misc generators (br-fjh)
 def triad_graph(triad_type_str):
     """Return canonical DiGraph for a MAN triad type."""
-    canonical = {'003':[],'012':[(0,1)],'102':[(0,1),(1,0)],'021D':[(2,0),(2,1)],'021U':[(0,2),(1,2)],'021C':[(0,1),(1,2)],'111D':[(0,1),(1,0),(2,0)],'111U':[(0,1),(1,0),(0,2)],'030T':[(0,1),(1,2),(0,2)],'030C':[(0,1),(1,2),(2,0)],'201':[(0,1),(1,0),(0,2),(2,0)],'120D':[(0,1),(1,0),(2,0),(2,1)],'120U':[(0,1),(1,0),(0,2),(1,2)],'120C':[(0,1),(1,0),(0,2),(2,1)],'210':[(0,1),(1,0),(0,2),(2,0),(1,2)],'300':[(0,1),(1,0),(0,2),(2,0),(1,2),(2,1)]}
-    if triad_type_str not in canonical: raise NetworkXError(f"Unknown triad type: {triad_type_str}")
-    D = DiGraph(); D.add_nodes_from([0,1,2]); D.add_edges_from(canonical[triad_type_str])
+    canonical = {
+        "003": [],
+        "012": [("a", "b")],
+        "102": [("a", "b"), ("b", "a")],
+        "021D": [("b", "a"), ("b", "c")],
+        "021U": [("a", "b"), ("c", "b")],
+        "021C": [("a", "b"), ("b", "c")],
+        "111D": [("a", "c"), ("b", "c"), ("c", "a")],
+        "111U": [("a", "c"), ("c", "a"), ("c", "b")],
+        "030T": [("a", "b"), ("a", "c"), ("c", "b")],
+        "030C": [("a", "c"), ("b", "a"), ("c", "b")],
+        "201": [("a", "b"), ("a", "c"), ("b", "a"), ("c", "a")],
+        "120D": [("a", "c"), ("b", "a"), ("b", "c"), ("c", "a")],
+        "120U": [("a", "b"), ("a", "c"), ("c", "a"), ("c", "b")],
+        "120C": [("a", "b"), ("a", "c"), ("b", "c"), ("c", "a")],
+        "210": [("a", "b"), ("a", "c"), ("b", "c"), ("c", "a"), ("c", "b")],
+        "300": [("a", "b"), ("a", "c"), ("b", "a"), ("b", "c"), ("c", "a"), ("c", "b")],
+    }
+    if triad_type_str not in canonical:
+        raise ValueError(
+            f'unknown triad name "{triad_type_str}"; use one of the triad names in the TRIAD_NAMES constant'
+        )
+    D = DiGraph()
+    D.add_nodes_from("abc")
+    D.add_edges_from(canonical[triad_type_str])
     return D
 
 
@@ -7460,16 +7713,13 @@ def equitable_color(G, num_colors):
 
     return nx.equitable_color(_to_nx(G), num_colors)
 
-def chromatic_polynomial(G, x):
-    """Evaluate chromatic polynomial P(G, x) via deletion-contraction."""
-    if G.number_of_edges() == 0:
-        return x ** G.number_of_nodes()
-    if G.number_of_nodes() == 0:
-        return 1
-    u, v = list(G.edges())[0]
-    G1 = G.copy(); G1.remove_edge(u, v)
-    G2 = contracted_nodes(G, u, v, self_loops=False)
-    return chromatic_polynomial(G1, x) - chromatic_polynomial(G2, x)
+def chromatic_polynomial(G):
+    """Return the chromatic polynomial of an undirected graph."""
+    import networkx as nx
+
+    from franken_networkx.drawing.layout import _to_nx
+
+    return nx.chromatic_polynomial(_to_nx(G))
 
 def combinatorial_embedding_to_pos(embedding, fully_triangulate=False):
     """Convert combinatorial embedding to positions."""
@@ -7563,23 +7813,53 @@ def random_unlabeled_rooted_tree(n, seed=None):
     """Random unlabeled rooted tree."""
     return random_tree(n, seed=seed)
 
-def random_unlabeled_rooted_forest(n, q=None, seed=None):
-    """Random rooted forest."""
-    import random as _random; rng = _random.Random(seed)
-    if q is None: q = 0.5
-    G = Graph()
-    for i in range(n): G.add_node(i)
-    for i in range(1, n):
-        if rng.random() < q: G.add_edge(i, rng.randint(0, i-1))
-    return G
+def random_unlabeled_rooted_forest(n, q=None, number_of_forests=None, seed=None):
+    """Return one or more random unlabeled rooted forests."""
+    import networkx as nx
+
+    from franken_networkx.readwrite import _from_nx_graph
+
+    result = nx.random_unlabeled_rooted_forest(
+        n,
+        q=q,
+        number_of_forests=number_of_forests,
+        seed=seed,
+    )
+    if number_of_forests is None:
+        return _from_nx_graph(result)
+    return [_from_nx_graph(graph) for graph in result]
 
 def tree_data(G, root, ident="id", children="children"):
     """Serialize a rooted directed tree to nested data."""
     import networkx as nx
 
-    from franken_networkx.drawing.layout import _to_nx
+    if G.number_of_nodes() != G.number_of_edges() + 1:
+        raise TypeError("G is not a tree.")
+    if not G.is_directed():
+        raise TypeError("G is not directed.")
+    if isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
+        weakly_connected = is_weakly_connected(G)
+    else:
+        weakly_connected = nx.is_weakly_connected(G)
+    if not weakly_connected:
+        raise TypeError("G is not weakly connected.")
+    if ident == children:
+        raise NetworkXError("The values for `id` and `children` must be different.")
 
-    return nx.tree_data(_to_nx(G), root, ident=ident, children=children)
+    def add_children(node):
+        child_nodes = list(G[node])
+        if not child_nodes:
+            return []
+        payload = []
+        for child in child_nodes:
+            child_payload = {**G.nodes[child], ident: child}
+            nested = add_children(child)
+            if nested:
+                child_payload[children] = nested
+            payload.append(child_payload)
+        return payload
+
+    return {**G.nodes[root], ident: root, children: add_children(root)}
 
 def tree_graph(data, ident="id", children="children"):
     """Reconstruct tree from nested dict data."""
@@ -7759,11 +8039,38 @@ def neighbors(G, n):
 
 def describe(G):
     """Return detailed graph description."""
-    import networkx as nx
+    info = {}
+    if G.name != "":
+        info["Name of Graph"] = G.name
+    info.update(
+        {
+            "Number of nodes": len(G),
+            "Number of edges": G.number_of_edges(),
+            "Directed": G.is_directed(),
+            "Multigraph": G.is_multigraph(),
+            "Tree": is_tree(G),
+            "Bipartite": is_bipartite(G),
+        }
+    )
+    if len(G) != 0:
+        degree_values = [degree for _, degree in G.degree]
+        avg_degree = sum(degree_values) / len(G)
+        info["Average degree (min, max)"] = (
+            f"{avg_degree:.2f} ({min(degree_values)}, {max(degree_values)})"
+        )
+        if G.is_directed():
+            info["Number of strongly connected components"] = (
+                number_strongly_connected_components(G)
+            )
+            info["Number of weakly connected components"] = (
+                number_weakly_connected_components(G)
+            )
+        else:
+            info["Number of connected components"] = number_connected_components(G)
 
-    from franken_networkx.drawing.layout import _to_nx
-
-    return nx.describe(_to_nx(G))
+    max_key_len = max(len(key) for key in info)
+    for key, value in info.items():
+        print(f"{key:<{max_key_len}} : {value}")
 
 def mixing_dict(xy, normalized=False):
     """Generic mixing dictionary from (x,y) iterator."""
@@ -8530,16 +8837,56 @@ def to_pandas_edgelist(G, source='source', target='target', nodelist=None,
     -------
     df : pandas.DataFrame
     """
-    import networkx as nx
-    from franken_networkx.drawing.layout import _to_nx
-    return nx.to_pandas_edgelist(
-        _to_nx(G),
-        source=source,
-        target=target,
-        nodelist=nodelist,
-        dtype=dtype,
-        edge_key=edge_key,
+    import pandas as pd
+
+    if G.is_multigraph():
+        if nodelist is None:
+            edgelist = list(G.edges(keys=True, data=True))
+        else:
+            edgelist = list(G.edges(nodelist, keys=True, data=True))
+        all_attrs = set().union(*(edge_attrs.keys() for _, _, _, edge_attrs in edgelist))
+        if source in all_attrs:
+            raise NetworkXError(f"Source name {source!r} is an edge attr name")
+        if target in all_attrs:
+            raise NetworkXError(f"Target name {target!r} is an edge attr name")
+        payload = {
+            source: [u for u, _, _, _ in edgelist],
+            target: [v for _, v, _, _ in edgelist],
+        }
+        if edge_key is not None:
+            if edge_key in all_attrs:
+                raise NetworkXError(f"Edge key name {edge_key!r} is an edge attr name")
+            payload[edge_key] = [k for _, _, k, _ in edgelist]
+        nan = float("nan")
+        payload.update(
+            {
+                attr: [edge_attrs.get(attr, nan) for _, _, _, edge_attrs in edgelist]
+                for attr in all_attrs
+            }
+        )
+        return pd.DataFrame(payload, dtype=dtype)
+
+    if nodelist is None:
+        edgelist = list(G.edges(data=True))
+    else:
+        edgelist = list(G.edges(nodelist, data=True))
+    all_attrs = set().union(*(edge_attrs.keys() for _, _, edge_attrs in edgelist))
+    if source in all_attrs:
+        raise NetworkXError(f"Source name {source!r} is an edge attr name")
+    if target in all_attrs:
+        raise NetworkXError(f"Target name {target!r} is an edge attr name")
+    nan = float("nan")
+    payload = {
+        source: [u for u, _, _ in edgelist],
+        target: [v for _, v, _ in edgelist],
+    }
+    payload.update(
+        {
+            attr: [edge_attrs.get(attr, nan) for _, _, edge_attrs in edgelist]
+            for attr in all_attrs
+        }
     )
+    return pd.DataFrame(payload, dtype=dtype)
 
 
 def from_pandas_edgelist(
@@ -8614,18 +8961,47 @@ def to_numpy_array(G, nodelist=None, dtype=None, order=None,
     A : numpy.ndarray
         Adjacency matrix as a 2-D NumPy array.
     """
-    import networkx as nx
-    from franken_networkx.drawing.layout import _to_nx
+    import numpy as np
 
-    return nx.to_numpy_array(
-        _to_nx(G),
-        nodelist=nodelist,
+    if nodelist is None:
+        nodelist = list(G)
+    else:
+        nodelist = list(nodelist)
+        if len(set(nodelist)) != len(nodelist):
+            raise NetworkXError("nodelist contains duplicates.")
+        missing = set(nodelist) - set(G)
+        if missing:
+            raise NetworkXError(f"Nodes {missing} in nodelist is not in G")
+
+    index = {node: i for i, node in enumerate(nodelist)}
+    matrix = np.full(
+        (len(nodelist), len(nodelist)),
+        nonedge,
         dtype=dtype,
         order=order,
-        multigraph_weight=multigraph_weight,
-        weight=weight,
-        nonedge=nonedge,
     )
+
+    if G.is_multigraph():
+        edge_values = {}
+        for u, v, _, edge_attrs in G.edges(keys=True, data=True):
+            if u not in index or v not in index:
+                continue
+            edge_value = 1 if weight is None else edge_attrs.get(weight, 1)
+            edge_values.setdefault((u, v), []).append(edge_value)
+            if not G.is_directed() and u != v:
+                edge_values.setdefault((v, u), []).append(edge_value)
+        for (u, v), values in edge_values.items():
+            matrix[index[u], index[v]] = multigraph_weight(values)
+        return matrix
+
+    for u, v, edge_attrs in G.edges(data=True):
+        if u not in index or v not in index:
+            continue
+        edge_value = 1 if weight is None else edge_attrs.get(weight, 1)
+        matrix[index[u], index[v]] = edge_value
+        if not G.is_directed() and u != v:
+            matrix[index[v], index[u]] = edge_value
+    return matrix
 
 def from_numpy_array(
     A,
@@ -8688,16 +9064,46 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight='weight',
     A : scipy.sparse array
         Adjacency matrix in the requested sparse format.
     """
-    import networkx as nx
-    from franken_networkx.drawing.layout import _to_nx
+    import scipy.sparse
 
-    return nx.to_scipy_sparse_array(
-        _to_nx(G),
-        nodelist=nodelist,
+    if nodelist is None:
+        nodelist = list(G)
+    else:
+        nodelist = list(nodelist)
+        if len(set(nodelist)) != len(nodelist):
+            raise NetworkXError("nodelist contains duplicates.")
+        missing = set(nodelist) - set(G)
+        if missing:
+            raise NetworkXError(f"Nodes {missing} in nodelist is not in G")
+
+    index = {node: i for i, node in enumerate(nodelist)}
+    entries = {}
+    if G.is_multigraph():
+        for u, v, _, edge_attrs in G.edges(keys=True, data=True):
+            if u not in index or v not in index:
+                continue
+            edge_value = 1 if weight is None else edge_attrs.get(weight, 1)
+            entries[(index[u], index[v])] = entries.get((index[u], index[v]), 0) + edge_value
+            if not G.is_directed() and u != v:
+                entries[(index[v], index[u])] = entries.get((index[v], index[u]), 0) + edge_value
+    else:
+        for u, v, edge_attrs in G.edges(data=True):
+            if u not in index or v not in index:
+                continue
+            edge_value = 1 if weight is None else edge_attrs.get(weight, 1)
+            entries[(index[u], index[v])] = edge_value
+            if not G.is_directed() and u != v:
+                entries[(index[v], index[u])] = edge_value
+
+    rows = [row for row, _ in entries]
+    cols = [col for _, col in entries]
+    data = list(entries.values())
+    matrix = scipy.sparse.coo_array(
+        (data, (rows, cols)),
+        shape=(len(nodelist), len(nodelist)),
         dtype=dtype,
-        weight=weight,
-        format=format,
     )
+    return matrix.asformat(format)
 
 def from_scipy_sparse_array(A, parallel_edges=False, create_using=None,
                             edge_attribute='weight'):
@@ -8804,11 +9210,36 @@ def to_dict_of_dicts(G, nodelist=None, edge_data=None):
 
 def cytoscape_data(G, name="name", ident="id"):
     """Export graph to Cytoscape.js JSON format."""
-    import networkx as nx
+    if name == ident:
+        raise NetworkXError("name and ident must be different.")
 
-    from franken_networkx.drawing.layout import _to_nx
+    payload = {
+        "data": list(G.graph.items()),
+        "directed": G.is_directed(),
+        "multigraph": G.is_multigraph(),
+        "elements": {"nodes": [], "edges": []},
+    }
+    for node, node_attrs in G.nodes(data=True):
+        node_payload = {"data": dict(node_attrs)}
+        node_payload["data"]["id"] = node_attrs.get(ident) or str(node)
+        node_payload["data"]["value"] = node
+        node_payload["data"]["name"] = node_attrs.get(name) or str(node)
+        payload["elements"]["nodes"].append(node_payload)
 
-    return nx.cytoscape_data(_to_nx(G), name=name, ident=ident)
+    if G.is_multigraph():
+        for u, v, edge_key, edge_attrs in G.edges(keys=True, data=True):
+            edge_payload = {"data": dict(edge_attrs)}
+            edge_payload["data"]["source"] = u
+            edge_payload["data"]["target"] = v
+            edge_payload["data"]["key"] = edge_key
+            payload["elements"]["edges"].append(edge_payload)
+    else:
+        for u, v, edge_attrs in G.edges(data=True):
+            edge_payload = {"data": dict(edge_attrs)}
+            edge_payload["data"]["source"] = u
+            edge_payload["data"]["target"] = v
+            payload["elements"]["edges"].append(edge_payload)
+    return payload
 
 
 def cytoscape_graph(data, name="name", ident="id"):
@@ -8998,9 +9429,26 @@ def random_powerlaw_tree(n, gamma=3, seed=None, tries=100, create_using=None):
 
 def random_powerlaw_tree_sequence(n, gamma=3, seed=None, tries=100):
     """Return a degree sequence suitable for a random power-law tree."""
-    import networkx as nx
+    import random as _random
 
-    return nx.random_powerlaw_tree_sequence(n, gamma=gamma, seed=seed, tries=tries)
+    rng = _random.Random(seed)
+    zseq = [min(n, max(round(rng.paretovariate(gamma - 1)), 0)) for _ in range(n)]
+    swap = [min(n, max(round(rng.paretovariate(gamma - 1)), 0)) for _ in range(tries)]
+
+    def is_valid_tree_degree_sequence(sequence):
+        if not sequence:
+            return True
+        if len(sequence) == 1:
+            return sequence[0] == 0
+        return all(degree >= 1 for degree in sequence) and sum(sequence) == 2 * (len(sequence) - 1)
+
+    for _ in range(len(swap)):
+        if is_valid_tree_degree_sequence(zseq):
+            return zseq
+        index = rng.randint(0, n - 1)
+        zseq[index] = swap.pop()
+
+    raise NetworkXError(f"Exceeded max ({tries}) attempts for a valid tree sequence.")
 
 
 def gn_graph(n, kernel=None, create_using=None, seed=None):

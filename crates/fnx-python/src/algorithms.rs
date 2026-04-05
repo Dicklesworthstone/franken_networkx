@@ -2887,7 +2887,19 @@ pub fn minimum_cut(
 pub fn eccentricity(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
-    let result = py.allow_threads(|| fnx_algorithms::distance_measures(inner));
+    if inner.node_count() == 0 {
+        return Err(crate::NetworkXPointlessConcept::new_err("G has no nodes."));
+    }
+    let (connected, result) = py.allow_threads(|| {
+        let c = fnx_algorithms::is_connected(inner);
+        let r = fnx_algorithms::distance_measures(inner);
+        (c.is_connected, r)
+    });
+    if !connected {
+        return Err(NetworkXError::new_err(
+            "Found infinite path length because the graph is not connected",
+        ));
+    }
     let dict = PyDict::new(py);
     for e in &result.eccentricity {
         dict.set_item(gr.py_node_key(py, &e.node), e.value)?;

@@ -1,6 +1,7 @@
 """Tests for graph utility wrapper functions."""
 
 import networkx as nx
+import pytest
 
 import franken_networkx as fnx
 from franken_networkx.drawing.layout import _to_nx
@@ -56,6 +57,31 @@ def test_identified_nodes_and_inverse_line_graph_match_networkx():
 
     assert sorted(_to_nx(identified).edges()) == sorted(identified_nx.edges())
     assert sorted(_to_nx(inverse).edges()) == sorted(inverse_nx.edges())
+
+
+def test_inverse_line_graph_matches_networkx_edge_cases():
+    empty_inverse = fnx.inverse_line_graph(fnx.Graph())
+    expected_empty_inverse = nx.inverse_line_graph(nx.Graph())
+    assert sorted(_to_nx(empty_inverse).edges()) == sorted(expected_empty_inverse.edges())
+
+    single = fnx.Graph()
+    single.add_node("x")
+    single_inverse = fnx.inverse_line_graph(single)
+    expected_single_graph = nx.Graph()
+    expected_single_graph.add_node("x")
+    expected_single_inverse = nx.inverse_line_graph(expected_single_graph)
+    assert sorted(_to_nx(single_inverse).edges()) == sorted(expected_single_inverse.edges())
+
+    edgeless = fnx.Graph()
+    edgeless.add_nodes_from([0, 1])
+    with pytest.raises(fnx.NetworkXError, match="edgeless graph"):
+        fnx.inverse_line_graph(edgeless)
+
+    loopy = fnx.Graph()
+    loopy.add_node(1)
+    loopy.add_edge(0, 0)
+    with pytest.raises(fnx.NetworkXError, match="no selfloops"):
+        fnx.inverse_line_graph(loopy)
 
 
 def test_graph_utility_wrappers_match_networkx():

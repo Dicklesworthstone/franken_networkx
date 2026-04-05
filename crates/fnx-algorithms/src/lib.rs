@@ -17690,6 +17690,15 @@ pub fn out_degree_centrality(digraph: &DiGraph) -> Vec<CentralityScore> {
         return Vec::new();
     }
     let denom = if n <= 1 { 1.0 } else { (n - 1) as f64 };
+    if n == 1 {
+        return nodes
+            .iter()
+            .map(|&node| CentralityScore {
+                node: node.to_owned(),
+                score: 1.0,
+            })
+            .collect();
+    }
     nodes
         .iter()
         .map(|&node| {
@@ -36737,8 +36746,8 @@ mod tests {
         let in_scores = in_degree_centrality(&dg);
         let out_scores = out_degree_centrality(&dg);
         assert_eq!(in_scores.len(), 1);
-        assert!((in_scores[0].score - 0.0).abs() < TEST_TOLERANCE);
-        assert!((out_scores[0].score - 0.0).abs() < TEST_TOLERANCE);
+        assert!((in_scores[0].score - 1.0).abs() < TEST_TOLERANCE);
+        assert!((out_scores[0].score - 1.0).abs() < TEST_TOLERANCE);
     }
 
     // -----------------------------------------------------------------------
