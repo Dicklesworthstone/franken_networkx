@@ -2360,10 +2360,14 @@ pub fn pagerank(
         _ => {
             if gr.is_directed() {
                 let inner = gr.digraph().unwrap();
-                fnx_algorithms::pagerank_with_params(inner, alpha, max_iter, tol)
+                py.allow_threads(|| {
+                    fnx_algorithms::pagerank_with_params(inner, alpha, max_iter, tol)
+                })
             } else {
                 let inner = gr.undirected();
-                fnx_algorithms::pagerank_with_params(inner, alpha, max_iter, tol)
+                py.allow_threads(|| {
+                    fnx_algorithms::pagerank_with_params(inner, alpha, max_iter, tol)
+                })
             }
         }
     };
@@ -9111,8 +9115,13 @@ pub fn node_disjoint_paths_rust(
     let gr = extract_graph(g)?;
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, target)?;
-    let inner = gr.undirected();
-    let result = py.allow_threads(|| fnx_algorithms::node_disjoint_paths(inner, &s, &t));
+    let result = if gr.is_directed() {
+        let inner = gr.digraph().unwrap();
+        py.allow_threads(|| fnx_algorithms::node_disjoint_paths_directed(inner, &s, &t))
+    } else {
+        let inner = gr.undirected();
+        py.allow_threads(|| fnx_algorithms::node_disjoint_paths(inner, &s, &t))
+    };
     Ok(result
         .into_iter()
         .map(|path| path.iter().map(|n| gr.py_node_key(py, n)).collect())

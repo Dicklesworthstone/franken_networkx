@@ -7562,10 +7562,7 @@ pub fn core_number(graph: &Graph) -> CoreNumberResult {
     // Compute initial degrees
     let mut degree: HashMap<&str, usize> = HashMap::new();
     for &node in &nodes {
-        let deg = graph
-            .neighbors_iter(node)
-            .map(|iter| iter.count())
-            .unwrap_or(0);
+        let deg = graph.degree(node);
         degree.insert(node, deg);
     }
 
@@ -7975,13 +7972,7 @@ pub fn average_neighbor_degree(graph: &Graph) -> AverageNeighborDegreeResult {
     // Precompute degrees
     let degrees: HashMap<&str, usize> = nodes
         .iter()
-        .map(|&node| {
-            let deg = graph
-                .neighbors_iter(node)
-                .map(|iter| iter.count())
-                .unwrap_or(0);
-            (node, deg)
-        })
+        .map(|&node| (node, graph.degree(node)))
         .collect();
 
     let mut edges_scanned = 0usize;
@@ -8041,13 +8032,7 @@ pub fn degree_assortativity_coefficient(graph: &Graph) -> DegreeAssortativityRes
     // Precompute degrees
     let degrees: HashMap<&str, usize> = nodes
         .iter()
-        .map(|&node| {
-            let deg = graph
-                .neighbors_iter(node)
-                .map(|iter| iter.count())
-                .unwrap_or(0);
-            (node, deg)
-        })
+        .map(|&node| (node, graph.degree(node)))
         .collect();
 
     for &node in &nodes {
@@ -10218,10 +10203,7 @@ pub fn min_edge_cover(graph: &Graph) -> Option<MinEdgeCoverResult> {
 
     // Check for isolated nodes
     for &node in &nodes {
-        let deg = graph
-            .neighbors_iter(node)
-            .map(|iter| iter.count())
-            .unwrap_or(0);
+        let deg = graph.degree(node);
         if deg == 0 {
             return None; // No edge cover exists
         }
@@ -10333,13 +10315,7 @@ pub fn is_eulerian(graph: &Graph) -> IsEulerianResult {
     // Check connectivity among non-isolated nodes
     let non_isolated: Vec<&str> = nodes
         .iter()
-        .filter(|&&node| {
-            graph
-                .neighbors_iter(node)
-                .map(|iter| iter.count())
-                .unwrap_or(0)
-                > 0
-        })
+        .filter(|&&node| graph.degree(node) > 0)
         .copied()
         .collect();
 
@@ -10448,13 +10424,7 @@ pub fn has_eulerian_path(graph: &Graph) -> HasEulerianPathResult {
     // Check connectivity among non-isolated nodes
     let non_isolated: Vec<&str> = nodes
         .iter()
-        .filter(|&&node| {
-            graph
-                .neighbors_iter(node)
-                .map(|iter| iter.count())
-                .unwrap_or(0)
-                > 0
-        })
+        .filter(|&&node| graph.degree(node) > 0)
         .copied()
         .collect();
 
@@ -10565,13 +10535,7 @@ pub fn eulerian_circuit(graph: &Graph, source: Option<&str>) -> Option<EulerianC
         sorted.sort_unstable();
         sorted
             .into_iter()
-            .find(|&n| {
-                graph
-                    .neighbors_iter(n)
-                    .map(|iter| iter.count())
-                    .unwrap_or(0)
-                    > 0
-            })
+            .find(|&n| graph.degree(n) > 0)
             .unwrap_or(nodes[0])
             .to_owned()
     };
@@ -10626,10 +10590,7 @@ pub fn eulerian_path(graph: &Graph, source: Option<&str>) -> Option<EulerianPath
         sorted.sort_unstable();
 
         let odd_node = sorted.iter().find(|&&n| {
-            let deg = graph
-                .neighbors_iter(n)
-                .map(|iter| iter.count())
-                .unwrap_or(0);
+            let deg = graph.degree(n);
             !deg.is_multiple_of(2)
         });
 
@@ -10639,13 +10600,7 @@ pub fn eulerian_path(graph: &Graph, source: Option<&str>) -> Option<EulerianPath
             // All even degrees → circuit case, pick smallest non-isolated
             sorted
                 .into_iter()
-                .find(|&n| {
-                    graph
-                        .neighbors_iter(n)
-                        .map(|iter| iter.count())
-                        .unwrap_or(0)
-                        > 0
-                })
+                .find(|&n| graph.degree(n) > 0)
                 .unwrap_or(nodes[0])
                 .to_owned()
         }
@@ -21766,16 +21721,17 @@ pub fn edge_disjoint_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec
 
     // Build residual capacity matrix (unit capacities, undirected)
     let mut cap = vec![vec![0i32; n]; n];
+    let mut initial_cap = vec![vec![0i32; n]; n];
     for edge in graph.edges_ordered() {
         let i = idx[edge.left.as_str()];
         let j = idx[edge.right.as_str()];
         cap[i][j] = 1;
         cap[j][i] = 1;
+        initial_cap[i][j] = 1;
+        initial_cap[j][i] = 1;
     }
 
-    let mut paths = Vec::new();
-
-    // Find augmenting paths via BFS
+    // Find max flow via Edmonds-Karp BFS
     loop {
         let mut parent = vec![None::<usize>; n];
         let mut visited = vec![false; n];
@@ -21800,13 +21756,58 @@ pub fn edge_disjoint_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec
             break; // No more augmenting paths
         }
 
-        // Trace path and update residual
+        // Update residual
+        let mut v = t;
+        while let Some(p) = parent[v] {
+            cap[p][v] -= 1;
+            cap[v][p] += 1;
+            v = p;
+        }
+    }
+
+    // Extract paths from flow network
+    let mut flow_adj = vec![Vec::new(); n];
+    for i in 0..n {
+        for j in 0..n {
+            if initial_cap[i][j] == 1 && cap[i][j] == 0 {
+                flow_adj[i].push(j);
+            }
+        }
+    }
+
+    let mut paths = Vec::new();
+    loop {
+        let mut parent = vec![None::<usize>; n];
+        let mut visited = vec![false; n];
+        visited[s] = true;
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(s);
+
+        while let Some(v) = queue.pop_front() {
+            if v == t {
+                break;
+            }
+            for &j in &flow_adj[v] {
+                if !visited[j] {
+                    visited[j] = true;
+                    parent[j] = Some(v);
+                    queue.push_back(j);
+                }
+            }
+        }
+
+        if !visited[t] {
+            break; // No more paths
+        }
+
         let mut path = Vec::new();
         let mut v = t;
         while let Some(p) = parent[v] {
             path.push(nodes[v].to_owned());
-            cap[p][v] -= 1;
-            cap[v][p] += 1;
+            // Remove the edge so it isn't used again
+            if let Some(pos) = flow_adj[p].iter().position(|&x| x == v) {
+                flow_adj[p].remove(pos);
+            }
             v = p;
         }
         path.push(nodes[s].to_owned());
@@ -21843,13 +21844,13 @@ pub fn edge_disjoint_paths_directed(
     };
 
     let mut cap = vec![vec![0i32; n]; n];
+    let mut initial_cap = vec![vec![0i32; n]; n];
     for edge in digraph.edges_ordered() {
         let i = idx[edge.left.as_str()];
         let j = idx[edge.right.as_str()];
         cap[i][j] = 1;
+        initial_cap[i][j] = 1;
     }
-
-    let mut paths = Vec::new();
 
     loop {
         let mut parent = vec![None::<usize>; n];
@@ -21875,12 +21876,55 @@ pub fn edge_disjoint_paths_directed(
             break;
         }
 
+        let mut v = t;
+        while let Some(p) = parent[v] {
+            cap[p][v] -= 1;
+            cap[v][p] += 1;
+            v = p;
+        }
+    }
+
+    let mut flow_adj = vec![Vec::new(); n];
+    for i in 0..n {
+        for j in 0..n {
+            if initial_cap[i][j] == 1 && cap[i][j] == 0 {
+                flow_adj[i].push(j);
+            }
+        }
+    }
+
+    let mut paths = Vec::new();
+    loop {
+        let mut parent = vec![None::<usize>; n];
+        let mut visited = vec![false; n];
+        visited[s] = true;
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(s);
+
+        while let Some(v) = queue.pop_front() {
+            if v == t {
+                break;
+            }
+            for &j in &flow_adj[v] {
+                if !visited[j] {
+                    visited[j] = true;
+                    parent[j] = Some(v);
+                    queue.push_back(j);
+                }
+            }
+        }
+
+        if !visited[t] {
+            break;
+        }
+
         let mut path = Vec::new();
         let mut v = t;
         while let Some(p) = parent[v] {
             path.push(nodes[v].to_owned());
-            cap[p][v] -= 1;
-            cap[v][p] += 1;
+            if let Some(pos) = flow_adj[p].iter().position(|&x| x == v) {
+                flow_adj[p].remove(pos);
+            }
             v = p;
         }
         path.push(nodes[s].to_owned());
@@ -21931,17 +21975,18 @@ pub fn node_disjoint_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec
     }
 
     // Graph edges: u_out → v_in and v_out → u_in (undirected)
+    let mut initial_cap = cap.clone();
     for edge in graph.edges_ordered() {
         let u = idx[edge.left.as_str()];
         let v = idx[edge.right.as_str()];
         cap[u + n][v] = 1;
         cap[v + n][u] = 1;
+        initial_cap[u + n][v] = 1;
+        initial_cap[v + n][u] = 1;
     }
 
     let s_out = s + n;
     let t_in = t;
-
-    let mut paths = Vec::new();
 
     loop {
         let mut parent = vec![None::<usize>; nn];
@@ -21967,35 +22012,201 @@ pub fn node_disjoint_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec
             break;
         }
 
-        // Trace augmenting path from t_in back to s_out and update residual
-        let mut raw_path = vec![t_in];
         let mut v = t_in;
-        while v != s_out {
-            if let Some(p) = parent[v] {
-                cap[p][v] -= 1;
-                cap[v][p] += 1;
-                raw_path.push(p);
-                v = p;
-            } else {
+        while let Some(p) = parent[v] {
+            cap[p][v] -= 1;
+            cap[v][p] += 1;
+            v = p;
+        }
+    }
+
+    // Extract paths from flow network
+    let mut flow_adj = vec![Vec::new(); n];
+    for i in 0..n {
+        for j in 0..n {
+            let i_out = i + n;
+            let j_in = j;
+            if initial_cap[i_out][j_in] == 1 && cap[i_out][j_in] == 0 {
+                flow_adj[i].push(j);
+            }
+        }
+    }
+
+    let mut paths = Vec::new();
+    loop {
+        let mut parent = vec![None::<usize>; n];
+        let mut visited = vec![false; n];
+        visited[s] = true;
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(s);
+
+        while let Some(v) = queue.pop_front() {
+            if v == t {
                 break;
             }
-        }
-        raw_path.reverse();
-
-        // Convert split-node indices back to original nodes
-        let mut path = Vec::new();
-        for &idx_val in &raw_path {
-            let orig = idx_val % n;
-            let node_str = nodes[orig].to_owned();
-            if path.is_empty() || path.last() != Some(&node_str) {
-                path.push(node_str);
+            for &j in &flow_adj[v] {
+                if !visited[j] {
+                    visited[j] = true;
+                    parent[j] = Some(v);
+                    queue.push_back(j);
+                }
             }
         }
-        // Deduplicate consecutive entries
-        path.dedup();
-        if path.len() >= 2 {
-            paths.push(path);
+
+        if !visited[t] {
+            break;
         }
+
+        let mut path = Vec::new();
+        let mut v = t;
+        while let Some(p) = parent[v] {
+            path.push(nodes[v].to_owned());
+            if let Some(pos) = flow_adj[p].iter().position(|&x| x == v) {
+                flow_adj[p].remove(pos);
+            }
+            v = p;
+        }
+        path.push(nodes[s].to_owned());
+        path.reverse();
+        paths.push(path);
+    }
+
+    paths
+}
+
+/// Find node-disjoint paths between source and target in a directed graph.
+///
+/// Splits each node (except s, t) into two copies connected by a unit-capacity
+/// edge, then finds edge-disjoint paths in the split graph.
+#[must_use]
+pub fn node_disjoint_paths_directed(
+    digraph: &DiGraph,
+    source: &str,
+    target: &str,
+) -> Vec<Vec<String>> {
+    if source == target || !digraph.has_node(source) || !digraph.has_node(target) {
+        return Vec::new();
+    }
+
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+    let idx: std::collections::HashMap<&str, usize> =
+        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+
+    let s = match idx.get(source) {
+        Some(&i) => i,
+        None => return Vec::new(),
+    };
+    let t = match idx.get(target) {
+        Some(&i) => i,
+        None => return Vec::new(),
+    };
+
+    // Split graph: node i becomes i_in (i) and i_out (i + n)
+    // Internal edge: i_in → i_out with capacity 1 (except s, t: capacity n)
+    let nn = 2 * n;
+    let mut cap = vec![vec![0i32; nn]; nn];
+
+    // Internal edges
+    for i in 0..n {
+        let capacity = if i == s || i == t { n as i32 } else { 1 };
+        cap[i][i + n] = capacity;
+    }
+
+    // Graph edges: u_out → v_in (directed)
+    let mut initial_cap = cap.clone();
+    for edge in digraph.edges_ordered() {
+        let u = idx[edge.left.as_str()];
+        let v = idx[edge.right.as_str()];
+        cap[u + n][v] += 1;
+        initial_cap[u + n][v] += 1;
+    }
+
+    let s_out = s + n;
+    let t_in = t;
+
+    loop {
+        let mut parent = vec![None::<usize>; nn];
+        let mut visited = vec![false; nn];
+        visited[s_out] = true;
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(s_out);
+
+        while let Some(v) = queue.pop_front() {
+            if v == t_in {
+                break;
+            }
+            for j in 0..nn {
+                if !visited[j] && cap[v][j] > 0 {
+                    visited[j] = true;
+                    parent[j] = Some(v);
+                    queue.push_back(j);
+                }
+            }
+        }
+
+        if !visited[t_in] {
+            break;
+        }
+
+        let mut v = t_in;
+        while let Some(p) = parent[v] {
+            cap[p][v] -= 1;
+            cap[v][p] += 1;
+            v = p;
+        }
+    }
+
+    // Extract paths from flow network
+    let mut flow_adj = vec![Vec::new(); n];
+    for i in 0..n {
+        for j in 0..n {
+            let i_out = i + n;
+            let j_in = j;
+            let flow = (initial_cap[i_out][j_in] - cap[i_out][j_in]).max(0);
+            for _ in 0..flow {
+                flow_adj[i].push(j);
+            }
+        }
+    }
+
+    let mut paths = Vec::new();
+    loop {
+        let mut parent = vec![None::<usize>; n];
+        let mut visited = vec![false; n];
+        visited[s] = true;
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(s);
+
+        while let Some(v) = queue.pop_front() {
+            if v == t {
+                break;
+            }
+            for &j in &flow_adj[v] {
+                if !visited[j] {
+                    visited[j] = true;
+                    parent[j] = Some(v);
+                    queue.push_back(j);
+                }
+            }
+        }
+
+        if !visited[t] {
+            break;
+        }
+
+        let mut path = Vec::new();
+        let mut v = t;
+        while let Some(p) = parent[v] {
+            path.push(nodes[v].to_owned());
+            if let Some(pos) = flow_adj[p].iter().position(|&x| x == v) {
+                flow_adj[p].remove(pos);
+            }
+            v = p;
+        }
+        path.push(nodes[s].to_owned());
+        path.reverse();
+        paths.push(path);
     }
 
     paths
@@ -22693,10 +22904,12 @@ pub fn common_neighbor_centrality(
 pub fn degree_mixing_dict(graph: &Graph) -> std::collections::HashMap<(usize, usize), usize> {
     let mut mixing = std::collections::HashMap::new();
     for edge in graph.edges_ordered() {
-        let du = graph.neighbors(&edge.left).unwrap_or_default().len();
-        let dv = graph.neighbors(&edge.right).unwrap_or_default().len();
+        let du = graph.degree(&edge.left);
+        let dv = graph.degree(&edge.right);
         *mixing.entry((du, dv)).or_insert(0) += 1;
-        *mixing.entry((dv, du)).or_insert(0) += 1;
+        if edge.left != edge.right {
+            *mixing.entry((dv, du)).or_insert(0) += 1;
+        }
     }
     mixing
 }
@@ -22708,8 +22921,8 @@ pub fn degree_mixing_dict_directed(
 ) -> std::collections::HashMap<(usize, usize), usize> {
     let mut mixing = std::collections::HashMap::new();
     for edge in digraph.edges_ordered() {
-        let du = digraph.neighbor_count(&edge.left); // out-degree
-        let dv = digraph.predecessors(&edge.right).map_or(0, |p| p.len()); // in-degree of target
+        let du = digraph.out_degree(&edge.left);
+        let dv = digraph.in_degree(&edge.right);
         *mixing.entry((du, dv)).or_insert(0) += 1;
     }
     mixing
@@ -22985,7 +23198,9 @@ pub fn attribute_mixing_dict(
             .unwrap_or_default();
         // Undirected: count both directions for every edge
         *mixing.entry((u_val.clone(), v_val.clone())).or_insert(0) += 1;
-        *mixing.entry((v_val, u_val)).or_insert(0) += 1;
+        if edge.left != edge.right {
+            *mixing.entry((v_val, u_val)).or_insert(0) += 1;
+        }
     }
     mixing
 }
