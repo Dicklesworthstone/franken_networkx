@@ -1,0 +1,167 @@
+import networkx as nx
+
+import franken_networkx as fnx
+
+from franken_networkx.drawing.layout import _to_nx
+
+
+def test_is_isomorphic_uses_rust_when_no_callbacks(monkeypatch):
+    g1 = fnx.path_graph(4)
+    g2 = fnx.path_graph(4)
+    called = {"rust": False}
+
+    def fake_rust(left, right):
+        called["rust"] = True
+        assert left is g1
+        assert right is g2
+        return True
+
+    def fail_networkx(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(fnx, "_is_isomorphic_rust", fake_rust)
+    monkeypatch.setattr(nx, "is_isomorphic", fail_networkx)
+
+    assert fnx.is_isomorphic(g1, g2) is True
+    assert called["rust"] is True
+
+
+def test_is_isomorphic_with_callbacks_delegates_to_networkx(monkeypatch):
+    g1 = fnx.Graph()
+    g1.add_node(1, color="red")
+    g1.add_node(2, color="blue")
+    g1.add_edge(1, 2)
+
+    g2 = fnx.Graph()
+    g2.add_node("a", color="red")
+    g2.add_node("b", color="green")
+    g2.add_edge("a", "b")
+
+    def fail_rust(*args, **kwargs):
+        raise AssertionError("Rust fast path should not be used with callbacks")
+
+    real_isomorphic = nx.is_isomorphic
+    called = {"networkx": False}
+
+    def wrapped_networkx(left, right, node_match=None, edge_match=None):
+        called["networkx"] = True
+        assert node_match is not None
+        return real_isomorphic(
+            left,
+            right,
+            node_match=node_match,
+            edge_match=edge_match,
+        )
+
+    monkeypatch.setattr(fnx, "_is_isomorphic_rust", fail_rust)
+    monkeypatch.setattr(nx, "is_isomorphic", wrapped_networkx)
+
+    assert (
+        fnx.is_isomorphic(g1, g2, node_match=lambda left, right: left == right)
+        is False
+    )
+    assert called["networkx"] is True
+
+
+def test_vf2pp_is_isomorphic_matches_networkx():
+    g1 = fnx.path_graph(4)
+    g2 = fnx.relabel_nodes(g1, {0: "a", 1: "b", 2: "c", 3: "d"})
+    g2.nodes["a"]["color"] = "red"
+    g2.nodes["b"]["color"] = "blue"
+    g2.nodes["c"]["color"] = "blue"
+    g2.nodes["d"]["color"] = "red"
+    g1.nodes[0]["color"] = "red"
+    g1.nodes[1]["color"] = "blue"
+    g1.nodes[2]["color"] = "blue"
+    g1.nodes[3]["color"] = "red"
+
+    assert fnx.vf2pp_is_isomorphic(g1, g2, node_label="color") == nx.vf2pp_is_isomorphic(
+        _to_nx(g1),
+        _to_nx(g2),
+        node_label="color",
+    )
+
+
+def test_vf2pp_isomorphism_mapping_preserves_edges():
+    g1 = fnx.cycle_graph(4)
+    g2 = fnx.Graph()
+    g2.add_edges_from([("a", "b"), ("b", "c"), ("c", "d"), ("d", "a")])
+
+    mapping = fnx.vf2pp_isomorphism(g1, g2)
+
+    assert set(mapping) == set(g1.nodes())
+    assert set(mapping.values()) == set(g2.nodes())
+    mapped_edges = {
+        frozenset((mapping[u], mapping[v]))
+        for u, v in g1.edges()
+    }
+    expected_edges = {frozenset(edge) for edge in g2.edges()}
+    assert mapped_edges == expected_edges
+
+
+def test_vf2pp_isomorphism_uses_rust_without_labels(monkeypatch):
+    g1 = fnx.path_graph(3)
+    g2 = fnx.relabel_nodes(g1, {0: "a", 1: "b", 2: "c"})
+    called = {"rust": False}
+
+    def fake_rust(left, right):
+        called["rust"] = True
+        assert left is g1
+        assert right is g2
+        return {0: "a", 1: "b", 2: "c"}
+
+    def fail_networkx(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(fnx, "_vf2pp_isomorphism_rust", fake_rust)
+    monkeypatch.setattr(nx, "vf2pp_isomorphism", fail_networkx)
+
+    assert fnx.vf2pp_isomorphism(g1, g2) == {0: "a", 1: "b", 2: "c"}
+    assert called["rust"] is True
+
+
+def test_vf2pp_all_isomorphisms_count_matches_networkx():
+    g1 = fnx.cycle_graph(4)
+    g2 = fnx.cycle_graph(4)
+
+    assert len(list(fnx.vf2pp_all_isomorphisms(g1, g2))) == len(
+        list(nx.vf2pp_all_isomorphisms(_to_nx(g1), _to_nx(g2)))
+    )
+
+
+def test_vf2pp_all_isomorphisms_uses_rust_without_labels(monkeypatch):
+    g1 = fnx.path_graph(3)
+    g2 = fnx.relabel_nodes(g1, {0: "a", 1: "b", 2: "c"})
+    called = {"rust": False}
+
+    def fake_rust(left, right):
+        called["rust"] = True
+        assert left is g1
+        assert right is g2
+        return [{0: "a", 1: "b", 2: "c"}]
+
+    def fail_networkx(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(fnx, "_vf2pp_all_isomorphisms_rust", fake_rust)
+    monkeypatch.setattr(nx, "vf2pp_all_isomorphisms", fail_networkx)
+
+    assert list(fnx.vf2pp_all_isomorphisms(g1, g2)) == [{0: "a", 1: "b", 2: "c"}]
+    assert called["rust"] is True
+
+
+def test_vf2pp_isomorphism_directed_matches_networkx():
+    g1 = fnx.DiGraph([(0, 1), (1, 2)])
+    g2 = fnx.DiGraph([("a", "b"), ("b", "c")])
+
+    assert fnx.vf2pp_isomorphism(g1, g2) == nx.vf2pp_isomorphism(_to_nx(g1), _to_nx(g2))
+
+
+def test_graph_edit_distance_matches_networkx_on_small_graphs():
+    g1 = fnx.path_graph(3)
+    g2 = fnx.path_graph(4)
+
+    assert fnx.graph_edit_distance(g1, g2) == nx.graph_edit_distance(
+        _to_nx(g1),
+        _to_nx(g2),
+    )

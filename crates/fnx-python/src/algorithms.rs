@@ -6554,6 +6554,290 @@ fn shortest_simple_paths(
 // Graph isomorphism
 // ===========================================================================
 
+fn undirected_isomorphism_mappings(
+    g1: &fnx_classes::Graph,
+    g2: &fnx_classes::Graph,
+    limit: Option<usize>,
+) -> Vec<Vec<usize>> {
+    let nodes1 = g1.nodes_ordered();
+    let nodes2 = g2.nodes_ordered();
+
+    if nodes1.len() != nodes2.len() {
+        return Vec::new();
+    }
+    let n = nodes1.len();
+    if n == 0 {
+        return vec![Vec::new()];
+    }
+
+    if g1.edges_ordered().len() != g2.edges_ordered().len() {
+        return Vec::new();
+    }
+
+    let mut deg1: Vec<usize> = nodes1.iter().map(|n| g1.neighbor_count(n)).collect();
+    let mut deg2: Vec<usize> = nodes2.iter().map(|n| g2.neighbor_count(n)).collect();
+    deg1.sort_unstable();
+    deg2.sort_unstable();
+    if deg1 != deg2 {
+        return Vec::new();
+    }
+
+    let idx1: HashMap<&str, usize> = nodes1.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+    let idx2: HashMap<&str, usize> = nodes2.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+
+    let mut adj1 = vec![vec![false; n]; n];
+    let mut adj2 = vec![vec![false; n]; n];
+
+    for edge in g1.edges_ordered() {
+        let i = idx1[edge.left.as_str()];
+        let j = idx1[edge.right.as_str()];
+        adj1[i][j] = true;
+        adj1[j][i] = true;
+    }
+    for edge in g2.edges_ordered() {
+        let i = idx2[edge.left.as_str()];
+        let j = idx2[edge.right.as_str()];
+        adj2[i][j] = true;
+        adj2[j][i] = true;
+    }
+
+    let deg1_map: Vec<usize> = nodes1.iter().map(|n| g1.neighbor_count(n)).collect();
+    let deg2_map: Vec<usize> = nodes2.iter().map(|n| g2.neighbor_count(n)).collect();
+
+    let mut results = Vec::new();
+    let mut mapping: Vec<Option<usize>> = vec![None; n];
+    let mut used = vec![false; n];
+
+    #[allow(clippy::too_many_arguments)]
+    fn backtrack(
+        depth: usize,
+        n: usize,
+        adj1: &[Vec<bool>],
+        adj2: &[Vec<bool>],
+        deg1: &[usize],
+        deg2: &[usize],
+        mapping: &mut [Option<usize>],
+        used: &mut [bool],
+        limit: Option<usize>,
+        results: &mut Vec<Vec<usize>>,
+    ) {
+        if limit.is_some_and(|bound| results.len() >= bound) {
+            return;
+        }
+        if depth == n {
+            results.push(
+                mapping
+                    .iter()
+                    .map(|slot| slot.expect("complete mapping"))
+                    .collect(),
+            );
+            return;
+        }
+
+        let u = depth;
+        for v in 0..n {
+            if used[v] || deg1[u] != deg2[v] {
+                continue;
+            }
+
+            let mut consistent = true;
+            for prev_u in 0..depth {
+                if let Some(prev_v) = mapping[prev_u]
+                    && adj1[u][prev_u] != adj2[v][prev_v]
+                {
+                    consistent = false;
+                    break;
+                }
+            }
+            if !consistent {
+                continue;
+            }
+
+            mapping[u] = Some(v);
+            used[v] = true;
+            backtrack(
+                depth + 1,
+                n,
+                adj1,
+                adj2,
+                deg1,
+                deg2,
+                mapping,
+                used,
+                limit,
+                results,
+            );
+            mapping[u] = None;
+            used[v] = false;
+
+            if limit.is_some_and(|bound| results.len() >= bound) {
+                return;
+            }
+        }
+    }
+
+    backtrack(
+        0,
+        n,
+        &adj1,
+        &adj2,
+        &deg1_map,
+        &deg2_map,
+        &mut mapping,
+        &mut used,
+        limit,
+        &mut results,
+    );
+    results
+}
+
+fn directed_isomorphism_mappings(
+    g1: &fnx_classes::digraph::DiGraph,
+    g2: &fnx_classes::digraph::DiGraph,
+    limit: Option<usize>,
+) -> Vec<Vec<usize>> {
+    let nodes1 = g1.nodes_ordered();
+    let nodes2 = g2.nodes_ordered();
+
+    if nodes1.len() != nodes2.len() {
+        return Vec::new();
+    }
+    let n = nodes1.len();
+    if n == 0 {
+        return vec![Vec::new()];
+    }
+
+    if g1.edges_ordered().len() != g2.edges_ordered().len() {
+        return Vec::new();
+    }
+
+    let mut deg1: Vec<(usize, usize)> = nodes1
+        .iter()
+        .map(|n| (g1.in_degree(n), g1.out_degree(n)))
+        .collect();
+    let mut deg2: Vec<(usize, usize)> = nodes2
+        .iter()
+        .map(|n| (g2.in_degree(n), g2.out_degree(n)))
+        .collect();
+    deg1.sort_unstable();
+    deg2.sort_unstable();
+    if deg1 != deg2 {
+        return Vec::new();
+    }
+
+    let idx1: HashMap<&str, usize> = nodes1.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+    let idx2: HashMap<&str, usize> = nodes2.iter().enumerate().map(|(i, &n)| (n, i)).collect();
+
+    let mut adj1 = vec![vec![false; n]; n];
+    let mut adj2 = vec![vec![false; n]; n];
+
+    for edge in g1.edges_ordered() {
+        let i = idx1[edge.left.as_str()];
+        let j = idx1[edge.right.as_str()];
+        adj1[i][j] = true;
+    }
+    for edge in g2.edges_ordered() {
+        let i = idx2[edge.left.as_str()];
+        let j = idx2[edge.right.as_str()];
+        adj2[i][j] = true;
+    }
+
+    let deg1_map: Vec<(usize, usize)> = nodes1
+        .iter()
+        .map(|n| (g1.in_degree(n), g1.out_degree(n)))
+        .collect();
+    let deg2_map: Vec<(usize, usize)> = nodes2
+        .iter()
+        .map(|n| (g2.in_degree(n), g2.out_degree(n)))
+        .collect();
+
+    let mut results = Vec::new();
+    let mut mapping: Vec<Option<usize>> = vec![None; n];
+    let mut used = vec![false; n];
+
+    #[allow(clippy::too_many_arguments)]
+    fn backtrack(
+        depth: usize,
+        n: usize,
+        adj1: &[Vec<bool>],
+        adj2: &[Vec<bool>],
+        deg1: &[(usize, usize)],
+        deg2: &[(usize, usize)],
+        mapping: &mut [Option<usize>],
+        used: &mut [bool],
+        limit: Option<usize>,
+        results: &mut Vec<Vec<usize>>,
+    ) {
+        if limit.is_some_and(|bound| results.len() >= bound) {
+            return;
+        }
+        if depth == n {
+            results.push(
+                mapping
+                    .iter()
+                    .map(|slot| slot.expect("complete mapping"))
+                    .collect(),
+            );
+            return;
+        }
+
+        let u = depth;
+        for v in 0..n {
+            if used[v] || deg1[u] != deg2[v] {
+                continue;
+            }
+
+            let mut consistent = true;
+            for prev_u in 0..depth {
+                if let Some(prev_v) = mapping[prev_u]
+                    && (adj1[u][prev_u] != adj2[v][prev_v] || adj1[prev_u][u] != adj2[prev_v][v])
+                {
+                    consistent = false;
+                    break;
+                }
+            }
+            if !consistent {
+                continue;
+            }
+
+            mapping[u] = Some(v);
+            used[v] = true;
+            backtrack(
+                depth + 1,
+                n,
+                adj1,
+                adj2,
+                deg1,
+                deg2,
+                mapping,
+                used,
+                limit,
+                results,
+            );
+            mapping[u] = None;
+            used[v] = false;
+
+            if limit.is_some_and(|bound| results.len() >= bound) {
+                return;
+            }
+        }
+    }
+
+    backtrack(
+        0,
+        n,
+        &adj1,
+        &adj2,
+        &deg1_map,
+        &deg2_map,
+        &mut mapping,
+        &mut used,
+        limit,
+        &mut results,
+    );
+    results
+}
+
 /// Check if two graphs are isomorphic (VF2 algorithm).
 #[pyfunction]
 #[pyo3(signature = (g1, g2))]
@@ -6581,6 +6865,105 @@ fn is_isomorphic(py: Python<'_>, g1: &Bound<'_, PyAny>, g2: &Bound<'_, PyAny>) -
         let inner2 = gr2.undirected();
         Ok(py.allow_threads(|| fnx_algorithms::is_isomorphic(inner1, inner2)))
     }
+}
+
+#[pyfunction]
+#[pyo3(signature = (g1, g2))]
+fn vf2pp_isomorphism_rust(
+    py: Python<'_>,
+    g1: &Bound<'_, PyAny>,
+    g2: &Bound<'_, PyAny>,
+) -> PyResult<Option<PyObject>> {
+    let gr1 = extract_graph(g1)?;
+    let gr2 = extract_graph(g2)?;
+
+    if gr1.is_directed() != gr2.is_directed() {
+        return Ok(None);
+    }
+
+    let mappings = if gr1.is_directed() {
+        let dg1 = gr1.digraph().unwrap();
+        let dg2 = gr2.digraph().unwrap();
+        py.allow_threads(|| directed_isomorphism_mappings(dg1, dg2, Some(1)))
+    } else {
+        let inner1 = gr1.undirected();
+        let inner2 = gr2.undirected();
+        py.allow_threads(|| undirected_isomorphism_mappings(inner1, inner2, Some(1)))
+    };
+
+    let Some(mapping) = mappings.first() else {
+        return Ok(None);
+    };
+
+    let nodes1 = if gr1.is_directed() {
+        gr1.digraph().unwrap().nodes_ordered()
+    } else {
+        gr1.undirected().nodes_ordered()
+    };
+    let nodes2 = if gr2.is_directed() {
+        gr2.digraph().unwrap().nodes_ordered()
+    } else {
+        gr2.undirected().nodes_ordered()
+    };
+
+    let dict = PyDict::new(py);
+    for (left_idx, &right_idx) in mapping.iter().enumerate() {
+        dict.set_item(
+            gr1.py_node_key(py, nodes1[left_idx]),
+            gr2.py_node_key(py, nodes2[right_idx]),
+        )?;
+    }
+    Ok(Some(dict.into_any().unbind()))
+}
+
+#[pyfunction]
+#[pyo3(signature = (g1, g2))]
+fn vf2pp_all_isomorphisms_rust(
+    py: Python<'_>,
+    g1: &Bound<'_, PyAny>,
+    g2: &Bound<'_, PyAny>,
+) -> PyResult<Vec<PyObject>> {
+    let gr1 = extract_graph(g1)?;
+    let gr2 = extract_graph(g2)?;
+
+    if gr1.is_directed() != gr2.is_directed() {
+        return Ok(Vec::new());
+    }
+
+    let mappings = if gr1.is_directed() {
+        let dg1 = gr1.digraph().unwrap();
+        let dg2 = gr2.digraph().unwrap();
+        py.allow_threads(|| directed_isomorphism_mappings(dg1, dg2, None))
+    } else {
+        let inner1 = gr1.undirected();
+        let inner2 = gr2.undirected();
+        py.allow_threads(|| undirected_isomorphism_mappings(inner1, inner2, None))
+    };
+
+    let nodes1 = if gr1.is_directed() {
+        gr1.digraph().unwrap().nodes_ordered()
+    } else {
+        gr1.undirected().nodes_ordered()
+    };
+    let nodes2 = if gr2.is_directed() {
+        gr2.digraph().unwrap().nodes_ordered()
+    } else {
+        gr2.undirected().nodes_ordered()
+    };
+
+    mappings
+        .into_iter()
+        .map(|mapping| {
+            let dict = PyDict::new(py);
+            for (left_idx, right_idx) in mapping.into_iter().enumerate() {
+                dict.set_item(
+                    gr1.py_node_key(py, nodes1[left_idx]),
+                    gr2.py_node_key(py, nodes2[right_idx]),
+                )?;
+            }
+            Ok(dict.into_any().unbind())
+        })
+        .collect()
 }
 
 /// Check if two graphs could be isomorphic (degree sequence heuristic).
@@ -10827,6 +11210,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(shortest_simple_paths, m)?)?;
     // Graph isomorphism
     m.add_function(wrap_pyfunction!(is_isomorphic, m)?)?;
+    m.add_function(wrap_pyfunction!(vf2pp_isomorphism_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(vf2pp_all_isomorphisms_rust, m)?)?;
     m.add_function(wrap_pyfunction!(could_be_isomorphic, m)?)?;
     m.add_function(wrap_pyfunction!(fast_could_be_isomorphic, m)?)?;
     m.add_function(wrap_pyfunction!(faster_could_be_isomorphic, m)?)?;

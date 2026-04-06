@@ -831,6 +831,8 @@ from franken_networkx._fnx import (
     fast_could_be_isomorphic,
     faster_could_be_isomorphic,
     is_isomorphic as _is_isomorphic_rust,
+    vf2pp_all_isomorphisms_rust as _vf2pp_all_isomorphisms_rust,
+    vf2pp_isomorphism_rust as _vf2pp_isomorphism_rust,
 )
 
 # Planarity
@@ -8435,6 +8437,9 @@ def vf2pp_is_isomorphic(G1, G2, node_label=None, default_label=None):
 
 def vf2pp_isomorphism(G1, G2, node_label=None, default_label=None):
     """Find one isomorphism mapping using VF2++."""
+    if node_label is None:
+        return _vf2pp_isomorphism_rust(G1, G2)
+
     import networkx as nx
 
     from franken_networkx.drawing.layout import _to_nx
@@ -8446,6 +8451,10 @@ def vf2pp_isomorphism(G1, G2, node_label=None, default_label=None):
 
 def vf2pp_all_isomorphisms(G1, G2, node_label=None, default_label=None):
     """Generate all isomorphism mappings using VF2++."""
+    if node_label is None:
+        yield from _vf2pp_all_isomorphisms_rust(G1, G2)
+        return
+
     import networkx as nx
 
     from franken_networkx.drawing.layout import _to_nx
