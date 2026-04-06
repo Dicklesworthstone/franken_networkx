@@ -79,10 +79,18 @@ use pyo3::IntoPyObjectExt;
 
 pub(crate) fn cgse_value_to_py(py: Python<'_>, val: &CgseValue) -> PyObject {
     match val {
-        CgseValue::String(s) => s.into_py_any(py).unwrap(),
-        CgseValue::Float(f) => f.into_py_any(py).unwrap(),
-        CgseValue::Int(i) => i.into_py_any(py).unwrap(),
-        CgseValue::Bool(b) => b.into_py_any(py).unwrap(),
+        CgseValue::String(s) => s
+            .into_py_any(py)
+            .expect("string conversion to python should not fail"),
+        CgseValue::Float(f) => f
+            .into_py_any(py)
+            .expect("float conversion to python should not fail"),
+        CgseValue::Int(i) => i
+            .into_py_any(py)
+            .expect("int conversion to python should not fail"),
+        CgseValue::Bool(b) => b
+            .into_py_any(py)
+            .expect("bool conversion to python should not fail"),
     }
 }
 

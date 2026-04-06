@@ -638,7 +638,6 @@ pub struct MultiDiGraph {
     successors: IndexMap<String, IndexMap<String, IndexSet<usize>>>,
     predecessors: IndexMap<String, IndexMap<String, IndexSet<usize>>>,
     edges: IndexMap<DirectedEdgeKey, IndexMap<usize, AttrMap>>,
-    next_edge_key: IndexMap<DirectedEdgeKey, usize>,
     ledger: EvidenceLedger,
 }
 
@@ -652,7 +651,6 @@ impl MultiDiGraph {
             successors: IndexMap::new(),
             predecessors: IndexMap::new(),
             edges: IndexMap::new(),
-            next_edge_key: IndexMap::new(),
             ledger: EvidenceLedger::new(),
         }
     }
@@ -920,8 +918,16 @@ impl MultiDiGraph {
         }
 
         let edge_key = DirectedEdgeKey::new(&source, &target);
-        let key =
-            explicit_key.unwrap_or_else(|| self.next_edge_key.get(&edge_key).copied().unwrap_or(0));
+        let key = explicit_key.unwrap_or_else(|| {
+            let edge_bucket = self.edges.get(&edge_key);
+            let mut k = edge_bucket.map_or(0, |b| b.len());
+            if let Some(b) = edge_bucket {
+                while b.contains_key(&k) {
+                    k += 1;
+                }
+            }
+            k
+        });
         let mut changed;
         let edge_attr_count = {
             let edge_bucket = self.edges.entry(edge_key.clone()).or_default();
@@ -937,11 +943,6 @@ impl MultiDiGraph {
             edge_attrs.extend(attrs);
             edge_bucket.len()
         };
-        let next_key = key.saturating_add(1);
-        self.next_edge_key
-            .entry(edge_key)
-            .and_modify(|next| *next = (*next).max(next_key))
-            .or_insert(next_key);
 
         self.successors
             .entry(source.clone())
@@ -1013,7 +1014,6 @@ impl MultiDiGraph {
         let should_drop_bucket = self.edges.get(&edge_key).is_some_and(IndexMap::is_empty);
         if should_drop_bucket {
             self.edges.shift_remove(&edge_key);
-            self.next_edge_key.shift_remove(&edge_key);
         }
 
         self.remove_successor_key(source, target, removal_key);
@@ -1038,7 +1038,6 @@ impl MultiDiGraph {
                 }
                 let k = DirectedEdgeKey::new(node, &target);
                 self.edges.shift_remove(&k);
-                self.next_edge_key.shift_remove(&k);
             }
         }
 
@@ -1053,7 +1052,6 @@ impl MultiDiGraph {
                 }
                 let k = DirectedEdgeKey::new(&source, node);
                 self.edges.shift_remove(&k);
-                self.next_edge_key.shift_remove(&k);
             }
         }
 

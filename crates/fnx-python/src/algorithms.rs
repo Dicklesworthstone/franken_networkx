@@ -740,9 +740,17 @@ fn flow_dict_object(
         }
         _ => {
             if gr.is_directed() {
-                for node in gr.digraph().unwrap().nodes_ordered() {
+                for node in gr
+                    .digraph()
+                    .expect("is_directed checked above")
+                    .nodes_ordered()
+                {
                     let adjacency = PyDict::new(py).unbind();
-                    if let Some(neighbors) = gr.digraph().unwrap().successors_iter(node) {
+                    if let Some(neighbors) = gr
+                        .digraph()
+                        .expect("is_directed checked above")
+                        .successors_iter(node)
+                    {
                         for neighbor in neighbors {
                             adjacency
                                 .bind(py)
@@ -1833,7 +1841,7 @@ pub fn density(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<f64> {
             (simple.nodes_ordered().len(), simple.edge_count(), false)
         }
         GraphRef::MultiDirected { .. } => {
-            let simple_dg = gr.digraph().unwrap();
+            let simple_dg = gr.digraph().expect("is_directed checked above");
             (
                 simple_dg.nodes_ordered().len(),
                 simple_dg.edge_count(),
@@ -2095,7 +2103,7 @@ pub fn degree_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<Py
         }
         _ => {
             if gr.is_directed() {
-                let inner = gr.digraph().unwrap();
+                let inner = gr.digraph().expect("is_directed checked above");
                 py.allow_threads(|| fnx_algorithms::degree_centrality_directed(inner))
             } else {
                 let inner = gr.undirected();
@@ -2121,7 +2129,7 @@ pub fn closeness_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py
         }
         _ => {
             if gr.is_directed() {
-                let inner = gr.digraph().unwrap();
+                let inner = gr.digraph().expect("is_directed checked above");
                 py.allow_threads(|| fnx_algorithms::closeness_centrality_directed(inner))
             } else {
                 let inner = gr.undirected();
@@ -2147,7 +2155,7 @@ pub fn harmonic_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<
         }
         _ => {
             if gr.is_directed() {
-                let inner = gr.digraph().unwrap();
+                let inner = gr.digraph().expect("is_directed checked above");
                 py.allow_threads(|| fnx_algorithms::harmonic_centrality_directed(inner))
             } else {
                 let inner = gr.undirected();
@@ -2173,7 +2181,7 @@ pub fn katz_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDi
         }
         _ => {
             if gr.is_directed() {
-                let inner = gr.digraph().unwrap();
+                let inner = gr.digraph().expect("is_directed checked above");
                 py.allow_threads(|| fnx_algorithms::katz_centrality_directed(inner))
             } else {
                 let inner = gr.undirected();
@@ -2224,7 +2232,7 @@ pub fn betweenness_centrality(
         }
         _ => {
             if gr.is_directed() {
-                let inner = gr.digraph().unwrap();
+                let inner = gr.digraph().expect("is_directed checked above");
                 py.allow_threads(|| fnx_algorithms::betweenness_centrality_directed(inner))
             } else {
                 let inner = gr.undirected();
@@ -2250,7 +2258,7 @@ pub fn edge_betweenness_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyRe
         }
         _ => {
             if gr.is_directed() {
-                let inner = gr.digraph().unwrap();
+                let inner = gr.digraph().expect("is_directed checked above");
                 py.allow_threads(|| fnx_algorithms::edge_betweenness_centrality_directed(inner))
             } else {
                 let inner = gr.undirected();
@@ -2301,7 +2309,7 @@ pub fn eigenvector_centrality(
         }
         _ => {
             if gr.is_directed() {
-                let inner = gr.digraph().unwrap();
+                let inner = gr.digraph().expect("is_directed checked above");
                 py.allow_threads(|| fnx_algorithms::eigenvector_centrality_directed(inner))
             } else {
                 let inner = gr.undirected();
@@ -2359,7 +2367,7 @@ pub fn pagerank(
         }
         _ => {
             if gr.is_directed() {
-                let inner = gr.digraph().unwrap();
+                let inner = gr.digraph().expect("is_directed checked above");
                 py.allow_threads(|| {
                     fnx_algorithms::pagerank_with_params(inner, alpha, max_iter, tol)
                 })
@@ -2402,7 +2410,7 @@ pub fn hits(
         }
         _ => {
             if gr.is_directed() {
-                let inner = gr.digraph().unwrap();
+                let inner = gr.digraph().expect("is_directed checked above");
                 py.allow_threads(|| fnx_algorithms::hits_centrality_directed(inner))
             } else {
                 let inner = gr.undirected();
@@ -2456,7 +2464,7 @@ pub fn voterank(
         }
         _ => {
             if gr.is_directed() {
-                let inner = gr.digraph().unwrap();
+                let inner = gr.digraph().expect("is_directed checked above");
                 py.allow_threads(|| fnx_algorithms::voterank_directed(inner, number_of_nodes))
             } else {
                 let inner = gr.undirected();
@@ -2708,7 +2716,7 @@ pub fn maximum_flow(
         }
         _ => {
             if gr.is_directed() {
-                let inner = gr.digraph().unwrap();
+                let inner = gr.digraph().expect("is_directed checked above");
                 py.allow_threads(move || {
                     fnx_algorithms::max_flow_edmonds_karp_directed(inner, &s, &t, &cap)
                 })
@@ -2753,7 +2761,7 @@ pub fn maximum_flow_value(
         }
         _ => {
             if gr.is_directed() {
-                let inner = gr.digraph().unwrap();
+                let inner = gr.digraph().expect("is_directed checked above");
                 py.allow_threads(move || {
                     fnx_algorithms::max_flow_edmonds_karp_directed(inner, &s, &t, &cap)
                 })
@@ -2799,7 +2807,7 @@ pub fn minimum_cut_value(
         }
         _ => {
             if gr.is_directed() {
-                let inner = gr.digraph().unwrap();
+                let inner = gr.digraph().expect("is_directed checked above");
                 py.allow_threads(move || {
                     fnx_algorithms::minimum_cut_edmonds_karp_directed(inner, &s, &t, &cap)
                 })
@@ -2843,7 +2851,7 @@ pub fn minimum_cut(
         }
         _ => {
             if gr.is_directed() {
-                let inner = gr.digraph().unwrap();
+                let inner = gr.digraph().expect("is_directed checked above");
                 py.allow_threads(move || {
                     fnx_algorithms::minimum_cut_edmonds_karp_directed(inner, &s, &t, &cap)
                 })
@@ -3101,11 +3109,15 @@ pub fn from_prufer_sequence_rust(py: Python<'_>, sequence: Vec<usize>) -> PyResu
             PyTuple::new(
                 py,
                 [
-                    u.into_pyobject(py).unwrap().into_any(),
-                    v.into_pyobject(py).unwrap().into_any(),
+                    u.into_pyobject(py)
+                        .expect("is_directed checked above")
+                        .into_any(),
+                    v.into_pyobject(py)
+                        .expect("is_directed checked above")
+                        .into_any(),
                 ],
             )
-            .unwrap()
+            .expect("is_directed checked above")
             .into_any()
         }),
     )?;
@@ -3145,7 +3157,7 @@ pub fn k_truss_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<
         py,
         result.edges.iter().map(|(u, v)| {
             PyTuple::new(py, [gr.py_node_key(py, u), gr.py_node_key(py, v)])
-                .unwrap()
+                .expect("is_directed checked above")
                 .into_any()
         }),
     )?;
@@ -3321,7 +3333,12 @@ pub fn number_of_spanning_trees(
         }
         _ => {
             if gr.is_directed() {
-                if gr.digraph().unwrap().node_count() == 0 {
+                if gr
+                    .digraph()
+                    .expect("is_directed checked above")
+                    .node_count()
+                    == 0
+                {
                     return Err(crate::NetworkXPointlessConcept::new_err(
                         "Graph G must contain at least one node.",
                     ));
@@ -3332,12 +3349,16 @@ pub fn number_of_spanning_trees(
                     ));
                 };
                 let canonical_root = node_key_to_string(py, root)?;
-                if !gr.digraph().unwrap().has_node(&canonical_root) {
+                if !gr
+                    .digraph()
+                    .expect("is_directed checked above")
+                    .has_node(&canonical_root)
+                {
                     return Err(NetworkXError::new_err(
                         "The node root is not in the graph G.",
                     ));
                 }
-                let inner = gr.digraph().unwrap();
+                let inner = gr.digraph().expect("is_directed checked above");
                 Ok(py.allow_threads(move || {
                     fnx_algorithms::number_of_spanning_arborescences(inner, &canonical_root, weight)
                 }))
@@ -3884,7 +3905,7 @@ pub fn bfs_edges(
         }
         _ => {
             if gr.is_directed() {
-                let inner = gr.digraph().unwrap();
+                let inner = gr.digraph().expect("is_directed checked above");
                 fnx_algorithms::bfs_edges_directed(inner, &source_key, depth_limit)
             } else {
                 let inner = gr.undirected();
@@ -3934,7 +3955,7 @@ pub fn bfs_tree(
         }
         _ => {
             if gr.is_directed() {
-                let inner = gr.digraph().unwrap();
+                let inner = gr.digraph().expect("is_directed checked above");
                 fnx_algorithms::bfs_edges_directed(inner, &source_key, depth_limit)
             } else {
                 let inner = gr.undirected();
@@ -4002,7 +4023,7 @@ pub fn bfs_predecessors(
         _ => {
             if gr.is_directed() {
                 fnx_algorithms::bfs_predecessors_directed(
-                    gr.digraph().unwrap(),
+                    gr.digraph().expect("is_directed checked above"),
                     &source_key,
                     depth_limit,
                 )
@@ -4053,7 +4074,7 @@ pub fn bfs_successors(
         _ => {
             if gr.is_directed() {
                 fnx_algorithms::bfs_successors_directed(
-                    gr.digraph().unwrap(),
+                    gr.digraph().expect("is_directed checked above"),
                     &source_key,
                     depth_limit,
                 )
@@ -4101,7 +4122,10 @@ pub fn bfs_layers(
             }
             _ => {
                 if gr.is_directed() {
-                    fnx_algorithms::bfs_layers_directed(gr.digraph().unwrap(), &source_key)
+                    fnx_algorithms::bfs_layers_directed(
+                        gr.digraph().expect("is_directed checked above"),
+                        &source_key,
+                    )
                 } else {
                     let inner = gr.undirected();
 
@@ -4122,7 +4146,10 @@ pub fn bfs_layers(
             .collect::<PyResult<Vec<_>>>()?;
         let source_refs: Vec<&str> = source_keys.iter().map(String::as_str).collect();
         let layers = if gr.is_directed() {
-            fnx_algorithms::bfs_layers_directed_multi(gr.digraph().unwrap(), &source_refs)
+            fnx_algorithms::bfs_layers_directed_multi(
+                gr.digraph().expect("is_directed checked above"),
+                &source_refs,
+            )
         } else {
             let inner = gr.undirected();
             py.allow_threads(|| fnx_algorithms::bfs_layers_multi(inner, &source_refs))
@@ -4169,7 +4196,7 @@ pub fn descendants_at_distance(
         _ => {
             if gr.is_directed() {
                 fnx_algorithms::descendants_at_distance_directed(
-                    gr.digraph().unwrap(),
+                    gr.digraph().expect("is_directed checked above"),
                     &source_key,
                     distance,
                 )
@@ -4235,7 +4262,11 @@ pub fn dfs_edges(
         }
         _ => {
             if gr.is_directed() {
-                fnx_algorithms::dfs_edges_directed(gr.digraph().unwrap(), &source_key, depth_limit)
+                fnx_algorithms::dfs_edges_directed(
+                    gr.digraph().expect("is_directed checked above"),
+                    &source_key,
+                    depth_limit,
+                )
             } else {
                 let inner = gr.undirected();
 
@@ -4345,7 +4376,7 @@ pub fn dfs_predecessors(
         _ => {
             if gr.is_directed() {
                 fnx_algorithms::dfs_predecessors_directed(
-                    gr.digraph().unwrap(),
+                    gr.digraph().expect("is_directed checked above"),
                     &source_key,
                     depth_limit,
                 )
@@ -4410,7 +4441,7 @@ pub fn dfs_successors(
         _ => {
             if gr.is_directed() {
                 fnx_algorithms::dfs_successors_directed(
-                    gr.digraph().unwrap(),
+                    gr.digraph().expect("is_directed checked above"),
                     &source_key,
                     depth_limit,
                 )
@@ -4476,7 +4507,7 @@ pub fn dfs_preorder_nodes(
         _ => {
             if gr.is_directed() {
                 fnx_algorithms::dfs_preorder_nodes_directed(
-                    gr.digraph().unwrap(),
+                    gr.digraph().expect("is_directed checked above"),
                     &source_key,
                     depth_limit,
                 )
@@ -4537,7 +4568,7 @@ pub fn dfs_postorder_nodes(
         _ => {
             if gr.is_directed() {
                 fnx_algorithms::dfs_postorder_nodes_directed(
-                    gr.digraph().unwrap(),
+                    gr.digraph().expect("is_directed checked above"),
                     &source_key,
                     depth_limit,
                 )
@@ -5021,7 +5052,7 @@ pub fn is_empty(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
         }
         _ => {
             if gr.is_directed() {
-                let inner = gr.digraph().unwrap();
+                let inner = gr.digraph().expect("is_directed checked above");
                 Ok(py.allow_threads(|| fnx_algorithms::is_empty_directed(inner)))
             } else {
                 let inner = gr.undirected();
@@ -5670,7 +5701,7 @@ pub fn condensation(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<(PyObject,
             py_dg.node_key_map.insert(
                 node.to_owned(),
                 node.parse::<i64>()
-                    .unwrap()
+                    .expect("is_directed checked above")
                     .into_pyobject(py)?
                     .into_any()
                     .unbind(),
@@ -5890,7 +5921,11 @@ pub fn reciprocity(
                 let node_refs: Vec<&str> = vec![s.as_str()];
                 let result = py.allow_threads(|| fnx_algorithms::reciprocity(dg_ref, &node_refs));
                 let val = result.get(&s).copied().unwrap_or(0.0);
-                return Ok(val.into_pyobject(py).unwrap().into_any().unbind());
+                return Ok(val
+                    .into_pyobject(py)
+                    .expect("is_directed checked above")
+                    .into_any()
+                    .unbind());
             }
             // Try as iterable
             ns.try_iter()?
@@ -6857,8 +6892,8 @@ fn is_isomorphic(py: Python<'_>, g1: &Bound<'_, PyAny>, g2: &Bound<'_, PyAny>) -
     }
 
     if gr1.is_directed() {
-        let dg1 = gr1.digraph().unwrap();
-        let dg2 = gr2.digraph().unwrap();
+        let dg1 = gr1.digraph().expect("is_directed checked above");
+        let dg2 = gr2.digraph().expect("is_directed checked above");
         Ok(py.allow_threads(|| fnx_algorithms::is_isomorphic_directed(dg1, dg2)))
     } else {
         let inner1 = gr1.undirected();
@@ -6882,8 +6917,8 @@ fn vf2pp_isomorphism_rust(
     }
 
     let mappings = if gr1.is_directed() {
-        let dg1 = gr1.digraph().unwrap();
-        let dg2 = gr2.digraph().unwrap();
+        let dg1 = gr1.digraph().expect("is_directed checked above");
+        let dg2 = gr2.digraph().expect("is_directed checked above");
         py.allow_threads(|| directed_isomorphism_mappings(dg1, dg2, Some(1)))
     } else {
         let inner1 = gr1.undirected();
@@ -6896,12 +6931,16 @@ fn vf2pp_isomorphism_rust(
     };
 
     let nodes1 = if gr1.is_directed() {
-        gr1.digraph().unwrap().nodes_ordered()
+        gr1.digraph()
+            .expect("is_directed checked above")
+            .nodes_ordered()
     } else {
         gr1.undirected().nodes_ordered()
     };
     let nodes2 = if gr2.is_directed() {
-        gr2.digraph().unwrap().nodes_ordered()
+        gr2.digraph()
+            .expect("is_directed checked above")
+            .nodes_ordered()
     } else {
         gr2.undirected().nodes_ordered()
     };
@@ -6931,8 +6970,8 @@ fn vf2pp_all_isomorphisms_rust(
     }
 
     let mappings = if gr1.is_directed() {
-        let dg1 = gr1.digraph().unwrap();
-        let dg2 = gr2.digraph().unwrap();
+        let dg1 = gr1.digraph().expect("is_directed checked above");
+        let dg2 = gr2.digraph().expect("is_directed checked above");
         py.allow_threads(|| directed_isomorphism_mappings(dg1, dg2, None))
     } else {
         let inner1 = gr1.undirected();
@@ -6941,12 +6980,16 @@ fn vf2pp_all_isomorphisms_rust(
     };
 
     let nodes1 = if gr1.is_directed() {
-        gr1.digraph().unwrap().nodes_ordered()
+        gr1.digraph()
+            .expect("is_directed checked above")
+            .nodes_ordered()
     } else {
         gr1.undirected().nodes_ordered()
     };
     let nodes2 = if gr2.is_directed() {
-        gr2.digraph().unwrap().nodes_ordered()
+        gr2.digraph()
+            .expect("is_directed checked above")
+            .nodes_ordered()
     } else {
         gr2.undirected().nodes_ordered()
     };
@@ -7358,7 +7401,7 @@ fn is_isolate(py: Python<'_>, g: &Bound<'_, PyAny>, node: &Bound<'_, PyAny>) -> 
         _ => {
             if gr.is_directed() {
                 Ok(fnx_algorithms::is_isolate_directed(
-                    gr.digraph().unwrap(),
+                    gr.digraph().expect("is_directed checked above"),
                     &key,
                 ))
             } else {
@@ -7378,7 +7421,7 @@ fn isolates(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
         GraphRef::Directed { dg, .. } => fnx_algorithms::isolates_directed(&dg.inner),
         _ => {
             if gr.is_directed() {
-                fnx_algorithms::isolates_directed(gr.digraph().unwrap())
+                fnx_algorithms::isolates_directed(gr.digraph().expect("is_directed checked above"))
             } else {
                 fnx_algorithms::isolates(gr.undirected())
             }
@@ -7398,7 +7441,7 @@ fn number_of_isolates(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<usize> 
         _ => {
             if gr.is_directed() {
                 Ok(fnx_algorithms::number_of_isolates_directed(
-                    gr.digraph().unwrap(),
+                    gr.digraph().expect("is_directed checked above"),
                 ))
             } else {
                 Ok(fnx_algorithms::number_of_isolates(gr.undirected()))
@@ -7445,7 +7488,7 @@ fn edge_boundary(
         _ => {
             if gr.is_directed() {
                 fnx_algorithms::edge_boundary_directed(
-                    gr.digraph().unwrap(),
+                    gr.digraph().expect("is_directed checked above"),
                     &s1_refs,
                     s2_refs.as_deref(),
                 )
@@ -7494,7 +7537,7 @@ fn node_boundary(
         _ => {
             if gr.is_directed() {
                 fnx_algorithms::node_boundary_directed(
-                    gr.digraph().unwrap(),
+                    gr.digraph().expect("is_directed checked above"),
                     &s1_refs,
                     s2_refs.as_deref(),
                 )
@@ -7541,7 +7584,7 @@ fn cut_size(
         _ => {
             if gr.is_directed() {
                 fnx_algorithms::cut_size_directed(
-                    gr.digraph().unwrap(),
+                    gr.digraph().expect("is_directed checked above"),
                     &s1_refs,
                     s2_refs.as_deref(),
                     weight,
@@ -7591,7 +7634,7 @@ fn normalized_cut_size(
         _ => {
             if gr.is_directed() {
                 fnx_algorithms::normalized_cut_size_directed(
-                    gr.digraph().unwrap(),
+                    gr.digraph().expect("is_directed checked above"),
                     &s1_refs,
                     s2_refs.as_deref(),
                     weight,
@@ -7635,7 +7678,7 @@ fn is_simple_path(
         _ => {
             if gr.is_directed() {
                 Ok(fnx_algorithms::is_simple_path_directed(
-                    gr.digraph().unwrap(),
+                    gr.digraph().expect("is_directed checked above"),
                     &key_refs,
                 ))
             } else {
@@ -7744,7 +7787,9 @@ fn find_cycle(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<(PyObject, P
         GraphRef::Directed { dg, .. } => fnx_algorithms::find_cycle_directed(&dg.inner),
         _ => {
             if gr.is_directed() {
-                fnx_algorithms::find_cycle_directed(gr.digraph().unwrap())
+                fnx_algorithms::find_cycle_directed(
+                    gr.digraph().expect("is_directed checked above"),
+                )
             } else {
                 fnx_algorithms::find_cycle_undirected(gr.undirected())
             }
@@ -8401,7 +8446,7 @@ pub fn local_reaching_centrality(
         _ => {
             if gr.is_directed() {
                 Ok(fnx_algorithms::local_reaching_centrality_directed(
-                    gr.digraph().unwrap(),
+                    gr.digraph().expect("is_directed checked above"),
                     &node,
                 ))
             } else {
@@ -8426,7 +8471,7 @@ pub fn global_reaching_centrality(_py: Python<'_>, g: &Bound<'_, PyAny>) -> PyRe
         _ => {
             if gr.is_directed() {
                 Ok(fnx_algorithms::global_reaching_centrality_directed(
-                    gr.digraph().unwrap(),
+                    gr.digraph().expect("is_directed checked above"),
                 ))
             } else {
                 Ok(fnx_algorithms::global_reaching_centrality(gr.undirected()))
@@ -8826,7 +8871,10 @@ pub fn edge_bfs(
         GraphRef::Directed { dg, .. } => fnx_algorithms::edge_bfs_directed(&dg.inner, &src),
         _ => {
             if gr.is_directed() {
-                fnx_algorithms::edge_bfs_directed(gr.digraph().unwrap(), &src)
+                fnx_algorithms::edge_bfs_directed(
+                    gr.digraph().expect("is_directed checked above"),
+                    &src,
+                )
             } else {
                 fnx_algorithms::edge_bfs(gr.undirected(), &src)
             }
@@ -8858,7 +8906,7 @@ pub fn edge_dfs(
         }
         _ => {
             if gr.is_directed() {
-                let inner = gr.digraph().unwrap();
+                let inner = gr.digraph().expect("is_directed checked above");
                 py.allow_threads(|| fnx_algorithms::edge_dfs_directed(inner, &src))
             } else {
                 let inner = gr.undirected();
@@ -9499,7 +9547,7 @@ pub fn node_disjoint_paths_rust(
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, target)?;
     let result = if gr.is_directed() {
-        let inner = gr.digraph().unwrap();
+        let inner = gr.digraph().expect("is_directed checked above");
         py.allow_threads(|| fnx_algorithms::node_disjoint_paths_directed(inner, &s, &t))
     } else {
         let inner = gr.undirected();
@@ -9669,7 +9717,7 @@ pub fn ego_graph_rust(
 pub fn degree_mixing_dict_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
     let gr = extract_graph(g)?;
     let result = if gr.is_directed() {
-        let dg = gr.digraph().unwrap();
+        let dg = gr.digraph().expect("is_directed checked above");
         py.allow_threads(|| fnx_algorithms::degree_mixing_dict_directed(dg))
     } else {
         let inner = gr.undirected();
@@ -9862,7 +9910,7 @@ pub fn node_degree_xy_rust(
     let _ = nodes;
     let gr = extract_graph(g)?;
     let result = if gr.is_directed() {
-        let dg = gr.digraph().unwrap();
+        let dg = gr.digraph().expect("is_directed checked above");
         py.allow_threads(|| fnx_algorithms::node_degree_xy_directed(dg, x, y))
     } else {
         let inner = gr.undirected();
@@ -10268,7 +10316,7 @@ pub fn generic_bfs_edges_rust(
 pub fn graph_info_rust(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<String> {
     let gr = extract_graph(g)?;
     Ok(if gr.is_directed() {
-        let dg = gr.digraph().unwrap();
+        let dg = gr.digraph().expect("is_directed checked above");
         py.allow_threads(|| fnx_algorithms::digraph_info(dg))
     } else {
         let inner = gr.undirected();
@@ -10535,14 +10583,20 @@ impl ArborescenceIteratorRust {
         }
         let (included_edges, excluded_edges) = extract_init_partition(py, init_partition)?;
         let items = fnx_algorithms::arborescence_iterator_ordered_with_partition(
-            gr.digraph().unwrap(),
+            gr.digraph().expect("is_directed checked above"),
             weight,
             minimum,
             max_count,
             &included_edges,
             &excluded_edges,
         );
-        if items.is_empty() && gr.digraph().unwrap().node_count() > 1 {
+        if items.is_empty()
+            && gr
+                .digraph()
+                .expect("is_directed checked above")
+                .node_count()
+                > 1
+        {
             let message = if minimum {
                 "No minimum spanning arborescence in G."
             } else {
@@ -10605,7 +10659,7 @@ pub fn write_graphml_string_rust(
         edge_id_from_attribute,
     };
     Ok(if gr.is_directed() {
-        let dg = gr.digraph().unwrap();
+        let dg = gr.digraph().expect("is_directed checked above");
         fnx_algorithms::write_graphml_string_directed_config_with_graph_attrs(
             dg,
             Some(&graph_attrs),
@@ -10760,7 +10814,7 @@ pub fn simrank_similarity_rust(
         let s = node_key_to_string(py, src)?;
         let t = node_key_to_string(py, tgt)?;
         if gr.is_directed() {
-            let dg = gr.digraph().unwrap();
+            let dg = gr.digraph().expect("is_directed checked above");
             let val = py.allow_threads(|| {
                 let all = fnx_algorithms::simrank_similarity_directed(
                     dg,
@@ -10788,7 +10842,7 @@ pub fn simrank_similarity_rust(
         }
     } else {
         if gr.is_directed() {
-            let dg = gr.digraph().unwrap();
+            let dg = gr.digraph().expect("is_directed checked above");
             let result = fnx_algorithms::simrank_similarity_directed(
                 dg,
                 importance_factor,
@@ -10841,7 +10895,7 @@ pub fn google_matrix_rust(
     let gr = extract_graph(g)?;
     let w = weight.to_owned();
     let (mat, node_list) = if gr.is_directed() {
-        let dg = gr.digraph().unwrap();
+        let dg = gr.digraph().expect("is_directed checked above");
         py.allow_threads(|| fnx_algorithms::google_matrix_directed(dg, alpha, &w))
     } else {
         let inner = gr.undirected();

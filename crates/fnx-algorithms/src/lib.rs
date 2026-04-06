@@ -20891,7 +20891,8 @@ pub fn stoer_wagner(graph: &Graph, weight_attr: &str) -> Option<StoerWagnerResul
     // Build adjacency with weights
     let idx: std::collections::HashMap<&str, usize> =
         nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
-    let mut w = vec![vec![0.0f64; n]; n];
+    let mut w: std::collections::HashMap<(usize, usize), f64> = std::collections::HashMap::new();
+    let mut adj = vec![std::collections::HashSet::new(); n];
     for edge in graph.edges_ordered() {
         let i = idx[edge.left.as_str()];
         let j = idx[edge.right.as_str()];
@@ -20901,8 +20902,12 @@ pub fn stoer_wagner(graph: &Graph, weight_attr: &str) -> Option<StoerWagnerResul
             .and_then(|val| val.as_f64())
             .filter(|value| value.is_finite() && *value >= 0.0)
             .unwrap_or(1.0);
-        w[i][j] += wt;
-        w[j][i] += wt;
+        if i != j {
+            *w.entry((i, j)).or_insert(0.0) += wt;
+            *w.entry((j, i)).or_insert(0.0) += wt;
+            adj[i].insert(j);
+            adj[j].insert(i);
+        }
     }
 
     let mut best_cut = f64::MAX;
@@ -20939,9 +20944,9 @@ pub fn stoer_wagner(graph: &Graph, weight_attr: &str) -> Option<StoerWagnerResul
             let v = best?;
             in_a[v] = true;
             order.push(v);
-            for j in 0..n {
+            for &j in &adj[v] {
                 if active[j] && !in_a[j] {
-                    key[j] += w[v][j];
+                    key[j] += *w.get(&(v, j)).unwrap_or(&0.0);
                 }
             }
         }
@@ -20974,11 +20979,22 @@ pub fn stoer_wagner(graph: &Graph, weight_attr: &str) -> Option<StoerWagnerResul
                 merged[i] = merged[s];
             }
         }
-        #[allow(clippy::needless_range_loop)]
-        for j in 0..n {
-            w[s][j] += w[t][j];
-            w[j][s] += w[j][t];
+        let t_adj: Vec<usize> = adj[t].iter().copied().collect();
+        for j in t_adj {
+            if j != s {
+                let wt_j = *w.get(&(t, j)).unwrap_or(&0.0);
+                if wt_j > 0.0 {
+                    *w.entry((s, j)).or_insert(0.0) += wt_j;
+                    *w.entry((j, s)).or_insert(0.0) += wt_j;
+                    adj[s].insert(j);
+                    adj[j].insert(s);
+                }
+            }
+            w.remove(&(t, j));
+            w.remove(&(j, t));
+            adj[j].remove(&t);
         }
+        adj[t].clear();
         active[t] = false;
     }
 
@@ -21720,15 +21736,20 @@ pub fn edge_disjoint_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec
     };
 
     // Build residual capacity matrix (unit capacities, undirected)
-    let mut cap = vec![vec![0i32; n]; n];
-    let mut initial_cap = vec![vec![0i32; n]; n];
+    let mut cap = std::collections::HashMap::new();
+    let mut initial_cap = std::collections::HashMap::new();
+    let mut adj = vec![std::collections::HashSet::new(); n];
     for edge in graph.edges_ordered() {
         let i = idx[edge.left.as_str()];
         let j = idx[edge.right.as_str()];
-        cap[i][j] = 1;
-        cap[j][i] = 1;
-        initial_cap[i][j] = 1;
-        initial_cap[j][i] = 1;
+        if i != j {
+            cap.insert((i, j), 1);
+            cap.insert((j, i), 1);
+            initial_cap.insert((i, j), 1);
+            initial_cap.insert((j, i), 1);
+            adj[i].insert(j);
+            adj[j].insert(i);
+        }
     }
 
     // Find max flow via Edmonds-Karp BFS
@@ -21743,8 +21764,8 @@ pub fn edge_disjoint_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec
             if v == t {
                 break;
             }
-            for j in 0..n {
-                if !visited[j] && cap[v][j] > 0 {
+            for &j in &adj[v] {
+                if !visited[j] && *cap.get(&(v, j)).unwrap_or(&0) > 0 {
                     visited[j] = true;
                     parent[j] = Some(v);
                     queue.push_back(j);
@@ -21759,19 +21780,17 @@ pub fn edge_disjoint_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec
         // Update residual
         let mut v = t;
         while let Some(p) = parent[v] {
-            cap[p][v] -= 1;
-            cap[v][p] += 1;
+            *cap.get_mut(&(p, v)).unwrap() -= 1;
+            *cap.get_mut(&(v, p)).unwrap() += 1;
             v = p;
         }
     }
 
     // Extract paths from flow network
     let mut flow_adj = vec![Vec::new(); n];
-    for i in 0..n {
-        for j in 0..n {
-            if initial_cap[i][j] == 1 && cap[i][j] == 0 {
-                flow_adj[i].push(j);
-            }
+    for (&(i, j), &c) in &initial_cap {
+        if c == 1 && *cap.get(&(i, j)).unwrap_or(&0) == 0 {
+            flow_adj[i].push(j);
         }
     }
 
@@ -21843,13 +21862,18 @@ pub fn edge_disjoint_paths_directed(
         None => return Vec::new(),
     };
 
-    let mut cap = vec![vec![0i32; n]; n];
-    let mut initial_cap = vec![vec![0i32; n]; n];
+    let mut cap = std::collections::HashMap::new();
+    let mut initial_cap = std::collections::HashMap::new();
+    let mut adj = vec![std::collections::HashSet::new(); n];
     for edge in digraph.edges_ordered() {
         let i = idx[edge.left.as_str()];
         let j = idx[edge.right.as_str()];
-        cap[i][j] = 1;
-        initial_cap[i][j] = 1;
+        if i != j {
+            *cap.entry((i, j)).or_insert(0) += 1;
+            *initial_cap.entry((i, j)).or_insert(0) += 1;
+            adj[i].insert(j);
+            adj[j].insert(i); // For residual flow
+        }
     }
 
     loop {
@@ -21863,8 +21887,8 @@ pub fn edge_disjoint_paths_directed(
             if v == t {
                 break;
             }
-            for j in 0..n {
-                if !visited[j] && cap[v][j] > 0 {
+            for &j in &adj[v] {
+                if !visited[j] && *cap.get(&(v, j)).unwrap_or(&0) > 0 {
                     visited[j] = true;
                     parent[j] = Some(v);
                     queue.push_back(j);
@@ -21878,18 +21902,17 @@ pub fn edge_disjoint_paths_directed(
 
         let mut v = t;
         while let Some(p) = parent[v] {
-            cap[p][v] -= 1;
-            cap[v][p] += 1;
+            *cap.get_mut(&(p, v)).unwrap() -= 1;
+            *cap.entry((v, p)).or_insert(0) += 1;
             v = p;
         }
     }
 
     let mut flow_adj = vec![Vec::new(); n];
-    for i in 0..n {
-        for j in 0..n {
-            if initial_cap[i][j] == 1 && cap[i][j] == 0 {
-                flow_adj[i].push(j);
-            }
+    for (&(i, j), &c) in &initial_cap {
+        let flow = (c - *cap.get(&(i, j)).unwrap_or(&0)).max(0);
+        for _ in 0..flow {
+            flow_adj[i].push(j);
         }
     }
 
@@ -21963,26 +21986,34 @@ pub fn node_disjoint_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec
         None => return Vec::new(),
     };
 
-    // Split graph: node i becomes i_in (i) and i_out (i + n)
-    // Internal edge: i_in → i_out with capacity 1 (except s, t: capacity n)
     let nn = 2 * n;
-    let mut cap = vec![vec![0i32; nn]; nn];
+    let mut cap = std::collections::HashMap::new();
+    let mut initial_cap = std::collections::HashMap::new();
+    let mut adj = vec![std::collections::HashSet::new(); nn];
 
     // Internal edges
     for i in 0..n {
         let capacity = if i == s || i == t { n as i32 } else { 1 };
-        cap[i][i + n] = capacity;
+        cap.insert((i, i + n), capacity);
+        initial_cap.insert((i, i + n), capacity);
+        adj[i].insert(i + n);
+        adj[i + n].insert(i);
     }
 
     // Graph edges: u_out → v_in and v_out → u_in (undirected)
-    let mut initial_cap = cap.clone();
     for edge in graph.edges_ordered() {
         let u = idx[edge.left.as_str()];
         let v = idx[edge.right.as_str()];
-        cap[u + n][v] = 1;
-        cap[v + n][u] = 1;
-        initial_cap[u + n][v] = 1;
-        initial_cap[v + n][u] = 1;
+        if u != v {
+            cap.insert((u + n, v), 1);
+            cap.insert((v + n, u), 1);
+            initial_cap.insert((u + n, v), 1);
+            initial_cap.insert((v + n, u), 1);
+            adj[u + n].insert(v);
+            adj[v].insert(u + n);
+            adj[v + n].insert(u);
+            adj[u].insert(v + n);
+        }
     }
 
     let s_out = s + n;
@@ -21999,8 +22030,8 @@ pub fn node_disjoint_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec
             if v == t_in {
                 break;
             }
-            for j in 0..nn {
-                if !visited[j] && cap[v][j] > 0 {
+            for &j in &adj[v] {
+                if !visited[j] && *cap.get(&(v, j)).unwrap_or(&0) > 0 {
                     visited[j] = true;
                     parent[j] = Some(v);
                     queue.push_back(j);
@@ -22014,21 +22045,17 @@ pub fn node_disjoint_paths(graph: &Graph, source: &str, target: &str) -> Vec<Vec
 
         let mut v = t_in;
         while let Some(p) = parent[v] {
-            cap[p][v] -= 1;
-            cap[v][p] += 1;
+            *cap.get_mut(&(p, v)).unwrap() -= 1;
+            *cap.entry((v, p)).or_insert(0) += 1;
             v = p;
         }
     }
 
     // Extract paths from flow network
     let mut flow_adj = vec![Vec::new(); n];
-    for i in 0..n {
-        for j in 0..n {
-            let i_out = i + n;
-            let j_in = j;
-            if initial_cap[i_out][j_in] == 1 && cap[i_out][j_in] == 0 {
-                flow_adj[i].push(j);
-            }
+    for (&(i_out, j_in), &c) in &initial_cap {
+        if i_out >= n && j_in < n && c == 1 && *cap.get(&(i_out, j_in)).unwrap_or(&0) == 0 {
+            flow_adj[i_out - n].push(j_in);
         }
     }
 
@@ -22102,24 +22129,30 @@ pub fn node_disjoint_paths_directed(
         None => return Vec::new(),
     };
 
-    // Split graph: node i becomes i_in (i) and i_out (i + n)
-    // Internal edge: i_in → i_out with capacity 1 (except s, t: capacity n)
     let nn = 2 * n;
-    let mut cap = vec![vec![0i32; nn]; nn];
+    let mut cap = std::collections::HashMap::new();
+    let mut initial_cap = std::collections::HashMap::new();
+    let mut adj = vec![std::collections::HashSet::new(); nn];
 
     // Internal edges
     for i in 0..n {
         let capacity = if i == s || i == t { n as i32 } else { 1 };
-        cap[i][i + n] = capacity;
+        cap.insert((i, i + n), capacity);
+        initial_cap.insert((i, i + n), capacity);
+        adj[i].insert(i + n);
+        adj[i + n].insert(i);
     }
 
     // Graph edges: u_out → v_in (directed)
-    let mut initial_cap = cap.clone();
     for edge in digraph.edges_ordered() {
         let u = idx[edge.left.as_str()];
         let v = idx[edge.right.as_str()];
-        cap[u + n][v] += 1;
-        initial_cap[u + n][v] += 1;
+        if u != v {
+            *cap.entry((u + n, v)).or_insert(0) += 1;
+            *initial_cap.entry((u + n, v)).or_insert(0) += 1;
+            adj[u + n].insert(v);
+            adj[v].insert(u + n);
+        }
     }
 
     let s_out = s + n;
@@ -22136,8 +22169,8 @@ pub fn node_disjoint_paths_directed(
             if v == t_in {
                 break;
             }
-            for j in 0..nn {
-                if !visited[j] && cap[v][j] > 0 {
+            for &j in &adj[v] {
+                if !visited[j] && *cap.get(&(v, j)).unwrap_or(&0) > 0 {
                     visited[j] = true;
                     parent[j] = Some(v);
                     queue.push_back(j);
@@ -22151,21 +22184,19 @@ pub fn node_disjoint_paths_directed(
 
         let mut v = t_in;
         while let Some(p) = parent[v] {
-            cap[p][v] -= 1;
-            cap[v][p] += 1;
+            *cap.get_mut(&(p, v)).unwrap() -= 1;
+            *cap.entry((v, p)).or_insert(0) += 1;
             v = p;
         }
     }
 
     // Extract paths from flow network
     let mut flow_adj = vec![Vec::new(); n];
-    for i in 0..n {
-        for j in 0..n {
-            let i_out = i + n;
-            let j_in = j;
-            let flow = (initial_cap[i_out][j_in] - cap[i_out][j_in]).max(0);
+    for (&(i_out, j_in), &c) in &initial_cap {
+        if i_out >= n && j_in < n {
+            let flow = (c - *cap.get(&(i_out, j_in)).unwrap_or(&0)).max(0);
             for _ in 0..flow {
-                flow_adj[i].push(j);
+                flow_adj[i_out - n].push(j_in);
             }
         }
     }
