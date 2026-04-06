@@ -146,6 +146,15 @@ class TestConnectivity:
 
         assert actual == expected == []
 
+    def test_all_node_cuts_negative_k_matches_nx(self, fnx, nx):
+        G_fnx = fnx.cycle_graph(5)
+        G_nx = nx.cycle_graph(5)
+
+        actual = {frozenset(cut) for cut in fnx.all_node_cuts(G_fnx, k=-1)}
+        expected = {frozenset(cut) for cut in nx.all_node_cuts(G_nx, k=-1)}
+
+        assert actual == expected
+
     def test_all_node_cuts_directed_raises(self, fnx, nx):
         D_fnx = fnx.DiGraph()
         D_fnx.add_edges_from([(0, 1), (1, 2), (2, 0)])

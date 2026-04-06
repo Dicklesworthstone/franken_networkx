@@ -16,9 +16,9 @@ Or as a NetworkX backend (zero code changes required)::
     # Now all supported algorithms dispatch to Rust automatically.
 """
 
+from collections import defaultdict
 from collections.abc import Mapping
 from enum import Enum
-from itertools import combinations
 import math
 import sys
 
@@ -52,7 +52,9 @@ def _nan_filtered_graph(G, weight, ignore_nan):
             if isinstance(edge_weight, float) and math.isnan(edge_weight):
                 if ignore_nan:
                     continue
-                raise ValueError(f"NaN found as an edge weight. Edge {(u, v, dict(attrs))}")
+                raise ValueError(
+                    f"NaN found as an edge weight. Edge {(u, v, dict(attrs))}"
+                )
             H.add_edge(u, v, key=key, **dict(attrs))
     else:
         for u, v, attrs in G.edges(data=True):
@@ -60,11 +62,12 @@ def _nan_filtered_graph(G, weight, ignore_nan):
             if isinstance(edge_weight, float) and math.isnan(edge_weight):
                 if ignore_nan:
                     continue
-                raise ValueError(f"NaN found as an edge weight. Edge {(u, v, dict(attrs))}")
+                raise ValueError(
+                    f"NaN found as an edge weight. Edge {(u, v, dict(attrs))}"
+                )
             H.add_edge(u, v, **dict(attrs))
 
     return H
-
 
 
 class SpanningTreeIterator:
@@ -92,7 +95,6 @@ class SpanningTreeIterator:
         self.minimum = minimum
         self.ignore_nan = ignore_nan
 
-
     def __iter__(self):
         from franken_networkx._fnx import spanning_tree_iterator_rust
         from franken_networkx._fnx import NetworkXNotImplemented
@@ -103,12 +105,15 @@ class SpanningTreeIterator:
             raise NetworkXNotImplemented("not implemented for multigraph type")
         graph = _nan_filtered_graph(self.G, self.weight, self.ignore_nan)
         self._iterator = spanning_tree_iterator_rust(
-            graph, self.weight, self.minimum, sys.maxsize,
+            graph,
+            self.weight,
+            self.minimum,
+            sys.maxsize,
         )
         return self
 
     def __next__(self):
-        if not hasattr(self, '_iterator') or self._iterator is None:
+        if not hasattr(self, "_iterator") or self._iterator is None:
             raise AttributeError(
                 "'SpanningTreeIterator' object has no attribute 'partition_queue'"
             )
@@ -144,26 +149,31 @@ class ArborescenceIterator:
         self.minimum = minimum
         self.init_partition = init_partition
 
-
     def __iter__(self):
         from franken_networkx._fnx import arborescence_iterator_rust
         from franken_networkx._fnx import NetworkXPointlessConcept
 
         if not self.G.is_directed():
             from franken_networkx._fnx import NetworkXNotImplemented
+
             raise NetworkXNotImplemented("not implemented for undirected type")
         if self.G.is_multigraph():
             from franken_networkx._fnx import NetworkXNotImplemented
+
             raise NetworkXNotImplemented("not implemented for multigraph type")
         if self.G.number_of_nodes() == 0:
             raise NetworkXPointlessConcept("G has no nodes.")
         self._iterator = arborescence_iterator_rust(
-            self.G, self.weight, self.minimum, sys.maxsize, self.init_partition,
+            self.G,
+            self.weight,
+            self.minimum,
+            sys.maxsize,
+            self.init_partition,
         )
         return self
 
     def __next__(self):
-        if not hasattr(self, '_iterator') or self._iterator is None:
+        if not hasattr(self, "_iterator") or self._iterator is None:
             raise AttributeError(
                 "'ArborescenceIterator' object has no attribute 'partition_queue'",
             )
@@ -203,7 +213,7 @@ from franken_networkx._fnx import (
 )
 
 
-def shortest_path_length(G, source=None, target=None, weight=None, method='dijkstra'):
+def shortest_path_length(G, source=None, target=None, weight=None, method="dijkstra"):
     """Return shortest path length between source and target.
 
     If *source* and *target* are both None, return an iterator over
@@ -220,6 +230,7 @@ def shortest_path_length(G, source=None, target=None, weight=None, method='dijks
         return dict(single_target_shortest_path_length(G, target))
     all_pairs = all_pairs_shortest_path_length(G)
     return ((node, all_pairs[node]) for node in G.nodes())
+
 
 # Algorithm functions — connectivity
 from franken_networkx._fnx import (
@@ -353,6 +364,7 @@ def all_simple_paths(G, source, target, cutoff=None):
             stack.append((child, iter(G.successors(child)), path + [child]))
     return result
 
+
 # Algorithm functions — graph operators
 from franken_networkx._fnx import (
     complement,
@@ -395,9 +407,10 @@ from franken_networkx._fnx import (
 def _py_bfs_edges(G, source, depth_limit=None, sort_neighbors=None):
     """Python-level BFS with sort_neighbors support."""
     from collections import deque
+
     visited = {source}
     queue = deque([(source, 0)])
-    max_depth = depth_limit if depth_limit is not None else float('inf')
+    max_depth = depth_limit if depth_limit is not None else float("inf")
     while queue:
         node, depth = queue.popleft()
         if depth >= max_depth:
@@ -415,7 +428,7 @@ def _py_bfs_edges(G, source, depth_limit=None, sort_neighbors=None):
 def _py_dfs_edges(G, source, depth_limit=None, sort_neighbors=None):
     """Python-level DFS with sort_neighbors support."""
     visited = set()
-    max_depth = depth_limit if depth_limit is not None else float('inf')
+    max_depth = depth_limit if depth_limit is not None else float("inf")
     stack = [(source, 0, iter([source]))]
     while stack:
         parent, depth, children = stack[-1]
@@ -465,6 +478,7 @@ def bfs_successors(G, source, depth_limit=None, sort_neighbors=None):
     """Return (node, [successors]) pairs from BFS."""
     if sort_neighbors is not None:
         from collections import defaultdict
+
         succs = defaultdict(list)
         for u, v in _py_bfs_edges(G, source, depth_limit, sort_neighbors):
             succs[u].append(v)
@@ -501,6 +515,7 @@ def dfs_successors(G, source=None, depth_limit=None, sort_neighbors=None):
         if source is None:
             source = next(iter(G.nodes()))
         from collections import defaultdict
+
         succs = defaultdict(list)
         for u, v in _py_dfs_edges(G, source, depth_limit, sort_neighbors):
             succs[u].append(v)
@@ -527,7 +542,7 @@ def dfs_postorder_nodes(G, source=None, depth_limit=None, sort_neighbors=None):
             source = next(iter(G.nodes()))
         # Post-order: children before parent
         visited = set()
-        max_depth = depth_limit if depth_limit is not None else float('inf')
+        max_depth = depth_limit if depth_limit is not None else float("inf")
         stack = [(source, False, 0)]
         while stack:
             node, processed, depth = stack.pop()
@@ -561,6 +576,7 @@ def dfs_tree(G, source=None, depth_limit=None, sort_neighbors=None):
         return T
     return _dfs_tree_raw(G, source=source, depth_limit=depth_limit)
 
+
 # Algorithm functions — reciprocity (wrapped to match NetworkX API)
 from franken_networkx._fnx import overall_reciprocity
 from franken_networkx._fnx import reciprocity as _reciprocity_raw
@@ -577,6 +593,7 @@ def reciprocity(G, nodes=None):
     if nodes is None:
         return overall_reciprocity(G)
     return _reciprocity_raw(G, nodes)
+
 
 # Algorithm functions — Wiener index
 from franken_networkx._fnx import (
@@ -640,8 +657,8 @@ def condensation(G, scc=None):
         members.setdefault(scc_idx, set()).add(node)
     # Set 'members' attribute on each node
     for scc_idx, member_set in members.items():
-        cond_dg.nodes[scc_idx]['members'] = member_set
-    cond_dg.graph['mapping'] = mapping
+        cond_dg.nodes[scc_idx]["members"] = member_set
+    cond_dg.graph["mapping"] = mapping
     return cond_dg
 
 
@@ -977,8 +994,12 @@ from franken_networkx._fnx import gnp_random_graph as _rust_gnp_random_graph
 from franken_networkx._fnx import watts_strogatz_graph as _rust_watts_strogatz_graph
 from franken_networkx._fnx import barabasi_albert_graph as _rust_barabasi_albert_graph
 from franken_networkx._fnx import erdos_renyi_graph as _rust_erdos_renyi_graph
-from franken_networkx._fnx import newman_watts_strogatz_graph as _rust_newman_watts_strogatz_graph
-from franken_networkx._fnx import connected_watts_strogatz_graph as _rust_connected_watts_strogatz_graph
+from franken_networkx._fnx import (
+    newman_watts_strogatz_graph as _rust_newman_watts_strogatz_graph,
+)
+from franken_networkx._fnx import (
+    connected_watts_strogatz_graph as _rust_connected_watts_strogatz_graph,
+)
 from franken_networkx._fnx import random_regular_graph as _rust_random_regular_graph
 from franken_networkx._fnx import powerlaw_cluster_graph as _rust_powerlaw_cluster_graph
 
@@ -1228,6 +1249,7 @@ def girvan_newman(G, most_valuable_edge=None):
     H = G.copy()
 
     if most_valuable_edge is None:
+
         def most_valuable_edge(graph):
             ebc = edge_betweenness_centrality(graph)
             return max(ebc, key=ebc.get)
@@ -1487,8 +1509,8 @@ def all_neighbors(G, node):
     For directed graphs, returns the union of successors and predecessors.
     """
     if G.is_directed():
-        succs = set(G.successors(node)) if hasattr(G, 'successors') else set()
-        preds = set(G.predecessors(node)) if hasattr(G, 'predecessors') else set()
+        succs = set(G.successors(node)) if hasattr(G, "successors") else set()
+        preds = set(G.predecessors(node)) if hasattr(G, "predecessors") else set()
         return list(succs | preds)
     return list(G.neighbors(node))
 
@@ -1659,7 +1681,7 @@ def strong_product(G, H):
 # ---------------------------------------------------------------------------
 
 
-def adjacency_matrix(G, nodelist=None, dtype=None, weight='weight'):
+def adjacency_matrix(G, nodelist=None, dtype=None, weight="weight"):
     """Return the adjacency matrix of *G* as a SciPy sparse array.
 
     This is an alias for ``to_scipy_sparse_array``.
@@ -1681,14 +1703,17 @@ def local_bridges(G, with_span=True, weight=None):
     if with_span or weight is not None:
         import networkx as nx
         from franken_networkx.drawing.layout import _to_nx
+
         return nx.local_bridges(_to_nx(G), with_span=with_span, weight=weight)
     else:
         from franken_networkx._fnx import local_bridges_rust
+
         return iter(local_bridges_rust(G))
 
 
 def minimum_edge_cut(G, s=None, t=None):
     """Return a minimum edge cut of *G*."""
+
     def cut_edges_for_partition(source_partition, sink_partition):
         source_set = set(source_partition)
         sink_set = set(sink_partition)
@@ -1698,7 +1723,9 @@ def minimum_edge_cut(G, s=None, t=None):
                 if G.is_directed():
                     if u in source_set and v in sink_set:
                         cut_edges.add((u, v, key))
-                elif (u in source_set and v in sink_set) or (u in sink_set and v in source_set):
+                elif (u in source_set and v in sink_set) or (
+                    u in sink_set and v in source_set
+                ):
                     cut_edges.add((u, v, key))
             return cut_edges
 
@@ -1706,7 +1733,9 @@ def minimum_edge_cut(G, s=None, t=None):
             if G.is_directed():
                 if u in source_set and v in sink_set:
                     cut_edges.add((u, v))
-            elif (u in source_set and v in sink_set) or (u in sink_set and v in source_set):
+            elif (u in source_set and v in sink_set) or (
+                u in sink_set and v in source_set
+            ):
                 cut_edges.add((u, v))
         return cut_edges
 
@@ -1742,7 +1771,7 @@ def minimum_edge_cut(G, s=None, t=None):
     return best_cut if best_cut is not None else set()
 
 
-def stochastic_graph(G, copy=True, weight='weight'):
+def stochastic_graph(G, copy=True, weight="weight"):
     """Return the stochastic graph of *G* (row-normalized adjacency)."""
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
@@ -1821,6 +1850,7 @@ def k_core(G, k=None, core_number=None):
     """
     if core_number is None:
         from franken_networkx._fnx import core_number as compute_core_number
+
         core_number = compute_core_number(G)
     if k is None:
         k = max(core_number.values()) if core_number else 0
@@ -1832,6 +1862,7 @@ def k_shell(G, k=None, core_number=None):
     """Return the k-shell of *G* (nodes with core number exactly k)."""
     if core_number is None:
         from franken_networkx._fnx import core_number as compute_core_number
+
         core_number = compute_core_number(G)
     if k is None:
         k = max(core_number.values()) if core_number else 0
@@ -1843,6 +1874,7 @@ def k_crust(G, k=None, core_number=None):
     """Return the k-crust of *G* (nodes with core number <= k)."""
     if core_number is None:
         from franken_networkx._fnx import core_number as compute_core_number
+
         core_number = compute_core_number(G)
     if k is None:
         k = max(core_number.values()) if core_number else 0
@@ -1854,6 +1886,7 @@ def k_corona(G, k, core_number=None):
     """Return the k-corona of *G* (k-core nodes with exactly k neighbors in k-core)."""
     if core_number is None:
         from franken_networkx._fnx import core_number as compute_core_number
+
         core_number = compute_core_number(G)
     core_nodes = {n for n, c in core_number.items() if c >= k}
     corona_nodes = []
@@ -1912,7 +1945,7 @@ def line_graph(G, create_using=None):
         if len(incident) == 1:
             graph.add_node(incident[0])
         for index, left in enumerate(incident):
-            for right in incident[index + 1:]:
+            for right in incident[index + 1 :]:
                 edges.add(tuple(sorted((left, right), key=edge_key)))
 
     graph.add_edges_from(edges)
@@ -2032,7 +2065,7 @@ def union_all(graphs, rename=()):
 # ---------------------------------------------------------------------------
 
 
-def laplacian_matrix(G, nodelist=None, weight='weight'):
+def laplacian_matrix(G, nodelist=None, weight="weight"):
     """Return the Laplacian matrix of *G* as a SciPy sparse array.
 
     ``L = D - A`` where D is the degree matrix and A is the adjacency matrix.
@@ -2056,7 +2089,7 @@ def laplacian_matrix(G, nodelist=None, weight='weight'):
     return D - A
 
 
-def normalized_laplacian_matrix(G, nodelist=None, weight='weight'):
+def normalized_laplacian_matrix(G, nodelist=None, weight="weight"):
     """Return the normalized Laplacian matrix of *G*.
 
     ``L_norm = D^{-1/2} L D^{-1/2}`` where L is the Laplacian.
@@ -2080,7 +2113,7 @@ def normalized_laplacian_matrix(G, nodelist=None, weight='weight'):
     return I - D_inv_sqrt @ A @ D_inv_sqrt
 
 
-def laplacian_spectrum(G, weight='weight'):
+def laplacian_spectrum(G, weight="weight"):
     """Return the eigenvalues of the Laplacian matrix of *G*, sorted.
 
     Returns
@@ -2093,7 +2126,7 @@ def laplacian_spectrum(G, weight='weight'):
     return np.sort(np.linalg.eigvalsh(L.toarray()))
 
 
-def adjacency_spectrum(G, weight='weight'):
+def adjacency_spectrum(G, weight="weight"):
     """Return the eigenvalues of the adjacency matrix of *G*, sorted.
 
     Returns
@@ -2106,7 +2139,7 @@ def adjacency_spectrum(G, weight='weight'):
     return np.sort(np.linalg.eigvalsh(A))
 
 
-def algebraic_connectivity(G, weight='weight', normalized=False):
+def algebraic_connectivity(G, weight="weight", normalized=False):
     """Return the algebraic connectivity of *G*.
 
     The algebraic connectivity is the second-smallest eigenvalue of the
@@ -2127,9 +2160,9 @@ def algebraic_connectivity(G, weight='weight', normalized=False):
     import numpy as np
 
     if normalized:
-        spectrum = np.sort(np.linalg.eigvalsh(
-            normalized_laplacian_matrix(G, weight=weight).toarray()
-        ))
+        spectrum = np.sort(
+            np.linalg.eigvalsh(normalized_laplacian_matrix(G, weight=weight).toarray())
+        )
     else:
         spectrum = laplacian_spectrum(G, weight=weight)
     if len(spectrum) < 2:
@@ -2137,7 +2170,7 @@ def algebraic_connectivity(G, weight='weight', normalized=False):
     return float(spectrum[1])
 
 
-def fiedler_vector(G, weight='weight', normalized=False):
+def fiedler_vector(G, weight="weight", normalized=False):
     """Return the Fiedler vector of *G*.
 
     The Fiedler vector is the eigenvector corresponding to the
@@ -2222,17 +2255,84 @@ def karate_club_graph():
     G = Graph()
     # Zachary (1977) edge list
     edges = [
-        (0, 1), (0, 2), (0, 3), (0, 4), (0, 5), (0, 6), (0, 7), (0, 8),
-        (0, 10), (0, 11), (0, 12), (0, 13), (0, 17), (0, 19), (0, 21), (0, 31),
-        (1, 2), (1, 3), (1, 7), (1, 13), (1, 17), (1, 19), (1, 21), (1, 30),
-        (2, 3), (2, 7), (2, 8), (2, 9), (2, 13), (2, 27), (2, 28), (2, 32),
-        (3, 7), (3, 12), (3, 13), (4, 6), (4, 10), (5, 6), (5, 10), (5, 16),
-        (6, 16), (8, 30), (8, 32), (8, 33), (9, 33), (13, 33), (14, 32),
-        (14, 33), (15, 32), (15, 33), (18, 32), (18, 33), (19, 33), (20, 32),
-        (20, 33), (22, 32), (22, 33), (23, 25), (23, 27), (23, 29), (23, 32),
-        (23, 33), (24, 25), (24, 27), (24, 31), (25, 31), (26, 29), (26, 33),
-        (27, 33), (28, 31), (28, 33), (29, 32), (29, 33), (30, 32), (30, 33),
-        (31, 32), (31, 33), (32, 33),
+        (0, 1),
+        (0, 2),
+        (0, 3),
+        (0, 4),
+        (0, 5),
+        (0, 6),
+        (0, 7),
+        (0, 8),
+        (0, 10),
+        (0, 11),
+        (0, 12),
+        (0, 13),
+        (0, 17),
+        (0, 19),
+        (0, 21),
+        (0, 31),
+        (1, 2),
+        (1, 3),
+        (1, 7),
+        (1, 13),
+        (1, 17),
+        (1, 19),
+        (1, 21),
+        (1, 30),
+        (2, 3),
+        (2, 7),
+        (2, 8),
+        (2, 9),
+        (2, 13),
+        (2, 27),
+        (2, 28),
+        (2, 32),
+        (3, 7),
+        (3, 12),
+        (3, 13),
+        (4, 6),
+        (4, 10),
+        (5, 6),
+        (5, 10),
+        (5, 16),
+        (6, 16),
+        (8, 30),
+        (8, 32),
+        (8, 33),
+        (9, 33),
+        (13, 33),
+        (14, 32),
+        (14, 33),
+        (15, 32),
+        (15, 33),
+        (18, 32),
+        (18, 33),
+        (19, 33),
+        (20, 32),
+        (20, 33),
+        (22, 32),
+        (22, 33),
+        (23, 25),
+        (23, 27),
+        (23, 29),
+        (23, 32),
+        (23, 33),
+        (24, 25),
+        (24, 27),
+        (24, 31),
+        (25, 31),
+        (26, 29),
+        (26, 33),
+        (27, 33),
+        (28, 31),
+        (28, 33),
+        (29, 32),
+        (29, 33),
+        (30, 32),
+        (30, 33),
+        (31, 32),
+        (31, 33),
+        (32, 33),
     ]
     G.add_edges_from([(u, v) for u, v in edges])
     return G
@@ -2246,14 +2346,25 @@ def florentine_families_graph():
     """
     G = Graph()
     edges = [
-        ("Acciaiuoli", "Medici"), ("Albizzi", "Ginori"), ("Albizzi", "Guadagni"),
-        ("Albizzi", "Medici"), ("Barbadori", "Castellani"), ("Barbadori", "Medici"),
-        ("Bischeri", "Guadagni"), ("Bischeri", "Peruzzi"), ("Bischeri", "Strozzi"),
-        ("Castellani", "Peruzzi"), ("Castellani", "Strozzi"),
+        ("Acciaiuoli", "Medici"),
+        ("Albizzi", "Ginori"),
+        ("Albizzi", "Guadagni"),
+        ("Albizzi", "Medici"),
+        ("Barbadori", "Castellani"),
+        ("Barbadori", "Medici"),
+        ("Bischeri", "Guadagni"),
+        ("Bischeri", "Peruzzi"),
+        ("Bischeri", "Strozzi"),
+        ("Castellani", "Peruzzi"),
+        ("Castellani", "Strozzi"),
         ("Guadagni", "Lamberteschi"),
         ("Guadagni", "Tornabuoni"),
-        ("Medici", "Ridolfi"), ("Medici", "Salviati"), ("Medici", "Tornabuoni"),
-        ("Peruzzi", "Strozzi"), ("Ridolfi", "Strozzi"), ("Ridolfi", "Tornabuoni"),
+        ("Medici", "Ridolfi"),
+        ("Medici", "Salviati"),
+        ("Medici", "Tornabuoni"),
+        ("Peruzzi", "Strozzi"),
+        ("Ridolfi", "Strozzi"),
+        ("Ridolfi", "Tornabuoni"),
         ("Salviati", "Pazzi"),
     ]
     G.add_edges_from(edges)
@@ -2378,6 +2489,7 @@ def random_tree(n, seed=None):
 def constraint(G, nodes=None, weight=None):
     """Return Burt's constraint for nodes in *G*."""
     from franken_networkx._fnx import constraint_rust as _rust_constraint
+
     result = _rust_constraint(G)
     if nodes is not None:
         node_set = set(nodes)
@@ -2406,6 +2518,7 @@ def effective_size(G, nodes=None, weight=None):
         nodes = list(G.nodes())
 
     from franken_networkx._fnx import effective_size_rust as _rust_eff_size
+
     result = _rust_eff_size(G)
     if nodes is not None:
         node_set = set(nodes)
@@ -2495,6 +2608,7 @@ def closeness_vitality(G, node=None, weight=None, wiener_index=None):
     if wiener_index is None:
         try:
             from franken_networkx._fnx import wiener_index as compute_wi
+
             wi = compute_wi(G)
         except Exception:
             wi = 0.0
@@ -2512,6 +2626,7 @@ def closeness_vitality(G, node=None, weight=None, wiener_index=None):
             return 0.0
         try:
             from franken_networkx._fnx import wiener_index as compute_wi
+
             wi_without = compute_wi(H)
         except Exception:
             wi_without = 0.0
@@ -2548,7 +2663,7 @@ def spectral_ordering(G, normalized=False):
     return [nodelist[i] for i in order]
 
 
-def bellman_ford_predecessor_and_distance(G, source, weight='weight'):
+def bellman_ford_predecessor_and_distance(G, source, weight="weight"):
     """Return predecessors and distances from Bellman-Ford.
 
     Parameters
@@ -2567,6 +2682,7 @@ def bellman_ford_predecessor_and_distance(G, source, weight='weight'):
         single_source_bellman_ford_path_length,
         single_source_bellman_ford_path,
     )
+
     dist = single_source_bellman_ford_path_length(G, source, weight=weight)
     paths = single_source_bellman_ford_path(G, source, weight=weight)
 
@@ -2641,7 +2757,7 @@ def _matrix_exp(A):
 # ---------------------------------------------------------------------------
 
 
-def degree_mixing_dict(G, x='out', y='in', weight=None, nodes=None, normalized=False):
+def degree_mixing_dict(G, x="out", y="in", weight=None, nodes=None, normalized=False):
     """Return a dictionary of degree-degree mixing counts.
 
     Returns
@@ -2877,12 +2993,16 @@ def info(G, n=None):
     if n is not None:
         nbrs = list(G.neighbors(n))
         return f"Node {n} has {len(nbrs)} neighbor(s)"
-    name = getattr(G, 'name', '') or ''
+    name = getattr(G, "name", "") or ""
     typ = type(G).__name__
     n_nodes = G.number_of_nodes()
     n_edges = G.number_of_edges()
-    lines = [f"Name: {name}", f"Type: {typ}",
-             f"Number of nodes: {n_nodes}", f"Number of edges: {n_edges}"]
+    lines = [
+        f"Name: {name}",
+        f"Type: {typ}",
+        f"Number of nodes: {n_nodes}",
+        f"Number of edges: {n_edges}",
+    ]
     if n_nodes > 0:
         [d for _, d in G.degree]
         lines.append(f"Average degree: {2.0 * n_edges / n_nodes:.4f}")
@@ -2995,7 +3115,9 @@ def barabasi_albert_graph(
         for u, v, edge_attrs in initial_graph.edges(data=True):
             graph.add_edge(u, v, **dict(edge_attrs))
         rng = _random.Random(seed)
-        repeated_nodes = [node for node, degree_value in graph.degree for _ in range(degree_value)]
+        repeated_nodes = [
+            node for node, degree_value in graph.degree for _ in range(degree_value)
+        ]
         source = len(graph)
         while source < n:
             targets = set()
@@ -3482,6 +3604,7 @@ def gnm_random_graph(n, m, seed=None):
     Graph
     """
     import random as _random
+
     rng = _random.Random(seed)
     G = Graph()
     for i in range(n):
@@ -3561,10 +3684,11 @@ def chain_decomposition(G, root=None):
         Each yielded list is a chain.
     """
     from franken_networkx._fnx import chain_decomposition as _rust_chain
+
     yield from _rust_chain(G, root=root)
 
 
-def bidirectional_dijkstra(G, source, target, weight='weight'):
+def bidirectional_dijkstra(G, source, target, weight="weight"):
     """Find shortest path using bidirectional Dijkstra search.
 
     Parameters
@@ -3816,7 +3940,7 @@ def load_centrality(G, v=None, cutoff=None, normalized=True, weight=None):
     )
 
 
-def degree_pearson_correlation_coefficient(G, x='out', y='in', weight=None, nodes=None):
+def degree_pearson_correlation_coefficient(G, x="out", y="in", weight=None, nodes=None):
     """Return the degree-degree Pearson correlation coefficient.
 
     For undirected graphs, this is equivalent to
@@ -3896,7 +4020,9 @@ def all_pairs_node_connectivity(G, nbunch=None, flow_func=None):
         from franken_networkx.drawing.layout import _to_nx
 
         return nx.all_pairs_node_connectivity(
-            _to_nx(G), nbunch=nbunch, flow_func=flow_func,
+            _to_nx(G),
+            nbunch=nbunch,
+            flow_func=flow_func,
         )
     flat = _fnx.all_pairs_node_connectivity_rust(G)
     result = {}
@@ -3920,6 +4046,7 @@ def minimum_st_node_cut(G, s, t):
 def voronoi_cells(G, center_nodes, weight="weight"):
     """Return Voronoi cells around the given centers (Rust implementation)."""
     from franken_networkx._fnx import voronoi_cells_rust as _rust_voronoi
+
     center_nodes = list(center_nodes)
     if not center_nodes:
         raise NetworkXError("center_nodes must not be empty")
@@ -3948,6 +4075,7 @@ def stoer_wagner(G, weight="weight", heap=None):
         The two lists of nodes that form the minimum cut partition.
     """
     from franken_networkx._fnx import stoer_wagner as _rust_stoer_wagner
+
     return _rust_stoer_wagner(G, weight=weight or "weight")
 
 
@@ -4082,6 +4210,7 @@ def quotient_graph(
 
     # Default edge relation: any edge between blocks
     if edge_relation is None:
+
         def edge_relation(block_u, block_v):
             for u in block_u:
                 for v in block_v:
@@ -4214,9 +4343,7 @@ def snap_aggregation(
     def _split(nbr_info, group_id):
         new_group_mappings = defaultdict(set)
         for node in groups[group_id]:
-            signature = tuple(
-                frozenset(etypes) for etypes in nbr_info[node].values()
-            )
+            signature = tuple(frozenset(etypes) for etypes in nbr_info[node].values())
             new_group_mappings[signature].add(node)
 
         new_subgroups = sorted(new_group_mappings.values(), key=len)
@@ -4253,14 +4380,17 @@ def snap_aggregation(
             if group_edge_types:
                 target_supernode = node_label_lookup[other_gid]
                 edge_type_list = [
-                    dict(zip(edge_attributes, etype))
-                    for etype in group_edge_types
+                    dict(zip(edge_attributes, etype)) for etype in group_edge_types
                 ]
                 superedge_attrs = {superedge_attribute: edge_type_list}
                 if not output.has_edge(source_supernode, target_supernode):
-                    output.add_edge(source_supernode, target_supernode, **superedge_attrs)
+                    output.add_edge(
+                        source_supernode, target_supernode, **superedge_attrs
+                    )
                 elif G.is_directed():
-                    output.add_edge(source_supernode, target_supernode, **superedge_attrs)
+                    output.add_edge(
+                        source_supernode, target_supernode, **superedge_attrs
+                    )
 
     return output
 
@@ -4428,7 +4558,9 @@ def inverse_line_graph(G):
             if edge[0] not in graph.nodes():
                 raise NetworkXError(f"Vertex {edge[0]} not in graph")
             if edge[1] not in graph[edge[0]]:
-                raise NetworkXError(f"starting_edge ({edge[0]}, {edge[1]}) is not in the Graph")
+                raise NetworkXError(
+                    f"starting_edge ({edge[0]}, {edge[1]}) is not in the Graph"
+                )
         edge_triangles = _triangles_local(graph, edge)
         triangle_count = len(edge_triangles)
         if triangle_count == 0:
@@ -4444,7 +4576,11 @@ def inverse_line_graph(G):
                 return _select_starting_cell_local(graph, starting_edge=(b, c))
             return _select_starting_cell_local(graph, starting_edge=(a, c))
 
-        odd_triangles = [triangle for triangle in edge_triangles if _odd_triangle_local(graph, triangle)]
+        odd_triangles = [
+            triangle
+            for triangle in edge_triangles
+            if _odd_triangle_local(graph, triangle)
+        ]
         odd_count = len(odd_triangles)
         if triangle_count == 2 and odd_count == 0:
             return edge_triangles[-1]
@@ -4459,7 +4595,9 @@ def inverse_line_graph(G):
                             "G is not a line graph (odd triangles do not form complete subgraph)"
                         )
             return tuple(triangle_nodes)
-        raise NetworkXError("G is not a line graph (incorrect number of odd triangles around starting edge)")
+        raise NetworkXError(
+            "G is not a line graph (incorrect number of odd triangles around starting edge)"
+        )
 
     def _find_partition_local(graph, starting_cell):
         graph_partition = graph.copy()
@@ -4506,7 +4644,9 @@ def inverse_line_graph(G):
         for u in cell:
             partition_count[u] += 1
     if max(partition_count.values()) > 2:
-        raise NetworkXError("G is not a line graph (vertex found in more than two partition cells)")
+        raise NetworkXError(
+            "G is not a line graph (vertex found in more than two partition cells)"
+        )
 
     singleton_cells = tuple((u,) for u, count in partition_count.items() if count == 1)
     H = Graph()
@@ -4603,6 +4743,7 @@ def configuration_model(deg_sequence, seed=None):
     MultiGraph
     """
     import random as _random
+
     rng = _random.Random(seed)
 
     if sum(deg_sequence) % 2 != 0:
@@ -4890,7 +5031,7 @@ def transitive_closure_dag(G, topo_order=None):
 # ---------------------------------------------------------------------------
 
 
-def dijkstra_predecessor_and_distance(G, source, cutoff=None, weight='weight'):
+def dijkstra_predecessor_and_distance(G, source, cutoff=None, weight="weight"):
     """Return predecessors and distances from Dijkstra's algorithm.
 
     Parameters
@@ -4923,7 +5064,7 @@ def dijkstra_predecessor_and_distance(G, source, cutoff=None, weight='weight'):
     return pred, dist
 
 
-def multi_source_dijkstra_path(G, sources, weight='weight'):
+def multi_source_dijkstra_path(G, sources, weight="weight"):
     """Return shortest paths from any source to all reachable nodes.
 
     Parameters
@@ -4941,7 +5082,7 @@ def multi_source_dijkstra_path(G, sources, weight='weight'):
     return paths
 
 
-def multi_source_dijkstra_path_length(G, sources, weight='weight'):
+def multi_source_dijkstra_path_length(G, sources, weight="weight"):
     """Return shortest path lengths from any source to all reachable nodes.
 
     Parameters
@@ -5039,7 +5180,9 @@ def reconstruct_path(sources, targets, pred):
     return []
 
 
-def generate_random_paths(G, sample_size, path_length=5, index_map=None, weight=None, seed=None):
+def generate_random_paths(
+    G, sample_size, path_length=5, index_map=None, weight=None, seed=None
+):
     """Generate random paths by random walks.
 
     Parameters
@@ -5057,6 +5200,7 @@ def generate_random_paths(G, sample_size, path_length=5, index_map=None, weight=
         Each yield is a random walk path.
     """
     import random as _random
+
     rng = _random.Random(seed)
     nodes = list(G.nodes())
     if not nodes:
@@ -5075,7 +5219,7 @@ def generate_random_paths(G, sample_size, path_length=5, index_map=None, weight=
         yield path
 
 
-def johnson(G, weight='weight'):
+def johnson(G, weight="weight"):
     """All-pairs shortest paths using Johnson's algorithm.
 
     Johnson's algorithm handles graphs with negative edges (but no
@@ -5105,6 +5249,7 @@ def bethe_hessian_matrix(G, r=None, nodelist=None):
     """Return the Bethe Hessian matrix: H(r) = (r^2-1)*I - r*A + D."""
     import numpy as np
     import scipy.sparse
+
     A = to_scipy_sparse_array(G, nodelist=nodelist, weight=None)
     n = A.shape[0]
     d = np.asarray(A.sum(axis=1)).flatten()
@@ -5112,19 +5257,21 @@ def bethe_hessian_matrix(G, r=None, nodelist=None):
     if r is None:
         r = max(np.sqrt(d.mean()), 1.0) if n > 0 else 1.0
     I = scipy.sparse.eye(n)
-    return (r ** 2 - 1) * I - r * A + D
+    return (r**2 - 1) * I - r * A + D
 
 
 def bethe_hessian_spectrum(G, r=None):
     """Return sorted eigenvalues of the Bethe Hessian matrix."""
     import numpy as np
+
     H = bethe_hessian_matrix(G, r=r)
     return np.sort(np.linalg.eigvalsh(H.toarray()))
 
 
-def google_matrix(G, alpha=0.85, personalization=None, nodelist=None, weight='weight'):
+def google_matrix(G, alpha=0.85, personalization=None, nodelist=None, weight="weight"):
     """Return the Google PageRank matrix: alpha*S + (1-alpha)*v*e^T."""
     import numpy as np
+
     if nodelist is None:
         nodelist = list(G.nodes())
     n = len(nodelist)
@@ -5148,16 +5295,18 @@ def google_matrix(G, alpha=0.85, personalization=None, nodelist=None, weight='we
     return alpha * S + (1 - alpha) * np.outer(np.ones(n), v)
 
 
-def normalized_laplacian_spectrum(G, weight='weight'):
+def normalized_laplacian_spectrum(G, weight="weight"):
     """Return sorted eigenvalues of the normalized Laplacian."""
     import numpy as np
+
     NL = normalized_laplacian_matrix(G, weight=weight)
     return np.sort(np.linalg.eigvalsh(NL.toarray()))
 
 
-def directed_laplacian_matrix(G, nodelist=None, weight='weight', alpha=0.95):
+def directed_laplacian_matrix(G, nodelist=None, weight="weight", alpha=0.95):
     """Return the directed Laplacian using PageRank stationary distribution."""
     import numpy as np
+
     if nodelist is None:
         nodelist = list(G.nodes())
     n = len(nodelist)
@@ -5176,9 +5325,12 @@ def directed_laplacian_matrix(G, nodelist=None, weight='weight', alpha=0.95):
     return Phi - (Phi @ P + P.T @ Phi) / 2.0
 
 
-def directed_combinatorial_laplacian_matrix(G, nodelist=None, weight='weight', alpha=0.95):
+def directed_combinatorial_laplacian_matrix(
+    G, nodelist=None, weight="weight", alpha=0.95
+):
     """Return the directed combinatorial Laplacian: Phi*(I - P)."""
     import numpy as np
+
     if nodelist is None:
         nodelist = list(G.nodes())
     n = len(nodelist)
@@ -5196,7 +5348,9 @@ def directed_combinatorial_laplacian_matrix(G, nodelist=None, weight='weight', a
     return np.diag(pi) @ (np.eye(n) - P)
 
 
-def attr_matrix(G, edge_attr=None, node_attr=None, normalized=False, rc_order=None, dtype=None):
+def attr_matrix(
+    G, edge_attr=None, node_attr=None, normalized=False, rc_order=None, dtype=None
+):
     """Construct a matrix from edge attributes.
 
     When *node_attr* is given, nodes are grouped by attribute value and the
@@ -5205,6 +5359,7 @@ def attr_matrix(G, edge_attr=None, node_attr=None, normalized=False, rc_order=No
     ordering of attribute values, not nodes.
     """
     import numpy as np
+
     if node_attr is not None:
         # Group nodes by their node_attr value
         node_attrs = {n: G.nodes[n].get(node_attr, n) for n in G.nodes()}
@@ -5218,7 +5373,11 @@ def attr_matrix(G, edge_attr=None, node_attr=None, normalized=False, rc_order=No
         for u, v, data in G.edges(data=True):
             lu, lv = node_attrs.get(u), node_attrs.get(v)
             if lu in label_idx and lv in label_idx:
-                val = data.get(edge_attr, 1) if edge_attr and isinstance(data, dict) else 1
+                val = (
+                    data.get(edge_attr, 1)
+                    if edge_attr and isinstance(data, dict)
+                    else 1
+                )
                 M[label_idx[lu], label_idx[lv]] += val
                 if not G.is_directed():
                     M[label_idx[lv], label_idx[lu]] += val
@@ -5234,7 +5393,11 @@ def attr_matrix(G, edge_attr=None, node_attr=None, normalized=False, rc_order=No
         M = np.zeros((n, n), dtype=dtype or np.float64)
         for u, v, data in G.edges(data=True):
             if u in idx and v in idx:
-                val = data.get(edge_attr, 1) if edge_attr and isinstance(data, dict) else 1
+                val = (
+                    data.get(edge_attr, 1)
+                    if edge_attr and isinstance(data, dict)
+                    else 1
+                )
                 M[idx[u], idx[v]] = val
                 if not G.is_directed():
                     M[idx[v], idx[u]] = val
@@ -5250,7 +5413,7 @@ def attr_matrix(G, edge_attr=None, node_attr=None, normalized=False, rc_order=No
 # ---------------------------------------------------------------------------
 
 
-def cost_of_flow(G, flowDict, weight='weight'):
+def cost_of_flow(G, flowDict, weight="weight"):
     """Compute the cost of a given flow.
 
     Parameters
@@ -5280,7 +5443,7 @@ def cost_of_flow(G, flowDict, weight='weight'):
     return total
 
 
-def min_cost_flow(G, demand='demand', capacity='capacity', weight='weight'):
+def min_cost_flow(G, demand="demand", capacity="capacity", weight="weight"):
     """Find minimum cost flow satisfying node demands.
 
     Uses the successive shortest paths algorithm with Bellman-Ford.
@@ -5321,7 +5484,7 @@ def min_cost_flow(G, demand='demand', capacity='capacity', weight='weight'):
     # Extract demands
     node_demand = {}
     for node in nodes:
-        attrs = G.nodes[node] if hasattr(G.nodes, '__getitem__') else {}
+        attrs = G.nodes[node] if hasattr(G.nodes, "__getitem__") else {}
         if isinstance(attrs, dict):
             node_demand[node] = float(attrs.get(demand, 0))
         else:
@@ -5351,7 +5514,7 @@ def min_cost_flow(G, demand='demand', capacity='capacity', weight='weight'):
         # Find shortest path from any source with remaining supply
         # to any sink with remaining demand using Bellman-Ford on residual
         best_path = None
-        best_cost = float('inf')
+        best_cost = float("inf")
         best_source = None
         best_sink = None
 
@@ -5369,7 +5532,7 @@ def min_cost_flow(G, demand='demand', capacity='capacity', weight='weight'):
                     if u not in dist:
                         continue
                     # Forward edges
-                    if hasattr(G, 'successors'):
+                    if hasattr(G, "successors"):
                         succs = list(G.successors(u))
                     else:
                         succs = list(G.neighbors(u))
@@ -5377,7 +5540,7 @@ def min_cost_flow(G, demand='demand', capacity='capacity', weight='weight'):
                         data = G.get_edge_data(u, v)
                         if not isinstance(data, dict):
                             continue
-                        cap = float(data.get(capacity, float('inf')))
+                        cap = float(data.get(capacity, float("inf")))
                         current_flow = flow.get(u, {}).get(v, 0)
                         residual_cap = cap - current_flow
                         if residual_cap > 1e-10:
@@ -5385,10 +5548,10 @@ def min_cost_flow(G, demand='demand', capacity='capacity', weight='weight'):
                             new_dist = dist[u] + edge_cost
                             if v not in dist or new_dist < dist[v] - 1e-10:
                                 dist[v] = new_dist
-                                pred[v] = (u, 'forward')
+                                pred[v] = (u, "forward")
                                 updated = True
                     # Backward edges (reverse flow)
-                    if hasattr(G, 'predecessors'):
+                    if hasattr(G, "predecessors"):
                         preds_list = list(G.predecessors(u))
                     else:
                         preds_list = []
@@ -5396,11 +5559,15 @@ def min_cost_flow(G, demand='demand', capacity='capacity', weight='weight'):
                         current_flow = flow.get(v, {}).get(u, 0)
                         if current_flow > 1e-10:
                             data = G.get_edge_data(v, u)
-                            edge_cost = -float(data.get(weight, 0)) if isinstance(data, dict) else 0.0
+                            edge_cost = (
+                                -float(data.get(weight, 0))
+                                if isinstance(data, dict)
+                                else 0.0
+                            )
                             new_dist = dist[u] + edge_cost
                             if v not in dist or new_dist < dist[v] - 1e-10:
                                 dist[v] = new_dist
-                                pred[v] = (u, 'backward')
+                                pred[v] = (u, "backward")
                                 updated = True
                 if not updated:
                     break
@@ -5433,12 +5600,16 @@ def min_cost_flow(G, demand='demand', capacity='capacity', weight='weight'):
         for i in range(len(path_nodes) - 1):
             u, v = path_nodes[i], path_nodes[i + 1]
             info = best_path.get(v)
-            if info and info[1] == 'forward':
+            if info and info[1] == "forward":
                 data = G.get_edge_data(u, v)
-                cap = float(data.get(capacity, float('inf'))) if isinstance(data, dict) else float('inf')
+                cap = (
+                    float(data.get(capacity, float("inf")))
+                    if isinstance(data, dict)
+                    else float("inf")
+                )
                 residual = cap - flow.get(u, {}).get(v, 0)
                 bottleneck = min(bottleneck, residual)
-            elif info and info[1] == 'backward':
+            elif info and info[1] == "backward":
                 bottleneck = min(bottleneck, flow.get(v, {}).get(u, 0))
 
         if bottleneck <= 1e-10:
@@ -5448,9 +5619,9 @@ def min_cost_flow(G, demand='demand', capacity='capacity', weight='weight'):
         for i in range(len(path_nodes) - 1):
             u, v = path_nodes[i], path_nodes[i + 1]
             info = best_path.get(v)
-            if info and info[1] == 'forward':
+            if info and info[1] == "forward":
                 flow.setdefault(u, {})[v] = flow.get(u, {}).get(v, 0) + bottleneck
-            elif info and info[1] == 'backward':
+            elif info and info[1] == "backward":
                 flow.setdefault(v, {})[u] = flow.get(v, {}).get(u, 0) - bottleneck
 
         remaining_supply[best_source] -= bottleneck
@@ -5467,7 +5638,7 @@ def min_cost_flow(G, demand='demand', capacity='capacity', weight='weight'):
     return flow
 
 
-def min_cost_flow_cost(G, demand='demand', capacity='capacity', weight='weight'):
+def min_cost_flow_cost(G, demand="demand", capacity="capacity", weight="weight"):
     """Return the cost of the minimum cost flow.
 
     Parameters
@@ -5483,7 +5654,7 @@ def min_cost_flow_cost(G, demand='demand', capacity='capacity', weight='weight')
     return cost_of_flow(G, flow, weight=weight)
 
 
-def max_flow_min_cost(G, s, t, capacity='capacity', weight='weight'):
+def max_flow_min_cost(G, s, t, capacity="capacity", weight="weight"):
     """Find a maximum flow of minimum cost from *s* to *t*.
 
     First finds maximum flow value, then finds the min-cost flow
@@ -5506,19 +5677,20 @@ def max_flow_min_cost(G, s, t, capacity='capacity', weight='weight'):
 
     # Set up demands: source supplies max_val, sink demands max_val
     H = G.copy()
-    set_node_attributes(H, {s: max_val, t: -max_val}, name='demand')
+    set_node_attributes(H, {s: max_val, t: -max_val}, name="demand")
     # Set demand=0 for all other nodes
     for n in H.nodes():
         if n != s and n != t:
-            attrs = H.nodes[n] if hasattr(H.nodes, '__getitem__') else {}
-            if isinstance(attrs, dict) and 'demand' not in attrs:
-                attrs['demand'] = 0
+            attrs = H.nodes[n] if hasattr(H.nodes, "__getitem__") else {}
+            if isinstance(attrs, dict) and "demand" not in attrs:
+                attrs["demand"] = 0
 
     return min_cost_flow(H, capacity=capacity, weight=weight)
 
 
-def capacity_scaling(G, demand='demand', capacity='capacity', weight='weight',
-                     heap=None):
+def capacity_scaling(
+    G, demand="demand", capacity="capacity", weight="weight", heap=None
+):
     """Find minimum cost flow using capacity scaling.
 
     This is an alias for ``min_cost_flow`` — the successive shortest
@@ -5541,7 +5713,7 @@ def capacity_scaling(G, demand='demand', capacity='capacity', weight='weight',
     return cost, flow
 
 
-def network_simplex(G, demand='demand', capacity='capacity', weight='weight'):
+def network_simplex(G, demand="demand", capacity="capacity", weight="weight"):
     """Find minimum cost flow using the network simplex algorithm.
 
     Returns both the cost and the flow dictionary.
@@ -5584,8 +5756,22 @@ def flow_hierarchy(G, weight=None):
 
 # 16 triad types in MAN notation
 _TRIAD_TYPES = [
-    '003', '012', '102', '021D', '021U', '021C', '111D', '111U',
-    '030T', '030C', '201', '120D', '120U', '120C', '210', '300',
+    "003",
+    "012",
+    "102",
+    "021D",
+    "021U",
+    "021C",
+    "111D",
+    "111U",
+    "030T",
+    "030C",
+    "201",
+    "120D",
+    "120U",
+    "120C",
+    "210",
+    "300",
 ]
 
 
@@ -5598,12 +5784,18 @@ def _classify_triad(G, u, v, w):
     # Encode the 6 possible directed edges as a 6-bit integer:
     # bit 0: u→v, bit 1: v→u, bit 2: u→w, bit 3: w→u, bit 4: v→w, bit 5: w→v
     code = 0
-    if G.has_edge(u, v): code |= 1
-    if G.has_edge(v, u): code |= 2
-    if G.has_edge(u, w): code |= 4
-    if G.has_edge(w, u): code |= 8
-    if G.has_edge(v, w): code |= 16
-    if G.has_edge(w, v): code |= 32
+    if G.has_edge(u, v):
+        code |= 1
+    if G.has_edge(v, u):
+        code |= 2
+    if G.has_edge(u, w):
+        code |= 4
+    if G.has_edge(w, u):
+        code |= 8
+    if G.has_edge(v, w):
+        code |= 16
+    if G.has_edge(w, v):
+        code |= 32
 
     # To classify correctly, we need isomorphism-invariant encoding.
     # Since node ordering is arbitrary, compute the canonical type by
@@ -5621,11 +5813,11 @@ def _classify_triad(G, u, v, w):
     n = 3 - m - a
 
     if m == 0 and a == 0:
-        return '003'
+        return "003"
     if m == 0 and a == 1:
-        return '012'
+        return "012"
     if m == 1 and a == 0:
-        return '102'
+        return "102"
     if m == 0 and a == 2:
         # 021D, 021U, 021C — check if both asymmetric edges share an endpoint
         # Get the directed edges
@@ -5640,12 +5832,12 @@ def _classify_triad(G, u, v, w):
             s0, t0 = asym_edges[0]
             s1, t1 = asym_edges[1]
             if t0 == t1:
-                return '021U'  # both point TO same node (NX: "Up")
+                return "021U"  # both point TO same node (NX: "Up")
             elif s0 == s1:
-                return '021D'  # both point FROM same node (NX: "Down")
+                return "021D"  # both point FROM same node (NX: "Down")
             else:
-                return '021C'  # chain: one's target is the other's source
-        return '021C'
+                return "021C"  # chain: one's target is the other's source
+        return "021C"
     if m == 1 and a == 1:
         # 111D vs 111U — NX convention: D = edge FROM mutual pair outward,
         # U = edge TO mutual pair from outside
@@ -5664,17 +5856,18 @@ def _classify_triad(G, u, v, w):
             asym_src = v if (code & 16) else w
 
         if asym_src in mutual_nodes:
-            return '111U'  # asymmetric edge goes FROM mutual pair outward
+            return "111U"  # asymmetric edge goes FROM mutual pair outward
         else:
-            return '111D'  # asymmetric edge goes TO mutual pair from outside
+            return "111D"  # asymmetric edge goes TO mutual pair from outside
     if m == 0 and a == 3:
         # 030T vs 030C — check if all 3 asymmetric edges form a directed cycle
         # 030C: u→v→w→u or u→w→v→u
-        is_cycle = ((code & 1) and (code & 16) and (code & 8)) or \
-                   ((code & 4) and (code & 32) and (code & 2))
-        return '030C' if is_cycle else '030T'
+        is_cycle = ((code & 1) and (code & 16) and (code & 8)) or (
+            (code & 4) and (code & 32) and (code & 2)
+        )
+        return "030C" if is_cycle else "030T"
     if m == 2 and a == 0:
-        return '201'
+        return "201"
     if m == 1 and a == 2:
         # 120D, 120U, 120C
         # NX convention: 120U = both asym edges go OUT from mutual pair
@@ -5683,34 +5876,34 @@ def _classify_triad(G, u, v, w):
             uw_dir = u if (code & 4) else w
             vw_dir = v if (code & 16) else w
             if uw_dir == u and vw_dir == v:
-                return '120U'  # both go OUT from mutual pair
+                return "120U"  # both go OUT from mutual pair
             elif uw_dir == w and vw_dir == w:
-                return '120D'  # both come IN to mutual pair
+                return "120D"  # both come IN to mutual pair
             else:
-                return '120C'
+                return "120C"
         elif uw_m:
             uv_dir = u if (code & 1) else v
             vw_dir = v if (code & 16) else w
             if uv_dir == u and vw_dir == w:
-                return '120U'
+                return "120U"
             elif uv_dir == v and vw_dir == v:
-                return '120D'
+                return "120D"
             else:
-                return '120C'
+                return "120C"
         else:  # vw_m
             uv_dir = u if (code & 1) else v
             uw_dir = u if (code & 4) else w
             if uv_dir == v and uw_dir == w:
-                return '120U'
+                return "120U"
             elif uv_dir == u and uw_dir == u:
-                return '120D'
+                return "120D"
             else:
-                return '120C'
+                return "120C"
     if m == 2 and a == 1:
-        return '210'
+        return "210"
     if m == 3:
-        return '300'
-    return f'{m}{a}{n}'
+        return "300"
+    return f"{m}{a}{n}"
 
 
 def triadic_census(G):
@@ -5822,6 +6015,7 @@ def double_edge_swap(G, nswap=1, max_tries=100, seed=None):
         The modified graph.
     """
     import random as _random
+
     rng = _random.Random(seed)
 
     if G.number_of_edges() < 2:
@@ -5869,6 +6063,7 @@ def directed_edge_swap(G, nswap=1, max_tries=100, seed=None):
     G : DiGraph
     """
     import random as _random
+
     rng = _random.Random(seed)
 
     if not G.is_directed():
@@ -5995,6 +6190,7 @@ def _path_avoiding(G, source, target, avoid):
 def is_d_separator(G, x, y, z):
     """Check if node set *z* d-separates *x* from *y* in a DAG (Rust)."""
     from franken_networkx._fnx import is_d_separator_rust as _rust_dsep
+
     return _rust_dsep(G, list(x), list(y), list(z))
 
 
@@ -6029,7 +6225,9 @@ def corona_product(G, H):
     -------
     Graph
     """
-    _validate_product_graph_types(G, H, allow_directed=False, allow_multigraph=not G.is_multigraph())
+    _validate_product_graph_types(
+        G, H, allow_directed=False, allow_multigraph=not G.is_multigraph()
+    )
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
 
@@ -6074,10 +6272,10 @@ def modular_product(G, H):
     g_nodes = list(G.nodes())
     h_nodes = list(H.nodes())
     for g_left_index, g_left in enumerate(g_nodes):
-        for g_right in g_nodes[g_left_index + 1:]:
+        for g_right in g_nodes[g_left_index + 1 :]:
             g_adjacent = G.has_edge(g_left, g_right)
             for h_left_index, h_left in enumerate(h_nodes):
-                for h_right in h_nodes[h_left_index + 1:]:
+                for h_right in h_nodes[h_left_index + 1 :]:
                     h_adjacent = H.has_edge(h_left, h_right)
                     if g_adjacent != h_adjacent:
                         continue
@@ -6097,7 +6295,9 @@ def rooted_product(G, H, root):
     Replace each node v in G with a copy of H, connecting v's copy of
     *root* to the neighbors of v.
     """
-    _validate_product_graph_types(G, H, allow_directed=not G.is_directed(), allow_multigraph=False)
+    _validate_product_graph_types(
+        G, H, allow_directed=not G.is_directed(), allow_multigraph=False
+    )
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph() or H.is_multigraph():
@@ -6167,6 +6367,7 @@ def estrada_index(G):
     Sum of exp(eigenvalues) of the adjacency matrix.
     """
     import numpy as np
+
     spec = adjacency_spectrum(G)
     return float(np.sum(np.exp(spec)))
 
@@ -6219,7 +6420,7 @@ def resistance_distance(G, nodeA=None, nodeB=None, weight=None, invert_weight=Tr
     if n == 0:
         return {} if nodeA is None else 0.0
 
-    L = laplacian_matrix(G, nodelist=nodelist, weight=weight or 'weight').toarray()
+    L = laplacian_matrix(G, nodelist=nodelist, weight=weight or "weight").toarray()
     # Pseudo-inverse of Laplacian
     L_pinv = np.linalg.pinv(L)
 
@@ -6295,6 +6496,7 @@ def sigma(G, niter=100, nrand=10, seed=None):
     sigma > 1 indicates small-world structure.
     """
     import random as _random
+
     rng = _random.Random(seed)
 
     C = transitivity(G)
@@ -6330,6 +6532,7 @@ def omega(G, niter=5, nrand=5, seed=None):
     omega near 0 = small-world, near -1 = lattice, near 1 = random.
     """
     import random as _random
+
     rng = _random.Random(seed)
 
     C = transitivity(G)
@@ -6389,50 +6592,146 @@ def node_disjoint_paths(G, s, t, flow_func=None, cutoff=None):
 
 def all_node_cuts(G, k=None, flow_func=None):
     """Enumerate all minimum node cuts."""
-    if flow_func is not None:
-        import networkx as nx
-
-        from franken_networkx.drawing.layout import _to_nx
-
-        yield from (set(c) for c in nx.all_node_cuts(_to_nx(G), k=k, flow_func=flow_func))
-        return
-
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     if not is_connected(G):
         raise NetworkXError("Input graph is disconnected.")
 
-    node_count = len(G)
-    if node_count <= 1 or density(G) == 1:
-        return
-
-    connectivity = node_connectivity(G)
-    if k is None:
-        k = connectivity
-    elif not isinstance(k, int):
-        raise TypeError("k must be an integer or None")
-    elif k != connectivity:
-        return
-
-    if k < 0:
-        k = max(0, node_count + k)
-    if k == 0 or k >= node_count:
+    if density(G) == 1:
         return
 
     def is_separating_set(cut):
-        if len(cut) == node_count - 1:
+        if len(cut) == len(G) - 1:
             return True
         return not is_connected(restricted_view(G, cut, []))
 
+    def build_auxiliary_node_connectivity_graph(graph):
+        auxiliary = DiGraph()
+        mapping = {}
+
+        for index, node in enumerate(graph):
+            mapping[node] = index
+            auxiliary.add_node(f"{index}A", id=node)
+            auxiliary.add_node(f"{index}B", id=node)
+            auxiliary.add_edge(f"{index}A", f"{index}B", capacity=1)
+
+        for source, target in graph.edges():
+            auxiliary.add_edge(f"{mapping[source]}B", f"{mapping[target]}A", capacity=1)
+            auxiliary.add_edge(f"{mapping[target]}B", f"{mapping[source]}A", capacity=1)
+
+        auxiliary.graph["mapping"] = mapping
+        return auxiliary
+
+    def residual_after_flow(auxiliary, flow_dict):
+        residual = DiGraph()
+        residual.add_nodes_from(auxiliary.nodes(data=True))
+        for left, right, attrs in auxiliary.edges(data=True):
+            capacity = attrs.get("capacity", 1)
+            flow = flow_dict.get(left, {}).get(right, 0)
+            if capacity != flow and capacity != 0:
+                residual.add_edge(left, right, **dict(attrs))
+        return residual
+
+    if k is None:
+        k = node_connectivity(G)
+    elif not isinstance(k, int):
+        raise TypeError("k must be an integer or None")
+
     seen = set()
-    for cut_tuple in combinations(list(G.nodes()), k):
-        cut = set(cut_tuple)
-        frozen = frozenset(cut)
-        if frozen in seen:
-            continue
-        if is_separating_set(cut):
-            seen.add(frozen)
-            yield cut
+    auxiliary = build_auxiliary_node_connectivity_graph(G)
+    mapping = auxiliary.graph["mapping"]
+    original_predecessors = {
+        node: set(auxiliary.predecessors(node)) for node in auxiliary.nodes()
+    }
+
+    highest_degree_nodes = {
+        node
+        for node, degree in sorted(G.degree, key=lambda item: item[1], reverse=True)[:k]
+    }
+
+    if is_separating_set(highest_degree_nodes):
+        frozen = frozenset(highest_degree_nodes)
+        seen.add(frozen)
+        yield highest_degree_nodes
+
+    for source in highest_degree_nodes:
+        non_adjacent = set(G) - {source} - set(G.neighbors(source))
+        for target in non_adjacent:
+            flow_value, flow_dict = maximum_flow(
+                auxiliary,
+                f"{mapping[source]}B",
+                f"{mapping[target]}A",
+                capacity="capacity",
+            )
+
+            if flow_value != k:
+                continue
+
+            flowed_edges = [
+                (left, right)
+                for left, outgoing in flow_dict.items()
+                for right, flow in outgoing.items()
+                if flow != 0
+            ]
+            incident_components = {node for edge in flowed_edges for node in edge}
+            residual = residual_after_flow(auxiliary, flow_dict)
+            closure = transitive_closure(residual)
+            condensed = condensation(residual)
+
+            component_mapping = condensed.graph["mapping"]
+            inverse_component_mapping = defaultdict(list)
+            for node, component in component_mapping.items():
+                inverse_component_mapping[component].append(node)
+
+            incident_components = {
+                component_mapping[node]
+                for node in incident_components
+                if node in component_mapping
+            }
+
+            for antichain in antichains(condensed):
+                antichain_set = set(antichain)
+                if not antichain_set.issubset(incident_components):
+                    continue
+
+                partition = set()
+                for component in antichain:
+                    partition.update(inverse_component_mapping[component])
+                for node in list(partition):
+                    partition.update(closure.predecessors(node))
+
+                if (
+                    f"{mapping[source]}B" not in partition
+                    or f"{mapping[target]}A" in partition
+                ):
+                    continue
+
+                cut_edges = set()
+                for node in partition:
+                    cut_edges.update(
+                        (node, pred)
+                        for pred in original_predecessors[node]
+                        if pred not in partition
+                    )
+
+                if any(
+                    auxiliary.nodes[left]["id"] != auxiliary.nodes[right]["id"]
+                    for left, right in cut_edges
+                ):
+                    continue
+
+                node_cut = {auxiliary.nodes[left]["id"] for left, _ in cut_edges}
+                if len(node_cut) != k or source in node_cut or target in node_cut:
+                    continue
+
+                frozen = frozenset(node_cut)
+                if frozen in seen:
+                    continue
+                seen.add(frozen)
+                yield node_cut
+
+            auxiliary.add_edge(f"{mapping[source]}B", f"{mapping[target]}A", capacity=1)
+            auxiliary.add_edge(f"{mapping[target]}B", f"{mapping[source]}A", capacity=1)
 
 
 def connected_dominating_set(G, start_with=None):
@@ -6454,6 +6753,7 @@ def is_connected_dominating_set(G, S):
 def is_kl_connected(G, k, l, low_memory=False):
     """Test if G is (k,l)-connected."""
     from itertools import combinations
+
     nodes = list(G.nodes())
     if len(nodes) <= k:
         return True
@@ -6483,6 +6783,7 @@ def kl_connected_subgraph(G, k, l, low_memory=False):
 def connected_double_edge_swap(G, nswap=1, _window_threshold=3, seed=None):
     """Swap edges maintaining connectivity and degree sequence."""
     import random as _random
+
     rng = _random.Random(seed)
     if G.number_of_edges() < 2:
         return 0
@@ -6491,16 +6792,21 @@ def connected_double_edge_swap(G, nswap=1, _window_threshold=3, seed=None):
         if swaps_done >= nswap:
             break
         edges = list(G.edges())
-        e1 = edges[rng.randint(0, len(edges)-1)]
-        e2 = edges[rng.randint(0, len(edges)-1)]
-        u, v = e1; x, y = e2
-        if len({u,v,x,y}) < 4 or G.has_edge(u,x) or G.has_edge(v,y):
+        e1 = edges[rng.randint(0, len(edges) - 1)]
+        e2 = edges[rng.randint(0, len(edges) - 1)]
+        u, v = e1
+        x, y = e2
+        if len({u, v, x, y}) < 4 or G.has_edge(u, x) or G.has_edge(v, y):
             continue
-        G.remove_edge(u,v); G.remove_edge(x,y)
-        G.add_edge(u,x); G.add_edge(v,y)
+        G.remove_edge(u, v)
+        G.remove_edge(x, y)
+        G.add_edge(u, x)
+        G.add_edge(v, y)
         if not is_connected(G):
-            G.remove_edge(u,x); G.remove_edge(v,y)
-            G.add_edge(u,v); G.add_edge(x,y)
+            G.remove_edge(u, x)
+            G.remove_edge(v, y)
+            G.add_edge(u, v)
+            G.add_edge(x, y)
         else:
             swaps_done += 1
     return swaps_done
@@ -6511,24 +6817,31 @@ def connected_double_edge_swap(G, nswap=1, _window_threshold=3, seed=None):
 # ---------------------------------------------------------------------------
 
 
-def current_flow_betweenness_centrality(G, normalized=True, weight=None, solver='full'):
+def current_flow_betweenness_centrality(G, normalized=True, weight=None, solver="full"):
     """Current-flow betweenness centrality based on electrical current flow."""
-    return _fnx.current_flow_betweenness_centrality_rust(G, normalized, weight or 'weight')
+    return _fnx.current_flow_betweenness_centrality_rust(
+        G, normalized, weight or "weight"
+    )
 
 
 def edge_current_flow_betweenness_centrality(G, normalized=True, weight=None):
     """Edge variant of current-flow betweenness centrality."""
-    return _fnx.edge_current_flow_betweenness_centrality_rust(G, normalized, weight or 'weight')
+    return _fnx.edge_current_flow_betweenness_centrality_rust(
+        G, normalized, weight or "weight"
+    )
 
 
-def approximate_current_flow_betweenness_centrality(G, normalized=True, weight=None, epsilon=0.5, kmax=10000, seed=None):
+def approximate_current_flow_betweenness_centrality(
+    G, normalized=True, weight=None, epsilon=0.5, kmax=10000, seed=None
+):
     """Approximate current-flow betweenness via random source-target sampling."""
     return current_flow_betweenness_centrality(G, normalized=normalized, weight=weight)
 
 
-def current_flow_closeness_centrality(G, weight=None, solver='full'):
+def current_flow_closeness_centrality(G, weight=None, solver="full"):
     """Closeness centrality based on effective resistance (information centrality)."""
     import numpy as np
+
     nodelist = list(G.nodes())
     n = len(nodelist)
     if n <= 1:
@@ -6545,18 +6858,26 @@ def betweenness_centrality_subset(G, sources, targets, normalized=False, weight=
     """Betweenness centrality restricted to source/target subsets."""
     import networkx as nx
     from franken_networkx.drawing.layout import _to_nx
-    return dict(nx.betweenness_centrality_subset(
-        _to_nx(G), sources, targets, normalized=normalized, weight=weight
-    ))
+
+    return dict(
+        nx.betweenness_centrality_subset(
+            _to_nx(G), sources, targets, normalized=normalized, weight=weight
+        )
+    )
 
 
-def edge_betweenness_centrality_subset(G, sources, targets, normalized=False, weight=None):
+def edge_betweenness_centrality_subset(
+    G, sources, targets, normalized=False, weight=None
+):
     """Edge betweenness restricted to source/target subsets."""
     import networkx as nx
     from franken_networkx.drawing.layout import _to_nx
-    return dict(nx.edge_betweenness_centrality_subset(
-        _to_nx(G), sources, targets, normalized=normalized, weight=weight
-    ))
+
+    return dict(
+        nx.edge_betweenness_centrality_subset(
+            _to_nx(G), sources, targets, normalized=normalized, weight=weight
+        )
+    )
 
 
 def edge_load_centrality(G, cutoff=None):
@@ -6564,13 +6885,14 @@ def edge_load_centrality(G, cutoff=None):
     return edge_betweenness_centrality(G)
 
 
-def laplacian_centrality(G, normalized=True, nodelist=None, weight='weight'):
+def laplacian_centrality(G, normalized=True, nodelist=None, weight="weight"):
     """Laplacian centrality: drop in Laplacian energy when node is removed."""
     import numpy as np
+
     if nodelist is None:
         nodelist = list(G.nodes())
     L = laplacian_matrix(G, weight=weight).toarray()
-    total_energy = float(np.sum(L ** 2))
+    total_energy = float(np.sum(L**2))
     lc = {}
     for node in nodelist:
         remaining = [n for n in G.nodes() if n != node]
@@ -6578,12 +6900,14 @@ def laplacian_centrality(G, normalized=True, nodelist=None, weight='weight'):
             lc[node] = 0.0
             continue
         L_sub = laplacian_matrix(G.subgraph(remaining), weight=weight).toarray()
-        sub_energy = float(np.sum(L_sub ** 2))
-        lc[node] = (total_energy - sub_energy) / total_energy if total_energy > 0 else 0.0
+        sub_energy = float(np.sum(L_sub**2))
+        lc[node] = (
+            (total_energy - sub_energy) / total_energy if total_energy > 0 else 0.0
+        )
     return lc
 
 
-def percolation_centrality(G, attribute='percolation', states=None, weight=None):
+def percolation_centrality(G, attribute="percolation", states=None, weight=None):
     """Percolation centrality based on percolation states."""
     import networkx as nx
 
@@ -6597,7 +6921,7 @@ def percolation_centrality(G, attribute='percolation', states=None, weight=None)
     )
 
 
-def information_centrality(G, weight=None, solver='full'):
+def information_centrality(G, weight=None, solver="full"):
     """Information centrality (same as current-flow closeness)."""
     return current_flow_closeness_centrality(G, weight=weight)
 
@@ -6627,6 +6951,7 @@ def communicability_betweenness_centrality(G, normalized=True):
 def trophic_levels(G, weight=None):
     """Compute trophic levels in a directed graph (food web)."""
     import numpy as np
+
     nodelist = list(G.nodes())
     n = len(nodelist)
     if n == 0:
@@ -6660,6 +6985,7 @@ def trophic_differences(G, weight=None):
 def trophic_incoherence_parameter(G, weight=None):
     """Compute the trophic incoherence parameter (std of trophic differences)."""
     import numpy as np
+
     diffs = trophic_differences(G, weight=weight)
     if not diffs:
         return 0.0
@@ -6681,7 +7007,11 @@ def group_betweenness_centrality(G, C, normalized=True, weight=None, endpoints=F
     from franken_networkx.drawing.layout import _to_nx
 
     return nx.group_betweenness_centrality(
-        _to_nx(G), C, normalized=normalized, weight=weight, endpoints=endpoints,
+        _to_nx(G),
+        C,
+        normalized=normalized,
+        weight=weight,
+        endpoints=endpoints,
     )
 
 
@@ -6735,13 +7065,13 @@ def bfs_labeled_edges(G, source, sort_neighbors=None):
                         visited.add(nbr)
                         level[nbr] = level[node] + 1
                         next_queue.append(nbr)
-                        yield (node, nbr, 'tree')
+                        yield (node, nbr, "tree")
                     elif level.get(nbr, 0) == level[node]:
-                        yield (node, nbr, 'level')
+                        yield (node, nbr, "level")
                     elif level.get(nbr, 0) > level[node]:
-                        yield (node, nbr, 'forward')
+                        yield (node, nbr, "forward")
                     else:
-                        yield (node, nbr, 'reverse')
+                        yield (node, nbr, "reverse")
             queue = next_queue
         return
     for edge in _fnx.bfs_labeled_edges_rust(G, source):
@@ -6761,7 +7091,7 @@ def dfs_labeled_edges(G, source=None, depth_limit=None):
             continue
         stack = [(src, iter(G.neighbors(src)), 0)]
         visited.add(src)
-        yield (src, src, 'tree')
+        yield (src, src, "tree")
         while stack:
             parent, children, depth = stack[-1]
             if depth_limit is not None and depth >= depth_limit:
@@ -6772,12 +7102,12 @@ def dfs_labeled_edges(G, source=None, depth_limit=None):
                 child = next(children)
                 if child not in visited:
                     visited.add(child)
-                    yield (parent, child, 'tree')
+                    yield (parent, child, "tree")
                     stack.append((child, iter(G.neighbors(child)), depth + 1))
                 elif child not in finished:
-                    yield (parent, child, 'back')
+                    yield (parent, child, "back")
                 else:
-                    yield (parent, child, 'forward')
+                    yield (parent, child, "forward")
             except StopIteration:
                 stack.pop()
                 finished.add(parent)
@@ -6814,7 +7144,7 @@ def generic_bfs_edges(G, source, neighbors=None, depth_limit=None, sort_neighbor
 # ---------------------------------------------------------------------------
 
 
-def cn_soundarajan_hopcroft(G, ebunch=None, community='community'):
+def cn_soundarajan_hopcroft(G, ebunch=None, community="community"):
     """Common Neighbor link prediction with community information."""
     if ebunch is None:
         ebunch = non_edges(G)
@@ -6823,19 +7153,19 @@ def cn_soundarajan_hopcroft(G, ebunch=None, community='community'):
         v_nbrs = set(G.neighbors(v))
         common = u_nbrs & v_nbrs
         score = len(common)
-        u_attrs = G.nodes[u] if hasattr(G.nodes, '__getitem__') else {}
-        v_attrs = G.nodes[v] if hasattr(G.nodes, '__getitem__') else {}
+        u_attrs = G.nodes[u] if hasattr(G.nodes, "__getitem__") else {}
+        v_attrs = G.nodes[v] if hasattr(G.nodes, "__getitem__") else {}
         u_comm = u_attrs.get(community) if isinstance(u_attrs, dict) else None
         v_comm = v_attrs.get(community) if isinstance(v_attrs, dict) else None
         for w in common:
-            w_attrs = G.nodes[w] if hasattr(G.nodes, '__getitem__') else {}
+            w_attrs = G.nodes[w] if hasattr(G.nodes, "__getitem__") else {}
             w_comm = w_attrs.get(community) if isinstance(w_attrs, dict) else None
             if u_comm is not None and u_comm == w_comm and u_comm == v_comm:
                 score += 1
         yield (u, v, score)
 
 
-def ra_index_soundarajan_hopcroft(G, ebunch=None, community='community'):
+def ra_index_soundarajan_hopcroft(G, ebunch=None, community="community"):
     """Resource Allocation link prediction with community information."""
     if ebunch is None:
         ebunch = non_edges(G)
@@ -6844,16 +7174,20 @@ def ra_index_soundarajan_hopcroft(G, ebunch=None, community='community'):
         v_nbrs = set(G.neighbors(v))
         common = u_nbrs & v_nbrs
         score = 0.0
-        u_attrs = G.nodes[u] if hasattr(G.nodes, '__getitem__') else {}
-        v_attrs = G.nodes[v] if hasattr(G.nodes, '__getitem__') else {}
+        u_attrs = G.nodes[u] if hasattr(G.nodes, "__getitem__") else {}
+        v_attrs = G.nodes[v] if hasattr(G.nodes, "__getitem__") else {}
         u_comm = u_attrs.get(community) if isinstance(u_attrs, dict) else None
         v_comm = v_attrs.get(community) if isinstance(v_attrs, dict) else None
         for w in common:
-            w_attrs = G.nodes[w] if hasattr(G.nodes, '__getitem__') else {}
+            w_attrs = G.nodes[w] if hasattr(G.nodes, "__getitem__") else {}
             w_comm = w_attrs.get(community) if isinstance(w_attrs, dict) else None
             deg_w = G.degree[w]
             if deg_w > 0:
-                bonus = 1.0 if (u_comm is not None and u_comm == w_comm and u_comm == v_comm) else 0.0
+                bonus = (
+                    1.0
+                    if (u_comm is not None and u_comm == w_comm and u_comm == v_comm)
+                    else 0.0
+                )
                 score += (1.0 + bonus) / deg_w
         yield (u, v, score)
 
@@ -6876,7 +7210,7 @@ def node_attribute_xy(G, attribute):
                 yield (x, y)
 
 
-def node_degree_xy(G, x='out', y='in', weight=None, nodes=None):
+def node_degree_xy(G, x="out", y="in", weight=None, nodes=None):
     """Yield (degree_x, degree_y) for each edge."""
     node_set = set(G) if nodes is None else set(nodes)
     present_nodes = [node for node in G if node in node_set]
@@ -6885,9 +7219,9 @@ def node_degree_xy(G, x='out', y='in', weight=None, nodes=None):
         result = {}
         for node in present_nodes:
             total = 0
-            neighbors = G.predecessors(node) if mode == 'in' else G.successors(node)
+            neighbors = G.predecessors(node) if mode == "in" else G.successors(node)
             for neighbor in neighbors:
-                if mode == 'in':
+                if mode == "in":
                     edge_bucket = G[neighbor][node]
                 else:
                     edge_bucket = G[node][neighbor]
@@ -6923,6 +7257,7 @@ def node_degree_xy(G, x='out', y='in', weight=None, nodes=None):
 def number_of_walks(G, walk_length):
     """Count walks of given length via adjacency matrix power."""
     import numpy as np
+
     A = to_numpy_array(G, weight=None)
     Ak = np.linalg.matrix_power(A.astype(int), walk_length)
     nodelist = list(G.nodes())
@@ -6947,7 +7282,7 @@ def recursive_simple_cycles(G):
 def remove_node_attributes(G, name):
     """Remove attribute *name* from all nodes."""
     for node in G.nodes():
-        attrs = G.nodes[node] if hasattr(G.nodes, '__getitem__') else {}
+        attrs = G.nodes[node] if hasattr(G.nodes, "__getitem__") else {}
         if isinstance(attrs, dict) and name in attrs:
             del attrs[name]
 
@@ -6959,9 +7294,10 @@ def remove_edge_attributes(G, name):
             del data[name]
 
 
-def floyd_warshall_numpy(G, nodelist=None, weight='weight'):
+def floyd_warshall_numpy(G, nodelist=None, weight="weight"):
     """Floyd-Warshall via numpy matrix operations."""
     import numpy as np
+
     if nodelist is None:
         nodelist = list(G.nodes())
     n = len(nodelist)
@@ -6973,7 +7309,7 @@ def floyd_warshall_numpy(G, nodelist=None, weight='weight'):
             if A[i, j] != 0:
                 dist[i, j] = A[i, j]
     for k in range(n):
-        dist = np.minimum(dist, dist[:, k:k+1] + dist[k:k+1, :])
+        dist = np.minimum(dist, dist[:, k : k + 1] + dist[k : k + 1, :])
     return dist
 
 
@@ -7200,7 +7536,7 @@ def to_pandas_adjacency(
     dtype=None,
     order=None,
     multigraph_weight=sum,
-    weight='weight',
+    weight="weight",
     nonedge=0.0,
 ):
     """Export adjacency as pandas DataFrame."""
@@ -7241,6 +7577,7 @@ def from_nested_tuple(sequence, sensible_relabeling=False):
     """Build tree from nested tuple representation."""
     G = Graph()
     counter = [0]
+
     def _build(parent, subtree):
         for child_tree in subtree:
             child = counter[0]
@@ -7250,6 +7587,7 @@ def from_nested_tuple(sequence, sensible_relabeling=False):
                 G.add_edge(parent, child)
             if isinstance(child_tree, tuple):
                 _build(child, child_tree)
+
     root = counter[0]
     counter[0] += 1
     G.add_node(root)
@@ -7271,10 +7609,20 @@ def to_nested_tuple(T, root, canonical_form=False, _parent=None):
     return tuple(subtrees)
 
 
-def attr_sparse_matrix(G, edge_attr=None, node_attr=None, normalized=False, rc_order=None, dtype=None):
+def attr_sparse_matrix(
+    G, edge_attr=None, node_attr=None, normalized=False, rc_order=None, dtype=None
+):
     """Like attr_matrix but returns scipy sparse."""
     import scipy.sparse
-    M, nodelist = attr_matrix(G, edge_attr=edge_attr, node_attr=node_attr, normalized=normalized, rc_order=rc_order, dtype=dtype)
+
+    M, nodelist = attr_matrix(
+        G,
+        edge_attr=edge_attr,
+        node_attr=node_attr,
+        normalized=normalized,
+        rc_order=rc_order,
+        dtype=dtype,
+    )
     return scipy.sparse.csr_array(M), nodelist
 
 
@@ -7286,6 +7634,7 @@ def attr_sparse_matrix(G, edge_attr=None, node_attr=None, normalized=False, rc_o
 def modularity_matrix(G, nodelist=None):
     """Modularity matrix B = A - k*k^T/(2m)."""
     import numpy as np
+
     if nodelist is None:
         nodelist = list(G.nodes())
     A = to_numpy_array(G, nodelist=nodelist, weight=None)
@@ -7299,6 +7648,7 @@ def modularity_matrix(G, nodelist=None):
 def directed_modularity_matrix(G, nodelist=None):
     """Directed modularity matrix."""
     import numpy as np
+
     if nodelist is None:
         nodelist = list(G.nodes())
     A = to_numpy_array(G, nodelist=nodelist, weight=None)
@@ -7313,6 +7663,7 @@ def directed_modularity_matrix(G, nodelist=None):
 def modularity_spectrum(G):
     """Eigenvalues of the modularity matrix."""
     import scipy.linalg
+
     if G.is_directed():
         return scipy.linalg.eigvals(directed_modularity_matrix(G))
     else:
@@ -7326,7 +7677,10 @@ def modularity_spectrum(G):
 
 def find_minimal_d_separator(G, u, v):
     """Find a minimal d-separating set between u and v in a DAG."""
-    u_set, v_set = set(u) if not isinstance(u, (int, str)) else {u}, set(v) if not isinstance(v, (int, str)) else {v}
+    u_set, v_set = (
+        set(u) if not isinstance(u, (int, str)) else {u},
+        set(v) if not isinstance(v, (int, str)) else {v},
+    )
     # Start with ancestors
     all_anc = set()
     for node in u_set | v_set:
@@ -7360,7 +7714,62 @@ def is_valid_directed_joint_degree(joint_degrees):
 def les_miserables_graph():
     """Les Misérables character co-occurrence graph."""
     G = Graph()
-    edges = [('Valjean','Javert'),('Valjean','Fantine'),('Valjean','Cosette'),('Valjean','Marius'),('Valjean','Thenardier'),('Valjean','Gavroche'),('Valjean','Enjolras'),('Valjean','Myriel'),('Valjean','Fauchelevent'),('Javert','Thenardier'),('Javert','Gavroche'),('Javert','Eponine'),('Fantine','Tholomyes'),('Fantine','MmeThenardier'),('Cosette','Marius'),('Cosette','Thenardier'),('Marius','Eponine'),('Marius','Enjolras'),('Marius','Gavroche'),('Marius','Combeferre'),('Marius','Courfeyrac'),('Marius','Mabeuf'),('Marius','Gillenormand'),('Enjolras','Combeferre'),('Enjolras','Courfeyrac'),('Enjolras','Gavroche'),('Enjolras','Bahorel'),('Enjolras','Bossuet'),('Enjolras','Joly'),('Enjolras','Grantaire'),('Enjolras','Feuilly'),('Enjolras','Prouvaire'),('Combeferre','Courfeyrac'),('Combeferre','Gavroche'),('Courfeyrac','Gavroche'),('Courfeyrac','Eponine'),('Gavroche','Thenardier'),('Gavroche','MmeThenardier'),('Thenardier','MmeThenardier'),('Thenardier','Eponine'),('Thenardier','Montparnasse'),('Thenardier','Babet'),('Thenardier','Gueulemer'),('Thenardier','Claquesous'),('Thenardier','Brujon'),('Myriel','Napoleon'),('Myriel','MlleBaptistine'),('Myriel','MmeMagloire'),('Myriel','CountessDeLo'),('Myriel','Gervais'),('Gillenormand','MlleGillenormand'),('Mabeuf','Gavroche'),('Mabeuf','Eponine'),('Mabeuf','MotherPlutarch')]
+    edges = [
+        ("Valjean", "Javert"),
+        ("Valjean", "Fantine"),
+        ("Valjean", "Cosette"),
+        ("Valjean", "Marius"),
+        ("Valjean", "Thenardier"),
+        ("Valjean", "Gavroche"),
+        ("Valjean", "Enjolras"),
+        ("Valjean", "Myriel"),
+        ("Valjean", "Fauchelevent"),
+        ("Javert", "Thenardier"),
+        ("Javert", "Gavroche"),
+        ("Javert", "Eponine"),
+        ("Fantine", "Tholomyes"),
+        ("Fantine", "MmeThenardier"),
+        ("Cosette", "Marius"),
+        ("Cosette", "Thenardier"),
+        ("Marius", "Eponine"),
+        ("Marius", "Enjolras"),
+        ("Marius", "Gavroche"),
+        ("Marius", "Combeferre"),
+        ("Marius", "Courfeyrac"),
+        ("Marius", "Mabeuf"),
+        ("Marius", "Gillenormand"),
+        ("Enjolras", "Combeferre"),
+        ("Enjolras", "Courfeyrac"),
+        ("Enjolras", "Gavroche"),
+        ("Enjolras", "Bahorel"),
+        ("Enjolras", "Bossuet"),
+        ("Enjolras", "Joly"),
+        ("Enjolras", "Grantaire"),
+        ("Enjolras", "Feuilly"),
+        ("Enjolras", "Prouvaire"),
+        ("Combeferre", "Courfeyrac"),
+        ("Combeferre", "Gavroche"),
+        ("Courfeyrac", "Gavroche"),
+        ("Courfeyrac", "Eponine"),
+        ("Gavroche", "Thenardier"),
+        ("Gavroche", "MmeThenardier"),
+        ("Thenardier", "MmeThenardier"),
+        ("Thenardier", "Eponine"),
+        ("Thenardier", "Montparnasse"),
+        ("Thenardier", "Babet"),
+        ("Thenardier", "Gueulemer"),
+        ("Thenardier", "Claquesous"),
+        ("Thenardier", "Brujon"),
+        ("Myriel", "Napoleon"),
+        ("Myriel", "MlleBaptistine"),
+        ("Myriel", "MmeMagloire"),
+        ("Myriel", "CountessDeLo"),
+        ("Myriel", "Gervais"),
+        ("Gillenormand", "MlleGillenormand"),
+        ("Mabeuf", "Gavroche"),
+        ("Mabeuf", "Eponine"),
+        ("Mabeuf", "MotherPlutarch"),
+    ]
     G.add_edges_from(edges)
     return G
 
@@ -7368,13 +7777,69 @@ def les_miserables_graph():
 def davis_southern_women_graph():
     """Davis Southern Women bipartite attendance graph."""
     G = Graph()
-    women = ['Evelyn','Laura','Theresa','Brenda','Charlotte','Frances','Eleanor','Pearl','Ruth','Verne','Myrna','Katherine','Sylvia','Nora','Helen','Dorothy','Olivia','Flora']
-    events = ['E1','E2','E3','E4','E5','E6','E7','E8','E9','E10','E11','E12','E13','E14']
-    for w in women: G.add_node(w, bipartite=0)
-    for e in events: G.add_node(e, bipartite=1)
-    att = {'Evelyn':['E1','E2','E3','E4','E5','E6','E8','E9'],'Laura':['E1','E2','E3','E5','E6','E7','E8'],'Theresa':['E2','E3','E4','E5','E6','E7','E8','E9'],'Brenda':['E1','E3','E4','E5','E6','E7','E8'],'Charlotte':['E3','E4','E5','E7'],'Frances':['E3','E5','E6','E8'],'Eleanor':['E5','E6','E7','E8'],'Pearl':['E6','E8','E9'],'Ruth':['E5','E7','E8','E9'],'Verne':['E7','E8','E9','E12'],'Myrna':['E8','E9','E10','E12'],'Katherine':['E8','E9','E10','E12','E13','E14'],'Sylvia':['E7','E8','E9','E10','E12','E13','E14'],'Nora':['E6','E7','E9','E10','E11','E12','E13','E14'],'Helen':['E7','E8','E10','E11','E12'],'Dorothy':['E8','E9','E10','E11','E12','E13','E14'],'Olivia':['E8','E9','E12','E13','E14'],'Flora':['E8','E9','E11','E12','E13','E14']}
+    women = [
+        "Evelyn",
+        "Laura",
+        "Theresa",
+        "Brenda",
+        "Charlotte",
+        "Frances",
+        "Eleanor",
+        "Pearl",
+        "Ruth",
+        "Verne",
+        "Myrna",
+        "Katherine",
+        "Sylvia",
+        "Nora",
+        "Helen",
+        "Dorothy",
+        "Olivia",
+        "Flora",
+    ]
+    events = [
+        "E1",
+        "E2",
+        "E3",
+        "E4",
+        "E5",
+        "E6",
+        "E7",
+        "E8",
+        "E9",
+        "E10",
+        "E11",
+        "E12",
+        "E13",
+        "E14",
+    ]
+    for w in women:
+        G.add_node(w, bipartite=0)
+    for e in events:
+        G.add_node(e, bipartite=1)
+    att = {
+        "Evelyn": ["E1", "E2", "E3", "E4", "E5", "E6", "E8", "E9"],
+        "Laura": ["E1", "E2", "E3", "E5", "E6", "E7", "E8"],
+        "Theresa": ["E2", "E3", "E4", "E5", "E6", "E7", "E8", "E9"],
+        "Brenda": ["E1", "E3", "E4", "E5", "E6", "E7", "E8"],
+        "Charlotte": ["E3", "E4", "E5", "E7"],
+        "Frances": ["E3", "E5", "E6", "E8"],
+        "Eleanor": ["E5", "E6", "E7", "E8"],
+        "Pearl": ["E6", "E8", "E9"],
+        "Ruth": ["E5", "E7", "E8", "E9"],
+        "Verne": ["E7", "E8", "E9", "E12"],
+        "Myrna": ["E8", "E9", "E10", "E12"],
+        "Katherine": ["E8", "E9", "E10", "E12", "E13", "E14"],
+        "Sylvia": ["E7", "E8", "E9", "E10", "E12", "E13", "E14"],
+        "Nora": ["E6", "E7", "E9", "E10", "E11", "E12", "E13", "E14"],
+        "Helen": ["E7", "E8", "E10", "E11", "E12"],
+        "Dorothy": ["E8", "E9", "E10", "E11", "E12", "E13", "E14"],
+        "Olivia": ["E8", "E9", "E12", "E13", "E14"],
+        "Flora": ["E8", "E9", "E11", "E12", "E13", "E14"],
+    }
     for w, evts in att.items():
-        for e in evts: G.add_edge(w, e)
+        for e in evts:
+            G.add_edge(w, e)
     return G
 
 
@@ -7409,39 +7874,64 @@ def triad_graph(triad_type_str):
     return D
 
 
-def weisfeiler_lehman_graph_hash(G, edge_attr=None, node_attr=None, iterations=3, digest_size=16):
+def weisfeiler_lehman_graph_hash(
+    G, edge_attr=None, node_attr=None, iterations=3, digest_size=16
+):
     """WL graph hash for isomorphism testing."""
     import networkx as nx
 
     from franken_networkx.drawing.layout import _to_nx
 
-    return nx.weisfeiler_lehman_graph_hash(_to_nx(G), edge_attr=edge_attr, node_attr=node_attr, iterations=iterations, digest_size=digest_size)
+    return nx.weisfeiler_lehman_graph_hash(
+        _to_nx(G),
+        edge_attr=edge_attr,
+        node_attr=node_attr,
+        iterations=iterations,
+        digest_size=digest_size,
+    )
 
 
-def weisfeiler_lehman_subgraph_hashes(G, edge_attr=None, node_attr=None, iterations=3, digest_size=16):
+def weisfeiler_lehman_subgraph_hashes(
+    G, edge_attr=None, node_attr=None, iterations=3, digest_size=16
+):
     """Per-node WL hashes at each iteration."""
     import networkx as nx
 
     from franken_networkx.drawing.layout import _to_nx
 
-    return nx.weisfeiler_lehman_subgraph_hashes(_to_nx(G), edge_attr=edge_attr, node_attr=node_attr, iterations=iterations, digest_size=digest_size)
+    return nx.weisfeiler_lehman_subgraph_hashes(
+        _to_nx(G),
+        edge_attr=edge_attr,
+        node_attr=node_attr,
+        iterations=iterations,
+        digest_size=digest_size,
+    )
 
 
 def lexicographical_topological_sort(G, key=None):
     """Topological sort with lexicographic tie-breaking."""
     import heapq
-    if key is None: key = str
+
+    if key is None:
+        key = str
     in_deg = {n: 0 for n in G.nodes()}
-    for u, v in G.edges(): in_deg[v] = in_deg.get(v, 0) + 1
-    heap = [(key(n), n) for n in G.nodes() if in_deg[n] == 0]; heapq.heapify(heap)
+    for u, v in G.edges():
+        in_deg[v] = in_deg.get(v, 0) + 1
+    heap = [(key(n), n) for n in G.nodes() if in_deg[n] == 0]
+    heapq.heapify(heap)
     result = []
     while heap:
         _, node = heapq.heappop(heap)
         result.append(node)
-        succs = list(G.successors(node)) if hasattr(G, 'successors') else list(G.neighbors(node))
+        succs = (
+            list(G.successors(node))
+            if hasattr(G, "successors")
+            else list(G.neighbors(node))
+        )
         for s in succs:
             in_deg[s] -= 1
-            if in_deg[s] == 0: heapq.heappush(heap, (key(s), s))
+            if in_deg[s] == 0:
+                heapq.heappush(heap, (key(s), s))
     return result
 
 
@@ -7473,7 +7963,8 @@ def k_edge_components(G, k):
 
 def k_edge_subgraphs(G, k):
     """Yield k-edge-connected component subgraphs."""
-    for comp in k_edge_components(G, k): yield G.subgraph(comp)
+    for comp in k_edge_components(G, k):
+        yield G.subgraph(comp)
 
 
 def spectral_bisection(G, weight=None):
@@ -7527,8 +8018,7 @@ def k_edge_augmentation(G, k, avail=None, weight=None, partial=False):
         if len(comps) <= 1:
             return []
         return [
-            (list(comps[i])[0], list(comps[i + 1])[0])
-            for i in range(len(comps) - 1)
+            (list(comps[i])[0], list(comps[i + 1])[0]) for i in range(len(comps) - 1)
         ]
 
     # For k>=2 or when avail/weight are specified, delegate to NetworkX
@@ -7539,212 +8029,344 @@ def k_edge_augmentation(G, k, avail=None, weight=None, partial=False):
 
     return list(
         nx.k_edge_augmentation(
-            _to_nx(G), k, avail=avail, weight=weight, partial=partial,
+            _to_nx(G),
+            k,
+            avail=avail,
+            weight=weight,
+            partial=partial,
         )
     )
 
 
 # Stochastic Block Models (br-1p2)
-def stochastic_block_model(sizes, p, nodelist=None, seed=None, directed=False, selfloops=False, sparse=True):
+def stochastic_block_model(
+    sizes, p, nodelist=None, seed=None, directed=False, selfloops=False, sparse=True
+):
     """Stochastic block model graph."""
     import random as _random
+
     rng = _random.Random(seed)
     G = DiGraph() if directed else Graph()
-    nid = 0; bmap = {}
+    nid = 0
+    bmap = {}
     for bi, sz in enumerate(sizes):
         for _ in range(sz):
-            G.add_node(nid); bmap[nid] = bi; nid += 1
+            G.add_node(nid)
+            bmap[nid] = bi
+            nid += 1
     nodes = list(G.nodes())
     for i, u in enumerate(nodes):
         s = i if not directed else 0
         for j in range(s, len(nodes)):
             v = nodes[j]
-            if u == v and not selfloops: continue
-            if u == v and not directed: continue
-            if rng.random() < p[bmap[u]][bmap[v]]: G.add_edge(u, v)
+            if u == v and not selfloops:
+                continue
+            if u == v and not directed:
+                continue
+            if rng.random() < p[bmap[u]][bmap[v]]:
+                G.add_edge(u, v)
     return G
+
 
 def planted_partition_graph(l, k, p_in, p_out, seed=None, directed=False):
     """Planted partition graph (l groups of k nodes)."""
-    return stochastic_block_model([k]*l, [[p_in if i==j else p_out for j in range(l)] for i in range(l)], seed=seed, directed=directed)
+    return stochastic_block_model(
+        [k] * l,
+        [[p_in if i == j else p_out for j in range(l)] for i in range(l)],
+        seed=seed,
+        directed=directed,
+    )
+
 
 def gaussian_random_partition_graph(n, s, v, p_in, p_out, seed=None, directed=False):
     """Gaussian random partition graph."""
-    import random as _random; rng = _random.Random(seed)
-    sizes = []; rem = n
+    import random as _random
+
+    rng = _random.Random(seed)
+    sizes = []
+    rem = n
     while rem > 0:
-        sz = max(1, min(int(rng.gauss(s, v)), rem)); sizes.append(sz); rem -= sz
+        sz = max(1, min(int(rng.gauss(s, v)), rem))
+        sizes.append(sz)
+        rem -= sz
     l = len(sizes)
-    return stochastic_block_model(sizes, [[p_in if i==j else p_out for j in range(l)] for i in range(l)], seed=seed, directed=directed)
+    return stochastic_block_model(
+        sizes,
+        [[p_in if i == j else p_out for j in range(l)] for i in range(l)],
+        seed=seed,
+        directed=directed,
+    )
+
 
 def random_partition_graph(sizes, p_in, p_out, seed=None, directed=False):
     """Random partition graph."""
     l = len(sizes)
-    return stochastic_block_model(sizes, [[p_in if i==j else p_out for j in range(l)] for i in range(l)], seed=seed, directed=directed)
+    return stochastic_block_model(
+        sizes,
+        [[p_in if i == j else p_out for j in range(l)] for i in range(l)],
+        seed=seed,
+        directed=directed,
+    )
+
 
 def relaxed_caveman_graph(l, k, p, seed=None):
     """Relaxed caveman graph."""
-    import random as _random; rng = _random.Random(seed)
+    import random as _random
+
+    rng = _random.Random(seed)
     G = caveman_graph(l, k)
     for u, v in list(G.edges()):
         if rng.random() < p:
             G.remove_edge(u, v)
-            nv = rng.randint(0, l*k-1); att = 0
-            while (nv == u or G.has_edge(u, nv)) and att < l*k: nv = rng.randint(0, l*k-1); att += 1
-            if att < l*k: G.add_edge(u, nv)
+            nv = rng.randint(0, l * k - 1)
+            att = 0
+            while (nv == u or G.has_edge(u, nv)) and att < l * k:
+                nv = rng.randint(0, l * k - 1)
+                att += 1
+            if att < l * k:
+                G.add_edge(u, nv)
     return G
 
+
 # Centrality Extras (br-eup)
-def eigenvector_centrality_numpy(G, weight='weight', max_iter=50, tol=0):
+def eigenvector_centrality_numpy(G, weight="weight", max_iter=50, tol=0):
     """Eigenvector centrality via numpy eigensolver."""
     import numpy as np
-    nodelist = list(G.nodes()); n = len(nodelist)
-    if n == 0: return {}
+
+    nodelist = list(G.nodes())
+    n = len(nodelist)
+    if n == 0:
+        return {}
     A = to_numpy_array(G, nodelist=nodelist, weight=weight)
     vals, vecs = np.linalg.eig(A)
     idx = np.argmax(np.real(vals))
     ev = np.abs(np.real(vecs[:, idx]))
     norm = np.linalg.norm(ev)
-    if norm > 0: ev /= norm
+    if norm > 0:
+        ev /= norm
     return {nodelist[i]: float(ev[i]) for i in range(n)}
 
-def katz_centrality_numpy(G, alpha=0.1, beta=1.0, weight='weight'):
+
+def katz_centrality_numpy(G, alpha=0.1, beta=1.0, weight="weight"):
     """Katz centrality via matrix inversion."""
     import numpy as np
-    nodelist = list(G.nodes()); n = len(nodelist)
-    if n == 0: return {}
+
+    nodelist = list(G.nodes())
+    n = len(nodelist)
+    if n == 0:
+        return {}
     A = to_numpy_array(G, nodelist=nodelist, weight=weight)
-    try: M = np.linalg.inv(np.eye(n) - alpha * A)
-    except np.linalg.LinAlgError: M = np.linalg.pinv(np.eye(n) - alpha * A)
+    try:
+        M = np.linalg.inv(np.eye(n) - alpha * A)
+    except np.linalg.LinAlgError:
+        M = np.linalg.pinv(np.eye(n) - alpha * A)
     c = M.sum(axis=1) * beta
     return {nodelist[i]: float(c[i]) for i in range(n)}
+
 
 def incremental_closeness_centrality(G, u, prev_cc=None, insertion=True, wt_attr=None):
     """Update closeness centrality after edge change (delegates to full recompute)."""
     return closeness_centrality(G)
 
-def current_flow_betweenness_centrality_subset(G, sources, targets, normalized=True, weight=None, dtype=float, solver='full'):
+
+def current_flow_betweenness_centrality_subset(
+    G, sources, targets, normalized=True, weight=None, dtype=float, solver="full"
+):
     """Current-flow betweenness restricted to subsets."""
     return current_flow_betweenness_centrality(G, normalized=normalized, weight=weight)
 
-def edge_current_flow_betweenness_centrality_subset(G, sources, targets, normalized=True, weight=None):
+
+def edge_current_flow_betweenness_centrality_subset(
+    G, sources, targets, normalized=True, weight=None
+):
     """Edge current-flow betweenness restricted to subsets."""
-    return edge_current_flow_betweenness_centrality(G, normalized=normalized, weight=weight)
+    return edge_current_flow_betweenness_centrality(
+        G, normalized=normalized, weight=weight
+    )
 
 
 # Geometric Graphs (br-yyw)
 def random_geometric_graph(n, radius, dim=2, pos=None, p=2, seed=None):
     """Random geometric graph: nodes in unit cube, edges within radius."""
-    import random as _random; import math; rng = _random.Random(seed)
+    import random as _random
+    import math
+
+    rng = _random.Random(seed)
     G = Graph()
     positions = {}
     for i in range(n):
-        positions[i] = tuple(rng.random() for _ in range(dim)) if pos is None else pos.get(i, tuple(rng.random() for _ in range(dim)))
+        positions[i] = (
+            tuple(rng.random() for _ in range(dim))
+            if pos is None
+            else pos.get(i, tuple(rng.random() for _ in range(dim)))
+        )
         G.add_node(i, pos=positions[i])
     for i in range(n):
-        for j in range(i+1, n):
-            d = math.sqrt(sum((positions[i][k]-positions[j][k])**2 for k in range(dim)))
-            if d <= radius: G.add_edge(i, j)
+        for j in range(i + 1, n):
+            d = math.sqrt(
+                sum((positions[i][k] - positions[j][k]) ** 2 for k in range(dim))
+            )
+            if d <= radius:
+                G.add_edge(i, j)
     return G
+
 
 def soft_random_geometric_graph(n, radius, dim=2, pos=None, p_dist=None, seed=None):
     """Soft random geometric graph: edge probability decreases with distance."""
-    import random as _random; import math; rng = _random.Random(seed)
-    G = Graph(); positions = {}
+    import random as _random
+    import math
+
+    rng = _random.Random(seed)
+    G = Graph()
+    positions = {}
     for i in range(n):
         positions[i] = tuple(rng.random() for _ in range(dim))
         G.add_node(i, pos=positions[i])
     for i in range(n):
-        for j in range(i+1, n):
-            d = math.sqrt(sum((positions[i][k]-positions[j][k])**2 for k in range(dim)))
-            prob = max(0, 1 - d/radius) if p_dist is None else p_dist(d)
-            if rng.random() < prob: G.add_edge(i, j)
+        for j in range(i + 1, n):
+            d = math.sqrt(
+                sum((positions[i][k] - positions[j][k]) ** 2 for k in range(dim))
+            )
+            prob = max(0, 1 - d / radius) if p_dist is None else p_dist(d)
+            if rng.random() < prob:
+                G.add_edge(i, j)
     return G
 
-def waxman_graph(n, beta=0.4, alpha=0.1, L=None, domain=(0,0,1,1), seed=None):
+
+def waxman_graph(n, beta=0.4, alpha=0.1, L=None, domain=(0, 0, 1, 1), seed=None):
     """Waxman random graph: P(edge) = beta * exp(-d / (alpha * L))."""
-    import random as _random; import math; rng = _random.Random(seed)
-    G = Graph(); positions = {}
+    import random as _random
+    import math
+
+    rng = _random.Random(seed)
+    G = Graph()
+    positions = {}
     x0, y0, x1, y1 = domain
     for i in range(n):
-        positions[i] = (rng.uniform(x0,x1), rng.uniform(y0,y1))
+        positions[i] = (rng.uniform(x0, x1), rng.uniform(y0, y1))
         G.add_node(i, pos=positions[i])
-    if L is None: L = math.sqrt((x1-x0)**2 + (y1-y0)**2)
+    if L is None:
+        L = math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2)
     for i in range(n):
-        for j in range(i+1, n):
-            d = math.sqrt(sum((positions[i][k]-positions[j][k])**2 for k in range(2)))
+        for j in range(i + 1, n):
+            d = math.sqrt(
+                sum((positions[i][k] - positions[j][k]) ** 2 for k in range(2))
+            )
             prob = beta * math.exp(-d / (alpha * L))
-            if rng.random() < prob: G.add_edge(i, j)
+            if rng.random() < prob:
+                G.add_edge(i, j)
     return G
+
 
 def geographical_threshold_graph(n, theta, dim=2, pos=None, weight=None, seed=None):
     """Geographical threshold graph: edge if weight product / dist > theta."""
-    import random as _random; import math; rng = _random.Random(seed)
-    G = Graph(); positions = {}; weights = {}
+    import random as _random
+    import math
+
+    rng = _random.Random(seed)
+    G = Graph()
+    positions = {}
+    weights = {}
     for i in range(n):
         positions[i] = tuple(rng.random() for _ in range(dim))
         weights[i] = rng.random() if weight is None else weight
         G.add_node(i, pos=positions[i])
     for i in range(n):
-        for j in range(i+1, n):
-            d = math.sqrt(sum((positions[i][k]-positions[j][k])**2 for k in range(dim)))
-            if d > 0 and (weights[i] + weights[j]) / d > theta: G.add_edge(i, j)
+        for j in range(i + 1, n):
+            d = math.sqrt(
+                sum((positions[i][k] - positions[j][k]) ** 2 for k in range(dim))
+            )
+            if d > 0 and (weights[i] + weights[j]) / d > theta:
+                G.add_edge(i, j)
     return G
+
 
 def thresholded_random_geometric_graph(n, radius, theta, dim=2, pos=None, seed=None):
     """Thresholded random geometric graph."""
-    import random as _random; import math; rng = _random.Random(seed)
-    G = Graph(); positions = {}; ws = {}
+    import random as _random
+    import math
+
+    rng = _random.Random(seed)
+    G = Graph()
+    positions = {}
+    ws = {}
     for i in range(n):
-        positions[i] = tuple(rng.random() for _ in range(dim)); ws[i] = rng.random()
+        positions[i] = tuple(rng.random() for _ in range(dim))
+        ws[i] = rng.random()
         G.add_node(i, pos=positions[i])
     for i in range(n):
-        for j in range(i+1, n):
-            d = math.sqrt(sum((positions[i][k]-positions[j][k])**2 for k in range(dim)))
-            if d <= radius and ws[i] + ws[j] >= theta: G.add_edge(i, j)
+        for j in range(i + 1, n):
+            d = math.sqrt(
+                sum((positions[i][k] - positions[j][k]) ** 2 for k in range(dim))
+            )
+            if d <= radius and ws[i] + ws[j] >= theta:
+                G.add_edge(i, j)
     return G
+
 
 def navigable_small_world_graph(n, p=1, q=1, r=2, dim=2, seed=None):
     """Navigable small-world graph (Kleinberg model)."""
-    import random as _random; import math; rng = _random.Random(seed)
+    import random as _random
+    import math
+
+    rng = _random.Random(seed)
     G = DiGraph()
-    nodes = [(i,j) for i in range(n) for j in range(n)] if dim == 2 else list(range(n))
-    for node in nodes: G.add_node(node)
+    nodes = [(i, j) for i in range(n) for j in range(n)] if dim == 2 else list(range(n))
+    for node in nodes:
+        G.add_node(node)
     for node in nodes:
         if dim == 2:
             i, j = node
-            for di in range(-p, p+1):
-                for dj in range(-p, p+1):
-                    if di == 0 and dj == 0: continue
-                    ni, nj = (i+di) % n, (j+dj) % n
+            for di in range(-p, p + 1):
+                for dj in range(-p, p + 1):
+                    if di == 0 and dj == 0:
+                        continue
+                    ni, nj = (i + di) % n, (j + dj) % n
                     G.add_edge(node, (ni, nj))
             for _ in range(q):
                 probs = []
                 for other in nodes:
-                    if other == node: probs.append(0); continue
-                    d = abs(other[0]-i) + abs(other[1]-j)
-                    probs.append(d**(-r) if d > 0 else 0)
+                    if other == node:
+                        probs.append(0)
+                        continue
+                    d = abs(other[0] - i) + abs(other[1] - j)
+                    probs.append(d ** (-r) if d > 0 else 0)
                 total = sum(probs)
                 if total > 0:
-                    r_val = rng.random() * total; cum = 0
+                    r_val = rng.random() * total
+                    cum = 0
                     for k, pr in enumerate(probs):
                         cum += pr
-                        if cum >= r_val: G.add_edge(node, nodes[k]); break
+                        if cum >= r_val:
+                            G.add_edge(node, nodes[k])
+                            break
     return G
+
 
 def geometric_edges(G, radius, p=2):
     """Add edges between nodes within radius based on 'pos' attribute."""
     import math
+
     nodes = list(G.nodes())
     for i in range(len(nodes)):
-        for j in range(i+1, len(nodes)):
+        for j in range(i + 1, len(nodes)):
             u, v = nodes[i], nodes[j]
-            pu = G.nodes[u].get('pos') if hasattr(G.nodes, '__getitem__') and isinstance(G.nodes[u], dict) else None
-            pv = G.nodes[v].get('pos') if hasattr(G.nodes, '__getitem__') and isinstance(G.nodes[v], dict) else None
+            pu = (
+                G.nodes[u].get("pos")
+                if hasattr(G.nodes, "__getitem__") and isinstance(G.nodes[u], dict)
+                else None
+            )
+            pv = (
+                G.nodes[v].get("pos")
+                if hasattr(G.nodes, "__getitem__") and isinstance(G.nodes[v], dict)
+                else None
+            )
             if pu and pv:
-                d = math.sqrt(sum((a-b)**2 for a,b in zip(pu,pv)))
-                if d <= radius: G.add_edge(u, v)
+                d = math.sqrt(sum((a - b) ** 2 for a, b in zip(pu, pv)))
+                if d <= radius:
+                    G.add_edge(u, v)
     return G
+
 
 # Coloring & Planarity (br-y1g)
 def equitable_color(G, num_colors):
@@ -7755,6 +8377,7 @@ def equitable_color(G, num_colors):
 
     return nx.equitable_color(_to_nx(G), num_colors)
 
+
 def chromatic_polynomial(G):
     """Return the chromatic polynomial of an undirected graph."""
     import networkx as nx
@@ -7762,6 +8385,7 @@ def chromatic_polynomial(G):
     from franken_networkx.drawing.layout import _to_nx
 
     return nx.chromatic_polynomial(_to_nx(G))
+
 
 def combinatorial_embedding_to_pos(embedding, fully_triangulate=False):
     """Convert combinatorial embedding to positions."""
@@ -7771,6 +8395,7 @@ def combinatorial_embedding_to_pos(embedding, fully_triangulate=False):
         embedding,
         fully_triangulate=fully_triangulate,
     )
+
 
 # Isomorphism VF2++ (br-req)
 def is_isomorphic(G1, G2, node_match=None, edge_match=None):
@@ -7807,13 +8432,17 @@ def vf2pp_is_isomorphic(G1, G2, node_label=None, default_label=None):
         default_label=default_label,
     )
 
+
 def vf2pp_isomorphism(G1, G2, node_label=None, default_label=None):
     """Find one isomorphism mapping using VF2++."""
     import networkx as nx
 
     from franken_networkx.drawing.layout import _to_nx
 
-    return nx.vf2pp_isomorphism(_to_nx(G1), _to_nx(G2), node_label=node_label, default_label=default_label)
+    return nx.vf2pp_isomorphism(
+        _to_nx(G1), _to_nx(G2), node_label=node_label, default_label=default_label
+    )
+
 
 def vf2pp_all_isomorphisms(G1, G2, node_label=None, default_label=None):
     """Generate all isomorphism mappings using VF2++."""
@@ -7821,43 +8450,57 @@ def vf2pp_all_isomorphisms(G1, G2, node_label=None, default_label=None):
 
     from franken_networkx.drawing.layout import _to_nx
 
-    yield from nx.vf2pp_all_isomorphisms(_to_nx(G1), _to_nx(G2), node_label=node_label, default_label=default_label)
+    yield from nx.vf2pp_all_isomorphisms(
+        _to_nx(G1), _to_nx(G2), node_label=node_label, default_label=default_label
+    )
+
 
 # Tree/Forest Utilities (br-xkr)
 def junction_tree(G):
     """Junction tree of a chordal graph."""
-    if not is_chordal(G): raise NetworkXError("Graph must be chordal for junction tree")
+    if not is_chordal(G):
+        raise NetworkXError("Graph must be chordal for junction tree")
     cliques = list(find_cliques(G))
     JT = Graph()
-    for i, c in enumerate(cliques): JT.add_node(i, clique=frozenset(c))
+    for i, c in enumerate(cliques):
+        JT.add_node(i, clique=frozenset(c))
     for i in range(len(cliques)):
-        for j in range(i+1, len(cliques)):
+        for j in range(i + 1, len(cliques)):
             overlap = len(set(cliques[i]) & set(cliques[j]))
-            if overlap > 0: JT.add_edge(i, j, weight=-overlap)
+            if overlap > 0:
+                JT.add_edge(i, j, weight=-overlap)
     if JT.number_of_edges() > 0:
         mst = minimum_spanning_tree(JT)
         return mst
     return JT
 
+
 def join_trees(T1, T2, root1=None, root2=None):
     """Join two trees by adding edge between roots."""
     G = Graph()
-    for n in T1.nodes(): G.add_node(('T1', n))
-    for u, v in T1.edges(): G.add_edge(('T1', u), ('T1', v))
-    for n in T2.nodes(): G.add_node(('T2', n))
-    for u, v in T2.edges(): G.add_edge(('T2', u), ('T2', v))
+    for n in T1.nodes():
+        G.add_node(("T1", n))
+    for u, v in T1.edges():
+        G.add_edge(("T1", u), ("T1", v))
+    for n in T2.nodes():
+        G.add_node(("T2", n))
+    for u, v in T2.edges():
+        G.add_edge(("T2", u), ("T2", v))
     r1 = root1 if root1 is not None else list(T1.nodes())[0]
     r2 = root2 if root2 is not None else list(T2.nodes())[0]
-    G.add_edge(('T1', r1), ('T2', r2))
+    G.add_edge(("T1", r1), ("T2", r2))
     return G
+
 
 def random_unlabeled_tree(n, seed=None):
     """Uniform random unlabeled tree (via Prüfer + canonical form)."""
     return random_tree(n, seed=seed)
 
+
 def random_unlabeled_rooted_tree(n, seed=None):
     """Random unlabeled rooted tree."""
     return random_tree(n, seed=seed)
+
 
 def random_unlabeled_rooted_forest(n, q=None, number_of_forests=None, seed=None):
     """Return one or more random unlabeled rooted forests."""
@@ -7874,6 +8517,7 @@ def random_unlabeled_rooted_forest(n, q=None, number_of_forests=None, seed=None)
     if number_of_forests is None:
         return _from_nx_graph(result)
     return [_from_nx_graph(graph) for graph in result]
+
 
 def tree_data(G, root, ident="id", children="children"):
     """Serialize a rooted directed tree to nested data."""
@@ -7907,6 +8551,7 @@ def tree_data(G, root, ident="id", children="children"):
 
     return {**G.nodes[root], ident: root, children: add_children(root)}
 
+
 def tree_graph(data, ident="id", children="children"):
     """Reconstruct tree from nested dict data."""
     import networkx as nx
@@ -7915,6 +8560,7 @@ def tree_graph(data, ident="id", children="children"):
 
     graph = nx.tree_graph(data, ident=ident, children=children)
     return _from_nx_graph(graph)
+
 
 def complete_to_chordal_graph(G):
     """Return a chordal completion and elimination ordering map."""
@@ -7925,6 +8571,7 @@ def complete_to_chordal_graph(G):
 
     graph, alpha = nx.complete_to_chordal_graph(_to_nx(G))
     return _from_nx_graph(graph), alpha
+
 
 # Structural Generators (br-rfd)
 def hkn_harary_graph(k, n, create_using=None):
@@ -7946,38 +8593,62 @@ def hnm_harary_graph(n, m, create_using=None):
     graph = nx.hnm_harary_graph(n, m, create_using=None)
     return _from_nx_graph(graph, create_using=create_using)
 
-def gomory_hu_tree(G, capacity='capacity'):
+
+def gomory_hu_tree(G, capacity="capacity"):
     """Gomory-Hu minimum cut tree via n-1 max-flow computations."""
     return _fnx.gomory_hu_tree_rust(G, capacity)
 
+
 def visibility_graph(sequence):
     """Visibility graph of a time series."""
-    G = Graph(); n = len(sequence)
-    for i in range(n): G.add_node(i)
+    G = Graph()
+    n = len(sequence)
     for i in range(n):
-        for j in range(i+1, n):
+        G.add_node(i)
+    for i in range(n):
+        for j in range(i + 1, n):
             visible = True
-            for k in range(i+1, j):
-                if sequence[k] >= sequence[i] + (sequence[j]-sequence[i]) * (k-i)/(j-i):
-                    visible = False; break
-            if visible: G.add_edge(i, j)
+            for k in range(i + 1, j):
+                if sequence[k] >= sequence[i] + (sequence[j] - sequence[i]) * (
+                    k - i
+                ) / (j - i):
+                    visible = False
+                    break
+            if visible:
+                G.add_edge(i, j)
     return G
+
 
 def random_k_out_graph(n, k, alpha=1, self_loops=True, seed=None):
     """Random graph where each node picks k out-edges."""
-    import random as _random; rng = _random.Random(seed)
+    import random as _random
+
+    rng = _random.Random(seed)
     G = DiGraph()
-    for i in range(n): G.add_node(i)
+    for i in range(n):
+        G.add_node(i)
     for i in range(n):
         targets = rng.sample(range(n), min(k, n))
         for t in targets:
-            if t != i or self_loops: G.add_edge(i, t)
+            if t != i or self_loops:
+                G.add_edge(i, t)
     return G
 
+
 # Similarity (br-poy)
-def simrank_similarity(G, source=None, target=None, importance_factor=0.9, max_iterations=100, tolerance=1e-4):
+def simrank_similarity(
+    G,
+    source=None,
+    target=None,
+    importance_factor=0.9,
+    max_iterations=100,
+    tolerance=1e-4,
+):
     """SimRank similarity between nodes."""
-    return _fnx.simrank_similarity_rust(G, source, target, importance_factor, max_iterations, tolerance)
+    return _fnx.simrank_similarity_rust(
+        G, source, target, importance_factor, max_iterations, tolerance
+    )
+
 
 def panther_similarity(
     G,
@@ -7987,7 +8658,7 @@ def panther_similarity(
     c=0.5,
     delta=0.1,
     eps=None,
-    weight='weight',
+    weight="weight",
     seed=None,
 ):
     """Return Panther similarity scores."""
@@ -8007,7 +8678,20 @@ def panther_similarity(
         seed=seed,
     )
 
-def optimal_edit_paths(G1, G2, node_match=None, edge_match=None, node_subst_cost=None, node_del_cost=None, node_ins_cost=None, edge_subst_cost=None, edge_del_cost=None, edge_ins_cost=None, upper_bound=None):
+
+def optimal_edit_paths(
+    G1,
+    G2,
+    node_match=None,
+    edge_match=None,
+    node_subst_cost=None,
+    node_del_cost=None,
+    node_ins_cost=None,
+    edge_subst_cost=None,
+    edge_del_cost=None,
+    edge_ins_cost=None,
+    upper_bound=None,
+):
     """Find optimal edit paths."""
     import networkx as nx
 
@@ -8027,6 +8711,7 @@ def optimal_edit_paths(G1, G2, node_match=None, edge_match=None, node_subst_cost
         upper_bound=upper_bound,
     )
 
+
 def optimize_edit_paths(G1, G2, **kwargs):
     """Iterator yielding progressively better edit paths."""
     import networkx as nx
@@ -8040,47 +8725,57 @@ def optimize_edit_paths(G1, G2, **kwargs):
 # Final parity batch — remaining 60 functions
 # ---------------------------------------------------------------------------
 
+
 # Simple aliases and trivial implementations
 def subgraph(G, nbunch):
     """Return subgraph induced by nbunch."""
     return G.subgraph(nbunch)
 
+
 def induced_subgraph(G, nbunch):
     """Return induced subgraph (alias for subgraph)."""
     return G.subgraph(nbunch)
 
+
 def edge_subgraph(G, edges):
     """Return subgraph induced by edges."""
-    return G.edge_subgraph(edges) if hasattr(G, 'edge_subgraph') else G.copy()
+    return G.edge_subgraph(edges) if hasattr(G, "edge_subgraph") else G.copy()
+
 
 def subgraph_view(G, filter_node=None, filter_edge=None):
     """Filtered view of graph (returns copy with filtered nodes/edges)."""
     H = G.copy()
     if filter_node:
         for n in list(H.nodes()):
-            if not filter_node(n): H.remove_node(n)
+            if not filter_node(n):
+                H.remove_node(n)
     if filter_edge:
         for u, v in list(H.edges()):
-            if not filter_edge(u, v): H.remove_edge(u, v)
+            if not filter_edge(u, v):
+                H.remove_edge(u, v)
     return H
+
 
 def restricted_view(G, nodes_to_remove, edges_to_remove):
     """View with specified nodes and edges removed."""
     H = G.copy()
     for n in nodes_to_remove:
-        if n in H: H.remove_node(n)
+        if n in H:
+            H.remove_node(n)
     for u, v in edges_to_remove:
-        if H.has_edge(u, v): H.remove_edge(u, v)
+        if H.has_edge(u, v):
+            H.remove_edge(u, v)
     return H
+
 
 def reverse_view(G):
     """View with reversed edges (returns reversed copy)."""
     return reverse(G)
 
+
 def neighbors(G, n):
     """Return neighbors of n (global function form)."""
     return iter(G.neighbors(n))
-
 
 
 def describe(G):
@@ -8118,11 +8813,13 @@ def describe(G):
     for key, value in info.items():
         print(f"{key:<{max_key_len}} : {value}")
 
+
 def mixing_dict(xy, normalized=False):
     """Generic mixing dictionary from (x,y) iterator."""
     import networkx as nx
 
     return nx.mixing_dict(xy, normalized=normalized)
+
 
 def local_constraint(G, u, v):
     """Burt's local constraint for edge (u,v)."""
@@ -8132,7 +8829,10 @@ def local_constraint(G, u, v):
 
     return nx.local_constraint(_to_nx(G), u, v)
 
-def apply_matplotlib_colors(G, src_attr, dest_attr, map, vmin=None, vmax=None, nodes=True):
+
+def apply_matplotlib_colors(
+    G, src_attr, dest_attr, map, vmin=None, vmax=None, nodes=True
+):
     """Apply matplotlib colors to graph."""
     import networkx as nx
 
@@ -8163,6 +8863,7 @@ def apply_matplotlib_colors(G, src_attr, dest_attr, map, vmin=None, vmax=None, n
                 if dest_attr in attrs:
                     G[u][v][dest_attr] = attrs[dest_attr]
 
+
 def communicability_exp(G):
     """Communicability via scipy.linalg.expm."""
     import networkx as nx
@@ -8170,6 +8871,7 @@ def communicability_exp(G):
     from franken_networkx.drawing.layout import _to_nx
 
     return nx.communicability_exp(_to_nx(G))
+
 
 def panther_vector_similarity(
     G,
@@ -8181,7 +8883,7 @@ def panther_vector_similarity(
     c=0.5,
     delta=0.1,
     eps=None,
-    weight='weight',
+    weight="weight",
     seed=None,
 ):
     """Return Panther++ vector similarity scores."""
@@ -8202,6 +8904,7 @@ def panther_vector_similarity(
         seed=seed,
     )
 
+
 def effective_graph_resistance(G, weight=None, invert_weight=True):
     """Sum of all pairwise resistance distances."""
     import networkx as nx
@@ -8214,6 +8917,7 @@ def effective_graph_resistance(G, weight=None, invert_weight=True):
         invert_weight=invert_weight,
     )
 
+
 def graph_edit_distance(G1, G2, **kwargs):
     """Return graph edit distance."""
     import networkx as nx
@@ -8221,6 +8925,7 @@ def graph_edit_distance(G1, G2, **kwargs):
     from franken_networkx.drawing.layout import _to_nx
 
     return nx.graph_edit_distance(_to_nx(G1), _to_nx(G2), **kwargs)
+
 
 def optimize_graph_edit_distance(G1, G2, **kwargs):
     """Iterator yielding improving graph edit distances."""
@@ -8230,6 +8935,7 @@ def optimize_graph_edit_distance(G1, G2, **kwargs):
 
     yield from nx.optimize_graph_edit_distance(_to_nx(G1), _to_nx(G2), **kwargs)
 
+
 def cd_index(G, node, c=None):
     """Consolidation-diffusion index."""
     import networkx as nx
@@ -8238,13 +8944,15 @@ def cd_index(G, node, c=None):
 
     return nx.cd_index(_to_nx(G), node, c=c)
 
-def goldberg_radzik(G, source, weight='weight'):
+
+def goldberg_radzik(G, source, weight="weight"):
     """Compute shortest-path predecessors and distances via Goldberg-Radzik."""
     import networkx as nx
 
     from franken_networkx.drawing.layout import _to_nx
 
     return nx.goldberg_radzik(_to_nx(G), source, weight=weight)
+
 
 def parse_graphml(
     graphml_string,
@@ -8286,6 +8994,7 @@ def generate_graphml(
         edge_id_from_attribute=edge_id_from_attribute,
     )
 
+
 # Generators
 def mycielskian(G):
     """Return the Mycielskian of G (increases chromatic number by 1)."""
@@ -8296,11 +9005,14 @@ def mycielskian(G):
 
     return _from_nx_graph(nx.mycielskian(_to_nx(G)))
 
+
 def mycielski_graph(n):
     """Return the n-th Mycielski graph (starting from K2)."""
     G = complete_graph(2)
-    for _ in range(n - 2): G = mycielskian(G)
+    for _ in range(n - 2):
+        G = mycielskian(G)
     return G
+
 
 def dorogovtsev_goltsev_mendes_graph(n, create_using=None):
     """Return the Dorogovtsev-Goltsev-Mendes graph."""
@@ -8311,9 +9023,11 @@ def dorogovtsev_goltsev_mendes_graph(n, create_using=None):
     graph = nx.dorogovtsev_goltsev_mendes_graph(n, create_using=None)
     return _from_nx_graph(graph, create_using=create_using)
 
+
 def prefix_tree_recursive(paths):
     """Recursive variant of prefix_tree."""
     return prefix_tree(paths)
+
 
 def nonisomorphic_trees(order):
     """Generate all non-isomorphic trees on n nodes."""
@@ -8323,20 +9037,28 @@ def nonisomorphic_trees(order):
 
     yield from (_from_nx_graph(t) for t in nx.nonisomorphic_trees(order))
 
+
 def number_of_nonisomorphic_trees(order):
     """Count non-isomorphic trees on n nodes."""
     return sum(1 for _ in nonisomorphic_trees(order))
 
+
 def random_lobster(n, p1, p2, seed=None):
     """Random lobster graph."""
-    import random as _random; rng = _random.Random(seed)
+    import random as _random
+
+    rng = _random.Random(seed)
     G = path_graph(n)
     nid = n
     for i in range(n):
         if rng.random() < p1:
-            G.add_edge(i, nid); nid += 1
-            if rng.random() < p2: G.add_edge(nid - 1, nid); nid += 1
+            G.add_edge(i, nid)
+            nid += 1
+            if rng.random() < p2:
+                G.add_edge(nid - 1, nid)
+                nid += 1
     return G
+
 
 def random_lobster_graph(n, p1, p2, seed=None, create_using=None):
     """Return a random lobster graph."""
@@ -8347,6 +9069,7 @@ def random_lobster_graph(n, p1, p2, seed=None, create_using=None):
     graph = nx.random_lobster_graph(n, p1, p2, seed=seed, create_using=None)
     return _from_nx_graph(graph, create_using=create_using)
 
+
 def random_shell_graph(constructor, seed=None):
     """Multi-shell random graph."""
     import networkx as nx
@@ -8355,20 +9078,28 @@ def random_shell_graph(constructor, seed=None):
 
     return _from_nx_graph(nx.random_shell_graph(constructor, seed=seed))
 
+
 def random_clustered_graph(joint_degree_sequence, seed=None, create_using=None):
     """Random graph from joint degree sequence."""
     import networkx as nx
 
     from franken_networkx.readwrite import _from_nx_graph
 
-    graph = nx.random_clustered_graph(joint_degree_sequence, create_using=None, seed=seed)
+    graph = nx.random_clustered_graph(
+        joint_degree_sequence, create_using=None, seed=seed
+    )
     return _from_nx_graph(graph, create_using=create_using)
+
 
 def random_cograph(n, seed=None):
     """Random cograph via recursive split."""
-    import random as _random; rng = _random.Random(seed)
+    import random as _random
+
+    rng = _random.Random(seed)
     if n <= 1:
-        G = Graph(); G.add_node(0); return G
+        G = Graph()
+        G.add_node(0)
+        return G
     half = n // 2
     G1 = random_cograph(half, seed=rng.randint(0, 2**31))
     G2 = random_cograph(n - half, seed=rng.randint(0, 2**31))
@@ -8381,6 +9112,7 @@ def random_cograph(n, seed=None):
                 result.add_edge((0, u), (1, v))
         return result
 
+
 def random_degree_sequence_graph(sequence, seed=None, tries=10):
     """Random graph with given degree sequence."""
     import networkx as nx
@@ -8391,9 +9123,11 @@ def random_degree_sequence_graph(sequence, seed=None, tries=10):
         nx.random_degree_sequence_graph(sequence, seed=seed, tries=tries)
     )
 
+
 def random_internet_as_graph(n, seed=None):
     """Random Internet AS-level graph."""
     return barabasi_albert_graph(n, 2, seed=seed or 0)
+
 
 def random_reference(G, niter=1, connectivity=True, seed=None):
     """Random reference graph preserving degree sequence."""
@@ -8401,71 +9135,99 @@ def random_reference(G, niter=1, connectivity=True, seed=None):
     double_edge_swap(H, nswap=niter * G.number_of_edges(), seed=seed)
     return H
 
+
 def random_labeled_rooted_tree(n, seed=None):
     """Alias for random_tree."""
     return random_tree(n, seed=seed)
+
 
 def random_labeled_rooted_forest(n, q=None, seed=None):
     """Random labeled rooted forest."""
     return random_unlabeled_rooted_forest(n, q=q, seed=seed)
 
+
 def partial_duplication_graph(n, p, seed=None):
     """Partial duplication divergence graph."""
-    import random as _random; rng = _random.Random(seed)
-    G = Graph(); G.add_edge(0, 1)
+    import random as _random
+
+    rng = _random.Random(seed)
+    G = Graph()
+    G.add_edge(0, 1)
     for new in range(2, n):
         target = rng.randint(0, new - 1)
         G.add_node(new)
         for nb in list(G.neighbors(target)):
-            if rng.random() < p: G.add_edge(new, nb)
+            if rng.random() < p:
+                G.add_edge(new, nb)
         G.add_edge(new, target)
     return G
+
 
 def duplication_divergence_graph(n, p, seed=None):
     """Duplication-divergence graph."""
     return partial_duplication_graph(n, p, seed=seed)
 
+
 def interval_graph(intervals):
     """Interval graph: nodes are intervals, edges for overlaps."""
     G = Graph()
     intervals = list(intervals)
-    for i, iv in enumerate(intervals): G.add_node(i)
+    for i, iv in enumerate(intervals):
+        G.add_node(i)
     for i in range(len(intervals)):
         for j in range(i + 1, len(intervals)):
-            a1, b1 = intervals[i]; a2, b2 = intervals[j]
-            if a1 <= b2 and a2 <= b1: G.add_edge(i, j)
+            a1, b1 = intervals[i]
+            a2, b2 = intervals[j]
+            if a1 <= b2 and a2 <= b1:
+                G.add_edge(i, j)
     return G
+
 
 def k_random_intersection_graph(n, m, k, seed=None):
     """Random intersection graph: each node picks k of m attributes."""
-    import random as _random; rng = _random.Random(seed)
+    import random as _random
+
+    rng = _random.Random(seed)
     G = Graph()
     attrs = {}
     for i in range(n):
-        G.add_node(i); attrs[i] = set(rng.sample(range(m), min(k, m)))
+        G.add_node(i)
+        attrs[i] = set(rng.sample(range(m), min(k, m)))
     for i in range(n):
         for j in range(i + 1, n):
-            if attrs[i] & attrs[j]: G.add_edge(i, j)
+            if attrs[i] & attrs[j]:
+                G.add_edge(i, j)
     return G
+
 
 def uniform_random_intersection_graph(n, m, p, seed=None):
     """Uniform random intersection graph."""
-    import random as _random; rng = _random.Random(seed)
-    G = Graph(); attrs = {}
+    import random as _random
+
+    rng = _random.Random(seed)
+    G = Graph()
+    attrs = {}
     for i in range(n):
-        G.add_node(i); attrs[i] = {j for j in range(m) if rng.random() < p}
+        G.add_node(i)
+        attrs[i] = {j for j in range(m) if rng.random() < p}
     for i in range(n):
         for j in range(i + 1, n):
-            if attrs[i] & attrs[j]: G.add_edge(i, j)
+            if attrs[i] & attrs[j]:
+                G.add_edge(i, j)
     return G
+
 
 def general_random_intersection_graph(n, m, p, seed=None):
     """General random intersection graph."""
-    return uniform_random_intersection_graph(n, m, p[0] if isinstance(p, list) else p, seed=seed)
+    return uniform_random_intersection_graph(
+        n, m, p[0] if isinstance(p, list) else p, seed=seed
+    )
+
 
 def geometric_soft_configuration_graph(beta=1, n=100, dim=2, pos=None, seed=None):
     """Soft geometric configuration model."""
     return random_geometric_graph(n, 0.3, dim=dim, seed=seed)
+
 
 def graph_atlas(i):
     """Return graph i from the atlas."""
@@ -8475,6 +9237,7 @@ def graph_atlas(i):
 
     return _from_nx_graph(nx.graph_atlas(i))
 
+
 def graph_atlas_g():
     """Return list of all graphs in the atlas."""
     import networkx as nx
@@ -8483,47 +9246,62 @@ def graph_atlas_g():
 
     return [_from_nx_graph(graph) for graph in nx.graph_atlas_g()]
 
+
 def find_asteroidal_triple(G):
     """Find an asteroidal triple (if exists)."""
     from franken_networkx import _fnx
+
     return _fnx.find_asteroidal_triple_rust(G)
+
 
 def is_perfect_graph(G):
     """Check if G is perfect (no odd holes or odd anti-holes >= 5)."""
     import networkx as nx
     from franken_networkx.drawing.layout import _to_nx
+
     return nx.is_perfect_graph(_to_nx(G))
+
 
 def is_regular_expander(G, epsilon=0):
     """Check if G is a regular expander graph."""
     import numpy as np
-    if not is_regular(G): return False
+
+    if not is_regular(G):
+        return False
     spec = adjacency_spectrum(G)
     d = G.degree[list(G.nodes())[0]]
     lambda2 = sorted(np.abs(spec))[-2]
     return lambda2 <= (1 - epsilon) * d
 
+
 def maybe_regular_expander(n, d, seed=None):
     """Attempt to build a d-regular expander."""
     return random_regular_graph(d, n, seed=seed or 0)
+
 
 def maybe_regular_expander_graph(n, d, seed=None):
     """Alias for maybe_regular_expander."""
     return maybe_regular_expander(n, d, seed=seed)
 
+
 def random_regular_expander_graph(n, d, seed=None):
     """Guaranteed regular expander (best-effort via random regular)."""
     return random_regular_graph(d, n, seed=seed or 0)
 
+
 def make_clique_bipartite(G, faux=True):
     """Replace each clique with a bipartite star."""
     H = Graph()
-    for n in G.nodes(): H.add_node(n)
+    for n in G.nodes():
+        H.add_node(n)
     cliques = list(find_cliques(G))
     for i, clique in enumerate(cliques):
-        center = f"clique_{i}"; H.add_node(center)
-        for node in clique: H.add_edge(center, node)
+        center = f"clique_{i}"
+        H.add_node(center)
+        for node in clique:
+            H.add_edge(center, node)
     return H
+
 
 def k_components(G):
     """Return k-connected component structure."""
@@ -8533,17 +9311,22 @@ def k_components(G):
         comps = []
         for comp in result.get(k - 1, result[1]):
             sub = G.subgraph(comp)
-            if node_connectivity(sub) >= k: comps.append(comp)
-        if not comps: break
+            if node_connectivity(sub) >= k:
+                comps.append(comp)
+        if not comps:
+            break
         result[k] = comps
     return result
+
 
 def k_factor(G, k):
     """Return k-regular spanning subgraph (if exists)."""
     import networkx as nx
     from franken_networkx.drawing.layout import _to_nx
     from franken_networkx.readwrite import _from_nx_graph
+
     return _from_nx_graph(nx.k_factor(_to_nx(G), k))
+
 
 def spectral_graph_forge(G, alpha=0.8, seed=None):
     """Graph with prescribed spectral properties."""
@@ -8554,21 +9337,25 @@ def spectral_graph_forge(G, alpha=0.8, seed=None):
 
     return _from_nx_graph(nx.spectral_graph_forge(_to_nx(G), alpha=alpha, seed=seed))
 
+
 def tutte_polynomial(G, x, y):
     """Evaluate Tutte polynomial T(G; x, y) via deletion-contraction."""
     if G.number_of_edges() == 0:
         return 1
     edges = list(G.edges())
-    e = edges[0]; u, v = e
+    e = edges[0]
+    u, v = e
     if u == v:
-        G1 = G.copy(); G1.remove_edge(u, v)
+        G1 = G.copy()
+        G1.remove_edge(u, v)
         return y * tutte_polynomial(G1, x, y)
     if G.has_edge(u, v):
         is_bridge_edge = False
-        G_test = G.copy(); G_test.remove_edge(u, v)
+        G_test = G.copy()
+        G_test.remove_edge(u, v)
         if number_connected_components(G_test) > number_connected_components(G):
             is_bridge_edge = True
-        is_loop = (u == v)
+        is_loop = u == v
         if is_bridge_edge:
             return x * tutte_polynomial(G_test, x, y)
         elif is_loop:
@@ -8578,24 +9365,29 @@ def tutte_polynomial(G, x, y):
             return tutte_polynomial(G_test, x, y) + tutte_polynomial(G2, x, y)
     return 1
 
+
 def tree_all_pairs_lowest_common_ancestor(G, root=None, pairs=None):
     """LCA for all pairs in a tree (delegates to all_pairs_lowest_common_ancestor)."""
     return all_pairs_lowest_common_ancestor(G, pairs=pairs)
 
 
-
 def random_kernel_graph(n, kernel=None, seed=None):
     """Random graph from kernel function kernel(x_i, x_j) giving edge probability."""
-    import random as _random; rng = _random.Random(seed)
+    import random as _random
+
+    rng = _random.Random(seed)
     G = Graph()
     positions = [rng.random() for _ in range(n)]
-    for i in range(n): G.add_node(i)
-    if kernel is None: kernel = lambda x, y: x * y
+    for i in range(n):
+        G.add_node(i)
+    if kernel is None:
+        kernel = lambda x, y: x * y
     for i in range(n):
         for j in range(i + 1, n):
             if rng.random() < kernel(positions[i], positions[j]):
                 G.add_edge(i, j)
     return G
+
 
 # Drawing — thin delegation to NetworkX/matplotlib (lazy import)
 from franken_networkx.drawing import (
@@ -8642,6 +9434,7 @@ from franken_networkx.drawing import (
 # Pure-Python utilities
 # ---------------------------------------------------------------------------
 
+
 def relabel_nodes(G, mapping, copy=True):
     """Relabel the nodes of the graph G.
 
@@ -8682,7 +9475,9 @@ def relabel_nodes(G, mapping, copy=True):
         # In-place relabeling: collect all data, clear, re-add
         node_data = [(n, dict(G.nodes[n])) for n in G.nodes()]
         if G.is_multigraph():
-            edge_data = [(u, v, key, dict(d)) for u, v, key, d in G.edges(keys=True, data=True)]
+            edge_data = [
+                (u, v, key, dict(d)) for u, v, key, d in G.edges(keys=True, data=True)
+            ]
         else:
             edge_data = [(u, v, dict(d)) for u, v, d in G.edges(data=True)]
         graph_attrs = dict(G.graph)
@@ -8812,13 +9607,15 @@ def to_edgelist(G, nodelist=None):
     """
     if nodelist is not None:
         nodeset = set(nodelist)
-        return [(u, v, d) for u, v, d in G.edges(data=True)
-                if u in nodeset and v in nodeset]
+        return [
+            (u, v, d) for u, v, d in G.edges(data=True) if u in nodeset and v in nodeset
+        ]
     return list(G.edges(data=True))
 
 
-def convert_node_labels_to_integers(G, first_label=0, ordering='default',
-                                     label_attribute=None):
+def convert_node_labels_to_integers(
+    G, first_label=0, ordering="default", label_attribute=None
+):
     """Return a copy of G with nodes relabeled as consecutive integers.
 
     Parameters
@@ -8839,13 +9636,13 @@ def convert_node_labels_to_integers(G, first_label=0, ordering='default',
     H : Graph or DiGraph
         A new graph with integer node labels.
     """
-    if ordering == 'default':
+    if ordering == "default":
         nodes = list(G.nodes())
-    elif ordering == 'sorted':
+    elif ordering == "sorted":
         nodes = sorted(G.nodes())
-    elif ordering == 'increasing degree':
+    elif ordering == "increasing degree":
         nodes = sorted(G.nodes(), key=lambda n: G.degree[n])
-    elif ordering == 'decreasing degree':
+    elif ordering == "decreasing degree":
         nodes = sorted(G.nodes(), key=lambda n: G.degree[n], reverse=True)
     else:
         raise NetworkXError(f"Unknown node ordering: {ordering}")
@@ -8860,8 +9657,9 @@ def convert_node_labels_to_integers(G, first_label=0, ordering='default',
     return H
 
 
-def to_pandas_edgelist(G, source='source', target='target', nodelist=None,
-                       dtype=None, edge_key=None):
+def to_pandas_edgelist(
+    G, source="source", target="target", nodelist=None, dtype=None, edge_key=None
+):
     """Return the graph edge list as a Pandas DataFrame.
 
     Parameters
@@ -8890,7 +9688,9 @@ def to_pandas_edgelist(G, source='source', target='target', nodelist=None,
             edgelist = list(G.edges(keys=True, data=True))
         else:
             edgelist = list(G.edges(nodelist, keys=True, data=True))
-        all_attrs = set().union(*(edge_attrs.keys() for _, _, _, edge_attrs in edgelist))
+        all_attrs = set().union(
+            *(edge_attrs.keys() for _, _, _, edge_attrs in edgelist)
+        )
         if source in all_attrs:
             raise NetworkXError(f"Source name {source!r} is an edge attr name")
         if target in all_attrs:
@@ -8937,8 +9737,8 @@ def to_pandas_edgelist(G, source='source', target='target', nodelist=None,
 
 def from_pandas_edgelist(
     df,
-    source='source',
-    target='target',
+    source="source",
+    target="target",
     edge_attr=None,
     create_using=None,
     edge_key=None,
@@ -8978,9 +9778,15 @@ def from_pandas_edgelist(
     return _from_nx_graph(graph, create_using=create_using)
 
 
-
-def to_numpy_array(G, nodelist=None, dtype=None, order=None,
-                   multigraph_weight=sum, weight='weight', nonedge=0.0):
+def to_numpy_array(
+    G,
+    nodelist=None,
+    dtype=None,
+    order=None,
+    multigraph_weight=sum,
+    weight="weight",
+    nonedge=0.0,
+):
     """Return the adjacency matrix of G as a NumPy array.
 
     Parameters
@@ -9049,11 +9855,12 @@ def to_numpy_array(G, nodelist=None, dtype=None, order=None,
             matrix[index[v], index[u]] = edge_value
     return matrix
 
+
 def from_numpy_array(
     A,
     parallel_edges=False,
     create_using=None,
-    edge_attr='weight',
+    edge_attr="weight",
     nodelist=None,
 ):
     """Return a graph from a 2-D NumPy adjacency matrix.
@@ -9086,8 +9893,7 @@ def from_numpy_array(
     return _from_nx_graph(graph, create_using=create_using)
 
 
-def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight='weight',
-                          format='csr'):
+def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format="csr"):
     """Return the adjacency matrix of G as a SciPy sparse array.
 
     Parameters
@@ -9129,9 +9935,13 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight='weight',
             if u not in index or v not in index:
                 continue
             edge_value = 1 if weight is None else edge_attrs.get(weight, 1)
-            entries[(index[u], index[v])] = entries.get((index[u], index[v]), 0) + edge_value
+            entries[(index[u], index[v])] = (
+                entries.get((index[u], index[v]), 0) + edge_value
+            )
             if not G.is_directed() and u != v:
-                entries[(index[v], index[u])] = entries.get((index[v], index[u]), 0) + edge_value
+                entries[(index[v], index[u])] = (
+                    entries.get((index[v], index[u]), 0) + edge_value
+                )
     else:
         for u, v, edge_attrs in G.edges(data=True):
             if u not in index or v not in index:
@@ -9151,8 +9961,10 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight='weight',
     )
     return matrix.asformat(format)
 
-def from_scipy_sparse_array(A, parallel_edges=False, create_using=None,
-                            edge_attribute='weight'):
+
+def from_scipy_sparse_array(
+    A, parallel_edges=False, create_using=None, edge_attribute="weight"
+):
     """Return a graph from a SciPy sparse array.
 
     Parameters
@@ -9250,7 +10062,7 @@ def to_dict_of_dicts(G, nodelist=None, edge_data=None):
                 if edge_data is not None:
                     d[u][v] = edge_data
                 else:
-                    d[u][v] = dict(data) if hasattr(data, 'items') else data
+                    d[u][v] = dict(data) if hasattr(data, "items") else data
     return d
 
 
@@ -9337,7 +10149,7 @@ def prominent_group(
     )
 
 
-def within_inter_cluster(G, ebunch=None, delta=0.001, community='community'):
+def within_inter_cluster(G, ebunch=None, delta=0.001, community="community"):
     """Return within-cluster and inter-cluster edge counts."""
     import networkx as nx
 
@@ -9356,9 +10168,12 @@ def gnc_graph(n, create_using=None, seed=None):
     import networkx as nx
     from franken_networkx import _fnx
     from franken_networkx.readwrite import _from_nx_graph
+
     if create_using is None:
         return _fnx.gnc_graph(n, seed=seed, create_using=None)
-    return _from_nx_graph(nx.gnc_graph(n, create_using=None, seed=seed), create_using=create_using)
+    return _from_nx_graph(
+        nx.gnc_graph(n, create_using=None, seed=seed), create_using=create_using
+    )
 
 
 def gnr_graph(n, p, create_using=None, seed=None):
@@ -9366,9 +10181,12 @@ def gnr_graph(n, p, create_using=None, seed=None):
     import networkx as nx
     from franken_networkx import _fnx
     from franken_networkx.readwrite import _from_nx_graph
+
     if create_using is None:
         return _fnx.gnr_graph(n, p, seed=seed, create_using=None)
-    return _from_nx_graph(nx.gnr_graph(n, p, create_using=None, seed=seed), create_using=create_using)
+    return _from_nx_graph(
+        nx.gnr_graph(n, p, create_using=None, seed=seed), create_using=create_using
+    )
 
 
 def dual_barabasi_albert_graph(
@@ -9486,7 +10304,9 @@ def random_powerlaw_tree_sequence(n, gamma=3, seed=None, tries=100):
             return True
         if len(sequence) == 1:
             return sequence[0] == 0
-        return all(degree >= 1 for degree in sequence) and sum(sequence) == 2 * (len(sequence) - 1)
+        return all(degree >= 1 for degree in sequence) and sum(sequence) == 2 * (
+            len(sequence) - 1
+        )
 
     for _ in range(len(swap)):
         if is_valid_tree_degree_sequence(zseq):
@@ -9502,9 +10322,13 @@ def gn_graph(n, kernel=None, create_using=None, seed=None):
     import networkx as nx
     from franken_networkx import _fnx
     from franken_networkx.readwrite import _from_nx_graph
+
     if kernel is None and create_using is None:
         return _fnx.gn_graph(n, seed=seed, create_using=None)
-    return _from_nx_graph(nx.gn_graph(n, kernel=kernel, create_using=None, seed=seed), create_using=create_using)
+    return _from_nx_graph(
+        nx.gn_graph(n, kernel=kernel, create_using=None, seed=seed),
+        create_using=create_using,
+    )
 
 
 def LCF_graph(n, shift_list, repeats, create_using=None):
@@ -9674,7 +10498,9 @@ def newman_watts_strogatz_graph(n, k, p, seed=None, create_using=None):
     from franken_networkx.readwrite import _from_nx_graph
 
     if create_using is None:
-        return _rust_newman_watts_strogatz_graph(n, k, p, seed=_native_random_seed(seed))
+        return _rust_newman_watts_strogatz_graph(
+            n, k, p, seed=_native_random_seed(seed)
+        )
     graph = nx.newman_watts_strogatz_graph(n, k, p, seed=seed, create_using=None)
     return _from_nx_graph(graph, create_using=create_using)
 
@@ -9751,7 +10577,9 @@ def directed_joint_degree_graph(in_degrees, out_degrees, nkk, seed=None):
 
     from franken_networkx.readwrite import _from_nx_graph
 
-    return _from_nx_graph(nx.directed_joint_degree_graph(in_degrees, out_degrees, nkk, seed=seed))
+    return _from_nx_graph(
+        nx.directed_joint_degree_graph(in_degrees, out_degrees, nkk, seed=seed)
+    )
 
 
 def joint_degree_graph(joint_degrees, seed=None):
@@ -9784,7 +10612,6 @@ def directed_havel_hakimi_graph(in_deg_sequence, out_deg_sequence, create_using=
         create_using=None,
     )
     return _from_nx_graph(graph, create_using=create_using)
-
 
 
 # stochastic_block_model, planted_partition_graph, gaussian_random_partition_graph,
@@ -10339,28 +11166,64 @@ __all__ = [
     "optimal_edit_paths",
     "optimize_edit_paths",
     # Final parity batch
-    "subgraph", "induced_subgraph", "edge_subgraph", "subgraph_view",
-    "restricted_view", "reverse_view", "neighbors", "config", "describe",
-    "mixing_dict", "local_constraint", "apply_matplotlib_colors",
-    "communicability_exp", "panther_vector_similarity",
-    "effective_graph_resistance", "graph_edit_distance",
-    "optimize_graph_edit_distance", "cd_index", "goldberg_radzik",
-    "parse_graphml", "generate_graphml",
-    "mycielskian", "mycielski_graph", "dorogovtsev_goltsev_mendes_graph",
-    "prefix_tree", "prefix_tree_recursive",
-    "nonisomorphic_trees", "number_of_nonisomorphic_trees",
-    "random_lobster", "random_lobster_graph", "random_shell_graph",
-    "random_clustered_graph", "random_cograph", "random_degree_sequence_graph",
-    "random_internet_as_graph", "random_reference",
-    "random_labeled_rooted_tree", "random_labeled_rooted_forest",
-    "partial_duplication_graph", "duplication_divergence_graph",
-    "interval_graph", "k_random_intersection_graph",
-    "uniform_random_intersection_graph", "general_random_intersection_graph",
-    "geometric_soft_configuration_graph", "graph_atlas", "graph_atlas_g",
-    "find_asteroidal_triple", "is_perfect_graph", "is_regular_expander",
-    "maybe_regular_expander", "maybe_regular_expander_graph",
-    "random_regular_expander_graph", "make_clique_bipartite",
-    "k_components", "k_factor", "spectral_graph_forge", "tutte_polynomial",
+    "subgraph",
+    "induced_subgraph",
+    "edge_subgraph",
+    "subgraph_view",
+    "restricted_view",
+    "reverse_view",
+    "neighbors",
+    "config",
+    "describe",
+    "mixing_dict",
+    "local_constraint",
+    "apply_matplotlib_colors",
+    "communicability_exp",
+    "panther_vector_similarity",
+    "effective_graph_resistance",
+    "graph_edit_distance",
+    "optimize_graph_edit_distance",
+    "cd_index",
+    "goldberg_radzik",
+    "parse_graphml",
+    "generate_graphml",
+    "mycielskian",
+    "mycielski_graph",
+    "dorogovtsev_goltsev_mendes_graph",
+    "prefix_tree",
+    "prefix_tree_recursive",
+    "nonisomorphic_trees",
+    "number_of_nonisomorphic_trees",
+    "random_lobster",
+    "random_lobster_graph",
+    "random_shell_graph",
+    "random_clustered_graph",
+    "random_cograph",
+    "random_degree_sequence_graph",
+    "random_internet_as_graph",
+    "random_reference",
+    "random_labeled_rooted_tree",
+    "random_labeled_rooted_forest",
+    "partial_duplication_graph",
+    "duplication_divergence_graph",
+    "interval_graph",
+    "k_random_intersection_graph",
+    "uniform_random_intersection_graph",
+    "general_random_intersection_graph",
+    "geometric_soft_configuration_graph",
+    "graph_atlas",
+    "graph_atlas_g",
+    "find_asteroidal_triple",
+    "is_perfect_graph",
+    "is_regular_expander",
+    "maybe_regular_expander",
+    "maybe_regular_expander_graph",
+    "random_regular_expander_graph",
+    "make_clique_bipartite",
+    "k_components",
+    "k_factor",
+    "spectral_graph_forge",
+    "tutte_polynomial",
     "tree_all_pairs_lowest_common_ancestor",
     "random_kernel_graph",
     # Algorithms — graph operators
