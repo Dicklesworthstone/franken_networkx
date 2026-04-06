@@ -3790,6 +3790,165 @@ def random_labeled_tree(n, seed=None):
     return random_tree(n, seed=seed)
 
 
+def _generator_random_state(seed):
+    """Return a stdlib random state matching NetworkX's common seed semantics."""
+    import random as _random
+
+    class _NumpyRandIntAdapter:
+        def __init__(self, rng):
+            self._rng = rng
+
+        def randint(self, low, high):
+            if hasattr(self._rng, "integers"):
+                return int(self._rng.integers(low, high + 1))
+            return int(self._rng.randint(low, high + 1))
+
+    if seed is None or seed is _random:
+        return _random._inst
+    if isinstance(seed, _random.Random):
+        return seed
+    if isinstance(seed, int):
+        return _random.Random(seed)
+
+    try:
+        import numpy as np
+    except ImportError:
+        np = None
+
+    if np is not None:
+        if seed is np.random:
+            try:
+                from networkx.utils.misc import create_py_random_state
+
+                return create_py_random_state(seed)
+            except ImportError:
+                return _NumpyRandIntAdapter(np.random.mtrand._rand)
+        if isinstance(seed, np.random.Generator | np.random.RandomState):
+            try:
+                from networkx.utils.misc import create_py_random_state
+
+                return create_py_random_state(seed)
+            except ImportError:
+                return _NumpyRandIntAdapter(seed)
+    raise ValueError(f"{seed} cannot be used to generate a random.Random instance")
+
+
+def _generator_tree_from_edges(edges, n_nodes, root=None, roots=None):
+    """Build a FrankenNetworkX graph from edge pairs plus optional root metadata."""
+    graph = Graph()
+    graph.add_nodes_from(range(n_nodes))
+    graph.add_edges_from(edges)
+    if root is not None:
+        graph.graph["root"] = root
+    if roots is not None:
+        graph.graph["roots"] = roots
+    return graph
+
+
+def _num_rooted_trees(n, cache_trees):
+    """Return the number of unlabeled rooted trees with ``n`` nodes."""
+    for n_i in range(len(cache_trees), n + 1):
+        cache_trees.append(
+            sum(
+                d * cache_trees[n_i - j * d] * cache_trees[d]
+                for d in range(1, n_i)
+                for j in range(1, (n_i - 1) // d + 1)
+            )
+            // (n_i - 1)
+        )
+    return cache_trees[n]
+
+
+def _select_jd_trees(n, cache_trees, seed):
+    """Select the ``(j, d)`` pair used by the exact rooted-tree sampler."""
+    p = seed.randint(0, _num_rooted_trees(n, cache_trees) * (n - 1) - 1)
+    cumsum = 0
+    for d in range(n - 1, 0, -1):
+        for j in range(1, (n - 1) // d + 1):
+            cumsum += (
+                d
+                * _num_rooted_trees(n - j * d, cache_trees)
+                * _num_rooted_trees(d, cache_trees)
+            )
+            if p < cumsum:
+                return j, d
+    raise RuntimeError("failed to select rooted-tree decomposition")
+
+
+def _random_unlabeled_rooted_tree_exact(n, cache_trees, seed):
+    """Return an exact random unlabeled rooted tree as ``(edges, node_count)``."""
+    if n == 1:
+        return [], 1
+    if n == 2:
+        return [(0, 1)], 2
+
+    j, d = _select_jd_trees(n, cache_trees, seed)
+    tree_edges, tree_nodes = _random_unlabeled_rooted_tree_exact(
+        n - j * d,
+        cache_trees,
+        seed,
+    )
+    subtree_edges, subtree_nodes = _random_unlabeled_rooted_tree_exact(d, cache_trees, seed)
+    tree_edges.extend((0, subtree_nodes * i + tree_nodes) for i in range(j))
+    for _ in range(j):
+        tree_edges.extend((left + tree_nodes, right + tree_nodes) for left, right in subtree_edges)
+        tree_nodes += subtree_nodes
+
+    return tree_edges, tree_nodes
+
+
+def _num_rooted_forests(n, q, cache_forests):
+    """Return the number of unlabeled rooted forests with ``n`` nodes."""
+    for n_i in range(len(cache_forests), n + 1):
+        q_i = min(n_i, q)
+        cache_forests.append(
+            sum(
+                d * cache_forests[n_i - j * d] * cache_forests[d - 1]
+                for d in range(1, q_i + 1)
+                for j in range(1, n_i // d + 1)
+            )
+            // n_i
+        )
+    return cache_forests[n]
+
+
+def _select_jd_forests(n, q, cache_forests, seed):
+    """Select the ``(j, d)`` pair used by the exact rooted-forest sampler."""
+    p = seed.randint(0, _num_rooted_forests(n, q, cache_forests) * n - 1)
+    cumsum = 0
+    for d in range(q, 0, -1):
+        for j in range(1, n // d + 1):
+            cumsum += (
+                d
+                * _num_rooted_forests(n - j * d, q, cache_forests)
+                * _num_rooted_forests(d - 1, q, cache_forests)
+            )
+            if p < cumsum:
+                return j, d
+    raise RuntimeError("failed to select rooted-forest decomposition")
+
+
+def _random_unlabeled_rooted_forest_exact(n, q, cache_trees, cache_forests, seed):
+    """Return an exact random unlabeled rooted forest as ``(edges, node_count, roots)``."""
+    if n == 0:
+        return [], 0, []
+
+    j, d = _select_jd_forests(n, q, cache_forests, seed)
+    forest_edges, forest_nodes, roots = _random_unlabeled_rooted_forest_exact(
+        n - j * d,
+        q,
+        cache_trees,
+        cache_forests,
+        seed,
+    )
+    tree_edges, tree_nodes = _random_unlabeled_rooted_tree_exact(d, cache_trees, seed)
+    for _ in range(j):
+        roots.append(forest_nodes)
+        forest_edges.extend((left + forest_nodes, right + forest_nodes) for left, right in tree_edges)
+        forest_nodes += tree_nodes
+    return forest_edges, forest_nodes, roots
+
+
 # ---------------------------------------------------------------------------
 # Additional conversion
 # ---------------------------------------------------------------------------
@@ -6193,6 +6352,10 @@ def is_d_separator(G, x, y, z):
     """Check if node set *z* d-separates *x* from *y* in a DAG (Rust)."""
     from franken_networkx._fnx import is_d_separator_rust as _rust_dsep
 
+    x, y, z = set(x), set(y), set(z)
+    intersection = x.intersection(y) | x.intersection(z) | y.intersection(z)
+    if intersection:
+        raise NetworkXError(f"The sets are not disjoint, with intersection {intersection}")
     return _rust_dsep(G, list(x), list(y), list(z))
 
 
@@ -8506,26 +8669,46 @@ def random_unlabeled_tree(n, seed=None):
     return random_tree(n, seed=seed)
 
 
-def random_unlabeled_rooted_tree(n, seed=None):
-    """Random unlabeled rooted tree."""
-    return random_tree(n, seed=seed)
+def random_unlabeled_rooted_tree(n, number_of_trees=None, seed=None):
+    """Return one or more random unlabeled rooted trees."""
+    if n == 0:
+        raise NetworkXPointlessConcept("the null graph is not a tree")
+
+    rng = _generator_random_state(seed)
+    cache_trees = [0, 1]
+
+    def build_tree():
+        edges, nodes = _random_unlabeled_rooted_tree_exact(n, cache_trees, rng)
+        return _generator_tree_from_edges(edges, nodes, root=0)
+
+    if number_of_trees is None:
+        return build_tree()
+    return [build_tree() for _ in range(number_of_trees)]
 
 
 def random_unlabeled_rooted_forest(n, q=None, number_of_forests=None, seed=None):
     """Return one or more random unlabeled rooted forests."""
-    import networkx as nx
+    rng = _generator_random_state(seed)
+    q = n if q is None else q
+    if q == 0 and n != 0:
+        raise ValueError("q must be a positive integer if n is positive.")
 
-    from franken_networkx.readwrite import _from_nx_graph
+    cache_trees = [0, 1]
+    cache_forests = [1]
 
-    result = nx.random_unlabeled_rooted_forest(
-        n,
-        q=q,
-        number_of_forests=number_of_forests,
-        seed=seed,
-    )
+    def build_forest():
+        edges, nodes, roots = _random_unlabeled_rooted_forest_exact(
+            n,
+            q,
+            cache_trees,
+            cache_forests,
+            rng,
+        )
+        return _generator_tree_from_edges(edges, nodes, roots=set(roots))
+
     if number_of_forests is None:
-        return _from_nx_graph(result)
-    return [_from_nx_graph(graph) for graph in result]
+        return build_forest()
+    return [build_forest() for _ in range(number_of_forests)]
 
 
 def tree_data(G, root, ident="id", children="children"):
