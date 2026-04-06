@@ -4,6 +4,12 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+if command -v rch >/dev/null 2>&1; then
+  CARGO_RUNNER=(rch exec -- env CARGO_TARGET_DIR=target-codex cargo)
+else
+  CARGO_RUNNER=(env CARGO_TARGET_DIR=target-codex cargo)
+fi
+
 TOTAL_STEPS=17
 step=1
 
@@ -12,7 +18,7 @@ echo "[$step/$TOTAL_STEPS] Capturing oracle-backed fixtures..."
 step=$((step + 1))
 
 echo "[$step/$TOTAL_STEPS] Running conformance harness..."
-rch exec -- env CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke
+"${CARGO_RUNNER[@]}" run -q -p fnx-conformance --bin run_smoke
 step=$((step + 1))
 
 REPORT_PATH="artifacts/conformance/latest/smoke_report.json"
@@ -44,7 +50,7 @@ ARTIFACT_SPECS=(
 for spec in "${ARTIFACT_SPECS[@]}"; do
   IFS='|' read -r artifact_path sidecar_path _recovered_path artifact_id artifact_type <<< "$spec"
   echo "[$step/$TOTAL_STEPS] Generating durability sidecar for $artifact_id..."
-  rch exec -- env CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-durability --bin fnx-durability -- \
+  "${CARGO_RUNNER[@]}" run -q -p fnx-durability --bin fnx-durability -- \
     generate "$artifact_path" "$sidecar_path" "$artifact_id" "$artifact_type" 1400 6
   step=$((step + 1))
 done
@@ -52,7 +58,7 @@ done
 for spec in "${ARTIFACT_SPECS[@]}"; do
   IFS='|' read -r artifact_path sidecar_path _recovered_path artifact_id _artifact_type <<< "$spec"
   echo "[$step/$TOTAL_STEPS] Running scrub verification for $artifact_id..."
-  rch exec -- env CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-durability --bin fnx-durability -- \
+  "${CARGO_RUNNER[@]}" run -q -p fnx-durability --bin fnx-durability -- \
     scrub "$artifact_path" "$sidecar_path"
   step=$((step + 1))
 done
@@ -60,7 +66,7 @@ done
 for spec in "${ARTIFACT_SPECS[@]}"; do
   IFS='|' read -r _artifact_path sidecar_path recovered_path artifact_id _artifact_type <<< "$spec"
   echo "[$step/$TOTAL_STEPS] Running decode drill for $artifact_id..."
-  rch exec -- env CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-durability --bin fnx-durability -- \
+  "${CARGO_RUNNER[@]}" run -q -p fnx-durability --bin fnx-durability -- \
     decode-drill "$sidecar_path" "$recovered_path"
   step=$((step + 1))
 done

@@ -6,40 +6,165 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  rust-checks:
-    name: Rust checks
+  g1-format:
+    name: G1 fmt
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+  g2-clippy:
+    name: G2 clippy
+    needs: g1-format
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  g3-rust-tests:
+    name: G3 rust tests
+    needs: g2-clippy
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: Rustfmt
-        run: cargo fmt --all -- --check
-      - name: Tests
+      - name: Run Rust tests
         run: cargo test --workspace
 
-  python-tests:
-    name: Python tests
+  g4-python-tests:
+    name: G4 python tests
+    needs: g3-rust-tests
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: Swatinem/rust-cache@v2
       - name: Install maturin and test dependencies
         run: pip install maturin pytest hypothesis networkx
       - name: Build and install
         run: maturin develop --features pyo3/abi3-py310
       - name: Run Python tests
         run: pytest tests/python/ -v --tb=long
+
+  g5-conformance:
+    name: G5 conformance
+    needs: g4-python-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: Swatinem/rust-cache@v2
+      - name: Install oracle capture dependencies
+        run: pip install networkx
+      - name: Capture oracle fixtures
+        run: python3 scripts/capture_oracle_fixtures.py
+      - name: Run conformance harness
+        run: env CARGO_TARGET_DIR=target-ci cargo run -q -p fnx-conformance --bin run_smoke
+      - name: Upload conformance artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-latest
+          path: artifacts/conformance/latest
+
+  g6-performance:
+    name: G6 performance
+    needs: g5-conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: Swatinem/rust-cache@v2
+      - name: Run benchmark gate
+        run: bash scripts/run_benchmark_gate.sh
+      - name: Upload performance artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-latest
+          path: artifacts/perf/latest
+
+  g7-ubs:
+    name: G7 UBS
+    needs: g6-performance
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install UBS
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/master/ubs \
+            -o "$HOME/.local/bin/ubs"
+          chmod +x "$HOME/.local/bin/ubs"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Run UBS fail-closed scan
+        run: ubs --ci --fail-on-warning .
+
+  g8-raptorq:
+    name: G8 RaptorQ scrub
+    needs: g7-ubs
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/download-artifact@v4
+        with:
+          name: conformance-latest
+          path: artifacts/conformance/latest
+      - name: Generate, scrub, and decode durability sidecars
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/conformance/latest
+          for spec in \
+            "artifacts/conformance/latest/smoke_report.json|artifacts/conformance/latest/smoke_report.raptorq.json|artifacts/conformance/latest/smoke_report.recovered.json|smoke_report|conformance_report" \
+            "artifacts/conformance/latest/structured_logs.jsonl|artifacts/conformance/latest/structured_logs.raptorq.json|artifacts/conformance/latest/structured_logs.recovered.json|structured_logs|conformance_logs" \
+            "artifacts/conformance/latest/structured_log_emitter_normalization_report.json|artifacts/conformance/latest/structured_log_emitter_normalization_report.raptorq.json|artifacts/conformance/latest/structured_log_emitter_normalization_report.recovered.json|structured_log_emitter_normalization_report|conformance_logs" \
+            "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json|artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.raptorq.json|artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.recovered.json|telemetry_dependent_unblock_matrix_v1|conformance_logs"
+          do
+            IFS='|' read -r artifact_path sidecar_path recovered_path artifact_id artifact_type <<< "$spec"
+            env CARGO_TARGET_DIR=target-ci cargo run -q -p fnx-durability --bin fnx-durability -- \
+              generate "$artifact_path" "$sidecar_path" "$artifact_id" "$artifact_type" 1400 6
+            env CARGO_TARGET_DIR=target-ci cargo run -q -p fnx-durability --bin fnx-durability -- \
+              scrub "$artifact_path" "$sidecar_path"
+            env CARGO_TARGET_DIR=target-ci cargo run -q -p fnx-durability --bin fnx-durability -- \
+              decode-drill "$sidecar_path" "$recovered_path"
+          done

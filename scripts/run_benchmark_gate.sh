@@ -4,6 +4,14 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+if command -v rch >/dev/null 2>&1; then
+  CARGO_WRAPPER="${CARGO_WRAPPER:-rch exec -- cargo}"
+  CARGO_RUNNER=(rch exec -- env CARGO_TARGET_DIR=target-codex cargo)
+else
+  CARGO_WRAPPER="${CARGO_WRAPPER:-cargo}"
+  CARGO_RUNNER=(env CARGO_TARGET_DIR=target-codex cargo)
+fi
+
 MATRIX_ARTIFACT="artifacts/perf/phase2c/perf_baseline_matrix_v1.json"
 MATRIX_EVENTS="artifacts/perf/phase2c/perf_baseline_matrix_events_v1.jsonl"
 HOTSPOT_BACKLOG="artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json"
@@ -21,7 +29,7 @@ echo "[1/3] Running phase2c performance baseline matrix..."
   --runs 5 \
   --warmup 1 \
   --target-dir target-codex \
-  --cargo-wrapper "rch exec -- cargo"
+  --cargo-wrapper "$CARGO_WRAPPER"
 
 ./scripts/generate_perf_hotspot_backlog.py \
   --matrix "$MATRIX_ARTIFACT" \
@@ -42,11 +50,11 @@ python3 scripts/run_perf_regression_gate.py \
   --report "$REGRESSION_REPORT"
 
 echo "[2/3] Generating sidecar for baseline matrix artifact..."
-CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-durability --bin fnx-durability -- \
+"${CARGO_RUNNER[@]}" run -q -p fnx-durability --bin fnx-durability -- \
   generate "$LATEST_ARTIFACT" "$SIDECAR" "phase2c_perf_baseline_matrix_v1" "benchmark_report" 1400 6
 
 echo "[3/3] Decode drill for baseline matrix artifact..."
-CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-durability --bin fnx-durability -- \
+"${CARGO_RUNNER[@]}" run -q -p fnx-durability --bin fnx-durability -- \
   decode-drill "$SIDECAR" "$RECOVERED"
 
 echo "Benchmark gate complete:"
