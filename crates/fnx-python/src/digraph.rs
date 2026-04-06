@@ -1596,6 +1596,10 @@ impl PyDiGraph {
             }
         }
 
+        if let Some(a) = attr {
+            g.graph_attrs.bind(py).update(a.as_mapping())?;
+        }
+
         Ok(g)
     }
 

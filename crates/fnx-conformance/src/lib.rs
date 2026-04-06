@@ -3933,13 +3933,13 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
                     }
                 }
                 // Validate circuit: starts and ends at same node
-                if let (Some(first), Some(last)) = (actual.edges.first(), actual.edges.last()) {
-                    if first.0 != last.1 {
-                        mismatches.push(Mismatch {
-                            category: "algorithm_euler".to_owned(),
-                            message: "eulerian_circuit does not form a cycle".to_owned(),
-                        });
-                    }
+                if let (Some(first), Some(last)) = (actual.edges.first(), actual.edges.last())
+                    && first.0 != last.1
+                {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_euler".to_owned(),
+                        message: "eulerian_circuit does not form a cycle".to_owned(),
+                    });
                 }
             }
             None => mismatches.push(Mismatch {
