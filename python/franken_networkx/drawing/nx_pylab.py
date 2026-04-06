@@ -21,6 +21,7 @@ def draw(G, pos=None, ax=None, **kwargs):
     to ``networkx.draw``.
     """
     import networkx as nx
+
     nx.draw(_to_nx(G), pos=pos, ax=ax, **kwargs)
 
 
@@ -52,42 +53,49 @@ def draw_networkx_edge_labels(G, pos, *args, **kwargs):
 def draw_spring(G, **kwargs):
     """Draw with spring layout."""
     import networkx as nx
+
     nx.draw_spring(_to_nx(G), **kwargs)
 
 
 def draw_circular(G, **kwargs):
     """Draw with circular layout."""
     import networkx as nx
+
     nx.draw_circular(_to_nx(G), **kwargs)
 
 
 def draw_random(G, **kwargs):
     """Draw with random layout."""
     import networkx as nx
+
     nx.draw_random(_to_nx(G), **kwargs)
 
 
 def draw_spectral(G, **kwargs):
     """Draw with spectral layout."""
     import networkx as nx
+
     nx.draw_spectral(_to_nx(G), **kwargs)
 
 
 def draw_shell(G, **kwargs):
     """Draw with shell layout."""
     import networkx as nx
+
     nx.draw_shell(_to_nx(G), **kwargs)
 
 
 def draw_kamada_kawai(G, **kwargs):
     """Draw with Kamada-Kawai layout."""
     import networkx as nx
+
     nx.draw_kamada_kawai(_to_nx(G), **kwargs)
 
 
 def draw_planar(G, **kwargs):
     """Draw with planar layout (if graph is planar)."""
     import networkx as nx
+
     nx.draw_planar(_to_nx(G), **kwargs)
 
 
@@ -100,7 +108,11 @@ def to_latex(Gbunch, *args, **kwargs):
     """Render a graph or graph bunch to LaTeX/TikZ via NetworkX."""
     import networkx as nx
 
-    converted = [_to_nx(graph) for graph in Gbunch] if isinstance(Gbunch, (list, tuple)) else _to_nx(Gbunch)
+    converted = (
+        [_to_nx(graph) for graph in Gbunch]
+        if isinstance(Gbunch, (list, tuple))
+        else _to_nx(Gbunch)
+    )
     return nx.to_latex(converted, *args, **kwargs)
 
 
@@ -113,7 +125,11 @@ def write_latex(Gbunch, path, **options):
     """Write LaTeX/TikZ output via NetworkX."""
     import networkx as nx
 
-    converted = [_to_nx(graph) for graph in Gbunch] if isinstance(Gbunch, (list, tuple)) else _to_nx(Gbunch)
+    converted = (
+        [_to_nx(graph) for graph in Gbunch]
+        if isinstance(Gbunch, (list, tuple))
+        else _to_nx(Gbunch)
+    )
     return nx.write_latex(converted, path, **options)
 
 

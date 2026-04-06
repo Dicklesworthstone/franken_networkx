@@ -97,7 +97,9 @@ def _from_nx_graph_or_graphs(graph_or_graphs, create_using=None):
     return _from_nx_graph(graph_or_graphs, create_using=create_using)
 
 
-def parse_adjlist(lines, comments="#", delimiter=None, create_using=None, nodetype=None):
+def parse_adjlist(
+    lines, comments="#", delimiter=None, create_using=None, nodetype=None
+):
     """Parse an adjacency-list line stream into a FrankenNetworkX graph."""
     G = _new_graph(create_using)
     for line in _normalize_lines(lines):
@@ -170,7 +172,9 @@ def parse_gml(lines, label="label", destringizer=None):
     """Parse GML text or lines into a FrankenNetworkX graph."""
     import networkx as nx
 
-    graph = nx.parse_gml(_normalize_lines(lines), label=label, destringizer=destringizer)
+    graph = nx.parse_gml(
+        _normalize_lines(lines), label=label, destringizer=destringizer
+    )
     return _from_nx_graph(graph)
 
 

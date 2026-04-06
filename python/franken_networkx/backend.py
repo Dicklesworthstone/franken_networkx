@@ -362,6 +362,7 @@ _SUPPORTED_ALGORITHMS = {
 # Graph conversion helpers
 # ---------------------------------------------------------------------------
 
+
 def _nx_to_fnx(G):
     """Convert a NetworkX graph to the matching FrankenNetworkX graph type."""
     if G.is_multigraph():
@@ -426,6 +427,7 @@ def _fnx_to_nx(fg):
 # BackendInterface
 # ---------------------------------------------------------------------------
 
+
 class BackendInterface:
     """NetworkX backend interface for FrankenNetworkX.
 
@@ -452,7 +454,9 @@ class BackendInterface:
     @staticmethod
     def convert_to_nx(result, *, name=None):
         """Convert a FrankenNetworkX result back to NetworkX types."""
-        if isinstance(result, (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph)):
+        if isinstance(
+            result, (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph)
+        ):
             return _fnx_to_nx(result)
         return result
 
@@ -478,9 +482,9 @@ class BackendInterface:
         if name in _SUPPORTED_ALGORITHMS:
             import franken_networkx as fnx
             import functools
-            
+
             fn = _SUPPORTED_ALGORITHMS[name]
-            
+
             @functools.wraps(fn)
             def wrapper(*args, **kwargs):
                 try:
@@ -489,6 +493,6 @@ class BackendInterface:
                     # NetworkX's dispatcher strictly requires the builtin NotImplementedError
                     # to correctly trigger its fallback sequence.
                     raise NotImplementedError(str(e)) from e
-                    
+
             return wrapper
         raise AttributeError(f"BackendInterface has no attribute '{name}'")

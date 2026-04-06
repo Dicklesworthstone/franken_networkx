@@ -8946,12 +8946,27 @@ def cd_index(G, node, c=None):
 
 
 def goldberg_radzik(G, source, weight="weight"):
-    """Compute shortest-path predecessors and distances via Goldberg-Radzik."""
-    import networkx as nx
+    """Compute shortest-path predecessors and distances via Goldberg-Radzik.
 
-    from franken_networkx.drawing.layout import _to_nx
+    Returns (pred, dist) where pred[v] is the predecessor of v on the
+    shortest path from source, and dist[v] is the distance.
+    Uses Bellman-Ford internally (same correctness guarantees for negative weights).
+    """
+    if G.is_directed():
+        # DiGraph BF not yet in Rust — delegate to NX
+        import networkx as nx
+        from franken_networkx.drawing.layout import _to_nx
+        return nx.goldberg_radzik(_to_nx(G), source, weight=weight)
 
-    return nx.goldberg_radzik(_to_nx(G), source, weight=weight)
+    dist = dict(single_source_bellman_ford_path_length(G, source, weight=weight))
+    paths = single_source_bellman_ford_path(G, source, weight=weight)
+    pred = {source: None}
+    for target, path in paths.items():
+        if len(path) >= 2:
+            pred[target] = path[-2]
+        elif target == source:
+            pred[target] = None
+    return pred, dist
 
 
 def parse_graphml(
