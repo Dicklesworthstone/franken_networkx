@@ -373,25 +373,9 @@ def get_backend_info():
 
 def _nx_to_fnx(G):
     """Convert a NetworkX graph to the matching FrankenNetworkX graph type."""
-    if G.is_multigraph():
-        if G.is_directed():
-            fg = fnx.MultiDiGraph()
-        else:
-            fg = fnx.MultiGraph()
-    elif G.is_directed():
-        fg = fnx.DiGraph()
-    else:
-        fg = fnx.Graph()
-    for node, data in G.nodes(data=True):
-        fg.add_node(node, **data)
-    if G.is_multigraph():
-        for u, v, key, data in G.edges(keys=True, data=True):
-            fg.add_edge(u, v, key=key, **data)
-    else:
-        for u, v, data in G.edges(data=True):
-            fg.add_edge(u, v, **data)
-    fg.graph.update(G.graph)
-    return fg
+    from franken_networkx.readwrite import _from_nx_graph
+
+    return _from_nx_graph(G)
 
 
 def _fnx_to_nx(fg):

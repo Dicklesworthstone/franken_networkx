@@ -5,6 +5,7 @@ planarity, transitive operations, and remaining shortest path variants.
 """
 
 import math
+from unittest import mock
 
 import pytest
 
@@ -1516,7 +1517,7 @@ class TestDelegateFixes:
         assert out == expected_out
 
     @needs_nx
-    def test_mixing_panther_and_resistance_helpers_delegate(self):
+    def test_mixing_and_resistance_helpers_match_networkx(self):
         assert fnx.mixing_dict([(1, 2), (1, 2), (2, 3)], normalized=True) == nx.mixing_dict(
             [(1, 2), (1, 2), (2, 3)],
             normalized=True,
@@ -1526,20 +1527,36 @@ class TestDelegateFixes:
         expected_graph = nx.path_graph(4)
         assert fnx.communicability_exp(graph) == nx.communicability_exp(expected_graph)
         assert fnx.effective_graph_resistance(graph) == nx.effective_graph_resistance(expected_graph)
-        assert fnx.panther_similarity(graph, 0, k=3, seed=1) == nx.panther_similarity(
-            expected_graph,
-            0,
-            k=3,
-            seed=1,
-        )
 
-        with pytest.raises(nx.NetworkXUnfeasible):
-            fnx.panther_vector_similarity(graph, 0, k=5, seed=1)
+    @needs_nx
+    def test_panther_helpers_match_networkx_without_to_nx_fallback(self):
+        graph = fnx.path_graph(4)
+        expected_graph = nx.path_graph(4)
 
-        assert fnx.panther_vector_similarity(graph, 0, D=3, k=3, seed=1) == nx.panther_vector_similarity(
-            expected_graph,
-            0,
-            D=3,
-            k=3,
-            seed=1,
-        )
+        with mock.patch(
+            "franken_networkx.drawing.layout._to_nx",
+            side_effect=AssertionError("_to_nx fallback should not be used"),
+        ):
+            assert fnx.panther_similarity(graph, 0, k=3, seed=1) == nx.panther_similarity(
+                expected_graph,
+                0,
+                k=3,
+                seed=1,
+            )
+
+            with pytest.raises(nx.NetworkXUnfeasible):
+                fnx.panther_vector_similarity(graph, 0, k=5, seed=1)
+
+            assert fnx.panther_vector_similarity(
+                graph,
+                0,
+                D=3,
+                k=3,
+                seed=1,
+            ) == nx.panther_vector_similarity(
+                expected_graph,
+                0,
+                D=3,
+                k=3,
+                seed=1,
+            )

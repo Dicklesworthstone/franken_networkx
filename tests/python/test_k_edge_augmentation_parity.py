@@ -1,5 +1,6 @@
 """Parity tests for k_edge_augmentation (bead 049)."""
-import pytest
+from unittest import mock
+
 import franken_networkx as fnx
 import networkx as nx
 
@@ -32,7 +33,6 @@ class TestKEdgeAugmentation:
         G.add_edges_from([(0, 1), (1, 2), (2, 0), (2, 3), (3, 4), (4, 5), (5, 3)])
         nG = nx.Graph(G.edges())
         aug = fnx.k_edge_augmentation(G, 2)
-        naug = list(nx.k_edge_augmentation(nG, 2))
         # Both should produce valid augmentations
         H = G.copy()
         for u, v in aug:
@@ -60,6 +60,65 @@ class TestKEdgeAugmentation:
         assert fnx.edge_connectivity(H) >= 3.0
         # Same edge set as NX
         assert sorted(aug) == sorted(naug)
+
+    def test_weighted_k1_matches_nx(self):
+        G = fnx.Graph()
+        G.add_edges_from([(1, 2), (2, 3), (3, 4)])
+        G.add_node(5)
+        avail = [(1, 5, {"weight": 11}), (2, 5, {"weight": 10})]
+
+        aug = fnx.k_edge_augmentation(G, 1, avail=avail, weight="weight")
+        nG = nx.Graph()
+        nG.add_edges_from([(1, 2), (2, 3), (3, 4)])
+        nG.add_node(5)
+        naug = list(nx.k_edge_augmentation(nG, 1, avail=avail, weight="weight"))
+
+        assert aug == naug
+
+    def test_weighted_k2_matches_nx(self):
+        G = fnx.Graph()
+        G.add_edges_from([(1, 2), (2, 3), (3, 4)])
+        G.add_node(5)
+        avail = [(1, 5, 11), (2, 5, 10), (4, 3, 1), (4, 5, 51)]
+
+        aug = fnx.k_edge_augmentation(G, 2, avail=avail)
+        nG = nx.Graph()
+        nG.add_edges_from([(1, 2), (2, 3), (3, 4)])
+        nG.add_node(5)
+        naug = list(nx.k_edge_augmentation(nG, 2, avail=avail))
+
+        assert sorted(aug) == sorted(naug)
+
+    def test_partial_k2_matches_nx(self):
+        G = fnx.Graph()
+        G.add_edges_from([(1, 2), (2, 3), (3, 4)])
+        G.add_node(5)
+        avail = {(1, 5): 11}
+
+        aug = fnx.k_edge_augmentation(G, 2, avail=avail, partial=True)
+        nG = nx.Graph()
+        nG.add_edges_from([(1, 2), (2, 3), (3, 4)])
+        nG.add_node(5)
+        naug = list(nx.k_edge_augmentation(nG, 2, avail=avail, partial=True))
+
+        assert sorted(aug) == sorted(naug)
+
+    def test_nontrivial_paths_do_not_call_to_nx(self):
+        G = fnx.Graph()
+        G.add_edges_from([(1, 2), (2, 3), (3, 4)])
+        G.add_node(5)
+        avail = [(1, 5, 11), (2, 5, 10), (4, 3, 1), (4, 5, 51)]
+
+        with mock.patch(
+            "franken_networkx.drawing.layout._to_nx",
+            side_effect=AssertionError("_to_nx fallback should not be used"),
+        ):
+            aug = fnx.k_edge_augmentation(G, 2, avail=avail)
+
+        nG = nx.Graph()
+        nG.add_edges_from([(1, 2), (2, 3), (3, 4)])
+        nG.add_node(5)
+        assert sorted(aug) == sorted(nx.k_edge_augmentation(nG, 2, avail=avail))
 
     def test_k_already_satisfied(self):
         """K5 has edge connectivity 4; k=3 should return empty."""
