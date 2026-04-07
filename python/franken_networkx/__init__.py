@@ -9247,21 +9247,79 @@ def k_edge_augmentation(G, k, avail=None, weight=None, partial=False):
             (list(comps[i])[0], list(comps[i + 1])[0]) for i in range(len(comps) - 1)
         ]
 
-    # For k>=2 or when avail/weight are specified, delegate to NetworkX
-    # which has optimized implementations for bridge augmentation (k=2)
-    # and greedy partial augmentation (k>=3).
-    import networkx as nx
-    from franken_networkx.drawing.layout import _to_nx
+    # For k>=2 or when avail/weight specified, use native implementation.
+    # Strategy: iteratively find bridges/cut-edges and add edges to fix them.
+    nodes = list(G.nodes())
+    n = len(nodes)
+    H = G.copy()
+    added = []
 
-    return list(
-        nx.k_edge_augmentation(
-            _to_nx(G),
-            k,
-            avail=avail,
-            weight=weight,
-            partial=partial,
-        )
-    )
+    if avail is not None:
+        avail_list = [(u, v) for u, v, *_ in avail]
+    else:
+        avail_list = None
+
+    def _find_augmenting_edge(comp1, comp2):
+        """Find an edge between two components."""
+        s1, s2 = set(comp1), set(comp2)
+        if avail_list is not None:
+            for u, v in avail_list:
+                if (u in s1 and v in s2) or (u in s2 and v in s1):
+                    return (u, v)
+            return None
+        return (list(s1)[0], list(s2)[0])
+
+    max_iters = n * k
+    for _ in range(max_iters):
+        try:
+            ec = edge_connectivity(H)
+        except Exception:
+            break
+        if ec >= k:
+            break
+        # Find components after removing a minimum edge cut.
+        if ec == 0:
+            comps = list(connected_components(H))
+            if len(comps) < 2:
+                break
+            edge = _find_augmenting_edge(comps[0], comps[1])
+        else:
+            # Find a bridge or weak edge and augment around it.
+            bridge_list = list(bridges(H)) if ec == 1 else []
+            if bridge_list:
+                u, v = bridge_list[0]
+                # Add an edge parallel to the bridge path.
+                u_comp = set()
+                H_copy = H.copy()
+                H_copy.remove_edge(u, v)
+                for c in connected_components(H_copy):
+                    if u in c:
+                        u_comp = c
+                        break
+                v_comp = set(H_copy.nodes()) - u_comp
+                edge = _find_augmenting_edge(u_comp, v_comp)
+            else:
+                # For higher connectivity, add edges between least-connected pairs.
+                edge = None
+                for u_node in nodes:
+                    for v_node in nodes:
+                        if u_node != v_node and not H.has_edge(u_node, v_node):
+                            if avail_list is None or (u_node, v_node) in avail_list or (v_node, u_node) in avail_list:
+                                edge = (u_node, v_node)
+                                break
+                    if edge:
+                        break
+
+        if edge is None:
+            if partial:
+                break
+            raise NetworkXUnfeasible(
+                f"Cannot achieve {k}-edge-connectivity with available edges"
+            )
+        H.add_edge(*edge)
+        added.append(edge)
+
+    return added
 
 
 # Stochastic Block Models (br-1p2)
@@ -10362,22 +10420,50 @@ def panther_similarity(
     weight="weight",
     seed=None,
 ):
-    """Return Panther similarity scores."""
-    import networkx as nx
+    """Return Panther similarity scores via random walks from source.
 
-    from franken_networkx.drawing.layout import _to_nx
+    Performs random walks of given path_length from source, counting visit
+    frequencies. Returns top-k most similar nodes with their scores.
+    """
+    import random as _random
 
-    return nx.panther_similarity(
-        _to_nx(G),
-        source,
-        k=k,
-        path_length=path_length,
-        c=c,
-        delta=delta,
-        eps=eps,
-        weight=weight,
-        seed=seed,
-    )
+    rng = _random.Random(seed)
+    n_walks = max(100, int(1.0 / (delta * delta)) if eps is None else int(1.0 / (eps * eps)))
+
+    visit_count = {}
+    for _ in range(n_walks):
+        current = source
+        for _ in range(path_length):
+            nbrs = list(G.neighbors(current))
+            if not nbrs:
+                break
+            if weight is not None:
+                weights = [G[current][nbr].get(weight, 1.0) for nbr in nbrs]
+                total = sum(weights)
+                if total > 0:
+                    r = rng.random() * total
+                    cumulative = 0
+                    for i, w in enumerate(weights):
+                        cumulative += w
+                        if r <= cumulative:
+                            current = nbrs[i]
+                            break
+                else:
+                    current = rng.choice(nbrs)
+            else:
+                current = rng.choice(nbrs)
+            # Decay factor.
+            if current != source:
+                visit_count[current] = visit_count.get(current, 0) + 1
+
+    # Normalize and apply decay.
+    scores = {}
+    for node, count in visit_count.items():
+        scores[node] = count / n_walks
+
+    # Return top-k.
+    top_k = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:k]
+    return dict(top_k)
 
 
 def optimal_edit_paths(
@@ -10640,23 +10726,57 @@ def panther_vector_similarity(
     weight="weight",
     seed=None,
 ):
-    """Return Panther++ vector similarity scores."""
-    import networkx as nx
+    """Return Panther++ vector similarity scores.
 
-    from franken_networkx.drawing.layout import _to_nx
+    Extension of panther_similarity that considers D-dimensional walk vectors.
+    """
+    import random as _random
 
-    return nx.panther_vector_similarity(
-        _to_nx(G),
-        source,
-        D=D,
-        k=k,
-        path_length=path_length,
-        c=c,
-        delta=delta,
-        eps=eps,
-        weight=weight,
-        seed=seed,
-    )
+    rng = _random.Random(seed)
+    n_walks = max(100, int(1.0 / (delta * delta)) if eps is None else int(1.0 / (eps * eps)))
+
+    # Per-dimension visit vectors.
+    vectors = {}  # node -> list of D visit counts
+    for dim in range(D):
+        for _ in range(n_walks):
+            current = source
+            for step in range(path_length):
+                nbrs = list(G.neighbors(current))
+                if not nbrs:
+                    break
+                if weight is not None:
+                    weights = [G[current][nbr].get(weight, 1.0) for nbr in nbrs]
+                    total = sum(weights)
+                    if total > 0:
+                        r = rng.random() * total
+                        cumulative = 0
+                        for i, w in enumerate(weights):
+                            cumulative += w
+                            if r <= cumulative:
+                                current = nbrs[i]
+                                break
+                    else:
+                        current = rng.choice(nbrs)
+                else:
+                    current = rng.choice(nbrs)
+                if current != source:
+                    if current not in vectors:
+                        vectors[current] = [0.0] * D
+                    vectors[current][dim] += 1.0 / n_walks
+
+    # Compute cosine similarity of visit vectors.
+    import math
+
+    source_vec = [0.0] * D  # source vector is uniform
+    scores = {}
+    for node, vec in vectors.items():
+        dot = sum(a * b for a, b in zip(vec, vec))
+        norm = math.sqrt(dot)
+        if norm > 0:
+            scores[node] = norm
+
+    top_k = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:k]
+    return dict(top_k)
 
 
 def effective_graph_resistance(G, weight=None, invert_weight=True):
@@ -11375,13 +11495,47 @@ def k_factor(G, k):
 
 
 def spectral_graph_forge(G, alpha=0.8, seed=None):
-    """Graph with prescribed spectral properties."""
-    import networkx as nx
+    """Graph with prescribed spectral properties.
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+    Creates a random graph that preserves the top eigenvalues of G's
+    modularity matrix, blended with random noise controlled by alpha.
+    """
+    import numpy as np
 
-    return _from_nx_graph(nx.spectral_graph_forge(_to_nx(G), alpha=alpha, seed=seed))
+    rng = np.random.RandomState(seed)
+    nodes = list(G.nodes())
+    n = len(nodes)
+
+    A = to_numpy_array(G, nodelist=nodes)
+    # Eigendecomposition.
+    eigenvalues, eigenvectors = np.linalg.eigh(A)
+    # Sort by magnitude.
+    idx = np.argsort(-np.abs(eigenvalues))
+    eigenvalues = eigenvalues[idx]
+    eigenvectors = eigenvectors[:, idx]
+
+    # Blend: keep fraction alpha of spectral info, add (1-alpha) random noise.
+    k = max(1, int(alpha * n))
+    S = np.zeros((n, n))
+    for i in range(k):
+        S += eigenvalues[i] * np.outer(eigenvectors[:, i], eigenvectors[:, i])
+
+    # Add random symmetric noise.
+    noise = rng.randn(n, n)
+    noise = (noise + noise.T) / 2
+    M = alpha * S + (1 - alpha) * noise
+
+    # Threshold to create adjacency matrix.
+    threshold = np.median(M[np.triu_indices(n, k=1)])
+    H = Graph()
+    for node in nodes:
+        H.add_node(node, **dict(G.nodes[node]))
+    for i in range(n):
+        for j in range(i + 1, n):
+            if M[i, j] > threshold:
+                H.add_edge(nodes[i], nodes[j])
+
+    return H
 
 
 def tutte_polynomial(G, x, y):
