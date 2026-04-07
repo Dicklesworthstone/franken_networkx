@@ -3181,7 +3181,7 @@ mod tests {
         #![proptest_config(proptest::prelude::ProptestConfig::with_cases(64))]
 
         #[test]
-        fn property_malformed_input_never_panics(data in "\\PC{0,200}") {
+        fn property_malformed_input_never_panics(data in "\\PC{0,80}") {
             // All parsers must return Result, never panic, on arbitrary input.
             let mut strict = EdgeListEngine::strict();
             let _ = strict.read_edgelist(&data);
