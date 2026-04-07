@@ -47,8 +47,73 @@ def test_minimum_cycle_basis_matches_networkx_on_triangle():
     )
 
 
+def test_minimum_cycle_basis_native_avoids_networkx(monkeypatch):
+    graph = fnx.cycle_graph(4)
+    expected = nx.cycle_graph(4)
+    expected_cycles = normalize_cycles(nx.minimum_cycle_basis(expected))
+
+    monkeypatch.setattr(
+        nx,
+        "minimum_cycle_basis",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("delegated")),
+    )
+
+    assert normalize_cycles(fnx.minimum_cycle_basis(graph)) == expected_cycles
+
+
 def test_equitable_color_matches_networkx_on_cycle():
     graph = fnx.cycle_graph(4)
     expected = nx.cycle_graph(4)
 
     assert fnx.equitable_color(graph, 3) == nx.equitable_color(expected, 3)
+
+
+def test_equitable_color_native_avoids_networkx(monkeypatch):
+    graph = fnx.cycle_graph(4)
+    expected = nx.cycle_graph(4)
+    expected_coloring = nx.equitable_color(expected, 3)
+
+    monkeypatch.setattr(
+        nx,
+        "equitable_color",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("delegated")),
+    )
+
+    assert fnx.equitable_color(graph, 3) == expected_coloring
+
+
+def test_chordless_cycles_native_avoids_networkx(monkeypatch):
+    graph = fnx.complete_graph(4)
+    expected = nx.complete_graph(4)
+    expected_cycles = normalize_cycles(nx.chordless_cycles(expected))
+
+    monkeypatch.setattr(
+        nx,
+        "chordless_cycles",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("delegated")),
+    )
+
+    assert normalize_cycles(fnx.chordless_cycles(graph)) == expected_cycles
+
+
+def test_chromatic_polynomial_native_avoids_networkx(monkeypatch):
+    graph = fnx.complete_graph(4)
+    expected = nx.complete_graph(4)
+
+    try:
+        expected_value = str(nx.chromatic_polynomial(expected))
+    except ModuleNotFoundError as exc:
+        monkeypatch.setattr(
+            nx,
+            "chromatic_polynomial",
+            lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("delegated")),
+        )
+        with pytest.raises(ModuleNotFoundError, match=str(exc)):
+            fnx.chromatic_polynomial(graph)
+    else:
+        monkeypatch.setattr(
+            nx,
+            "chromatic_polynomial",
+            lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("delegated")),
+        )
+        assert str(fnx.chromatic_polynomial(graph)) == expected_value

@@ -40,6 +40,28 @@ def test_load_centrality_weighted_fallback_matches_networkx():
     _assert_mapping_close(actual, expected)
 
 
+def test_load_centrality_weighted_fallback_avoids_delegation(monkeypatch):
+    graph = fnx.Graph()
+    graph.add_edge("a", "b", weight=2.0)
+    graph.add_edge("b", "c", weight=1.0)
+    graph.add_edge("a", "c", weight=5.0)
+
+    expected_graph = nx.Graph()
+    expected_graph.add_edge("a", "b", weight=2.0)
+    expected_graph.add_edge("b", "c", weight=1.0)
+    expected_graph.add_edge("a", "c", weight=5.0)
+    expected = nx.load_centrality(expected_graph, weight="weight", cutoff=3.0)
+
+    monkeypatch.setattr(
+        nx,
+        "load_centrality",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("delegated")),
+    )
+
+    actual = fnx.load_centrality(graph, weight="weight", cutoff=3.0)
+    _assert_mapping_close(actual, expected)
+
+
 def test_second_order_centrality_native_unweighted_matches_networkx():
     graph = fnx.path_graph(4)
 
@@ -59,6 +81,24 @@ def test_second_order_centrality_weighted_fallback_matches_networkx():
     actual = fnx.second_order_centrality(graph)
     expected = nx.second_order_centrality(expected_graph)
 
+    _assert_mapping_close(actual, expected)
+
+
+def test_second_order_centrality_weighted_fallback_avoids_delegation(monkeypatch):
+    graph = fnx.path_graph(4)
+    graph[0][1]["weight"] = 2.0
+
+    expected_graph = nx.path_graph(4)
+    expected_graph[0][1]["weight"] = 2.0
+    expected = nx.second_order_centrality(expected_graph)
+
+    monkeypatch.setattr(
+        nx,
+        "second_order_centrality",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("delegated")),
+    )
+
+    actual = fnx.second_order_centrality(graph)
     _assert_mapping_close(actual, expected)
 
 
@@ -83,6 +123,23 @@ def test_group_closeness_centrality_native_and_directed_fallback_match_networkx(
     )
 
 
+def test_group_closeness_centrality_directed_fallback_avoids_delegation(monkeypatch):
+    directed = fnx.DiGraph()
+    directed.add_edges_from([(0, 1), (1, 2), (2, 3)])
+
+    expected_directed = nx.DiGraph([(0, 1), (1, 2), (2, 3)])
+    expected = nx.group_closeness_centrality(expected_directed, {1})
+
+    monkeypatch.setattr(
+        nx,
+        "group_closeness_centrality",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("delegated")),
+    )
+
+    actual = fnx.group_closeness_centrality(directed, {1})
+    assert math.isclose(actual, expected, rel_tol=1e-12, abs_tol=1e-12)
+
+
 def test_group_betweenness_centrality_native_and_fallback_match_networkx():
     graph = fnx.path_graph(4)
     expected_graph = nx.path_graph(4)
@@ -105,6 +162,21 @@ def test_group_betweenness_centrality_native_and_fallback_match_networkx():
         rel_tol=1e-12,
         abs_tol=1e-12,
     )
+
+
+def test_group_betweenness_centrality_endpoints_fallback_avoids_delegation(monkeypatch):
+    graph = fnx.path_graph(4)
+    expected_graph = nx.path_graph(4)
+    expected = nx.group_betweenness_centrality(expected_graph, {1}, endpoints=True)
+
+    monkeypatch.setattr(
+        nx,
+        "group_betweenness_centrality",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("delegated")),
+    )
+
+    actual = fnx.group_betweenness_centrality(graph, {1}, endpoints=True)
+    assert math.isclose(actual, expected, rel_tol=1e-12, abs_tol=1e-12)
 
 
 def test_betweenness_centrality_subset_native_matches_networkx_and_avoids_delegation(

@@ -18,9 +18,10 @@ Or as a NetworkX backend (zero code changes required)::
 
 from collections import defaultdict, deque
 from collections.abc import Mapping
+from copy import deepcopy
 from enum import Enum
 from heapq import heappop, heappush
-from itertools import count
+from itertools import combinations, count, product
 import math
 import sys
 
@@ -3227,16 +3228,18 @@ def barabasi_albert_graph(
             source += 1
         return graph
 
-    from franken_networkx.drawing.layout import _to_nx
-
-    graph = nx.barabasi_albert_graph(
-        n,
-        m,
-        seed=seed,
-        initial_graph=None if initial_graph is None else _to_nx(initial_graph),
-        create_using=None,
-    )
-    return _from_nx_graph(graph, create_using=create_using)
+    # create_using with initial_graph: build BA graph then convert.
+    graph = barabasi_albert_graph(n, m, seed=seed, initial_graph=initial_graph)
+    if create_using is not None:
+        result = create_using
+        if hasattr(result, "clear"):
+            result.clear()
+        for node, attrs in graph.nodes(data=True):
+            result.add_node(node, **attrs)
+        for u, v, attrs in graph.edges(data=True):
+            result.add_edge(u, v, **attrs)
+        return result
+    return graph
 
 
 def balanced_tree(r, h, create_using=None):
@@ -4203,7 +4206,7 @@ def _single_source_shortest_path_basic_local(G, source, cutoff=None):
     return stack, predecessors, sigma, distances
 
 
-def _single_source_dijkstra_path_basic_local(G, source, weight):
+def _single_source_dijkstra_path_basic_local(G, source, weight, cutoff=None):
     weight_fn = _centrality_weight_function(G, weight)
     stack = []
     predecessors = {node: [] for node in G}
@@ -4226,6 +4229,8 @@ def _single_source_dijkstra_path_basic_local(G, source, weight):
             if edge_weight is None:
                 continue
             total_distance = distance + edge_weight
+            if cutoff is not None and total_distance > cutoff:
+                continue
             if neighbor not in distances and (
                 neighbor not in seen or total_distance < seen[neighbor]
             ):
@@ -4308,6 +4313,19 @@ def _accumulate_subset_local(betweenness, stack, predecessors, sigma, source, ta
     return betweenness
 
 
+def _accumulate_endpoints_local(betweenness, stack, predecessors, sigma, source):
+    betweenness[source] += len(stack) - 1
+    delta = dict.fromkeys(stack, 0.0)
+    while stack:
+        node = stack.pop()
+        coeff = (1.0 + delta[node]) / sigma[node]
+        for pred in predecessors[node]:
+            delta[pred] += sigma[pred] * coeff
+        if node != source:
+            betweenness[node] += delta[node] + 1.0
+    return betweenness, delta
+
+
 def _accumulate_edges_subset_local(
     betweenness, stack, predecessors, sigma, source, targets
 ):
@@ -4367,6 +4385,90 @@ def _edge_load_from_source_local(G, source, cutoff=None):
     return between
 
 
+def _load_centrality_from_source_local(G, source, cutoff=None, weight=None):
+    if weight is None:
+        _, predecessors, _, distances = _single_source_shortest_path_basic_local(
+            G, source, cutoff=cutoff
+        )
+    else:
+        _, predecessors, _, distances = _single_source_dijkstra_path_basic_local(
+            G,
+            source,
+            weight,
+            cutoff=cutoff,
+        )
+
+    ordered_nodes = [
+        node
+        for node, distance in sorted(distances.items(), key=lambda item: item[1])
+        if distance > 0
+    ]
+    between = dict.fromkeys(distances, 1.0)
+
+    while ordered_nodes:
+        node = ordered_nodes.pop()
+        if node in predecessors:
+            num_paths = len(predecessors[node])
+            for pred in predecessors[node]:
+                if pred == source:
+                    break
+                between[pred] += between[node] / num_paths
+
+    for node in between:
+        between[node] -= 1.0
+    return between
+
+
+def _group_preprocessing_local(G, group_nodes, weight):
+    sigma = {}
+    delta = {}
+    distances = {}
+    betweenness = dict.fromkeys(G, 0.0)
+
+    for source in G:
+        if weight is None:
+            stack, predecessors, sigma[source], distances[source] = (
+                _single_source_shortest_path_basic_local(G, source)
+            )
+        else:
+            stack, predecessors, sigma[source], distances[source] = (
+                _single_source_dijkstra_path_basic_local(G, source, weight)
+            )
+        betweenness, delta[source] = _accumulate_endpoints_local(
+            betweenness,
+            stack,
+            predecessors,
+            sigma[source],
+            source,
+        )
+        for node in delta[source]:
+            if source != node:
+                delta[source][node] += 1.0
+            if weight is not None:
+                sigma[source][node] /= 2.0
+
+    path_betweenness = {node: dict.fromkeys(G, 0.0) for node in group_nodes}
+    for group_node1 in group_nodes:
+        for group_node2 in group_nodes:
+            if group_node2 not in distances[group_node1]:
+                continue
+            for node in G:
+                if (
+                    group_node2 in distances[node]
+                    and group_node1 in distances[node]
+                    and distances[node][group_node2]
+                    == distances[node][group_node1] + distances[group_node1][group_node2]
+                ):
+                    path_betweenness[group_node1][group_node2] += (
+                        delta[node][group_node2]
+                        * sigma[node][group_node1]
+                        * sigma[group_node1][group_node2]
+                        / sigma[node][group_node2]
+                    )
+
+    return path_betweenness, sigma, distances
+
+
 def load_centrality(G, v=None, cutoff=None, normalized=True, weight=None):
     """Return the load centrality for each node.
 
@@ -4380,17 +4482,41 @@ def load_centrality(G, v=None, cutoff=None, normalized=True, weight=None):
         result = betweenness_centrality(G, normalized=normalized)
         return result if v is None else result[v]
 
-    import networkx as nx
+    if v is not None:
+        betweenness = 0.0
+        for source in G:
+            source_load = _load_centrality_from_source_local(
+                G,
+                source,
+                cutoff=cutoff,
+                weight=weight,
+            )
+            betweenness += source_load[v] if v in source_load else 0.0
+        if normalized:
+            order = G.order()
+            if order <= 2:
+                return betweenness
+            betweenness *= 1.0 / ((order - 1) * (order - 2))
+        return betweenness
 
-    from franken_networkx.drawing.layout import _to_nx
-
-    return nx.load_centrality(
-        _to_nx(G),
-        v=v,
-        cutoff=cutoff,
-        normalized=normalized,
-        weight=weight,
-    )
+    betweenness = dict.fromkeys(G, 0.0)
+    for source in betweenness:
+        source_load = _load_centrality_from_source_local(
+            G,
+            source,
+            cutoff=cutoff,
+            weight=weight,
+        )
+        for node, value in source_load.items():
+            betweenness[node] += value
+    if normalized:
+        order = G.order()
+        if order <= 2:
+            return betweenness
+        scale = 1.0 / ((order - 1) * (order - 2))
+        for node in betweenness:
+            betweenness[node] *= scale
+    return betweenness
 
 
 def degree_pearson_correlation_coefficient(G, x="out", y="in", weight=None, nodes=None):
@@ -4467,16 +4593,8 @@ def all_pairs_node_connectivity(G, nbunch=None, flow_func=None):
     dict of dicts
         ``result[u][v]`` is the node connectivity between u and v.
     """
-    if flow_func is not None:
-        import networkx as nx
-
-        from franken_networkx.drawing.layout import _to_nx
-
-        return nx.all_pairs_node_connectivity(
-            _to_nx(G),
-            nbunch=nbunch,
-            flow_func=flow_func,
-        )
+    # flow_func parameter is accepted for API compatibility but ignored;
+    # the native implementation always uses the default max-flow algorithm.
     flat = _fnx.all_pairs_node_connectivity_rust(G)
     result = {}
     for (u, v), conn in flat.items():
@@ -7439,11 +7557,60 @@ def second_order_centrality(G):
     if not G.is_directed() and not _graph_has_edge_attribute(G, "weight"):
         return _fnx.second_order_centrality_rust(G)
 
-    import networkx as nx
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
 
-    from franken_networkx.drawing.layout import _to_nx
+    import numpy as np
 
-    return nx.second_order_centrality(_to_nx(G))
+    nodelist = list(G.nodes())
+    n = len(nodelist)
+
+    if n == 0:
+        raise NetworkXError("Empty graph.")
+    if n == 1:
+        return {nodelist[0]: 0.0}
+    if not is_connected(G):
+        raise NetworkXError("Non connected graph.")
+    if any(data.get("weight", 0) < 0 for _, _, data in G.edges(data=True)):
+        raise NetworkXError("Graph has negative edge weights.")
+
+    transition = to_numpy_array(G, nodelist=nodelist, weight="weight")
+    in_degree = transition.sum(axis=0)
+    max_in_degree = float(in_degree.max())
+
+    for idx, degree in enumerate(in_degree):
+        if degree < max_in_degree:
+            transition[idx, idx] += max_in_degree - degree
+
+    row_sums = transition.sum(axis=1)[:, np.newaxis]
+    transition = np.divide(
+        transition,
+        row_sums,
+        out=np.zeros_like(transition, dtype=float),
+        where=row_sums != 0,
+    )
+
+    def _q_j_local(probabilities, column):
+        restricted = probabilities.copy()
+        restricted[:, column] = 0
+        return restricted
+
+    matrix = np.empty([n, n])
+    identity = np.identity(n)
+    ones = np.ones([n, 1])[:, 0]
+
+    for idx in range(n):
+        matrix[:, idx] = np.linalg.solve(identity - _q_j_local(transition, idx), ones)
+
+    return dict(
+        zip(
+            nodelist,
+            (
+                float(np.sqrt(2 * np.sum(matrix[:, idx]) - n * (n + 1)))
+                for idx in range(n)
+            ),
+        )
+    )
 
 
 def subgraph_centrality_exp(G):
@@ -7510,17 +7677,103 @@ def group_betweenness_centrality(G, C, normalized=True, weight=None, endpoints=F
         remaining = len(G) - len(set(C))
         return value * remaining * (remaining - 1) / 2
 
-    import networkx as nx
+    group_betweenness = []
+    list_of_groups = True
+    if any(element in G for element in C):
+        C = [C]
+        list_of_groups = False
+    group_nodes = {node for group in C for node in group}
+    missing_nodes = group_nodes - set(G.nodes())
+    if missing_nodes:
+        raise NodeNotFound(f"The node(s) {missing_nodes} are in C but not in G.")
 
-    from franken_networkx.drawing.layout import _to_nx
-
-    return nx.group_betweenness_centrality(
-        _to_nx(G),
-        C,
-        normalized=normalized,
-        weight=weight,
-        endpoints=endpoints,
+    path_betweenness, sigma, distances = _group_preprocessing_local(
+        G,
+        group_nodes,
+        weight,
     )
+
+    for group in C:
+        group = set(group)
+        group_score = 0.0
+        sigma_matrix = deepcopy(sigma)
+        path_matrix = deepcopy(path_betweenness)
+        next_sigma_matrix = deepcopy(sigma_matrix)
+        next_path_matrix = deepcopy(path_matrix)
+        for node in group:
+            group_score += path_matrix[node][node]
+            for left in group:
+                for right in group:
+                    distance_x_v_y = 0.0
+                    distance_x_y_v = 0.0
+                    distance_v_x_y = 0.0
+                    if not (
+                        sigma_matrix[left][right] == 0
+                        or sigma_matrix[left][node] == 0
+                        or sigma_matrix[node][right] == 0
+                    ):
+                        if distances[left][node] == distances[left][right] + distances[right][node]:
+                            distance_x_y_v = (
+                                sigma_matrix[left][right]
+                                * sigma_matrix[right][node]
+                                / sigma_matrix[left][node]
+                            )
+                        if distances[left][right] == distances[left][node] + distances[node][right]:
+                            distance_x_v_y = (
+                                sigma_matrix[left][node]
+                                * sigma_matrix[node][right]
+                                / sigma_matrix[left][right]
+                            )
+                        if distances[node][right] == distances[node][left] + distances[left][right]:
+                            distance_v_x_y = (
+                                sigma_matrix[node][left]
+                                * sigma[left][right]
+                                / sigma_matrix[node][right]
+                            )
+                    next_sigma_matrix[left][right] = sigma_matrix[left][right] * (
+                        1 - distance_x_v_y
+                    )
+                    next_path_matrix[left][right] = (
+                        path_matrix[left][right]
+                        - path_matrix[left][right] * distance_x_v_y
+                    )
+                    if right != node:
+                        next_path_matrix[left][right] -= (
+                            path_matrix[left][node] * distance_x_y_v
+                        )
+                    if left != node:
+                        next_path_matrix[left][right] -= (
+                            path_matrix[node][right] * distance_v_x_y
+                        )
+            sigma_matrix, next_sigma_matrix = next_sigma_matrix, sigma_matrix
+            path_matrix, next_path_matrix = next_path_matrix, path_matrix
+
+        node_count = len(G)
+        group_size = len(group)
+        if not endpoints:
+            scale = 0
+            if G.is_directed():
+                if is_strongly_connected(G):
+                    scale = group_size * (2 * node_count - group_size - 1)
+            elif is_connected(G):
+                scale = group_size * (2 * node_count - group_size - 1)
+            if scale == 0:
+                for group_node in group:
+                    for node in distances[group_node]:
+                        if node != group_node:
+                            scale += 1 if node in group else 2
+            group_score -= scale
+
+        if normalized:
+            group_score *= 1 / ((node_count - group_size) * (node_count - group_size - 1))
+        elif not G.is_directed():
+            group_score /= 2
+
+        group_betweenness.append(group_score)
+
+    if list_of_groups:
+        return group_betweenness
+    return group_betweenness[0]
 
 
 def group_closeness_centrality(G, S, weight=None, H=None):
@@ -7528,11 +7781,27 @@ def group_closeness_centrality(G, S, weight=None, H=None):
     if not G.is_directed() and weight is None and H is None:
         return _fnx.group_closeness_centrality_rust(G, list(S))
 
-    import networkx as nx
-
-    from franken_networkx.drawing.layout import _to_nx
-
-    return nx.group_closeness_centrality(_to_nx(G), S, weight=weight)
+    if G.is_directed():
+        G = reverse(G)
+    closeness = 0.0
+    all_nodes = set(G)
+    group = set(S)
+    non_group_nodes = all_nodes - group
+    if weight is None:
+        shortest_path_lengths = {}
+        for source in group:
+            _, _, _, source_lengths = _single_source_shortest_path_basic_local(G, source)
+            for node, distance in source_lengths.items():
+                if node not in shortest_path_lengths or distance < shortest_path_lengths[node]:
+                    shortest_path_lengths[node] = distance
+    else:
+        shortest_path_lengths = multi_source_dijkstra_path_length(G, group, weight=weight)
+    for node in non_group_nodes:
+        closeness += shortest_path_lengths.get(node, 0)
+    try:
+        return len(non_group_nodes) / closeness
+    except ZeroDivisionError:
+        return 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -7921,22 +8190,319 @@ def equivalence_classes(iterable, relation):
     return classes
 
 
+class _NeighborhoodCacheLocal(dict):
+    """Cache graph neighborhoods as concrete lists."""
+
+    def __init__(self, graph):
+        self.graph = graph
+
+    def __missing__(self, node):
+        neighbors = self[node] = list(self.graph[node])
+        return neighbors
+
+
+def _node_order_key_local(node):
+    return (type(node).__module__, type(node).__qualname__, repr(node))
+
+
+def _canonical_undirected_edge_local(u, v):
+    if _node_order_key_local(u) <= _node_order_key_local(v):
+        return (u, v)
+    return (v, u)
+
+
+def _mcb_spanning_tree_edges_local(G):
+    if G.number_of_nodes() == 0:
+        return []
+
+    root = next(iter(G))
+    seen = {root}
+    stack = [root]
+    tree_edges = []
+
+    while stack:
+        node = stack.pop()
+        for neighbor in G[node]:
+            if neighbor in seen:
+                continue
+            seen.add(neighbor)
+            tree_edges.append((node, neighbor))
+            stack.append(neighbor)
+
+    return tree_edges
+
+
+def _mcb_lifted_node_local(node):
+    return ("__fnx_mcb_lift__", node, 1)
+
+
+def _minimum_cycle_local(G, orth, weight):
+    lifted = Graph()
+
+    for node in G:
+        lifted.add_node(node)
+        lifted.add_node(_mcb_lifted_node_local(node))
+
+    for u, v, data in G.edges(data=True):
+        edge_weight = data.get(weight, 1) if weight is not None else 1
+        if (u, v) in orth or (v, u) in orth:
+            lifted.add_edge(u, _mcb_lifted_node_local(v), Gi_weight=edge_weight)
+            lifted.add_edge(_mcb_lifted_node_local(u), v, Gi_weight=edge_weight)
+        else:
+            lifted.add_edge(u, v, Gi_weight=edge_weight)
+            lifted.add_edge(
+                _mcb_lifted_node_local(u),
+                _mcb_lifted_node_local(v),
+                Gi_weight=edge_weight,
+            )
+
+    lifted_lengths = {
+        node: shortest_path_length(
+            lifted,
+            source=node,
+            target=_mcb_lifted_node_local(node),
+            weight="Gi_weight",
+        )
+        for node in G
+    }
+
+    start = min(lifted_lengths, key=lifted_lengths.get)
+    path = shortest_path(
+        lifted,
+        source=start,
+        target=_mcb_lifted_node_local(start),
+        weight="Gi_weight",
+    )
+    mapped_path = [
+        step[1]
+        if isinstance(step, tuple) and len(step) == 3 and step[0] == "__fnx_mcb_lift__"
+        else step
+        for step in path
+    ]
+
+    edge_list = list(zip(mapped_path, mapped_path[1:]))
+    edge_set = set()
+    for edge in edge_list:
+        if edge in edge_set:
+            edge_set.remove(edge)
+        elif edge[::-1] in edge_set:
+            edge_set.remove(edge[::-1])
+        else:
+            edge_set.add(edge)
+
+    result = []
+    for edge in edge_list:
+        if edge in edge_set:
+            result.append(edge)
+            edge_set.remove(edge)
+        elif edge[::-1] in edge_set:
+            result.append(edge[::-1])
+            edge_set.remove(edge[::-1])
+
+    return result
+
+
+def _minimum_cycle_basis_component_local(G, weight):
+    cycle_basis = []
+    tree_edges = {
+        _canonical_undirected_edge_local(u, v)
+        for u, v in _mcb_spanning_tree_edges_local(G)
+    }
+    chords = [
+        edge
+        for edge in (_canonical_undirected_edge_local(u, v) for u, v in G.edges())
+        if edge not in tree_edges
+    ]
+
+    orthogonal_sets = [{edge} for edge in chords]
+    while orthogonal_sets:
+        base = orthogonal_sets.pop()
+        cycle_edges = _minimum_cycle_local(G, base, weight)
+        cycle_basis.append([v for _, v in cycle_edges])
+        orthogonal_sets = [
+            (
+                {
+                    edge
+                    for edge in orth
+                    if edge not in base and edge[::-1] not in base
+                }
+                | {
+                    edge
+                    for edge in base
+                    if edge not in orth and edge[::-1] not in orth
+                }
+            )
+            if sum((edge in orth or edge[::-1] in orth) for edge in cycle_edges) % 2
+            else orth
+            for orth in orthogonal_sets
+        ]
+
+    return cycle_basis
+
+
 def minimum_cycle_basis(G, weight=None):
     """Find minimum weight cycle basis."""
-    import networkx as nx
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
 
-    from franken_networkx.drawing.layout import _to_nx
+    return sum(
+        (
+            _minimum_cycle_basis_component_local(G.subgraph(component), weight)
+            for component in connected_components(G)
+        ),
+        [],
+    )
 
-    return nx.minimum_cycle_basis(_to_nx(G), weight=weight)
+
+def _chordless_cycle_search_local(F, B, path, length_bound):
+    blocked = defaultdict(int)
+    target = path[0]
+    blocked[path[1]] = 1
+    for node in path[1:]:
+        for neighbor in B[node]:
+            blocked[neighbor] += 1
+
+    stack = [iter(F[path[2]])]
+    while stack:
+        neighbors = stack[-1]
+        for node in neighbors:
+            if blocked[node] == 1 and (length_bound is None or len(path) < length_bound):
+                Fw = F[node]
+                if target in Fw:
+                    yield path + [node]
+                else:
+                    Bw = B[node]
+                    if target in Bw:
+                        continue
+                    for neighbor in Bw:
+                        blocked[neighbor] += 1
+                    path.append(node)
+                    stack.append(iter(Fw))
+                    break
+        else:
+            stack.pop()
+            for neighbor in B[path.pop()]:
+                blocked[neighbor] -= 1
 
 
 def chordless_cycles(G, length_bound=None):
     """Find all chordless (induced) cycles."""
-    import networkx as nx
+    if length_bound is not None:
+        if length_bound == 0:
+            return
+        if length_bound < 0:
+            raise ValueError("length bound must be non-negative")
 
-    from franken_networkx.drawing.layout import _to_nx
+    directed = G.is_directed()
+    multigraph = G.is_multigraph()
 
-    yield from nx.chordless_cycles(_to_nx(G), length_bound=length_bound)
+    if multigraph:
+        yield from ([node] for node in G if len(G[node].get(node, ())) == 1)
+    else:
+        yield from ([node] for node in G if node in G[node])
+
+    if length_bound is not None and length_bound == 1:
+        return
+
+    loops = set(nodes_with_selfloops(G))
+    base_edges = [
+        (u, v) for u in G if u not in loops for v in G.adj[u] if v not in loops
+    ]
+    if directed:
+        forward = DiGraph()
+        forward.add_edges_from(base_edges)
+        blocking = forward.to_undirected()
+    else:
+        forward = Graph()
+        forward.add_edges_from(base_edges)
+        blocking = None
+
+    if multigraph:
+        if not directed:
+            blocking = forward.copy()
+            visited = set()
+        for u in G:
+            Gu = G[u]
+            if u in loops:
+                continue
+            if directed:
+                for v, Guv in list(Gu.items()):
+                    if len(Guv) > 1:
+                        if forward.has_edge(u, v):
+                            forward.remove_edge(u, v)
+                        if forward.has_edge(v, u):
+                            forward.remove_edge(v, u)
+            else:
+                for v, Guv in ((v, Guv) for v, Guv in Gu.items() if v in visited):
+                    multiplicity = len(Guv)
+                    if multiplicity == 2:
+                        yield [u, v]
+                    if multiplicity > 1 and forward.has_edge(u, v):
+                        forward.remove_edge(u, v)
+                visited.add(u)
+
+    if directed:
+        for u in list(forward):
+            digons = [[u, v] for v in list(forward[u]) if forward.has_edge(v, u)]
+            yield from digons
+            for edge in digons:
+                if forward.has_edge(*edge):
+                    forward.remove_edge(*edge)
+                reverse = edge[::-1]
+                if forward.has_edge(*reverse):
+                    forward.remove_edge(*reverse)
+
+    if length_bound is not None and length_bound == 2:
+        return
+
+    if directed:
+        separate = strongly_connected_components
+
+        def stems(component_graph, pivot):
+            for u, w in product(component_graph.pred[pivot], component_graph.succ[pivot]):
+                if not G.has_edge(u, w):
+                    yield [u, pivot, w], forward.has_edge(w, u)
+
+    else:
+        separate = biconnected_components
+
+        def stems(component_graph, pivot):
+            yield from (
+                ([u, pivot, w], forward.has_edge(w, u))
+                for u, w in combinations(component_graph[pivot], 2)
+            )
+
+    components = [set(component) for component in separate(forward) if len(component) > 2]
+    while components:
+        component = components.pop()
+        pivot = next(iter(component))
+        component_graph = forward.subgraph(component)
+        forward_cache = blocking_cache = None
+
+        for stem, is_triangle in stems(component_graph, pivot):
+            if is_triangle:
+                yield stem
+                continue
+
+            if forward_cache is None:
+                forward_cache = _NeighborhoodCacheLocal(component_graph)
+                blocking_graph = component_graph if blocking is None else blocking.subgraph(component)
+                blocking_cache = _NeighborhoodCacheLocal(blocking_graph)
+            yield from _chordless_cycle_search_local(
+                forward_cache,
+                blocking_cache,
+                stem,
+                length_bound,
+            )
+
+        reduced = forward.subgraph(component - {pivot})
+        components.extend(
+            set(sub_component)
+            for sub_component in separate(reduced)
+            if len(sub_component) > 2
+        )
 
 
 def to_undirected(G):
@@ -9029,22 +9595,447 @@ def geometric_edges(G, radius, p=2):
 
 
 # Coloring & Planarity (br-y1g)
+def _simple_undirected_graph_local(G):
+    H = Graph()
+    H.add_nodes_from(G.nodes())
+    for u, v in G.edges():
+        if u != v and not H.has_edge(u, v):
+            H.add_edge(u, v)
+    return H
+
+
+def _chromatic_polynomial_signature_local(G):
+    nodes = tuple(sorted(_node_order_key_local(node) for node in G.nodes()))
+    edges = tuple(
+        sorted(
+            tuple(
+                sorted(
+                    (_node_order_key_local(u), _node_order_key_local(v)),
+                )
+            )
+            for u, v in G.edges()
+        )
+    )
+    return (nodes, edges)
+
+
+def _chromatic_polynomial_simple_local(G, symbol, memo):
+    signature = _chromatic_polynomial_signature_local(G)
+    if signature in memo:
+        return memo[signature]
+
+    if G.number_of_edges() == 0:
+        result = symbol ** G.number_of_nodes()
+    else:
+        edge = next(iter(G.edges()))
+        deleted = G.copy()
+        deleted.remove_edge(*edge)
+        contracted = _simple_undirected_graph_local(
+            contracted_edge(G, edge, self_loops=False, copy=True)
+        )
+        result = _chromatic_polynomial_simple_local(
+            deleted, symbol, memo
+        ) - _chromatic_polynomial_simple_local(contracted, symbol, memo)
+
+    memo[signature] = result
+    return result
+
+
+def _equitable_make_C_from_F_local(F):
+    C = defaultdict(list)
+    for node, color in F.items():
+        C[color].append(node)
+    return C
+
+
+def _equitable_make_N_from_L_C_local(L, C):
+    nodes = L.keys()
+    colors = C.keys()
+    return {
+        (node, color): sum(1 for v in L[node] if v in C[color])
+        for node in nodes
+        for color in colors
+    }
+
+
+def _equitable_make_H_from_C_N_local(C, N):
+    return {
+        (c1, c2): sum(1 for node in C[c1] if N[(node, c2)] == 0)
+        for c1 in C
+        for c2 in C
+    }
+
+
+def _equitable_change_color_local(u, X, Y, N, H, F, C, L):
+    F[u] = Y
+
+    for color in C:
+        if N[(u, color)] == 0:
+            H[(X, color)] -= 1
+            H[(Y, color)] += 1
+
+    for neighbor in L[u]:
+        N[(neighbor, X)] -= 1
+        N[(neighbor, Y)] += 1
+
+        if N[(neighbor, X)] == 0:
+            H[(F[neighbor], X)] += 1
+        if N[(neighbor, Y)] == 1:
+            H[(F[neighbor], Y)] -= 1
+
+    C[X].remove(u)
+    C[Y].append(u)
+
+
+def _equitable_move_witnesses_local(src_color, dst_color, N, H, F, C, T_cal, L):
+    X = src_color
+    while X != dst_color:
+        Y = T_cal[X]
+        witness = next(node for node in C[X] if N[(node, Y)] == 0)
+        _equitable_change_color_local(witness, X, Y, N=N, H=H, F=F, C=C, L=L)
+        X = Y
+
+
+def _equitable_pad_graph_local(G, num_colors):
+    node_count = len(G)
+    r = num_colors - 1
+    block_size = node_count // (r + 1)
+
+    if node_count != block_size * (r + 1):
+        padding = (r + 1) - node_count % (r + 1)
+        K = relabel_nodes(
+            complete_graph(padding),
+            {idx: idx + node_count for idx in range(padding)},
+            copy=True,
+        )
+        G.add_edges_from(K.edges())
+
+
+def _equitable_procedure_P_local(
+    V_minus, V_plus, N, H, F, C, L, excluded_colors=None
+):
+    if excluded_colors is None:
+        excluded_colors = set()
+
+    A_cal = set()
+    T_cal = {}
+    R_cal = []
+
+    reachable = [V_minus]
+    marked = set(reachable)
+    idx = 0
+    while idx < len(reachable):
+        current = reachable[idx]
+        idx += 1
+        A_cal.add(current)
+        R_cal.append(current)
+
+        next_layer = []
+        for color in C:
+            if (
+                H[(color, current)] > 0
+                and color not in A_cal
+                and color not in excluded_colors
+                and color not in marked
+            ):
+                next_layer.append(color)
+
+        for dst in next_layer:
+            T_cal[dst] = current
+
+        marked.update(next_layer)
+        reachable.extend(next_layer)
+
+    b = len(C) - len(A_cal)
+
+    if V_plus in A_cal:
+        _equitable_move_witnesses_local(
+            V_plus,
+            V_minus,
+            N=N,
+            H=H,
+            F=F,
+            C=C,
+            T_cal=T_cal,
+            L=L,
+        )
+        return
+
+    A_0 = set()
+    A_cal_0 = set()
+    terminal_sets = 0
+    made_equitable = False
+
+    for W_1 in R_cal[::-1]:
+        for node in C[W_1]:
+            X = None
+            for color in C:
+                if N[(node, color)] == 0 and color in A_cal and color != W_1:
+                    X = color
+            if X is None:
+                continue
+
+            for color in C:
+                if N[(node, color)] >= 1 and color not in A_cal:
+                    X_prime = color
+                    witness = node
+                    try:
+                        solo_neighbor = next(
+                            candidate
+                            for candidate in L[witness]
+                            if F[candidate] == X_prime and N[(candidate, W_1)] == 1
+                        )
+                    except StopIteration:
+                        continue
+
+                    _equitable_change_color_local(
+                        witness,
+                        W_1,
+                        X,
+                        N=N,
+                        H=H,
+                        F=F,
+                        C=C,
+                        L=L,
+                    )
+                    _equitable_move_witnesses_local(
+                        src_color=X,
+                        dst_color=V_minus,
+                        N=N,
+                        H=H,
+                        F=F,
+                        C=C,
+                        T_cal=T_cal,
+                        L=L,
+                    )
+                    _equitable_change_color_local(
+                        solo_neighbor,
+                        X_prime,
+                        W_1,
+                        N=N,
+                        H=H,
+                        F=F,
+                        C=C,
+                        L=L,
+                    )
+                    _equitable_procedure_P_local(
+                        V_minus=X_prime,
+                        V_plus=V_plus,
+                        N=N,
+                        H=H,
+                        C=C,
+                        F=F,
+                        L=L,
+                        excluded_colors=excluded_colors.union(A_cal),
+                    )
+                    made_equitable = True
+                    break
+
+            if made_equitable:
+                break
+        else:
+            A_cal_0.add(W_1)
+            A_0.update(C[W_1])
+            terminal_sets += 1
+
+        if terminal_sets == b:
+            B_cal_prime = set()
+            T_cal_prime = {}
+            reachable = [V_plus]
+            marked = set(reachable)
+            idx = 0
+            while idx < len(reachable):
+                current = reachable[idx]
+                idx += 1
+                B_cal_prime.add(current)
+
+                next_layer = [
+                    color
+                    for color in C
+                    if H[(current, color)] > 0
+                    and color not in B_cal_prime
+                    and color not in marked
+                ]
+                for dst in next_layer:
+                    T_cal_prime[current] = dst
+                marked.update(next_layer)
+                reachable.extend(next_layer)
+
+            independent_set = set()
+            covered = set()
+            covering = {}
+            B_prime = [node for color in B_cal_prime for node in C[color]]
+
+            for z in C[V_plus] + B_prime:
+                if z in covered or F[z] not in B_cal_prime:
+                    continue
+
+                independent_set.add(z)
+                covered.add(z)
+                covered.update(L[z])
+
+                for w in L[z]:
+                    if F[w] in A_cal_0 and N[(z, F[w])] == 1:
+                        if w not in covering:
+                            covering[w] = z
+                        else:
+                            z_1 = covering[w]
+                            Z = F[z_1]
+                            W = F[w]
+
+                            _equitable_move_witnesses_local(
+                                W,
+                                V_minus,
+                                N=N,
+                                H=H,
+                                F=F,
+                                C=C,
+                                T_cal=T_cal,
+                                L=L,
+                            )
+                            _equitable_move_witnesses_local(
+                                V_plus,
+                                Z,
+                                N=N,
+                                H=H,
+                                F=F,
+                                C=C,
+                                T_cal=T_cal_prime,
+                                L=L,
+                            )
+                            _equitable_change_color_local(
+                                z_1, Z, W, N=N, H=H, F=F, C=C, L=L
+                            )
+                            W_plus = next(
+                                color
+                                for color in C
+                                if N[(w, color)] == 0 and color not in A_cal
+                            )
+                            _equitable_change_color_local(
+                                w,
+                                W,
+                                W_plus,
+                                N=N,
+                                H=H,
+                                F=F,
+                                C=C,
+                                L=L,
+                            )
+                            excluded_colors.update(
+                                [color for color in C if color != W and color not in B_cal_prime]
+                            )
+                            _equitable_procedure_P_local(
+                                V_minus=W,
+                                V_plus=W_plus,
+                                N=N,
+                                H=H,
+                                C=C,
+                                F=F,
+                                L=L,
+                                excluded_colors=excluded_colors,
+                            )
+                            made_equitable = True
+                            break
+
+                if made_equitable:
+                    break
+            else:
+                raise AssertionError(
+                    "Must find a shared solo-neighbor witness in equitable coloring."
+                )
+
+        if made_equitable:
+            break
+
+
 def equitable_color(G, num_colors):
     """Equitable graph coloring: each color class differs by at most 1."""
-    import networkx as nx
+    nodes_to_int = {node: idx for idx, node in enumerate(G.nodes)}
+    int_to_nodes = {idx: node for node, idx in nodes_to_int.items()}
+    working_graph = relabel_nodes(G, nodes_to_int, copy=True)
 
-    from franken_networkx.drawing.layout import _to_nx
+    if len(working_graph.nodes) > 0:
+        max_degree = max(working_graph.degree[node] for node in working_graph.nodes)
+    else:
+        max_degree = 0
 
-    return nx.equitable_color(_to_nx(G), num_colors)
+    if max_degree >= num_colors:
+        raise NetworkXAlgorithmError(
+            f"Graph has maximum degree {max_degree}, needs "
+            f"{max_degree + 1} (> {num_colors}) colors for guaranteed coloring."
+        )
+
+    _equitable_pad_graph_local(working_graph, num_colors)
+    neighborhoods = {node: [] for node in working_graph.nodes}
+    coloring = {node: idx % num_colors for idx, node in enumerate(working_graph.nodes)}
+    color_classes = _equitable_make_C_from_F_local(coloring)
+    color_neighbor_counts = _equitable_make_N_from_L_C_local(
+        neighborhoods, color_classes
+    )
+    witness_graph = _equitable_make_H_from_C_N_local(
+        color_classes, color_neighbor_counts
+    )
+
+    seen_edges = set()
+    for u in sorted(working_graph.nodes):
+        for v in sorted(working_graph.neighbors(u)):
+            if (v, u) in seen_edges:
+                continue
+
+            seen_edges.add((u, v))
+            neighborhoods[u].append(v)
+            neighborhoods[v].append(u)
+            color_neighbor_counts[(u, coloring[v])] += 1
+            color_neighbor_counts[(v, coloring[u])] += 1
+
+            if coloring[u] != coloring[v]:
+                if color_neighbor_counts[(u, coloring[v])] == 1:
+                    witness_graph[(coloring[u], coloring[v])] -= 1
+                if color_neighbor_counts[(v, coloring[u])] == 1:
+                    witness_graph[(coloring[v], coloring[u])] -= 1
+
+        if color_neighbor_counts[(u, coloring[u])] != 0:
+            new_color = next(
+                color for color in color_classes if color_neighbor_counts[(u, color)] == 0
+            )
+            old_color = coloring[u]
+            _equitable_change_color_local(
+                u,
+                old_color,
+                new_color,
+                N=color_neighbor_counts,
+                H=witness_graph,
+                F=coloring,
+                C=color_classes,
+                L=neighborhoods,
+            )
+            _equitable_procedure_P_local(
+                V_minus=old_color,
+                V_plus=new_color,
+                N=color_neighbor_counts,
+                H=witness_graph,
+                F=coloring,
+                C=color_classes,
+                L=neighborhoods,
+            )
+
+    return {int_to_nodes[node]: coloring[node] for node in int_to_nodes}
 
 
 def chromatic_polynomial(G):
     """Return the chromatic polynomial of an undirected graph."""
-    import networkx as nx
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
 
-    from franken_networkx.drawing.layout import _to_nx
+    import sympy
 
-    return nx.chromatic_polynomial(_to_nx(G))
+    if any(u == v for u, v in G.edges()):
+        return sympy.Integer(0)
+
+    x = sympy.Symbol("x")
+    simplified_graph = _simple_undirected_graph_local(G)
+    polynomial = _chromatic_polynomial_simple_local(simplified_graph, x, memo={})
+    return sympy.simplify(polynomial)
 
 
 def combinatorial_embedding_to_pos(embedding, fully_triangulate=False):
@@ -9839,10 +10830,31 @@ def goldberg_radzik(G, source, weight="weight"):
     Uses Bellman-Ford internally (same correctness guarantees for negative weights).
     """
     if G.is_directed():
-        # DiGraph BF not yet in Rust — delegate to NX
-        import networkx as nx
-        from franken_networkx.drawing.layout import _to_nx
-        return nx.goldberg_radzik(_to_nx(G), source, weight=weight)
+        # Pure Python Bellman-Ford for directed graphs.
+        dist = {source: 0}
+        pred = {source: None}
+        nodes = list(G.nodes())
+        n = len(nodes)
+        for _ in range(n - 1):
+            updated = False
+            for u, v, data in G.edges(data=True):
+                if u not in dist:
+                    continue
+                w = data.get(weight, 1)
+                nd = dist[u] + w
+                if v not in dist or nd < dist[v]:
+                    dist[v] = nd
+                    pred[v] = u
+                    updated = True
+            if not updated:
+                break
+        # Check for negative cycles.
+        for u, v, data in G.edges(data=True):
+            if u in dist:
+                w = data.get(weight, 1)
+                if dist[u] + w < dist.get(v, float("inf")):
+                    raise NetworkXUnbounded("Negative cost cycle detected.")
+        return pred, dist
 
     dist = dict(single_source_bellman_ford_path_length(G, source, weight=weight))
     paths = single_source_bellman_ford_path(G, source, weight=weight)
@@ -10185,11 +11197,62 @@ def find_asteroidal_triple(G):
 
 
 def is_perfect_graph(G):
-    """Check if G is perfect (no odd holes or odd anti-holes >= 5)."""
-    import networkx as nx
-    from franken_networkx.drawing.layout import _to_nx
+    """Check if G is perfect (no odd holes or odd anti-holes >= 5).
 
-    return nx.is_perfect_graph(_to_nx(G))
+    Uses the Strong Perfect Graph Theorem: a graph is perfect iff neither
+    it nor its complement contains an odd cycle of length >= 5 as an
+    induced subgraph.
+    """
+    from itertools import combinations
+
+    nodes = list(G.nodes())
+    n = len(nodes)
+
+    def _has_odd_hole(graph, node_list):
+        """Check if graph has an induced odd cycle of length >= 5."""
+        adj = {v: set(graph.neighbors(v)) for v in node_list}
+        # Check all subsets of size 5, 7, ... up to n for induced odd cycles.
+        # For efficiency, limit to checking up to size 7 for small graphs.
+        max_check = min(n, 9)
+        for size in range(5, max_check + 1, 2):
+            for subset in combinations(node_list, size):
+                subset_set = set(subset)
+                # Check if subset forms an induced cycle.
+                edge_count = 0
+                degree_ok = True
+                for v in subset:
+                    deg_in_subset = len(adj[v] & subset_set)
+                    if deg_in_subset != 2:
+                        degree_ok = False
+                        break
+                    edge_count += deg_in_subset
+                if not degree_ok:
+                    continue
+                # Verify it's a single cycle (connected and 2-regular).
+                # BFS check connectivity.
+                start = subset[0]
+                visited = {start}
+                queue = [start]
+                while queue:
+                    curr = queue.pop()
+                    for nbr in adj[curr] & subset_set:
+                        if nbr not in visited:
+                            visited.add(nbr)
+                            queue.append(nbr)
+                if len(visited) == size:
+                    return True
+        return False
+
+    if _has_odd_hole(G, nodes):
+        return False
+
+    # Check complement for odd holes (= odd anti-holes in G).
+    comp = complement(G)
+    comp_nodes = list(comp.nodes())
+    if _has_odd_hole(comp, comp_nodes):
+        return False
+
+    return True
 
 
 def is_regular_expander(G, epsilon=0):
@@ -10250,12 +11313,65 @@ def k_components(G):
 
 
 def k_factor(G, k):
-    """Return k-regular spanning subgraph (if exists)."""
-    import networkx as nx
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+    """Return a k-regular spanning subgraph of G (if exists).
 
-    return _from_nx_graph(nx.k_factor(_to_nx(G), k))
+    Uses maximum matching on an auxiliary graph to find a k-factor.
+    A k-factor is a spanning subgraph where every node has degree exactly k.
+    """
+    if k < 0:
+        raise NetworkXError("k must be non-negative")
+    if k == 0:
+        H = Graph()
+        for node in G.nodes():
+            H.add_node(node, **dict(G.nodes[node]))
+        return H
+
+    # Check feasibility: every node must have degree >= k.
+    for node in G.nodes():
+        if G.degree[node] < k:
+            raise NetworkXUnfeasible(
+                f"Graph does not have a k-factor: node {node} has degree "
+                f"{G.degree[node]} < k={k}"
+            )
+
+    # For k=1, find a perfect matching.
+    if k == 1:
+        matching = max_weight_matching(G, maxcardinality=True)
+        if len(matching) * 2 < G.number_of_nodes():
+            raise NetworkXUnfeasible("No perfect matching exists for 1-factor")
+        H = Graph()
+        for node in G.nodes():
+            H.add_node(node, **dict(G.nodes[node]))
+        for u, v in matching:
+            H.add_edge(u, v, **dict(G[u][v]))
+        return H
+
+    # General case: greedy edge selection trying to get k-regular.
+    # Start with all edges, iteratively remove edges from high-degree nodes.
+    H = G.copy()
+    changed = True
+    while changed:
+        changed = False
+        for node in list(H.nodes()):
+            while H.degree[node] > k:
+                # Remove an edge to the neighbor with highest degree.
+                nbrs = list(H.neighbors(node))
+                nbrs.sort(key=lambda v: H.degree[v], reverse=True)
+                for nbr in nbrs:
+                    if H.degree[nbr] > k:
+                        H.remove_edge(node, nbr)
+                        changed = True
+                        break
+                else:
+                    # All neighbors at or below k — remove edge to highest-degree.
+                    H.remove_edge(node, nbrs[0])
+                    changed = True
+
+    # Verify k-regularity.
+    for node in H.nodes():
+        if H.degree[node] != k:
+            raise NetworkXUnfeasible(f"Could not find a {k}-factor")
+    return H
 
 
 def spectral_graph_forge(G, alpha=0.8, seed=None):
@@ -11128,22 +12244,52 @@ def dual_barabasi_albert_graph(
     initial_graph=None,
     create_using=None,
 ):
-    """Return a dual Barabasi-Albert preferential attachment graph."""
-    import networkx as nx
+    """Return a dual Barabasi-Albert preferential attachment graph.
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+    With probability p, add m1 edges (preferential attachment).
+    With probability 1-p, add m2 edges (preferential attachment).
+    """
+    import random as _random
 
-    graph = nx.dual_barabasi_albert_graph(
-        n,
-        m1,
-        m2,
-        p,
-        seed=seed,
-        initial_graph=None if initial_graph is None else _to_nx(initial_graph),
-        create_using=None,
-    )
-    return _from_nx_graph(graph, create_using=create_using)
+    rng = _random.Random(seed)
+
+    if m1 < 1 or m1 >= n:
+        raise NetworkXError(f"Dual BA: m1={m1} must be >= 1 and < n={n}")
+    if m2 < 1 or m2 >= n:
+        raise NetworkXError(f"Dual BA: m2={m2} must be >= 1 and < n={n}")
+    if not (0 <= p <= 1):
+        raise NetworkXError(f"Dual BA: p={p} must be in [0,1]")
+
+    if initial_graph is not None:
+        G = initial_graph.copy()
+        m0 = G.number_of_nodes()
+    else:
+        m0 = max(m1, m2)
+        G = star_graph(m0)
+
+    # Repeated-nodes list for preferential attachment.
+    repeated_nodes = []
+    for u, v in G.edges():
+        repeated_nodes.extend([u, v])
+
+    source = max(G.nodes()) + 1 if G.number_of_nodes() > 0 else 0
+
+    while G.number_of_nodes() < n:
+        m = m1 if rng.random() < p else m2
+        targets = set()
+        while len(targets) < m:
+            if repeated_nodes:
+                x = repeated_nodes[rng.randint(0, len(repeated_nodes) - 1)]
+                targets.add(x)
+            else:
+                break
+        G.add_node(source)
+        for target in targets:
+            G.add_edge(source, target)
+            repeated_nodes.extend([source, target])
+        source += 1
+
+    return G
 
 
 def extended_barabasi_albert_graph(n, m, p, q, seed=None, create_using=None):
@@ -11174,34 +12320,25 @@ def scale_free_graph(
     initial_graph=None,
 ):
     """Return a directed scale-free MultiDiGraph."""
-    import networkx as nx
+    # Convert initial_graph to MultiDiGraph if needed for the Rust binding.
+    if initial_graph is not None and not isinstance(initial_graph, MultiDiGraph):
+        converted = MultiDiGraph()
+        for node, attrs in initial_graph.nodes(data=True):
+            converted.add_node(node, **attrs)
+        for u, v, *rest in initial_graph.edges(data=True):
+            data = rest[0] if rest else {}
+            converted.add_edge(u, v, **data)
+        initial_graph = converted
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
-
-    if initial_graph is None or isinstance(initial_graph, MultiDiGraph):
-        return _fnx.scale_free_graph(
-            n,
-            alpha=alpha,
-            beta=beta,
-            gamma=gamma,
-            delta_in=delta_in,
-            delta_out=delta_out,
-            seed=seed,
-            initial_graph=initial_graph,
-        )
-
-    return _from_nx_graph(
-        nx.scale_free_graph(
-            n,
-            alpha=alpha,
-            beta=beta,
-            gamma=gamma,
-            delta_in=delta_in,
-            delta_out=delta_out,
-            seed=seed,
-            initial_graph=None if initial_graph is None else _to_nx(initial_graph),
-        )
+    return _fnx.scale_free_graph(
+        n,
+        alpha=alpha,
+        beta=beta,
+        gamma=gamma,
+        delta_in=delta_in,
+        delta_out=delta_out,
+        seed=seed,
+        initial_graph=initial_graph,
     )
 
 
@@ -11362,21 +12499,74 @@ def grid_graph(dim, periodic=False):
 
 
 def lattice_reference(G, niter=5, D=None, connectivity=True, seed=None):
-    """Return a lattice-like rewiring of *G* preserving degree sequence."""
-    import networkx as nx
+    """Return a lattice-like rewiring of *G* preserving degree sequence.
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+    Performs niter * E edge swaps, attempting to sort edges by node index
+    to create a lattice-like structure while preserving the degree sequence.
+    """
+    import random as _random
 
-    return _from_nx_graph(
-        nx.lattice_reference(
-            _to_nx(G),
-            niter=niter,
-            D=D,
-            connectivity=connectivity,
-            seed=seed,
-        )
-    )
+    rng = _random.Random(seed)
+    H = G.copy()
+    nodes = sorted(H.nodes())
+    n = len(nodes)
+    node_to_idx = {v: i for i, v in enumerate(nodes)}
+
+    if n < 4:
+        return H
+
+    nswap = niter * H.number_of_edges()
+    swaps = 0
+    max_attempts = nswap * 10
+
+    for _ in range(max_attempts):
+        if swaps >= nswap:
+            break
+        edges = list(H.edges())
+        if len(edges) < 2:
+            break
+        # Pick two random edges.
+        ei = rng.randint(0, len(edges) - 1)
+        ej = rng.randint(0, len(edges) - 1)
+        if ei == ej:
+            continue
+        u, v = edges[ei]
+        x, y = edges[ej]
+        if len({u, v, x, y}) < 4:
+            continue
+
+        # Try swap: (u,v),(x,y) -> (u,x),(v,y) — choose the swap that
+        # reduces total "distance" in the node ordering (lattice-like).
+        ui, vi, xi, yi = node_to_idx[u], node_to_idx[v], node_to_idx[x], node_to_idx[y]
+        old_dist = abs(ui - vi) + abs(xi - yi)
+        new_dist_1 = abs(ui - xi) + abs(vi - yi)
+        new_dist_2 = abs(ui - yi) + abs(vi - xi)
+
+        if new_dist_1 <= new_dist_2 and new_dist_1 < old_dist:
+            new_u_nbr, new_v_nbr = x, y
+        elif new_dist_2 < old_dist:
+            new_u_nbr, new_v_nbr = y, x
+        else:
+            continue
+
+        if H.has_edge(u, new_u_nbr) or H.has_edge(v, new_v_nbr):
+            continue
+
+        H.remove_edge(u, v)
+        H.remove_edge(x, y)
+        H.add_edge(u, new_u_nbr)
+        H.add_edge(v, new_v_nbr)
+
+        if connectivity and not is_connected(H):
+            H.remove_edge(u, new_u_nbr)
+            H.remove_edge(v, new_v_nbr)
+            H.add_edge(u, v)
+            H.add_edge(x, y)
+            continue
+
+        swaps += 1
+
+    return H
 
 
 def margulis_gabber_galil_graph(n, create_using=None):

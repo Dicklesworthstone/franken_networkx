@@ -2796,7 +2796,9 @@ mod tests {
     #[test]
     fn adversarial_empty_edgelist_strict_returns_empty() {
         let mut engine = EdgeListEngine::strict();
-        let report = engine.read_edgelist("").expect("empty edgelist should return empty graph");
+        let report = engine
+            .read_edgelist("")
+            .expect("empty edgelist should return empty graph");
         assert_eq!(report.graph.node_count(), 0);
         assert_eq!(report.graph.edge_count(), 0);
     }
@@ -2804,7 +2806,9 @@ mod tests {
     #[test]
     fn adversarial_empty_edgelist_hardened_returns_empty() {
         let mut engine = EdgeListEngine::hardened();
-        let report = engine.read_edgelist("").expect("hardened empty edgelist should return empty graph");
+        let report = engine
+            .read_edgelist("")
+            .expect("hardened empty edgelist should return empty graph");
         assert_eq!(report.graph.node_count(), 0);
         assert_eq!(report.graph.edge_count(), 0);
     }
@@ -2812,7 +2816,9 @@ mod tests {
     #[test]
     fn adversarial_empty_json_strict_fails_closed() {
         let mut engine = EdgeListEngine::strict();
-        let err = engine.read_json_graph("").expect_err("empty json in strict mode should fail");
+        let err = engine
+            .read_json_graph("")
+            .expect_err("empty json in strict mode should fail");
         assert!(matches!(err, ReadWriteError::FailClosed { .. }));
     }
 
@@ -2820,7 +2826,9 @@ mod tests {
     fn adversarial_empty_graphml_strict_returns_empty() {
         let mut engine = EdgeListEngine::strict();
         // Empty XML returns empty graph (no graph element found).
-        let report = engine.read_graphml("").expect("empty graphml should return empty graph");
+        let report = engine
+            .read_graphml("")
+            .expect("empty graphml should return empty graph");
         assert_eq!(report.graph.node_count(), 0);
     }
 
@@ -2828,7 +2836,9 @@ mod tests {
     fn adversarial_empty_gml_strict_returns_empty() {
         let mut engine = EdgeListEngine::strict();
         // Empty GML returns empty graph (no graph block found).
-        let report = engine.read_gml("").expect("empty gml should return empty graph");
+        let report = engine
+            .read_gml("")
+            .expect("empty gml should return empty graph");
         assert_eq!(report.graph.node_count(), 0);
     }
 
@@ -2836,7 +2846,9 @@ mod tests {
     fn adversarial_unicode_json_parses_correctly() {
         let input = include_str!("../../fnx-conformance/fixtures/adversarial/unicode_nodes.json");
         let mut engine = EdgeListEngine::strict();
-        let report = engine.read_json_graph(input).expect("unicode json should parse in strict mode");
+        let report = engine
+            .read_json_graph(input)
+            .expect("unicode json should parse in strict mode");
         assert_eq!(report.graph.node_count(), 7, "should have 7 unicode nodes");
         assert_eq!(report.graph.edge_count(), 4);
     }
@@ -2851,16 +2863,20 @@ mod tests {
 
     #[test]
     fn adversarial_negative_weights_json_parses() {
-        let input = include_str!("../../fnx-conformance/fixtures/adversarial/negative_weights.json");
+        let input =
+            include_str!("../../fnx-conformance/fixtures/adversarial/negative_weights.json");
         let mut engine = EdgeListEngine::strict();
-        let report = engine.read_digraph_json_graph(input).expect("negative weights json should parse as digraph");
+        let report = engine
+            .read_digraph_json_graph(input)
+            .expect("negative weights json should parse as digraph");
         assert_eq!(report.graph.node_count(), 5);
         assert_eq!(report.graph.edge_count(), 7);
     }
 
     #[test]
     fn adversarial_malformed_graphml_hardened_recovers() {
-        let input = include_str!("../../fnx-conformance/fixtures/adversarial/malformed_xml.graphml");
+        let input =
+            include_str!("../../fnx-conformance/fixtures/adversarial/malformed_xml.graphml");
         let mut engine = EdgeListEngine::hardened();
         // Must not panic. Should return Ok with warnings or Err.
         let _ = engine.read_graphml(input);
@@ -2868,7 +2884,8 @@ mod tests {
 
     #[test]
     fn adversarial_malformed_gml_hardened_recovers() {
-        let input = include_str!("../../fnx-conformance/fixtures/adversarial/malformed_nesting.gml");
+        let input =
+            include_str!("../../fnx-conformance/fixtures/adversarial/malformed_nesting.gml");
         let mut engine = EdgeListEngine::hardened();
         // Must not panic. Should return Ok with warnings or Err.
         let _ = engine.read_gml(input);
