@@ -16,9 +16,11 @@ Or as a NetworkX backend (zero code changes required)::
     # Now all supported algorithms dispatch to Rust automatically.
 """
 
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import Mapping
 from enum import Enum
+from heapq import heappop, heappush
+from itertools import count
 import math
 import sys
 
@@ -1156,14 +1158,25 @@ def is_bipartite_node_set(G, nodes):
 
 
 def projected_graph(B, nodes, multigraph=False):
-    """Return the projection of a bipartite graph onto one set of nodes."""
-    import networkx as nx
+    """Return the projection of a bipartite graph onto one set of nodes.
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+    Two nodes in the projection are connected if they share a neighbor
+    in the original bipartite graph.
+    """
+    nodes_set = set(nodes)
+    G = Graph()
+    for node in nodes_set:
+        G.add_node(node, **dict(B.nodes[node]))
 
-    graph = nx.projected_graph(_to_nx(B), nodes, multigraph=multigraph)
-    return _from_nx_graph(graph)
+    for u in nodes_set:
+        for nbr in B.neighbors(u):
+            if nbr in nodes_set:
+                continue
+            for v in B.neighbors(nbr):
+                if v in nodes_set and v != u and not G.has_edge(u, v):
+                    G.add_edge(u, v)
+
+    return G
 
 
 def bipartite_density(B, nodes):
@@ -1700,18 +1713,76 @@ def has_bridges(G):
 def local_bridges(G, with_span=True, weight=None):
     """Yield local bridges in *G*.
 
-    Delegates to NetworkX if ``with_span=True`` or ``weight`` is specified,
-    otherwise uses the high-performance Rust implementation.
+    A local bridge is an edge (u, v) where u and v have no common neighbors.
+    If ``with_span`` is True, yields ``(u, v, span)`` where span is the
+    distance between u and v after virtually removing the edge.
     """
-    if with_span or weight is not None:
-        import networkx as nx
-        from franken_networkx.drawing.layout import _to_nx
-
-        return nx.local_bridges(_to_nx(G), with_span=with_span, weight=weight)
-    else:
+    if not with_span and weight is None:
         from franken_networkx._fnx import local_bridges_rust
 
         return iter(local_bridges_rust(G))
+
+    def _generate():
+        for u, v in G.edges():
+            u_nbrs = set(G.neighbors(u))
+            v_nbrs = set(G.neighbors(v))
+            u_nbrs.discard(v)
+            v_nbrs.discard(u)
+            if u_nbrs & v_nbrs:
+                continue  # common neighbor exists — not a local bridge
+            if with_span:
+                # Compute shortest path from u to v not using edge (u,v).
+                # BFS/Dijkstra from u, but skip the direct u->v hop.
+                from collections import deque
+
+                if weight is None:
+                    # Unweighted BFS avoiding direct (u,v) edge.
+                    dist = {u: 0}
+                    queue = deque([u])
+                    found = False
+                    while queue and not found:
+                        curr = queue.popleft()
+                        for nbr in G.neighbors(curr):
+                            # Skip the direct u<->v edge.
+                            if curr == u and nbr == v:
+                                continue
+                            if curr == v and nbr == u:
+                                continue
+                            if nbr not in dist:
+                                dist[nbr] = dist[curr] + 1
+                                if nbr == v:
+                                    found = True
+                                    break
+                                queue.append(nbr)
+                    span = dist.get(v, float("inf"))
+                else:
+                    # Weighted: Dijkstra avoiding direct (u,v) edge.
+                    import heapq
+
+                    dist = {u: 0}
+                    heap = [(0, u)]
+                    while heap:
+                        d, curr = heapq.heappop(heap)
+                        if d > dist.get(curr, float("inf")):
+                            continue
+                        if curr == v:
+                            break
+                        for nbr in G.neighbors(curr):
+                            if curr == u and nbr == v:
+                                continue
+                            if curr == v and nbr == u:
+                                continue
+                            w = G[curr][nbr].get(weight, 1)
+                            nd = d + w
+                            if nd < dist.get(nbr, float("inf")):
+                                dist[nbr] = nd
+                                heapq.heappush(heap, (nd, nbr))
+                    span = dist.get(v, float("inf"))
+                yield (u, v, span)
+            else:
+                yield (u, v)
+
+    return _generate()
 
 
 def minimum_edge_cut(G, s=None, t=None):
@@ -1799,21 +1870,45 @@ def stochastic_graph(G, copy=True, weight="weight"):
 
 def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
     """Return the ego graph of node *n* within *radius* hops."""
-    if distance is not None or undirected:
-        import networkx as nx
+    if distance is not None:
+        # Weighted BFS: use single_source_dijkstra_path_length with cutoff.
+        sp = single_source_dijkstra_path_length(G, n, cutoff=radius, weight=distance)
+        nodes_within = set(sp.keys())
+    elif undirected and G.is_directed():
+        # Treat directed graph as undirected for BFS.
+        # Build undirected view and do BFS.
+        seen = {n: 0}
+        queue = [n]
+        while queue:
+            next_queue = []
+            for u in queue:
+                depth = seen[u]
+                if depth >= radius:
+                    continue
+                for v in G.successors(u):
+                    if v not in seen:
+                        seen[v] = depth + 1
+                        next_queue.append(v)
+                for v in G.predecessors(u):
+                    if v not in seen:
+                        seen[v] = depth + 1
+                        next_queue.append(v)
+            queue = next_queue
+        nodes_within = set(seen.keys())
+    else:
+        nodes_within = None  # use Rust fast path
 
-        from franken_networkx.drawing.layout import _to_nx
-        from franken_networkx.readwrite import _from_nx_graph
-
-        graph = nx.ego_graph(
-            _to_nx(G),
-            n,
-            radius=radius,
-            center=center,
-            undirected=undirected,
-            distance=distance,
-        )
-        return _from_nx_graph(graph)
+    if nodes_within is not None:
+        graph = G.__class__()
+        graph.graph.update(dict(G.graph))
+        for node in nodes_within:
+            graph.add_node(node, **dict(G.nodes[node]))
+        for u, v, data in G.edges(data=True):
+            if u in nodes_within and v in nodes_within:
+                graph.add_edge(u, v, **data)
+        if not center and n in graph:
+            graph.remove_node(n)
+        return graph
 
     raw_graph = _fnx.ego_graph_rust(G, n, radius=radius, undirected=undirected)
     canonical_to_node = {str(node): node for node in G.nodes()}
@@ -4074,6 +4169,202 @@ def node_link_graph(
 # ---------------------------------------------------------------------------
 # Additional centrality / metrics
 # ---------------------------------------------------------------------------
+
+
+def _centrality_weight_function(G, weight):
+    if callable(weight):
+        return weight
+    if G.is_multigraph():
+        return lambda u, v, d: min(attr.get(weight, 1) for attr in d.values())
+    return lambda u, v, data: data.get(weight, 1)
+
+
+def _single_source_shortest_path_basic_local(G, source, cutoff=None):
+    stack = []
+    predecessors = {node: [] for node in G}
+    sigma = dict.fromkeys(G, 0.0)
+    distances = {source: 0}
+    sigma[source] = 1.0
+    queue = deque([source])
+    while queue:
+        node = queue.popleft()
+        stack.append(node)
+        node_distance = distances[node]
+        node_sigma = sigma[node]
+        if cutoff is not None and node_distance >= cutoff:
+            continue
+        for neighbor in G[node]:
+            if neighbor not in distances:
+                queue.append(neighbor)
+                distances[neighbor] = node_distance + 1
+            if distances[neighbor] == node_distance + 1:
+                sigma[neighbor] += node_sigma
+                predecessors[neighbor].append(node)
+    return stack, predecessors, sigma, distances
+
+
+def _single_source_dijkstra_path_basic_local(G, source, weight):
+    weight_fn = _centrality_weight_function(G, weight)
+    stack = []
+    predecessors = {node: [] for node in G}
+    sigma = dict.fromkeys(G, 0.0)
+    distances = {}
+    sigma[source] = 1.0
+    seen = {source: 0}
+    counter = count()
+    queue = []
+    heappush(queue, (0, next(counter), source, source))
+    while queue:
+        distance, _, pred, node = heappop(queue)
+        if node in distances:
+            continue
+        sigma[node] += sigma[pred]
+        stack.append(node)
+        distances[node] = distance
+        for neighbor, edge_data in G[node].items():
+            edge_weight = weight_fn(node, neighbor, edge_data)
+            if edge_weight is None:
+                continue
+            total_distance = distance + edge_weight
+            if neighbor not in distances and (
+                neighbor not in seen or total_distance < seen[neighbor]
+            ):
+                seen[neighbor] = total_distance
+                heappush(queue, (total_distance, next(counter), node, neighbor))
+                sigma[neighbor] = 0.0
+                predecessors[neighbor] = [node]
+            elif neighbor not in distances and total_distance == seen[neighbor]:
+                sigma[neighbor] += sigma[node]
+                predecessors[neighbor].append(node)
+    return stack, predecessors, sigma, distances
+
+
+def _rescale_betweenness_local(
+    betweenness, n, *, normalized, directed, endpoints=True, sampled_nodes=None
+):
+    source_count = None if sampled_nodes is None else len(sampled_nodes)
+    pair_nodes = n if endpoints else n - 1
+    if pair_nodes < 2:
+        return betweenness
+
+    source_scale = pair_nodes if source_count is None else source_count
+
+    if source_count is None or endpoints:
+        if normalized:
+            scale = 1 / (source_scale * (pair_nodes - 1))
+        else:
+            correction = 1 if directed else 2
+            scale = pair_nodes / (source_scale * correction)
+        if scale != 1:
+            for key in betweenness:
+                betweenness[key] *= scale
+        return betweenness
+
+    if normalized:
+        scale_source = (
+            1 / ((source_scale - 1) * (pair_nodes - 1))
+            if source_scale > 1
+            else math.nan
+        )
+        scale_nonsource = 1 / (source_scale * (pair_nodes - 1))
+    else:
+        correction = 1 if directed else 2
+        scale_source = (
+            pair_nodes / ((source_scale - 1) * correction)
+            if source_scale > 1
+            else math.nan
+        )
+        scale_nonsource = pair_nodes / (source_scale * correction)
+
+    sampled_nodes = set(sampled_nodes)
+    for key in betweenness:
+        betweenness[key] *= scale_source if key in sampled_nodes else scale_nonsource
+    return betweenness
+
+
+def _add_edge_keys_local(G, betweenness, weight=None):
+    weight_fn = _centrality_weight_function(G, weight)
+    edge_betweenness = dict.fromkeys(G.edges(keys=True), 0.0)
+    for u, v in betweenness:
+        edge_dict = G[u][v]
+        edge_weight = weight_fn(u, v, edge_dict)
+        keys = [key for key in edge_dict if weight_fn(u, v, {key: edge_dict[key]}) == edge_weight]
+        edge_value = betweenness[(u, v)] / len(keys)
+        for key in keys:
+            edge_betweenness[(u, v, key)] = edge_value
+    return edge_betweenness
+
+
+def _accumulate_subset_local(betweenness, stack, predecessors, sigma, source, targets):
+    delta = dict.fromkeys(stack, 0.0)
+    target_set = set(targets) - {source}
+    while stack:
+        node = stack.pop()
+        coeff = (delta[node] + 1.0) / sigma[node] if node in target_set else delta[node] / sigma[node]
+        for pred in predecessors[node]:
+            delta[pred] += sigma[pred] * coeff
+        if node != source:
+            betweenness[node] += delta[node]
+    return betweenness
+
+
+def _accumulate_edges_subset_local(
+    betweenness, stack, predecessors, sigma, source, targets
+):
+    delta = dict.fromkeys(stack, 0.0)
+    target_set = set(targets)
+    while stack:
+        node = stack.pop()
+        for pred in predecessors[node]:
+            if node in target_set:
+                contribution = (sigma[pred] / sigma[node]) * (1.0 + delta[node])
+            else:
+                contribution = delta[node] / len(predecessors[node])
+            edge = (pred, node) if (pred, node) in betweenness else (node, pred)
+            betweenness[edge] += contribution
+            delta[pred] += contribution
+        if node != source:
+            betweenness[node] += delta[node]
+    return betweenness
+
+
+def _accumulate_percolation_local(
+    percolation, stack, predecessors, sigma, source, states, state_sum
+):
+    delta = dict.fromkeys(stack, 0.0)
+    while stack:
+        node = stack.pop()
+        coeff = (1 + delta[node]) / sigma[node]
+        for pred in predecessors[node]:
+            delta[pred] += sigma[pred] * coeff
+        if node != source:
+            percolation_weight = states[source] / (state_sum - states[node])
+            percolation[node] += delta[node] * percolation_weight
+    return percolation
+
+
+def _edge_load_from_source_local(G, source, cutoff=None):
+    _, predecessors, _, distances = _single_source_shortest_path_basic_local(
+        G, source, cutoff=cutoff
+    )
+    ordered_nodes = [
+        node for node, _ in sorted(distances.items(), key=lambda item: item[1])
+    ]
+    between = {}
+    for u, v in G.edges():
+        between[(u, v)] = 1.0
+        between[(v, u)] = 1.0
+
+    while ordered_nodes:
+        node = ordered_nodes.pop()
+        num_paths = len(predecessors[node])
+        for pred in predecessors[node]:
+            if predecessors[pred]:
+                num_paths = len(predecessors[pred])
+                for parent in predecessors[pred]:
+                    between[(pred, parent)] += between[(node, pred)] / num_paths
+                    between[(parent, pred)] += between[(pred, node)] / num_paths
+    return between
 
 
 def load_centrality(G, v=None, cutoff=None, normalized=True, weight=None):
@@ -7022,13 +7313,25 @@ def current_flow_closeness_centrality(G, weight=None, solver="full"):
 
 def betweenness_centrality_subset(G, sources, targets, normalized=False, weight=None):
     """Betweenness centrality restricted to source/target subsets."""
-    import networkx as nx
-    from franken_networkx.drawing.layout import _to_nx
-
-    return dict(
-        nx.betweenness_centrality_subset(
-            _to_nx(G), sources, targets, normalized=normalized, weight=weight
+    betweenness = dict.fromkeys(G, 0.0)
+    for source in sources:
+        if weight is None:
+            stack, predecessors, sigma, _ = _single_source_shortest_path_basic_local(
+                G, source
+            )
+        else:
+            stack, predecessors, sigma, _ = _single_source_dijkstra_path_basic_local(
+                G, source, weight
+            )
+        betweenness = _accumulate_subset_local(
+            betweenness, stack, predecessors, sigma, source, targets
         )
+    return _rescale_betweenness_local(
+        betweenness,
+        len(G),
+        normalized=normalized,
+        directed=G.is_directed(),
+        endpoints=False,
     )
 
 
@@ -7036,19 +7339,44 @@ def edge_betweenness_centrality_subset(
     G, sources, targets, normalized=False, weight=None
 ):
     """Edge betweenness restricted to source/target subsets."""
-    import networkx as nx
-    from franken_networkx.drawing.layout import _to_nx
-
-    return dict(
-        nx.edge_betweenness_centrality_subset(
-            _to_nx(G), sources, targets, normalized=normalized, weight=weight
+    betweenness = dict.fromkeys(G, 0.0)
+    betweenness.update(dict.fromkeys(G.edges(), 0.0))
+    for source in sources:
+        if weight is None:
+            stack, predecessors, sigma, _ = _single_source_shortest_path_basic_local(
+                G, source
+            )
+        else:
+            stack, predecessors, sigma, _ = _single_source_dijkstra_path_basic_local(
+                G, source, weight
+            )
+        betweenness = _accumulate_edges_subset_local(
+            betweenness, stack, predecessors, sigma, source, targets
         )
+    for node in G:
+        del betweenness[node]
+    betweenness = _rescale_betweenness_local(
+        betweenness,
+        len(G),
+        normalized=normalized,
+        directed=G.is_directed(),
     )
+    if G.is_multigraph():
+        return _add_edge_keys_local(G, betweenness, weight=weight)
+    return betweenness
 
 
 def edge_load_centrality(G, cutoff=None):
     """Load centrality for edges."""
-    return edge_betweenness_centrality(G)
+    betweenness = {}
+    for u, v in G.edges():
+        betweenness[(u, v)] = 0.0
+        betweenness[(v, u)] = 0.0
+    for source in G:
+        source_between = _edge_load_from_source_local(G, source, cutoff=cutoff)
+        for edge, value in source_between.items():
+            betweenness[edge] += value
+    return betweenness
 
 
 def laplacian_centrality(G, normalized=True, nodelist=None, weight="weight"):
@@ -7075,16 +7403,30 @@ def laplacian_centrality(G, normalized=True, nodelist=None, weight="weight"):
 
 def percolation_centrality(G, attribute="percolation", states=None, weight=None):
     """Percolation centrality based on percolation states."""
-    import networkx as nx
+    percolation = dict.fromkeys(G, 0.0)
+    if states is None:
+        states = {
+            node: G.nodes[node].get(attribute, 1)
+            for node in G
+        }
 
-    from franken_networkx.drawing.layout import _to_nx
+    state_sum = sum(states.values())
+    for source in G:
+        if weight is None:
+            stack, predecessors, sigma, _ = _single_source_shortest_path_basic_local(
+                G, source
+            )
+        else:
+            stack, predecessors, sigma, _ = _single_source_dijkstra_path_basic_local(
+                G, source, weight
+            )
+        percolation = _accumulate_percolation_local(
+            percolation, stack, predecessors, sigma, source, states, state_sum
+        )
 
-    return nx.percolation_centrality(
-        _to_nx(G),
-        attribute=attribute,
-        states=states,
-        weight=weight,
-    )
+    for node in percolation:
+        percolation[node] *= 1 / (len(G) - 2)
+    return percolation
 
 
 def information_centrality(G, weight=None, solver="full"):
@@ -7503,23 +7845,63 @@ def intersection_array(G):
 
 
 def eulerize(G):
-    """Add minimum edges to make G Eulerian. Returns copy with added edges."""
-    import networkx as nx
+    """Add minimum edges to make G Eulerian. Returns copy with added edges.
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+    Finds odd-degree nodes, computes shortest paths between all pairs of them,
+    finds minimum weight matching, and duplicates matched-path edges.
+    """
+    from itertools import combinations
 
-    return _from_nx_graph(nx.eulerize(_to_nx(G)))
+    if not is_connected(G):
+        raise NetworkXError("G is not connected")
+
+    odd_nodes = [v for v in G.nodes() if G.degree(v) % 2 == 1]
+    if not odd_nodes:
+        return G.copy()
+
+    # Build a complete graph on odd-degree nodes weighted by shortest path length.
+    odd_complete = Graph()
+    for u, v in combinations(odd_nodes, 2):
+        length = shortest_path_length(G, u, v, weight="weight")
+        odd_complete.add_edge(u, v, weight=length)
+
+    # Find minimum weight matching on the odd-degree complete graph.
+    matching = min_weight_matching(odd_complete)
+
+    # Duplicate edges along matched shortest paths.
+    H = G.copy()
+    for u, v in matching:
+        path = shortest_path(G, u, v, weight="weight")
+        for i in range(len(path) - 1):
+            H.add_edge(path[i], path[i + 1], **dict(G[path[i]][path[i + 1]]))
+
+    return H
 
 
 def moral_graph(G):
-    """Return the moral graph of a DAG (marry co-parents, drop directions)."""
-    import networkx as nx
+    """Return the moral graph of a DAG (marry co-parents, drop directions).
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+    For each node, connect all pairs of its predecessors (marry co-parents),
+    then return the undirected version.
+    """
+    from itertools import combinations
 
-    return _from_nx_graph(nx.moral_graph(_to_nx(G)))
+    H = Graph()
+    for node in G.nodes():
+        H.add_node(node, **dict(G.nodes[node]))
+
+    # Add existing edges as undirected.
+    for u, v, data in G.edges(data=True):
+        H.add_edge(u, v, **data)
+
+    # Marry co-parents: for each node, connect all pairs of predecessors.
+    for node in G.nodes():
+        preds = list(G.predecessors(node))
+        for u, v in combinations(preds, 2):
+            if not H.has_edge(u, v):
+                H.add_edge(u, v)
+
+    return H
 
 
 def equivalence_classes(iterable, relation):
@@ -8043,35 +8425,70 @@ def triad_graph(triad_type_str):
 def weisfeiler_lehman_graph_hash(
     G, edge_attr=None, node_attr=None, iterations=3, digest_size=16
 ):
-    """WL graph hash for isomorphism testing."""
-    import networkx as nx
+    """WL graph hash for isomorphism testing.
 
-    from franken_networkx.drawing.layout import _to_nx
+    Iteratively refines node labels using sorted neighbor multisets,
+    then hashes the sorted final label multiset.
+    """
+    import hashlib
 
-    return nx.weisfeiler_lehman_graph_hash(
-        _to_nx(G),
+    subhashes = weisfeiler_lehman_subgraph_hashes(
+        G,
         edge_attr=edge_attr,
         node_attr=node_attr,
         iterations=iterations,
         digest_size=digest_size,
     )
+    # Collect final-iteration hashes for all nodes.
+    final_labels = []
+    for node, hash_list in subhashes.items():
+        if hash_list:
+            final_labels.append(hash_list[-1])
+    return hashlib.blake2b(
+        "".join(sorted(final_labels)).encode(), digest_size=digest_size
+    ).hexdigest()
 
 
 def weisfeiler_lehman_subgraph_hashes(
     G, edge_attr=None, node_attr=None, iterations=3, digest_size=16
 ):
-    """Per-node WL hashes at each iteration."""
-    import networkx as nx
+    """Per-node WL hashes at each iteration.
 
-    from franken_networkx.drawing.layout import _to_nx
+    Returns dict mapping each node to a list of hash strings (one per iteration).
+    """
+    import hashlib
 
-    return nx.weisfeiler_lehman_subgraph_hashes(
-        _to_nx(G),
-        edge_attr=edge_attr,
-        node_attr=node_attr,
-        iterations=iterations,
-        digest_size=digest_size,
-    )
+    def _hash(s):
+        return hashlib.blake2b(s.encode(), digest_size=digest_size).hexdigest()
+
+    # Initialize labels.
+    if node_attr is not None:
+        labels = {n: str(G.nodes[n].get(node_attr, "")) for n in G.nodes()}
+    else:
+        labels = {n: str(G.degree[n]) for n in G.nodes()}
+
+    result = {n: [] for n in G.nodes()}
+    for n in G.nodes():
+        result[n].append(_hash(labels[n]))
+
+    for _ in range(iterations):
+        new_labels = {}
+        for n in G.nodes():
+            nbr_labels = []
+            for nbr in G.neighbors(n):
+                if edge_attr is not None:
+                    edge_data = G[n][nbr]
+                    prefix = str(edge_data.get(edge_attr, ""))
+                    nbr_labels.append(prefix + labels[nbr])
+                else:
+                    nbr_labels.append(labels[nbr])
+            nbr_labels.sort()
+            new_labels[n] = labels[n] + "".join(nbr_labels)
+        labels = {n: _hash(new_labels[n]) for n in G.nodes()}
+        for n in G.nodes():
+            result[n].append(labels[n])
+
+    return result
 
 
 def lexicographical_topological_sort(G, key=None):
@@ -8119,12 +8536,89 @@ def onion_layers(G):
 
 
 def k_edge_components(G, k):
-    """Partition into k-edge-connected components."""
-    import networkx as nx
+    """Partition into k-edge-connected components.
 
-    from franken_networkx.drawing.layout import _to_nx
+    For k=1, returns connected components.
+    For k=2, returns 2-edge-connected components (bridge-free blocks).
+    For k>=3, uses repeated edge connectivity checks.
+    """
+    if k < 1:
+        raise NetworkXError("k must be positive")
 
-    return list(nx.k_edge_components(_to_nx(G), k))
+    if k == 1:
+        return [set(c) for c in connected_components(G)]
+
+    if k == 2:
+        # 2-edge-connected components: connected components after bridge removal.
+        bridge_set = set()
+        for u, v in bridges(G):
+            bridge_set.add((u, v))
+            bridge_set.add((v, u))
+
+        # Build bridge-free subgraph and find its components.
+        visited = set()
+        components = []
+        for start in G.nodes():
+            if start in visited:
+                continue
+            comp = set()
+            stack = [start]
+            while stack:
+                node = stack.pop()
+                if node in visited:
+                    continue
+                visited.add(node)
+                comp.add(node)
+                for nbr in G.neighbors(node):
+                    if nbr not in visited and (node, nbr) not in bridge_set:
+                        stack.append(nbr)
+            components.append(comp)
+        return components
+
+    # General case for k >= 3: start from (k-1)-edge-components, then split.
+    sub_components = k_edge_components(G, k - 1)
+    result = []
+    for comp in sub_components:
+        if len(comp) <= 1:
+            result.append(comp)
+            continue
+        sub = G.subgraph(comp)
+        # Check all pairs — split if edge_connectivity < k.
+        nodes_list = list(comp)
+        groups = [{n} for n in nodes_list]
+        # Union-find: merge nodes that are k-edge-connected.
+        parent = {n: n for n in nodes_list}
+
+        def find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        def union(x, y):
+            px, py = find(x), find(y)
+            if px != py:
+                parent[px] = py
+
+        for i, u in enumerate(nodes_list):
+            for v in nodes_list[i + 1:]:
+                if find(u) != find(v):
+                    try:
+                        ec = edge_connectivity(sub, u, v)
+                        if ec >= k:
+                            union(u, v)
+                    except Exception:
+                        pass
+
+        comp_map = {}
+        for n in nodes_list:
+            root = find(n)
+            if root not in comp_map:
+                comp_map[root] = set()
+            comp_map[root].add(n)
+        result.extend(comp_map.values())
+
+    return result
 
 
 def k_edge_subgraphs(G, k):
@@ -8756,14 +9250,37 @@ def tree_graph(data, ident="id", children="children"):
 
 
 def complete_to_chordal_graph(G):
-    """Return a chordal completion and elimination ordering map."""
-    import networkx as nx
+    """Return a chordal completion and elimination ordering map.
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+    Uses MCS-M (maximum cardinality search with minimal fill-in) to produce
+    a chordal supergraph and a perfect elimination ordering.
+    """
+    H = G.copy()
+    nodes = list(G.nodes())
+    n = len(nodes)
+    weight = {v: 0 for v in nodes}
+    alpha = {}
+    unnumbered = set(nodes)
 
-    graph, alpha = nx.complete_to_chordal_graph(_to_nx(G))
-    return _from_nx_graph(graph), alpha
+    for i in range(n, 0, -1):
+        # Pick unnumbered node with maximum weight.
+        z = max(unnumbered, key=lambda v: weight[v])
+        alpha[z] = i
+        unnumbered.remove(z)
+        # Update weights and add fill edges.
+        update_nodes = set()
+        for y in unnumbered:
+            if H.has_edge(z, y):
+                update_nodes.add(y)
+        for y in update_nodes:
+            weight[y] += 1
+            # Add fill edges between y and other numbered neighbors of z
+            # that are also neighbors of y's reach through z.
+            for w in update_nodes:
+                if w != y and not H.has_edge(y, w):
+                    H.add_edge(y, w)
+
+    return H, alpha
 
 
 # Structural Generators (br-rfd)
@@ -9365,29 +9882,58 @@ def generate_graphml(
     named_key_ids=False,
     edge_id_from_attribute=None,
 ):
-    """Generate GraphML lines."""
-    import networkx as nx
+    """Generate GraphML lines.
 
-    from franken_networkx.drawing.layout import _to_nx
+    Uses the native Rust-backed GraphML writer via a temp file, then yields lines.
+    """
+    import tempfile
 
-    yield from nx.generate_graphml(
-        _to_nx(G),
-        encoding=encoding,
-        prettyprint=prettyprint,
-        named_key_ids=named_key_ids,
-        edge_id_from_attribute=edge_id_from_attribute,
-    )
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".graphml", delete=False
+    ) as tmp:
+        tmp_path = tmp.name
+    try:
+        write_graphml(G, tmp_path)
+        with open(tmp_path, encoding=encoding) as f:
+            for line in f:
+                yield line.rstrip("\n")
+    finally:
+        import os
+
+        os.unlink(tmp_path)
 
 
 # Generators
 def mycielskian(G):
-    """Return the Mycielskian of G (increases chromatic number by 1)."""
-    import networkx as nx
+    """Return the Mycielskian of G (increases chromatic number by 1).
 
-    from franken_networkx.drawing.layout import _to_nx
-    from franken_networkx.readwrite import _from_nx_graph
+    Given G with nodes {v1,...,vn}, M(G) adds mirror nodes u_i for each v_i,
+    an apex node w, mirror-to-original edges for each original edge, and
+    edges from each mirror to the apex.
+    """
+    n = G.number_of_nodes()
+    nodes = list(G.nodes())
+    node_to_idx = {v: i for i, v in enumerate(nodes)}
 
-    return _from_nx_graph(nx.mycielskian(_to_nx(G)))
+    M = Graph()
+    for node in nodes:
+        M.add_node(node, **dict(G.nodes[node]))
+    for u, v, data in G.edges(data=True):
+        M.add_edge(u, v, **data)
+
+    for i in range(n):
+        M.add_node(n + i)
+    for u, v in G.edges():
+        i, j = node_to_idx[u], node_to_idx[v]
+        M.add_edge(n + i, v)
+        M.add_edge(n + j, u)
+
+    apex = 2 * n
+    M.add_node(apex)
+    for i in range(n):
+        M.add_edge(n + i, apex)
+
+    return M
 
 
 def mycielski_graph(n):

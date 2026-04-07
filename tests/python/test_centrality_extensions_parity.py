@@ -107,6 +107,58 @@ def test_group_betweenness_centrality_native_and_fallback_match_networkx():
     )
 
 
+def test_betweenness_centrality_subset_native_matches_networkx_and_avoids_delegation(
+    monkeypatch,
+):
+    graph = fnx.path_graph(4)
+    expected_graph = nx.path_graph(4)
+    expected = nx.betweenness_centrality_subset(
+        expected_graph,
+        [0, 1],
+        [2, 3],
+        normalized=True,
+    )
+
+    def fail(*args, **kwargs):
+        raise AssertionError("delegated to networkx.betweenness_centrality_subset")
+
+    monkeypatch.setattr(nx, "betweenness_centrality_subset", fail)
+    actual = fnx.betweenness_centrality_subset(
+        graph,
+        [0, 1],
+        [2, 3],
+        normalized=True,
+    )
+    _assert_mapping_close(actual, expected)
+
+
+def test_edge_betweenness_centrality_subset_native_matches_networkx_and_avoids_delegation(
+    monkeypatch,
+):
+    graph = fnx.cycle_graph(4)
+    expected_graph = nx.cycle_graph(4)
+    expected = nx.edge_betweenness_centrality_subset(
+        expected_graph,
+        [0, 1],
+        [2, 3],
+        normalized=True,
+    )
+
+    def fail(*args, **kwargs):
+        raise AssertionError(
+            "delegated to networkx.edge_betweenness_centrality_subset"
+        )
+
+    monkeypatch.setattr(nx, "edge_betweenness_centrality_subset", fail)
+    actual = fnx.edge_betweenness_centrality_subset(
+        graph,
+        [0, 1],
+        [2, 3],
+        normalized=True,
+    )
+    _assert_mapping_close(actual, expected)
+
+
 def test_communicability_betweenness_centrality_matches_networkx():
     graph = fnx.path_graph(4)
 
@@ -116,7 +168,14 @@ def test_communicability_betweenness_centrality_matches_networkx():
     _assert_mapping_close(actual, expected)
 
 
-def test_percolation_centrality_honors_attribute_and_states():
+def test_edge_load_centrality_matches_networkx():
+    graph = fnx.cycle_graph(4)
+    expected = nx.edge_load_centrality(nx.cycle_graph(4))
+    actual = fnx.edge_load_centrality(graph)
+    _assert_mapping_close(actual, expected)
+
+
+def test_percolation_centrality_honors_attribute_and_states(monkeypatch):
     graph = fnx.path_graph(4)
     for node, value in [(0, 0.1), (1, 0.3), (2, 0.7), (3, 1.0)]:
         graph.nodes[node]["custom_state"] = value
@@ -125,11 +184,16 @@ def test_percolation_centrality_honors_attribute_and_states():
     for node, value in [(0, 0.1), (1, 0.3), (2, 0.7), (3, 1.0)]:
         expected_graph.nodes[node]["custom_state"] = value
 
-    actual_attr = fnx.percolation_centrality(graph, attribute="custom_state")
     expected_attr = nx.percolation_centrality(expected_graph, attribute="custom_state")
+    states = {0: 0.1, 1: 0.3, 2: 0.7, 3: 1.0}
+    expected_states = nx.percolation_centrality(expected_graph, states=states)
+
+    def fail(*args, **kwargs):
+        raise AssertionError("delegated to networkx.percolation_centrality")
+
+    monkeypatch.setattr(nx, "percolation_centrality", fail)
+    actual_attr = fnx.percolation_centrality(graph, attribute="custom_state")
     _assert_mapping_close(actual_attr, expected_attr)
 
-    states = {0: 0.1, 1: 0.3, 2: 0.7, 3: 1.0}
     actual_states = fnx.percolation_centrality(graph, states=states)
-    expected_states = nx.percolation_centrality(expected_graph, states=states)
     _assert_mapping_close(actual_states, expected_states)
