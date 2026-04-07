@@ -12179,34 +12179,92 @@ def prominent_group(
     normalized=True,
     greedy=False,
 ):
-    """Return a prominent group using NetworkX's community helper."""
-    import networkx as nx
+    """Return a prominent group of k nodes maximizing group betweenness.
 
-    from franken_networkx.drawing.layout import _to_nx
+    Uses a greedy approach: iteratively add the node that most increases
+    the group betweenness centrality.
+    """
+    from itertools import combinations
 
-    return nx.prominent_group(
-        _to_nx(G),
-        k,
-        weight=weight,
-        C=C,
-        endpoints=endpoints,
-        normalized=normalized,
-        greedy=greedy,
-    )
+    nodes = list(G.nodes())
+    n = len(nodes)
+
+    if C is not None:
+        candidates = list(C)
+    else:
+        candidates = nodes
+
+    if k > len(candidates):
+        raise NetworkXError(f"k={k} exceeds number of candidate nodes")
+
+    if greedy or k > 5:
+        # Greedy: start empty, add node that maximizes group betweenness.
+        group = set()
+        remaining = set(candidates)
+        for _ in range(k):
+            best_node = None
+            best_score = -1
+            for node in remaining:
+                trial = group | {node}
+                score = group_betweenness_centrality(
+                    G, trial, normalized=normalized, weight=weight, endpoints=endpoints
+                )
+                if score > best_score:
+                    best_score = score
+                    best_node = node
+            group.add(best_node)
+            remaining.discard(best_node)
+        return group, group_betweenness_centrality(
+            G, group, normalized=normalized, weight=weight, endpoints=endpoints
+        )
+
+    # Exact: enumerate all k-subsets (only practical for small k and n).
+    best_group = None
+    best_score = -1
+    for combo in combinations(candidates, k):
+        score = group_betweenness_centrality(
+            G, set(combo), normalized=normalized, weight=weight, endpoints=endpoints
+        )
+        if score > best_score:
+            best_score = score
+            best_group = set(combo)
+    return best_group, best_score
 
 
 def within_inter_cluster(G, ebunch=None, delta=0.001, community="community"):
-    """Return within-cluster and inter-cluster edge counts."""
-    import networkx as nx
+    """Yield (u, v, score) for within/inter-cluster community metric.
 
-    from franken_networkx.drawing.layout import _to_nx
+    For each edge (u, v), the score is the number of common neighbors in the
+    same community as u divided by the minimum of the community sizes, plus
+    delta to avoid division by zero.
+    """
+    if ebunch is None:
+        ebunch = G.edges()
 
-    return nx.within_inter_cluster(
-        _to_nx(G),
-        ebunch=ebunch,
-        delta=delta,
-        community=community,
-    )
+    def _community(node):
+        return G.nodes[node].get(community)
+
+    def _generate():
+        for u, v in ebunch:
+            cu = _community(u)
+            cv = _community(v)
+            if cu is None or cv is None:
+                raise NetworkXError(
+                    f"No community information for node. "
+                    f"Set node attribute '{community}' first."
+                )
+            u_nbrs = set(G.neighbors(u))
+            v_nbrs = set(G.neighbors(v))
+            common = u_nbrs & v_nbrs
+            # Count common neighbors in same community as u.
+            within = sum(1 for w in common if _community(w) == cu)
+            # Community sizes.
+            cu_size = sum(1 for n in G.nodes() if _community(n) == cu)
+            cv_size = sum(1 for n in G.nodes() if _community(n) == cv)
+            denom = min(cu_size, cv_size) + delta
+            yield (u, v, within / denom)
+
+    return _generate()
 
 
 def gnc_graph(n, create_using=None, seed=None):
