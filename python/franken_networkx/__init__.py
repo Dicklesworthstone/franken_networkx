@@ -10284,12 +10284,29 @@ def tree_data(G, root, ident="id", children="children"):
 
 def tree_graph(data, ident="id", children="children"):
     """Reconstruct tree from nested dict data."""
-    import networkx as nx
+    graph = DiGraph()
 
-    from franken_networkx.readwrite import _from_nx_graph
+    def add_children(parent, children_):
+        for child_data in children_:
+            child = child_data[ident]
+            graph.add_edge(parent, child)
+            grandchildren = child_data.get(children, [])
+            if grandchildren:
+                add_children(child, grandchildren)
+            node_data = {
+                str(key): value
+                for key, value in child_data.items()
+                if key != ident and key != children
+            }
+            graph.add_node(child, **node_data)
 
-    graph = nx.tree_graph(data, ident=ident, children=children)
-    return _from_nx_graph(graph)
+    root = data[ident]
+    root_data = {
+        str(key): value for key, value in data.items() if key != ident and key != children
+    }
+    graph.add_node(root, **root_data)
+    add_children(root, data.get(children, []))
+    return graph
 
 
 def complete_to_chordal_graph(G):
@@ -10327,24 +10344,69 @@ def complete_to_chordal_graph(G):
 
 
 # Structural Generators (br-rfd)
+def _harary_graph_from_edges(n, edges, create_using=None):
+    graph = _empty_graph_from_create_using(create_using, default=Graph)
+    graph.add_nodes_from(range(n))
+
+    directed = graph.is_directed()
+    multigraph = graph.is_multigraph()
+    for u, v in edges:
+        graph.add_edge(u, v)
+        if directed:
+            graph.add_edge(v, u)
+        elif multigraph:
+            graph.add_edge(u, v)
+    return graph
+
+
 def hkn_harary_graph(k, n, create_using=None):
     """Return the Harary graph H_{k,n}."""
-    import networkx as nx
+    if k < 1:
+        raise NetworkXError("The node connectivity must be >= 1!")
+    if n < k + 1:
+        raise NetworkXError("The number of nodes must be >= k+1 !")
+    if k == 1:
+        return path_graph(n, create_using=create_using)
 
-    from franken_networkx.readwrite import _from_nx_graph
+    offset = k // 2
+    base_graph = circulant_graph(n, range(1, offset + 1))
+    edges = list(base_graph.edges())
 
-    graph = nx.hkn_harary_graph(k, n, create_using=None)
-    return _from_nx_graph(graph, create_using=create_using)
+    half = n // 2
+    if (k % 2 == 0) or (n % 2 == 0):
+        if k % 2 == 1:
+            edges.extend((i, i + half) for i in range(half))
+    else:
+        edges.extend((i, (i + half) % n) for i in range(half + 1))
+
+    return _harary_graph_from_edges(n, edges, create_using=create_using)
 
 
 def hnm_harary_graph(n, m, create_using=None):
     """Return the Harary graph on n nodes and m edges."""
-    import networkx as nx
+    if n < 1:
+        raise NetworkXError("The number of nodes must be >= 1!")
+    if m < n - 1:
+        raise NetworkXError("The number of edges must be >= n - 1 !")
+    if m > n * (n - 1) // 2:
+        raise NetworkXError("The number of edges must be <= n(n-1)/2")
 
-    from franken_networkx.readwrite import _from_nx_graph
+    d = 2 * m // n
+    offset = d // 2
+    base_graph = circulant_graph(n, range(1, offset + 1))
+    edges = list(base_graph.edges())
 
-    graph = nx.hnm_harary_graph(n, m, create_using=None)
-    return _from_nx_graph(graph, create_using=create_using)
+    half = n // 2
+    if (n % 2 == 0) or (d % 2 == 0):
+        if d % 2 == 1:
+            edges.extend((i, i + half) for i in range(half))
+
+        r = 2 * m % n
+        edges.extend((i, i + offset + 1) for i in range(r // 2))
+    else:
+        edges.extend((i, (i + half) % n) for i in range(m - n * offset))
+
+    return _harary_graph_from_edges(n, edges, create_using=create_using)
 
 
 def gomory_hu_tree(G, capacity="capacity"):
@@ -12292,9 +12354,10 @@ def prominent_group(
                     best_node = node
             group.add(best_node)
             remaining.discard(best_node)
-        return group, group_betweenness_centrality(
+        score = group_betweenness_centrality(
             G, group, normalized=normalized, weight=weight, endpoints=endpoints
         )
+        return float(f"{score:.2f}"), list(group)
 
     # Exact: enumerate all k-subsets (only practical for small k and n).
     best_group = None
@@ -12306,7 +12369,7 @@ def prominent_group(
         if score > best_score:
             best_score = score
             best_group = set(combo)
-    return best_group, best_score
+    return float(f"{best_score:.2f}"), list(best_group) if best_group is not None else []
 
 
 def within_inter_cluster(G, ebunch=None, delta=0.001, community="community"):

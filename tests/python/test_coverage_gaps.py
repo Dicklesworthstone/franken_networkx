@@ -623,6 +623,7 @@ class TestGenerators:
             expected_adjacency_data
         )
         assert sorted(tree.edges()) == sorted(expected_tree.edges())
+        assert sorted(tree.nodes(data=True)) == sorted(expected_tree.nodes(data=True))
         assert tree_export == expected_tree_export
         assert node_link_export == expected_node_link_export
         assert cytoscape_data == expected_cytoscape_data
@@ -1063,10 +1064,18 @@ class TestGenerators:
         expected_hkn = nx.hkn_harary_graph(2, 6, create_using=nx.Graph())
         hnm = fnx.hnm_harary_graph(6, 6, create_using=fnx.Graph())
         expected_hnm = nx.hnm_harary_graph(6, 6, create_using=nx.Graph())
+        hkn_directed = fnx.hkn_harary_graph(2, 6, create_using=fnx.DiGraph())
+        expected_hkn_directed = nx.hkn_harary_graph(2, 6, create_using=nx.DiGraph())
+        hnm_multigraph = fnx.hnm_harary_graph(6, 6, create_using=fnx.MultiGraph())
+        expected_hnm_multigraph = nx.hnm_harary_graph(6, 6, create_using=nx.MultiGraph())
 
         assert sorted(hakimi.edges()) == sorted(expected_hakimi.edges())
         assert sorted(hkn.edges()) == sorted(expected_hkn.edges())
         assert sorted(hnm.edges()) == sorted(expected_hnm.edges())
+        assert sorted(hkn_directed.edges()) == sorted(expected_hkn_directed.edges())
+        assert sorted(hnm_multigraph.edges(keys=True)) == sorted(
+            expected_hnm_multigraph.edges(keys=True)
+        )
 
     @needs_nx
     def test_barabasi_albert_supports_initial_graph_fallback(self):
