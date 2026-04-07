@@ -1,0 +1,188 @@
+"""Parity coverage for graph attribute helper wrappers."""
+
+import networkx as nx
+
+import franken_networkx as fnx
+
+
+def test_set_node_attributes_dict_with_name():
+    graph = fnx.path_graph(3)
+    expected = nx.path_graph(3)
+
+    values = {0: "red", 1: "blue", 99: "ignored"}
+    fnx.set_node_attributes(graph, values, "color")
+    nx.set_node_attributes(expected, values, "color")
+
+    assert dict(graph.nodes(data=True)) == dict(expected.nodes(data=True))
+
+
+def test_set_node_attributes_dict_of_dicts():
+    graph = fnx.Graph()
+    graph.add_nodes_from([0, 1])
+    expected = nx.Graph()
+    expected.add_nodes_from([0, 1])
+
+    values = {0: {"color": "red", "size": 5}, 4: {"ignored": True}}
+    fnx.set_node_attributes(graph, values)
+    nx.set_node_attributes(expected, values)
+
+    assert dict(graph.nodes(data=True)) == dict(expected.nodes(data=True))
+
+
+def test_set_node_attributes_scalar_broadcast():
+    graph = fnx.path_graph(4)
+    expected = nx.path_graph(4)
+
+    fnx.set_node_attributes(graph, "default", "label")
+    nx.set_node_attributes(expected, "default", "label")
+
+    assert dict(graph.nodes(data=True)) == dict(expected.nodes(data=True))
+
+
+def test_get_node_attributes_excludes_missing_when_default_is_none():
+    graph = fnx.Graph()
+    graph.add_node("a", color="red")
+    graph.add_node("b")
+    expected = nx.Graph()
+    expected.add_node("a", color="red")
+    expected.add_node("b")
+
+    assert fnx.get_node_attributes(graph, "color", default=None) == nx.get_node_attributes(
+        expected,
+        "color",
+        default=None,
+    )
+
+
+def test_get_node_attributes_includes_default_for_missing_nodes():
+    graph = fnx.Graph()
+    graph.add_node("a", color="red")
+    graph.add_node("b")
+    expected = nx.Graph()
+    expected.add_node("a", color="red")
+    expected.add_node("b")
+
+    assert fnx.get_node_attributes(graph, "color", default="missing") == nx.get_node_attributes(
+        expected,
+        "color",
+        default="missing",
+    )
+
+
+def test_set_edge_attributes_dict_with_name():
+    graph = fnx.Graph()
+    graph.add_edge(0, 1)
+    graph.add_edge(1, 2)
+    expected = nx.Graph()
+    expected.add_edge(0, 1)
+    expected.add_edge(1, 2)
+
+    values = {(1, 0): 7, (2, 9): 11}
+    fnx.set_edge_attributes(graph, values, "weight")
+    nx.set_edge_attributes(expected, values, "weight")
+
+    assert sorted(graph.edges(data=True)) == sorted(expected.edges(data=True))
+
+
+def test_set_edge_attributes_dict_of_dicts():
+    graph = fnx.Graph()
+    graph.add_edge("a", "b")
+    expected = nx.Graph()
+    expected.add_edge("a", "b")
+
+    values = {("a", "b"): {"weight": 3, "color": "red"}, ("x", "y"): {"ignored": True}}
+    fnx.set_edge_attributes(graph, values)
+    nx.set_edge_attributes(expected, values)
+
+    assert sorted(graph.edges(data=True)) == sorted(expected.edges(data=True))
+
+
+def test_set_edge_attributes_scalar_broadcast():
+    graph = fnx.path_graph(4)
+    expected = nx.path_graph(4)
+
+    fnx.set_edge_attributes(graph, 9, "weight")
+    nx.set_edge_attributes(expected, 9, "weight")
+
+    assert sorted(graph.edges(data=True)) == sorted(expected.edges(data=True))
+
+
+def test_get_edge_attributes_multigraph_preserves_keys_and_defaults():
+    graph = fnx.MultiGraph()
+    graph.add_edge("a", "b", key=7, weight=3)
+    graph.add_edge("a", "b", key=8)
+    expected = nx.MultiGraph()
+    expected.add_edge("a", "b", key=7, weight=3)
+    expected.add_edge("a", "b", key=8)
+
+    assert fnx.get_edge_attributes(graph, "weight", default=0) == nx.get_edge_attributes(
+        expected,
+        "weight",
+        default=0,
+    )
+
+
+def test_set_edge_attributes_multigraph_matches_networkx():
+    graph = fnx.MultiGraph()
+    graph.add_edge("a", "b", key=7)
+    graph.add_edge("a", "b", key=8)
+    expected = nx.MultiGraph()
+    expected.add_edge("a", "b", key=7)
+    expected.add_edge("a", "b", key=8)
+
+    values = {("b", "a", 7): {"weight": 5, "color": "red"}, ("a", "b", 9): {"ignored": True}}
+    fnx.set_edge_attributes(graph, values)
+    nx.set_edge_attributes(expected, values)
+
+    assert sorted(graph.edges(keys=True, data=True)) == sorted(expected.edges(keys=True, data=True))
+
+
+def test_attribute_roundtrip_matches_networkx_on_directed_multigraph():
+    graph = fnx.MultiDiGraph()
+    graph.add_edge("u", "v", key=1)
+    graph.add_edge("v", "u", key=2)
+    graph.add_node("u")
+    graph.add_node("v")
+
+    expected = nx.MultiDiGraph()
+    expected.add_edge("u", "v", key=1)
+    expected.add_edge("v", "u", key=2)
+    expected.add_node("u")
+    expected.add_node("v")
+
+    fnx.set_node_attributes(graph, {"u": {"role": "source"}, "v": {"role": "sink"}})
+    nx.set_node_attributes(expected, {"u": {"role": "source"}, "v": {"role": "sink"}})
+    fnx.set_edge_attributes(graph, {("u", "v", 1): 2, ("v", "u", 2): 4}, "weight")
+    nx.set_edge_attributes(expected, {("u", "v", 1): 2, ("v", "u", 2): 4}, "weight")
+
+    assert fnx.get_node_attributes(graph, "role") == nx.get_node_attributes(expected, "role")
+    assert fnx.get_edge_attributes(graph, "weight") == nx.get_edge_attributes(expected, "weight")
+
+
+def test_matches_networkx_on_mixed_attribute_workflow():
+    graph = fnx.Graph()
+    graph.add_edges_from([(0, 1), (1, 2), (2, 3)])
+    graph.add_nodes_from([4, 5])
+    expected = nx.Graph()
+    expected.add_edges_from([(0, 1), (1, 2), (2, 3)])
+    expected.add_nodes_from([4, 5])
+
+    fnx.set_node_attributes(graph, {0: "red", 2: "blue"}, "color")
+    nx.set_node_attributes(expected, {0: "red", 2: "blue"}, "color")
+    fnx.set_node_attributes(graph, {1: {"size": 5}, 4: {"size": 9}})
+    nx.set_node_attributes(expected, {1: {"size": 5}, 4: {"size": 9}})
+    fnx.set_edge_attributes(graph, {(0, 1): 2, (2, 1): 5}, "weight")
+    nx.set_edge_attributes(expected, {(0, 1): 2, (2, 1): 5}, "weight")
+
+    assert dict(graph.nodes(data=True)) == dict(expected.nodes(data=True))
+    assert sorted(graph.edges(data=True)) == sorted(expected.edges(data=True))
+    assert fnx.get_node_attributes(graph, "color", default="missing") == nx.get_node_attributes(
+        expected,
+        "color",
+        default="missing",
+    )
+    assert fnx.get_edge_attributes(graph, "weight", default=0) == nx.get_edge_attributes(
+        expected,
+        "weight",
+        default=0,
+    )

@@ -75,9 +75,28 @@ jobs:
       - name: Run Python tests
         run: pytest tests/python/ -v --tb=long
 
+  g4b-e2e:
+    name: G4b e2e integration
+    needs: g4-python-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: Swatinem/rust-cache@v2
+      - name: Install maturin and E2E dependencies
+        run: pip install maturin networkx numpy scipy
+      - name: Build and install
+        run: maturin develop --features pyo3/abi3-py310
+      - name: Run structured E2E integration script
+        run: python3 scripts/e2e_integration_test.py
+
   g5-conformance:
     name: G5 conformance
-    needs: g4-python-tests
+    needs: g4b-e2e
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -111,6 +130,10 @@ jobs:
         with:
           python-version: "3.12"
       - uses: Swatinem/rust-cache@v2
+      - name: Install benchmark gate Python dependencies
+        run: pip install maturin networkx
+      - name: Build release extension for perf SLO workloads
+        run: maturin develop --release --features pyo3/abi3-py310
       - name: Run benchmark gate
         run: bash scripts/run_benchmark_gate.sh
       - name: Upload performance artifacts

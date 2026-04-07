@@ -358,6 +358,14 @@ _SUPPORTED_ALGORITHMS = {
 }
 
 
+def get_backend_info():
+    """Return NetworkX backend metadata for dispatch registration."""
+    return {
+        "short_summary": "Rust-backed graph algorithms and generators with NetworkX parity goals.",
+        "functions": {name: {} for name in _SUPPORTED_ALGORITHMS},
+    }
+
+
 # ---------------------------------------------------------------------------
 # Graph conversion helpers
 # ---------------------------------------------------------------------------
@@ -496,3 +504,6 @@ class BackendInterface:
 
             return wrapper
         raise AttributeError(f"BackendInterface has no attribute '{name}'")
+
+
+backend_interface = BackendInterface()

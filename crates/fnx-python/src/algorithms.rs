@@ -7009,6 +7009,75 @@ fn vf2pp_all_isomorphisms_rust(
         .collect()
 }
 
+#[pyfunction]
+#[pyo3(signature = (g1, g2, upper_bound=None))]
+fn graph_edit_distance_common_rust(
+    py: Python<'_>,
+    g1: &Bound<'_, PyAny>,
+    g2: &Bound<'_, PyAny>,
+    upper_bound: Option<f64>,
+) -> PyResult<Option<PyObject>> {
+    let gr1 = extract_graph(g1)?;
+    let gr2 = extract_graph(g2)?;
+
+    if gr1.is_multigraph() || gr2.is_multigraph() || gr1.is_directed() != gr2.is_directed() {
+        return Ok(None);
+    }
+
+    let result = if gr1.is_directed() {
+        let dg1 = gr1.digraph().expect("is_directed checked above");
+        let dg2 = gr2.digraph().expect("is_directed checked above");
+        py.allow_threads(|| {
+            fnx_algorithms::common_graph_edit_distance_mappings(dg1, dg2, upper_bound)
+        })
+    } else {
+        let inner1 = gr1.undirected();
+        let inner2 = gr2.undirected();
+        py.allow_threads(|| {
+            fnx_algorithms::common_graph_edit_distance_mappings(inner1, inner2, upper_bound)
+        })
+    };
+
+    let Some(result) = result else {
+        return Ok(None);
+    };
+
+    let nodes1 = if gr1.is_directed() {
+        gr1.digraph()
+            .expect("is_directed checked above")
+            .nodes_ordered()
+    } else {
+        gr1.undirected().nodes_ordered()
+    };
+    let nodes2 = if gr2.is_directed() {
+        gr2.digraph()
+            .expect("is_directed checked above")
+            .nodes_ordered()
+    } else {
+        gr2.undirected().nodes_ordered()
+    };
+
+    let mappings = PyList::empty(py);
+    for mapping in result.mappings {
+        let dict = PyDict::new(py);
+        for (left_idx, maybe_right_idx) in mapping.into_iter().enumerate() {
+            if let Some(right_idx) = maybe_right_idx {
+                dict.set_item(
+                    gr1.py_node_key(py, nodes1[left_idx]),
+                    gr2.py_node_key(py, nodes2[right_idx]),
+                )?;
+            }
+        }
+        mappings.append(dict)?;
+    }
+
+    let payload = PyTuple::new(
+        py,
+        [mappings.as_any(), result.cost.into_pyobject(py)?.as_any()],
+    )?;
+    Ok(Some(payload.into_any().unbind()))
+}
+
 /// Check if two graphs could be isomorphic (degree sequence heuristic).
 #[pyfunction]
 #[pyo3(signature = (g1, g2))]
@@ -11266,6 +11335,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(is_isomorphic, m)?)?;
     m.add_function(wrap_pyfunction!(vf2pp_isomorphism_rust, m)?)?;
     m.add_function(wrap_pyfunction!(vf2pp_all_isomorphisms_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(graph_edit_distance_common_rust, m)?)?;
     m.add_function(wrap_pyfunction!(could_be_isomorphic, m)?)?;
     m.add_function(wrap_pyfunction!(fast_could_be_isomorphic, m)?)?;
     m.add_function(wrap_pyfunction!(faster_could_be_isomorphic, m)?)?;

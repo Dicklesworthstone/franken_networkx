@@ -14861,6 +14861,176 @@ impl Ord for OrderedF64 {
 
 // ── Graph isomorphism ───────────────────────────────────────────────────────
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommonGraphEditDistance {
+    pub cost: f64,
+    pub mappings: Vec<Vec<Option<usize>>>,
+}
+
+fn edge_overlap_for_mapping<G1: GraphView, G2: GraphView>(
+    g1: &G1,
+    g2: &G2,
+    nodes1: &[&str],
+    nodes2: &[&str],
+    mapping: &[Option<usize>],
+) -> usize {
+    if g1.is_directed() || g2.is_directed() {
+        let mut overlap = 0;
+        for i in 0..nodes1.len() {
+            let Some(mapped_i) = mapping[i] else {
+                continue;
+            };
+            for j in 0..nodes1.len() {
+                if i == j {
+                    continue;
+                }
+                let Some(mapped_j) = mapping[j] else {
+                    continue;
+                };
+                if g1.has_edge(nodes1[i], nodes1[j])
+                    && g2.has_edge(nodes2[mapped_i], nodes2[mapped_j])
+                {
+                    overlap += 1;
+                }
+            }
+        }
+        overlap
+    } else {
+        let mut overlap = 0;
+        for i in 0..nodes1.len() {
+            let Some(mapped_i) = mapping[i] else {
+                continue;
+            };
+            for j in (i + 1)..nodes1.len() {
+                let Some(mapped_j) = mapping[j] else {
+                    continue;
+                };
+                if g1.has_edge(nodes1[i], nodes1[j])
+                    && g2.has_edge(nodes2[mapped_i], nodes2[mapped_j])
+                {
+                    overlap += 1;
+                }
+            }
+        }
+        overlap
+    }
+}
+
+pub fn common_graph_edit_distance_mappings<G1: GraphView, G2: GraphView>(
+    g1: &G1,
+    g2: &G2,
+    upper_bound: Option<f64>,
+) -> Option<CommonGraphEditDistance> {
+    let nodes1 = g1.nodes_ordered();
+    let nodes2 = g2.nodes_ordered();
+    let n1 = nodes1.len();
+    let n2 = nodes2.len();
+
+    let mut mapping = vec![None; n1];
+    let mut used = vec![false; n2];
+    let mut best_cost = f64::INFINITY;
+    let mut best_mappings = Vec::new();
+
+    fn mapping_sort_key(mapping: &[Option<usize>]) -> Vec<usize> {
+        mapping
+            .iter()
+            .map(|item| item.unwrap_or(usize::MAX))
+            .collect()
+    }
+
+    fn recurse<G1: GraphView, G2: GraphView>(
+        depth: usize,
+        g1: &G1,
+        g2: &G2,
+        nodes1: &[&str],
+        nodes2: &[&str],
+        mapping: &mut [Option<usize>],
+        used: &mut [bool],
+        upper_bound: Option<f64>,
+        best_cost: &mut f64,
+        best_mappings: &mut Vec<Vec<Option<usize>>>,
+    ) {
+        if depth == nodes1.len() {
+            let matched_nodes = mapping.iter().flatten().count();
+            let overlap = edge_overlap_for_mapping(g1, g2, nodes1, nodes2, mapping);
+            let node_cost = (nodes1.len() + nodes2.len() - 2 * matched_nodes) as f64;
+            let edge_cost = (g1.edge_count() + g2.edge_count() - 2 * overlap) as f64;
+            let total_cost = node_cost + edge_cost;
+
+            if upper_bound.is_some_and(|bound| total_cost > bound) {
+                return;
+            }
+
+            if total_cost + DISTANCE_COMPARISON_EPSILON < *best_cost {
+                *best_cost = total_cost;
+                best_mappings.clear();
+                best_mappings.push(mapping.to_vec());
+            } else if (total_cost - *best_cost).abs() <= DISTANCE_COMPARISON_EPSILON {
+                best_mappings.push(mapping.to_vec());
+            }
+            return;
+        }
+
+        for candidate in 0..nodes2.len() {
+            if used[candidate] {
+                continue;
+            }
+            mapping[depth] = Some(candidate);
+            used[candidate] = true;
+            recurse(
+                depth + 1,
+                g1,
+                g2,
+                nodes1,
+                nodes2,
+                mapping,
+                used,
+                upper_bound,
+                best_cost,
+                best_mappings,
+            );
+            used[candidate] = false;
+            mapping[depth] = None;
+        }
+
+        recurse(
+            depth + 1,
+            g1,
+            g2,
+            nodes1,
+            nodes2,
+            mapping,
+            used,
+            upper_bound,
+            best_cost,
+            best_mappings,
+        );
+    }
+
+    recurse(
+        0,
+        g1,
+        g2,
+        &nodes1,
+        &nodes2,
+        &mut mapping,
+        &mut used,
+        upper_bound,
+        &mut best_cost,
+        &mut best_mappings,
+    );
+
+    if !best_cost.is_finite() {
+        return None;
+    }
+
+    best_mappings.sort_by_key(|mapping| mapping_sort_key(mapping));
+    Some(CommonGraphEditDistance {
+        cost: best_cost,
+        mappings: best_mappings,
+    })
+}
+
 /// Check if two graphs are isomorphic using the VF2 algorithm.
 ///
 /// Two graphs are isomorphic if there exists a bijection between their
@@ -21602,9 +21772,12 @@ pub fn min_cost_flow(
     // For each edge (u,v) with capacity c and cost w:
     //   forward: capacity c, cost w
     //   backward: capacity 0, cost -w
-    let mut cap = vec![vec![0.0f64; n]; n];
-    let mut cost_mat = vec![vec![0.0f64; n]; n];
-    let mut flow_mat = vec![vec![0.0f64; n]; n];
+    let mut cap: std::collections::HashMap<(usize, usize), f64> = std::collections::HashMap::new();
+    let mut cost_mat: std::collections::HashMap<(usize, usize), f64> =
+        std::collections::HashMap::new();
+    let mut flow_mat: std::collections::HashMap<(usize, usize), f64> =
+        std::collections::HashMap::new();
+    let mut adj = vec![std::collections::HashSet::new(); n];
 
     for edge in digraph.edges_ordered() {
         let i = idx[edge.left.as_str()];
@@ -21619,9 +21792,13 @@ pub fn min_cost_flow(
             .get(weight_attr)
             .and_then(|v| v.as_f64())
             .unwrap_or(0.0);
-        cap[i][j] += c;
-        cost_mat[i][j] = w;
-        cost_mat[j][i] = -w;
+        if i != j {
+            *cap.entry((i, j)).or_insert(0.0) += c;
+            cost_mat.insert((i, j), w);
+            cost_mat.insert((j, i), -w);
+            adj[i].insert(j);
+            adj[j].insert(i);
+        }
     }
 
     // Add source/sink for excess supply/demand
@@ -21640,29 +21817,34 @@ pub fn min_cost_flow(
         // Find a supply node and demand node
         let supply_node = (0..n).find(|&i| remaining_supply[i] > FLOW_EPSILON);
         let demand_node = (0..n).find(|&i| remaining_supply[i] < -FLOW_EPSILON);
-        if supply_node.is_none() || demand_node.is_none() {
-            break;
-        }
-        let s = supply_node.unwrap();
-        let t = demand_node.unwrap();
+        let (s, t) = match (supply_node, demand_node) {
+            (Some(sn), Some(dn)) => (sn, dn),
+            _ => break,
+        };
 
         // Bellman-Ford from s in residual graph
         let mut dist = vec![f64::MAX; n];
         let mut prev = vec![None::<usize>; n];
         dist[s] = 0.0;
         for _ in 0..n {
+            let mut relaxed = false;
             for i in 0..n {
                 if dist[i] >= f64::MAX {
                     continue;
                 }
-                for j in 0..n {
-                    let residual = cap[i][j] - flow_mat[i][j];
-                    if residual > FLOW_EPSILON && dist[i] + cost_mat[i][j] < dist[j] - FLOW_EPSILON
-                    {
-                        dist[j] = dist[i] + cost_mat[i][j];
+                for &j in &adj[i] {
+                    let residual =
+                        *cap.get(&(i, j)).unwrap_or(&0.0) - *flow_mat.get(&(i, j)).unwrap_or(&0.0);
+                    let c_mat = *cost_mat.get(&(i, j)).unwrap_or(&0.0);
+                    if residual > FLOW_EPSILON && dist[i] + c_mat < dist[j] - FLOW_EPSILON {
+                        dist[j] = dist[i] + c_mat;
                         prev[j] = Some(i);
+                        relaxed = true;
                     }
                 }
+            }
+            if !relaxed {
+                break;
             }
         }
 
@@ -21674,7 +21856,8 @@ pub fn min_cost_flow(
         let mut path_flow = remaining_supply[s].min(-remaining_supply[t]);
         let mut node = t;
         while let Some(p) = prev[node] {
-            let residual = cap[p][node] - flow_mat[p][node];
+            let residual =
+                *cap.get(&(p, node)).unwrap_or(&0.0) - *flow_mat.get(&(p, node)).unwrap_or(&0.0);
             path_flow = path_flow.min(residual);
             node = p;
         }
@@ -21682,9 +21865,9 @@ pub fn min_cost_flow(
         // Augment flow
         node = t;
         while let Some(p) = prev[node] {
-            flow_mat[p][node] += path_flow;
-            flow_mat[node][p] -= path_flow;
-            total_cost += path_flow * cost_mat[p][node];
+            *flow_mat.entry((p, node)).or_insert(0.0) += path_flow;
+            *flow_mat.entry((node, p)).or_insert(0.0) -= path_flow;
+            total_cost += path_flow * *cost_mat.get(&(p, node)).unwrap_or(&0.0);
             node = p;
         }
         remaining_supply[s] -= path_flow;
@@ -21696,8 +21879,11 @@ pub fn min_cost_flow(
     for edge in digraph.edges_ordered() {
         let i = idx[edge.left.as_str()];
         let j = idx[edge.right.as_str()];
-        if flow_mat[i][j] > FLOW_EPSILON {
-            flow.insert((edge.left.clone(), edge.right.clone()), flow_mat[i][j]);
+        if i != j {
+            let f = *flow_mat.get(&(i, j)).unwrap_or(&0.0);
+            if f > FLOW_EPSILON {
+                flow.insert((edge.left.clone(), edge.right.clone()), f);
+            }
         }
     }
 

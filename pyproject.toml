@@ -7,6 +7,7 @@ name = "franken-networkx"
 dynamic = ["version"]
 requires-python = ">=3.10"
 description = "High-performance Rust-backed drop-in replacement for NetworkX"
+dependencies = ["networkx>=3.0"]
 license = { text = "MIT" }
 authors = [
     { name = "FrankenNetworkX Contributors" },
@@ -45,7 +46,10 @@ test = ["pytest>=7", "hypothesis", "networkx>=3.0"]
 all = ["numpy>=1.24", "scipy>=1.10"]
 
 [project.entry-points."networkx.backends"]
-franken_networkx = "franken_networkx.backend:BackendInterface"
+franken_networkx = "franken_networkx.backend:backend_interface"
+
+[project.entry-points."networkx.backend_info"]
+franken_networkx = "fnx_backend_info:get_backend_info"
 
 [tool.maturin]
 python-source = "python"

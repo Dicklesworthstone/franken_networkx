@@ -12,17 +12,35 @@ else
   CARGO_RUNNER=(env CARGO_TARGET_DIR=target-codex cargo)
 fi
 
+if [[ -n "${FNX_PYTHON_BIN:-}" ]]; then
+  PYTHON_BIN="$FNX_PYTHON_BIN"
+elif [[ -x "$ROOT_DIR/.venv/bin/python" ]]; then
+  PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
+else
+  PYTHON_BIN="python3"
+fi
+
 MATRIX_ARTIFACT="artifacts/perf/phase2c/perf_baseline_matrix_v1.json"
 MATRIX_EVENTS="artifacts/perf/phase2c/perf_baseline_matrix_events_v1.jsonl"
 HOTSPOT_BACKLOG="artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json"
 ISOMORPHISM_REPORT="artifacts/perf/phase2c/isomorphism_harness_report_v1.json"
 REGRESSION_REPORT="artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+SLO_THRESHOLDS="artifacts/perf/slo_thresholds.json"
+SLO_REPORT="artifacts/perf/latest/slo_gate_report_v1.json"
+BASELINE_COMPARATOR="artifacts/perf/latest/perf_baseline_matrix_baseline_comparator_v1.json"
 LATEST_ARTIFACT="artifacts/perf/latest/perf_baseline_matrix_v1.json"
 SIDECAR="artifacts/perf/latest/perf_baseline_matrix_v1.raptorq.json"
 RECOVERED="artifacts/perf/latest/perf_baseline_matrix_v1.recovered.json"
 PIPELINE_REPORT="artifacts/perf/latest/durability_pipeline_report.json"
 
-echo "[1/3] Running phase2c performance baseline matrix..."
+mkdir -p "$(dirname "$LATEST_ARTIFACT")"
+if [[ ! -f "$MATRIX_ARTIFACT" ]]; then
+  echo "missing baseline matrix artifact: $MATRIX_ARTIFACT" >&2
+  exit 1
+fi
+cp "$MATRIX_ARTIFACT" "$BASELINE_COMPARATOR"
+
+echo "[1/4] Running phase2c performance baseline matrix..."
 ./scripts/run_perf_baseline_matrix.py \
   --artifact "$MATRIX_ARTIFACT" \
   --events-jsonl "$MATRIX_EVENTS" \
@@ -40,27 +58,35 @@ python3 scripts/run_perf_isomorphism_harness.py \
   --matrix "$MATRIX_ARTIFACT" \
   --report "$ISOMORPHISM_REPORT"
 
-mkdir -p "$(dirname "$LATEST_ARTIFACT")"
 cp "$MATRIX_ARTIFACT" "$LATEST_ARTIFACT"
 
 python3 scripts/run_perf_regression_gate.py \
-  --baseline "$MATRIX_ARTIFACT" \
+  --baseline "$BASELINE_COMPARATOR" \
   --candidate "$LATEST_ARTIFACT" \
   --hotspot-backlog "$HOTSPOT_BACKLOG" \
   --report "$REGRESSION_REPORT"
 
-echo "[2/3] Generating sidecar for baseline matrix artifact..."
+echo "[2/4] Running perf SLO gate..."
+python3 scripts/run_perf_slo_gate.py \
+  --slo-thresholds "$SLO_THRESHOLDS" \
+  --matrix "$LATEST_ARTIFACT" \
+  --regression-report "$REGRESSION_REPORT" \
+  --python-bin "$PYTHON_BIN" \
+  --report "$SLO_REPORT"
+
+echo "[3/4] Generating sidecar for baseline matrix artifact..."
 "${CARGO_RUNNER[@]}" run -q -p fnx-durability --bin fnx-durability -- \
   generate "$LATEST_ARTIFACT" "$SIDECAR" "phase2c_perf_baseline_matrix_v1" "benchmark_report" 1400 6
 
-echo "[3/3] Decode drill for baseline matrix artifact..."
+echo "[4/4] Decode drill for baseline matrix artifact..."
 "${CARGO_RUNNER[@]}" run -q -p fnx-durability --bin fnx-durability -- \
   decode-drill "$SIDECAR" "$RECOVERED"
 
 echo "Benchmark gate complete:"
-echo "  artifact:  $LATEST_ARTIFACT"
-echo "  sidecar:   $SIDECAR"
-echo "  recovered: $RECOVERED"
+echo "  artifact:   $LATEST_ARTIFACT"
+echo "  slo_report: $SLO_REPORT"
+echo "  sidecar:    $SIDECAR"
+echo "  recovered:  $RECOVERED"
 
 python3 - <<'PY'
 import json
@@ -77,6 +103,7 @@ report = {
     "entries": [
         {
             "artifact_path": str(artifact_path),
+            "baseline_comparator_path": "artifacts/perf/latest/perf_baseline_matrix_baseline_comparator_v1.json",
             "sidecar_path": str(sidecar_path),
             "recovered_path": "artifacts/perf/latest/perf_baseline_matrix_v1.recovered.json",
             "matrix_id": artifact.get("matrix_id"),
@@ -85,6 +112,8 @@ report = {
             "hotspot_backlog_path": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
             "isomorphism_report_path": "artifacts/perf/phase2c/isomorphism_harness_report_v1.json",
             "regression_report_path": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json",
+            "slo_thresholds_path": "artifacts/perf/slo_thresholds.json",
+            "slo_report_path": "artifacts/perf/latest/slo_gate_report_v1.json",
             "environment_fingerprint": artifact.get("environment_fingerprint"),
             "artifact_id": payload.get("artifact_id"),
             "artifact_type": payload.get("artifact_type"),

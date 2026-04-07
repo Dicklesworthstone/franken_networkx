@@ -266,6 +266,43 @@ def test_backend_multigraph_conversion_roundtrip(fnx):
 
 
 @timed
+def test_networkx_backend_dispatch_entrypoints():
+    log.info("--- test_networkx_backend_dispatch_entrypoints ---")
+    import importlib.metadata
+    import networkx as nx
+
+    backend_eps = importlib.metadata.entry_points(group="networkx.backends")
+    backend_info_eps = importlib.metadata.entry_points(group="networkx.backend_info")
+    check(
+        "backend entry point is installed",
+        any(entry_point.name == "franken_networkx" for entry_point in backend_eps),
+    )
+    check(
+        "backend_info entry point is installed",
+        any(entry_point.name == "franken_networkx" for entry_point in backend_info_eps),
+    )
+    check(
+        "shortest_path advertises franken_networkx backend",
+        "franken_networkx" in nx.shortest_path.backends,
+    )
+    check(
+        "pagerank advertises franken_networkx backend",
+        "franken_networkx" in nx.pagerank.backends,
+    )
+
+    path_graph = nx.path_graph(5)
+    path = nx.shortest_path(path_graph, 0, 4, backend="franken_networkx")
+    check("networkx shortest_path dispatches via franken_networkx", path == [0, 1, 2, 3, 4])
+
+    cycle_graph = nx.cycle_graph(6)
+    pagerank = nx.pagerank(cycle_graph, backend="franken_networkx")
+    check("networkx pagerank dispatch sums to 1", abs(sum(pagerank.values()) - 1.0) < 1e-9)
+
+    components = list(nx.connected_components(path_graph, backend="franken_networkx"))
+    check("networkx connected_components dispatches", len(components) == 1)
+
+
+@timed
 def test_multigraph_extended_surface(fnx):
     log.info("--- test_multigraph_extended_surface ---")
 
@@ -825,6 +862,8 @@ def main():
 
     fnx = test_import()
     G = test_graph_lifecycle(fnx)
+    test_backend_multigraph_conversion_roundtrip(fnx)
+    test_networkx_backend_dispatch_entrypoints()
     test_views(fnx, G)
     test_shortest_path(fnx, G)
     test_connectivity(fnx, G)

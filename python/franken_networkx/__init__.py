@@ -829,6 +829,7 @@ from franken_networkx._fnx import (
 from franken_networkx._fnx import (
     could_be_isomorphic,
     fast_could_be_isomorphic,
+    graph_edit_distance_common_rust as _graph_edit_distance_common_rust,
     faster_could_be_isomorphic,
     is_isomorphic as _is_isomorphic_rust,
     vf2pp_all_isomorphisms_rust as _vf2pp_all_isomorphisms_rust,
@@ -8885,6 +8886,28 @@ def optimal_edit_paths(
     upper_bound=None,
 ):
     """Find optimal edit paths."""
+    handled, native_result = _native_graph_edit_distance_common_case(
+        G1,
+        G2,
+        node_match=node_match,
+        edge_match=edge_match,
+        node_subst_cost=node_subst_cost,
+        node_del_cost=node_del_cost,
+        node_ins_cost=node_ins_cost,
+        edge_subst_cost=edge_subst_cost,
+        edge_del_cost=edge_del_cost,
+        edge_ins_cost=edge_ins_cost,
+        upper_bound=upper_bound,
+    )
+    if handled:
+        if native_result is None:
+            return [], None
+        mappings, cost = native_result
+        return [
+            _graph_edit_distance_paths_from_mapping(G1, G2, mapping)
+            for mapping in mappings
+        ], cost
+
     import networkx as nx
 
     from franken_networkx.drawing.layout import _to_nx
@@ -8906,6 +8929,37 @@ def optimal_edit_paths(
 
 def optimize_edit_paths(G1, G2, **kwargs):
     """Iterator yielding progressively better edit paths."""
+    handled, native_result = _native_graph_edit_distance_common_case(
+        G1,
+        G2,
+        node_match=kwargs.get("node_match"),
+        edge_match=kwargs.get("edge_match"),
+        node_subst_cost=kwargs.get("node_subst_cost"),
+        node_del_cost=kwargs.get("node_del_cost"),
+        node_ins_cost=kwargs.get("node_ins_cost"),
+        edge_subst_cost=kwargs.get("edge_subst_cost"),
+        edge_del_cost=kwargs.get("edge_del_cost"),
+        edge_ins_cost=kwargs.get("edge_ins_cost"),
+        upper_bound=kwargs.get("upper_bound"),
+        roots=kwargs.get("roots"),
+        timeout=kwargs.get("timeout"),
+    )
+    if handled:
+        if native_result is None:
+            return
+        mappings, cost = native_result
+        paths = [
+            _graph_edit_distance_paths_from_mapping(G1, G2, mapping)
+            for mapping in mappings
+        ]
+        if kwargs.get("strictly_decreasing", True):
+            node_path, edge_path = paths[0]
+            yield node_path, edge_path, cost
+            return
+        for node_path, edge_path in paths:
+            yield node_path, edge_path, cost
+        return
+
     import networkx as nx
 
     from franken_networkx.drawing.layout import _to_nx
@@ -9112,6 +9166,27 @@ def effective_graph_resistance(G, weight=None, invert_weight=True):
 
 def graph_edit_distance(G1, G2, **kwargs):
     """Return graph edit distance."""
+    handled, native_result = _native_graph_edit_distance_common_case(
+        G1,
+        G2,
+        node_match=kwargs.get("node_match"),
+        edge_match=kwargs.get("edge_match"),
+        node_subst_cost=kwargs.get("node_subst_cost"),
+        node_del_cost=kwargs.get("node_del_cost"),
+        node_ins_cost=kwargs.get("node_ins_cost"),
+        edge_subst_cost=kwargs.get("edge_subst_cost"),
+        edge_del_cost=kwargs.get("edge_del_cost"),
+        edge_ins_cost=kwargs.get("edge_ins_cost"),
+        upper_bound=kwargs.get("upper_bound"),
+        roots=kwargs.get("roots"),
+        timeout=kwargs.get("timeout"),
+    )
+    if handled:
+        if native_result is None:
+            return None
+        _, cost = native_result
+        return cost
+
     import networkx as nx
 
     from franken_networkx.drawing.layout import _to_nx
@@ -9121,11 +9196,113 @@ def graph_edit_distance(G1, G2, **kwargs):
 
 def optimize_graph_edit_distance(G1, G2, **kwargs):
     """Iterator yielding improving graph edit distances."""
+    handled, native_result = _native_graph_edit_distance_common_case(
+        G1,
+        G2,
+        node_match=kwargs.get("node_match"),
+        edge_match=kwargs.get("edge_match"),
+        node_subst_cost=kwargs.get("node_subst_cost"),
+        node_del_cost=kwargs.get("node_del_cost"),
+        node_ins_cost=kwargs.get("node_ins_cost"),
+        edge_subst_cost=kwargs.get("edge_subst_cost"),
+        edge_del_cost=kwargs.get("edge_del_cost"),
+        edge_ins_cost=kwargs.get("edge_ins_cost"),
+        upper_bound=kwargs.get("upper_bound"),
+    )
+    if handled:
+        if native_result is None:
+            return
+        _, cost = native_result
+        yield cost
+        return
+
     import networkx as nx
 
     from franken_networkx.drawing.layout import _to_nx
 
     yield from nx.optimize_graph_edit_distance(_to_nx(G1), _to_nx(G2), **kwargs)
+
+
+_COMMON_GRAPH_EDIT_DISTANCE_MAX_NODES = 8
+
+
+def _graph_edit_distance_edge_key(G, edge):
+    if G.is_directed():
+        return edge
+    return frozenset(edge)
+
+
+def _graph_edit_distance_paths_from_mapping(G1, G2, mapping):
+    matched_right_nodes = set(mapping.values())
+    node_path = list(mapping.items())
+    node_path.extend((node, None) for node in G1.nodes() if node not in mapping)
+    node_path.extend(
+        (None, node) for node in G2.nodes() if node not in matched_right_nodes
+    )
+
+    edge_path = []
+    matched_right_edges = set()
+    for left_edge in G1.edges():
+        left_u, left_v = left_edge
+        right_u = mapping.get(left_u)
+        right_v = mapping.get(left_v)
+        if right_u is not None and right_v is not None and G2.has_edge(right_u, right_v):
+            right_edge = (right_u, right_v)
+            edge_path.append((left_edge, right_edge))
+            matched_right_edges.add(_graph_edit_distance_edge_key(G2, right_edge))
+        else:
+            edge_path.append((left_edge, None))
+
+    for right_edge in G2.edges():
+        if _graph_edit_distance_edge_key(G2, right_edge) not in matched_right_edges:
+            edge_path.append((None, right_edge))
+
+    return node_path, edge_path
+
+
+def _native_graph_edit_distance_common_case(
+    G1,
+    G2,
+    *,
+    node_match=None,
+    edge_match=None,
+    node_subst_cost=None,
+    node_del_cost=None,
+    node_ins_cost=None,
+    edge_subst_cost=None,
+    edge_del_cost=None,
+    edge_ins_cost=None,
+    upper_bound=None,
+    roots=None,
+    timeout=None,
+):
+    if any(
+        callback is not None
+        for callback in (
+            node_match,
+            edge_match,
+            node_subst_cost,
+            node_del_cost,
+            node_ins_cost,
+            edge_subst_cost,
+            edge_del_cost,
+            edge_ins_cost,
+            roots,
+            timeout,
+        )
+    ):
+        return False, None
+    if G1.is_multigraph() or G2.is_multigraph():
+        return False, None
+    if G1.is_directed() != G2.is_directed():
+        return False, None
+    if G1.number_of_nodes() + G2.number_of_nodes() > _COMMON_GRAPH_EDIT_DISTANCE_MAX_NODES:
+        return False, None
+    return True, _graph_edit_distance_common_rust(
+        G1,
+        G2,
+        upper_bound=upper_bound,
+    )
 
 
 def cd_index(G, node, c=None):

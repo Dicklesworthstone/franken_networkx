@@ -749,8 +749,7 @@ impl AsupersyncAdapterMachine {
         to_state: AsupersyncAdapterState,
         reason_code: Option<AsupersyncAdapterReasonCode>,
     ) {
-        let base = u64::try_from(self.transitions.len())
-            .expect("transition log length should fit into u64");
+        let base = u64::try_from(self.transitions.len()).unwrap_or(u64::MAX);
         let seq = base.saturating_add(1);
         self.transitions.push(AsupersyncAdapterTransition {
             seq,

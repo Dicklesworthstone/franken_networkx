@@ -10,8 +10,41 @@ permissions:
   id-token: write
 
 jobs:
+  verify-version:
+    name: Verify tag and version consistency
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify release tag matches Cargo versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          root = Path(".")
+          tag = os.environ["GITHUB_REF_NAME"]
+          expected = tag.removeprefix("v")
+          workspace = tomllib.loads((root / "Cargo.toml").read_text(encoding="utf-8"))
+          fnx_python = tomllib.loads((root / "crates/fnx-python/Cargo.toml").read_text(encoding="utf-8"))
+          workspace_version = workspace["workspace"]["package"]["version"]
+          crate_version = fnx_python["package"]["version"]
+          if expected != workspace_version or expected != crate_version:
+              raise SystemExit(
+                  f"tag version mismatch: tag={expected} workspace={workspace_version} fnx-python={crate_version}"
+              )
+          print(f"release_version_ok {expected}")
+          PY
+
   linux:
     name: Linux ${{ matrix.target }}
+    needs: verify-version
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -37,6 +70,7 @@ jobs:
 
   musllinux:
     name: musllinux x86_64
+    needs: verify-version
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -59,6 +93,7 @@ jobs:
 
   macos:
     name: macOS ${{ matrix.target }}
+    needs: verify-version
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     strategy:
@@ -87,6 +122,7 @@ jobs:
 
   windows:
     name: Windows x86_64
+    needs: verify-version
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
@@ -108,6 +144,7 @@ jobs:
 
   sdist:
     name: Source distribution
+    needs: verify-version
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -149,6 +186,9 @@ jobs:
           path: dist
       - name: Install wheel and test deps
         run: pip install --find-links dist franken-networkx[test]
+      - name: Smoke installed wheel in clean venv
+        shell: bash
+        run: DIST_DIR=dist PACKAGE_NAME=franken-networkx ./scripts/test_pypi_install.sh
       - name: Run tests
         run: pytest tests/python/ -v --tb=long -m "not slow"
 

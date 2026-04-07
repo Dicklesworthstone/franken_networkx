@@ -1,0 +1,105 @@
+{
+  "schema_version": "1.0.0",
+  "thresholds_id": "perf-slo-thresholds-v1",
+  "spec_reference": "COMPREHENSIVE_SPEC_FOR_FRANKENNETWORKX_V1.md section 17",
+  "description": "Machine-readable SLO thresholds and representative workloads for the FrankenNetworkX performance gate.",
+  "workloads": [
+    {
+      "metric_id": "shortest_path",
+      "family": "shortest_path",
+      "primary_metric": "path_nodes",
+      "primary_unit": "path_nodes",
+      "runs": 5,
+      "warmup_runs": 1,
+      "max_p95_ms": 420.0,
+      "params": {
+        "width": 90,
+        "height": 90
+      }
+    },
+    {
+      "metric_id": "components",
+      "family": "components",
+      "primary_metric": "component_count",
+      "primary_unit": "component_count",
+      "runs": 5,
+      "warmup_runs": 1,
+      "max_p95_ms": 280.0,
+      "params": {
+        "component_count": 20,
+        "component_size": 250
+      }
+    },
+    {
+      "metric_id": "centrality",
+      "family": "centrality",
+      "primary_metric": "score",
+      "primary_unit": "score",
+      "runs": 5,
+      "warmup_runs": 1,
+      "max_p95_ms": 950.0,
+      "params": {
+        "nodes": 300,
+        "edge_prob": 0.03,
+        "seed": 1337
+      }
+    },
+    {
+      "metric_id": "flow",
+      "family": "flow",
+      "primary_metric": "flow_value",
+      "primary_unit": "flow_value",
+      "runs": 5,
+      "warmup_runs": 1,
+      "max_p95_ms": 700.0,
+      "params": {
+        "layers": 8,
+        "width": 8
+      }
+    },
+    {
+      "metric_id": "io_roundtrip",
+      "family": "io",
+      "primary_metric": "mb_per_s",
+      "primary_unit": "mb_per_s",
+      "runs": 5,
+      "warmup_runs": 1,
+      "min_primary_value": 45.0,
+      "params": {
+        "nodes": 4000,
+        "edge_prob": 0.008,
+        "seed": 1337,
+        "rounds": 3
+      }
+    },
+    {
+      "metric_id": "mutation_cycle",
+      "family": "mutation",
+      "primary_metric": "ops_per_s",
+      "primary_unit": "ops_per_s",
+      "runs": 5,
+      "warmup_runs": 1,
+      "params": {
+        "node_count": 2000,
+        "edge_repeat": 3
+      }
+    }
+  ],
+  "derived_checks": [
+    {
+      "metric_id": "mutation_regression",
+      "baseline_ops_per_second": 15000.0,
+      "max_regression_pct": 8.0
+    },
+    {
+      "metric_id": "memory_regression",
+      "baseline_max_rss_kb": 220000.0,
+      "max_regression_pct": 10.0
+    },
+    {
+      "metric_id": "p99_tail_regression",
+      "baseline_max_latency_p99_ms": 650.0,
+      "max_regression_pct": 10.0
+    }
+  ]
+}

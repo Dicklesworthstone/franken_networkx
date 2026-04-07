@@ -284,25 +284,26 @@ impl EdgeListEngine {
             let right = parts.next();
             let attrs = parts.next();
             let extra = parts.next();
-            if left.is_none() || right.is_none() || extra.is_some() {
-                let warning = format!(
-                    "line {} malformed: expected `left right [attrs]`",
-                    line_no + 1
-                );
-                if self.mode == CompatibilityMode::Strict {
-                    self.record("read_edgelist", DecisionAction::FailClosed, &warning, 1.0);
-                    return Err(ReadWriteError::FailClosed {
-                        operation: "read_edgelist",
-                        reason: warning,
-                    });
+            let (left, right) = match (left, right) {
+                (Some(l), Some(r)) if extra.is_none() => (l, r),
+                _ => {
+                    let warning = format!(
+                        "line {} malformed: expected `left right [attrs]`",
+                        line_no + 1
+                    );
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_edgelist", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_edgelist",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_edgelist", DecisionAction::FullValidate, &warning, 0.7);
+                    continue;
                 }
-                warnings.push(warning.clone());
-                self.record("read_edgelist", DecisionAction::FullValidate, &warning, 0.7);
-                continue;
-            }
+            };
 
-            let left = left.expect("left token present");
-            let right = right.expect("right token present");
             if left.is_empty() || right.is_empty() {
                 let warning = format!("line {} malformed endpoints", line_no + 1);
                 if self.mode == CompatibilityMode::Strict {
@@ -362,25 +363,26 @@ impl EdgeListEngine {
             let right = parts.next();
             let attrs = parts.next();
             let extra = parts.next();
-            if left.is_none() || right.is_none() || extra.is_some() {
-                let warning = format!(
-                    "line {} malformed: expected `source target [attrs]`",
-                    line_no + 1
-                );
-                if self.mode == CompatibilityMode::Strict {
-                    self.record("read_edgelist", DecisionAction::FailClosed, &warning, 1.0);
-                    return Err(ReadWriteError::FailClosed {
-                        operation: "read_edgelist",
-                        reason: warning,
-                    });
+            let (left, right) = match (left, right) {
+                (Some(l), Some(r)) if extra.is_none() => (l, r),
+                _ => {
+                    let warning = format!(
+                        "line {} malformed: expected `source target [attrs]`",
+                        line_no + 1
+                    );
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_edgelist", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_edgelist",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_edgelist", DecisionAction::FullValidate, &warning, 0.7);
+                    continue;
                 }
-                warnings.push(warning.clone());
-                self.record("read_edgelist", DecisionAction::FullValidate, &warning, 0.7);
-                continue;
-            }
+            };
 
-            let left = left.expect("source token present");
-            let right = right.expect("target token present");
             if left.is_empty() || right.is_empty() {
                 let warning = format!("line {} malformed endpoints", line_no + 1);
                 if self.mode == CompatibilityMode::Strict {
@@ -3002,6 +3004,122 @@ mod tests {
                 log.validate().is_ok(),
                 "packet-006 property telemetry log should satisfy strict schema"
             );
+        }
+
+        #[test]
+        fn property_gml_round_trip(edges in prop::collection::vec((0_u8..8, 0_u8..8), 1..30)) {
+            let mut graph = Graph::strict();
+            for (left, right) in &edges {
+                let left_node = format!("n{left}");
+                let right_node = format!("n{right}");
+                let _ = graph.add_edge_with_attrs(
+                    left_node,
+                    right_node,
+                    BTreeMap::from([("weight".to_owned(), CgseValue::Int(i64::from(*left) + 1))]),
+                );
+            }
+            prop_assume!(graph.edge_count() > 0);
+
+            let mut engine = EdgeListEngine::strict();
+            let gml = engine.write_gml(&graph).expect("gml write should succeed");
+            let parsed = engine.read_gml(&gml).expect("gml read should succeed");
+
+            prop_assert!(parsed.warnings.is_empty(), "strict gml round-trip should have no warnings");
+            prop_assert_eq!(
+                graph.snapshot(),
+                parsed.graph.snapshot(),
+                "gml round-trip snapshot should be identical"
+            );
+
+            // Determinism: writing the same graph twice produces identical GML.
+            let mut engine2 = EdgeListEngine::strict();
+            let gml2 = engine2.write_gml(&graph).expect("gml replay write should succeed");
+            prop_assert_eq!(&gml, &gml2, "gml emission must be deterministic");
+        }
+
+        #[test]
+        fn property_graphml_round_trip(edges in prop::collection::vec((0_u8..8, 0_u8..8), 1..30)) {
+            let mut graph = Graph::strict();
+            for (left, right) in &edges {
+                let left_node = format!("n{left}");
+                let right_node = format!("n{right}");
+                let _ = graph.add_edge_with_attrs(
+                    left_node,
+                    right_node,
+                    BTreeMap::from([("weight".to_owned(), CgseValue::String(format!("{}", *left + 1)))]),
+                );
+            }
+            prop_assume!(graph.edge_count() > 0);
+
+            let mut engine = EdgeListEngine::strict();
+            let xml = engine.write_graphml(&graph).expect("graphml write should succeed");
+            let parsed = engine.read_graphml(&xml).expect("graphml read should succeed");
+
+            prop_assert!(parsed.warnings.is_empty(), "strict graphml round-trip should have no warnings");
+            prop_assert_eq!(
+                graph.snapshot(),
+                parsed.graph.snapshot(),
+                "graphml round-trip snapshot should be identical"
+            );
+
+            // Determinism check.
+            let mut engine2 = EdgeListEngine::strict();
+            let xml2 = engine2.write_graphml(&graph).expect("graphml replay write should succeed");
+            prop_assert_eq!(&xml, &xml2, "graphml emission must be deterministic");
+        }
+
+        #[test]
+        fn property_adjlist_round_trip(edges in prop::collection::vec((0_u8..8, 0_u8..8), 1..30)) {
+            let mut graph = Graph::strict();
+            for (left, right) in &edges {
+                let left_node = format!("n{left}");
+                let right_node = format!("n{right}");
+                let _ = graph.add_edge(&left_node, &right_node);
+            }
+            prop_assume!(graph.edge_count() > 0);
+
+            let mut engine = EdgeListEngine::strict();
+            let text = engine.write_adjlist(&graph).expect("adjlist write should succeed");
+            let parsed = engine.read_adjlist(&text).expect("adjlist read should succeed");
+
+            prop_assert!(parsed.warnings.is_empty(), "strict adjlist round-trip should have no warnings");
+            prop_assert_eq!(
+                graph.snapshot(),
+                parsed.graph.snapshot(),
+                "adjlist round-trip snapshot should be identical"
+            );
+        }
+
+        #[test]
+        fn property_malformed_input_never_panics(data in "\\PC{0,500}") {
+            // All parsers must return Result, never panic, on arbitrary input.
+            let mut strict = EdgeListEngine::strict();
+            let _ = strict.read_edgelist(&data);
+
+            let mut strict2 = EdgeListEngine::strict();
+            let _ = strict2.read_adjlist(&data);
+
+            let mut strict3 = EdgeListEngine::strict();
+            let _ = strict3.read_json_graph(&data);
+
+            let mut strict4 = EdgeListEngine::strict();
+            let _ = strict4.read_graphml(&data);
+
+            let mut strict5 = EdgeListEngine::strict();
+            let _ = strict5.read_gml(&data);
+
+            // Hardened mode must never panic either.
+            let mut hardened = EdgeListEngine::hardened();
+            let _ = hardened.read_edgelist(&data);
+
+            let mut hardened2 = EdgeListEngine::hardened();
+            let _ = hardened2.read_json_graph(&data);
+
+            let mut hardened3 = EdgeListEngine::hardened();
+            let _ = hardened3.read_graphml(&data);
+
+            let mut hardened4 = EdgeListEngine::hardened();
+            let _ = hardened4.read_gml(&data);
         }
     }
 }
