@@ -6,6 +6,15 @@
 
 FrankenNetworkX is a high-performance, Rust-backed drop-in replacement for [NetworkX](https://networkx.org/). Use it as a standalone library or as a NetworkX backend with zero code changes.
 
+Documentation:
+
+- [Quickstart](docs/quickstart.md)
+- [Backend integration](docs/backend.md)
+- [Migration guide](docs/migration.md)
+- [Algorithm reference](docs/algorithms.md)
+- [Performance notes](docs/performance.md)
+- [Contributing](docs/contributing.md)
+
 ## Quick Start
 
 ```bash
@@ -79,6 +88,13 @@ nx.shortest_path(G, 0, 99)
 - `Graph` -- undirected graph
 - `DiGraph` -- directed graph (algorithms automatically convert to undirected where needed)
 
+## Examples
+
+- [examples/basic_usage.py](examples/basic_usage.py) -- standalone graph construction, algorithms, and round-trips
+- [examples/backend_mode.py](examples/backend_mode.py) -- NetworkX backend dispatch with zero call-site changes
+- [examples/social_network.py](examples/social_network.py) -- community and centrality analysis on a real graph
+- [examples/benchmark_comparison.py](examples/benchmark_comparison.py) -- lightweight local comparison against NetworkX
+
 ## Requirements
 
 - Python 3.10+
@@ -90,6 +106,7 @@ nx.shortest_path(G, 0, 99)
 pip install maturin
 maturin develop --features pyo3/abi3-py310
 pytest tests/python/ -v
+python3 scripts/verify_docs.py
 ```
 
 ## What Makes This Project Special

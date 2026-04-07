@@ -94,9 +94,28 @@ jobs:
       - name: Run structured E2E integration script
         run: python3 scripts/e2e_integration_test.py
 
+  g4c-docs:
+    name: G4c docs
+    needs: g4b-e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: Swatinem/rust-cache@v2
+      - name: Install docs gate dependencies
+        run: pip install maturin networkx
+      - name: Build and install
+        run: maturin develop --features pyo3/abi3-py310
+      - name: Verify docs and examples
+        run: python3 scripts/verify_docs.py
+
   g5-conformance:
     name: G5 conformance
-    needs: g4b-e2e
+    needs: g4c-docs
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -159,9 +178,33 @@ jobs:
       - name: Run UBS fail-closed scan
         run: ubs --ci --fail-on-warning .
 
+  g7b-fuzz-smoke:
+    name: G7b fuzz smoke
+    needs: g7-ubs
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+      - name: Fuzz edgelist parser (30s)
+        run: cd fuzz && cargo +nightly fuzz run fuzz_edgelist -- -max_total_time=30
+      - name: Fuzz JSON parser (30s)
+        run: cd fuzz && cargo +nightly fuzz run fuzz_json -- -max_total_time=30
+      - name: Fuzz GraphML parser (30s)
+        run: cd fuzz && cargo +nightly fuzz run fuzz_graphml -- -max_total_time=30
+      - name: Fuzz GML parser (30s)
+        run: cd fuzz && cargo +nightly fuzz run fuzz_gml -- -max_total_time=30
+
   g8-raptorq:
     name: G8 RaptorQ scrub
-    needs: g7-ubs
+    needs: g7b-fuzz-smoke
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

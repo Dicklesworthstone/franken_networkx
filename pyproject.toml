@@ -6,15 +6,16 @@ build-backend = "maturin"
 name = "franken-networkx"
 dynamic = ["version"]
 requires-python = ">=3.10"
-description = "High-performance Rust-backed drop-in replacement for NetworkX"
+readme = "README.md"
+description = "High-performance Rust-backed graph library with standalone and NetworkX backend modes"
 dependencies = ["networkx>=3.0"]
 license = { text = "MIT" }
 authors = [
     { name = "FrankenNetworkX Contributors" },
 ]
-keywords = ["graph", "network", "networkx", "rust", "performance"]
+keywords = ["graph", "network", "networkx", "rust", "performance", "backend"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
@@ -24,20 +25,26 @@ classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Information Analysis",
     "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Software Development :: Libraries",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Typing :: Typed",
 ]
 
 [project.urls]
 Homepage = "https://github.com/Dicklesworthstone/franken_networkx"
+Documentation = "https://github.com/Dicklesworthstone/franken_networkx/tree/main/docs"
 Repository = "https://github.com/Dicklesworthstone/franken_networkx"
 Issues = "https://github.com/Dicklesworthstone/franken_networkx/issues"
+Changelog = "https://github.com/Dicklesworthstone/franken_networkx/blob/main/CHANGELOG.md"
+CI = "https://github.com/Dicklesworthstone/franken_networkx/actions"
 
 [project.optional-dependencies]
 numpy = ["numpy>=1.24"]
