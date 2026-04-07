@@ -1,0 +1,7 @@
+{
+  "mode": "strict",
+  "directed": false,
+  "graph_attrs": {"name": "huge_star", "description": "Star graph with high-degree hub node for centrality stress testing"},
+  "nodes": ["hub"],
+  "edges": []
+}

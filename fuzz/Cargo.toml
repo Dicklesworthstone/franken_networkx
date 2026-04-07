@@ -1,0 +1,36 @@
+[package]
+name = "fnx-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+fnx-readwrite = { path = "../crates/fnx-readwrite" }
+fnx-classes = { path = "../crates/fnx-classes" }
+
+# Prevent this from being discovered by cargo workspace
+[workspace]
+
+[[bin]]
+name = "fuzz_edgelist"
+path = "fuzz_targets/fuzz_edgelist.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_json"
+path = "fuzz_targets/fuzz_json.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_graphml"
+path = "fuzz_targets/fuzz_graphml.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_gml"
+path = "fuzz_targets/fuzz_gml.rs"
+doc = false

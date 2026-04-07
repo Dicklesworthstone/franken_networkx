@@ -1,0 +1,12 @@
+{
+  "mode": "strict",
+  "directed": false,
+  "graph_attrs": {"name": "self_loops_only"},
+  "nodes": ["a", "b", "c", "d"],
+  "edges": [
+    {"left": "a", "right": "a", "attrs": {}},
+    {"left": "b", "right": "b", "attrs": {"weight": 1}},
+    {"left": "c", "right": "c", "attrs": {}},
+    {"left": "d", "right": "d", "attrs": {"weight": -1}}
+  ]
+}

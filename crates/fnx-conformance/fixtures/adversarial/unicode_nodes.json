@@ -1,0 +1,12 @@
+{
+  "mode": "strict",
+  "directed": false,
+  "graph_attrs": {},
+  "nodes": ["\u00e9\u00e8\u00ea", "\ud83c\udf1f\u2b50", "\u4e16\u754c", "\u0627\u0644\u0639\u0631\u0628\u064a\u0629", "\u05e2\u05d1\u05e8\u05d9\u05ea", "normal_ascii", "zero_width_\u200b_space"],
+  "edges": [
+    {"left": "\u00e9\u00e8\u00ea", "right": "\ud83c\udf1f\u2b50", "attrs": {"label": "\u21d2"}},
+    {"left": "\u4e16\u754c", "right": "\u0627\u0644\u0639\u0631\u0628\u064a\u0629", "attrs": {}},
+    {"left": "\u05e2\u05d1\u05e8\u05d9\u05ea", "right": "normal_ascii", "attrs": {"weight": 1}},
+    {"left": "zero_width_\u200b_space", "right": "\u00e9\u00e8\u00ea", "attrs": {}}
+  ]
+}

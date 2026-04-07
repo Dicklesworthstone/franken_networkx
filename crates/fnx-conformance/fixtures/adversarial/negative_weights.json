@@ -1,0 +1,15 @@
+{
+  "mode": "strict",
+  "directed": true,
+  "graph_attrs": {"name": "negative_weights"},
+  "nodes": ["s", "a", "b", "c", "t"],
+  "edges": [
+    {"left": "s", "right": "a", "attrs": {"weight": -100}},
+    {"left": "s", "right": "b", "attrs": {"weight": 5}},
+    {"left": "a", "right": "b", "attrs": {"weight": -3}},
+    {"left": "a", "right": "c", "attrs": {"weight": -999999}},
+    {"left": "b", "right": "c", "attrs": {"weight": 2}},
+    {"left": "c", "right": "t", "attrs": {"weight": -1}},
+    {"left": "b", "right": "t", "attrs": {"weight": 100}}
+  ]
+}
