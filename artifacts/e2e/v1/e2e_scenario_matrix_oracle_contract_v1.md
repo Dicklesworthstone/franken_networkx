@@ -1,10 +1,10 @@
 # E2E Scenario Matrix + Oracle Contract (V1)
 
-- generated_at_utc: 2026-02-26T03:59:25.888298+00:00
+- generated_at_utc: 2026-04-07T16:38:48.707728+00:00
 - baseline_comparator: legacy_networkx/main@python3.12
 - journey_count: 12
-- fixture_inventory_count: 59
-- covered_fixture_count: 59
+- fixture_inventory_count: 84
+- covered_fixture_count: 84
 - uncovered_fixture_count: 0
 
 ## Journey Coverage
@@ -15,10 +15,10 @@
 | `J-VIEWS` | `FNX-P2C-002` | `generated/view_neighbors_strict.json` | `generated/view_neighbors_strict.json` | `mode_override_fixture` |
 | `J-DISPATCH` | `FNX-P2C-003` | `generated/dispatch_route_strict.json` | `generated/dispatch_route_strict.json` | `mode_override_fixture` |
 | `J-CONVERT` | `FNX-P2C-004` | `generated/convert_edge_list_strict.json` | `generated/convert_edge_list_strict.json` | `mode_override_fixture` |
-| `J-SHORTEST-PATH-COMPONENTS` | `FNX-P2C-005` | `generated/components_connected_strict.json` | `generated/components_connected_strict.json` | `mode_override_fixture` |
+| `J-SHORTEST-PATH-COMPONENTS` | `FNX-P2C-005` | `generated/components_connected_strict.json` | `generated/flow_max_missing_capacity_hardened.json` | `mode_override_fixture` |
 | `J-STRUCTURE` | `FNX-P2C-005` | `generated/structure_articulation_points_strict.json` | `generated/structure_articulation_points_strict.json` | `mode_override_fixture` |
-| `J-CENTRALITY` | `FNX-P2C-005` | `generated/centrality_edge_betweenness_strict.json` | `generated/centrality_closeness_strict.json` | `mode_override_fixture` |
-| `J-MATCHING` | `FNX-P2C-005` | `generated/matching_maximal_strict.json` | `generated/matching_maximal_strict.json` | `mode_override_fixture` |
+| `J-CENTRALITY` | `FNX-P2C-005` | `generated/centrality_edge_betweenness_strict.json` | `generated/centrality_degree_selfloop_hardened.json` | `mode_override_fixture` |
+| `J-MATCHING` | `FNX-P2C-005` | `generated/matching_maximal_strict.json` | `generated/matching_maximal_isolated_hardened.json` | `mode_override_fixture` |
 | `J-READWRITE` | `FNX-P2C-006` | `generated/readwrite_roundtrip_strict.json` | `generated/readwrite_hardened_malformed.json` | `native_fixture` |
 | `J-GENERATORS` | `FNX-P2C-007` | `generated/generators_path_strict.json` | `generated/generators_cycle_strict.json` | `mode_override_fixture` |
 | `J-RUNTIME-OPTIONAL` | `FNX-P2C-008` | `generated/runtime_config_optional_strict.json` | `generated/runtime_config_optional_strict.json` | `mode_override_fixture` |

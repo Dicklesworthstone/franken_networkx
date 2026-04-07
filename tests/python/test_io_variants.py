@@ -75,6 +75,21 @@ def test_parse_and_generate_graphml_honor_networkx_kwargs(tmp_path: Path):
     assert generated == expected
 
 
+def test_generate_graphml_does_not_delegate_to_networkx(monkeypatch):
+    graph = fnx.path_graph(2)
+    expected = list(
+        nx.generate_graphml(nx.path_graph(2), prettyprint=False, named_key_ids=True)
+    )
+
+    def fail(*args, **kwargs):
+        raise AssertionError("networkx fallback was used")
+
+    monkeypatch.setattr(nx, "generate_graphml", fail)
+
+    generated = list(fnx.generate_graphml(graph, prettyprint=False, named_key_ids=True))
+    assert generated == expected
+
+
 def test_rust_read_gml_preserves_graph_attrs(tmp_path: Path):
     path = tmp_path / "graph.gml"
     path.write_text(

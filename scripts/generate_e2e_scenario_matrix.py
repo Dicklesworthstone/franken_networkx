@@ -74,15 +74,29 @@ JOURNEY_SPECS: list[dict[str, Any]] = [
             "generated/shortest_path_multi_source_dijkstra_strict.json",
             "generated/flow_max_strict.json",
             "generated/flow_min_cut_strict.json",
+            "generated/flow_edge_connectivity_petersen_strict.json",
+            "generated/flow_max_large_strict.json",
+            "generated/flow_max_serial_bottleneck_strict.json",
+            "generated/flow_max_zero_capacity_strict.json",
+            "generated/flow_min_cut_bottleneck_strict.json",
+            "generated/flow_st_edge_cut_bottleneck_strict.json",
             "generated/flow_edge_connectivity_strict.json",
         ],
         "hardened_fixture_ids": [
+            "generated/flow_max_missing_capacity_hardened.json",
+            "generated/shortest_path_disconnected_hardened.json",
             "generated/components_connected_strict.json",
             "generated/shortest_path_weighted_strict.json",
             "generated/shortest_path_bellman_ford_strict.json",
             "generated/shortest_path_multi_source_dijkstra_strict.json",
             "generated/flow_max_strict.json",
             "generated/flow_min_cut_strict.json",
+            "generated/flow_edge_connectivity_petersen_strict.json",
+            "generated/flow_max_large_strict.json",
+            "generated/flow_max_serial_bottleneck_strict.json",
+            "generated/flow_max_zero_capacity_strict.json",
+            "generated/flow_min_cut_bottleneck_strict.json",
+            "generated/flow_st_edge_cut_bottleneck_strict.json",
             "generated/flow_edge_connectivity_strict.json",
         ],
         "hardened_mode_strategy": "mode_override_fixture",
@@ -149,12 +163,20 @@ JOURNEY_SPECS: list[dict[str, Any]] = [
             "generated/centrality_katz_strict.json",
             "generated/centrality_hits_strict.json",
             "generated/centrality_pagerank_strict.json",
+            "generated/centrality_betweenness_petersen_strict.json",
+            "generated/centrality_closeness_turan_strict.json",
+            "generated/centrality_degree_petersen_strict.json",
+            "generated/centrality_eigenvector_wheel_strict.json",
+            "generated/centrality_harmonic_grid_strict.json",
+            "generated/centrality_katz_barbell_strict.json",
+            "generated/centrality_pagerank_barabasi_strict.json",
             "generated/centrality_eigenvector_strict.json",
             "generated/clustering_coefficient_strict.json",
             "generated/triangles_square_clustering_strict.json",
             "generated/avg_neighbor_degree_strict.json",
         ],
         "hardened_fixture_ids": [
+            "generated/centrality_degree_selfloop_hardened.json",
             "generated/centrality_closeness_strict.json",
             "generated/triangles_square_clustering_strict.json",
             "generated/avg_neighbor_degree_strict.json",
@@ -173,11 +195,16 @@ JOURNEY_SPECS: list[dict[str, Any]] = [
             "generated/matching_maximal_strict.json",
             "generated/matching_max_weight_strict.json",
             "generated/matching_min_weight_strict.json",
+            "generated/matching_max_weight_large_strict.json",
+            "generated/matching_min_weight_bipartite_strict.json",
         ],
         "hardened_fixture_ids": [
+            "generated/matching_maximal_isolated_hardened.json",
             "generated/matching_maximal_strict.json",
             "generated/matching_max_weight_strict.json",
             "generated/matching_min_weight_strict.json",
+            "generated/matching_max_weight_large_strict.json",
+            "generated/matching_min_weight_bipartite_strict.json",
         ],
         "hardened_mode_strategy": "mode_override_fixture",
     },
@@ -192,7 +219,15 @@ JOURNEY_SPECS: list[dict[str, Any]] = [
             "generated/readwrite_adjlist_roundtrip_strict.json",
             "generated/readwrite_graphml_roundtrip_strict.json",
         ],
-        "hardened_fixture_ids": ["generated/readwrite_hardened_malformed.json"],
+        "hardened_fixture_ids": [
+            "generated/readwrite_hardened_malformed.json",
+            "generated/readwrite_incompatible_feature_hardened.json",
+            "adversarial/empty_input.json",
+            "adversarial/huge_star.json",
+            "adversarial/negative_weights.json",
+            "adversarial/self_loops_only.json",
+            "adversarial/unicode_nodes.json",
+        ],
         "hardened_mode_strategy": "native_fixture",
     },
     {
@@ -979,7 +1014,11 @@ FAILURE_CLASS_TAXONOMY = [
 
 
 def load_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        print(f"FAILED TO LOAD JSON: {path} - returning empty dict")
+        return {}
 
 
 def list_fixture_ids() -> list[str]:

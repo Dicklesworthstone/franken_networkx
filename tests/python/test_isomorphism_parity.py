@@ -5,6 +5,20 @@ import franken_networkx as fnx
 from franken_networkx.drawing.layout import _to_nx
 
 
+def _mapping_signature(mapping):
+    return tuple(
+        sorted(
+            (
+                type(left).__name__,
+                repr(left),
+                type(right).__name__,
+                repr(right),
+            )
+            for left, right in mapping.items()
+        )
+    )
+
+
 def test_is_isomorphic_uses_rust_when_no_callbacks(monkeypatch):
     g1 = fnx.path_graph(4)
     g2 = fnx.path_graph(4)
@@ -82,6 +96,63 @@ def test_vf2pp_is_isomorphic_matches_networkx():
     )
 
 
+def test_vf2pp_is_isomorphic_with_labels_avoids_networkx(monkeypatch):
+    g1 = fnx.path_graph(4)
+    g2 = fnx.relabel_nodes(g1, {0: "a", 1: "b", 2: "c", 3: "d"})
+    g1.nodes[0]["color"] = "red"
+    g1.nodes[1]["color"] = "blue"
+    g1.nodes[2]["color"] = "blue"
+    g1.nodes[3]["color"] = "red"
+    g2.nodes["a"]["color"] = "red"
+    g2.nodes["b"]["color"] = "blue"
+    g2.nodes["c"]["color"] = "blue"
+    g2.nodes["d"]["color"] = "red"
+
+    expected = nx.vf2pp_is_isomorphic(_to_nx(g1), _to_nx(g2), node_label="color")
+
+    def fail_networkx(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(nx, "vf2pp_is_isomorphic", fail_networkx)
+    monkeypatch.setattr(nx, "vf2pp_isomorphism", fail_networkx)
+    monkeypatch.setattr(nx, "vf2pp_all_isomorphisms", fail_networkx)
+
+    assert fnx.vf2pp_is_isomorphic(g1, g2, node_label="color") == expected
+
+
+def test_vf2pp_is_isomorphic_with_default_label_avoids_networkx(monkeypatch):
+    g1 = fnx.path_graph(3)
+    g2 = fnx.relabel_nodes(g1, {0: "a", 1: "b", 2: "c"})
+    g1.nodes[0]["color"] = "red"
+    g1.nodes[2]["color"] = "blue"
+    g2.nodes["a"]["color"] = "red"
+    g2.nodes["b"]["color"] = "blue"
+
+    expected = nx.vf2pp_is_isomorphic(
+        _to_nx(g1),
+        _to_nx(g2),
+        node_label="color",
+        default_label="blue",
+    )
+
+    def fail_networkx(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(nx, "vf2pp_is_isomorphic", fail_networkx)
+    monkeypatch.setattr(nx, "vf2pp_isomorphism", fail_networkx)
+    monkeypatch.setattr(nx, "vf2pp_all_isomorphisms", fail_networkx)
+
+    assert (
+        fnx.vf2pp_is_isomorphic(
+            g1,
+            g2,
+            node_label="color",
+            default_label="blue",
+        )
+        == expected
+    )
+
+
 def test_vf2pp_isomorphism_mapping_preserves_edges():
     g1 = fnx.cycle_graph(4)
     g2 = fnx.Graph()
@@ -120,6 +191,33 @@ def test_vf2pp_isomorphism_uses_rust_without_labels(monkeypatch):
     assert called["rust"] is True
 
 
+def test_vf2pp_isomorphism_with_labels_avoids_networkx(monkeypatch):
+    g1 = fnx.path_graph(4)
+    g2 = fnx.relabel_nodes(g1, {0: "a", 1: "b", 2: "c", 3: "d"})
+    g1.nodes[0]["color"] = "red"
+    g1.nodes[1]["color"] = "blue"
+    g1.nodes[2]["color"] = "blue"
+    g1.nodes[3]["color"] = "red"
+    g2.nodes["a"]["color"] = "red"
+    g2.nodes["b"]["color"] = "blue"
+    g2.nodes["c"]["color"] = "blue"
+    g2.nodes["d"]["color"] = "red"
+
+    expected_mappings = list(
+        nx.vf2pp_all_isomorphisms(_to_nx(g1), _to_nx(g2), node_label="color")
+    )
+
+    def fail_networkx(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(nx, "vf2pp_is_isomorphic", fail_networkx)
+    monkeypatch.setattr(nx, "vf2pp_isomorphism", fail_networkx)
+    monkeypatch.setattr(nx, "vf2pp_all_isomorphisms", fail_networkx)
+
+    actual = fnx.vf2pp_isomorphism(g1, g2, node_label="color")
+    assert actual in expected_mappings
+
+
 def test_vf2pp_all_isomorphisms_count_matches_networkx():
     g1 = fnx.cycle_graph(4)
     g2 = fnx.cycle_graph(4)
@@ -148,6 +246,33 @@ def test_vf2pp_all_isomorphisms_uses_rust_without_labels(monkeypatch):
 
     assert list(fnx.vf2pp_all_isomorphisms(g1, g2)) == [{0: "a", 1: "b", 2: "c"}]
     assert called["rust"] is True
+
+
+def test_vf2pp_all_isomorphisms_with_labels_avoids_networkx(monkeypatch):
+    g1 = fnx.cycle_graph(4)
+    g2 = fnx.relabel_nodes(g1, {0: "a", 1: "b", 2: "c", 3: "d"})
+    g1.nodes[0]["color"] = "red"
+    g1.nodes[1]["color"] = "blue"
+    g1.nodes[2]["color"] = "red"
+    g1.nodes[3]["color"] = "blue"
+    g2.nodes["a"]["color"] = "blue"
+    g2.nodes["b"]["color"] = "red"
+    g2.nodes["c"]["color"] = "blue"
+    g2.nodes["d"]["color"] = "red"
+
+    expected = list(nx.vf2pp_all_isomorphisms(_to_nx(g1), _to_nx(g2), node_label="color"))
+
+    def fail_networkx(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(nx, "vf2pp_is_isomorphic", fail_networkx)
+    monkeypatch.setattr(nx, "vf2pp_isomorphism", fail_networkx)
+    monkeypatch.setattr(nx, "vf2pp_all_isomorphisms", fail_networkx)
+
+    actual = list(fnx.vf2pp_all_isomorphisms(g1, g2, node_label="color"))
+    assert {_mapping_signature(mapping) for mapping in actual} == {
+        _mapping_signature(mapping) for mapping in expected
+    }
 
 
 def test_vf2pp_isomorphism_directed_matches_networkx():

@@ -38,6 +38,18 @@ def test_lattice_reference_preserves_degree_sequence_and_matches_networkx():
     assert sorted(_to_nx(rewired).edges()) == sorted(rewired_nx.edges())
 
 
+def test_lattice_reference_does_not_delegate_to_networkx(monkeypatch):
+    expected = nx.lattice_reference(nx.cycle_graph(8), niter=2, seed=5)
+
+    def fail(*args, **kwargs):
+        raise AssertionError("networkx fallback was used")
+
+    monkeypatch.setattr(nx, "lattice_reference", fail)
+
+    actual = fnx.lattice_reference(fnx.cycle_graph(8), niter=2, seed=5)
+    assert sorted(_to_nx(actual).edges()) == sorted(expected.edges())
+
+
 def test_margulis_and_sudoku_graph_match_networkx():
     margulis = fnx.margulis_gabber_galil_graph(3)
     margulis_nx = nx.margulis_gabber_galil_graph(3)

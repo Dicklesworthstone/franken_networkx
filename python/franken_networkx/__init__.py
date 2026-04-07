@@ -21,7 +21,8 @@ from collections.abc import Mapping
 from copy import deepcopy
 from enum import Enum
 from heapq import heappop, heappush
-from itertools import combinations, count, product
+import itertools
+from itertools import combinations, count
 import math
 import sys
 
@@ -1162,20 +1163,33 @@ def projected_graph(B, nodes, multigraph=False):
     """Return the projection of a bipartite graph onto one set of nodes.
 
     Two nodes in the projection are connected if they share a neighbor
-    in the original bipartite graph.
+    in the original bipartite graph. If multigraph=True, one edge is
+    added per shared neighbor (returns MultiGraph).
     """
     nodes_set = set(nodes)
-    G = Graph()
-    for node in nodes_set:
-        G.add_node(node, **dict(B.nodes[node]))
 
-    for u in nodes_set:
-        for nbr in B.neighbors(u):
-            if nbr in nodes_set:
-                continue
-            for v in B.neighbors(nbr):
-                if v in nodes_set and v != u and not G.has_edge(u, v):
-                    G.add_edge(u, v)
+    if multigraph:
+        G = MultiGraph()
+        for node in nodes_set:
+            G.add_node(node, **dict(B.nodes[node]))
+        for u in nodes_set:
+            for nbr in B.neighbors(u):
+                if nbr in nodes_set:
+                    continue
+                for v in B.neighbors(nbr):
+                    if v in nodes_set and v != u:
+                        G.add_edge(u, v, key=nbr)
+    else:
+        G = Graph()
+        for node in nodes_set:
+            G.add_node(node, **dict(B.nodes[node]))
+        for u in nodes_set:
+            for nbr in B.neighbors(u):
+                if nbr in nodes_set:
+                    continue
+                for v in B.neighbors(nbr):
+                    if v in nodes_set and v != u and not G.has_edge(u, v):
+                        G.add_edge(u, v)
 
     return G
 
@@ -1872,8 +1886,9 @@ def stochastic_graph(G, copy=True, weight="weight"):
 def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
     """Return the ego graph of node *n* within *radius* hops."""
     if distance is not None:
-        # Weighted BFS: use single_source_dijkstra_path_length with cutoff.
-        sp = single_source_dijkstra_path_length(G, n, cutoff=radius, weight=distance)
+        # Weighted ego: include nodes within weighted distance <= radius.
+        sp = dict(single_source_dijkstra_path_length(G, n, weight=distance))
+        sp = {node: dist for node, dist in sp.items() if dist <= radius}
         nodes_within = set(sp.keys())
     elif undirected and G.is_directed():
         # Treat directed graph as undirected for BFS.
@@ -8461,7 +8476,7 @@ def chordless_cycles(G, length_bound=None):
         separate = strongly_connected_components
 
         def stems(component_graph, pivot):
-            for u, w in product(component_graph.pred[pivot], component_graph.succ[pivot]):
+            for u, w in itertools.product(component_graph.pred[pivot], component_graph.succ[pivot]):
                 if not G.has_edge(u, w):
                     yield [u, pivot, w], forward.has_edge(w, u)
 
@@ -9247,79 +9262,21 @@ def k_edge_augmentation(G, k, avail=None, weight=None, partial=False):
             (list(comps[i])[0], list(comps[i + 1])[0]) for i in range(len(comps) - 1)
         ]
 
-    # For k>=2 or when avail/weight specified, use native implementation.
-    # Strategy: iteratively find bridges/cut-edges and add edges to fix them.
-    nodes = list(G.nodes())
-    n = len(nodes)
-    H = G.copy()
-    added = []
+    # For k>=2 or when avail/weight are specified, delegate to NetworkX
+    # which has optimized implementations for bridge augmentation (k=2)
+    # and greedy partial augmentation (k>=3).
+    import networkx as nx
+    from franken_networkx.drawing.layout import _to_nx
 
-    if avail is not None:
-        avail_list = [(u, v) for u, v, *_ in avail]
-    else:
-        avail_list = None
-
-    def _find_augmenting_edge(comp1, comp2):
-        """Find an edge between two components."""
-        s1, s2 = set(comp1), set(comp2)
-        if avail_list is not None:
-            for u, v in avail_list:
-                if (u in s1 and v in s2) or (u in s2 and v in s1):
-                    return (u, v)
-            return None
-        return (list(s1)[0], list(s2)[0])
-
-    max_iters = n * k
-    for _ in range(max_iters):
-        try:
-            ec = edge_connectivity(H)
-        except Exception:
-            break
-        if ec >= k:
-            break
-        # Find components after removing a minimum edge cut.
-        if ec == 0:
-            comps = list(connected_components(H))
-            if len(comps) < 2:
-                break
-            edge = _find_augmenting_edge(comps[0], comps[1])
-        else:
-            # Find a bridge or weak edge and augment around it.
-            bridge_list = list(bridges(H)) if ec == 1 else []
-            if bridge_list:
-                u, v = bridge_list[0]
-                # Add an edge parallel to the bridge path.
-                u_comp = set()
-                H_copy = H.copy()
-                H_copy.remove_edge(u, v)
-                for c in connected_components(H_copy):
-                    if u in c:
-                        u_comp = c
-                        break
-                v_comp = set(H_copy.nodes()) - u_comp
-                edge = _find_augmenting_edge(u_comp, v_comp)
-            else:
-                # For higher connectivity, add edges between least-connected pairs.
-                edge = None
-                for u_node in nodes:
-                    for v_node in nodes:
-                        if u_node != v_node and not H.has_edge(u_node, v_node):
-                            if avail_list is None or (u_node, v_node) in avail_list or (v_node, u_node) in avail_list:
-                                edge = (u_node, v_node)
-                                break
-                    if edge:
-                        break
-
-        if edge is None:
-            if partial:
-                break
-            raise NetworkXUnfeasible(
-                f"Cannot achieve {k}-edge-connectivity with available edges"
-            )
-        H.add_edge(*edge)
-        added.append(edge)
-
-    return added
+    return list(
+        nx.k_edge_augmentation(
+            _to_nx(G),
+            k,
+            avail=avail,
+            weight=weight,
+            partial=partial,
+        )
+    )
 
 
 # Stochastic Block Models (br-1p2)
@@ -10106,6 +10063,46 @@ def combinatorial_embedding_to_pos(embedding, fully_triangulate=False):
     )
 
 
+def _vf2pp_node_label_value_local(G, node, node_label, default_label):
+    return G.nodes[node].get(node_label, default_label)
+
+
+def _vf2pp_mapping_matches_labels_local(
+    G1,
+    G2,
+    mapping,
+    *,
+    node_label,
+    default_label,
+):
+    return all(
+        _vf2pp_node_label_value_local(G1, left, node_label, default_label)
+        == _vf2pp_node_label_value_local(G2, right, node_label, default_label)
+        for left, right in mapping.items()
+    )
+
+
+def _vf2pp_labeled_mappings_local(G1, G2, *, node_label, default_label):
+    if G1.number_of_nodes() == 0 or G2.number_of_nodes() == 0:
+        return []
+    if G1.is_directed() != G2.is_directed():
+        return []
+    if G1.is_multigraph() != G2.is_multigraph():
+        return []
+
+    return [
+        mapping
+        for mapping in _vf2pp_all_isomorphisms_rust(G1, G2)
+        if _vf2pp_mapping_matches_labels_local(
+            G1,
+            G2,
+            mapping,
+            node_label=node_label,
+            default_label=default_label,
+        )
+    ]
+
+
 # Isomorphism VF2++ (br-req)
 def is_isomorphic(G1, G2, node_match=None, edge_match=None):
     """Test graph isomorphism, preserving NetworkX callback semantics."""
@@ -10130,15 +10127,13 @@ def vf2pp_is_isomorphic(G1, G2, node_label=None, default_label=None):
     if node_label is None:
         return _is_isomorphic_rust(G1, G2)
 
-    import networkx as nx
-
-    from franken_networkx.drawing.layout import _to_nx
-
-    return nx.vf2pp_is_isomorphic(
-        _to_nx(G1),
-        _to_nx(G2),
-        node_label=node_label,
-        default_label=default_label,
+    return bool(
+        _vf2pp_labeled_mappings_local(
+            G1,
+            G2,
+            node_label=node_label,
+            default_label=default_label,
+        )
     )
 
 
@@ -10147,13 +10142,13 @@ def vf2pp_isomorphism(G1, G2, node_label=None, default_label=None):
     if node_label is None:
         return _vf2pp_isomorphism_rust(G1, G2)
 
-    import networkx as nx
-
-    from franken_networkx.drawing.layout import _to_nx
-
-    return nx.vf2pp_isomorphism(
-        _to_nx(G1), _to_nx(G2), node_label=node_label, default_label=default_label
+    mappings = _vf2pp_labeled_mappings_local(
+        G1,
+        G2,
+        node_label=node_label,
+        default_label=default_label,
     )
+    return mappings[0] if mappings else None
 
 
 def vf2pp_all_isomorphisms(G1, G2, node_label=None, default_label=None):
@@ -10162,12 +10157,11 @@ def vf2pp_all_isomorphisms(G1, G2, node_label=None, default_label=None):
         yield from _vf2pp_all_isomorphisms_rust(G1, G2)
         return
 
-    import networkx as nx
-
-    from franken_networkx.drawing.layout import _to_nx
-
-    yield from nx.vf2pp_all_isomorphisms(
-        _to_nx(G1), _to_nx(G2), node_label=node_label, default_label=default_label
+    yield from _vf2pp_labeled_mappings_local(
+        G1,
+        G2,
+        node_label=node_label,
+        default_label=default_label,
     )
 
 
@@ -10420,50 +10414,22 @@ def panther_similarity(
     weight="weight",
     seed=None,
 ):
-    """Return Panther similarity scores via random walks from source.
+    """Return Panther similarity scores."""
+    import networkx as nx
 
-    Performs random walks of given path_length from source, counting visit
-    frequencies. Returns top-k most similar nodes with their scores.
-    """
-    import random as _random
+    from franken_networkx.drawing.layout import _to_nx
 
-    rng = _random.Random(seed)
-    n_walks = max(100, int(1.0 / (delta * delta)) if eps is None else int(1.0 / (eps * eps)))
-
-    visit_count = {}
-    for _ in range(n_walks):
-        current = source
-        for _ in range(path_length):
-            nbrs = list(G.neighbors(current))
-            if not nbrs:
-                break
-            if weight is not None:
-                weights = [G[current][nbr].get(weight, 1.0) for nbr in nbrs]
-                total = sum(weights)
-                if total > 0:
-                    r = rng.random() * total
-                    cumulative = 0
-                    for i, w in enumerate(weights):
-                        cumulative += w
-                        if r <= cumulative:
-                            current = nbrs[i]
-                            break
-                else:
-                    current = rng.choice(nbrs)
-            else:
-                current = rng.choice(nbrs)
-            # Decay factor.
-            if current != source:
-                visit_count[current] = visit_count.get(current, 0) + 1
-
-    # Normalize and apply decay.
-    scores = {}
-    for node, count in visit_count.items():
-        scores[node] = count / n_walks
-
-    # Return top-k.
-    top_k = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:k]
-    return dict(top_k)
+    return nx.panther_similarity(
+        _to_nx(G),
+        source,
+        k=k,
+        path_length=path_length,
+        c=c,
+        delta=delta,
+        eps=eps,
+        weight=weight,
+        seed=seed,
+    )
 
 
 def optimal_edit_paths(
@@ -10726,57 +10692,23 @@ def panther_vector_similarity(
     weight="weight",
     seed=None,
 ):
-    """Return Panther++ vector similarity scores.
+    """Return Panther++ vector similarity scores."""
+    import networkx as nx
 
-    Extension of panther_similarity that considers D-dimensional walk vectors.
-    """
-    import random as _random
+    from franken_networkx.drawing.layout import _to_nx
 
-    rng = _random.Random(seed)
-    n_walks = max(100, int(1.0 / (delta * delta)) if eps is None else int(1.0 / (eps * eps)))
-
-    # Per-dimension visit vectors.
-    vectors = {}  # node -> list of D visit counts
-    for dim in range(D):
-        for _ in range(n_walks):
-            current = source
-            for step in range(path_length):
-                nbrs = list(G.neighbors(current))
-                if not nbrs:
-                    break
-                if weight is not None:
-                    weights = [G[current][nbr].get(weight, 1.0) for nbr in nbrs]
-                    total = sum(weights)
-                    if total > 0:
-                        r = rng.random() * total
-                        cumulative = 0
-                        for i, w in enumerate(weights):
-                            cumulative += w
-                            if r <= cumulative:
-                                current = nbrs[i]
-                                break
-                    else:
-                        current = rng.choice(nbrs)
-                else:
-                    current = rng.choice(nbrs)
-                if current != source:
-                    if current not in vectors:
-                        vectors[current] = [0.0] * D
-                    vectors[current][dim] += 1.0 / n_walks
-
-    # Compute cosine similarity of visit vectors.
-    import math
-
-    source_vec = [0.0] * D  # source vector is uniform
-    scores = {}
-    for node, vec in vectors.items():
-        dot = sum(a * b for a, b in zip(vec, vec))
-        norm = math.sqrt(dot)
-        if norm > 0:
-            scores[node] = norm
-
-    top_k = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:k]
-    return dict(top_k)
+    return nx.panther_vector_similarity(
+        _to_nx(G),
+        source,
+        D=D,
+        k=k,
+        path_length=path_length,
+        c=c,
+        delta=delta,
+        eps=eps,
+        weight=weight,
+        seed=seed,
+    )
 
 
 def effective_graph_resistance(G, weight=None, invert_weight=True):
@@ -11014,25 +10946,17 @@ def generate_graphml(
     named_key_ids=False,
     edge_id_from_attribute=None,
 ):
-    """Generate GraphML lines.
+    """Generate GraphML lines."""
+    from networkx.readwrite.graphml import GraphMLWriter
 
-    Uses the native Rust-backed GraphML writer via a temp file, then yields lines.
-    """
-    import tempfile
-
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".graphml", delete=False
-    ) as tmp:
-        tmp_path = tmp.name
-    try:
-        write_graphml(G, tmp_path)
-        with open(tmp_path, encoding=encoding) as f:
-            for line in f:
-                yield line.rstrip("\n")
-    finally:
-        import os
-
-        os.unlink(tmp_path)
+    writer = GraphMLWriter(
+        encoding=encoding,
+        prettyprint=prettyprint,
+        named_key_ids=named_key_ids,
+        edge_id_from_attribute=edge_id_from_attribute,
+    )
+    writer.add_graph_element(G)
+    yield from str(writer).splitlines()
 
 
 # Generators
@@ -12386,37 +12310,41 @@ def prominent_group(
 
 
 def within_inter_cluster(G, ebunch=None, delta=0.001, community="community"):
-    """Yield (u, v, score) for within/inter-cluster community metric.
+    """Compute within/inter-cluster common neighbor ratio (WIC measure).
 
-    For each edge (u, v), the score is the number of common neighbors in the
-    same community as u divided by the minimum of the community sizes, plus
-    delta to avoid division by zero.
+    If u and v are in different communities, score is 0.
+    Otherwise, score = |within| / (|inter| + delta) where within are common
+    neighbors in the same community as u/v, and inter are those in different.
     """
-    if ebunch is None:
-        ebunch = G.edges()
+    if delta <= 0:
+        raise NetworkXError("Delta must be greater than zero")
 
-    def _community(node):
-        return G.nodes[node].get(community)
+    if ebunch is None:
+        # Default: all non-existing edges.
+        ebunch_iter = non_edges(G)
+    else:
+        ebunch_iter = ebunch
+
+    def _community_of(node):
+        c = G.nodes[node].get(community)
+        if c is None:
+            raise NetworkXError(
+                f"No community information for node {node!r}. "
+                f"Set node attribute '{community}' first."
+            )
+        return c
 
     def _generate():
-        for u, v in ebunch:
-            cu = _community(u)
-            cv = _community(v)
-            if cu is None or cv is None:
-                raise NetworkXError(
-                    f"No community information for node. "
-                    f"Set node attribute '{community}' first."
-                )
-            u_nbrs = set(G.neighbors(u))
-            v_nbrs = set(G.neighbors(v))
-            common = u_nbrs & v_nbrs
-            # Count common neighbors in same community as u.
-            within = sum(1 for w in common if _community(w) == cu)
-            # Community sizes.
-            cu_size = sum(1 for n in G.nodes() if _community(n) == cu)
-            cv_size = sum(1 for n in G.nodes() if _community(n) == cv)
-            denom = min(cu_size, cv_size) + delta
-            yield (u, v, within / denom)
+        for u, v in ebunch_iter:
+            cu = _community_of(u)
+            cv = _community_of(v)
+            if cu != cv:
+                yield (u, v, 0)
+                continue
+            cnbors = set(common_neighbors(G, u, v))
+            within = {w for w in cnbors if _community_of(w) == cu}
+            inter = cnbors - within
+            yield (u, v, len(within) / (len(inter) + delta))
 
     return _generate()
 
@@ -12456,52 +12384,84 @@ def dual_barabasi_albert_graph(
     initial_graph=None,
     create_using=None,
 ):
-    """Return a dual Barabasi-Albert preferential attachment graph.
-
-    With probability p, add m1 edges (preferential attachment).
-    With probability 1-p, add m2 edges (preferential attachment).
-    """
+    """Return a dual Barabasi-Albert preferential attachment graph."""
     import random as _random
 
-    rng = _random.Random(seed)
+    target = _empty_graph_from_create_using(create_using, default=Graph)
+    if target.is_directed():
+        raise NetworkXError("create_using must not be directed")
+    if target.is_multigraph():
+        raise NetworkXError("create_using must not be a multi-graph")
 
     if m1 < 1 or m1 >= n:
-        raise NetworkXError(f"Dual BA: m1={m1} must be >= 1 and < n={n}")
+        raise NetworkXError(
+            f"Dual Barabasi-Albert must have m1 >= 1 and m1 < n, m1 = {m1}, n = {n}"
+        )
     if m2 < 1 or m2 >= n:
-        raise NetworkXError(f"Dual BA: m2={m2} must be >= 1 and < n={n}")
-    if not (0 <= p <= 1):
-        raise NetworkXError(f"Dual BA: p={p} must be in [0,1]")
+        raise NetworkXError(
+            f"Dual Barabasi-Albert must have m2 >= 1 and m2 < n, m2 = {m2}, n = {n}"
+        )
+    if p < 0 or p > 1:
+        raise NetworkXError(
+            f"Dual Barabasi-Albert network must have 0 <= p <= 1, p = {p}"
+        )
 
-    if initial_graph is not None:
-        G = initial_graph.copy()
-        m0 = G.number_of_nodes()
+    if p == 1:
+        return barabasi_albert_graph(
+            n,
+            m1,
+            seed=seed,
+            initial_graph=initial_graph,
+            create_using=create_using,
+        )
+    if p == 0:
+        return barabasi_albert_graph(
+            n,
+            m2,
+            seed=seed,
+            initial_graph=initial_graph,
+            create_using=create_using,
+        )
+
+    if initial_graph is None:
+        graph = star_graph(max(m1, m2))
     else:
-        m0 = max(m1, m2)
-        G = star_graph(m0)
+        if len(initial_graph) < max(m1, m2) or len(initial_graph) > n:
+            raise NetworkXError(
+                f"Barabasi-Albert initial graph must have between "
+                f"max(m1, m2) = {max(m1, m2)} and n = {n} nodes"
+            )
+        graph = Graph()
+        graph.graph.update(dict(initial_graph.graph))
+        for node, attrs in initial_graph.nodes(data=True):
+            graph.add_node(node, **dict(attrs))
+        for u, v, attrs in initial_graph.edges(data=True):
+            graph.add_edge(u, v, **dict(attrs))
 
-    # Repeated-nodes list for preferential attachment.
-    repeated_nodes = []
-    for u, v in G.edges():
-        repeated_nodes.extend([u, v])
-
-    source = max(G.nodes()) + 1 if G.number_of_nodes() > 0 else 0
-
-    while G.number_of_nodes() < n:
+    rng = _random.Random(seed)
+    repeated_nodes = [
+        node for node, degree_value in graph.degree for _ in range(degree_value)
+    ]
+    source = len(graph)
+    while source < n:
         m = m1 if rng.random() < p else m2
         targets = set()
         while len(targets) < m:
-            if repeated_nodes:
-                x = repeated_nodes[rng.randint(0, len(repeated_nodes) - 1)]
-                targets.add(x)
-            else:
-                break
-        G.add_node(source)
-        for target in targets:
-            G.add_edge(source, target)
-            repeated_nodes.extend([source, target])
+            targets.add(rng.choice(repeated_nodes))
+        graph.add_edges_from((source, target) for target in targets)
+        repeated_nodes.extend(targets)
+        repeated_nodes.extend([source] * m)
         source += 1
 
-    return G
+    if create_using is None:
+        return graph
+
+    target.graph.update(dict(graph.graph))
+    for node, attrs in graph.nodes(data=True):
+        target.add_node(node, **dict(attrs))
+    for u, v, attrs in graph.edges(data=True):
+        target.add_edge(u, v, **dict(attrs))
+    return target
 
 
 def extended_barabasi_albert_graph(n, m, p, q, seed=None, create_using=None):
@@ -12711,74 +12671,30 @@ def grid_graph(dim, periodic=False):
 
 
 def lattice_reference(G, niter=5, D=None, connectivity=True, seed=None):
-    """Return a lattice-like rewiring of *G* preserving degree sequence.
+    """Return a lattice-like rewiring of *G* preserving degree sequence."""
+    import networkx as nx
 
-    Performs niter * E edge swaps, attempting to sort edges by node index
-    to create a lattice-like structure while preserving the degree sequence.
-    """
-    import random as _random
+    from franken_networkx.readwrite import _from_nx_graph
 
-    rng = _random.Random(seed)
-    H = G.copy()
-    nodes = sorted(H.nodes())
-    n = len(nodes)
-    node_to_idx = {v: i for i, v in enumerate(nodes)}
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
 
-    if n < 4:
-        return H
+    graph = nx.Graph()
+    graph.graph.update(dict(G.graph))
+    graph.add_nodes_from((node, dict(attrs)) for node, attrs in G.nodes(data=True))
+    graph.add_edges_from((u, v, dict(attrs)) for u, v, attrs in G.edges(data=True))
 
-    nswap = niter * H.number_of_edges()
-    swaps = 0
-    max_attempts = nswap * 10
-
-    for _ in range(max_attempts):
-        if swaps >= nswap:
-            break
-        edges = list(H.edges())
-        if len(edges) < 2:
-            break
-        # Pick two random edges.
-        ei = rng.randint(0, len(edges) - 1)
-        ej = rng.randint(0, len(edges) - 1)
-        if ei == ej:
-            continue
-        u, v = edges[ei]
-        x, y = edges[ej]
-        if len({u, v, x, y}) < 4:
-            continue
-
-        # Try swap: (u,v),(x,y) -> (u,x),(v,y) — choose the swap that
-        # reduces total "distance" in the node ordering (lattice-like).
-        ui, vi, xi, yi = node_to_idx[u], node_to_idx[v], node_to_idx[x], node_to_idx[y]
-        old_dist = abs(ui - vi) + abs(xi - yi)
-        new_dist_1 = abs(ui - xi) + abs(vi - yi)
-        new_dist_2 = abs(ui - yi) + abs(vi - xi)
-
-        if new_dist_1 <= new_dist_2 and new_dist_1 < old_dist:
-            new_u_nbr, new_v_nbr = x, y
-        elif new_dist_2 < old_dist:
-            new_u_nbr, new_v_nbr = y, x
-        else:
-            continue
-
-        if H.has_edge(u, new_u_nbr) or H.has_edge(v, new_v_nbr):
-            continue
-
-        H.remove_edge(u, v)
-        H.remove_edge(x, y)
-        H.add_edge(u, new_u_nbr)
-        H.add_edge(v, new_v_nbr)
-
-        if connectivity and not is_connected(H):
-            H.remove_edge(u, new_u_nbr)
-            H.remove_edge(v, new_v_nbr)
-            H.add_edge(u, v)
-            H.add_edge(x, y)
-            continue
-
-        swaps += 1
-
-    return H
+    return _from_nx_graph(
+        nx.algorithms.smallworld.lattice_reference(
+            graph,
+            niter=niter,
+            D=D,
+            connectivity=connectivity,
+            seed=seed,
+        )
+    )
 
 
 def margulis_gabber_galil_graph(n, create_using=None):

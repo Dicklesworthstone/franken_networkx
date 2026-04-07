@@ -1,14 +1,14 @@
 {
   "schema_version": "1.0.0",
   "artifact_id": "e2e-scenario-matrix-oracle-contract-v1",
-  "generated_at_utc": "2026-02-26T03:59:25.888298+00:00",
+  "generated_at_utc": "2026-04-07T16:38:48.707728+00:00",
   "baseline_comparator": "legacy_networkx/main@python3.12",
   "journey_summary": {
     "journey_count": 12,
     "strict_journey_count": 12,
     "hardened_journey_count": 12,
-    "fixture_inventory_count": 79,
-    "covered_fixture_count": 59,
+    "fixture_inventory_count": 84,
+    "covered_fixture_count": 84,
     "uncovered_fixture_count": 0
   },
   "deterministic_seed_policy": {
@@ -646,6 +646,12 @@
           "generated/shortest_path_multi_source_dijkstra_strict.json",
           "generated/flow_max_strict.json",
           "generated/flow_min_cut_strict.json",
+          "generated/flow_edge_connectivity_petersen_strict.json",
+          "generated/flow_max_large_strict.json",
+          "generated/flow_max_serial_bottleneck_strict.json",
+          "generated/flow_max_zero_capacity_strict.json",
+          "generated/flow_min_cut_bottleneck_strict.json",
+          "generated/flow_st_edge_cut_bottleneck_strict.json",
           "generated/flow_edge_connectivity_strict.json"
         ],
         "deterministic_seed": 12768501484240481578,
@@ -743,40 +749,47 @@
       "hardened_path": {
         "mode": "hardened",
         "mode_strategy": "mode_override_fixture",
-        "fixture_id": "generated/components_connected_strict.json",
+        "fixture_id": "generated/flow_max_missing_capacity_hardened.json",
         "fixture_ids": [
+          "generated/flow_max_missing_capacity_hardened.json",
+          "generated/shortest_path_disconnected_hardened.json",
           "generated/components_connected_strict.json",
-          "generated/flow_edge_connectivity_strict.json",
+          "generated/shortest_path_weighted_strict.json",
+          "generated/shortest_path_bellman_ford_strict.json",
+          "generated/shortest_path_multi_source_dijkstra_strict.json",
           "generated/flow_max_strict.json",
           "generated/flow_min_cut_strict.json",
-          "generated/shortest_path_bellman_ford_strict.json",
-          "generated/shortest_path_disconnected_hardened.json",
-          "generated/shortest_path_multi_source_dijkstra_strict.json",
-          "generated/shortest_path_weighted_strict.json"
+          "generated/flow_edge_connectivity_petersen_strict.json",
+          "generated/flow_max_large_strict.json",
+          "generated/flow_max_serial_bottleneck_strict.json",
+          "generated/flow_max_zero_capacity_strict.json",
+          "generated/flow_min_cut_bottleneck_strict.json",
+          "generated/flow_st_edge_cut_bottleneck_strict.json",
+          "generated/flow_edge_connectivity_strict.json"
         ],
-        "deterministic_seed": 4869112433215673836,
-        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/components_connected_strict.json --mode hardened",
+        "deterministic_seed": 16737214012521374533,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/flow_max_missing_capacity_hardened.json --mode hardened",
         "step_contract": [
           {
             "step_id": "S01",
-            "operation": "add_edge",
+            "operation": "add_node",
             "expected_outputs": [
               "expected.graph.edges",
               "expected.graph.nodes"
             ],
-            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "tie_break_behavior": "Node insertion order is deterministic and preserved in snapshot iteration.",
             "failure_classes": [
               "graph_mutation"
             ]
           },
           {
             "step_id": "S02",
-            "operation": "add_edge",
+            "operation": "add_node",
             "expected_outputs": [
               "expected.graph.edges",
               "expected.graph.nodes"
             ],
-            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "tie_break_behavior": "Node insertion order is deterministic and preserved in snapshot iteration.",
             "failure_classes": [
               "graph_mutation"
             ]
@@ -795,52 +808,58 @@
           },
           {
             "step_id": "S04",
-            "operation": "connected_components_query",
+            "operation": "add_edge",
             "expected_outputs": [
-              "expected.connected_components"
+              "expected.graph.edges",
+              "expected.graph.nodes"
             ],
-            "tie_break_behavior": "Component enumeration follows deterministic first-seen traversal order.",
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
             "failure_classes": [
-              "algorithm_components"
+              "graph_mutation"
             ]
           },
           {
             "step_id": "S05",
-            "operation": "number_connected_components_query",
+            "operation": "add_edge",
             "expected_outputs": [
-              "expected.number_connected_components"
+              "expected.graph.edges",
+              "expected.graph.nodes"
             ],
-            "tie_break_behavior": "Connectivity count invariant is deterministic for identical input graphs.",
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
             "failure_classes": [
-              "algorithm_components"
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S06",
+            "operation": "max_flow_query",
+            "expected_outputs": [
+              "expected.graph",
+              "expected.max_flow_value"
+            ],
+            "tie_break_behavior": "Deterministic ordering is required for all observable outputs.",
+            "failure_classes": [
+              "fixture_schema"
             ]
           }
         ],
         "oracle_assertions": [
           {
             "assertion_id": "A01",
-            "expected_ref": "expected.connected_components",
-            "contract": "Connected components listing must match oracle component partitioning and order.",
-            "tie_break_behavior": "Component order follows deterministic first-seen traversal order.",
-            "failure_class": "algorithm_components"
-          },
-          {
-            "assertion_id": "A02",
             "expected_ref": "expected.graph",
             "contract": "Node and edge snapshots must match oracle values exactly (including deterministic order and attrs).",
             "tie_break_behavior": "Node/edge ordering follows deterministic insertion order parity.",
             "failure_class": "graph_mutation"
           },
           {
-            "assertion_id": "A03",
-            "expected_ref": "expected.number_connected_components",
-            "contract": "Connected component count must match oracle scalar output exactly.",
-            "tie_break_behavior": "Deterministic component traversal ensures reproducible counts and witnesses.",
-            "failure_class": "algorithm_components"
+            "assertion_id": "A02",
+            "expected_ref": "expected.max_flow_value",
+            "contract": "Expected output must match fixture oracle contract exactly.",
+            "tie_break_behavior": "Deterministic ordering is required for replay parity.",
+            "failure_class": "fixture_schema"
           }
         ],
         "failure_classes": [
-          "algorithm_components",
           "fixture_io",
           "fixture_schema",
           "graph_mutation"
@@ -857,29 +876,23 @@
         "mode_strategy": "native_fixture",
         "fixture_id": "generated/structure_articulation_points_strict.json",
         "fixture_ids": [
-          "generated/average_shortest_path_length_strict.json",
-          "generated/bipartite_strict.json",
-          "generated/cliques_strict.json",
-          "generated/core_number_strict.json",
-          "generated/cycle_basis_strict.json",
-          "generated/distance_measures_strict.json",
-          "generated/euler_circuit_strict.json",
-          "generated/euler_path_strict.json",
-          "generated/flow_edge_connectivity_petersen_strict.json",
-          "generated/flow_max_large_strict.json",
-          "generated/flow_max_serial_bottleneck_strict.json",
-          "generated/flow_max_zero_capacity_strict.json",
-          "generated/flow_min_cut_bottleneck_strict.json",
-          "generated/flow_st_edge_cut_bottleneck_strict.json",
-          "generated/greedy_color_strict.json",
-          "generated/has_path_strict.json",
-          "generated/is_connected_density_strict.json",
-          "generated/minimum_spanning_tree_strict.json",
-          "generated/node_connectivity_strict.json",
-          "generated/paths_efficiency_cover_strict.json",
           "generated/structure_articulation_points_strict.json",
           "generated/structure_bridges_strict.json",
-          "generated/tree_forest_strict.json"
+          "generated/distance_measures_strict.json",
+          "generated/average_shortest_path_length_strict.json",
+          "generated/is_connected_density_strict.json",
+          "generated/has_path_strict.json",
+          "generated/minimum_spanning_tree_strict.json",
+          "generated/tree_forest_strict.json",
+          "generated/greedy_color_strict.json",
+          "generated/bipartite_strict.json",
+          "generated/core_number_strict.json",
+          "generated/cliques_strict.json",
+          "generated/node_connectivity_strict.json",
+          "generated/cycle_basis_strict.json",
+          "generated/paths_efficiency_cover_strict.json",
+          "generated/euler_circuit_strict.json",
+          "generated/euler_path_strict.json"
         ],
         "deterministic_seed": 470103415025137257,
         "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/structure_articulation_points_strict.json --mode strict",
@@ -1032,24 +1045,23 @@
         "mode_strategy": "mode_override_fixture",
         "fixture_id": "generated/structure_articulation_points_strict.json",
         "fixture_ids": [
-          "generated/average_shortest_path_length_strict.json",
-          "generated/bipartite_strict.json",
-          "generated/cliques_strict.json",
-          "generated/core_number_strict.json",
-          "generated/cycle_basis_strict.json",
-          "generated/distance_measures_strict.json",
-          "generated/euler_circuit_strict.json",
-          "generated/euler_path_strict.json",
-          "generated/flow_max_missing_capacity_hardened.json",
-          "generated/greedy_color_strict.json",
-          "generated/has_path_strict.json",
-          "generated/is_connected_density_strict.json",
-          "generated/minimum_spanning_tree_strict.json",
-          "generated/node_connectivity_strict.json",
-          "generated/paths_efficiency_cover_strict.json",
           "generated/structure_articulation_points_strict.json",
           "generated/structure_bridges_strict.json",
-          "generated/tree_forest_strict.json"
+          "generated/distance_measures_strict.json",
+          "generated/average_shortest_path_length_strict.json",
+          "generated/is_connected_density_strict.json",
+          "generated/has_path_strict.json",
+          "generated/minimum_spanning_tree_strict.json",
+          "generated/tree_forest_strict.json",
+          "generated/greedy_color_strict.json",
+          "generated/bipartite_strict.json",
+          "generated/core_number_strict.json",
+          "generated/cliques_strict.json",
+          "generated/node_connectivity_strict.json",
+          "generated/cycle_basis_strict.json",
+          "generated/paths_efficiency_cover_strict.json",
+          "generated/euler_circuit_strict.json",
+          "generated/euler_path_strict.json"
         ],
         "deterministic_seed": 3609198798068896531,
         "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/structure_articulation_points_strict.json --mode hardened",
@@ -1208,25 +1220,25 @@
         "mode_strategy": "native_fixture",
         "fixture_id": "generated/centrality_edge_betweenness_strict.json",
         "fixture_ids": [
-          "generated/avg_neighbor_degree_strict.json",
-          "generated/centrality_betweenness_petersen_strict.json",
+          "generated/centrality_edge_betweenness_strict.json",
+          "generated/centrality_degree_strict.json",
           "generated/centrality_betweenness_strict.json",
           "generated/centrality_closeness_strict.json",
+          "generated/centrality_harmonic_strict.json",
+          "generated/centrality_katz_strict.json",
+          "generated/centrality_hits_strict.json",
+          "generated/centrality_pagerank_strict.json",
+          "generated/centrality_betweenness_petersen_strict.json",
           "generated/centrality_closeness_turan_strict.json",
           "generated/centrality_degree_petersen_strict.json",
-          "generated/centrality_degree_strict.json",
-          "generated/centrality_edge_betweenness_strict.json",
-          "generated/centrality_eigenvector_strict.json",
           "generated/centrality_eigenvector_wheel_strict.json",
           "generated/centrality_harmonic_grid_strict.json",
-          "generated/centrality_harmonic_strict.json",
-          "generated/centrality_hits_strict.json",
           "generated/centrality_katz_barbell_strict.json",
-          "generated/centrality_katz_strict.json",
           "generated/centrality_pagerank_barabasi_strict.json",
-          "generated/centrality_pagerank_strict.json",
+          "generated/centrality_eigenvector_strict.json",
           "generated/clustering_coefficient_strict.json",
-          "generated/triangles_square_clustering_strict.json"
+          "generated/triangles_square_clustering_strict.json",
+          "generated/avg_neighbor_degree_strict.json"
         ],
         "deterministic_seed": 3420695649051788629,
         "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_edge_betweenness_strict.json --mode strict",
@@ -1305,24 +1317,24 @@
       "hardened_path": {
         "mode": "hardened",
         "mode_strategy": "mode_override_fixture",
-        "fixture_id": "generated/centrality_closeness_strict.json",
+        "fixture_id": "generated/centrality_degree_selfloop_hardened.json",
         "fixture_ids": [
-          "generated/avg_neighbor_degree_strict.json",
-          "generated/centrality_closeness_strict.json",
           "generated/centrality_degree_selfloop_hardened.json",
-          "generated/triangles_square_clustering_strict.json"
+          "generated/centrality_closeness_strict.json",
+          "generated/triangles_square_clustering_strict.json",
+          "generated/avg_neighbor_degree_strict.json"
         ],
-        "deterministic_seed": 9070744064313709177,
-        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_closeness_strict.json --mode hardened",
+        "deterministic_seed": 14692552344687951069,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_degree_selfloop_hardened.json --mode hardened",
         "step_contract": [
           {
             "step_id": "S01",
-            "operation": "add_edge",
+            "operation": "add_node",
             "expected_outputs": [
               "expected.graph.edges",
               "expected.graph.nodes"
             ],
-            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "tie_break_behavior": "Node insertion order is deterministic and preserved in snapshot iteration.",
             "failure_classes": [
               "graph_mutation"
             ]
@@ -1341,11 +1353,71 @@
           },
           {
             "step_id": "S03",
-            "operation": "closeness_centrality_query",
+            "operation": "add_node",
             "expected_outputs": [
-              "expected.closeness_centrality"
+              "expected.graph.edges",
+              "expected.graph.nodes"
             ],
-            "tie_break_behavior": "WF-improved traversal order is deterministic for equal-distance handling.",
+            "tie_break_behavior": "Node insertion order is deterministic and preserved in snapshot iteration.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S04",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S05",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S06",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S07",
+            "operation": "add_edge",
+            "expected_outputs": [
+              "expected.graph.edges",
+              "expected.graph.nodes"
+            ],
+            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "failure_classes": [
+              "graph_mutation"
+            ]
+          },
+          {
+            "step_id": "S08",
+            "operation": "degree_centrality_query",
+            "expected_outputs": [
+              "expected.degree_centrality"
+            ],
+            "tie_break_behavior": "Centrality score ordering is deterministic for serialization and oracle diffs.",
             "failure_classes": [
               "algorithm_centrality"
             ]
@@ -1354,9 +1426,9 @@
         "oracle_assertions": [
           {
             "assertion_id": "A01",
-            "expected_ref": "expected.closeness_centrality",
-            "contract": "Closeness centrality scores must match oracle values under WF-improved semantics.",
-            "tie_break_behavior": "Deterministic traversal and node ordering govern equal-distance resolution.",
+            "expected_ref": "expected.degree_centrality",
+            "contract": "Degree centrality scores must match oracle values and deterministic node ordering.",
+            "tie_break_behavior": "Deterministic node ordering is used for equal-score serialization.",
             "failure_class": "algorithm_centrality"
           },
           {
@@ -1385,11 +1457,11 @@
         "mode_strategy": "native_fixture",
         "fixture_id": "generated/matching_maximal_strict.json",
         "fixture_ids": [
-          "generated/matching_max_weight_large_strict.json",
-          "generated/matching_max_weight_strict.json",
           "generated/matching_maximal_strict.json",
-          "generated/matching_min_weight_bipartite_strict.json",
-          "generated/matching_min_weight_strict.json"
+          "generated/matching_max_weight_strict.json",
+          "generated/matching_min_weight_strict.json",
+          "generated/matching_max_weight_large_strict.json",
+          "generated/matching_min_weight_bipartite_strict.json"
         ],
         "deterministic_seed": 15943741301805251509,
         "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/matching_maximal_strict.json --mode strict",
@@ -1504,60 +1576,62 @@
       "hardened_path": {
         "mode": "hardened",
         "mode_strategy": "mode_override_fixture",
-        "fixture_id": "generated/matching_maximal_strict.json",
+        "fixture_id": "generated/matching_maximal_isolated_hardened.json",
         "fixture_ids": [
-          "generated/matching_max_weight_strict.json",
           "generated/matching_maximal_isolated_hardened.json",
           "generated/matching_maximal_strict.json",
-          "generated/matching_min_weight_strict.json"
+          "generated/matching_max_weight_strict.json",
+          "generated/matching_min_weight_strict.json",
+          "generated/matching_max_weight_large_strict.json",
+          "generated/matching_min_weight_bipartite_strict.json"
         ],
-        "deterministic_seed": 15045496038485822011,
-        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/matching_maximal_strict.json --mode hardened",
+        "deterministic_seed": 1127125089459312225,
+        "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/matching_maximal_isolated_hardened.json --mode hardened",
         "step_contract": [
           {
             "step_id": "S01",
-            "operation": "add_edge",
+            "operation": "add_node",
             "expected_outputs": [
               "expected.graph.edges",
               "expected.graph.nodes"
             ],
-            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "tie_break_behavior": "Node insertion order is deterministic and preserved in snapshot iteration.",
             "failure_classes": [
               "graph_mutation"
             ]
           },
           {
             "step_id": "S02",
-            "operation": "add_edge",
+            "operation": "add_node",
             "expected_outputs": [
               "expected.graph.edges",
               "expected.graph.nodes"
             ],
-            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "tie_break_behavior": "Node insertion order is deterministic and preserved in snapshot iteration.",
             "failure_classes": [
               "graph_mutation"
             ]
           },
           {
             "step_id": "S03",
-            "operation": "add_edge",
+            "operation": "add_node",
             "expected_outputs": [
               "expected.graph.edges",
               "expected.graph.nodes"
             ],
-            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "tie_break_behavior": "Node insertion order is deterministic and preserved in snapshot iteration.",
             "failure_classes": [
               "graph_mutation"
             ]
           },
           {
             "step_id": "S04",
-            "operation": "add_edge",
+            "operation": "add_node",
             "expected_outputs": [
               "expected.graph.edges",
               "expected.graph.nodes"
             ],
-            "tie_break_behavior": "Edge insertion follows deterministic endpoint ordering tied to node insertion order.",
+            "tie_break_behavior": "Node insertion order is deterministic and preserved in snapshot iteration.",
             "failure_classes": [
               "graph_mutation"
             ]
@@ -1711,7 +1785,12 @@
         "fixture_id": "generated/readwrite_hardened_malformed.json",
         "fixture_ids": [
           "generated/readwrite_hardened_malformed.json",
-          "generated/readwrite_incompatible_feature_hardened.json"
+          "generated/readwrite_incompatible_feature_hardened.json",
+          "adversarial/empty_input.json",
+          "adversarial/huge_star.json",
+          "adversarial/negative_weights.json",
+          "adversarial/self_loops_only.json",
+          "adversarial/unicode_nodes.json"
         ],
         "deterministic_seed": 15798793491341090845,
         "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened",
@@ -2497,6 +2576,11 @@
   ],
   "coverage_manifest": {
     "fixture_inventory": [
+      "adversarial/empty_input.json",
+      "adversarial/huge_star.json",
+      "adversarial/negative_weights.json",
+      "adversarial/self_loops_only.json",
+      "adversarial/unicode_nodes.json",
       "generated/adversarial_regression_bundle_v1.json",
       "generated/average_shortest_path_length_strict.json",
       "generated/avg_neighbor_degree_strict.json",
@@ -2578,6 +2662,11 @@
       "graph_core_shortest_path_strict.json"
     ],
     "covered_fixture_ids": [
+      "adversarial/empty_input.json",
+      "adversarial/huge_star.json",
+      "adversarial/negative_weights.json",
+      "adversarial/self_loops_only.json",
+      "adversarial/unicode_nodes.json",
       "generated/adversarial_regression_bundle_v1.json",
       "generated/average_shortest_path_length_strict.json",
       "generated/avg_neighbor_degree_strict.json",
