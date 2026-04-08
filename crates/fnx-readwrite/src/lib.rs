@@ -2830,6 +2830,7 @@ mod tests {
             .read_graphml("")
             .expect("empty graphml should return empty graph");
         assert_eq!(report.graph.node_count(), 0);
+        assert_eq!(report.graph.edge_count(), 0);
     }
 
     #[test]
@@ -2840,6 +2841,7 @@ mod tests {
             .read_gml("")
             .expect("empty gml should return empty graph");
         assert_eq!(report.graph.node_count(), 0);
+        assert_eq!(report.graph.edge_count(), 0);
     }
 
     #[test]
@@ -3223,10 +3225,13 @@ mod tests {
             let _ = hardened.read_edgelist(&data);
 
             let mut hardened2 = EdgeListEngine::hardened();
-            let _ = hardened2.read_json_graph(&data);
+            let _ = hardened2.read_adjlist(&data);
 
             let mut hardened3 = EdgeListEngine::hardened();
-            let _ = hardened3.read_gml(&data);
+            let _ = hardened3.read_json_graph(&data);
+
+            let mut hardened4 = EdgeListEngine::hardened();
+            let _ = hardened4.read_gml(&data);
         }
     }
 }

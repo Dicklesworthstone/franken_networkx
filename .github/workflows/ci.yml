@@ -201,6 +201,8 @@ jobs:
         run: cd fuzz && cargo +nightly fuzz run fuzz_graphml -- -max_total_time=30
       - name: Fuzz GML parser (30s)
         run: cd fuzz && cargo +nightly fuzz run fuzz_gml -- -max_total_time=30
+      - name: Fuzz adjlist parser (30s)
+        run: cd fuzz && cargo +nightly fuzz run fuzz_adjlist -- -max_total_time=30
 
   g8-raptorq:
     name: G8 RaptorQ scrub

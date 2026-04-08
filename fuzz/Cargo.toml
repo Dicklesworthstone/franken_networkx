@@ -34,3 +34,8 @@ doc = false
 name = "fuzz_gml"
 path = "fuzz_targets/fuzz_gml.rs"
 doc = false
+
+[[bin]]
+name = "fuzz_adjlist"
+path = "fuzz_targets/fuzz_adjlist.rs"
+doc = false
