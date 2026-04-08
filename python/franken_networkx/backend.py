@@ -457,12 +457,10 @@ class BackendInterface:
         """Return True if this backend can run the named algorithm."""
         fn = _SUPPORTED_ALGORITHMS.get(name)
         if fn is None:
-            print(f"DEBUG: fn is None for {name}")
             return False
         try:
             inspect.signature(fn).bind(*args, **kwargs)
-        except TypeError as e:
-            print(f"DEBUG: TypeError binding {name} with args {args} kwargs {kwargs}: {e}")
+        except TypeError:
             return False
         return True
 

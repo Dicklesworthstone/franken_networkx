@@ -9071,7 +9071,12 @@ def weisfeiler_lehman_subgraph_hashes(
             for nbr in G.neighbors(n):
                 if edge_attr is not None:
                     edge_data = G[n][nbr]
-                    prefix = str(edge_data.get(edge_attr, ""))
+                    if G.is_multigraph():
+                        # MultiGraph: G[n][nbr] is {key: {attrs}}, use first key.
+                        first_key = next(iter(edge_data))
+                        prefix = str(edge_data[first_key].get(edge_attr, ""))
+                    else:
+                        prefix = str(edge_data.get(edge_attr, ""))
                     nbr_labels.append(prefix + labels[nbr])
                 else:
                     nbr_labels.append(labels[nbr])
@@ -9200,7 +9205,7 @@ def k_edge_components(G, k):
                         ec = edge_connectivity(sub, u, v)
                         if ec >= k:
                             union(u, v)
-                    except Exception:
+                    except (NetworkXError, NetworkXUnbounded, ValueError):
                         pass
 
         comp_map = {}
@@ -10877,13 +10882,49 @@ def mixing_dict(xy, normalized=False):
     return nx.mixing_dict(xy, normalized=normalized)
 
 
-def local_constraint(G, u, v):
-    """Burt's local constraint for edge (u,v)."""
-    import networkx as nx
+def _edge_weight_sum(G, u, v, weight=None):
+    """Return the summed edge weight from ``u`` to ``v``.
 
-    from franken_networkx.drawing.layout import _to_nx
+    Multi-edges contribute the sum of their per-edge weights, matching the
+    observable NetworkX behavior for structural-hole helpers.
+    """
+    try:
+        edge_data = G[u][v]
+    except KeyError:
+        return 0
 
-    return nx.local_constraint(_to_nx(G), u, v)
+    if G.is_multigraph():
+        if weight is None:
+            return len(edge_data)
+        return sum(attrs.get(weight, 1) for attrs in edge_data.values())
+    return edge_data.get(weight, 1)
+
+
+def _mutual_weight(G, u, v, weight=None):
+    """Return the combined weight of the edges between ``u`` and ``v``."""
+    return _edge_weight_sum(G, u, v, weight) + _edge_weight_sum(G, v, u, weight)
+
+
+def _normalized_mutual_weight(G, u, v, weight=None, norm=sum):
+    """Normalize mutual weight relative to all neighbors of ``u``."""
+    scale = norm(_mutual_weight(G, u, w, weight) for w in set(all_neighbors(G, u)))
+    return 0 if scale == 0 else _mutual_weight(G, u, v, weight) / scale
+
+
+def local_constraint(G, u, v, weight=None):
+    """Burt's local constraint for edge ``(u, v)``."""
+    if u not in G:
+        raise NetworkXError(f"The node {u} is not in the graph.")
+    if v not in G:
+        raise NetworkXError(f"The node {v} is not in the graph.")
+
+    direct = _normalized_mutual_weight(G, u, v, weight=weight)
+    indirect = sum(
+        _normalized_mutual_weight(G, u, w, weight=weight)
+        * _normalized_mutual_weight(G, w, v, weight=weight)
+        for w in set(all_neighbors(G, u))
+    )
+    return (direct + indirect) ** 2
 
 
 def apply_matplotlib_colors(
@@ -10922,11 +10963,24 @@ def apply_matplotlib_colors(
 
 def communicability_exp(G):
     """Communicability via scipy.linalg.expm."""
-    import networkx as nx
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
 
-    from franken_networkx.drawing.layout import _to_nx
+    import scipy as sp
 
-    return nx.communicability_exp(_to_nx(G))
+    nodelist = list(G)
+    A = to_numpy_array(G, nodelist=nodelist)
+    A[A != 0.0] = 1
+    expA = sp.linalg.expm(A)
+    mapping = dict(zip(nodelist, range(len(nodelist))))
+    result = {}
+    for u in G:
+        result[u] = {}
+        for v in G:
+            result[u][v] = float(expA[mapping[u], mapping[v]])
+    return result
 
 
 def panther_vector_similarity(
@@ -10961,15 +11015,26 @@ def panther_vector_similarity(
 
 def effective_graph_resistance(G, weight=None, invert_weight=True):
     """Sum of all pairwise resistance distances."""
-    import networkx as nx
+    import numpy as np
 
-    from franken_networkx.drawing.layout import _to_nx
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if len(G) == 0:
+        raise NetworkXError("Graph G must contain at least one node.")
+    if not _is_connected_undirected(G):
+        return float("inf")
 
-    return nx.effective_graph_resistance(
-        _to_nx(G),
-        weight=weight,
-        invert_weight=invert_weight,
-    )
+    H = _copy_graph_shallow(G)
+    if invert_weight and weight is not None:
+        if H.is_multigraph():
+            for _, _, _, attrs in H.edges(keys=True, data=True):
+                attrs[weight] = 1 / attrs[weight]
+        else:
+            for _, _, attrs in H.edges(data=True):
+                attrs[weight] = 1 / attrs[weight]
+
+    mu = np.sort(laplacian_spectrum(H, weight=weight))
+    return float(np.sum(1 / mu[1:]) * H.number_of_nodes())
 
 
 def graph_edit_distance(G1, G2, **kwargs):
@@ -11113,13 +11178,55 @@ def _native_graph_edit_distance_common_case(
     )
 
 
-def cd_index(G, node, c=None):
+def _is_connected_undirected(G):
+    """Return True when an undirected view of ``G`` is connected."""
+    nodes = list(G.nodes())
+    if not nodes:
+        return False
+
+    seen = {nodes[0]}
+    queue = deque([nodes[0]])
+    while queue:
+        current = queue.popleft()
+        for neighbor in G.neighbors(current):
+            if neighbor not in seen:
+                seen.add(neighbor)
+                queue.append(neighbor)
+    return len(seen) == len(nodes)
+
+
+def cd_index(G, node, time_delta, *, time="time", weight=None):
     """Consolidation-diffusion index."""
-    import networkx as nx
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if not all(time in G.nodes[n] for n in G):
+        raise NetworkXError("Not all nodes have a 'time' attribute.")
 
-    from franken_networkx.drawing.layout import _to_nx
+    try:
+        target_date = G.nodes[node][time] + time_delta
+        pred = {i for i in G.predecessors(node) if G.nodes[i][time] <= target_date}
+    except Exception as exc:
+        raise NetworkXError(
+            "Addition and comparison are not supported between 'time_delta' "
+            "and 'time' types."
+        ) from exc
 
-    return nx.cd_index(_to_nx(G), node, c=c)
+    b = [-1 if any(successor in G[i] for successor in G[node]) else 1 for i in pred]
+
+    successor_predecessors = set()
+    for successor in G[node]:
+        successor_predecessors.update(set(G.predecessors(successor)) - {node})
+    n = len(pred.union(successor_predecessors))
+    if n == 0:
+        raise NetworkXError("The cd index cannot be defined.")
+
+    if weight is None:
+        return round(sum(b) / n, 2)
+
+    weights = [G.nodes[i].get(weight, 1) for i in pred]
+    return round(sum(bi / wt for bi, wt in zip(b, weights)) / n, 2)
 
 
 def goldberg_radzik(G, source, weight="weight"):
@@ -11494,34 +11601,38 @@ def is_perfect_graph(G):
     Uses the Strong Perfect Graph Theorem: a graph is perfect iff neither
     it nor its complement contains an odd cycle of length >= 5 as an
     induced subgraph.
+
+    For graphs with > 20 nodes, delegates to NetworkX since the brute-force
+    subset enumeration is exponential.
     """
     from itertools import combinations
 
     nodes = list(G.nodes())
     n = len(nodes)
 
+    # For larger graphs, the brute-force approach is infeasible.
+    if n > 20:
+        import networkx as nx
+        from franken_networkx.drawing.layout import _to_nx
+        return nx.is_perfect_graph(_to_nx(G))
+
     def _has_odd_hole(graph, node_list):
         """Check if graph has an induced odd cycle of length >= 5."""
         adj = {v: set(graph.neighbors(v)) for v in node_list}
-        # Check all subsets of size 5, 7, ... up to n for induced odd cycles.
-        # For efficiency, limit to checking up to size 7 for small graphs.
-        max_check = min(n, 9)
-        for size in range(5, max_check + 1, 2):
+        nn = len(node_list)
+        for size in range(5, nn + 1, 2):
             for subset in combinations(node_list, size):
                 subset_set = set(subset)
-                # Check if subset forms an induced cycle.
-                edge_count = 0
+                # Check if subset forms an induced cycle (each node has
+                # exactly 2 neighbors within the subset).
                 degree_ok = True
                 for v in subset:
-                    deg_in_subset = len(adj[v] & subset_set)
-                    if deg_in_subset != 2:
+                    if len(adj[v] & subset_set) != 2:
                         degree_ok = False
                         break
-                    edge_count += deg_in_subset
                 if not degree_ok:
                     continue
-                # Verify it's a single cycle (connected and 2-regular).
-                # BFS check connectivity.
+                # Verify connectivity (single cycle, not disjoint cycles).
                 start = subset[0]
                 visited = {start}
                 queue = [start]
@@ -11607,8 +11718,9 @@ def k_components(G):
 def k_factor(G, k):
     """Return a k-regular spanning subgraph of G (if exists).
 
-    Uses maximum matching on an auxiliary graph to find a k-factor.
     A k-factor is a spanning subgraph where every node has degree exactly k.
+    Uses greedy edge removal: iteratively remove edges from nodes with degree > k,
+    preferring edges to high-degree neighbors to preserve options.
     """
     if k < 0:
         raise NetworkXError("k must be non-negative")
@@ -11626,9 +11738,9 @@ def k_factor(G, k):
                 f"{G.degree[node]} < k={k}"
             )
 
-    # For k=1, find a perfect matching.
+    # For k=1, find a maximum matching and verify it's perfect.
     if k == 1:
-        matching = max_weight_matching(G, maxcardinality=True)
+        matching = max_weight_matching(G)
         if len(matching) * 2 < G.number_of_nodes():
             raise NetworkXUnfeasible("No perfect matching exists for 1-factor")
         H = Graph()
@@ -11638,24 +11750,29 @@ def k_factor(G, k):
             H.add_edge(u, v, **dict(G[u][v]))
         return H
 
-    # General case: greedy edge selection trying to get k-regular.
-    # Start with all edges, iteratively remove edges from high-degree nodes.
+    # General case: start with all edges, iteratively remove edges from
+    # nodes with degree > k, preferring removal of edges to the neighbor
+    # with highest surplus (degree - k).
     H = G.copy()
     changed = True
     while changed:
         changed = False
         for node in list(H.nodes()):
             while H.degree[node] > k:
-                # Remove an edge to the neighbor with highest degree.
                 nbrs = list(H.neighbors(node))
+                if not nbrs:
+                    break
+                # Prefer removing edge to the neighbor with most surplus.
                 nbrs.sort(key=lambda v: H.degree[v], reverse=True)
+                removed = False
                 for nbr in nbrs:
                     if H.degree[nbr] > k:
                         H.remove_edge(node, nbr)
                         changed = True
+                        removed = True
                         break
-                else:
-                    # All neighbors at or below k — remove edge to highest-degree.
+                if not removed:
+                    # All neighbors at or below k — remove edge to highest.
                     H.remove_edge(node, nbrs[0])
                     changed = True
 
