@@ -335,7 +335,10 @@ mod tests {
         let scrubbed = scrub_artifact(&artifact, &sidecar).expect("recover missing");
         assert_eq!(scrubbed.scrub.status, super::ScrubState::Recovered);
         assert!(artifact.exists());
-        assert_eq!(fs::read_to_string(&artifact).unwrap(), "essential data");
+        assert_eq!(
+            fs::read_to_string(&artifact).expect("artifact should be readable"),
+            "essential data"
+        );
     }
 
     #[test]

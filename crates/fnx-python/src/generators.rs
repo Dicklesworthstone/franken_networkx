@@ -5,7 +5,9 @@
 
 use crate::digraph::{PyDiGraph, PyMultiDiGraph};
 use crate::{PyGraph, unwrap_infallible};
+use fnx_algorithms::stochastic_block_model as rust_stochastic_block_model;
 use fnx_generators::GraphGenerator;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use std::collections::HashMap;
@@ -327,6 +329,40 @@ pub fn powerlaw_cluster_graph(
     report_to_pygraph(py, report.graph)
 }
 
+/// Return an undirected stochastic block model graph.
+#[pyfunction]
+#[pyo3(signature = (sizes, p, seed=None))]
+pub fn stochastic_block_model(
+    py: Python<'_>,
+    sizes: Vec<usize>,
+    p: Vec<Vec<f64>>,
+    seed: Option<u64>,
+) -> PyResult<PyGraph> {
+    if sizes.len() != p.len() {
+        return Err(PyValueError::new_err("'sizes' and 'p' do not match."));
+    }
+    for row in &p {
+        if row.len() != p.len() {
+            return Err(PyValueError::new_err("'p' must be a square matrix."));
+        }
+        for prob in row {
+            if !(0.0..=1.0).contains(prob) {
+                return Err(PyValueError::new_err("Entries of 'p' not in [0,1]."));
+            }
+        }
+    }
+    for (i, row) in p.iter().enumerate() {
+        for (j, prob) in row.iter().enumerate() {
+            if (*prob - p[j][i]).abs() > 1.0e-8 {
+                return Err(PyValueError::new_err("'p' must be symmetric."));
+            }
+        }
+    }
+
+    let graph = rust_stochastic_block_model(&sizes, &p, seed.unwrap_or(0));
+    report_to_pygraph(py, graph)
+}
+
 /// Return a fast G(n,p) random graph (Batagelj-Brandes O(n+m) algorithm).
 #[pyfunction]
 #[pyo3(signature = (n, p, seed=None, directed=false, create_using=None))]
@@ -468,6 +504,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(connected_watts_strogatz_graph, m)?)?;
     m.add_function(wrap_pyfunction!(random_regular_graph, m)?)?;
     m.add_function(wrap_pyfunction!(powerlaw_cluster_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(stochastic_block_model, m)?)?;
     m.add_function(wrap_pyfunction!(fast_gnp_random_graph, m)?)?;
     m.add_function(wrap_pyfunction!(gn_graph, m)?)?;
     m.add_function(wrap_pyfunction!(gnr_graph, m)?)?;
