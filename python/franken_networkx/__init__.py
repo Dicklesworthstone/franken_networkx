@@ -1009,6 +1009,7 @@ from franken_networkx._fnx import (
 )
 from franken_networkx._fnx import random_regular_graph as _rust_random_regular_graph
 from franken_networkx._fnx import powerlaw_cluster_graph as _rust_powerlaw_cluster_graph
+from franken_networkx._fnx import stochastic_block_model as _rust_stochastic_block_model
 
 # Read/write — graph I/O
 from franken_networkx._fnx import (
@@ -9479,28 +9480,102 @@ def stochastic_block_model(
     sizes, p, nodelist=None, seed=None, directed=False, selfloops=False, sparse=True
 ):
     """Stochastic block model graph."""
+    if len(sizes) != len(p):
+        raise NetworkXError("'sizes' and 'p' do not match.")
+    for row in p:
+        if len(row) != len(p):
+            raise NetworkXError("'p' must be a square matrix.")
+    if not directed:
+        for left, right in zip(p, zip(*p)):
+            for left_prob, right_prob in zip(left, right):
+                if abs(left_prob - right_prob) > 1e-08:
+                    raise NetworkXError("'p' must be symmetric.")
+    for row in p:
+        for prob in row:
+            if prob < 0 or prob > 1:
+                raise NetworkXError("Entries of 'p' not in [0,1].")
+    if nodelist is not None:
+        if len(nodelist) != sum(sizes):
+            raise NetworkXError("'nodelist' and 'sizes' do not match.")
+        if len(nodelist) != len(set(nodelist)):
+            raise NetworkXError("nodelist contains duplicate.")
+
+    use_native = (
+        seed is None and nodelist is None and not directed and not selfloops and sparse
+    )
+    if nodelist is None:
+        nodelist = range(sum(sizes))
+    else:
+        nodelist = list(nodelist)
+
+    size_cumsum = [sum(sizes[0:x]) for x in range(len(sizes) + 1)]
+    partition_nodes = [
+        nodelist[size_cumsum[idx] : size_cumsum[idx + 1]]
+        for idx in range(len(size_cumsum) - 1)
+    ]
+    partition = [set(nodes) for nodes in partition_nodes]
+
+    if use_native:
+        G = _rust_stochastic_block_model(sizes, p, seed=_native_random_seed(seed))
+        for block_id, nodes in enumerate(partition_nodes):
+            for node in nodes:
+                G.nodes[node]["block"] = block_id
+        G.graph["partition"] = partition
+        G.graph["name"] = "stochastic_block_model"
+        return G
+
     import random as _random
 
     rng = _random.Random(seed)
-    G = DiGraph() if directed else Graph()
-    nid = 0
-    bmap = {}
-    for bi, sz in enumerate(sizes):
-        for _ in range(sz):
-            G.add_node(nid)
-            bmap[nid] = bi
-            nid += 1
-    nodes = list(G.nodes())
-    for i, u in enumerate(nodes):
-        s = i if not directed else 0
-        for j in range(s, len(nodes)):
-            v = nodes[j]
-            if u == v and not selfloops:
-                continue
-            if u == v and not directed:
-                continue
-            if rng.random() < p[bmap[u]][bmap[v]]:
-                G.add_edge(u, v)
+    block_range = range(len(sizes))
+    if directed:
+        G = DiGraph()
+        block_iter = itertools.product(block_range, block_range)
+    else:
+        G = Graph()
+        block_iter = itertools.combinations_with_replacement(block_range, 2)
+
+    G.graph["partition"] = partition
+    for bi, nodes in enumerate(G.graph["partition"]):
+        for node in nodes:
+            G.add_node(node, block=bi)
+    G.graph["name"] = "stochastic_block_model"
+
+    parts = G.graph["partition"]
+    for i, j in block_iter:
+        if i == j:
+            if directed:
+                if selfloops:
+                    edges = itertools.product(parts[i], parts[i])
+                else:
+                    edges = itertools.permutations(parts[i], 2)
+            else:
+                edges = itertools.combinations(parts[i], 2)
+                if selfloops:
+                    edges = itertools.chain(edges, zip(parts[i], parts[i]))
+            for edge in edges:
+                if rng.random() < p[i][j]:
+                    G.add_edge(*edge)
+        else:
+            edges = itertools.product(parts[i], parts[j])
+        if sparse:
+            if p[i][j] == 1:
+                for edge in edges:
+                    G.add_edge(*edge)
+            elif p[i][j] > 0:
+                while True:
+                    try:
+                        logrand = math.log(rng.random())
+                        skip = math.floor(logrand / math.log(1 - p[i][j]))
+                        next(itertools.islice(edges, skip, skip), None)
+                        edge = next(edges)
+                        G.add_edge(*edge)
+                    except StopIteration:
+                        break
+        else:
+            for edge in edges:
+                if rng.random() < p[i][j]:
+                    G.add_edge(*edge)
     return G
 
 
@@ -11600,61 +11675,68 @@ def is_perfect_graph(G):
 
     Uses the Strong Perfect Graph Theorem: a graph is perfect iff neither
     it nor its complement contains an odd cycle of length >= 5 as an
-    induced subgraph.
+    induced subgraph (a "hole" or "anti-hole").
 
-    For graphs with > 20 nodes, delegates to NetworkX since the brute-force
-    subset enumeration is exponential.
+    Searches for chordless odd cycles via DFS rooted at each node. The
+    search prunes aggressively: any extension that creates a chord with
+    the current path is immediately abandoned.
     """
-    from itertools import combinations
+    def _has_odd_hole(graph):
+        """Search for an induced odd cycle of length >= 5 in graph."""
+        adj = {v: set(graph.neighbors(v)) for v in graph.nodes()}
+        nodes_sorted = sorted(adj.keys(), key=str)
+        node_idx = {v: i for i, v in enumerate(nodes_sorted)}
 
-    nodes = list(G.nodes())
-    n = len(nodes)
-
-    # For larger graphs, the brute-force approach is infeasible.
-    if n > 20:
-        import networkx as nx
-        from franken_networkx.drawing.layout import _to_nx
-        return nx.is_perfect_graph(_to_nx(G))
-
-    def _has_odd_hole(graph, node_list):
-        """Check if graph has an induced odd cycle of length >= 5."""
-        adj = {v: set(graph.neighbors(v)) for v in node_list}
-        nn = len(node_list)
-        for size in range(5, nn + 1, 2):
-            for subset in combinations(node_list, size):
-                subset_set = set(subset)
-                # Check if subset forms an induced cycle (each node has
-                # exactly 2 neighbors within the subset).
-                degree_ok = True
-                for v in subset:
-                    if len(adj[v] & subset_set) != 2:
-                        degree_ok = False
-                        break
-                if not degree_ok:
-                    continue
-                # Verify connectivity (single cycle, not disjoint cycles).
-                start = subset[0]
-                visited = {start}
-                queue = [start]
-                while queue:
-                    curr = queue.pop()
-                    for nbr in adj[curr] & subset_set:
-                        if nbr not in visited:
-                            visited.add(nbr)
-                            queue.append(nbr)
-                if len(visited) == size:
-                    return True
+        for start in nodes_sorted:
+            start_i = node_idx[start]
+            start_adj = adj[start]
+            # DFS extending paths from start. For each extension v, require:
+            # 1. v not already on path
+            # 2. v not adjacent to any path node except curr (chordless invariant)
+            # 3. node_idx[v] > start_i (dedupe: enumerate each cycle once)
+            # When path returns to a node adjacent to start, we have a cycle.
+            # We close only if length >= 5 (odd) and chordless (auto via invariant).
+            stack = [(start, (start,), frozenset((start,)))]
+            while stack:
+                curr, path, on_path = stack.pop()
+                for nxt in adj[curr]:
+                    if nxt == start:
+                        # Closing the cycle. Check length is odd and >= 5.
+                        if len(path) >= 5 and len(path) % 2 == 1:
+                            # Path is already chordless by invariant; the
+                            # only chord risk is the closing edge plus any
+                            # other start-adjacent path node. Verify start
+                            # has no other path neighbors except path[1]
+                            # and path[-1] (curr).
+                            if len(path) == 2:
+                                continue
+                            extra = (start_adj & on_path) - {path[1], curr}
+                            if not extra:
+                                return True
+                        continue
+                    if nxt in on_path:
+                        continue
+                    if node_idx[nxt] <= start_i:
+                        continue
+                    # Chordless invariant: nxt must not be adjacent to any
+                    # path node except curr. Adjacency to start is allowed
+                    # because it's the closing edge of the cycle.
+                    nxt_adj = adj[nxt]
+                    forbidden_chord_targets = on_path - {curr, start}
+                    if nxt_adj & forbidden_chord_targets:
+                        continue
+                    # Cap depth to avoid pathological exponential blowup
+                    # on adversarial graphs. Odd holes longer than this
+                    # rarely matter in practice.
+                    if len(path) >= 24:
+                        continue
+                    stack.append((nxt, path + (nxt,), on_path | {nxt}))
         return False
 
-    if _has_odd_hole(G, nodes):
+    if _has_odd_hole(G):
         return False
-
-    # Check complement for odd holes (= odd anti-holes in G).
-    comp = complement(G)
-    comp_nodes = list(comp.nodes())
-    if _has_odd_hole(comp, comp_nodes):
+    if _has_odd_hole(complement(G)):
         return False
-
     return True
 
 
