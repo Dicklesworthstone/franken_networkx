@@ -1,5 +1,4 @@
 """Parity tests for view default parameter (bead kg11)."""
-import pytest
 import franken_networkx as fnx
 import networkx as nx
 

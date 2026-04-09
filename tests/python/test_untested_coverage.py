@@ -6,13 +6,13 @@ expected type, and doesn't crash on simple inputs.
 import pytest
 
 try:
-    import networkx as nx
+    import networkx as nx  # noqa: F401
     HAS_NX = True
 except ImportError:
     HAS_NX = False
 
 try:
-    import numpy as np
+    import numpy as np  # noqa: F401
     HAS_NP = True
 except ImportError:
     HAS_NP = False
@@ -286,8 +286,8 @@ class TestMatrixCoverage:
 
     def test_incidence_matrix(self):
         G = _path5()
-        I = fnx.incidence_matrix(G)
-        assert I.shape[0] == 5
+        inc_mat = fnx.incidence_matrix(G)
+        assert inc_mat.shape[0] == 5
 
 
 # ---------------------------------------------------------------------------

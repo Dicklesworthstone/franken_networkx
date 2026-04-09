@@ -31,7 +31,6 @@ class TestKEdgeAugmentation:
         """Graph with a bridge: augmentation should eliminate it."""
         G = fnx.Graph()
         G.add_edges_from([(0, 1), (1, 2), (2, 0), (2, 3), (3, 4), (4, 5), (5, 3)])
-        nG = nx.Graph(G.edges())
         aug = fnx.k_edge_augmentation(G, 2)
         # Both should produce valid augmentations
         H = G.copy()

@@ -3,8 +3,6 @@
 Verifies that the Rust-backed implementations match NetworkX behavior
 for the functions OliveShore wired in the 2026-03-31/04-01 session.
 """
-import math
-
 import pytest
 
 try:
@@ -296,7 +294,7 @@ class TestTraversalParity:
     def test_bfs_labeled_edges_forward(self):
         G = fnx.path_graph(4)
         edges = list(fnx.bfs_labeled_edges(G, 0))
-        forward_edges = [(u, v) for u, v, l in edges if l == 'forward']
+        forward_edges = [(u, v) for u, v, label in edges if label == 'forward']
         # Path graph: BFS from 0 discovers 1, 2, 3 via forward edges
         assert len(forward_edges) >= 3
 
@@ -349,13 +347,17 @@ class TestAssortativityParity:
 
     def test_attribute_assortativity_matches_nx(self):
         G_fnx = fnx.Graph()
-        G_fnx.add_node(0, color='red'); G_fnx.add_node(1, color='red')
-        G_fnx.add_node(2, color='blue'); G_fnx.add_node(3, color='blue')
+        G_fnx.add_node(0, color='red')
+        G_fnx.add_node(1, color='red')
+        G_fnx.add_node(2, color='blue')
+        G_fnx.add_node(3, color='blue')
         G_fnx.add_edges_from([(0, 1), (2, 3)])
 
         G_nx = nx.Graph()
-        G_nx.add_node(0, color='red'); G_nx.add_node(1, color='red')
-        G_nx.add_node(2, color='blue'); G_nx.add_node(3, color='blue')
+        G_nx.add_node(0, color='red')
+        G_nx.add_node(1, color='red')
+        G_nx.add_node(2, color='blue')
+        G_nx.add_node(3, color='blue')
         G_nx.add_edges_from([(0, 1), (2, 3)])
 
         assert abs(fnx.attribute_assortativity_coefficient(G_fnx, 'color') -

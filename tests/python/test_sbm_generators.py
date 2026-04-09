@@ -1,5 +1,8 @@
 """Tests for stochastic-block-model generator wrappers."""
 
+import networkx as nx
+import pytest
+
 import franken_networkx as fnx
 
 
@@ -34,3 +37,85 @@ def test_relaxed_caveman_graph_size():
 
     assert graph.number_of_nodes() == 12
     assert graph.number_of_edges() > 0
+
+
+def test_stochastic_block_model_default_uses_native_fast_path(monkeypatch):
+    called = {}
+
+    def fake(sizes, probs, seed=None):
+        called["args"] = (sizes, probs, seed)
+        return fnx.empty_graph(sum(sizes))
+
+    monkeypatch.setattr(fnx, "_native_random_seed", lambda seed: 17)
+    monkeypatch.setattr(fnx, "_rust_stochastic_block_model", fake)
+
+    graph = fnx.stochastic_block_model([2, 1], [[0.0, 1.0], [1.0, 0.0]])
+
+    assert called["args"] == ([2, 1], [[0.0, 1.0], [1.0, 0.0]], 17)
+    assert graph.graph["partition"] == [{0, 1}, {2}]
+    assert graph.graph["name"] == "stochastic_block_model"
+    assert graph.nodes[0]["block"] == 0
+    assert graph.nodes[2]["block"] == 1
+
+
+def test_stochastic_block_model_seeded_matches_networkx_and_skips_native(monkeypatch):
+    def fail(*args, **kwargs):
+        raise AssertionError("native fast path should not be used for seeded calls")
+
+    monkeypatch.setattr(fnx, "_rust_stochastic_block_model", fail)
+
+    sizes = [5, 5]
+    probs = [[0.8, 0.1], [0.1, 0.8]]
+
+    expected = nx.stochastic_block_model(sizes, probs, seed=42)
+    graph = fnx.stochastic_block_model(sizes, probs, seed=42)
+
+    assert sorted(graph.edges()) == sorted(expected.edges())
+
+
+def test_stochastic_block_model_fallback_preserves_nodelist_and_attrs(monkeypatch):
+    def fail(*args, **kwargs):
+        raise AssertionError("native fast path should not be used")
+
+    monkeypatch.setattr(fnx, "_rust_stochastic_block_model", fail)
+
+    expected = nx.stochastic_block_model(
+        [2, 1],
+        [[0.0, 0.0], [0.0, 0.0]],
+        nodelist=["left", "right", "solo"],
+        seed=11,
+    )
+    graph = fnx.stochastic_block_model(
+        [2, 1],
+        [[0.0, 0.0], [0.0, 0.0]],
+        nodelist=["left", "right", "solo"],
+        seed=11,
+    )
+
+    assert list(graph.nodes()) == list(expected.nodes())
+    assert graph.graph["partition"] == expected.graph["partition"]
+    assert graph.graph["name"] == "stochastic_block_model"
+    assert graph.nodes["left"]["block"] == 0
+    assert graph.nodes["solo"]["block"] == 1
+
+
+def test_stochastic_block_model_fallback_supports_undirected_selfloops(monkeypatch):
+    def fail(*args, **kwargs):
+        raise AssertionError("native fast path should not be used")
+
+    monkeypatch.setattr(fnx, "_rust_stochastic_block_model", fail)
+
+    graph = fnx.stochastic_block_model(
+        [1],
+        [[1.0]],
+        nodelist=["loop"],
+        selfloops=True,
+        seed=5,
+    )
+
+    assert graph.has_edge("loop", "loop")
+
+
+def test_stochastic_block_model_validates_probability_matrix():
+    with pytest.raises(fnx.NetworkXError, match="'p' must be symmetric."):
+        fnx.stochastic_block_model([1, 1], [[0.0, 1.0], [0.0, 0.0]])

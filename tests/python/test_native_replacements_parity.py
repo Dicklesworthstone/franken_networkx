@@ -149,6 +149,23 @@ class TestIsPerfectGraph:
     def test_c11_is_not_perfect(self):
         assert not fnx.is_perfect_graph(fnx.cycle_graph(11))
 
+    def test_large_graph_matches_nx_without_networkx_fallback(self, monkeypatch):
+        large_nx = nx.cycle_graph(11)
+        large_fnx = fnx.cycle_graph(11)
+        for node in range(11, 21):
+            large_nx.add_node(node)
+            large_fnx.add_node(node)
+
+        expected = nx.is_perfect_graph(large_nx)
+
+        def fail(*args, **kwargs):
+            raise AssertionError("networkx.is_perfect_graph fallback should not be used")
+
+        monkeypatch.setattr(nx, "is_perfect_graph", fail)
+
+        assert large_fnx.number_of_nodes() > 20
+        assert fnx.is_perfect_graph(large_fnx) == expected
+
 
 @needs_nx
 class TestKFactor:

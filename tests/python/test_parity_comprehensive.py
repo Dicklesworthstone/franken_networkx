@@ -274,7 +274,7 @@ class TestTraversalExtras:
     def test_dfs_labeled_edges(self):
         G = fnx.path_graph(4)
         labels = list(fnx.dfs_labeled_edges(G, 0))
-        tree_count = sum(1 for _, _, l in labels if l == 'tree')
+        tree_count = sum(1 for _, _, label in labels if label == 'tree')
         assert tree_count >= 3
 
 
@@ -318,8 +318,10 @@ class TestTriads:
     @needs_nx
     def test_triadic_census_matches_nx(self):
         edges = [(0, 1), (1, 2), (2, 0), (0, 2)]
-        D = fnx.DiGraph(); D.add_edges_from(edges)
-        N = nx.DiGraph(); N.add_edges_from(edges)
+        D = fnx.DiGraph()
+        D.add_edges_from(edges)
+        N = nx.DiGraph()
+        N.add_edges_from(edges)
         fc = fnx.triadic_census(D)
         nc = nx.triadic_census(N)
         for t in fc:

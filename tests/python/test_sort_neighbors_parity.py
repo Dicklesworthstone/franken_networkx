@@ -30,7 +30,7 @@ class TestBFSSortNeighbors:
         assert be == nbe
 
     def test_bfs_edges_custom_reverse(self, tree_graph, nx_tree_graph):
-        rev = lambda x: sorted(x, reverse=True)
+        def rev(x): return sorted(x, reverse=True)
         be = list(fnx.bfs_edges(tree_graph, 0, sort_neighbors=rev))
         nbe = list(nx.bfs_edges(nx_tree_graph, 0, sort_neighbors=rev))
         assert be == nbe

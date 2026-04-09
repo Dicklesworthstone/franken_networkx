@@ -130,7 +130,7 @@ def test_to_scipy_sparse_array_matches_networkx_multigraph_contract():
 
 
 def test_to_pandas_edgelist_matches_networkx_multigraph_contract():
-    pd = pytest.importorskip("pandas")
+    pytest.importorskip("pandas")
 
     graph = fnx.MultiGraph()
     graph.add_edge("a", "b", key=7, weight=3)

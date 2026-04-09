@@ -1,5 +1,4 @@
 """Parity tests for trophic_levels and related functions (bead wj9)."""
-import pytest
 import franken_networkx as fnx
 import networkx as nx
 
