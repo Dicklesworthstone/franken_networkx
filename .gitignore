@@ -47,6 +47,24 @@ artifacts/phase2c/latest_*.json
 artifacts/phase2c/latest/
 artifacts/docs/latest/
 
+# Build output directories
+dist/
+fuzz/target/
+.venv/
+venv/
+.benchmarks/
+.pytest_cache/
+.ruff_cache/
+
+# Generic backup files
+*.bak
+
+# Agent dump artifacts (UBS reports, clippy output, error logs)
+*ubs*.txt
+errors.json
+clippy_output.txt
+rust-bug-scan.txt
+
 # Ephemeral files (agent-generated, build artifacts, test detritus)
 ci-artifacts/
 proptest-regressions/
