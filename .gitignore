@@ -27,7 +27,6 @@ franken_networkx_illustration.png
 
 # Local agent/task metadata
 .bv/
-.beads/
 
 # Ephemeral agent/runtime artifacts
 storage.sqlite3
