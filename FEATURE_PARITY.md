@@ -12,7 +12,19 @@
 - phase 4 (implementation from spec): active
 - phase 5 (conformance + QA): active
 
-Rule: parity status can move to `parity_green` only with fixture-backed conformance evidence, not implementation completion alone.
+Rule: parity status can move to `parity_green` only after the canonical pytest
+parity suite covers the public behavior and the curated fixture/evidence layer
+is refreshed where applicable. Implementation completion alone does not count.
+
+## Conformance Source of Truth
+
+- Canonical parity source: `pytest tests/python/`
+- Curated evidence layer: `fnx-conformance`
+
+The Python parity suite is the source of truth for observable
+NetworkX-compatible behavior. `fnx-conformance` remains the Rust-side replay and
+artifact pipeline for selected fixture families, structured logs, replay
+commands, and durability evidence.
 
 ## Parity Matrix
 
@@ -25,26 +37,29 @@ Rule: parity status can move to `parity_green` only with fixture-backed conforma
 | Graph generator families | in_progress | `fnx-generators` ships 42+ classic generators plus 9 random generators (`gnp_random_graph`, `erdos_renyi_graph`, `fast_gnp_random_graph`, `watts_strogatz_graph`, `newman_watts_strogatz_graph`, `connected_watts_strogatz_graph`, `barabasi_albert_graph`, `random_regular_graph`, `powerlaw_cluster_graph`). Rust also has `gn_graph`, `gnr_graph`, `gnc_graph`, `scale_free_graph`. Random generator coverage ~50%. |
 | Bipartite algorithms | in_progress | Core recognition (`is_bipartite`, `bipartite_sets`) in Rust. Python wrappers for `is_bipartite_node_set`, `projected_graph`, `bipartite_density`, `hopcroft_karp_matching`. Coverage ~30%. |
 | Community detection | in_progress | Rust: `louvain_communities`, `label_propagation_communities`, `greedy_modularity_communities`, `modularity`. Python: `girvan_newman`, `k_clique_communities`. Coverage ~60%. |
-| Graph utilities | in_progress | `set/get_node_attributes`, `set/get_edge_attributes`, `create_empty_copy`, `number_of_selfloops`, `selfloop_edges`, `nodes_with_selfloops`, `all_neighbors`, `add_path/cycle/star`, `adjacency_matrix`, `has_bridges`, `local_bridges`, `stochastic_graph`. 100% NX top-level function parity (731+). 83 functions delegate to NX (drawing/exotic I/O/directed generators); rest native Rust+Python. |
+| Graph utilities | in_progress | `set/get_node_attributes`, `set/get_edge_attributes`, `create_empty_copy`, `number_of_selfloops`, `selfloop_edges`, `nodes_with_selfloops`, `all_neighbors`, `add_path/cycle/star`, `adjacency_matrix`, `has_bridges`, `local_bridges`, `stochastic_graph`. Coverage: 446 public exports (41 Rust-native, 306 Python wrappers, 96 NX-delegated, 3 classes). See [`docs/coverage.md`](docs/coverage.md) for the machine-checked breakdown. |
 | MultiGraph/MultiDiGraph | parity_green | Full method parity with Graph/DiGraph (34 methods + 6 view types). Algorithm dispatch supports all 4 graph types via automatic simple-graph projection. Backend conversion round-trips work. |
 | Conversion baseline behavior | in_progress | `fnx-convert` ships edge-list/adjacency conversions with strict/hardened malformed-input handling and normalization output. |
 | Read/write baseline formats | in_progress | `fnx-readwrite` ships edgelist, adjacency-list, JSON graph, GraphML, and GML parse/write with strict/hardened parser modes. I/O format coverage ~56%. |
-| Differential conformance harness | in_progress | `fnx-conformance` executes graph + views + dispatch + convert + readwrite + components + generators + centrality + clustering + flow + structure (articulation points, bridges) + matching (maximal, max-weight, min-weight) + Bellman-Ford + multi-source Dijkstra + GNP random graph + distance measures + average shortest path length + is_connected + density + has_path + shortest_path_length + minimum spanning tree (Kruskal) + triangles + square clustering + tree/forest detection + greedy coloring + bipartite detection + k-core decomposition + average neighbor degree + degree assortativity + VoteRank + clique enumeration + node connectivity + cycle basis + all simple paths + global/local efficiency + minimum edge cover + Euler path/circuit fixtures and emits report artifacts under `artifacts/conformance/latest/` (currently 59 fixtures across 12 E2E journeys). |
+| Differential conformance harness | in_progress | Canonical parity lives in `tests/python/`. `fnx-conformance` executes curated graph + views + dispatch + convert + readwrite + components + generators + centrality + clustering + flow + structure (articulation points, bridges) + matching (maximal, max-weight, min-weight) + Bellman-Ford + multi-source Dijkstra + GNP random graph + distance measures + average shortest path length + is_connected + density + has_path + shortest_path_length + minimum spanning tree (Kruskal) + triangles + square clustering + tree/forest detection + greedy coloring + bipartite detection + k-core decomposition + average neighbor degree + degree assortativity + VoteRank + clique enumeration + node connectivity + cycle basis + all simple paths + global/local efficiency + minimum edge cover + Euler path/circuit fixtures and emits report artifacts under `artifacts/conformance/latest/` (currently 59 fixtures across 12 E2E journeys). |
 | RaptorQ durability pipeline | in_progress | `fnx-durability` generates RaptorQ sidecars, runs scrub verification, and emits decode proofs for conformance reports. |
 | Benchmark percentile gating | in_progress | `scripts/run_benchmark_gate.sh` emits p50/p95/p99 artifact and enforces threshold budgets with durability sidecars. |
 
 ## Required Evidence Per Feature Family
 
-1. Differential fixture report.
-2. Edge-case/adversarial test results.
-3. Benchmark delta (when performance-sensitive).
-4. Documented compatibility exceptions (if any).
+1. Canonical pytest parity coverage for the public behavior.
+2. Differential fixture report for curated harness families.
+3. Edge-case/adversarial test results.
+4. Benchmark delta (when performance-sensitive).
+5. Documented compatibility exceptions (if any).
 
 ## Conformance Gate Checklist (Phase 5)
 
 All CPU-heavy checks must be offloaded using `rch`.
 
 ```bash
+pytest tests/python/ -v --tb=long
+rch exec -- cargo run -q -p fnx-conformance --bin run_smoke
 rch exec -- cargo test -p fnx-conformance --test smoke -- --nocapture
 rch exec -- cargo test -p fnx-conformance --test phase2c_packet_readiness_gate -- --nocapture
 rch exec -- cargo test --workspace

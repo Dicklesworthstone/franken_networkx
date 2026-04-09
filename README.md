@@ -109,6 +109,20 @@ pytest tests/python/ -v
 python3 scripts/verify_docs.py
 ```
 
+## Conformance Policy
+
+`pytest tests/python/` is the canonical conformance and parity gate for
+FrankenNetworkX's public, NetworkX-compatible behavior. It exercises the
+installed Python package surface that users actually call, so behavior decisions
+are made there first.
+
+`fnx-conformance` remains the curated Rust-side evidence harness. It replays
+selected oracle fixtures, emits structured logs and replay commands, and
+produces durable artifacts under `artifacts/conformance/latest/`. When pytest
+expectations and harness fixtures drift, the harness is updated to match the
+canonical Python parity contract rather than treated as a competing source of
+truth.
+
 ## What Makes This Project Special
 
 Canonical Graph Semantics Engine (CGSE): deterministic tie-break policies with complexity witness artifacts per algorithm family.
@@ -124,48 +138,18 @@ This project uses four pervasive disciplines:
 3. RaptorQ-everywhere for self-healing durability of long-lived artifacts and state.
 4. frankenlibc/frankenfs compatibility-security thinking: strict vs hardened mode separation, fail-closed compatibility gates, and explicit drift ledgers.
 
-## Current State
+## Current State (as of 2026-04-09)
 
-- project charter docs established.
-- legacy oracle cloned:
-  - `/dp/franken_networkx/legacy_networkx_code/networkx`
-- FrankenSQLite exemplar spec copied locally:
-  - `reference_specs/COMPREHENSIVE_SPEC_FOR_FRANKENSQLITE_V1.md`
-- first executable vertical slice landed:
-  - deterministic graph core (`fnx-classes`),
-  - strict/hardened runtime + evidence ledger (`fnx-runtime`),
-  - unweighted shortest path + complexity witness (`fnx-algorithms`),
-  - fixture-driven conformance harness (`fnx-conformance`).
-- second vertical slice landed:
-  - deterministic dispatch routing (`fnx-dispatch`),
-  - conversion routes (`fnx-convert`),
-  - edgelist parser/writer (`fnx-readwrite`),
-  - RaptorQ sidecar + scrub/decode drill pipeline (`fnx-durability`).
-- third vertical slice landed:
-  - live/cached view semantics with revision invalidation (`fnx-views`),
-  - JSON graph read/write path (`fnx-readwrite`),
-  - oracle-generated view/JSON fixtures (`fnx-conformance`),
-  - percentile benchmark gate with durability sidecars (`scripts/run_benchmark_gate.sh`).
-- fourth vertical slice landed:
-  - deterministic connected-components and component-count witnesses (`fnx-algorithms`),
-  - deterministic (`empty/path/star/cycle/complete`) + seeded graph generators with strict/hardened guards (`fnx-generators`),
-  - oracle-generated components/generators fixtures (`fnx-conformance`),
-  - expanded drift-free conformance corpus (12 fixtures) with durability artifacts.
-- fifth vertical slice landed:
-  - deterministic degree-centrality with complexity witness (`fnx-algorithms`),
-  - cycle-graph edge-order parity tightening for larger `n` (`fnx-generators`),
-  - oracle-generated degree-centrality fixture + stronger cycle fixture (`fnx-conformance`),
-  - expanded drift-free conformance corpus (13 fixtures) with durability artifacts.
-- sixth vertical slice landed:
-  - deterministic closeness-centrality with WF-improved semantics (`fnx-algorithms`),
-  - conformance operation/schema support for closeness centrality (`fnx-conformance`),
-  - oracle-generated closeness-centrality fixture (`fnx-conformance`),
-  - expanded drift-free conformance corpus (14 fixtures) with durability artifacts.
-- seventh vertical slice landed:
-  - deterministic minimum-cut surface paired with the existing Edmonds-Karp max-flow path (`fnx-algorithms`),
-  - conformance operation/schema support for `minimum_cut_query` (`fnx-conformance`),
-  - oracle-anchored minimum-cut strict fixture (`fnx-conformance`),
-  - expanded drift-free conformance corpus (16 fixtures) with durability artifacts.
+- **Rust core:** 12 workspace crates including `fnx-cgse` (CGSE engine). `fnx-algorithms` is 39,691 LOC covering 280+ algorithms across shortest path, connectivity, centrality, clustering, matching, flow, trees, Euler, DAG, traversal, community, isomorphism, and more.
+- **Python bindings:** 12,008 LOC in `crates/fnx-python/src/algorithms.rs` with 551 GIL-releasing `py.allow_threads(...)` call sites and zero callbacks into upstream NetworkX.
+- **Python package:** 446 public exports — 41 Rust-native, 306 Python wrappers, 96 NX-delegated (see [`docs/coverage.md`](docs/coverage.md) for the machine-checked breakdown). The NX-delegated functions are exotic algorithms (graph edit distance) and formats (Pajek/LEDA) outside V1 scope.
+- **Test suite:** 1,394 Python parity tests pass against upstream NetworkX (54 skipped) in ~20s. 8 Rust CGSE unit tests. 5 parser fuzz targets.
+- **NetworkX backend mode:** entry points registered; ~80 functions dispatch to Rust via `backend.py:_SUPPORTED_ALGORITHMS`.
+- **CI:** G1-G8 fail-closed gate topology in `.github/workflows/ci.yml` (fmt → clippy → rust tests → python tests → e2e → docs → conformance → performance → UBS → fuzz smoke → RaptorQ scrub).
+- **CGSE (Canonical Graph Semantics Engine):** `fnx-cgse` crate landed with 12-variant `TieBreakPolicy` sum type, `ComplexityWitness` with Merkle decision-path hash, `WitnessSink`, `WitnessLedger`, and V1 policy registry mapping 12 reference algorithms to their canonical policies.
+- **Strict/Hardened modes:** `CgsePolicyEngine` in `fnx-runtime` implements mode-aware decision-theoretic action selection with evidence terms, structured `DecisionRecord`s, and fail-closed defaults. Parser wiring is the next step.
+- **Durability:** `fnx-durability` generates RaptorQ sidecars, runs scrub verification, and emits decode proofs. Used in CI G8 gate.
+- **Beads tracker:** 299 closed + 82 open issues tracking the bridge plan from the 2026-04-08 reality check.
 
 ## V1 Scope
 
@@ -194,11 +178,13 @@ Maintain deterministic graph semantics, tie-break policies, and serialization ro
 
 ## Next Steps
 
-1. Expand fixture corpus to larger legacy families for matching and additional centrality variants.
-2. Expand flow-family coverage beyond max-flow + min-cut (directed semantics hardening, larger adversarial flow fixtures, and stress fixtures).
-3. Add format breadth beyond edgelist/json (adjlist/graphml scoped paths).
-4. Add benchmark families and p50/p95/p99 regression gates across centrality and flow workloads.
-5. Tighten strict/hardened drift budgets with per-family parity thresholds.
+See [`REALITY_CHECK_BRIDGE_PLAN_2026-04-08.md`](REALITY_CHECK_BRIDGE_PLAN_2026-04-08.md) for the full 82-bead bridge plan. Top priorities:
+
+1. **Wire CGSE into algorithms (C4):** connect 12 reference algorithms to the new `fnx-cgse` policy + witness infrastructure so the "crown jewel" is runtime-active, not just type-level.
+2. **Wire strict/hardened modes into parsers (D3-D4):** connect `CgsePolicyEngine` to `fnx-readwrite` entry points with 24+ strict and 24+ hardened fixtures.
+3. **Conformance regeneration (B2-B4):** refresh the stale `artifacts/conformance/latest/` reports and add a CI freshness gate.
+4. **Eliminate remaining NX delegations (F1 residue):** 96 functions still delegate to NX; each is either exotic (graph edit distance, Pajek I/O) or a conversion helper — prioritize native impls for the highest-value ones.
+5. **Performance proof artifacts (E3):** run the profile-and-prove optimization loop for each SLO row to earn the SPEC §17 budgets.
 
 ## Porting Artifact Set
 

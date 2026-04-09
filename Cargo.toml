@@ -11,6 +11,7 @@ members = [
   "crates/fnx-durability",
   "crates/fnx-conformance",
   "crates/fnx-runtime",
+  "crates/fnx-cgse",
   "crates/fnx-python",
 ]
 

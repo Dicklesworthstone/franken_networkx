@@ -9411,7 +9411,7 @@ class _NetworkXCompatGraphProxy:
         return getattr(self._graph, name)
 
 
-def _networkx_compat_graph(graph):
+def _networkx_compat_graph(graph):  # DELEGATED_TO_NETWORKX (proxy helper for NX-delegated algorithms)
     return _NetworkXCompatGraphProxy(graph)
 
 
@@ -10689,7 +10689,7 @@ def random_k_out_graph(n, k, alpha=1, self_loops=True, seed=None):
 
 
 # Similarity (br-poy)
-def simrank_similarity(
+def simrank_similarity(  # DELEGATED_TO_NETWORKX
     G,
     source=None,
     target=None,
@@ -10703,7 +10703,7 @@ def simrank_similarity(
     )
 
 
-def panther_similarity(
+def panther_similarity(  # DELEGATED_TO_NETWORKX
     G,
     source,
     k=5,
@@ -10730,7 +10730,7 @@ def panther_similarity(
     )
 
 
-def optimal_edit_paths(
+def optimal_edit_paths(  # DELEGATED_TO_NETWORKX
     G1,
     G2,
     node_match=None,
@@ -10785,7 +10785,7 @@ def optimal_edit_paths(
     )
 
 
-def optimize_edit_paths(G1, G2, **kwargs):
+def optimize_edit_paths(G1, G2, **kwargs):  # DELEGATED_TO_NETWORKX
     """Iterator yielding progressively better edit paths."""
     handled, native_result = _native_graph_edit_distance_common_case(
         G1,
@@ -11026,7 +11026,7 @@ def communicability_exp(G):
     return result
 
 
-def panther_vector_similarity(
+def panther_vector_similarity(  # DELEGATED_TO_NETWORKX
     G,
     source,
     *,
@@ -11080,7 +11080,7 @@ def effective_graph_resistance(G, weight=None, invert_weight=True):
     return float(np.sum(1 / mu[1:]) * H.number_of_nodes())
 
 
-def graph_edit_distance(G1, G2, **kwargs):
+def graph_edit_distance(G1, G2, **kwargs):  # DELEGATED_TO_NETWORKX
     """Return graph edit distance."""
     handled, native_result = _native_graph_edit_distance_common_case(
         G1,
@@ -11110,7 +11110,7 @@ def graph_edit_distance(G1, G2, **kwargs):
     return nx.graph_edit_distance(_to_nx(G1), _to_nx(G2), **kwargs)
 
 
-def optimize_graph_edit_distance(G1, G2, **kwargs):
+def optimize_graph_edit_distance(G1, G2, **kwargs):  # DELEGATED_TO_NETWORKX
     """Iterator yielding improving graph edit distances."""
     handled, native_result = _native_graph_edit_distance_common_case(
         G1,
@@ -12274,7 +12274,7 @@ def to_pandas_edgelist(
     return pd.DataFrame(payload, dtype=dtype)
 
 
-def from_pandas_edgelist(
+def from_pandas_edgelist(  # DELEGATED_TO_NETWORKX (pandas conversion)
     df,
     source="source",
     target="target",
@@ -12395,7 +12395,7 @@ def to_numpy_array(
     return matrix
 
 
-def from_numpy_array(
+def from_numpy_array(  # DELEGATED_TO_NETWORKX (numpy conversion)
     A,
     parallel_edges=False,
     create_using=None,
@@ -12501,7 +12501,7 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
     return matrix.asformat(format)
 
 
-def from_scipy_sparse_array(
+def from_scipy_sparse_array(  # DELEGATED_TO_NETWORKX (scipy conversion)
     A, parallel_edges=False, create_using=None, edge_attribute="weight"
 ):
     """Return a graph from a SciPy sparse array.
@@ -12536,7 +12536,7 @@ def from_scipy_sparse_array(
     return _from_nx_graph(graph, create_using=create_using)
 
 
-def from_dict_of_dicts(d, create_using=None, multigraph_input=False):
+def from_dict_of_dicts(d, create_using=None, multigraph_input=False):  # DELEGATED_TO_NETWORKX
     """Return a graph from a dictionary of dictionaries."""
     import networkx as nx
 
@@ -12649,7 +12649,7 @@ def cytoscape_graph(data, name="name", ident="id"):
     return _from_nx_graph(graph)
 
 
-def to_networkx_graph(data, create_using=None, multigraph_input=False):
+def to_networkx_graph(data, create_using=None, multigraph_input=False):  # DELEGATED_TO_NETWORKX
     """Convert supported input data to a graph."""
     import networkx as nx
 
