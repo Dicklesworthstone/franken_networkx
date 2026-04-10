@@ -1126,14 +1126,14 @@ impl EdgeListEngine {
         loop {
             match reader.read_event_into(&mut buffer) {
                 Ok(Event::Start(element)) | Ok(Event::Empty(element))
-                    if element.name().as_ref() == b"graph" =>
+                    if xml_local_name(element.name().as_ref()) == b"graph" =>
                 {
                     for attr in element.attributes() {
                         let attr = attr.map_err(|err| ReadWriteError::FailClosed {
                             operation: "read_graphml",
                             reason: format!("graphml attribute parse error: {err}"),
                         })?;
-                        if attr.key.as_ref() == b"edgedefault" {
+                        if xml_local_name(attr.key.as_ref()) == b"edgedefault" {
                             return Ok(attr.value.as_ref() == b"directed");
                         }
                     }
@@ -1242,7 +1242,7 @@ impl EdgeListEngine {
                         &mut pending_edge_attrs,
                     )?;
                     self.handle_graphml_end_element(
-                        e.name().as_ref(),
+                        xml_local_name(e.name().as_ref()),
                         graph,
                         warnings,
                         &mut in_graph,
@@ -1276,7 +1276,7 @@ impl EdgeListEngine {
                 },
                 Ok(Event::End(ref e)) => {
                     self.handle_graphml_end_element(
-                        e.name().as_ref(),
+                        xml_local_name(e.name().as_ref()),
                         graph,
                         warnings,
                         &mut in_graph,
@@ -1331,7 +1331,7 @@ impl EdgeListEngine {
         G: GraphLike,
     {
         let tag_name = e.name();
-        let local = tag_name.as_ref();
+        let local = xml_local_name(tag_name.as_ref());
         match local {
             b"key" => {
                 let mut key_id = String::new();
@@ -2222,6 +2222,12 @@ fn set<const N: usize>(values: [&str; N]) -> BTreeSet<String> {
     values.into_iter().map(str::to_owned).collect()
 }
 
+fn xml_local_name(name: &[u8]) -> &[u8] {
+    name.iter()
+        .rposition(|b| *b == b':')
+        .map_or(name, |idx| &name[idx + 1..])
+}
+
 #[cfg(test)]
 mod tests {
     use super::{EdgeListEngine, ReadWriteError};
@@ -2641,6 +2647,25 @@ mod tests {
     }
 
     #[test]
+    fn graphml_declares_directed_handles_prefixed_graph() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<g:graphml xmlns:g="http://graphml.graphdrawing.org/xmlns">
+  <g:graph id="G" edgedefault="directed">
+    <g:node id="a"/>
+    <g:node id="b"/>
+    <g:edge source="a" target="b"/>
+  </g:graph>
+</g:graphml>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        assert!(
+            engine
+                .graphml_declares_directed(input)
+                .expect("graphml directed detection should succeed")
+        );
+    }
+
+    #[test]
     fn gml_declares_directed_ignores_attribute_text() {
         let input = r#"graph [
   label "mentions directed 1"
@@ -2717,6 +2742,32 @@ mod tests {
             Some(&CgseValue::String("demo".to_owned()))
         );
         assert_eq!(parsed.graph_attrs.get("version"), Some(&CgseValue::Int(3)));
+    }
+
+    #[test]
+    fn read_graphml_handles_prefixed_elements() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<g:graphml xmlns:g="http://graphml.graphdrawing.org/xmlns">
+  <g:key id="d0" for="node" attr.name="color" attr.type="string"/>
+  <g:graph id="G" edgedefault="undirected">
+    <g:node id="n0">
+      <g:data key="d0">red</g:data>
+    </g:node>
+  </g:graph>
+</g:graphml>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let parsed = engine
+            .read_graphml(input)
+            .expect("graphml read should succeed");
+
+        assert!(parsed.warnings.is_empty());
+        assert_eq!(parsed.graph.node_count(), 1);
+        let attrs = parsed.graph.node_attrs("n0").expect("node should exist");
+        assert_eq!(
+            attrs.get("color"),
+            Some(&CgseValue::String("red".to_owned()))
+        );
     }
 
     #[test]
