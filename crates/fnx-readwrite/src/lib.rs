@@ -1365,8 +1365,34 @@ impl EdgeListEngine {
                 let mut for_scope = String::new();
                 let mut attr_name = String::new();
                 let mut attr_type = String::new();
-                for attr in e.attributes().flatten() {
-                    match attr.key.as_ref() {
+                for attr in e.attributes() {
+                    let attr = match attr {
+                        Ok(attr) => attr,
+                        Err(err) => {
+                            let warning = format!("graphml key attribute parse error: {err}");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_graphml",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_graphml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record(
+                                "read_graphml",
+                                DecisionAction::FullValidate,
+                                &warning,
+                                0.7,
+                            );
+                            return Ok(());
+                        }
+                    };
+                    match xml_local_name(attr.key.as_ref()) {
                         b"id" => {
                             key_id = String::from_utf8_lossy(&attr.value).into_owned();
                         }
@@ -1392,8 +1418,34 @@ impl EdgeListEngine {
             }
             b"node" if *in_graph => {
                 let mut node_id = String::new();
-                for attr in e.attributes().flatten() {
-                    if attr.key.as_ref() == b"id" {
+                for attr in e.attributes() {
+                    let attr = match attr {
+                        Ok(attr) => attr,
+                        Err(err) => {
+                            let warning = format!("graphml node attribute parse error: {err}");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_graphml",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_graphml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record(
+                                "read_graphml",
+                                DecisionAction::FullValidate,
+                                &warning,
+                                0.7,
+                            );
+                            return Ok(());
+                        }
+                    };
+                    if xml_local_name(attr.key.as_ref()) == b"id" {
                         node_id = String::from_utf8_lossy(&attr.value).into_owned();
                     }
                 }
@@ -1417,8 +1469,34 @@ impl EdgeListEngine {
             b"edge" if *in_graph => {
                 let mut source = String::new();
                 let mut target = String::new();
-                for attr in e.attributes().flatten() {
-                    match attr.key.as_ref() {
+                for attr in e.attributes() {
+                    let attr = match attr {
+                        Ok(attr) => attr,
+                        Err(err) => {
+                            let warning = format!("graphml edge attribute parse error: {err}");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_graphml",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_graphml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record(
+                                "read_graphml",
+                                DecisionAction::FullValidate,
+                                &warning,
+                                0.7,
+                            );
+                            return Ok(());
+                        }
+                    };
+                    match xml_local_name(attr.key.as_ref()) {
                         b"source" => {
                             source = String::from_utf8_lossy(&attr.value).into_owned();
                         }
@@ -2856,6 +2934,77 @@ mod tests {
         assert!(!report.warnings.is_empty());
         let attrs = report.graph.node_attrs("n0").expect("node should exist");
         assert!(attrs.is_empty());
+    }
+
+    #[test]
+    fn graphml_node_attr_parse_error_strict_fails_closed() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph edgedefault="undirected">
+    <node id="n0" bad/>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(input)
+            .expect_err("strict mode should fail on malformed node attribute");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_node_attr_parse_error_hardened_warns_and_skips() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph edgedefault="undirected">
+    <node id="n0" bad/>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(input)
+            .expect("hardened mode should recover");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 0);
+    }
+
+    #[test]
+    fn graphml_edge_attr_parse_error_strict_fails_closed() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph edgedefault="undirected">
+    <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b" bad/>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(input)
+            .expect_err("strict mode should fail on malformed edge attribute");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_edge_attr_parse_error_hardened_warns_and_skips() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph edgedefault="undirected">
+    <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b" bad/>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(input)
+            .expect("hardened mode should recover");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 2);
+        assert_eq!(report.graph.edge_count(), 0);
     }
 
     #[test]
