@@ -1257,9 +1257,23 @@ impl EdgeListEngine {
                         &key_registry,
                     )?;
                 }
-                Ok(Event::Text(ref e)) if current_data_key.is_some() => {
-                    current_data_text.push_str(&e.unescape().unwrap_or_default());
-                }
+                Ok(Event::Text(ref e)) if current_data_key.is_some() => match e.unescape() {
+                    Ok(text) => current_data_text.push_str(&text),
+                    Err(err) => {
+                        let warning = format!("graphml data text unescape error: {err}");
+                        if self.mode == CompatibilityMode::Strict {
+                            self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                            return Err(ReadWriteError::FailClosed {
+                                operation: "read_graphml",
+                                reason: warning,
+                            });
+                        }
+                        warnings.push(warning.clone());
+                        self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.8);
+                        current_data_text.clear();
+                        current_data_key = None;
+                    }
+                },
                 Ok(Event::End(ref e)) => {
                     self.handle_graphml_end_element(
                         e.name().as_ref(),
@@ -2086,12 +2100,22 @@ fn attr_escape(s: &str) -> String {
         .replace('=', "%3D")
         .replace(';', "%3B")
         .replace(' ', "%20")
+        .replace('\t', "%09")
+        .replace('\n', "%0A")
+        .replace('\r', "%0D")
 }
 
 fn attr_unescape(s: &str) -> String {
-    s.replace("%20", " ")
+    s.replace("%0D", "\r")
+        .replace("%0d", "\r")
+        .replace("%0A", "\n")
+        .replace("%0a", "\n")
+        .replace("%09", "\t")
+        .replace("%20", " ")
         .replace("%3B", ";")
+        .replace("%3b", ";")
         .replace("%3D", "=")
+        .replace("%3d", "=")
         .replace("%25", "%")
 }
 
@@ -2271,6 +2295,47 @@ mod tests {
             .graph;
 
         assert_eq!(graph.snapshot(), parsed.snapshot());
+    }
+
+    #[test]
+    fn edgelist_roundtrip_preserves_whitespace_attrs() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs(
+                "a".to_owned(),
+                "b".to_owned(),
+                BTreeMap::from([
+                    (
+                        "note".to_owned(),
+                        CgseValue::String("line1\nline2\tend\r".to_owned()),
+                    ),
+                    ("label".to_owned(), CgseValue::String("a b;c%".to_owned())),
+                ]),
+            )
+            .expect("edge add should succeed");
+
+        let mut engine = EdgeListEngine::strict();
+        let text = engine
+            .write_edgelist(&graph)
+            .expect("serialization should succeed");
+        assert!(text.contains("%0A"));
+        assert!(text.contains("%09"));
+        assert!(text.contains("%0D"));
+
+        let parsed = engine
+            .read_edgelist(&text)
+            .expect("parse should succeed")
+            .graph;
+
+        let attrs = parsed.edge_attrs("a", "b").expect("edge should exist");
+        assert_eq!(
+            attrs.get("note"),
+            Some(&CgseValue::String("line1\nline2\tend\r".to_owned()))
+        );
+        assert_eq!(
+            attrs.get("label"),
+            Some(&CgseValue::String("a b;c%".to_owned()))
+        );
     }
 
     #[test]
@@ -2666,6 +2731,47 @@ mod tests {
             .read_graphml("<not-valid-graphml")
             .expect("hardened mode should recover");
         assert!(!report.warnings.is_empty());
+    }
+
+    #[test]
+    fn graphml_invalid_entity_strict_fails_closed() {
+        let graphml = r#"
+<graphml>
+  <key id="d0" for="node" attr.name="label" attr.type="string"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">&bogus;</data>
+    </node>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(graphml)
+            .expect_err("strict mode should fail closed on invalid entity");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_invalid_entity_hardened_warns_and_skips_attr() {
+        let graphml = r#"
+<graphml>
+  <key id="d0" for="node" attr.name="label" attr.type="string"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">&bogus;</data>
+    </node>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("hardened mode should recover from invalid entity");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 1);
+        let attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert!(attrs.is_empty());
     }
 
     #[test]
