@@ -1129,10 +1129,31 @@ impl EdgeListEngine {
                     if xml_local_name(element.name().as_ref()) == b"graph" =>
                 {
                     for attr in element.attributes() {
-                        let attr = attr.map_err(|err| ReadWriteError::FailClosed {
-                            operation: "read_graphml",
-                            reason: format!("graphml attribute parse error: {err}"),
-                        })?;
+                        let attr = match attr {
+                            Ok(attr) => attr,
+                            Err(err) => {
+                                let warning = format!("graphml attribute parse error: {err}");
+                                if self.mode == CompatibilityMode::Strict {
+                                    self.record(
+                                        "read_graphml",
+                                        DecisionAction::FailClosed,
+                                        &warning,
+                                        1.0,
+                                    );
+                                    return Err(ReadWriteError::FailClosed {
+                                        operation: "read_graphml",
+                                        reason: warning,
+                                    });
+                                }
+                                self.record(
+                                    "read_graphml",
+                                    DecisionAction::FullValidate,
+                                    &warning,
+                                    0.7,
+                                );
+                                return Ok(false);
+                            }
+                        };
                         if xml_local_name(attr.key.as_ref()) == b"edgedefault" {
                             return Ok(attr.value.as_ref() == b"directed");
                         }
@@ -1141,10 +1162,16 @@ impl EdgeListEngine {
                 }
                 Ok(Event::Eof) => return Ok(false),
                 Err(err) => {
-                    return Err(ReadWriteError::FailClosed {
-                        operation: "read_graphml",
-                        reason: format!("graphml directed detection failed: {err}"),
-                    });
+                    let warning = format!("graphml directed detection failed: {err}");
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_graphml",
+                            reason: warning,
+                        });
+                    }
+                    self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
+                    return Ok(false);
                 }
                 _ => {}
             }
@@ -1421,10 +1448,49 @@ impl EdgeListEngine {
             }
             b"data" => {
                 current_data_text.clear();
-                for attr in e.attributes().flatten() {
-                    if attr.key.as_ref() == b"key" {
+                *current_data_key = None;
+                for attr in e.attributes() {
+                    let attr = match attr {
+                        Ok(attr) => attr,
+                        Err(err) => {
+                            let warning = format!("graphml data attribute parse error: {err}");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_graphml",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_graphml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record(
+                                "read_graphml",
+                                DecisionAction::FullValidate,
+                                &warning,
+                                0.7,
+                            );
+                            return Ok(());
+                        }
+                    };
+                    if xml_local_name(attr.key.as_ref()) == b"key" {
                         *current_data_key = Some(String::from_utf8_lossy(&attr.value).into_owned());
                     }
+                }
+                if current_data_key.is_none() {
+                    let warning = "graphml data missing key attribute".to_owned();
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_graphml",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
                 }
             }
             _ => {}
@@ -2666,6 +2732,16 @@ mod tests {
     }
 
     #[test]
+    fn graphml_declares_directed_hardened_recovers_from_malformed_xml() {
+        let mut engine = EdgeListEngine::hardened();
+        assert!(
+            !engine
+                .graphml_declares_directed("<graphml><graph")
+                .expect("hardened directed detection should recover")
+        );
+    }
+
+    #[test]
     fn gml_declares_directed_ignores_attribute_text() {
         let input = r#"graph [
   label "mentions directed 1"
@@ -2742,6 +2818,44 @@ mod tests {
             Some(&CgseValue::String("demo".to_owned()))
         );
         assert_eq!(parsed.graph_attrs.get("version"), Some(&CgseValue::Int(3)));
+    }
+
+    #[test]
+    fn graphml_data_missing_key_strict_fails_closed() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data>oops</data>
+    </node>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(input)
+            .expect_err("strict mode should fail on missing data key");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_data_missing_key_hardened_warns_and_skips() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data>oops</data>
+    </node>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(input)
+            .expect("hardened mode should recover");
+        assert!(!report.warnings.is_empty());
+        let attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert!(attrs.is_empty());
     }
 
     #[test]
