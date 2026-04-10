@@ -1458,11 +1458,8 @@ impl EdgeListEngine {
                     && let Some((_scope, _attr_name, _attr_type)) = key_registry.get(&key_id)
                 {
                     let raw_value = std::mem::take(current_data_text);
-                    let value = if _attr_type == "string" {
-                        CgseValue::String(raw_value)
-                    } else {
-                        CgseValue::parse_relaxed(&raw_value)
-                    };
+                    let value =
+                        self.parse_graphml_typed_value(&key_id, _attr_type, raw_value, warnings)?;
                     if current_node.is_some() && current_edge.is_none() {
                         pending_node_attrs.insert(_attr_name.clone(), value);
                     } else if current_edge.is_some() {
@@ -1511,6 +1508,56 @@ impl EdgeListEngine {
             _ => {}
         }
         Ok(())
+    }
+
+    fn parse_graphml_typed_value(
+        &mut self,
+        key_id: &str,
+        attr_type: &str,
+        raw_value: String,
+        warnings: &mut Vec<String>,
+    ) -> Result<CgseValue, ReadWriteError> {
+        let raw_value_for_error = raw_value.clone();
+        let attr_type = attr_type.trim().to_ascii_lowercase();
+        let trimmed = raw_value.trim();
+
+        let parsed = match attr_type.as_str() {
+            "" => Ok(CgseValue::parse_relaxed(trimmed)),
+            "string" => Ok(CgseValue::String(raw_value)),
+            "boolean" => match trimmed.to_ascii_lowercase().as_str() {
+                "true" => Ok(CgseValue::Bool(true)),
+                "false" => Ok(CgseValue::Bool(false)),
+                _ => Err("boolean"),
+            },
+            "int" | "long" => trimmed
+                .parse::<i64>()
+                .map(CgseValue::Int)
+                .map_err(|_| "int"),
+            "float" | "double" => trimmed
+                .parse::<f64>()
+                .map(CgseValue::Float)
+                .map_err(|_| "float"),
+            _ => Ok(CgseValue::parse_relaxed(trimmed)),
+        };
+
+        match parsed {
+            Ok(value) => Ok(value),
+            Err(expected) => {
+                let warning = format!(
+                    "graphml attr parse failed: key={key_id} type={attr_type} expected={expected} value={raw_value_for_error:?}"
+                );
+                if self.mode == CompatibilityMode::Strict {
+                    self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_graphml",
+                        reason: warning,
+                    });
+                }
+                warnings.push(warning.clone());
+                self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.8);
+                Ok(CgseValue::String(raw_value_for_error))
+            }
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -2772,6 +2819,69 @@ mod tests {
         assert_eq!(report.graph.node_count(), 1);
         let attrs = report.graph.node_attrs("n0").expect("node should exist");
         assert!(attrs.is_empty());
+    }
+
+    #[test]
+    fn graphml_typed_double_parses_float() {
+        let graphml = r#"
+<graphml>
+  <key id="d0" for="node" attr.name="weight" attr.type="double"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">1</data>
+    </node>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("typed double should parse");
+        let attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert_eq!(attrs.get("weight"), Some(&CgseValue::Float(1.0)));
+    }
+
+    #[test]
+    fn graphml_typed_int_strict_fails_on_non_int() {
+        let graphml = r#"
+<graphml>
+  <key id="d0" for="node" attr.name="count" attr.type="int"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">1.5</data>
+    </node>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(graphml)
+            .expect_err("strict mode should fail on invalid int");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_typed_int_hardened_warns_and_preserves_string() {
+        let graphml = r#"
+<graphml>
+  <key id="d0" for="node" attr.name="count" attr.type="int"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">1.5</data>
+    </node>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("hardened mode should recover");
+        assert!(!report.warnings.is_empty());
+        let attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert_eq!(
+            attrs.get("count"),
+            Some(&CgseValue::String("1.5".to_owned()))
+        );
     }
 
     #[test]
