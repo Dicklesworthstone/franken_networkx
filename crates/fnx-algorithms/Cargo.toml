@@ -9,6 +9,7 @@ doctest = false
 
 [dependencies]
 fnx-classes = { version = "0.1.0", path = "../fnx-classes" }
+fnx-cgse = { version = "0.1.0", path = "../fnx-cgse" }
 fnx-runtime = { version = "0.1.0", path = "../fnx-runtime" }
 mwmatching = "0.1.1"
 serde = { version = "1.0.228", features = ["derive"] }

@@ -29,7 +29,7 @@ The core crates are:
 - `crates/fnx-algorithms` for algorithm implementations
 - `crates/fnx-generators` for graph generators
 - `crates/fnx-readwrite` for I/O formats
-- `crates/fnx-conformance` for the legacy-oracle differential harness
+- `crates/fnx-conformance` for the curated legacy-oracle evidence harness
 - `crates/fnx-runtime` for strict/hardened runtime behavior
 - `crates/fnx-python` for PyO3 bindings
 
@@ -50,8 +50,23 @@ rch exec -- cargo fmt --check
 rch exec -- cargo test --workspace
 rch exec -- maturin develop --features pyo3/abi3-py310
 pytest tests/python/ -v --tb=long
+rch exec -- cargo run -q -p fnx-conformance --bin run_smoke
 python3 scripts/verify_docs.py
 ```
+
+## Conformance Policy
+
+`pytest tests/python/` is the canonical parity gate for observable
+FrankenNetworkX behavior. It runs against the installed Python package and is
+the first place to encode or fix NetworkX-visible expectations.
+
+`fnx-conformance` is the curated evidence pipeline. It replays selected oracle
+fixtures, emits structured logs and replay metadata, and refreshes durable
+artifacts under `artifacts/conformance/latest/`.
+
+If the two layers disagree, resolve the user-visible behavior in the canonical
+pytest suite first, then update or regenerate the Rust harness fixtures and
+artifacts to match.
 
 ## Adding a New Algorithm
 

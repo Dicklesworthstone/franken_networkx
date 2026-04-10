@@ -138,7 +138,7 @@ def main() -> int:
                 "op": "dispatch_resolve",
                 "operation": "shortest_path",
                 "required_features": ["shortest_path"],
-                "risk_probability": 0.2,
+                "risk_probability": 0.3,
                 "unknown_incompatible_feature": False,
             }
         ],

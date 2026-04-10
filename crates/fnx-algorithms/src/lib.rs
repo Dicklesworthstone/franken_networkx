@@ -3,6 +3,10 @@
 
 use fnx_classes::digraph::DiGraph;
 use fnx_classes::{Graph, GraphError};
+use fnx_cgse::{
+    ReferenceAlgorithm as CgseReferenceAlgorithm, WitnessSink as CgseWitnessSink,
+    with_ledger as with_cgse_ledger, witness_collection_enabled as cgse_witness_collection_enabled,
+};
 use fnx_runtime::CgseValue;
 use mwmatching::{Matching as BlossomMatching, SENTINEL as BLOSSOM_SENTINEL};
 use serde::{Deserialize, Serialize};
@@ -95,6 +99,33 @@ impl<T: Copy + PartialEq + Ord> Ord for DijkstraState<T> {
             .dist
             .partial_cmp(&self.dist)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| other.seq.cmp(&self.seq))
+    }
+}
+
+#[derive(Clone, PartialEq)]
+struct PrimEdgeState {
+    weight: f64,
+    seq: u64,
+    left: String,
+    right: String,
+}
+
+impl Eq for PrimEdgeState {}
+
+impl PartialOrd for PrimEdgeState {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PrimEdgeState {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other
+            .weight
+            .total_cmp(&self.weight)
+            .then_with(|| other.left.cmp(&self.left))
+            .then_with(|| other.right.cmp(&self.right))
             .then_with(|| other.seq.cmp(&self.seq))
     }
 }
@@ -265,6 +296,33 @@ impl ComplexityWitness {
             artifact_refs: canonical_refs,
             witness_hash_id: format!("cgse-witness:{}", stable_hash_hex(hash_material.as_bytes())),
         }
+    }
+}
+
+fn cgse_begin(reference: CgseReferenceAlgorithm) -> Option<CgseWitnessSink> {
+    cgse_witness_collection_enabled().then(|| CgseWitnessSink::new(reference.policy()))
+}
+
+fn cgse_record_decision(sink: &mut Option<CgseWitnessSink>, chosen: &str, rejected: &str) {
+    if let Some(sink) = sink.as_mut() {
+        sink.record_decision(chosen, rejected);
+    }
+}
+
+fn cgse_publish(
+    reference: CgseReferenceAlgorithm,
+    node_count: usize,
+    edge_count: usize,
+    sink: Option<CgseWitnessSink>,
+) {
+    if let Some(sink) = sink {
+        let witness = sink.finalize(
+            node_count,
+            edge_count,
+            reference.dominant_complexity(),
+            None,
+        );
+        with_cgse_ledger(|ledger| ledger.append(witness));
     }
 }
 
@@ -944,7 +1002,15 @@ pub fn shortest_path_weighted(
     target: &str,
     weight_attr: &str,
 ) -> ShortestPathResult {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::Dijkstra);
+
     if !graph.has_node(source) || !graph.has_node(target) {
+        cgse_publish(
+            CgseReferenceAlgorithm::Dijkstra,
+            graph.node_count(),
+            graph.edge_count(),
+            cgse_sink,
+        );
         return ShortestPathResult {
             path: None,
             witness: ComplexityWitness {
@@ -958,6 +1024,12 @@ pub fn shortest_path_weighted(
     }
 
     if source == target {
+        cgse_publish(
+            CgseReferenceAlgorithm::Dijkstra,
+            graph.node_count(),
+            graph.edge_count(),
+            cgse_sink,
+        );
         return ShortestPathResult {
             path: Some(vec![source.to_owned()]),
             witness: ComplexityWitness {
@@ -1011,6 +1083,7 @@ pub fn shortest_path_weighted(
                         nodes_touched += 1;
                     }
                     predecessors.insert(v, u);
+                    cgse_record_decision(&mut cgse_sink, v, u);
                     seq_counter += 1;
                     pq.push(DijkstraState {
                         dist: next_dist,
@@ -1035,6 +1108,13 @@ pub fn shortest_path_weighted(
     } else {
         None
     };
+
+    cgse_publish(
+        CgseReferenceAlgorithm::Dijkstra,
+        graph.node_count(),
+        graph.edge_count(),
+        cgse_sink,
+    );
 
     ShortestPathResult {
         path,
@@ -1363,7 +1443,15 @@ pub fn bellman_ford_shortest_paths(
     source: &str,
     weight_attr: &str,
 ) -> WeightedShortestPathsResult {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::BellmanFord);
+
     if !graph.has_node(source) {
+        cgse_publish(
+            CgseReferenceAlgorithm::BellmanFord,
+            graph.node_count(),
+            graph.edge_count(),
+            cgse_sink,
+        );
         return WeightedShortestPathsResult {
             distances: Vec::new(),
             predecessors: Vec::new(),
@@ -1403,6 +1491,7 @@ pub fn bellman_ford_shortest_paths(
                 &mut predecessors,
                 &mut nodes_touched,
             ) {
+                cgse_record_decision(&mut cgse_sink, right, left);
                 changed = true;
             }
             if relax_weighted_edge(
@@ -1413,6 +1502,7 @@ pub fn bellman_ford_shortest_paths(
                 &mut predecessors,
                 &mut nodes_touched,
             ) {
+                cgse_record_decision(&mut cgse_sink, left, right);
                 changed = true;
             }
         }
@@ -1432,6 +1522,13 @@ pub fn bellman_ford_shortest_paths(
             break;
         }
     }
+
+    cgse_publish(
+        CgseReferenceAlgorithm::BellmanFord,
+        graph.node_count(),
+        graph.edge_count(),
+        cgse_sink,
+    );
 
     weighted_paths_result(
         &ordered_nodes,
@@ -1712,6 +1809,7 @@ pub fn single_source_shortest_path_length_directed(
 
 #[must_use]
 pub fn connected_components(graph: &Graph) -> ComponentsResult {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::ConnectedComponents);
     let mut visited: HashSet<&str> = HashSet::new();
     let mut components = Vec::new();
     let mut nodes_touched = 0usize;
@@ -1728,6 +1826,7 @@ pub fn connected_components(graph: &Graph) -> ComponentsResult {
         queue.push_back(node);
         visited.insert(node);
         component.push(node);
+        cgse_record_decision(&mut cgse_sink, node, "component_root");
         nodes_touched += 1;
         queue_peak = queue_peak.max(queue.len());
 
@@ -1741,6 +1840,7 @@ pub fn connected_components(graph: &Graph) -> ComponentsResult {
                 if visited.insert(neighbor) {
                     queue.push_back(neighbor);
                     component.push(neighbor);
+                    cgse_record_decision(&mut cgse_sink, neighbor, current);
                     nodes_touched += 1;
                     queue_peak = queue_peak.max(queue.len());
                 }
@@ -1750,6 +1850,13 @@ pub fn connected_components(graph: &Graph) -> ComponentsResult {
         component.sort_unstable();
         components.push(component.into_iter().map(str::to_owned).collect());
     }
+
+    cgse_publish(
+        CgseReferenceAlgorithm::ConnectedComponents,
+        graph.node_count(),
+        graph.edge_count(),
+        cgse_sink,
+    );
 
     ComponentsResult {
         components,
@@ -2982,8 +3089,15 @@ pub fn max_weight_matching(
     maxcardinality: bool,
     weight_attr: &str,
 ) -> WeightedMatchingResult {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::MaxWeightMatching);
     let candidates = weighted_edge_candidates(graph, weight_attr);
     if candidates.is_empty() {
+        cgse_publish(
+            CgseReferenceAlgorithm::MaxWeightMatching,
+            graph.node_count(),
+            graph.edge_count(),
+            cgse_sink,
+        );
         return WeightedMatchingResult {
             matching: Vec::new(),
             total_weight: 0.0,
@@ -3003,6 +3117,16 @@ pub fn max_weight_matching(
 
     let (matching, total_weight, edges_scanned) =
         blossom_weight_matching(&candidates, maxcardinality);
+    for (left, right) in &matching {
+        cgse_record_decision(&mut cgse_sink, left, right);
+    }
+
+    cgse_publish(
+        CgseReferenceAlgorithm::MaxWeightMatching,
+        graph.node_count(),
+        graph.edge_count(),
+        cgse_sink,
+    );
 
     WeightedMatchingResult {
         matching,
@@ -3023,8 +3147,15 @@ pub fn max_weight_matching(
 
 #[must_use]
 pub fn min_weight_matching(graph: &Graph, weight_attr: &str) -> WeightedMatchingResult {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::MinWeightMatching);
     let candidates = weighted_edge_candidates(graph, weight_attr);
     if candidates.is_empty() {
+        cgse_publish(
+            CgseReferenceAlgorithm::MinWeightMatching,
+            graph.node_count(),
+            graph.edge_count(),
+            cgse_sink,
+        );
         return WeightedMatchingResult {
             matching: Vec::new(),
             total_weight: 0.0,
@@ -3055,6 +3186,16 @@ pub fn min_weight_matching(graph: &Graph, weight_attr: &str) -> WeightedMatching
         .iter()
         .map(|(left, right)| matching_edge_weight_or_default(graph, left, right, weight_attr))
         .sum();
+    for (left, right) in &matching {
+        cgse_record_decision(&mut cgse_sink, left, right);
+    }
+
+    cgse_publish(
+        CgseReferenceAlgorithm::MinWeightMatching,
+        graph.node_count(),
+        graph.edge_count(),
+        cgse_sink,
+    );
 
     WeightedMatchingResult {
         matching,
@@ -5078,9 +5219,16 @@ pub fn shortest_path_length(graph: &Graph, source: &str, target: &str) -> Shorte
 /// Returns edges in deterministic sorted order `(min(u,v), max(u,v))`.
 #[must_use]
 pub fn minimum_spanning_tree(graph: &Graph, weight_attr: &str) -> MinimumSpanningTreeResult {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::Kruskal);
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     if n == 0 {
+        cgse_publish(
+            CgseReferenceAlgorithm::Kruskal,
+            graph.node_count(),
+            graph.edge_count(),
+            cgse_sink,
+        );
         return MinimumSpanningTreeResult {
             edges: Vec::new(),
             total_weight: 0.0,
@@ -5170,6 +5318,7 @@ pub fn minimum_spanning_tree(graph: &Graph, weight_attr: &str) -> MinimumSpannin
                 right: right.to_string(),
                 weight: *weight,
             });
+            cgse_record_decision(&mut cgse_sink, left, right);
             total_weight += weight;
             nodes_touched += 2;
             if mst_edges.len() == n - 1 {
@@ -5177,6 +5326,13 @@ pub fn minimum_spanning_tree(graph: &Graph, weight_attr: &str) -> MinimumSpannin
             }
         }
     }
+
+    cgse_publish(
+        CgseReferenceAlgorithm::Kruskal,
+        graph.node_count(),
+        graph.edge_count(),
+        cgse_sink,
+    );
 
     MinimumSpanningTreeResult {
         edges: mst_edges,
@@ -5187,6 +5343,130 @@ pub fn minimum_spanning_tree(graph: &Graph, weight_attr: &str) -> MinimumSpannin
             nodes_touched: nodes_touched.min(n),
             edges_scanned,
             queue_peak: 0,
+        },
+    }
+}
+
+/// Computes the minimum spanning forest using Prim's algorithm.
+///
+/// This reference implementation exists so CGSE can exercise both canonical
+/// tree tie-break policies called out in the bridge plan.
+#[must_use]
+pub fn minimum_spanning_tree_prim(graph: &Graph, weight_attr: &str) -> MinimumSpanningTreeResult {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::Prim);
+    let nodes = graph.nodes_ordered();
+    if nodes.is_empty() {
+        cgse_publish(
+            CgseReferenceAlgorithm::Prim,
+            graph.node_count(),
+            graph.edge_count(),
+            cgse_sink,
+        );
+        return MinimumSpanningTreeResult {
+            edges: Vec::new(),
+            total_weight: 0.0,
+            witness: ComplexityWitness {
+                algorithm: "prim_mst".to_owned(),
+                complexity_claim: "O(|E| log |V|)".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    let mut roots: Vec<&str> = nodes.clone();
+    roots.sort_unstable();
+
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut frontier = BinaryHeap::new();
+    let mut seq_counter = 0u64;
+    let mut mst_edges = Vec::new();
+    let mut total_weight = 0.0;
+    let mut nodes_touched = 0usize;
+    let mut edges_scanned = 0usize;
+    let mut queue_peak = 0usize;
+
+    for root in roots {
+        if !visited.insert(root.to_owned()) {
+            continue;
+        }
+        nodes_touched += 1;
+        cgse_record_decision(&mut cgse_sink, root, "component_root");
+
+        if let Some(neighbors) = graph.neighbors_iter(root) {
+            for neighbor in neighbors {
+                if visited.contains(neighbor) {
+                    continue;
+                }
+                seq_counter += 1;
+                edges_scanned += 1;
+                frontier.push(PrimEdgeState {
+                    weight: matching_edge_weight_or_default(graph, root, neighbor, weight_attr),
+                    seq: seq_counter,
+                    left: root.to_owned(),
+                    right: neighbor.to_owned(),
+                });
+                queue_peak = queue_peak.max(frontier.len());
+            }
+        }
+
+        while let Some(PrimEdgeState {
+            weight,
+            left,
+            right,
+            ..
+        }) = frontier.pop()
+        {
+            if visited.contains(&right) {
+                continue;
+            }
+
+            visited.insert(right.clone());
+            nodes_touched += 1;
+            total_weight += weight;
+            mst_edges.push(MstEdge {
+                left: left.clone(),
+                right: right.clone(),
+                weight,
+            });
+            cgse_record_decision(&mut cgse_sink, &right, &left);
+
+            if let Some(neighbors) = graph.neighbors_iter(&right) {
+                for neighbor in neighbors {
+                    if visited.contains(neighbor) {
+                        continue;
+                    }
+                    seq_counter += 1;
+                    edges_scanned += 1;
+                    frontier.push(PrimEdgeState {
+                        weight: matching_edge_weight_or_default(graph, &right, neighbor, weight_attr),
+                        seq: seq_counter,
+                        left: right.clone(),
+                        right: neighbor.to_owned(),
+                    });
+                    queue_peak = queue_peak.max(frontier.len());
+                }
+            }
+        }
+    }
+
+    cgse_publish(
+        CgseReferenceAlgorithm::Prim,
+        graph.node_count(),
+        graph.edge_count(),
+        cgse_sink,
+    );
+
+    MinimumSpanningTreeResult {
+        edges: mst_edges,
+        total_weight,
+        witness: ComplexityWitness {
+            algorithm: "prim_mst".to_owned(),
+            complexity_claim: "O(|E| log |V|)".to_owned(),
+            nodes_touched,
+            edges_scanned,
+            queue_peak,
         },
     }
 }

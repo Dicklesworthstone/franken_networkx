@@ -1714,8 +1714,8 @@ impl EdgeListEngine {
         }
 
         while pos < tokens.len() {
-            let token = &tokens[pos];
-            match token.as_str() {
+            let tok = &tokens[pos];
+            match tok.as_str() {
                 "directed" if pos + 1 < tokens.len() => {
                     directed = tokens[pos + 1] == "1";
                     pos += 2;

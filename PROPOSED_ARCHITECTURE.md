@@ -30,7 +30,7 @@ Implementation protocol:
 - `fnx-generators`: deterministic/random graph generators.
 - `fnx-readwrite`: adjlist/edgelist/json/graphml scoped IO.
 - `fnx-durability`: RaptorQ sidecar generation, scrub verification, decode proof artifacts.
-- `fnx-conformance`: NetworkX differential harness.
+- `fnx-conformance`: curated Rust evidence harness and fixture replay.
 - `fnx-runtime`: strict/hardened policy + evidence ledger.
 
 ## 2.1 External Leverage (FrankenSuite)
@@ -45,7 +45,8 @@ Implementation protocol:
 - API layer normalizes inputs and validates invariants.
 - Planner/dispatcher selects algorithm implementation.
 - Core engine executes with explicit invariant checks.
-- Conformance adapter captures oracle and target outputs.
+- Canonical parity gate runs through the installed Python surface.
+- Conformance adapter replays curated oracle fixtures and captures evidence.
 - Evidence layer emits parity reports, benchmark deltas, and decode proofs.
 
 ## 3.1 Module Boundary and Ownership Contract
@@ -72,8 +73,11 @@ Implementation protocol:
 
 ## 6. Conformance Contract
 
+- `tests/python/` is the canonical source of truth for public,
+  NetworkX-observable behavior.
 - feature-family fixtures captured from legacy oracle.
-- machine-readable parity report per run.
+- `fnx-conformance` replays a curated subset to produce machine-readable
+  parity/evidence reports per run.
 - regression corpus for previously observed mismatches.
 
 ## 7. Current Vertical Slice (Implemented)
@@ -88,7 +92,7 @@ Implementation protocol:
 - deterministic closeness-centrality with NetworkX-aligned WF-improved semantics in `fnx-algorithms`.
 - deterministic and seeded graph generators with strict/hardened guards in `fnx-generators`.
 - cycle-generator insertion policy aligned with legacy edge-order behavior for larger `n`.
-- fixture-driven conformance harness with drift detection in `fnx-conformance`.
+- fixture-driven conformance evidence harness with drift detection in `fnx-conformance`.
 - conformance expansion for component, generator, and centrality fixture operations (14-fixture corpus).
 - durability sidecar pipeline in `fnx-durability` + `scripts/run_conformance_with_durability.sh`.
 - view layer with revision-aware cache invalidation in `fnx-views`.

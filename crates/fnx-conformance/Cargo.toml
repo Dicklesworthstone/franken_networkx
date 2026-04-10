@@ -6,6 +6,7 @@ license-file = "../../LICENSE"
 
 [dependencies]
 fnx-algorithms = { path = "../fnx-algorithms" }
+fnx-cgse = { path = "../fnx-cgse" }
 fnx-classes = { path = "../fnx-classes" }
 fnx-convert = { path = "../fnx-convert" }
 fnx-dispatch = { path = "../fnx-dispatch" }

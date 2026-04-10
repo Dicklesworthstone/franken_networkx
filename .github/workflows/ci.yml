@@ -57,7 +57,7 @@ jobs:
         run: cargo test --workspace
 
   g4-python-tests:
-    name: G4 python tests
+    name: G4 canonical python parity
     needs: g3-rust-tests
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -72,7 +72,7 @@ jobs:
         run: pip install maturin pytest hypothesis networkx
       - name: Build and install
         run: maturin develop --features pyo3/abi3-py310
-      - name: Run Python tests
+      - name: Run canonical Python parity suite
         run: pytest tests/python/ -v --tb=long
 
   g4b-e2e:
@@ -114,7 +114,7 @@ jobs:
         run: python3 scripts/verify_docs.py
 
   g5-conformance:
-    name: G5 conformance
+    name: G5 conformance evidence
     needs: g4c-docs
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -129,7 +129,7 @@ jobs:
         run: pip install networkx
       - name: Capture oracle fixtures
         run: python3 scripts/capture_oracle_fixtures.py
-      - name: Run conformance harness
+      - name: Run curated conformance evidence harness
         run: env CARGO_TARGET_DIR=target-ci cargo run -q -p fnx-conformance --bin run_smoke
       - name: Upload conformance artifacts
         uses: actions/upload-artifact@v4

@@ -19,7 +19,7 @@
 #![forbid(unsafe_code)]
 
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 // ---------------------------------------------------------------------------
 // Tie-Break Policies
@@ -233,6 +233,47 @@ pub fn drain_witnesses() -> Vec<ComplexityWitness> {
     })
 }
 
+thread_local! {
+    static WITNESS_COLLECTION_ACTIVE: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Return whether CGSE witness collection is active for the current thread.
+#[must_use]
+pub fn witness_collection_enabled() -> bool {
+    WITNESS_COLLECTION_ACTIVE.with(Cell::get)
+}
+
+/// Run a closure with CGSE witness collection enabled and return the drained
+/// witnesses produced inside it.
+///
+/// Nested calls share the active ledger; only the outermost invocation drains
+/// the accumulated witnesses.
+pub fn collect_witnesses<F, R>(f: F) -> (R, Vec<ComplexityWitness>)
+where
+    F: FnOnce() -> R,
+{
+    let was_active = WITNESS_COLLECTION_ACTIVE.with(|cell| {
+        let active = cell.get();
+        if !active {
+            cell.set(true);
+        }
+        active
+    });
+
+    if !was_active {
+        with_ledger(WitnessLedger::clear);
+    }
+
+    let result = f();
+    let witnesses = if was_active { Vec::new() } else { drain_witnesses() };
+
+    if !was_active {
+        WITNESS_COLLECTION_ACTIVE.with(|cell| cell.set(false));
+    }
+
+    (result, witnesses)
+}
+
 // ---------------------------------------------------------------------------
 // Algorithm family registry
 // ---------------------------------------------------------------------------
@@ -249,86 +290,146 @@ pub struct AlgorithmFamilyPolicy {
     pub dominant_complexity: String,
 }
 
+/// The V1 reference algorithms whose call sites are wired through CGSE.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReferenceAlgorithm {
+    Dijkstra,
+    BellmanFord,
+    Bfs,
+    Dfs,
+    MaxWeightMatching,
+    MinWeightMatching,
+    ConnectedComponents,
+    StronglyConnectedComponents,
+    Kruskal,
+    Prim,
+    EulerianCircuit,
+    TopologicalSort,
+}
+
+impl ReferenceAlgorithm {
+    pub const ALL: [Self; 12] = [
+        Self::Dijkstra,
+        Self::BellmanFord,
+        Self::Bfs,
+        Self::Dfs,
+        Self::MaxWeightMatching,
+        Self::MinWeightMatching,
+        Self::ConnectedComponents,
+        Self::StronglyConnectedComponents,
+        Self::Kruskal,
+        Self::Prim,
+        Self::EulerianCircuit,
+        Self::TopologicalSort,
+    ];
+
+    #[must_use]
+    pub const fn family(self) -> &'static str {
+        match self {
+            Self::Dijkstra | Self::BellmanFord => "shortest_path",
+            Self::Bfs | Self::Dfs => "traversal",
+            Self::MaxWeightMatching | Self::MinWeightMatching => "matching",
+            Self::ConnectedComponents | Self::StronglyConnectedComponents => "connectivity",
+            Self::Kruskal | Self::Prim => "trees",
+            Self::EulerianCircuit => "euler",
+            Self::TopologicalSort => "dag",
+        }
+    }
+
+    #[must_use]
+    pub const fn algorithm(self) -> &'static str {
+        match self {
+            Self::Dijkstra => "dijkstra",
+            Self::BellmanFord => "bellman_ford",
+            Self::Bfs => "bfs",
+            Self::Dfs => "dfs",
+            Self::MaxWeightMatching => "max_weight_matching",
+            Self::MinWeightMatching => "min_weight_matching",
+            Self::ConnectedComponents => "connected_components",
+            Self::StronglyConnectedComponents => "strongly_connected_components",
+            Self::Kruskal => "kruskal",
+            Self::Prim => "prim",
+            Self::EulerianCircuit => "eulerian_circuit",
+            Self::TopologicalSort => "topological_sort",
+        }
+    }
+
+    #[must_use]
+    pub const fn policy(self) -> TieBreakPolicy {
+        match self {
+            Self::Dijkstra => TieBreakPolicy::WeightThenLex,
+            Self::BellmanFord => TieBreakPolicy::InsertionOrder,
+            Self::Bfs => TieBreakPolicy::InsertionOrder,
+            Self::Dfs => TieBreakPolicy::InsertionOrder,
+            Self::MaxWeightMatching => TieBreakPolicy::WeightThenLex,
+            Self::MinWeightMatching => TieBreakPolicy::WeightThenLex,
+            Self::ConnectedComponents => TieBreakPolicy::LexMin,
+            Self::StronglyConnectedComponents => TieBreakPolicy::InsertionOrder,
+            Self::Kruskal => TieBreakPolicy::WeightThenLex,
+            Self::Prim => TieBreakPolicy::WeightThenLex,
+            Self::EulerianCircuit => TieBreakPolicy::InsertionOrder,
+            Self::TopologicalSort => TieBreakPolicy::InsertionOrder,
+        }
+    }
+
+    #[must_use]
+    pub const fn dominant_complexity(self) -> &'static str {
+        match self {
+            Self::Dijkstra => "n_plus_m_log_n",
+            Self::BellmanFord => "n_m",
+            Self::Bfs => "n_plus_m",
+            Self::Dfs => "n_plus_m",
+            Self::MaxWeightMatching | Self::MinWeightMatching => "n_m_alpha",
+            Self::ConnectedComponents => "n_plus_m",
+            Self::StronglyConnectedComponents => "n_plus_m",
+            Self::Kruskal => "m_log_m",
+            Self::Prim => "m_log_n",
+            Self::EulerianCircuit => "m",
+            Self::TopologicalSort => "n_plus_m",
+        }
+    }
+
+    #[must_use]
+    pub fn policy_row(self) -> AlgorithmFamilyPolicy {
+        AlgorithmFamilyPolicy {
+            family: self.family().to_owned(),
+            algorithm: self.algorithm().to_owned(),
+            policy: self.policy(),
+            dominant_complexity: self.dominant_complexity().to_owned(),
+        }
+    }
+
+    #[must_use]
+    pub fn from_algorithm_id(algorithm: &str) -> Option<Self> {
+        Some(match algorithm {
+            "dijkstra" => Self::Dijkstra,
+            "bellman_ford" => Self::BellmanFord,
+            "bfs" => Self::Bfs,
+            "dfs" => Self::Dfs,
+            "max_weight_matching" => Self::MaxWeightMatching,
+            "min_weight_matching" => Self::MinWeightMatching,
+            "connected_components" => Self::ConnectedComponents,
+            "strongly_connected_components" => Self::StronglyConnectedComponents,
+            "kruskal" => Self::Kruskal,
+            "prim" => Self::Prim,
+            "eulerian_circuit" => Self::EulerianCircuit,
+            "topological_sort" => Self::TopologicalSort,
+            _ => return None,
+        })
+    }
+}
+
 /// The canonical policy registry for V1 algorithms.
 ///
 /// Each entry maps an algorithm to its declared tie-break policy and
 /// dominant complexity term.
 #[must_use]
 pub fn v1_policy_registry() -> Vec<AlgorithmFamilyPolicy> {
-    vec![
-        AlgorithmFamilyPolicy {
-            family: "shortest_path".into(),
-            algorithm: "dijkstra".into(),
-            policy: TieBreakPolicy::WeightThenLex,
-            dominant_complexity: "n_plus_m_log_n".into(),
-        },
-        AlgorithmFamilyPolicy {
-            family: "shortest_path".into(),
-            algorithm: "bellman_ford".into(),
-            policy: TieBreakPolicy::InsertionOrder,
-            dominant_complexity: "n_m".into(),
-        },
-        AlgorithmFamilyPolicy {
-            family: "traversal".into(),
-            algorithm: "bfs".into(),
-            policy: TieBreakPolicy::InsertionOrder,
-            dominant_complexity: "n_plus_m".into(),
-        },
-        AlgorithmFamilyPolicy {
-            family: "traversal".into(),
-            algorithm: "dfs".into(),
-            policy: TieBreakPolicy::InsertionOrder,
-            dominant_complexity: "n_plus_m".into(),
-        },
-        AlgorithmFamilyPolicy {
-            family: "matching".into(),
-            algorithm: "max_weight_matching".into(),
-            policy: TieBreakPolicy::WeightThenLex,
-            dominant_complexity: "n_m_alpha".into(),
-        },
-        AlgorithmFamilyPolicy {
-            family: "matching".into(),
-            algorithm: "min_weight_matching".into(),
-            policy: TieBreakPolicy::WeightThenLex,
-            dominant_complexity: "n_m_alpha".into(),
-        },
-        AlgorithmFamilyPolicy {
-            family: "connectivity".into(),
-            algorithm: "connected_components".into(),
-            policy: TieBreakPolicy::LexMin,
-            dominant_complexity: "n_plus_m".into(),
-        },
-        AlgorithmFamilyPolicy {
-            family: "connectivity".into(),
-            algorithm: "strongly_connected_components".into(),
-            policy: TieBreakPolicy::InsertionOrder,
-            dominant_complexity: "n_plus_m".into(),
-        },
-        AlgorithmFamilyPolicy {
-            family: "trees".into(),
-            algorithm: "kruskal".into(),
-            policy: TieBreakPolicy::WeightThenLex,
-            dominant_complexity: "m_log_m".into(),
-        },
-        AlgorithmFamilyPolicy {
-            family: "trees".into(),
-            algorithm: "prim".into(),
-            policy: TieBreakPolicy::WeightThenLex,
-            dominant_complexity: "m_log_n".into(),
-        },
-        AlgorithmFamilyPolicy {
-            family: "euler".into(),
-            algorithm: "eulerian_circuit".into(),
-            policy: TieBreakPolicy::InsertionOrder,
-            dominant_complexity: "m".into(),
-        },
-        AlgorithmFamilyPolicy {
-            family: "dag".into(),
-            algorithm: "topological_sort".into(),
-            policy: TieBreakPolicy::InsertionOrder,
-            dominant_complexity: "n_plus_m".into(),
-        },
-    ]
+    ReferenceAlgorithm::ALL
+        .into_iter()
+        .map(ReferenceAlgorithm::policy_row)
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
