@@ -9500,11 +9500,9 @@ def stochastic_block_model(
         if len(nodelist) != len(set(nodelist)):
             raise NetworkXError("nodelist contains duplicate.")
 
-    use_native = (
-        seed is None and nodelist is None and not directed and not selfloops and sparse
-    )
+    use_native = nodelist is None and not directed and not selfloops
     if nodelist is None:
-        nodelist = range(sum(sizes))
+        nodelist = list(range(sum(sizes)))
     else:
         nodelist = list(nodelist)
 
@@ -9527,55 +9525,25 @@ def stochastic_block_model(
     import random as _random
 
     rng = _random.Random(seed)
-    block_range = range(len(sizes))
-    if directed:
-        G = DiGraph()
-        block_iter = itertools.product(block_range, block_range)
-    else:
-        G = Graph()
-        block_iter = itertools.combinations_with_replacement(block_range, 2)
-
-    G.graph["partition"] = partition
-    for bi, nodes in enumerate(G.graph["partition"]):
+    G = DiGraph() if directed else Graph()
+    bmap = {}
+    for bi, nodes in enumerate(partition_nodes):
         for node in nodes:
             G.add_node(node, block=bi)
+            bmap[node] = bi
+    G.graph["partition"] = partition
     G.graph["name"] = "stochastic_block_model"
-
-    parts = G.graph["partition"]
-    for i, j in block_iter:
-        if i == j:
-            if directed:
-                if selfloops:
-                    edges = itertools.product(parts[i], parts[i])
-                else:
-                    edges = itertools.permutations(parts[i], 2)
-            else:
-                edges = itertools.combinations(parts[i], 2)
-                if selfloops:
-                    edges = itertools.chain(edges, zip(parts[i], parts[i]))
-            for edge in edges:
-                if rng.random() < p[i][j]:
-                    G.add_edge(*edge)
-        else:
-            edges = itertools.product(parts[i], parts[j])
-        if sparse:
-            if p[i][j] == 1:
-                for edge in edges:
-                    G.add_edge(*edge)
-            elif p[i][j] > 0:
-                while True:
-                    try:
-                        logrand = math.log(rng.random())
-                        skip = math.floor(logrand / math.log(1 - p[i][j]))
-                        next(itertools.islice(edges, skip, skip), None)
-                        edge = next(edges)
-                        G.add_edge(*edge)
-                    except StopIteration:
-                        break
-        else:
-            for edge in edges:
-                if rng.random() < p[i][j]:
-                    G.add_edge(*edge)
+    nodes = list(nodelist)
+    for i, u in enumerate(nodes):
+        s = i if not directed else 0
+        for j in range(s, len(nodes)):
+            v = nodes[j]
+            if u == v and not selfloops:
+                continue
+            if u == v and not directed:
+                continue
+            if rng.random() < p[bmap[u]][bmap[v]]:
+                G.add_edge(u, v)
     return G
 
 
