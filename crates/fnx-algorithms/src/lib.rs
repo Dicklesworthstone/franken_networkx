@@ -10787,13 +10787,27 @@ pub fn is_semieulerian(graph: &Graph) -> IsSemiEulerianResult {
 /// Neighbor traversal is in sorted order for determinism.
 #[must_use]
 pub fn eulerian_circuit(graph: &Graph, source: Option<&str>) -> Option<EulerianCircuitResult> {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::EulerianCircuit);
+
     let check = is_eulerian(graph);
     if !check.is_eulerian {
+        cgse_publish(
+            CgseReferenceAlgorithm::EulerianCircuit,
+            graph.node_count(),
+            graph.edge_count(),
+            cgse_sink,
+        );
         return None;
     }
 
     // No edges → empty circuit
     if graph.edge_count() == 0 {
+        cgse_publish(
+            CgseReferenceAlgorithm::EulerianCircuit,
+            graph.node_count(),
+            graph.edge_count(),
+            cgse_sink,
+        );
         return Some(EulerianCircuitResult {
             edges: Vec::new(),
             witness: ComplexityWitness {
@@ -10820,8 +10834,15 @@ pub fn eulerian_circuit(graph: &Graph, source: Option<&str>) -> Option<EulerianC
             .to_owned()
     };
 
-    let edges = hierholzer_traverse(graph, &start);
+    let edges = hierholzer_traverse(graph, &start, &mut cgse_sink);
     let edges_scanned = check.witness.edges_scanned + edges.len();
+
+    cgse_publish(
+        CgseReferenceAlgorithm::EulerianCircuit,
+        graph.node_count(),
+        graph.edge_count(),
+        cgse_sink,
+    );
 
     Some(EulerianCircuitResult {
         edges,
@@ -10886,7 +10907,9 @@ pub fn eulerian_path(graph: &Graph, source: Option<&str>) -> Option<EulerianPath
         }
     };
 
-    let edges = hierholzer_traverse(graph, &start);
+    // eulerian_path is not a separate CGSE reference algorithm - use no sink
+    let mut no_cgse: Option<CgseWitnessSink> = None;
+    let edges = hierholzer_traverse(graph, &start, &mut no_cgse);
     let edges_scanned = check.witness.edges_scanned + edges.len();
 
     Some(EulerianPathResult {
@@ -10905,7 +10928,11 @@ pub fn eulerian_path(graph: &Graph, source: Option<&str>) -> Option<EulerianPath
 ///
 /// Builds an adjacency structure with edge-usage tracking and walks deterministically
 /// by visiting neighbors in sorted order.
-fn hierholzer_traverse(graph: &Graph, start: &str) -> Vec<(String, String)> {
+fn hierholzer_traverse(
+    graph: &Graph,
+    start: &str,
+    cgse_sink: &mut Option<CgseWitnessSink>,
+) -> Vec<(String, String)> {
     // Build adjacency list with mutable edge tracking.
     // For undirected graphs, each edge appears twice (once in each direction).
     // We use a shared "used" flag via indices into a used-edges vector.
@@ -10965,6 +10992,7 @@ fn hierholzer_traverse(graph: &Graph, start: &str) -> Vec<(String, String)> {
             adj_pos[current] += 1;
             if !edge_used[eid] {
                 edge_used[eid] = true;
+                cgse_record_decision(cgse_sink, sorted_nodes[nbr], sorted_nodes[current]);
                 stack.push(nbr);
                 found = true;
                 break;
@@ -11057,6 +11085,8 @@ pub fn is_directed_acyclic_graph(digraph: &DiGraph) -> bool {
 /// Returns `None` if the graph contains a cycle.
 #[must_use]
 pub fn topological_sort(digraph: &DiGraph) -> Option<TopologicalSortResult> {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::TopologicalSort);
+
     let nodes = digraph.nodes_ordered();
     let n = nodes.len();
 
@@ -11090,12 +11120,21 @@ pub fn topological_sort(digraph: &DiGraph) -> Option<TopologicalSortResult> {
         while let Some((node, backtrack)) = stack.pop() {
             if backtrack {
                 color.insert(node, Color::Black);
+                cgse_record_decision(&mut cgse_sink, node, "postorder");
                 order.push(node.to_owned());
                 continue;
             }
 
             match color.get(node) {
-                Some(Color::Gray) => return None, // cycle detected
+                Some(Color::Gray) => {
+                    cgse_publish(
+                        CgseReferenceAlgorithm::TopologicalSort,
+                        digraph.node_count(),
+                        digraph.edge_count(),
+                        cgse_sink,
+                    );
+                    return None; // cycle detected
+                }
                 Some(Color::Black) => continue,
                 _ => {}
             }
@@ -11111,7 +11150,15 @@ pub fn topological_sort(digraph: &DiGraph) -> Option<TopologicalSortResult> {
                 for succ in succs.into_iter().rev() {
                     edges_scanned += 1;
                     match color.get(succ) {
-                        Some(Color::Gray) => return None, // cycle detected
+                        Some(Color::Gray) => {
+                            cgse_publish(
+                                CgseReferenceAlgorithm::TopologicalSort,
+                                digraph.node_count(),
+                                digraph.edge_count(),
+                                cgse_sink,
+                            );
+                            return None; // cycle detected
+                        }
                         Some(Color::Black) => continue,
                         _ => {
                             stack.push((succ, false));
@@ -11123,6 +11170,13 @@ pub fn topological_sort(digraph: &DiGraph) -> Option<TopologicalSortResult> {
     }
 
     order.reverse();
+
+    cgse_publish(
+        CgseReferenceAlgorithm::TopologicalSort,
+        digraph.node_count(),
+        digraph.edge_count(),
+        cgse_sink,
+    );
 
     Some(TopologicalSortResult {
         order,
@@ -11213,11 +11267,14 @@ pub fn topological_generations(digraph: &DiGraph) -> Option<TopologicalGeneratio
 /// Matches `networkx.dfs_edges`.
 #[must_use]
 pub fn dfs_edges(graph: &Graph, source: &str, depth_limit: Option<usize>) -> Vec<(String, String)> {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::Dfs);
+
     let max_depth = depth_limit.unwrap_or(usize::MAX);
     let mut visited: HashSet<&str> = HashSet::new();
     let mut edges: Vec<(String, String)> = Vec::new();
 
     if !graph.has_node(source) {
+        cgse_publish(CgseReferenceAlgorithm::Dfs, graph.node_count(), graph.edge_count(), cgse_sink);
         return edges;
     }
 
@@ -11241,6 +11298,7 @@ pub fn dfs_edges(graph: &Graph, source: &str, depth_limit: Option<usize>) -> Vec
         }
         visited.insert(node);
         if let Some(p) = parent {
+            cgse_record_decision(&mut cgse_sink, node, p);
             edges.push((p.to_owned(), node.to_owned()));
         }
         if depth < max_depth
@@ -11254,6 +11312,7 @@ pub fn dfs_edges(graph: &Graph, source: &str, depth_limit: Option<usize>) -> Vec
         }
     }
 
+    cgse_publish(CgseReferenceAlgorithm::Dfs, graph.node_count(), graph.edge_count(), cgse_sink);
     edges
 }
 
@@ -11488,11 +11547,14 @@ pub fn dfs_postorder_nodes_directed(
 /// Matches `networkx.bfs_edges`.
 #[must_use]
 pub fn bfs_edges(graph: &Graph, source: &str, depth_limit: Option<usize>) -> Vec<(String, String)> {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::Bfs);
+
     let max_depth = depth_limit.unwrap_or(usize::MAX);
     let mut visited: HashSet<&str> = HashSet::new();
     let mut edges: Vec<(String, String)> = Vec::new();
 
     if !graph.has_node(source) {
+        cgse_publish(CgseReferenceAlgorithm::Bfs, graph.node_count(), graph.edge_count(), cgse_sink);
         return edges;
     }
 
@@ -11507,6 +11569,7 @@ pub fn bfs_edges(graph: &Graph, source: &str, depth_limit: Option<usize>) -> Vec
         if let Some(neighbors) = graph.neighbors(node) {
             for neighbor in neighbors {
                 if visited.insert(neighbor) {
+                    cgse_record_decision(&mut cgse_sink, neighbor, node);
                     edges.push((node.to_owned(), neighbor.to_owned()));
                     queue.push_back((neighbor, depth + 1));
                 }
@@ -11514,6 +11577,7 @@ pub fn bfs_edges(graph: &Graph, source: &str, depth_limit: Option<usize>) -> Vec
         }
     }
 
+    cgse_publish(CgseReferenceAlgorithm::Bfs, graph.node_count(), graph.edge_count(), cgse_sink);
     edges
 }
 
@@ -12892,6 +12956,8 @@ pub fn is_dominating_set(graph: &Graph, dom_nodes: &[&str]) -> bool {
 /// lexicographically by their smallest element (matches NetworkX ordering).
 #[must_use]
 pub fn strongly_connected_components(digraph: &DiGraph) -> Vec<Vec<String>> {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::StronglyConnectedComponents);
+
     let nodes = digraph.nodes_ordered();
     let n = nodes.len();
     let mut indices: Vec<Option<usize>> = vec![None; n];
@@ -12930,6 +12996,7 @@ pub fn strongly_connected_components(digraph: &DiGraph) -> Vec<Vec<String>> {
                 match indices[v_idx] {
                     None => {
                         // Tree edge
+                        cgse_record_decision(&mut cgse_sink, v_name, nodes[u_idx]);
                         indices[v_idx] = Some(index_counter);
                         lowlinks[v_idx] = index_counter;
                         index_counter += 1;
@@ -12974,6 +13041,14 @@ pub fn strongly_connected_components(digraph: &DiGraph) -> Vec<Vec<String>> {
     }
 
     components.sort_unstable();
+
+    cgse_publish(
+        CgseReferenceAlgorithm::StronglyConnectedComponents,
+        digraph.node_count(),
+        digraph.edge_count(),
+        cgse_sink,
+    );
+
     components
 }
 

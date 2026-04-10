@@ -1,0 +1,336 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "cgse-adversarial-tiebreak-corpus-v1",
+  "generated_at_utc": "2026-04-10T02:30:00Z",
+  "description": "Adversarial test graphs that force tie-break decisions in all 12 CGSE reference algorithms. Each case is designed to trigger the algorithm's declared tie-break policy.",
+  "test_cases": [
+    {
+      "case_id": "dijkstra_equal_weight_paths",
+      "algorithm": "dijkstra",
+      "policy": "weight_then_lex",
+      "description": "Two paths from A to D with identical total weight; lex-min path should win",
+      "graph": {
+        "directed": false,
+        "nodes": ["a", "b", "c", "d"],
+        "edges": [
+          {"u": "a", "v": "b", "weight": 1.0},
+          {"u": "a", "v": "c", "weight": 1.0},
+          {"u": "b", "v": "d", "weight": 1.0},
+          {"u": "c", "v": "d", "weight": 1.0}
+        ]
+      },
+      "query": {"source": "a", "target": "d"},
+      "expected_path": ["a", "b", "d"],
+      "expected_witness_property": "deterministic_hash",
+      "adversarial_property": "equal_weight_tie"
+    },
+    {
+      "case_id": "dijkstra_three_way_tie",
+      "algorithm": "dijkstra",
+      "policy": "weight_then_lex",
+      "description": "Three equal-weight paths; lex-min intermediate node wins",
+      "graph": {
+        "directed": false,
+        "nodes": ["s", "a", "b", "c", "t"],
+        "edges": [
+          {"u": "s", "v": "a", "weight": 1.0},
+          {"u": "s", "v": "b", "weight": 1.0},
+          {"u": "s", "v": "c", "weight": 1.0},
+          {"u": "a", "v": "t", "weight": 1.0},
+          {"u": "b", "v": "t", "weight": 1.0},
+          {"u": "c", "v": "t", "weight": 1.0}
+        ]
+      },
+      "query": {"source": "s", "target": "t"},
+      "expected_path": ["s", "a", "t"],
+      "expected_witness_property": "deterministic_hash",
+      "adversarial_property": "three_way_weight_tie"
+    },
+    {
+      "case_id": "bellman_ford_equal_weight_relaxation",
+      "algorithm": "bellman_ford",
+      "policy": "insertion_order",
+      "description": "Multiple relaxation candidates with equal improvement",
+      "graph": {
+        "directed": false,
+        "nodes": ["s", "a", "b", "c", "t"],
+        "edges": [
+          {"u": "s", "v": "a", "weight": 2.0},
+          {"u": "s", "v": "b", "weight": 2.0},
+          {"u": "a", "v": "t", "weight": 1.0},
+          {"u": "b", "v": "t", "weight": 1.0},
+          {"u": "s", "v": "c", "weight": 1.0},
+          {"u": "c", "v": "t", "weight": 2.0}
+        ]
+      },
+      "query": {"source": "s", "target": "t"},
+      "expected_witness_property": "deterministic_hash",
+      "adversarial_property": "equal_relaxation_candidates"
+    },
+    {
+      "case_id": "bfs_equal_depth_neighbors",
+      "algorithm": "bfs",
+      "policy": "insertion_order",
+      "description": "Multiple neighbors at equal depth; insertion order determines visit sequence",
+      "graph": {
+        "directed": false,
+        "nodes": ["root", "a", "b", "c", "d", "e", "f"],
+        "edges": [
+          {"u": "root", "v": "c"},
+          {"u": "root", "v": "a"},
+          {"u": "root", "v": "b"},
+          {"u": "a", "v": "d"},
+          {"u": "b", "v": "e"},
+          {"u": "c", "v": "f"}
+        ]
+      },
+      "query": {"source": "root"},
+      "expected_witness_property": "deterministic_hash",
+      "adversarial_property": "sibling_order_sensitivity"
+    },
+    {
+      "case_id": "dfs_branching_tie",
+      "algorithm": "dfs",
+      "policy": "insertion_order",
+      "description": "Equal-depth branching nodes; insertion order determines DFS traversal",
+      "graph": {
+        "directed": false,
+        "nodes": ["root", "a", "b", "c", "leaf_a", "leaf_b", "leaf_c"],
+        "edges": [
+          {"u": "root", "v": "b"},
+          {"u": "root", "v": "c"},
+          {"u": "root", "v": "a"},
+          {"u": "a", "v": "leaf_a"},
+          {"u": "b", "v": "leaf_b"},
+          {"u": "c", "v": "leaf_c"}
+        ]
+      },
+      "query": {"source": "root"},
+      "expected_witness_property": "deterministic_hash",
+      "adversarial_property": "dfs_stack_order"
+    },
+    {
+      "case_id": "connected_components_symmetric",
+      "algorithm": "connected_components",
+      "policy": "lex_min",
+      "description": "Symmetric graph where component root selection matters",
+      "graph": {
+        "directed": false,
+        "nodes": ["x", "y", "z", "p", "q", "r"],
+        "edges": [
+          {"u": "x", "v": "y"},
+          {"u": "y", "v": "z"},
+          {"u": "p", "v": "q"},
+          {"u": "q", "v": "r"}
+        ]
+      },
+      "query": {},
+      "expected_components": [["p", "q", "r"], ["x", "y", "z"]],
+      "expected_witness_property": "deterministic_hash",
+      "adversarial_property": "component_root_selection"
+    },
+    {
+      "case_id": "scc_tarjan_discovery_order",
+      "algorithm": "strongly_connected_components",
+      "policy": "insertion_order",
+      "description": "Multiple SCCs where discovery order affects component numbering",
+      "graph": {
+        "directed": true,
+        "nodes": ["a", "b", "c", "d", "e", "f"],
+        "edges": [
+          {"u": "a", "v": "b"},
+          {"u": "b", "v": "a"},
+          {"u": "c", "v": "d"},
+          {"u": "d", "v": "c"},
+          {"u": "e", "v": "f"},
+          {"u": "f", "v": "e"},
+          {"u": "b", "v": "c"},
+          {"u": "d", "v": "e"}
+        ]
+      },
+      "query": {},
+      "expected_components": [["a", "b"], ["c", "d"], ["e", "f"]],
+      "expected_witness_property": "deterministic_hash",
+      "adversarial_property": "scc_chain_discovery"
+    },
+    {
+      "case_id": "kruskal_equal_weight_edges",
+      "algorithm": "kruskal",
+      "policy": "weight_then_lex",
+      "description": "Multiple edges with equal weight; lex-min edge endpoints should be chosen",
+      "graph": {
+        "directed": false,
+        "nodes": ["a", "b", "c", "d"],
+        "edges": [
+          {"u": "a", "v": "b", "weight": 1.0},
+          {"u": "c", "v": "d", "weight": 1.0},
+          {"u": "a", "v": "c", "weight": 1.0},
+          {"u": "b", "v": "d", "weight": 1.0},
+          {"u": "a", "v": "d", "weight": 2.0},
+          {"u": "b", "v": "c", "weight": 2.0}
+        ]
+      },
+      "query": {},
+      "expected_mst_weight": 3.0,
+      "expected_witness_property": "deterministic_hash",
+      "adversarial_property": "equal_weight_mst_edges"
+    },
+    {
+      "case_id": "prim_frontier_tie",
+      "algorithm": "prim",
+      "policy": "weight_then_lex",
+      "description": "Multiple frontier edges with equal weight",
+      "graph": {
+        "directed": false,
+        "nodes": ["start", "a", "b", "c"],
+        "edges": [
+          {"u": "start", "v": "a", "weight": 1.0},
+          {"u": "start", "v": "b", "weight": 1.0},
+          {"u": "start", "v": "c", "weight": 1.0},
+          {"u": "a", "v": "b", "weight": 0.5},
+          {"u": "b", "v": "c", "weight": 0.5}
+        ]
+      },
+      "query": {"source": "start"},
+      "expected_witness_property": "deterministic_hash",
+      "adversarial_property": "prim_frontier_selection"
+    },
+    {
+      "case_id": "max_weight_matching_symmetric",
+      "algorithm": "max_weight_matching",
+      "policy": "weight_then_lex",
+      "description": "Symmetric matching candidates with equal total weight",
+      "graph": {
+        "directed": false,
+        "nodes": ["a", "b", "c", "d"],
+        "edges": [
+          {"u": "a", "v": "b", "weight": 1.0},
+          {"u": "a", "v": "c", "weight": 1.0},
+          {"u": "b", "v": "d", "weight": 1.0},
+          {"u": "c", "v": "d", "weight": 1.0}
+        ]
+      },
+      "query": {},
+      "expected_matching_weight": 2.0,
+      "expected_witness_property": "deterministic_hash",
+      "adversarial_property": "symmetric_matching"
+    },
+    {
+      "case_id": "min_weight_matching_equal_options",
+      "algorithm": "min_weight_matching",
+      "policy": "weight_then_lex",
+      "description": "Multiple minimum matchings with equal total weight",
+      "graph": {
+        "directed": false,
+        "nodes": ["p", "q", "r", "s"],
+        "edges": [
+          {"u": "p", "v": "q", "weight": 1.0},
+          {"u": "p", "v": "r", "weight": 1.0},
+          {"u": "q", "v": "s", "weight": 1.0},
+          {"u": "r", "v": "s", "weight": 1.0}
+        ]
+      },
+      "query": {},
+      "expected_matching_weight": 2.0,
+      "expected_witness_property": "deterministic_hash",
+      "adversarial_property": "min_matching_tie"
+    },
+    {
+      "case_id": "eulerian_circuit_start_tie",
+      "algorithm": "eulerian_circuit",
+      "policy": "insertion_order",
+      "description": "Valid Eulerian graph where start node selection uses lex-min rule",
+      "graph": {
+        "directed": false,
+        "nodes": ["c", "a", "b"],
+        "edges": [
+          {"u": "a", "v": "b"},
+          {"u": "b", "v": "c"},
+          {"u": "c", "v": "a"}
+        ]
+      },
+      "query": {},
+      "expected_circuit_start": "a",
+      "expected_witness_property": "deterministic_hash",
+      "adversarial_property": "eulerian_start_selection"
+    },
+    {
+      "case_id": "topological_sort_multiple_roots",
+      "algorithm": "topological_sort",
+      "policy": "insertion_order",
+      "description": "DAG with multiple source nodes; traversal order affects output",
+      "graph": {
+        "directed": true,
+        "nodes": ["c", "b", "a", "x", "y", "z"],
+        "edges": [
+          {"u": "a", "v": "x"},
+          {"u": "b", "v": "y"},
+          {"u": "c", "v": "z"},
+          {"u": "x", "v": "z"},
+          {"u": "y", "v": "z"}
+        ]
+      },
+      "query": {},
+      "expected_witness_property": "deterministic_hash",
+      "adversarial_property": "dag_source_ordering"
+    },
+    {
+      "case_id": "topological_sort_diamond",
+      "algorithm": "topological_sort",
+      "policy": "insertion_order",
+      "description": "Diamond DAG where middle-tier node ordering is ambiguous",
+      "graph": {
+        "directed": true,
+        "nodes": ["top", "left", "right", "bottom"],
+        "edges": [
+          {"u": "top", "v": "left"},
+          {"u": "top", "v": "right"},
+          {"u": "left", "v": "bottom"},
+          {"u": "right", "v": "bottom"}
+        ]
+      },
+      "query": {},
+      "expected_witness_property": "deterministic_hash",
+      "adversarial_property": "diamond_middle_order"
+    }
+  ],
+  "determinism_invariants": [
+    {
+      "invariant_id": "CGSE-INV-001",
+      "description": "Running the same algorithm on the same graph must produce identical witness hashes",
+      "verification": "Run each test case 100 times and assert all decision_path_blake3 hashes are identical"
+    },
+    {
+      "invariant_id": "CGSE-INV-002",
+      "description": "Witness hash must differ when graph structure changes even if output is identical",
+      "verification": "Modify edge insertion order and verify witness hash changes"
+    },
+    {
+      "invariant_id": "CGSE-INV-003",
+      "description": "Cross-run reproducibility: witness hash must be stable across process restarts",
+      "verification": "Serialize graph, restart process, deserialize, and verify identical witness"
+    }
+  ],
+  "adversarial_patterns": [
+    {
+      "pattern_id": "ADV-WEIGHT-TIE",
+      "description": "Multiple candidates with identical weight/cost metrics",
+      "algorithms_affected": ["dijkstra", "bellman_ford", "kruskal", "prim", "max_weight_matching", "min_weight_matching"]
+    },
+    {
+      "pattern_id": "ADV-SIBLING-ORDER",
+      "description": "Multiple neighbors/children at the same traversal depth",
+      "algorithms_affected": ["bfs", "dfs", "connected_components", "strongly_connected_components", "topological_sort"]
+    },
+    {
+      "pattern_id": "ADV-SYMMETRIC-GRAPH",
+      "description": "Structurally symmetric graphs where multiple solutions are equivalent",
+      "algorithms_affected": ["max_weight_matching", "min_weight_matching", "eulerian_circuit"]
+    },
+    {
+      "pattern_id": "ADV-INSERTION-SENSITIVE",
+      "description": "Graphs where edge/node insertion order affects algorithm behavior",
+      "algorithms_affected": ["bellman_ford", "bfs", "dfs", "strongly_connected_components", "eulerian_circuit", "topological_sort"]
+    }
+  ]
+}

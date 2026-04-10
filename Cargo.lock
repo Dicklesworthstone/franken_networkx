@@ -449,6 +449,7 @@ name = "fnx-algorithms"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "fnx-cgse",
  "fnx-classes",
  "fnx-runtime",
  "mwmatching",
@@ -480,6 +481,7 @@ name = "fnx-conformance"
 version = "0.1.0"
 dependencies = [
  "fnx-algorithms",
+ "fnx-cgse",
  "fnx-classes",
  "fnx-convert",
  "fnx-dispatch",
