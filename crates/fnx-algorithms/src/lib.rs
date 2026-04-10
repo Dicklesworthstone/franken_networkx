@@ -1,12 +1,12 @@
 #![forbid(unsafe_code)]
 #![allow(clippy::too_many_arguments, clippy::needless_range_loop)]
 
-use fnx_classes::digraph::DiGraph;
-use fnx_classes::{Graph, GraphError};
 use fnx_cgse::{
     ReferenceAlgorithm as CgseReferenceAlgorithm, WitnessSink as CgseWitnessSink,
     with_ledger as with_cgse_ledger, witness_collection_enabled as cgse_witness_collection_enabled,
 };
+use fnx_classes::digraph::DiGraph;
+use fnx_classes::{Graph, GraphError};
 use fnx_runtime::CgseValue;
 use mwmatching::{Matching as BlossomMatching, SENTINEL as BLOSSOM_SENTINEL};
 use serde::{Deserialize, Serialize};
@@ -5440,7 +5440,12 @@ pub fn minimum_spanning_tree_prim(graph: &Graph, weight_attr: &str) -> MinimumSp
                     seq_counter += 1;
                     edges_scanned += 1;
                     frontier.push(PrimEdgeState {
-                        weight: matching_edge_weight_or_default(graph, &right, neighbor, weight_attr),
+                        weight: matching_edge_weight_or_default(
+                            graph,
+                            &right,
+                            neighbor,
+                            weight_attr,
+                        ),
                         seq: seq_counter,
                         left: right.clone(),
                         right: neighbor.to_owned(),
@@ -11274,7 +11279,12 @@ pub fn dfs_edges(graph: &Graph, source: &str, depth_limit: Option<usize>) -> Vec
     let mut edges: Vec<(String, String)> = Vec::new();
 
     if !graph.has_node(source) {
-        cgse_publish(CgseReferenceAlgorithm::Dfs, graph.node_count(), graph.edge_count(), cgse_sink);
+        cgse_publish(
+            CgseReferenceAlgorithm::Dfs,
+            graph.node_count(),
+            graph.edge_count(),
+            cgse_sink,
+        );
         return edges;
     }
 
@@ -11312,7 +11322,12 @@ pub fn dfs_edges(graph: &Graph, source: &str, depth_limit: Option<usize>) -> Vec
         }
     }
 
-    cgse_publish(CgseReferenceAlgorithm::Dfs, graph.node_count(), graph.edge_count(), cgse_sink);
+    cgse_publish(
+        CgseReferenceAlgorithm::Dfs,
+        graph.node_count(),
+        graph.edge_count(),
+        cgse_sink,
+    );
     edges
 }
 
@@ -11554,7 +11569,12 @@ pub fn bfs_edges(graph: &Graph, source: &str, depth_limit: Option<usize>) -> Vec
     let mut edges: Vec<(String, String)> = Vec::new();
 
     if !graph.has_node(source) {
-        cgse_publish(CgseReferenceAlgorithm::Bfs, graph.node_count(), graph.edge_count(), cgse_sink);
+        cgse_publish(
+            CgseReferenceAlgorithm::Bfs,
+            graph.node_count(),
+            graph.edge_count(),
+            cgse_sink,
+        );
         return edges;
     }
 
@@ -11577,7 +11597,12 @@ pub fn bfs_edges(graph: &Graph, source: &str, depth_limit: Option<usize>) -> Vec
         }
     }
 
-    cgse_publish(CgseReferenceAlgorithm::Bfs, graph.node_count(), graph.edge_count(), cgse_sink);
+    cgse_publish(
+        CgseReferenceAlgorithm::Bfs,
+        graph.node_count(),
+        graph.edge_count(),
+        cgse_sink,
+    );
     edges
 }
 

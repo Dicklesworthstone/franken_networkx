@@ -6,12 +6,11 @@
 //! that the decision path hash is stable across multiple runs.
 
 use fnx_algorithms::{
-    bellman_ford_shortest_paths, bfs_edges, connected_components, dfs_edges,
-    eulerian_circuit, max_weight_matching, min_weight_matching,
-    minimum_spanning_tree, minimum_spanning_tree_prim,
+    bellman_ford_shortest_paths, bfs_edges, connected_components, dfs_edges, eulerian_circuit,
+    max_weight_matching, min_weight_matching, minimum_spanning_tree, minimum_spanning_tree_prim,
     multi_source_dijkstra, strongly_connected_components, topological_sort,
 };
-use fnx_cgse::{collect_witnesses, ComplexityWitness, ReferenceAlgorithm, TieBreakPolicy};
+use fnx_cgse::{ComplexityWitness, ReferenceAlgorithm, TieBreakPolicy, collect_witnesses};
 use fnx_classes::digraph::DiGraph;
 use fnx_classes::{AttrMap, Graph};
 use fnx_runtime::CgseValue;
@@ -72,8 +71,7 @@ fn corpus_path() -> PathBuf {
 }
 
 fn load_corpus() -> AdversarialCorpus {
-    let content = fs::read_to_string(corpus_path())
-        .expect("adversarial corpus file should exist");
+    let content = fs::read_to_string(corpus_path()).expect("adversarial corpus file should exist");
     serde_json::from_str(&content).expect("corpus should parse as valid JSON")
 }
 
@@ -112,62 +110,68 @@ fn build_directed_graph(spec: &GraphSpec) -> DiGraph {
 }
 
 fn run_algorithm_and_get_witnesses(case: &TestCase) -> Vec<ComplexityWitness> {
-    let (_, witnesses) = collect_witnesses(|| {
-        match case.algorithm.as_str() {
-            "dijkstra" => {
-                let g = build_undirected_graph(&case.graph);
-                let source = case.query.get("source").map(|s| s.as_str()).unwrap_or("a");
-                let _ = multi_source_dijkstra(&g, &[source], "weight");
-            }
-            "bellman_ford" => {
-                let g = build_undirected_graph(&case.graph);
-                let source = case.query.get("source").map(|s| s.as_str()).unwrap_or("s");
-                let _ = bellman_ford_shortest_paths(&g, source, "weight");
-            }
-            "bfs" => {
-                let g = build_undirected_graph(&case.graph);
-                let source = case.query.get("source").map(|s| s.as_str()).unwrap_or("root");
-                let _ = bfs_edges(&g, source, None);
-            }
-            "dfs" => {
-                let g = build_undirected_graph(&case.graph);
-                let source = case.query.get("source").map(|s| s.as_str()).unwrap_or("root");
-                let _ = dfs_edges(&g, source, None);
-            }
-            "connected_components" => {
-                let g = build_undirected_graph(&case.graph);
-                let _ = connected_components(&g);
-            }
-            "strongly_connected_components" => {
-                let g = build_directed_graph(&case.graph);
-                let _ = strongly_connected_components(&g);
-            }
-            "kruskal" => {
-                let g = build_undirected_graph(&case.graph);
-                let _ = minimum_spanning_tree(&g, "weight");
-            }
-            "prim" => {
-                let g = build_undirected_graph(&case.graph);
-                let _ = minimum_spanning_tree_prim(&g, "weight");
-            }
-            "max_weight_matching" => {
-                let g = build_undirected_graph(&case.graph);
-                let _ = max_weight_matching(&g, true, "weight");
-            }
-            "min_weight_matching" => {
-                let g = build_undirected_graph(&case.graph);
-                let _ = min_weight_matching(&g, "weight");
-            }
-            "eulerian_circuit" => {
-                let g = build_undirected_graph(&case.graph);
-                let _ = eulerian_circuit(&g, None);
-            }
-            "topological_sort" => {
-                let g = build_directed_graph(&case.graph);
-                let _ = topological_sort(&g);
-            }
-            other => panic!("Unknown algorithm in corpus: {}", other),
+    let (_, witnesses) = collect_witnesses(|| match case.algorithm.as_str() {
+        "dijkstra" => {
+            let g = build_undirected_graph(&case.graph);
+            let source = case.query.get("source").map(|s| s.as_str()).unwrap_or("a");
+            let _ = multi_source_dijkstra(&g, &[source], "weight");
         }
+        "bellman_ford" => {
+            let g = build_undirected_graph(&case.graph);
+            let source = case.query.get("source").map(|s| s.as_str()).unwrap_or("s");
+            let _ = bellman_ford_shortest_paths(&g, source, "weight");
+        }
+        "bfs" => {
+            let g = build_undirected_graph(&case.graph);
+            let source = case
+                .query
+                .get("source")
+                .map(|s| s.as_str())
+                .unwrap_or("root");
+            let _ = bfs_edges(&g, source, None);
+        }
+        "dfs" => {
+            let g = build_undirected_graph(&case.graph);
+            let source = case
+                .query
+                .get("source")
+                .map(|s| s.as_str())
+                .unwrap_or("root");
+            let _ = dfs_edges(&g, source, None);
+        }
+        "connected_components" => {
+            let g = build_undirected_graph(&case.graph);
+            let _ = connected_components(&g);
+        }
+        "strongly_connected_components" => {
+            let g = build_directed_graph(&case.graph);
+            let _ = strongly_connected_components(&g);
+        }
+        "kruskal" => {
+            let g = build_undirected_graph(&case.graph);
+            let _ = minimum_spanning_tree(&g, "weight");
+        }
+        "prim" => {
+            let g = build_undirected_graph(&case.graph);
+            let _ = minimum_spanning_tree_prim(&g, "weight");
+        }
+        "max_weight_matching" => {
+            let g = build_undirected_graph(&case.graph);
+            let _ = max_weight_matching(&g, true, "weight");
+        }
+        "min_weight_matching" => {
+            let g = build_undirected_graph(&case.graph);
+            let _ = min_weight_matching(&g, "weight");
+        }
+        "eulerian_circuit" => {
+            let g = build_undirected_graph(&case.graph);
+            let _ = eulerian_circuit(&g, None);
+        }
+        "topological_sort" => {
+            let g = build_directed_graph(&case.graph);
+            let _ = topological_sort(&g);
+        }
+        other => panic!("Unknown algorithm in corpus: {}", other),
     });
     witnesses
 }
@@ -176,7 +180,10 @@ fn run_algorithm_and_get_witnesses(case: &TestCase) -> Vec<ComplexityWitness> {
 fn cgse_adversarial_corpus_loads_successfully() {
     let corpus = load_corpus();
     assert_eq!(corpus.schema_version, "1.0.0");
-    assert!(!corpus.test_cases.is_empty(), "corpus should have test cases");
+    assert!(
+        !corpus.test_cases.is_empty(),
+        "corpus should have test cases"
+    );
     assert!(
         corpus.test_cases.len() >= 12,
         "corpus should cover all 12 reference algorithms"
@@ -218,7 +225,11 @@ fn cgse_adversarial_corpus_covers_all_reference_algorithms() {
 #[test]
 fn cgse_adversarial_witness_determinism_dijkstra() {
     let corpus = load_corpus();
-    for case in corpus.test_cases.iter().filter(|c| c.algorithm == "dijkstra") {
+    for case in corpus
+        .test_cases
+        .iter()
+        .filter(|c| c.algorithm == "dijkstra")
+    {
         verify_witness_determinism(case, 10);
     }
 }
@@ -278,7 +289,11 @@ fn cgse_adversarial_witness_determinism_strongly_connected() {
 #[test]
 fn cgse_adversarial_witness_determinism_kruskal() {
     let corpus = load_corpus();
-    for case in corpus.test_cases.iter().filter(|c| c.algorithm == "kruskal") {
+    for case in corpus
+        .test_cases
+        .iter()
+        .filter(|c| c.algorithm == "kruskal")
+    {
         verify_witness_determinism(case, 10);
     }
 }

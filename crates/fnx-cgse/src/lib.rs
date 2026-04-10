@@ -48,9 +48,7 @@ pub enum TieBreakPolicy {
     /// Primary: lex-min label; secondary: weight ascending.
     LexThenWeight,
     /// Deterministic hash of (seed, label) — reproducible but order-agnostic.
-    DeterministicHash {
-        seed: u64,
-    },
+    DeterministicHash { seed: u64 },
     /// Minimum-degree node wins; ties broken by lex-min label.
     DegreeMinThenLex,
     /// Maximum-degree node wins; ties broken by lex-min label.
@@ -160,7 +158,13 @@ impl WitnessSink {
 
     /// Finalize the sink into a [`ComplexityWitness`].
     #[must_use]
-    pub fn finalize(self, n: usize, m: usize, dominant_term: &str, seed: Option<u64>) -> ComplexityWitness {
+    pub fn finalize(
+        self,
+        n: usize,
+        m: usize,
+        dominant_term: &str,
+        seed: Option<u64>,
+    ) -> ComplexityWitness {
         let hash = *self.hasher.finalize().as_bytes();
         ComplexityWitness {
             n,
@@ -190,7 +194,9 @@ pub struct WitnessLedger {
 impl WitnessLedger {
     #[must_use]
     pub fn new() -> Self {
-        Self { entries: Vec::new() }
+        Self {
+            entries: Vec::new(),
+        }
     }
 
     pub fn append(&mut self, witness: ComplexityWitness) {
@@ -265,7 +271,11 @@ where
     }
 
     let result = f();
-    let witnesses = if was_active { Vec::new() } else { drain_witnesses() };
+    let witnesses = if was_active {
+        Vec::new()
+    } else {
+        drain_witnesses()
+    };
 
     if !was_active {
         WITNESS_COLLECTION_ACTIVE.with(|cell| cell.set(false));
