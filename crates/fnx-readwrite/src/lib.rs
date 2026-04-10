@@ -1598,18 +1598,66 @@ impl EdgeListEngine {
     {
         match local {
             b"data" => {
-                if let Some(key_id) = current_data_key.take()
-                    && let Some((_scope, _attr_name, _attr_type)) = key_registry.get(&key_id)
-                {
+                if let Some(key_id) = current_data_key.take() {
+                    let (scope, attr_name, attr_type) = match key_registry.get(&key_id) {
+                        Some(entry) => entry,
+                        None => {
+                            let warning = format!("graphml data key not declared: key={key_id}");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_graphml",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_graphml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record(
+                                "read_graphml",
+                                DecisionAction::FullValidate,
+                                &warning,
+                                0.7,
+                            );
+                            current_data_text.clear();
+                            return Ok(());
+                        }
+                    };
+                    let target_scope = if current_edge.is_some() {
+                        "edge"
+                    } else if current_node.is_some() {
+                        "node"
+                    } else {
+                        "graph"
+                    };
+                    if !graphml_scope_matches(scope, target_scope) {
+                        let warning = format!(
+                            "graphml data key scope mismatch: key={key_id} declared_for={scope:?} target={target_scope}"
+                        );
+                        if self.mode == CompatibilityMode::Strict {
+                            self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                            return Err(ReadWriteError::FailClosed {
+                                operation: "read_graphml",
+                                reason: warning,
+                            });
+                        }
+                        warnings.push(warning.clone());
+                        self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
+                        current_data_text.clear();
+                        return Ok(());
+                    }
                     let raw_value = std::mem::take(current_data_text);
                     let value =
-                        self.parse_graphml_typed_value(&key_id, _attr_type, raw_value, warnings)?;
+                        self.parse_graphml_typed_value(&key_id, attr_type, raw_value, warnings)?;
                     if current_node.is_some() && current_edge.is_none() {
-                        pending_node_attrs.insert(_attr_name.clone(), value);
+                        pending_node_attrs.insert(attr_name.clone(), value);
                     } else if current_edge.is_some() {
-                        pending_edge_attrs.insert(_attr_name.clone(), value);
+                        pending_edge_attrs.insert(attr_name.clone(), value);
                     } else {
-                        pending_graph_attrs.insert(_attr_name.clone(), value);
+                        pending_graph_attrs.insert(attr_name.clone(), value);
                     }
                 }
                 current_data_text.clear();
@@ -2372,6 +2420,14 @@ fn xml_local_name(name: &[u8]) -> &[u8] {
         .map_or(name, |idx| &name[idx + 1..])
 }
 
+fn graphml_scope_matches(for_scope: &str, target: &str) -> bool {
+    let scope = for_scope.trim().to_ascii_lowercase();
+    if scope.is_empty() || scope == "all" {
+        return true;
+    }
+    scope == target
+}
+
 #[cfg(test)]
 mod tests {
     use super::{EdgeListEngine, ReadWriteError};
@@ -3005,6 +3061,84 @@ mod tests {
         assert!(!report.warnings.is_empty());
         assert_eq!(report.graph.node_count(), 2);
         assert_eq!(report.graph.edge_count(), 0);
+    }
+
+    #[test]
+    fn graphml_data_unknown_key_strict_fails_closed() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">oops</data>
+    </node>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(input)
+            .expect_err("strict mode should fail on unknown data key");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_data_unknown_key_hardened_warns_and_skips() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">oops</data>
+    </node>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(input)
+            .expect("hardened mode should recover");
+        assert!(!report.warnings.is_empty());
+        let attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert!(attrs.is_empty());
+    }
+
+    #[test]
+    fn graphml_data_scope_mismatch_strict_fails_closed() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <key id="d0" for="edge" attr.name="weight" attr.type="int"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">1</data>
+    </node>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(input)
+            .expect_err("strict mode should fail on scope mismatch");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_data_scope_mismatch_hardened_warns_and_skips() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <key id="d0" for="edge" attr.name="weight" attr.type="int"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">1</data>
+    </node>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(input)
+            .expect("hardened mode should recover");
+        assert!(!report.warnings.is_empty());
+        let attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert!(attrs.is_empty());
     }
 
     #[test]
