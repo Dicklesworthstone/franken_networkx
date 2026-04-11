@@ -1385,6 +1385,7 @@ impl EdgeListEngine {
                 let mut for_scope = String::new();
                 let mut attr_name = String::new();
                 let mut attr_type = String::new();
+                let mut yfiles_type = String::new();
                 for attr in e.attributes() {
                     let attr = match attr {
                         Ok(attr) => attr,
@@ -1425,12 +1426,52 @@ impl EdgeListEngine {
                         b"attr.type" => {
                             attr_type = String::from_utf8_lossy(&attr.value).into_owned();
                         }
+                        b"yfiles.type" => {
+                            yfiles_type = String::from_utf8_lossy(&attr.value).into_owned();
+                        }
                         _ => {}
                     }
                 }
-                if !key_id.is_empty() && !attr_name.is_empty() {
-                    key_registry.insert(key_id, (for_scope, attr_name, attr_type));
+                if attr_name.is_empty() && !yfiles_type.is_empty() {
+                    attr_name = yfiles_type;
+                    if attr_type.is_empty() {
+                        attr_type = "string".to_owned();
+                    }
                 }
+                if key_id.is_empty() {
+                    let warning = "graphml key missing id attribute".to_owned();
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_graphml",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
+                    return Ok(());
+                }
+                if attr_name.is_empty() {
+                    let warning = format!("graphml key missing attr.name: id={key_id}");
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_graphml",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
+                    return Ok(());
+                }
+                if attr_type.trim().is_empty() {
+                    let warning =
+                        format!("graphml key missing attr.type: id={key_id} name={attr_name}");
+                    warnings.push(warning.clone());
+                    self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.6);
+                    attr_type = "string".to_owned();
+                }
+                key_registry.insert(key_id, (for_scope, attr_name, attr_type));
             }
             b"graph" => {
                 *in_graph = true;
@@ -1738,8 +1779,7 @@ impl EdgeListEngine {
         }
 
         let parsed = match attr_type.as_str() {
-            "" => Ok(CgseValue::parse_relaxed(trimmed)),
-            "string" => Ok(CgseValue::String(raw_value)),
+            "" | "string" => Ok(CgseValue::String(raw_value)),
             "boolean" => match trimmed.to_ascii_lowercase().as_str() {
                 "true" | "1" => Ok(CgseValue::Bool(true)),
                 "false" | "0" => Ok(CgseValue::Bool(false)),
@@ -4040,6 +4080,67 @@ mod tests {
             .expect("typed double should parse");
         let attrs = report.graph.node_attrs("n0").expect("node should exist");
         assert_eq!(attrs.get("weight"), Some(&CgseValue::Float(1.0)));
+    }
+
+    #[test]
+    fn graphml_missing_attr_type_defaults_to_string() {
+        let graphml = r#"
+<graphml>
+  <key id="d0" for="node" attr.name="count"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">1</data>
+    </node>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("missing attr.type should default to string");
+        assert!(!report.warnings.is_empty());
+        let attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert_eq!(attrs.get("count"), Some(&CgseValue::String("1".to_owned())));
+    }
+
+    #[test]
+    fn graphml_missing_attr_name_strict_fails_closed() {
+        let graphml = r#"
+<graphml>
+  <key id="d0" for="node" attr.type="int"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">1</data>
+    </node>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(graphml)
+            .expect_err("strict mode should fail on missing attr.name");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_missing_attr_name_hardened_warns_and_skips_key() {
+        let graphml = r#"
+<graphml>
+  <key id="d0" for="node" attr.type="int"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">1</data>
+    </node>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("hardened mode should recover from missing attr.name");
+        assert!(!report.warnings.is_empty());
+        let attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert!(attrs.is_empty());
     }
 
     #[test]
