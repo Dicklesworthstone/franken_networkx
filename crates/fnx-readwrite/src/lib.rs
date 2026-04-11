@@ -1975,38 +1975,40 @@ impl EdgeListEngine {
                 }
                 "node" if pos + 1 < tokens.len() && tokens[pos + 1] == "[" => {
                     pos += 2;
-                    let (id, label, attrs, new_pos) =
-                        self.parse_gml_node(&tokens, pos, warnings)?;
-                    let node_label = label.unwrap_or_else(|| id.to_string());
-                    id_to_label.insert(id, node_label.clone());
-                    let _ = graph.add_node(node_label);
-                    if !attrs.is_empty() {
-                        node_attrs_pending.insert(id, attrs);
+                    let (node, new_pos) = self.parse_gml_node(&tokens, pos, warnings)?;
+                    if let Some((id, label, attrs)) = node {
+                        let node_label = label.unwrap_or_else(|| id.to_string());
+                        id_to_label.insert(id, node_label.clone());
+                        let _ = graph.add_node(node_label);
+                        if !attrs.is_empty() {
+                            node_attrs_pending.insert(id, attrs);
+                        }
                     }
                     pos = new_pos;
                 }
                 "edge" if pos + 1 < tokens.len() && tokens[pos + 1] == "[" => {
                     pos += 2;
-                    let (source, target, attrs, new_pos) =
-                        self.parse_gml_edge(&tokens, pos, warnings)?;
-                    let source_label = id_to_label
-                        .get(&source)
-                        .cloned()
-                        .unwrap_or_else(|| source.to_string());
-                    let target_label = id_to_label
-                        .get(&target)
-                        .cloned()
-                        .unwrap_or_else(|| target.to_string());
-                    // Ensure nodes exist
-                    id_to_label.entry(source).or_insert_with(|| {
-                        let _ = graph.add_node(source_label.clone());
-                        source_label.clone()
-                    });
-                    id_to_label.entry(target).or_insert_with(|| {
-                        let _ = graph.add_node(target_label.clone());
-                        target_label.clone()
-                    });
-                    let _ = graph.add_edge_with_attrs(source_label, target_label, attrs);
+                    let (edge, new_pos) = self.parse_gml_edge(&tokens, pos, warnings)?;
+                    if let Some((source, target, attrs)) = edge {
+                        let source_label = id_to_label
+                            .get(&source)
+                            .cloned()
+                            .unwrap_or_else(|| source.to_string());
+                        let target_label = id_to_label
+                            .get(&target)
+                            .cloned()
+                            .unwrap_or_else(|| target.to_string());
+                        // Ensure nodes exist
+                        id_to_label.entry(source).or_insert_with(|| {
+                            let _ = graph.add_node(source_label.clone());
+                            source_label.clone()
+                        });
+                        id_to_label.entry(target).or_insert_with(|| {
+                            let _ = graph.add_node(target_label.clone());
+                            target_label.clone()
+                        });
+                        let _ = graph.add_edge_with_attrs(source_label, target_label, attrs);
+                    }
                     pos = new_pos;
                 }
                 "]" => break,
@@ -2037,29 +2039,60 @@ impl EdgeListEngine {
     }
 
     fn parse_gml_node(
-        &self,
+        &mut self,
         tokens: &[String],
         mut pos: usize,
-        _warnings: &mut Vec<String>,
-    ) -> Result<(i64, Option<String>, AttrMap, usize), ReadWriteError> {
-        let mut id: i64 = 0;
+        warnings: &mut Vec<String>,
+    ) -> GmlNodeParseResult {
+        let mut id: Option<i64> = None;
         let mut label: Option<String> = None;
         let mut attrs = AttrMap::new();
+        let mut invalid = false;
 
         while pos < tokens.len() {
             match tokens[pos].as_str() {
                 "]" => {
                     pos += 1;
-                    return Ok((id, label, attrs, pos));
+                    if id.is_none() {
+                        let warning = "gml node missing id".to_owned();
+                        if self.mode == CompatibilityMode::Strict {
+                            self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                            return Err(ReadWriteError::FailClosed {
+                                operation: "read_gml",
+                                reason: warning,
+                            });
+                        }
+                        warnings.push(warning.clone());
+                        self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+                        return Ok((None, pos));
+                    }
+                    if invalid {
+                        return Ok((None, pos));
+                    }
+                    return Ok(match id {
+                        Some(id) => (Some((id, label, attrs)), pos),
+                        None => (None, pos),
+                    });
                 }
                 "id" if pos + 1 < tokens.len() => {
-                    id =
-                        tokens[pos + 1]
-                            .parse::<i64>()
-                            .map_err(|_| ReadWriteError::FailClosed {
-                                operation: "read_gml",
-                                reason: format!("invalid node id '{}'", tokens[pos + 1]),
-                            })?;
+                    match tokens[pos + 1].parse::<i64>() {
+                        Ok(parsed) => {
+                            id = Some(parsed);
+                        }
+                        Err(_) => {
+                            let warning = format!("invalid node id '{}'", tokens[pos + 1]);
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_gml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+                            invalid = true;
+                        }
+                    }
                     pos += 2;
                 }
                 "label" if pos + 1 < tokens.len() => {
@@ -2079,43 +2112,98 @@ impl EdgeListEngine {
                 }
             }
         }
-        Ok((id, label, attrs, pos))
+        let warning = "gml node missing closing bracket".to_owned();
+        if self.mode == CompatibilityMode::Strict {
+            self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+            return Err(ReadWriteError::FailClosed {
+                operation: "read_gml",
+                reason: warning,
+            });
+        }
+        warnings.push(warning.clone());
+        self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+        Ok((None, pos))
     }
 
     fn parse_gml_edge(
-        &self,
+        &mut self,
         tokens: &[String],
         mut pos: usize,
-        _warnings: &mut Vec<String>,
-    ) -> Result<(i64, i64, AttrMap, usize), ReadWriteError> {
-        let mut source: i64 = 0;
-        let mut target: i64 = 0;
+        warnings: &mut Vec<String>,
+    ) -> GmlEdgeParseResult {
+        let mut source: Option<i64> = None;
+        let mut target: Option<i64> = None;
         let mut attrs = AttrMap::new();
+        let mut invalid = false;
 
         while pos < tokens.len() {
             match tokens[pos].as_str() {
                 "]" => {
                     pos += 1;
-                    return Ok((source, target, attrs, pos));
+                    if source.is_none() || target.is_none() {
+                        let warning = format!(
+                            "gml edge missing source/target: source={:?} target={:?}",
+                            source, target
+                        );
+                        if self.mode == CompatibilityMode::Strict {
+                            self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                            return Err(ReadWriteError::FailClosed {
+                                operation: "read_gml",
+                                reason: warning,
+                            });
+                        }
+                        warnings.push(warning.clone());
+                        self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+                        return Ok((None, pos));
+                    }
+                    if invalid {
+                        return Ok((None, pos));
+                    }
+                    return Ok(match (source, target) {
+                        (Some(source), Some(target)) => (Some((source, target, attrs)), pos),
+                        _ => (None, pos),
+                    });
                 }
                 "source" if pos + 1 < tokens.len() => {
-                    source =
-                        tokens[pos + 1]
-                            .parse::<i64>()
-                            .map_err(|_| ReadWriteError::FailClosed {
-                                operation: "read_gml",
-                                reason: format!("invalid edge source id '{}'", tokens[pos + 1]),
-                            })?;
+                    match tokens[pos + 1].parse::<i64>() {
+                        Ok(parsed) => {
+                            source = Some(parsed);
+                        }
+                        Err(_) => {
+                            let warning = format!("invalid edge source id '{}'", tokens[pos + 1]);
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_gml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+                            invalid = true;
+                        }
+                    }
                     pos += 2;
                 }
                 "target" if pos + 1 < tokens.len() => {
-                    target =
-                        tokens[pos + 1]
-                            .parse::<i64>()
-                            .map_err(|_| ReadWriteError::FailClosed {
-                                operation: "read_gml",
-                                reason: format!("invalid edge target id '{}'", tokens[pos + 1]),
-                            })?;
+                    match tokens[pos + 1].parse::<i64>() {
+                        Ok(parsed) => {
+                            target = Some(parsed);
+                        }
+                        Err(_) => {
+                            let warning = format!("invalid edge target id '{}'", tokens[pos + 1]);
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_gml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+                            invalid = true;
+                        }
+                    }
                     pos += 2;
                 }
                 key => {
@@ -2131,7 +2219,17 @@ impl EdgeListEngine {
                 }
             }
         }
-        Ok((source, target, attrs, pos))
+        let warning = "gml edge missing closing bracket".to_owned();
+        if self.mode == CompatibilityMode::Strict {
+            self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+            return Err(ReadWriteError::FailClosed {
+                operation: "read_gml",
+                reason: warning,
+            });
+        }
+        warnings.push(warning.clone());
+        self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+        Ok((None, pos))
     }
 
     fn record(
@@ -2234,11 +2332,33 @@ fn gml_escape(s: &str) -> String {
 
 /// Format a value for GML: try numeric, otherwise quote it.
 fn gml_value_str(value: &CgseValue) -> String {
-    let s = value.as_str();
-    if value.as_f64().is_some() || s.parse::<i64>().is_ok() {
-        s
-    } else {
-        format!("\"{}\"", gml_escape(&s))
+    match value {
+        CgseValue::String(s) => format!("\"{}\"", gml_escape(s)),
+        CgseValue::Int(i) => i.to_string(),
+        CgseValue::Bool(b) => {
+            if *b {
+                "1".to_owned()
+            } else {
+                "0".to_owned()
+            }
+        }
+        CgseValue::Float(f) => {
+            if f.is_infinite() {
+                if f.is_sign_positive() {
+                    "+INF".to_owned()
+                } else {
+                    "-INF".to_owned()
+                }
+            } else if f.is_nan() {
+                "NAN".to_owned()
+            } else {
+                let mut text = f.to_string();
+                if !text.contains('.') && !text.contains('e') && !text.contains('E') {
+                    text.push_str(".0");
+                }
+                text
+            }
+        }
     }
 }
 
@@ -2253,8 +2373,7 @@ fn graphml_attr_type(value: &CgseValue) -> &'static str {
 
 /// Remove surrounding quotes from a GML token.
 fn gml_unescape(s: &str) -> String {
-    let trimmed = s.trim_matches('"');
-    trimmed.replace("\\\"", "\"").replace("\\\\", "\\")
+    s.to_owned()
 }
 
 trait GraphLikeRead {
@@ -2419,6 +2538,11 @@ fn xml_local_name(name: &[u8]) -> &[u8] {
         .rposition(|b| *b == b':')
         .map_or(name, |idx| &name[idx + 1..])
 }
+
+type GmlNodeParsed = (i64, Option<String>, AttrMap);
+type GmlEdgeParsed = (i64, i64, AttrMap);
+type GmlNodeParseResult = Result<(Option<GmlNodeParsed>, usize), ReadWriteError>;
+type GmlEdgeParseResult = Result<(Option<GmlEdgeParsed>, usize), ReadWriteError>;
 
 fn graphml_scope_matches(for_scope: &str, target: &str) -> bool {
     let scope = for_scope.trim().to_ascii_lowercase();
@@ -2928,6 +3052,162 @@ mod tests {
     }
 
     #[test]
+    fn gml_escaped_quotes_preserved_in_label() {
+        let input = r#"graph [
+  node [
+    id 1
+    label "\"quoted\""
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let report = engine.read_gml(input).expect("gml read should succeed");
+        let nodes = report.graph.nodes_ordered();
+        assert_eq!(nodes, vec!["\"quoted\""]);
+    }
+
+    #[test]
+    fn gml_node_missing_id_strict_fails_closed() {
+        let input = r#"graph [
+  directed 0
+  node [
+    label "a"
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_gml(input)
+            .expect_err("strict gml should fail on node missing id");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn gml_node_missing_id_hardened_warns_and_skips() {
+        let input = r#"graph [
+  directed 0
+  node [
+    label "a"
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine.read_gml(input).expect("hardened gml should recover");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 0);
+    }
+
+    #[test]
+    fn gml_node_missing_closing_bracket_strict_fails_closed() {
+        let input = r#"graph [
+  node [
+    id 1
+    label "a"
+"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_gml(input)
+            .expect_err("strict gml should fail on missing closing bracket");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn gml_node_missing_closing_bracket_hardened_warns_and_skips() {
+        let input = r#"graph [
+  node [
+    id 1
+    label "a"
+"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine.read_gml(input).expect("hardened gml should recover");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 0);
+    }
+
+    #[test]
+    fn gml_node_invalid_id_strict_fails_closed() {
+        let input = r#"graph [
+  directed 0
+  node [
+    id abc
+    label "a"
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_gml(input)
+            .expect_err("strict gml should fail on invalid node id");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn gml_node_invalid_id_hardened_warns_and_skips() {
+        let input = r#"graph [
+  directed 0
+  node [
+    id abc
+    label "a"
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine.read_gml(input).expect("hardened gml should recover");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 0);
+    }
+
+    #[test]
+    fn gml_edge_missing_target_strict_fails_closed() {
+        let input = r#"graph [
+  directed 0
+  node [
+    id 0
+    label "a"
+  ]
+  node [
+    id 1
+    label "b"
+  ]
+  edge [
+    source 0
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_gml(input)
+            .expect_err("strict gml should fail on edge missing target");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn gml_edge_missing_target_hardened_warns_and_skips() {
+        let input = r#"graph [
+  directed 0
+  node [
+    id 0
+    label "a"
+  ]
+  node [
+    id 1
+    label "b"
+  ]
+  edge [
+    source 0
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine.read_gml(input).expect("hardened gml should recover");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 2);
+        assert_eq!(report.graph.edge_count(), 0);
+    }
+
+    #[test]
     fn read_graphml_preserves_graph_attrs() {
         let input = r#"<?xml version="1.0" encoding="UTF-8"?>
 <graphml xmlns="http://graphml.graphdrawing.org/xmlns">
@@ -3183,6 +3463,26 @@ mod tests {
 
         assert!(gml.contains("  label \"demo\"\n"));
         assert!(gml.contains("  owner \"qa\"\n"));
+    }
+
+    #[test]
+    fn write_gml_preserves_string_types_and_scalars() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        let graph_attrs = BTreeMap::from([
+            ("enabled".to_owned(), CgseValue::Bool(true)),
+            ("ratio".to_owned(), CgseValue::Float(1.0)),
+            ("version".to_owned(), CgseValue::String("01".to_owned())),
+        ]);
+
+        let mut engine = EdgeListEngine::strict();
+        let gml = engine
+            .write_gml_with_graph_attrs(&graph, &graph_attrs)
+            .expect("gml write should succeed");
+
+        assert!(gml.contains("  enabled 1\n"));
+        assert!(gml.contains("  ratio 1.0\n"));
+        assert!(gml.contains("  version \"01\"\n"));
     }
 
     #[test]
