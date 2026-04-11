@@ -5374,20 +5374,20 @@ When symbol authentication (`auth_tag`) is enabled (§3.5.2), the verification
 key MUST be derived as a deterministic function of `(master_key, ecs_epoch)`:
 
 ```
-K_epoch = BLAKE3_KEYED(master_key, "fsqlite:symbol-auth:epoch:v1" || le_u64(ecs_epoch))
+K_epoch = BLAKE3_KEYED(main_key, "fsqlite:symbol-auth:epoch:v1" || le_u64(ecs_epoch))
 ```
 
-**Master key source (normative):**
-- **Production (preferred):** If page encryption is enabled, `master_key` MUST
+**Main key source (normative):**
+- **Production (preferred):** If page encryption is enabled, `main_key` MUST
   be derived from the database's encryption `DEK` with domain separation (so a
   page-encryption key cannot be misused as a transport-auth key without
   intent):
-  `master_key = BLAKE3_KEYED(DEK, "fsqlite:symbol-auth-master:v1")`.
+  `main_key = BLAKE3_KEYED(DEK, "fsqlite:symbol-auth-main:v1")`.
 - **Production (no encryption):** If page encryption is disabled and
-  `symbol_auth = on`, the caller MUST provide a `SymbolAuthMasterKeyCap`
+  `symbol_auth = on`, the caller MUST provide a `SymbolAuthMainKeyCap`
   (or equivalent) through `Cx`. Without an explicit key capability, enabling
   `symbol_auth` MUST fail (no ambient keys).
-- **Lab runtime:** `master_key` MUST be derived deterministically from the seed
+- **Lab runtime:** `main_key` MUST be derived deterministically from the seed
   so traces are replay-stable.
 
 This aligns with asupersync's "no ambient keys" principle: keys are provided
@@ -5409,7 +5409,7 @@ the durability configuration is epoch-scoped:
 #### 4.18.4 Epoch Transition Barrier (Quiescence Without Stop-The-World)
 
 Epoch transitions that affect correctness-critical policy (quorum membership,
-symbol auth master key) MUST establish a quiescence point so no single commit
+symbol auth main key) MUST establish a quiescence point so no single commit
 straddles two epochs.
 
 FrankenSQLite MUST implement this as an asupersync-style barrier:

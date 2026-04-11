@@ -382,7 +382,7 @@ def lexicographical_topological_sort(G, key=None):
 
     Incomparable nodes can be resolved using a `key` function. This example function
     allows comparison of integers and strings by returning a tuple where the first
-    element is True for `str`, False otherwise. The second element is the node name.
+    element evaluates to `True` for `str`, `False` otherwise. The second element is the node name.
     This groups the strings and integers separately so they can be compared only among themselves.
 
     >>> key = lambda node: (isinstance(node, str), node)
@@ -605,7 +605,7 @@ def is_aperiodic(G):
 
     Examples
     --------
-    A graph consisting of one cycle, the length of which is 2. Therefore ``k = 2``
+    A graph consisting of one cycle, the length of which equals 2. Therefore ``k = 2``
     divides the length of every cycle in the graph and thus the graph
     is *not aperiodic*::
 
@@ -791,11 +791,11 @@ def transitive_closure(G, reflexive=False):
     for v in G:
         if reflexive is None:
             TC.add_edges_from((v, u) for u in nx.descendants(G, v) if u not in TC[v])
-        elif reflexive is True:
+        elif reflexive:
             TC.add_edges_from(
                 (v, u) for u in nx.descendants(G, v) | {v} if u not in TC[v]
             )
-        elif reflexive is False:
+        else:
             TC.add_edges_from((v, e[1]) for e in nx.edge_bfs(G, v) if e[1] not in TC[v])
 
     return TC
@@ -972,7 +972,7 @@ def antichains(G, topo_order=None):
     for the SAGE project. It's included in NetworkX with permission from the
     authors. Original SAGE code at:
 
-    https://github.com/sagemath/sage/blob/master/src/sage/combinat/posets/hasse_diagram.py
+    https://github.com/sagemath/sage/blob/main/src/sage/combinat/posets/hasse_diagram.py
 
     References
     ----------

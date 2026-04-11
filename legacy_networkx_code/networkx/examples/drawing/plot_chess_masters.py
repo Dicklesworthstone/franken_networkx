@@ -1,21 +1,17 @@
 """
-=============
-Chess Masters
-=============
+===============
+Chess Champions
+===============
 
 An example of the MultiDiGraph class.
 
 The function `chess_pgn_graph` reads a collection of chess matches stored in
-the specified PGN file (PGN ="Portable Game Notation").  Here the (compressed)
-default file::
-
-    chess_masters_WCC.pgn.bz2
-
-contains all 685 World Chess Championship matches from 1886--1985.
+the specified PGN file (PGN ="Portable Game Notation"). The default bundled
+file contains all 685 World Chess Championship matches from 1886--1985.
 (data from http://chessproblem.my-free-games.com/chess/games/Download-PGN.php)
 
 The `chess_pgn_graph()` function returns a `MultiDiGraph` with multiple edges.
-Each node is the last name of a chess master. Each edge is directed from white
+Each node is the last name of a chess champion. Each edge is directed from white
 to black and contains selected game info.
 
 The key statement in `chess_pgn_graph` below is::
@@ -33,8 +29,11 @@ import networkx as nx
 game_details = ["Event", "Date", "Result", "ECO", "Site"]
 
 
-def chess_pgn_graph(pgn_file="chess_masters_WCC.pgn.bz2"):
+def chess_pgn_graph(pgn_file=None):
     """Read chess games in pgn format in pgn_file.
+
+    If pgn_file is None, the first bundled .pgn.bz2 file in this directory
+    is used.
 
     Filenames ending in .bz2 will be decompressed.
 
@@ -43,6 +42,14 @@ def chess_pgn_graph(pgn_file="chess_masters_WCC.pgn.bz2"):
 
     """
     import bz2
+    from pathlib import Path
+
+    if pgn_file is None:
+        data_dir = Path(__file__).resolve().parent
+        candidates = sorted(data_dir.glob("*.pgn.bz2"))
+        if not candidates:
+            raise FileNotFoundError("no bundled PGN .bz2 files found")
+        pgn_file = str(candidates[0])
 
     G = nx.MultiDiGraph()
     game = {}
