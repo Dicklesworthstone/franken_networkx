@@ -1951,6 +1951,7 @@ impl EdgeListEngine {
     {
         let mut directed = false;
         let mut id_to_label: BTreeMap<i64, String> = BTreeMap::new();
+        let mut label_set: BTreeSet<String> = BTreeSet::new();
         let mut node_attrs_pending: BTreeMap<i64, AttrMap> = BTreeMap::new();
 
         // Simple GML token parser
@@ -1977,7 +1978,84 @@ impl EdgeListEngine {
                     pos += 2;
                     let (node, new_pos) = self.parse_gml_node(&tokens, pos, warnings)?;
                     if let Some((id, label, attrs)) = node {
-                        let node_label = label.unwrap_or_else(|| id.to_string());
+                        if id_to_label.contains_key(&id) {
+                            let warning = format!("gml node duplicate id {id}");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_gml",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_gml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record(
+                                "read_gml",
+                                DecisionAction::FullValidate,
+                                &warning,
+                                0.7,
+                            );
+                            pos = new_pos;
+                            continue;
+                        }
+
+                        let node_label = match label {
+                            Some(label) => label,
+                            None => {
+                                let warning = format!("gml node {id} missing label");
+                                if self.mode == CompatibilityMode::Strict {
+                                    self.record(
+                                        "read_gml",
+                                        DecisionAction::FailClosed,
+                                        &warning,
+                                        1.0,
+                                    );
+                                    return Err(ReadWriteError::FailClosed {
+                                        operation: "read_gml",
+                                        reason: warning,
+                                    });
+                                }
+                                warnings.push(warning.clone());
+                                self.record(
+                                    "read_gml",
+                                    DecisionAction::FullValidate,
+                                    &warning,
+                                    0.6,
+                                );
+                                id.to_string()
+                            }
+                        };
+
+                        if label_set.contains(&node_label) {
+                            let warning = format!("gml node duplicate label '{node_label}'");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_gml",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_gml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record(
+                                "read_gml",
+                                DecisionAction::FullValidate,
+                                &warning,
+                                0.7,
+                            );
+                            pos = new_pos;
+                            continue;
+                        }
+
+                        label_set.insert(node_label.clone());
                         id_to_label.insert(id, node_label.clone());
                         let _ = graph.add_node(node_label);
                         if !attrs.is_empty() {
@@ -1990,6 +2068,69 @@ impl EdgeListEngine {
                     pos += 2;
                     let (edge, new_pos) = self.parse_gml_edge(&tokens, pos, warnings)?;
                     if let Some((source, target, attrs)) = edge {
+                        let mut skip_edge = false;
+                        if !id_to_label.contains_key(&source) {
+                            let warning = format!("gml edge references missing source {source}");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_gml",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_gml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record(
+                                "read_gml",
+                                DecisionAction::FullValidate,
+                                &warning,
+                                0.7,
+                            );
+                            let candidate = source.to_string();
+                            if label_set.contains(&candidate) {
+                                skip_edge = true;
+                            } else {
+                                label_set.insert(candidate.clone());
+                                id_to_label.insert(source, candidate);
+                            }
+                        }
+                        if !id_to_label.contains_key(&target) {
+                            let warning = format!("gml edge references missing target {target}");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_gml",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_gml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record(
+                                "read_gml",
+                                DecisionAction::FullValidate,
+                                &warning,
+                                0.7,
+                            );
+                            let candidate = target.to_string();
+                            if label_set.contains(&candidate) {
+                                skip_edge = true;
+                            } else {
+                                label_set.insert(candidate.clone());
+                                id_to_label.insert(target, candidate);
+                            }
+                        }
+                        if skip_edge {
+                            pos = new_pos;
+                            continue;
+                        }
                         let source_label = id_to_label
                             .get(&source)
                             .cloned()
@@ -2416,7 +2557,14 @@ fn gml_unescape(s: &str) -> String {
         } else if let Some(dec) = entity.strip_prefix('#') {
             dec.parse::<u32>().ok()
         } else {
-            None
+            match entity.as_str() {
+                "amp" => Some('&' as u32),
+                "quot" => Some('"' as u32),
+                "lt" => Some('<' as u32),
+                "gt" => Some('>' as u32),
+                "apos" => Some('\'' as u32),
+                _ => None,
+            }
         };
 
         if let Some(codepoint) = decoded.and_then(char::from_u32) {
