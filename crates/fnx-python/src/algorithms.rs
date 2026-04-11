@@ -7558,6 +7558,14 @@ fn is_chordal(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
 fn barycenter(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
+    if inner.node_count() > 0 {
+        let connected = py.allow_threads(|| fnx_algorithms::is_connected(inner).is_connected);
+        if !connected {
+            return Err(NetworkXNoPath::new_err(
+                "Input graph is disconnected, so every induced subgraph has infinite barycentricity.",
+            ));
+        }
+    }
     let result = py.allow_threads(|| fnx_algorithms::barycenter(inner));
     Ok(result.iter().map(|n| gr.py_node_key(py, n)).collect())
 }

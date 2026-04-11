@@ -231,6 +231,11 @@ class TestShortestPathVariants:
         # Center of a path is the middle node(s)
         assert 2 in bc
 
+    def test_barycenter_disconnected_raises(self):
+        G = fnx.empty_graph(5)
+        with pytest.raises(fnx.NetworkXNoPath):
+            fnx.barycenter(G)
+
 
 # ---------------------------------------------------------------------------
 # Transitive operations
