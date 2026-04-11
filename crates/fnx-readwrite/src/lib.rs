@@ -2412,9 +2412,18 @@ impl EdgeListEngine {
         let mut graph = Graph::new(self.mode);
         let mut graph_attrs = AttrMap::new();
         let mut warnings = Vec::new();
-        let is_directed = self.read_gml_into(&mut graph, &mut graph_attrs, &mut warnings, input)?;
-        if is_directed {
-            warnings.push("GML declares directed=1 but read into undirected Graph".to_owned());
+        let directed = self.read_gml_into(&mut graph, &mut graph_attrs, &mut warnings, input)?;
+        if directed.declared && directed.value {
+            let warning = "GML declares directed=1 but read into undirected Graph".to_owned();
+            if self.mode == CompatibilityMode::Strict {
+                self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                return Err(ReadWriteError::FailClosed {
+                    operation: "read_gml",
+                    reason: warning,
+                });
+            }
+            warnings.push(warning.clone());
+            self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
         }
         self.record(
             "read_gml",
@@ -2434,7 +2443,19 @@ impl EdgeListEngine {
         let mut graph = DiGraph::new(self.mode);
         let mut graph_attrs = AttrMap::new();
         let mut warnings = Vec::new();
-        let _ = self.read_gml_into(&mut graph, &mut graph_attrs, &mut warnings, input)?;
+        let directed = self.read_gml_into(&mut graph, &mut graph_attrs, &mut warnings, input)?;
+        if directed.declared && !directed.value {
+            let warning = "GML declares directed=0 but read into directed DiGraph".to_owned();
+            if self.mode == CompatibilityMode::Strict {
+                self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                return Err(ReadWriteError::FailClosed {
+                    operation: "read_gml",
+                    reason: warning,
+                });
+            }
+            warnings.push(warning.clone());
+            self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+        }
         self.record(
             "read_gml",
             DecisionAction::Allow,
@@ -2471,18 +2492,19 @@ impl EdgeListEngine {
         Ok(false)
     }
 
-    /// Parse GML into a generic graph. Returns whether directed=1 was declared.
+    /// Parse GML into a generic graph. Returns the directed flag plus whether it was declared.
     fn read_gml_into<G>(
         &mut self,
         graph: &mut G,
         graph_attrs: &mut AttrMap,
         warnings: &mut Vec<String>,
         input: &str,
-    ) -> Result<bool, ReadWriteError>
+    ) -> Result<GmlDirectedFlag, ReadWriteError>
     where
         G: GraphLike,
     {
         let mut directed = false;
+        let mut directed_declared = false;
         let mut id_to_label: BTreeMap<i64, String> = BTreeMap::new();
         let mut label_set: BTreeSet<String> = BTreeSet::new();
         let mut node_attrs_pending: BTreeMap<i64, AttrMap> = BTreeMap::new();
@@ -2504,6 +2526,7 @@ impl EdgeListEngine {
             let tok = &tokens[pos];
             match tok.as_str() {
                 "directed" if pos + 1 < tokens.len() => {
+                    directed_declared = true;
                     directed = tokens[pos + 1] == "1";
                     pos += 2;
                 }
@@ -2673,7 +2696,10 @@ impl EdgeListEngine {
             }
         }
 
-        Ok(directed)
+        Ok(GmlDirectedFlag {
+            declared: directed_declared,
+            value: directed,
+        })
     }
 
     fn parse_gml_node(
@@ -3320,6 +3346,12 @@ type GmlNodeParsed = (i64, Option<String>, AttrMap);
 type GmlEdgeParsed = (i64, i64, AttrMap);
 type GmlNodeParseResult = Result<(Option<GmlNodeParsed>, usize), ReadWriteError>;
 type GmlEdgeParseResult = Result<(Option<GmlEdgeParsed>, usize), ReadWriteError>;
+
+#[derive(Clone, Copy, Debug)]
+struct GmlDirectedFlag {
+    declared: bool,
+    value: bool,
+}
 
 fn graphml_scope_matches(for_scope: &str, target: &str) -> bool {
     let scope = for_scope.trim().to_ascii_lowercase();
@@ -3983,6 +4015,108 @@ mod tests {
                 .gml_declares_directed(input)
                 .expect("gml directed detection should succeed")
         );
+    }
+
+    #[test]
+    fn strict_gml_directed_mismatch_fails_closed() {
+        let input = r#"graph [
+  directed 1
+  node [
+    id 0
+    label "a"
+  ]
+  node [
+    id 1
+    label "b"
+  ]
+  edge [
+    source 0
+    target 1
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_gml(input)
+            .expect_err("strict mode should fail on directed gml for Graph");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn hardened_gml_directed_mismatch_warns() {
+        let input = r#"graph [
+  directed 1
+  node [
+    id 0
+    label "a"
+  ]
+  node [
+    id 1
+    label "b"
+  ]
+  edge [
+    source 0
+    target 1
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_gml(input)
+            .expect("hardened mode should recover from directed gml");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn strict_gml_undirected_mismatch_fails_closed() {
+        let input = r#"graph [
+  directed 0
+  node [
+    id 0
+    label "a"
+  ]
+  node [
+    id 1
+    label "b"
+  ]
+  edge [
+    source 0
+    target 1
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_digraph_gml(input)
+            .expect_err("strict mode should fail on undirected gml for DiGraph");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn hardened_gml_undirected_mismatch_warns() {
+        let input = r#"graph [
+  directed 0
+  node [
+    id 0
+    label "a"
+  ]
+  node [
+    id 1
+    label "b"
+  ]
+  edge [
+    source 0
+    target 1
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_digraph_gml(input)
+            .expect("hardened mode should recover from undirected gml");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 1);
     }
 
     #[test]
