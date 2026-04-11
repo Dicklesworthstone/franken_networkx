@@ -2327,7 +2327,16 @@ fn gml_tokenize(input: &str) -> Vec<String> {
 
 /// Escape a string for GML output (wrap in quotes).
 fn gml_escape(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"")
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        let needs_escape = matches!(ch, '&' | '"') || !(' '..='~').contains(&ch);
+        if needs_escape {
+            out.push_str(&format!("&#{};", ch as u32));
+        } else {
+            out.push(ch);
+        }
+    }
+    out
 }
 
 /// Format a value for GML: try numeric, otherwise quote it.
@@ -2373,7 +2382,53 @@ fn graphml_attr_type(value: &CgseValue) -> &'static str {
 
 /// Remove surrounding quotes from a GML token.
 fn gml_unescape(s: &str) -> String {
-    s.to_owned()
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch != '&' {
+            out.push(ch);
+            continue;
+        }
+
+        let mut entity = String::new();
+        let mut terminated = false;
+        while let Some(&next) = chars.peek() {
+            chars.next();
+            if next == ';' {
+                terminated = true;
+                break;
+            }
+            entity.push(next);
+        }
+
+        if !terminated {
+            out.push('&');
+            out.push_str(&entity);
+            break;
+        }
+
+        let decoded = if let Some(hex) = entity
+            .strip_prefix("#x")
+            .or_else(|| entity.strip_prefix("#X"))
+        {
+            u32::from_str_radix(hex, 16).ok()
+        } else if let Some(dec) = entity.strip_prefix('#') {
+            dec.parse::<u32>().ok()
+        } else {
+            None
+        };
+
+        if let Some(codepoint) = decoded.and_then(char::from_u32) {
+            out.push(codepoint);
+        } else {
+            out.push('&');
+            out.push_str(&entity);
+            out.push(';');
+        }
+    }
+
+    out
 }
 
 trait GraphLikeRead {
@@ -3067,6 +3122,21 @@ mod tests {
     }
 
     #[test]
+    fn gml_unescape_numeric_entity_decodes() {
+        let input = r#"graph [
+  node [
+    id 1
+    label "fish &#38; chips"
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let report = engine.read_gml(input).expect("gml read should succeed");
+        let nodes = report.graph.nodes_ordered();
+        assert_eq!(nodes, vec!["fish & chips"]);
+    }
+
+    #[test]
     fn gml_node_missing_id_strict_fails_closed() {
         let input = r#"graph [
   directed 0
@@ -3463,6 +3533,20 @@ mod tests {
 
         assert!(gml.contains("  label \"demo\"\n"));
         assert!(gml.contains("  owner \"qa\"\n"));
+    }
+
+    #[test]
+    fn gml_round_trip_preserves_entities() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge("caf\u{00e9} & tea", "b")
+            .expect("edge add should succeed");
+        let mut engine = EdgeListEngine::strict();
+        let gml = engine.write_gml(&graph).expect("gml write should succeed");
+        assert!(gml.contains("caf&#233; &#38; tea"));
+
+        let parsed = engine.read_gml(&gml).expect("gml read should succeed");
+        assert!(parsed.graph.has_node("caf\u{00e9} & tea"));
     }
 
     #[test]
