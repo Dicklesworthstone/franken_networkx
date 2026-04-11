@@ -1261,6 +1261,7 @@ impl EdgeListEngine {
         let mut current_edge: Option<(String, String)> = None;
         let mut current_data_key: Option<String> = None;
         let mut current_data_text = String::new();
+        let mut current_data_has_children = false;
         let mut current_edge_directed: Option<bool> = None;
         let mut current_edge_skip = false;
 
@@ -1274,6 +1275,14 @@ impl EdgeListEngine {
         loop {
             match reader.read_event() {
                 Ok(Event::Start(ref e)) => {
+                    let name = e.name();
+                    let local = xml_local_name(name.as_ref());
+                    if local == b"data" {
+                        current_data_has_children = false;
+                    } else if current_data_key.is_some() {
+                        current_data_has_children = true;
+                        current_data_text.clear();
+                    }
                     self.handle_graphml_start_element(
                         e,
                         graph,
@@ -1297,6 +1306,14 @@ impl EdgeListEngine {
                     )?;
                 }
                 Ok(Event::Empty(ref e)) => {
+                    let name = e.name();
+                    let local = xml_local_name(name.as_ref());
+                    if local == b"data" {
+                        current_data_has_children = false;
+                    } else if current_data_key.is_some() {
+                        current_data_has_children = true;
+                        current_data_text.clear();
+                    }
                     self.handle_graphml_start_element(
                         e,
                         graph,
@@ -1332,6 +1349,7 @@ impl EdgeListEngine {
                         &mut current_edge_skip,
                         &mut current_data_key,
                         &mut current_data_text,
+                        &mut current_data_has_children,
                         &mut graphml_node_defaults,
                         &mut graphml_edge_defaults,
                         &mut pending_graph_attrs,
@@ -1341,23 +1359,37 @@ impl EdgeListEngine {
                         &mut key_registry,
                     )?;
                 }
-                Ok(Event::Text(ref e)) if current_data_key.is_some() => match e.unescape() {
-                    Ok(text) => current_data_text.push_str(&text),
-                    Err(err) => {
-                        let warning = format!("graphml data text unescape error: {err}");
-                        if self.mode == CompatibilityMode::Strict {
-                            self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
-                            return Err(ReadWriteError::FailClosed {
-                                operation: "read_graphml",
-                                reason: warning,
-                            });
+                Ok(Event::Text(ref e))
+                    if current_data_key.is_some() && !current_data_has_children =>
+                {
+                    match e.unescape() {
+                        Ok(text) => current_data_text.push_str(&text),
+                        Err(err) => {
+                            let warning = format!("graphml data text unescape error: {err}");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_graphml",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_graphml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record(
+                                "read_graphml",
+                                DecisionAction::FullValidate,
+                                &warning,
+                                0.8,
+                            );
+                            current_data_text.clear();
+                            current_data_key = None;
                         }
-                        warnings.push(warning.clone());
-                        self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.8);
-                        current_data_text.clear();
-                        current_data_key = None;
                     }
-                },
+                }
                 Ok(Event::Text(ref e)) if current_key_default_key.is_some() => match e.unescape() {
                     Ok(text) => current_key_default_text.push_str(&text),
                     Err(err) => {
@@ -1390,6 +1422,7 @@ impl EdgeListEngine {
                         &mut current_edge_skip,
                         &mut current_data_key,
                         &mut current_data_text,
+                        &mut current_data_has_children,
                         &mut graphml_node_defaults,
                         &mut graphml_edge_defaults,
                         &mut pending_graph_attrs,
@@ -1825,6 +1858,7 @@ impl EdgeListEngine {
         current_edge_skip: &mut bool,
         current_data_key: &mut Option<String>,
         current_data_text: &mut String,
+        current_data_has_children: &mut bool,
         graphml_node_defaults: &mut AttrMap,
         graphml_edge_defaults: &mut AttrMap,
         pending_graph_attrs: &mut AttrMap,
@@ -1838,6 +1872,23 @@ impl EdgeListEngine {
     {
         match local {
             b"data" => {
+                if *current_data_has_children {
+                    let warning =
+                        "graphml data contains nested elements (yfiles extensions not supported)"
+                            .to_owned();
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_graphml",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
+                    current_data_text.clear();
+                    *current_data_has_children = false;
+                    return Ok(());
+                }
                 if let Some(key_id) = current_data_key.take() {
                     let (scope, attr_name, attr_type) = match key_registry.get(&key_id) {
                         Some(entry) => (
@@ -1905,6 +1956,7 @@ impl EdgeListEngine {
                     }
                 }
                 current_data_text.clear();
+                *current_data_has_children = false;
             }
             b"default" => {
                 if let Some(key_id) = current_key_default_key.take() {
@@ -4504,6 +4556,50 @@ mod tests {
             .expect("hardened mode should recover from multiedge");
         assert!(!report.warnings.is_empty());
         assert_eq!(report.graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn graphml_data_nested_elements_strict_fails_closed() {
+        let graphml = r#"
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns" xmlns:y="http://www.yworks.com/xml/graphml">
+  <key id="d0" for="node" attr.name="label" attr.type="string"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">
+        <y:ShapeNode/>
+      </data>
+    </node>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(graphml)
+            .expect_err("strict mode should fail on nested data elements");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_data_nested_elements_hardened_warns_and_skips() {
+        let graphml = r#"
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns" xmlns:y="http://www.yworks.com/xml/graphml">
+  <key id="d0" for="node" attr.name="label" attr.type="string"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">
+        <y:ShapeNode/>
+      </data>
+    </node>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("hardened mode should skip nested data elements");
+        assert!(!report.warnings.is_empty());
+        let attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert!(attrs.is_empty());
     }
 
     #[test]
