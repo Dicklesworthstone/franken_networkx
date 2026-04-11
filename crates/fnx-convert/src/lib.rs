@@ -343,7 +343,34 @@ impl GraphConverter {
             graph.add_edge_with_key_and_attrs(
                 edge.left.clone(),
                 edge.right.clone(),
-                edge.key,
+                if edge.key.is_some() && !graph.supports_parallel_edges() {
+                    let warning = format!(
+                        "edge key provided for non-multigraph edge: left=`{}` right=`{}` key={:?}",
+                        edge.left, edge.right, edge.key
+                    );
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record(
+                            "convert_edge_list",
+                            DecisionAction::FailClosed,
+                            &warning,
+                            1.0,
+                        );
+                        return Err(ConvertError::FailClosed {
+                            operation: "convert_edge_list",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record(
+                        "convert_edge_list",
+                        DecisionAction::FullValidate,
+                        &warning,
+                        0.6,
+                    );
+                    None
+                } else {
+                    edge.key
+                },
                 edge.attrs.clone(),
             )?;
         }
@@ -540,7 +567,34 @@ impl GraphConverter {
                 graph.add_edge_with_key_and_attrs(
                     node.clone(),
                     neighbor.to.clone(),
-                    neighbor.key,
+                    if neighbor.key.is_some() && !graph.supports_parallel_edges() {
+                        let warning = format!(
+                            "edge key provided for non-multigraph adjacency entry: source=`{}` target=`{}` key={:?}",
+                            node, neighbor.to, neighbor.key
+                        );
+                        if self.mode == CompatibilityMode::Strict {
+                            self.record(
+                                "convert_adjacency",
+                                DecisionAction::FailClosed,
+                                &warning,
+                                1.0,
+                            );
+                            return Err(ConvertError::FailClosed {
+                                operation: "convert_adjacency",
+                                reason: warning,
+                            });
+                        }
+                        warnings.push(warning.clone());
+                        self.record(
+                            "convert_adjacency",
+                            DecisionAction::FullValidate,
+                            &warning,
+                            0.6,
+                        );
+                        None
+                    } else {
+                        neighbor.key
+                    },
                     neighbor.attrs.clone(),
                 )?;
             }
@@ -558,6 +612,7 @@ trait GraphLike {
         key: Option<usize>,
         attrs: AttrMap,
     ) -> Result<usize, GraphError>;
+    fn supports_parallel_edges(&self) -> bool;
 }
 
 impl GraphLike for Graph {
@@ -573,6 +628,9 @@ impl GraphLike for Graph {
     ) -> Result<usize, GraphError> {
         self.add_edge_with_attrs(source, target, attrs).map(|_| 0)
     }
+    fn supports_parallel_edges(&self) -> bool {
+        false
+    }
 }
 
 impl GraphLike for DiGraph {
@@ -587,6 +645,9 @@ impl GraphLike for DiGraph {
         attrs: AttrMap,
     ) -> Result<usize, GraphError> {
         self.add_edge_with_attrs(source, target, attrs).map(|_| 0)
+    }
+    fn supports_parallel_edges(&self) -> bool {
+        false
     }
 }
 
@@ -606,6 +667,9 @@ impl GraphLike for MultiGraph {
             None => self.add_edge_with_attrs(source, target, attrs),
         }
     }
+    fn supports_parallel_edges(&self) -> bool {
+        true
+    }
 }
 
 impl GraphLike for MultiDiGraph {
@@ -623,6 +687,9 @@ impl GraphLike for MultiDiGraph {
             Some(k) => self.add_edge_with_key_and_attrs(source, target, k, attrs),
             None => self.add_edge_with_attrs(source, target, attrs),
         }
+    }
+    fn supports_parallel_edges(&self) -> bool {
+        true
     }
 }
 
@@ -665,7 +732,9 @@ impl GraphConverter {
 
 #[cfg(test)]
 mod tests {
-    use super::{AdjacencyEntry, AdjacencyPayload, EdgeListPayload, EdgeRecord, GraphConverter};
+    use super::{
+        AdjacencyEntry, AdjacencyPayload, ConvertError, EdgeListPayload, EdgeRecord, GraphConverter,
+    };
     use fnx_classes::AttrMap;
     use fnx_runtime::CgseValue;
     use std::collections::BTreeMap;
@@ -730,6 +799,86 @@ mod tests {
                 .as_str(),
             "2.0"
         );
+    }
+
+    #[test]
+    fn strict_edge_list_rejects_key_for_graph() {
+        let mut converter = GraphConverter::strict();
+        let payload = EdgeListPayload {
+            nodes: vec!["a".to_owned(), "b".to_owned()],
+            edges: vec![EdgeRecord {
+                left: "a".to_owned(),
+                right: "b".to_owned(),
+                key: Some(7),
+                attrs: AttrMap::new(),
+            }],
+        };
+
+        let err = converter
+            .from_edge_list(&payload)
+            .expect_err("strict mode should reject edge keys for Graph");
+        assert!(matches!(err, ConvertError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn hardened_edge_list_warns_and_drops_key_for_graph() {
+        let mut converter = GraphConverter::hardened();
+        let payload = EdgeListPayload {
+            nodes: vec!["a".to_owned(), "b".to_owned()],
+            edges: vec![EdgeRecord {
+                left: "a".to_owned(),
+                right: "b".to_owned(),
+                key: Some(3),
+                attrs: AttrMap::new(),
+            }],
+        };
+
+        let report = converter
+            .from_edge_list(&payload)
+            .expect("hardened mode should drop key and recover");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn strict_adjacency_rejects_key_for_graph() {
+        let mut converter = GraphConverter::strict();
+        let mut adjacency = BTreeMap::new();
+        adjacency.insert(
+            "a".to_owned(),
+            vec![AdjacencyEntry {
+                to: "b".to_owned(),
+                key: Some(1),
+                attrs: AttrMap::new(),
+            }],
+        );
+        let payload = AdjacencyPayload { adjacency };
+
+        let err = converter
+            .from_adjacency(&payload)
+            .expect_err("strict mode should reject adjacency keys for Graph");
+        assert!(matches!(err, ConvertError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn hardened_adjacency_warns_and_drops_key_for_graph() {
+        let mut converter = GraphConverter::hardened();
+        let mut adjacency = BTreeMap::new();
+        adjacency.insert(
+            "a".to_owned(),
+            vec![AdjacencyEntry {
+                to: "b".to_owned(),
+                key: Some(5),
+                attrs: AttrMap::new(),
+            }],
+        );
+        let payload = AdjacencyPayload { adjacency };
+
+        let report = converter
+            .from_adjacency(&payload)
+            .expect("hardened mode should drop key and recover");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 1);
     }
 
     #[test]
