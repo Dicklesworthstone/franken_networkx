@@ -288,7 +288,7 @@ impl Graph {
                 },
             ],
         );
-        !existed
+        changed
     }
 
     pub fn apply_node_defaults(&mut self, defaults: &AttrMap) -> bool {
@@ -795,7 +795,7 @@ impl MultiGraph {
                 },
             ],
         );
-        !existed
+        changed
     }
 
     pub fn add_edge(
@@ -1146,6 +1146,12 @@ mod tests {
         }
     }
 
+    fn single_attr(key: &str, value: &str) -> AttrMap {
+        let mut attrs = AttrMap::new();
+        attrs.insert(key.to_owned(), CgseValue::from(value));
+        attrs
+    }
+
     #[test]
     fn edges_ordered_tracks_node_and_neighbor_iteration_order() {
         let mut graph = Graph::strict();
@@ -1357,6 +1363,30 @@ mod tests {
         let _ = graph.remove_edge("a", "b");
         let r3 = graph.revision();
         assert!(r3 > r2);
+    }
+
+    #[test]
+    fn add_node_with_attrs_reports_change_on_existing_node() {
+        let mut graph = Graph::strict();
+        assert!(graph.add_node_with_attrs("a", single_attr("color", "red")));
+        let r1 = graph.revision();
+        assert!(graph.add_node_with_attrs("a", single_attr("color", "blue")));
+        let r2 = graph.revision();
+        assert!(r2 > r1);
+        let expected = CgseValue::from("blue");
+        assert_eq!(graph.node_attrs("a").unwrap().get("color"), Some(&expected));
+    }
+
+    #[test]
+    fn multigraph_add_node_with_attrs_reports_change_on_existing_node() {
+        let mut graph = MultiGraph::strict();
+        assert!(graph.add_node_with_attrs("a", single_attr("color", "red")));
+        let r1 = graph.revision();
+        assert!(graph.add_node_with_attrs("a", single_attr("color", "blue")));
+        let r2 = graph.revision();
+        assert!(r2 > r1);
+        let expected = CgseValue::from("blue");
+        assert_eq!(graph.node_attrs("a").unwrap().get("color"), Some(&expected));
     }
 
     #[test]

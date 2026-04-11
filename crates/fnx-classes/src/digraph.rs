@@ -332,7 +332,7 @@ impl DiGraph {
                 },
             ],
         );
-        !existed
+        changed
     }
 
     pub fn apply_node_defaults(&mut self, defaults: &AttrMap) -> bool {
@@ -894,7 +894,7 @@ impl MultiDiGraph {
                 },
             ],
         );
-        !existed
+        changed
     }
 
     pub fn add_edge(
@@ -1221,6 +1221,12 @@ mod tests {
         format!("n{}", id % 8)
     }
 
+    fn single_attr(key: &str, value: &str) -> AttrMap {
+        let mut attrs = AttrMap::new();
+        attrs.insert(key.to_owned(), CgseValue::from(value));
+        attrs
+    }
+
     // -- Invariant checker --------------------------------------------------
 
     fn assert_digraph_core_invariants(g: &DiGraph) {
@@ -1285,6 +1291,30 @@ mod tests {
             }
         }
         assert_eq!(g.edge_count(), edge_count_from_adj);
+    }
+
+    #[test]
+    fn add_node_with_attrs_reports_change_on_existing_node() {
+        let mut graph = DiGraph::strict();
+        assert!(graph.add_node_with_attrs("a", single_attr("color", "red")));
+        let r1 = graph.revision();
+        assert!(graph.add_node_with_attrs("a", single_attr("color", "blue")));
+        let r2 = graph.revision();
+        assert!(r2 > r1);
+        let expected = CgseValue::from("blue");
+        assert_eq!(graph.node_attrs("a").unwrap().get("color"), Some(&expected));
+    }
+
+    #[test]
+    fn multidigraph_add_node_with_attrs_reports_change_on_existing_node() {
+        let mut graph = MultiDiGraph::strict();
+        assert!(graph.add_node_with_attrs("a", single_attr("color", "red")));
+        let r1 = graph.revision();
+        assert!(graph.add_node_with_attrs("a", single_attr("color", "blue")));
+        let r2 = graph.revision();
+        assert!(r2 > r1);
+        let expected = CgseValue::from("blue");
+        assert_eq!(graph.node_attrs("a").unwrap().get("color"), Some(&expected));
     }
 
     fn assert_multidigraph_core_invariants(g: &MultiDiGraph) {
