@@ -1737,8 +1737,8 @@ impl EdgeListEngine {
             "" => Ok(CgseValue::parse_relaxed(trimmed)),
             "string" => Ok(CgseValue::String(raw_value)),
             "boolean" => match trimmed.to_ascii_lowercase().as_str() {
-                "true" => Ok(CgseValue::Bool(true)),
-                "false" => Ok(CgseValue::Bool(false)),
+                "true" | "1" => Ok(CgseValue::Bool(true)),
+                "false" | "0" => Ok(CgseValue::Bool(false)),
                 _ => Err("boolean"),
             },
             "int" | "long" => trimmed
@@ -4079,6 +4079,29 @@ mod tests {
             attrs.get("count"),
             Some(&CgseValue::String("1.5".to_owned()))
         );
+    }
+
+    #[test]
+    fn graphml_typed_boolean_accepts_numeric_literals() {
+        let graphml = r#"
+<graphml>
+  <key id="d0" for="node" attr.name="flag" attr.type="boolean"/>
+  <key id="d1" for="node" attr.name="off" attr.type="boolean"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">1</data>
+      <data key="d1">0</data>
+    </node>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("boolean numeric literals should parse");
+        let attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert_eq!(attrs.get("flag"), Some(&CgseValue::Bool(true)));
+        assert_eq!(attrs.get("off"), Some(&CgseValue::Bool(false)));
     }
 
     #[test]
