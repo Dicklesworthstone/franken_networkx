@@ -3246,6 +3246,17 @@ fn decode_attrs(
             warnings.push(warning);
             continue;
         };
+        if key.is_empty() {
+            let warning = format!("line {line_no} malformed attr pair `{pair}`");
+            if mode == CompatibilityMode::Strict {
+                return Err(ReadWriteError::FailClosed {
+                    operation: "read_edgelist",
+                    reason: warning,
+                });
+            }
+            warnings.push(warning);
+            continue;
+        }
         attrs.insert(
             attr_unescape(key),
             CgseValue::parse_relaxed(&attr_unescape(value)),
@@ -3524,6 +3535,29 @@ mod tests {
             .expect("hardened parser should keep valid lines");
         assert!(!report.warnings.is_empty());
         assert_eq!(report.graph.edge_count(), 2);
+    }
+
+    #[test]
+    fn strict_mode_fails_closed_for_empty_attr_key() {
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_edgelist("a b =1")
+            .expect_err("strict parser should fail on empty attr key");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn hardened_mode_warns_for_empty_attr_key() {
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_edgelist("a b =1")
+            .expect("hardened parser should recover");
+        assert!(!report.warnings.is_empty());
+        let attrs = report
+            .graph
+            .edge_attrs("a", "b")
+            .expect("edge should exist");
+        assert!(attrs.is_empty());
     }
 
     #[test]
