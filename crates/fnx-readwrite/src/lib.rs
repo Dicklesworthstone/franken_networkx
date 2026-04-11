@@ -678,8 +678,25 @@ impl EdgeListEngine {
             },
         };
 
-        let mut graph = Graph::new(self.mode);
         let mut warnings = Vec::new();
+        if parsed.directed {
+            let warning = "json graph directed=true but read into undirected Graph".to_owned();
+            if self.mode == CompatibilityMode::Strict {
+                self.record("read_json_graph", DecisionAction::FailClosed, &warning, 1.0);
+                return Err(ReadWriteError::FailClosed {
+                    operation: "read_json_graph",
+                    reason: warning,
+                });
+            }
+            warnings.push(warning.clone());
+            self.record(
+                "read_json_graph",
+                DecisionAction::FullValidate,
+                &warning,
+                0.7,
+            );
+        }
+        let mut graph = Graph::new(self.mode);
         for node in parsed.nodes {
             if node.is_empty() {
                 let warning = "empty node id in json graph".to_owned();
@@ -783,8 +800,25 @@ impl EdgeListEngine {
             },
         };
 
-        let mut graph = DiGraph::new(self.mode);
         let mut warnings = Vec::new();
+        if !parsed.directed {
+            let warning = "json graph directed=false but read into directed DiGraph".to_owned();
+            if self.mode == CompatibilityMode::Strict {
+                self.record("read_json_graph", DecisionAction::FailClosed, &warning, 1.0);
+                return Err(ReadWriteError::FailClosed {
+                    operation: "read_json_graph",
+                    reason: warning,
+                });
+            }
+            warnings.push(warning.clone());
+            self.record(
+                "read_json_graph",
+                DecisionAction::FullValidate,
+                &warning,
+                0.7,
+            );
+        }
+        let mut graph = DiGraph::new(self.mode);
         for node in parsed.nodes {
             if node.is_empty() {
                 let warning = "empty node id in json graph".to_owned();
@@ -3804,6 +3838,84 @@ mod tests {
             Some(&CgseValue::String("demo".to_owned()))
         );
         assert_eq!(parsed.graph_attrs.get("version"), Some(&CgseValue::Int(3)));
+    }
+
+    #[test]
+    fn strict_json_directed_mismatch_fails_closed() {
+        let input = r#"{
+  "mode": "strict",
+  "directed": true,
+  "graph_attrs": {},
+  "nodes": ["a", "b"],
+  "edges": [
+    { "left": "a", "right": "b", "attrs": {} }
+  ]
+}"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_json_graph(input)
+            .expect_err("strict mode should fail on directed json for undirected reader");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn hardened_json_directed_mismatch_warns() {
+        let input = r#"{
+  "mode": "hardened",
+  "directed": true,
+  "graph_attrs": {},
+  "nodes": ["a", "b"],
+  "edges": [
+    { "left": "a", "right": "b", "attrs": {} }
+  ]
+}"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_json_graph(input)
+            .expect("hardened mode should recover from directed json");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn strict_json_undirected_mismatch_fails_closed() {
+        let input = r#"{
+  "mode": "strict",
+  "directed": false,
+  "graph_attrs": {},
+  "nodes": ["a", "b"],
+  "edges": [
+    { "left": "a", "right": "b", "attrs": {} }
+  ]
+}"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_digraph_json_graph(input)
+            .expect_err("strict mode should fail on undirected json for digraph reader");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn hardened_json_undirected_mismatch_warns() {
+        let input = r#"{
+  "mode": "hardened",
+  "directed": false,
+  "graph_attrs": {},
+  "nodes": ["a", "b"],
+  "edges": [
+    { "left": "a", "right": "b", "attrs": {} }
+  ]
+}"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_digraph_json_graph(input)
+            .expect("hardened mode should recover from undirected json");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 1);
     }
 
     #[test]
