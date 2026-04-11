@@ -16655,9 +16655,33 @@ pub fn is_branching(graph: &DiGraph) -> bool {
         edge_count += graph.successors(node).map_or(0, |v| v.len());
     }
 
-    // A branching (forest of arborescences) has at most n-1 edges
-    // and no cycles. With max in-degree 1 and ≤ n-1 edges, it's acyclic.
-    edge_count < n
+    // A branching (forest of arborescences) has at most n-1 edges.
+    if edge_count >= n {
+        return false;
+    }
+
+    // Ensure the underlying undirected structure is a forest: each weakly
+    // connected component must have exactly |V|-1 edges.
+    let components = weakly_connected_components(graph);
+    for comp in components {
+        let comp_len = comp.len();
+        let comp_set: HashSet<&str> = comp.iter().map(String::as_str).collect();
+        let mut comp_edges = 0usize;
+        for node in comp.iter().map(String::as_str) {
+            if let Some(succs) = graph.successors_iter(node) {
+                for succ in succs {
+                    if comp_set.contains(succ) {
+                        comp_edges += 1;
+                    }
+                }
+            }
+        }
+        if comp_edges != comp_len.saturating_sub(1) {
+            return false;
+        }
+    }
+
+    true
 }
 
 // ---------------------------------------------------------------------------
@@ -36492,6 +36516,15 @@ mod tests {
         let mut g = DiGraph::strict();
         let _ = g.add_edge("a", "c");
         let _ = g.add_edge("b", "c"); // c has in-degree 2
+        assert!(!is_branching(&g));
+    }
+
+    #[test]
+    fn test_is_branching_cycle_with_isolate() {
+        let mut g = DiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "a");
+        g.add_node("c");
         assert!(!is_branching(&g));
     }
 
