@@ -108,10 +108,23 @@ impl BackendRegistry {
         );
 
         if action == DecisionAction::FailClosed {
-            self.record_dispatch(request, action, None, "unknown_incompatible_feature");
+            let (reason, error_reason) = if request.unknown_incompatible_feature {
+                (
+                    "unknown_incompatible_feature",
+                    "unknown incompatible feature in dispatch request",
+                )
+            } else if request.risk_probability.is_nan() {
+                ("risk_probability_nan", "risk probability is NaN")
+            } else {
+                (
+                    "risk_probability_too_high",
+                    "risk probability exceeds allowed threshold",
+                )
+            };
+            self.record_dispatch(request, action, None, reason);
             return Err(DispatchError::FailClosed {
                 operation: request.operation.clone(),
-                reason: "unknown incompatible feature in dispatch request".to_owned(),
+                reason: error_reason.to_owned(),
             });
         }
 
@@ -301,6 +314,64 @@ mod tests {
             .resolve(&request)
             .expect_err("strict mode must fail closed");
         assert!(matches!(err, DispatchError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn strict_mode_fail_closed_reason_reports_risk_probability() {
+        let mut registry = BackendRegistry::strict();
+        registry.register_backend(BackendSpec {
+            name: "native".to_owned(),
+            priority: 100,
+            supported_features: set(&["shortest_path"]),
+            allow_in_strict: true,
+            allow_in_hardened: true,
+        });
+
+        let request = DispatchRequest {
+            operation: "shortest_path".to_owned(),
+            requested_backend: None,
+            required_features: set(&["shortest_path"]),
+            risk_probability: 0.99,
+            unknown_incompatible_feature: false,
+        };
+
+        let err = registry
+            .resolve(&request)
+            .expect_err("strict mode must fail closed for high risk");
+        assert!(matches!(
+            err,
+            DispatchError::FailClosed { ref reason, .. }
+                if reason == "risk probability exceeds allowed threshold"
+        ));
+    }
+
+    #[test]
+    fn strict_mode_fail_closed_reason_reports_nan_probability() {
+        let mut registry = BackendRegistry::strict();
+        registry.register_backend(BackendSpec {
+            name: "native".to_owned(),
+            priority: 100,
+            supported_features: set(&["shortest_path"]),
+            allow_in_strict: true,
+            allow_in_hardened: true,
+        });
+
+        let request = DispatchRequest {
+            operation: "shortest_path".to_owned(),
+            requested_backend: None,
+            required_features: set(&["shortest_path"]),
+            risk_probability: f64::NAN,
+            unknown_incompatible_feature: false,
+        };
+
+        let err = registry
+            .resolve(&request)
+            .expect_err("strict mode must fail closed for NaN risk");
+        assert!(matches!(
+            err,
+            DispatchError::FailClosed { ref reason, .. }
+                if reason == "risk probability is NaN"
+        ));
     }
 
     #[test]
