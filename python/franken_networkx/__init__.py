@@ -433,27 +433,55 @@ def _py_bfs_edges(G, source, depth_limit=None, sort_neighbors=None, reverse=Fals
                 queue.append((neighbor, depth + 1))
 
 
-def _py_dfs_edges(G, source, depth_limit=None, sort_neighbors=None):
-    """Python-level DFS with sort_neighbors support."""
+def _py_dfs_labeled_edges(G, source=None, depth_limit=None, sort_neighbors=None):
+    """Python-level DFS labeled edges with sort_neighbors support."""
+    nodes = G if source is None else [source]
+    if depth_limit is None:
+        depth_limit = len(G)
+
+    get_children = (
+        G.neighbors
+        if sort_neighbors is None
+        else lambda n: iter(sort_neighbors(G.neighbors(n)))
+    )
+
     visited = set()
-    max_depth = depth_limit if depth_limit is not None else float("inf")
-    stack = [(source, 0, iter([source]))]
-    while stack:
-        parent, depth, children = stack[-1]
-        try:
-            child = next(children)
-        except StopIteration:
-            stack.pop()
+    for start in nodes:
+        if start in visited:
             continue
-        if child not in visited:
-            visited.add(child)
-            if parent != child:
-                yield (parent, child)
-            if depth < max_depth:
-                nbrs = list(G.neighbors(child))
-                if sort_neighbors is not None:
-                    nbrs = list(sort_neighbors(nbrs))
-                stack.append((child, depth + 1, iter(nbrs)))
+        yield start, start, "forward"
+        visited.add(start)
+        stack = [(start, get_children(start))]
+        depth_now = 1
+        while stack:
+            parent, children = stack[-1]
+            for child in children:
+                if child in visited:
+                    yield parent, child, "nontree"
+                else:
+                    yield parent, child, "forward"
+                    visited.add(child)
+                    if depth_now < depth_limit:
+                        stack.append((child, iter(get_children(child))))
+                        depth_now += 1
+                        break
+                    else:
+                        yield parent, child, "reverse-depth_limit"
+            else:
+                stack.pop()
+                depth_now -= 1
+                if stack:
+                    yield stack[-1][0], parent, "reverse"
+        yield start, start, "reverse"
+
+
+def _py_dfs_edges(G, source=None, depth_limit=None, sort_neighbors=None):
+    """Python-level DFS with sort_neighbors support."""
+    for u, v, label in _py_dfs_labeled_edges(
+        G, source=source, depth_limit=depth_limit, sort_neighbors=sort_neighbors
+    ):
+        if label == "forward" and u != v:
+            yield (u, v)
 
 
 def bfs_edges(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
@@ -466,8 +494,6 @@ def bfs_edges(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
 def dfs_edges(G, source=None, depth_limit=None, sort_neighbors=None):
     """Iterate edges in DFS order from source."""
     if sort_neighbors is not None:
-        if source is None:
-            source = next(iter(G.nodes()))
         return list(_py_dfs_edges(G, source, depth_limit, sort_neighbors))
     return _dfs_edges_raw(G, source=source, depth_limit=depth_limit)
 
@@ -508,8 +534,6 @@ def bfs_tree(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
 def dfs_predecessors(G, source=None, depth_limit=None, sort_neighbors=None):
     """Return (node, predecessor) dict from DFS."""
     if sort_neighbors is not None:
-        if source is None:
-            source = next(iter(G.nodes()))
         preds = {}
         for u, v in _py_dfs_edges(G, source, depth_limit, sort_neighbors):
             preds[v] = u
@@ -520,8 +544,6 @@ def dfs_predecessors(G, source=None, depth_limit=None, sort_neighbors=None):
 def dfs_successors(G, source=None, depth_limit=None, sort_neighbors=None):
     """Return (node, [successors]) dict from DFS."""
     if sort_neighbors is not None:
-        if source is None:
-            source = next(iter(G.nodes()))
         from collections import defaultdict
 
         succs = defaultdict(list)
@@ -534,11 +556,11 @@ def dfs_successors(G, source=None, depth_limit=None, sort_neighbors=None):
 def dfs_preorder_nodes(G, source=None, depth_limit=None, sort_neighbors=None):
     """Yield nodes in DFS preorder from source."""
     if sort_neighbors is not None:
-        if source is None:
-            source = next(iter(G.nodes()))
-        yield source
-        for _, v in _py_dfs_edges(G, source, depth_limit, sort_neighbors):
-            yield v
+        for _, v, label in _py_dfs_labeled_edges(
+            G, source=source, depth_limit=depth_limit, sort_neighbors=sort_neighbors
+        ):
+            if label == "forward":
+                yield v
         return
     yield from _dfs_preorder_nodes_raw(G, source=source, depth_limit=depth_limit)
 
@@ -546,28 +568,11 @@ def dfs_preorder_nodes(G, source=None, depth_limit=None, sort_neighbors=None):
 def dfs_postorder_nodes(G, source=None, depth_limit=None, sort_neighbors=None):
     """Yield nodes in DFS postorder from source."""
     if sort_neighbors is not None:
-        if source is None:
-            source = next(iter(G.nodes()))
-        # Post-order: children before parent
-        visited = set()
-        max_depth = depth_limit if depth_limit is not None else float("inf")
-        stack = [(source, False, 0)]
-        while stack:
-            node, processed, depth = stack.pop()
-            if processed:
-                yield node
-                continue
-            if node in visited:
-                continue
-            visited.add(node)
-            stack.append((node, True, depth))
-            if depth < max_depth:
-                nbrs = list(G.neighbors(node))
-                if sort_neighbors is not None:
-                    nbrs = list(sort_neighbors(nbrs))
-                for child in reversed(nbrs):
-                    if child not in visited:
-                        stack.append((child, False, depth + 1))
+        for _, v, label in _py_dfs_labeled_edges(
+            G, source=source, depth_limit=depth_limit, sort_neighbors=sort_neighbors
+        ):
+            if label == "reverse":
+                yield v
         return
     yield from _dfs_postorder_nodes_raw(G, source=source, depth_limit=depth_limit)
 
@@ -575,10 +580,11 @@ def dfs_postorder_nodes(G, source=None, depth_limit=None, sort_neighbors=None):
 def dfs_tree(G, source=None, depth_limit=None, sort_neighbors=None):
     """Return DFS tree rooted at source."""
     if sort_neighbors is not None:
+        T = DiGraph()
         if source is None:
-            source = next(iter(G.nodes()))
-        T = Graph() if not G.is_directed() else DiGraph()
-        T.add_node(source)
+            T.add_nodes_from(G)
+        else:
+            T.add_node(source)
         for u, v in _py_dfs_edges(G, source, depth_limit, sort_neighbors):
             T.add_edge(u, v)
         return T

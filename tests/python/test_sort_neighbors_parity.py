@@ -18,6 +18,20 @@ def nx_tree_graph():
     return G
 
 
+@pytest.fixture
+def forest_graph():
+    G = fnx.Graph()
+    G.add_edges_from([(0, 1), (2, 3)])
+    return G
+
+
+@pytest.fixture
+def nx_forest_graph():
+    G = nx.Graph()
+    G.add_edges_from([(0, 1), (2, 3)])
+    return G
+
+
 class TestBFSSortNeighbors:
     def test_bfs_edges_sorted(self, tree_graph, nx_tree_graph):
         be = list(fnx.bfs_edges(tree_graph, 0, sort_neighbors=sorted))
@@ -81,3 +95,24 @@ class TestDFSSortNeighbors:
         dt = fnx.dfs_tree(tree_graph, source=0, sort_neighbors=sorted)
         ndt = nx.dfs_tree(nx_tree_graph, source=0, sort_neighbors=sorted)
         assert sorted(dt.edges()) == sorted(ndt.edges())
+
+    def test_dfs_edges_forest_sorted(self, forest_graph, nx_forest_graph):
+        de = list(fnx.dfs_edges(forest_graph, sort_neighbors=sorted))
+        nde = list(nx.dfs_edges(nx_forest_graph, sort_neighbors=sorted))
+        assert de == nde
+
+    def test_dfs_tree_forest_sorted(self, forest_graph, nx_forest_graph):
+        dt = fnx.dfs_tree(forest_graph, sort_neighbors=sorted)
+        ndt = nx.dfs_tree(nx_forest_graph, sort_neighbors=sorted)
+        assert sorted(dt.edges()) == sorted(ndt.edges())
+        assert sorted(dt.nodes()) == sorted(ndt.nodes())
+
+    def test_dfs_preorder_forest_sorted(self, forest_graph, nx_forest_graph):
+        dpre = list(fnx.dfs_preorder_nodes(forest_graph, sort_neighbors=sorted))
+        ndpre = list(nx.dfs_preorder_nodes(nx_forest_graph, sort_neighbors=sorted))
+        assert dpre == ndpre
+
+    def test_dfs_postorder_forest_sorted(self, forest_graph, nx_forest_graph):
+        dpost = list(fnx.dfs_postorder_nodes(forest_graph, sort_neighbors=sorted))
+        ndpost = list(nx.dfs_postorder_nodes(nx_forest_graph, sort_neighbors=sorted))
+        assert dpost == ndpost
