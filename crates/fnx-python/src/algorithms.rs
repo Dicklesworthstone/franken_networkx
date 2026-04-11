@@ -3687,6 +3687,10 @@ pub fn is_eulerian(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
             "Connectivity is undefined for the null graph.",
         ));
     }
+    let inner = gr.undirected();
+    if inner.node_count() > 1 && inner.nodes_ordered().iter().any(|n| inner.degree(n) == 0) {
+        return Ok(false);
+    }
     // For multigraphs, the simple-graph conversion collapses parallel edges
     // which changes degree parity. Check multigraph degree directly via Python.
     if gr.is_multigraph() {
@@ -3701,10 +3705,8 @@ pub fn is_eulerian(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
             }
         }
         // Also check connectivity via the simple graph.
-        let inner = gr.undirected();
         return Ok(py.allow_threads(|| fnx_algorithms::is_connected(inner).is_connected));
     }
-    let inner = gr.undirected();
     Ok(py.allow_threads(|| fnx_algorithms::is_eulerian(inner).is_eulerian))
 }
 
@@ -3718,6 +3720,26 @@ pub fn has_eulerian_path(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool>
         ));
     }
     let inner = gr.undirected();
+    if inner.node_count() > 1 && inner.nodes_ordered().iter().any(|n| inner.degree(n) == 0) {
+        return Ok(false);
+    }
+    if gr.is_multigraph() {
+        let nodes_method = g.call_method0("nodes")?;
+        let nodes: Vec<Bound<'_, PyAny>> =
+            nodes_method.try_iter()?.collect::<PyResult<Vec<_>>>()?;
+        let degree_view = g.getattr("degree")?;
+        let mut odd_count = 0usize;
+        for node in &nodes {
+            let deg: usize = degree_view.get_item(node)?.extract()?;
+            if !deg.is_multiple_of(2) {
+                odd_count += 1;
+            }
+        }
+        if odd_count != 0 && odd_count != 2 {
+            return Ok(false);
+        }
+        return Ok(py.allow_threads(|| fnx_algorithms::is_connected(inner).is_connected));
+    }
     Ok(py.allow_threads(|| fnx_algorithms::has_eulerian_path(inner).has_eulerian_path))
 }
 
@@ -3730,8 +3752,12 @@ pub fn is_semieulerian(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
             "Connectivity is undefined for the null graph.",
         ));
     }
-    let inner = gr.undirected();
-    Ok(py.allow_threads(|| fnx_algorithms::is_semieulerian(inner).is_semieulerian))
+    let has_path = has_eulerian_path(py, g)?;
+    if !has_path {
+        return Ok(false);
+    }
+    let is_circuit = is_eulerian(py, g)?;
+    Ok(!is_circuit)
 }
 
 /// Return an Eulerian circuit as a list of edge tuples.
@@ -3743,8 +3769,19 @@ pub fn eulerian_circuit(
     source: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Vec<(PyObject, PyObject)>> {
     let gr = extract_graph(g)?;
+    if gr.node_count_original() == 0 {
+        return Err(crate::NetworkXPointlessConcept::new_err(
+            "Connectivity is undefined for the null graph.",
+        ));
+    }
     let src = source.map(|s| node_key_to_string(py, s)).transpose()?;
+    if let (Some(src_key), Some(src_obj)) = (&src, source) {
+        validate_node(&gr, src_key, src_obj)?;
+    }
     let inner = gr.undirected();
+    if inner.node_count() > 1 && inner.nodes_ordered().iter().any(|n| inner.degree(n) == 0) {
+        return Err(NetworkXError::new_err("G is not Eulerian."));
+    }
     let result = py.allow_threads(|| fnx_algorithms::eulerian_circuit(inner, src.as_deref()));
     match result {
         Some(r) => Ok(r
@@ -3765,8 +3802,41 @@ pub fn eulerian_path(
     source: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Vec<(PyObject, PyObject)>> {
     let gr = extract_graph(g)?;
+    if gr.node_count_original() == 0 {
+        return Err(crate::NetworkXPointlessConcept::new_err(
+            "Connectivity is undefined for the null graph.",
+        ));
+    }
     let src = source.map(|s| node_key_to_string(py, s)).transpose()?;
+    if let (Some(src_key), Some(src_obj)) = (&src, source) {
+        validate_node(&gr, src_key, src_obj)?;
+    }
     let inner = gr.undirected();
+    if inner.node_count() > 1 && inner.nodes_ordered().iter().any(|n| inner.degree(n) == 0) {
+        return Err(NetworkXError::new_err("Graph has no Eulerian paths."));
+    }
+    let odd_nodes: Vec<&str> = inner
+        .nodes_ordered()
+        .iter()
+        .copied()
+        .filter(|n| !inner.degree(n).is_multiple_of(2))
+        .collect();
+    let odd_count = odd_nodes.len();
+    if odd_count != 0 && odd_count != 2 {
+        return Err(NetworkXError::new_err("Graph has no Eulerian paths."));
+    }
+    if let Some(src_key) = src.as_deref() {
+        if inner.node_count() > 1 && inner.degree(src_key) == 0 {
+            return Err(NetworkXError::new_err("Graph has no Eulerian paths."));
+        }
+        if odd_count == 2 && !odd_nodes.contains(&src_key) {
+            return Err(NetworkXError::new_err("Graph has no Eulerian paths."));
+        }
+    }
+    let connected = py.allow_threads(|| fnx_algorithms::is_connected(inner).is_connected);
+    if !connected {
+        return Err(NetworkXError::new_err("Graph has no Eulerian paths."));
+    }
     let result = py.allow_threads(|| fnx_algorithms::eulerian_path(inner, src.as_deref()));
     match result {
         Some(r) => Ok(r
@@ -3774,7 +3844,7 @@ pub fn eulerian_path(
             .iter()
             .map(|(u, v)| (gr.py_node_key(py, u), gr.py_node_key(py, v)))
             .collect()),
-        None => Err(NetworkXError::new_err("G has no Eulerian path.")),
+        None => Err(NetworkXError::new_err("Graph has no Eulerian paths.")),
     }
 }
 

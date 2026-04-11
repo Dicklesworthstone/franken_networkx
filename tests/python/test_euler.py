@@ -41,3 +41,17 @@ class TestEuler:
         G_fnx, _ = star_graph
         with pytest.raises(fnx.NetworkXError):
             fnx.eulerian_circuit(G_fnx)
+
+    def test_isolated_node_blocks_eulerian(self, fnx, nx, triangle_graph):
+        G_fnx, G_nx = triangle_graph
+        G_fnx.add_node("isolated")
+        G_nx.add_node("isolated")
+        assert fnx.is_eulerian(G_fnx) == nx.is_eulerian(G_nx)
+        assert fnx.has_eulerian_path(G_fnx) == nx.has_eulerian_path(G_nx)
+
+    def test_eulerian_path_invalid_source(self, fnx, nx, path_graph):
+        G_fnx, G_nx = path_graph
+        with pytest.raises(nx.NetworkXError):
+            list(nx.eulerian_path(G_nx, source="c"))
+        with pytest.raises(fnx.NetworkXError):
+            fnx.eulerian_path(G_fnx, source="c")

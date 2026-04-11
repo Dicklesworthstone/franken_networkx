@@ -254,7 +254,10 @@ class TestEulerErrors:
         G = fnx.Graph()
         G.add_edge("a", "b")
         G.add_edge("c", "d")
-        with pytest.raises(fnx.NetworkXError, match=r"G has no Eulerian path"):
+        with pytest.raises(
+            fnx.NetworkXError,
+            match=r"Graph has no Eulerian paths\.",
+        ):
             fnx.eulerian_path(G)
 
 
@@ -272,6 +275,22 @@ class TestPointlessConceptNullGraph:
             match=r"Connectivity is undefined for the null graph",
         ):
             fnx.is_eulerian(G)
+
+    def test_eulerian_circuit_empty_graph(self):
+        G = fnx.Graph()
+        with pytest.raises(
+            fnx.NetworkXPointlessConcept,
+            match=r"Connectivity is undefined for the null graph",
+        ):
+            fnx.eulerian_circuit(G)
+
+    def test_eulerian_path_empty_graph(self):
+        G = fnx.Graph()
+        with pytest.raises(
+            fnx.NetworkXPointlessConcept,
+            match=r"Connectivity is undefined for the null graph",
+        ):
+            fnx.eulerian_path(G)
 
     def test_has_eulerian_path_empty_digraph(self):
         DG = fnx.DiGraph()
