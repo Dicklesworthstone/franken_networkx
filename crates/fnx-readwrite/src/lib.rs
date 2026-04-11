@@ -3185,6 +3185,7 @@ impl GraphLike for DiGraph {
 
 fn attr_escape(s: &str) -> String {
     s.replace('%', "%25")
+        .replace('#', "%23")
         .replace('=', "%3D")
         .replace(';', "%3B")
         .replace(' ', "%20")
@@ -3200,6 +3201,7 @@ fn attr_unescape(s: &str) -> String {
         .replace("%0a", "\n")
         .replace("%09", "\t")
         .replace("%20", " ")
+        .replace("%23", "#")
         .replace("%3B", ";")
         .replace("%3b", ";")
         .replace("%3D", "=")
@@ -3426,6 +3428,7 @@ mod tests {
                         CgseValue::String("line1\nline2\tend\r".to_owned()),
                     ),
                     ("label".to_owned(), CgseValue::String("a b;c%".to_owned())),
+                    ("hash".to_owned(), CgseValue::String("tag#a".to_owned())),
                 ]),
             )
             .expect("edge add should succeed");
@@ -3437,6 +3440,7 @@ mod tests {
         assert!(text.contains("%0A"));
         assert!(text.contains("%09"));
         assert!(text.contains("%0D"));
+        assert!(text.contains("%23"));
 
         let parsed = engine
             .read_edgelist(&text)
@@ -3451,6 +3455,10 @@ mod tests {
         assert_eq!(
             attrs.get("label"),
             Some(&CgseValue::String("a b;c%".to_owned()))
+        );
+        assert_eq!(
+            attrs.get("hash"),
+            Some(&CgseValue::String("tag#a".to_owned()))
         );
     }
 
