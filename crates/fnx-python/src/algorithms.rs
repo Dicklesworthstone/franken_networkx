@@ -4017,7 +4017,7 @@ pub fn bfs_edges(
     depth_limit: Option<usize>,
     sort_neighbors: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Vec<(PyObject, PyObject)>> {
-    let _ = (reverse, sort_neighbors); // accepted for API compat, not used
+    let _ = sort_neighbors; // accepted for API compat, handled in Python wrapper
     let gr = extract_graph(g)?;
     let source_key = node_key_to_string(py, source)?;
     if !gr.has_node(&source_key) {
@@ -4030,7 +4030,15 @@ pub fn bfs_edges(
     let edges = match &gr {
         GraphRef::Directed { dg, .. } => {
             let inner = &dg.inner;
-            py.allow_threads(|| fnx_algorithms::bfs_edges_directed(inner, &source_key, depth_limit))
+            if reverse {
+                py.allow_threads(|| {
+                    fnx_algorithms::bfs_edges_directed_reverse(inner, &source_key, depth_limit)
+                })
+            } else {
+                py.allow_threads(|| {
+                    fnx_algorithms::bfs_edges_directed(inner, &source_key, depth_limit)
+                })
+            }
         }
 
         GraphRef::Undirected(pg) => {
@@ -4041,9 +4049,15 @@ pub fn bfs_edges(
         _ => {
             if gr.is_directed() {
                 let inner = gr.digraph().expect("is_directed checked above");
-                py.allow_threads(|| {
-                    fnx_algorithms::bfs_edges_directed(inner, &source_key, depth_limit)
-                })
+                if reverse {
+                    py.allow_threads(|| {
+                        fnx_algorithms::bfs_edges_directed_reverse(inner, &source_key, depth_limit)
+                    })
+                } else {
+                    py.allow_threads(|| {
+                        fnx_algorithms::bfs_edges_directed(inner, &source_key, depth_limit)
+                    })
+                }
             } else {
                 let inner = gr.undirected();
 
@@ -4069,7 +4083,7 @@ pub fn bfs_tree(
     depth_limit: Option<usize>,
     sort_neighbors: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<crate::digraph::PyDiGraph> {
-    let _ = (reverse, sort_neighbors);
+    let _ = sort_neighbors;
     let gr = extract_graph(g)?;
     let source_key = node_key_to_string(py, source)?;
     if !gr.has_node(&source_key) {
@@ -4082,7 +4096,15 @@ pub fn bfs_tree(
     let edges = match &gr {
         GraphRef::Directed { dg, .. } => {
             let inner = &dg.inner;
-            py.allow_threads(|| fnx_algorithms::bfs_edges_directed(inner, &source_key, depth_limit))
+            if reverse {
+                py.allow_threads(|| {
+                    fnx_algorithms::bfs_edges_directed_reverse(inner, &source_key, depth_limit)
+                })
+            } else {
+                py.allow_threads(|| {
+                    fnx_algorithms::bfs_edges_directed(inner, &source_key, depth_limit)
+                })
+            }
         }
 
         GraphRef::Undirected(pg) => {
@@ -4093,9 +4115,15 @@ pub fn bfs_tree(
         _ => {
             if gr.is_directed() {
                 let inner = gr.digraph().expect("is_directed checked above");
-                py.allow_threads(|| {
-                    fnx_algorithms::bfs_edges_directed(inner, &source_key, depth_limit)
-                })
+                if reverse {
+                    py.allow_threads(|| {
+                        fnx_algorithms::bfs_edges_directed_reverse(inner, &source_key, depth_limit)
+                    })
+                } else {
+                    py.allow_threads(|| {
+                        fnx_algorithms::bfs_edges_directed(inner, &source_key, depth_limit)
+                    })
+                }
             } else {
                 let inner = gr.undirected();
 

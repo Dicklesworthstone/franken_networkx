@@ -101,6 +101,14 @@ class TestBFS:
             nodes.add(v)
         assert nodes == {0, 1, 2, 3}
 
+    def test_bfs_edges_reverse_on_digraph(self, dag):
+        edges = list(fnx.bfs_edges(dag, 3, reverse=True))
+        assert edges == [(3, 1), (3, 2), (1, 0)]
+
+    def test_bfs_tree_reverse_on_digraph(self, dag):
+        tree = fnx.bfs_tree(dag, 3, reverse=True)
+        assert set(tree.edges()) == {(3, 1), (3, 2), (1, 0)}
+
     def test_bfs_node_not_found(self, diamond):
         with pytest.raises(fnx.NodeNotFound):
             list(fnx.bfs_edges(diamond, 99))

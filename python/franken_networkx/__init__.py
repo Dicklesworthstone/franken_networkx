@@ -408,18 +408,22 @@ from franken_networkx._fnx import (
 )
 
 
-def _py_bfs_edges(G, source, depth_limit=None, sort_neighbors=None):
+def _py_bfs_edges(G, source, depth_limit=None, sort_neighbors=None, reverse=False):
     """Python-level BFS with sort_neighbors support."""
     from collections import deque
 
     visited = {source}
     queue = deque([(source, 0)])
     max_depth = depth_limit if depth_limit is not None else float("inf")
+    if reverse and G.is_directed():
+        neighbor_iter = G.predecessors
+    else:
+        neighbor_iter = G.neighbors
     while queue:
         node, depth = queue.popleft()
         if depth >= max_depth:
             continue
-        nbrs = list(G.neighbors(node))
+        nbrs = list(neighbor_iter(node))
         if sort_neighbors is not None:
             nbrs = list(sort_neighbors(nbrs))
         for neighbor in nbrs:
@@ -455,7 +459,7 @@ def _py_dfs_edges(G, source, depth_limit=None, sort_neighbors=None):
 def bfs_edges(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
     """Iterate edges in BFS order from source."""
     if sort_neighbors is not None:
-        return list(_py_bfs_edges(G, source, depth_limit, sort_neighbors))
+        return list(_py_bfs_edges(G, source, depth_limit, sort_neighbors, reverse=reverse))
     return _bfs_edges_raw(G, source, reverse=reverse, depth_limit=depth_limit)
 
 
@@ -493,9 +497,9 @@ def bfs_successors(G, source, depth_limit=None, sort_neighbors=None):
 def bfs_tree(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
     """Return BFS tree rooted at source."""
     if sort_neighbors is not None:
-        T = Graph()
+        T = DiGraph()
         T.add_node(source)
-        for u, v in _py_bfs_edges(G, source, depth_limit, sort_neighbors):
+        for u, v in _py_bfs_edges(G, source, depth_limit, sort_neighbors, reverse=reverse):
             T.add_edge(u, v)
         return T
     return _bfs_tree_raw(G, source, reverse=reverse, depth_limit=depth_limit)

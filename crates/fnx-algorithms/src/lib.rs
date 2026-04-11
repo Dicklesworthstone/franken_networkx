@@ -11644,6 +11644,44 @@ pub fn bfs_edges_directed(
     edges
 }
 
+/// Edges in BFS order from `source` on a directed graph, following predecessors.
+///
+/// Matches `networkx.bfs_edges` with `reverse=True` on DiGraph.
+#[must_use]
+pub fn bfs_edges_directed_reverse(
+    digraph: &DiGraph,
+    source: &str,
+    depth_limit: Option<usize>,
+) -> Vec<(String, String)> {
+    let max_depth = depth_limit.unwrap_or(usize::MAX);
+    let mut visited: HashSet<&str> = HashSet::new();
+    let mut edges: Vec<(String, String)> = Vec::new();
+
+    if !digraph.has_node(source) {
+        return edges;
+    }
+
+    visited.insert(source);
+    let mut queue: VecDeque<(&str, usize)> = VecDeque::new();
+    queue.push_back((source, 0));
+
+    while let Some((node, depth)) = queue.pop_front() {
+        if depth >= max_depth {
+            continue;
+        }
+        if let Some(preds) = digraph.predecessors(node) {
+            for pred in preds {
+                if visited.insert(pred) {
+                    edges.push((node.to_owned(), pred.to_owned()));
+                    queue.push_back((pred, depth + 1));
+                }
+            }
+        }
+    }
+
+    edges
+}
+
 /// BFS predecessors map on an undirected graph.
 ///
 /// Returns a map from node → its BFS parent. The source has no entry.
