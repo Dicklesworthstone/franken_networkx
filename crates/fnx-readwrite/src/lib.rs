@@ -1733,6 +1733,10 @@ impl EdgeListEngine {
         let attr_type = attr_type.trim().to_ascii_lowercase();
         let trimmed = raw_value.trim();
 
+        if raw_value.is_empty() {
+            return Ok(CgseValue::String(raw_value));
+        }
+
         let parsed = match attr_type.as_str() {
             "" => Ok(CgseValue::parse_relaxed(trimmed)),
             "string" => Ok(CgseValue::String(raw_value)),
@@ -4036,6 +4040,26 @@ mod tests {
             .expect("typed double should parse");
         let attrs = report.graph.node_attrs("n0").expect("node should exist");
         assert_eq!(attrs.get("weight"), Some(&CgseValue::Float(1.0)));
+    }
+
+    #[test]
+    fn graphml_typed_int_allows_empty_data() {
+        let graphml = r#"
+<graphml>
+  <key id="d0" for="node" attr.name="count" attr.type="int"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0"/>
+    </node>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("empty typed data should parse as empty string");
+        let attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert_eq!(attrs.get("count"), Some(&CgseValue::String(String::new())));
     }
 
     #[test]
