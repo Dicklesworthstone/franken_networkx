@@ -1283,10 +1283,13 @@ impl EdgeListEngine {
             unknown_incompatible_feature: false,
         })?;
 
-        let directed = self.graphml_directed_flag(input)?;
         let mut graph = Graph::new(self.mode);
         let mut graph_attrs = AttrMap::new();
         let mut warnings = Vec::new();
+        let directed = self.graphml_directed_flag(input)?;
+        if let Some(warning) = directed.warning.as_ref() {
+            warnings.push(warning.clone());
+        }
 
         if directed.declared && directed.value {
             let warning = "graphml declares directed but read into undirected Graph".to_owned();
@@ -1362,21 +1365,60 @@ impl EdgeListEngine {
                                 return Ok(GraphmlDirectedFlag {
                                     declared: false,
                                     value: false,
+                                    warning: Some(warning),
                                 });
                             }
                         };
                         if xml_local_name(attr.key.as_ref()) == b"edgedefault" {
                             declared = true;
-                            value = attr.value.as_ref() == b"directed";
-                            break;
+                            match parse_graphml_edgedefault_value(attr.value.as_ref()) {
+                                Some(flag) => {
+                                    value = flag;
+                                    break;
+                                }
+                                None => {
+                                    let warning = format!(
+                                        "graphml edgedefault invalid: value={:?}",
+                                        String::from_utf8_lossy(attr.value.as_ref())
+                                    );
+                                    if self.mode == CompatibilityMode::Strict {
+                                        self.record(
+                                            "read_graphml",
+                                            DecisionAction::FailClosed,
+                                            &warning,
+                                            1.0,
+                                        );
+                                        return Err(ReadWriteError::FailClosed {
+                                            operation: "read_graphml",
+                                            reason: warning,
+                                        });
+                                    }
+                                    self.record(
+                                        "read_graphml",
+                                        DecisionAction::FullValidate,
+                                        &warning,
+                                        0.7,
+                                    );
+                                    return Ok(GraphmlDirectedFlag {
+                                        declared: false,
+                                        value: false,
+                                        warning: Some(warning),
+                                    });
+                                }
+                            }
                         }
                     }
-                    return Ok(GraphmlDirectedFlag { declared, value });
+                    return Ok(GraphmlDirectedFlag {
+                        declared,
+                        value,
+                        warning: None,
+                    });
                 }
                 Ok(Event::Eof) => {
                     return Ok(GraphmlDirectedFlag {
                         declared: false,
                         value: false,
+                        warning: None,
                     });
                 }
                 Err(err) => {
@@ -1392,6 +1434,7 @@ impl EdgeListEngine {
                     return Ok(GraphmlDirectedFlag {
                         declared: false,
                         value: false,
+                        warning: Some(warning),
                     });
                 }
                 _ => {}
@@ -1412,10 +1455,13 @@ impl EdgeListEngine {
             unknown_incompatible_feature: false,
         })?;
 
-        let directed = self.graphml_directed_flag(input)?;
         let mut graph = DiGraph::new(self.mode);
         let mut graph_attrs = AttrMap::new();
         let mut warnings = Vec::new();
+        let directed = self.graphml_directed_flag(input)?;
+        if let Some(warning) = directed.warning.as_ref() {
+            warnings.push(warning.clone());
+        }
 
         if directed.declared && !directed.value {
             let warning = "graphml declares undirected but read into directed DiGraph".to_owned();
@@ -3461,10 +3507,11 @@ struct GmlDirectedFlag {
     value: bool,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 struct GraphmlDirectedFlag {
     declared: bool,
     value: bool,
+    warning: Option<String>,
 }
 
 fn graphml_scope_matches(for_scope: &str, target: &str) -> bool {
@@ -3480,6 +3527,15 @@ fn parse_graphml_directed_value(value: &[u8]) -> Option<bool> {
     match text.trim().to_ascii_lowercase().as_str() {
         "true" | "1" => Some(true),
         "false" | "0" => Some(false),
+        _ => None,
+    }
+}
+
+fn parse_graphml_edgedefault_value(value: &[u8]) -> Option<bool> {
+    let text = std::str::from_utf8(value).ok()?;
+    match text.trim().to_ascii_lowercase().as_str() {
+        "directed" => Some(true),
+        "undirected" => Some(false),
         _ => None,
     }
 }
@@ -4220,6 +4276,43 @@ mod tests {
         let report = engine
             .read_digraph_graphml(input)
             .expect("hardened mode should recover from undirected graphml");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn strict_graphml_invalid_edgedefault_fails_closed() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph id="G" edgedefault="sideways">
+    <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b"/>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(input)
+            .expect_err("strict mode should fail on invalid edgedefault");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn hardened_graphml_invalid_edgedefault_warns() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph id="G" edgedefault="sideways">
+    <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b"/>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(input)
+            .expect("hardened mode should recover from invalid edgedefault");
         assert!(!report.warnings.is_empty());
         assert_eq!(report.graph.edge_count(), 1);
     }

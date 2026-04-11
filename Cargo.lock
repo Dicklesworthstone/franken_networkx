@@ -661,6 +661,7 @@ dependencies = [
  "ahash",
  "arc-swap",
  "bitflags",
+ "libc",
  "signal-hook",
  "unicode-display-width",
  "unicode-segmentation",
