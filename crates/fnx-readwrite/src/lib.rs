@@ -2533,7 +2533,30 @@ impl EdgeListEngine {
 
         while pos + 1 < tokens.len() {
             match tokens[pos].as_str() {
-                "directed" => return Ok(tokens[pos + 1] == "1"),
+                "directed" => {
+                    let value = &tokens[pos + 1];
+                    return match parse_gml_directed_value(value) {
+                        Some(flag) => Ok(flag),
+                        None => {
+                            let warning = format!("gml directed value '{value}' must be 0 or 1");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                                Err(ReadWriteError::FailClosed {
+                                    operation: "read_gml",
+                                    reason: warning,
+                                })
+                            } else {
+                                self.record(
+                                    "read_gml",
+                                    DecisionAction::FullValidate,
+                                    &warning,
+                                    0.7,
+                                );
+                                Ok(false)
+                            }
+                        }
+                    };
+                }
                 "node" | "edge" | "]" => return Ok(false),
                 _ => pos += 1,
             }
@@ -2577,7 +2600,26 @@ impl EdgeListEngine {
             match tok.as_str() {
                 "directed" if pos + 1 < tokens.len() => {
                     directed_declared = true;
-                    directed = tokens[pos + 1] == "1";
+                    let value = &tokens[pos + 1];
+                    match parse_gml_directed_value(value) {
+                        Some(flag) => {
+                            directed = flag;
+                        }
+                        None => {
+                            let warning = format!("gml directed value '{value}' must be 0 or 1");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_gml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+                            directed_declared = false;
+                            directed = false;
+                        }
+                    }
                     pos += 2;
                 }
                 "node" if pos + 1 < tokens.len() && tokens[pos + 1] == "[" => {
@@ -3086,6 +3128,14 @@ fn gml_value_str(value: &CgseValue) -> String {
                 text
             }
         }
+    }
+}
+
+fn parse_gml_directed_value(value: &str) -> Option<bool> {
+    match value.trim() {
+        "0" => Some(false),
+        "1" => Some(true),
+        _ => None,
     }
 }
 
@@ -4234,6 +4284,58 @@ mod tests {
             .expect("hardened mode should recover from directed gml");
         assert!(!report.warnings.is_empty());
         assert_eq!(report.graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn strict_gml_invalid_directed_value_fails_closed() {
+        let input = r#"graph [
+  directed 2
+  node [
+    id 0
+    label "a"
+  ]
+  node [
+    id 1
+    label "b"
+  ]
+  edge [
+    source 0
+    target 1
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_gml(input)
+            .expect_err("strict gml should fail on invalid directed value");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn hardened_gml_invalid_directed_value_warns() {
+        let input = r#"graph [
+  directed 2
+  node [
+    id 0
+    label "a"
+  ]
+  node [
+    id 1
+    label "b"
+  ]
+  edge [
+    source 0
+    target 1
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_gml(input)
+            .expect("hardened gml should recover from invalid directed value");
+        assert!(report.warnings.iter().any(
+            |warning| warning.contains("directed value") && warning.contains("must be 0 or 1")
+        ));
     }
 
     #[test]
