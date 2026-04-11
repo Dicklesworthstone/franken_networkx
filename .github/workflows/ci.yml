@@ -74,6 +74,8 @@ jobs:
         run: maturin develop --features pyo3/abi3-py310
       - name: Run canonical Python parity suite
         run: pytest tests/python/ -v --tb=long
+      - name: Run error message parity suite
+        run: pytest tests/python/test_error_messages.py -v --tb=long
 
   g4b-e2e:
     name: G4b e2e integration
