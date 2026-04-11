@@ -890,8 +890,8 @@ impl EdgeListEngine {
 
         // Collect all distinct attribute keys from graph, nodes, and edges.
         let mut graph_attr_keys = BTreeSet::new();
-        let mut node_attr_keys = BTreeSet::new();
-        let mut edge_attr_keys = BTreeSet::new();
+        let mut node_attr_keys: BTreeSet<(String, GraphmlValueType)> = BTreeSet::new();
+        let mut edge_attr_keys: BTreeSet<(String, GraphmlValueType)> = BTreeSet::new();
 
         for key in graph_attrs.keys() {
             graph_attr_keys.insert(key.clone());
@@ -900,16 +900,16 @@ impl EdgeListEngine {
         let nodes = graph.nodes_ordered();
         for node_id in &nodes {
             if let Some(attrs) = graph.node_attrs(node_id) {
-                for key in attrs.keys() {
-                    node_attr_keys.insert(key.clone());
+                for (key, value) in attrs {
+                    node_attr_keys.insert((key.clone(), GraphmlValueType::from_value(value)));
                 }
             }
         }
 
         let edges = graph.edges_ordered();
         for edge in &edges {
-            for key in edge.attrs.keys() {
-                edge_attr_keys.insert(key.clone());
+            for (key, value) in &edge.attrs {
+                edge_attr_keys.insert((key.clone(), GraphmlValueType::from_value(value)));
             }
         }
 
@@ -931,35 +931,35 @@ impl EdgeListEngine {
         }
 
         // Emit <key> declarations for node attributes.
-        let mut node_key_ids: BTreeMap<String, String> = BTreeMap::new();
-        for attr_name in &node_attr_keys {
+        let mut node_key_ids: BTreeMap<(String, GraphmlValueType), String> = BTreeMap::new();
+        for (attr_name, attr_type) in &node_attr_keys {
             let key_id = format!("n{key_counter}");
             key_counter += 1;
             let mut key_elem = BytesStart::new("key");
             key_elem.push_attribute(("id", key_id.as_str()));
             key_elem.push_attribute(("for", "node"));
             key_elem.push_attribute(("attr.name", attr_name.as_str()));
-            key_elem.push_attribute(("attr.type", "string"));
+            key_elem.push_attribute(("attr.type", attr_type.as_str()));
             writer
                 .write_event(Event::Empty(key_elem))
                 .map_err(|e| xml_write_err("key_node", e))?;
-            node_key_ids.insert(attr_name.clone(), key_id);
+            node_key_ids.insert((attr_name.clone(), *attr_type), key_id);
         }
 
         // Emit <key> declarations for edge attributes.
-        let mut edge_key_ids: BTreeMap<String, String> = BTreeMap::new();
-        for attr_name in &edge_attr_keys {
+        let mut edge_key_ids: BTreeMap<(String, GraphmlValueType), String> = BTreeMap::new();
+        for (attr_name, attr_type) in &edge_attr_keys {
             let key_id = format!("e{key_counter}");
             key_counter += 1;
             let mut key_elem = BytesStart::new("key");
             key_elem.push_attribute(("id", key_id.as_str()));
             key_elem.push_attribute(("for", "edge"));
             key_elem.push_attribute(("attr.name", attr_name.as_str()));
-            key_elem.push_attribute(("attr.type", "string"));
+            key_elem.push_attribute(("attr.type", attr_type.as_str()));
             writer
                 .write_event(Event::Empty(key_elem))
                 .map_err(|e| xml_write_err("key_edge", e))?;
-            edge_key_ids.insert(attr_name.clone(), key_id);
+            edge_key_ids.insert((attr_name.clone(), *attr_type), key_id);
         }
 
         // Emit <graph> element.
@@ -1003,20 +1003,30 @@ impl EdgeListEngine {
                     .map_err(|e| xml_write_err("node_start", e))?;
                 if let Some(attrs) = node_attrs {
                     for (attr_name, attr_value) in attrs {
-                        if let Some(key_id) = node_key_ids.get(attr_name) {
-                            let mut data_elem = BytesStart::new("data");
-                            data_elem.push_attribute(("key", key_id.as_str()));
-                            writer
-                                .write_event(Event::Start(data_elem))
-                                .map_err(|e| xml_write_err("data_start", e))?;
-                            let attr_text = attr_value.as_str();
-                            writer
-                                .write_event(Event::Text(BytesText::new(&attr_text)))
-                                .map_err(|e| xml_write_err("data_text", e))?;
-                            writer
-                                .write_event(Event::End(BytesEnd::new("data")))
-                                .map_err(|e| xml_write_err("data_end", e))?;
-                        }
+                        let attr_type = GraphmlValueType::from_value(attr_value);
+                        let key = (attr_name.clone(), attr_type);
+                        let key_id =
+                            node_key_ids
+                                .get(&key)
+                                .ok_or_else(|| ReadWriteError::FailClosed {
+                                    operation: "write_graphml",
+                                    reason: format!(
+                                        "graphml node key not declared: name={attr_name} type={:?}",
+                                        attr_type
+                                    ),
+                                })?;
+                        let mut data_elem = BytesStart::new("data");
+                        data_elem.push_attribute(("key", key_id.as_str()));
+                        writer
+                            .write_event(Event::Start(data_elem))
+                            .map_err(|e| xml_write_err("data_start", e))?;
+                        let attr_text = attr_value.as_str();
+                        writer
+                            .write_event(Event::Text(BytesText::new(&attr_text)))
+                            .map_err(|e| xml_write_err("data_text", e))?;
+                        writer
+                            .write_event(Event::End(BytesEnd::new("data")))
+                            .map_err(|e| xml_write_err("data_end", e))?;
                     }
                 }
                 writer
@@ -1041,20 +1051,30 @@ impl EdgeListEngine {
                     .write_event(Event::Start(edge_elem))
                     .map_err(|e| xml_write_err("edge_start", e))?;
                 for (attr_name, attr_value) in &edge.attrs {
-                    if let Some(key_id) = edge_key_ids.get(attr_name) {
-                        let mut data_elem = BytesStart::new("data");
-                        data_elem.push_attribute(("key", key_id.as_str()));
-                        writer
-                            .write_event(Event::Start(data_elem))
-                            .map_err(|e| xml_write_err("data_start", e))?;
-                        let attr_text = attr_value.as_str();
-                        writer
-                            .write_event(Event::Text(BytesText::new(&attr_text)))
-                            .map_err(|e| xml_write_err("data_text", e))?;
-                        writer
-                            .write_event(Event::End(BytesEnd::new("data")))
-                            .map_err(|e| xml_write_err("data_end", e))?;
-                    }
+                    let attr_type = GraphmlValueType::from_value(attr_value);
+                    let key = (attr_name.clone(), attr_type);
+                    let key_id =
+                        edge_key_ids
+                            .get(&key)
+                            .ok_or_else(|| ReadWriteError::FailClosed {
+                                operation: "write_graphml",
+                                reason: format!(
+                                    "graphml edge key not declared: name={attr_name} type={:?}",
+                                    attr_type
+                                ),
+                            })?;
+                    let mut data_elem = BytesStart::new("data");
+                    data_elem.push_attribute(("key", key_id.as_str()));
+                    writer
+                        .write_event(Event::Start(data_elem))
+                        .map_err(|e| xml_write_err("data_start", e))?;
+                    let attr_text = attr_value.as_str();
+                    writer
+                        .write_event(Event::Text(BytesText::new(&attr_text)))
+                        .map_err(|e| xml_write_err("data_text", e))?;
+                    writer
+                        .write_event(Event::End(BytesEnd::new("data")))
+                        .map_err(|e| xml_write_err("data_end", e))?;
                 }
                 writer
                     .write_event(Event::End(BytesEnd::new("edge")))
@@ -2477,11 +2497,34 @@ fn gml_value_str(value: &CgseValue) -> String {
 }
 
 fn graphml_attr_type(value: &CgseValue) -> &'static str {
-    match value {
-        CgseValue::String(_) => "string",
-        CgseValue::Float(_) => "double",
-        CgseValue::Int(_) => "int",
-        CgseValue::Bool(_) => "boolean",
+    GraphmlValueType::from_value(value).as_str()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum GraphmlValueType {
+    Boolean,
+    Int,
+    Float,
+    String,
+}
+
+impl GraphmlValueType {
+    fn from_value(value: &CgseValue) -> Self {
+        match value {
+            CgseValue::Bool(_) => Self::Boolean,
+            CgseValue::Int(_) => Self::Int,
+            CgseValue::Float(_) => Self::Float,
+            CgseValue::String(_) => Self::String,
+        }
+    }
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Boolean => "boolean",
+            Self::Int => "int",
+            Self::Float => "double",
+            Self::String => "string",
+        }
     }
 }
 
@@ -3065,6 +3108,48 @@ mod tests {
             parsed.graph.node_attrs("a").unwrap().get("color").unwrap(),
             &CgseValue::String("red".to_owned())
         );
+    }
+
+    #[test]
+    fn graphml_round_trip_preserves_typed_attrs() {
+        let mut graph = Graph::strict();
+        graph.add_node_with_attrs(
+            "a".to_owned(),
+            BTreeMap::from([
+                ("count".to_owned(), CgseValue::Int(2)),
+                ("ratio".to_owned(), CgseValue::Float(1.5)),
+                ("ok".to_owned(), CgseValue::Bool(true)),
+            ]),
+        );
+        graph
+            .add_edge_with_attrs(
+                "a".to_owned(),
+                "b".to_owned(),
+                BTreeMap::from([
+                    ("weight".to_owned(), CgseValue::Float(2.5)),
+                    ("flag".to_owned(), CgseValue::Bool(false)),
+                ]),
+            )
+            .expect("edge add should succeed");
+
+        let mut engine = EdgeListEngine::strict();
+        let xml = engine
+            .write_graphml(&graph)
+            .expect("graphml write should succeed");
+        let parsed = engine
+            .read_graphml(&xml)
+            .expect("graphml read should succeed");
+
+        let attrs = parsed.graph.node_attrs("a").expect("node attrs");
+        assert_eq!(attrs.get("count"), Some(&CgseValue::Int(2)));
+        assert_eq!(attrs.get("ratio"), Some(&CgseValue::Float(1.5)));
+        assert_eq!(attrs.get("ok"), Some(&CgseValue::Bool(true)));
+
+        let edges = parsed.graph.edges_ordered();
+        assert_eq!(edges.len(), 1);
+        let edge_attrs = &edges[0].attrs;
+        assert_eq!(edge_attrs.get("weight"), Some(&CgseValue::Float(2.5)));
+        assert_eq!(edge_attrs.get("flag"), Some(&CgseValue::Bool(false)));
     }
 
     #[test]
