@@ -49,7 +49,7 @@ pub struct DiReadWriteReport {
 struct JsonGraphPayload {
     pub mode: CompatibilityMode,
     #[serde(default)]
-    pub directed: bool,
+    pub directed: Option<bool>,
     #[serde(default)]
     pub graph_attrs: AttrMap,
     pub nodes: Vec<String>,
@@ -575,7 +575,7 @@ impl EdgeListEngine {
         let snapshot = graph.snapshot();
         let payload = JsonGraphPayload {
             mode: snapshot.mode,
-            directed: false,
+            directed: Some(false),
             graph_attrs: graph_attrs.clone(),
             nodes: snapshot.nodes,
             edges: snapshot.edges,
@@ -615,7 +615,7 @@ impl EdgeListEngine {
         let snapshot = graph.snapshot();
         let payload = JsonGraphPayload {
             mode: snapshot.mode,
-            directed: true,
+            directed: Some(true),
             graph_attrs: graph_attrs.clone(),
             nodes: snapshot.nodes,
             edges: snapshot.edges,
@@ -649,7 +649,7 @@ impl EdgeListEngine {
             Err(err) => match serde_json::from_str::<GraphSnapshot>(input) {
                 Ok(legacy) => JsonGraphPayload {
                     mode: legacy.mode,
-                    directed: false,
+                    directed: Some(false),
                     graph_attrs: AttrMap::new(),
                     nodes: legacy.nodes,
                     edges: legacy.edges,
@@ -679,7 +679,7 @@ impl EdgeListEngine {
         };
 
         let mut warnings = Vec::new();
-        if parsed.directed {
+        if parsed.directed == Some(true) {
             let warning = "json graph directed=true but read into undirected Graph".to_owned();
             if self.mode == CompatibilityMode::Strict {
                 self.record("read_json_graph", DecisionAction::FailClosed, &warning, 1.0);
@@ -771,7 +771,7 @@ impl EdgeListEngine {
             Err(err) => match serde_json::from_str::<DiGraphSnapshot>(input) {
                 Ok(legacy) => JsonGraphPayload {
                     mode: legacy.mode,
-                    directed: true,
+                    directed: Some(true),
                     graph_attrs: AttrMap::new(),
                     nodes: legacy.nodes,
                     edges: legacy.edges,
@@ -801,7 +801,7 @@ impl EdgeListEngine {
         };
 
         let mut warnings = Vec::new();
-        if !parsed.directed {
+        if parsed.directed == Some(false) {
             let warning = "json graph directed=false but read into directed DiGraph".to_owned();
             if self.mode == CompatibilityMode::Strict {
                 self.record("read_json_graph", DecisionAction::FailClosed, &warning, 1.0);
@@ -3926,6 +3926,44 @@ mod tests {
             Some(&CgseValue::String("demo".to_owned()))
         );
         assert_eq!(parsed.graph_attrs.get("version"), Some(&CgseValue::Int(3)));
+    }
+
+    #[test]
+    fn strict_json_missing_directed_allows_graph() {
+        let input = r#"{
+  "mode": "strict",
+  "graph_attrs": {},
+  "nodes": ["a", "b"],
+  "edges": [
+    { "left": "a", "right": "b", "attrs": {} }
+  ]
+}"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_json_graph(input)
+            .expect("missing directed should not fail for Graph");
+        assert!(report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn strict_json_missing_directed_allows_digraph() {
+        let input = r#"{
+  "mode": "strict",
+  "graph_attrs": {},
+  "nodes": ["a", "b"],
+  "edges": [
+    { "left": "a", "right": "b", "attrs": {} }
+  ]
+}"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_digraph_json_graph(input)
+            .expect("missing directed should not fail for DiGraph");
+        assert!(report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 1);
     }
 
     #[test]
