@@ -11,6 +11,7 @@ use crate::{
 };
 use fnx_classes::AttrMap;
 use fnx_classes::digraph::{DiGraph, MultiDiGraph};
+use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::{PyKeyError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyIterator, PyTuple};
@@ -1372,8 +1373,7 @@ impl MultiDiGraphEdgeView {
                     },
                     |d| d.clone_ref(py).into_any(),
                 );
-                let key_obj: PyObject =
-                    edge.key.into_pyobject(py).expect("key").into_any().unbind();
+                let key_obj = edge.key.into_py_any(py)?;
                 let tuple = PyTuple::new(py, &[py_u, py_v, key_obj, attrs])?;
                 result.push(tuple.into_any().unbind());
             } else if data {
@@ -1390,8 +1390,7 @@ impl MultiDiGraphEdgeView {
                 let tuple = PyTuple::new(py, &[py_u, py_v, attrs])?;
                 result.push(tuple.into_any().unbind());
             } else if keys {
-                let key_obj: PyObject =
-                    edge.key.into_pyobject(py).expect("key").into_any().unbind();
+                let key_obj = edge.key.into_py_any(py)?;
                 let tuple = PyTuple::new(py, &[py_u, py_v, key_obj])?;
                 result.push(tuple.into_any().unbind());
             } else {
@@ -1443,7 +1442,7 @@ impl MultiDiGraphDegreeView {
                 DegreeKind::In => g.inner.in_degree(node),
                 DegreeKind::Out => g.inner.out_degree(node),
             };
-            let deg_obj: PyObject = deg.into_pyobject(py).expect("degree").into_any().unbind();
+            let deg_obj = deg.into_py_any(py)?;
             let pair = PyTuple::new(py, &[py_node, deg_obj])?;
             result.push(pair.into_any().unbind());
         }

@@ -80,28 +80,18 @@ pub(crate) fn py_dict_to_attr_map(attrs: &Bound<'_, PyDict>) -> PyResult<AttrMap
 
 use pyo3::IntoPyObjectExt;
 
-pub(crate) fn cgse_value_to_py(py: Python<'_>, val: &CgseValue) -> PyObject {
+pub(crate) fn cgse_value_to_py(py: Python<'_>, val: &CgseValue) -> PyResult<PyObject> {
     match val {
-        CgseValue::String(s) => s
-            .into_py_any(py)
-            .expect("string conversion to python should not fail"),
-        CgseValue::Float(f) => f
-            .into_py_any(py)
-            .expect("float conversion to python should not fail"),
-        CgseValue::Int(i) => i
-            .into_py_any(py)
-            .expect("int conversion to python should not fail"),
-        CgseValue::Bool(b) => b
-            .into_py_any(py)
-            .expect("bool conversion to python should not fail"),
+        CgseValue::String(s) => s.into_py_any(py),
+        CgseValue::Float(f) => f.into_py_any(py),
+        CgseValue::Int(i) => i.into_py_any(py),
+        CgseValue::Bool(b) => b.into_py_any(py),
         CgseValue::Map(map) => {
             let dict = PyDict::new(py);
             for (k, v) in map {
-                dict.set_item(k, cgse_value_to_py(py, v))
-                    .expect("map insertion should not fail");
+                dict.set_item(k, cgse_value_to_py(py, v)?)?;
             }
             dict.into_py_any(py)
-                .expect("dict conversion to python should not fail")
         }
     }
 }
@@ -1422,12 +1412,7 @@ impl MultiGraphEdgeView {
                     },
                     |d| d.clone_ref(py).into_any(),
                 );
-                let key_obj: PyObject = edge
-                    .key
-                    .into_pyobject(py)
-                    .expect("key conversion")
-                    .into_any()
-                    .unbind();
+                let key_obj = edge.key.into_py_any(py)?;
                 let tuple = PyTuple::new(py, &[py_u, py_v, key_obj, attrs])?;
                 result.push(tuple.into_any().unbind());
             } else if data {
@@ -1444,12 +1429,7 @@ impl MultiGraphEdgeView {
                 let tuple = PyTuple::new(py, &[py_u, py_v, attrs])?;
                 result.push(tuple.into_any().unbind());
             } else if keys {
-                let key_obj: PyObject = edge
-                    .key
-                    .into_pyobject(py)
-                    .expect("key conversion")
-                    .into_any()
-                    .unbind();
+                let key_obj = edge.key.into_py_any(py)?;
                 let tuple = PyTuple::new(py, &[py_u, py_v, key_obj])?;
                 result.push(tuple.into_any().unbind());
             } else {
@@ -1493,13 +1473,7 @@ impl MultiGraphDegreeView {
         let mut result = Vec::new();
         for node in g.inner.nodes_ordered() {
             let py_node = g.py_node_key(py, node);
-            let deg: PyObject = g
-                .inner
-                .degree(node)
-                .into_pyobject(py)
-                .expect("degree conversion")
-                .into_any()
-                .unbind();
+            let deg = g.inner.degree(node).into_py_any(py)?;
             let pair = PyTuple::new(py, &[py_node, deg])?;
             result.push(pair.into_any().unbind());
         }

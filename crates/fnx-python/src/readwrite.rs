@@ -76,7 +76,7 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
         let d = PyDict::new(py);
         if let Some(attrs) = g.node_attrs(node_id) {
             for (k, v) in attrs {
-                d.set_item(k, crate::cgse_value_to_py(py, v))?;
+                d.set_item(k, crate::cgse_value_to_py(py, v)?)?;
             }
         }
         node_py_attrs.insert(node_id.to_owned(), d.unbind());
@@ -88,7 +88,7 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
         let d = PyDict::new(py);
         if let Some(attrs) = g.edge_attrs(&es.left, &es.right) {
             for (k, v) in attrs {
-                d.set_item(k, crate::cgse_value_to_py(py, v))?;
+                d.set_item(k, crate::cgse_value_to_py(py, v)?)?;
             }
         }
         edge_py_attrs.insert(key, d.unbind());
@@ -96,7 +96,7 @@ fn report_to_pygraph(py: Python<'_>, report: ReadWriteReport) -> PyResult<PyGrap
 
     let py_graph_attrs = PyDict::new(py);
     for (k, v) in &graph_attrs {
-        py_graph_attrs.set_item(k, crate::cgse_value_to_py(py, v))?;
+        py_graph_attrs.set_item(k, crate::cgse_value_to_py(py, v)?)?;
     }
 
     Ok(PyGraph {
@@ -122,7 +122,7 @@ fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult
         let d = PyDict::new(py);
         if let Some(attrs) = g.node_attrs(node_id) {
             for (k, v) in attrs {
-                d.set_item(k, crate::cgse_value_to_py(py, v))?;
+                d.set_item(k, crate::cgse_value_to_py(py, v)?)?;
             }
         }
         node_py_attrs.insert(node_id.to_owned(), d.unbind());
@@ -134,7 +134,7 @@ fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult
         let d = PyDict::new(py);
         if let Some(attrs) = g.edge_attrs(&es.left, &es.right) {
             for (k, v) in attrs {
-                d.set_item(k, crate::cgse_value_to_py(py, v))?;
+                d.set_item(k, crate::cgse_value_to_py(py, v)?)?;
             }
         }
         edge_py_attrs.insert(key, d.unbind());
@@ -142,7 +142,7 @@ fn di_report_to_pydigraph(py: Python<'_>, report: DiReadWriteReport) -> PyResult
 
     let py_graph_attrs = PyDict::new(py);
     for (k, v) in &graph_attrs {
-        py_graph_attrs.set_item(k, crate::cgse_value_to_py(py, v))?;
+        py_graph_attrs.set_item(k, crate::cgse_value_to_py(py, v)?)?;
     }
 
     Ok(PyDiGraph {
