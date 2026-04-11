@@ -282,8 +282,11 @@ impl EdgeListEngine {
         let mut warnings = Vec::new();
 
         for (line_no, raw_line) in input.lines().enumerate() {
-            let line = raw_line.trim();
-            if line.is_empty() || line.starts_with('#') {
+            let line = raw_line
+                .split_once('#')
+                .map_or(raw_line, |(prefix, _)| prefix)
+                .trim();
+            if line.is_empty() {
                 continue;
             }
 
@@ -361,8 +364,11 @@ impl EdgeListEngine {
         let mut warnings = Vec::new();
 
         for (line_no, raw_line) in input.lines().enumerate() {
-            let line = raw_line.trim();
-            if line.is_empty() || line.starts_with('#') {
+            let line = raw_line
+                .split_once('#')
+                .map_or(raw_line, |(prefix, _)| prefix)
+                .trim();
+            if line.is_empty() {
                 continue;
             }
 
@@ -437,8 +443,11 @@ impl EdgeListEngine {
         let mut warnings = Vec::new();
 
         for (line_no, raw_line) in input.lines().enumerate() {
-            let line = raw_line.trim();
-            if line.is_empty() || line.starts_with('#') {
+            let line = raw_line
+                .split_once('#')
+                .map_or(raw_line, |(prefix, _)| prefix)
+                .trim();
+            if line.is_empty() {
                 continue;
             }
 
@@ -498,8 +507,11 @@ impl EdgeListEngine {
         let mut warnings = Vec::new();
 
         for (line_no, raw_line) in input.lines().enumerate() {
-            let line = raw_line.trim();
-            if line.is_empty() || line.starts_with('#') {
+            let line = raw_line
+                .split_once('#')
+                .map_or(raw_line, |(prefix, _)| prefix)
+                .trim();
+            if line.is_empty() {
                 continue;
             }
 
@@ -3475,6 +3487,18 @@ mod tests {
     }
 
     #[test]
+    fn adjlist_strips_inline_comments() {
+        let mut engine = EdgeListEngine::strict();
+        let input = "a b c # trailing comment\nb a # another\n# full line comment\nc a\n";
+        let report = engine
+            .read_adjlist(input)
+            .expect("strict adjlist parse should succeed");
+        assert!(report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 3);
+        assert_eq!(report.graph.edge_count(), 2);
+    }
+
+    #[test]
     fn strict_mode_fails_closed_for_malformed_line() {
         let mut engine = EdgeListEngine::strict();
         let err = engine
@@ -3492,6 +3516,26 @@ mod tests {
             .expect("hardened parser should keep valid lines");
         assert!(!report.warnings.is_empty());
         assert_eq!(report.graph.edge_count(), 2);
+    }
+
+    #[test]
+    fn edgelist_strips_inline_comments() {
+        let mut engine = EdgeListEngine::strict();
+        let input = "a b weight=1;color=blue # trailing\nc d - # comment\n";
+        let report = engine
+            .read_edgelist(input)
+            .expect("strict edgelist parse should succeed");
+        assert!(report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 2);
+        let attrs = report
+            .graph
+            .edge_attrs("a", "b")
+            .expect("edge should exist");
+        assert_eq!(attrs.get("weight"), Some(&CgseValue::Int(1)));
+        assert_eq!(
+            attrs.get("color"),
+            Some(&CgseValue::String("blue".to_owned()))
+        );
     }
 
     #[test]
