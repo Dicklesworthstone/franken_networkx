@@ -1378,6 +1378,7 @@ impl EdgeListEngine {
 
         let mut graphml_node_defaults: AttrMap = AttrMap::new();
         let mut graphml_edge_defaults: AttrMap = AttrMap::new();
+        let mut graphml_graph_defaults: AttrMap = AttrMap::new();
 
         let mut pending_graph_attrs: AttrMap = AttrMap::new();
         let mut pending_node_attrs: AttrMap = AttrMap::new();
@@ -1463,6 +1464,7 @@ impl EdgeListEngine {
                         &mut current_data_has_children,
                         &mut graphml_node_defaults,
                         &mut graphml_edge_defaults,
+                        &mut graphml_graph_defaults,
                         &mut pending_graph_attrs,
                         &mut pending_node_attrs,
                         &mut pending_edge_attrs,
@@ -1536,6 +1538,7 @@ impl EdgeListEngine {
                         &mut current_data_has_children,
                         &mut graphml_node_defaults,
                         &mut graphml_edge_defaults,
+                        &mut graphml_graph_defaults,
                         &mut pending_graph_attrs,
                         &mut pending_node_attrs,
                         &mut pending_edge_attrs,
@@ -1562,6 +1565,11 @@ impl EdgeListEngine {
         }
         graph.apply_node_defaults(&graphml_node_defaults);
         graph.apply_edge_defaults(&graphml_edge_defaults);
+        for (key, value) in &graphml_graph_defaults {
+            graph_attrs
+                .entry(key.clone())
+                .or_insert_with(|| value.clone());
+        }
 
         let mut combined_graph_attrs = AttrMap::new();
         combined_graph_attrs.insert(
@@ -1986,6 +1994,7 @@ impl EdgeListEngine {
         current_data_has_children: &mut bool,
         graphml_node_defaults: &mut AttrMap,
         graphml_edge_defaults: &mut AttrMap,
+        graphml_graph_defaults: &mut AttrMap,
         pending_graph_attrs: &mut AttrMap,
         pending_node_attrs: &mut AttrMap,
         pending_edge_attrs: &mut AttrMap,
@@ -2096,10 +2105,22 @@ impl EdgeListEngine {
                         )?;
                         key_def.default = Some(value.clone());
                         let scope = key_def.scope.trim().to_ascii_lowercase();
-                        if scope == "node" {
-                            graphml_node_defaults.insert(key_def.name.clone(), value);
-                        } else if scope == "edge" {
-                            graphml_edge_defaults.insert(key_def.name.clone(), value);
+                        match scope.as_str() {
+                            "node" => {
+                                graphml_node_defaults.insert(key_def.name.clone(), value);
+                            }
+                            "edge" => {
+                                graphml_edge_defaults.insert(key_def.name.clone(), value);
+                            }
+                            "graph" => {
+                                graphml_graph_defaults.insert(key_def.name.clone(), value);
+                            }
+                            "all" | "" => {
+                                graphml_node_defaults.insert(key_def.name.clone(), value.clone());
+                                graphml_edge_defaults.insert(key_def.name.clone(), value.clone());
+                                graphml_graph_defaults.insert(key_def.name.clone(), value);
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -4747,6 +4768,28 @@ mod tests {
         if let CgseValue::Map(map) = edge_default {
             assert_eq!(map.get("weight"), Some(&CgseValue::Int(7)));
         }
+    }
+
+    #[test]
+    fn graphml_graph_default_applies_to_graph_attrs() {
+        let graphml = r#"
+<graphml>
+  <graph edgedefault="undirected">
+    <node id="n0"/>
+  </graph>
+  <key id="g0" for="graph" attr.name="creator" attr.type="string">
+    <default>nx</default>
+  </key>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("graphml graph default should apply");
+        assert_eq!(
+            report.graph_attrs.get("creator"),
+            Some(&CgseValue::String("nx".to_owned()))
+        );
     }
 
     #[test]
