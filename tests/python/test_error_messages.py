@@ -94,7 +94,7 @@ class TestNetworkXNoPath:
     def test_has_path_returns_false(self):
         """has_path should return False (not raise) for disconnected nodes."""
         G = _make_disconnected()
-        assert fnx.has_path(G, "a", "c") is False
+        assert not fnx.has_path(G, "a", "c")
 
 
 # ---------------------------------------------------------------------------
@@ -147,6 +147,14 @@ class TestNetworkXError:
             fnx.NetworkXError, match=r"Graph is not connected\."
         ):
             fnx.average_shortest_path_length(G)
+
+    def test_average_shortest_path_length_directed_not_strongly_connected(self):
+        DG = fnx.DiGraph()
+        DG.add_edge("a", "b")
+        with pytest.raises(
+            fnx.NetworkXError, match=r"Graph is not strongly connected\."
+        ):
+            fnx.average_shortest_path_length(DG)
 
     def test_bipartite_sets_non_bipartite(self):
         G = _make_triangle()
@@ -212,6 +220,22 @@ class TestNetworkXNotImplemented:
         ):
             fnx.bridges(DG)
 
+    def test_is_arborescence_undirected(self):
+        G = fnx.Graph()
+        with pytest.raises(
+            fnx.NetworkXNotImplemented,
+            match=r"not implemented for undirected type",
+        ):
+            fnx.is_arborescence(G)
+
+    def test_is_branching_undirected(self):
+        G = fnx.Graph()
+        with pytest.raises(
+            fnx.NetworkXNotImplemented,
+            match=r"not implemented for undirected type",
+        ):
+            fnx.is_branching(G)
+
 
 # ---------------------------------------------------------------------------
 # Euler errors
@@ -232,6 +256,56 @@ class TestEulerErrors:
         G.add_edge("c", "d")
         with pytest.raises(fnx.NetworkXError, match=r"G has no Eulerian path"):
             fnx.eulerian_path(G)
+
+
+# ---------------------------------------------------------------------------
+# NetworkXPointlessConcept — null graph cases
+# ---------------------------------------------------------------------------
+
+class TestPointlessConceptNullGraph:
+    """Null-graph error messages must match NetworkX."""
+
+    def test_is_eulerian_empty_graph(self):
+        G = fnx.Graph()
+        with pytest.raises(
+            fnx.NetworkXPointlessConcept,
+            match=r"Connectivity is undefined for the null graph",
+        ):
+            fnx.is_eulerian(G)
+
+    def test_has_eulerian_path_empty_digraph(self):
+        DG = fnx.DiGraph()
+        with pytest.raises(
+            fnx.NetworkXPointlessConcept,
+            match=r"Connectivity is undefined for the null graph",
+        ):
+            fnx.has_eulerian_path(DG)
+
+    def test_is_semieulerian_empty_graph(self):
+        G = fnx.Graph()
+        with pytest.raises(
+            fnx.NetworkXPointlessConcept,
+            match=r"Connectivity is undefined for the null graph",
+        ):
+            fnx.is_semieulerian(G)
+
+    def test_is_arborescence_empty_digraph(self):
+        DG = fnx.DiGraph()
+        with pytest.raises(fnx.NetworkXPointlessConcept, match=r"G has no nodes\."):
+            fnx.is_arborescence(DG)
+
+    def test_is_branching_empty_digraph(self):
+        DG = fnx.DiGraph()
+        with pytest.raises(fnx.NetworkXPointlessConcept, match=r"G has no nodes\."):
+            fnx.is_branching(DG)
+
+    def test_average_shortest_path_length_empty_graph(self):
+        G = fnx.Graph()
+        with pytest.raises(
+            fnx.NetworkXPointlessConcept,
+            match=r"the null graph has no paths, thus there is no average shortest path length",
+        ):
+            fnx.average_shortest_path_length(G)
 
 
 # ---------------------------------------------------------------------------

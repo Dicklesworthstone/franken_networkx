@@ -299,6 +299,11 @@ class TestDirectedComponentCounts:
         wcc = fnx.weakly_connected_components(D)
         assert len(wcc) == 2
 
+    def test_is_strongly_connected_empty_raises(self):
+        D = fnx.DiGraph()
+        with pytest.raises(fnx.NetworkXPointlessConcept):
+            fnx.is_strongly_connected(D)
+
 
 # ---------------------------------------------------------------------------
 # Generators

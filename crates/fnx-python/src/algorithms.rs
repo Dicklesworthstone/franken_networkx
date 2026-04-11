@@ -1615,21 +1615,28 @@ pub fn average_shortest_path_length(
         ));
     }
     let gr = extract_graph(g)?;
-    let inner = gr.undirected();
-    if inner.node_count() == 0 {
+    if gr.node_count_original() == 0 {
         return Err(crate::NetworkXPointlessConcept::new_err(
-            "Connectivity is undefined for the null graph.",
+            "the null graph has no paths, thus there is no average shortest path length",
         ));
     }
-    let (connected, avg) = py.allow_threads(|| {
-        let conn = fnx_algorithms::is_connected(inner);
-        let result = fnx_algorithms::average_shortest_path_length(inner);
-        (conn.is_connected, result.average_shortest_path_length)
-    });
-    if !connected {
+
+    if gr.is_directed() {
+        let dg_ref = gr.digraph().expect("is_directed checked above");
+        let result =
+            py.allow_threads(|| fnx_algorithms::average_shortest_path_length_directed(dg_ref));
+        if !result.average_shortest_path_length.is_finite() {
+            return Err(NetworkXError::new_err("Graph is not strongly connected."));
+        }
+        return Ok(result.average_shortest_path_length);
+    }
+
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::average_shortest_path_length(inner));
+    if !result.average_shortest_path_length.is_finite() {
         return Err(NetworkXError::new_err("Graph is not connected."));
     }
-    Ok(avg)
+    Ok(result.average_shortest_path_length)
 }
 
 // ---------------------------------------------------------------------------
@@ -3675,15 +3682,17 @@ pub fn minimum_spanning_arborescence(
 #[pyfunction]
 pub fn is_eulerian(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
+    if gr.node_count_original() == 0 {
+        return Err(crate::NetworkXPointlessConcept::new_err(
+            "Connectivity is undefined for the null graph.",
+        ));
+    }
     // For multigraphs, the simple-graph conversion collapses parallel edges
     // which changes degree parity. Check multigraph degree directly via Python.
     if gr.is_multigraph() {
         let nodes_method = g.call_method0("nodes")?;
         let nodes: Vec<Bound<'_, PyAny>> =
             nodes_method.try_iter()?.collect::<PyResult<Vec<_>>>()?;
-        if nodes.is_empty() {
-            return Ok(true);
-        }
         let degree_view = g.getattr("degree")?;
         for node in &nodes {
             let deg: usize = degree_view.get_item(node)?.extract()?;
@@ -3703,6 +3712,11 @@ pub fn is_eulerian(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
 #[pyfunction]
 pub fn has_eulerian_path(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
+    if gr.node_count_original() == 0 {
+        return Err(crate::NetworkXPointlessConcept::new_err(
+            "Connectivity is undefined for the null graph.",
+        ));
+    }
     let inner = gr.undirected();
     Ok(py.allow_threads(|| fnx_algorithms::has_eulerian_path(inner).has_eulerian_path))
 }
@@ -3711,6 +3725,11 @@ pub fn has_eulerian_path(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool>
 #[pyfunction]
 pub fn is_semieulerian(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
+    if gr.node_count_original() == 0 {
+        return Err(crate::NetworkXPointlessConcept::new_err(
+            "Connectivity is undefined for the null graph.",
+        ));
+    }
     let inner = gr.undirected();
     Ok(py.allow_threads(|| fnx_algorithms::is_semieulerian(inner).is_semieulerian))
 }
@@ -5815,6 +5834,11 @@ pub fn is_strongly_connected(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<b
     }
     {
         let dg_ref = gr.digraph().expect("is_directed checked above");
+        if dg_ref.node_count() == 0 {
+            return Err(crate::NetworkXPointlessConcept::new_err(
+                "Connectivity is undefined for the null graph.",
+            ));
+        }
         Ok(py.allow_threads(|| fnx_algorithms::is_strongly_connected(dg_ref)))
     }
 }
@@ -7580,10 +7604,15 @@ fn barycenter(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<PyObject>> {
 fn is_arborescence(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
     if !gr.is_directed() {
-        return Ok(false);
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "not implemented for undirected type",
+        ));
     }
     {
         let dg_ref = gr.digraph().expect("is_directed checked above");
+        if dg_ref.node_count() == 0 {
+            return Err(crate::NetworkXPointlessConcept::new_err("G has no nodes."));
+        }
         Ok(py.allow_threads(|| fnx_algorithms::is_arborescence(dg_ref)))
     }
 }
@@ -7594,10 +7623,15 @@ fn is_arborescence(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
 fn is_branching(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
     if !gr.is_directed() {
-        return Ok(false);
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "not implemented for undirected type",
+        ));
     }
     {
         let dg_ref = gr.digraph().expect("is_directed checked above");
+        if dg_ref.node_count() == 0 {
+            return Err(crate::NetworkXPointlessConcept::new_err("G has no nodes."));
+        }
         Ok(py.allow_threads(|| fnx_algorithms::is_branching(dg_ref)))
     }
 }
