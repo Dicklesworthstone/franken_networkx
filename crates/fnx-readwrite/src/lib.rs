@@ -56,6 +56,14 @@ struct JsonGraphPayload {
     pub edges: Vec<fnx_classes::EdgeSnapshot>,
 }
 
+#[derive(Debug, Clone)]
+struct GraphmlKeyDef {
+    scope: String,
+    name: String,
+    attr_type: String,
+    default: Option<CgseValue>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReadWriteError {
     Dispatch(DispatchError),
@@ -1241,17 +1249,23 @@ impl EdgeListEngine {
     where
         G: GraphLike,
     {
-        let mut key_registry: BTreeMap<String, (String, String, String)> = BTreeMap::new();
+        let mut key_registry: BTreeMap<String, GraphmlKeyDef> = BTreeMap::new();
         let mut reader = Reader::from_str(input);
         reader.config_mut().trim_text(true);
 
         let mut in_graph = false;
+        let mut current_key_id: Option<String> = None;
+        let mut current_key_default_key: Option<String> = None;
+        let mut current_key_default_text = String::new();
         let mut current_node: Option<String> = None;
         let mut current_edge: Option<(String, String)> = None;
         let mut current_data_key: Option<String> = None;
         let mut current_data_text = String::new();
         let mut current_edge_directed: Option<bool> = None;
         let mut current_edge_skip = false;
+
+        let mut graphml_node_defaults: AttrMap = AttrMap::new();
+        let mut graphml_edge_defaults: AttrMap = AttrMap::new();
 
         let mut pending_graph_attrs: AttrMap = AttrMap::new();
         let mut pending_node_attrs: AttrMap = AttrMap::new();
@@ -1266,6 +1280,11 @@ impl EdgeListEngine {
                         warnings,
                         &mut key_registry,
                         &mut in_graph,
+                        &mut current_key_id,
+                        &mut current_key_default_key,
+                        &mut current_key_default_text,
+                        &graphml_node_defaults,
+                        &graphml_edge_defaults,
                         &mut current_node,
                         &mut current_edge,
                         &mut current_edge_directed,
@@ -1284,6 +1303,11 @@ impl EdgeListEngine {
                         warnings,
                         &mut key_registry,
                         &mut in_graph,
+                        &mut current_key_id,
+                        &mut current_key_default_key,
+                        &mut current_key_default_text,
+                        &graphml_node_defaults,
+                        &graphml_edge_defaults,
                         &mut current_node,
                         &mut current_edge,
                         &mut current_edge_directed,
@@ -1299,17 +1323,22 @@ impl EdgeListEngine {
                         graph,
                         warnings,
                         &mut in_graph,
+                        &mut current_key_id,
+                        &mut current_key_default_key,
+                        &mut current_key_default_text,
                         &mut current_node,
                         &mut current_edge,
                         &mut current_edge_directed,
                         &mut current_edge_skip,
                         &mut current_data_key,
                         &mut current_data_text,
+                        &mut graphml_node_defaults,
+                        &mut graphml_edge_defaults,
                         &mut pending_graph_attrs,
                         &mut pending_node_attrs,
                         &mut pending_edge_attrs,
                         graph_attrs,
-                        &key_registry,
+                        &mut key_registry,
                     )?;
                 }
                 Ok(Event::Text(ref e)) if current_data_key.is_some() => match e.unescape() {
@@ -1329,23 +1358,45 @@ impl EdgeListEngine {
                         current_data_key = None;
                     }
                 },
+                Ok(Event::Text(ref e)) if current_key_default_key.is_some() => match e.unescape() {
+                    Ok(text) => current_key_default_text.push_str(&text),
+                    Err(err) => {
+                        let warning = format!("graphml default text unescape error: {err}");
+                        if self.mode == CompatibilityMode::Strict {
+                            self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                            return Err(ReadWriteError::FailClosed {
+                                operation: "read_graphml",
+                                reason: warning,
+                            });
+                        }
+                        warnings.push(warning.clone());
+                        self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.8);
+                        current_key_default_text.clear();
+                        current_key_default_key = None;
+                    }
+                },
                 Ok(Event::End(ref e)) => {
                     self.handle_graphml_end_element(
                         xml_local_name(e.name().as_ref()),
                         graph,
                         warnings,
                         &mut in_graph,
+                        &mut current_key_id,
+                        &mut current_key_default_key,
+                        &mut current_key_default_text,
                         &mut current_node,
                         &mut current_edge,
                         &mut current_edge_directed,
                         &mut current_edge_skip,
                         &mut current_data_key,
                         &mut current_data_text,
+                        &mut graphml_node_defaults,
+                        &mut graphml_edge_defaults,
                         &mut pending_graph_attrs,
                         &mut pending_node_attrs,
                         &mut pending_edge_attrs,
                         graph_attrs,
-                        &key_registry,
+                        &mut key_registry,
                     )?;
                 }
                 Ok(Event::Eof) => break,
@@ -1374,8 +1425,13 @@ impl EdgeListEngine {
         e: &BytesStart<'_>,
         graph: &mut G,
         warnings: &mut Vec<String>,
-        key_registry: &mut BTreeMap<String, (String, String, String)>,
+        key_registry: &mut BTreeMap<String, GraphmlKeyDef>,
         in_graph: &mut bool,
+        current_key_id: &mut Option<String>,
+        current_key_default_key: &mut Option<String>,
+        current_key_default_text: &mut String,
+        graphml_node_defaults: &AttrMap,
+        graphml_edge_defaults: &AttrMap,
         current_node: &mut Option<String>,
         current_edge: &mut Option<(String, String)>,
         current_edge_directed: &mut Option<bool>,
@@ -1483,7 +1539,36 @@ impl EdgeListEngine {
                     self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.6);
                     attr_type = "string".to_owned();
                 }
-                key_registry.insert(key_id, (for_scope, attr_name, attr_type));
+                key_registry.insert(
+                    key_id.clone(),
+                    GraphmlKeyDef {
+                        scope: for_scope,
+                        name: attr_name,
+                        attr_type,
+                        default: None,
+                    },
+                );
+                *current_key_id = Some(key_id);
+                *current_key_default_key = None;
+                current_key_default_text.clear();
+            }
+            b"default" => {
+                if let Some(key_id) = current_key_id.clone() {
+                    *current_key_default_key = Some(key_id);
+                    current_key_default_text.clear();
+                }
+            }
+            b"hyperedge" => {
+                let warning = "graphml reader does not support hyperedges".to_owned();
+                if self.mode == CompatibilityMode::Strict {
+                    self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_graphml",
+                        reason: warning,
+                    });
+                }
+                warnings.push(warning.clone());
+                self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
             }
             b"graph" => {
                 *in_graph = true;
@@ -1537,11 +1622,12 @@ impl EdgeListEngine {
                 }
                 let _ = graph.add_node(node_id.clone());
                 *current_node = Some(node_id);
-                pending_node_attrs.clear();
+                *pending_node_attrs = graphml_node_defaults.clone();
             }
             b"edge" if *in_graph => {
                 let mut source = String::new();
                 let mut target = String::new();
+                let mut edge_id_attr: Option<String> = None;
                 *current_edge_directed = None;
                 *current_edge_skip = false;
                 for attr in e.attributes() {
@@ -1611,6 +1697,9 @@ impl EdgeListEngine {
                                 }
                             }
                         }
+                        b"id" => {
+                            edge_id_attr = Some(String::from_utf8_lossy(&attr.value).into_owned());
+                        }
                         _ => {}
                     }
                 }
@@ -1647,8 +1736,26 @@ impl EdgeListEngine {
                     self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
                     *current_edge_skip = true;
                 }
+                if graph.has_edge(&source, &target) {
+                    let warning = format!(
+                        "graphml multiedge not supported: source={source:?} target={target:?}"
+                    );
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_graphml",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
+                    *current_edge_skip = true;
+                }
                 *current_edge = Some((source, target));
-                pending_edge_attrs.clear();
+                *pending_edge_attrs = graphml_edge_defaults.clone();
+                if let Some(edge_id) = edge_id_attr {
+                    pending_edge_attrs.insert("id".to_owned(), CgseValue::parse_relaxed(&edge_id));
+                }
             }
             b"data" => {
                 current_data_text.clear();
@@ -1709,17 +1816,22 @@ impl EdgeListEngine {
         graph: &mut G,
         warnings: &mut Vec<String>,
         in_graph: &mut bool,
+        current_key_id: &mut Option<String>,
+        current_key_default_key: &mut Option<String>,
+        current_key_default_text: &mut String,
         current_node: &mut Option<String>,
         current_edge: &mut Option<(String, String)>,
         current_edge_directed: &mut Option<bool>,
         current_edge_skip: &mut bool,
         current_data_key: &mut Option<String>,
         current_data_text: &mut String,
+        graphml_node_defaults: &mut AttrMap,
+        graphml_edge_defaults: &mut AttrMap,
         pending_graph_attrs: &mut AttrMap,
         pending_node_attrs: &mut AttrMap,
         pending_edge_attrs: &mut AttrMap,
         graph_attrs: &mut AttrMap,
-        key_registry: &BTreeMap<String, (String, String, String)>,
+        key_registry: &mut BTreeMap<String, GraphmlKeyDef>,
     ) -> Result<(), ReadWriteError>
     where
         G: GraphLike,
@@ -1728,7 +1840,11 @@ impl EdgeListEngine {
             b"data" => {
                 if let Some(key_id) = current_data_key.take() {
                     let (scope, attr_name, attr_type) = match key_registry.get(&key_id) {
-                        Some(entry) => entry,
+                        Some(entry) => (
+                            entry.scope.clone(),
+                            entry.name.clone(),
+                            entry.attr_type.clone(),
+                        ),
                         None => {
                             let warning = format!("graphml data key not declared: key={key_id}");
                             if self.mode == CompatibilityMode::Strict {
@@ -1761,7 +1877,7 @@ impl EdgeListEngine {
                     } else {
                         "graph"
                     };
-                    if !graphml_scope_matches(scope, target_scope) {
+                    if !graphml_scope_matches(&scope, target_scope) {
                         let warning = format!(
                             "graphml data key scope mismatch: key={key_id} declared_for={scope:?} target={target_scope}"
                         );
@@ -1779,16 +1895,36 @@ impl EdgeListEngine {
                     }
                     let raw_value = std::mem::take(current_data_text);
                     let value =
-                        self.parse_graphml_typed_value(&key_id, attr_type, raw_value, warnings)?;
+                        self.parse_graphml_typed_value(&key_id, &attr_type, raw_value, warnings)?;
                     if current_node.is_some() && current_edge.is_none() {
-                        pending_node_attrs.insert(attr_name.clone(), value);
+                        pending_node_attrs.insert(attr_name, value);
                     } else if current_edge.is_some() {
-                        pending_edge_attrs.insert(attr_name.clone(), value);
+                        pending_edge_attrs.insert(attr_name, value);
                     } else {
-                        pending_graph_attrs.insert(attr_name.clone(), value);
+                        pending_graph_attrs.insert(attr_name, value);
                     }
                 }
                 current_data_text.clear();
+            }
+            b"default" => {
+                if let Some(key_id) = current_key_default_key.take() {
+                    let raw_value = std::mem::take(current_key_default_text);
+                    if let Some(key_def) = key_registry.get_mut(&key_id) {
+                        let value = self.parse_graphml_typed_value(
+                            &key_id,
+                            &key_def.attr_type,
+                            raw_value,
+                            warnings,
+                        )?;
+                        key_def.default = Some(value.clone());
+                        let scope = key_def.scope.trim().to_ascii_lowercase();
+                        if scope == "node" {
+                            graphml_node_defaults.insert(key_def.name.clone(), value);
+                        } else if scope == "edge" {
+                            graphml_edge_defaults.insert(key_def.name.clone(), value);
+                        }
+                    }
+                }
             }
             b"node" => {
                 if let Some(node_id) = current_node.as_ref()
@@ -1836,6 +1972,11 @@ impl EdgeListEngine {
                 }
                 *current_edge_directed = None;
                 pending_edge_attrs.clear();
+            }
+            b"key" => {
+                *current_key_id = None;
+                *current_key_default_key = None;
+                current_key_default_text.clear();
             }
             b"graph" => {
                 *graph_attrs = std::mem::take(pending_graph_attrs);
@@ -2753,6 +2894,7 @@ trait GraphLike {
         attrs: AttrMap,
     ) -> Result<bool, GraphError>;
     fn is_directed(&self) -> bool;
+    fn has_edge(&self, source: &str, target: &str) -> bool;
 }
 
 impl GraphLike for Graph {
@@ -2775,6 +2917,10 @@ impl GraphLike for Graph {
     fn is_directed(&self) -> bool {
         false
     }
+
+    fn has_edge(&self, source: &str, target: &str) -> bool {
+        self.has_edge(source, target)
+    }
 }
 
 impl GraphLike for DiGraph {
@@ -2796,6 +2942,10 @@ impl GraphLike for DiGraph {
 
     fn is_directed(&self) -> bool {
         true
+    }
+
+    fn has_edge(&self, source: &str, target: &str) -> bool {
+        self.has_edge(source, target)
     }
 }
 
@@ -4242,6 +4392,162 @@ mod tests {
         assert!(!report.warnings.is_empty());
         let attrs = report.graph.node_attrs("n0").expect("node should exist");
         assert!(attrs.is_empty());
+    }
+
+    #[test]
+    fn graphml_key_default_applies_to_node_attrs() {
+        let graphml = r#"
+<graphml>
+  <key id="d0" for="node" attr.name="color" attr.type="string">
+    <default>yellow</default>
+  </key>
+  <graph edgedefault="undirected">
+    <node id="n0"/>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("graphml default for node should parse");
+        let attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert_eq!(
+            attrs.get("color"),
+            Some(&CgseValue::String("yellow".to_owned()))
+        );
+    }
+
+    #[test]
+    fn graphml_key_default_applies_to_edge_attrs() {
+        let graphml = r#"
+<graphml>
+  <key id="d0" for="edge" attr.name="weight" attr.type="int">
+    <default>7</default>
+  </key>
+  <graph edgedefault="undirected">
+    <node id="n0"/>
+    <node id="n1"/>
+    <edge source="n0" target="n1"/>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("graphml default for edge should parse");
+        let attrs = report
+            .graph
+            .edge_attrs("n0", "n1")
+            .expect("edge should exist");
+        assert_eq!(attrs.get("weight"), Some(&CgseValue::Int(7)));
+    }
+
+    #[test]
+    fn graphml_edge_id_attribute_preserved() {
+        let graphml = r#"
+<graphml>
+  <graph edgedefault="undirected">
+    <node id="n0"/>
+    <node id="n1"/>
+    <edge id="edge-7" source="n0" target="n1"/>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("graphml edge id should parse");
+        let attrs = report
+            .graph
+            .edge_attrs("n0", "n1")
+            .expect("edge should exist");
+        assert_eq!(
+            attrs.get("id"),
+            Some(&CgseValue::String("edge-7".to_owned()))
+        );
+    }
+
+    #[test]
+    fn graphml_multiedge_strict_fails_closed() {
+        let graphml = r#"
+<graphml>
+  <graph edgedefault="undirected">
+    <node id="n0"/>
+    <node id="n1"/>
+    <edge source="n0" target="n1"/>
+    <edge source="n0" target="n1"/>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(graphml)
+            .expect_err("strict mode should fail on multiedge graphml");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_multiedge_hardened_warns_and_skips() {
+        let graphml = r#"
+<graphml>
+  <graph edgedefault="undirected">
+    <node id="n0"/>
+    <node id="n1"/>
+    <edge source="n0" target="n1"/>
+    <edge source="n0" target="n1"/>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("hardened mode should recover from multiedge");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn graphml_hyperedge_strict_fails_closed() {
+        let graphml = r#"
+<graphml>
+  <graph edgedefault="undirected">
+    <node id="n0"/>
+    <node id="n1"/>
+    <hyperedge id="h0">
+      <endpoint node="n0"/>
+      <endpoint node="n1"/>
+    </hyperedge>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(graphml)
+            .expect_err("strict mode should fail on hyperedge");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_hyperedge_hardened_warns_and_skips() {
+        let graphml = r#"
+<graphml>
+  <graph edgedefault="undirected">
+    <node id="n0"/>
+    <node id="n1"/>
+    <hyperedge id="h0">
+      <endpoint node="n0"/>
+      <endpoint node="n1"/>
+    </hyperedge>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("hardened mode should skip hyperedge");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 2);
+        assert_eq!(report.graph.edge_count(), 0);
     }
 
     #[test]
