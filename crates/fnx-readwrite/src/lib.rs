@@ -1408,6 +1408,22 @@ impl EdgeListEngine {
                             }
                         }
                     }
+                    if !declared {
+                        let warning = "graphml missing edgedefault attribute".to_owned();
+                        if self.mode == CompatibilityMode::Strict {
+                            self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                            return Err(ReadWriteError::FailClosed {
+                                operation: "read_graphml",
+                                reason: warning,
+                            });
+                        }
+                        self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
+                        return Ok(GraphmlDirectedFlag {
+                            declared: false,
+                            value: false,
+                            warning: Some(warning),
+                        });
+                    }
                     return Ok(GraphmlDirectedFlag {
                         declared,
                         value,
@@ -4313,6 +4329,43 @@ mod tests {
         let report = engine
             .read_graphml(input)
             .expect("hardened mode should recover from invalid edgedefault");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn strict_graphml_missing_edgedefault_fails_closed() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph id="G">
+    <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b"/>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(input)
+            .expect_err("strict mode should fail on missing edgedefault");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn hardened_graphml_missing_edgedefault_warns() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph id="G">
+    <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b"/>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(input)
+            .expect("hardened mode should recover from missing edgedefault");
         assert!(!report.warnings.is_empty());
         assert_eq!(report.graph.edge_count(), 1);
     }
