@@ -1560,6 +1560,9 @@ impl EdgeListEngine {
                 _ => {}
             }
         }
+        graph.apply_node_defaults(&graphml_node_defaults);
+        graph.apply_edge_defaults(&graphml_edge_defaults);
+
         let mut combined_graph_attrs = AttrMap::new();
         combined_graph_attrs.insert(
             "node_default".to_owned(),
@@ -3073,6 +3076,8 @@ trait GraphLike {
         target: String,
         attrs: AttrMap,
     ) -> Result<bool, GraphError>;
+    fn apply_node_defaults(&mut self, defaults: &AttrMap);
+    fn apply_edge_defaults(&mut self, defaults: &AttrMap);
     fn is_directed(&self) -> bool;
     fn has_edge(&self, source: &str, target: &str) -> bool;
 }
@@ -3092,6 +3097,14 @@ impl GraphLike for Graph {
     ) -> Result<bool, GraphError> {
         self.add_edge_with_attrs(source, target, attrs)
             .map(|_| true)
+    }
+
+    fn apply_node_defaults(&mut self, defaults: &AttrMap) {
+        let _ = Graph::apply_node_defaults(self, defaults);
+    }
+
+    fn apply_edge_defaults(&mut self, defaults: &AttrMap) {
+        let _ = Graph::apply_edge_defaults(self, defaults);
     }
 
     fn is_directed(&self) -> bool {
@@ -3118,6 +3131,14 @@ impl GraphLike for DiGraph {
     ) -> Result<bool, GraphError> {
         self.add_edge_with_attrs(source, target, attrs)
             .map(|_| true)
+    }
+
+    fn apply_node_defaults(&mut self, defaults: &AttrMap) {
+        let _ = DiGraph::apply_node_defaults(self, defaults);
+    }
+
+    fn apply_edge_defaults(&mut self, defaults: &AttrMap) {
+        let _ = DiGraph::apply_edge_defaults(self, defaults);
     }
 
     fn is_directed(&self) -> bool {
@@ -4645,6 +4666,39 @@ mod tests {
             .edge_attrs("n0", "n1")
             .expect("edge should exist");
         assert_eq!(attrs.get("weight"), Some(&CgseValue::Int(7)));
+    }
+
+    #[test]
+    fn graphml_defaults_apply_when_keys_after_graph() {
+        let graphml = r#"
+<graphml>
+  <graph edgedefault="undirected">
+    <node id="n0"/>
+    <node id="n1"/>
+    <edge source="n0" target="n1"/>
+  </graph>
+  <key id="d0" for="node" attr.name="color" attr.type="string">
+    <default>yellow</default>
+  </key>
+  <key id="d1" for="edge" attr.name="weight" attr.type="int">
+    <default>7</default>
+  </key>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("graphml defaults should apply after graph");
+        let node_attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert_eq!(
+            node_attrs.get("color"),
+            Some(&CgseValue::String("yellow".to_owned()))
+        );
+        let edge_attrs = report
+            .graph
+            .edge_attrs("n0", "n1")
+            .expect("edge should exist");
+        assert_eq!(edge_attrs.get("weight"), Some(&CgseValue::Int(7)));
     }
 
     #[test]

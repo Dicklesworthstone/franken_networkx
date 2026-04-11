@@ -335,6 +335,36 @@ impl DiGraph {
         !existed
     }
 
+    pub fn apply_node_defaults(&mut self, defaults: &AttrMap) -> bool {
+        if defaults.is_empty() {
+            return false;
+        }
+        let mut inserted = 0usize;
+        for attrs in self.nodes.values_mut() {
+            for (key, value) in defaults {
+                if !attrs.contains_key(key) {
+                    attrs.insert(key.clone(), value.clone());
+                    inserted += 1;
+                }
+            }
+        }
+        if inserted > 0 {
+            self.revision = self.revision.saturating_add(1);
+            self.record_decision(
+                "apply_node_defaults",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "defaults_applied".to_owned(),
+                    observed_value: inserted.to_string(),
+                    log_likelihood_ratio: 0.0,
+                }],
+            );
+            return true;
+        }
+        false
+    }
+
     pub fn add_edge(
         &mut self,
         source: impl Into<String>,
@@ -454,6 +484,36 @@ impl DiGraph {
         );
 
         Ok(())
+    }
+
+    pub fn apply_edge_defaults(&mut self, defaults: &AttrMap) -> bool {
+        if defaults.is_empty() {
+            return false;
+        }
+        let mut inserted = 0usize;
+        for attrs in self.edges.values_mut() {
+            for (key, value) in defaults {
+                if !attrs.contains_key(key) {
+                    attrs.insert(key.clone(), value.clone());
+                    inserted += 1;
+                }
+            }
+        }
+        if inserted > 0 {
+            self.revision = self.revision.saturating_add(1);
+            self.record_decision(
+                "apply_edge_defaults",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "defaults_applied".to_owned(),
+                    observed_value: inserted.to_string(),
+                    log_likelihood_ratio: 0.0,
+                }],
+            );
+            return true;
+        }
+        false
     }
 
     /// Remove directed edge source→target. Returns `true` if it existed.
