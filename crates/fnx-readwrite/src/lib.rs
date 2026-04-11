@@ -1250,6 +1250,8 @@ impl EdgeListEngine {
         let mut current_edge: Option<(String, String)> = None;
         let mut current_data_key: Option<String> = None;
         let mut current_data_text = String::new();
+        let mut current_edge_directed: Option<bool> = None;
+        let mut current_edge_skip = false;
 
         let mut pending_graph_attrs: AttrMap = AttrMap::new();
         let mut pending_node_attrs: AttrMap = AttrMap::new();
@@ -1266,6 +1268,8 @@ impl EdgeListEngine {
                         &mut in_graph,
                         &mut current_node,
                         &mut current_edge,
+                        &mut current_edge_directed,
+                        &mut current_edge_skip,
                         &mut current_data_key,
                         &mut current_data_text,
                         &mut pending_graph_attrs,
@@ -1282,6 +1286,8 @@ impl EdgeListEngine {
                         &mut in_graph,
                         &mut current_node,
                         &mut current_edge,
+                        &mut current_edge_directed,
+                        &mut current_edge_skip,
                         &mut current_data_key,
                         &mut current_data_text,
                         &mut pending_graph_attrs,
@@ -1295,6 +1301,8 @@ impl EdgeListEngine {
                         &mut in_graph,
                         &mut current_node,
                         &mut current_edge,
+                        &mut current_edge_directed,
+                        &mut current_edge_skip,
                         &mut current_data_key,
                         &mut current_data_text,
                         &mut pending_graph_attrs,
@@ -1329,6 +1337,8 @@ impl EdgeListEngine {
                         &mut in_graph,
                         &mut current_node,
                         &mut current_edge,
+                        &mut current_edge_directed,
+                        &mut current_edge_skip,
                         &mut current_data_key,
                         &mut current_data_text,
                         &mut pending_graph_attrs,
@@ -1368,6 +1378,8 @@ impl EdgeListEngine {
         in_graph: &mut bool,
         current_node: &mut Option<String>,
         current_edge: &mut Option<(String, String)>,
+        current_edge_directed: &mut Option<bool>,
+        current_edge_skip: &mut bool,
         current_data_key: &mut Option<String>,
         current_data_text: &mut String,
         pending_graph_attrs: &mut AttrMap,
@@ -1530,6 +1542,8 @@ impl EdgeListEngine {
             b"edge" if *in_graph => {
                 let mut source = String::new();
                 let mut target = String::new();
+                *current_edge_directed = None;
+                *current_edge_skip = false;
                 for attr in e.attributes() {
                     let attr = match attr {
                         Ok(attr) => attr,
@@ -1564,6 +1578,39 @@ impl EdgeListEngine {
                         b"target" => {
                             target = String::from_utf8_lossy(&attr.value).into_owned();
                         }
+                        b"directed" => {
+                            let directed_value = parse_graphml_directed_value(attr.value.as_ref());
+                            match directed_value {
+                                Some(parsed) => {
+                                    *current_edge_directed = Some(parsed);
+                                }
+                                None => {
+                                    let warning = format!(
+                                        "graphml edge directed attribute invalid: value={:?}",
+                                        String::from_utf8_lossy(&attr.value)
+                                    );
+                                    if self.mode == CompatibilityMode::Strict {
+                                        self.record(
+                                            "read_graphml",
+                                            DecisionAction::FailClosed,
+                                            &warning,
+                                            1.0,
+                                        );
+                                        return Err(ReadWriteError::FailClosed {
+                                            operation: "read_graphml",
+                                            reason: warning,
+                                        });
+                                    }
+                                    warnings.push(warning.clone());
+                                    self.record(
+                                        "read_graphml",
+                                        DecisionAction::FullValidate,
+                                        &warning,
+                                        0.7,
+                                    );
+                                }
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -1581,6 +1628,24 @@ impl EdgeListEngine {
                     warnings.push(warning.clone());
                     self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
                     return Ok(());
+                }
+                if let Some(edge_directed) = *current_edge_directed
+                    && edge_directed != graph.is_directed()
+                {
+                    let warning = format!(
+                        "graphml edge directed mismatch: edge_directed={edge_directed} graph_directed={}",
+                        graph.is_directed()
+                    );
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_graphml",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
+                    *current_edge_skip = true;
                 }
                 *current_edge = Some((source, target));
                 pending_edge_attrs.clear();
@@ -1646,6 +1711,8 @@ impl EdgeListEngine {
         in_graph: &mut bool,
         current_node: &mut Option<String>,
         current_edge: &mut Option<(String, String)>,
+        current_edge_directed: &mut Option<bool>,
+        current_edge_skip: &mut bool,
         current_data_key: &mut Option<String>,
         current_data_text: &mut String,
         pending_graph_attrs: &mut AttrMap,
@@ -1734,24 +1801,40 @@ impl EdgeListEngine {
             }
             b"edge" => {
                 if let Some((source, target)) = current_edge.take() {
-                    let result = graph.add_edge_with_attrs(
-                        source,
-                        target,
-                        std::mem::take(pending_edge_attrs),
-                    );
-                    if let Err(err) = result {
-                        let warning = format!("graphml edge add failed: {err}");
-                        if self.mode == CompatibilityMode::Strict {
-                            self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
-                            return Err(ReadWriteError::FailClosed {
-                                operation: "read_graphml",
-                                reason: warning,
-                            });
+                    if *current_edge_skip {
+                        *current_edge_skip = false;
+                        pending_edge_attrs.clear();
+                    } else {
+                        let result = graph.add_edge_with_attrs(
+                            source,
+                            target,
+                            std::mem::take(pending_edge_attrs),
+                        );
+                        if let Err(err) = result {
+                            let warning = format!("graphml edge add failed: {err}");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_graphml",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_graphml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record(
+                                "read_graphml",
+                                DecisionAction::FullValidate,
+                                &warning,
+                                0.7,
+                            );
                         }
-                        warnings.push(warning.clone());
-                        self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
                     }
                 }
+                *current_edge_directed = None;
                 pending_edge_attrs.clear();
             }
             b"graph" => {
@@ -2669,6 +2752,7 @@ trait GraphLike {
         target: String,
         attrs: AttrMap,
     ) -> Result<bool, GraphError>;
+    fn is_directed(&self) -> bool;
 }
 
 impl GraphLike for Graph {
@@ -2687,6 +2771,10 @@ impl GraphLike for Graph {
         self.add_edge_with_attrs(source, target, attrs)
             .map(|_| true)
     }
+
+    fn is_directed(&self) -> bool {
+        false
+    }
 }
 
 impl GraphLike for DiGraph {
@@ -2704,6 +2792,10 @@ impl GraphLike for DiGraph {
     ) -> Result<bool, GraphError> {
         self.add_edge_with_attrs(source, target, attrs)
             .map(|_| true)
+    }
+
+    fn is_directed(&self) -> bool {
+        true
     }
 }
 
@@ -2804,6 +2896,15 @@ fn graphml_scope_matches(for_scope: &str, target: &str) -> bool {
         return true;
     }
     scope == target
+}
+
+fn parse_graphml_directed_value(value: &[u8]) -> Option<bool> {
+    let text = std::str::from_utf8(value).ok()?;
+    match text.trim().to_ascii_lowercase().as_str() {
+        "true" | "1" => Some(true),
+        "false" | "0" => Some(false),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -4141,6 +4242,82 @@ mod tests {
         assert!(!report.warnings.is_empty());
         let attrs = report.graph.node_attrs("n0").expect("node should exist");
         assert!(attrs.is_empty());
+    }
+
+    #[test]
+    fn graphml_edge_directed_in_undirected_strict_fails_closed() {
+        let graphml = r#"
+<graphml>
+  <graph edgedefault="undirected">
+    <node id="n0"/>
+    <node id="n1"/>
+    <edge source="n0" target="n1" directed="true"/>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(graphml)
+            .expect_err("strict mode should fail on directed edge in undirected graph");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_edge_directed_in_undirected_hardened_warns_and_skips() {
+        let graphml = r#"
+<graphml>
+  <graph edgedefault="undirected">
+    <node id="n0"/>
+    <node id="n1"/>
+    <edge source="n0" target="n1" directed="true"/>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("hardened mode should recover from directed edge in undirected graph");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 2);
+        assert_eq!(report.graph.edge_count(), 0);
+    }
+
+    #[test]
+    fn graphml_edge_undirected_in_directed_strict_fails_closed() {
+        let graphml = r#"
+<graphml>
+  <graph edgedefault="directed">
+    <node id="n0"/>
+    <node id="n1"/>
+    <edge source="n0" target="n1" directed="false"/>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_digraph_graphml(graphml)
+            .expect_err("strict mode should fail on undirected edge in directed graph");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_edge_undirected_in_directed_hardened_warns_and_skips() {
+        let graphml = r#"
+<graphml>
+  <graph edgedefault="directed">
+    <node id="n0"/>
+    <node id="n1"/>
+    <edge source="n0" target="n1" directed="false"/>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_digraph_graphml(graphml)
+            .expect("hardened mode should recover from undirected edge in directed graph");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 2);
+        assert_eq!(report.graph.edge_count(), 0);
     }
 
     #[test]
