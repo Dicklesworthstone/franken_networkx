@@ -896,12 +896,58 @@ impl EdgeListEngine {
             .write_event(Event::Start(graphml_start))
             .map_err(|e| xml_write_err("graphml_start", e))?;
 
+        let mut node_defaults = AttrMap::new();
+        let mut edge_defaults = AttrMap::new();
+        if let Some(value) = graph_attrs.get("node_default") {
+            match value {
+                CgseValue::Map(map) => {
+                    node_defaults = map.clone();
+                }
+                _ => {
+                    let warning = format!(
+                        "graphml node_default must be a map: value={}",
+                        value.as_str()
+                    );
+                    if self.mode == CompatibilityMode::Strict {
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "write_graphml",
+                            reason: warning,
+                        });
+                    }
+                    self.record("write_graphml", DecisionAction::FullValidate, &warning, 0.6);
+                }
+            }
+        }
+        if let Some(value) = graph_attrs.get("edge_default") {
+            match value {
+                CgseValue::Map(map) => {
+                    edge_defaults = map.clone();
+                }
+                _ => {
+                    let warning = format!(
+                        "graphml edge_default must be a map: value={}",
+                        value.as_str()
+                    );
+                    if self.mode == CompatibilityMode::Strict {
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "write_graphml",
+                            reason: warning,
+                        });
+                    }
+                    self.record("write_graphml", DecisionAction::FullValidate, &warning, 0.6);
+                }
+            }
+        }
+
         // Collect all distinct attribute keys from graph, nodes, and edges.
         let mut graph_attr_keys = BTreeSet::new();
         let mut node_attr_keys: BTreeSet<(String, GraphmlValueType)> = BTreeSet::new();
         let mut edge_attr_keys: BTreeSet<(String, GraphmlValueType)> = BTreeSet::new();
 
         for key in graph_attrs.keys() {
+            if key == "node_default" || key == "edge_default" {
+                continue;
+            }
             graph_attr_keys.insert(key.clone());
         }
 
@@ -914,11 +960,19 @@ impl EdgeListEngine {
             }
         }
 
+        for (key, value) in &node_defaults {
+            node_attr_keys.insert((key.clone(), GraphmlValueType::from_value(value)));
+        }
+
         let edges = graph.edges_ordered();
         for edge in &edges {
             for (key, value) in &edge.attrs {
                 edge_attr_keys.insert((key.clone(), GraphmlValueType::from_value(value)));
             }
+        }
+
+        for (key, value) in &edge_defaults {
+            edge_attr_keys.insert((key.clone(), GraphmlValueType::from_value(value)));
         }
 
         // Emit <key> declarations for graph attributes.
@@ -948,9 +1002,36 @@ impl EdgeListEngine {
             key_elem.push_attribute(("for", "node"));
             key_elem.push_attribute(("attr.name", attr_name.as_str()));
             key_elem.push_attribute(("attr.type", attr_type.as_str()));
-            writer
-                .write_event(Event::Empty(key_elem))
-                .map_err(|e| xml_write_err("key_node", e))?;
+            let default_value = node_defaults.get(attr_name).and_then(|value| {
+                if GraphmlValueType::from_value(value) == *attr_type {
+                    Some(value)
+                } else {
+                    None
+                }
+            });
+            if let Some(default_value) = default_value {
+                writer
+                    .write_event(Event::Start(key_elem))
+                    .map_err(|e| xml_write_err("key_node_start", e))?;
+                let default_elem = BytesStart::new("default");
+                writer
+                    .write_event(Event::Start(default_elem))
+                    .map_err(|e| xml_write_err("key_node_default_start", e))?;
+                let default_text = default_value.as_str();
+                writer
+                    .write_event(Event::Text(BytesText::new(&default_text)))
+                    .map_err(|e| xml_write_err("key_node_default_text", e))?;
+                writer
+                    .write_event(Event::End(BytesEnd::new("default")))
+                    .map_err(|e| xml_write_err("key_node_default_end", e))?;
+                writer
+                    .write_event(Event::End(BytesEnd::new("key")))
+                    .map_err(|e| xml_write_err("key_node_end", e))?;
+            } else {
+                writer
+                    .write_event(Event::Empty(key_elem))
+                    .map_err(|e| xml_write_err("key_node", e))?;
+            }
             node_key_ids.insert((attr_name.clone(), *attr_type), key_id);
         }
 
@@ -964,9 +1045,36 @@ impl EdgeListEngine {
             key_elem.push_attribute(("for", "edge"));
             key_elem.push_attribute(("attr.name", attr_name.as_str()));
             key_elem.push_attribute(("attr.type", attr_type.as_str()));
-            writer
-                .write_event(Event::Empty(key_elem))
-                .map_err(|e| xml_write_err("key_edge", e))?;
+            let default_value = edge_defaults.get(attr_name).and_then(|value| {
+                if GraphmlValueType::from_value(value) == *attr_type {
+                    Some(value)
+                } else {
+                    None
+                }
+            });
+            if let Some(default_value) = default_value {
+                writer
+                    .write_event(Event::Start(key_elem))
+                    .map_err(|e| xml_write_err("key_edge_start", e))?;
+                let default_elem = BytesStart::new("default");
+                writer
+                    .write_event(Event::Start(default_elem))
+                    .map_err(|e| xml_write_err("key_edge_default_start", e))?;
+                let default_text = default_value.as_str();
+                writer
+                    .write_event(Event::Text(BytesText::new(&default_text)))
+                    .map_err(|e| xml_write_err("key_edge_default_text", e))?;
+                writer
+                    .write_event(Event::End(BytesEnd::new("default")))
+                    .map_err(|e| xml_write_err("key_edge_default_end", e))?;
+                writer
+                    .write_event(Event::End(BytesEnd::new("key")))
+                    .map_err(|e| xml_write_err("key_edge_end", e))?;
+            } else {
+                writer
+                    .write_event(Event::Empty(key_elem))
+                    .map_err(|e| xml_write_err("key_edge", e))?;
+            }
             edge_key_ids.insert((attr_name.clone(), *attr_type), key_id);
         }
 
@@ -982,6 +1090,9 @@ impl EdgeListEngine {
             .map_err(|e| xml_write_err("graph_start", e))?;
 
         for (attr_name, attr_value) in graph_attrs {
+            if attr_name == "node_default" || attr_name == "edge_default" {
+                continue;
+            }
             if let Some(key_id) = graph_key_ids.get(attr_name) {
                 let mut data_elem = BytesStart::new("data");
                 data_elem.push_attribute(("key", key_id.as_str()));
@@ -1449,6 +1560,17 @@ impl EdgeListEngine {
                 _ => {}
             }
         }
+        let mut combined_graph_attrs = AttrMap::new();
+        combined_graph_attrs.insert(
+            "node_default".to_owned(),
+            CgseValue::Map(std::mem::take(&mut graphml_node_defaults)),
+        );
+        combined_graph_attrs.insert(
+            "edge_default".to_owned(),
+            CgseValue::Map(std::mem::take(&mut graphml_edge_defaults)),
+        );
+        combined_graph_attrs.extend(std::mem::take(graph_attrs));
+        *graph_attrs = combined_graph_attrs;
         Ok(())
     }
 
@@ -1886,6 +2008,7 @@ impl EdgeListEngine {
                     warnings.push(warning.clone());
                     self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
                     current_data_text.clear();
+                    current_data_key.take();
                     *current_data_has_children = false;
                     return Ok(());
                 }
@@ -2796,6 +2919,10 @@ fn gml_value_str(value: &CgseValue) -> String {
                 "0".to_owned()
             }
         }
+        CgseValue::Map(map) => {
+            let text = serde_json::to_string(map).unwrap_or_else(|_| "{}".to_owned());
+            format!("\"{}\"", gml_escape(&text))
+        }
         CgseValue::Float(f) => {
             if f.is_infinite() {
                 if f.is_sign_positive() {
@@ -2835,6 +2962,7 @@ impl GraphmlValueType {
             CgseValue::Int(_) => Self::Int,
             CgseValue::Float(_) => Self::Float,
             CgseValue::String(_) => Self::String,
+            CgseValue::Map(_) => Self::String,
         }
     }
 
@@ -4307,6 +4435,31 @@ mod tests {
     }
 
     #[test]
+    fn write_graphml_emits_default_keys() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        let node_defaults =
+            BTreeMap::from([("color".to_owned(), CgseValue::String("yellow".to_owned()))]);
+        let edge_defaults = BTreeMap::from([("weight".to_owned(), CgseValue::Int(7))]);
+        let graph_attrs = BTreeMap::from([
+            ("node_default".to_owned(), CgseValue::Map(node_defaults)),
+            ("edge_default".to_owned(), CgseValue::Map(edge_defaults)),
+        ]);
+
+        let mut engine = EdgeListEngine::strict();
+        let xml = engine
+            .write_graphml_with_graph_attrs(&graph, &graph_attrs)
+            .expect("graphml write should succeed");
+
+        assert!(xml.contains(r#"attr.name="color""#));
+        assert!(xml.contains(r#"<default>yellow</default>"#));
+        assert!(xml.contains(r#"attr.name="weight""#));
+        assert!(xml.contains(r#"<default>7</default>"#));
+        assert!(!xml.contains("node_default"));
+        assert!(!xml.contains("edge_default"));
+    }
+
+    #[test]
     fn graphml_strict_fails_closed_for_malformed_xml() {
         let mut engine = EdgeListEngine::strict();
         let err = engine
@@ -4495,6 +4648,54 @@ mod tests {
     }
 
     #[test]
+    fn graphml_defaults_recorded_in_graph_attrs() {
+        let graphml = r#"
+<graphml>
+  <key id="d0" for="node" attr.name="color" attr.type="string">
+    <default>yellow</default>
+  </key>
+  <key id="d1" for="edge" attr.name="weight" attr.type="int">
+    <default>7</default>
+  </key>
+  <graph edgedefault="undirected">
+    <node id="n0"/>
+    <node id="n1"/>
+    <edge source="n0" target="n1"/>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("graphml defaults should parse");
+        let node_default = report
+            .graph_attrs
+            .get("node_default")
+            .expect("node_default should exist");
+        assert!(
+            matches!(node_default, CgseValue::Map(_)),
+            "node_default should be map"
+        );
+        if let CgseValue::Map(map) = node_default {
+            assert_eq!(
+                map.get("color"),
+                Some(&CgseValue::String("yellow".to_owned()))
+            );
+        }
+        let edge_default = report
+            .graph_attrs
+            .get("edge_default")
+            .expect("edge_default should exist");
+        assert!(
+            matches!(edge_default, CgseValue::Map(_)),
+            "edge_default should be map"
+        );
+        if let CgseValue::Map(map) = edge_default {
+            assert_eq!(map.get("weight"), Some(&CgseValue::Int(7)));
+        }
+    }
+
+    #[test]
     fn graphml_edge_id_attribute_preserved() {
         let graphml = r#"
 <graphml>
@@ -4600,6 +4801,35 @@ mod tests {
         assert!(!report.warnings.is_empty());
         let attrs = report.graph.node_attrs("n0").expect("node should exist");
         assert!(attrs.is_empty());
+    }
+
+    #[test]
+    fn graphml_nested_data_does_not_poison_next_data() {
+        let graphml = r#"
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns" xmlns:y="http://www.yworks.com/xml/graphml">
+  <key id="d0" for="node" attr.name="label" attr.type="string"/>
+  <key id="d1" for="node" attr.name="color" attr.type="string"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">
+        <y:ShapeNode/>
+      </data>
+      <data key="d1">blue</data>
+    </node>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("hardened mode should recover from nested data");
+        assert!(!report.warnings.is_empty());
+        let attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert_eq!(
+            attrs.get("color"),
+            Some(&CgseValue::String("blue".to_owned()))
+        );
+        assert!(attrs.get("label").is_none());
     }
 
     #[test]

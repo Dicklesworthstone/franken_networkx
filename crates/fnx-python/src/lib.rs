@@ -58,7 +58,10 @@ pub(crate) fn py_dict_to_attr_map(attrs: &Bound<'_, PyDict>) -> PyResult<AttrMap
     let mut rust_attrs = AttrMap::new();
     for (k, v) in attrs.iter() {
         let key: String = k.extract()?;
-        let val = if let Ok(s) = v.extract::<String>() {
+        let val = if let Ok(d) = v.downcast::<PyDict>() {
+            let nested = py_dict_to_attr_map(d)?;
+            CgseValue::Map(nested)
+        } else if let Ok(s) = v.extract::<String>() {
             CgseValue::String(s)
         } else if let Ok(b) = v.extract::<bool>() {
             // bool must be checked before i64/f64 because Python bool is a subclass of int
@@ -91,6 +94,15 @@ pub(crate) fn cgse_value_to_py(py: Python<'_>, val: &CgseValue) -> PyObject {
         CgseValue::Bool(b) => b
             .into_py_any(py)
             .expect("bool conversion to python should not fail"),
+        CgseValue::Map(map) => {
+            let dict = PyDict::new(py);
+            for (k, v) in map {
+                dict.set_item(k, cgse_value_to_py(py, v))
+                    .expect("map insertion should not fail");
+            }
+            dict.into_py_any(py)
+                .expect("dict conversion to python should not fail")
+        }
     }
 }
 

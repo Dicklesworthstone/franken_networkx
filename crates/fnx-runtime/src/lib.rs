@@ -46,6 +46,7 @@ pub enum CgseValue {
     Int(i64),
     Float(f64),
     String(String),
+    Map(BTreeMap<String, CgseValue>),
 }
 
 impl Eq for CgseValue {}
@@ -88,6 +89,7 @@ impl CgseValue {
             Self::Int(i) => Some(*i as f64),
             Self::String(s) => s.parse::<f64>().ok(),
             Self::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
+            Self::Map(_) => None,
         }
     }
 
@@ -98,6 +100,7 @@ impl CgseValue {
             Self::Float(f) => f.to_string(),
             Self::Int(i) => i.to_string(),
             Self::Bool(b) => b.to_string(),
+            Self::Map(map) => serde_json::to_string(map).unwrap_or_else(|_| "{}".to_owned()),
         }
     }
 

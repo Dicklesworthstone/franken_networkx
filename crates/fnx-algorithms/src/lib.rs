@@ -28200,6 +28200,7 @@ impl GraphMLType {
             CgseValue::Float(_) => Self::Double,
             CgseValue::Bool(_) => Self::Boolean,
             CgseValue::String(_) => Self::String,
+            CgseValue::Map(_) => Self::String,
         }
     }
 
