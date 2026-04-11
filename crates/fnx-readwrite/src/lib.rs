@@ -2531,9 +2531,18 @@ impl EdgeListEngine {
             pos += 1;
         }
 
-        while pos + 1 < tokens.len() {
+        let mut depth: usize = if pos > 0 { 1 } else { 0 };
+        while pos < tokens.len() && depth > 0 {
             match tokens[pos].as_str() {
-                "directed" => {
+                "[" => {
+                    depth += 1;
+                    pos += 1;
+                }
+                "]" => {
+                    depth = depth.saturating_sub(1);
+                    pos += 1;
+                }
+                "directed" if depth == 1 && pos + 1 < tokens.len() => {
                     let value = &tokens[pos + 1];
                     return match parse_gml_directed_value(value) {
                         Some(flag) => Ok(flag),
@@ -2557,7 +2566,6 @@ impl EdgeListEngine {
                         }
                     };
                 }
-                "node" | "edge" | "]" => return Ok(false),
                 _ => pos += 1,
             }
         }
@@ -4230,6 +4238,28 @@ mod tests {
         let mut engine = EdgeListEngine::strict();
         assert!(
             !engine
+                .gml_declares_directed(input)
+                .expect("gml directed detection should succeed")
+        );
+    }
+
+    #[test]
+    fn gml_declares_directed_detects_late_header() {
+        let input = r#"graph [
+  node [
+    id 0
+    label "a"
+  ]
+  directed 1
+  edge [
+    source 0
+    target 0
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        assert!(
+            engine
                 .gml_declares_directed(input)
                 .expect("gml directed detection should succeed")
         );
