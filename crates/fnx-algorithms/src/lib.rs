@@ -18863,7 +18863,11 @@ pub fn is_pseudographical(sequence: &[usize]) -> bool {
 #[must_use]
 pub fn is_regular(graph: &Graph) -> bool {
     let nodes = graph.nodes_ordered();
-    if nodes.len() <= 1 {
+    if nodes.is_empty() {
+        // NetworkX raises for empty graphs; return false to match "not regular".
+        return false;
+    }
+    if nodes.len() == 1 {
         return true;
     }
     let first_deg = node_degree(graph, nodes[0]);
@@ -37817,6 +37821,12 @@ mod tests {
         let mut g = Graph::strict();
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
+        assert!(!is_regular(&g));
+    }
+
+    #[test]
+    fn test_is_regular_empty_is_false() {
+        let g = Graph::strict();
         assert!(!is_regular(&g));
     }
 
