@@ -18882,7 +18882,7 @@ pub fn is_k_regular(graph: &Graph, k: usize) -> bool {
 }
 
 fn node_degree(graph: &Graph, node: &str) -> usize {
-    graph.neighbors_iter(node).map_or(0, Iterator::count)
+    graph.degree(node)
 }
 
 /// Check if a directed graph is a tournament (complete oriented graph).
@@ -18965,6 +18965,9 @@ pub fn is_path_graph(graph: &Graph) -> bool {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     if n == 0 {
+        return false;
+    }
+    if nodes.iter().any(|&node| graph.has_edge(node, node)) {
         return false;
     }
     if n == 1 {
@@ -37828,6 +37831,14 @@ mod tests {
     }
 
     #[test]
+    fn test_is_k_regular_self_loop_counts_twice() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "a");
+        assert!(is_k_regular(&g, 2));
+        assert!(!is_k_regular(&g, 1));
+    }
+
+    #[test]
     fn test_is_tournament() {
         let mut g = DiGraph::strict();
         let _ = g.add_edge("a", "b");
@@ -37873,6 +37884,13 @@ mod tests {
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
         assert!(is_path_graph(&g));
+    }
+
+    #[test]
+    fn test_is_path_graph_self_loop_is_false() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "a");
+        assert!(!is_path_graph(&g));
     }
 
     #[test]
