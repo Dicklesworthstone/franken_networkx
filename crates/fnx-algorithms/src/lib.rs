@@ -18895,7 +18895,10 @@ fn node_degree(graph: &Graph, node: &str) -> usize {
 pub fn is_tournament(digraph: &DiGraph) -> bool {
     let nodes = digraph.nodes_ordered();
     let n = nodes.len();
-    let expected_edges = n * n.wrapping_sub(1) / 2;
+    if n <= 1 {
+        return digraph.edge_count() == 0;
+    }
+    let expected_edges = n * (n - 1) / 2;
     let edge_count: usize = nodes
         .iter()
         .map(|&node| digraph.successors(node).map_or(0, |s| s.len()))
@@ -37854,6 +37857,12 @@ mod tests {
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("b", "c");
         let _ = g.add_edge("a", "c");
+        assert!(is_tournament(&g));
+    }
+
+    #[test]
+    fn test_is_tournament_empty_is_true() {
+        let g = DiGraph::strict();
         assert!(is_tournament(&g));
     }
 
