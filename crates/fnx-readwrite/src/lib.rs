@@ -1981,24 +1981,14 @@ impl EdgeListEngine {
                         if id_to_label.contains_key(&id) {
                             let warning = format!("gml node duplicate id {id}");
                             if self.mode == CompatibilityMode::Strict {
-                                self.record(
-                                    "read_gml",
-                                    DecisionAction::FailClosed,
-                                    &warning,
-                                    1.0,
-                                );
+                                self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
                                 return Err(ReadWriteError::FailClosed {
                                     operation: "read_gml",
                                     reason: warning,
                                 });
                             }
                             warnings.push(warning.clone());
-                            self.record(
-                                "read_gml",
-                                DecisionAction::FullValidate,
-                                &warning,
-                                0.7,
-                            );
+                            self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
                             pos = new_pos;
                             continue;
                         }
@@ -2033,24 +2023,14 @@ impl EdgeListEngine {
                         if label_set.contains(&node_label) {
                             let warning = format!("gml node duplicate label '{node_label}'");
                             if self.mode == CompatibilityMode::Strict {
-                                self.record(
-                                    "read_gml",
-                                    DecisionAction::FailClosed,
-                                    &warning,
-                                    1.0,
-                                );
+                                self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
                                 return Err(ReadWriteError::FailClosed {
                                     operation: "read_gml",
                                     reason: warning,
                                 });
                             }
                             warnings.push(warning.clone());
-                            self.record(
-                                "read_gml",
-                                DecisionAction::FullValidate,
-                                &warning,
-                                0.7,
-                            );
+                            self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
                             pos = new_pos;
                             continue;
                         }
@@ -2069,62 +2049,46 @@ impl EdgeListEngine {
                     let (edge, new_pos) = self.parse_gml_edge(&tokens, pos, warnings)?;
                     if let Some((source, target, attrs)) = edge {
                         let mut skip_edge = false;
-                        if !id_to_label.contains_key(&source) {
+                        if let std::collections::btree_map::Entry::Vacant(entry) =
+                            id_to_label.entry(source)
+                        {
                             let warning = format!("gml edge references missing source {source}");
                             if self.mode == CompatibilityMode::Strict {
-                                self.record(
-                                    "read_gml",
-                                    DecisionAction::FailClosed,
-                                    &warning,
-                                    1.0,
-                                );
+                                self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
                                 return Err(ReadWriteError::FailClosed {
                                     operation: "read_gml",
                                     reason: warning,
                                 });
                             }
                             warnings.push(warning.clone());
-                            self.record(
-                                "read_gml",
-                                DecisionAction::FullValidate,
-                                &warning,
-                                0.7,
-                            );
+                            self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
                             let candidate = source.to_string();
                             if label_set.contains(&candidate) {
                                 skip_edge = true;
                             } else {
                                 label_set.insert(candidate.clone());
-                                id_to_label.insert(source, candidate);
+                                entry.insert(candidate);
                             }
                         }
-                        if !id_to_label.contains_key(&target) {
+                        if let std::collections::btree_map::Entry::Vacant(entry) =
+                            id_to_label.entry(target)
+                        {
                             let warning = format!("gml edge references missing target {target}");
                             if self.mode == CompatibilityMode::Strict {
-                                self.record(
-                                    "read_gml",
-                                    DecisionAction::FailClosed,
-                                    &warning,
-                                    1.0,
-                                );
+                                self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
                                 return Err(ReadWriteError::FailClosed {
                                     operation: "read_gml",
                                     reason: warning,
                                 });
                             }
                             warnings.push(warning.clone());
-                            self.record(
-                                "read_gml",
-                                DecisionAction::FullValidate,
-                                &warning,
-                                0.7,
-                            );
+                            self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
                             let candidate = target.to_string();
                             if label_set.contains(&candidate) {
                                 skip_edge = true;
                             } else {
                                 label_set.insert(candidate.clone());
-                                id_to_label.insert(target, candidate);
+                                entry.insert(candidate);
                             }
                         }
                         if skip_edge {
@@ -3285,6 +3249,131 @@ mod tests {
     }
 
     #[test]
+    fn gml_unescape_named_entity_decodes() {
+        let input = r#"graph [
+  node [
+    id 1
+    label "bread &amp; butter &quot;ok&quot; &lt;tag&gt; &apos;x&apos;"
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let report = engine.read_gml(input).expect("gml read should succeed");
+        let nodes = report.graph.nodes_ordered();
+        assert_eq!(nodes, vec!["bread & butter \"ok\" <tag> 'x'"]);
+    }
+
+    #[test]
+    fn gml_node_missing_label_strict_fails_closed() {
+        let input = r#"graph [
+  node [
+    id 0
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_gml(input)
+            .expect_err("strict gml should fail on node missing label");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn gml_node_missing_label_hardened_recovers_with_id_label() {
+        let input = r#"graph [
+  node [
+    id 0
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine.read_gml(input).expect("hardened gml should recover");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 1);
+        assert_eq!(report.graph.nodes_ordered(), vec!["0"]);
+    }
+
+    #[test]
+    fn gml_node_duplicate_id_strict_fails_closed() {
+        let input = r#"graph [
+  node [
+    id 0
+    label "a"
+  ]
+  node [
+    id 0
+    label "b"
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_gml(input)
+            .expect_err("strict gml should fail on duplicate node id");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn gml_node_duplicate_id_hardened_warns_and_skips() {
+        let input = r#"graph [
+  node [
+    id 0
+    label "a"
+  ]
+  node [
+    id 0
+    label "b"
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine.read_gml(input).expect("hardened gml should recover");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 1);
+        assert_eq!(report.graph.nodes_ordered(), vec!["a"]);
+    }
+
+    #[test]
+    fn gml_node_duplicate_label_strict_fails_closed() {
+        let input = r#"graph [
+  node [
+    id 0
+    label "a"
+  ]
+  node [
+    id 1
+    label "a"
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_gml(input)
+            .expect_err("strict gml should fail on duplicate node label");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn gml_node_duplicate_label_hardened_warns_and_skips() {
+        let input = r#"graph [
+  node [
+    id 0
+    label "a"
+  ]
+  node [
+    id 1
+    label "a"
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine.read_gml(input).expect("hardened gml should recover");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 1);
+        assert_eq!(report.graph.nodes_ordered(), vec!["a"]);
+    }
+
+    #[test]
     fn gml_node_missing_id_strict_fails_closed() {
         let input = r#"graph [
   directed 0
@@ -3423,6 +3512,49 @@ mod tests {
         assert!(!report.warnings.is_empty());
         assert_eq!(report.graph.node_count(), 2);
         assert_eq!(report.graph.edge_count(), 0);
+    }
+
+    #[test]
+    fn gml_edge_unknown_endpoint_strict_fails_closed() {
+        let input = r#"graph [
+  directed 0
+  node [
+    id 0
+    label "a"
+  ]
+  edge [
+    source 0
+    target 1
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_gml(input)
+            .expect_err("strict gml should fail on unknown edge endpoint");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn gml_edge_unknown_endpoint_hardened_recovers_creates_node() {
+        let input = r#"graph [
+  directed 0
+  node [
+    id 0
+    label "a"
+  ]
+  edge [
+    source 0
+    target 1
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine.read_gml(input).expect("hardened gml should recover");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 2);
+        assert_eq!(report.graph.edge_count(), 1);
+        assert_eq!(report.graph.nodes_ordered(), vec!["a", "1"]);
     }
 
     #[test]
