@@ -2060,6 +2060,7 @@ impl PyDiGraph {
     /// Convert to undirected PyGraph — merges parallel directed edges.
     fn to_undirected(&self, py: Python<'_>) -> PyResult<PyGraph> {
         let mut ug = PyGraph::new_empty(py)?;
+        ug.inner = fnx_classes::Graph::new(self.inner.mode());
         // Copy nodes.
         for (canonical, py_key) in &self.node_key_map {
             let rust_attrs = self
