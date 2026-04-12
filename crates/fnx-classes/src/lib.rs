@@ -1023,14 +1023,15 @@ impl MultiGraph {
                     let pair = EdgeKeyRef::new(node, neighbor);
                     if let Some(edge_bucket) = self.edges.get(&pair) {
                         for (key, attrs) in edge_bucket {
-                            let instance = (pair.left.to_owned(), pair.right.to_owned(), *key);
-                            if !seen.insert(instance.clone()) {
+                            // Track using the canonical sorted pair to deduplicate correctly
+                            let canonical_instance = (pair.left.to_owned(), pair.right.to_owned(), *key);
+                            if !seen.insert(canonical_instance) {
                                 continue;
                             }
                             ordered.push(MultiEdgeSnapshot {
-                                left: instance.0,
-                                right: instance.1,
-                                key: instance.2,
+                                left: node.clone(),
+                                right: neighbor.clone(),
+                                key: *key,
                                 attrs: attrs.clone(),
                             });
                         }
@@ -1056,22 +1057,8 @@ impl MultiGraph {
                             if !seen.insert((pair, *key)) {
                                 continue;
                             }
-                            ordered.push((pair.left, pair.right, *key, attrs));
+                            ordered.push((node.as_str(), neighbor.as_str(), *key, attrs));
                         }
-                    }
-                }
-            }
-        }
-
-        if ordered.len() < self.edge_count() {
-            for (pair, edge_bucket) in &self.edges {
-                let rpair = EdgeKeyRef {
-                    left: &pair.left,
-                    right: &pair.right,
-                };
-                for (key, attrs) in edge_bucket {
-                    if seen.insert((rpair, *key)) {
-                        ordered.push((rpair.left, rpair.right, *key, attrs));
                     }
                 }
             }

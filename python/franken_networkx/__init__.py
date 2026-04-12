@@ -43,10 +43,7 @@ class EdgePartition(Enum):
 
 
 def _nan_filtered_graph(G, weight, ignore_nan):
-    if G.is_directed():
-        H = G.__class__()
-    else:
-        H = G.__class__()
+    H = G.__class__()
     H.graph.update(dict(G.graph))
     H.add_nodes_from(G.nodes(data=True))
 
@@ -226,13 +223,28 @@ def shortest_path_length(G, source=None, target=None, weight=None, method="dijks
     If both are given, return a single number.
     Matches ``networkx.shortest_path_length``.
     """
+    if method not in ("dijkstra", "bellman-ford"):
+        raise ValueError(f"method not supported: {method}")
+
     if source is not None and target is not None:
+        if weight is not None and method == "bellman-ford":
+            return bellman_ford_path_length(G, source, target, weight=weight)
         return _shortest_path_length_raw(G, source, target, weight=weight)
+    
     if source is not None:
-        return dict(single_source_shortest_path_length(G, source))
+        if weight is not None and method == "bellman-ford":
+            return dict(single_source_bellman_ford_path_length(G, source, weight=weight))
+        return dict(single_source_shortest_path_length(G, source, weight=weight))
+        
     if target is not None:
-        return dict(single_target_shortest_path_length(G, target))
-    all_pairs = all_pairs_shortest_path_length(G)
+        if weight is not None and method == "bellman-ford":
+            raise NetworkXNotImplemented("single_target_bellman_ford_path_length not implemented")
+        return dict(single_target_shortest_path_length(G, target, weight=weight))
+        
+    if weight is not None and method == "bellman-ford":
+        all_pairs = all_pairs_bellman_ford_path_length(G, weight=weight)
+    else:
+        all_pairs = all_pairs_shortest_path_length(G, weight=weight)
     return ((node, all_pairs[node]) for node in G.nodes())
 
 
