@@ -6443,6 +6443,186 @@ mod tests {
             prop_assert_eq!(orig_nodes, parsed_nodes, "node sets differ");
         }
 
+        #[test]
+        fn property_edgelist_round_trip(edges in prop::collection::vec((0_u8..8, 0_u8..8), 1..30)) {
+            let mut graph = Graph::strict();
+            for (left, right) in &edges {
+                let left_node = format!("n{left}");
+                let right_node = format!("n{right}");
+                let _ = graph.add_edge_with_attrs(
+                    left_node,
+                    right_node,
+                    BTreeMap::from([("weight".to_owned(), CgseValue::String(format!("{}", *left + 1)))]),
+                );
+            }
+            prop_assume!(graph.edge_count() > 0);
+
+            let mut engine = EdgeListEngine::strict();
+            let text = engine.write_edgelist(&graph).expect("edgelist write should succeed");
+            let parsed = engine.read_edgelist(&text).expect("edgelist read should succeed");
+
+            prop_assert!(parsed.warnings.is_empty(), "strict edgelist round-trip should have no warnings");
+            prop_assert_eq!(
+                graph.snapshot(),
+                parsed.graph.snapshot(),
+                "edgelist round-trip snapshot should be identical"
+            );
+        }
+
+        #[test]
+        fn property_json_graph_round_trip(edges in prop::collection::vec((0_u8..8, 0_u8..8), 1..30)) {
+            let mut graph = Graph::strict();
+            for (left, right) in &edges {
+                let left_node = format!("n{left}");
+                let right_node = format!("n{right}");
+                let _ = graph.add_edge_with_attrs(
+                    left_node,
+                    right_node,
+                    BTreeMap::from([("weight".to_owned(), CgseValue::String(format!("{}", *left + 1)))]),
+                );
+            }
+            prop_assume!(graph.edge_count() > 0);
+
+            let mut engine = EdgeListEngine::strict();
+            let json = engine.write_json_graph(&graph).expect("json write should succeed");
+            let parsed = engine.read_json_graph(&json).expect("json read should succeed");
+
+            prop_assert!(parsed.warnings.is_empty(), "strict json round-trip should have no warnings");
+            prop_assert_eq!(
+                graph.snapshot(),
+                parsed.graph.snapshot(),
+                "json round-trip snapshot should be identical"
+            );
+        }
+
+        #[test]
+        fn property_digraph_gml_round_trip(edges in prop::collection::vec((0_u8..8, 0_u8..8), 1..30)) {
+            let mut graph = DiGraph::strict();
+            for (left, right) in &edges {
+                let left_node = format!("n{left}");
+                let right_node = format!("n{right}");
+                let _ = graph.add_edge_with_attrs(
+                    left_node,
+                    right_node,
+                    BTreeMap::from([("weight".to_owned(), CgseValue::String(format!("{}", *left + 1)))]),
+                );
+            }
+            prop_assume!(graph.edge_count() > 0);
+
+            let mut engine = EdgeListEngine::strict();
+            let gml = engine.write_digraph_gml(&graph).expect("gml write should succeed");
+            let parsed = engine.read_digraph_gml(&gml).expect("gml read should succeed");
+
+            prop_assert!(parsed.warnings.is_empty(), "strict digraph gml round-trip should have no warnings");
+            prop_assert_eq!(
+                graph.snapshot(),
+                parsed.graph.snapshot(),
+                "digraph gml round-trip snapshot should be identical"
+            );
+        }
+
+        #[test]
+        fn property_digraph_graphml_round_trip(edges in prop::collection::vec((0_u8..8, 0_u8..8), 1..30)) {
+            let mut graph = DiGraph::strict();
+            for (left, right) in &edges {
+                let left_node = format!("n{left}");
+                let right_node = format!("n{right}");
+                let _ = graph.add_edge_with_attrs(
+                    left_node,
+                    right_node,
+                    BTreeMap::from([("weight".to_owned(), CgseValue::String(format!("{}", *left + 1)))]),
+                );
+            }
+            prop_assume!(graph.edge_count() > 0);
+
+            let mut engine = EdgeListEngine::strict();
+            let xml = engine.write_digraph_graphml(&graph).expect("graphml write should succeed");
+            let parsed = engine.read_digraph_graphml(&xml).expect("graphml read should succeed");
+
+            prop_assert!(parsed.warnings.is_empty(), "strict digraph graphml round-trip should have no warnings");
+            prop_assert_eq!(
+                graph.snapshot(),
+                parsed.graph.snapshot(),
+                "digraph graphml round-trip snapshot should be identical"
+            );
+        }
+
+        #[test]
+        fn property_digraph_adjlist_round_trip(edges in prop::collection::vec((0_u8..8, 0_u8..8), 1..30)) {
+            let mut graph = DiGraph::strict();
+            for (left, right) in &edges {
+                let left_node = format!("n{left}");
+                let right_node = format!("n{right}");
+                let _ = graph.add_edge(&left_node, &right_node);
+            }
+            prop_assume!(graph.edge_count() > 0);
+
+            let mut engine = EdgeListEngine::strict();
+            let text = engine.write_digraph_adjlist(&graph).expect("adjlist write should succeed");
+            let parsed = engine.read_digraph_adjlist(&text).expect("adjlist read should succeed");
+
+            prop_assert!(parsed.warnings.is_empty(), "strict digraph adjlist round-trip should have no warnings");
+            prop_assert_eq!(graph.node_count(), parsed.graph.node_count(), "node count mismatch");
+            prop_assert_eq!(graph.edge_count(), parsed.graph.edge_count(), "edge count mismatch");
+            let mut orig_nodes: Vec<_> = graph.snapshot().nodes.clone();
+            let mut parsed_nodes: Vec<_> = parsed.graph.snapshot().nodes.clone();
+            orig_nodes.sort();
+            parsed_nodes.sort();
+            prop_assert_eq!(orig_nodes, parsed_nodes, "node sets differ");
+        }
+
+        #[test]
+        fn property_digraph_edgelist_round_trip(edges in prop::collection::vec((0_u8..8, 0_u8..8), 1..30)) {
+            let mut graph = DiGraph::strict();
+            for (left, right) in &edges {
+                let left_node = format!("n{left}");
+                let right_node = format!("n{right}");
+                let _ = graph.add_edge_with_attrs(
+                    left_node,
+                    right_node,
+                    BTreeMap::from([("weight".to_owned(), CgseValue::String(format!("{}", *left + 1)))]),
+                );
+            }
+            prop_assume!(graph.edge_count() > 0);
+
+            let mut engine = EdgeListEngine::strict();
+            let text = engine.write_digraph_edgelist(&graph).expect("edgelist write should succeed");
+            let parsed = engine.read_digraph_edgelist(&text).expect("edgelist read should succeed");
+
+            prop_assert!(parsed.warnings.is_empty(), "strict digraph edgelist round-trip should have no warnings");
+            prop_assert_eq!(
+                graph.snapshot(),
+                parsed.graph.snapshot(),
+                "digraph edgelist round-trip snapshot should be identical"
+            );
+        }
+
+        #[test]
+        fn property_digraph_json_graph_round_trip(edges in prop::collection::vec((0_u8..8, 0_u8..8), 1..30)) {
+            let mut graph = DiGraph::strict();
+            for (left, right) in &edges {
+                let left_node = format!("n{left}");
+                let right_node = format!("n{right}");
+                let _ = graph.add_edge_with_attrs(
+                    left_node,
+                    right_node,
+                    BTreeMap::from([("weight".to_owned(), CgseValue::String(format!("{}", *left + 1)))]),
+                );
+            }
+            prop_assume!(graph.edge_count() > 0);
+
+            let mut engine = EdgeListEngine::strict();
+            let json = engine.write_digraph_json_graph(&graph).expect("json write should succeed");
+            let parsed = engine.read_digraph_json_graph(&json).expect("json read should succeed");
+
+            prop_assert!(parsed.warnings.is_empty(), "strict digraph json round-trip should have no warnings");
+            prop_assert_eq!(
+                graph.snapshot(),
+                parsed.graph.snapshot(),
+                "digraph json round-trip snapshot should be identical"
+            );
+        }
+
     }
 
     proptest! {
