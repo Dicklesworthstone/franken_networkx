@@ -1028,7 +1028,7 @@ impl PyMultiDiGraph {
 
     fn to_undirected(&self, py: Python<'_>) -> PyResult<crate::PyMultiGraph> {
         let mut ug = crate::PyMultiGraph {
-            inner: fnx_classes::MultiGraph::strict(),
+            inner: fnx_classes::MultiGraph::new(self.inner.mode()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -2023,7 +2023,7 @@ impl PyDiGraph {
     /// Return a reversed copy of the digraph.
     fn reverse(&self, py: Python<'_>) -> PyResult<Self> {
         let mut rev = Self {
-            inner: DiGraph::strict(),
+            inner: DiGraph::new(self.inner.mode()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),

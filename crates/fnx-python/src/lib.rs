@@ -2141,7 +2141,7 @@ impl PyGraph {
     /// Return a deep copy of the graph.
     fn copy(&self, py: Python<'_>) -> PyResult<Self> {
         let mut new_graph = Self {
-            inner: Graph::strict(),
+            inner: Graph::new(self.inner.mode()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -2196,7 +2196,7 @@ impl PyGraph {
         }
 
         let mut new_graph = Self {
-            inner: Graph::strict(),
+            inner: Graph::new(self.inner.mode()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -2259,7 +2259,7 @@ impl PyGraph {
         }
 
         let mut new_graph = Self {
-            inner: Graph::strict(),
+            inner: Graph::new(self.inner.mode()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),

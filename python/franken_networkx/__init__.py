@@ -352,33 +352,12 @@ from franken_networkx._fnx import (
 def all_simple_paths(G, source, target, cutoff=None):
     """Return all simple paths from source to target.
 
-    For directed graphs, only follows outgoing edges (successors).
-    For undirected graphs, delegates to the Rust implementation.
+    Delegates to the Rust implementation.
     """
     # Trivial case: source is target
     if source == target:
         return [[source]]
-    if not G.is_directed():
-        return _rust_all_simple_paths(G, source, target, cutoff=cutoff)
-    # Directed DFS respecting edge direction
-    cutoff_val = cutoff if cutoff is not None else len(G) - 1
-    result = []
-    visited = {source}
-    stack = [(source, iter(G.successors(source)), [source])]
-    while stack:
-        parent, children, path = stack[-1]
-        try:
-            child = next(children)
-        except StopIteration:
-            stack.pop()
-            visited.discard(parent)
-            continue
-        if child == target and len(path) <= cutoff_val:
-            result.append(path + [child])
-        elif child not in visited and len(path) < cutoff_val:
-            visited.add(child)
-            stack.append((child, iter(G.successors(child)), path + [child]))
-    return result
+    return _rust_all_simple_paths(G, source, target, cutoff=cutoff)
 
 
 # Algorithm functions — graph operators
@@ -1572,6 +1551,9 @@ def all_neighbors(G, node):
 def add_path(G, nodes, **attr):
     """Add a path of edges to *G*."""
     node_list = list(nodes)
+    if not node_list:
+        return
+    G.add_node(node_list[0])
     for i in range(len(node_list) - 1):
         G.add_edge(node_list[i], node_list[i + 1], **attr)
 
@@ -1579,7 +1561,11 @@ def add_path(G, nodes, **attr):
 def add_cycle(G, nodes, **attr):
     """Add a cycle of edges to *G*."""
     node_list = list(nodes)
-    if len(node_list) < 2:
+    if not node_list:
+        return
+    G.add_node(node_list[0])
+    if len(node_list) == 1:
+        G.add_edge(node_list[0], node_list[0], **attr)
         return
     for i in range(len(node_list) - 1):
         G.add_edge(node_list[i], node_list[i + 1], **attr)
@@ -1589,9 +1575,10 @@ def add_cycle(G, nodes, **attr):
 def add_star(G, nodes, **attr):
     """Add a star of edges to *G* (first node is the center)."""
     node_list = list(nodes)
-    if len(node_list) < 2:
+    if not node_list:
         return
     center = node_list[0]
+    G.add_node(center)
     for spoke in node_list[1:]:
         G.add_edge(center, spoke, **attr)
 

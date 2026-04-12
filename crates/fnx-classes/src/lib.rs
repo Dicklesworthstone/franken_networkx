@@ -529,8 +529,8 @@ impl Graph {
                     }
                     if let Some(attrs) = self.edges.get(&key) {
                         ordered.push(EdgeSnapshot {
-                            left: key.left.clone(),
-                            right: key.right.clone(),
+                            left: node.clone(),
+                            right: neighbor.clone(),
                             attrs: attrs.clone(),
                         });
                     }
