@@ -76,3 +76,39 @@ fn rejects_packet_003_missing_required_env_key() {
         .expect_err("packet-003 missing env key should fail closed");
     assert!(err.contains("packet-003 unit contract telemetry missing required environment key"));
 }
+
+#[test]
+fn rejects_bundle_replay_ref_mismatch() {
+    let log = parse_fixture("structured_log_bundle_replay_ref_mismatch.json");
+    let err = log
+        .validate()
+        .expect_err("bundle replay_ref mismatch should fail closed");
+    assert!(err.contains("forensics_bundle_index.replay_ref must match replay_command"));
+}
+
+#[test]
+fn rejects_bundle_run_id_mismatch() {
+    let log = parse_fixture("structured_log_bundle_run_id_mismatch.json");
+    let err = log
+        .validate()
+        .expect_err("bundle run_id mismatch should fail closed");
+    assert!(err.contains("forensics_bundle_index.run_id must match run_id"));
+}
+
+#[test]
+fn rejects_empty_artifact_refs() {
+    let log = parse_fixture("structured_log_empty_artifact_refs.json");
+    let err = log
+        .validate()
+        .expect_err("empty artifact refs should fail closed");
+    assert!(err.contains("artifact_refs must include at least one artifact path/ref"));
+}
+
+#[test]
+fn rejects_e2e_missing_step_traces() {
+    let log = parse_fixture("structured_log_e2e_missing_steps.json");
+    let err = log
+        .validate()
+        .expect_err("e2e logs without step traces should fail closed");
+    assert!(err.contains("e2e_step_traces are required when test_kind=e2e"));
+}
