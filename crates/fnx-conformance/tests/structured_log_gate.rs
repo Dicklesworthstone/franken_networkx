@@ -49,3 +49,30 @@ fn rejects_fixture_missing_replay_critical_field_at_deserialize_time() {
         .expect_err("missing env_fingerprint should be rejected");
     assert!(err.to_string().contains("env_fingerprint"));
 }
+
+#[test]
+fn rejects_missing_forensics_bundle_index() {
+    let log = parse_fixture("structured_log_missing_bundle_index.json");
+    let err = log
+        .validate()
+        .expect_err("missing forensics bundle index should fail closed");
+    assert!(err.contains("forensics_bundle_index is required"));
+}
+
+#[test]
+fn rejects_bundle_id_mismatch() {
+    let log = parse_fixture("structured_log_bundle_id_mismatch.json");
+    let err = log
+        .validate()
+        .expect_err("bundle_id mismatch should fail closed");
+    assert!(err.contains("bundle_id must match forensic_bundle_id"));
+}
+
+#[test]
+fn rejects_packet_003_missing_required_env_key() {
+    let log = parse_fixture("structured_log_missing_env_key_packet003.json");
+    let err = log
+        .validate()
+        .expect_err("packet-003 missing env key should fail closed");
+    assert!(err.contains("packet-003 unit contract telemetry missing required environment key"));
+}

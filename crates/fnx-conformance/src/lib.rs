@@ -59,7 +59,7 @@ impl HarnessConfig {
         Self {
             oracle_root: repo_root.join("legacy_networkx_code/networkx"),
             fixture_root: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures"),
-            strict_mode: true,
+            mode: CompatibilityMode::Strict,
             report_root: Some(repo_root.join("artifacts/conformance/latest")),
             fixture_filter: None,
             log_schema_version: structured_test_log_schema_version().to_owned(),
@@ -826,7 +826,7 @@ pub fn run_smoke(config: &HarnessConfig) -> HarnessReport {
     let run_id = format!(
         "conformance-{}-{}",
         unix_time_ms(),
-        if config.strict_mode {
+        if config.mode == CompatibilityMode::Strict {
             "strict"
         } else {
             "hardened"
@@ -840,7 +840,7 @@ pub fn run_smoke(config: &HarnessConfig) -> HarnessReport {
                 continue;
             }
         }
-        fixture_reports.push(run_fixture(path, config.strict_mode, &config.fixture_root));
+        fixture_reports.push(run_fixture(path, config.mode, &config.fixture_root));
     }
 
     let mismatch_count = fixture_reports
@@ -1433,7 +1433,7 @@ fn collect_fixture_paths(path: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) -> FixtureReport {
+fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Path) -> FixtureReport {
     let fixture_start = Instant::now();
     let fixture_name = fixture_name_for_path(&path, fixture_root);
     let fallback_source_hash = stable_hash_hex(&fixture_name);
@@ -1441,11 +1441,7 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
     let data = match fs::read_to_string(&path) {
         Ok(value) => value,
         Err(err) => {
-            let mode = if default_strict_mode {
-                CompatibilityMode::Strict
-            } else {
-                CompatibilityMode::Hardened
-            };
+            let mode = default_mode;
             let replay_command = reproduction_command_for_fixture(&fixture_name, mode);
             let mismatch = Mismatch {
                 category: "fixture_io".to_owned(),
@@ -1481,11 +1477,7 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
     let fixture = match serde_json::from_str::<ConformanceFixture>(&data) {
         Ok(value) => value,
         Err(err) => {
-            let mode = if default_mode == CompatibilityMode::Strict {
-                CompatibilityMode::Strict
-            } else {
-                CompatibilityMode::Hardened
-            };
+            let mode = default_mode;
             let replay_command = reproduction_command_for_fixture(&fixture_name, mode);
             let mismatch = Mismatch {
                 category: "fixture_schema".to_owned(),
@@ -1517,16 +1509,7 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
         }
     };
 
-    let mode = fixture.mode.map_or_else(
-        || {
-            if default_mode == CompatibilityMode::Strict {
-                CompatibilityMode::Strict
-            } else {
-                CompatibilityMode::Hardened
-            }
-        },
-        ModeValue::as_mode,
-    );
+    let mode = fixture.mode.map_or(default_mode, ModeValue::as_mode);
     let fixture_id = fixture
         .fixture_id
         .clone()

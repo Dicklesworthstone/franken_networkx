@@ -1,0 +1,12 @@
+{
+  "suite": "readwrite",
+  "mode": "strict",
+  "fixture_id": "gml_empty_graph_strict",
+  "operations": [
+    {
+      "op": "read_gml",
+      "input": "graph [\n  directed 0\n]"
+    }
+  ],
+  "expected": {}
+}
