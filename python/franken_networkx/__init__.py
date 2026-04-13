@@ -241,9 +241,13 @@ def shortest_path_length(G, source=None, target=None, weight=None, method="dijks
     if target is not None:
         if weight is not None:
             if method == "bellman-ford":
-                raise NetworkXNotImplemented("single_target_bellman_ford_path_length not implemented")
-            # Use dijkstra for weighted single-target by reversing source/target logic
-            raise NetworkXNotImplemented("single_target_dijkstra_path_length not implemented")
+                if G.is_directed():
+                    raise NetworkXNotImplemented("single_target_bellman_ford_path_length not implemented")
+                return dict(single_source_bellman_ford_path_length(G, target, weight=weight))
+            if G.is_directed():
+                all_pairs = dict(all_pairs_dijkstra_path_length(G, weight=weight))
+                return {node: dists[target] for node, dists in all_pairs.items() if target in dists}
+            return dict(single_source_dijkstra_path_length(G, target, weight=weight))
         return dict(single_target_shortest_path_length(G, target))
         
     if weight is not None:

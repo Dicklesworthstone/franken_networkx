@@ -234,6 +234,21 @@ class TestSingleTargetShortestPathLength:
         assert lengths["c"] == 1
         assert lengths["a"] == 3
 
+    def test_weighted_via_shortest_path_length_undirected(self, weighted_triangle):
+        lengths = fnx.shortest_path_length(weighted_triangle, target="c", weight="weight")
+        assert lengths["c"] == 0.0
+        assert lengths["b"] == 3.0
+        assert lengths["a"] == 5.0
+
+    def test_weighted_via_shortest_path_length_directed(self):
+        g = fnx.DiGraph()
+        g.add_edge("a", "b", weight=2.0)
+        g.add_edge("b", "c", weight=3.0)
+        lengths = fnx.shortest_path_length(g, target="c", weight="weight")
+        assert lengths["c"] == 0.0
+        assert lengths["b"] == 3.0
+        assert lengths["a"] == 5.0
+
 
 # ---------------------------------------------------------------------------
 # all_pairs_dijkstra_path
@@ -241,12 +256,12 @@ class TestSingleTargetShortestPathLength:
 
 class TestAllPairsDijkstraPath:
     def test_all_pairs(self, weighted_triangle):
-        paths = fnx.all_pairs_dijkstra_path(weighted_triangle, weight="weight")
+        paths = dict(fnx.all_pairs_dijkstra_path(weighted_triangle, weight="weight"))
         assert paths["a"]["c"] == ["a", "b", "c"]
         assert paths["c"]["a"] == ["c", "b", "a"]
 
     def test_symmetric(self, path_graph):
-        paths = fnx.all_pairs_dijkstra_path(path_graph, weight="weight")
+        paths = dict(fnx.all_pairs_dijkstra_path(path_graph, weight="weight"))
         assert len(paths["a"]["d"]) == len(paths["d"]["a"])
 
 
@@ -256,12 +271,12 @@ class TestAllPairsDijkstraPath:
 
 class TestAllPairsDijkstraPathLength:
     def test_distances(self, weighted_triangle):
-        dists = fnx.all_pairs_dijkstra_path_length(weighted_triangle, weight="weight")
+        dists = dict(fnx.all_pairs_dijkstra_path_length(weighted_triangle, weight="weight"))
         assert dists["a"]["c"] == 5.0
         assert dists["a"]["a"] == 0.0
 
     def test_symmetric(self, path_graph):
-        dists = fnx.all_pairs_dijkstra_path_length(path_graph, weight="weight")
+        dists = dict(fnx.all_pairs_dijkstra_path_length(path_graph, weight="weight"))
         assert dists["a"]["d"] == dists["d"]["a"]
 
 
@@ -271,7 +286,7 @@ class TestAllPairsDijkstraPathLength:
 
 class TestAllPairsBellmanFordPath:
     def test_all_pairs(self, path_graph):
-        paths = fnx.all_pairs_bellman_ford_path(path_graph, weight="weight")
+        paths = dict(fnx.all_pairs_bellman_ford_path(path_graph, weight="weight"))
         assert paths["a"]["d"] == ["a", "b", "c", "d"]
 
 
@@ -281,7 +296,7 @@ class TestAllPairsBellmanFordPath:
 
 class TestAllPairsBellmanFordPathLength:
     def test_distances(self, path_graph):
-        dists = fnx.all_pairs_bellman_ford_path_length(path_graph, weight="weight")
+        dists = dict(fnx.all_pairs_bellman_ford_path_length(path_graph, weight="weight"))
         assert dists["a"]["d"] == 3.0
 
 
@@ -464,7 +479,7 @@ class TestCrossAlgorithmConsistency:
 
     def test_single_source_vs_all_pairs(self, path_graph):
         ss = fnx.single_source_dijkstra_path_length(path_graph, "a", weight="weight")
-        ap = fnx.all_pairs_dijkstra_path_length(path_graph, weight="weight")
+        ap = dict(fnx.all_pairs_dijkstra_path_length(path_graph, weight="weight"))
         for node in ss:
             assert ss[node] == ap["a"][node]
 

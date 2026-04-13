@@ -60,6 +60,17 @@ def generate_dashboard() -> dict:
         if witness and (alg := witness.get("algorithm")):
             algorithms_tested.add(alg)
 
+    # Normalize ordering for deterministic output.
+    suite_summary = dict(sorted(suite_summary.items(), key=lambda item: item[0]))
+
+    categories_observed = sorted(
+        {
+            row.get("category")
+            for row in taxonomy.get("fixture_rows", [])
+            if row.get("category")
+        }
+    )
+
     # Build dashboard
     dashboard = {
         "report_id": "conformance-dashboard-v1",
@@ -85,9 +96,7 @@ def generate_dashboard() -> dict:
         "taxonomy": {
             "schema_version": taxonomy.get("schema_version"),
             "fixture_rows": len(taxonomy.get("fixture_rows", [])),
-            "categories_observed": list(
-                set(row.get("category") for row in taxonomy.get("fixture_rows", []) if row.get("category"))
-            ),
+            "categories_observed": categories_observed,
         },
 
         "reliability": {
