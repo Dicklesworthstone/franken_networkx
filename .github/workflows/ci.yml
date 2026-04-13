@@ -305,3 +305,10 @@ jobs:
             env CARGO_TARGET_DIR=target-ci cargo run -q -p fnx-durability --bin fnx-durability -- \
               decode-drill "$sidecar_path" "$recovered_path"
           done
+      - name: Record last-known-good snapshot
+        run: python3 scripts/record_last_known_good_snapshot.py
+      - name: Upload last-known-good snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: last-known-good
+          path: artifacts/last_known_good/last_known_good_snapshot_v1.json

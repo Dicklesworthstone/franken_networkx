@@ -44,6 +44,7 @@ artifacts/conformance/latest/
 artifacts/conformance/oracle_capture/
 artifacts/conformance/decisions/
 artifacts/perf/latest/
+artifacts/last_known_good/
 artifacts/phase2c/latest_*.json
 artifacts/phase2c/latest/
 artifacts/docs/latest/
