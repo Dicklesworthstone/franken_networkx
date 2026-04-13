@@ -56,6 +56,134 @@ impl fmt::Display for DispatchError {
 
 impl std::error::Error for DispatchError {}
 
+// ---------------------------------------------------------------------------
+// Backend Discovery
+// ---------------------------------------------------------------------------
+
+/// Describes a backend that can be auto-discovered at runtime.
+///
+/// Use `discover_standard_backends()` to get the list of all known backends,
+/// or implement custom discovery by creating `DiscoveredBackend` instances.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiscoveredBackend {
+    /// Unique backend identifier
+    pub name: String,
+    /// Higher priority backends are preferred
+    pub priority: u32,
+    /// Set of features this backend supports
+    pub supported_features: BTreeSet<String>,
+    /// Whether this backend is allowed in strict compatibility mode
+    pub allow_in_strict: bool,
+    /// Whether this backend is allowed in hardened compatibility mode
+    pub allow_in_hardened: bool,
+    /// Human-readable description of the backend
+    pub description: String,
+    /// Version string for the backend implementation
+    pub version: String,
+}
+
+impl DiscoveredBackend {
+    /// Convert to a `BackendSpec` for registry registration.
+    #[must_use]
+    pub fn to_spec(&self) -> BackendSpec {
+        BackendSpec {
+            name: self.name.clone(),
+            priority: self.priority,
+            supported_features: self.supported_features.clone(),
+            allow_in_strict: self.allow_in_strict,
+            allow_in_hardened: self.allow_in_hardened,
+        }
+    }
+}
+
+/// Returns a list of all standard backends known to the FrankenNetworkX runtime.
+///
+/// This function provides auto-discovery of available backend implementations.
+/// Call this at application startup to populate a `BackendRegistry` with all
+/// available backends without manually specifying each one.
+///
+/// # Example
+///
+/// ```
+/// use fnx_dispatch::{BackendRegistry, discover_standard_backends};
+/// use fnx_runtime::CompatibilityMode;
+///
+/// let mut registry = BackendRegistry::new(CompatibilityMode::Strict);
+/// for backend in discover_standard_backends() {
+///     registry.register_backend(backend.to_spec());
+/// }
+/// ```
+#[must_use]
+pub fn discover_standard_backends() -> Vec<DiscoveredBackend> {
+    vec![
+        DiscoveredBackend {
+            name: "native".to_owned(),
+            priority: 100,
+            supported_features: [
+                "shortest_path",
+                "shortest_path_weighted",
+                "connected_components",
+                "strongly_connected_components",
+                "centrality",
+                "clustering",
+                "flow",
+                "matching",
+                "mst",
+                "traversal",
+                "readwrite",
+                "convert",
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+            allow_in_strict: true,
+            allow_in_hardened: true,
+            description: "Native Rust implementation of NetworkX algorithms".to_owned(),
+            version: env!("CARGO_PKG_VERSION").to_owned(),
+        },
+        DiscoveredBackend {
+            name: "compat_probe".to_owned(),
+            priority: 50,
+            supported_features: ["shortest_path", "shortest_path_weighted"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            allow_in_strict: true,
+            allow_in_hardened: true,
+            description: "Compatibility probing backend for conformance testing".to_owned(),
+            version: env!("CARGO_PKG_VERSION").to_owned(),
+        },
+    ]
+}
+
+/// Returns a report of all discovered backends with their capabilities.
+///
+/// Useful for debugging and diagnostics to see what backends are available.
+#[must_use]
+pub fn discovery_report() -> DiscoveryReport {
+    let backends = discover_standard_backends();
+    let mut all_features: BTreeSet<String> = BTreeSet::new();
+    for backend in &backends {
+        all_features.extend(backend.supported_features.iter().cloned());
+    }
+
+    DiscoveryReport {
+        backend_count: backends.len(),
+        backends,
+        all_features,
+        discovery_version: "1.0.0".to_owned(),
+    }
+}
+
+/// Summary report of backend discovery results.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DiscoveryReport {
+    pub backend_count: usize,
+    pub backends: Vec<DiscoveredBackend>,
+    pub all_features: BTreeSet<String>,
+    pub discovery_version: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct BackendRegistry {
     mode: CompatibilityMode,
@@ -81,6 +209,41 @@ impl BackendRegistry {
     #[must_use]
     pub fn hardened() -> Self {
         Self::new(CompatibilityMode::Hardened)
+    }
+
+    /// Create a new registry with all auto-discovered backends pre-registered.
+    ///
+    /// This is the recommended way to create a registry for production use,
+    /// as it automatically includes all available backend implementations.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use fnx_dispatch::BackendRegistry;
+    /// use fnx_runtime::CompatibilityMode;
+    ///
+    /// let registry = BackendRegistry::with_discovered_backends(CompatibilityMode::Strict);
+    /// // Registry now contains all standard backends
+    /// ```
+    #[must_use]
+    pub fn with_discovered_backends(mode: CompatibilityMode) -> Self {
+        let mut registry = Self::new(mode);
+        for backend in discover_standard_backends() {
+            registry.register_backend(backend.to_spec());
+        }
+        registry
+    }
+
+    /// Returns a list of all registered backends.
+    #[must_use]
+    pub fn backends(&self) -> &[BackendSpec] {
+        &self.backends
+    }
+
+    /// Returns the current compatibility mode.
+    #[must_use]
+    pub fn mode(&self) -> CompatibilityMode {
+        self.mode
     }
 
     pub fn register_backend(&mut self, backend: BackendSpec) {
@@ -586,5 +749,102 @@ mod tests {
                 }
             }
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Auto-discovery tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn discover_standard_backends_returns_native() {
+        let backends = super::discover_standard_backends();
+        assert!(!backends.is_empty(), "should discover at least one backend");
+        assert!(
+            backends.iter().any(|b| b.name == "native"),
+            "should include native backend"
+        );
+    }
+
+    #[test]
+    fn discover_standard_backends_native_has_expected_features() {
+        let backends = super::discover_standard_backends();
+        let native = backends
+            .iter()
+            .find(|b| b.name == "native")
+            .expect("native backend should exist");
+
+        assert!(native.supported_features.contains("shortest_path"));
+        assert!(native.supported_features.contains("connected_components"));
+        assert!(native.supported_features.contains("centrality"));
+        assert!(native.allow_in_strict);
+        assert!(native.allow_in_hardened);
+        assert_eq!(native.priority, 100);
+    }
+
+    #[test]
+    fn with_discovered_backends_registers_all_standard() {
+        let registry = BackendRegistry::with_discovered_backends(CompatibilityMode::Strict);
+        let standard = super::discover_standard_backends();
+
+        assert_eq!(
+            registry.backends().len(),
+            standard.len(),
+            "registry should have all discovered backends"
+        );
+
+        for backend in &standard {
+            assert!(
+                registry.backends().iter().any(|b| b.name == backend.name),
+                "registry should contain {}",
+                backend.name
+            );
+        }
+    }
+
+    #[test]
+    fn with_discovered_backends_can_dispatch() {
+        let mut registry = BackendRegistry::with_discovered_backends(CompatibilityMode::Strict);
+
+        let request = DispatchRequest {
+            operation: "shortest_path".to_owned(),
+            requested_backend: None,
+            required_features: set(&["shortest_path"]),
+            risk_probability: 0.01,
+            unknown_incompatible_feature: false,
+        };
+
+        let decision = registry
+            .resolve(&request)
+            .expect("dispatch should succeed with discovered backends");
+        assert_eq!(decision.selected_backend.as_deref(), Some("native"));
+    }
+
+    #[test]
+    fn discovery_report_includes_all_features() {
+        let report = super::discovery_report();
+        assert!(report.backend_count > 0);
+        assert!(!report.all_features.is_empty());
+        assert!(report.all_features.contains("shortest_path"));
+        assert_eq!(report.discovery_version, "1.0.0");
+    }
+
+    #[test]
+    fn discovered_backend_to_spec_roundtrip() {
+        let discovered = super::DiscoveredBackend {
+            name: "test".to_owned(),
+            priority: 75,
+            supported_features: set(&["feature_a", "feature_b"]),
+            allow_in_strict: true,
+            allow_in_hardened: false,
+            description: "Test backend".to_owned(),
+            version: "0.0.1".to_owned(),
+        };
+
+        let spec = discovered.to_spec();
+        assert_eq!(spec.name, "test");
+        assert_eq!(spec.priority, 75);
+        assert_eq!(spec.supported_features, set(&["feature_a", "feature_b"]));
+        assert!(spec.allow_in_strict);
+        assert!(!spec.allow_in_hardened);
     }
 }
