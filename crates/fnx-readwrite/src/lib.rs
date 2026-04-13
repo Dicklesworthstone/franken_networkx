@@ -6449,10 +6449,11 @@ mod tests {
             for (left, right) in &edges {
                 let left_node = format!("n{left}");
                 let right_node = format!("n{right}");
+                // Use Int type since edgelist parse_relaxed infers numeric types
                 let _ = graph.add_edge_with_attrs(
                     left_node,
                     right_node,
-                    BTreeMap::from([("weight".to_owned(), CgseValue::String(format!("{}", *left + 1)))]),
+                    BTreeMap::from([("weight".to_owned(), CgseValue::Int(i64::from(*left) + 1))]),
                 );
             }
             prop_assume!(graph.edge_count() > 0);
@@ -6462,11 +6463,20 @@ mod tests {
             let parsed = engine.read_edgelist(&text).expect("edgelist read should succeed");
 
             prop_assert!(parsed.warnings.is_empty(), "strict edgelist round-trip should have no warnings");
-            prop_assert_eq!(
-                graph.snapshot(),
-                parsed.graph.snapshot(),
-                "edgelist round-trip snapshot should be identical"
-            );
+            // Edgelist format doesn't preserve node order - compare as sets
+            let orig = graph.snapshot();
+            let parsed_snap = parsed.graph.snapshot();
+            prop_assert_eq!(orig.mode, parsed_snap.mode, "modes should match");
+            let mut orig_nodes = orig.nodes.clone();
+            let mut parsed_nodes = parsed_snap.nodes.clone();
+            orig_nodes.sort();
+            parsed_nodes.sort();
+            prop_assert_eq!(orig_nodes, parsed_nodes, "node sets should match");
+            let mut orig_edges = orig.edges.clone();
+            let mut parsed_edges = parsed_snap.edges.clone();
+            orig_edges.sort_by(|a, b| (&a.left, &a.right).cmp(&(&b.left, &b.right)));
+            parsed_edges.sort_by(|a, b| (&a.left, &a.right).cmp(&(&b.left, &b.right)));
+            prop_assert_eq!(orig_edges, parsed_edges, "edge sets should match");
         }
 
         #[test]
@@ -6577,10 +6587,11 @@ mod tests {
             for (left, right) in &edges {
                 let left_node = format!("n{left}");
                 let right_node = format!("n{right}");
+                // Use Int type since edgelist parse_relaxed infers numeric types
                 let _ = graph.add_edge_with_attrs(
                     left_node,
                     right_node,
-                    BTreeMap::from([("weight".to_owned(), CgseValue::String(format!("{}", *left + 1)))]),
+                    BTreeMap::from([("weight".to_owned(), CgseValue::Int(i64::from(*left) + 1))]),
                 );
             }
             prop_assume!(graph.edge_count() > 0);
@@ -6590,11 +6601,20 @@ mod tests {
             let parsed = engine.read_digraph_edgelist(&text).expect("edgelist read should succeed");
 
             prop_assert!(parsed.warnings.is_empty(), "strict digraph edgelist round-trip should have no warnings");
-            prop_assert_eq!(
-                graph.snapshot(),
-                parsed.graph.snapshot(),
-                "digraph edgelist round-trip snapshot should be identical"
-            );
+            // Edgelist format doesn't preserve node order - compare as sets
+            let orig = graph.snapshot();
+            let parsed_snap = parsed.graph.snapshot();
+            prop_assert_eq!(orig.mode, parsed_snap.mode, "modes should match");
+            let mut orig_nodes = orig.nodes.clone();
+            let mut parsed_nodes = parsed_snap.nodes.clone();
+            orig_nodes.sort();
+            parsed_nodes.sort();
+            prop_assert_eq!(orig_nodes, parsed_nodes, "node sets should match");
+            let mut orig_edges = orig.edges.clone();
+            let mut parsed_edges = parsed_snap.edges.clone();
+            orig_edges.sort_by(|a, b| (&a.left, &a.right).cmp(&(&b.left, &b.right)));
+            parsed_edges.sort_by(|a, b| (&a.left, &a.right).cmp(&(&b.left, &b.right)));
+            prop_assert_eq!(orig_edges, parsed_edges, "edge sets should match");
         }
 
         #[test]
