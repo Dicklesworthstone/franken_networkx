@@ -103,6 +103,18 @@ RFC checklist to avoid silent compatibility drift:
 
 If any step is skipped, the change should not land in `main`.
 
+## Quarterly Compliance Audit
+
+Run this audit once per quarter or after major CGSE policy changes:
+
+1. **Conformance**: `pytest tests/python/ -v --tb=long` and refresh `fnx-conformance` artifacts.
+2. **Durability**: regenerate/scrub/decode RaptorQ sidecars for conformance + perf artifacts.
+3. **Security hygiene**: UBS scan (fail-on-warning) and threat-model updates for high-risk parsers.
+4. **Performance**: re-run `scripts/run_benchmark_gate.sh` and archive to `artifacts/perf/history/`.
+5. **Documentation**: ensure `README.md` and `FEATURE_PARITY.md` match the latest surface.
+
+Record the audit run date and summary in the beads tracker.
+
 ## Coordination
 
 This repo uses:
