@@ -2021,7 +2021,7 @@ impl DriftAnalyzer {
             *op_counts.entry(record.operation.clone()).or_insert(0) += 1;
         }
         let mut top_ops: Vec<_> = op_counts.into_iter().collect();
-        top_ops.sort_by(|a, b| b.1.cmp(&a.1));
+        top_ops.sort_by_key(|item| std::cmp::Reverse(item.1));
         let top_operations: Vec<OperationRiskSummary> = top_ops
             .into_iter()
             .take(5)
@@ -2152,6 +2152,344 @@ impl LossMatrix {
             allow_false_negative: 120.0,
             validate_cost: 30.0,
             reject_false_positive: 70.0,
+        }
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// D5: Loss matrix calibration with Bayesian shrinkage prior
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Prior distribution parameters for Bayesian shrinkage estimation.
+///
+/// Uses a normal prior N(prior_mean, prior_variance) that pulls empirical
+/// estimates toward the prior when sample size is small or variance is high.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BayesianShrinkagePrior {
+    /// Prior mean for the loss value.
+    pub prior_mean: f64,
+    /// Prior variance (τ₀²) - controls how strongly we trust the prior.
+    /// Smaller values mean stronger pull toward prior_mean.
+    pub prior_variance: f64,
+}
+
+impl BayesianShrinkagePrior {
+    /// Default prior for false-negative loss (allowing incompatible operation).
+    #[must_use]
+    pub const fn for_false_negative() -> Self {
+        Self {
+            prior_mean: 100.0,
+            prior_variance: 400.0, // σ = 20
+        }
+    }
+
+    /// Default prior for validation cost.
+    #[must_use]
+    pub const fn for_validate_cost() -> Self {
+        Self {
+            prior_mean: 25.0,
+            prior_variance: 100.0, // σ = 10
+        }
+    }
+
+    /// Default prior for false-positive loss (rejecting compatible operation).
+    #[must_use]
+    pub const fn for_false_positive() -> Self {
+        Self {
+            prior_mean: 60.0,
+            prior_variance: 225.0, // σ = 15
+        }
+    }
+
+    /// Compute shrinkage weight given empirical variance and sample count.
+    ///
+    /// w = τ₀² / (τ₀² + σ²/n)
+    ///
+    /// When n is small or σ² is large, w is small (trust prior more).
+    /// When n is large and σ² is small, w approaches 1 (trust data more).
+    #[must_use]
+    pub fn shrinkage_weight(&self, empirical_variance: f64, sample_count: usize) -> f64 {
+        if sample_count == 0 {
+            return 0.0; // No data: use prior entirely
+        }
+        let n = sample_count as f64;
+        // Guard against zero or under-estimated variance producing full-weight empirical
+        // posterior with small sample sizes.
+        let variance_of_mean = (empirical_variance / n).max(self.prior_variance / n);
+        self.prior_variance / (self.prior_variance + variance_of_mean)
+    }
+
+    /// Compute the posterior mean using shrinkage.
+    ///
+    /// μ_posterior = w * ȳ + (1-w) * μ₀
+    #[must_use]
+    pub fn posterior_mean(
+        &self,
+        empirical_mean: f64,
+        empirical_variance: f64,
+        sample_count: usize,
+    ) -> f64 {
+        let w = self.shrinkage_weight(empirical_variance, sample_count);
+        w * empirical_mean + (1.0 - w) * self.prior_mean
+    }
+}
+
+/// A single observed loss from a decision outcome.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LossObservation {
+    /// Unix timestamp in milliseconds when the observation was recorded.
+    pub ts_unix_ms: u128,
+    /// The decision action that was taken.
+    pub action: DecisionAction,
+    /// True state: was the operation actually incompatible?
+    pub was_incompatible: bool,
+    /// Realized loss from this decision.
+    pub realized_loss: f64,
+    /// Which loss category this contributes to.
+    pub loss_category: LossCategory,
+}
+
+/// Categories of loss that can be observed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LossCategory {
+    /// We allowed an incompatible operation (false negative).
+    AllowFalseNegative,
+    /// We paid validation cost.
+    ValidateCost,
+    /// We rejected a compatible operation (false positive).
+    RejectFalsePositive,
+}
+
+/// Aggregated statistics for a loss category.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct LossCategoryStats {
+    pub count: usize,
+    pub sum: f64,
+    pub sum_sq: f64,
+}
+
+impl LossCategoryStats {
+    #[must_use]
+    pub fn mean(&self) -> f64 {
+        if self.count == 0 {
+            0.0
+        } else {
+            self.sum / self.count as f64
+        }
+    }
+
+    #[must_use]
+    pub fn variance(&self) -> f64 {
+        if self.count < 2 {
+            return f64::INFINITY; // Unknown variance with < 2 samples
+        }
+        let n = self.count as f64;
+        let mean = self.sum / n;
+        (self.sum_sq / n) - (mean * mean)
+    }
+
+    pub fn add(&mut self, value: f64) {
+        self.count += 1;
+        self.sum += value;
+        self.sum_sq += value * value;
+    }
+}
+
+/// A loss matrix calibrated via Bayesian shrinkage from observed data.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CalibratedLossMatrix {
+    /// The calibrated loss values.
+    pub matrix: LossMatrix,
+    /// Shrinkage weights applied (0 = pure prior, 1 = pure empirical).
+    pub shrinkage_weights: LossShrinkageWeights,
+    /// Sample counts per category.
+    pub sample_counts: LossSampleCounts,
+    /// Calibration timestamp.
+    pub calibrated_at_unix_ms: u128,
+}
+
+/// Shrinkage weights for each loss category.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct LossShrinkageWeights {
+    pub allow_false_negative: f64,
+    pub validate_cost: f64,
+    pub reject_false_positive: f64,
+}
+
+/// Sample counts for each loss category.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LossSampleCounts {
+    pub allow_false_negative: usize,
+    pub validate_cost: usize,
+    pub reject_false_positive: usize,
+}
+
+/// Calibrator that applies Bayesian shrinkage to loss observations.
+#[derive(Debug, Clone)]
+pub struct LossMatrixCalibrator {
+    prior_false_negative: BayesianShrinkagePrior,
+    prior_validate_cost: BayesianShrinkagePrior,
+    prior_false_positive: BayesianShrinkagePrior,
+    stats_false_negative: LossCategoryStats,
+    stats_validate_cost: LossCategoryStats,
+    stats_false_positive: LossCategoryStats,
+}
+
+impl Default for LossMatrixCalibrator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl LossMatrixCalibrator {
+    /// Create a new calibrator with default priors.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            prior_false_negative: BayesianShrinkagePrior::for_false_negative(),
+            prior_validate_cost: BayesianShrinkagePrior::for_validate_cost(),
+            prior_false_positive: BayesianShrinkagePrior::for_false_positive(),
+            stats_false_negative: LossCategoryStats::default(),
+            stats_validate_cost: LossCategoryStats::default(),
+            stats_false_positive: LossCategoryStats::default(),
+        }
+    }
+
+    /// Create a calibrator with custom priors.
+    #[must_use]
+    pub fn with_priors(
+        prior_false_negative: BayesianShrinkagePrior,
+        prior_validate_cost: BayesianShrinkagePrior,
+        prior_false_positive: BayesianShrinkagePrior,
+    ) -> Self {
+        Self {
+            prior_false_negative,
+            prior_validate_cost,
+            prior_false_positive,
+            stats_false_negative: LossCategoryStats::default(),
+            stats_validate_cost: LossCategoryStats::default(),
+            stats_false_positive: LossCategoryStats::default(),
+        }
+    }
+
+    /// Record an observation.
+    pub fn observe(&mut self, obs: &LossObservation) {
+        match obs.loss_category {
+            LossCategory::AllowFalseNegative => {
+                self.stats_false_negative.add(obs.realized_loss);
+            }
+            LossCategory::ValidateCost => {
+                self.stats_validate_cost.add(obs.realized_loss);
+            }
+            LossCategory::RejectFalsePositive => {
+                self.stats_false_positive.add(obs.realized_loss);
+            }
+        }
+    }
+
+    /// Record multiple observations.
+    pub fn observe_batch(&mut self, observations: &[LossObservation]) {
+        for obs in observations {
+            self.observe(obs);
+        }
+    }
+
+    /// Produce a calibrated loss matrix using current observations.
+    #[must_use]
+    pub fn calibrate(&self) -> CalibratedLossMatrix {
+        let w_fn = self.prior_false_negative.shrinkage_weight(
+            self.stats_false_negative.variance(),
+            self.stats_false_negative.count,
+        );
+        let w_vc = self.prior_validate_cost.shrinkage_weight(
+            self.stats_validate_cost.variance(),
+            self.stats_validate_cost.count,
+        );
+        let w_fp = self.prior_false_positive.shrinkage_weight(
+            self.stats_false_positive.variance(),
+            self.stats_false_positive.count,
+        );
+
+        let calibrated_fn = self.prior_false_negative.posterior_mean(
+            self.stats_false_negative.mean(),
+            self.stats_false_negative.variance(),
+            self.stats_false_negative.count,
+        );
+        let calibrated_vc = self.prior_validate_cost.posterior_mean(
+            self.stats_validate_cost.mean(),
+            self.stats_validate_cost.variance(),
+            self.stats_validate_cost.count,
+        );
+        let calibrated_fp = self.prior_false_positive.posterior_mean(
+            self.stats_false_positive.mean(),
+            self.stats_false_positive.variance(),
+            self.stats_false_positive.count,
+        );
+
+        CalibratedLossMatrix {
+            matrix: LossMatrix {
+                allow_false_negative: calibrated_fn,
+                validate_cost: calibrated_vc,
+                reject_false_positive: calibrated_fp,
+            },
+            shrinkage_weights: LossShrinkageWeights {
+                allow_false_negative: w_fn,
+                validate_cost: w_vc,
+                reject_false_positive: w_fp,
+            },
+            sample_counts: LossSampleCounts {
+                allow_false_negative: self.stats_false_negative.count,
+                validate_cost: self.stats_validate_cost.count,
+                reject_false_positive: self.stats_false_positive.count,
+            },
+            calibrated_at_unix_ms: unix_time_ms(),
+        }
+    }
+
+    /// Minimum samples needed before shrinkage weight exceeds threshold.
+    ///
+    /// Returns the sample count n where w >= threshold, assuming empirical
+    /// variance equals a reference variance (prior_variance by default).
+    #[must_use]
+    pub fn samples_for_confidence(_prior: &BayesianShrinkagePrior, threshold: f64) -> usize {
+        // w = τ₀² / (τ₀² + σ²/n)
+        // threshold = τ₀² / (τ₀² + σ²/n)
+        // threshold * (τ₀² + σ²/n) = τ₀²
+        // threshold * σ²/n = τ₀² - threshold * τ₀²
+        // threshold * σ²/n = τ₀² * (1 - threshold)
+        // n = threshold * σ² / (τ₀² * (1 - threshold))
+        //
+        // Assuming σ² = τ₀² (empirical variance matches prior):
+        // n = threshold / (1 - threshold)
+        if threshold >= 1.0 {
+            return usize::MAX;
+        }
+        if threshold <= 0.0 {
+            return 0;
+        }
+        let n = threshold / (1.0 - threshold);
+        let n_floor = n.floor();
+        if (n - n_floor).abs() < 1e-9 {
+            n_floor as usize
+        } else {
+            n.ceil() as usize
+        }
+    }
+
+    /// Reset accumulated statistics.
+    pub fn reset(&mut self) {
+        self.stats_false_negative = LossCategoryStats::default();
+        self.stats_validate_cost = LossCategoryStats::default();
+        self.stats_false_positive = LossCategoryStats::default();
+    }
+
+    /// Get current sample counts.
+    #[must_use]
+    pub fn sample_counts(&self) -> LossSampleCounts {
+        LossSampleCounts {
+            allow_false_negative: self.stats_false_negative.count,
+            validate_cost: self.stats_validate_cost.count,
+            reject_false_positive: self.stats_false_positive.count,
         }
     }
 }
@@ -4013,5 +4351,250 @@ mod tests {
             .recommendations
             .iter()
             .any(|r| r.contains("High under-confidence")));
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // D5: Loss matrix calibration with Bayesian shrinkage prior tests
+    // ──────────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn shrinkage_prior_returns_prior_mean_with_no_data() {
+        let prior = super::BayesianShrinkagePrior::for_false_negative();
+        let posterior = prior.posterior_mean(0.0, 0.0, 0);
+        assert!(
+            (posterior - prior.prior_mean).abs() < 1e-10,
+            "With no data, posterior should equal prior mean"
+        );
+    }
+
+    #[test]
+    fn shrinkage_weight_increases_with_sample_count() {
+        let prior = super::BayesianShrinkagePrior::for_false_negative();
+        let variance = 100.0;
+
+        let w1 = prior.shrinkage_weight(variance, 1);
+        let w10 = prior.shrinkage_weight(variance, 10);
+        let w100 = prior.shrinkage_weight(variance, 100);
+
+        assert!(w1 < w10, "Weight should increase with more samples");
+        assert!(w10 < w100, "Weight should increase with more samples");
+        assert!(w100 < 1.0, "Weight should be less than 1");
+        assert!(w1 > 0.0, "Weight should be positive");
+    }
+
+    #[test]
+    fn shrinkage_pulls_empirical_toward_prior() {
+        let prior = super::BayesianShrinkagePrior {
+            prior_mean: 100.0,
+            prior_variance: 400.0,
+        };
+
+        // Empirical mean far from prior
+        let empirical_mean = 200.0;
+        let empirical_variance = 100.0;
+
+        // With few samples, posterior should be closer to prior
+        let posterior_small = prior.posterior_mean(empirical_mean, empirical_variance, 2);
+        // With many samples, posterior should be closer to empirical
+        let posterior_large = prior.posterior_mean(empirical_mean, empirical_variance, 100);
+
+        assert!(
+            (posterior_small - prior.prior_mean).abs()
+                < (posterior_large - prior.prior_mean).abs(),
+            "Small sample posterior should be closer to prior"
+        );
+        assert!(
+            (posterior_large - empirical_mean).abs()
+                < (posterior_small - empirical_mean).abs(),
+            "Large sample posterior should be closer to empirical"
+        );
+    }
+
+    #[test]
+    fn calibrator_with_no_observations_returns_prior() {
+        let calibrator = super::LossMatrixCalibrator::new();
+        let calibrated = calibrator.calibrate();
+
+        let prior_fn = super::BayesianShrinkagePrior::for_false_negative();
+        let prior_vc = super::BayesianShrinkagePrior::for_validate_cost();
+        let prior_fp = super::BayesianShrinkagePrior::for_false_positive();
+
+        assert!(
+            (calibrated.matrix.allow_false_negative - prior_fn.prior_mean).abs() < 1e-10,
+            "No data: should return prior mean for false negative"
+        );
+        assert!(
+            (calibrated.matrix.validate_cost - prior_vc.prior_mean).abs() < 1e-10,
+            "No data: should return prior mean for validate cost"
+        );
+        assert!(
+            (calibrated.matrix.reject_false_positive - prior_fp.prior_mean).abs() < 1e-10,
+            "No data: should return prior mean for false positive"
+        );
+
+        assert_eq!(calibrated.sample_counts.allow_false_negative, 0);
+        assert_eq!(calibrated.sample_counts.validate_cost, 0);
+        assert_eq!(calibrated.sample_counts.reject_false_positive, 0);
+    }
+
+    #[test]
+    fn calibrator_adapts_to_observations() {
+        let mut calibrator = super::LossMatrixCalibrator::new();
+
+        // Add observations with variance (alternating between 140 and 160, mean=150)
+        // This ensures we have empirical variance for shrinkage to apply
+        for i in 0..50 {
+            let loss = if i % 2 == 0 { 140.0 } else { 160.0 };
+            calibrator.observe(&super::LossObservation {
+                ts_unix_ms: i as u128,
+                action: DecisionAction::Allow,
+                was_incompatible: true,
+                realized_loss: loss,
+                loss_category: super::LossCategory::AllowFalseNegative,
+            });
+        }
+
+        let calibrated = calibrator.calibrate();
+
+        // With 50 observations averaging 150.0, the calibrated value should be pulled
+        // toward 150.0 (away from prior of 100.0), but with shrinkage applied
+        assert!(
+            calibrated.matrix.allow_false_negative > 100.0,
+            "Calibrated false negative should exceed prior (got {})",
+            calibrated.matrix.allow_false_negative
+        );
+        // With variance, shrinkage pulls toward prior so we don't hit exactly 150
+        assert!(
+            calibrated.matrix.allow_false_negative < 150.0,
+            "Calibrated false negative should be shrunk from empirical (got {})",
+            calibrated.matrix.allow_false_negative
+        );
+        assert!(
+            calibrated.shrinkage_weights.allow_false_negative > 0.5,
+            "With 50 samples, shrinkage weight should favor empirical (got {})",
+            calibrated.shrinkage_weights.allow_false_negative
+        );
+    }
+
+    #[test]
+    fn calibrator_handles_all_categories() {
+        let mut calibrator = super::LossMatrixCalibrator::new();
+
+        // Add observations to each category
+        calibrator.observe(&super::LossObservation {
+            ts_unix_ms: 1,
+            action: DecisionAction::Allow,
+            was_incompatible: true,
+            realized_loss: 120.0,
+            loss_category: super::LossCategory::AllowFalseNegative,
+        });
+        calibrator.observe(&super::LossObservation {
+            ts_unix_ms: 2,
+            action: DecisionAction::FullValidate,
+            was_incompatible: false,
+            realized_loss: 30.0,
+            loss_category: super::LossCategory::ValidateCost,
+        });
+        calibrator.observe(&super::LossObservation {
+            ts_unix_ms: 3,
+            action: DecisionAction::FailClosed,
+            was_incompatible: false,
+            realized_loss: 70.0,
+            loss_category: super::LossCategory::RejectFalsePositive,
+        });
+
+        let calibrated = calibrator.calibrate();
+
+        assert_eq!(calibrated.sample_counts.allow_false_negative, 1);
+        assert_eq!(calibrated.sample_counts.validate_cost, 1);
+        assert_eq!(calibrated.sample_counts.reject_false_positive, 1);
+    }
+
+    #[test]
+    fn calibrator_reset_clears_statistics() {
+        let mut calibrator = super::LossMatrixCalibrator::new();
+
+        calibrator.observe(&super::LossObservation {
+            ts_unix_ms: 1,
+            action: DecisionAction::Allow,
+            was_incompatible: true,
+            realized_loss: 120.0,
+            loss_category: super::LossCategory::AllowFalseNegative,
+        });
+
+        assert_eq!(calibrator.sample_counts().allow_false_negative, 1);
+
+        calibrator.reset();
+
+        assert_eq!(calibrator.sample_counts().allow_false_negative, 0);
+
+        let calibrated = calibrator.calibrate();
+        let prior_fn = super::BayesianShrinkagePrior::for_false_negative();
+        assert!(
+            (calibrated.matrix.allow_false_negative - prior_fn.prior_mean).abs() < 1e-10,
+            "After reset, should return prior mean"
+        );
+    }
+
+    #[test]
+    fn samples_for_confidence_computes_correctly() {
+        let prior = super::BayesianShrinkagePrior::for_false_negative();
+
+        // At threshold 0.5, w = 0.5, so n = 0.5 / 0.5 = 1
+        let n_50 = super::LossMatrixCalibrator::samples_for_confidence(&prior, 0.5);
+        assert_eq!(n_50, 1, "50% confidence should need 1 sample");
+
+        // At threshold 0.9, w = 0.9, so n = 0.9 / 0.1 = 9
+        let n_90 = super::LossMatrixCalibrator::samples_for_confidence(&prior, 0.9);
+        assert_eq!(n_90, 9, "90% confidence should need 9 samples");
+
+        // Edge cases
+        let n_0 = super::LossMatrixCalibrator::samples_for_confidence(&prior, 0.0);
+        assert_eq!(n_0, 0, "0% confidence needs 0 samples");
+
+        let n_1 = super::LossMatrixCalibrator::samples_for_confidence(&prior, 1.0);
+        assert_eq!(n_1, usize::MAX, "100% confidence is impossible");
+    }
+
+    #[test]
+    fn loss_category_stats_computes_mean_and_variance() {
+        let mut stats = super::LossCategoryStats::default();
+        stats.add(10.0);
+        stats.add(20.0);
+        stats.add(30.0);
+
+        assert_eq!(stats.count, 3);
+        assert!((stats.mean() - 20.0).abs() < 1e-10, "Mean should be 20");
+
+        // Variance = E[X²] - E[X]² = (100+400+900)/3 - 400 = 466.67 - 400 = 66.67
+        let expected_variance = (100.0 + 400.0 + 900.0) / 3.0 - 400.0;
+        assert!(
+            (stats.variance() - expected_variance).abs() < 1e-10,
+            "Variance calculation mismatch"
+        );
+    }
+
+    #[test]
+    fn calibrator_observe_batch_works() {
+        let mut calibrator = super::LossMatrixCalibrator::new();
+        let observations = vec![
+            super::LossObservation {
+                ts_unix_ms: 1,
+                action: DecisionAction::Allow,
+                was_incompatible: true,
+                realized_loss: 100.0,
+                loss_category: super::LossCategory::AllowFalseNegative,
+            },
+            super::LossObservation {
+                ts_unix_ms: 2,
+                action: DecisionAction::Allow,
+                was_incompatible: true,
+                realized_loss: 120.0,
+                loss_category: super::LossCategory::AllowFalseNegative,
+            },
+        ];
+
+        calibrator.observe_batch(&observations);
+        assert_eq!(calibrator.sample_counts().allow_false_negative, 2);
     }
 }
