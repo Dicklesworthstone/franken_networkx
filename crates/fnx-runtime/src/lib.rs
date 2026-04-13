@@ -2212,6 +2212,10 @@ impl BayesianShrinkagePrior {
         if sample_count == 0 {
             return 0.0; // No data: use prior entirely
         }
+        // Guard against zero prior_variance (invalid config)
+        if self.prior_variance <= 0.0 {
+            return 0.0; // Infinite prior certainty: use prior entirely
+        }
         let n = sample_count as f64;
         // Guard against zero or under-estimated variance producing full-weight empirical
         // posterior with small sample sizes.
@@ -3119,6 +3123,330 @@ pub struct GateDecision {
     pub brier_score: f64,
     /// Number of samples in the tracker.
     pub sample_count: usize,
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// E12: Tail-stability gate: 30-sample p99 distribution shift
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// A single latency sample with timestamp.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TailSample {
+    /// Latency value (e.g., milliseconds).
+    pub value: f64,
+    /// Timestamp when the sample was recorded.
+    pub ts_unix_ms: u128,
+}
+
+/// Configuration for the tail stability gate.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TailStabilityConfig {
+    /// Number of samples required for baseline.
+    pub baseline_samples: usize,
+    /// Number of samples in the sliding window for comparison.
+    pub window_samples: usize,
+    /// Maximum allowed ratio of current p99 to baseline p99.
+    pub max_p99_ratio: f64,
+    /// Percentile to track (e.g., 0.99 for p99).
+    pub percentile: f64,
+}
+
+impl Default for TailStabilityConfig {
+    fn default() -> Self {
+        Self {
+            baseline_samples: 30,
+            window_samples: 30,
+            max_p99_ratio: 1.2, // 20% regression threshold
+            percentile: 0.99,
+        }
+    }
+}
+
+impl TailStabilityConfig {
+    /// Stricter config for production.
+    #[must_use]
+    pub const fn strict() -> Self {
+        Self {
+            baseline_samples: 50,
+            window_samples: 30,
+            max_p99_ratio: 1.1, // 10% regression threshold
+            percentile: 0.99,
+        }
+    }
+}
+
+/// Tracker for tail latency stability.
+///
+/// Maintains a baseline and a sliding window of recent samples, detecting
+/// distribution shifts based on p99 changes.
+#[derive(Debug, Clone)]
+pub struct TailStabilityTracker {
+    config: TailStabilityConfig,
+    baseline: Vec<TailSample>,
+    window: Vec<TailSample>,
+    baseline_p99: Option<f64>,
+    baseline_locked: bool,
+}
+
+impl Default for TailStabilityTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TailStabilityTracker {
+    /// Create a new tracker with default config.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::with_config(TailStabilityConfig::default())
+    }
+
+    /// Create a tracker with custom config.
+    #[must_use]
+    pub fn with_config(config: TailStabilityConfig) -> Self {
+        Self {
+            config,
+            baseline: Vec::new(),
+            window: Vec::new(),
+            baseline_p99: None,
+            baseline_locked: false,
+        }
+    }
+
+    /// Record a new latency sample.
+    pub fn record(&mut self, value: f64) {
+        let sample = TailSample {
+            value,
+            ts_unix_ms: unix_time_ms(),
+        };
+
+        if !self.baseline_locked {
+            // Still collecting baseline
+            self.baseline.push(sample);
+            if self.baseline.len() >= self.config.baseline_samples {
+                self.lock_baseline();
+            }
+        } else {
+            // Baseline locked, update sliding window
+            self.window.push(sample);
+            if self.window.len() > self.config.window_samples {
+                self.window.remove(0);
+            }
+        }
+    }
+
+    /// Lock the baseline and compute baseline p99.
+    fn lock_baseline(&mut self) {
+        if self.baseline.is_empty() {
+            return;
+        }
+        self.baseline_p99 = Some(Self::compute_percentile(&self.baseline, self.config.percentile));
+        self.baseline_locked = true;
+    }
+
+    /// Force lock the baseline with current samples (even if not full).
+    pub fn force_lock_baseline(&mut self) {
+        if !self.baseline.is_empty() {
+            self.lock_baseline();
+        }
+    }
+
+    /// Compute percentile of samples.
+    fn compute_percentile(samples: &[TailSample], percentile: f64) -> f64 {
+        if samples.is_empty() {
+            return 0.0;
+        }
+        let mut values: Vec<f64> = samples.iter().map(|s| s.value).collect();
+        values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+        let idx = (values.len() as f64 * percentile).floor() as usize;
+        let idx = idx.min(values.len() - 1);
+        values[idx]
+    }
+
+    /// Get the current window p99.
+    #[must_use]
+    pub fn window_p99(&self) -> Option<f64> {
+        if self.window.is_empty() {
+            return None;
+        }
+        Some(Self::compute_percentile(&self.window, self.config.percentile))
+    }
+
+    /// Get the baseline p99.
+    #[must_use]
+    pub fn baseline_p99(&self) -> Option<f64> {
+        self.baseline_p99
+    }
+
+    /// Check if there is a distribution shift (regression).
+    #[must_use]
+    pub fn has_shift(&self) -> bool {
+        match (self.baseline_p99, self.window_p99()) {
+            (Some(base), Some(current)) if base > 0.0 => {
+                current / base > self.config.max_p99_ratio
+            }
+            _ => false,
+        }
+    }
+
+    /// Get the current p99 ratio (window / baseline).
+    #[must_use]
+    pub fn p99_ratio(&self) -> Option<f64> {
+        match (self.baseline_p99, self.window_p99()) {
+            (Some(base), Some(current)) if base > 0.0 => Some(current / base),
+            _ => None,
+        }
+    }
+
+    /// Get status of the tracker.
+    #[must_use]
+    pub fn status(&self) -> TailStabilityStatus {
+        TailStabilityStatus {
+            baseline_samples: self.baseline.len(),
+            window_samples: self.window.len(),
+            baseline_locked: self.baseline_locked,
+            baseline_p99: self.baseline_p99,
+            window_p99: self.window_p99(),
+            p99_ratio: self.p99_ratio(),
+            has_shift: self.has_shift(),
+        }
+    }
+
+    /// Reset the tracker.
+    pub fn reset(&mut self) {
+        self.baseline.clear();
+        self.window.clear();
+        self.baseline_p99 = None;
+        self.baseline_locked = false;
+    }
+
+    /// Number of samples in baseline.
+    #[must_use]
+    pub fn baseline_count(&self) -> usize {
+        self.baseline.len()
+    }
+
+    /// Number of samples in window.
+    #[must_use]
+    pub fn window_count(&self) -> usize {
+        self.window.len()
+    }
+
+    /// Whether baseline is locked.
+    #[must_use]
+    pub fn is_baseline_locked(&self) -> bool {
+        self.baseline_locked
+    }
+}
+
+/// Status snapshot from the tail stability tracker.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TailStabilityStatus {
+    /// Number of baseline samples.
+    pub baseline_samples: usize,
+    /// Number of window samples.
+    pub window_samples: usize,
+    /// Whether baseline is locked.
+    pub baseline_locked: bool,
+    /// Baseline p99 (if locked).
+    pub baseline_p99: Option<f64>,
+    /// Current window p99.
+    pub window_p99: Option<f64>,
+    /// Ratio of window p99 to baseline p99.
+    pub p99_ratio: Option<f64>,
+    /// Whether a shift (regression) is detected.
+    pub has_shift: bool,
+}
+
+/// Gate that blocks when tail latency regresses.
+#[derive(Debug, Clone)]
+pub struct TailStabilityGate {
+    tracker: TailStabilityTracker,
+    block_action: DecisionAction,
+}
+
+impl Default for TailStabilityGate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TailStabilityGate {
+    /// Create a new gate with default settings.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            tracker: TailStabilityTracker::new(),
+            block_action: DecisionAction::FailClosed,
+        }
+    }
+
+    /// Create a gate with custom config and block action.
+    #[must_use]
+    pub fn with_config(config: TailStabilityConfig, block_action: DecisionAction) -> Self {
+        Self {
+            tracker: TailStabilityTracker::with_config(config),
+            block_action,
+        }
+    }
+
+    /// Record a latency sample.
+    pub fn record(&mut self, latency: f64) {
+        self.tracker.record(latency);
+    }
+
+    /// Check if the gate is open (no regression detected).
+    #[must_use]
+    pub fn is_open(&self) -> bool {
+        !self.tracker.has_shift()
+    }
+
+    /// Apply the gate to a proposed action.
+    #[must_use]
+    pub fn apply(&self, proposed_action: DecisionAction) -> TailGateDecision {
+        let status = self.tracker.status();
+        if self.is_open() {
+            TailGateDecision {
+                action: proposed_action,
+                gate_applied: false,
+                status,
+            }
+        } else {
+            TailGateDecision {
+                action: self.block_action,
+                gate_applied: true,
+                status,
+            }
+        }
+    }
+
+    /// Get the current status.
+    #[must_use]
+    pub fn status(&self) -> TailStabilityStatus {
+        self.tracker.status()
+    }
+
+    /// Force lock baseline early.
+    pub fn force_lock_baseline(&mut self) {
+        self.tracker.force_lock_baseline();
+    }
+
+    /// Reset the gate.
+    pub fn reset(&mut self) {
+        self.tracker.reset();
+    }
+}
+
+/// Result of applying the tail stability gate.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TailGateDecision {
+    /// The action after gate is applied.
+    pub action: DecisionAction,
+    /// Whether the gate blocked the original action.
+    pub gate_applied: bool,
+    /// Current stability status.
+    pub status: TailStabilityStatus,
 }
 
 #[must_use]
@@ -5533,5 +5861,232 @@ mod tests {
         assert!((gate.threshold() - 0.15).abs() < 0.01);
         // With min_samples=20, gate should be open until we have 20 samples
         assert!(gate.is_open());
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // E12: Tail-stability gate tests
+    // ──────────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn tail_tracker_collects_baseline() {
+        let config = super::TailStabilityConfig {
+            baseline_samples: 5,
+            window_samples: 3,
+            max_p99_ratio: 1.2,
+            percentile: 0.99,
+        };
+        let mut tracker = super::TailStabilityTracker::with_config(config);
+
+        // Collect baseline
+        for i in 0..5 {
+            tracker.record((i + 1) as f64);
+        }
+
+        assert!(tracker.is_baseline_locked());
+        assert!(tracker.baseline_p99().is_some());
+        assert_eq!(tracker.baseline_count(), 5);
+    }
+
+    #[test]
+    fn tail_tracker_detects_regression() {
+        let config = super::TailStabilityConfig {
+            baseline_samples: 5,
+            window_samples: 5,
+            max_p99_ratio: 1.2, // 20% regression threshold
+            percentile: 0.99,
+        };
+        let mut tracker = super::TailStabilityTracker::with_config(config);
+
+        // Low baseline (1-5)
+        for i in 0..5 {
+            tracker.record((i + 1) as f64);
+        }
+        let baseline_p99 = tracker.baseline_p99().unwrap();
+
+        // High window samples (10-50) - significant regression
+        for i in 0..5 {
+            tracker.record(((i + 1) * 10) as f64);
+        }
+
+        let window_p99 = tracker.window_p99().unwrap();
+        assert!(
+            window_p99 > baseline_p99 * 1.2,
+            "Window p99 ({}) should be > 1.2x baseline p99 ({})",
+            window_p99,
+            baseline_p99
+        );
+        assert!(tracker.has_shift(), "Should detect regression");
+    }
+
+    #[test]
+    fn tail_tracker_no_shift_when_stable() {
+        let config = super::TailStabilityConfig {
+            baseline_samples: 5,
+            window_samples: 5,
+            max_p99_ratio: 1.2,
+            percentile: 0.99,
+        };
+        let mut tracker = super::TailStabilityTracker::with_config(config);
+
+        // Same distribution for baseline and window
+        for _ in 0..5 {
+            tracker.record(10.0);
+        }
+        for _ in 0..5 {
+            tracker.record(10.0);
+        }
+
+        assert!(!tracker.has_shift(), "Should not detect shift when stable");
+        let ratio = tracker.p99_ratio().unwrap();
+        assert!(
+            (ratio - 1.0).abs() < 0.01,
+            "Ratio should be ~1.0 (got {})",
+            ratio
+        );
+    }
+
+    #[test]
+    fn tail_tracker_window_slides() {
+        let config = super::TailStabilityConfig {
+            baseline_samples: 3,
+            window_samples: 3,
+            max_p99_ratio: 1.5,
+            percentile: 0.99,
+        };
+        let mut tracker = super::TailStabilityTracker::with_config(config);
+
+        // Baseline
+        for _ in 0..3 {
+            tracker.record(10.0);
+        }
+
+        // Fill window
+        for _ in 0..3 {
+            tracker.record(15.0);
+        }
+        assert_eq!(tracker.window_count(), 3);
+
+        // Add more - should slide
+        tracker.record(20.0);
+        assert_eq!(tracker.window_count(), 3); // Still 3 samples
+
+        // Window should now contain [15, 15, 20] approximately
+        let p99 = tracker.window_p99().unwrap();
+        assert!(p99 >= 15.0, "Window p99 should be >= 15 (got {})", p99);
+    }
+
+    #[test]
+    fn tail_tracker_reset() {
+        let mut tracker = super::TailStabilityTracker::new();
+
+        for i in 0..35 {
+            tracker.record(i as f64);
+        }
+        assert!(tracker.is_baseline_locked());
+
+        tracker.reset();
+
+        assert!(!tracker.is_baseline_locked());
+        assert_eq!(tracker.baseline_count(), 0);
+        assert_eq!(tracker.window_count(), 0);
+        assert!(tracker.baseline_p99().is_none());
+    }
+
+    #[test]
+    fn tail_tracker_force_lock_baseline() {
+        let config = super::TailStabilityConfig {
+            baseline_samples: 30,
+            window_samples: 10,
+            max_p99_ratio: 1.2,
+            percentile: 0.99,
+        };
+        let mut tracker = super::TailStabilityTracker::with_config(config);
+
+        // Only add 5 samples (less than 30)
+        for i in 0..5 {
+            tracker.record(i as f64);
+        }
+        assert!(!tracker.is_baseline_locked());
+
+        tracker.force_lock_baseline();
+
+        assert!(tracker.is_baseline_locked());
+        assert!(tracker.baseline_p99().is_some());
+    }
+
+    #[test]
+    fn tail_gate_open_during_baseline_collection() {
+        let mut gate = super::TailStabilityGate::new();
+
+        // During baseline collection, gate should be open
+        for i in 0..10 {
+            gate.record(i as f64);
+            assert!(gate.is_open(), "Gate should be open during baseline collection");
+        }
+    }
+
+    #[test]
+    fn tail_gate_blocks_on_regression() {
+        let config = super::TailStabilityConfig {
+            baseline_samples: 5,
+            window_samples: 5,
+            max_p99_ratio: 1.2,
+            percentile: 0.99,
+        };
+        let mut gate = super::TailStabilityGate::with_config(config, DecisionAction::FailClosed);
+
+        // Low baseline
+        for _ in 0..5 {
+            gate.record(10.0);
+        }
+
+        // High window - causes regression
+        for _ in 0..5 {
+            gate.record(50.0);
+        }
+
+        assert!(!gate.is_open(), "Gate should be closed on regression");
+
+        let decision = gate.apply(DecisionAction::Allow);
+        assert_eq!(decision.action, DecisionAction::FailClosed);
+        assert!(decision.gate_applied);
+    }
+
+    #[test]
+    fn tail_gate_status_includes_details() {
+        let mut gate = super::TailStabilityGate::new();
+
+        for i in 0..35 {
+            gate.record((i % 10) as f64);
+        }
+
+        let status = gate.status();
+        assert!(status.baseline_locked);
+        assert!(status.baseline_p99.is_some());
+        assert!(status.p99_ratio.is_some());
+    }
+
+    #[test]
+    fn tail_gate_reset_reopens() {
+        let config = super::TailStabilityConfig {
+            baseline_samples: 3,
+            window_samples: 3,
+            max_p99_ratio: 1.1,
+            percentile: 0.99,
+        };
+        let mut gate = super::TailStabilityGate::with_config(config, DecisionAction::FailClosed);
+
+        // Cause regression
+        for _ in 0..3 {
+            gate.record(10.0);
+        }
+        for _ in 0..3 {
+            gate.record(50.0);
+        }
+        assert!(!gate.is_open());
+
+        gate.reset();
+
+        assert!(gate.is_open(), "Gate should be open after reset");
     }
 }
