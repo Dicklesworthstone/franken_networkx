@@ -7,12 +7,17 @@ license-file = "../../LICENSE"
 [lib]
 doctest = false
 
+[features]
+default = []
+dhat-heap = ["dhat"]
+
 [dependencies]
 fnx-classes = { version = "0.1.0", path = "../fnx-classes" }
 fnx-cgse = { version = "0.1.0", path = "../fnx-cgse" }
 fnx-runtime = { version = "0.1.0", path = "../fnx-runtime" }
 mwmatching = "0.1.1"
 serde = { version = "1.0.228", features = ["derive"] }
+dhat = { version = "0.3", optional = true }
 
 [dev-dependencies]
 fnx-runtime = { path = "../fnx-runtime" }
@@ -22,3 +27,7 @@ criterion = { version = "0.5", features = ["html_reports"] }
 [[bench]]
 name = "algorithm_benchmarks"
 harness = false
+
+[[example]]
+name = "memory_baseline"
+required-features = ["dhat-heap"]
