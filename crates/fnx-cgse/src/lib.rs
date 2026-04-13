@@ -443,6 +443,85 @@ pub fn v1_policy_registry() -> Vec<AlgorithmFamilyPolicy> {
 }
 
 // ---------------------------------------------------------------------------
+// Complexity Oracle — C8
+// ---------------------------------------------------------------------------
+
+/// Result of complexity bound verification.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ComplexityBoundResult {
+    pub within_bounds: bool,
+    pub observed_count: u64,
+    pub upper_bound: u64,
+    pub dominant_term: String,
+    pub formula: String,
+}
+
+/// Evaluate the analytic upper bound for a complexity class.
+pub fn analytic_upper_bound(dominant_term: &str, n: usize, m: usize) -> Option<u64> {
+    let n = n as u64;
+    let m = m as u64;
+    match dominant_term {
+        "n" => Some(n),
+        "m" => Some(m),
+        "n_plus_m" => Some(n.saturating_add(m)),
+        "n_log_n" => {
+            let log_n = if n <= 1 { 1 } else { (n as f64).log2().ceil() as u64 };
+            Some(n.saturating_mul(log_n))
+        }
+        "n_plus_m_log_n" => {
+            let log_n = if n <= 1 { 1 } else { (n as f64).log2().ceil() as u64 };
+            Some(n.saturating_add(m.saturating_mul(log_n)))
+        }
+        "n_m" => Some(n.saturating_mul(m)),
+        "n_squared" => Some(n.saturating_mul(n)),
+        "n_m_alpha" => {
+            // n * m * inverse_ackermann(n), approximated as n * m * log*(n)
+            let alpha = if n <= 1 { 1 } else { ((n as f64).log2().log2().ceil() as u64).max(1) };
+            Some(n.saturating_mul(m).saturating_mul(alpha))
+        }
+        "m_log_m" => {
+            let log_m = if m <= 1 { 1 } else { (m as f64).log2().ceil() as u64 };
+            Some(m.saturating_mul(log_m))
+        }
+        "m_log_n" => {
+            let log_n = if n <= 1 { 1 } else { (n as f64).log2().ceil() as u64 };
+            Some(m.saturating_mul(log_n))
+        }
+        _ => None,
+    }
+}
+
+/// Verify that a witness's observed count is within the expected complexity bounds.
+/// Returns a result indicating whether the count is acceptable.
+pub fn verify_complexity_bound(witness: &ComplexityWitness) -> Option<ComplexityBoundResult> {
+    let upper = analytic_upper_bound(&witness.dominant_term, witness.n, witness.m)?;
+    // Allow a 2x multiplier for constant factors
+    let adjusted_upper = upper.saturating_mul(2);
+    Some(ComplexityBoundResult {
+        within_bounds: witness.observed_count <= adjusted_upper,
+        observed_count: witness.observed_count,
+        upper_bound: adjusted_upper,
+        dominant_term: witness.dominant_term.clone(),
+        formula: format!("2 * f({}, {})", witness.n, witness.m),
+    })
+}
+
+/// Complexity oracle assertion: panic if witness exceeds expected bounds.
+pub fn assert_complexity_within_bounds(witness: &ComplexityWitness) {
+    if let Some(result) = verify_complexity_bound(witness) {
+        assert!(
+            result.within_bounds,
+            "Complexity bound violation: observed {} operations, expected at most {} for {} complexity (n={}, m={})",
+            result.observed_count,
+            result.upper_bound,
+            result.dominant_term,
+            witness.n,
+            witness.m
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -552,5 +631,60 @@ mod tests {
         algos.sort();
         algos.dedup();
         assert_eq!(algos.len(), 12, "All 12 algorithms should be unique");
+    }
+
+    #[test]
+    fn test_analytic_upper_bound_n_plus_m() {
+        assert_eq!(analytic_upper_bound("n_plus_m", 100, 200), Some(300));
+    }
+
+    #[test]
+    fn test_analytic_upper_bound_n_log_n() {
+        let bound = analytic_upper_bound("n_log_n", 1024, 0).unwrap();
+        // 1024 * ceil(log2(1024)) = 1024 * 10 = 10240
+        assert_eq!(bound, 10240);
+    }
+
+    #[test]
+    fn test_analytic_upper_bound_m_log_m() {
+        let bound = analytic_upper_bound("m_log_m", 0, 256).unwrap();
+        // 256 * ceil(log2(256)) = 256 * 8 = 2048
+        assert_eq!(bound, 2048);
+    }
+
+    #[test]
+    fn test_verify_complexity_bound_within() {
+        let witness = ComplexityWitness {
+            n: 100,
+            m: 200,
+            dominant_term: "n_plus_m".to_owned(),
+            observed_count: 500, // Well within 2 * 300 = 600
+            policy: TieBreakPolicy::LexMin,
+            seed: None,
+            decision_path_blake3: [0u8; 32],
+        };
+        let result = verify_complexity_bound(&witness).unwrap();
+        assert!(result.within_bounds);
+        assert_eq!(result.upper_bound, 600);
+    }
+
+    #[test]
+    fn test_verify_complexity_bound_exceeded() {
+        let witness = ComplexityWitness {
+            n: 100,
+            m: 200,
+            dominant_term: "n_plus_m".to_owned(),
+            observed_count: 1000, // Exceeds 2 * 300 = 600
+            policy: TieBreakPolicy::LexMin,
+            seed: None,
+            decision_path_blake3: [0u8; 32],
+        };
+        let result = verify_complexity_bound(&witness).unwrap();
+        assert!(!result.within_bounds);
+    }
+
+    #[test]
+    fn test_analytic_upper_bound_unknown_term() {
+        assert_eq!(analytic_upper_bound("unknown", 100, 200), None);
     }
 }
