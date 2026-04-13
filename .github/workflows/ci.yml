@@ -17,8 +17,41 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  g0-doc-freshness:
+    name: G0 docs freshness
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 100
+      - name: Enforce README/FEATURE_PARITY/CHANGELOG freshness
+        shell: bash
+        run: |
+          set -euo pipefail
+          max_commits=50
+          files=(README.md FEATURE_PARITY.md CHANGELOG.md)
+          for file in "${files[@]}"; do
+            if [[ ! -f "$file" ]]; then
+              echo "::error file=${file}::missing required documentation file"
+              exit 1
+            fi
+            last_commit=$(git log -n 1 --format=%H -- "$file" || true)
+            if [[ -z "$last_commit" ]]; then
+              echo "::error file=${file}::no git history found for ${file}"
+              exit 1
+            fi
+            distance=$(git rev-list --count "${last_commit}..HEAD")
+            if (( distance > max_commits )); then
+              echo "::error file=${file}::last updated ${distance} commits ago (limit ${max_commits})"
+              exit 1
+            fi
+            echo "${file} OK (last update ${distance} commits ago)"
+          done
+
   g1-format:
     name: G1 fmt
+    needs: g0-doc-freshness
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -74,8 +107,6 @@ jobs:
         run: maturin develop --features pyo3/abi3-py310
       - name: Run canonical Python parity suite
         run: pytest tests/python/ -v --tb=long
-      - name: Run error message parity suite
-        run: pytest tests/python/test_error_messages.py -v --tb=long
 
   g4b-e2e:
     name: G4b e2e integration

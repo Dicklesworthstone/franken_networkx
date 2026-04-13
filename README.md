@@ -138,15 +138,15 @@ This project uses four pervasive disciplines:
 3. RaptorQ-everywhere for self-healing durability of long-lived artifacts and state.
 4. frankenlibc/frankenfs compatibility-security thinking: strict vs hardened mode separation, fail-closed compatibility gates, and explicit drift ledgers.
 
-## Current State (as of 2026-04-09)
+## Current State (as of 2026-04-13)
 
-- **Rust core:** 12 workspace crates including `fnx-cgse` (CGSE engine). `fnx-algorithms` is 39,691 LOC covering 280+ algorithms across shortest path, connectivity, centrality, clustering, matching, flow, trees, Euler, DAG, traversal, community, isomorphism, and more.
-- **Python bindings:** 12,008 LOC in `crates/fnx-python/src/algorithms.rs` with 551 GIL-releasing `py.allow_threads(...)` call sites and zero callbacks into upstream NetworkX.
-- **Python package:** 446 public exports — 41 Rust-native, 306 Python wrappers, 96 NX-delegated (see [`docs/coverage.md`](docs/coverage.md) for the machine-checked breakdown). The NX-delegated functions are exotic algorithms (graph edit distance) and formats (Pajek/LEDA) outside V1 scope.
-- **Test suite:** 1,394 Python parity tests pass against upstream NetworkX (54 skipped) in ~20s. 8 Rust CGSE unit tests. 5 parser fuzz targets.
+- **Rust core:** 12 workspace crates including `fnx-cgse` (CGSE engine). `fnx-algorithms` is 40,181 LOC covering 280+ algorithms across shortest path, connectivity, centrality, clustering, matching, flow, trees, Euler, DAG, traversal, community, isomorphism, and more.
+- **Python bindings:** 12,154 LOC in `crates/fnx-python/src/algorithms.rs` with 551 GIL-releasing `py.allow_threads(...)` call sites and zero callbacks into upstream NetworkX.
+- **Python package:** 446 public exports — 41 Rust-native, 306 Python wrappers, 89 NX-delegated (see [`docs/coverage.md`](docs/coverage.md) for the machine-checked breakdown). The NX-delegated functions are exotic algorithms (graph edit distance) and formats (Pajek/LEDA) outside V1 scope.
+- **Test suite:** 1,394 Python parity tests pass against upstream NetworkX (54 skipped) in ~20s. 8 Rust CGSE unit tests. 5 parser fuzz targets. 1 nightly Hypothesis property suite.
 - **NetworkX backend mode:** entry points registered; ~80 functions dispatch to Rust via `backend.py:_SUPPORTED_ALGORITHMS`.
 - **CI:** G1-G8 fail-closed gate topology in `.github/workflows/ci.yml` (fmt → clippy → rust tests → python tests → e2e → docs → conformance → performance → UBS → fuzz smoke → RaptorQ scrub).
-- **CGSE (Canonical Graph Semantics Engine):** `fnx-cgse` crate landed with 12-variant `TieBreakPolicy` sum type, `ComplexityWitness` with Merkle decision-path hash, `WitnessSink`, `WitnessLedger`, and V1 policy registry mapping 12 reference algorithms to their canonical policies.
+- **CGSE (Canonical Graph Semantics Engine):** `fnx-cgse` crate landed with 12-variant `TieBreakPolicy` sum type, `ComplexityWitness` with length-prefixed Merkle decision-path hash, `WitnessSink`, `WitnessLedger`, and V1 policy registry mapping 12 reference algorithms to their canonical policies.
 - **Strict/Hardened modes:** `CgsePolicyEngine` in `fnx-runtime` implements mode-aware decision-theoretic action selection with evidence terms, structured `DecisionRecord`s, and fail-closed defaults. Parser wiring is the next step.
 - **Durability:** `fnx-durability` generates RaptorQ sidecars, runs scrub verification, and emits decode proofs. Used in CI G8 gate.
 - **Beads tracker:** 299 closed + 82 open issues tracking the bridge plan from the 2026-04-08 reality check.
@@ -183,7 +183,7 @@ See [`REALITY_CHECK_BRIDGE_PLAN_2026-04-08.md`](REALITY_CHECK_BRIDGE_PLAN_2026-0
 1. **Wire CGSE into algorithms (C4):** connect 12 reference algorithms to the new `fnx-cgse` policy + witness infrastructure so the "crown jewel" is runtime-active, not just type-level.
 2. **Wire strict/hardened modes into parsers (D3-D4):** connect `CgsePolicyEngine` to `fnx-readwrite` entry points with 24+ strict and 24+ hardened fixtures.
 3. **Conformance regeneration (B2-B4):** refresh the stale `artifacts/conformance/latest/` reports and add a CI freshness gate.
-4. **Eliminate remaining NX delegations (F1 residue):** 96 functions still delegate to NX; each is either exotic (graph edit distance, Pajek I/O) or a conversion helper — prioritize native impls for the highest-value ones.
+4. **Eliminate remaining NX delegations:** 89 functions still delegate to NX; each is either exotic (graph edit distance, Pajek I/O) or a conversion helper — prioritize native impls for the highest-value ones.
 5. **Performance proof artifacts (E3):** run the profile-and-prove optimization loop for each SLO row to earn the SPEC §17 budgets.
 
 ## Porting Artifact Set

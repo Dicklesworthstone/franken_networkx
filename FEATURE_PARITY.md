@@ -26,6 +26,9 @@ NetworkX-compatible behavior. `fnx-conformance` remains the Rust-side replay and
 artifact pipeline for selected fixture families, structured logs, replay
 commands, and durability evidence.
 
+Note: CGSE witness hashing uses length-prefixed decision encoding to avoid
+ambiguities with variable-length labels (2026-04 update).
+
 ## Parity Matrix
 
 | Feature Family | Status | Notes |
