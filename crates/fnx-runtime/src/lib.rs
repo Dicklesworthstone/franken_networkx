@@ -3862,6 +3862,367 @@ pub mod ftui_bridge {
     }
 }
 
+// ────────────────────────────────────────────────────────────────────────────────
+// G6: Algebraic effect tracking for parser modes
+// ────────────────────────────────────────────────────────────────────────────────
+
+/// Categories of effects that can occur during parsing operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ParserEffectKind {
+    /// A recoverable warning was emitted.
+    Warning,
+    /// Full validation was triggered.
+    Validation,
+    /// Parser failed closed (non-recoverable).
+    FailClosed,
+    /// Operation was allowed to proceed.
+    Allow,
+    /// A fallback strategy was used.
+    Fallback,
+    /// Input was sanitized or normalized.
+    Sanitize,
+    /// A type coercion occurred.
+    Coercion,
+}
+
+impl ParserEffectKind {
+    /// Returns true if this effect indicates a terminal failure.
+    #[must_use]
+    pub const fn is_terminal(&self) -> bool {
+        matches!(self, Self::FailClosed)
+    }
+
+    /// Returns true if this effect indicates a recoverable condition.
+    #[must_use]
+    pub const fn is_recoverable(&self) -> bool {
+        matches!(
+            self,
+            Self::Warning | Self::Fallback | Self::Sanitize | Self::Coercion
+        )
+    }
+
+    /// Returns the effect kind as a static string.
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Warning => "warning",
+            Self::Validation => "validation",
+            Self::FailClosed => "fail_closed",
+            Self::Allow => "allow",
+            Self::Fallback => "fallback",
+            Self::Sanitize => "sanitize",
+            Self::Coercion => "coercion",
+        }
+    }
+}
+
+/// A single effect that occurred during parsing.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ParserEffect {
+    /// Timestamp when the effect occurred (Unix milliseconds).
+    pub ts_unix_ms: u128,
+    /// The kind of effect.
+    pub kind: ParserEffectKind,
+    /// The parser operation that produced this effect.
+    pub operation: String,
+    /// A human-readable message describing the effect.
+    pub message: String,
+    /// The compatibility mode in which the effect occurred.
+    pub mode: CompatibilityMode,
+    /// Optional source location (e.g., line number in input).
+    pub source_location: Option<String>,
+    /// Associated risk probability (0.0 to 1.0).
+    pub risk_probability: f64,
+}
+
+impl ParserEffect {
+    /// Create a new parser effect with current timestamp.
+    #[must_use]
+    pub fn new(
+        kind: ParserEffectKind,
+        operation: impl Into<String>,
+        message: impl Into<String>,
+        mode: CompatibilityMode,
+        risk_probability: f64,
+    ) -> Self {
+        Self {
+            ts_unix_ms: unix_time_ms(),
+            kind,
+            operation: operation.into(),
+            message: message.into(),
+            mode,
+            source_location: None,
+            risk_probability: risk_probability.clamp(0.0, 1.0),
+        }
+    }
+
+    /// Create a new parser effect with a source location.
+    #[must_use]
+    pub fn with_location(mut self, location: impl Into<String>) -> Self {
+        self.source_location = Some(location.into());
+        self
+    }
+
+    /// Create a warning effect.
+    #[must_use]
+    pub fn warning(
+        operation: impl Into<String>,
+        message: impl Into<String>,
+        mode: CompatibilityMode,
+    ) -> Self {
+        Self::new(ParserEffectKind::Warning, operation, message, mode, 0.5)
+    }
+
+    /// Create a fail-closed effect.
+    #[must_use]
+    pub fn fail_closed(
+        operation: impl Into<String>,
+        message: impl Into<String>,
+        mode: CompatibilityMode,
+    ) -> Self {
+        Self::new(ParserEffectKind::FailClosed, operation, message, mode, 1.0)
+    }
+
+    /// Create an allow effect.
+    #[must_use]
+    pub fn allow(
+        operation: impl Into<String>,
+        message: impl Into<String>,
+        mode: CompatibilityMode,
+        risk_probability: f64,
+    ) -> Self {
+        Self::new(
+            ParserEffectKind::Allow,
+            operation,
+            message,
+            mode,
+            risk_probability,
+        )
+    }
+}
+
+/// An effect trace that collects effects during parsing.
+///
+/// Effect traces are composable and can be filtered or transformed.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct EffectTrace {
+    effects: Vec<ParserEffect>,
+    terminal_effect: Option<usize>,
+}
+
+impl EffectTrace {
+    /// Create a new empty effect trace.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record an effect in the trace.
+    ///
+    /// If the effect is terminal (FailClosed), subsequent effects are still
+    /// recorded but the trace is marked as terminated.
+    pub fn record(&mut self, effect: ParserEffect) {
+        let idx = self.effects.len();
+        let is_terminal = effect.kind.is_terminal();
+        self.effects.push(effect);
+        if is_terminal && self.terminal_effect.is_none() {
+            self.terminal_effect = Some(idx);
+        }
+    }
+
+    /// Returns true if the trace contains any terminal effects.
+    #[must_use]
+    pub fn is_terminated(&self) -> bool {
+        self.terminal_effect.is_some()
+    }
+
+    /// Returns true if the trace has no effects.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.effects.is_empty()
+    }
+
+    /// Returns the number of effects in the trace.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.effects.len()
+    }
+
+    /// Returns a slice of all effects.
+    #[must_use]
+    pub fn effects(&self) -> &[ParserEffect] {
+        &self.effects
+    }
+
+    /// Returns the terminal effect, if any.
+    #[must_use]
+    pub fn terminal(&self) -> Option<&ParserEffect> {
+        self.terminal_effect.map(|idx| &self.effects[idx])
+    }
+
+    /// Filter effects by kind.
+    #[must_use]
+    pub fn filter_kind(&self, kind: ParserEffectKind) -> Vec<&ParserEffect> {
+        self.effects.iter().filter(|e| e.kind == kind).collect()
+    }
+
+    /// Count effects by kind.
+    #[must_use]
+    pub fn count_kind(&self, kind: ParserEffectKind) -> usize {
+        self.effects.iter().filter(|e| e.kind == kind).count()
+    }
+
+    /// Returns all warning effects.
+    #[must_use]
+    pub fn warnings(&self) -> Vec<&ParserEffect> {
+        self.filter_kind(ParserEffectKind::Warning)
+    }
+
+    /// Merge another trace into this one.
+    pub fn merge(&mut self, other: EffectTrace) {
+        let offset = self.effects.len();
+        for effect in other.effects {
+            self.record(effect);
+        }
+        // Update terminal index if the merged trace had a terminal
+        if self.terminal_effect.is_none() && let Some(idx) = other.terminal_effect {
+            self.terminal_effect = Some(offset + idx);
+        }
+    }
+
+    /// Convert to a summary for logging.
+    #[must_use]
+    pub fn summary(&self) -> EffectTraceSummary {
+        let mut by_kind = std::collections::HashMap::new();
+        for effect in &self.effects {
+            *by_kind.entry(effect.kind).or_insert(0) += 1;
+        }
+
+        EffectTraceSummary {
+            total_effects: self.effects.len(),
+            warnings: self.count_kind(ParserEffectKind::Warning),
+            failures: self.count_kind(ParserEffectKind::FailClosed),
+            coercions: self.count_kind(ParserEffectKind::Coercion),
+            is_terminated: self.is_terminated(),
+            max_risk: self
+                .effects
+                .iter()
+                .map(|e| e.risk_probability)
+                .fold(0.0_f64, f64::max),
+        }
+    }
+}
+
+/// A summary of an effect trace for logging and metrics.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EffectTraceSummary {
+    pub total_effects: usize,
+    pub warnings: usize,
+    pub failures: usize,
+    pub coercions: usize,
+    pub is_terminated: bool,
+    pub max_risk: f64,
+}
+
+/// Policy for handling effects during parsing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EffectPolicy {
+    /// Collect all effects but continue on recoverable ones.
+    #[default]
+    CollectAll,
+    /// Fail immediately on any effect.
+    FailOnAny,
+    /// Fail on warnings or worse.
+    FailOnWarning,
+    /// Only fail on terminal effects.
+    FailOnTerminal,
+}
+
+impl EffectPolicy {
+    /// Check if an effect should cause immediate failure under this policy.
+    #[must_use]
+    pub fn should_fail(&self, effect: &ParserEffect) -> bool {
+        match self {
+            Self::CollectAll => effect.kind.is_terminal(),
+            Self::FailOnAny => true,
+            Self::FailOnWarning => {
+                matches!(
+                    effect.kind,
+                    ParserEffectKind::Warning
+                        | ParserEffectKind::FailClosed
+                        | ParserEffectKind::Validation
+                )
+            }
+            Self::FailOnTerminal => effect.kind.is_terminal(),
+        }
+    }
+}
+
+/// An effect handler that processes effects according to a policy.
+#[derive(Debug, Clone)]
+pub struct EffectHandler {
+    policy: EffectPolicy,
+    trace: EffectTrace,
+}
+
+impl EffectHandler {
+    /// Create a new effect handler with the given policy.
+    #[must_use]
+    pub fn new(policy: EffectPolicy) -> Self {
+        Self {
+            policy,
+            trace: EffectTrace::new(),
+        }
+    }
+
+    /// Create an effect handler that collects all effects.
+    #[must_use]
+    pub fn collect_all() -> Self {
+        Self::new(EffectPolicy::CollectAll)
+    }
+
+    /// Create an effect handler that fails on terminal effects only.
+    #[must_use]
+    pub fn fail_on_terminal() -> Self {
+        Self::new(EffectPolicy::FailOnTerminal)
+    }
+
+    /// Handle an effect, returning Err if the policy requires immediate failure.
+    pub fn handle(&mut self, effect: ParserEffect) -> Result<(), ParserEffect> {
+        let should_fail = self.policy.should_fail(&effect);
+        self.trace.record(effect.clone());
+        if should_fail {
+            Err(effect)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Get the current effect trace.
+    #[must_use]
+    pub fn trace(&self) -> &EffectTrace {
+        &self.trace
+    }
+
+    /// Consume the handler and return the effect trace.
+    #[must_use]
+    pub fn into_trace(self) -> EffectTrace {
+        self.trace
+    }
+
+    /// Get a summary of the effects.
+    #[must_use]
+    pub fn summary(&self) -> EffectTraceSummary {
+        self.trace.summary()
+    }
+}
+
+impl Default for EffectHandler {
+    fn default() -> Self {
+        Self::collect_all()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -6701,5 +7062,239 @@ mod tests {
         assert_eq!(summary.successful, 0);
         assert_eq!(summary.failed, 1);
         assert!((summary.avg_p95_improvement_pct - 0.0).abs() < 0.01);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // G6: Algebraic effect tracking tests
+    // ──────────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn parser_effect_kind_properties() {
+        use super::ParserEffectKind;
+
+        assert!(ParserEffectKind::FailClosed.is_terminal());
+        assert!(!ParserEffectKind::Warning.is_terminal());
+        assert!(!ParserEffectKind::Allow.is_terminal());
+
+        assert!(ParserEffectKind::Warning.is_recoverable());
+        assert!(ParserEffectKind::Fallback.is_recoverable());
+        assert!(ParserEffectKind::Coercion.is_recoverable());
+        assert!(!ParserEffectKind::FailClosed.is_recoverable());
+
+        assert_eq!(ParserEffectKind::Warning.as_str(), "warning");
+        assert_eq!(ParserEffectKind::FailClosed.as_str(), "fail_closed");
+    }
+
+    #[test]
+    fn parser_effect_constructors() {
+        use super::{CompatibilityMode, ParserEffect, ParserEffectKind};
+
+        let warning = ParserEffect::warning("read_graphml", "missing attribute", CompatibilityMode::Strict);
+        assert_eq!(warning.kind, ParserEffectKind::Warning);
+        assert_eq!(warning.operation, "read_graphml");
+        assert!(warning.risk_probability > 0.0);
+
+        let fail = ParserEffect::fail_closed("read_json", "invalid json", CompatibilityMode::Strict);
+        assert_eq!(fail.kind, ParserEffectKind::FailClosed);
+        assert!((fail.risk_probability - 1.0).abs() < 0.001);
+
+        let allow = ParserEffect::allow("parse", "ok", CompatibilityMode::Hardened, 0.1);
+        assert_eq!(allow.kind, ParserEffectKind::Allow);
+        assert!((allow.risk_probability - 0.1).abs() < 0.001);
+    }
+
+    #[test]
+    fn parser_effect_with_location() {
+        use super::{CompatibilityMode, ParserEffect};
+
+        let effect = ParserEffect::warning("read_edgelist", "bad line", CompatibilityMode::Strict)
+            .with_location("line 42");
+        assert_eq!(effect.source_location, Some("line 42".to_owned()));
+    }
+
+    #[test]
+    fn effect_trace_basic_operations() {
+        use super::{CompatibilityMode, EffectTrace, ParserEffect, ParserEffectKind};
+
+        let mut trace = EffectTrace::new();
+        assert!(trace.is_empty());
+        assert!(!trace.is_terminated());
+
+        trace.record(ParserEffect::warning("op1", "msg1", CompatibilityMode::Strict));
+        assert_eq!(trace.len(), 1);
+        assert!(!trace.is_empty());
+        assert!(!trace.is_terminated());
+
+        trace.record(ParserEffect::allow("op2", "msg2", CompatibilityMode::Strict, 0.1));
+        assert_eq!(trace.len(), 2);
+        assert!(!trace.is_terminated());
+
+        // Add a terminal effect
+        trace.record(ParserEffect::fail_closed("op3", "error", CompatibilityMode::Strict));
+        assert_eq!(trace.len(), 3);
+        assert!(trace.is_terminated());
+
+        // Can still add more effects after terminal
+        trace.record(ParserEffect::warning("op4", "msg4", CompatibilityMode::Strict));
+        assert_eq!(trace.len(), 4);
+        assert!(trace.is_terminated());
+
+        // Terminal effect is still the first terminal
+        let terminal = trace.terminal().unwrap();
+        assert_eq!(terminal.kind, ParserEffectKind::FailClosed);
+        assert_eq!(terminal.operation, "op3");
+    }
+
+    #[test]
+    fn effect_trace_filtering() {
+        use super::{CompatibilityMode, EffectTrace, ParserEffect, ParserEffectKind};
+
+        let mut trace = EffectTrace::new();
+        trace.record(ParserEffect::warning("op1", "warn1", CompatibilityMode::Strict));
+        trace.record(ParserEffect::warning("op2", "warn2", CompatibilityMode::Strict));
+        trace.record(ParserEffect::allow("op3", "ok", CompatibilityMode::Strict, 0.1));
+        trace.record(ParserEffect::warning("op4", "warn3", CompatibilityMode::Strict));
+
+        let warnings = trace.warnings();
+        assert_eq!(warnings.len(), 3);
+
+        assert_eq!(trace.count_kind(ParserEffectKind::Warning), 3);
+        assert_eq!(trace.count_kind(ParserEffectKind::Allow), 1);
+        assert_eq!(trace.count_kind(ParserEffectKind::FailClosed), 0);
+    }
+
+    #[test]
+    fn effect_trace_merge() {
+        use super::{CompatibilityMode, EffectTrace, ParserEffect, ParserEffectKind};
+
+        let mut trace1 = EffectTrace::new();
+        trace1.record(ParserEffect::warning("a", "m1", CompatibilityMode::Strict));
+        trace1.record(ParserEffect::warning("b", "m2", CompatibilityMode::Strict));
+
+        let mut trace2 = EffectTrace::new();
+        trace2.record(ParserEffect::allow("c", "m3", CompatibilityMode::Strict, 0.1));
+        trace2.record(ParserEffect::fail_closed("d", "m4", CompatibilityMode::Strict));
+
+        trace1.merge(trace2);
+
+        assert_eq!(trace1.len(), 4);
+        assert!(trace1.is_terminated());
+        assert_eq!(
+            trace1.terminal().unwrap().kind,
+            ParserEffectKind::FailClosed
+        );
+    }
+
+    #[test]
+    fn effect_trace_summary() {
+        use super::{CompatibilityMode, EffectTrace, ParserEffect};
+
+        let mut trace = EffectTrace::new();
+        trace.record(ParserEffect::warning("a", "m1", CompatibilityMode::Strict));
+        trace.record(ParserEffect::new(
+            super::ParserEffectKind::Coercion,
+            "b",
+            "m2",
+            CompatibilityMode::Strict,
+            0.3,
+        ));
+        trace.record(ParserEffect::fail_closed("c", "m3", CompatibilityMode::Strict));
+
+        let summary = trace.summary();
+        assert_eq!(summary.total_effects, 3);
+        assert_eq!(summary.warnings, 1);
+        assert_eq!(summary.failures, 1);
+        assert_eq!(summary.coercions, 1);
+        assert!(summary.is_terminated);
+        assert!((summary.max_risk - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn effect_policy_should_fail() {
+        use super::{CompatibilityMode, EffectPolicy, ParserEffect};
+
+        let warning = ParserEffect::warning("op", "msg", CompatibilityMode::Strict);
+        let fail = ParserEffect::fail_closed("op", "msg", CompatibilityMode::Strict);
+        let allow = ParserEffect::allow("op", "msg", CompatibilityMode::Strict, 0.1);
+
+        // CollectAll: only fails on terminal
+        assert!(!EffectPolicy::CollectAll.should_fail(&warning));
+        assert!(EffectPolicy::CollectAll.should_fail(&fail));
+        assert!(!EffectPolicy::CollectAll.should_fail(&allow));
+
+        // FailOnAny: fails on everything
+        assert!(EffectPolicy::FailOnAny.should_fail(&warning));
+        assert!(EffectPolicy::FailOnAny.should_fail(&fail));
+        assert!(EffectPolicy::FailOnAny.should_fail(&allow));
+
+        // FailOnWarning: fails on warning or terminal
+        assert!(EffectPolicy::FailOnWarning.should_fail(&warning));
+        assert!(EffectPolicy::FailOnWarning.should_fail(&fail));
+        assert!(!EffectPolicy::FailOnWarning.should_fail(&allow));
+
+        // FailOnTerminal: only fails on terminal
+        assert!(!EffectPolicy::FailOnTerminal.should_fail(&warning));
+        assert!(EffectPolicy::FailOnTerminal.should_fail(&fail));
+        assert!(!EffectPolicy::FailOnTerminal.should_fail(&allow));
+    }
+
+    #[test]
+    fn effect_handler_collect_all() {
+        use super::{CompatibilityMode, EffectHandler, ParserEffect};
+
+        let mut handler = EffectHandler::collect_all();
+
+        // Warnings should be Ok
+        let result = handler.handle(ParserEffect::warning("op1", "m1", CompatibilityMode::Strict));
+        assert!(result.is_ok());
+
+        // Allows should be Ok
+        let result = handler.handle(ParserEffect::allow("op2", "m2", CompatibilityMode::Strict, 0.1));
+        assert!(result.is_ok());
+
+        // FailClosed should be Err
+        let result = handler.handle(ParserEffect::fail_closed("op3", "m3", CompatibilityMode::Strict));
+        assert!(result.is_err());
+
+        // Trace should have all effects
+        assert_eq!(handler.trace().len(), 3);
+        assert!(handler.trace().is_terminated());
+    }
+
+    #[test]
+    fn effect_handler_fail_on_terminal() {
+        use super::{CompatibilityMode, EffectHandler, ParserEffect};
+
+        let mut handler = EffectHandler::fail_on_terminal();
+
+        let result = handler.handle(ParserEffect::warning("op", "msg", CompatibilityMode::Strict));
+        assert!(result.is_ok());
+
+        let result = handler.handle(ParserEffect::fail_closed("op", "msg", CompatibilityMode::Strict));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn effect_handler_into_trace() {
+        use super::{CompatibilityMode, EffectHandler, ParserEffect};
+
+        let mut handler = EffectHandler::collect_all();
+        let _ = handler.handle(ParserEffect::warning("op", "msg", CompatibilityMode::Strict));
+
+        let trace = handler.into_trace();
+        assert_eq!(trace.len(), 1);
+    }
+
+    #[test]
+    fn effect_handler_summary() {
+        use super::{CompatibilityMode, EffectHandler, ParserEffect};
+
+        let mut handler = EffectHandler::collect_all();
+        let _ = handler.handle(ParserEffect::warning("op1", "m1", CompatibilityMode::Strict));
+        let _ = handler.handle(ParserEffect::warning("op2", "m2", CompatibilityMode::Strict));
+
+        let summary = handler.summary();
+        assert_eq!(summary.total_effects, 2);
+        assert_eq!(summary.warnings, 2);
     }
 }
