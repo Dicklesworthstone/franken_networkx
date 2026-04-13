@@ -11,7 +11,6 @@ use fnx_runtime::{
 };
 use indexmap::{IndexMap, IndexSet};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 
 // ---------------------------------------------------------------------------
 // DirectedEdgeKey — order-preserving (NOT canonicalized)
@@ -549,7 +548,8 @@ impl DiGraph {
                 {
                     preds.shift_remove(node);
                 }
-                self.edges
+                let _ = self
+                    .edges
                     .shift_remove(&DirectedEdgeKey::new(node, &target));
             }
         }
@@ -563,7 +563,8 @@ impl DiGraph {
                 {
                     succs.shift_remove(node);
                 }
-                self.edges
+                let _ = self
+                    .edges
                     .shift_remove(&DirectedEdgeKey::new(&source, node));
             }
         }
@@ -606,30 +607,14 @@ impl DiGraph {
     #[must_use]
     pub fn edges_ordered_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
         let mut ordered = Vec::with_capacity(self.edges.len());
-        let mut seen = HashSet::<DirectedEdgeKeyRef>::with_capacity(self.edges.len());
 
         for node in self.nodes.keys() {
             if let Some(succs) = self.successors.get(node) {
                 for target in succs {
                     let key = DirectedEdgeKeyRef::new(node, target);
-                    if !seen.insert(key) {
-                        continue;
-                    }
                     if let Some(attrs) = self.edges.get(&key) {
                         ordered.push((node.as_str(), target.as_str(), attrs));
                     }
-                }
-            }
-        }
-
-        if ordered.len() < self.edges.len() {
-            for (key, attrs) in &self.edges {
-                let rkey = DirectedEdgeKeyRef {
-                    source: &key.source,
-                    target: &key.target,
-                };
-                if seen.insert(rkey) {
-                    ordered.push((&key.source, &key.target, attrs));
                 }
             }
         }

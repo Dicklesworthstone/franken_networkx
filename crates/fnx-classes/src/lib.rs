@@ -503,7 +503,7 @@ impl Graph {
                 {
                     remote_neighbors.shift_remove(node);
                 }
-                self.edges.shift_remove(&EdgeKey::new(node, &neighbor));
+                let _ = self.edges.shift_remove(&EdgeKey::new(node, &neighbor));
             }
         }
 
@@ -529,8 +529,8 @@ impl Graph {
                     }
                     if let Some(attrs) = self.edges.get(&key) {
                         ordered.push(EdgeSnapshot {
-                            left: node.clone(),
-                            right: neighbor.clone(),
+                            left: key.left.clone(),
+                            right: key.right.clone(),
                             attrs: attrs.clone(),
                         });
                     }
@@ -554,7 +554,7 @@ impl Graph {
                         continue;
                     }
                     if let Some(attrs) = self.edges.get(&key) {
-                        ordered.push((node.as_str(), neighbor.as_str(), attrs));
+                        ordered.push((key.left, key.right, attrs));
                     }
                 }
             }
@@ -979,6 +979,8 @@ impl MultiGraph {
             return false;
         }
 
+        self.edge_count -= 1;
+
         let should_drop_bucket = self.edges.get(&edge_key).is_some_and(IndexMap::is_empty);
         if should_drop_bucket {
             self.edges.shift_remove(&edge_key);
@@ -1032,13 +1034,14 @@ impl MultiGraph {
                     if let Some(edge_bucket) = self.edges.get(&pair) {
                         for (key, attrs) in edge_bucket {
                             // Track using the canonical sorted pair to deduplicate correctly
-                            let canonical_instance = (pair.left.to_owned(), pair.right.to_owned(), *key);
+                            let canonical_instance =
+                                (pair.left.to_owned(), pair.right.to_owned(), *key);
                             if !seen.insert(canonical_instance) {
                                 continue;
                             }
                             ordered.push(MultiEdgeSnapshot {
-                                left: node.clone(),
-                                right: neighbor.clone(),
+                                left: pair.left.to_owned(),
+                                right: pair.right.to_owned(),
                                 key: *key,
                                 attrs: attrs.clone(),
                             });
@@ -1065,7 +1068,7 @@ impl MultiGraph {
                             if !seen.insert((pair, *key)) {
                                 continue;
                             }
-                            ordered.push((node.as_str(), neighbor.as_str(), *key, attrs));
+                            ordered.push((pair.left, pair.right, *key, attrs));
                         }
                     }
                 }

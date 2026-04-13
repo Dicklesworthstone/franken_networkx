@@ -4,11 +4,148 @@ These tests compare FrankenNetworkX output against NetworkX oracle values
 to verify algorithm correctness across the Python binding layer.
 """
 
+import hashlib
+import json
 import logging
+import time
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any
 
 import pytest
 
 log = logging.getLogger("fnx_conformance")
+
+
+# ---------------------------------------------------------------------------
+# Parity record emitter for Rust harness integration (B5)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ParityRecord:
+    """A single parity test result record, compatible with Rust FixtureReport."""
+
+    fixture_id: str
+    fixture_name: str
+    suite: str = "python_parity"
+    mode: str = "strict"
+    seed: int | None = None
+    threat_class: str | None = None
+    replay_command: str = ""
+    passed: bool = True
+    reason_code: str | None = None
+    fixture_source_hash: str = ""
+    duration_ms: int = 0
+    strict_violation_count: int = 0
+    hardened_allowlisted_count: int = 0
+    mismatches: list[dict[str, str]] = field(default_factory=list)
+    mismatch_taxonomy: list[dict[str, Any]] = field(default_factory=list)
+    witness: dict | None = None
+    python_module: str = ""
+    python_markers: list[str] = field(default_factory=list)
+    schema_version: str = "python_parity_v1"
+
+
+def _generate_fixture_id(node_id: str) -> str:
+    h = hashlib.blake2b(node_id.encode(), digest_size=8)
+    return f"py-{h.hexdigest()}"
+
+
+def _generate_source_hash(node_id: str) -> str:
+    h = hashlib.blake2b(node_id.encode(), digest_size=16)
+    return h.hexdigest()
+
+
+class ParityRecordEmitter:
+    """Collects and emits parity test records."""
+
+    def __init__(self, output_path: Path):
+        self.output_path = output_path
+        self.records: list[ParityRecord] = []
+        self.start_times: dict[str, float] = {}
+
+    def test_started(self, node_id: str) -> None:
+        self.start_times[node_id] = time.time()
+
+    def test_finished(
+        self, item: pytest.Item, outcome: str, report: pytest.TestReport
+    ) -> None:
+        node_id = item.nodeid
+        start_time = self.start_times.pop(node_id, time.time())
+        duration_ms = int((time.time() - start_time) * 1000)
+        markers = [m.name for m in item.iter_markers()]
+        passed = outcome == "passed"
+        mismatches = []
+        reason_code = None
+
+        if not passed and hasattr(report, "longrepr"):
+            reason_code = outcome
+            longrepr_str = str(report.longrepr) if report.longrepr else ""
+            if longrepr_str:
+                mismatches.append({
+                    "category": "assertion_failure",
+                    "message": longrepr_str[:2000],
+                })
+
+        record = ParityRecord(
+            fixture_id=_generate_fixture_id(node_id),
+            fixture_name=item.name,
+            passed=passed,
+            reason_code=reason_code,
+            fixture_source_hash=_generate_source_hash(node_id),
+            duration_ms=duration_ms,
+            strict_violation_count=0 if passed else 1,
+            mismatches=mismatches,
+            python_module=item.module.__name__ if item.module else "",
+            python_markers=markers,
+            replay_command=f"pytest {node_id} -v",
+        )
+        self.records.append(record)
+
+    def flush(self) -> None:
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.output_path, "w") as f:
+            for record in self.records:
+                f.write(json.dumps(asdict(record), default=str) + "\n")
+
+
+_emitter: ParityRecordEmitter | None = None
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--emit-parity-records",
+        action="store",
+        default=None,
+        metavar="PATH",
+        help="Emit parity test records to JSONL for Rust harness consumption",
+    )
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    global _emitter
+    output_path = config.getoption("--emit-parity-records", default=None)
+    if output_path:
+        _emitter = ParityRecordEmitter(Path(output_path))
+
+
+def pytest_runtest_logstart(nodeid: str, location: tuple) -> None:
+    if _emitter:
+        _emitter.test_started(nodeid)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo) -> Any:
+    outcome = yield
+    report = outcome.get_result()
+    if _emitter and call.when == "call":
+        _emitter.test_finished(item, report.outcome, report)
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    if _emitter:
+        _emitter.flush()
 
 
 def _benchmark_mode_enabled(config: pytest.Config) -> bool:
