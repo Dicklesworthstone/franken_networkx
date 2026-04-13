@@ -146,9 +146,39 @@ jobs:
       - name: Verify docs and examples
         run: python3 scripts/verify_docs.py
 
+  g4d-examples:
+    name: G4d examples
+    needs: g4c-docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: Swatinem/rust-cache@v2
+      - name: Install example dependencies
+        run: pip install maturin networkx
+      - name: Build and install
+        run: maturin develop --features pyo3/abi3-py310
+      - name: Run examples
+        shell: bash
+        env:
+          FNX_BENCH_RUNS: "1"
+          FNX_BENCH_PATH_NODES: "500"
+          FNX_BENCH_COMPONENT_NODES: "300"
+          FNX_BENCH_PAGERANK_NODES: "80"
+        run: |
+          set -euo pipefail
+          for script in examples/*.py; do
+            echo "Running ${script}"
+            python3 "${script}"
+          done
+
   g5-conformance:
     name: G5 conformance evidence
-    needs: g4c-docs
+    needs: g4d-examples
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
