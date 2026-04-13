@@ -7,6 +7,7 @@ use fnx_runtime::{
     decision_theoretic_action, unix_time_ms,
 };
 use mt19937::{MT19937, gen_res53};
+use rand::Rng;
 use std::fmt;
 
 /// Maximum nodes for general generators (path, cycle, empty, etc.).
@@ -328,7 +329,7 @@ impl GraphGenerator {
         // Iterate over each node and its k/2 rightward neighbors.
         for i in 0..n {
             for j in 1..=half_k {
-                if rng.random::<f64>() < p {
+                if rng.random() < p {
                     let right = (i + j) % n;
                     // Remove the original edge.
                     let _ = graph.remove_edge(&node_labels[i], &node_labels[right]);
@@ -556,7 +557,7 @@ impl GraphGenerator {
         // Step 2: Add shortcut edges with probability p (don't remove originals).
         for i in 0..n {
             for _ in 1..=half_k {
-                if rng.random::<f64>() < p {
+                if rng.random() < p {
                     let mut new_target = rng.randrange(n);
                     let mut attempts = 0;
                     while (new_target == i
@@ -776,7 +777,7 @@ impl GraphGenerator {
             // Remaining attachments: triad formation or preferential
             let mut count = 1;
             while count < m {
-                if rng.random::<f64>() < p {
+                if rng.random() < p {
                     // Try to close a triangle
                     let last_target = *targets.last().unwrap();
                     let nbrs = graph

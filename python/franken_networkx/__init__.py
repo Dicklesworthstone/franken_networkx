@@ -1017,22 +1017,6 @@ def all_pairs_bellman_ford_path_length(G, weight="weight"):
     for k, v in _raw_all_pairs_bellman_ford_path_length(G, weight=weight).items():
         yield (k, v)
 
-def all_pairs_dijkstra_path(G, weight="weight"):
-    for k, v in _raw_all_pairs_dijkstra_path(G, weight=weight).items():
-        yield (k, v)
-
-def all_pairs_dijkstra_path_length(G, weight="weight"):
-    for k, v in _raw_all_pairs_dijkstra_path_length(G, weight=weight).items():
-        yield (k, v)
-
-def all_pairs_bellman_ford_path(G, weight="weight"):
-    for k, v in _raw_all_pairs_bellman_ford_path(G, weight=weight).items():
-        yield (k, v)
-
-def all_pairs_bellman_ford_path_length(G, weight="weight"):
-    for k, v in _raw_all_pairs_bellman_ford_path_length(G, weight=weight).items():
-        yield (k, v)
-
 # Additional centrality algorithms
 from franken_networkx._fnx import (
     in_degree_centrality,
