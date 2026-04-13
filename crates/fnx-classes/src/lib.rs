@@ -617,6 +617,7 @@ pub struct MultiGraph {
     adjacency: IndexMap<String, IndexMap<String, IndexSet<usize>>>,
     edges: IndexMap<EdgeKey, IndexMap<usize, AttrMap>>,
     ledger: EvidenceLedger,
+    edge_count: usize,
 }
 
 impl MultiGraph {
@@ -629,6 +630,7 @@ impl MultiGraph {
             adjacency: IndexMap::new(),
             edges: IndexMap::new(),
             ledger: EvidenceLedger::new(),
+            edge_count: 0,
         }
     }
 
@@ -654,7 +656,7 @@ impl MultiGraph {
 
     #[must_use]
     pub fn edge_count(&self) -> usize {
-        self.edges.values().map(IndexMap::len).sum()
+        self.edge_count
     }
 
     /// Return edge keys as Vec (needed by Python bindings).
@@ -891,7 +893,11 @@ impl MultiGraph {
         let mut changed;
         let edge_attr_count = {
             let edge_bucket = self.edges.entry(edge_key.clone()).or_default();
-            changed = !edge_bucket.contains_key(&key);
+            let is_new = !edge_bucket.contains_key(&key);
+            if is_new {
+                self.edge_count += 1;
+            }
+            changed = is_new;
             let edge_attrs = edge_bucket.entry(key).or_default();
             if !attrs.is_empty()
                 && attrs
@@ -1001,7 +1007,9 @@ impl MultiGraph {
                     remote_neighbors.shift_remove(node);
                 }
                 let k = EdgeKey::new(node, &neighbor);
-                self.edges.shift_remove(&k);
+                if let Some(removed_bucket) = self.edges.shift_remove(&k) {
+                    self.edge_count -= removed_bucket.len();
+                }
             }
         }
 

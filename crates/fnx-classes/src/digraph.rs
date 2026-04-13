@@ -699,6 +699,7 @@ pub struct MultiDiGraph {
     predecessors: IndexMap<String, IndexMap<String, IndexSet<usize>>>,
     edges: IndexMap<DirectedEdgeKey, IndexMap<usize, AttrMap>>,
     ledger: EvidenceLedger,
+    edge_count: usize,
 }
 
 impl MultiDiGraph {
@@ -712,6 +713,7 @@ impl MultiDiGraph {
             predecessors: IndexMap::new(),
             edges: IndexMap::new(),
             ledger: EvidenceLedger::new(),
+            edge_count: 0,
         }
     }
 
@@ -737,7 +739,7 @@ impl MultiDiGraph {
 
     #[must_use]
     pub fn edge_count(&self) -> usize {
-        self.edges.values().map(IndexMap::len).sum()
+        self.edge_count
     }
 
     /// Return an iterator over keys for edges from source to target.
@@ -991,7 +993,11 @@ impl MultiDiGraph {
         let mut changed;
         let edge_attr_count = {
             let edge_bucket = self.edges.entry(edge_key.clone()).or_default();
-            changed = !edge_bucket.contains_key(&key);
+            let is_new = !edge_bucket.contains_key(&key);
+            if is_new {
+                self.edge_count += 1;
+            }
+            changed = is_new;
             let edge_attrs = edge_bucket.entry(key).or_default();
             if !attrs.is_empty()
                 && attrs
@@ -1071,6 +1077,8 @@ impl MultiDiGraph {
             return false;
         }
 
+        self.edge_count -= 1;
+
         let should_drop_bucket = self.edges.get(&edge_key).is_some_and(IndexMap::is_empty);
         if should_drop_bucket {
             self.edges.shift_remove(&edge_key);
@@ -1097,7 +1105,9 @@ impl MultiDiGraph {
                     preds.shift_remove(node);
                 }
                 let k = DirectedEdgeKey::new(node, &target);
-                self.edges.shift_remove(&k);
+                if let Some(removed_bucket) = self.edges.shift_remove(&k) {
+                    self.edge_count -= removed_bucket.len();
+                }
             }
         }
 
@@ -1111,7 +1121,9 @@ impl MultiDiGraph {
                     succs.shift_remove(node);
                 }
                 let k = DirectedEdgeKey::new(&source, node);
-                self.edges.shift_remove(&k);
+                if let Some(removed_bucket) = self.edges.shift_remove(&k) {
+                    self.edge_count -= removed_bucket.len();
+                }
             }
         }
 

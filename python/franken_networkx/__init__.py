@@ -790,10 +790,14 @@ from franken_networkx._fnx import (
     non_edges,
     average_node_connectivity,
     is_k_edge_connected,
-    all_pairs_dijkstra,
+    all_pairs_dijkstra as _raw_all_pairs_dijkstra,
     number_of_spanning_arborescences,
     global_node_connectivity,
 )
+
+def all_pairs_dijkstra(G, weight="weight"):
+    for k, v in _raw_all_pairs_dijkstra(G, weight=weight).items():
+        yield (k, tuple(v))
 
 # Algorithm functions — strongly connected components
 from franken_networkx._fnx import (
@@ -952,10 +956,10 @@ from franken_networkx._fnx import (
     single_source_bellman_ford_path_length,
     single_target_shortest_path,
     single_target_shortest_path_length,
-    all_pairs_dijkstra_path,
-    all_pairs_dijkstra_path_length,
-    all_pairs_bellman_ford_path,
-    all_pairs_bellman_ford_path_length,
+    all_pairs_dijkstra_path as _raw_all_pairs_dijkstra_path,
+    all_pairs_dijkstra_path_length as _raw_all_pairs_dijkstra_path_length,
+    all_pairs_bellman_ford_path as _raw_all_pairs_bellman_ford_path,
+    all_pairs_bellman_ford_path_length as _raw_all_pairs_bellman_ford_path_length,
     floyd_warshall,
     floyd_warshall_predecessor_and_distance,
     bidirectional_shortest_path,
@@ -963,6 +967,22 @@ from franken_networkx._fnx import (
     predecessor,
     path_weight,
 )
+
+def all_pairs_dijkstra_path(G, weight="weight"):
+    for k, v in _raw_all_pairs_dijkstra_path(G, weight=weight).items():
+        yield (k, v)
+
+def all_pairs_dijkstra_path_length(G, weight="weight"):
+    for k, v in _raw_all_pairs_dijkstra_path_length(G, weight=weight).items():
+        yield (k, v)
+
+def all_pairs_bellman_ford_path(G, weight="weight"):
+    for k, v in _raw_all_pairs_bellman_ford_path(G, weight=weight).items():
+        yield (k, v)
+
+def all_pairs_bellman_ford_path_length(G, weight="weight"):
+    for k, v in _raw_all_pairs_bellman_ford_path_length(G, weight=weight).items():
+        yield (k, v)
 
 # Additional centrality algorithms
 from franken_networkx._fnx import (
@@ -1199,7 +1219,8 @@ def projected_graph(B, nodes, multigraph=False):
 def bipartite_density(B, nodes):
     """Return the bipartite density of a bipartite graph *B*.
 
-    The bipartite density is ``|E| / (|top| * |bottom|)``.
+    The bipartite density is ``|E| / (|top| * |bottom|)`` for undirected graphs,
+    and ``|E| / (2 * |top| * |bottom|)`` for directed graphs.
 
     Parameters
     ----------
@@ -1217,6 +1238,8 @@ def bipartite_density(B, nodes):
     bottom = set(B.nodes()) - top
     if not top or not bottom:
         return 0.0
+    if B.is_directed():
+        return B.number_of_edges() / (2.0 * len(top) * len(bottom))
     return B.number_of_edges() / (len(top) * len(bottom))
 
 
