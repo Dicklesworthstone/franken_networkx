@@ -43,6 +43,19 @@ def safe_json_loads(payload: str) -> Any | None:
         return None
 
 
+def sanitize_spectrum(values: list[Any]) -> list[float]:
+    """Normalize spectrum values to finite floats, sorted ascending."""
+    cleaned: list[float] = []
+    for value in values:
+        try:
+            num = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(num):
+            cleaned.append(num)
+    return sorted(cleaned)
+
+
 def wasserstein_1d(a: list[float], b: list[float]) -> float:
     """Compute 1D Wasserstein distance between two sorted sequences.
 
@@ -226,8 +239,10 @@ def main() -> int:
         for fp in data.get("fingerprints", []):
             name = fp.get("fixture_path", "unknown")
             eigenvalues = fp.get("spectral", {}).get("eigenvalues", [])
-            if eigenvalues:
-                spectra.append((name, eigenvalues))
+            if isinstance(eigenvalues, list):
+                cleaned = sanitize_spectrum(eigenvalues)
+                if cleaned:
+                    spectra.append((name, cleaned))
 
         print(f"Loaded {len(spectra)} spectra from fingerprints")
 
