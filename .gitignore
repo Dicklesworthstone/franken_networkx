@@ -42,6 +42,7 @@ TODO_*.md
 # Generated runtime artifacts
 artifacts/conformance/latest/
 artifacts/conformance/oracle_capture/
+artifacts/conformance/decisions/
 artifacts/perf/latest/
 artifacts/phase2c/latest_*.json
 artifacts/phase2c/latest/
@@ -64,6 +65,42 @@ venv/
 errors.json
 clippy_output.txt
 rust-bug-scan.txt
+
+# Root-level agent scratch outputs
+/all_beads.txt
+/br_out.txt
+/br_ready.json
+/bv_out.json
+/check_out.txt
+/daemon_status.txt
+/final_remote.txt
+/git_log_slo.txt
+/git_out.txt
+/hello.txt
+/local_timeout.txt
+/ls_remote.txt
+/next_bead.txt
+/out.txt
+/pytest_version.txt
+/rch_check.txt
+/simple_remote.txt
+/single_test.txt
+/test_out.txt
+/test_results.txt
+/test_results_remote.txt
+/uname_remote.txt
+
+# Root-level probe scripts/results
+/bead_*.json
+/probe_*.py
+/probe_results*.txt
+/replace_*.py
+/strip_nx_compat.py
+/test_*.py
+
+# Agent helper scripts
+/scripts/close_bead_*.py
+/scripts/close_beads.py
 
 # Ephemeral files (agent-generated, build artifacts, test detritus)
 ci-artifacts/
