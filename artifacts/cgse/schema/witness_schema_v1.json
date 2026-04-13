@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://frankennetworkx.dev/schema/cgse/witness_schema_v1.json",
+  "title": "CGSE Complexity Witness",
+  "description": "A per-execution record of tie-break decisions made during algorithm execution",
+  "type": "object",
+  "required": ["n", "m", "dominant_term", "observed_count", "policy", "decision_path_blake3"],
+  "properties": {
+    "n": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of nodes in the input graph"
+    },
+    "m": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of edges in the input graph"
+    },
+    "dominant_term": {
+      "type": "string",
+      "enum": [
+        "n",
+        "m",
+        "n_plus_m",
+        "n_log_n",
+        "n_plus_m_log_n",
+        "n_m",
+        "n_squared",
+        "n_m_alpha",
+        "m_log_m",
+        "m_log_n"
+      ],
+      "description": "Dominant complexity term symbol"
+    },
+    "observed_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of tie-break decisions recorded"
+    },
+    "policy": {
+      "type": "string",
+      "enum": [
+        "lex_min",
+        "lex_max",
+        "insertion_order",
+        "reverse_insertion_order",
+        "weight_then_lex",
+        "lex_then_weight",
+        "deterministic_hash",
+        "degree_min_then_lex",
+        "degree_max_then_lex",
+        "dfs_preorder",
+        "bfs_level_lex",
+        "edge_key_lex"
+      ],
+      "description": "TieBreakPolicy id governing the execution"
+    },
+    "seed": {
+      "type": ["integer", "null"],
+      "description": "Optional RNG seed for randomized algorithms"
+    },
+    "decision_path_blake3": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "32-byte Blake3 hash (hex) over ordered tie-break decisions"
+    }
+  },
+  "additionalProperties": false
+}
