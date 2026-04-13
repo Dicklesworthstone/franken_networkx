@@ -35,6 +35,14 @@ def laplacian_spectrum(g: "nx.Graph", k: int = 20) -> list[float]:
         return []
 
 
+def safe_json_loads(payload: str) -> Any | None:
+    """Parse JSON payload, returning None on decode errors."""
+    try:
+        return json.loads(payload)  # ubs:ignore — safe_json_loads handles JSON errors here
+    except json.JSONDecodeError:
+        return None
+
+
 def wasserstein_1d(a: list[float], b: list[float]) -> float:
     """Compute 1D Wasserstein distance between two sorted sequences.
 
@@ -44,10 +52,13 @@ def wasserstein_1d(a: list[float], b: list[float]) -> float:
     if not a or not b:
         return float("inf") if (a or b) else 0.0
 
-    # Pad shorter sequence with zeros (eigenvalues are non-negative)
+    # Pad shorter sequence with zeros at the front to preserve sorted order.
+    # Eigenvalues are non-negative, so zeros belong at the start.
     max_len = max(len(a), len(b))
-    a_padded = sorted(a) + [0.0] * (max_len - len(a))
-    b_padded = sorted(b) + [0.0] * (max_len - len(b))
+    a_sorted = sorted(a)
+    b_sorted = sorted(b)
+    a_padded = [0.0] * (max_len - len(a_sorted)) + a_sorted
+    b_padded = [0.0] * (max_len - len(b_sorted)) + b_sorted
 
     return sum(abs(ai - bi) for ai, bi in zip(a_padded, b_padded)) / max_len
 
@@ -209,7 +220,9 @@ def main() -> int:
         if not fingerprints_path.exists():
             raise SystemExit(f"missing fingerprints file: {fingerprints_path}")
 
-        data = json.loads(fingerprints_path.read_text(encoding="utf-8"))
+        data = safe_json_loads(fingerprints_path.read_text(encoding="utf-8"))
+        if data is None or not isinstance(data, dict):
+            raise SystemExit(f"invalid fingerprints file: {fingerprints_path}")
         for fp in data.get("fingerprints", []):
             name = fp.get("fixture_path", "unknown")
             eigenvalues = fp.get("spectral", {}).get("eigenvalues", [])
