@@ -12,11 +12,13 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 fnx-classes = { path = "../fnx-classes" }
 fnx-algorithms = { path = "../fnx-algorithms" }
+fnx-cgse = { path = "../fnx-cgse" }
 fnx-generators = { path = "../fnx-generators" }
 fnx-readwrite = { path = "../fnx-readwrite" }
 fnx-convert = { path = "../fnx-convert" }
 fnx-views = { path = "../fnx-views" }
 fnx-runtime = { path = "../fnx-runtime" }
+hex = "0.4"
 pyo3 = { version = "0.23", features = ["abi3-py310", "multiple-pymethods"] }
 pyo3-log = "0.12"
 log = "0.4"

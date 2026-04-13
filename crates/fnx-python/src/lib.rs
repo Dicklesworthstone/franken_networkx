@@ -7,6 +7,7 @@
 //! The public Python API is re-exported through `python/franken_networkx/__init__.py`.
 
 mod algorithms;
+mod cgse;
 pub(crate) mod digraph;
 mod generators;
 mod readwrite;
@@ -2662,6 +2663,9 @@ fn _fnx(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Read/write functions
     readwrite::register(m)?;
+
+    // CGSE submodule
+    cgse::register_module(m)?;
 
     // Exception hierarchy
     m.add("NetworkXError", m.py().get_type::<NetworkXError>())?;
