@@ -119,7 +119,7 @@ pub struct HarnessReport {
     pub suite: &'static str,
     pub oracle_present: bool,
     pub fixture_count: usize,
-    pub strict_mode: bool,
+    pub mode: CompatibilityMode,
     pub mismatch_count: usize,
     pub hardened_allowlisted_count: usize,
     pub structured_log_count: usize,
@@ -856,7 +856,7 @@ pub fn run_smoke(config: &HarnessConfig) -> HarnessReport {
         suite: "smoke",
         oracle_present: config.oracle_root.exists(),
         fixture_count: fixture_reports.len(),
-        strict_mode: config.strict_mode,
+        mode: if config.strict_mode { CompatibilityMode::Strict } else { CompatibilityMode::Hardened },
         mismatch_count,
         hardened_allowlisted_count,
         structured_log_count: fixture_reports.len(),
@@ -1243,7 +1243,7 @@ fn build_structured_log(
     );
     environment.insert(
         "strict_mode_default".to_owned(),
-        report.strict_mode.to_string(),
+        (report.mode == CompatibilityMode::Strict).to_string(),
     );
     environment.insert("run_id".to_owned(), run_id.to_owned());
     environment.insert("fixture_id".to_owned(), fixture.fixture_id.clone());
