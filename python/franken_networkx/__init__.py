@@ -243,7 +243,7 @@ def shortest_path_length(G, source=None, target=None, weight=None, method="dijks
         
     if weight is not None:
         if method == "bellman-ford":
-            all_pairs = all_pairs_bellman_ford_path_length(G, weight=weight)
+            all_pairs = dict(all_pairs_bellman_ford_path_length(G, weight=weight))
         else:  # dijkstra
             all_pairs = dict(all_pairs_dijkstra_path_length(G, weight=weight))
     else:
