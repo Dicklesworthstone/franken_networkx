@@ -87,6 +87,22 @@ The repo treats docs as executable surface area:
 
 When you add a doc page or example, make sure it actually runs against the installed package.
 
+## RFC Process for Strict/Hardened Boundaries
+
+Changes that alter strict/hardened behavior are treated as protocol-level changes. Use this
+RFC checklist to avoid silent compatibility drift:
+
+1. **Problem statement**: describe the concrete incompatibility or safety gap.
+2. **Mode impact**: state which mode changes (strict vs hardened) and why.
+3. **Decision policy update**: update `CgsePolicyEngine` rules or risk thresholds and
+   record the rationale in the decision ledger.
+4. **Fixtures**: add strict + hardened fixtures that demonstrate the new boundary.
+5. **Evidence**: refresh conformance artifacts and durability sidecars for the affected reports.
+6. **Documentation**: update `README.md` (Current State) and any mode-specific notes.
+7. **Backfill tests**: add regression tests in `tests/python/` covering the new behavior.
+
+If any step is skipped, the change should not land in `main`.
+
 ## Coordination
 
 This repo uses:
