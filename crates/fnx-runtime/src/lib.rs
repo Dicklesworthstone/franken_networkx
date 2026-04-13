@@ -1915,6 +1915,217 @@ pub struct LedgerValidationResult {
     pub errors: Vec<String>,
 }
 
+// ---------------------------------------------------------------------------
+// Drift Analysis
+// ---------------------------------------------------------------------------
+
+/// Threshold for classifying a decision as "under-confident" (high risk).
+pub const UNDER_CONFIDENT_THRESHOLD: f64 = 0.3;
+
+/// Milliseconds in one week (7 days).
+pub const MILLIS_PER_WEEK: u128 = 7 * 24 * 60 * 60 * 1000;
+
+/// Analyzes decision records to identify under-confident regions and drift.
+#[derive(Debug, Clone, Default)]
+pub struct DriftAnalyzer {
+    threshold: f64,
+}
+
+impl DriftAnalyzer {
+    /// Create a new analyzer with the default threshold.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            threshold: UNDER_CONFIDENT_THRESHOLD,
+        }
+    }
+
+    /// Create an analyzer with a custom threshold.
+    #[must_use]
+    pub fn with_threshold(threshold: f64) -> Self {
+        Self {
+            threshold: threshold.clamp(0.0, 1.0),
+        }
+    }
+
+    /// Analyze a ledger and produce a drift feedback report.
+    #[must_use]
+    pub fn analyze(&self, ledger: &VersionedDecisionLedger) -> DriftFeedbackReport {
+        let records = &ledger.records;
+        if records.is_empty() {
+            return DriftFeedbackReport {
+                total_decisions: 0,
+                under_confident_count: 0,
+                under_confident_rate: 0.0,
+                weekly_summaries: Vec::new(),
+                top_operations: Vec::new(),
+                recommendations: vec!["No decisions to analyze".to_owned()],
+            };
+        }
+
+        // Find under-confident decisions
+        let under_confident: Vec<_> = records
+            .iter()
+            .filter(|r| r.incompatibility_probability >= self.threshold)
+            .collect();
+
+        // Group by week
+        let min_ts = records.iter().map(|r| r.ts_unix_ms).min().unwrap_or(0);
+        let mut weekly_map: std::collections::BTreeMap<u128, WeeklySummary> =
+            std::collections::BTreeMap::new();
+
+        for record in records {
+            let week_number = (record.ts_unix_ms - min_ts) / MILLIS_PER_WEEK;
+            let week_start = min_ts + (week_number * MILLIS_PER_WEEK);
+
+            let summary = weekly_map.entry(week_start).or_insert_with(|| WeeklySummary {
+                week_start_unix_ms: week_start,
+                total_decisions: 0,
+                under_confident_count: 0,
+                avg_probability: 0.0,
+                fail_closed_count: 0,
+            });
+
+            summary.total_decisions += 1;
+            if record.incompatibility_probability >= self.threshold {
+                summary.under_confident_count += 1;
+            }
+            if record.action == DecisionAction::FailClosed {
+                summary.fail_closed_count += 1;
+            }
+        }
+
+        // Calculate averages
+        for (week_start, summary) in &mut weekly_map {
+            let week_records: Vec<_> = records
+                .iter()
+                .filter(|r| {
+                    let week_number = (r.ts_unix_ms - min_ts) / MILLIS_PER_WEEK;
+                    min_ts + (week_number * MILLIS_PER_WEEK) == *week_start
+                })
+                .collect();
+
+            if !week_records.is_empty() {
+                summary.avg_probability = week_records
+                    .iter()
+                    .map(|r| r.incompatibility_probability)
+                    .sum::<f64>()
+                    / week_records.len() as f64;
+            }
+        }
+
+        // Find top operations by under-confidence
+        let mut op_counts: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for record in &under_confident {
+            *op_counts.entry(record.operation.clone()).or_insert(0) += 1;
+        }
+        let mut top_ops: Vec<_> = op_counts.into_iter().collect();
+        top_ops.sort_by(|a, b| b.1.cmp(&a.1));
+        let top_operations: Vec<OperationRiskSummary> = top_ops
+            .into_iter()
+            .take(5)
+            .map(|(op, count)| OperationRiskSummary {
+                operation: op,
+                under_confident_count: count,
+            })
+            .collect();
+
+        // Generate recommendations
+        let mut recommendations = Vec::new();
+        let under_rate = under_confident.len() as f64 / records.len() as f64;
+
+        if under_rate > 0.5 {
+            recommendations.push(
+                "High under-confidence rate (>50%). Consider reviewing threshold or adding validation.".to_owned()
+            );
+        }
+
+        if !top_operations.is_empty() {
+            recommendations.push(format!(
+                "Top risky operation: '{}' ({} under-confident decisions)",
+                top_operations[0].operation, top_operations[0].under_confident_count
+            ));
+        }
+
+        // Check for drift (increasing under-confidence over time)
+        let weekly_summaries: Vec<_> = weekly_map.into_values().collect();
+        if weekly_summaries.len() >= 2 {
+            let first_rate = if weekly_summaries[0].total_decisions > 0 {
+                weekly_summaries[0].under_confident_count as f64
+                    / weekly_summaries[0].total_decisions as f64
+            } else {
+                0.0
+            };
+            let last_rate = if weekly_summaries.last().unwrap().total_decisions > 0 {
+                weekly_summaries.last().unwrap().under_confident_count as f64
+                    / weekly_summaries.last().unwrap().total_decisions as f64
+            } else {
+                0.0
+            };
+
+            if last_rate > first_rate * 1.5 {
+                recommendations.push(
+                    "Drift detected: under-confidence rate increasing over time.".to_owned(),
+                );
+            }
+        }
+
+        DriftFeedbackReport {
+            total_decisions: records.len(),
+            under_confident_count: under_confident.len(),
+            under_confident_rate: under_rate,
+            weekly_summaries,
+            top_operations,
+            recommendations,
+        }
+    }
+}
+
+/// Weekly summary of decision confidence.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WeeklySummary {
+    pub week_start_unix_ms: u128,
+    pub total_decisions: usize,
+    pub under_confident_count: usize,
+    pub avg_probability: f64,
+    pub fail_closed_count: usize,
+}
+
+/// Summary of under-confidence for a specific operation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OperationRiskSummary {
+    pub operation: String,
+    pub under_confident_count: usize,
+}
+
+/// Drift feedback report with weekly analysis and recommendations.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DriftFeedbackReport {
+    pub total_decisions: usize,
+    pub under_confident_count: usize,
+    pub under_confident_rate: f64,
+    pub weekly_summaries: Vec<WeeklySummary>,
+    pub top_operations: Vec<OperationRiskSummary>,
+    pub recommendations: Vec<String>,
+}
+
+impl DriftFeedbackReport {
+    /// Check if the report indicates drift.
+    #[must_use]
+    pub fn has_drift(&self) -> bool {
+        self.recommendations
+            .iter()
+            .any(|r| r.contains("Drift detected"))
+    }
+
+    /// Check if there are high-risk operations.
+    #[must_use]
+    pub fn has_high_risk_operations(&self) -> bool {
+        !self.top_operations.is_empty()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LossMatrix {
     /// False allow: we allowed an actually incompatible operation.
@@ -3659,5 +3870,148 @@ mod tests {
         assert_eq!(versioned.schema_version, super::DECISION_LEDGER_SCHEMA_VERSION);
         assert_eq!(versioned.record_count, 1);
         assert_eq!(versioned.records[0].operation, "convert_op");
+    }
+
+    // -----------------------------------------------------------------------
+    // Drift Analysis tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn drift_analyzer_empty_ledger() {
+        let ledger = super::VersionedDecisionLedger::new("empty");
+        let analyzer = super::DriftAnalyzer::new();
+        let report = analyzer.analyze(&ledger);
+
+        assert_eq!(report.total_decisions, 0);
+        assert_eq!(report.under_confident_count, 0);
+        assert!(!report.has_drift());
+        assert!(!report.has_high_risk_operations());
+    }
+
+    #[test]
+    fn drift_analyzer_identifies_under_confident_decisions() {
+        let mut ledger = super::VersionedDecisionLedger::new("under-confident");
+
+        // Add some low-confidence decisions
+        ledger.append(super::DecisionRecord {
+            ts_unix_ms: 1000,
+            operation: "safe_op".to_owned(),
+            mode: CompatibilityMode::Strict,
+            action: DecisionAction::Allow,
+            incompatibility_probability: 0.1, // Low, confident
+            rationale: "confident".to_owned(),
+            evidence: vec![],
+        });
+        ledger.append(super::DecisionRecord {
+            ts_unix_ms: 2000,
+            operation: "risky_op".to_owned(),
+            mode: CompatibilityMode::Strict,
+            action: DecisionAction::FullValidate,
+            incompatibility_probability: 0.5, // High, under-confident
+            rationale: "uncertain".to_owned(),
+            evidence: vec![],
+        });
+
+        let analyzer = super::DriftAnalyzer::new();
+        let report = analyzer.analyze(&ledger);
+
+        assert_eq!(report.total_decisions, 2);
+        assert_eq!(report.under_confident_count, 1);
+        assert!((report.under_confident_rate - 0.5).abs() < 0.01);
+        assert!(report.has_high_risk_operations());
+        assert_eq!(report.top_operations[0].operation, "risky_op");
+    }
+
+    #[test]
+    fn drift_analyzer_custom_threshold() {
+        let mut ledger = super::VersionedDecisionLedger::new("custom-threshold");
+
+        ledger.append(super::DecisionRecord {
+            ts_unix_ms: 1000,
+            operation: "op".to_owned(),
+            mode: CompatibilityMode::Strict,
+            action: DecisionAction::Allow,
+            incompatibility_probability: 0.25,
+            rationale: "test".to_owned(),
+            evidence: vec![],
+        });
+
+        // Default threshold is 0.3, so 0.25 is confident
+        let default_analyzer = super::DriftAnalyzer::new();
+        let default_report = default_analyzer.analyze(&ledger);
+        assert_eq!(default_report.under_confident_count, 0);
+
+        // Custom threshold of 0.2 makes 0.25 under-confident
+        let custom_analyzer = super::DriftAnalyzer::with_threshold(0.2);
+        let custom_report = custom_analyzer.analyze(&ledger);
+        assert_eq!(custom_report.under_confident_count, 1);
+    }
+
+    #[test]
+    fn drift_analyzer_weekly_grouping() {
+        let mut ledger = super::VersionedDecisionLedger::new("weekly");
+        let base_time = 1000u128;
+
+        // Week 1 decisions
+        for i in 0..3 {
+            ledger.append(super::DecisionRecord {
+                ts_unix_ms: base_time + (i * 1000),
+                operation: "week1_op".to_owned(),
+                mode: CompatibilityMode::Strict,
+                action: DecisionAction::Allow,
+                incompatibility_probability: 0.1,
+                rationale: "week1".to_owned(),
+                evidence: vec![],
+            });
+        }
+
+        // Week 2 decisions (7+ days later)
+        for i in 0..2 {
+            ledger.append(super::DecisionRecord {
+                ts_unix_ms: base_time + super::MILLIS_PER_WEEK + (i * 1000),
+                operation: "week2_op".to_owned(),
+                mode: CompatibilityMode::Strict,
+                action: DecisionAction::FullValidate,
+                incompatibility_probability: 0.4, // Under-confident
+                rationale: "week2".to_owned(),
+                evidence: vec![],
+            });
+        }
+
+        let analyzer = super::DriftAnalyzer::new();
+        let report = analyzer.analyze(&ledger);
+
+        assert_eq!(report.total_decisions, 5);
+        assert_eq!(report.weekly_summaries.len(), 2);
+        assert_eq!(report.weekly_summaries[0].total_decisions, 3);
+        assert_eq!(report.weekly_summaries[1].total_decisions, 2);
+        assert_eq!(report.weekly_summaries[1].under_confident_count, 2);
+    }
+
+    #[test]
+    fn drift_report_recommendations() {
+        let mut ledger = super::VersionedDecisionLedger::new("recommendations");
+
+        // Add many under-confident decisions
+        for i in 0..10 {
+            ledger.append(super::DecisionRecord {
+                ts_unix_ms: i * 1000,
+                operation: "risky_operation".to_owned(),
+                mode: CompatibilityMode::Strict,
+                action: DecisionAction::FailClosed,
+                incompatibility_probability: 0.7,
+                rationale: "high risk".to_owned(),
+                evidence: vec![],
+            });
+        }
+
+        let analyzer = super::DriftAnalyzer::new();
+        let report = analyzer.analyze(&ledger);
+
+        assert!(!report.recommendations.is_empty());
+        assert!(report
+            .recommendations
+            .iter()
+            .any(|r| r.contains("High under-confidence")));
     }
 }
