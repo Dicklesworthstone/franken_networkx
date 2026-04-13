@@ -3449,6 +3449,351 @@ pub struct TailGateDecision {
     pub status: TailStabilityStatus,
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// E3: Profile-and-prove optimization loop per SLO row
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Identifier for SLO metric rows from SPEC §17.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SloRowId {
+    ShortestPath,
+    Components,
+    Centrality,
+    Flow,
+    IoRoundtrip,
+    MutationCycle,
+    MutationRegression,
+    MemoryRegression,
+    P99TailRegression,
+}
+
+impl SloRowId {
+    /// Get the metric ID string.
+    #[must_use]
+    pub const fn metric_id(&self) -> &'static str {
+        match self {
+            Self::ShortestPath => "shortest_path",
+            Self::Components => "components",
+            Self::Centrality => "centrality",
+            Self::Flow => "flow",
+            Self::IoRoundtrip => "io_roundtrip",
+            Self::MutationCycle => "mutation_cycle",
+            Self::MutationRegression => "mutation_regression",
+            Self::MemoryRegression => "memory_regression",
+            Self::P99TailRegression => "p99_tail_regression",
+        }
+    }
+
+    /// All SLO row IDs.
+    pub const ALL: &'static [Self] = &[
+        Self::ShortestPath,
+        Self::Components,
+        Self::Centrality,
+        Self::Flow,
+        Self::IoRoundtrip,
+        Self::MutationCycle,
+        Self::MutationRegression,
+        Self::MemoryRegression,
+        Self::P99TailRegression,
+    ];
+}
+
+/// Phase of the optimization loop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OptimizationPhase {
+    /// Baseline measurement before optimization.
+    Baseline,
+    /// Applying optimization.
+    Optimize,
+    /// Verifying behavior unchanged via conformance.
+    Verify,
+    /// Final measurement after optimization.
+    Measure,
+    /// Loop complete.
+    Complete,
+}
+
+/// Evidence that optimization didn't change behavior.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OptimizationEvidence {
+    /// Conformance fixture count verified.
+    pub fixtures_verified: usize,
+    /// Mismatches detected (should be 0 for valid optimization).
+    pub mismatches: usize,
+    /// Hash of conformance report.
+    pub conformance_hash: String,
+    /// Timestamp of verification.
+    pub verified_at_unix_ms: u128,
+}
+
+/// Baseline measurement for an SLO row.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SloBaseline {
+    /// SLO row being measured.
+    pub row_id: SloRowId,
+    /// p50 latency in milliseconds.
+    pub p50_ms: f64,
+    /// p95 latency in milliseconds.
+    pub p95_ms: f64,
+    /// p99 latency in milliseconds.
+    pub p99_ms: f64,
+    /// Peak memory in kilobytes.
+    pub peak_memory_kb: u64,
+    /// Number of samples.
+    pub sample_count: usize,
+    /// Timestamp of baseline capture.
+    pub captured_at_unix_ms: u128,
+}
+
+/// Result of an optimization attempt.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OptimizationResult {
+    /// SLO row that was optimized.
+    pub row_id: SloRowId,
+    /// Description of the optimization applied.
+    pub optimization_description: String,
+    /// Baseline before optimization.
+    pub baseline: SloBaseline,
+    /// Measurement after optimization.
+    pub after: SloBaseline,
+    /// Evidence that behavior unchanged.
+    pub evidence: OptimizationEvidence,
+    /// Whether the optimization was successful (improved and verified).
+    pub success: bool,
+    /// Delta statistics.
+    pub delta: OptimizationDelta,
+}
+
+/// Delta between baseline and optimized measurements.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OptimizationDelta {
+    /// Change in p50 (negative = improvement).
+    pub p50_delta_ms: f64,
+    /// Change in p95 (negative = improvement).
+    pub p95_delta_ms: f64,
+    /// Change in p99 (negative = improvement).
+    pub p99_delta_ms: f64,
+    /// Change in memory (negative = improvement).
+    pub memory_delta_kb: i64,
+    /// Percentage improvement in p95.
+    pub p95_improvement_pct: f64,
+}
+
+impl OptimizationDelta {
+    /// Compute delta from baseline and after measurements.
+    #[must_use]
+    pub fn compute(baseline: &SloBaseline, after: &SloBaseline) -> Self {
+        let p50_delta = after.p50_ms - baseline.p50_ms;
+        let p95_delta = after.p95_ms - baseline.p95_ms;
+        let p99_delta = after.p99_ms - baseline.p99_ms;
+        let memory_delta = after.peak_memory_kb as i64 - baseline.peak_memory_kb as i64;
+        let p95_improvement = if baseline.p95_ms > 0.0 {
+            -100.0 * p95_delta / baseline.p95_ms
+        } else {
+            0.0
+        };
+
+        Self {
+            p50_delta_ms: p50_delta,
+            p95_delta_ms: p95_delta,
+            p99_delta_ms: p99_delta,
+            memory_delta_kb: memory_delta,
+            p95_improvement_pct: p95_improvement,
+        }
+    }
+
+    /// Check if this represents an improvement (not regression).
+    #[must_use]
+    pub fn is_improvement(&self) -> bool {
+        // Improvement if p95 is better (lower) and memory isn't much worse
+        self.p95_delta_ms <= 0.0 && self.memory_delta_kb <= 1024 // Allow up to 1MB memory increase
+    }
+}
+
+/// State of the profile-prove loop for a single SLO row.
+#[derive(Debug, Clone)]
+pub struct ProfileProveState {
+    /// SLO row being optimized.
+    pub row_id: SloRowId,
+    /// Current phase.
+    pub phase: OptimizationPhase,
+    /// Baseline measurement (set after baseline phase).
+    pub baseline: Option<SloBaseline>,
+    /// After measurement (set after measure phase).
+    pub after: Option<SloBaseline>,
+    /// Verification evidence (set after verify phase).
+    pub evidence: Option<OptimizationEvidence>,
+    /// Description of optimization being attempted.
+    pub optimization_description: String,
+    /// Started timestamp.
+    pub started_at_unix_ms: u128,
+}
+
+impl ProfileProveState {
+    /// Create a new state for an SLO row.
+    #[must_use]
+    pub fn new(row_id: SloRowId, optimization_description: &str) -> Self {
+        Self {
+            row_id,
+            phase: OptimizationPhase::Baseline,
+            baseline: None,
+            after: None,
+            evidence: None,
+            optimization_description: optimization_description.to_owned(),
+            started_at_unix_ms: unix_time_ms(),
+        }
+    }
+
+    /// Record baseline measurement.
+    pub fn record_baseline(&mut self, baseline: SloBaseline) {
+        self.baseline = Some(baseline);
+        self.phase = OptimizationPhase::Optimize;
+    }
+
+    /// Mark optimization as applied.
+    pub fn mark_optimized(&mut self) {
+        self.phase = OptimizationPhase::Verify;
+    }
+
+    /// Record verification evidence.
+    pub fn record_verification(&mut self, evidence: OptimizationEvidence) {
+        let has_mismatches = evidence.mismatches > 0;
+        self.evidence = Some(evidence);
+        if has_mismatches {
+            // Verification failed - loop aborted
+            self.phase = OptimizationPhase::Complete;
+        } else {
+            self.phase = OptimizationPhase::Measure;
+        }
+    }
+
+    /// Record final measurement.
+    pub fn record_after(&mut self, after: SloBaseline) {
+        self.after = Some(after);
+        self.phase = OptimizationPhase::Complete;
+    }
+
+    /// Get the optimization result (only valid when phase is Complete).
+    #[must_use]
+    pub fn result(&self) -> Option<OptimizationResult> {
+        let baseline = self.baseline.as_ref()?;
+        let after = self.after.as_ref()?;
+        let evidence = self.evidence.as_ref()?;
+
+        let delta = OptimizationDelta::compute(baseline, after);
+        let success = evidence.mismatches == 0 && delta.is_improvement();
+
+        Some(OptimizationResult {
+            row_id: self.row_id,
+            optimization_description: self.optimization_description.clone(),
+            baseline: baseline.clone(),
+            after: after.clone(),
+            evidence: evidence.clone(),
+            success,
+            delta,
+        })
+    }
+
+    /// Check if the loop is complete.
+    #[must_use]
+    pub fn is_complete(&self) -> bool {
+        self.phase == OptimizationPhase::Complete
+    }
+}
+
+/// Orchestrator for running profile-prove loops across SLO rows.
+#[derive(Debug, Clone, Default)]
+pub struct ProfileProveLoop {
+    /// Results from completed optimization attempts.
+    pub results: Vec<OptimizationResult>,
+    /// Currently running states.
+    pub active: Vec<ProfileProveState>,
+}
+
+impl ProfileProveLoop {
+    /// Create a new empty loop.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Start an optimization attempt for an SLO row.
+    pub fn start(&mut self, row_id: SloRowId, optimization_description: &str) {
+        self.active
+            .push(ProfileProveState::new(row_id, optimization_description));
+    }
+
+    /// Get active state for a row (if any).
+    #[must_use]
+    pub fn get_active(&self, row_id: SloRowId) -> Option<&ProfileProveState> {
+        self.active.iter().find(|s| s.row_id == row_id)
+    }
+
+    /// Get mutable active state for a row.
+    pub fn get_active_mut(&mut self, row_id: SloRowId) -> Option<&mut ProfileProveState> {
+        self.active.iter_mut().find(|s| s.row_id == row_id)
+    }
+
+    /// Complete an active state and move result to results.
+    pub fn complete(&mut self, row_id: SloRowId) {
+        if let Some(idx) = self.active.iter().position(|s| s.row_id == row_id) {
+            let state = self.active.remove(idx);
+            if let Some(result) = state.result() {
+                self.results.push(result);
+            }
+        }
+    }
+
+    /// Get summary of all completed optimizations.
+    #[must_use]
+    pub fn summary(&self) -> ProfileProveSummary {
+        let total = self.results.len();
+        let successful = self.results.iter().filter(|r| r.success).count();
+        let failed = total - successful;
+
+        let total_p95_improvement: f64 = self
+            .results
+            .iter()
+            .filter(|r| r.success)
+            .map(|r| r.delta.p95_improvement_pct)
+            .sum();
+
+        let avg_p95_improvement = if successful > 0 {
+            total_p95_improvement / successful as f64
+        } else {
+            0.0
+        };
+
+        ProfileProveSummary {
+            total_attempts: total,
+            successful,
+            failed,
+            avg_p95_improvement_pct: avg_p95_improvement,
+            rows_optimized: self
+                .results
+                .iter()
+                .filter(|r| r.success)
+                .map(|r| r.row_id)
+                .collect(),
+        }
+    }
+}
+
+/// Summary of profile-prove loop results.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProfileProveSummary {
+    /// Total optimization attempts.
+    pub total_attempts: usize,
+    /// Successful optimizations (verified + improved).
+    pub successful: usize,
+    /// Failed attempts (verification failed or regression).
+    pub failed: usize,
+    /// Average p95 improvement percentage.
+    pub avg_p95_improvement_pct: f64,
+    /// SLO rows that were successfully optimized.
+    pub rows_optimized: Vec<SloRowId>,
+}
+
 #[must_use]
 pub fn unix_time_ms() -> u128 {
     SystemTime::now()
@@ -6088,5 +6433,273 @@ mod tests {
         gate.reset();
 
         assert!(gate.is_open(), "Gate should be open after reset");
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // E3: Profile-and-prove optimization loop tests
+    // ──────────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn slo_row_id_metric_ids() {
+        assert_eq!(super::SloRowId::ShortestPath.metric_id(), "shortest_path");
+        assert_eq!(super::SloRowId::Components.metric_id(), "components");
+        assert_eq!(super::SloRowId::Centrality.metric_id(), "centrality");
+        assert_eq!(super::SloRowId::Flow.metric_id(), "flow");
+        assert_eq!(super::SloRowId::IoRoundtrip.metric_id(), "io_roundtrip");
+        assert_eq!(super::SloRowId::MutationCycle.metric_id(), "mutation_cycle");
+        assert_eq!(
+            super::SloRowId::MutationRegression.metric_id(),
+            "mutation_regression"
+        );
+        assert_eq!(
+            super::SloRowId::MemoryRegression.metric_id(),
+            "memory_regression"
+        );
+        assert_eq!(
+            super::SloRowId::P99TailRegression.metric_id(),
+            "p99_tail_regression"
+        );
+        assert_eq!(super::SloRowId::ALL.len(), 9);
+    }
+
+    #[test]
+    fn optimization_delta_computes_improvement() {
+        let baseline = super::SloBaseline {
+            row_id: super::SloRowId::ShortestPath,
+            p50_ms: 100.0,
+            p95_ms: 200.0,
+            p99_ms: 300.0,
+            peak_memory_kb: 100_000,
+            sample_count: 30,
+            captured_at_unix_ms: 1,
+        };
+
+        let after = super::SloBaseline {
+            row_id: super::SloRowId::ShortestPath,
+            p50_ms: 80.0,
+            p95_ms: 160.0,
+            p99_ms: 240.0,
+            peak_memory_kb: 100_000,
+            sample_count: 30,
+            captured_at_unix_ms: 2,
+        };
+
+        let delta = super::OptimizationDelta::compute(&baseline, &after);
+
+        assert!((delta.p50_delta_ms - (-20.0)).abs() < 0.01);
+        assert!((delta.p95_delta_ms - (-40.0)).abs() < 0.01);
+        assert!((delta.p99_delta_ms - (-60.0)).abs() < 0.01);
+        assert_eq!(delta.memory_delta_kb, 0);
+        assert!((delta.p95_improvement_pct - 20.0).abs() < 0.01);
+        assert!(delta.is_improvement());
+    }
+
+    #[test]
+    fn optimization_delta_detects_regression() {
+        let baseline = super::SloBaseline {
+            row_id: super::SloRowId::Components,
+            p50_ms: 100.0,
+            p95_ms: 200.0,
+            p99_ms: 300.0,
+            peak_memory_kb: 100_000,
+            sample_count: 30,
+            captured_at_unix_ms: 1,
+        };
+
+        let after = super::SloBaseline {
+            row_id: super::SloRowId::Components,
+            p50_ms: 120.0,
+            p95_ms: 250.0,
+            p99_ms: 400.0,
+            peak_memory_kb: 100_000,
+            sample_count: 30,
+            captured_at_unix_ms: 2,
+        };
+
+        let delta = super::OptimizationDelta::compute(&baseline, &after);
+        assert!(!delta.is_improvement(), "Regression should not be improvement");
+    }
+
+    #[test]
+    fn profile_prove_state_transitions() {
+        let mut state =
+            super::ProfileProveState::new(super::SloRowId::Flow, "vectorize inner loop");
+
+        assert_eq!(state.phase, super::OptimizationPhase::Baseline);
+
+        // Record baseline
+        state.record_baseline(super::SloBaseline {
+            row_id: super::SloRowId::Flow,
+            p50_ms: 100.0,
+            p95_ms: 200.0,
+            p99_ms: 300.0,
+            peak_memory_kb: 50_000,
+            sample_count: 30,
+            captured_at_unix_ms: 1,
+        });
+        assert_eq!(state.phase, super::OptimizationPhase::Optimize);
+
+        // Mark optimized
+        state.mark_optimized();
+        assert_eq!(state.phase, super::OptimizationPhase::Verify);
+
+        // Record successful verification
+        state.record_verification(super::OptimizationEvidence {
+            fixtures_verified: 78,
+            mismatches: 0,
+            conformance_hash: "abc123".to_owned(),
+            verified_at_unix_ms: 2,
+        });
+        assert_eq!(state.phase, super::OptimizationPhase::Measure);
+
+        // Record after measurement (improved)
+        state.record_after(super::SloBaseline {
+            row_id: super::SloRowId::Flow,
+            p50_ms: 80.0,
+            p95_ms: 160.0,
+            p99_ms: 240.0,
+            peak_memory_kb: 50_000,
+            sample_count: 30,
+            captured_at_unix_ms: 3,
+        });
+        assert_eq!(state.phase, super::OptimizationPhase::Complete);
+        assert!(state.is_complete());
+
+        // Get result
+        let result = state.result().expect("should have result");
+        assert!(result.success);
+        assert!(result.delta.p95_improvement_pct > 0.0);
+    }
+
+    #[test]
+    fn profile_prove_state_fails_on_mismatch() {
+        let mut state =
+            super::ProfileProveState::new(super::SloRowId::Centrality, "cache results");
+
+        state.record_baseline(super::SloBaseline {
+            row_id: super::SloRowId::Centrality,
+            p50_ms: 500.0,
+            p95_ms: 800.0,
+            p99_ms: 1000.0,
+            peak_memory_kb: 200_000,
+            sample_count: 30,
+            captured_at_unix_ms: 1,
+        });
+        state.mark_optimized();
+
+        // Verification fails with mismatches
+        state.record_verification(super::OptimizationEvidence {
+            fixtures_verified: 78,
+            mismatches: 3,
+            conformance_hash: "bad123".to_owned(),
+            verified_at_unix_ms: 2,
+        });
+
+        // Should jump to Complete (not Measure)
+        assert_eq!(state.phase, super::OptimizationPhase::Complete);
+        assert!(state.is_complete());
+        assert!(
+            state.result().is_none(),
+            "Should not have result without after measurement"
+        );
+    }
+
+    #[test]
+    fn profile_prove_loop_tracks_results() {
+        let mut loop_runner = super::ProfileProveLoop::new();
+
+        // Start optimization for ShortestPath
+        loop_runner.start(super::SloRowId::ShortestPath, "use priority queue");
+
+        assert!(loop_runner
+            .get_active(super::SloRowId::ShortestPath)
+            .is_some());
+
+        // Simulate successful optimization
+        if let Some(state) = loop_runner.get_active_mut(super::SloRowId::ShortestPath) {
+            state.record_baseline(super::SloBaseline {
+                row_id: super::SloRowId::ShortestPath,
+                p50_ms: 300.0,
+                p95_ms: 400.0,
+                p99_ms: 500.0,
+                peak_memory_kb: 80_000,
+                sample_count: 30,
+                captured_at_unix_ms: 1,
+            });
+            state.mark_optimized();
+            state.record_verification(super::OptimizationEvidence {
+                fixtures_verified: 78,
+                mismatches: 0,
+                conformance_hash: "hash1".to_owned(),
+                verified_at_unix_ms: 2,
+            });
+            state.record_after(super::SloBaseline {
+                row_id: super::SloRowId::ShortestPath,
+                p50_ms: 250.0,
+                p95_ms: 320.0,
+                p99_ms: 400.0,
+                peak_memory_kb: 80_000,
+                sample_count: 30,
+                captured_at_unix_ms: 3,
+            });
+        }
+
+        loop_runner.complete(super::SloRowId::ShortestPath);
+
+        let summary = loop_runner.summary();
+        assert_eq!(summary.total_attempts, 1);
+        assert_eq!(summary.successful, 1);
+        assert_eq!(summary.failed, 0);
+        assert!(summary.avg_p95_improvement_pct > 0.0);
+        assert_eq!(summary.rows_optimized.len(), 1);
+    }
+
+    #[test]
+    fn profile_prove_summary_handles_failures() {
+        let mut loop_runner = super::ProfileProveLoop::new();
+
+        // Add a failed result manually
+        loop_runner.results.push(super::OptimizationResult {
+            row_id: super::SloRowId::Centrality,
+            optimization_description: "bad optimization".to_owned(),
+            baseline: super::SloBaseline {
+                row_id: super::SloRowId::Centrality,
+                p50_ms: 100.0,
+                p95_ms: 200.0,
+                p99_ms: 300.0,
+                peak_memory_kb: 50_000,
+                sample_count: 30,
+                captured_at_unix_ms: 1,
+            },
+            after: super::SloBaseline {
+                row_id: super::SloRowId::Centrality,
+                p50_ms: 150.0,
+                p95_ms: 280.0,
+                p99_ms: 400.0,
+                peak_memory_kb: 50_000,
+                sample_count: 30,
+                captured_at_unix_ms: 2,
+            },
+            evidence: super::OptimizationEvidence {
+                fixtures_verified: 78,
+                mismatches: 0,
+                conformance_hash: "hash".to_owned(),
+                verified_at_unix_ms: 2,
+            },
+            success: false, // Regression
+            delta: super::OptimizationDelta {
+                p50_delta_ms: 50.0,
+                p95_delta_ms: 80.0,
+                p99_delta_ms: 100.0,
+                memory_delta_kb: 0,
+                p95_improvement_pct: -40.0,
+            },
+        });
+
+        let summary = loop_runner.summary();
+        assert_eq!(summary.total_attempts, 1);
+        assert_eq!(summary.successful, 0);
+        assert_eq!(summary.failed, 1);
+        assert!((summary.avg_p95_improvement_pct - 0.0).abs() < 0.01);
     }
 }
