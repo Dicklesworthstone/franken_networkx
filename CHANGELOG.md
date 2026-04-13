@@ -12,11 +12,92 @@ Repository: <https://github.com/Dicklesworthstone/franken_networkx>
 
 ---
 
-## Unreleased (HEAD -- 01aef85)
+## Unreleased (HEAD -- 0437033)
 
 Workspace version: **0.1.0** (`Cargo.toml`).
 PyPI package name: `franken-networkx` (Alpha, `pip install franken-networkx`).
-No GitHub Releases or git tags exist as of 2026-03-21.
+No GitHub Releases or git tags exist as of 2026-04-13.
+
+---
+
+## 2026-04-13 -- CGSE Crown Jewel & I/O Hardening (200 commits)
+
+Major focus areas: CGSE complexity oracle, I/O format hardening, algorithm parity
+fixes, and conformance infrastructure improvements.
+
+### CGSE (Canonical Graph Semantics Engine)
+
+- **Complexity oracle** -- analytic upper bounds for 10 complexity classes with
+  witness verification. [6625e2c](https://github.com/Dicklesworthstone/franken_networkx/commit/6625e2c)
+- **Per-family witness directories** -- organized artifact structure for shortest_path,
+  traversal, matching, connectivity, trees, euler, dag families.
+  [1bd577e](https://github.com/Dicklesworthstone/franken_networkx/commit/1bd577e)
+- **Python CGSE API** -- TieBreakPolicy (12 policies), ComplexityWitness, policy_registry
+  exposed via `fnx._fnx.cgse`. [618d602](https://github.com/Dicklesworthstone/franken_networkx/commit/618d602)
+- **CGSE engine expansion** -- adversarial tiebreak corpus, algorithm additions.
+  [b261f3f](https://github.com/Dicklesworthstone/franken_networkx/commit/b261f3f),
+  [93047ae](https://github.com/Dicklesworthstone/franken_networkx/commit/93047ae)
+
+### I/O Format Hardening
+
+- **GraphML** -- enforce edgedefault, validate keys, scope attrs, handle namespace
+  prefixes, typed attribute parsing, boolean 0/1 support.
+  [a64ac52](https://github.com/Dicklesworthstone/franken_networkx/commit/a64ac52) through
+  [49a9a10](https://github.com/Dicklesworthstone/franken_networkx/commit/49a9a10)
+- **GML** -- scan full header for directed flag, validate values, harden node/edge
+  validation, named entity unescape. [b06e8ff](https://github.com/Dicklesworthstone/franken_networkx/commit/b06e8ff),
+  [2d50c39](https://github.com/Dicklesworthstone/franken_networkx/commit/2d50c39)
+- **JSON** -- validate directed flag, allow legacy without flag.
+  [3423c24](https://github.com/Dicklesworthstone/franken_networkx/commit/3423c24),
+  [7139671](https://github.com/Dicklesworthstone/franken_networkx/commit/7139671)
+- **EdgeList/AdjList** -- handle inline comments, escape # in attrs, reject empty
+  attr keys. [32f7d8d](https://github.com/Dicklesworthstone/franken_networkx/commit/32f7d8d),
+  [ad2b88e](https://github.com/Dicklesworthstone/franken_networkx/commit/ad2b88e)
+
+### Algorithm Parity Fixes
+
+- **DFS** -- fix sort_neighbors forest parity. [ff21e94](https://github.com/Dicklesworthstone/franken_networkx/commit/ff21e94)
+- **BFS** -- fix reverse traversal parity. [1701c6c](https://github.com/Dicklesworthstone/franken_networkx/commit/1701c6c)
+- **Eulerian** -- parity fixes for circuit detection. [3ada26b](https://github.com/Dicklesworthstone/franken_networkx/commit/3ada26b)
+- **is_branching** -- fix cycle detection. [9a5bb73](https://github.com/Dicklesworthstone/franken_networkx/commit/9a5bb73)
+- **is_tournament** -- fix empty graph handling. [3095fd9](https://github.com/Dicklesworthstone/franken_networkx/commit/3095fd9)
+- **is_regular** -- fix empty graph handling. [825d92d](https://github.com/Dicklesworthstone/franken_networkx/commit/825d92d)
+- **Degree** -- fix self-loop handling. [3dca3d9](https://github.com/Dicklesworthstone/franken_networkx/commit/3dca3d9)
+- **Barycenter** -- raise on disconnected graph. [7415d0e](https://github.com/Dicklesworthstone/franken_networkx/commit/7415d0e)
+
+### MultiGraph & Core Fixes
+
+- **Edge counting** -- O(1) multi-graph edge counting, fix edge_count decrement in
+  remove_edge. [6404574](https://github.com/Dicklesworthstone/franken_networkx/commit/6404574),
+  [6f49f24](https://github.com/Dicklesworthstone/franken_networkx/commit/6f49f24)
+- **Edge iteration** -- correct ordering with canonical key.left/key.right.
+  [de4dfb8](https://github.com/Dicklesworthstone/franken_networkx/commit/de4dfb8)
+- **Mode propagation** -- fix graph mode when converting between directed/undirected.
+  [fe044a7](https://github.com/Dicklesworthstone/franken_networkx/commit/fe044a7)
+- **Shortest path** -- fix all-pairs weighted case to use correct function.
+  [0437033](https://github.com/Dicklesworthstone/franken_networkx/commit/0437033)
+
+### Conformance & Testing
+
+- **Python parity cross-walk** -- link pytest output to Rust conformance harness.
+  [672e7fb](https://github.com/Dicklesworthstone/franken_networkx/commit/672e7fb)
+- **View-coherence tests** -- verify cached views track graph mutations.
+  [672e7fb](https://github.com/Dicklesworthstone/franken_networkx/commit/672e7fb)
+- **Proptest round-trip** -- identity tests for all parser formats.
+  [cb1b8d0](https://github.com/Dicklesworthstone/franken_networkx/commit/cb1b8d0),
+  [ed5baec](https://github.com/Dicklesworthstone/franken_networkx/commit/ed5baec)
+- **SBM generator** -- native Rust stochastic_block_model with Python bindings.
+  [f17654f](https://github.com/Dicklesworthstone/franken_networkx/commit/f17654f)
+
+### Infrastructure
+
+- **Beads system** -- dependency-aware issue tracking for multi-agent coordination.
+  [390985d](https://github.com/Dicklesworthstone/franken_networkx/commit/390985d)
+- **UV lock file** -- reproducible Python dependency resolution.
+  [7c8c588](https://github.com/Dicklesworthstone/franken_networkx/commit/7c8c588)
+- **Ruff linter** -- configuration added. [390985d](https://github.com/Dicklesworthstone/franken_networkx/commit/390985d)
+- **Git hygiene** -- remove master branch references, update .gitignore.
+  [6b4653a](https://github.com/Dicklesworthstone/franken_networkx/commit/6b4653a)
 
 ---
 
