@@ -52,6 +52,26 @@ def degree_moments(degrees: list[int]) -> dict[str, float]:
     }
 
 
+def coerce_node_id(node: Any) -> str:
+    """Normalize node identifiers to stable string keys."""
+    if isinstance(node, str):
+        return node
+    if isinstance(node, dict):
+        for key in ("id", "name", "label"):
+            if key in node and node[key] is not None:
+                return str(node[key])
+        return str(node)
+    return str(node)
+
+
+def safe_json_loads(payload: str) -> Any | None:
+    """Parse JSON payload, returning None on decode errors."""
+    try:
+        return json.loads(payload)  # ubs:ignore — safe_json_loads handles JSON errors here
+    except json.JSONDecodeError:
+        return None
+
+
 def compute_h0_fingerprint(g: "nx.Graph") -> dict[str, Any]:
     """Compute H0 (connected components) fingerprint."""
     components = list(nx.connected_components(g))
@@ -200,20 +220,24 @@ def parse_embedded_graph(data: dict) -> "nx.Graph | None":
         if not input_str or not isinstance(input_str, str):
             continue
         try:
-            graph_data = json.loads(input_str)
+            graph_data = safe_json_loads(input_str)
+            if graph_data is None:
+                continue
             if not isinstance(graph_data, dict):
                 continue
             g = nx.Graph()
             # Handle node-link format
             for node in graph_data.get("nodes", []):
-                node_id = node if isinstance(node, str) else node.get("id", str(node))
+                node_id = coerce_node_id(node)
                 g.add_node(node_id)
             for link in graph_data.get("links", graph_data.get("edges", [])):
                 if isinstance(link, dict):
-                    src = link.get("source") or link.get("left")
-                    tgt = link.get("target") or link.get("right")
+                    left = link.get("left")
+                    right = link.get("right")
+                    src = left if left is not None else link.get("source")
+                    tgt = right if right is not None else link.get("target")
                     if src is not None and tgt is not None:
-                        g.add_edge(str(src), str(tgt))
+                        g.add_edge(coerce_node_id(src), coerce_node_id(tgt))
             if g.number_of_nodes() > 0:
                 return g
         except json.JSONDecodeError:
@@ -281,25 +305,32 @@ def main() -> int:
 
         for path in sorted(fixtures_dir.rglob("*.json")):
             try:
-                data = json.loads(path.read_text(encoding="utf-8"))
+                data = safe_json_loads(path.read_text(encoding="utf-8"))
+                if data is None or not isinstance(data, dict):
+                    continue
 
                 # Try direct graph data
                 graph_data = data.get("graph") or data.get("input_graph")
                 g = None
 
-                if graph_data:
+                if graph_data and isinstance(graph_data, dict):
                     g = nx.Graph()
                     for node in graph_data.get("nodes", []):
-                        node_id = node if isinstance(node, str) else node.get("id", str(node))
+                        node_id = coerce_node_id(node)
                         g.add_node(node_id)
                     for edge in graph_data.get("edges", []):
                         if isinstance(edge, dict):
-                            g.add_edge(
-                                edge.get("left") or edge.get("source"),
-                                edge.get("right") or edge.get("target"),
-                            )
+                            left = edge.get("left")
+                            right = edge.get("right")
+                            src = left if left is not None else edge.get("source")
+                            tgt = right if right is not None else edge.get("target")
+                            if src is not None and tgt is not None:
+                                g.add_edge(
+                                    coerce_node_id(src),
+                                    coerce_node_id(tgt),
+                                )
                         elif isinstance(edge, (list, tuple)) and len(edge) >= 2:
-                            g.add_edge(edge[0], edge[1])
+                            g.add_edge(coerce_node_id(edge[0]), coerce_node_id(edge[1]))
                 else:
                     # Try embedded JSON format
                     g = parse_embedded_graph(data)
@@ -312,7 +343,7 @@ def main() -> int:
                 fp["fingerprint_hash"] = fingerprint_hash(fp)
                 fingerprints.append(fp)
 
-            except (json.JSONDecodeError, KeyError) as e:
+            except (KeyError, TypeError, ValueError) as e:
                 print(f"  skipping {path.name}: {e}")
                 continue
 
