@@ -82,11 +82,11 @@ impl TieBreakPolicy {
     }
 
     /// Sort a list of candidates according to the policy.
-    pub fn sort_candidates(&self, candidates: &mut [String]) {
+    pub fn sort_candidates<T: AsRef<str>>(&self, candidates: &mut [T]) {
         match self {
-            Self::LexMin => candidates.sort_unstable(),
+            Self::LexMin => candidates.sort_unstable_by(|a, b| a.as_ref().cmp(b.as_ref())),
             Self::LexMax => {
-                candidates.sort_unstable_by(|a, b| b.cmp(a));
+                candidates.sort_unstable_by(|a, b| b.as_ref().cmp(a.as_ref()));
             }
             Self::InsertionOrder | Self::ReverseInsertionOrder => {
                 // These are governed by the underlying IndexMap order; 
@@ -101,7 +101,7 @@ impl TieBreakPolicy {
                 candidates.sort_unstable_by_key(|label| {
                     let mut hasher = blake3::Hasher::new();
                     hasher.update(&s.to_le_bytes());
-                    hasher.update(label.as_bytes());
+                    hasher.update(label.as_ref().as_bytes());
                     *hasher.finalize().as_bytes()
                 });
             }
@@ -173,20 +173,22 @@ impl WitnessSink {
     /// Record a tie-break decision. The `chosen` and `rejected` labels are
     /// hashed in order to build the decision-path fingerprint.
     pub fn record_decision(&mut self, chosen: &str, rejected: &str) {
-        self.hasher.update(chosen.as_bytes());
-        self.hasher.update(b"|");
-        self.hasher.update(rejected.as_bytes());
-        self.hasher.update(b"\n");
+        self.record_len_prefixed(chosen.as_bytes());
+        self.record_len_prefixed(rejected.as_bytes());
         self.count += 1;
     }
 
     /// Record an arbitrary decision byte slice (for numeric node labels).
     pub fn record_decision_bytes(&mut self, chosen: &[u8], rejected: &[u8]) {
-        self.hasher.update(chosen);
-        self.hasher.update(b"|");
-        self.hasher.update(rejected);
-        self.hasher.update(b"\n");
+        self.record_len_prefixed(chosen);
+        self.record_len_prefixed(rejected);
         self.count += 1;
+    }
+
+    fn record_len_prefixed(&mut self, bytes: &[u8]) {
+        let len = bytes.len() as u64;
+        self.hasher.update(&len.to_le_bytes());
+        self.hasher.update(bytes);
     }
 
     /// Finalize the sink into a [`ComplexityWitness`].
@@ -735,7 +737,7 @@ mod tests {
     fn test_collect_witnesses_panic_safety() {
         let result = std::panic::catch_unwind(|| {
             collect_witnesses(|| {
-                panic!("Intentional panic");
+                std::panic::resume_unwind(Box::new("intentional panic"));
             });
         });
         assert!(result.is_err());
