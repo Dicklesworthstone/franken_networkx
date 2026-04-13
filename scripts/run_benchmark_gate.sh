@@ -25,6 +25,7 @@ MATRIX_EVENTS="artifacts/perf/phase2c/perf_baseline_matrix_events_v1.jsonl"
 HOTSPOT_BACKLOG="artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json"
 ISOMORPHISM_REPORT="artifacts/perf/phase2c/isomorphism_harness_report_v1.json"
 REGRESSION_REPORT="artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+CONFORMAL_REPORT="artifacts/perf/latest/perf_conformal_gate_report_v1.json"
 SLO_THRESHOLDS="artifacts/perf/slo_thresholds.json"
 SLO_REPORT="artifacts/perf/latest/slo_gate_report_v1.json"
 BASELINE_COMPARATOR="artifacts/perf/latest/perf_baseline_matrix_baseline_comparator_v1.json"
@@ -40,7 +41,7 @@ if [[ ! -f "$MATRIX_ARTIFACT" ]]; then
 fi
 cp "$MATRIX_ARTIFACT" "$BASELINE_COMPARATOR"
 
-echo "[1/4] Running phase2c performance baseline matrix..."
+echo "[1/5] Running phase2c performance baseline matrix..."
 ./scripts/run_perf_baseline_matrix.py \
   --artifact "$MATRIX_ARTIFACT" \
   --events-jsonl "$MATRIX_EVENTS" \
@@ -66,7 +67,13 @@ python3 scripts/run_perf_regression_gate.py \
   --hotspot-backlog "$HOTSPOT_BACKLOG" \
   --report "$REGRESSION_REPORT"
 
-echo "[2/4] Running perf SLO gate..."
+echo "[2/4] Running conformal performance gate..."
+python3 scripts/run_perf_conformal_gate.py \
+  --history "artifacts/perf/history/perf_baseline_run_history_v1.jsonl" \
+  --candidate "$LATEST_ARTIFACT" \
+  --report "$CONFORMAL_REPORT"
+
+echo "[3/4] Running perf SLO gate..."
 python3 scripts/run_perf_slo_gate.py \
   --slo-thresholds "$SLO_THRESHOLDS" \
   --matrix "$LATEST_ARTIFACT" \
@@ -74,11 +81,11 @@ python3 scripts/run_perf_slo_gate.py \
   --python-bin "$PYTHON_BIN" \
   --report "$SLO_REPORT"
 
-echo "[3/4] Generating sidecar for baseline matrix artifact..."
+echo "[4/4] Generating sidecar for baseline matrix artifact..."
 "${CARGO_RUNNER[@]}" run -q -p fnx-durability --bin fnx-durability -- \
   generate "$LATEST_ARTIFACT" "$SIDECAR" "phase2c_perf_baseline_matrix_v1" "benchmark_report" 1400 6
 
-echo "[4/4] Decode drill for baseline matrix artifact..."
+echo "[5/5] Decode drill for baseline matrix artifact..."
 "${CARGO_RUNNER[@]}" run -q -p fnx-durability --bin fnx-durability -- \
   decode-drill "$SIDECAR" "$RECOVERED"
 
@@ -112,6 +119,7 @@ report = {
             "hotspot_backlog_path": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
             "isomorphism_report_path": "artifacts/perf/phase2c/isomorphism_harness_report_v1.json",
             "regression_report_path": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json",
+            "conformal_report_path": "artifacts/perf/latest/perf_conformal_gate_report_v1.json",
             "slo_thresholds_path": "artifacts/perf/slo_thresholds.json",
             "slo_report_path": "artifacts/perf/latest/slo_gate_report_v1.json",
             "environment_fingerprint": artifact.get("environment_fingerprint"),
