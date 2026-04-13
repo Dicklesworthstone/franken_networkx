@@ -80,6 +80,39 @@ impl TieBreakPolicy {
             Self::EdgeKeyLex => "edge_key_lex",
         }
     }
+
+    /// Sort a list of candidates according to the policy.
+    pub fn sort_candidates(&self, candidates: &mut [String]) {
+        match self {
+            Self::LexMin => candidates.sort_unstable(),
+            Self::LexMax => {
+                candidates.sort_unstable_by(|a, b| b.cmp(a));
+            }
+            Self::InsertionOrder | Self::ReverseInsertionOrder => {
+                // These are governed by the underlying IndexMap order; 
+                // typically no-op or handled at the iterator level.
+            }
+            Self::WeightThenLex | Self::LexThenWeight => {
+                // These require external weight data; handled by specialized
+                // priority queue wrappers in fnx-algorithms.
+            }
+            Self::DeterministicHash { seed } => {
+                let s = *seed;
+                candidates.sort_unstable_by_key(|label| {
+                    let mut hasher = blake3::Hasher::new();
+                    hasher.update(&s.to_le_bytes());
+                    hasher.update(label.as_bytes());
+                    *hasher.finalize().as_bytes()
+                });
+            }
+            Self::DegreeMinThenLex | Self::DegreeMaxThenLex => {
+                // Handled in algorithm inner loops where degree data is live.
+            }
+            Self::DfsPreorder | Self::BfsLevelLex | Self::EdgeKeyLex => {
+                // Structural policies handled by traversal state machines.
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -249,6 +282,18 @@ pub fn witness_collection_enabled() -> bool {
     WITNESS_COLLECTION_ACTIVE.with(Cell::get)
 }
 
+struct WitnessGuard {
+    was_active: bool,
+}
+
+impl Drop for WitnessGuard {
+    fn drop(&mut self) {
+        if !self.was_active {
+            WITNESS_COLLECTION_ACTIVE.with(|cell| cell.set(false));
+        }
+    }
+}
+
 /// Run a closure with CGSE witness collection enabled and return the drained
 /// witnesses produced inside it.
 ///
@@ -270,16 +315,14 @@ where
         with_ledger(WitnessLedger::clear);
     }
 
+    let _guard = WitnessGuard { was_active };
+
     let result = f();
     let witnesses = if was_active {
         Vec::new()
     } else {
         drain_witnesses()
     };
-
-    if !was_active {
-        WITNESS_COLLECTION_ACTIVE.with(|cell| cell.set(false));
-    }
 
     (result, witnesses)
 }
@@ -686,5 +729,17 @@ mod tests {
     #[test]
     fn test_analytic_upper_bound_unknown_term() {
         assert_eq!(analytic_upper_bound("unknown", 100, 200), None);
+    }
+
+    #[test]
+    fn test_collect_witnesses_panic_safety() {
+        let result = std::panic::catch_unwind(|| {
+            collect_witnesses(|| {
+                panic!("Intentional panic");
+            });
+        });
+        assert!(result.is_err());
+        // Verify that the thread-local state was reset correctly despite the panic.
+        assert!(!witness_collection_enabled());
     }
 }

@@ -109,7 +109,7 @@ def build_command(
 ) -> str:
     parts = [
         f"CARGO_TARGET_DIR={target_dir}",
-        f"{cargo_wrapper} run -q -p fnx-algorithms --example bfs_baseline --",
+        f"{cargo_wrapper} run --release -q -p fnx-algorithms --example bfs_baseline --",
         f"--topology {scenario['topology']}",
         f"--seed {scenario['seed']}",
     ]
