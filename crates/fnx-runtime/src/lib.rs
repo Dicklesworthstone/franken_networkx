@@ -1722,6 +1722,9 @@ impl CgsePolicyEvaluator for CgsePolicyEngine {
     }
 }
 
+/// Current schema version for decision ledger serialization.
+pub const DECISION_LEDGER_SCHEMA_VERSION: &str = "1.0.0";
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct EvidenceLedger {
     records: Vec<DecisionRecord>,
@@ -1750,6 +1753,166 @@ impl EvidenceLedger {
     pub fn to_json_pretty(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(self)
     }
+
+    /// Convert to a versioned ledger for serialization.
+    #[must_use]
+    pub fn to_versioned(&self) -> VersionedDecisionLedger {
+        VersionedDecisionLedger::from_evidence_ledger(self)
+    }
+}
+
+/// A decision ledger with explicit schema versioning for forward compatibility.
+///
+/// Use this struct when persisting ledgers to disk or transmitting over the wire.
+/// The schema version allows consumers to detect incompatible changes and
+/// migrate data appropriately.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VersionedDecisionLedger {
+    /// Schema version string (semver format)
+    pub schema_version: String,
+    /// Ledger identifier for tracking
+    pub ledger_id: String,
+    /// Unix timestamp when ledger was created (milliseconds)
+    pub created_at_unix_ms: u128,
+    /// Unix timestamp of most recent record (milliseconds)
+    pub last_updated_unix_ms: u128,
+    /// Total number of records
+    pub record_count: usize,
+    /// The decision records
+    pub records: Vec<DecisionRecord>,
+}
+
+impl VersionedDecisionLedger {
+    /// Create a new versioned ledger from an evidence ledger.
+    #[must_use]
+    pub fn from_evidence_ledger(ledger: &EvidenceLedger) -> Self {
+        let now = unix_time_ms();
+        let last_updated = ledger
+            .records()
+            .last()
+            .map_or(now, |r| r.ts_unix_ms);
+
+        Self {
+            schema_version: DECISION_LEDGER_SCHEMA_VERSION.to_owned(),
+            ledger_id: format!("ledger-{}", now),
+            created_at_unix_ms: now,
+            last_updated_unix_ms: last_updated,
+            record_count: ledger.records().len(),
+            records: ledger.records().to_vec(),
+        }
+    }
+
+    /// Create a new empty versioned ledger with a specific ID.
+    #[must_use]
+    pub fn new(ledger_id: &str) -> Self {
+        let now = unix_time_ms();
+        Self {
+            schema_version: DECISION_LEDGER_SCHEMA_VERSION.to_owned(),
+            ledger_id: ledger_id.to_owned(),
+            created_at_unix_ms: now,
+            last_updated_unix_ms: now,
+            record_count: 0,
+            records: Vec::new(),
+        }
+    }
+
+    /// Append a decision record to the ledger.
+    pub fn append(&mut self, record: DecisionRecord) {
+        self.last_updated_unix_ms = record.ts_unix_ms;
+        self.records.push(record);
+        self.record_count = self.records.len();
+    }
+
+    /// Check if this ledger's schema is compatible with current version.
+    #[must_use]
+    pub fn is_schema_compatible(&self) -> bool {
+        // Simple semver major version check
+        let current_major = DECISION_LEDGER_SCHEMA_VERSION
+            .split('.')
+            .next()
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(0);
+        let ledger_major = self
+            .schema_version
+            .split('.')
+            .next()
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(0);
+
+        ledger_major == current_major
+    }
+
+    /// Validate the ledger structure.
+    #[must_use]
+    pub fn validate(&self) -> LedgerValidationResult {
+        let mut errors = Vec::new();
+
+        if self.schema_version.is_empty() {
+            errors.push("schema_version is empty".to_owned());
+        }
+
+        if self.ledger_id.is_empty() {
+            errors.push("ledger_id is empty".to_owned());
+        }
+
+        if self.record_count != self.records.len() {
+            errors.push(format!(
+                "record_count mismatch: stated {} but have {}",
+                self.record_count,
+                self.records.len()
+            ));
+        }
+
+        // Check records are in timestamp order
+        for i in 1..self.records.len() {
+            if self.records[i].ts_unix_ms < self.records[i - 1].ts_unix_ms {
+                errors.push(format!(
+                    "records out of order at index {}: {} < {}",
+                    i,
+                    self.records[i].ts_unix_ms,
+                    self.records[i - 1].ts_unix_ms
+                ));
+                break;
+            }
+        }
+
+        LedgerValidationResult {
+            is_valid: errors.is_empty(),
+            schema_compatible: self.is_schema_compatible(),
+            errors,
+        }
+    }
+
+    /// Serialize to JSON with pretty formatting.
+    pub fn to_json_pretty(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string_pretty(self)
+    }
+
+    /// Deserialize from JSON.
+    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(json)
+    }
+
+    /// Merge another ledger's records into this one.
+    ///
+    /// Records are merged and sorted by timestamp.
+    pub fn merge(&mut self, other: &Self) {
+        self.records.extend(other.records.iter().cloned());
+        self.records.sort_by_key(|r| r.ts_unix_ms);
+        self.record_count = self.records.len();
+        self.last_updated_unix_ms = self
+            .records
+            .last()
+            .map_or(self.created_at_unix_ms, |r| r.ts_unix_ms);
+    }
+}
+
+/// Result of validating a versioned decision ledger.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LedgerValidationResult {
+    pub is_valid: bool,
+    pub schema_compatible: bool,
+    pub errors: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -3329,5 +3492,172 @@ mod tests {
             .from_structured_log(&invalid)
             .expect_err("missing forensics_bundle_index should fail closed");
         assert!(err.contains("forensics_bundle_index"));
+    }
+
+    // -----------------------------------------------------------------------
+    // Versioned Decision Ledger tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn versioned_ledger_has_correct_schema_version() {
+        let ledger = super::VersionedDecisionLedger::new("test-ledger");
+        assert_eq!(ledger.schema_version, super::DECISION_LEDGER_SCHEMA_VERSION);
+        assert_eq!(ledger.ledger_id, "test-ledger");
+        assert_eq!(ledger.record_count, 0);
+        assert!(ledger.records.is_empty());
+    }
+
+    #[test]
+    fn versioned_ledger_append_updates_metadata() {
+        let mut ledger = super::VersionedDecisionLedger::new("append-test");
+        let initial_time = ledger.created_at_unix_ms;
+
+        let record = super::DecisionRecord {
+            ts_unix_ms: initial_time + 1000,
+            operation: "test_op".to_owned(),
+            mode: CompatibilityMode::Strict,
+            action: DecisionAction::Allow,
+            incompatibility_probability: 0.01,
+            rationale: "test".to_owned(),
+            evidence: vec![],
+        };
+
+        ledger.append(record);
+
+        assert_eq!(ledger.record_count, 1);
+        assert_eq!(ledger.records.len(), 1);
+        assert_eq!(ledger.last_updated_unix_ms, initial_time + 1000);
+    }
+
+    #[test]
+    fn versioned_ledger_schema_compatibility() {
+        let ledger = super::VersionedDecisionLedger::new("compat-test");
+        assert!(ledger.is_schema_compatible());
+
+        // Create ledger with different major version
+        let mut incompatible = ledger.clone();
+        incompatible.schema_version = "2.0.0".to_owned();
+        assert!(!incompatible.is_schema_compatible());
+
+        // Same major version is compatible
+        let mut compatible = ledger.clone();
+        compatible.schema_version = "1.5.0".to_owned();
+        assert!(compatible.is_schema_compatible());
+    }
+
+    #[test]
+    fn versioned_ledger_validation_passes_for_valid_ledger() {
+        let ledger = super::VersionedDecisionLedger::new("valid-test");
+        let result = ledger.validate();
+        assert!(result.is_valid);
+        assert!(result.schema_compatible);
+        assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn versioned_ledger_validation_catches_empty_fields() {
+        let mut ledger = super::VersionedDecisionLedger::new("invalid-test");
+        ledger.schema_version = String::new();
+
+        let result = ledger.validate();
+        assert!(!result.is_valid);
+        assert!(result.errors.iter().any(|e| e.contains("schema_version")));
+    }
+
+    #[test]
+    fn versioned_ledger_validation_catches_count_mismatch() {
+        let mut ledger = super::VersionedDecisionLedger::new("count-test");
+        ledger.record_count = 5; // Claim 5 records but have 0
+
+        let result = ledger.validate();
+        assert!(!result.is_valid);
+        assert!(result.errors.iter().any(|e| e.contains("record_count")));
+    }
+
+    #[test]
+    fn versioned_ledger_json_roundtrip() {
+        let mut ledger = super::VersionedDecisionLedger::new("json-test");
+        ledger.append(super::DecisionRecord {
+            ts_unix_ms: 1000,
+            operation: "roundtrip_op".to_owned(),
+            mode: CompatibilityMode::Hardened,
+            action: DecisionAction::FullValidate,
+            incompatibility_probability: 0.5,
+            rationale: "testing roundtrip".to_owned(),
+            evidence: vec![super::EvidenceTerm {
+                signal: "test_signal".to_owned(),
+                observed_value: "test_value".to_owned(),
+                log_likelihood_ratio: 1.5,
+            }],
+        });
+
+        let json = ledger.to_json_pretty().expect("serialization should work");
+        let restored = super::VersionedDecisionLedger::from_json(&json)
+            .expect("deserialization should work");
+
+        assert_eq!(restored.schema_version, ledger.schema_version);
+        assert_eq!(restored.ledger_id, ledger.ledger_id);
+        assert_eq!(restored.records.len(), 1);
+        assert_eq!(restored.records[0].operation, "roundtrip_op");
+    }
+
+    #[test]
+    fn versioned_ledger_merge_combines_and_sorts() {
+        let mut ledger1 = super::VersionedDecisionLedger::new("merge-1");
+        ledger1.append(super::DecisionRecord {
+            ts_unix_ms: 1000,
+            operation: "op1".to_owned(),
+            mode: CompatibilityMode::Strict,
+            action: DecisionAction::Allow,
+            incompatibility_probability: 0.01,
+            rationale: "first".to_owned(),
+            evidence: vec![],
+        });
+        ledger1.append(super::DecisionRecord {
+            ts_unix_ms: 3000,
+            operation: "op3".to_owned(),
+            mode: CompatibilityMode::Strict,
+            action: DecisionAction::Allow,
+            incompatibility_probability: 0.01,
+            rationale: "third".to_owned(),
+            evidence: vec![],
+        });
+
+        let mut ledger2 = super::VersionedDecisionLedger::new("merge-2");
+        ledger2.append(super::DecisionRecord {
+            ts_unix_ms: 2000,
+            operation: "op2".to_owned(),
+            mode: CompatibilityMode::Strict,
+            action: DecisionAction::Allow,
+            incompatibility_probability: 0.01,
+            rationale: "second".to_owned(),
+            evidence: vec![],
+        });
+
+        ledger1.merge(&ledger2);
+
+        assert_eq!(ledger1.record_count, 3);
+        assert_eq!(ledger1.records[0].ts_unix_ms, 1000);
+        assert_eq!(ledger1.records[1].ts_unix_ms, 2000);
+        assert_eq!(ledger1.records[2].ts_unix_ms, 3000);
+    }
+
+    #[test]
+    fn evidence_ledger_to_versioned_conversion() {
+        let mut evidence = EvidenceLedger::new();
+        evidence.record(super::DecisionRecord {
+            ts_unix_ms: 5000,
+            operation: "convert_op".to_owned(),
+            mode: CompatibilityMode::Strict,
+            action: DecisionAction::Allow,
+            incompatibility_probability: 0.01,
+            rationale: "conversion test".to_owned(),
+            evidence: vec![],
+        });
+
+        let versioned = evidence.to_versioned();
+        assert_eq!(versioned.schema_version, super::DECISION_LEDGER_SCHEMA_VERSION);
+        assert_eq!(versioned.record_count, 1);
+        assert_eq!(versioned.records[0].operation, "convert_op");
     }
 }
