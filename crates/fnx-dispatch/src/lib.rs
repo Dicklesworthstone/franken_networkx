@@ -184,6 +184,161 @@ pub struct DiscoveryReport {
     pub discovery_version: String,
 }
 
+// ---------------------------------------------------------------------------
+// Coverage Measurement
+// ---------------------------------------------------------------------------
+
+/// Tracks which dispatch operations have been exercised.
+///
+/// Use this to measure test coverage of dispatch paths and identify
+/// gaps in algorithm usage.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DispatchCoverage {
+    /// Operations that were successfully dispatched
+    pub dispatched_operations: BTreeSet<String>,
+    /// Features that were requested during dispatch
+    pub requested_features: BTreeSet<String>,
+    /// Backends that handled at least one dispatch
+    pub used_backends: BTreeSet<String>,
+    /// Operations that failed to dispatch
+    pub failed_operations: BTreeSet<String>,
+    /// Total successful dispatch count
+    pub success_count: usize,
+    /// Total failed dispatch count
+    pub failure_count: usize,
+}
+
+impl DispatchCoverage {
+    /// Create a new empty coverage tracker.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record a successful dispatch.
+    pub fn record_success(&mut self, operation: &str, backend: &str, features: &BTreeSet<String>) {
+        self.dispatched_operations.insert(operation.to_owned());
+        self.used_backends.insert(backend.to_owned());
+        self.requested_features.extend(features.iter().cloned());
+        self.success_count += 1;
+    }
+
+    /// Record a failed dispatch.
+    pub fn record_failure(&mut self, operation: &str, features: &BTreeSet<String>) {
+        self.failed_operations.insert(operation.to_owned());
+        self.requested_features.extend(features.iter().cloned());
+        self.failure_count += 1;
+    }
+
+    /// Merge another coverage report into this one.
+    pub fn merge(&mut self, other: &Self) {
+        self.dispatched_operations
+            .extend(other.dispatched_operations.iter().cloned());
+        self.requested_features
+            .extend(other.requested_features.iter().cloned());
+        self.used_backends
+            .extend(other.used_backends.iter().cloned());
+        self.failed_operations
+            .extend(other.failed_operations.iter().cloned());
+        self.success_count += other.success_count;
+        self.failure_count += other.failure_count;
+    }
+
+    /// Generate a gap report comparing coverage against available features.
+    #[must_use]
+    pub fn gap_report(&self, discovery: &DiscoveryReport) -> CoverageGapReport {
+        let available_features = &discovery.all_features;
+        let available_backends: BTreeSet<String> = discovery
+            .backends
+            .iter()
+            .map(|b| b.name.clone())
+            .collect();
+
+        let untested_features: BTreeSet<String> = available_features
+            .difference(&self.requested_features)
+            .cloned()
+            .collect();
+
+        let unused_backends: BTreeSet<String> = available_backends
+            .difference(&self.used_backends)
+            .cloned()
+            .collect();
+
+        let feature_coverage_pct = if available_features.is_empty() {
+            100.0
+        } else {
+            (self.requested_features.len() as f64 / available_features.len() as f64) * 100.0
+        };
+
+        let backend_coverage_pct = if available_backends.is_empty() {
+            100.0
+        } else {
+            (self.used_backends.len() as f64 / available_backends.len() as f64) * 100.0
+        };
+
+        CoverageGapReport {
+            untested_features,
+            unused_backends,
+            tested_features: self.requested_features.clone(),
+            used_backends: self.used_backends.clone(),
+            failed_operations: self.failed_operations.clone(),
+            feature_coverage_pct,
+            backend_coverage_pct,
+            total_dispatches: self.success_count + self.failure_count,
+            success_rate_pct: if self.success_count + self.failure_count == 0 {
+                100.0
+            } else {
+                (self.success_count as f64
+                    / (self.success_count + self.failure_count) as f64)
+                    * 100.0
+            },
+        }
+    }
+}
+
+/// Report identifying gaps in dispatch coverage.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CoverageGapReport {
+    /// Features available but never requested
+    pub untested_features: BTreeSet<String>,
+    /// Backends registered but never used
+    pub unused_backends: BTreeSet<String>,
+    /// Features that were tested
+    pub tested_features: BTreeSet<String>,
+    /// Backends that were used
+    pub used_backends: BTreeSet<String>,
+    /// Operations that failed to dispatch
+    pub failed_operations: BTreeSet<String>,
+    /// Percentage of available features tested (0-100)
+    pub feature_coverage_pct: f64,
+    /// Percentage of available backends used (0-100)
+    pub backend_coverage_pct: f64,
+    /// Total number of dispatch attempts
+    pub total_dispatches: usize,
+    /// Percentage of successful dispatches (0-100)
+    pub success_rate_pct: f64,
+}
+
+impl CoverageGapReport {
+    /// Returns true if all features have been tested.
+    #[must_use]
+    pub fn is_feature_complete(&self) -> bool {
+        self.untested_features.is_empty()
+    }
+
+    /// Returns true if all backends have been used.
+    #[must_use]
+    pub fn is_backend_complete(&self) -> bool {
+        self.unused_backends.is_empty()
+    }
+
+    /// Returns true if there were no dispatch failures.
+    #[must_use]
+    pub fn is_failure_free(&self) -> bool {
+        self.failed_operations.is_empty()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct BackendRegistry {
     mode: CompatibilityMode,
@@ -846,5 +1001,125 @@ mod tests {
         assert_eq!(spec.supported_features, set(&["feature_a", "feature_b"]));
         assert!(spec.allow_in_strict);
         assert!(!spec.allow_in_hardened);
+    }
+
+    // -----------------------------------------------------------------------
+    // Coverage measurement tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn coverage_tracks_successful_dispatches() {
+        let mut coverage = super::DispatchCoverage::new();
+
+        coverage.record_success("shortest_path", "native", &set(&["shortest_path"]));
+        coverage.record_success("centrality", "native", &set(&["centrality"]));
+
+        assert_eq!(coverage.success_count, 2);
+        assert_eq!(coverage.failure_count, 0);
+        assert!(coverage.dispatched_operations.contains("shortest_path"));
+        assert!(coverage.dispatched_operations.contains("centrality"));
+        assert!(coverage.used_backends.contains("native"));
+        assert!(coverage.requested_features.contains("shortest_path"));
+        assert!(coverage.requested_features.contains("centrality"));
+    }
+
+    #[test]
+    fn coverage_tracks_failed_dispatches() {
+        let mut coverage = super::DispatchCoverage::new();
+
+        coverage.record_failure("unknown_op", &set(&["unknown_feature"]));
+
+        assert_eq!(coverage.success_count, 0);
+        assert_eq!(coverage.failure_count, 1);
+        assert!(coverage.failed_operations.contains("unknown_op"));
+        assert!(coverage.requested_features.contains("unknown_feature"));
+    }
+
+    #[test]
+    fn coverage_merge_combines_reports() {
+        let mut coverage1 = super::DispatchCoverage::new();
+        coverage1.record_success("op1", "backend1", &set(&["feature1"]));
+
+        let mut coverage2 = super::DispatchCoverage::new();
+        coverage2.record_success("op2", "backend2", &set(&["feature2"]));
+
+        coverage1.merge(&coverage2);
+
+        assert_eq!(coverage1.success_count, 2);
+        assert!(coverage1.dispatched_operations.contains("op1"));
+        assert!(coverage1.dispatched_operations.contains("op2"));
+        assert!(coverage1.used_backends.contains("backend1"));
+        assert!(coverage1.used_backends.contains("backend2"));
+    }
+
+    #[test]
+    fn gap_report_identifies_untested_features() {
+        let mut coverage = super::DispatchCoverage::new();
+        coverage.record_success("shortest_path", "native", &set(&["shortest_path"]));
+
+        let discovery = super::discovery_report();
+        let gap = coverage.gap_report(&discovery);
+
+        // We only tested shortest_path, so other features should be untested
+        assert!(!gap.untested_features.is_empty());
+        assert!(gap.tested_features.contains("shortest_path"));
+        assert!(!gap.untested_features.contains("shortest_path"));
+        assert!(gap.used_backends.contains("native"));
+    }
+
+    #[test]
+    fn gap_report_calculates_coverage_percentages() {
+        let mut coverage = super::DispatchCoverage::new();
+        let discovery = super::discovery_report();
+
+        // Test half the features
+        let half_features: Vec<_> = discovery
+            .all_features
+            .iter()
+            .take(discovery.all_features.len() / 2)
+            .cloned()
+            .collect();
+
+        for feature in &half_features {
+            coverage.record_success(feature, "native", &set(&[feature.as_str()]));
+        }
+
+        let gap = coverage.gap_report(&discovery);
+        assert!(gap.feature_coverage_pct > 0.0);
+        assert!(gap.feature_coverage_pct <= 100.0);
+        assert!(gap.backend_coverage_pct > 0.0);
+    }
+
+    #[test]
+    fn gap_report_success_rate_calculation() {
+        let mut coverage = super::DispatchCoverage::new();
+        coverage.record_success("op1", "native", &set(&["f1"]));
+        coverage.record_success("op2", "native", &set(&["f2"]));
+        coverage.record_failure("op3", &set(&["f3"]));
+
+        let gap = coverage.gap_report(&super::discovery_report());
+
+        assert_eq!(gap.total_dispatches, 3);
+        // 2 successes out of 3 = 66.67%
+        assert!((gap.success_rate_pct - 66.67).abs() < 1.0);
+    }
+
+    #[test]
+    fn gap_report_completeness_checks() {
+        let mut coverage = super::DispatchCoverage::new();
+        let discovery = super::discovery_report();
+
+        // Test all features and use all backends
+        for feature in &discovery.all_features {
+            coverage.record_success(feature, "native", &set(&[feature.as_str()]));
+        }
+        for backend in &discovery.backends {
+            coverage.record_success("dummy", &backend.name, &BTreeSet::new());
+        }
+
+        let gap = coverage.gap_report(&discovery);
+        assert!(gap.is_feature_complete());
+        assert!(gap.is_backend_complete());
+        assert!(gap.is_failure_free());
     }
 }
