@@ -243,4 +243,77 @@ mod tests {
         assert!(cached.refresh_if_stale(&digraph));
         assert_eq!(cached.snapshot().nodes, vec!["n1", "n2"]);
     }
+
+    // B10: Additional view-coherence tests
+
+    #[test]
+    fn cached_snapshot_not_stale_without_mutation() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add");
+        let cached = CachedSnapshotView::new(&graph);
+
+        // No mutations - should not be stale
+        assert!(!cached.is_stale(&graph));
+    }
+
+    #[test]
+    fn cached_snapshot_stale_after_remove_node() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add");
+        graph.add_edge("b", "c").expect("edge add");
+        let mut cached = CachedSnapshotView::new(&graph);
+        assert_eq!(cached.snapshot().nodes.len(), 3);
+
+        graph.remove_node("c");
+        assert!(cached.is_stale(&graph));
+        cached.refresh_if_stale(&graph);
+        assert_eq!(cached.snapshot().nodes.len(), 2);
+    }
+
+    #[test]
+    fn refresh_if_stale_returns_false_when_not_stale() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add");
+        let mut cached = CachedSnapshotView::new(&graph);
+
+        // First call when not stale should return false
+        assert!(!cached.refresh_if_stale(&graph));
+
+        // After mutation
+        graph.add_edge("b", "c").expect("edge add");
+        assert!(cached.refresh_if_stale(&graph)); // true - refresh occurred
+        assert!(!cached.refresh_if_stale(&graph)); // false - already fresh
+    }
+
+    #[test]
+    fn revision_increments_with_each_mutation() {
+        let mut graph = Graph::strict();
+        let r0 = graph.revision();
+
+        graph.add_edge("a", "b").expect("edge add");
+        let r1 = graph.revision();
+        assert!(r1 > r0, "revision should increase after add_edge");
+
+        graph.add_edge("b", "c").expect("edge add");
+        let r2 = graph.revision();
+        assert!(r2 > r1, "revision should increase after second add_edge");
+
+        graph.remove_node("c");
+        let r3 = graph.revision();
+        assert!(r3 > r2, "revision should increase after remove_node");
+    }
+
+    #[test]
+    fn digraph_revision_tracks_mutations() {
+        let mut digraph = DiGraph::strict();
+        let r0 = digraph.revision();
+
+        digraph.add_edge("a", "b").expect("edge add");
+        let r1 = digraph.revision();
+        assert!(r1 > r0);
+
+        digraph.remove_edge("a", "b");
+        let r2 = digraph.revision();
+        assert!(r2 > r1);
+    }
 }

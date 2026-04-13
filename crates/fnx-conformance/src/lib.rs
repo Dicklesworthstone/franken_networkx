@@ -4356,9 +4356,177 @@ fn compare_edge_centrality_scores(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Python parity cross-walk — B9
+// ---------------------------------------------------------------------------
+
+/// A Python parity test record emitted by pytest (conftest.py ParityRecordEmitter).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PythonParityRecord {
+    pub fixture_id: String,
+    pub fixture_name: String,
+    #[serde(default = "default_python_parity_suite")]
+    pub suite: String,
+    #[serde(default = "default_strict_mode")]
+    pub mode: String,
+    pub seed: Option<u64>,
+    pub threat_class: Option<String>,
+    #[serde(default)]
+    pub replay_command: String,
+    #[serde(default = "default_passed")]
+    pub passed: bool,
+    pub reason_code: Option<String>,
+    #[serde(default)]
+    pub fixture_source_hash: String,
+    #[serde(default)]
+    pub duration_ms: u64,
+    #[serde(default)]
+    pub strict_violation_count: usize,
+    #[serde(default)]
+    pub hardened_allowlisted_count: usize,
+    #[serde(default)]
+    pub mismatches: Vec<Mismatch>,
+    #[serde(default)]
+    pub mismatch_taxonomy: Vec<TaxonomyMismatch>,
+    pub witness: Option<ComplexityWitness>,
+    #[serde(default)]
+    pub python_module: String,
+    #[serde(default)]
+    pub python_markers: Vec<String>,
+    #[serde(default = "default_schema_version")]
+    pub schema_version: String,
+}
+
+fn default_python_parity_suite() -> String {
+    "python_parity".to_owned()
+}
+
+fn default_strict_mode() -> String {
+    "strict".to_owned()
+}
+
+fn default_passed() -> bool {
+    true
+}
+
+fn default_schema_version() -> String {
+    "python_parity_v1".to_owned()
+}
+
+impl PythonParityRecord {
+    /// Convert to a FixtureReport for unified reporting.
+    pub fn to_fixture_report(&self) -> FixtureReport {
+        let mode = match self.mode.as_str() {
+            "hardened" => CompatibilityMode::Hardened,
+            _ => CompatibilityMode::Strict,
+        };
+        FixtureReport {
+            fixture_id: self.fixture_id.clone(),
+            fixture_name: self.fixture_name.clone(),
+            suite: self.suite.clone(),
+            mode,
+            seed: self.seed,
+            threat_class: self.threat_class.clone(),
+            replay_command: self.replay_command.clone(),
+            passed: self.passed,
+            reason_code: self.reason_code.clone(),
+            fixture_source_hash: self.fixture_source_hash.clone(),
+            duration_ms: u128::from(self.duration_ms),
+            strict_violation_count: self.strict_violation_count,
+            hardened_allowlisted_count: self.hardened_allowlisted_count,
+            mismatches: self.mismatches.clone(),
+            mismatch_taxonomy: self.mismatch_taxonomy.clone(),
+            witness: self.witness.clone(),
+        }
+    }
+}
+
+/// Cross-walk report combining Rust conformance results with Python parity records.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CrossWalkReport {
+    pub schema_version: String,
+    pub generated_at_unix_ms: u128,
+    pub rust_fixture_count: usize,
+    pub python_parity_count: usize,
+    pub rust_mismatch_count: usize,
+    pub python_mismatch_count: usize,
+    pub combined_fixture_ids: Vec<String>,
+    pub rust_only_fixture_ids: Vec<String>,
+    pub python_only_fixture_ids: Vec<String>,
+    pub unified_reports: Vec<FixtureReport>,
+}
+
+impl CrossWalkReport {
+    pub const SCHEMA_VERSION: &'static str = "crosswalk_v1";
+}
+
+/// Load Python parity records from a JSONL file.
+pub fn load_python_parity_records(path: &Path) -> io::Result<Vec<PythonParityRecord>> {
+    let content = fs::read_to_string(path)?;
+    let mut records = Vec::new();
+    for line in content.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<PythonParityRecord>(line) {
+            Ok(record) => records.push(record),
+            Err(e) => {
+                eprintln!("Warning: failed to parse parity record: {e}");
+            }
+        }
+    }
+    Ok(records)
+}
+
+/// Build a cross-walk report from Rust fixture reports and Python parity records.
+pub fn build_crosswalk_report(
+    rust_reports: &[FixtureReport],
+    python_records: &[PythonParityRecord],
+) -> CrossWalkReport {
+    let rust_ids: BTreeSet<_> = rust_reports.iter().map(|r| r.fixture_id.clone()).collect();
+    let python_ids: BTreeSet<_> = python_records.iter().map(|r| r.fixture_id.clone()).collect();
+
+    let combined: BTreeSet<_> = rust_ids.intersection(&python_ids).cloned().collect();
+    let rust_only: Vec<_> = rust_ids.difference(&python_ids).cloned().collect();
+    let python_only: Vec<_> = python_ids.difference(&rust_ids).cloned().collect();
+
+    let mut unified: Vec<FixtureReport> = rust_reports.to_vec();
+    for py_record in python_records {
+        if !rust_ids.contains(&py_record.fixture_id) {
+            unified.push(py_record.to_fixture_report());
+        }
+    }
+    unified.sort_by(|a, b| a.fixture_id.cmp(&b.fixture_id));
+
+    let rust_mismatch_count = rust_reports.iter().filter(|r| !r.passed).count();
+    let python_mismatch_count = python_records.iter().filter(|r| !r.passed).count();
+
+    CrossWalkReport {
+        schema_version: CrossWalkReport::SCHEMA_VERSION.to_owned(),
+        generated_at_unix_ms: unix_time_ms(),
+        rust_fixture_count: rust_reports.len(),
+        python_parity_count: python_records.len(),
+        rust_mismatch_count,
+        python_mismatch_count,
+        combined_fixture_ids: combined.into_iter().collect(),
+        rust_only_fixture_ids: rust_only,
+        python_only_fixture_ids: python_only,
+        unified_reports: unified,
+    }
+}
+
+/// Run cross-walk: load Python parity records and merge with Rust harness results.
+pub fn run_crosswalk(
+    rust_report: &HarnessReport,
+    python_parity_path: &Path,
+) -> io::Result<CrossWalkReport> {
+    let python_records = load_python_parity_records(python_parity_path)?;
+    Ok(build_crosswalk_report(&rust_report.fixture_reports, &python_records))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{HarnessConfig, run_smoke};
+    use super::*;
 
     #[test]
     fn smoke_harness_reports_zero_drift_for_bootstrap_fixtures() {
@@ -4381,5 +4549,112 @@ mod tests {
         }
         assert_eq!(report.mismatch_count, 0, "fixtures should be drift-free");
         assert_eq!(report.structured_log_count, report.fixture_count);
+    }
+
+    #[test]
+    fn test_python_parity_record_deserialize() {
+        let json = r#"{
+            "fixture_id": "py-abcd1234",
+            "fixture_name": "test_example",
+            "suite": "python_parity",
+            "mode": "strict",
+            "passed": true,
+            "duration_ms": 42
+        }"#;
+        let record: PythonParityRecord = serde_json::from_str(json).unwrap();
+        assert_eq!(record.fixture_id, "py-abcd1234");
+        assert_eq!(record.fixture_name, "test_example");
+        assert!(record.passed);
+        assert_eq!(record.duration_ms, 42);
+    }
+
+    #[test]
+    fn test_python_parity_to_fixture_report() {
+        let record = PythonParityRecord {
+            fixture_id: "py-test123".to_owned(),
+            fixture_name: "test_algo_parity".to_owned(),
+            suite: "python_parity".to_owned(),
+            mode: "hardened".to_owned(),
+            seed: Some(42),
+            threat_class: None,
+            replay_command: "pytest test_algo.py -k test_algo_parity".to_owned(),
+            passed: false,
+            reason_code: Some("assertion_failure".to_owned()),
+            fixture_source_hash: "abc123".to_owned(),
+            duration_ms: 100,
+            strict_violation_count: 1,
+            hardened_allowlisted_count: 0,
+            mismatches: vec![Mismatch {
+                category: "algorithm".to_owned(),
+                message: "value mismatch".to_owned(),
+            }],
+            mismatch_taxonomy: vec![],
+            witness: None,
+            python_module: "test_algo".to_owned(),
+            python_markers: vec!["parity".to_owned()],
+            schema_version: "python_parity_v1".to_owned(),
+        };
+
+        let report = record.to_fixture_report();
+        assert_eq!(report.fixture_id, "py-test123");
+        assert_eq!(report.mode, CompatibilityMode::Hardened);
+        assert!(!report.passed);
+        assert_eq!(report.mismatches.len(), 1);
+    }
+
+    #[test]
+    fn test_build_crosswalk_report_merges_sources() {
+        let rust_reports = vec![
+            FixtureReport {
+                fixture_id: "rust-001".to_owned(),
+                fixture_name: "rust_fixture_1".to_owned(),
+                suite: "rust_conformance".to_owned(),
+                mode: CompatibilityMode::Strict,
+                seed: None,
+                threat_class: None,
+                replay_command: String::new(),
+                passed: true,
+                reason_code: None,
+                fixture_source_hash: String::new(),
+                duration_ms: 10,
+                strict_violation_count: 0,
+                hardened_allowlisted_count: 0,
+                mismatches: vec![],
+                mismatch_taxonomy: vec![],
+                witness: None,
+            },
+        ];
+
+        let python_records = vec![
+            PythonParityRecord {
+                fixture_id: "py-001".to_owned(),
+                fixture_name: "python_fixture_1".to_owned(),
+                suite: "python_parity".to_owned(),
+                mode: "strict".to_owned(),
+                seed: None,
+                threat_class: None,
+                replay_command: String::new(),
+                passed: true,
+                reason_code: None,
+                fixture_source_hash: String::new(),
+                duration_ms: 20,
+                strict_violation_count: 0,
+                hardened_allowlisted_count: 0,
+                mismatches: vec![],
+                mismatch_taxonomy: vec![],
+                witness: None,
+                python_module: String::new(),
+                python_markers: vec![],
+                schema_version: "python_parity_v1".to_owned(),
+            },
+        ];
+
+        let crosswalk = build_crosswalk_report(&rust_reports, &python_records);
+        assert_eq!(crosswalk.rust_fixture_count, 1);
+        assert_eq!(crosswalk.python_parity_count, 1);
+        assert_eq!(crosswalk.unified_reports.len(), 2);
+        assert!(crosswalk.combined_fixture_ids.is_empty()); // no overlap
+        assert_eq!(crosswalk.rust_only_fixture_ids, vec!["rust-001"]);
+        assert_eq!(crosswalk.python_only_fixture_ids, vec!["py-001"]);
     }
 }

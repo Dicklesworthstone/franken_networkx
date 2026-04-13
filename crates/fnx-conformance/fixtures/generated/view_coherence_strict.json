@@ -1,0 +1,106 @@
+{
+  "suite": "view_coherence_v1",
+  "mode": "strict",
+  "description": "Tests that cached snapshot views correctly detect staleness after mutations",
+  "test_cases": [
+    {
+      "case_id": "snapshot_stale_after_add_edge",
+      "description": "CachedSnapshotView becomes stale after add_edge",
+      "graph_type": "undirected",
+      "setup_operations": [
+        {"op": "add_edge", "left": "a", "right": "b"}
+      ],
+      "checkpoint": "create_cached_snapshot",
+      "mutation_operations": [
+        {"op": "add_edge", "left": "b", "right": "c"}
+      ],
+      "expected": {
+        "is_stale_after_mutation": true,
+        "snapshot_node_count_before_refresh": 2,
+        "snapshot_node_count_after_refresh": 3
+      }
+    },
+    {
+      "case_id": "snapshot_stale_after_remove_node",
+      "description": "CachedSnapshotView becomes stale after remove_node",
+      "graph_type": "undirected",
+      "setup_operations": [
+        {"op": "add_edge", "left": "a", "right": "b"},
+        {"op": "add_edge", "left": "b", "right": "c"}
+      ],
+      "checkpoint": "create_cached_snapshot",
+      "mutation_operations": [
+        {"op": "remove_node", "node": "c"}
+      ],
+      "expected": {
+        "is_stale_after_mutation": true,
+        "snapshot_node_count_before_refresh": 3,
+        "snapshot_node_count_after_refresh": 2
+      }
+    },
+    {
+      "case_id": "snapshot_not_stale_without_mutation",
+      "description": "CachedSnapshotView is not stale without mutations",
+      "graph_type": "undirected",
+      "setup_operations": [
+        {"op": "add_edge", "left": "a", "right": "b"}
+      ],
+      "checkpoint": "create_cached_snapshot",
+      "mutation_operations": [],
+      "expected": {
+        "is_stale_after_mutation": false,
+        "snapshot_node_count_before_refresh": 2,
+        "snapshot_node_count_after_refresh": 2
+      }
+    },
+    {
+      "case_id": "digraph_snapshot_stale_after_add_edge",
+      "description": "CachedDiGraphSnapshotView becomes stale after add_edge",
+      "graph_type": "directed",
+      "setup_operations": [
+        {"op": "add_edge", "source": "a", "target": "b"}
+      ],
+      "checkpoint": "create_cached_snapshot",
+      "mutation_operations": [
+        {"op": "add_edge", "source": "b", "target": "c"}
+      ],
+      "expected": {
+        "is_stale_after_mutation": true,
+        "snapshot_node_count_before_refresh": 2,
+        "snapshot_node_count_after_refresh": 3
+      }
+    },
+    {
+      "case_id": "revision_increments_on_mutation",
+      "description": "Graph revision increments after each mutation",
+      "graph_type": "undirected",
+      "setup_operations": [
+        {"op": "add_edge", "left": "a", "right": "b"}
+      ],
+      "checkpoint": "record_revision",
+      "mutation_operations": [
+        {"op": "add_edge", "left": "b", "right": "c"},
+        {"op": "add_edge", "left": "c", "right": "d"}
+      ],
+      "expected": {
+        "revision_increases_by": 2
+      }
+    },
+    {
+      "case_id": "refresh_if_stale_returns_true_when_stale",
+      "description": "refresh_if_stale returns true only when refresh occurred",
+      "graph_type": "undirected",
+      "setup_operations": [
+        {"op": "add_edge", "left": "a", "right": "b"}
+      ],
+      "checkpoint": "create_cached_snapshot",
+      "mutation_operations": [
+        {"op": "add_edge", "left": "b", "right": "c"}
+      ],
+      "expected": {
+        "refresh_if_stale_returns": true,
+        "second_refresh_if_stale_returns": false
+      }
+    }
+  ]
+}

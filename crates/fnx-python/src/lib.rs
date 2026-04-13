@@ -2325,7 +2325,7 @@ impl PyGraph {
     /// Return a directed copy of the graph.
     fn to_directed(&self, py: Python<'_>) -> PyResult<Py<crate::digraph::PyDiGraph>> {
         let mut dg = crate::digraph::PyDiGraph::new_empty(py)?;
-        dg.borrow_mut(py).inner = fnx_classes::digraph::DiGraph::new(self.inner.mode());
+        dg.inner = fnx_classes::digraph::DiGraph::new(self.inner.mode());
 
         for (canonical, py_key) in &self.node_key_map {
             let rust_attrs = self
