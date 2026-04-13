@@ -92,6 +92,30 @@ pub fn generate_sidecar_for_file(
 
     let data = fs::read(artifact_path)?;
     let source_hash = hash_bytes(&data);
+    
+    if data.is_empty() {
+        let envelope = ArtifactEnvelope {
+            artifact_id: artifact_id.to_owned(),
+            artifact_type: artifact_type.to_owned(),
+            source_hash,
+            raptorq: RaptorQSidecar {
+                k: 0,
+                repair_symbols: 0,
+                overhead_ratio: 0.0,
+                symbol_hashes: Vec::new(),
+                oti_b64: String::new(),
+                packets_b64: Vec::new(),
+            },
+            scrub: ScrubStatus {
+                last_ok_unix_ms: unix_time_ms(),
+                status: ScrubState::Ok,
+            },
+            decode_proofs: Vec::new(),
+        };
+        write_envelope(sidecar_path, &envelope)?;
+        return Ok(envelope);
+    }
+
     let encoder = Encoder::with_defaults(&data, mtu);
     let config = encoder.get_config();
 
@@ -240,7 +264,10 @@ pub fn write_envelope(path: &Path, envelope: &ArtifactEnvelope) -> Result<(), Du
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::write(path, serde_json::to_string_pretty(envelope)?)?;
+    let serialized = serde_json::to_string_pretty(envelope)?;
+    let temp_path = path.with_extension("tmp.json");
+    fs::write(&temp_path, serialized)?;
+    fs::rename(&temp_path, path)?;
     Ok(())
 }
 
@@ -252,6 +279,10 @@ fn decode_with_packets(
     envelope: &ArtifactEnvelope,
     packet_b64: &[String],
 ) -> Result<Vec<u8>, DurabilityError> {
+    if envelope.raptorq.k == 0 {
+        return Ok(Vec::new());
+    }
+
     let oti_bytes = STANDARD.decode(&envelope.raptorq.oti_b64)?;
     let oti_slice: [u8; 12] = oti_bytes
         .as_slice()
@@ -354,6 +385,7 @@ mod tests {
         let post_drill =
             run_decode_drill(&sidecar, &recovered).expect("decode drill should succeed");
         assert!(!post_drill.decode_proofs.is_empty());
+        assert_eq!(post_drill.scrub.status, super::ScrubState::Recovered);
         assert!(recovered.exists());
     }
 }
