@@ -88,18 +88,21 @@
   "derived_checks": [
     {
       "metric_id": "mutation_regression",
-      "baseline_ops_per_second": 15000.0,
-      "max_regression_pct": 8.0
+      "baseline_ops_per_second": 125000.0,
+      "max_regression_pct": 8.0,
+      "rationale": "Base target for release-mode O(1) mutations per SPEC §17"
     },
     {
       "metric_id": "memory_regression",
-      "baseline_max_rss_kb": 220000.0,
-      "max_regression_pct": 10.0
+      "baseline_max_rss_kb": 180000.0,
+      "max_regression_pct": 10.0,
+      "rationale": "Tightened memory bound for core graph structures"
     },
     {
       "metric_id": "p99_tail_regression",
-      "baseline_max_latency_p99_ms": 650.0,
-      "max_regression_pct": 10.0
+      "baseline_max_latency_p99_ms": 550.0,
+      "max_regression_pct": 10.0,
+      "rationale": "Aligned with p95 targets + 30% tail margin"
     }
   ]
 }

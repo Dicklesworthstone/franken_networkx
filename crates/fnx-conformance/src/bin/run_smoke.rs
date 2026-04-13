@@ -1,4 +1,5 @@
 use fnx_conformance::{HarnessConfig, run_smoke};
+use fnx_runtime::CompatibilityMode;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut cfg = HarnessConfig::default_paths();
@@ -15,9 +16,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let Some(value) = args.next() else {
                     return Err("--mode requires `strict` or `hardened`".into());
                 };
-                cfg.strict_mode = match value.as_str() {
-                    "strict" => true,
-                    "hardened" => false,
+                cfg.mode = match value.as_str() {
+                    "strict" => CompatibilityMode::Strict,
+                    "hardened" => CompatibilityMode::Hardened,
                     _ => return Err(format!("invalid --mode value `{value}`").into()),
                 };
             }

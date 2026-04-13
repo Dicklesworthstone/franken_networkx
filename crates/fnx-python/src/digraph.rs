@@ -508,7 +508,7 @@ impl PyMultiDiGraph {
     fn remove_node(&mut self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
         let canonical = node_key_to_string(py, n)?;
         if !self.inner.has_node(&canonical) {
-            return Err(NodeNotFound::new_err(format!(
+            return Err(crate::NetworkXError::new_err(format!(
                 "The node {} is not in the graph.",
                 n.repr()?
             )));
@@ -1475,7 +1475,7 @@ impl PyDiGraph {
     #[allow(dead_code)] // Used by directed algorithm bindings (bd-uode.3).
     pub(crate) fn new_empty(py: Python<'_>) -> PyResult<Self> {
         Ok(Self {
-            inner: DiGraph::strict(),
+            inner: DiGraph::new(self.inner.mode()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -1500,7 +1500,7 @@ impl PyDiGraph {
         }
 
         let mut g = Self {
-            inner: DiGraph::strict(),
+            inner: DiGraph::new(self.inner.mode()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -1734,7 +1734,7 @@ impl PyDiGraph {
     fn remove_node(&mut self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
         let canonical = node_key_to_string(py, n)?;
         if !self.inner.has_node(&canonical) {
-            return Err(NodeNotFound::new_err(format!(
+            return Err(crate::NetworkXError::new_err(format!(
                 "The node {} is not in the graph.",
                 n.repr()?
             )));
@@ -2099,7 +2099,7 @@ impl PyDiGraph {
 
     fn copy(&self, py: Python<'_>) -> PyResult<Self> {
         let mut new_graph = Self {
-            inner: DiGraph::strict(),
+            inner: DiGraph::new(self.inner.mode()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -2148,7 +2148,7 @@ impl PyDiGraph {
         }
 
         let mut new_graph = Self {
-            inner: DiGraph::strict(),
+            inner: DiGraph::new(self.inner.mode()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -2208,7 +2208,7 @@ impl PyDiGraph {
         }
 
         let mut new_graph = Self {
-            inner: DiGraph::strict(),
+            inner: DiGraph::new(self.inner.mode()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),

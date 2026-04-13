@@ -46,7 +46,7 @@ use std::time::Instant;
 pub struct HarnessConfig {
     pub oracle_root: PathBuf,
     pub fixture_root: PathBuf,
-    pub strict_mode: bool,
+    pub mode: CompatibilityMode,
     pub report_root: Option<PathBuf>,
     pub fixture_filter: Option<String>,
     pub log_schema_version: String,
@@ -856,7 +856,7 @@ pub fn run_smoke(config: &HarnessConfig) -> HarnessReport {
         suite: "smoke",
         oracle_present: config.oracle_root.exists(),
         fixture_count: fixture_reports.len(),
-        mode: if config.strict_mode { CompatibilityMode::Strict } else { CompatibilityMode::Hardened },
+        mode: config.mode,
         mismatch_count,
         hardened_allowlisted_count,
         structured_log_count: fixture_reports.len(),
@@ -1481,7 +1481,7 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
     let fixture = match serde_json::from_str::<ConformanceFixture>(&data) {
         Ok(value) => value,
         Err(err) => {
-            let mode = if default_strict_mode {
+            let mode = if default_mode == CompatibilityMode::Strict {
                 CompatibilityMode::Strict
             } else {
                 CompatibilityMode::Hardened
@@ -1519,7 +1519,7 @@ fn run_fixture(path: PathBuf, default_strict_mode: bool, fixture_root: &Path) ->
 
     let mode = fixture.mode.map_or_else(
         || {
-            if default_strict_mode {
+            if default_mode == CompatibilityMode::Strict {
                 CompatibilityMode::Strict
             } else {
                 CompatibilityMode::Hardened

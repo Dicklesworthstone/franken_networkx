@@ -202,7 +202,7 @@ impl PyMultiGraph {
         }
 
         let mut g = Self {
-            inner: MultiGraph::strict(),
+            inner: MultiGraph::new(self.inner.mode()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -496,7 +496,7 @@ impl PyMultiGraph {
     fn remove_node(&mut self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
         let canonical = node_key_to_string(py, n)?;
         if !self.inner.has_node(&canonical) {
-            return Err(NodeNotFound::new_err(format!(
+            return Err(crate::NetworkXError::new_err(format!(
                 "The node {} is not in the graph.",
                 n.repr()?
             )));
@@ -929,7 +929,7 @@ impl PyMultiGraph {
     /// Return a deep copy of the multigraph.
     fn copy(&self, py: Python<'_>) -> PyResult<Self> {
         let mut new_graph = Self {
-            inner: MultiGraph::strict(),
+            inner: MultiGraph::new(self.inner.mode()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -981,7 +981,7 @@ impl PyMultiGraph {
         }
 
         let mut new_graph = Self {
-            inner: MultiGraph::strict(),
+            inner: MultiGraph::new(self.inner.mode()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -1050,7 +1050,7 @@ impl PyMultiGraph {
 
         let mut involved_nodes: HashSet<String> = HashSet::new();
         let mut new_graph = Self {
-            inner: MultiGraph::strict(),
+            inner: MultiGraph::new(self.inner.mode()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -1734,7 +1734,7 @@ impl PyGraph {
     fn remove_node(&mut self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<()> {
         let canonical = node_key_to_string(py, n)?;
         if !self.inner.has_node(&canonical) {
-            return Err(NodeNotFound::new_err(format!(
+            return Err(crate::NetworkXError::new_err(format!(
                 "The node {} is not in the graph.",
                 n.repr()?
             )));

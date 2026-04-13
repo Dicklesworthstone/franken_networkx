@@ -1,0 +1,12 @@
+{
+  "suite": "readwrite",
+  "mode": "strict",
+  "fixture_id": "edgelist_missing_endpoint_strict",
+  "operations": [
+    {
+      "op": "read_edgelist",
+      "input": "node1\nnode2 node3"
+    }
+  ],
+  "expected": {}
+}

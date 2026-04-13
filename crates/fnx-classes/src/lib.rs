@@ -971,21 +971,22 @@ impl MultiGraph {
             return false;
         };
 
-        let removed = self
-            .edges
-            .get_mut(&edge_key)
-            .is_some_and(|edge_bucket| edge_bucket.shift_remove(&removal_key).is_some());
+        let removed = if let Some(edge_bucket) = self.edges.get_mut(&edge_key) {
+            let was_removed = edge_bucket.shift_remove(&removal_key).is_some();
+            if was_removed {
+                self.edge_count -= 1;
+                if edge_bucket.is_empty() {
+                    self.edges.shift_remove(&edge_key);
+                }
+            }
+            was_removed
+        } else {
+            false
+        };
+
         if !removed {
             return false;
         }
-
-        self.edge_count -= 1;
-
-        let should_drop_bucket = self.edges.get(&edge_key).is_some_and(IndexMap::is_empty);
-        if should_drop_bucket {
-            self.edges.shift_remove(&edge_key);
-        }
-
         self.remove_adjacency_key(left, right, removal_key);
         if left != right {
             self.remove_adjacency_key(right, left, removal_key);

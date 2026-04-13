@@ -204,7 +204,7 @@ from franken_networkx._fnx import (
 
 # Algorithm functions — shortest path
 from franken_networkx._fnx import (
-    average_shortest_path_length,
+    average_shortest_path_length as _raw_average_shortest_path_length,
     bellman_ford_path,
     dijkstra_path,
     has_path,
@@ -212,6 +212,27 @@ from franken_networkx._fnx import (
     shortest_path,
     shortest_path_length as _shortest_path_length_raw,
 )
+
+def average_shortest_path_length(G, weight=None, method=None):
+    """Return the average shortest path length.
+
+    Matches ``networkx.average_shortest_path_length`` signature.
+    """
+    if method not in (None, "unweighted", "dijkstra", "bellman-ford"):
+        raise ValueError(f"method not supported: {method}")
+    if method == "bellman-ford" and weight is not None:
+        n = len(G)
+        if n <= 1:
+            raise NetworkXPointlessConcept("Graph has fewer than 2 nodes.")
+        
+        lengths = all_pairs_bellman_ford_path_length(G, weight=weight)
+        total_dist = 0.0
+        for u, targets in lengths:
+            total_dist += sum(targets.values())
+        
+        return total_dist / (n * (n - 1))
+        
+    return _raw_average_shortest_path_length(G, weight=weight)
 
 
 def shortest_path_length(G, source=None, target=None, weight=None, method="dijkstra"):
@@ -979,6 +1000,22 @@ from franken_networkx._fnx import (
     predecessor,
     path_weight,
 )
+
+def all_pairs_dijkstra_path(G, weight="weight"):
+    for k, v in _raw_all_pairs_dijkstra_path(G, weight=weight).items():
+        yield (k, v)
+
+def all_pairs_dijkstra_path_length(G, weight="weight"):
+    for k, v in _raw_all_pairs_dijkstra_path_length(G, weight=weight).items():
+        yield (k, v)
+
+def all_pairs_bellman_ford_path(G, weight="weight"):
+    for k, v in _raw_all_pairs_bellman_ford_path(G, weight=weight).items():
+        yield (k, v)
+
+def all_pairs_bellman_ford_path_length(G, weight="weight"):
+    for k, v in _raw_all_pairs_bellman_ford_path_length(G, weight=weight).items():
+        yield (k, v)
 
 def all_pairs_dijkstra_path(G, weight="weight"):
     for k, v in _raw_all_pairs_dijkstra_path(G, weight=weight).items():
@@ -9285,180 +9322,6 @@ def find_induced_nodes(G, s, d):
     return {n for n, dist in lengths.items() if dist == d}
 
 
-class _NetworkXCompatNodeView:
-    """Minimal NodeView adapter for upstream NetworkX helpers."""
-
-    def __init__(self, graph):
-        self._graph = graph
-
-    def __iter__(self):
-        return iter(self._graph.nodes)
-
-    def __len__(self):
-        return len(self._graph.nodes)
-
-    def __contains__(self, node):
-        return node in self._graph.nodes
-
-    def __getitem__(self, node):
-        return self._graph.nodes[node]
-
-    def __call__(self, data=False, default=None):
-        return self._graph.nodes(data=data, default=default)
-
-    def items(self):
-        return list(self._graph.nodes(data=True))
-
-
-def _ordered_compat_copy(graph, nodes=None):
-    """Clone an FNX graph while preserving node insertion order."""
-
-    ordered_nodes = list(graph if nodes is None else nodes)
-    node_set = set(ordered_nodes)
-    clone = graph.__class__()
-    clone.graph.update(dict(graph.graph))
-
-    for node in ordered_nodes:
-        if node in graph:
-            clone.add_node(node, **dict(graph.nodes[node]))
-
-    if graph.is_multigraph():
-        for u, v, key, data in graph.edges(keys=True, data=True):
-            if u in node_set and v in node_set:
-                clone.add_edge(u, v, key=key, **dict(data))
-    else:
-        for u, v, data in graph.edges(data=True):
-            if u in node_set and v in node_set:
-                clone.add_edge(u, v, **dict(data))
-
-    return clone
-
-
-class _NetworkXCompatGraphProxy:
-    """Plain-Python proxy for running upstream NetworkX algorithms on FNX graphs.
-
-    The proxy avoids materializing a separate NetworkX graph via `_to_nx(...)`
-    while still exposing the small subset of graph/view behavior that the
-    remaining upstream algorithms expect.
-    """
-
-    def __init__(self, graph=None):
-        self._graph = Graph() if graph is None else graph
-
-    def __iter__(self):
-        return iter(self._graph)
-
-    def __len__(self):
-        return len(self._graph)
-
-    def __contains__(self, node):
-        return node in self._graph
-
-    def __getitem__(self, node):
-        return self._graph[node]
-
-    @property
-    def graph(self):
-        return self._graph.graph
-
-    @property
-    def name(self):
-        return self._graph.name
-
-    @property
-    def nodes(self):
-        return _NetworkXCompatNodeView(self._graph)
-
-    @property
-    def edges(self):
-        return self._graph.edges
-
-    @property
-    def adj(self):
-        return self._graph.adj
-
-    @property
-    def _adj(self):
-        return self._graph.adj
-
-    def degree(self, nbunch=None, weight=None):
-        return degree(self._graph, nbunch=nbunch, weight=weight)
-
-    def is_directed(self):
-        return self._graph.is_directed()
-
-    def is_multigraph(self):
-        return self._graph.is_multigraph()
-
-    def number_of_nodes(self):
-        return self._graph.number_of_nodes()
-
-    def number_of_edges(self, *args, **kwargs):
-        return self._graph.number_of_edges(*args, **kwargs)
-
-    def order(self):
-        return self._graph.order()
-
-    def copy(self):
-        return type(self)(_ordered_compat_copy(self._graph))
-
-    def subgraph(self, nodes):
-        return type(self)(_ordered_compat_copy(self._graph, nodes=nodes))
-
-    def edge_subgraph(self, edges):
-        return type(self)(self._graph.edge_subgraph(edges))
-
-    def to_directed(self):
-        return type(self)(_ordered_compat_copy(self._graph.to_directed()))
-
-    def to_undirected(self):
-        return type(self)(_ordered_compat_copy(self._graph.to_undirected()))
-
-    def add_edge(self, *args, **kwargs):
-        return self._graph.add_edge(*args, **kwargs)
-
-    def add_edges_from(self, *args, **kwargs):
-        return self._graph.add_edges_from(*args, **kwargs)
-
-    def add_node(self, *args, **kwargs):
-        return self._graph.add_node(*args, **kwargs)
-
-    def add_nodes_from(self, *args, **kwargs):
-        return self._graph.add_nodes_from(*args, **kwargs)
-
-    def remove_edge(self, *args, **kwargs):
-        return self._graph.remove_edge(*args, **kwargs)
-
-    def remove_edges_from(self, *args, **kwargs):
-        return self._graph.remove_edges_from(*args, **kwargs)
-
-    def remove_node(self, *args, **kwargs):
-        return self._graph.remove_node(*args, **kwargs)
-
-    def remove_nodes_from(self, *args, **kwargs):
-        return self._graph.remove_nodes_from(*args, **kwargs)
-
-    def has_edge(self, *args, **kwargs):
-        return self._graph.has_edge(*args, **kwargs)
-
-    def has_node(self, *args, **kwargs):
-        return self._graph.has_node(*args, **kwargs)
-
-    def neighbors(self, *args, **kwargs):
-        return iter(self._graph.neighbors(*args, **kwargs))
-
-    def adjacency(self):
-        for node in self._graph:
-            yield node, self._graph.adj[node]
-
-    def __getattr__(self, name):
-        return getattr(self._graph, name)
-
-
-def _networkx_compat_graph(graph):  # DELEGATED_TO_NETWORKX (proxy helper for NX-delegated algorithms)
-    return _NetworkXCompatGraphProxy(graph)
-
-
 def k_edge_augmentation(G, k, avail=None, weight=None, partial=False):
     """Find edges to add to make G k-edge-connected.
 
@@ -9501,7 +9364,7 @@ def k_edge_augmentation(G, k, avail=None, weight=None, partial=False):
 
     import networkx as nx
 
-    proxy = _networkx_compat_graph(G)
+    proxy = G
     original_set_node_attributes = nx.set_node_attributes
     if hasattr(original_set_node_attributes, "orig_func"):
         nx.set_node_attributes = original_set_node_attributes.orig_func
@@ -10393,11 +10256,9 @@ def is_isomorphic(G1, G2, node_match=None, edge_match=None):
 
     import networkx as nx
 
-    from franken_networkx.drawing.layout import _to_nx
-
     return nx.is_isomorphic(
-        _to_nx(G1),
-        _to_nx(G2),
+        G1,
+        G2,
         node_match=node_match,
         edge_match=edge_match,
     )
@@ -10864,9 +10725,7 @@ def optimize_edit_paths(G1, G2, **kwargs):  # DELEGATED_TO_NETWORKX
 
     import networkx as nx
 
-    from franken_networkx.drawing.layout import _to_nx
-
-    yield from nx.optimize_edit_paths(_to_nx(G1), _to_nx(G2), **kwargs)
+    yield from nx.optimize_edit_paths(G1, G2, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -11020,11 +10879,8 @@ def apply_matplotlib_colors(
     """Apply matplotlib colors to graph."""
     import networkx as nx
 
-    from franken_networkx.drawing.layout import _to_nx
-
-    H = _to_nx(G)
     nx.apply_matplotlib_colors(
-        H,
+        G,
         src_attr,
         dest_attr,
         map,
@@ -11087,7 +10943,7 @@ def panther_vector_similarity(  # DELEGATED_TO_NETWORKX
     import networkx as nx
 
     return nx.panther_vector_similarity(
-        _networkx_compat_graph(G),
+        G,
         source,
         D=D,
         k=k,
@@ -11149,9 +11005,7 @@ def graph_edit_distance(G1, G2, **kwargs):  # DELEGATED_TO_NETWORKX
 
     import networkx as nx
 
-    from franken_networkx.drawing.layout import _to_nx
-
-    return nx.graph_edit_distance(_to_nx(G1), _to_nx(G2), **kwargs)
+    return nx.graph_edit_distance(G1, G2, **kwargs)
 
 
 def optimize_graph_edit_distance(G1, G2, **kwargs):  # DELEGATED_TO_NETWORKX

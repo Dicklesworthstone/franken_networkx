@@ -480,24 +480,39 @@ fn require_undirected(gr: &GraphRef<'_>, _algo_name: &str) -> PyResult<()> {
     Ok(())
 }
 
+fn require_directed(gr: &GraphRef<'_>, _algo_name: &str) -> PyResult<()> {
+    if !gr.is_directed() {
+        let msg = format!("{} is not defined for undirected graphs.", _algo_name);
+        return Err(crate::NetworkXNotImplemented::new_err(msg));
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn validate_node(gr: &GraphRef<'_>, canonical: &str, py_key: &Bound<'_, PyAny>) -> PyResult<()> {
+fn validate_node(
+    gr: &GraphRef<'_>,
+    canonical: &str,
+    py_key: &Bound<'_, PyAny>,
+    prefix: &str,
+) -> PyResult<()> {
     if !gr.has_node(canonical) {
-        return Err(NodeNotFound::new_err(format!(
-            "Node {} is not in G",
+        return Err(crate::NodeNotFound::new_err(format!(
+            "{} {} is not in G",
+            prefix,
             py_key.repr()?
         )));
     }
     Ok(())
 }
 
-fn validate_node_str(gr: &GraphRef<'_>, canonical: &str) -> PyResult<()> {
+fn validate_node_str(gr: &GraphRef<'_>, canonical: &str, prefix: &str) -> PyResult<()> {
     if !gr.has_node(canonical) {
-        return Err(NodeNotFound::new_err(format!(
-            "Node '{}' is not in G",
+        return Err(crate::NodeNotFound::new_err(format!(
+            "{} '{}' is not in G",
+            prefix,
             canonical
         )));
     }
@@ -1118,8 +1133,8 @@ pub fn shortest_path(
                 (Some(src), Some(tgt)) => {
                     let s = node_key_to_string(py, src)?;
                     let t = node_key_to_string(py, tgt)?;
-                    validate_node(&gr, &s, src)?;
-                    validate_node(&gr, &t, tgt)?;
+                    validate_node(&gr, &s, src, "Source")?;
+                    validate_node(&gr, &t, tgt, "Target")?;
 
                     let path = compute_single_shortest_path_directed(
                         py,
@@ -1143,7 +1158,7 @@ pub fn shortest_path(
                 }
                 (Some(src), None) => {
                     let s = node_key_to_string(py, src)?;
-                    validate_node(&gr, &s, src)?;
+                    validate_node(&gr, &s, src, "Source")?;
                     let paths = compute_single_source_shortest_paths_directed(
                         py,
                         inner,
@@ -1161,7 +1176,7 @@ pub fn shortest_path(
                 }
                 (None, Some(tgt)) => {
                     let t = node_key_to_string(py, tgt)?;
-                    validate_node(&gr, &t, tgt)?;
+                    validate_node(&gr, &t, tgt, "Target")?;
                     let result = PyDict::new(py);
                     for node in inner.nodes_ordered() {
                         if let Some(p) = compute_single_shortest_path_directed(
@@ -1208,8 +1223,8 @@ pub fn shortest_path(
                 (Some(src), Some(tgt)) => {
                     let s = node_key_to_string(py, src)?;
                     let t = node_key_to_string(py, tgt)?;
-                    validate_node(&gr, &s, src)?;
-                    validate_node(&gr, &t, tgt)?;
+                    validate_node(&gr, &s, src, "Source")?;
+                    validate_node(&gr, &t, tgt, "Target")?;
 
                     let path =
                         compute_single_shortest_path(py, inner, &s, &t, Some(weight_attr), method)?;
@@ -1227,7 +1242,7 @@ pub fn shortest_path(
                 }
                 (Some(src), None) => {
                     let s = node_key_to_string(py, src)?;
-                    validate_node(&gr, &s, src)?;
+                    validate_node(&gr, &s, src, "Source")?;
                     let paths = compute_single_source_shortest_paths(
                         py,
                         inner,
@@ -1245,7 +1260,7 @@ pub fn shortest_path(
                 }
                 (None, Some(tgt)) => {
                     let t = node_key_to_string(py, tgt)?;
-                    validate_node(&gr, &t, tgt)?;
+                    validate_node(&gr, &t, tgt, "Target")?;
                     let paths = compute_single_source_shortest_paths(
                         py,
                         inner,
@@ -1290,8 +1305,8 @@ pub fn shortest_path(
             (Some(src), Some(tgt)) => {
                 let s = node_key_to_string(py, src)?;
                 let t = node_key_to_string(py, tgt)?;
-                validate_node(&gr, &s, src)?;
-                validate_node(&gr, &t, tgt)?;
+                validate_node(&gr, &s, src, "Source")?;
+                validate_node(&gr, &t, tgt, "Target")?;
 
                 let path = compute_single_shortest_path_directed(py, inner, &s, &t, None, method)?;
                 match path {
@@ -1308,7 +1323,7 @@ pub fn shortest_path(
             }
             (Some(src), None) => {
                 let s = node_key_to_string(py, src)?;
-                validate_node(&gr, &s, src)?;
+                validate_node(&gr, &s, src, "Source")?;
                 let paths =
                     compute_single_source_shortest_paths_directed(py, inner, &s, None, method)?;
                 let result = PyDict::new(py);
@@ -1357,8 +1372,8 @@ pub fn shortest_path(
                 (Some(src), Some(tgt)) => {
                     let s = node_key_to_string(py, src)?;
                     let t = node_key_to_string(py, tgt)?;
-                    validate_node(&gr, &s, src)?;
-                    validate_node(&gr, &t, tgt)?;
+                    validate_node(&gr, &s, src, "Source")?;
+                    validate_node(&gr, &t, tgt, "Target")?;
 
                     let path =
                         compute_single_shortest_path_directed(py, inner, &s, &t, None, method)?;
@@ -1376,7 +1391,7 @@ pub fn shortest_path(
                 }
                 (Some(src), None) => {
                     let s = node_key_to_string(py, src)?;
-                    validate_node(&gr, &s, src)?;
+                    validate_node(&gr, &s, src, "Source")?;
                     let paths =
                         compute_single_source_shortest_paths_directed(py, inner, &s, None, method)?;
                     let result = PyDict::new(py);
@@ -1389,7 +1404,7 @@ pub fn shortest_path(
                 }
                 (None, Some(tgt)) => {
                     let t = node_key_to_string(py, tgt)?;
-                    validate_node(&gr, &t, tgt)?;
+                    validate_node(&gr, &t, tgt, "Target")?;
                     let result = PyDict::new(py);
                     for node in inner.nodes_ordered() {
                         if let Some(p) = compute_single_shortest_path_directed(
@@ -1426,8 +1441,8 @@ pub fn shortest_path(
                 (Some(src), Some(tgt)) => {
                     let s = node_key_to_string(py, src)?;
                     let t = node_key_to_string(py, tgt)?;
-                    validate_node(&gr, &s, src)?;
-                    validate_node(&gr, &t, tgt)?;
+                    validate_node(&gr, &s, src, "Source")?;
+                    validate_node(&gr, &t, tgt, "Target")?;
 
                     let path = compute_single_shortest_path(py, inner, &s, &t, None, method)?;
                     match path {
@@ -1444,7 +1459,7 @@ pub fn shortest_path(
                 }
                 (Some(src), None) => {
                     let s = node_key_to_string(py, src)?;
-                    validate_node(&gr, &s, src)?;
+                    validate_node(&gr, &s, src, "Source")?;
                     let paths = compute_single_source_shortest_paths(py, inner, &s, None, method)?;
                     let result = PyDict::new(py);
                     for (node, p) in paths {
@@ -1456,7 +1471,7 @@ pub fn shortest_path(
                 }
                 (None, Some(tgt)) => {
                     let t = node_key_to_string(py, tgt)?;
-                    validate_node(&gr, &t, tgt)?;
+                    validate_node(&gr, &t, tgt, "Target")?;
                     let paths = compute_single_source_shortest_paths(py, inner, &t, None, method)?;
                     let result = PyDict::new(py);
                     for (node, mut p) in paths {
@@ -1504,8 +1519,8 @@ pub fn shortest_path_length(
     let gr = extract_graph(g)?;
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, target)?;
-    validate_node(&gr, &s, source)?;
-    validate_node(&gr, &t, target)?;
+    validate_node(&gr, &s, source, "Source")?;
+    validate_node(&gr, &t, target, "Target")?;
     if let Some(inner) = gr.digraph() {
         if let Some(w) = weight {
             let weighted_projection = gr.weighted_digraph_projection(w).expect("directed graph");
@@ -1586,8 +1601,8 @@ pub fn has_path(
     let gr = extract_graph(g)?;
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, target)?;
-    validate_node(&gr, &s, source)?;
-    validate_node(&gr, &t, target)?;
+    validate_node(&gr, &s, source, "Source")?;
+    validate_node(&gr, &t, target, "Target")?;
     if let Some(inner) = gr.digraph() {
         let result = py.allow_threads(|| fnx_algorithms::has_path_directed(inner, &s, &t));
         Ok(result.has_path)
@@ -1655,8 +1670,8 @@ pub fn dijkstra_path(
     let gr = extract_graph(g)?;
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, target)?;
-    validate_node(&gr, &s, source)?;
-    validate_node(&gr, &t, target)?;
+    validate_node(&gr, &s, source, "Source")?;
+    validate_node(&gr, &t, target, "Target")?;
 
     let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
         {
@@ -1697,8 +1712,8 @@ pub fn bellman_ford_path(
     let gr = extract_graph(g)?;
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, target)?;
-    validate_node(&gr, &s, source)?;
-    validate_node(&gr, &t, target)?;
+    validate_node(&gr, &s, source, "Source")?;
+    validate_node(&gr, &t, target, "Target")?;
 
     let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
         {
@@ -3719,6 +3734,11 @@ pub fn has_eulerian_path(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool>
             "Connectivity is undefined for the null graph.",
         ));
     }
+    if gr.is_directed() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "not implemented for directed type",
+        ));
+    }
     let inner = gr.undirected();
     if inner.node_count() > 1 && inner.nodes_ordered().iter().any(|n| inner.degree(n) == 0) {
         return Ok(false);
@@ -3776,7 +3796,7 @@ pub fn eulerian_circuit(
     }
     let src = source.map(|s| node_key_to_string(py, s)).transpose()?;
     if let (Some(src_key), Some(src_obj)) = (&src, source) {
-        validate_node(&gr, src_key, src_obj)?;
+        validate_node(&gr, src_key, src_obj, "Source")?;
     }
     let inner = gr.undirected();
     if inner.node_count() > 1 && inner.nodes_ordered().iter().any(|n| inner.degree(n) == 0) {
@@ -3807,9 +3827,14 @@ pub fn eulerian_path(
             "Connectivity is undefined for the null graph.",
         ));
     }
+    if gr.is_directed() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "not implemented for directed type",
+        ));
+    }
     let src = source.map(|s| node_key_to_string(py, s)).transpose()?;
     if let (Some(src_key), Some(src_obj)) = (&src, source) {
-        validate_node(&gr, src_key, src_obj)?;
+        validate_node(&gr, src_key, src_obj, "Source")?;
     }
     let inner = gr.undirected();
     if inner.node_count() > 1 && inner.nodes_ordered().iter().any(|n| inner.degree(n) == 0) {
@@ -3918,8 +3943,8 @@ pub fn efficiency(
     require_undirected(&gr, "efficiency")?;
     let u_key = node_key_to_string(py, u)?;
     let v_key = node_key_to_string(py, v)?;
-    validate_node(&gr, &u_key, u)?;
-    validate_node(&gr, &v_key, v)?;
+    validate_node(&gr, &u_key, u, "Node")?;
+    validate_node(&gr, &v_key, v, "Node")?;
     if u_key == v_key {
         return Err(PyZeroDivisionError::new_err("division by zero"));
     }
@@ -6250,8 +6275,8 @@ pub fn common_neighbors(
     require_undirected(&gr, "common_neighbors")?;
     let u_key = node_key_to_string(py, u)?;
     let v_key = node_key_to_string(py, v)?;
-    validate_node(&gr, &u_key, u)?;
-    validate_node(&gr, &v_key, v)?;
+    validate_node(&gr, &u_key, u, "Node")?;
+    validate_node(&gr, &v_key, v, "Node")?;
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::common_neighbors(inner, &u_key, &v_key));
     Ok(result.iter().map(|n| gr.py_node_key(py, n)).collect())
@@ -6680,7 +6705,7 @@ fn modularity(
         for node in comm.try_iter()? {
             let node = node?;
             let s = node_key_to_string(py, &node)?;
-            validate_node(&gr, &s, &node)?;
+            validate_node(&gr, &s, &node, "Source")?;
             comm_strs.push(s);
         }
         comms_strs.push(comm_strs);
@@ -6745,8 +6770,8 @@ fn astar_path(
     let inner = gr.undirected();
     let src_key = node_key_to_string(py, source)?;
     let tgt_key = node_key_to_string(py, target)?;
-    validate_node(&gr, &src_key, source)?;
-    validate_node(&gr, &tgt_key, target)?;
+    validate_node(&gr, &src_key, source, "Source")?;
+    validate_node(&gr, &tgt_key, target, "Target")?;
 
     let result = if let Some(callable) = heuristic {
         // With heuristic: build a closure that calls back into Python.
@@ -6793,8 +6818,8 @@ fn astar_path_length(
     let inner = gr.undirected();
     let src_key = node_key_to_string(py, source)?;
     let tgt_key = node_key_to_string(py, target)?;
-    validate_node(&gr, &src_key, source)?;
-    validate_node(&gr, &tgt_key, target)?;
+    validate_node(&gr, &src_key, source, "Source")?;
+    validate_node(&gr, &tgt_key, target, "Target")?;
 
     let result = if let Some(callable) = heuristic {
         let tgt_obj = target.clone().unbind();
@@ -6838,8 +6863,8 @@ fn shortest_simple_paths(
     let inner = gr.undirected();
     let src_key = node_key_to_string(py, source)?;
     let tgt_key = node_key_to_string(py, target)?;
-    validate_node(&gr, &src_key, source)?;
-    validate_node(&gr, &tgt_key, target)?;
+    validate_node(&gr, &src_key, source, "Source")?;
+    validate_node(&gr, &tgt_key, target, "Target")?;
     let result = py
         .allow_threads(|| fnx_algorithms::shortest_simple_paths(inner, &src_key, &tgt_key, weight));
     Ok(result
@@ -7744,7 +7769,7 @@ fn is_branching(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
 fn is_isolate(py: Python<'_>, g: &Bound<'_, PyAny>, node: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
     let key = node_key_to_string(py, node)?;
-    validate_node(&gr, &key, node)?;
+    validate_node(&gr, &key, node, "Node")?;
     match &gr {
         GraphRef::Undirected(pg) => Ok({
             let __pg_inner = &pg.inner;
@@ -8301,8 +8326,8 @@ fn dijkstra_path_length(
     let gr = extract_graph(g)?;
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, target)?;
-    validate_node(&gr, &s, source)?;
-    validate_node(&gr, &t, target)?;
+    validate_node(&gr, &s, source, "Source")?;
+    validate_node(&gr, &t, target, "Target")?;
     let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
         {
             let __wp = weighted_projection.as_ref();
@@ -8337,8 +8362,8 @@ fn bellman_ford_path_length(
     let gr = extract_graph(g)?;
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, target)?;
-    validate_node(&gr, &s, source)?;
-    validate_node(&gr, &t, target)?;
+    validate_node(&gr, &s, source, "Source")?;
+    validate_node(&gr, &t, target, "Target")?;
     let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
         let bf = {
             let __wp = weighted_projection.as_ref();
@@ -8571,7 +8596,7 @@ fn single_target_shortest_path(
     let gr = extract_graph(g)?;
     require_undirected(&gr, "single_target_shortest_path")?;
     let t = node_key_to_string(py, target)?;
-    validate_node_str(&gr, &t)?;
+    validate_node_str(&gr, &t, "Target")?;
     let result = {
         let __gr_undirected = gr.undirected();
         py.allow_threads(|| {
@@ -8598,7 +8623,7 @@ fn single_target_shortest_path_length(
     let gr = extract_graph(g)?;
     require_undirected(&gr, "single_target_shortest_path_length")?;
     let t = node_key_to_string(py, target)?;
-    validate_node_str(&gr, &t)?;
+    validate_node_str(&gr, &t, "Target")?;
     let result = {
         let __gr_undirected = gr.undirected();
         py.allow_threads(|| {
@@ -8823,8 +8848,8 @@ fn bidirectional_shortest_path(
     require_undirected(&gr, "bidirectional_shortest_path")?;
     let s = node_key_to_string(py, source)?;
     let t = node_key_to_string(py, target)?;
-    validate_node(&gr, &s, source)?;
-    validate_node(&gr, &t, target)?;
+    validate_node(&gr, &s, source, "Source")?;
+    validate_node(&gr, &t, target, "Target")?;
     let result = {
         let __gr_undirected = gr.undirected();
         py.allow_threads(|| fnx_algorithms::bidirectional_shortest_path(__gr_undirected, &s, &t))
@@ -9114,7 +9139,7 @@ pub fn node_connected_component(
     require_undirected(&gr, "node_connected_component")?;
     let inner = gr.undirected();
     let node = node_key_to_string(py, n)?;
-    validate_node(&gr, &node, n)?;
+    validate_node(&gr, &node, n, "Node")?;
     let result = py.allow_threads(|| fnx_algorithms::node_connected_component(inner, &node));
     Ok(result.iter().map(|s| gr.py_node_key(py, s)).collect())
 }
@@ -9351,9 +9376,10 @@ pub fn is_k_regular(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<
 #[pyo3(signature = (g,))]
 pub fn is_tournament(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
-    if !gr.is_directed() {
+    require_directed(&gr, "is_tournament")?;
+    if gr.is_multigraph() {
         return Err(crate::NetworkXNotImplemented::new_err(
-            "is_tournament is not defined for undirected graphs.",
+            "is_tournament is not defined for multigraphs.",
         ));
     }
     {

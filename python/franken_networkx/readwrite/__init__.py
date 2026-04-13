@@ -3,8 +3,6 @@
 import ast
 from io import BytesIO
 
-from franken_networkx.drawing.layout import _to_nx
-
 
 def _normalize_lines(lines):
     """Normalize a string or iterable into a list of text lines."""
@@ -189,7 +187,7 @@ def to_graph6_bytes(G, nodes=None, header=True):
     """Serialize a FrankenNetworkX graph to graph6 bytes through NetworkX."""
     import networkx as nx
 
-    return nx.to_graph6_bytes(_to_nx(G), nodes=nodes, header=header)
+    return nx.to_graph6_bytes(G, nodes=nodes, header=header)
 
 
 def read_graph6(path):
@@ -203,7 +201,7 @@ def write_graph6(G, path, nodes=None, header=True):
     """Write graph6 files through NetworkX."""
     import networkx as nx
 
-    return nx.write_graph6(_to_nx(G), path, nodes=nodes, header=header)
+    return nx.write_graph6(G, path, nodes=nodes, header=header)
 
 
 def parse_graph6(string):
@@ -226,7 +224,7 @@ def to_sparse6_bytes(G, nodes=None, header=True):
     """Serialize a FrankenNetworkX graph to sparse6 bytes through NetworkX."""
     import networkx as nx
 
-    return nx.to_sparse6_bytes(_to_nx(G), nodes=nodes, header=header)
+    return nx.to_sparse6_bytes(G, nodes=nodes, header=header)
 
 
 def read_sparse6(path):
@@ -240,7 +238,7 @@ def write_sparse6(G, path, nodes=None, header=True):
     """Write sparse6 files through NetworkX."""
     import networkx as nx
 
-    return nx.write_sparse6(_to_nx(G), path, nodes=nodes, header=header)
+    return nx.write_sparse6(G, path, nodes=nodes, header=header)
 
 
 def parse_sparse6(string):
@@ -263,7 +261,7 @@ def write_pajek(G, path, encoding="UTF-8"):
     """Write Pajek through NetworkX."""
     import networkx as nx
 
-    return nx.write_pajek(_to_nx(G), path, encoding=encoding)
+    return nx.write_pajek(G, path, encoding=encoding)
 
 
 def parse_pajek(lines):
@@ -469,7 +467,7 @@ def generate_gml(G, stringizer=None):
     """Yield GML lines using NetworkX's generator."""
     import networkx as nx
 
-    yield from nx.generate_gml(_to_nx(G), stringizer=stringizer)
+    yield from nx.generate_gml(G, stringizer=stringizer)
 
 
 def write_graphml_xml(
@@ -518,7 +516,7 @@ def write_gexf(G, path, encoding="utf-8", prettyprint=True, version="1.2draft"):
     import networkx as nx
 
     return nx.write_gexf(
-        _to_nx(G),
+        G,
         path,
         encoding=encoding,
         prettyprint=prettyprint,
@@ -531,7 +529,7 @@ def generate_gexf(G, encoding="utf-8", prettyprint=True, version="1.2draft"):
     import networkx as nx
 
     yield from nx.generate_gexf(
-        _to_nx(G),
+        G,
         encoding=encoding,
         prettyprint=prettyprint,
         version=version,
@@ -552,4 +550,4 @@ def relabel_gexf_graph(G):
     """Relabel a GEXF graph from internal ids to labels via NetworkX."""
     import networkx as nx
 
-    return _from_nx_graph(nx.relabel_gexf_graph(_to_nx(G)))
+    return _from_nx_graph(nx.relabel_gexf_graph(G))

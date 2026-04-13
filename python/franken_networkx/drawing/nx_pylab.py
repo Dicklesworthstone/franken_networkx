@@ -1,28 +1,26 @@
-"""Drawing functions — delegates to NetworkX/matplotlib after graph conversion."""
+"""Drawing functions — delegates to NetworkX/matplotlib."""
 
 from io import StringIO
 
 from franken_networkx.drawing.layout import bipartite_layout
-from franken_networkx.drawing.layout import _to_nx
 
 
 def _delegate_draw(name, G, *args, **kwargs):
-    """Dispatch a drawing helper to NetworkX after graph conversion."""
+    """Dispatch a drawing helper to NetworkX."""
     import networkx as nx
 
     fn = getattr(nx, name)
-    return fn(_to_nx(G), *args, **kwargs)
+    return fn(G, *args, **kwargs)
 
 
 def draw(G, pos=None, ax=None, **kwargs):
     """Draw the graph G with matplotlib.
 
-    Converts the FrankenNetworkX graph to a NetworkX graph and delegates
-    to ``networkx.draw``.
+    Delegates to ``networkx.draw``.
     """
     import networkx as nx
 
-    nx.draw(_to_nx(G), pos=pos, ax=ax, **kwargs)
+    nx.draw(G, pos=pos, ax=ax, **kwargs)
 
 
 def draw_networkx(G, *args, **kwargs):
@@ -54,49 +52,49 @@ def draw_spring(G, **kwargs):
     """Draw with spring layout."""
     import networkx as nx
 
-    nx.draw_spring(_to_nx(G), **kwargs)
+    nx.draw_spring(G, **kwargs)
 
 
 def draw_circular(G, **kwargs):
     """Draw with circular layout."""
     import networkx as nx
 
-    nx.draw_circular(_to_nx(G), **kwargs)
+    nx.draw_circular(G, **kwargs)
 
 
 def draw_random(G, **kwargs):
     """Draw with random layout."""
     import networkx as nx
 
-    nx.draw_random(_to_nx(G), **kwargs)
+    nx.draw_random(G, **kwargs)
 
 
 def draw_spectral(G, **kwargs):
     """Draw with spectral layout."""
     import networkx as nx
 
-    nx.draw_spectral(_to_nx(G), **kwargs)
+    nx.draw_spectral(G, **kwargs)
 
 
 def draw_shell(G, **kwargs):
     """Draw with shell layout."""
     import networkx as nx
 
-    nx.draw_shell(_to_nx(G), **kwargs)
+    nx.draw_shell(G, **kwargs)
 
 
 def draw_kamada_kawai(G, **kwargs):
     """Draw with Kamada-Kawai layout."""
     import networkx as nx
 
-    nx.draw_kamada_kawai(_to_nx(G), **kwargs)
+    nx.draw_kamada_kawai(G, **kwargs)
 
 
 def draw_planar(G, **kwargs):
     """Draw with planar layout (if graph is planar)."""
     import networkx as nx
 
-    nx.draw_planar(_to_nx(G), **kwargs)
+    nx.draw_planar(G, **kwargs)
 
 
 def draw_forceatlas2(G, **kwargs):
@@ -108,12 +106,7 @@ def to_latex(Gbunch, *args, **kwargs):
     """Render a graph or graph bunch to LaTeX/TikZ via NetworkX."""
     import networkx as nx
 
-    converted = (
-        [_to_nx(graph) for graph in Gbunch]
-        if isinstance(Gbunch, (list, tuple))
-        else _to_nx(Gbunch)
-    )
-    return nx.to_latex(converted, *args, **kwargs)
+    return nx.to_latex(Gbunch, *args, **kwargs)
 
 
 def to_latex_raw(G, *args, **kwargs):
@@ -125,12 +118,7 @@ def write_latex(Gbunch, path, **options):
     """Write LaTeX/TikZ output via NetworkX."""
     import networkx as nx
 
-    converted = (
-        [_to_nx(graph) for graph in Gbunch]
-        if isinstance(Gbunch, (list, tuple))
-        else _to_nx(Gbunch)
-    )
-    return nx.write_latex(converted, path, **options)
+    return nx.write_latex(Gbunch, path, **options)
 
 
 def generate_network_text(graph, *args, **kwargs):

@@ -3,7 +3,7 @@ import pytest
 
 import franken_networkx as fnx
 
-from franken_networkx.drawing.layout import _to_nx
+from franken_networkx.backend import _fnx_to_nx as _to_nx
 
 
 def test_random_labeled_tree_matches_networkx_seeded_edges():

@@ -1,32 +1,12 @@
 """Layout algorithms delegated to NetworkX after graph conversion."""
 
 
-def _to_nx(G):
-    """Convert a FrankenNetworkX graph to a NetworkX graph for drawing."""
-    import networkx as nx
-
-    if G.is_multigraph():
-        H = nx.MultiDiGraph() if G.is_directed() else nx.MultiGraph()
-    else:
-        H = nx.DiGraph() if G.is_directed() else nx.Graph()
-    for n, attrs in G.nodes(data=True):
-        H.add_node(n, **attrs)
-    if G.is_multigraph():
-        for u, v, key, attrs in G.edges(keys=True, data=True):
-            H.add_edge(u, v, key=key, **attrs)
-    else:
-        for u, v, attrs in G.edges(data=True):
-            H.add_edge(u, v, **attrs)
-    H.graph.update(dict(G.graph))
-    return H
-
-
 def _delegate_layout(name, G, *args, **kwargs):
-    """Dispatch a graph layout call to NetworkX after graph conversion."""
+    """Dispatch a graph layout call to NetworkX."""
     import networkx as nx
 
     fn = getattr(nx, name)
-    return fn(_to_nx(G), *args, **kwargs)
+    return fn(G, *args, **kwargs)
 
 
 def arf_layout(G, *args, **kwargs):
@@ -48,49 +28,49 @@ def spring_layout(G, **kwargs):
     """Position nodes using Fruchterman-Reingold force-directed algorithm."""
     import networkx as nx
 
-    return nx.spring_layout(_to_nx(G), **kwargs)
+    return nx.spring_layout(G, **kwargs)
 
 
 def circular_layout(G, **kwargs):
     """Position nodes on a circle."""
     import networkx as nx
 
-    return nx.circular_layout(_to_nx(G), **kwargs)
+    return nx.circular_layout(G, **kwargs)
 
 
 def random_layout(G, **kwargs):
     """Position nodes uniformly at random."""
     import networkx as nx
 
-    return nx.random_layout(_to_nx(G), **kwargs)
+    return nx.random_layout(G, **kwargs)
 
 
 def shell_layout(G, **kwargs):
     """Position nodes in concentric circles."""
     import networkx as nx
 
-    return nx.shell_layout(_to_nx(G), **kwargs)
+    return nx.shell_layout(G, **kwargs)
 
 
 def spectral_layout(G, **kwargs):
     """Position nodes using eigenvectors of the graph Laplacian."""
     import networkx as nx
 
-    return nx.spectral_layout(_to_nx(G), **kwargs)
+    return nx.spectral_layout(G, **kwargs)
 
 
 def kamada_kawai_layout(G, **kwargs):
     """Position nodes using Kamada-Kawai path-length cost function."""
     import networkx as nx
 
-    return nx.kamada_kawai_layout(_to_nx(G), **kwargs)
+    return nx.kamada_kawai_layout(G, **kwargs)
 
 
 def planar_layout(G, **kwargs):
     """Position nodes without edge crossings (if graph is planar)."""
     import networkx as nx
 
-    return nx.planar_layout(_to_nx(G), **kwargs)
+    return nx.planar_layout(G, **kwargs)
 
 
 def forceatlas2_layout(G, *args, **kwargs):

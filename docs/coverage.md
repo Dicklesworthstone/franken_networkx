@@ -7,10 +7,10 @@
 | Category | Count | % |
 |----------|-------|---|
 | RUST_NATIVE (calls `_fnx.*` directly) | 41 | 9% |
-| PY_WRAPPER (pure Python, no NX delegation) | 306 | 68% |
+| PY_WRAPPER (pure Python, no NX delegation) | 311 | 68% |
 | NX_DELEGATED (delegates to upstream NetworkX) | 96 | 21% |
 | CLASS (graph types, exceptions, etc.) | 3 | 0% |
-| **Total public exports** | **446** | |
+| **Total public exports** | **451** | |
 
 ## RUST_NATIVE functions
 
@@ -67,6 +67,11 @@
 - `algebraic_connectivity`
 - `all_neighbors`
 - `all_node_cuts`
+- `all_pairs_bellman_ford_path`
+- `all_pairs_bellman_ford_path_length`
+- `all_pairs_dijkstra`
+- `all_pairs_dijkstra_path`
+- `all_pairs_dijkstra_path_length`
 - `all_pairs_lowest_common_ancestor`
 - `all_simple_edge_paths`
 - `all_simple_paths`

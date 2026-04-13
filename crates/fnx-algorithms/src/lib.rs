@@ -1847,7 +1847,7 @@ pub fn connected_components(graph: &Graph) -> ComponentsResult {
             }
         }
 
-        component.sort_unstable();
+        fnx_cgse::TieBreakPolicy::LexMin.sort_candidates(&mut component);
         components.push(component.into_iter().map(str::to_owned).collect());
     }
 
@@ -1928,8 +1928,8 @@ pub fn degree_centrality_directed(graph: &DiGraph) -> DegreeCentralityResult {
     let mut edges_scanned = 0usize;
     let mut scores = Vec::with_capacity(n);
     for node in &nodes {
-        let out_deg = graph.neighbor_count(node);
-        let in_deg = graph.predecessors(node).map_or(0, |p| p.len());
+        let out_deg = graph.out_degree(node);
+        let in_deg = graph.in_degree(node);
         let degree = in_deg + out_deg;
         edges_scanned += degree;
         let score = (degree as f64) / denominator;
@@ -2068,11 +2068,12 @@ fn closeness_centrality_generic<G: GraphView>(graph: &G) -> ClosenessCentralityR
             if let Some(neighbors) = graph.in_neighbors_iter(nodes[v]) {
                 for w_name in neighbors {
                     total_edges_scanned += 1;
-                    let w = graph.get_node_index(w_name).unwrap();
-                    if distance[w].is_none() {
-                        distance[w] = Some(d + 1);
-                        queue.push_back(w);
-                        global_queue_peak = global_queue_peak.max(queue.len());
+                    if let Some(w) = graph.get_node_index(w_name) {
+                        if distance[w].is_none() {
+                            distance[w] = Some(d + 1);
+                            queue.push_back(w);
+                            global_queue_peak = global_queue_peak.max(queue.len());
+                        }
                     }
                 }
             }

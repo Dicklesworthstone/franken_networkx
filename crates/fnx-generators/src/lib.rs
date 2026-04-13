@@ -7,7 +7,6 @@ use fnx_runtime::{
     decision_theoretic_action, unix_time_ms,
 };
 use mt19937::{MT19937, gen_res53};
-use rand::{Rng, RngExt, SeedableRng, rngs::StdRng};
 use std::fmt;
 
 /// Maximum nodes for general generators (path, cycle, empty, etc.).
@@ -248,7 +247,7 @@ impl GraphGenerator {
         }
 
         let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut rng = PythonRandom::new(seed);
         for left in 0..n {
             for right in (left + 1)..n {
                 let draw: f64 = rng.random();
@@ -315,7 +314,7 @@ impl GraphGenerator {
 
         let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
         let half_k = k / 2;
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut rng = PythonRandom::new(seed);
 
         // Step 1: Build ring lattice — each node connects to k/2 neighbors on each side.
         for i in 0..n {
@@ -334,13 +333,13 @@ impl GraphGenerator {
                     // Remove the original edge.
                     let _ = graph.remove_edge(&node_labels[i], &node_labels[right]);
                     // Pick a random target that isn't self and isn't already a neighbor.
-                    let mut new_target = rng.random_range(0..n);
+                    let mut new_target = rng.randrange(n);
                     let mut attempts = 0;
                     while (new_target == i
                         || graph.has_edge(&node_labels[i], &node_labels[new_target]))
                         && attempts < n
                     {
-                        new_target = rng.random_range(0..n);
+                        new_target = rng.randrange(n);
                         attempts += 1;
                     }
                     if attempts < n {
@@ -406,7 +405,7 @@ impl GraphGenerator {
         // Node labels are "0", "1", ..., "n-1"
         let node_labels: Vec<String> = (0..n).map(|i| i.to_string()).collect();
 
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut rng = PythonRandom::new(seed);
         // Grow the graph: add nodes m+1..n-1 one at a time.
         for source in (m + 1)..n {
             graph.add_node(node_labels[source].clone());
@@ -416,7 +415,7 @@ impl GraphGenerator {
             let mut target_set = std::collections::HashSet::new();
 
             while targets.len() < m {
-                let idx = rng.random_range(0..repeated_nodes.len());
+                let idx = rng.randrange(repeated_nodes.len());
                 let candidate = repeated_nodes[idx];
                 if target_set.insert(candidate) {
                     targets.push(candidate);
@@ -544,7 +543,7 @@ impl GraphGenerator {
 
         let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
         let half_k = k / 2;
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut rng = PythonRandom::new(seed);
 
         // Step 1: Build ring lattice.
         for i in 0..n {
@@ -558,13 +557,13 @@ impl GraphGenerator {
         for i in 0..n {
             for _ in 1..=half_k {
                 if rng.random::<f64>() < p {
-                    let mut new_target = rng.random_range(0..n);
+                    let mut new_target = rng.randrange(n);
                     let mut attempts = 0;
                     while (new_target == i
                         || graph.has_edge(&node_labels[i], &node_labels[new_target]))
                         && attempts < n
                     {
-                        new_target = rng.random_range(0..n);
+                        new_target = rng.randrange(n);
                         attempts += 1;
                     }
                     if attempts < n {
@@ -655,7 +654,7 @@ impl GraphGenerator {
             });
         }
 
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut rng = PythonRandom::new(seed);
         let (_, node_labels) = graph_with_n_nodes(self.mode, n);
         let max_tries = 100;
 
@@ -669,7 +668,7 @@ impl GraphGenerator {
             }
             // Fisher-Yates shuffle
             for i in (1..stubs.len()).rev() {
-                let j = rng.random_range(0..=i);
+                let j = rng.randrange(i + 1);
                 stubs.swap(i, j);
             }
 
@@ -743,7 +742,7 @@ impl GraphGenerator {
         }
 
         let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut rng = PythonRandom::new(seed);
 
         // Start with a complete graph on m nodes
         for i in 0..m {
@@ -769,7 +768,7 @@ impl GraphGenerator {
             let mut target_set = std::collections::HashSet::new();
 
             // First attachment: preferential
-            let idx = rng.random_range(0..repeated_nodes.len());
+            let idx = rng.randrange(repeated_nodes.len());
             let first_target = repeated_nodes[idx];
             target_set.insert(first_target);
             targets.push(first_target);
@@ -791,7 +790,7 @@ impl GraphGenerator {
                         })
                         .collect();
                     if !candidates.is_empty() {
-                        let chosen_name = candidates[rng.random_range(0..candidates.len())];
+                        let chosen_name = candidates[rng.randrange(candidates.len())];
                         let chosen_idx = chosen_name.parse::<usize>().unwrap_or(n);
                         if chosen_idx < n {
                             target_set.insert(chosen_idx);
@@ -804,7 +803,7 @@ impl GraphGenerator {
                 // Fall back to preferential attachment
                 let mut attempts = 0;
                 loop {
-                    let idx = rng.random_range(0..repeated_nodes.len());
+                    let idx = rng.randrange(repeated_nodes.len());
                     let candidate = repeated_nodes[idx];
                     if target_set.insert(candidate) {
                         targets.push(candidate);
@@ -891,31 +890,27 @@ impl GraphGenerator {
             return Ok(GenerationReport { graph, warnings });
         }
 
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut rng = PythonRandom::new(seed);
         let lp = (1.0 - p).ln();
 
-        // Undirected: iterate over n*(n-1)/2 possible edges
+        // Nodes in graph are from 0,n-1 (start with v as the second node index).
         let mut v: isize = 1;
         let mut w: isize = -1;
-        loop {
-            let lr: f64 = (1.0 - rng.random::<f64>()).ln();
-            w += 1 + (lr / lp) as isize;
+        while v < n as isize {
+            let lr: f64 = (1.0 - rng.random()).ln();
+            w = w + 1 + (lr / lp) as isize;
             while w >= v && v < n as isize {
-                w -= v;
-                v += 1;
+                w = w - v;
+                v = v + 1;
             }
-            if v >= n as isize {
-                break;
+            if v < n as isize {
+                graph
+                    .add_edge(node_labels[v as usize].clone(), node_labels[w as usize].clone())
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation: "fast_gnp_random_graph",
+                        reason: err.to_string(),
+                    })?;
             }
-            graph
-                .add_edge(
-                    node_labels[w as usize].clone(),
-                    node_labels[v as usize].clone(),
-                )
-                .map_err(|err| GenerationError::FailClosed {
-                    operation: "fast_gnp_random_graph",
-                    reason: err.to_string(),
-                })?;
         }
 
         self.record(
@@ -971,35 +966,47 @@ impl GraphGenerator {
             return Ok(DiGenerationReport { graph, warnings });
         }
 
-        let mut rng = StdRng::seed_from_u64(seed);
+        let mut rng = PythonRandom::new(seed);
         let lp = (1.0 - p).ln();
-        let mut v: isize = 0;
+
+        // First loop: edges (w, v) where w < v
+        let mut v: isize = 1;
         let mut w: isize = -1;
-        loop {
-            let lr: f64 = (1.0 - rng.random::<f64>()).ln();
-            w += 1 + (lr / lp) as isize;
-            if v == w {
-                w += 1;
+        while v < n as isize {
+            let lr: f64 = (1.0 - rng.random()).ln();
+            w = w + 1 + (lr / lp) as isize;
+            while w >= v && v < n as isize {
+                w = w - v;
+                v = v + 1;
             }
-            while w >= n as isize && v < n as isize - 1 {
-                w -= n as isize;
-                v += 1;
-                if v == w {
-                    w += 1;
-                }
+            if v < n as isize {
+                graph
+                    .add_edge(node_labels[w as usize].clone(), node_labels[v as usize].clone())
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation: "fast_gnp_random_digraph",
+                        reason: err.to_string(),
+                    })?;
             }
-            if v >= n as isize - 1 {
-                break;
+        }
+
+        // Second loop: edges (v, w) where v > w
+        let mut v2: isize = 1;
+        let mut w2: isize = -1;
+        while v2 < n as isize {
+            let lr: f64 = (1.0 - rng.random()).ln();
+            w2 = w2 + 1 + (lr / lp) as isize;
+            while w2 >= v2 && v2 < n as isize {
+                w2 = w2 - v2;
+                v2 = v2 + 1;
             }
-            graph
-                .add_edge(
-                    node_labels[v as usize].clone(),
-                    node_labels[w as usize].clone(),
-                )
-                .map_err(|err| GenerationError::FailClosed {
-                    operation: "fast_gnp_random_digraph",
-                    reason: err.to_string(),
-                })?;
+            if v2 < n as isize {
+                graph
+                    .add_edge(node_labels[v2 as usize].clone(), node_labels[w2 as usize].clone())
+                    .map_err(|err| GenerationError::FailClosed {
+                        operation: "fast_gnp_random_digraph",
+                        reason: err.to_string(),
+                    })?;
+            }
         }
 
         self.record(

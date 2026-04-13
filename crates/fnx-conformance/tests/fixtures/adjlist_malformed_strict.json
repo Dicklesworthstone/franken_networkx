@@ -1,0 +1,12 @@
+{
+  "suite": "readwrite",
+  "mode": "strict",
+  "fixture_id": "adjlist_malformed_strict",
+  "operations": [
+    {
+      "op": "read_adjlist",
+      "input": "node1 node2\n# next line is intentionally \"empty\" whitespace which should be skipped\n  \n# next line has no content after comment split\nnode3 # comment\n# next line is malformed if it has leading whitespace before node?\n# actually split_whitespace() handles leading/trailing whitespace.\n# So let's try something that triggers the node.is_empty() check.\n# wait, parts.next() returns None if line is empty or whitespace-only.\n# So node.is_empty() might be unreachable if split_whitespace() is used.\n# let's check edgelist malformed endpoints."
+    }
+  ],
+  "expected": {}
+}

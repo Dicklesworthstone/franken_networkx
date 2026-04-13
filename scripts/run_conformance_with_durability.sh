@@ -10,7 +10,55 @@ else
   CARGO_RUNNER=(env CARGO_TARGET_DIR=target-codex cargo)
 fi
 
-TOTAL_STEPS=17
+REPORT_PATH="artifacts/conformance/latest/smoke_report.json"
+LOG_PATH="artifacts/conformance/latest/structured_logs.jsonl"
+NORMALIZATION_PATH="artifacts/conformance/latest/structured_log_emitter_normalization_report.json"
+MATRIX_PATH="artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json"
+TAXONOMY_PATH="artifacts/conformance/latest/mismatch_taxonomy_report.json"
+SIDECAR_PATH="artifacts/conformance/latest/smoke_report.raptorq.json"
+LOG_SIDECAR_PATH="artifacts/conformance/latest/structured_logs.raptorq.json"
+NORMALIZATION_SIDECAR_PATH="artifacts/conformance/latest/structured_log_emitter_normalization_report.raptorq.json"
+MATRIX_SIDECAR_PATH="artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.raptorq.json"
+TAXONOMY_SIDECAR_PATH="artifacts/conformance/latest/mismatch_taxonomy_report.raptorq.json"
+RECOVERED_PATH="artifacts/conformance/latest/smoke_report.recovered.json"
+LOG_RECOVERED_PATH="artifacts/conformance/latest/structured_logs.recovered.json"
+NORMALIZATION_RECOVERED_PATH="artifacts/conformance/latest/structured_log_emitter_normalization_report.recovered.json"
+MATRIX_RECOVERED_PATH="artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.recovered.json"
+TAXONOMY_RECOVERED_PATH="artifacts/conformance/latest/mismatch_taxonomy_report.recovered.json"
+PIPELINE_REPORT_PATH="artifacts/conformance/latest/durability_pipeline_report.json"
+RELIABILITY_REPORT_PATH="artifacts/conformance/latest/reliability_budget_report_v1.json"
+FLAKE_QUARANTINE_PATH="artifacts/conformance/latest/flake_quarantine_v1.json"
+RELIABILITY_VALIDATION_PATH="artifacts/conformance/latest/reliability_budget_gate_validation_v1.json"
+FINAL_GATE_REPORT_PATH="artifacts/conformance/latest/logging_final_gate_report_v1.json"
+FINAL_CHECKLIST_PATH="artifacts/conformance/latest/logging_release_checklist_v1.md"
+RELIABILITY_SIDECAR_PATH="artifacts/conformance/latest/reliability_budget_report_v1.raptorq.json"
+FLAKE_QUARANTINE_SIDECAR_PATH="artifacts/conformance/latest/flake_quarantine_v1.raptorq.json"
+RELIABILITY_VALIDATION_SIDECAR_PATH="artifacts/conformance/latest/reliability_budget_gate_validation_v1.raptorq.json"
+FINAL_GATE_SIDECAR_PATH="artifacts/conformance/latest/logging_final_gate_report_v1.raptorq.json"
+FINAL_CHECKLIST_SIDECAR_PATH="artifacts/conformance/latest/logging_release_checklist_v1.raptorq.json"
+RELIABILITY_RECOVERED_PATH="artifacts/conformance/latest/reliability_budget_report_v1.recovered.json"
+FLAKE_QUARANTINE_RECOVERED_PATH="artifacts/conformance/latest/flake_quarantine_v1.recovered.json"
+RELIABILITY_VALIDATION_RECOVERED_PATH="artifacts/conformance/latest/reliability_budget_gate_validation_v1.recovered.json"
+FINAL_GATE_RECOVERED_PATH="artifacts/conformance/latest/logging_final_gate_report_v1.recovered.json"
+FINAL_CHECKLIST_RECOVERED_PATH="artifacts/conformance/latest/logging_release_checklist_v1.recovered.md"
+
+EARLY_ARTIFACT_SPECS=(
+  "$REPORT_PATH|$SIDECAR_PATH|$RECOVERED_PATH|smoke_report|conformance_report"
+  "$LOG_PATH|$LOG_SIDECAR_PATH|$LOG_RECOVERED_PATH|structured_logs|conformance_logs"
+  "$NORMALIZATION_PATH|$NORMALIZATION_SIDECAR_PATH|$NORMALIZATION_RECOVERED_PATH|structured_log_emitter_normalization_report|conformance_logs"
+  "$MATRIX_PATH|$MATRIX_SIDECAR_PATH|$MATRIX_RECOVERED_PATH|telemetry_dependent_unblock_matrix_v1|conformance_logs"
+  "$TAXONOMY_PATH|$TAXONOMY_SIDECAR_PATH|$TAXONOMY_RECOVERED_PATH|mismatch_taxonomy_report|conformance_report"
+)
+
+LATE_ARTIFACT_SPECS=(
+  "$RELIABILITY_REPORT_PATH|$RELIABILITY_SIDECAR_PATH|$RELIABILITY_RECOVERED_PATH|reliability_budget_report_v1|conformance_gate"
+  "$FLAKE_QUARANTINE_PATH|$FLAKE_QUARANTINE_SIDECAR_PATH|$FLAKE_QUARANTINE_RECOVERED_PATH|flake_quarantine_v1|conformance_gate"
+  "$RELIABILITY_VALIDATION_PATH|$RELIABILITY_VALIDATION_SIDECAR_PATH|$RELIABILITY_VALIDATION_RECOVERED_PATH|reliability_budget_gate_validation_v1|conformance_gate"
+  "$FINAL_GATE_REPORT_PATH|$FINAL_GATE_SIDECAR_PATH|$FINAL_GATE_RECOVERED_PATH|logging_final_gate_report_v1|conformance_gate"
+  "$FINAL_CHECKLIST_PATH|$FINAL_CHECKLIST_SIDECAR_PATH|$FINAL_CHECKLIST_RECOVERED_PATH|logging_release_checklist_v1|conformance_gate"
+)
+
+TOTAL_STEPS=$((2 + 3 * ${#EARLY_ARTIFACT_SPECS[@]} + 3 * ${#LATE_ARTIFACT_SPECS[@]} + 3))
 step=1
 
 echo "[$step/$TOTAL_STEPS] Capturing oracle-backed fixtures..."
@@ -21,33 +69,7 @@ echo "[$step/$TOTAL_STEPS] Running conformance harness..."
 "${CARGO_RUNNER[@]}" run -q -p fnx-conformance --bin run_smoke
 step=$((step + 1))
 
-REPORT_PATH="artifacts/conformance/latest/smoke_report.json"
-LOG_PATH="artifacts/conformance/latest/structured_logs.jsonl"
-NORMALIZATION_PATH="artifacts/conformance/latest/structured_log_emitter_normalization_report.json"
-MATRIX_PATH="artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.json"
-SIDECAR_PATH="artifacts/conformance/latest/smoke_report.raptorq.json"
-LOG_SIDECAR_PATH="artifacts/conformance/latest/structured_logs.raptorq.json"
-NORMALIZATION_SIDECAR_PATH="artifacts/conformance/latest/structured_log_emitter_normalization_report.raptorq.json"
-MATRIX_SIDECAR_PATH="artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.raptorq.json"
-RECOVERED_PATH="artifacts/conformance/latest/smoke_report.recovered.json"
-LOG_RECOVERED_PATH="artifacts/conformance/latest/structured_logs.recovered.json"
-NORMALIZATION_RECOVERED_PATH="artifacts/conformance/latest/structured_log_emitter_normalization_report.recovered.json"
-MATRIX_RECOVERED_PATH="artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.recovered.json"
-PIPELINE_REPORT_PATH="artifacts/conformance/latest/durability_pipeline_report.json"
-RELIABILITY_REPORT_PATH="artifacts/conformance/latest/reliability_budget_report_v1.json"
-FLAKE_QUARANTINE_PATH="artifacts/conformance/latest/flake_quarantine_v1.json"
-RELIABILITY_VALIDATION_PATH="artifacts/conformance/latest/reliability_budget_gate_validation_v1.json"
-FINAL_GATE_REPORT_PATH="artifacts/conformance/latest/logging_final_gate_report_v1.json"
-FINAL_CHECKLIST_PATH="artifacts/conformance/latest/logging_release_checklist_v1.md"
-
-ARTIFACT_SPECS=(
-  "$REPORT_PATH|$SIDECAR_PATH|$RECOVERED_PATH|smoke_report|conformance_report"
-  "$LOG_PATH|$LOG_SIDECAR_PATH|$LOG_RECOVERED_PATH|structured_logs|conformance_logs"
-  "$NORMALIZATION_PATH|$NORMALIZATION_SIDECAR_PATH|$NORMALIZATION_RECOVERED_PATH|structured_log_emitter_normalization_report|conformance_logs"
-  "$MATRIX_PATH|$MATRIX_SIDECAR_PATH|$MATRIX_RECOVERED_PATH|telemetry_dependent_unblock_matrix_v1|conformance_logs"
-)
-
-for spec in "${ARTIFACT_SPECS[@]}"; do
+for spec in "${EARLY_ARTIFACT_SPECS[@]}"; do
   IFS='|' read -r artifact_path sidecar_path _recovered_path artifact_id artifact_type <<< "$spec"
   echo "[$step/$TOTAL_STEPS] Generating durability sidecar for $artifact_id..."
   "${CARGO_RUNNER[@]}" run -q -p fnx-durability --bin fnx-durability -- \
@@ -55,7 +77,7 @@ for spec in "${ARTIFACT_SPECS[@]}"; do
   step=$((step + 1))
 done
 
-for spec in "${ARTIFACT_SPECS[@]}"; do
+for spec in "${EARLY_ARTIFACT_SPECS[@]}"; do
   IFS='|' read -r artifact_path sidecar_path _recovered_path artifact_id _artifact_type <<< "$spec"
   echo "[$step/$TOTAL_STEPS] Running scrub verification for $artifact_id..."
   "${CARGO_RUNNER[@]}" run -q -p fnx-durability --bin fnx-durability -- \
@@ -63,7 +85,43 @@ for spec in "${ARTIFACT_SPECS[@]}"; do
   step=$((step + 1))
 done
 
-for spec in "${ARTIFACT_SPECS[@]}"; do
+for spec in "${EARLY_ARTIFACT_SPECS[@]}"; do
+  IFS='|' read -r _artifact_path sidecar_path recovered_path artifact_id _artifact_type <<< "$spec"
+  echo "[$step/$TOTAL_STEPS] Running decode drill for $artifact_id..."
+  "${CARGO_RUNNER[@]}" run -q -p fnx-durability --bin fnx-durability -- \
+    decode-drill "$sidecar_path" "$recovered_path"
+  step=$((step + 1))
+done
+
+echo "[$step/$TOTAL_STEPS] Generating reliability budget gate artifacts..."
+python3 ./scripts/generate_reliability_budget_gate_report.py
+step=$((step + 1))
+
+echo "[$step/$TOTAL_STEPS] Validating reliability budget gate artifacts..."
+python3 ./scripts/validate_reliability_budget_gate.py --output "$RELIABILITY_VALIDATION_PATH"
+step=$((step + 1))
+
+echo "[$step/$TOTAL_STEPS] Generating final logging gate report..."
+python3 ./scripts/generate_logging_gate_report.py
+step=$((step + 1))
+
+for spec in "${LATE_ARTIFACT_SPECS[@]}"; do
+  IFS='|' read -r artifact_path sidecar_path _recovered_path artifact_id artifact_type <<< "$spec"
+  echo "[$step/$TOTAL_STEPS] Generating durability sidecar for $artifact_id..."
+  "${CARGO_RUNNER[@]}" run -q -p fnx-durability --bin fnx-durability -- \
+    generate "$artifact_path" "$sidecar_path" "$artifact_id" "$artifact_type" 1400 6
+  step=$((step + 1))
+done
+
+for spec in "${LATE_ARTIFACT_SPECS[@]}"; do
+  IFS='|' read -r artifact_path sidecar_path _recovered_path artifact_id _artifact_type <<< "$spec"
+  echo "[$step/$TOTAL_STEPS] Running scrub verification for $artifact_id..."
+  "${CARGO_RUNNER[@]}" run -q -p fnx-durability --bin fnx-durability -- \
+    scrub "$artifact_path" "$sidecar_path"
+  step=$((step + 1))
+done
+
+for spec in "${LATE_ARTIFACT_SPECS[@]}"; do
   IFS='|' read -r _artifact_path sidecar_path recovered_path artifact_id _artifact_type <<< "$spec"
   echo "[$step/$TOTAL_STEPS] Running decode drill for $artifact_id..."
   "${CARGO_RUNNER[@]}" run -q -p fnx-durability --bin fnx-durability -- \
@@ -98,6 +156,36 @@ entries = [
         "sidecar_path": "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.raptorq.json",
         "recovered_path": "artifacts/conformance/latest/telemetry_dependent_unblock_matrix_v1.recovered.json",
     },
+    {
+        "artifact_path": "artifacts/conformance/latest/mismatch_taxonomy_report.json",
+        "sidecar_path": "artifacts/conformance/latest/mismatch_taxonomy_report.raptorq.json",
+        "recovered_path": "artifacts/conformance/latest/mismatch_taxonomy_report.recovered.json",
+    },
+    {
+        "artifact_path": "artifacts/conformance/latest/reliability_budget_report_v1.json",
+        "sidecar_path": "artifacts/conformance/latest/reliability_budget_report_v1.raptorq.json",
+        "recovered_path": "artifacts/conformance/latest/reliability_budget_report_v1.recovered.json",
+    },
+    {
+        "artifact_path": "artifacts/conformance/latest/flake_quarantine_v1.json",
+        "sidecar_path": "artifacts/conformance/latest/flake_quarantine_v1.raptorq.json",
+        "recovered_path": "artifacts/conformance/latest/flake_quarantine_v1.recovered.json",
+    },
+    {
+        "artifact_path": "artifacts/conformance/latest/reliability_budget_gate_validation_v1.json",
+        "sidecar_path": "artifacts/conformance/latest/reliability_budget_gate_validation_v1.raptorq.json",
+        "recovered_path": "artifacts/conformance/latest/reliability_budget_gate_validation_v1.recovered.json",
+    },
+    {
+        "artifact_path": "artifacts/conformance/latest/logging_final_gate_report_v1.json",
+        "sidecar_path": "artifacts/conformance/latest/logging_final_gate_report_v1.raptorq.json",
+        "recovered_path": "artifacts/conformance/latest/logging_final_gate_report_v1.recovered.json",
+    },
+    {
+        "artifact_path": "artifacts/conformance/latest/logging_release_checklist_v1.md",
+        "sidecar_path": "artifacts/conformance/latest/logging_release_checklist_v1.raptorq.json",
+        "recovered_path": "artifacts/conformance/latest/logging_release_checklist_v1.recovered.md",
+    },
 ]
 
 materialized = []
@@ -124,17 +212,6 @@ payload = {
 report_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 print(f"  durability_report:{report_path}")
 PY
-
-echo "[$step/$TOTAL_STEPS] Generating reliability budget gate artifacts..."
-python3 ./scripts/generate_reliability_budget_gate_report.py
-step=$((step + 1))
-
-echo "[$step/$TOTAL_STEPS] Validating reliability budget gate artifacts..."
-python3 ./scripts/validate_reliability_budget_gate.py --output "$RELIABILITY_VALIDATION_PATH"
-step=$((step + 1))
-
-echo "[$step/$TOTAL_STEPS] Generating final logging gate report..."
-python3 ./scripts/generate_logging_gate_report.py
 
 echo "Pipeline complete:"
 echo "  report:   $REPORT_PATH"
