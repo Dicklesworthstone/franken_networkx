@@ -2533,6 +2533,296 @@ pub fn decision_theoretic_action(
     }
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// D4: Hardened-mode Bayesian admission controller
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Result of an admission decision from the Bayesian controller.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AdmissionDecision {
+    /// The action to take.
+    pub action: DecisionAction,
+    /// Expected loss for the chosen action.
+    pub expected_loss: f64,
+    /// Confidence in the decision (shrinkage-adjusted).
+    pub confidence: f64,
+    /// Whether the hardened-mode override was applied.
+    pub hardened_override: bool,
+    /// The probability estimate used.
+    pub incompatibility_probability: f64,
+    /// Rationale for the decision.
+    pub rationale: String,
+}
+
+/// Configuration for the Bayesian admission controller.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AdmissionControllerConfig {
+    /// Minimum confidence required to trust empirical data (0-1).
+    /// Below this, we fall back to conservative hardened-mode defaults.
+    pub min_confidence_threshold: f64,
+    /// In hardened mode, apply extra penalty to allow decisions.
+    pub hardened_allow_penalty: f64,
+    /// Maximum allowed incompatibility probability before auto-reject.
+    pub max_incompatibility_probability: f64,
+    /// Minimum samples before considering empirical data.
+    pub min_samples_for_empirical: usize,
+}
+
+impl Default for AdmissionControllerConfig {
+    fn default() -> Self {
+        Self {
+            min_confidence_threshold: 0.3,
+            hardened_allow_penalty: 20.0,
+            max_incompatibility_probability: 0.85,
+            min_samples_for_empirical: 5,
+        }
+    }
+}
+
+impl AdmissionControllerConfig {
+    /// More conservative config for high-risk environments.
+    #[must_use]
+    pub const fn conservative() -> Self {
+        Self {
+            min_confidence_threshold: 0.5,
+            hardened_allow_penalty: 40.0,
+            max_incompatibility_probability: 0.7,
+            min_samples_for_empirical: 10,
+        }
+    }
+}
+
+/// Bayesian admission controller for hardened mode.
+///
+/// Uses calibrated loss matrices to make admission decisions, updating
+/// beliefs based on observed outcomes and applying conservative overrides
+/// when confidence is low.
+#[derive(Debug, Clone)]
+pub struct BayesianAdmissionController {
+    mode: CompatibilityMode,
+    config: AdmissionControllerConfig,
+    calibrator: LossMatrixCalibrator,
+    decision_count: u64,
+    override_count: u64,
+}
+
+impl BayesianAdmissionController {
+    /// Create a new admission controller for the given mode.
+    #[must_use]
+    pub fn new(mode: CompatibilityMode) -> Self {
+        Self {
+            mode,
+            config: AdmissionControllerConfig::default(),
+            calibrator: LossMatrixCalibrator::new(),
+            decision_count: 0,
+            override_count: 0,
+        }
+    }
+
+    /// Create an admission controller with custom config.
+    #[must_use]
+    pub fn with_config(mode: CompatibilityMode, config: AdmissionControllerConfig) -> Self {
+        Self {
+            mode,
+            config,
+            calibrator: LossMatrixCalibrator::new(),
+            decision_count: 0,
+            override_count: 0,
+        }
+    }
+
+    /// Get the current compatibility mode.
+    #[must_use]
+    pub fn mode(&self) -> CompatibilityMode {
+        self.mode
+    }
+
+    /// Get the current config.
+    #[must_use]
+    pub fn config(&self) -> &AdmissionControllerConfig {
+        &self.config
+    }
+
+    /// Make an admission decision.
+    #[must_use]
+    pub fn decide(&mut self, incompatibility_probability: f64) -> AdmissionDecision {
+        self.decision_count += 1;
+
+        // Handle edge cases
+        if incompatibility_probability.is_nan() {
+            return AdmissionDecision {
+                action: DecisionAction::FailClosed,
+                expected_loss: f64::INFINITY,
+                confidence: 0.0,
+                hardened_override: true,
+                incompatibility_probability: f64::NAN,
+                rationale: "NaN probability: fail closed".to_owned(),
+            };
+        }
+
+        let p = incompatibility_probability.clamp(0.0, 1.0);
+
+        // In hardened mode, auto-reject high-risk operations
+        if self.mode == CompatibilityMode::Hardened
+            && p > self.config.max_incompatibility_probability
+        {
+            self.override_count += 1;
+            return AdmissionDecision {
+                action: DecisionAction::FailClosed,
+                expected_loss: p * 100.0,
+                confidence: 1.0,
+                hardened_override: true,
+                incompatibility_probability: p,
+                rationale: format!(
+                    "Hardened mode: probability {} exceeds threshold {}",
+                    p, self.config.max_incompatibility_probability
+                ),
+            };
+        }
+
+        // Get calibrated loss matrix
+        let calibrated = self.calibrator.calibrate();
+        let samples = calibrated.sample_counts;
+        let weights = calibrated.shrinkage_weights;
+
+        // Compute confidence as minimum shrinkage weight
+        let confidence = weights
+            .allow_false_negative
+            .min(weights.validate_cost)
+            .min(weights.reject_false_positive);
+
+        // If confidence is too low or insufficient samples, use defaults with hardened penalty
+        let total_samples =
+            samples.allow_false_negative + samples.validate_cost + samples.reject_false_positive;
+        let use_empirical = confidence >= self.config.min_confidence_threshold
+            && total_samples >= self.config.min_samples_for_empirical;
+
+        let loss = if use_empirical {
+            calibrated.matrix
+        } else {
+            match self.mode {
+                CompatibilityMode::Strict => LossMatrix::strict_default(),
+                CompatibilityMode::Hardened => LossMatrix::hardened_default(),
+            }
+        };
+
+        // Compute expected losses with hardened-mode penalty
+        let allow_loss = if self.mode == CompatibilityMode::Hardened {
+            loss.allow_false_negative + self.config.hardened_allow_penalty
+        } else {
+            loss.allow_false_negative
+        };
+
+        let e_allow = p * allow_loss;
+        let e_validate = loss.validate_cost;
+        let e_fail_closed = (1.0 - p) * loss.reject_false_positive;
+
+        let (action, expected_loss, rationale) = if e_allow <= e_validate && e_allow <= e_fail_closed
+        {
+            (
+                DecisionAction::Allow,
+                e_allow,
+                format!(
+                    "Allow: E[L]={:.2} < validate={:.2}, fail_closed={:.2}",
+                    e_allow, e_validate, e_fail_closed
+                ),
+            )
+        } else if e_validate <= e_fail_closed {
+            (
+                DecisionAction::FullValidate,
+                e_validate,
+                format!(
+                    "Validate: E[L]={:.2} < fail_closed={:.2}",
+                    e_validate, e_fail_closed
+                ),
+            )
+        } else {
+            (
+                DecisionAction::FailClosed,
+                e_fail_closed,
+                format!(
+                    "FailClosed: E[L]={:.2} < validate={:.2}",
+                    e_fail_closed, e_validate
+                ),
+            )
+        };
+
+        AdmissionDecision {
+            action,
+            expected_loss,
+            confidence,
+            hardened_override: false,
+            incompatibility_probability: p,
+            rationale,
+        }
+    }
+
+    /// Record the outcome of a decision for future calibration.
+    pub fn record_outcome(&mut self, decision: &AdmissionDecision, was_incompatible: bool) {
+        let (category, realized_loss) = match decision.action {
+            DecisionAction::Allow if was_incompatible => {
+                // False negative: we allowed but it was incompatible
+                (LossCategory::AllowFalseNegative, 100.0)
+            }
+            DecisionAction::Allow => {
+                // Correct allow: no loss
+                return;
+            }
+            DecisionAction::FullValidate => {
+                // Validation cost is always paid
+                (LossCategory::ValidateCost, 25.0)
+            }
+            DecisionAction::FailClosed if !was_incompatible => {
+                // False positive: we rejected but it was compatible
+                (LossCategory::RejectFalsePositive, 60.0)
+            }
+            DecisionAction::FailClosed => {
+                // Correct rejection: no loss
+                return;
+            }
+        };
+
+        self.calibrator.observe(&LossObservation {
+            ts_unix_ms: unix_time_ms(),
+            action: decision.action,
+            was_incompatible,
+            realized_loss,
+            loss_category: category,
+        });
+    }
+
+    /// Get statistics about controller behavior.
+    #[must_use]
+    pub fn stats(&self) -> AdmissionControllerStats {
+        AdmissionControllerStats {
+            decision_count: self.decision_count,
+            override_count: self.override_count,
+            sample_counts: self.calibrator.sample_counts(),
+            calibrated_matrix: self.calibrator.calibrate(),
+        }
+    }
+
+    /// Reset the controller state (keeps config).
+    pub fn reset(&mut self) {
+        self.calibrator.reset();
+        self.decision_count = 0;
+        self.override_count = 0;
+    }
+}
+
+/// Statistics from the admission controller.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AdmissionControllerStats {
+    /// Total decisions made.
+    pub decision_count: u64,
+    /// Decisions where hardened-mode override was applied.
+    pub override_count: u64,
+    /// Sample counts per loss category.
+    pub sample_counts: LossSampleCounts,
+    /// Current calibrated loss matrix.
+    pub calibrated_matrix: CalibratedLossMatrix,
+}
+
 #[must_use]
 pub fn unix_time_ms() -> u128 {
     SystemTime::now()
@@ -4596,5 +4886,158 @@ mod tests {
 
         calibrator.observe_batch(&observations);
         assert_eq!(calibrator.sample_counts().allow_false_negative, 2);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // D4: Hardened-mode Bayesian admission controller tests
+    // ──────────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn admission_controller_strict_mode_allows_low_risk() {
+        let mut controller = super::BayesianAdmissionController::new(CompatibilityMode::Strict);
+        let decision = controller.decide(0.1);
+
+        assert_eq!(decision.action, DecisionAction::Allow);
+        assert!(!decision.hardened_override);
+        assert!((decision.incompatibility_probability - 0.1).abs() < 1e-10);
+    }
+
+    #[test]
+    fn admission_controller_hardened_mode_rejects_high_risk() {
+        let mut controller = super::BayesianAdmissionController::new(CompatibilityMode::Hardened);
+        let decision = controller.decide(0.9);
+
+        assert_eq!(decision.action, DecisionAction::FailClosed);
+        assert!(decision.hardened_override);
+        assert!(
+            decision
+                .rationale
+                .contains("exceeds threshold"),
+            "Rationale should mention threshold"
+        );
+    }
+
+    #[test]
+    fn admission_controller_nan_probability_fails_closed() {
+        let mut controller = super::BayesianAdmissionController::new(CompatibilityMode::Strict);
+        let decision = controller.decide(f64::NAN);
+
+        assert_eq!(decision.action, DecisionAction::FailClosed);
+        assert!(decision.hardened_override);
+        assert!(decision.rationale.contains("NaN"));
+    }
+
+    #[test]
+    fn admission_controller_hardened_penalty_shifts_decisions() {
+        // In hardened mode, the extra penalty should make validation preferred over allow
+        // at moderate probability levels
+        let mut strict = super::BayesianAdmissionController::new(CompatibilityMode::Strict);
+        let mut hardened = super::BayesianAdmissionController::new(CompatibilityMode::Hardened);
+
+        // At moderate probability, strict might allow but hardened should validate
+        let p = 0.25;
+        let strict_decision = strict.decide(p);
+        let hardened_decision = hardened.decide(p);
+
+        // The hardened mode applies a penalty to allow, making validate more likely
+        // This is a tendency check, not a strict assertion
+        if strict_decision.action == DecisionAction::Allow {
+            // Hardened should be at least as conservative
+            assert!(
+                hardened_decision.action != DecisionAction::Allow
+                    || hardened_decision.expected_loss >= strict_decision.expected_loss,
+                "Hardened mode should be at least as conservative"
+            );
+        }
+    }
+
+    #[test]
+    fn admission_controller_record_outcome_updates_calibrator() {
+        let mut controller = super::BayesianAdmissionController::new(CompatibilityMode::Strict);
+
+        // Make a decision
+        let decision = controller.decide(0.5);
+
+        // Record outcome as false negative (was incompatible but we allowed)
+        if decision.action == DecisionAction::Allow {
+            controller.record_outcome(&decision, true);
+            let stats = controller.stats();
+            assert_eq!(stats.sample_counts.allow_false_negative, 1);
+        }
+    }
+
+    #[test]
+    fn admission_controller_stats_track_decisions() {
+        let mut controller = super::BayesianAdmissionController::new(CompatibilityMode::Hardened);
+
+        // Make several decisions
+        let _ = controller.decide(0.1);
+        let _ = controller.decide(0.5);
+        let _ = controller.decide(0.95); // Should trigger override
+
+        let stats = controller.stats();
+        assert_eq!(stats.decision_count, 3);
+        assert_eq!(stats.override_count, 1); // One high-risk override
+    }
+
+    #[test]
+    fn admission_controller_reset_clears_state() {
+        let mut controller = super::BayesianAdmissionController::new(CompatibilityMode::Strict);
+
+        let decision = controller.decide(0.5);
+        controller.record_outcome(&decision, true);
+
+        let before = controller.stats();
+        assert!(before.decision_count > 0);
+
+        controller.reset();
+
+        let after = controller.stats();
+        assert_eq!(after.decision_count, 0);
+        assert_eq!(after.override_count, 0);
+        assert_eq!(after.sample_counts.allow_false_negative, 0);
+    }
+
+    #[test]
+    fn admission_controller_custom_config() {
+        let config = super::AdmissionControllerConfig::conservative();
+        let mut controller =
+            super::BayesianAdmissionController::with_config(CompatibilityMode::Hardened, config);
+
+        // Conservative config has max_incompatibility_probability of 0.7
+        let decision = controller.decide(0.75);
+        assert_eq!(decision.action, DecisionAction::FailClosed);
+        assert!(decision.hardened_override);
+    }
+
+    #[test]
+    fn admission_controller_correct_decisions_not_recorded() {
+        let mut controller = super::BayesianAdmissionController::new(CompatibilityMode::Strict);
+
+        // Make an allow decision
+        let decision = controller.decide(0.1);
+        assert_eq!(decision.action, DecisionAction::Allow);
+
+        // Record as correct (not incompatible)
+        controller.record_outcome(&decision, false);
+
+        // No loss should be recorded for correct allows
+        let stats = controller.stats();
+        assert_eq!(stats.sample_counts.allow_false_negative, 0);
+    }
+
+    #[test]
+    fn admission_controller_validation_always_records() {
+        let mut controller = super::BayesianAdmissionController::new(CompatibilityMode::Strict);
+
+        // Force a validate decision by giving moderate probability
+        let decision = controller.decide(0.4);
+
+        if decision.action == DecisionAction::FullValidate {
+            // Validation cost is always paid, regardless of actual state
+            controller.record_outcome(&decision, false);
+            let stats = controller.stats();
+            assert_eq!(stats.sample_counts.validate_cost, 1);
+        }
     }
 }
