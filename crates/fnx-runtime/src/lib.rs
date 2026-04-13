@@ -2823,6 +2823,304 @@ pub struct AdmissionControllerStats {
     pub calibrated_matrix: CalibratedLossMatrix,
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// D6: Calibrated confidence with Brier score gate
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// A single prediction-outcome pair for Brier score computation.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PredictionOutcome {
+    /// Predicted probability of incompatibility (0-1).
+    pub predicted_probability: f64,
+    /// Actual outcome: 1.0 if incompatible, 0.0 if compatible.
+    pub actual_outcome: f64,
+    /// Timestamp of the observation.
+    pub ts_unix_ms: u128,
+}
+
+/// Brier score calibration tracker.
+///
+/// Computes Brier score = (1/n) * Σ(p - o)² where p is predicted probability
+/// and o is actual outcome (0 or 1). Perfect calibration yields Brier score = 0.
+#[derive(Debug, Clone, Default)]
+pub struct BrierScoreTracker {
+    predictions: Vec<PredictionOutcome>,
+    sum_squared_error: f64,
+}
+
+impl BrierScoreTracker {
+    /// Create a new empty tracker.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record a prediction and its outcome.
+    pub fn record(&mut self, predicted_probability: f64, was_incompatible: bool) {
+        let actual = if was_incompatible { 1.0 } else { 0.0 };
+        let p = predicted_probability.clamp(0.0, 1.0);
+        let error = p - actual;
+        let sq_error = error * error;
+
+        self.predictions.push(PredictionOutcome {
+            predicted_probability: p,
+            actual_outcome: actual,
+            ts_unix_ms: unix_time_ms(),
+        });
+        self.sum_squared_error += sq_error;
+    }
+
+    /// Get the current Brier score (0 = perfect, 1 = worst).
+    #[must_use]
+    pub fn brier_score(&self) -> f64 {
+        if self.predictions.is_empty() {
+            return 0.5; // Neutral score when no data
+        }
+        self.sum_squared_error / self.predictions.len() as f64
+    }
+
+    /// Get number of predictions recorded.
+    #[must_use]
+    pub fn count(&self) -> usize {
+        self.predictions.len()
+    }
+
+    /// Check if predictions are well-calibrated (Brier score below threshold).
+    #[must_use]
+    pub fn is_calibrated(&self, threshold: f64) -> bool {
+        self.count() >= 10 && self.brier_score() <= threshold
+    }
+
+    /// Reset the tracker.
+    pub fn reset(&mut self) {
+        self.predictions.clear();
+        self.sum_squared_error = 0.0;
+    }
+
+    /// Get calibration metrics.
+    #[must_use]
+    pub fn metrics(&self) -> BrierScoreMetrics {
+        let n = self.predictions.len();
+        if n == 0 {
+            return BrierScoreMetrics {
+                brier_score: 0.5,
+                sample_count: 0,
+                reliability: 0.0,
+                resolution: 0.0,
+                base_rate: 0.5,
+            };
+        }
+
+        let brier = self.brier_score();
+        let base_rate = self
+            .predictions
+            .iter()
+            .map(|p| p.actual_outcome)
+            .sum::<f64>()
+            / n as f64;
+
+        // Reliability: how well do predicted probabilities match observed frequencies?
+        // Lower is better. This is a simplified version.
+        let reliability = self.compute_reliability();
+
+        // Resolution: ability to separate positive and negative cases
+        // Higher is better.
+        let resolution = self.compute_resolution(base_rate);
+
+        BrierScoreMetrics {
+            brier_score: brier,
+            sample_count: n,
+            reliability,
+            resolution,
+            base_rate,
+        }
+    }
+
+    fn compute_reliability(&self) -> f64 {
+        if self.predictions.is_empty() {
+            return 0.0;
+        }
+
+        // Bin predictions into 10 bins and compute reliability
+        let mut bins: [Vec<&PredictionOutcome>; 10] = Default::default();
+        for pred in &self.predictions {
+            let bin_idx = (pred.predicted_probability * 10.0).floor().min(9.0) as usize;
+            bins[bin_idx].push(pred);
+        }
+
+        let mut reliability = 0.0;
+        let n = self.predictions.len() as f64;
+
+        for (i, bin) in bins.iter().enumerate() {
+            if bin.is_empty() {
+                continue;
+            }
+            let bin_prob = (i as f64 + 0.5) / 10.0; // Bin center
+            let actual_freq = bin.iter().map(|p| p.actual_outcome).sum::<f64>() / bin.len() as f64;
+            let error = bin_prob - actual_freq;
+            reliability += (bin.len() as f64 / n) * error * error;
+        }
+
+        reliability
+    }
+
+    fn compute_resolution(&self, base_rate: f64) -> f64 {
+        if self.predictions.is_empty() {
+            return 0.0;
+        }
+
+        // Resolution measures how much predictions deviate from base rate
+        let mut resolution = 0.0;
+        let n = self.predictions.len() as f64;
+
+        // Bin predictions and compute resolution
+        let mut bins: [Vec<&PredictionOutcome>; 10] = Default::default();
+        for pred in &self.predictions {
+            let bin_idx = (pred.predicted_probability * 10.0).floor().min(9.0) as usize;
+            bins[bin_idx].push(pred);
+        }
+
+        for bin in &bins {
+            if bin.is_empty() {
+                continue;
+            }
+            let actual_freq = bin.iter().map(|p| p.actual_outcome).sum::<f64>() / bin.len() as f64;
+            let deviation = actual_freq - base_rate;
+            resolution += (bin.len() as f64 / n) * deviation * deviation;
+        }
+
+        resolution
+    }
+}
+
+/// Detailed Brier score metrics.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BrierScoreMetrics {
+    /// Overall Brier score (0 = perfect, 1 = worst).
+    pub brier_score: f64,
+    /// Number of samples used.
+    pub sample_count: usize,
+    /// Reliability component (lower is better).
+    pub reliability: f64,
+    /// Resolution component (higher is better).
+    pub resolution: f64,
+    /// Base rate of positive outcomes.
+    pub base_rate: f64,
+}
+
+/// Gate that blocks decisions when calibration is poor.
+#[derive(Debug, Clone)]
+pub struct BrierScoreGate {
+    tracker: BrierScoreTracker,
+    /// Maximum acceptable Brier score (default 0.25).
+    threshold: f64,
+    /// Minimum samples required before gate is active.
+    min_samples: usize,
+    /// Action to take when gate blocks.
+    block_action: DecisionAction,
+}
+
+impl Default for BrierScoreGate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl BrierScoreGate {
+    /// Create a new gate with default settings.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            tracker: BrierScoreTracker::new(),
+            threshold: 0.25,
+            min_samples: 10,
+            block_action: DecisionAction::FullValidate,
+        }
+    }
+
+    /// Create a gate with custom settings.
+    #[must_use]
+    pub fn with_settings(threshold: f64, min_samples: usize, block_action: DecisionAction) -> Self {
+        Self {
+            tracker: BrierScoreTracker::new(),
+            threshold: threshold.clamp(0.0, 1.0),
+            min_samples,
+            block_action,
+        }
+    }
+
+    /// Record a prediction outcome.
+    pub fn record(&mut self, predicted_probability: f64, was_incompatible: bool) {
+        self.tracker.record(predicted_probability, was_incompatible);
+    }
+
+    /// Check if the gate is currently open (calibration is acceptable).
+    #[must_use]
+    pub fn is_open(&self) -> bool {
+        // Gate is open if we don't have enough samples yet OR calibration is good
+        self.tracker.count() < self.min_samples
+            || self.tracker.brier_score() <= self.threshold
+    }
+
+    /// Apply the gate to a proposed action.
+    ///
+    /// Returns the action unchanged if gate is open, or block_action if closed.
+    #[must_use]
+    pub fn apply(&self, proposed_action: DecisionAction) -> GateDecision {
+        if self.is_open() {
+            GateDecision {
+                action: proposed_action,
+                gate_applied: false,
+                brier_score: self.tracker.brier_score(),
+                sample_count: self.tracker.count(),
+            }
+        } else {
+            GateDecision {
+                action: self.block_action,
+                gate_applied: true,
+                brier_score: self.tracker.brier_score(),
+                sample_count: self.tracker.count(),
+            }
+        }
+    }
+
+    /// Get current Brier score.
+    #[must_use]
+    pub fn brier_score(&self) -> f64 {
+        self.tracker.brier_score()
+    }
+
+    /// Get detailed metrics.
+    #[must_use]
+    pub fn metrics(&self) -> BrierScoreMetrics {
+        self.tracker.metrics()
+    }
+
+    /// Reset the gate.
+    pub fn reset(&mut self) {
+        self.tracker.reset();
+    }
+
+    /// Get the threshold.
+    #[must_use]
+    pub fn threshold(&self) -> f64 {
+        self.threshold
+    }
+}
+
+/// Result of applying the Brier score gate.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GateDecision {
+    /// The action after gate is applied.
+    pub action: DecisionAction,
+    /// Whether the gate blocked the original action.
+    pub gate_applied: bool,
+    /// Current Brier score.
+    pub brier_score: f64,
+    /// Number of samples in the tracker.
+    pub sample_count: usize,
+}
+
 #[must_use]
 pub fn unix_time_ms() -> u128 {
     SystemTime::now()
@@ -5039,5 +5337,201 @@ mod tests {
             let stats = controller.stats();
             assert_eq!(stats.sample_counts.validate_cost, 1);
         }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // D6: Calibrated confidence with Brier score gate tests
+    // ──────────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn brier_score_perfect_predictions() {
+        let mut tracker = super::BrierScoreTracker::new();
+
+        // Perfect predictions: predict 1.0 when true, 0.0 when false
+        tracker.record(1.0, true);
+        tracker.record(0.0, false);
+        tracker.record(1.0, true);
+        tracker.record(0.0, false);
+
+        let score = tracker.brier_score();
+        assert!(
+            score < 0.01,
+            "Perfect predictions should have near-zero Brier score (got {})",
+            score
+        );
+    }
+
+    #[test]
+    fn brier_score_worst_predictions() {
+        let mut tracker = super::BrierScoreTracker::new();
+
+        // Worst predictions: predict opposite of reality
+        tracker.record(0.0, true); // Predicted 0, was 1 -> error = -1
+        tracker.record(1.0, false); // Predicted 1, was 0 -> error = 1
+        tracker.record(0.0, true);
+        tracker.record(1.0, false);
+
+        let score = tracker.brier_score();
+        assert!(
+            (score - 1.0).abs() < 0.01,
+            "Worst predictions should have Brier score near 1.0 (got {})",
+            score
+        );
+    }
+
+    #[test]
+    fn brier_score_calibrated_predictions() {
+        let mut tracker = super::BrierScoreTracker::new();
+
+        // Well-calibrated: predict 0.5, get 50% true
+        for _ in 0..5 {
+            tracker.record(0.5, true);
+        }
+        for _ in 0..5 {
+            tracker.record(0.5, false);
+        }
+
+        let score = tracker.brier_score();
+        // (0.5 - 1)^2 = 0.25 for true cases
+        // (0.5 - 0)^2 = 0.25 for false cases
+        // Average = 0.25
+        assert!(
+            (score - 0.25).abs() < 0.01,
+            "50% predictions with 50% outcomes should have Brier score of 0.25 (got {})",
+            score
+        );
+    }
+
+    #[test]
+    fn brier_score_empty_tracker() {
+        let tracker = super::BrierScoreTracker::new();
+        let score = tracker.brier_score();
+        assert!(
+            (score - 0.5).abs() < 0.01,
+            "Empty tracker should return 0.5 (got {})",
+            score
+        );
+    }
+
+    #[test]
+    fn brier_score_tracker_reset() {
+        let mut tracker = super::BrierScoreTracker::new();
+        tracker.record(0.8, true);
+        tracker.record(0.2, false);
+        assert!(tracker.count() > 0);
+
+        tracker.reset();
+
+        assert_eq!(tracker.count(), 0);
+        assert!((tracker.brier_score() - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn brier_score_metrics_computes_base_rate() {
+        let mut tracker = super::BrierScoreTracker::new();
+
+        // 3 positives, 7 negatives -> base rate = 0.3
+        for _ in 0..3 {
+            tracker.record(0.5, true);
+        }
+        for _ in 0..7 {
+            tracker.record(0.5, false);
+        }
+
+        let metrics = tracker.metrics();
+        assert!(
+            (metrics.base_rate - 0.3).abs() < 0.01,
+            "Base rate should be 0.3 (got {})",
+            metrics.base_rate
+        );
+        assert_eq!(metrics.sample_count, 10);
+    }
+
+    #[test]
+    fn brier_gate_open_with_insufficient_samples() {
+        let gate = super::BrierScoreGate::new();
+        assert!(gate.is_open(), "Gate should be open with no samples");
+
+        let decision = gate.apply(DecisionAction::Allow);
+        assert_eq!(decision.action, DecisionAction::Allow);
+        assert!(!decision.gate_applied);
+    }
+
+    #[test]
+    fn brier_gate_blocks_poor_calibration() {
+        let mut gate = super::BrierScoreGate::with_settings(0.25, 10, DecisionAction::FailClosed);
+
+        // Record many bad predictions
+        for _ in 0..15 {
+            gate.record(0.9, false); // Predict 0.9 but outcome is 0
+        }
+
+        let score = gate.brier_score();
+        assert!(
+            score > 0.25,
+            "Bad predictions should have high Brier score (got {})",
+            score
+        );
+        assert!(
+            !gate.is_open(),
+            "Gate should be closed with poor calibration"
+        );
+
+        let decision = gate.apply(DecisionAction::Allow);
+        assert_eq!(decision.action, DecisionAction::FailClosed);
+        assert!(decision.gate_applied);
+    }
+
+    #[test]
+    fn brier_gate_allows_good_calibration() {
+        let mut gate = super::BrierScoreGate::with_settings(0.3, 10, DecisionAction::FullValidate);
+
+        // Record well-calibrated predictions
+        for _ in 0..6 {
+            gate.record(0.7, true);
+        }
+        for _ in 0..4 {
+            gate.record(0.3, false);
+        }
+
+        // (0.7-1)^2 = 0.09 for true, (0.3-0)^2 = 0.09 for false
+        // Average ≈ 0.09, below threshold
+        let score = gate.brier_score();
+        assert!(
+            score <= 0.3,
+            "Good calibration should have low Brier score (got {})",
+            score
+        );
+        assert!(gate.is_open(), "Gate should be open with good calibration");
+
+        let decision = gate.apply(DecisionAction::Allow);
+        assert_eq!(decision.action, DecisionAction::Allow);
+        assert!(!decision.gate_applied);
+    }
+
+    #[test]
+    fn brier_gate_reset_reopens() {
+        let mut gate = super::BrierScoreGate::with_settings(0.2, 5, DecisionAction::FailClosed);
+
+        // Make gate close with bad predictions
+        for _ in 0..10 {
+            gate.record(1.0, false);
+        }
+        assert!(!gate.is_open());
+
+        gate.reset();
+
+        assert!(gate.is_open(), "Gate should be open after reset");
+        assert_eq!(gate.metrics().sample_count, 0);
+    }
+
+    #[test]
+    fn brier_gate_custom_settings() {
+        let gate =
+            super::BrierScoreGate::with_settings(0.15, 20, DecisionAction::FullValidate);
+
+        assert!((gate.threshold() - 0.15).abs() < 0.01);
+        // With min_samples=20, gate should be open until we have 20 samples
+        assert!(gate.is_open());
     }
 }
