@@ -100,6 +100,13 @@ impl PyTieBreakPolicy {
     fn __eq__(&self, other: &Self) -> bool {
         self.0 == other.0
     }
+
+    fn __hash__(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.0.hash(&mut hasher);
+        hasher.finish()
+    }
 }
 
 /// A per-execution record emitted by CGSE-instrumented algorithms.
