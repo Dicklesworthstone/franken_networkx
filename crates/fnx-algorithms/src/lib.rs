@@ -11315,7 +11315,10 @@ pub fn dfs_edges(graph: &Graph, source: &str, depth_limit: Option<usize>) -> Vec
 
     visited.insert(source);
     // Push children of source in reverse order for deterministic DFS
-    if let Some(neighbors) = graph.neighbors(source) {
+    // Only push if we can actually visit depth 1 (max_depth > 0)
+    if max_depth > 0
+        && let Some(neighbors) = graph.neighbors(source)
+    {
         for neighbor in neighbors.into_iter().rev() {
             if !visited.contains(neighbor) {
                 stack.push((Some(source), neighbor, 1));
@@ -11372,7 +11375,10 @@ pub fn dfs_edges_directed(
     visited.insert(source);
     let mut stack: Vec<(Option<&str>, &str, usize)> = Vec::new();
 
-    if let Some(succs) = digraph.successors(source) {
+    // Only push if we can actually visit depth 1 (max_depth > 0)
+    if max_depth > 0
+        && let Some(succs) = digraph.successors(source)
+    {
         for succ in succs.into_iter().rev() {
             if !visited.contains(succ) {
                 stack.push((Some(source), succ, 1));

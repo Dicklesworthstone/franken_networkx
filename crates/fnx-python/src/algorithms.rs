@@ -4469,7 +4469,10 @@ fn dfs_forest_undirected(
         visited.insert(start);
         preorder.push(start.to_owned());
         let mut stack: Vec<(Option<&str>, &str, usize)> = Vec::new();
-        if let Some(neighbors) = graph.neighbors(start) {
+        // Only push if we can actually visit depth 1 (max_depth > 0)
+        if max_depth > 0
+            && let Some(neighbors) = graph.neighbors(start)
+        {
             for neighbor in neighbors.into_iter().rev() {
                 if !visited.contains(neighbor) {
                     stack.push((Some(start), neighbor, 1));
@@ -4517,7 +4520,10 @@ fn dfs_forest_directed(
         visited.insert(start);
         preorder.push(start.to_owned());
         let mut stack: Vec<(Option<&str>, &str, usize)> = Vec::new();
-        if let Some(succs) = digraph.successors(start) {
+        // Only push if we can actually visit depth 1 (max_depth > 0)
+        if max_depth > 0
+            && let Some(succs) = digraph.successors(start)
+        {
             for succ in succs.into_iter().rev() {
                 if !visited.contains(succ) {
                     stack.push((Some(start), succ, 1));
