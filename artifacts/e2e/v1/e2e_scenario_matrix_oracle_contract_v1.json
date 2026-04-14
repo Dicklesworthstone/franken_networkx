@@ -7,9 +7,9 @@
     "journey_count": 12,
     "strict_journey_count": 12,
     "hardened_journey_count": 12,
-    "fixture_inventory_count": 84,
+    "fixture_inventory_count": 88,
     "covered_fixture_count": 84,
-    "uncovered_fixture_count": 0
+    "uncovered_fixture_count": 4
   },
   "deterministic_seed_policy": {
     "seed_namespace": "fnx-e2e-scenario-matrix-v1",
@@ -2598,6 +2598,7 @@
       "generated/centrality_harmonic_grid_strict.json",
       "generated/centrality_harmonic_strict.json",
       "generated/centrality_hits_strict.json",
+      "generated/centrality_isolated_nodes_strict.json",
       "generated/centrality_katz_barbell_strict.json",
       "generated/centrality_katz_strict.json",
       "generated/centrality_pagerank_barabasi_strict.json",
@@ -2610,6 +2611,7 @@
       "generated/convert_edge_list_strict.json",
       "generated/core_number_strict.json",
       "generated/cycle_basis_strict.json",
+      "generated/cycles_two_triangles_strict.json",
       "generated/dispatch_route_strict.json",
       "generated/distance_measures_strict.json",
       "generated/euler_circuit_strict.json",
@@ -2640,7 +2642,9 @@
       "generated/matching_min_weight_bipartite_strict.json",
       "generated/matching_min_weight_strict.json",
       "generated/minimum_spanning_tree_strict.json",
+      "generated/mst_weighted_choice_strict.json",
       "generated/node_connectivity_strict.json",
+      "generated/paths_all_simple_diamond_strict.json",
       "generated/paths_efficiency_cover_strict.json",
       "generated/readwrite_adjlist_roundtrip_strict.json",
       "generated/readwrite_graphml_roundtrip_strict.json",
