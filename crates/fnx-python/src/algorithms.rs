@@ -2947,6 +2947,85 @@ pub fn minimum_cut(
     Ok((cut.value, partition))
 }
 
+/// Compute minimum cost flow on a directed graph.
+///
+/// Nodes must have demand attributes (positive = supply, negative = demand).
+/// Edges must have capacity and weight (cost) attributes.
+/// Returns (flow_dict, total_cost) where flow_dict maps (u, v) -> flow value.
+///
+/// Matches `networkx.min_cost_flow`.
+#[pyfunction]
+#[pyo3(signature = (g, demand="demand", capacity="capacity", weight="weight"))]
+pub fn min_cost_flow(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    demand: &str,
+    capacity: &str,
+    weight: &str,
+) -> PyResult<(PyObject, f64)> {
+    let gr = extract_graph(g)?;
+    let demand_attr = demand.to_owned();
+    let capacity_attr = capacity.to_owned();
+    let weight_attr = weight.to_owned();
+
+    let result = if let Some(dg) = gr.digraph() {
+        py.allow_threads(move || {
+            fnx_algorithms::min_cost_flow(dg, &demand_attr, &capacity_attr, &weight_attr)
+        })
+    } else {
+        return Err(NetworkXNotImplemented::new_err(
+            "min_cost_flow requires a directed graph",
+        ));
+    };
+
+    match result {
+        Some(r) => {
+            let dict = PyDict::new(py);
+            for ((u, v), flow) in &r.flow {
+                let key = (gr.py_node_key(py, u), gr.py_node_key(py, v));
+                dict.set_item(key, flow)?;
+            }
+            Ok((dict.into_any().unbind(), r.cost))
+        }
+        None => Err(NetworkXUnfeasible::new_err(
+            "No feasible flow satisfying the demands",
+        )),
+    }
+}
+
+/// Compute only the cost of the minimum cost flow (not the full flow dict).
+#[pyfunction]
+#[pyo3(signature = (g, demand="demand", capacity="capacity", weight="weight"))]
+pub fn min_cost_flow_cost(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    demand: &str,
+    capacity: &str,
+    weight: &str,
+) -> PyResult<f64> {
+    let gr = extract_graph(g)?;
+    let demand_attr = demand.to_owned();
+    let capacity_attr = capacity.to_owned();
+    let weight_attr = weight.to_owned();
+
+    let result = if let Some(dg) = gr.digraph() {
+        py.allow_threads(move || {
+            fnx_algorithms::min_cost_flow(dg, &demand_attr, &capacity_attr, &weight_attr)
+        })
+    } else {
+        return Err(NetworkXNotImplemented::new_err(
+            "min_cost_flow_cost requires a directed graph",
+        ));
+    };
+
+    match result {
+        Some(r) => Ok(r.cost),
+        None => Err(NetworkXUnfeasible::new_err(
+            "No feasible flow satisfying the demands",
+        )),
+    }
+}
+
 // ===========================================================================
 // Distance measures
 // ===========================================================================
@@ -12144,6 +12223,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(maximum_flow_value, m)?)?;
     m.add_function(wrap_pyfunction!(minimum_cut, m)?)?;
     m.add_function(wrap_pyfunction!(minimum_cut_value, m)?)?;
+    m.add_function(wrap_pyfunction!(min_cost_flow, m)?)?;
+    m.add_function(wrap_pyfunction!(min_cost_flow_cost, m)?)?;
     // Distance measures
     m.add_function(wrap_pyfunction!(density, m)?)?;
     m.add_function(wrap_pyfunction!(eccentricity, m)?)?;
