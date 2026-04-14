@@ -11364,11 +11364,19 @@ pub fn dfs_edges_directed(
     source: &str,
     depth_limit: Option<usize>,
 ) -> Vec<(String, String)> {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::Dfs);
+
     let max_depth = depth_limit.unwrap_or(usize::MAX);
     let mut visited: HashSet<&str> = HashSet::new();
     let mut edges: Vec<(String, String)> = Vec::new();
 
     if !digraph.has_node(source) {
+        cgse_publish(
+            CgseReferenceAlgorithm::Dfs,
+            digraph.node_count(),
+            digraph.edge_count(),
+            cgse_sink,
+        );
         return edges;
     }
 
@@ -11392,6 +11400,7 @@ pub fn dfs_edges_directed(
         }
         visited.insert(node);
         if let Some(p) = parent {
+            cgse_record_decision(&mut cgse_sink, node, p);
             edges.push((p.to_owned(), node.to_owned()));
         }
         if depth < max_depth
@@ -11405,6 +11414,12 @@ pub fn dfs_edges_directed(
         }
     }
 
+    cgse_publish(
+        CgseReferenceAlgorithm::Dfs,
+        digraph.node_count(),
+        digraph.edge_count(),
+        cgse_sink,
+    );
     edges
 }
 
@@ -11642,11 +11657,19 @@ pub fn bfs_edges_directed(
     source: &str,
     depth_limit: Option<usize>,
 ) -> Vec<(String, String)> {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::Bfs);
+
     let max_depth = depth_limit.unwrap_or(usize::MAX);
     let mut visited: HashSet<&str> = HashSet::new();
     let mut edges: Vec<(String, String)> = Vec::new();
 
     if !digraph.has_node(source) {
+        cgse_publish(
+            CgseReferenceAlgorithm::Bfs,
+            digraph.node_count(),
+            digraph.edge_count(),
+            cgse_sink,
+        );
         return edges;
     }
 
@@ -11661,6 +11684,7 @@ pub fn bfs_edges_directed(
         if let Some(succs) = digraph.successors(node) {
             for succ in succs {
                 if visited.insert(succ) {
+                    cgse_record_decision(&mut cgse_sink, succ, node);
                     edges.push((node.to_owned(), succ.to_owned()));
                     queue.push_back((succ, depth + 1));
                 }
@@ -11668,6 +11692,12 @@ pub fn bfs_edges_directed(
         }
     }
 
+    cgse_publish(
+        CgseReferenceAlgorithm::Bfs,
+        digraph.node_count(),
+        digraph.edge_count(),
+        cgse_sink,
+    );
     edges
 }
 
@@ -11680,11 +11710,19 @@ pub fn bfs_edges_directed_reverse(
     source: &str,
     depth_limit: Option<usize>,
 ) -> Vec<(String, String)> {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::Bfs);
+
     let max_depth = depth_limit.unwrap_or(usize::MAX);
     let mut visited: HashSet<&str> = HashSet::new();
     let mut edges: Vec<(String, String)> = Vec::new();
 
     if !digraph.has_node(source) {
+        cgse_publish(
+            CgseReferenceAlgorithm::Bfs,
+            digraph.node_count(),
+            digraph.edge_count(),
+            cgse_sink,
+        );
         return edges;
     }
 
@@ -11699,6 +11737,7 @@ pub fn bfs_edges_directed_reverse(
         if let Some(preds) = digraph.predecessors(node) {
             for pred in preds {
                 if visited.insert(pred) {
+                    cgse_record_decision(&mut cgse_sink, pred, node);
                     edges.push((node.to_owned(), pred.to_owned()));
                     queue.push_back((pred, depth + 1));
                 }
@@ -11706,6 +11745,12 @@ pub fn bfs_edges_directed_reverse(
         }
     }
 
+    cgse_publish(
+        CgseReferenceAlgorithm::Bfs,
+        digraph.node_count(),
+        digraph.edge_count(),
+        cgse_sink,
+    );
     edges
 }
 
