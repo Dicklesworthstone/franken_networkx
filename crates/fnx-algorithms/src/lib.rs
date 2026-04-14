@@ -2088,12 +2088,12 @@ fn closeness_centrality_generic<G: GraphView>(graph: &G) -> ClosenessCentralityR
             if let Some(neighbors) = graph.in_neighbors_iter(nodes[v]) {
                 for w_name in neighbors {
                     total_edges_scanned += 1;
-                    if let Some(w) = graph.get_node_index(w_name) {
-                        if distance[w].is_none() {
-                            distance[w] = Some(d + 1);
-                            queue.push_back(w);
-                            global_queue_peak = global_queue_peak.max(queue.len());
-                        }
+                    if let Some(w) = graph.get_node_index(w_name)
+                        && distance[w].is_none()
+                    {
+                        distance[w] = Some(d + 1);
+                        queue.push_back(w);
+                        global_queue_peak = global_queue_peak.max(queue.len());
                     }
                 }
             }

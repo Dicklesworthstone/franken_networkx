@@ -899,10 +899,10 @@ impl GraphGenerator {
         let mut w: isize = -1;
         while v < n as isize {
             let lr: f64 = (1.0 - rng.random()).ln();
-            w = w + 1 + (lr / lp) as isize;
+            w += 1 + (lr / lp) as isize;
             while w >= v && v < n as isize {
-                w = w - v;
-                v = v + 1;
+                w -= v;
+                v += 1;
             }
             if v < n as isize {
                 graph
@@ -975,10 +975,10 @@ impl GraphGenerator {
         let mut w: isize = -1;
         while v < n as isize {
             let lr: f64 = (1.0 - rng.random()).ln();
-            w = w + 1 + (lr / lp) as isize;
+            w += 1 + (lr / lp) as isize;
             while w >= v && v < n as isize {
-                w = w - v;
-                v = v + 1;
+                w -= v;
+                v += 1;
             }
             if v < n as isize {
                 graph
@@ -995,10 +995,10 @@ impl GraphGenerator {
         let mut w2: isize = -1;
         while v2 < n as isize {
             let lr: f64 = (1.0 - rng.random()).ln();
-            w2 = w2 + 1 + (lr / lp) as isize;
+            w2 += 1 + (lr / lp) as isize;
             while w2 >= v2 && v2 < n as isize {
-                w2 = w2 - v2;
-                v2 = v2 + 1;
+                w2 -= v2;
+                v2 += 1;
             }
             if v2 < n as isize {
                 graph

@@ -6858,6 +6858,32 @@ fn rust_graph_to_py_standalone(py: Python<'_>, result: &fnx_classes::Graph) -> P
     Ok(py_graph.into_pyobject(py)?.into_any().unbind())
 }
 
+/// Convert a Rust DiGraph to a Python DiGraph using string labels as keys.
+fn rust_digraph_to_py_standalone(
+    py: Python<'_>,
+    result: &fnx_classes::digraph::DiGraph,
+) -> PyResult<PyObject> {
+    let mut py_graph = crate::digraph::PyDiGraph::new_empty(py)?;
+    for node in result.nodes_ordered() {
+        let py_key = crate::unwrap_infallible(node.to_owned().into_pyobject(py))
+            .into_any()
+            .unbind();
+        py_graph.node_key_map.insert(node.to_owned(), py_key);
+        py_graph
+            .node_py_attrs
+            .insert(node.to_owned(), pyo3::types::PyDict::new(py).unbind());
+        py_graph.inner.add_node(node);
+    }
+    for edge in result.edges_ordered() {
+        let _ = py_graph.inner.add_edge(&edge.left, &edge.right);
+        py_graph.edge_py_attrs.insert(
+            (edge.left.clone(), edge.right.clone()),
+            pyo3::types::PyDict::new(py).unbind(),
+        );
+    }
+    Ok(py_graph.into_pyobject(py)?.into_any().unbind())
+}
+
 fn rust_graph_to_py_subgraph(
     py: Python<'_>,
     result: &fnx_classes::Graph,
@@ -6976,6 +7002,86 @@ fn symmetric_difference(
     let inner2 = gr2.undirected();
     let result = py.allow_threads(|| fnx_algorithms::graph_symmetric_difference(inner1, inner2));
     rust_graph_to_py_binary(py, &result, &gr1, &gr2)
+}
+
+/// Return the line graph of G.
+///
+/// The line graph L(G) has a node for each edge in G. Two nodes in L(G) are
+/// adjacent if the corresponding edges in G share an endpoint.
+#[pyfunction]
+#[pyo3(signature = (g,))]
+fn line_graph(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+    let gr = extract_graph(g)?;
+    if gr.is_directed() {
+        let inner = gr.digraph().expect("is_directed checked above");
+        let result = py.allow_threads(|| fnx_algorithms::line_graph_directed(inner));
+        rust_digraph_to_py_standalone(py, &result)
+    } else {
+        let inner = gr.undirected();
+        let result = py.allow_threads(|| fnx_algorithms::line_graph(inner));
+        rust_graph_to_py_standalone(py, &result)
+    }
+}
+
+/// Return the Cartesian product of G and H.
+///
+/// The Cartesian product has node set V(G) × V(H). Nodes (u1, v1) and (u2, v2)
+/// are adjacent iff u1=u2 and (v1,v2) is an edge in H, or v1=v2 and (u1,u2)
+/// is an edge in G.
+#[pyfunction]
+#[pyo3(signature = (g, h))]
+fn cartesian_product(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    h: &Bound<'_, PyAny>,
+) -> PyResult<PyObject> {
+    let gr1 = extract_graph(g)?;
+    let gr2 = extract_graph(h)?;
+    if gr1.is_directed() && gr2.is_directed() {
+        let inner1 = gr1.digraph().expect("is_directed checked above");
+        let inner2 = gr2.digraph().expect("is_directed checked above");
+        let result = py.allow_threads(|| fnx_algorithms::cartesian_product_directed(inner1, inner2));
+        rust_digraph_to_py_standalone(py, &result)
+    } else if !gr1.is_directed() && !gr2.is_directed() {
+        let inner1 = gr1.undirected();
+        let inner2 = gr2.undirected();
+        let result = py.allow_threads(|| fnx_algorithms::cartesian_product(inner1, inner2));
+        rust_graph_to_py_standalone(py, &result)
+    } else {
+        Err(crate::NetworkXError::new_err(
+            "cartesian_product requires both graphs to be of the same type (both directed or both undirected)",
+        ))
+    }
+}
+
+/// Return the tensor (categorical) product of G and H.
+///
+/// Nodes (u1, v1) and (u2, v2) are adjacent iff (u1, u2) is an edge in G
+/// AND (v1, v2) is an edge in H.
+#[pyfunction]
+#[pyo3(signature = (g, h))]
+fn tensor_product(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    h: &Bound<'_, PyAny>,
+) -> PyResult<PyObject> {
+    let gr1 = extract_graph(g)?;
+    let gr2 = extract_graph(h)?;
+    if gr1.is_directed() && gr2.is_directed() {
+        let inner1 = gr1.digraph().expect("is_directed checked above");
+        let inner2 = gr2.digraph().expect("is_directed checked above");
+        let result = py.allow_threads(|| fnx_algorithms::tensor_product_directed(inner1, inner2));
+        rust_digraph_to_py_standalone(py, &result)
+    } else if !gr1.is_directed() && !gr2.is_directed() {
+        let inner1 = gr1.undirected();
+        let inner2 = gr2.undirected();
+        let result = py.allow_threads(|| fnx_algorithms::tensor_product(inner1, inner2));
+        rust_graph_to_py_standalone(py, &result)
+    } else {
+        Err(crate::NetworkXError::new_err(
+            "tensor_product requires both graphs to be of the same type (both directed or both undirected)",
+        ))
+    }
 }
 
 #[pyfunction]
@@ -12212,6 +12318,9 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(compose, m)?)?;
     m.add_function(wrap_pyfunction!(difference, m)?)?;
     m.add_function(wrap_pyfunction!(symmetric_difference, m)?)?;
+    m.add_function(wrap_pyfunction!(line_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(cartesian_product, m)?)?;
+    m.add_function(wrap_pyfunction!(tensor_product, m)?)?;
     m.add_function(wrap_pyfunction!(degree_histogram, m)?)?;
     // A* shortest path
     m.add_function(wrap_pyfunction!(astar_path, m)?)?;
