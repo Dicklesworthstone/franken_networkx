@@ -1,0 +1,23 @@
+{
+  "suite": "connectivity_v1",
+  "mode": "strict",
+  "operations": [
+    {"op": "add_edge", "left": "s", "right": "a", "attrs": {}},
+    {"op": "add_edge", "left": "s", "right": "b", "attrs": {}},
+    {"op": "add_edge", "left": "a", "right": "t", "attrs": {}},
+    {"op": "add_edge", "left": "b", "right": "t", "attrs": {}},
+    {"op": "node_connectivity_query", "source": "s", "target": "t"}
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["s", "a", "b", "t"],
+      "edges": [
+        {"left": "a", "right": "s", "attrs": {}},
+        {"left": "b", "right": "s", "attrs": {}},
+        {"left": "a", "right": "t", "attrs": {}},
+        {"left": "b", "right": "t", "attrs": {}}
+      ]
+    },
+    "node_connectivity": 2
+  }
+}
