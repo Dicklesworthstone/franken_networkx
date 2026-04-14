@@ -171,6 +171,52 @@ class TestDFS:
             nodes.add(v)
         assert nodes == {0, 1, 2, 3}
 
+    def test_dfs_source_none_traverses_all_components(self):
+        g = fnx.Graph()
+        g.add_edge(0, 1)
+        g.add_edge(2, 3)
+        g.add_node(4)
+
+        edges = list(fnx.dfs_edges(g))
+        assert len(edges) == 2
+
+        preds = dict(fnx.dfs_predecessors(g))
+        succs = dict(fnx.dfs_successors(g))
+        assert len(preds) == 2
+        assert len(succs) == 2
+
+        preorder = list(fnx.dfs_preorder_nodes(g))
+        postorder = list(fnx.dfs_postorder_nodes(g))
+        assert set(preorder) == {0, 1, 2, 3, 4}
+        assert set(postorder) == {0, 1, 2, 3, 4}
+
+        tree = fnx.dfs_tree(g)
+        assert tree.number_of_nodes() == 5
+        assert tree.number_of_edges() == 2
+
+    def test_dfs_source_none_on_digraph(self):
+        d = fnx.DiGraph()
+        d.add_edge(0, 1)
+        d.add_edge(2, 3)
+        d.add_node(4)
+
+        edges = list(fnx.dfs_edges(d))
+        assert len(edges) == 2
+
+        preorder = list(fnx.dfs_preorder_nodes(d))
+        postorder = list(fnx.dfs_postorder_nodes(d))
+        assert set(preorder) == {0, 1, 2, 3, 4}
+        assert set(postorder) == {0, 1, 2, 3, 4}
+
+    def test_dfs_source_none_respects_prior_visits_on_digraph(self):
+        d = fnx.DiGraph()
+        d.add_node(0)
+        d.add_node(1)
+        d.add_edge(1, 0)
+
+        edges = list(fnx.dfs_edges(d))
+        assert edges == []
+
 
 # ---------------------------------------------------------------------------
 # DAG tests

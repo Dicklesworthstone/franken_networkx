@@ -1475,7 +1475,7 @@ impl PyDiGraph {
     #[allow(dead_code)] // Used by directed algorithm bindings (bd-uode.3).
     pub(crate) fn new_empty(py: Python<'_>) -> PyResult<Self> {
         Ok(Self {
-            inner: DiGraph::new(self.inner.mode()),
+            inner: DiGraph::strict(),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -1500,7 +1500,7 @@ impl PyDiGraph {
         }
 
         let mut g = Self {
-            inner: DiGraph::new(self.inner.mode()),
+            inner: DiGraph::strict(),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),

@@ -1245,6 +1245,8 @@ pub fn multi_source_dijkstra(
     sources: &[&str],
     weight_attr: &str,
 ) -> WeightedShortestPathsResult {
+    let mut cgse_sink = cgse_begin(CgseReferenceAlgorithm::Dijkstra);
+
     let ordered_nodes = graph.nodes_ordered();
     let n = ordered_nodes.len();
     let mut distances = vec![f64::INFINITY; n];
@@ -1292,6 +1294,17 @@ pub fn multi_source_dijkstra(
                 let next_dist = d + edge_weight;
 
                 if next_dist < distances[v_idx] - DISTANCE_COMPARISON_EPSILON {
+                    // Record decision: choosing this predecessor over previous (if any)
+                    if let Some(old_pred_idx) = predecessors[v_idx] {
+                        cgse_record_decision(
+                            &mut cgse_sink,
+                            ordered_nodes[u_idx],
+                            ordered_nodes[old_pred_idx],
+                        );
+                    } else {
+                        // First path to this node - record choosing this over "none"
+                        cgse_record_decision(&mut cgse_sink, ordered_nodes[u_idx], v_name);
+                    }
                     if distances[v_idx].is_infinite() {
                         nodes_touched += 1;
                     }
@@ -1308,6 +1321,13 @@ pub fn multi_source_dijkstra(
             }
         }
     }
+
+    cgse_publish(
+        CgseReferenceAlgorithm::Dijkstra,
+        graph.node_count(),
+        graph.edge_count(),
+        cgse_sink,
+    );
 
     let mut dist_map = HashMap::new();
     let mut pred_map = HashMap::new();
@@ -24391,6 +24411,277 @@ pub fn full_join(g1: &Graph, g2: &Graph) -> Graph {
     result
 }
 
+fn pair_label(left: &str, right: &str) -> String {
+    // Use debug formatting to avoid ambiguous labels when node names contain
+    // commas or parentheses. This matches a tuple-like repr while staying injective.
+    format!("({left:?}, {right:?})")
+}
+
+// ---------------------------------------------------------------------------
+// Line graph
+// ---------------------------------------------------------------------------
+
+/// Return the line graph of G.
+///
+/// The line graph L(G) has a node for each edge in G. Two nodes in L(G)
+/// are adjacent if and only if the corresponding edges in G share an endpoint.
+///
+/// Matches `networkx.line_graph(G)`.
+#[must_use]
+pub fn line_graph(graph: &Graph) -> Graph {
+    let mut result = Graph::new(graph.mode());
+
+    // Collect edges with canonical ordering (sorted endpoints)
+    let edges: Vec<(String, String)> = graph
+        .edges_ordered()
+        .into_iter()
+        .map(|e| {
+            if e.left <= e.right {
+                (e.left.clone(), e.right.clone())
+            } else {
+                (e.right.clone(), e.left.clone())
+            }
+        })
+        .collect();
+
+    // Create a node for each edge, named as "(u, v)"
+    for (u, v) in &edges {
+        let node_name = pair_label(u, v);
+        let _ = result.add_node(node_name);
+    }
+
+    // Two edges are adjacent in L(G) if they share a vertex in G
+    for i in 0..edges.len() {
+        let (u1, v1) = &edges[i];
+        for j in (i + 1)..edges.len() {
+            let (u2, v2) = &edges[j];
+            // Check if edges share a vertex
+            if u1 == u2 || u1 == v2 || v1 == u2 || v1 == v2 {
+                let node_i = pair_label(u1, v1);
+                let node_j = pair_label(u2, v2);
+                let _ = result.add_edge(node_i, node_j);
+            }
+        }
+    }
+
+    result
+}
+
+/// Return the line graph of a directed graph.
+///
+/// In the directed line graph L(G), there is a node for each edge in G.
+/// There is an edge from (u, v) to (v, w) in L(G) iff there are edges
+/// u→v and v→w in G (i.e., the head of the first edge is the tail of the second).
+///
+/// Matches `networkx.line_graph(G)` for directed graphs.
+#[must_use]
+pub fn line_graph_directed(digraph: &DiGraph) -> DiGraph {
+    let mut result = DiGraph::new(digraph.mode());
+
+    // Collect all edges
+    let edges: Vec<(String, String)> = digraph
+        .edges_ordered()
+        .into_iter()
+        .map(|e| (e.left.clone(), e.right.clone()))
+        .collect();
+
+    // Create a node for each edge, named as "(u, v)"
+    for (u, v) in &edges {
+        let node_name = pair_label(u, v);
+        let _ = result.add_node(node_name);
+    }
+
+    // In directed line graph: edge (u,v) → (v,w) exists iff head of first = tail of second
+    for (u, v) in &edges {
+        let from_node = pair_label(u, v);
+        // Find all edges that start from v
+        for (u2, v2) in &edges {
+            if v == u2 {
+                let to_node = pair_label(u2, v2);
+                let _ = result.add_edge(from_node.clone(), to_node);
+            }
+        }
+    }
+
+    result
+}
+
+// ---------------------------------------------------------------------------
+// Graph Products
+// ---------------------------------------------------------------------------
+
+/// Return the Cartesian product of G and H.
+///
+/// The Cartesian product has node set V(G) × V(H). Two nodes (u1, v1) and
+/// (u2, v2) are adjacent iff:
+/// - u1 == u2 and (v1, v2) is an edge in H, or
+/// - v1 == v2 and (u1, u2) is an edge in G.
+///
+/// Matches `networkx.cartesian_product(G, H)`.
+#[must_use]
+pub fn cartesian_product(g: &Graph, h: &Graph) -> Graph {
+    let mut result = Graph::new(g.mode());
+
+    let g_nodes = g.nodes_ordered();
+    let h_nodes = h.nodes_ordered();
+
+    // Create node for each pair (g_node, h_node)
+    for gn in &g_nodes {
+        for hn in &h_nodes {
+            let node_name = pair_label(gn, hn);
+            let _ = result.add_node(node_name);
+        }
+    }
+
+    // Add edges: same G-node, adjacent H-nodes
+    for gn in &g_nodes {
+        for edge in h.edges_ordered() {
+            let from_node = pair_label(gn, &edge.left);
+            let to_node = pair_label(gn, &edge.right);
+            let _ = result.add_edge(from_node, to_node);
+        }
+    }
+
+    // Add edges: same H-node, adjacent G-nodes
+    for hn in &h_nodes {
+        for edge in g.edges_ordered() {
+            let from_node = pair_label(&edge.left, hn);
+            let to_node = pair_label(&edge.right, hn);
+            let _ = result.add_edge(from_node, to_node);
+        }
+    }
+
+    result
+}
+
+/// Return the Cartesian product of two directed graphs.
+#[must_use]
+pub fn cartesian_product_directed(g: &DiGraph, h: &DiGraph) -> DiGraph {
+    let mut result = DiGraph::new(g.mode());
+
+    let g_nodes = g.nodes_ordered();
+    let h_nodes = h.nodes_ordered();
+
+    for gn in &g_nodes {
+        for hn in &h_nodes {
+            let node_name = pair_label(gn, hn);
+            let _ = result.add_node(node_name);
+        }
+    }
+
+    for gn in &g_nodes {
+        for edge in h.edges_ordered() {
+            let from_node = pair_label(gn, &edge.left);
+            let to_node = pair_label(gn, &edge.right);
+            let _ = result.add_edge(from_node, to_node);
+        }
+    }
+
+    for hn in &h_nodes {
+        for edge in g.edges_ordered() {
+            let from_node = pair_label(&edge.left, hn);
+            let to_node = pair_label(&edge.right, hn);
+            let _ = result.add_edge(from_node, to_node);
+        }
+    }
+
+    result
+}
+
+/// Return the tensor (categorical) product of G and H.
+///
+/// Two nodes (u1, v1) and (u2, v2) are adjacent iff (u1, u2) is an edge
+/// in G AND (v1, v2) is an edge in H.
+///
+/// Matches `networkx.tensor_product(G, H)`.
+#[must_use]
+pub fn tensor_product(g: &Graph, h: &Graph) -> Graph {
+    let mut result = Graph::new(g.mode());
+
+    let g_nodes = g.nodes_ordered();
+    let h_nodes = h.nodes_ordered();
+
+    // Create node for each pair
+    for gn in &g_nodes {
+        for hn in &h_nodes {
+            let node_name = pair_label(gn, hn);
+            let _ = result.add_node(node_name);
+        }
+    }
+
+    // Collect edges for iteration
+    let g_edges: Vec<(String, String)> = g
+        .edges_ordered()
+        .into_iter()
+        .map(|e| (e.left.clone(), e.right.clone()))
+        .collect();
+    let h_edges: Vec<(String, String)> = h
+        .edges_ordered()
+        .into_iter()
+        .map(|e| (e.left.clone(), e.right.clone()))
+        .collect();
+
+    // For each pair of edges (one from G, one from H), add edges
+    for (gu, gv) in &g_edges {
+        for (hu, hv) in &h_edges {
+            // (gu, hu) -- (gv, hv)
+            let node1 = pair_label(gu, hu);
+            let node2 = pair_label(gv, hv);
+
+            // For undirected graphs, also add the "cross" edge
+            // (gu, hv) -- (gv, hu) if different from above
+            let node3 = pair_label(gu, hv);
+            let node4 = pair_label(gv, hu);
+            let add_cross = node3 != node1 || node4 != node2;
+
+            let _ = result.add_edge(node1, node2);
+            if add_cross {
+                let _ = result.add_edge(node3, node4);
+            }
+        }
+    }
+
+    result
+}
+
+/// Return the tensor product of two directed graphs.
+#[must_use]
+pub fn tensor_product_directed(g: &DiGraph, h: &DiGraph) -> DiGraph {
+    let mut result = DiGraph::new(g.mode());
+
+    let g_nodes = g.nodes_ordered();
+    let h_nodes = h.nodes_ordered();
+
+    for gn in &g_nodes {
+        for hn in &h_nodes {
+            let node_name = pair_label(gn, hn);
+            let _ = result.add_node(node_name);
+        }
+    }
+
+    let g_edges: Vec<(String, String)> = g
+        .edges_ordered()
+        .into_iter()
+        .map(|e| (e.left.clone(), e.right.clone()))
+        .collect();
+    let h_edges: Vec<(String, String)> = h
+        .edges_ordered()
+        .into_iter()
+        .map(|e| (e.left.clone(), e.right.clone()))
+        .collect();
+
+    // For directed: only (gu, hu) -> (gv, hv)
+    for (gu, gv) in &g_edges {
+        for (hu, hv) in &h_edges {
+            let from_node = pair_label(gu, hu);
+            let to_node = pair_label(gv, hv);
+            let _ = result.add_edge(from_node, to_node);
+        }
+    }
+
+    result
+}
+
 // ---------------------------------------------------------------------------
 // Relabel nodes
 // ---------------------------------------------------------------------------
@@ -29109,6 +29400,8 @@ mod tests {
         boundary_expansion,
         bridges,
         bull_graph,
+        cartesian_product,
+        cartesian_product_directed,
         cgse_witness_schema_version,
         chordal_cycle_graph,
         chordal_graph_cliques,
@@ -29291,6 +29584,8 @@ mod tests {
         label_propagation_communities,
         ladder_graph,
         lexicographic_topological_sort,
+        line_graph,
+        line_graph_directed,
         local_bridges_list,
         local_efficiency,
         local_reaching_centrality,
@@ -29402,6 +29697,8 @@ mod tests {
         strongly_connected_components,
         tadpole_graph,
         tetrahedral_graph,
+        tensor_product,
+        tensor_product_directed,
         to_dict_of_lists,
         to_edgelist,
         topological_generations,
@@ -40177,5 +40474,260 @@ mod tests {
         assert_eq!(g.node_count(), 9); // 3x3 grid
         // Should have local edges + some long-range edges
         assert!(g.edge_count() > 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // Line graph tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_line_graph_empty() {
+        let g = Graph::strict();
+        let lg = line_graph(&g);
+        assert_eq!(lg.node_count(), 0);
+        assert_eq!(lg.edge_count(), 0);
+    }
+
+    #[test]
+    fn test_line_graph_single_edge() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let lg = line_graph(&g);
+        // L(G) has one node for the edge (a,b), no edges
+        assert_eq!(lg.node_count(), 1);
+        assert_eq!(lg.edge_count(), 0);
+    }
+
+    #[test]
+    fn test_line_graph_path() {
+        // Path: a--b--c has 2 edges, L(G) has 2 nodes connected by 1 edge
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let lg = line_graph(&g);
+        assert_eq!(lg.node_count(), 2);
+        assert_eq!(lg.edge_count(), 1);
+    }
+
+    #[test]
+    fn test_line_graph_triangle() {
+        // Triangle: 3 edges, L(G) = K3 (complete graph on 3 vertices)
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "a");
+        let lg = line_graph(&g);
+        assert_eq!(lg.node_count(), 3);
+        assert_eq!(lg.edge_count(), 3); // K3 has 3 edges
+    }
+
+    #[test]
+    fn test_line_graph_star() {
+        // Star with center 0 and 4 leaves: 4 edges, L(G) = K4
+        let mut g = Graph::strict();
+        let _ = g.add_edge("0", "1");
+        let _ = g.add_edge("0", "2");
+        let _ = g.add_edge("0", "3");
+        let _ = g.add_edge("0", "4");
+        let lg = line_graph(&g);
+        assert_eq!(lg.node_count(), 4);
+        // K4 has C(4,2) = 6 edges
+        assert_eq!(lg.edge_count(), 6);
+    }
+
+    #[test]
+    fn test_line_graph_label_disambiguation() {
+        // Ensure edge-label serialization is unambiguous.
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a, b", "c");
+        let _ = g.add_edge("a", "b, c");
+        let lg = line_graph(&g);
+        assert_eq!(lg.node_count(), 2);
+    }
+
+    #[test]
+    fn test_line_graph_directed_empty() {
+        let d = DiGraph::strict();
+        let ld = line_graph_directed(&d);
+        assert_eq!(ld.node_count(), 0);
+        assert_eq!(ld.edge_count(), 0);
+    }
+
+    #[test]
+    fn test_line_graph_directed_path() {
+        // Directed path: a->b->c
+        let mut d = DiGraph::strict();
+        d.add_edge("a", "b").unwrap();
+        d.add_edge("b", "c").unwrap();
+        let ld = line_graph_directed(&d);
+        // 2 edges become 2 nodes, 1 directed edge from (a,b) to (b,c)
+        assert_eq!(ld.node_count(), 2);
+        assert_eq!(ld.edge_count(), 1);
+    }
+
+    #[test]
+    fn test_line_graph_directed_diverging() {
+        // a->b, a->c: edges share source a, no head-tail connection
+        let mut d = DiGraph::strict();
+        d.add_edge("a", "b").unwrap();
+        d.add_edge("a", "c").unwrap();
+        let ld = line_graph_directed(&d);
+        assert_eq!(ld.node_count(), 2);
+        // No edge: neither edge's target is the other's source
+        assert_eq!(ld.edge_count(), 0);
+    }
+
+    #[test]
+    fn test_line_graph_directed_converging() {
+        // a->c, b->c: edges share target c, no head-tail connection
+        let mut d = DiGraph::strict();
+        d.add_edge("a", "c").unwrap();
+        d.add_edge("b", "c").unwrap();
+        let ld = line_graph_directed(&d);
+        assert_eq!(ld.node_count(), 2);
+        // No edge: neither edge's target is the other's source
+        assert_eq!(ld.edge_count(), 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // Cartesian product tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_cartesian_product_empty() {
+        let g1 = Graph::strict();
+        let g2 = Graph::strict();
+        let cp = cartesian_product(&g1, &g2);
+        assert_eq!(cp.node_count(), 0);
+        assert_eq!(cp.edge_count(), 0);
+    }
+
+    #[test]
+    fn test_cartesian_product_one_empty() {
+        let mut g1 = Graph::strict();
+        let _ = g1.add_node("a");
+        let g2 = Graph::strict();
+        let cp = cartesian_product(&g1, &g2);
+        assert_eq!(cp.node_count(), 0); // No pairs when one is empty
+    }
+
+    #[test]
+    fn test_cartesian_product_path_path() {
+        // P2 x P2 = C4 (square graph)
+        let mut g1 = Graph::strict();
+        let _ = g1.add_edge("0", "1");
+        let mut g2 = Graph::strict();
+        let _ = g2.add_edge("a", "b");
+        let cp = cartesian_product(&g1, &g2);
+        // 2 * 2 = 4 nodes
+        assert_eq!(cp.node_count(), 4);
+        // 1 edge in g1 * 2 nodes in g2 + 1 edge in g2 * 2 nodes in g1 = 4 edges
+        assert_eq!(cp.edge_count(), 4);
+    }
+
+    #[test]
+    fn test_cartesian_product_k2_k3() {
+        // K2 x K3 = ladder graph with 6 nodes
+        let mut g1 = Graph::strict();
+        let _ = g1.add_edge("0", "1");
+        let mut g2 = Graph::strict();
+        let _ = g2.add_edge("a", "b");
+        let _ = g2.add_edge("b", "c");
+        let _ = g2.add_edge("a", "c");
+        let cp = cartesian_product(&g1, &g2);
+        // 2 * 3 = 6 nodes
+        assert_eq!(cp.node_count(), 6);
+        // 1 edge in g1 * 3 nodes in g2 + 3 edges in g2 * 2 nodes in g1 = 3 + 6 = 9
+        assert_eq!(cp.edge_count(), 9);
+    }
+
+    #[test]
+    fn test_cartesian_product_label_disambiguation() {
+        let mut g1 = Graph::strict();
+        let _ = g1.add_node("a, b");
+        let _ = g1.add_node("a");
+        let mut g2 = Graph::strict();
+        let _ = g2.add_node("c");
+        let _ = g2.add_node("b, c");
+        let cp = cartesian_product(&g1, &g2);
+        assert_eq!(cp.node_count(), 4);
+    }
+
+    #[test]
+    fn test_cartesian_product_directed_path() {
+        let mut g1 = DiGraph::strict();
+        g1.add_edge("0", "1").unwrap();
+        let mut g2 = DiGraph::strict();
+        g2.add_edge("a", "b").unwrap();
+        let cp = cartesian_product_directed(&g1, &g2);
+        assert_eq!(cp.node_count(), 4);
+        // Directed edges: 4 total (same count as undirected, but directed)
+        assert_eq!(cp.edge_count(), 4);
+    }
+
+    // -----------------------------------------------------------------------
+    // Tensor product tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_tensor_product_empty() {
+        let g1 = Graph::strict();
+        let g2 = Graph::strict();
+        let tp = tensor_product(&g1, &g2);
+        assert_eq!(tp.node_count(), 0);
+        assert_eq!(tp.edge_count(), 0);
+    }
+
+    #[test]
+    fn test_tensor_product_one_empty() {
+        let mut g1 = Graph::strict();
+        let _ = g1.add_edge("0", "1");
+        let g2 = Graph::strict();
+        let tp = tensor_product(&g1, &g2);
+        assert_eq!(tp.node_count(), 0); // No pairs when one is empty
+    }
+
+    #[test]
+    fn test_tensor_product_path_path() {
+        // P2 x P2 in tensor product
+        let mut g1 = Graph::strict();
+        let _ = g1.add_edge("0", "1");
+        let mut g2 = Graph::strict();
+        let _ = g2.add_edge("a", "b");
+        let tp = tensor_product(&g1, &g2);
+        // 2 * 2 = 4 nodes
+        assert_eq!(tp.node_count(), 4);
+        // Tensor: edges when BOTH G and H have edges between corresponding nodes
+        // For undirected: (0,a)-(1,b) and (0,b)-(1,a), so 2 edges
+        assert_eq!(tp.edge_count(), 2);
+    }
+
+    #[test]
+    fn test_tensor_product_triangle_edge() {
+        // Triangle x single edge
+        let mut g1 = Graph::strict();
+        let _ = g1.add_edge("a", "b");
+        let _ = g1.add_edge("b", "c");
+        let _ = g1.add_edge("a", "c");
+        let mut g2 = Graph::strict();
+        let _ = g2.add_edge("0", "1");
+        let tp = tensor_product(&g1, &g2);
+        // 3 * 2 = 6 nodes
+        assert_eq!(tp.node_count(), 6);
+        // Each edge in triangle pairs with edge in g2, creating 2 edges per
+        // 3 edges in triangle * 2 directions = 6 edges
+        assert_eq!(tp.edge_count(), 6);
+    }
+
+    #[test]
+    fn test_tensor_product_directed() {
+        let mut g1 = DiGraph::strict();
+        g1.add_edge("0", "1").unwrap();
+        let mut g2 = DiGraph::strict();
+        g2.add_edge("a", "b").unwrap();
+        let tp = tensor_product_directed(&g1, &g2);
+        assert_eq!(tp.node_count(), 4);
+        // Directed tensor: only (0,a) -> (1,b)
+        assert_eq!(tp.edge_count(), 1);
     }
 }

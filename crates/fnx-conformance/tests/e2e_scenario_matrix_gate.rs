@@ -31,7 +31,12 @@ fn fixture_inventory(root: &Path) -> BTreeSet<String> {
             if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
                 continue;
             }
-            if path.file_name().and_then(|name| name.to_str()) == Some("smoke_case.json") {
+            let file_name = path.file_name().and_then(|name| name.to_str());
+            if file_name == Some("smoke_case.json") {
+                continue;
+            }
+            // Exclude CGSE adversarial corpus files - they're test corpuses, not conformance fixtures
+            if file_name.map(|n| n.starts_with("cgse_")).unwrap_or(false) {
                 continue;
             }
             let rel = path

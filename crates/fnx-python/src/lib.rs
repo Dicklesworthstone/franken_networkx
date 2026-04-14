@@ -202,7 +202,7 @@ impl PyMultiGraph {
         }
 
         let mut g = Self {
-            inner: MultiGraph::new(self.inner.mode()),
+            inner: MultiGraph::strict(),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),

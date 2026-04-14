@@ -226,6 +226,15 @@ impl<'py> GraphRef<'py> {
         }
     }
 
+    fn nodes_ordered(&self) -> Vec<&str> {
+        match self {
+            GraphRef::Undirected(pg) => pg.inner.nodes_ordered(),
+            GraphRef::Directed { dg, .. } => dg.inner.nodes_ordered(),
+            GraphRef::MultiUndirected { mg, .. } => mg.inner.nodes_ordered(),
+            GraphRef::MultiDirected { mdg, .. } => mdg.inner.nodes_ordered(),
+        }
+    }
+
     /// Look up edge attributes from the original graph for an undirected edge.
     /// For DiGraph, tries both directions.
     /// For multigraphs, returns first matching parallel edge's attributes.
@@ -1335,7 +1344,7 @@ pub fn shortest_path(
             }
             (None, Some(tgt)) => {
                 let t = node_key_to_string(py, tgt)?;
-                validate_node(&gr, &t, tgt)?;
+                validate_node(&gr, &t, tgt, "Target")?;
                 let result = PyDict::new(py);
                 for node in inner.nodes_ordered() {
                     if let Some(p) =
@@ -1786,7 +1795,7 @@ pub fn multi_source_dijkstra(
     for item in iter {
         let item = item?;
         let s = node_key_to_string(py, &item)?;
-        validate_node_str(&gr, &s)?;
+        validate_node_str(&gr, &s, "Source")?;
         source_strs.push(s);
     }
     let source_refs: Vec<&str> = source_strs.iter().map(String::as_str).collect();
@@ -4443,6 +4452,180 @@ pub fn descendants_at_distance(
 // DFS Traversal
 // ===========================================================================
 
+fn dfs_forest_undirected(
+    graph: &fnx_classes::Graph,
+    nodes: &[&str],
+    depth_limit: Option<usize>,
+) -> (Vec<(String, String)>, Vec<String>) {
+    let max_depth = depth_limit.unwrap_or(usize::MAX);
+    let mut visited: HashSet<&str> = HashSet::new();
+    let mut edges: Vec<(String, String)> = Vec::new();
+    let mut preorder: Vec<String> = Vec::new();
+
+    for &start in nodes {
+        if visited.contains(start) {
+            continue;
+        }
+        visited.insert(start);
+        preorder.push(start.to_owned());
+        let mut stack: Vec<(Option<&str>, &str, usize)> = Vec::new();
+        if let Some(neighbors) = graph.neighbors(start) {
+            for neighbor in neighbors.into_iter().rev() {
+                if !visited.contains(neighbor) {
+                    stack.push((Some(start), neighbor, 1));
+                }
+            }
+        }
+        while let Some((parent, node, depth)) = stack.pop() {
+            if visited.contains(node) {
+                continue;
+            }
+            visited.insert(node);
+            preorder.push(node.to_owned());
+            if let Some(p) = parent {
+                edges.push((p.to_owned(), node.to_owned()));
+            }
+            if depth < max_depth
+                && let Some(neighbors) = graph.neighbors(node)
+            {
+                for neighbor in neighbors.into_iter().rev() {
+                    if !visited.contains(neighbor) {
+                        stack.push((Some(node), neighbor, depth + 1));
+                    }
+                }
+            }
+        }
+    }
+
+    (edges, preorder)
+}
+
+fn dfs_forest_directed(
+    digraph: &fnx_classes::digraph::DiGraph,
+    nodes: &[&str],
+    depth_limit: Option<usize>,
+) -> (Vec<(String, String)>, Vec<String>) {
+    let max_depth = depth_limit.unwrap_or(usize::MAX);
+    let mut visited: HashSet<&str> = HashSet::new();
+    let mut edges: Vec<(String, String)> = Vec::new();
+    let mut preorder: Vec<String> = Vec::new();
+
+    for &start in nodes {
+        if visited.contains(start) {
+            continue;
+        }
+        visited.insert(start);
+        preorder.push(start.to_owned());
+        let mut stack: Vec<(Option<&str>, &str, usize)> = Vec::new();
+        if let Some(succs) = digraph.successors(start) {
+            for succ in succs.into_iter().rev() {
+                if !visited.contains(succ) {
+                    stack.push((Some(start), succ, 1));
+                }
+            }
+        }
+        while let Some((parent, node, depth)) = stack.pop() {
+            if visited.contains(node) {
+                continue;
+            }
+            visited.insert(node);
+            preorder.push(node.to_owned());
+            if let Some(p) = parent {
+                edges.push((p.to_owned(), node.to_owned()));
+            }
+            if depth < max_depth
+                && let Some(succs) = digraph.successors(node)
+            {
+                for succ in succs.into_iter().rev() {
+                    if !visited.contains(succ) {
+                        stack.push((Some(node), succ, depth + 1));
+                    }
+                }
+            }
+        }
+    }
+
+    (edges, preorder)
+}
+
+fn dfs_postorder_forest_undirected(
+    graph: &fnx_classes::Graph,
+    nodes: &[&str],
+    depth_limit: Option<usize>,
+) -> Vec<String> {
+    let max_depth = depth_limit.unwrap_or(usize::MAX);
+    let mut visited: HashSet<&str> = HashSet::new();
+    let mut postorder: Vec<String> = Vec::new();
+
+    for &start in nodes {
+        if visited.contains(start) {
+            continue;
+        }
+        let mut stack: Vec<(&str, bool, usize)> = vec![(start, false, 0)];
+        while let Some((node, backtrack, depth)) = stack.pop() {
+            if backtrack {
+                postorder.push(node.to_owned());
+                continue;
+            }
+            if visited.contains(node) {
+                continue;
+            }
+            visited.insert(node);
+            stack.push((node, true, depth));
+            if depth < max_depth
+                && let Some(neighbors) = graph.neighbors(node)
+            {
+                for neighbor in neighbors.into_iter().rev() {
+                    if !visited.contains(neighbor) {
+                        stack.push((neighbor, false, depth + 1));
+                    }
+                }
+            }
+        }
+    }
+
+    postorder
+}
+
+fn dfs_postorder_forest_directed(
+    digraph: &fnx_classes::digraph::DiGraph,
+    nodes: &[&str],
+    depth_limit: Option<usize>,
+) -> Vec<String> {
+    let max_depth = depth_limit.unwrap_or(usize::MAX);
+    let mut visited: HashSet<&str> = HashSet::new();
+    let mut postorder: Vec<String> = Vec::new();
+
+    for &start in nodes {
+        if visited.contains(start) {
+            continue;
+        }
+        let mut stack: Vec<(&str, bool, usize)> = vec![(start, false, 0)];
+        while let Some((node, backtrack, depth)) = stack.pop() {
+            if backtrack {
+                postorder.push(node.to_owned());
+                continue;
+            }
+            if visited.contains(node) {
+                continue;
+            }
+            visited.insert(node);
+            stack.push((node, true, depth));
+            if depth < max_depth
+                && let Some(succs) = digraph.successors(node)
+            {
+                for succ in succs.into_iter().rev() {
+                    if !visited.contains(succ) {
+                        stack.push((succ, false, depth + 1));
+                    }
+                }
+            }
+        }
+    }
+
+    postorder
+}
+
 /// Iterate over edges in a depth-first search starting at source.
 #[pyfunction]
 #[pyo3(signature = (g, source=None, depth_limit=None, sort_neighbors=None))]
@@ -4465,43 +4648,61 @@ pub fn dfs_edges(
                     s.repr()?
                 )));
             }
-            k
+            Some(k)
         }
-        None => {
-            // Use first node as source (NetworkX iterates all components)
-            let nodes = gr.undirected().nodes_ordered();
-            if nodes.is_empty() {
-                return Ok(Vec::new());
-            }
-            nodes[0].to_owned()
-        }
+        None => None,
     };
 
-    let edges = match &gr {
-        GraphRef::Directed { dg, .. } => {
-            let __dg_inner = &dg.inner;
-            py.allow_threads(|| {
-                fnx_algorithms::dfs_edges_directed(__dg_inner, &source_key, depth_limit)
-            })
-        }
+    let edges = match source_key {
+        Some(source_key) => match &gr {
+            GraphRef::Directed { dg, .. } => {
+                let __dg_inner = &dg.inner;
+                py.allow_threads(|| {
+                    fnx_algorithms::dfs_edges_directed(__dg_inner, &source_key, depth_limit)
+                })
+            }
 
-        GraphRef::Undirected(pg) => {
-            let inner = &pg.inner;
+            GraphRef::Undirected(pg) => {
+                let inner = &pg.inner;
 
-            py.allow_threads(|| fnx_algorithms::dfs_edges(inner, &source_key, depth_limit))
-        }
-        _ => {
-            if gr.is_directed() {
-                {
+                py.allow_threads(|| fnx_algorithms::dfs_edges(inner, &source_key, depth_limit))
+            }
+            _ => {
+                if gr.is_directed() {
                     let __gr_digraph = gr.digraph().expect("is_directed checked above");
                     py.allow_threads(|| {
                         fnx_algorithms::dfs_edges_directed(__gr_digraph, &source_key, depth_limit)
                     })
-                }
-            } else {
-                let inner = gr.undirected();
+                } else {
+                    let inner = gr.undirected();
 
-                py.allow_threads(|| fnx_algorithms::dfs_edges(inner, &source_key, depth_limit))
+                    py.allow_threads(|| fnx_algorithms::dfs_edges(inner, &source_key, depth_limit))
+                }
+            }
+        },
+        None => {
+            let nodes = gr.nodes_ordered();
+            if nodes.is_empty() {
+                return Ok(Vec::new());
+            }
+            match &gr {
+                GraphRef::Directed { dg, .. } => {
+                    let __dg_inner = &dg.inner;
+                    py.allow_threads(|| dfs_forest_directed(__dg_inner, &nodes, depth_limit).0)
+                }
+                GraphRef::Undirected(pg) => {
+                    let inner = &pg.inner;
+                    py.allow_threads(|| dfs_forest_undirected(inner, &nodes, depth_limit).0)
+                }
+                _ => {
+                    if gr.is_directed() {
+                        let __gr_digraph = gr.digraph().expect("is_directed checked above");
+                        py.allow_threads(|| dfs_forest_directed(__gr_digraph, &nodes, depth_limit).0)
+                    } else {
+                        let inner = gr.undirected();
+                        py.allow_threads(|| dfs_forest_undirected(inner, &nodes, depth_limit).0)
+                    }
+                }
             }
         }
     };
@@ -4535,7 +4736,7 @@ pub fn dfs_tree(
         tree.node_py_attrs
             .insert(sk, pyo3::types::PyDict::new(py).unbind());
     } else {
-        for node in gr.undirected().nodes_ordered() {
+        for node in gr.nodes_ordered() {
             tree.inner.add_node(node);
             tree.node_key_map
                 .insert(node.to_owned(), gr.py_node_key(py, node));
@@ -4574,6 +4775,7 @@ pub fn dfs_predecessors(
     let _ = sort_neighbors;
     let gr = extract_graph(g)?;
 
+    let dict = PyDict::new(py);
     let source_key = match source {
         Some(s) => {
             let k = node_key_to_string(py, s)?;
@@ -4583,55 +4785,84 @@ pub fn dfs_predecessors(
                     s.repr()?
                 )));
             }
-            k
+            Some(k)
         }
-        None => {
-            let nodes = gr.undirected().nodes_ordered();
-            if nodes.is_empty() {
-                return Ok(PyDict::new(py).unbind());
-            }
-            nodes[0].to_owned()
-        }
+        None => None,
     };
 
-    let preds = match &gr {
-        GraphRef::Directed { dg, .. } => {
-            let __dg_inner = &dg.inner;
-            py.allow_threads(|| {
-                fnx_algorithms::dfs_predecessors_directed(__dg_inner, &source_key, depth_limit)
-            })
-        }
-
-        GraphRef::Undirected(pg) => {
-            let inner = &pg.inner;
-
-            py.allow_threads(|| fnx_algorithms::dfs_predecessors(inner, &source_key, depth_limit))
-        }
-        _ => {
-            if gr.is_directed() {
-                {
-                    let __gr_digraph = gr.digraph().expect("is_directed checked above");
+    match source_key {
+        Some(source_key) => {
+            let preds = match &gr {
+                GraphRef::Directed { dg, .. } => {
+                    let __dg_inner = &dg.inner;
                     py.allow_threads(|| {
                         fnx_algorithms::dfs_predecessors_directed(
-                            __gr_digraph,
+                            __dg_inner,
                             &source_key,
                             depth_limit,
                         )
                     })
                 }
-            } else {
-                let inner = gr.undirected();
 
-                py.allow_threads(|| {
-                    fnx_algorithms::dfs_predecessors(inner, &source_key, depth_limit)
-                })
+                GraphRef::Undirected(pg) => {
+                    let inner = &pg.inner;
+
+                    py.allow_threads(|| {
+                        fnx_algorithms::dfs_predecessors(inner, &source_key, depth_limit)
+                    })
+                }
+                _ => {
+                    if gr.is_directed() {
+                        let __gr_digraph = gr.digraph().expect("is_directed checked above");
+                        py.allow_threads(|| {
+                            fnx_algorithms::dfs_predecessors_directed(
+                                __gr_digraph,
+                                &source_key,
+                                depth_limit,
+                            )
+                        })
+                    } else {
+                        let inner = gr.undirected();
+
+                        py.allow_threads(|| {
+                            fnx_algorithms::dfs_predecessors(inner, &source_key, depth_limit)
+                        })
+                    }
+                }
+            };
+
+            for (child, parent) in &preds {
+                dict.set_item(gr.py_node_key(py, child), gr.py_node_key(py, parent))?;
             }
         }
-    };
-
-    let dict = PyDict::new(py);
-    for (child, parent) in &preds {
-        dict.set_item(gr.py_node_key(py, child), gr.py_node_key(py, parent))?;
+        None => {
+            let nodes = gr.nodes_ordered();
+            if nodes.is_empty() {
+                return Ok(dict.unbind());
+            }
+            let edges = match &gr {
+                GraphRef::Directed { dg, .. } => {
+                    let __dg_inner = &dg.inner;
+                    py.allow_threads(|| dfs_forest_directed(__dg_inner, &nodes, depth_limit).0)
+                }
+                GraphRef::Undirected(pg) => {
+                    let inner = &pg.inner;
+                    py.allow_threads(|| dfs_forest_undirected(inner, &nodes, depth_limit).0)
+                }
+                _ => {
+                    if gr.is_directed() {
+                        let __gr_digraph = gr.digraph().expect("is_directed checked above");
+                        py.allow_threads(|| dfs_forest_directed(__gr_digraph, &nodes, depth_limit).0)
+                    } else {
+                        let inner = gr.undirected();
+                        py.allow_threads(|| dfs_forest_undirected(inner, &nodes, depth_limit).0)
+                    }
+                }
+            };
+            for (parent, child) in &edges {
+                dict.set_item(gr.py_node_key(py, child), gr.py_node_key(py, parent))?;
+            }
+        }
     }
     Ok(dict.unbind())
 }
@@ -4649,6 +4880,7 @@ pub fn dfs_successors(
     let _ = sort_neighbors;
     let gr = extract_graph(g)?;
 
+    let dict = PyDict::new(py);
     let source_key = match source {
         Some(s) => {
             let k = node_key_to_string(py, s)?;
@@ -4658,54 +4890,90 @@ pub fn dfs_successors(
                     s.repr()?
                 )));
             }
-            k
+            Some(k)
         }
-        None => {
-            let nodes = gr.undirected().nodes_ordered();
-            if nodes.is_empty() {
-                return Ok(PyDict::new(py).unbind());
-            }
-            nodes[0].to_owned()
-        }
+        None => None,
     };
 
-    let succs = match &gr {
-        GraphRef::Directed { dg, .. } => {
-            let __dg_inner = &dg.inner;
-            py.allow_threads(|| {
-                fnx_algorithms::dfs_successors_directed(__dg_inner, &source_key, depth_limit)
-            })
-        }
-
-        GraphRef::Undirected(pg) => {
-            let inner = &pg.inner;
-
-            py.allow_threads(|| fnx_algorithms::dfs_successors(inner, &source_key, depth_limit))
-        }
-        _ => {
-            if gr.is_directed() {
-                {
-                    let __gr_digraph = gr.digraph().expect("is_directed checked above");
+    match source_key {
+        Some(source_key) => {
+            let succs = match &gr {
+                GraphRef::Directed { dg, .. } => {
+                    let __dg_inner = &dg.inner;
                     py.allow_threads(|| {
                         fnx_algorithms::dfs_successors_directed(
-                            __gr_digraph,
+                            __dg_inner,
                             &source_key,
                             depth_limit,
                         )
                     })
                 }
-            } else {
-                let inner = gr.undirected();
 
-                py.allow_threads(|| fnx_algorithms::dfs_successors(inner, &source_key, depth_limit))
+                GraphRef::Undirected(pg) => {
+                    let inner = &pg.inner;
+
+                    py.allow_threads(|| fnx_algorithms::dfs_successors(inner, &source_key, depth_limit))
+                }
+                _ => {
+                    if gr.is_directed() {
+                        let __gr_digraph = gr.digraph().expect("is_directed checked above");
+                        py.allow_threads(|| {
+                            fnx_algorithms::dfs_successors_directed(
+                                __gr_digraph,
+                                &source_key,
+                                depth_limit,
+                            )
+                        })
+                    } else {
+                        let inner = gr.undirected();
+
+                        py.allow_threads(|| {
+                            fnx_algorithms::dfs_successors(inner, &source_key, depth_limit)
+                        })
+                    }
+                }
+            };
+
+            for (parent, children) in &succs {
+                let py_children: Vec<PyObject> =
+                    children.iter().map(|c| gr.py_node_key(py, c)).collect();
+                dict.set_item(gr.py_node_key(py, parent), py_children)?;
             }
         }
-    };
-
-    let dict = PyDict::new(py);
-    for (parent, children) in &succs {
-        let py_children: Vec<PyObject> = children.iter().map(|c| gr.py_node_key(py, c)).collect();
-        dict.set_item(gr.py_node_key(py, parent), py_children)?;
+        None => {
+            let nodes = gr.nodes_ordered();
+            if nodes.is_empty() {
+                return Ok(dict.unbind());
+            }
+            let edges = match &gr {
+                GraphRef::Directed { dg, .. } => {
+                    let __dg_inner = &dg.inner;
+                    py.allow_threads(|| dfs_forest_directed(__dg_inner, &nodes, depth_limit).0)
+                }
+                GraphRef::Undirected(pg) => {
+                    let inner = &pg.inner;
+                    py.allow_threads(|| dfs_forest_undirected(inner, &nodes, depth_limit).0)
+                }
+                _ => {
+                    if gr.is_directed() {
+                        let __gr_digraph = gr.digraph().expect("is_directed checked above");
+                        py.allow_threads(|| dfs_forest_directed(__gr_digraph, &nodes, depth_limit).0)
+                    } else {
+                        let inner = gr.undirected();
+                        py.allow_threads(|| dfs_forest_undirected(inner, &nodes, depth_limit).0)
+                    }
+                }
+            };
+            let mut succs: HashMap<String, Vec<String>> = HashMap::new();
+            for (parent, child) in edges {
+                succs.entry(parent).or_default().push(child);
+            }
+            for (parent, children) in &succs {
+                let py_children: Vec<PyObject> =
+                    children.iter().map(|c| gr.py_node_key(py, c)).collect();
+                dict.set_item(gr.py_node_key(py, parent), py_children)?;
+            }
+        }
     }
     Ok(dict.unbind())
 }
@@ -4732,33 +5000,33 @@ pub fn dfs_preorder_nodes(
                     s.repr()?
                 )));
             }
-            k
+            Some(k)
         }
-        None => {
-            let nodes = gr.undirected().nodes_ordered();
-            if nodes.is_empty() {
-                return Ok(Vec::new());
-            }
-            nodes[0].to_owned()
-        }
+        None => None,
     };
 
-    let nodes = match &gr {
-        GraphRef::Directed { dg, .. } => {
-            let __dg_inner = &dg.inner;
-            py.allow_threads(|| {
-                fnx_algorithms::dfs_preorder_nodes_directed(__dg_inner, &source_key, depth_limit)
-            })
-        }
+    let nodes = match source_key {
+        Some(source_key) => match &gr {
+            GraphRef::Directed { dg, .. } => {
+                let __dg_inner = &dg.inner;
+                py.allow_threads(|| {
+                    fnx_algorithms::dfs_preorder_nodes_directed(
+                        __dg_inner,
+                        &source_key,
+                        depth_limit,
+                    )
+                })
+            }
 
-        GraphRef::Undirected(pg) => {
-            let inner = &pg.inner;
+            GraphRef::Undirected(pg) => {
+                let inner = &pg.inner;
 
-            py.allow_threads(|| fnx_algorithms::dfs_preorder_nodes(inner, &source_key, depth_limit))
-        }
-        _ => {
-            if gr.is_directed() {
-                {
+                py.allow_threads(|| {
+                    fnx_algorithms::dfs_preorder_nodes(inner, &source_key, depth_limit)
+                })
+            }
+            _ => {
+                if gr.is_directed() {
                     let __gr_digraph = gr.digraph().expect("is_directed checked above");
                     py.allow_threads(|| {
                         fnx_algorithms::dfs_preorder_nodes_directed(
@@ -4767,13 +5035,38 @@ pub fn dfs_preorder_nodes(
                             depth_limit,
                         )
                     })
-                }
-            } else {
-                let inner = gr.undirected();
+                } else {
+                    let inner = gr.undirected();
 
-                py.allow_threads(|| {
-                    fnx_algorithms::dfs_preorder_nodes(inner, &source_key, depth_limit)
-                })
+                    py.allow_threads(|| {
+                        fnx_algorithms::dfs_preorder_nodes(inner, &source_key, depth_limit)
+                    })
+                }
+            }
+        },
+        None => {
+            let ordered = gr.nodes_ordered();
+            if ordered.is_empty() {
+                return Ok(Vec::new());
+            }
+            match &gr {
+                GraphRef::Directed { dg, .. } => {
+                    let __dg_inner = &dg.inner;
+                    py.allow_threads(|| dfs_forest_directed(__dg_inner, &ordered, depth_limit).1)
+                }
+                GraphRef::Undirected(pg) => {
+                    let inner = &pg.inner;
+                    py.allow_threads(|| dfs_forest_undirected(inner, &ordered, depth_limit).1)
+                }
+                _ => {
+                    if gr.is_directed() {
+                        let __gr_digraph = gr.digraph().expect("is_directed checked above");
+                        py.allow_threads(|| dfs_forest_directed(__gr_digraph, &ordered, depth_limit).1)
+                    } else {
+                        let inner = gr.undirected();
+                        py.allow_threads(|| dfs_forest_undirected(inner, &ordered, depth_limit).1)
+                    }
+                }
             }
         }
     };
@@ -4803,35 +5096,33 @@ pub fn dfs_postorder_nodes(
                     s.repr()?
                 )));
             }
-            k
+            Some(k)
         }
-        None => {
-            let nodes = gr.undirected().nodes_ordered();
-            if nodes.is_empty() {
-                return Ok(Vec::new());
-            }
-            nodes[0].to_owned()
-        }
+        None => None,
     };
 
-    let nodes = match &gr {
-        GraphRef::Directed { dg, .. } => {
-            let __dg_inner = &dg.inner;
-            py.allow_threads(|| {
-                fnx_algorithms::dfs_postorder_nodes_directed(__dg_inner, &source_key, depth_limit)
-            })
-        }
+    let nodes = match source_key {
+        Some(source_key) => match &gr {
+            GraphRef::Directed { dg, .. } => {
+                let __dg_inner = &dg.inner;
+                py.allow_threads(|| {
+                    fnx_algorithms::dfs_postorder_nodes_directed(
+                        __dg_inner,
+                        &source_key,
+                        depth_limit,
+                    )
+                })
+            }
 
-        GraphRef::Undirected(pg) => {
-            let inner = &pg.inner;
+            GraphRef::Undirected(pg) => {
+                let inner = &pg.inner;
 
-            py.allow_threads(|| {
-                fnx_algorithms::dfs_postorder_nodes(inner, &source_key, depth_limit)
-            })
-        }
-        _ => {
-            if gr.is_directed() {
-                {
+                py.allow_threads(|| {
+                    fnx_algorithms::dfs_postorder_nodes(inner, &source_key, depth_limit)
+                })
+            }
+            _ => {
+                if gr.is_directed() {
                     let __gr_digraph = gr.digraph().expect("is_directed checked above");
                     py.allow_threads(|| {
                         fnx_algorithms::dfs_postorder_nodes_directed(
@@ -4840,13 +5131,44 @@ pub fn dfs_postorder_nodes(
                             depth_limit,
                         )
                     })
-                }
-            } else {
-                let inner = gr.undirected();
+                } else {
+                    let inner = gr.undirected();
 
-                py.allow_threads(|| {
-                    fnx_algorithms::dfs_postorder_nodes(inner, &source_key, depth_limit)
-                })
+                    py.allow_threads(|| {
+                        fnx_algorithms::dfs_postorder_nodes(inner, &source_key, depth_limit)
+                    })
+                }
+            }
+        },
+        None => {
+            let ordered = gr.nodes_ordered();
+            if ordered.is_empty() {
+                return Ok(Vec::new());
+            }
+            match &gr {
+                GraphRef::Directed { dg, .. } => {
+                    let __dg_inner = &dg.inner;
+                    py.allow_threads(|| {
+                        dfs_postorder_forest_directed(__dg_inner, &ordered, depth_limit)
+                    })
+                }
+                GraphRef::Undirected(pg) => {
+                    let inner = &pg.inner;
+                    py.allow_threads(|| dfs_postorder_forest_undirected(inner, &ordered, depth_limit))
+                }
+                _ => {
+                    if gr.is_directed() {
+                        let __gr_digraph = gr.digraph().expect("is_directed checked above");
+                        py.allow_threads(|| {
+                            dfs_postorder_forest_directed(__gr_digraph, &ordered, depth_limit)
+                        })
+                    } else {
+                        let inner = gr.undirected();
+                        py.allow_threads(|| {
+                            dfs_postorder_forest_undirected(inner, &ordered, depth_limit)
+                        })
+                    }
+                }
             }
         }
     };
@@ -8411,7 +8733,7 @@ fn single_source_dijkstra(
     let gr = extract_graph(g)?;
     require_undirected(&gr, "single_source_dijkstra")?;
     let s = node_key_to_string(py, source)?;
-    validate_node_str(&gr, &s)?;
+    validate_node_str(&gr, &s, "Source")?;
     let weighted_projection = gr.weighted_undirected_projection(weight);
     let (dists, paths) = {
         let __wp = weighted_projection.as_ref();
@@ -8441,7 +8763,7 @@ fn single_source_dijkstra_path(
     let gr = extract_graph(g)?;
     require_undirected(&gr, "single_source_dijkstra_path")?;
     let s = node_key_to_string(py, source)?;
-    validate_node_str(&gr, &s)?;
+    validate_node_str(&gr, &s, "Source")?;
     let weighted_projection = gr.weighted_undirected_projection(weight);
     let paths = {
         let __wp = weighted_projection.as_ref();
@@ -8467,7 +8789,7 @@ fn single_source_dijkstra_path_length(
     let gr = extract_graph(g)?;
     require_undirected(&gr, "single_source_dijkstra_path_length")?;
     let s = node_key_to_string(py, source)?;
-    validate_node_str(&gr, &s)?;
+    validate_node_str(&gr, &s, "Source")?;
     let weighted_projection = gr.weighted_undirected_projection(weight);
     let dists = {
         let __wp = weighted_projection.as_ref();
@@ -8492,7 +8814,7 @@ fn single_source_bellman_ford(
     let gr = extract_graph(g)?;
     require_undirected(&gr, "single_source_bellman_ford")?;
     let s = node_key_to_string(py, source)?;
-    validate_node_str(&gr, &s)?;
+    validate_node_str(&gr, &s, "Source")?;
     let weighted_projection = gr.weighted_undirected_projection(weight);
     let result = {
         let __wp = weighted_projection.as_ref();
@@ -8529,7 +8851,7 @@ fn single_source_bellman_ford_path(
     let gr = extract_graph(g)?;
     require_undirected(&gr, "single_source_bellman_ford_path")?;
     let s = node_key_to_string(py, source)?;
-    validate_node_str(&gr, &s)?;
+    validate_node_str(&gr, &s, "Source")?;
     let weighted_projection = gr.weighted_undirected_projection(weight);
     let result = {
         let __wp = weighted_projection.as_ref();
@@ -8562,7 +8884,7 @@ fn single_source_bellman_ford_path_length(
     let gr = extract_graph(g)?;
     require_undirected(&gr, "single_source_bellman_ford_path_length")?;
     let s = node_key_to_string(py, source)?;
-    validate_node_str(&gr, &s)?;
+    validate_node_str(&gr, &s, "Source")?;
     let weighted_projection = gr.weighted_undirected_projection(weight);
     let result = {
         let __wp = weighted_projection.as_ref();
@@ -8888,7 +9210,7 @@ fn predecessor_fn(
     let gr = extract_graph(g)?;
     require_undirected(&gr, "predecessor")?;
     let s = node_key_to_string(py, source)?;
-    validate_node_str(&gr, &s)?;
+    validate_node_str(&gr, &s, "Source")?;
     let result = {
         let __gr_undirected = gr.undirected();
         py.allow_threads(|| fnx_algorithms::predecessor(__gr_undirected, &s, cutoff))
@@ -8995,7 +9317,7 @@ pub fn local_reaching_centrality(
 ) -> PyResult<f64> {
     let gr = extract_graph(g)?;
     let node = node_key_to_string(py, v)?;
-    validate_node(&gr, &node, v)?;
+    validate_node(&gr, &node, v, "Node")?;
     match &gr {
         GraphRef::Undirected(pg) => Ok({
             let __pg_inner = &pg.inner;
