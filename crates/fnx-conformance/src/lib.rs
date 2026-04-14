@@ -12,6 +12,7 @@ use fnx_algorithms::{
     average_neighbor_degree, average_shortest_path_length, bellman_ford_shortest_paths,
     betweenness_centrality, bipartite_sets, bridges, closeness_centrality, clustering_coefficient,
     connected_components, core_number, cycle_basis, degree_assortativity_coefficient,
+    k_core, k_corona, k_crust, k_shell,
     degree_centrality, density, distance_measures, edge_betweenness_centrality,
     edge_connectivity_edmonds_karp, eigenvector_centrality, global_edge_connectivity_edmonds_karp,
     global_efficiency, global_minimum_edge_cut_edmonds_karp, greedy_color, harmonic_centrality,
@@ -365,6 +366,18 @@ enum Operation {
     IsBipartiteQuery,
     BipartiteSetsQuery,
     CoreNumberQuery,
+    KCoreQuery {
+        k: Option<usize>,
+    },
+    KShellQuery {
+        k: Option<usize>,
+    },
+    KCrustQuery {
+        k: Option<usize>,
+    },
+    KCoronaQuery {
+        k: usize,
+    },
     AverageNeighborDegreeQuery,
     DegreeAssortativityQuery,
     VoterankQuery,
@@ -398,6 +411,7 @@ enum Operation {
         #[serde(default)]
         source: Option<String>,
     },
+    ClosenessVitalityQuery,
     DispatchResolve {
         operation: String,
         #[serde(default)]
@@ -567,6 +581,14 @@ struct ExpectedState {
     #[serde(default)]
     core_numbers: Option<Vec<ExpectedCoreNumber>>,
     #[serde(default)]
+    k_core_nodes: Option<Vec<String>>,
+    #[serde(default)]
+    k_shell_nodes: Option<Vec<String>>,
+    #[serde(default)]
+    k_crust_nodes: Option<Vec<String>>,
+    #[serde(default)]
+    k_corona_nodes: Option<Vec<String>>,
+    #[serde(default)]
     average_neighbor_degree: Option<Vec<ExpectedAvgNeighborDegree>>,
     #[serde(default)]
     degree_assortativity: Option<f64>,
@@ -600,6 +622,8 @@ struct ExpectedState {
     has_eulerian_path: Option<bool>,
     #[serde(default)]
     is_semieulerian: Option<bool>,
+    #[serde(default)]
+    closeness_vitality: Option<Vec<ExpectedClosenessVitality>>,
     #[serde(default)]
     eulerian_circuit_edge_count: Option<usize>,
     #[serde(default)]
@@ -743,6 +767,12 @@ struct ExpectedEdgePair {
     right: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+struct ExpectedClosenessVitality {
+    node: String,
+    vitality: f64,
+}
+
 #[derive(Debug)]
 struct ExecutionContext {
     graph: Graph,
@@ -798,6 +828,10 @@ struct ExecutionContext {
     is_bipartite_result: Option<IsBipartiteResult>,
     bipartite_sets_result: Option<BipartiteSetsResult>,
     core_number_result: Option<CoreNumberResult>,
+    k_core_result: Option<fnx_algorithms::KCoreResult>,
+    k_shell_result: Option<fnx_algorithms::KCoreResult>,
+    k_crust_result: Option<fnx_algorithms::KCoreResult>,
+    k_corona_result: Option<fnx_algorithms::KCoreResult>,
     avg_neighbor_degree_result: Option<AverageNeighborDegreeResult>,
     degree_assortativity_result: Option<DegreeAssortativityResult>,
     voterank_result: Option<VoterankResult>,
@@ -814,6 +848,7 @@ struct ExecutionContext {
     is_eulerian_result: Option<fnx_algorithms::IsEulerianResult>,
     has_eulerian_path_result: Option<fnx_algorithms::HasEulerianPathResult>,
     is_semieulerian_result: Option<fnx_algorithms::IsSemiEulerianResult>,
+    closeness_vitality_result: Option<fnx_algorithms::ClosenessVitalityResult>,
     eulerian_circuit_result: Option<fnx_algorithms::EulerianCircuitResult>,
     eulerian_path_result: Option<fnx_algorithms::EulerianPathResult>,
     warnings: Vec<String>,
@@ -1580,6 +1615,10 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
         is_bipartite_result: None,
         bipartite_sets_result: None,
         core_number_result: None,
+        k_core_result: None,
+        k_shell_result: None,
+        k_crust_result: None,
+        k_corona_result: None,
         avg_neighbor_degree_result: None,
         degree_assortativity_result: None,
         voterank_result: None,
@@ -1596,6 +1635,7 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
         is_eulerian_result: None,
         has_eulerian_path_result: None,
         is_semieulerian_result: None,
+        closeness_vitality_result: None,
         eulerian_circuit_result: None,
         eulerian_path_result: None,
         warnings: Vec::new(),
@@ -1880,6 +1920,26 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
                 context.core_number_result = Some(result.clone());
                 context.witness = Some(result.witness);
             }
+            Operation::KCoreQuery { k } => {
+                let result = k_core(&context.graph, k);
+                context.k_core_result = Some(result.clone());
+                context.witness = Some(result.witness);
+            }
+            Operation::KShellQuery { k } => {
+                let result = k_shell(&context.graph, k);
+                context.k_shell_result = Some(result.clone());
+                context.witness = Some(result.witness);
+            }
+            Operation::KCrustQuery { k } => {
+                let result = k_crust(&context.graph, k);
+                context.k_crust_result = Some(result.clone());
+                context.witness = Some(result.witness);
+            }
+            Operation::KCoronaQuery { k } => {
+                let result = k_corona(&context.graph, k);
+                context.k_corona_result = Some(result.clone());
+                context.witness = Some(result.witness);
+            }
             Operation::AverageNeighborDegreeQuery => {
                 let result = average_neighbor_degree(&context.graph);
                 context.avg_neighbor_degree_result = Some(result.clone());
@@ -1960,6 +2020,11 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
             Operation::IsSemieulerianQuery => {
                 let result = fnx_algorithms::is_semieulerian(&context.graph);
                 context.is_semieulerian_result = Some(result.clone());
+                context.witness = Some(result.witness);
+            }
+            Operation::ClosenessVitalityQuery => {
+                let result = fnx_algorithms::closeness_vitality(&context.graph);
+                context.closeness_vitality_result = Some(result.clone());
                 context.witness = Some(result.witness);
             }
             Operation::EulerianCircuitQuery { source } => {
@@ -3482,6 +3547,98 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
         }
     }
 
+    if let Some(expected_nodes) = &fixture.expected.k_core_nodes {
+        match context.k_core_result.as_ref() {
+            Some(actual) => {
+                let mut actual_nodes: Vec<&str> = actual.nodes.iter().map(|s| s.as_str()).collect();
+                actual_nodes.sort();
+                let mut expected_sorted: Vec<&str> = expected_nodes.iter().map(|s| s.as_str()).collect();
+                expected_sorted.sort();
+                if actual_nodes != expected_sorted {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_k_core".to_owned(),
+                        message: format!(
+                            "k_core nodes mismatch: expected {expected_sorted:?}, got {actual_nodes:?}"
+                        ),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_k_core".to_owned(),
+                message: "expected k_core result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(expected_nodes) = &fixture.expected.k_shell_nodes {
+        match context.k_shell_result.as_ref() {
+            Some(actual) => {
+                let mut actual_nodes: Vec<&str> = actual.nodes.iter().map(|s| s.as_str()).collect();
+                actual_nodes.sort();
+                let mut expected_sorted: Vec<&str> = expected_nodes.iter().map(|s| s.as_str()).collect();
+                expected_sorted.sort();
+                if actual_nodes != expected_sorted {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_k_shell".to_owned(),
+                        message: format!(
+                            "k_shell nodes mismatch: expected {expected_sorted:?}, got {actual_nodes:?}"
+                        ),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_k_shell".to_owned(),
+                message: "expected k_shell result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(expected_nodes) = &fixture.expected.k_crust_nodes {
+        match context.k_crust_result.as_ref() {
+            Some(actual) => {
+                let mut actual_nodes: Vec<&str> = actual.nodes.iter().map(|s| s.as_str()).collect();
+                actual_nodes.sort();
+                let mut expected_sorted: Vec<&str> = expected_nodes.iter().map(|s| s.as_str()).collect();
+                expected_sorted.sort();
+                if actual_nodes != expected_sorted {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_k_crust".to_owned(),
+                        message: format!(
+                            "k_crust nodes mismatch: expected {expected_sorted:?}, got {actual_nodes:?}"
+                        ),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_k_crust".to_owned(),
+                message: "expected k_crust result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(expected_nodes) = &fixture.expected.k_corona_nodes {
+        match context.k_corona_result.as_ref() {
+            Some(actual) => {
+                let mut actual_nodes: Vec<&str> = actual.nodes.iter().map(|s| s.as_str()).collect();
+                actual_nodes.sort();
+                let mut expected_sorted: Vec<&str> = expected_nodes.iter().map(|s| s.as_str()).collect();
+                expected_sorted.sort();
+                if actual_nodes != expected_sorted {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_k_corona".to_owned(),
+                        message: format!(
+                            "k_corona nodes mismatch: expected {expected_sorted:?}, got {actual_nodes:?}"
+                        ),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_k_corona".to_owned(),
+                message: "expected k_corona result but none produced".to_owned(),
+            }),
+        }
+    }
+
     if let Some(expected_and) = &fixture.expected.average_neighbor_degree {
         match context.avg_neighbor_degree_result.as_ref() {
             Some(actual) => {
@@ -3886,6 +4043,50 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
             None => mismatches.push(Mismatch {
                 category: "algorithm_euler".to_owned(),
                 message: "expected is_semieulerian result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(ref expected_vitality) = fixture.expected.closeness_vitality {
+        match context.closeness_vitality_result.as_ref() {
+            Some(actual) => {
+                for ev in expected_vitality {
+                    match actual.vitality.get(&ev.node) {
+                        Some(&actual_val) => {
+                            // Handle infinity comparisons
+                            if ev.vitality.is_infinite() && actual_val.is_infinite() {
+                                if ev.vitality.is_sign_positive() != actual_val.is_sign_positive() {
+                                    mismatches.push(Mismatch {
+                                        category: "algorithm_vitality".to_owned(),
+                                        message: format!(
+                                            "closeness_vitality sign mismatch for node {}: expected {}, got {}",
+                                            ev.node, ev.vitality, actual_val
+                                        ),
+                                    });
+                                }
+                            } else if (ev.vitality - actual_val).abs() > 1e-6 {
+                                mismatches.push(Mismatch {
+                                    category: "algorithm_vitality".to_owned(),
+                                    message: format!(
+                                        "closeness_vitality mismatch for node {}: expected {}, got {}",
+                                        ev.node, ev.vitality, actual_val
+                                    ),
+                                });
+                            }
+                        }
+                        None => mismatches.push(Mismatch {
+                            category: "algorithm_vitality".to_owned(),
+                            message: format!(
+                                "closeness_vitality missing result for node {}",
+                                ev.node
+                            ),
+                        }),
+                    }
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_vitality".to_owned(),
+                message: "expected closeness_vitality result but none produced".to_owned(),
             }),
         }
     }

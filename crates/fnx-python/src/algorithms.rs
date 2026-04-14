@@ -2334,6 +2334,51 @@ pub fn edge_betweenness_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyRe
     Ok(dict.unbind())
 }
 
+/// Return the load centrality for all nodes.
+///
+/// Load centrality of a node is the fraction of all shortest paths that
+/// pass through that node.
+///
+/// Matches `networkx.load_centrality`.
+#[pyfunction]
+#[pyo3(signature = (g, v=None, cutoff=None, normalized=true, weight=None))]
+pub fn load_centrality(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    v: Option<Bound<'_, PyAny>>,
+    cutoff: Option<usize>,
+    normalized: bool,
+    weight: Option<&str>,
+) -> PyResult<Py<PyDict>> {
+    if v.is_some() || cutoff.is_some() || !normalized || weight.is_some() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "franken_networkx currently only supports default parameters for load_centrality",
+        ));
+    }
+    let gr = extract_graph(g)?;
+    log::info!(target: "franken_networkx", "load_centrality: nodes={}", gr.undirected().node_count());
+    let result = match &gr {
+        GraphRef::Undirected(pg) => {
+            let inner = &pg.inner;
+            py.allow_threads(|| fnx_algorithms::load_centrality(inner))
+        }
+        GraphRef::Directed { dg, .. } => {
+            let inner = &dg.inner;
+            py.allow_threads(|| fnx_algorithms::load_centrality_directed(inner))
+        }
+        _ => {
+            if gr.is_directed() {
+                let inner = gr.digraph().expect("is_directed checked above");
+                py.allow_threads(|| fnx_algorithms::load_centrality_directed(inner))
+            } else {
+                let inner = gr.undirected();
+                py.allow_threads(|| fnx_algorithms::load_centrality(inner))
+            }
+        }
+    };
+    centrality_to_dict(py, &gr, &result.scores)
+}
+
 /// Return the eigenvector centrality for all nodes.
 #[pyfunction]
 #[pyo3(signature = (g, max_iter=100, tol=1.0e-6, nstart=None, weight="weight"))]
@@ -3236,6 +3281,96 @@ pub fn core_number(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>>
         dict.set_item(gr.py_node_key(py, &nc.node), nc.core)?;
     }
     Ok(dict.unbind())
+}
+
+/// Return the k-core subgraph.
+/// If k is None, returns the main core (largest k-core).
+#[pyfunction]
+#[pyo3(signature = (g, k=None))]
+pub fn k_core_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: Option<usize>) -> PyResult<Py<PyGraph>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::k_core(inner, k));
+
+    let mut new_graph = PyGraph::new_empty(py)?;
+    for node in &result.nodes {
+        new_graph.inner.add_node(node.clone());
+        new_graph
+            .node_key_map
+            .insert(node.clone(), gr.py_node_key(py, node));
+    }
+    for (u, v) in &result.edges {
+        let _ = new_graph.inner.add_edge(u.clone(), v.clone());
+    }
+    Py::new(py, new_graph)
+}
+
+/// Return the k-shell subgraph.
+/// The k-shell is the subgraph induced by nodes with core number exactly k.
+/// If k is None, returns the outer shell (max core number).
+#[pyfunction]
+#[pyo3(signature = (g, k=None))]
+pub fn k_shell_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: Option<usize>) -> PyResult<Py<PyGraph>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::k_shell(inner, k));
+
+    let mut new_graph = PyGraph::new_empty(py)?;
+    for node in &result.nodes {
+        new_graph.inner.add_node(node.clone());
+        new_graph
+            .node_key_map
+            .insert(node.clone(), gr.py_node_key(py, node));
+    }
+    for (u, v) in &result.edges {
+        let _ = new_graph.inner.add_edge(u.clone(), v.clone());
+    }
+    Py::new(py, new_graph)
+}
+
+/// Return the k-crust subgraph.
+/// The k-crust is the subgraph induced by nodes with core number <= k.
+/// If k is None, uses max_core - 1 as the default.
+#[pyfunction]
+#[pyo3(signature = (g, k=None))]
+pub fn k_crust_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: Option<usize>) -> PyResult<Py<PyGraph>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::k_crust(inner, k));
+
+    let mut new_graph = PyGraph::new_empty(py)?;
+    for node in &result.nodes {
+        new_graph.inner.add_node(node.clone());
+        new_graph
+            .node_key_map
+            .insert(node.clone(), gr.py_node_key(py, node));
+    }
+    for (u, v) in &result.edges {
+        let _ = new_graph.inner.add_edge(u.clone(), v.clone());
+    }
+    Py::new(py, new_graph)
+}
+
+/// Return the k-corona subgraph.
+/// The k-corona is the subgraph of nodes in the k-core which have
+/// exactly k neighbors in the k-core.
+#[pyfunction]
+pub fn k_corona_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py<PyGraph>> {
+    let gr = extract_graph(g)?;
+    let inner = gr.undirected();
+    let result = py.allow_threads(|| fnx_algorithms::k_corona(inner, k));
+
+    let mut new_graph = PyGraph::new_empty(py)?;
+    for node in &result.nodes {
+        new_graph.inner.add_node(node.clone());
+        new_graph
+            .node_key_map
+            .insert(node.clone(), gr.py_node_key(py, node));
+    }
+    for (u, v) in &result.edges {
+        let _ = new_graph.inner.add_edge(u.clone(), v.clone());
+    }
+    Py::new(py, new_graph)
 }
 
 /// Reconstruct labeled tree from Prüfer sequence.
@@ -12202,6 +12337,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(katz_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(betweenness_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(edge_betweenness_centrality, m)?)?;
+    m.add_function(wrap_pyfunction!(load_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(eigenvector_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(pagerank, m)?)?;
     m.add_function(wrap_pyfunction!(hits, m)?)?;
@@ -12242,6 +12378,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(bipartite_sets, m)?)?;
     m.add_function(wrap_pyfunction!(greedy_color, m)?)?;
     m.add_function(wrap_pyfunction!(core_number, m)?)?;
+    m.add_function(wrap_pyfunction!(k_core_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(k_shell_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(k_crust_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(k_corona_rust, m)?)?;
     m.add_function(wrap_pyfunction!(onion_layers_rust, m)?)?;
     m.add_function(wrap_pyfunction!(from_prufer_sequence_rust, m)?)?;
     m.add_function(wrap_pyfunction!(to_prufer_sequence_rust, m)?)?;

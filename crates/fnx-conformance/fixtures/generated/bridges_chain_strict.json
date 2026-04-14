@@ -1,0 +1,28 @@
+{
+  "suite": "bridges_v1",
+  "mode": "strict",
+  "operations": [
+    {"op": "add_edge", "left": "a", "right": "b", "attrs": {}},
+    {"op": "add_edge", "left": "b", "right": "c", "attrs": {}},
+    {"op": "add_edge", "left": "c", "right": "d", "attrs": {}},
+    {"op": "add_edge", "left": "d", "right": "e", "attrs": {}},
+    {"op": "bridges_query"}
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["a", "b", "c", "d", "e"],
+      "edges": [
+        {"left": "a", "right": "b", "attrs": {}},
+        {"left": "b", "right": "c", "attrs": {}},
+        {"left": "c", "right": "d", "attrs": {}},
+        {"left": "d", "right": "e", "attrs": {}}
+      ]
+    },
+    "bridges": [
+      ["a", "b"],
+      ["b", "c"],
+      ["c", "d"],
+      ["d", "e"]
+    ]
+  }
+}

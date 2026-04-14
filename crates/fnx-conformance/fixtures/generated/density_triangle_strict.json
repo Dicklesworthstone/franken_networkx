@@ -1,0 +1,21 @@
+{
+  "suite": "density_v1",
+  "mode": "strict",
+  "operations": [
+    {"op": "add_edge", "left": "a", "right": "b", "attrs": {}},
+    {"op": "add_edge", "left": "b", "right": "c", "attrs": {}},
+    {"op": "add_edge", "left": "c", "right": "a", "attrs": {}},
+    {"op": "density_query"}
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["a", "b", "c"],
+      "edges": [
+        {"left": "a", "right": "b", "attrs": {}},
+        {"left": "a", "right": "c", "attrs": {}},
+        {"left": "b", "right": "c", "attrs": {}}
+      ]
+    },
+    "density": 1.0
+  }
+}

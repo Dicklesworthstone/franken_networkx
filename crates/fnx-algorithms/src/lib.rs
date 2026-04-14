@@ -433,6 +433,12 @@ pub struct EdgeBetweennessCentralityResult {
     pub witness: ComplexityWitness,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoadCentralityResult {
+    pub scores: Vec<CentralityScore>,
+    pub witness: ComplexityWitness,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MaximalMatchingResult {
     pub matching: Vec<(String, String)>,
@@ -545,6 +551,12 @@ pub struct IsConnectedResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DensityResult {
     pub density: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClosenessVitalityResult {
+    pub vitality: HashMap<String, f64>,
+    pub witness: ComplexityWitness,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -780,6 +792,14 @@ pub struct NodeOnionLayer {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OnionLayersResult {
     pub layers: Vec<NodeOnionLayer>,
+    pub witness: ComplexityWitness,
+}
+
+/// Result for k-core decomposition functions (k_core, k_shell, k_crust, k_corona).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KCoreResult {
+    pub nodes: Vec<String>,
+    pub edges: Vec<(String, String)>,
     pub witness: ComplexityWitness,
 }
 
@@ -3038,6 +3058,154 @@ fn edge_betweenness_centrality_generic<G: GraphView>(graph: &G) -> EdgeBetweenne
             algorithm: "brandes_edge_betweenness_centrality".to_owned(),
             complexity_claim: "O(|V| * |E|)".to_owned(),
             nodes_touched,
+            edges_scanned,
+            queue_peak,
+        },
+    }
+}
+
+/// Compute load centrality for all nodes in an undirected graph.
+///
+/// Load centrality of a node is the fraction of all shortest paths that
+/// pass through that node. This is similar to betweenness centrality but
+/// computed using a different accumulation method.
+///
+/// The algorithm uses BFS from each node to compute shortest paths and
+/// accumulates the load (number of shortest paths) through each node.
+///
+/// Matches `networkx.load_centrality`.
+#[must_use]
+pub fn load_centrality(graph: &Graph) -> LoadCentralityResult {
+    load_centrality_generic(graph, true)
+}
+
+/// Compute load centrality for all nodes in a directed graph.
+///
+/// Matches `networkx.load_centrality` for directed graphs.
+#[must_use]
+pub fn load_centrality_directed(graph: &DiGraph) -> LoadCentralityResult {
+    load_centrality_generic(graph, true)
+}
+
+/// Compute load centrality with optional normalization.
+#[must_use]
+pub fn load_centrality_normalized(graph: &Graph, normalized: bool) -> LoadCentralityResult {
+    load_centrality_generic(graph, normalized)
+}
+
+fn load_centrality_generic<G: GraphView>(graph: &G, normalized: bool) -> LoadCentralityResult {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+
+    if n == 0 {
+        return LoadCentralityResult {
+            scores: Vec::new(),
+            witness: ComplexityWitness {
+                algorithm: "newman_load_centrality".to_owned(),
+                complexity_claim: "O(|V| * |E|)".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    // Node index mapping
+    let node_idx: HashMap<&str, usize> = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (*n, i))
+        .collect();
+
+    let mut load = vec![0.0_f64; n];
+    let mut total_nodes_touched = 0usize;
+    let mut edges_scanned = 0usize;
+    let mut queue_peak = 0usize;
+
+    // For each source node, compute single-source shortest paths
+    // and accumulate load through intermediate nodes
+    for s in 0..n {
+        // BFS to find shortest path distances and count paths
+        let mut distance = vec![usize::MAX; n];
+        let mut sigma = vec![0.0_f64; n]; // number of shortest paths from s to each node
+        let mut predecessors: Vec<Vec<usize>> = vec![Vec::new(); n];
+
+        distance[s] = 0;
+        sigma[s] = 1.0;
+
+        let mut queue = VecDeque::<usize>::new();
+        queue.push_back(s);
+        queue_peak = queue_peak.max(queue.len());
+
+        let mut stack = Vec::<usize>::with_capacity(n);
+
+        while let Some(v) = queue.pop_front() {
+            stack.push(v);
+            let dist_v = distance[v];
+
+            if let Some(neighbors) = graph.neighbors_iter(nodes[v]) {
+                for w_name in neighbors {
+                    edges_scanned += 1;
+                    let w = *node_idx.get(w_name).unwrap();
+
+                    // First visit to w
+                    if distance[w] == usize::MAX {
+                        distance[w] = dist_v + 1;
+                        queue.push_back(w);
+                        queue_peak = queue_peak.max(queue.len());
+                    }
+
+                    // w is on a shortest path from s
+                    if distance[w] == dist_v + 1 {
+                        sigma[w] += sigma[v];
+                        predecessors[w].push(v);
+                    }
+                }
+            }
+        }
+
+        total_nodes_touched += stack.len();
+
+        // Back-propagate load
+        // delta[w] = sum over successors t of (sigma[w]/sigma[t]) * (1 + delta[t])
+        let mut delta = vec![0.0_f64; n];
+
+        while let Some(w) = stack.pop() {
+            if sigma[w] > 0.0 {
+                let coeff = (1.0 + delta[w]) / sigma[w];
+                for &v in &predecessors[w] {
+                    delta[v] += sigma[v] * coeff;
+                }
+            }
+            if w != s {
+                load[w] += delta[w];
+            }
+        }
+    }
+
+    // Normalize if requested (same as NetworkX default)
+    // NetworkX load_centrality uses 1/((n-1)(n-2)) for both directed and undirected
+    let scale = if normalized && n > 2 {
+        1.0 / ((n - 1) * (n - 2)) as f64
+    } else {
+        1.0
+    };
+
+    let ordered_scores = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, node)| CentralityScore {
+            node: (*node).to_owned(),
+            score: load[i] * scale,
+        })
+        .collect();
+
+    LoadCentralityResult {
+        scores: ordered_scores,
+        witness: ComplexityWitness {
+            algorithm: "newman_load_centrality".to_owned(),
+            complexity_claim: "O(|V| * |E|)".to_owned(),
+            nodes_touched: total_nodes_touched,
             edges_scanned,
             queue_peak,
         },
@@ -7947,6 +8115,279 @@ pub fn core_number(graph: &Graph) -> CoreNumberResult {
     }
 }
 
+/// Returns the k-core of the graph.
+///
+/// The k-core is a maximal subgraph that contains nodes of degree `k` or more.
+/// If `k` is `None`, returns the main core (largest k such that the k-core is non-empty).
+///
+/// Matches `networkx.algorithms.core.k_core`.
+#[must_use]
+pub fn k_core(graph: &Graph, k: Option<usize>) -> KCoreResult {
+    let core_result = core_number(graph);
+    let core_map: HashMap<&str, usize> = core_result
+        .core_numbers
+        .iter()
+        .map(|nc| (nc.node.as_str(), nc.core))
+        .collect();
+
+    // Determine the effective k
+    let effective_k = k.unwrap_or_else(|| core_map.values().copied().max().unwrap_or(0));
+
+    // Filter nodes with core number >= k
+    let nodes: Vec<String> = core_map
+        .iter()
+        .filter(|&(_, c)| *c >= effective_k)
+        .map(|(&node, _)| node.to_owned())
+        .collect();
+
+    let node_set: HashSet<&str> = nodes.iter().map(String::as_str).collect();
+
+    // Collect edges in the induced subgraph
+    let mut edges = Vec::new();
+    let mut seen: HashSet<(&str, &str)> = HashSet::new();
+    for node in &nodes {
+        if let Some(neighbors) = graph.neighbors_iter(node) {
+            for neighbor in neighbors {
+                if node_set.contains(neighbor) {
+                    let (left, right) = if node.as_str() <= neighbor {
+                        (node.as_str(), neighbor)
+                    } else {
+                        (neighbor, node.as_str())
+                    };
+                    if seen.insert((left, right)) {
+                        edges.push((left.to_owned(), right.to_owned()));
+                    }
+                }
+            }
+        }
+    }
+
+    let mut sorted_nodes = nodes;
+    sorted_nodes.sort();
+    edges.sort();
+
+    KCoreResult {
+        nodes: sorted_nodes,
+        edges,
+        witness: ComplexityWitness {
+            algorithm: "k_core".to_owned(),
+            complexity_claim: "O(|V| + |E|)".to_owned(),
+            nodes_touched: graph.node_count(),
+            edges_scanned: core_result.witness.edges_scanned,
+            queue_peak: 0,
+        },
+    }
+}
+
+/// Returns the k-shell of the graph.
+///
+/// The k-shell is the subgraph induced by nodes with core number exactly k.
+/// That is, nodes in the k-core that are not in the (k+1)-core.
+/// If `k` is `None`, returns the outer shell (nodes with maximum core number).
+///
+/// Matches `networkx.algorithms.core.k_shell`.
+#[must_use]
+pub fn k_shell(graph: &Graph, k: Option<usize>) -> KCoreResult {
+    let core_result = core_number(graph);
+    let core_map: HashMap<&str, usize> = core_result
+        .core_numbers
+        .iter()
+        .map(|nc| (nc.node.as_str(), nc.core))
+        .collect();
+
+    // Determine the effective k (default to max core number)
+    let effective_k = k.unwrap_or_else(|| core_map.values().copied().max().unwrap_or(0));
+
+    // Filter nodes with core number == k
+    let nodes: Vec<String> = core_map
+        .iter()
+        .filter(|&(_, c)| *c == effective_k)
+        .map(|(&node, _)| node.to_owned())
+        .collect();
+
+    let node_set: HashSet<&str> = nodes.iter().map(String::as_str).collect();
+
+    // Collect edges in the induced subgraph
+    let mut edges = Vec::new();
+    let mut seen: HashSet<(&str, &str)> = HashSet::new();
+    for node in &nodes {
+        if let Some(neighbors) = graph.neighbors_iter(node) {
+            for neighbor in neighbors {
+                if node_set.contains(neighbor) {
+                    let (left, right) = if node.as_str() <= neighbor {
+                        (node.as_str(), neighbor)
+                    } else {
+                        (neighbor, node.as_str())
+                    };
+                    if seen.insert((left, right)) {
+                        edges.push((left.to_owned(), right.to_owned()));
+                    }
+                }
+            }
+        }
+    }
+
+    let mut sorted_nodes = nodes;
+    sorted_nodes.sort();
+    edges.sort();
+
+    KCoreResult {
+        nodes: sorted_nodes,
+        edges,
+        witness: ComplexityWitness {
+            algorithm: "k_shell".to_owned(),
+            complexity_claim: "O(|V| + |E|)".to_owned(),
+            nodes_touched: graph.node_count(),
+            edges_scanned: core_result.witness.edges_scanned,
+            queue_peak: 0,
+        },
+    }
+}
+
+/// Returns the k-crust of the graph.
+///
+/// The k-crust is the subgraph induced by nodes with core number <= k.
+/// If `k` is `None`, uses max_core - 1 as the default.
+///
+/// Matches `networkx.algorithms.core.k_crust`.
+#[must_use]
+pub fn k_crust(graph: &Graph, k: Option<usize>) -> KCoreResult {
+    let core_result = core_number(graph);
+    let core_map: HashMap<&str, usize> = core_result
+        .core_numbers
+        .iter()
+        .map(|nc| (nc.node.as_str(), nc.core))
+        .collect();
+
+    // Default k is max core - 1
+    let max_core = core_map.values().copied().max().unwrap_or(0);
+    let effective_k = k.unwrap_or_else(|| max_core.saturating_sub(1));
+
+    // Filter nodes with core number <= k
+    let nodes: Vec<String> = core_map
+        .iter()
+        .filter(|&(_, c)| *c <= effective_k)
+        .map(|(&node, _)| node.to_owned())
+        .collect();
+
+    let node_set: HashSet<&str> = nodes.iter().map(String::as_str).collect();
+
+    // Collect edges in the induced subgraph
+    let mut edges = Vec::new();
+    let mut seen: HashSet<(&str, &str)> = HashSet::new();
+    for node in &nodes {
+        if let Some(neighbors) = graph.neighbors_iter(node) {
+            for neighbor in neighbors {
+                if node_set.contains(neighbor) {
+                    let (left, right) = if node.as_str() <= neighbor {
+                        (node.as_str(), neighbor)
+                    } else {
+                        (neighbor, node.as_str())
+                    };
+                    if seen.insert((left, right)) {
+                        edges.push((left.to_owned(), right.to_owned()));
+                    }
+                }
+            }
+        }
+    }
+
+    let mut sorted_nodes = nodes;
+    sorted_nodes.sort();
+    edges.sort();
+
+    KCoreResult {
+        nodes: sorted_nodes,
+        edges,
+        witness: ComplexityWitness {
+            algorithm: "k_crust".to_owned(),
+            complexity_claim: "O(|V| + |E|)".to_owned(),
+            nodes_touched: graph.node_count(),
+            edges_scanned: core_result.witness.edges_scanned,
+            queue_peak: 0,
+        },
+    }
+}
+
+/// Returns the k-corona of the graph.
+///
+/// The k-corona is the subgraph of nodes in the k-core which have exactly k neighbors
+/// in the k-core. These are the nodes that would be removed first if we pruned the
+/// k-core further.
+///
+/// Matches `networkx.algorithms.core.k_corona`.
+#[must_use]
+pub fn k_corona(graph: &Graph, k: usize) -> KCoreResult {
+    let core_result = core_number(graph);
+    let core_map: HashMap<&str, usize> = core_result
+        .core_numbers
+        .iter()
+        .map(|nc| (nc.node.as_str(), nc.core))
+        .collect();
+
+    // First find nodes in the k-core
+    let k_core_nodes: HashSet<&str> = core_map
+        .iter()
+        .filter(|&(_, c)| *c >= k)
+        .map(|(&node, _)| node)
+        .collect();
+
+    // Filter nodes with core number == k and exactly k neighbors in the k-core
+    let nodes: Vec<String> = core_map
+        .iter()
+        .filter(|&(&node, c)| {
+            if *c != k {
+                return false;
+            }
+            // Count neighbors in the k-core
+            let neighbors_in_k_core = graph
+                .neighbors_iter(node)
+                .map(|iter| iter.filter(|nb| k_core_nodes.contains(nb)).count())
+                .unwrap_or(0);
+            neighbors_in_k_core == k
+        })
+        .map(|(&node, _)| node.to_owned())
+        .collect();
+
+    let node_set: HashSet<&str> = nodes.iter().map(String::as_str).collect();
+
+    // Collect edges in the induced subgraph
+    let mut edges = Vec::new();
+    let mut seen: HashSet<(&str, &str)> = HashSet::new();
+    for node in &nodes {
+        if let Some(neighbors) = graph.neighbors_iter(node) {
+            for neighbor in neighbors {
+                if node_set.contains(neighbor) {
+                    let (left, right) = if node.as_str() <= neighbor {
+                        (node.as_str(), neighbor)
+                    } else {
+                        (neighbor, node.as_str())
+                    };
+                    if seen.insert((left, right)) {
+                        edges.push((left.to_owned(), right.to_owned()));
+                    }
+                }
+            }
+        }
+    }
+
+    let mut sorted_nodes = nodes;
+    sorted_nodes.sort();
+    edges.sort();
+
+    KCoreResult {
+        nodes: sorted_nodes,
+        edges,
+        witness: ComplexityWitness {
+            algorithm: "k_corona".to_owned(),
+            complexity_claim: "O(|V| + |E|)".to_owned(),
+            nodes_touched: graph.node_count(),
+            edges_scanned: core_result.witness.edges_scanned,
+            queue_peak: 0,
+        },
+    }
+}
+
 /// Onion layer decomposition (generalized k-core peeling).
 ///
 /// Iteratively removes all nodes with minimum degree, assigning them to
@@ -12762,6 +13203,208 @@ pub fn wiener_index_directed(digraph: &DiGraph) -> f64 {
     }
 
     total
+}
+
+// ===========================================================================
+// Closeness Vitality
+// ===========================================================================
+
+/// Compute the closeness vitality for all nodes in a graph.
+///
+/// The closeness vitality of a node is the change in the sum of distances
+/// between all node pairs when excluding that node. It measures how much
+/// each node contributes to the overall connectivity of the graph.
+///
+/// A node with high closeness vitality is important for maintaining short
+/// paths between other nodes. The vitality is positive if removing the node
+/// increases total distances (disconnects paths or makes them longer).
+///
+/// Returns `f64::NEG_INFINITY` for a node if removing it disconnects the graph.
+///
+/// Matches `networkx.closeness_vitality(G)`.
+#[must_use]
+pub fn closeness_vitality(graph: &Graph) -> ClosenessVitalityResult {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    let mut result = HashMap::new();
+    let mut nodes_touched = 0usize;
+    let mut edges_scanned = 0usize;
+
+    if n <= 1 {
+        // No pairs, vitality is 0 for any node
+        for node in &nodes {
+            result.insert(node.to_string(), 0.0);
+        }
+        return ClosenessVitalityResult {
+            vitality: result,
+            witness: ComplexityWitness {
+                algorithm: "closeness_vitality".to_owned(),
+                complexity_claim: "O(|V|^2 * |E|)".to_owned(),
+                nodes_touched,
+                edges_scanned,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    // Compute Wiener index of the full graph
+    let full_wiener = wiener_index(graph);
+    nodes_touched += n;
+    edges_scanned += graph.edge_count() * n;
+
+    // For each node, compute Wiener index of the induced subgraph without it
+    for excluded_node in &nodes {
+        // Build the subgraph excluding this node
+        let remaining_nodes: Vec<&str> = nodes
+            .iter()
+            .filter(|&&n| n != *excluded_node)
+            .copied()
+            .collect();
+
+        if remaining_nodes.is_empty() {
+            result.insert(excluded_node.to_string(), 0.0);
+            continue;
+        }
+
+        // Compute pairwise distances in the induced subgraph
+        let subgraph_n = remaining_nodes.len();
+        let mut subgraph_wiener = 0.0_f64;
+        let mut disconnected = false;
+
+        // Create index map for remaining nodes
+        let node_to_idx: HashMap<&str, usize> = remaining_nodes
+            .iter()
+            .enumerate()
+            .map(|(i, &n)| (n, i))
+            .collect();
+
+        for s in 0..subgraph_n {
+            let mut dist = vec![None; subgraph_n];
+            let mut queue = VecDeque::new();
+            dist[s] = Some(0usize);
+            queue.push_back(s);
+
+            while let Some(u) = queue.pop_front() {
+                let d = dist[u].unwrap();
+                if let Some(nbrs) = graph.neighbors(remaining_nodes[u]) {
+                    for nbr in nbrs {
+                        // Skip the excluded node
+                        if nbr == *excluded_node {
+                            continue;
+                        }
+                        if let Some(&v) = node_to_idx.get(nbr) {
+                            edges_scanned += 1;
+                            if dist[v].is_none() {
+                                dist[v] = Some(d + 1);
+                                queue.push_back(v);
+                            }
+                        }
+                    }
+                }
+            }
+            nodes_touched += subgraph_n;
+
+            // Sum distances for pairs (s, v) where v > s
+            for v in (s + 1)..subgraph_n {
+                match dist[v] {
+                    Some(d) => subgraph_wiener += d as f64,
+                    None => {
+                        // Graph becomes disconnected when this node is removed
+                        disconnected = true;
+                        break;
+                    }
+                }
+            }
+            if disconnected {
+                break;
+            }
+        }
+
+        let vitality = if disconnected {
+            f64::NEG_INFINITY
+        } else {
+            full_wiener - subgraph_wiener
+        };
+        result.insert(excluded_node.to_string(), vitality);
+    }
+
+    ClosenessVitalityResult {
+        vitality: result,
+        witness: ComplexityWitness {
+            algorithm: "closeness_vitality".to_owned(),
+            complexity_claim: "O(|V|^2 * |E|)".to_owned(),
+            nodes_touched,
+            edges_scanned,
+            queue_peak: 0,
+        },
+    }
+}
+
+/// Compute the closeness vitality for a single node.
+///
+/// More efficient than computing vitality for all nodes when you only need one.
+#[must_use]
+pub fn closeness_vitality_single(graph: &Graph, node: &str) -> Option<f64> {
+    if !graph.has_node(node) {
+        return None;
+    }
+
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+
+    if n <= 1 {
+        return Some(0.0);
+    }
+
+    let full_wiener = wiener_index(graph);
+
+    // Build the subgraph excluding this node
+    let remaining_nodes: Vec<&str> = nodes.iter().filter(|&&n| n != node).copied().collect();
+
+    if remaining_nodes.is_empty() {
+        return Some(0.0);
+    }
+
+    // Compute Wiener index of subgraph
+    let subgraph_n = remaining_nodes.len();
+    let node_to_idx: HashMap<&str, usize> = remaining_nodes
+        .iter()
+        .enumerate()
+        .map(|(i, &n)| (n, i))
+        .collect();
+
+    let mut subgraph_wiener = 0.0_f64;
+
+    for s in 0..subgraph_n {
+        let mut dist = vec![None; subgraph_n];
+        let mut queue = VecDeque::new();
+        dist[s] = Some(0usize);
+        queue.push_back(s);
+
+        while let Some(u) = queue.pop_front() {
+            let d = dist[u].unwrap();
+            if let Some(nbrs) = graph.neighbors(remaining_nodes[u]) {
+                for nbr in nbrs {
+                    if nbr == node {
+                        continue;
+                    }
+                    if let Some(&v) = node_to_idx.get(nbr) && dist[v].is_none() {
+                        dist[v] = Some(d + 1);
+                        queue.push_back(v);
+                    }
+                }
+            }
+        }
+
+        for v in (s + 1)..subgraph_n {
+            match dist[v] {
+                Some(d) => subgraph_wiener += d as f64,
+                None => return Some(f64::NEG_INFINITY),
+            }
+        }
+    }
+
+    Some(full_wiener - subgraph_wiener)
 }
 
 // ===========================================================================
@@ -27276,6 +27919,12 @@ pub fn random_spanning_tree(graph: &Graph, seed: u64) -> Option<Graph> {
         return Some(result);
     }
 
+    // Check graph connectivity - spanning tree requires connected graph
+    // This prevents infinite loops when trying to random-walk from a disconnected component
+    if !is_connected(graph).is_connected {
+        return None;
+    }
+
     // Create node index mapping for efficient random neighbor selection
     let node_idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
 
@@ -27291,11 +27940,6 @@ pub fn random_spanning_tree(graph: &Graph, seed: u64) -> Option<Graph> {
                 .collect()
         })
         .collect();
-
-    // Check connectivity: if any node has no neighbors, graph is disconnected
-    if neighbors.iter().any(|nbrs| nbrs.is_empty()) {
-        return None;
-    }
 
     // Initialize RNG with MT19937 for reproducibility
     let mut rng = MT19937::new_with_slice_seed(&[seed as u32, (seed >> 32) as u32]);
@@ -27384,6 +28028,15 @@ pub fn random_spanning_tree_directed(digraph: &DiGraph, root: &str, seed: u64) -
         let mut result = DiGraph::new(digraph.mode());
         let _ = result.add_node(nodes[0].to_owned());
         return Some(result);
+    }
+
+    // Check if all nodes can reach the root via predecessors
+    // The algorithm walks from each node via predecessors toward root.
+    // For this to work, every node must be reachable FROM root via successors.
+    // descendants(root) gives all nodes reachable from root going forward.
+    let root_descendants = descendants(digraph, root);
+    if root_descendants.len() != n - 1 {
+        return None; // Not all nodes reachable from root - arborescence impossible
     }
 
     let node_idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
@@ -29682,6 +30335,8 @@ mod tests {
         circular_ladder_graph,
         clique_removal,
         closeness_centrality,
+        closeness_vitality,
+        closeness_vitality_single,
         clustering_coefficient,
         common_neighbors,
         communicability_betweenness_centrality,
@@ -29848,6 +30503,10 @@ mod tests {
         isolates_directed,
         jaccard_coefficient,
         k_clique_communities,
+        k_core,
+        k_corona,
+        k_crust,
+        k_shell,
         katz_centrality,
         kneser_graph,
         kosaraju_strongly_connected_components,
@@ -29861,6 +30520,8 @@ mod tests {
         local_efficiency,
         local_reaching_centrality,
         local_reaching_centrality_directed,
+        load_centrality,
+        load_centrality_directed,
         lollipop_graph,
         louvain_communities,
         make_max_clique_graph,
@@ -34526,6 +35187,16 @@ mod tests {
     }
 
     #[test]
+    fn dfs_edges_depth_limit_zero() {
+        let mut g = Graph::strict();
+        g.add_edge("a", "b").expect("edge");
+        g.add_edge("b", "c").expect("edge");
+        // depth_limit=0 means no edges should be returned
+        let edges = dfs_edges(&g, "a", Some(0));
+        assert!(edges.is_empty());
+    }
+
+    #[test]
     fn dfs_edges_nonexistent_source() {
         let g = Graph::strict();
         let edges = dfs_edges(&g, "missing", None);
@@ -34627,6 +35298,16 @@ mod tests {
         let edges = bfs_edges(&g, "a", Some(1));
         // Only depth 1 → only a→b
         assert_eq!(edges.len(), 1);
+    }
+
+    #[test]
+    fn bfs_edges_depth_limit_zero() {
+        let mut g = Graph::strict();
+        g.add_edge("a", "b").expect("edge");
+        g.add_edge("b", "c").expect("edge");
+        // depth_limit=0 means no edges should be returned
+        let edges = bfs_edges(&g, "a", Some(0));
+        assert!(edges.is_empty());
     }
 
     #[test]
@@ -35264,6 +35945,69 @@ mod tests {
         let mut g = Graph::strict();
         g.add_node("a");
         assert!((wiener_index(&g) - 0.0).abs() < TEST_TOLERANCE);
+    }
+
+    // -----------------------------------------------------------------------
+    // Closeness Vitality tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn closeness_vitality_cycle() {
+        // C3: cycle with 3 nodes
+        // Wiener index = 1+1+1 = 3 (distances: 0-1=1, 0-2=1, 1-2=1)
+        // Removing any node leaves a path of 2 nodes: Wiener = 1
+        // Vitality = 3 - 1 = 2 for each node
+        let mut g = Graph::strict();
+        let _ = g.add_edge("0", "1");
+        let _ = g.add_edge("1", "2");
+        let _ = g.add_edge("2", "0");
+
+        let result = closeness_vitality(&g);
+        for node in ["0", "1", "2"] {
+            let v = result.vitality.get(node).unwrap();
+            assert!((*v - 2.0).abs() < TEST_TOLERANCE, "node {node}: expected 2.0, got {v}");
+        }
+    }
+
+    #[test]
+    fn closeness_vitality_bridge_node() {
+        // Path: 0-1-2, node 1 is a bridge
+        // Full Wiener index = 1 + 2 + 1 = 4 (0-1=1, 0-2=2, 1-2=1)
+        // Removing node 0: leaves 1-2, Wiener = 1, vitality = 4-1 = 3
+        // Removing node 1: disconnects 0 and 2, vitality = NEG_INFINITY
+        // Removing node 2: leaves 0-1, Wiener = 1, vitality = 4-1 = 3
+        let mut g = Graph::strict();
+        let _ = g.add_edge("0", "1");
+        let _ = g.add_edge("1", "2");
+
+        let result = closeness_vitality(&g);
+        assert!((result.vitality.get("0").unwrap() - 3.0).abs() < TEST_TOLERANCE);
+        assert!(result.vitality.get("1").unwrap().is_infinite() && result.vitality.get("1").unwrap().is_sign_negative());
+        assert!((result.vitality.get("2").unwrap() - 3.0).abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn closeness_vitality_single_node_api() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("0", "1");
+        let _ = g.add_edge("1", "2");
+
+        // Test single-node version
+        let v0 = closeness_vitality_single(&g, "0").unwrap();
+        assert!((v0 - 3.0).abs() < TEST_TOLERANCE);
+
+        let v1 = closeness_vitality_single(&g, "1").unwrap();
+        assert!(v1.is_infinite() && v1.is_sign_negative());
+
+        // Non-existent node
+        assert!(closeness_vitality_single(&g, "x").is_none());
+    }
+
+    #[test]
+    fn closeness_vitality_empty() {
+        let g = Graph::strict();
+        let result = closeness_vitality(&g);
+        assert!(result.vitality.is_empty());
     }
 
     // -----------------------------------------------------------------------
@@ -38270,6 +39014,111 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
+    // load_centrality
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_load_centrality_path() {
+        // Path graph: a -- b -- c
+        // b is on all shortest paths between a and c
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+
+        let result = load_centrality(&g);
+        assert_eq!(result.scores.len(), 3);
+
+        // Find scores by node
+        let score_a = result.scores.iter().find(|s| s.node == "a").unwrap().score;
+        let score_b = result.scores.iter().find(|s| s.node == "b").unwrap().score;
+        let score_c = result.scores.iter().find(|s| s.node == "c").unwrap().score;
+
+        // End nodes have 0 load (no paths pass through them)
+        assert!(score_a.abs() < TEST_TOLERANCE);
+        assert!(score_c.abs() < TEST_TOLERANCE);
+        // Middle node has highest load
+        assert!(score_b > score_a);
+        assert!(score_b > score_c);
+    }
+
+    #[test]
+    fn test_load_centrality_star() {
+        // Star graph: center connected to a, b, c
+        // All paths between leaves go through center
+        let mut g = Graph::strict();
+        let _ = g.add_edge("center", "a");
+        let _ = g.add_edge("center", "b");
+        let _ = g.add_edge("center", "c");
+
+        let result = load_centrality(&g);
+        assert_eq!(result.scores.len(), 4);
+
+        let score_center = result.scores.iter().find(|s| s.node == "center").unwrap().score;
+        let score_a = result.scores.iter().find(|s| s.node == "a").unwrap().score;
+
+        // Center has highest load
+        assert!(score_center > score_a);
+        // Leaves have 0 load
+        assert!(score_a.abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn test_load_centrality_single_node() {
+        let mut g = Graph::strict();
+        let _ = g.add_node("a");
+
+        let result = load_centrality(&g);
+        assert_eq!(result.scores.len(), 1);
+        assert_eq!(result.scores[0].node, "a");
+        // Single node has no paths, so load is 0
+        assert!(result.scores[0].score.abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn test_load_centrality_empty() {
+        let g = Graph::strict();
+        let result = load_centrality(&g);
+        assert!(result.scores.is_empty());
+    }
+
+    #[test]
+    fn test_load_centrality_triangle() {
+        // Triangle: all nodes are equally central
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "a");
+
+        let result = load_centrality(&g);
+        assert_eq!(result.scores.len(), 3);
+
+        // All nodes should have equal load in a triangle
+        let scores: Vec<f64> = result.scores.iter().map(|s| s.score).collect();
+        assert!((scores[0] - scores[1]).abs() < TEST_TOLERANCE);
+        assert!((scores[1] - scores[2]).abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn test_load_centrality_directed_path() {
+        // Directed path: a -> b -> c
+        // b is on all shortest paths between a and c
+        let mut dg = DiGraph::strict();
+        let _ = dg.add_edge("a", "b");
+        let _ = dg.add_edge("b", "c");
+
+        let result = load_centrality_directed(&dg);
+        assert_eq!(result.scores.len(), 3);
+
+        // b should have highest load as it's on the path a->c
+        let b_score = result.scores.iter().find(|s| s.node == "b").unwrap().score;
+        let a_score = result.scores.iter().find(|s| s.node == "a").unwrap().score;
+        let c_score = result.scores.iter().find(|s| s.node == "c").unwrap().score;
+
+        assert!(b_score > a_score || (b_score - a_score).abs() < TEST_TOLERANCE);
+        assert!(b_score > c_score || (b_score - c_score).abs() < TEST_TOLERANCE);
+    }
+
+    // -----------------------------------------------------------------------
     // group_degree_centrality / group_in_degree_centrality / group_out_degree_centrality
     // -----------------------------------------------------------------------
 
@@ -39685,6 +40534,17 @@ mod tests {
     }
 
     #[test]
+    fn test_random_spanning_tree_two_components() {
+        // Two separate components - each node has neighbors but graph is disconnected
+        // This tests the proper connectivity check (not just isolated node detection)
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("c", "d");
+        let result = random_spanning_tree(&g, 42);
+        assert!(result.is_none(), "two disconnected components should return None");
+    }
+
+    #[test]
     fn test_random_spanning_tree_single_node() {
         let mut g = Graph::strict();
         let _ = g.add_node("a");
@@ -39717,6 +40577,19 @@ mod tests {
         let tree = random_spanning_tree_directed(&dg, "a", 42).expect("should return arborescence");
         assert_eq!(tree.node_count(), 3);
         assert_eq!(tree.edge_count(), 2); // n-1 edges
+    }
+
+    #[test]
+    fn test_random_spanning_tree_directed_unreachable() {
+        // Test where some nodes cannot reach the root
+        // c->d forms a cycle that cannot reach root a
+        use fnx_classes::digraph::DiGraph;
+        let mut dg = DiGraph::strict();
+        let _ = dg.add_edge("a", "b"); // b can reach a
+        let _ = dg.add_edge("c", "d"); // c and d form isolated cycle
+        let _ = dg.add_edge("d", "c");
+        let result = random_spanning_tree_directed(&dg, "a", 42);
+        assert!(result.is_none(), "unreachable nodes should return None");
     }
 
     #[test]
@@ -41057,5 +41930,152 @@ mod tests {
         assert_eq!(tp.node_count(), 4);
         // Directed tensor: only (0,a) -> (1,b)
         assert_eq!(tp.edge_count(), 1);
+    }
+
+    // ---------------------------------------------------------------------------
+    // k-core decomposition tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn k_core_empty_graph() {
+        let graph = Graph::strict();
+        let result = k_core(&graph, None);
+        assert!(result.nodes.is_empty());
+        assert!(result.edges.is_empty());
+    }
+
+    #[test]
+    fn k_core_single_node() {
+        let mut graph = Graph::strict();
+        graph.add_node("a");
+        let result = k_core(&graph, None);
+        // Single node with no edges has core number 0
+        assert_eq!(result.nodes, vec!["a".to_owned()]);
+        assert!(result.edges.is_empty());
+    }
+
+    #[test]
+    fn k_core_k4_complete() {
+        // K4 complete graph - all nodes have degree 3, so core number is 3
+        let mut graph = Graph::strict();
+        for (u, v) in [("a", "b"), ("a", "c"), ("a", "d"), ("b", "c"), ("b", "d"), ("c", "d")] {
+            graph.add_edge(u, v).unwrap();
+        }
+
+        // k=3: all nodes should be in the 3-core
+        let result = k_core(&graph, Some(3));
+        assert_eq!(result.nodes.len(), 4);
+        assert!(result.nodes.contains(&"a".to_owned()));
+        assert_eq!(result.edges.len(), 6);
+
+        // k=4: no nodes (max core is 3)
+        let result_k4 = k_core(&graph, Some(4));
+        assert!(result_k4.nodes.is_empty());
+    }
+
+    #[test]
+    fn k_shell_path_graph() {
+        // Path: a-b-c-d (nodes a and d have degree 1, b and c have degree 2)
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").unwrap();
+        graph.add_edge("b", "c").unwrap();
+        graph.add_edge("c", "d").unwrap();
+
+        // k=1 shell: nodes with core number exactly 1
+        let result = k_shell(&graph, Some(1));
+        // In a path, all nodes have core number 1
+        assert_eq!(result.nodes.len(), 4);
+    }
+
+    #[test]
+    fn k_crust_star_graph() {
+        // Star: center connected to a, b, c, d
+        let mut graph = Graph::strict();
+        for leaf in ["a", "b", "c", "d"] {
+            graph.add_edge("center", leaf).unwrap();
+        }
+
+        // All nodes have core number 1, so k_crust(k=0) should return nodes with core <= 0 = empty
+        let result = k_crust(&graph, Some(0));
+        assert!(result.nodes.is_empty());
+
+        // k_crust(k=1) should return all nodes with core <= 1 = all nodes
+        let result_k1 = k_crust(&graph, Some(1));
+        assert_eq!(result_k1.nodes.len(), 5);
+    }
+
+    #[test]
+    fn k_corona_complete_graph() {
+        // K4: all nodes have core number 3 and 3 neighbors in the 3-core
+        let mut graph = Graph::strict();
+        for (u, v) in [("a", "b"), ("a", "c"), ("a", "d"), ("b", "c"), ("b", "d"), ("c", "d")] {
+            graph.add_edge(u, v).unwrap();
+        }
+
+        // k=3: all nodes have core 3 and exactly 3 neighbors in k-core
+        let result = k_corona(&graph, 3);
+        assert_eq!(result.nodes.len(), 4);
+
+        // k=2: no nodes with core number 2
+        let result_k2 = k_corona(&graph, 2);
+        assert!(result_k2.nodes.is_empty());
+    }
+
+    #[test]
+    fn k_core_triangle_with_pendant() {
+        // Triangle a-b-c with pendant d attached to a
+        // Triangle nodes have core 2, pendant has core 1
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").unwrap();
+        graph.add_edge("b", "c").unwrap();
+        graph.add_edge("c", "a").unwrap();
+        graph.add_edge("a", "d").unwrap();
+
+        // k=2 core should have triangle only
+        let result = k_core(&graph, Some(2));
+        assert_eq!(result.nodes.len(), 3);
+        assert!(result.nodes.contains(&"a".to_owned()));
+        assert!(result.nodes.contains(&"b".to_owned()));
+        assert!(result.nodes.contains(&"c".to_owned()));
+        assert!(!result.nodes.contains(&"d".to_owned()));
+
+        // k=1 shell should have only pendant
+        let shell = k_shell(&graph, Some(1));
+        assert_eq!(shell.nodes, vec!["d".to_owned()]);
+    }
+
+    #[test]
+    fn k_core_zero_returns_all_nodes() {
+        // k=0 should return all nodes (including isolated ones)
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").unwrap();
+        graph.add_node("isolated");
+
+        let result = k_core(&graph, Some(0));
+        assert_eq!(result.nodes.len(), 3);
+        assert!(result.nodes.contains(&"isolated".to_owned()));
+    }
+
+    #[test]
+    fn k_crust_empty_when_k_less_than_min_core() {
+        // All nodes in a path have core 1, so k_crust(0) should be empty
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").unwrap();
+        graph.add_edge("b", "c").unwrap();
+
+        let result = k_crust(&graph, Some(0));
+        // No nodes have core <= 0 (all have core 1)
+        assert!(result.nodes.is_empty());
+    }
+
+    #[test]
+    fn k_corona_isolated_node() {
+        // An isolated node has core 0 and 0 neighbors in the 0-core
+        // So it should be in the 0-corona
+        let mut graph = Graph::strict();
+        graph.add_node("isolated");
+
+        let result = k_corona(&graph, 0);
+        assert_eq!(result.nodes, vec!["isolated".to_owned()]);
     }
 }

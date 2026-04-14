@@ -1,0 +1,25 @@
+{
+  "suite": "voterank_v1",
+  "mode": "strict",
+  "operations": [
+    {"op": "add_edge", "left": "hub", "right": "a", "attrs": {}},
+    {"op": "add_edge", "left": "hub", "right": "b", "attrs": {}},
+    {"op": "add_edge", "left": "hub", "right": "c", "attrs": {}},
+    {"op": "add_edge", "left": "hub", "right": "d", "attrs": {}},
+    {"op": "add_edge", "left": "a", "right": "b", "attrs": {}},
+    {"op": "voterank_query"}
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["hub", "a", "b", "c", "d"],
+      "edges": [
+        {"left": "a", "right": "hub", "attrs": {}},
+        {"left": "b", "right": "hub", "attrs": {}},
+        {"left": "c", "right": "hub", "attrs": {}},
+        {"left": "d", "right": "hub", "attrs": {}},
+        {"left": "a", "right": "b", "attrs": {}}
+      ]
+    },
+    "voterank": ["hub", "a"]
+  }
+}
