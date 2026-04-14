@@ -499,6 +499,7 @@ dependencies = [
  "fnx-cgse",
  "fnx-classes",
  "fnx-runtime",
+ "mt19937",
  "mwmatching",
  "proptest",
  "serde",

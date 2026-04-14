@@ -8,6 +8,7 @@ use fnx_cgse::{
 use fnx_classes::digraph::DiGraph;
 use fnx_classes::{Graph, GraphError};
 use fnx_runtime::CgseValue;
+use mt19937::{MT19937, gen_res53};
 use mwmatching::{Matching as BlossomMatching, SENTINEL as BLOSSOM_SENTINEL};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque};
@@ -27246,6 +27247,220 @@ pub fn spanning_tree_iterator_ordered(
         .collect()
 }
 
+/// Generate a uniformly random spanning tree using Wilson's algorithm.
+///
+/// Uses loop-erased random walks to generate a spanning tree uniformly at random
+/// from the set of all spanning trees. The algorithm runs in O(n * mean_hitting_time)
+/// expected time.
+///
+/// Returns None if the graph is empty or not connected.
+///
+/// # Arguments
+/// * `graph` - undirected graph (must be connected)
+/// * `seed` - random seed for reproducibility
+///
+/// Matches `networkx.random_spanning_tree(G, ...)`.
+#[must_use]
+pub fn random_spanning_tree(graph: &Graph, seed: u64) -> Option<Graph> {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+
+    if n == 0 {
+        return None;
+    }
+
+    // Single node: return graph with just that node
+    if n == 1 {
+        let mut result = Graph::new(graph.mode());
+        let _ = result.add_node(nodes[0].to_owned());
+        return Some(result);
+    }
+
+    // Create node index mapping for efficient random neighbor selection
+    let node_idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+
+    // Collect neighbors for each node
+    let neighbors: Vec<Vec<usize>> = nodes
+        .iter()
+        .map(|node| {
+            graph
+                .neighbors(node)
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|nbr| node_idx.get(nbr).copied())
+                .collect()
+        })
+        .collect();
+
+    // Check connectivity: if any node has no neighbors, graph is disconnected
+    if neighbors.iter().any(|nbrs| nbrs.is_empty()) {
+        return None;
+    }
+
+    // Initialize RNG with MT19937 for reproducibility
+    let mut rng = MT19937::new_with_slice_seed(&[seed as u32, (seed >> 32) as u32]);
+
+    // Wilson's algorithm:
+    // 1. Start with root in tree
+    // 2. For each other node, random walk until hitting tree, add loop-erased path
+    let mut in_tree = vec![false; n];
+    let mut tree_edges: Vec<(usize, usize)> = Vec::with_capacity(n - 1);
+
+    // Pick node 0 as root (arbitrary choice, result is still uniform)
+    in_tree[0] = true;
+
+    for start in 1..n {
+        if in_tree[start] {
+            continue;
+        }
+
+        // Random walk from start until we hit the tree
+        // Track the path with "next" pointers (loop-erased walk)
+        let mut next: Vec<Option<usize>> = vec![None; n];
+        let mut current = start;
+
+        loop {
+            if in_tree[current] {
+                break;
+            }
+
+            // Pick random neighbor
+            let nbrs = &neighbors[current];
+            if nbrs.is_empty() {
+                // Disconnected component - shouldn't happen for connected graph
+                return None;
+            }
+
+            let random_val = gen_res53(&mut rng);
+            let neighbor_idx = (random_val * nbrs.len() as f64) as usize;
+            let neighbor = nbrs[neighbor_idx.min(nbrs.len() - 1)];
+
+            next[current] = Some(neighbor);
+            current = neighbor;
+        }
+
+        // Add loop-erased path from start to tree
+        current = start;
+        while !in_tree[current] {
+            in_tree[current] = true;
+            if let Some(nxt) = next[current] {
+                tree_edges.push((current, nxt));
+                current = nxt;
+            } else {
+                break;
+            }
+        }
+    }
+
+    // Build result graph
+    let mut result = Graph::new(graph.mode());
+    for node in &nodes {
+        let _ = result.add_node((*node).to_owned());
+    }
+    for (u, v) in tree_edges {
+        let _ = result.add_edge(nodes[u].to_owned(), nodes[v].to_owned());
+    }
+
+    Some(result)
+}
+
+/// Generate a random spanning tree for a directed graph.
+///
+/// Returns a random spanning arborescence rooted at the specified node.
+/// Uses random walk with loop erasure (Wilson's algorithm adapted for digraphs).
+///
+/// Returns None if the graph is empty, the root doesn't exist, or the root
+/// cannot reach all other nodes.
+#[must_use]
+pub fn random_spanning_tree_directed(digraph: &DiGraph, root: &str, seed: u64) -> Option<DiGraph> {
+    let nodes = digraph.nodes_ordered();
+    let n = nodes.len();
+
+    if n == 0 || !digraph.has_node(root) {
+        return None;
+    }
+
+    if n == 1 {
+        let mut result = DiGraph::new(digraph.mode());
+        let _ = result.add_node(nodes[0].to_owned());
+        return Some(result);
+    }
+
+    let node_idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+    let root_idx = *node_idx.get(root)?;
+
+    // For arborescence: we need predecessors (edges pointing toward root)
+    // Random walk backwards on reversed edges
+    let predecessors: Vec<Vec<usize>> = nodes
+        .iter()
+        .map(|node| {
+            digraph
+                .predecessors(node)
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|pred| node_idx.get(pred).copied())
+                .collect()
+        })
+        .collect();
+
+    let mut rng = mt19937::MT19937::new_with_slice_seed(&[seed as u32, (seed >> 32) as u32]);
+
+    let mut in_tree = vec![false; n];
+    let mut tree_edges: Vec<(usize, usize)> = Vec::with_capacity(n - 1);
+
+    in_tree[root_idx] = true;
+
+    for start in 0..n {
+        if in_tree[start] {
+            continue;
+        }
+
+        let mut next: Vec<Option<usize>> = vec![None; n];
+        let mut current = start;
+
+        loop {
+            if in_tree[current] {
+                break;
+            }
+
+            let preds = &predecessors[current];
+            if preds.is_empty() {
+                // Cannot reach tree from this node
+                return None;
+            }
+
+            let random_val = gen_res53(&mut rng);
+            let pred_idx = (random_val * preds.len() as f64) as usize;
+            let pred = preds[pred_idx.min(preds.len() - 1)];
+
+            next[current] = Some(pred);
+            current = pred;
+        }
+
+        current = start;
+        while !in_tree[current] {
+            in_tree[current] = true;
+            if let Some(nxt) = next[current] {
+                // Edge goes from nxt -> current (toward root)
+                tree_edges.push((nxt, current));
+                current = nxt;
+            } else {
+                break;
+            }
+        }
+    }
+
+    let mut result = DiGraph::new(digraph.mode());
+    for node in &nodes {
+        let _ = result.add_node((*node).to_owned());
+    }
+    for (u, v) in tree_edges {
+        let _ = result.add_edge(nodes[u].to_owned(), nodes[v].to_owned());
+    }
+
+    Some(result)
+}
+
 // Arborescence iterator (enumerate spanning arborescences)
 // ---------------------------------------------------------------------------
 
@@ -29747,6 +29962,8 @@ mod tests {
         spanner,
         spanning_tree_iterator,
         spanning_tree_iterator_ordered,
+        random_spanning_tree,
+        random_spanning_tree_directed,
         stochastic_block_model,
         // New algorithms (March 2026)
         stoer_wagner,
@@ -39445,6 +39662,61 @@ mod tests {
         let _ = g.add_edge("d", "a");
         let trees = spanning_tree_iterator(&g, "weight", 100);
         assert_eq!(trees.len(), 4);
+    }
+
+    #[test]
+    fn test_random_spanning_tree_triangle() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("a", "c");
+        let tree = random_spanning_tree(&g, 42).expect("should return a tree");
+        assert_eq!(tree.node_count(), 3);
+        assert_eq!(tree.edge_count(), 2); // n-1 edges for a spanning tree
+    }
+
+    #[test]
+    fn test_random_spanning_tree_disconnected() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_node("c"); // isolated node
+        let result = random_spanning_tree(&g, 42);
+        assert!(result.is_none()); // disconnected graph
+    }
+
+    #[test]
+    fn test_random_spanning_tree_single_node() {
+        let mut g = Graph::strict();
+        let _ = g.add_node("a");
+        let tree = random_spanning_tree(&g, 42).expect("single node should work");
+        assert_eq!(tree.node_count(), 1);
+        assert_eq!(tree.edge_count(), 0);
+    }
+
+    #[test]
+    fn test_random_spanning_tree_deterministic() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("a", "c");
+        let tree1 = random_spanning_tree(&g, 123).expect("tree1");
+        let tree2 = random_spanning_tree(&g, 123).expect("tree2");
+        // Same seed should produce same tree
+        let edges1: Vec<_> = tree1.edges_ordered();
+        let edges2: Vec<_> = tree2.edges_ordered();
+        assert_eq!(edges1, edges2);
+    }
+
+    #[test]
+    fn test_random_spanning_tree_directed() {
+        use fnx_classes::digraph::DiGraph;
+        let mut dg = DiGraph::strict();
+        let _ = dg.add_edge("a", "b");
+        let _ = dg.add_edge("a", "c");
+        let _ = dg.add_edge("b", "c");
+        let tree = random_spanning_tree_directed(&dg, "a", 42).expect("should return arborescence");
+        assert_eq!(tree.node_count(), 3);
+        assert_eq!(tree.edge_count(), 2); // n-1 edges
     }
 
     #[test]

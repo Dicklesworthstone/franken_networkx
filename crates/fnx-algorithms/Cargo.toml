@@ -16,6 +16,7 @@ fnx-classes = { version = "0.1.0", path = "../fnx-classes" }
 fnx-cgse = { version = "0.1.0", path = "../fnx-cgse" }
 fnx-runtime = { version = "0.1.0", path = "../fnx-runtime" }
 mwmatching = "0.1.1"
+mt19937 = "3.3.0"
 serde = { version = "1.0.228", features = ["derive"] }
 dhat = { version = "0.3", optional = true }
 
