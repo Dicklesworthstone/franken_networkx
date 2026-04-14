@@ -112,3 +112,66 @@ fn rejects_e2e_missing_step_traces() {
         .expect_err("e2e logs without step traces should fail closed");
     assert!(err.contains("e2e_step_traces are required when test_kind=e2e"));
 }
+
+#[test]
+fn rejects_failed_missing_reason_code() {
+    let log = parse_fixture("structured_log_failed_missing_reason_code.json");
+    let err = log
+        .validate()
+        .expect_err("failed log missing reason_code should fail closed");
+    assert!(err.contains("reason_code is required when status=failed"));
+}
+
+#[test]
+fn rejects_failed_missing_repro() {
+    let log = parse_fixture("structured_log_failed_missing_repro.json");
+    let err = log
+        .validate()
+        .expect_err("failed log missing repro should fail closed");
+    assert!(err.contains("failure_repro is required when status=failed"));
+}
+
+#[test]
+fn rejects_failed_empty_failure_message() {
+    let log = parse_fixture("structured_log_failed_empty_message.json");
+    let err = log
+        .validate()
+        .expect_err("failed log missing failure_message should fail closed");
+    assert!(err.contains("failure_message must be non-empty"));
+}
+
+#[test]
+fn rejects_bundle_hash_empty() {
+    let log = parse_fixture("structured_log_bundle_hash_empty.json");
+    let err = log
+        .validate()
+        .expect_err("bundle hash id empty should fail closed");
+    assert!(err.contains("forensics_bundle_index.bundle_hash_id must be non-empty"));
+}
+
+#[test]
+fn rejects_bundle_artifact_ref_empty() {
+    let log = parse_fixture("structured_log_bundle_artifact_ref_empty.json");
+    let err = log
+        .validate()
+        .expect_err("bundle artifact refs should not contain empty entries");
+    assert!(err.contains("forensics_bundle_index.artifact_refs must not contain empty entries"));
+}
+
+#[test]
+fn rejects_skipped_missing_reason_code() {
+    let log = parse_fixture("structured_log_skipped_missing_reason_code.json");
+    let err = log
+        .validate()
+        .expect_err("skipped log missing reason_code should fail closed");
+    assert!(err.contains("reason_code is required when status=skipped"));
+}
+
+#[test]
+fn rejects_passed_empty_reason_code() {
+    let log = parse_fixture("structured_log_passed_empty_reason_code.json");
+    let err = log
+        .validate()
+        .expect_err("passed log with empty reason_code should fail closed");
+    assert!(err.contains("reason_code must be non-empty when provided"));
+}
