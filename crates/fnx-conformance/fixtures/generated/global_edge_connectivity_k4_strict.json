@@ -1,0 +1,27 @@
+{
+  "suite": "connectivity_v1",
+  "mode": "strict",
+  "operations": [
+    {"op": "add_edge", "left": "a", "right": "b", "attrs": {}},
+    {"op": "add_edge", "left": "a", "right": "c", "attrs": {}},
+    {"op": "add_edge", "left": "a", "right": "d", "attrs": {}},
+    {"op": "add_edge", "left": "b", "right": "c", "attrs": {}},
+    {"op": "add_edge", "left": "b", "right": "d", "attrs": {}},
+    {"op": "add_edge", "left": "c", "right": "d", "attrs": {}},
+    {"op": "global_edge_connectivity_query"}
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["a", "b", "c", "d"],
+      "edges": [
+        {"left": "a", "right": "b", "attrs": {}},
+        {"left": "a", "right": "c", "attrs": {}},
+        {"left": "a", "right": "d", "attrs": {}},
+        {"left": "b", "right": "c", "attrs": {}},
+        {"left": "b", "right": "d", "attrs": {}},
+        {"left": "c", "right": "d", "attrs": {}}
+      ]
+    },
+    "global_edge_connectivity": 3
+  }
+}

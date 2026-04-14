@@ -7,9 +7,9 @@
     "journey_count": 12,
     "strict_journey_count": 12,
     "hardened_journey_count": 12,
-    "fixture_inventory_count": 89,
+    "fixture_inventory_count": 92,
     "covered_fixture_count": 84,
-    "uncovered_fixture_count": 5
+    "uncovered_fixture_count": 8
   },
   "deterministic_seed_policy": {
     "seed_namespace": "fnx-e2e-scenario-matrix-v1",
@@ -2584,7 +2584,9 @@
       "generated/adversarial_regression_bundle_v1.json",
       "generated/average_shortest_path_length_strict.json",
       "generated/avg_neighbor_degree_strict.json",
+      "generated/bellman_ford_negative_weights_strict.json",
       "generated/bipartite_strict.json",
+      "generated/bridges_simple_strict.json",
       "generated/centrality_betweenness_petersen_strict.json",
       "generated/centrality_betweenness_strict.json",
       "generated/centrality_closeness_strict.json",
@@ -2632,6 +2634,7 @@
       "generated/generators_gnp_random_graph_strict.json",
       "generated/generators_path_strict.json",
       "generated/generators_star_strict.json",
+      "generated/global_edge_connectivity_k4_strict.json",
       "generated/greedy_color_strict.json",
       "generated/has_path_strict.json",
       "generated/is_connected_density_strict.json",
