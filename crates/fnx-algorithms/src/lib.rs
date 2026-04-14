@@ -22262,7 +22262,10 @@ pub struct MinCostFlowResult {
 
 /// Compute minimum cost flow using successive shortest paths.
 ///
-/// Nodes have demand attributes (positive = supply, negative = demand).
+/// Nodes have demand attributes following NetworkX convention:
+/// - negative = supply (node produces flow)
+/// - positive = demand (node consumes flow)
+///
 /// Edges have capacity and cost (weight) attributes.
 pub fn min_cost_flow(
     digraph: &DiGraph,
@@ -22282,13 +22285,15 @@ pub fn min_cost_flow(
     let idx: std::collections::HashMap<&str, usize> =
         nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
 
-    // Parse demands
+    // Parse demands and negate to convert from NetworkX convention
+    // (negative=supply, positive=demand) to internal convention (positive=supply, negative=demand)
     let mut demand = vec![0.0f64; n];
     for (i, &node) in nodes.iter().enumerate() {
         if let Some(attrs) = digraph.node_attrs(node)
             && let Some(d) = attrs.get(demand_attr)
         {
-            demand[i] = d.as_f64().unwrap_or(0.0);
+            // Negate: NetworkX negative supply becomes positive, positive demand becomes negative
+            demand[i] = -d.as_f64().unwrap_or(0.0);
         }
     }
 

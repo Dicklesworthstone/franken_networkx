@@ -1,5 +1,5 @@
 {
-  "suite": "connectivity_v1",
+  "suite": "clustering_v1",
   "mode": "strict",
   "operations": [
     {"op": "add_edge", "left": "a", "right": "b", "attrs": {}},
@@ -8,7 +8,7 @@
     {"op": "add_edge", "left": "b", "right": "c", "attrs": {}},
     {"op": "add_edge", "left": "b", "right": "d", "attrs": {}},
     {"op": "add_edge", "left": "c", "right": "d", "attrs": {}},
-    {"op": "global_edge_connectivity_query"}
+    {"op": "triangles_query"}
   ],
   "expected": {
     "graph": {
@@ -22,6 +22,11 @@
         {"left": "c", "right": "d", "attrs": {}}
       ]
     },
-    "global_edge_connectivity_value": 3.0
+    "triangles": [
+      {"node": "a", "count": 3},
+      {"node": "b", "count": 3},
+      {"node": "c", "count": 3},
+      {"node": "d", "count": 3}
+    ]
   }
 }

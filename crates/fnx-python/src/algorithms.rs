@@ -2949,7 +2949,10 @@ pub fn minimum_cut(
 
 /// Compute minimum cost flow on a directed graph.
 ///
-/// Nodes must have demand attributes (positive = supply, negative = demand).
+/// Nodes must have demand attributes following NetworkX convention:
+/// - negative = supply (node produces flow)
+/// - positive = demand (node consumes flow)
+///
 /// Edges must have capacity and weight (cost) attributes.
 /// Returns (flow_dict, total_cost) where flow_dict maps (u, v) -> flow value.
 ///

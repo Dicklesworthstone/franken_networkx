@@ -1,0 +1,25 @@
+{
+  "suite": "shortest_path_v1",
+  "mode": "strict",
+  "operations": [
+    {"op": "add_edge", "left": "s", "right": "a", "attrs": {"weight": 2.0}},
+    {"op": "add_edge", "left": "s", "right": "b", "attrs": {"weight": 5.0}},
+    {"op": "add_edge", "left": "a", "right": "b", "attrs": {"weight": 1.0}},
+    {"op": "add_edge", "left": "a", "right": "t", "attrs": {"weight": 6.0}},
+    {"op": "add_edge", "left": "b", "right": "t", "attrs": {"weight": 1.0}},
+    {"op": "weighted_shortest_path_query", "source": "s", "target": "t", "weight_attr": "weight"}
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["s", "a", "b", "t"],
+      "edges": [
+        {"left": "a", "right": "s", "attrs": {"weight": 2.0}},
+        {"left": "b", "right": "s", "attrs": {"weight": 5.0}},
+        {"left": "a", "right": "b", "attrs": {"weight": 1.0}},
+        {"left": "a", "right": "t", "attrs": {"weight": 6.0}},
+        {"left": "b", "right": "t", "attrs": {"weight": 1.0}}
+      ]
+    },
+    "shortest_path_weighted": ["s", "a", "b", "t"]
+  }
+}
