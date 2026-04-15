@@ -2,7 +2,7 @@
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use raptorq::{Decoder, Encoder, EncodingPacket, ObjectTransmissionInformation};
+use raptorq::{Decoder, Encoder, EncodingPacket, ObjectTransmissionInformation, partition};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fs;
@@ -30,6 +30,10 @@ pub struct DecodeProof {
     pub reason: String,
     pub recovered_blocks: u32,
     pub proof_hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dropped_packets: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fail_closed_beyond: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -66,6 +70,17 @@ pub enum DurabilityError {
     DecodeFailed,
     #[error("decoded payload hash mismatch with source hash")]
     HashMismatch,
+    #[error(
+        "decode drill packet layout mismatch: expected {expected_sources} source and {expected_repairs} repair packets, observed {observed_sources} source and {observed_repairs} repair"
+    )]
+    DecodeDrillPacketLayout {
+        expected_sources: u32,
+        expected_repairs: u32,
+        observed_sources: u32,
+        observed_repairs: u32,
+    },
+    #[error("decode drill did not fail closed beyond the validated loss bound")]
+    DecodeDrillFailOpen,
 }
 
 pub const MAX_DURABILITY_FILE_SIZE: usize = 100 * 1024 * 1024; // 100MB
@@ -209,6 +224,8 @@ pub fn scrub_artifact(
         reason: "scrub_recovery".to_owned(),
         recovered_blocks: envelope.raptorq.k,
         proof_hash: recovered_hash.clone(),
+        dropped_packets: None,
+        fail_closed_beyond: None,
     };
     envelope.decode_proofs.push(proof);
     envelope.scrub = ScrubStatus {
@@ -224,14 +241,15 @@ pub fn run_decode_drill(
     recovered_output: &Path,
 ) -> Result<ArtifactEnvelope, DurabilityError> {
     let mut envelope = read_envelope(sidecar_path)?;
-    let packets = envelope.raptorq.packets_b64.clone();
-
-    let drop_count = usize::try_from(envelope.raptorq.repair_symbols.min(2)).unwrap_or(0);
-    let reduced: Vec<String> = packets.into_iter().skip(drop_count).collect();
-
-    let (recovered, reason) = match decode_with_packets(&envelope, &reduced) {
-        Ok(data) => (data, "decode_drill_reduced"),
-        Err(_) => (decode_from_envelope(&envelope)?, "decode_drill_full"),
+    let (source_packets, repair_packets) = classify_decode_drill_packets(&envelope)?;
+    let dropped_packets = repair_packets.len() as u32;
+    let recovered = decode_with_packets(&envelope, &source_packets)?;
+    let fail_closed_beyond =
+        verify_decode_drill_fail_closed(&envelope, &source_packets, dropped_packets)?;
+    let reason = if envelope.raptorq.k == 0 {
+        "decode_drill_empty"
+    } else {
+        "decode_drill_bound_success"
     };
 
     let recovered_hash = hash_bytes(&recovered);
@@ -245,6 +263,8 @@ pub fn run_decode_drill(
         reason: reason.to_owned(),
         recovered_blocks: envelope.raptorq.k,
         proof_hash: recovered_hash.clone(),
+        dropped_packets: Some(dropped_packets),
+        fail_closed_beyond,
     };
     envelope.decode_proofs.push(proof);
     envelope.scrub = ScrubStatus {
@@ -275,6 +295,85 @@ fn decode_from_envelope(envelope: &ArtifactEnvelope) -> Result<Vec<u8>, Durabili
     decode_with_packets(envelope, &envelope.raptorq.packets_b64)
 }
 
+fn classify_decode_drill_packets(
+    envelope: &ArtifactEnvelope,
+) -> Result<(Vec<String>, Vec<String>), DurabilityError> {
+    if envelope.raptorq.k == 0 {
+        return Ok((Vec::new(), Vec::new()));
+    }
+
+    let oti = decode_oti(&envelope.raptorq.oti_b64)?;
+    let total_source_packets =
+        u32::try_from(oti.transfer_length().div_ceil(u64::from(oti.symbol_size())))
+            .map_err(|_| DurabilityError::DecodeFailed)?;
+    let (large_block_symbols, small_block_symbols, large_block_count, _) =
+        partition(total_source_packets, u32::from(oti.source_blocks()));
+
+    let mut source_packets = Vec::with_capacity(envelope.raptorq.k as usize);
+    let mut repair_packets = Vec::with_capacity(envelope.raptorq.repair_symbols as usize);
+
+    for encoded in &envelope.raptorq.packets_b64 {
+        let packet_bytes = STANDARD.decode(encoded)?;
+        let packet = EncodingPacket::deserialize(&packet_bytes);
+        let block_number = u32::from(packet.payload_id().source_block_number());
+        let source_symbols = if block_number < large_block_count {
+            large_block_symbols
+        } else {
+            small_block_symbols
+        };
+
+        if packet.payload_id().encoding_symbol_id() < source_symbols {
+            source_packets.push(encoded.clone());
+        } else {
+            repair_packets.push(encoded.clone());
+        }
+    }
+
+    let observed_sources = u32::try_from(source_packets.len()).unwrap_or(u32::MAX);
+    let observed_repairs = u32::try_from(repair_packets.len()).unwrap_or(u32::MAX);
+    if observed_sources != envelope.raptorq.k || observed_repairs != envelope.raptorq.repair_symbols
+    {
+        return Err(DurabilityError::DecodeDrillPacketLayout {
+            expected_sources: envelope.raptorq.k,
+            expected_repairs: envelope.raptorq.repair_symbols,
+            observed_sources,
+            observed_repairs,
+        });
+    }
+
+    Ok((source_packets, repair_packets))
+}
+
+fn verify_decode_drill_fail_closed(
+    envelope: &ArtifactEnvelope,
+    source_packets: &[String],
+    dropped_packets: u32,
+) -> Result<Option<u32>, DurabilityError> {
+    if source_packets.is_empty() {
+        return Ok(None);
+    }
+
+    let fail_closed_candidate: Vec<String> = source_packets
+        .iter()
+        .take(source_packets.len() - 1)
+        .cloned()
+        .collect();
+    match decode_with_packets(envelope, &fail_closed_candidate) {
+        Err(DurabilityError::DecodeFailed) => Ok(Some(dropped_packets + 1)),
+        Err(err) => Err(err),
+        Ok(_) => Err(DurabilityError::DecodeDrillFailOpen),
+    }
+}
+
+fn decode_oti(oti_b64: &str) -> Result<ObjectTransmissionInformation, DurabilityError> {
+    let oti_bytes = STANDARD.decode(oti_b64)?;
+    let oti_slice: [u8; 12] = oti_bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| DurabilityError::InvalidOtiLength)?;
+    Ok(ObjectTransmissionInformation::deserialize(&oti_slice))
+}
+
 fn decode_with_packets(
     envelope: &ArtifactEnvelope,
     packet_b64: &[String],
@@ -283,12 +382,7 @@ fn decode_with_packets(
         return Ok(Vec::new());
     }
 
-    let oti_bytes = STANDARD.decode(&envelope.raptorq.oti_b64)?;
-    let oti_slice: [u8; 12] = oti_bytes
-        .as_slice()
-        .try_into()
-        .map_err(|_| DurabilityError::InvalidOtiLength)?;
-    let oti = ObjectTransmissionInformation::deserialize(&oti_slice);
+    let oti = decode_oti(&envelope.raptorq.oti_b64)?;
     let mut decoder = Decoder::new(oti);
 
     for encoded in packet_b64 {
@@ -378,14 +472,33 @@ mod tests {
         let artifact = temp.path().join("artifact.json");
         let sidecar = temp.path().join("artifact.raptorq.json");
         let recovered = temp.path().join("artifact.recovered.json");
-        fs::write(&artifact, b"{\"x\":1}").expect("artifact write should succeed");
+        let payload = vec![b'x'; 4096];
+        fs::write(&artifact, &payload).expect("artifact write should succeed");
 
-        generate_sidecar_for_file(&artifact, &sidecar, "artifact", "conformance", 1400, 4)
+        generate_sidecar_for_file(&artifact, &sidecar, "artifact", "conformance", 64, 6)
             .expect("sidecar generation should succeed");
         let post_drill =
             run_decode_drill(&sidecar, &recovered).expect("decode drill should succeed");
         assert!(!post_drill.decode_proofs.is_empty());
         assert_eq!(post_drill.scrub.status, super::ScrubState::Recovered);
         assert!(recovered.exists());
+        assert_eq!(
+            fs::read(&recovered).expect("recovered artifact should be readable"),
+            payload
+        );
+
+        let decode_proof = post_drill
+            .decode_proofs
+            .last()
+            .expect("decode proof should be recorded");
+        assert_eq!(decode_proof.reason, "decode_drill_bound_success");
+        assert_eq!(
+            decode_proof.dropped_packets,
+            Some(post_drill.raptorq.repair_symbols)
+        );
+        assert_eq!(
+            decode_proof.fail_closed_beyond,
+            Some(post_drill.raptorq.repair_symbols + 1)
+        );
     }
 }
