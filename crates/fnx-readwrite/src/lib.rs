@@ -3666,7 +3666,12 @@ impl EdgeListEngine {
                         None => {
                             let warning = format!("line {}: invalid vertex ID", line_no + 1);
                             if self.mode == CompatibilityMode::Strict {
-                                self.record("read_pajek", DecisionAction::FailClosed, &warning, 1.0);
+                                self.record(
+                                    "read_pajek",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
                                 return Err(ReadWriteError::FailClosed {
                                     operation: "read_pajek",
                                     reason: warning,
@@ -3721,7 +3726,12 @@ impl EdgeListEngine {
                         Err(_) => {
                             let warning = format!("line {}: invalid source ID", line_no + 1);
                             if self.mode == CompatibilityMode::Strict {
-                                self.record("read_pajek", DecisionAction::FailClosed, &warning, 1.0);
+                                self.record(
+                                    "read_pajek",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
                                 return Err(ReadWriteError::FailClosed {
                                     operation: "read_pajek",
                                     reason: warning,
@@ -3737,7 +3747,12 @@ impl EdgeListEngine {
                         Err(_) => {
                             let warning = format!("line {}: invalid target ID", line_no + 1);
                             if self.mode == CompatibilityMode::Strict {
-                                self.record("read_pajek", DecisionAction::FailClosed, &warning, 1.0);
+                                self.record(
+                                    "read_pajek",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
                                 return Err(ReadWriteError::FailClosed {
                                     operation: "read_pajek",
                                     reason: warning,
@@ -3863,7 +3878,12 @@ impl EdgeListEngine {
                         None => {
                             let warning = format!("line {}: invalid vertex ID", line_no + 1);
                             if self.mode == CompatibilityMode::Strict {
-                                self.record("read_pajek", DecisionAction::FailClosed, &warning, 1.0);
+                                self.record(
+                                    "read_pajek",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
                                 return Err(ReadWriteError::FailClosed {
                                     operation: "read_pajek",
                                     reason: warning,
@@ -3914,7 +3934,12 @@ impl EdgeListEngine {
                         Err(_) => {
                             let warning = format!("line {}: invalid source ID", line_no + 1);
                             if self.mode == CompatibilityMode::Strict {
-                                self.record("read_pajek", DecisionAction::FailClosed, &warning, 1.0);
+                                self.record(
+                                    "read_pajek",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
                                 return Err(ReadWriteError::FailClosed {
                                     operation: "read_pajek",
                                     reason: warning,
@@ -3930,7 +3955,12 @@ impl EdgeListEngine {
                         Err(_) => {
                             let warning = format!("line {}: invalid target ID", line_no + 1);
                             if self.mode == CompatibilityMode::Strict {
-                                self.record("read_pajek", DecisionAction::FailClosed, &warning, 1.0);
+                                self.record(
+                                    "read_pajek",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
                                 return Err(ReadWriteError::FailClosed {
                                     operation: "read_pajek",
                                     reason: warning,
