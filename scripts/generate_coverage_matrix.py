@@ -34,14 +34,18 @@ def load_public_exports():
     sys.path.insert(0, str(ROOT / "python"))
     import franken_networkx as fnx  # pylint: disable=import-outside-toplevel
 
-    duplicates = [name for name, count in Counter(fnx.__all__).items() if count > 1]
-    if duplicates:
-        joined = ", ".join(sorted(duplicates))
-        raise RuntimeError(f"Duplicate names in __all__: {joined}")
-
+    duplicates = []
+    seen = set()
+    ordered_names = []
+    for name in fnx.__all__:
+        if name in seen:
+            duplicates.append(name)
+            continue
+        seen.add(name)
+        ordered_names.append(name)
     exports = []
     missing = []
-    for name in fnx.__all__:
+    for name in ordered_names:
         try:
             exports.append((name, getattr(fnx, name)))
         except AttributeError:
@@ -49,7 +53,7 @@ def load_public_exports():
     if missing:
         joined = ", ".join(sorted(missing))
         raise RuntimeError(f"Names declared in __all__ but missing at runtime: {joined}")
-    return exports
+    return exports, sorted(set(duplicates))
 
 
 def uses_networkx_runtime(obj) -> bool:
@@ -98,7 +102,7 @@ def classify_export(obj) -> str:
     return "PY_WRAPPER"
 
 
-def render_markdown(exports) -> str:
+def render_markdown(exports, duplicates) -> str:
     categorized = defaultdict(list)
     module_counts = Counter()
 
@@ -123,15 +127,33 @@ def render_markdown(exports) -> str:
         f"| NX_DELEGATED | {len(categorized['NX_DELEGATED'])} | {len(categorized['NX_DELEGATED'])*100//max(total,1)}% | Python-defined exports that import or call NetworkX at runtime |",
         f"| CLASS | {len(categorized['CLASS'])} | {len(categorized['CLASS'])*100//max(total,1)}% | public classes, exceptions, iterators |",
         f"| CONSTANT | {len(categorized['CONSTANT'])} | {len(categorized['CONSTANT'])*100//max(total,1)}% | public non-callable values |",
-        f"| **Total public exports** | **{total}** | | `len(franken_networkx.__all__)` |",
+        f"| **Total public exports** | **{total}** | | unique names from `franken_networkx.__all__` |",
         "",
         "All declared public exports are classified. `--check` fails if this generated report drifts from the live module surface.",
         "",
+    ]
+
+    if duplicates:
+        lines.extend(
+            [
+                "## Duplicate `__all__` Entries",
+                "",
+                f"The live module currently declares {len(duplicates)} duplicate name(s) in `__all__`. The matrix deduplicates them before counting the public surface.",
+                "",
+            ]
+        )
+        for name in duplicates:
+            lines.append(f"- `{name}`")
+        lines.append("")
+
+    lines.extend(
+        [
         "## Module Breakdown",
         "",
         "| Module | Count |",
         "|--------|-------|",
-    ]
+        ]
+    )
     for module_name, count in sorted(module_counts.items(), key=lambda item: (-item[1], item[0])):
         lines.append(f"| `{module_name}` | {count} |")
 
@@ -155,12 +177,12 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        exports = load_public_exports()
+        exports, duplicates = load_public_exports()
     except Exception as exc:  # pragma: no cover - exercised in CI on failure
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
 
-    rendered = render_markdown(exports)
+    rendered = render_markdown(exports, duplicates)
     existing = OUT_PATH.read_text(encoding="utf-8") if OUT_PATH.exists() else ""
 
     if args.check:
@@ -182,7 +204,9 @@ def main() -> int:
     OUT_PATH.write_text(rendered, encoding="utf-8")
 
     counts = Counter(classify_export(obj) for _, obj in exports)
-    print(f"Generated {OUT_PATH} with {len(exports)} exports classified")
+    print(f"Generated {OUT_PATH} with {len(exports)} unique exports classified")
+    if duplicates:
+        print(f"  duplicate __all__ entries skipped: {len(duplicates)}")
     for category in CATEGORY_ORDER:
         print(f"  {category}: {counts[category]}")
     return 0
