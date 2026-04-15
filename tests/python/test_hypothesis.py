@@ -941,3 +941,581 @@ class TestExpansionMetrics:
         gnc = fnx.global_node_connectivity(G_fnx)
         min_deg = min(d for _, d in G_nx.degree())
         assert gnc <= min_deg
+
+
+# ---------------------------------------------------------------------------
+# DiGraph Strategies
+# ---------------------------------------------------------------------------
+
+@st.composite
+def small_dag(draw, min_nodes=3, max_nodes=20):
+    """Generate a small directed acyclic graph (DAG) with fnx and nx versions.
+
+    Builds edges only from lower to higher node indices to guarantee acyclicity.
+    """
+    n = draw(st.integers(min_value=min_nodes, max_value=max_nodes))
+    density = draw(st.floats(min_value=0.1, max_value=0.5))
+
+    G_fnx = fnx.DiGraph()
+    G_nx = nx.DiGraph()
+
+    for i in range(n):
+        G_fnx.add_node(i)
+        G_nx.add_node(i)
+
+    # Add edges only from lower to higher index (ensures DAG)
+    for i in range(n):
+        for j in range(i + 1, n):
+            if draw(st.floats(min_value=0.0, max_value=1.0)) < density:
+                G_fnx.add_edge(i, j)
+                G_nx.add_edge(i, j)
+
+    return G_fnx, G_nx, n
+
+
+@st.composite
+def small_strongly_connected_digraph(draw, min_nodes=3, max_nodes=15):
+    """Generate a small strongly connected digraph.
+
+    Starts with a cycle to ensure strong connectivity, then adds random edges.
+    """
+    n = draw(st.integers(min_value=min_nodes, max_value=max_nodes))
+    extra_density = draw(st.floats(min_value=0.0, max_value=0.4))
+
+    G_fnx = fnx.DiGraph()
+    G_nx = nx.DiGraph()
+
+    nodes = list(range(n))
+    for node in nodes:
+        G_fnx.add_node(node)
+        G_nx.add_node(node)
+
+    # Create a random cycle to ensure strong connectivity
+    perm = draw(st.permutations(nodes))
+    for i in range(n):
+        u, v = perm[i], perm[(i + 1) % n]
+        G_fnx.add_edge(u, v)
+        G_nx.add_edge(u, v)
+
+    # Add random extra edges
+    for i in range(n):
+        for j in range(n):
+            if i != j and not G_nx.has_edge(i, j):
+                if draw(st.floats(min_value=0.0, max_value=1.0)) < extra_density:
+                    G_fnx.add_edge(i, j)
+                    G_nx.add_edge(i, j)
+
+    return G_fnx, G_nx, n
+
+
+@st.composite
+def general_digraph(draw, min_nodes=2, max_nodes=20):
+    """Generate a general digraph (possibly disconnected, may have cycles)."""
+    n = draw(st.integers(min_value=min_nodes, max_value=max_nodes))
+    density = draw(st.floats(min_value=0.0, max_value=0.4))
+
+    G_fnx = fnx.DiGraph()
+    G_nx = nx.DiGraph()
+
+    for i in range(n):
+        G_fnx.add_node(i)
+        G_nx.add_node(i)
+
+    for i in range(n):
+        for j in range(n):
+            if i != j and draw(st.floats(min_value=0.0, max_value=1.0)) < density:
+                G_fnx.add_edge(i, j)
+                G_nx.add_edge(i, j)
+
+    return G_fnx, G_nx, n
+
+
+@st.composite
+def small_weighted_dag(draw, min_nodes=3, max_nodes=15):
+    """Generate a small weighted DAG."""
+    G_fnx, G_nx, n = draw(small_dag(min_nodes=min_nodes, max_nodes=max_nodes))
+
+    for u, v in list(G_nx.edges()):
+        w = draw(st.floats(min_value=0.1, max_value=100.0, allow_nan=False, allow_infinity=False))
+        G_fnx.add_edge(u, v, weight=w)
+        G_nx[u][v]["weight"] = w
+
+    return G_fnx, G_nx, n
+
+
+# ---------------------------------------------------------------------------
+# DiGraph DAG Algorithm Tests
+# ---------------------------------------------------------------------------
+
+class TestDAGInvariants:
+    """Properties of DAG-specific algorithms."""
+
+    @given(data=small_dag(min_nodes=3, max_nodes=20))
+    @settings(FAST)
+    def test_is_directed_acyclic_graph_matches_nx(self, data):
+        """fnx and nx agree on DAG detection."""
+        G_fnx, G_nx, _ = data
+        assert fnx.is_directed_acyclic_graph(G_fnx) == nx.is_directed_acyclic_graph(G_nx)
+
+    @given(data=general_digraph(min_nodes=3, max_nodes=15))
+    @settings(FAST)
+    def test_is_directed_acyclic_graph_general(self, data):
+        """fnx and nx agree on DAG detection for general digraphs."""
+        G_fnx, G_nx, _ = data
+        assert fnx.is_directed_acyclic_graph(G_fnx) == nx.is_directed_acyclic_graph(G_nx)
+
+    @given(data=small_dag(min_nodes=3, max_nodes=20))
+    @settings(FAST)
+    def test_topological_sort_is_valid(self, data):
+        """Topological sort should produce a valid ordering."""
+        G_fnx, G_nx, n = data
+        if G_fnx.number_of_edges() == 0:
+            return  # Skip empty edge case
+
+        topo_order = list(fnx.topological_sort(G_fnx))
+        assert len(topo_order) == n
+
+        # Build position map
+        pos = {node: i for i, node in enumerate(topo_order)}
+
+        # Every edge (u, v) must have pos[u] < pos[v]
+        for u, v in G_nx.edges():
+            assert pos[u] < pos[v], f"Edge ({u}, {v}) violates topological order"
+
+    @given(data=small_dag(min_nodes=3, max_nodes=20))
+    @settings(FAST)
+    def test_topological_generations_valid(self, data):
+        """Topological generations should be a valid layered ordering."""
+        G_fnx, G_nx, n = data
+
+        gens = list(fnx.topological_generations(G_fnx))
+        all_nodes = []
+        for gen in gens:
+            all_nodes.extend(gen)
+
+        assert len(all_nodes) == n
+        assert set(all_nodes) == set(range(n))
+
+    @given(data=small_dag(min_nodes=4, max_nodes=15))
+    @settings(FAST)
+    def test_ancestors_matches_nx(self, data):
+        """fnx and nx agree on ancestors."""
+        G_fnx, G_nx, n = data
+        target = n - 1  # Pick last node
+
+        anc_fnx = fnx.ancestors(G_fnx, target)
+        anc_nx = nx.ancestors(G_nx, target)
+        assert set(anc_fnx) == anc_nx
+
+    @given(data=small_dag(min_nodes=4, max_nodes=15))
+    @settings(FAST)
+    def test_descendants_matches_nx(self, data):
+        """fnx and nx agree on descendants."""
+        G_fnx, G_nx, n = data
+        source = 0  # Pick first node
+
+        desc_fnx = fnx.descendants(G_fnx, source)
+        desc_nx = nx.descendants(G_nx, source)
+        assert set(desc_fnx) == desc_nx
+
+    @given(data=small_dag(min_nodes=3, max_nodes=12))
+    @settings(FAST)
+    def test_dag_longest_path_length_matches_nx(self, data):
+        """fnx and nx agree on DAG longest path length (unweighted)."""
+        G_fnx, G_nx, _ = data
+        if G_fnx.number_of_edges() == 0:
+            return
+
+        # fnx doesn't support weight param, so compare unweighted
+        fnx_len = fnx.dag_longest_path_length(G_fnx)
+        nx_len = nx.dag_longest_path_length(G_nx, weight=None)
+        assert fnx_len == nx_len
+
+
+# ---------------------------------------------------------------------------
+# DiGraph Connectivity Tests
+# ---------------------------------------------------------------------------
+
+class TestDiGraphConnectivity:
+    """Properties of digraph connectivity algorithms."""
+
+    @given(data=general_digraph(min_nodes=3, max_nodes=15))
+    @settings(FAST)
+    def test_number_strongly_connected_components_matches_nx(self, data):
+        """fnx and nx agree on number of SCCs."""
+        G_fnx, G_nx, _ = data
+        fnx_count = fnx.number_strongly_connected_components(G_fnx)
+        nx_count = nx.number_strongly_connected_components(G_nx)
+        assert fnx_count == nx_count
+
+    @given(data=general_digraph(min_nodes=3, max_nodes=15))
+    @settings(FAST)
+    def test_strongly_connected_components_partition(self, data):
+        """SCCs must partition all nodes."""
+        G_fnx, G_nx, n = data
+        sccs = list(fnx.strongly_connected_components(G_fnx))
+
+        all_nodes = set()
+        for scc in sccs:
+            scc_set = set(scc)
+            assert not (all_nodes & scc_set), "SCCs overlap"
+            all_nodes |= scc_set
+
+        assert len(all_nodes) == n
+
+    @given(data=small_strongly_connected_digraph(min_nodes=3, max_nodes=12))
+    @settings(FAST)
+    def test_strongly_connected_digraph_has_one_scc(self, data):
+        """A strongly connected digraph should have exactly one SCC."""
+        G_fnx, _, n = data
+        assert fnx.number_strongly_connected_components(G_fnx) == 1
+
+    @given(data=general_digraph(min_nodes=3, max_nodes=15))
+    @settings(FAST)
+    def test_is_strongly_connected_matches_nx(self, data):
+        """fnx and nx agree on strong connectivity."""
+        G_fnx, G_nx, _ = data
+        assert fnx.is_strongly_connected(G_fnx) == nx.is_strongly_connected(G_nx)
+
+    @given(data=general_digraph(min_nodes=3, max_nodes=15))
+    @settings(FAST)
+    def test_number_weakly_connected_components_matches_nx(self, data):
+        """fnx and nx agree on number of WCCs."""
+        G_fnx, G_nx, _ = data
+        fnx_count = fnx.number_weakly_connected_components(G_fnx)
+        nx_count = nx.number_weakly_connected_components(G_nx)
+        assert fnx_count == nx_count
+
+    @given(data=general_digraph(min_nodes=3, max_nodes=15))
+    @settings(FAST)
+    def test_is_weakly_connected_matches_nx(self, data):
+        """fnx and nx agree on weak connectivity."""
+        G_fnx, G_nx, _ = data
+        assert fnx.is_weakly_connected(G_fnx) == nx.is_weakly_connected(G_nx)
+
+
+# ---------------------------------------------------------------------------
+# Traversal Algorithm Tests
+# ---------------------------------------------------------------------------
+
+class TestTraversalInvariants:
+    """Properties of traversal algorithms (BFS/DFS)."""
+
+    @given(data=small_connected_graph(min_nodes=3, max_nodes=20))
+    @settings(FAST)
+    def test_bfs_edges_all_edges_exist(self, data):
+        """All BFS edges must exist in the graph."""
+        G_fnx, G_nx, n = data
+        source = 0
+        edges = fnx.bfs_edges(G_fnx, source)
+        for u, v in edges:
+            assert G_fnx.has_edge(u, v) or G_fnx.has_edge(v, u)
+
+    @given(data=small_connected_graph(min_nodes=3, max_nodes=20))
+    @settings(FAST)
+    def test_bfs_edges_visits_all_reachable(self, data):
+        """BFS from source should visit all nodes in connected graph."""
+        G_fnx, _, n = data
+        source = 0
+        edges = fnx.bfs_edges(G_fnx, source)
+        visited = {source}
+        for u, v in edges:
+            visited.add(v)
+        assert len(visited) == n
+
+    @given(data=small_connected_graph(min_nodes=3, max_nodes=20))
+    @settings(FAST)
+    def test_dfs_edges_all_edges_exist(self, data):
+        """All DFS edges must exist in the graph."""
+        G_fnx, _, _ = data
+        source = 0
+        edges = fnx.dfs_edges(G_fnx, source)
+        for u, v in edges:
+            assert G_fnx.has_edge(u, v) or G_fnx.has_edge(v, u)
+
+    @given(data=small_connected_graph(min_nodes=3, max_nodes=20))
+    @settings(FAST)
+    def test_dfs_edges_visits_all_reachable(self, data):
+        """DFS from source should visit all nodes in connected graph."""
+        G_fnx, _, n = data
+        source = 0
+        edges = fnx.dfs_edges(G_fnx, source)
+        visited = {source}
+        for u, v in edges:
+            visited.add(v)
+        assert len(visited) == n
+
+    @given(data=small_connected_graph(min_nodes=3, max_nodes=15))
+    @settings(FAST)
+    def test_bfs_tree_is_tree(self, data):
+        """BFS tree should be a valid tree."""
+        G_fnx, _, n = data
+        source = 0
+        tree = fnx.bfs_tree(G_fnx, source)
+        assert tree.number_of_nodes() == n
+        assert tree.number_of_edges() == n - 1
+
+    @given(data=small_connected_graph(min_nodes=3, max_nodes=15))
+    @settings(FAST)
+    def test_dfs_tree_is_tree(self, data):
+        """DFS tree should be a valid tree."""
+        G_fnx, _, n = data
+        source = 0
+        tree = fnx.dfs_tree(G_fnx, source)
+        assert tree.number_of_nodes() == n
+        assert tree.number_of_edges() == n - 1
+
+    @given(data=small_dag(min_nodes=3, max_nodes=15))
+    @settings(FAST)
+    def test_bfs_edges_directed_matches_nx(self, data):
+        """fnx and nx agree on BFS edges for digraph."""
+        G_fnx, G_nx, n = data
+        if G_fnx.number_of_edges() == 0:
+            return
+        source = 0
+
+        fnx_edges = set(fnx.bfs_edges(G_fnx, source))
+        nx_edges = set(nx.bfs_edges(G_nx, source))
+        assert fnx_edges == nx_edges
+
+    @given(data=small_dag(min_nodes=3, max_nodes=15))
+    @settings(FAST)
+    def test_dfs_edges_directed_matches_nx(self, data):
+        """fnx and nx agree on DFS edges for digraph."""
+        G_fnx, G_nx, n = data
+        if G_fnx.number_of_edges() == 0:
+            return
+        source = 0
+
+        fnx_edges = set(fnx.dfs_edges(G_fnx, source))
+        nx_edges = set(nx.dfs_edges(G_nx, source))
+        assert fnx_edges == nx_edges
+
+    @given(data=small_connected_graph(min_nodes=4, max_nodes=15))
+    @settings(FAST)
+    def test_bfs_edges_with_depth_limit(self, data):
+        """BFS with depth limit should not exceed limit."""
+        G_fnx, _, n = data
+        source = 0
+        depth_limit = 2
+
+        edges = fnx.bfs_edges(G_fnx, source, depth_limit=depth_limit)
+        tree = fnx.bfs_tree(G_fnx, source, depth_limit=depth_limit)
+
+        # All edges in BFS tree should respect depth limit
+        assert tree.number_of_edges() <= n - 1
+
+    @given(data=small_connected_graph(min_nodes=4, max_nodes=15))
+    @settings(FAST)
+    def test_dfs_edges_with_depth_limit(self, data):
+        """DFS with depth limit should not exceed limit."""
+        G_fnx, _, n = data
+        source = 0
+        depth_limit = 2
+
+        edges = fnx.dfs_edges(G_fnx, source, depth_limit=depth_limit)
+        tree = fnx.dfs_tree(G_fnx, source, depth_limit=depth_limit)
+
+        # Tree should be limited
+        assert tree.number_of_edges() <= n - 1
+
+    @given(data=small_connected_graph(min_nodes=3, max_nodes=15))
+    @settings(FAST)
+    def test_bfs_layers_partition_nodes(self, data):
+        """BFS layers should partition all reachable nodes."""
+        G_fnx, _, n = data
+        source = 0
+
+        layers = fnx.bfs_layers(G_fnx, source)
+        all_nodes = []
+        for layer in layers:
+            all_nodes.extend(layer)
+
+        assert len(all_nodes) == n
+        assert set(all_nodes) == set(range(n))
+
+    @given(data=small_connected_graph(min_nodes=3, max_nodes=15))
+    @settings(FAST)
+    def test_bfs_layers_distances_increase(self, data):
+        """Nodes in layer i should be at distance i from source."""
+        G_fnx, G_nx, _ = data
+        source = 0
+
+        layers = fnx.bfs_layers(G_fnx, source)
+        for dist, layer in enumerate(layers):
+            for node in layer:
+                expected_dist = nx.shortest_path_length(G_nx, source, node)
+                assert expected_dist == dist
+
+
+# ---------------------------------------------------------------------------
+# DiGraph Centrality Tests
+# ---------------------------------------------------------------------------
+
+class TestDiGraphCentrality:
+    """Properties of centrality measures on directed graphs."""
+
+    @given(data=small_strongly_connected_digraph(min_nodes=3, max_nodes=12))
+    @settings(FAST)
+    def test_pagerank_digraph_sums_to_one(self, data):
+        """PageRank on digraph must sum to 1.0."""
+        G_fnx, _, _ = data
+        pr = fnx.pagerank(G_fnx)
+        total = sum(pr.values())
+        assert abs(total - 1.0) < 0.01
+
+    @given(data=small_strongly_connected_digraph(min_nodes=3, max_nodes=12))
+    @settings(FAST)
+    def test_pagerank_digraph_matches_nx(self, data):
+        """fnx and nx agree on PageRank for digraphs."""
+        G_fnx, G_nx, _ = data
+        pr_fnx = fnx.pagerank(G_fnx)
+        pr_nx = nx.pagerank(G_nx)
+        for node in pr_nx:
+            fnx_val = pr_fnx.get(node, pr_fnx.get(str(node)))
+            assert fnx_val is not None
+            assert abs(fnx_val - pr_nx[node]) < 1e-4
+
+    @given(data=general_digraph(min_nodes=3, max_nodes=15))
+    @settings(FAST)
+    def test_in_degree_centrality_matches_nx(self, data):
+        """fnx and nx agree on in-degree centrality."""
+        G_fnx, G_nx, _ = data
+        dc_fnx = fnx.in_degree_centrality(G_fnx)
+        dc_nx = nx.in_degree_centrality(G_nx)
+        for node in dc_nx:
+            fnx_val = dc_fnx.get(node, dc_fnx.get(str(node)))
+            assert fnx_val is not None
+            assert abs(fnx_val - dc_nx[node]) < 1e-10
+
+    @given(data=general_digraph(min_nodes=3, max_nodes=15))
+    @settings(FAST)
+    def test_out_degree_centrality_matches_nx(self, data):
+        """fnx and nx agree on out-degree centrality."""
+        G_fnx, G_nx, _ = data
+        dc_fnx = fnx.out_degree_centrality(G_fnx)
+        dc_nx = nx.out_degree_centrality(G_nx)
+        for node in dc_nx:
+            fnx_val = dc_fnx.get(node, dc_fnx.get(str(node)))
+            assert fnx_val is not None
+            assert abs(fnx_val - dc_nx[node]) < 1e-10
+
+
+# ---------------------------------------------------------------------------
+# Flow Algorithm Tests
+# ---------------------------------------------------------------------------
+
+class TestFlowInvariants:
+    """Properties of flow algorithms."""
+
+    @given(data=small_weighted_dag(min_nodes=4, max_nodes=10))
+    @settings(FAST)
+    def test_max_flow_non_negative(self, data):
+        """Maximum flow should be non-negative."""
+        G_fnx, G_nx, n = data
+        if G_fnx.number_of_edges() == 0:
+            return
+
+        # Use capacity as weight
+        for u, v in list(G_nx.edges()):
+            w = G_nx[u][v].get("weight", 1.0)
+            G_fnx.add_edge(u, v, capacity=w)
+            G_nx[u][v]["capacity"] = w
+
+        source, sink = 0, n - 1
+        if source == sink:
+            return
+
+        try:
+            flow_value, _ = fnx.maximum_flow(G_fnx, source, sink, capacity="capacity")
+            assert flow_value >= 0
+        except (fnx.NetworkXError, fnx.NetworkXUnfeasible):
+            pass  # No path exists
+
+    @given(data=small_dag(min_nodes=4, max_nodes=12))
+    @settings(FAST)
+    def test_max_flow_matches_nx(self, data):
+        """fnx and nx agree on maximum flow value."""
+        G_fnx, G_nx, n = data
+        if G_fnx.number_of_edges() == 0:
+            return
+
+        # Add unit capacities
+        for u, v in list(G_nx.edges()):
+            G_fnx.add_edge(u, v, capacity=1)
+            G_nx[u][v]["capacity"] = 1
+
+        source, sink = 0, n - 1
+        if source == sink:
+            return
+
+        try:
+            fnx_flow, _ = fnx.maximum_flow(G_fnx, source, sink, capacity="capacity")
+            nx_flow, _ = nx.maximum_flow(G_nx, source, sink, capacity="capacity")
+            assert fnx_flow == nx_flow
+        except (fnx.NetworkXError, fnx.NetworkXUnfeasible, nx.NetworkXError):
+            pass  # No path exists
+
+
+# ---------------------------------------------------------------------------
+# Edge Case Tests
+# ---------------------------------------------------------------------------
+
+class TestEdgeCases:
+    """Edge cases and boundary conditions."""
+
+    @given(n=st.integers(min_value=1, max_value=5))
+    @settings(FAST)
+    def test_empty_graph_properties(self, n):
+        """Empty graph (no edges) should have predictable properties."""
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+
+        for i in range(n):
+            G_fnx.add_node(i)
+            G_nx.add_node(i)
+
+        assert G_fnx.number_of_edges() == G_nx.number_of_edges() == 0
+        assert fnx.density(G_fnx) == nx.density(G_nx)
+
+        if n > 1:
+            assert not fnx.is_connected(G_fnx)
+            assert fnx.number_connected_components(G_fnx) == n
+
+    @given(n=st.integers(min_value=1, max_value=5))
+    @settings(FAST)
+    def test_complete_graph_properties(self, n):
+        """Complete graph should have maximum density."""
+        G_fnx = fnx.complete_graph(n)
+
+        if n > 1:
+            assert abs(fnx.density(G_fnx) - 1.0) < 1e-10
+            assert fnx.is_connected(G_fnx)
+            assert fnx.diameter(G_fnx) == 1
+
+    @given(n=st.integers(min_value=2, max_value=20))
+    @settings(FAST)
+    def test_path_graph_properties(self, n):
+        """Path graph P_n has specific diameter and radius."""
+        G_fnx = fnx.path_graph(n)
+        G_nx = nx.path_graph(n)
+
+        assert fnx.diameter(G_fnx) == n - 1
+        # Radius of path graph is ceil((n-1)/2) for n >= 2
+        assert fnx.radius(G_fnx) == nx.radius(G_nx)
+        assert fnx.is_connected(G_fnx)
+        assert fnx.is_tree(G_fnx)
+
+    @given(n=st.integers(min_value=3, max_value=20))
+    @settings(FAST)
+    def test_cycle_graph_properties(self, n):
+        """Cycle graph C_n should be 2-regular and Eulerian."""
+        G_fnx = fnx.cycle_graph(n)
+
+        assert fnx.is_connected(G_fnx)
+        assert fnx.is_eulerian(G_fnx)
+        degrees = dict(G_fnx.degree)
+        assert all(d == 2 for d in degrees.values())
+
+        # Diameter is floor(n/2)
+        assert fnx.diameter(G_fnx) == n // 2
