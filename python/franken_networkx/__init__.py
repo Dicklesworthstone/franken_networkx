@@ -298,6 +298,7 @@ from franken_networkx._fnx import (
     average_neighbor_degree,
     betweenness_centrality,
     closeness_centrality,
+    closeness_vitality as _rust_closeness_vitality,
     degree_assortativity_coefficient,
     degree_centrality,
     edge_betweenness_centrality,
@@ -2785,6 +2786,11 @@ def closeness_vitality(G, node=None, weight=None, wiener_index=None):
     -------
     float or dict
     """
+    # Use native Rust implementation for unweighted graphs without precomputed wiener_index
+    if weight is None and wiener_index is None:
+        return _rust_closeness_vitality(G, node=node)
+
+    # Fall back to Python implementation for weighted or precomputed cases
     if wiener_index is None:
         try:
             from franken_networkx._fnx import wiener_index as compute_wi

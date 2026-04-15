@@ -2379,6 +2379,60 @@ pub fn load_centrality(
     centrality_to_dict(py, &gr, &result.scores)
 }
 
+/// Return the closeness vitality of nodes.
+///
+/// Closeness vitality of a node is the change in the Wiener index
+/// of the graph when that node is removed.
+///
+/// Matches `networkx.closeness_vitality`.
+#[pyfunction]
+#[pyo3(signature = (g, node=None, weight=None, wiener_index=None))]
+pub fn closeness_vitality(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    node: Option<Bound<'_, PyAny>>,
+    weight: Option<&str>,
+    wiener_index: Option<f64>,
+) -> PyResult<PyObject> {
+    // Currently we only support unweighted graphs
+    if weight.is_some() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "franken_networkx currently only supports unweighted closeness_vitality",
+        ));
+    }
+    if wiener_index.is_some() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "franken_networkx does not support precomputed wiener_index parameter",
+        ));
+    }
+
+    let gr = extract_graph(g)?;
+    log::info!(target: "franken_networkx", "closeness_vitality: nodes={}", gr.undirected().node_count());
+
+    // If a specific node is requested, use the single-node function
+    if let Some(node_obj) = node {
+        let node_str = node_obj.extract::<String>()?;
+        let inner = gr.undirected();
+        let result = py.allow_threads(|| fnx_algorithms::closeness_vitality_single(inner, &node_str));
+        match result {
+            Some(v) => Ok(v.into_pyobject(py)?.unbind().into()),
+            None => Err(crate::NodeNotFound::new_err(format!(
+                "node {} not in graph",
+                node_str
+            ))),
+        }
+    } else {
+        // Compute for all nodes
+        let inner = gr.undirected();
+        let result = py.allow_threads(|| fnx_algorithms::closeness_vitality(inner));
+        let dict = PyDict::new(py);
+        for (node_id, vitality) in &result.vitality {
+            dict.set_item(gr.py_node_key(py, node_id), *vitality)?;
+        }
+        Ok(dict.unbind().into())
+    }
+}
+
 /// Return the eigenvector centrality for all nodes.
 #[pyfunction]
 #[pyo3(signature = (g, max_iter=100, tol=1.0e-6, nstart=None, weight="weight"))]
@@ -12338,6 +12392,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(betweenness_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(edge_betweenness_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(load_centrality, m)?)?;
+    m.add_function(wrap_pyfunction!(closeness_vitality, m)?)?;
     m.add_function(wrap_pyfunction!(eigenvector_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(pagerank, m)?)?;
     m.add_function(wrap_pyfunction!(hits, m)?)?;

@@ -690,18 +690,18 @@ where
 
     for _ in 1..iterations {
         let witnesses = run_algorithm();
-        if let Some(witness) = witnesses.into_iter().next() {
-            if let Some(discrepancy) = compare_witnesses(&first_witness, &witness) {
-                return Some(CounterExample {
-                    algorithm,
-                    graph_edges,
-                    node_count,
-                    directed,
-                    witness_a: first_witness,
-                    witness_b: witness,
-                    discrepancy,
-                });
-            }
+        if let Some(witness) = witnesses.into_iter().next()
+            && let Some(discrepancy) = compare_witnesses(&first_witness, &witness)
+        {
+            return Some(CounterExample {
+                algorithm,
+                graph_edges,
+                node_count,
+                directed,
+                witness_a: first_witness,
+                witness_b: witness,
+                discrepancy,
+            });
         }
     }
 
