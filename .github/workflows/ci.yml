@@ -200,6 +200,10 @@ jobs:
         run: python3 scripts/capture_oracle_fixtures.py
       - name: Run curated conformance evidence harness
         run: env CARGO_TARGET_DIR=target-ci cargo run -q -p fnx-conformance --bin run_smoke
+      - name: Generate conformance dashboard
+        run: python3 scripts/generate_conformance_dashboard.py
+      - name: Verify conformance freshness (B4 gate)
+        run: python3 scripts/verify_conformance_freshness.py
       - name: Upload conformance artifacts
         uses: actions/upload-artifact@v4
         with:
