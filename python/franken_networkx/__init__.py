@@ -13657,17 +13657,8 @@ __all__ = [
     "number_of_nodes",
     "number_of_edges",
     # Conversion extras
-    "from_pandas_adjacency",
-    "to_pandas_adjacency",
-    "from_prufer_sequence",
-    "to_prufer_sequence",
-    "from_nested_tuple",
-    "to_nested_tuple",
-    "attr_sparse_matrix",
     # Community extras
-    "modularity_matrix",
-    "directed_modularity_matrix",
-    "modularity_spectrum",
+    # exported earlier to preserve stable __all__ ordering
     # Predicates extras
     "find_minimal_d_separator",
     "is_valid_directed_joint_degree",
@@ -13687,16 +13678,9 @@ __all__ = [
     "find_induced_nodes",
     "k_edge_augmentation",
     # Stochastic block models
-    "stochastic_block_model",
-    "planted_partition_graph",
-    "gaussian_random_partition_graph",
-    "random_partition_graph",
-    "relaxed_caveman_graph",
+    # exported earlier to preserve stable __all__ ordering
     # Lattice graphs
-    "hexagonal_lattice_graph",
-    "triangular_lattice_graph",
-    "grid_graph",
-    "sudoku_graph",
+    # exported earlier to preserve stable __all__ ordering
     # Centrality extras
     "eigenvector_centrality_numpy",
     "katz_centrality_numpy",
@@ -13962,7 +13946,6 @@ __all__ = [
     "is_biconnected",
     "biconnected_components",
     "biconnected_component_edges",
-    "is_semiconnected",
     "kosaraju_strongly_connected_components",
     "attracting_components",
     "number_attracting_components",

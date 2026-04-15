@@ -56,6 +56,21 @@ jobs:
             corpus: fuzz_node_link
           - target: fuzz_attribute_value
             corpus: fuzz_attribute_value
+          # E7: Structure-aware algorithm fuzzers
+          - target: fuzz_shortest_path
+            corpus: fuzz_shortest_path
+          - target: fuzz_centrality
+            corpus: fuzz_centrality
+          - target: fuzz_connectivity
+            corpus: fuzz_connectivity
+          - target: fuzz_matching
+            corpus: fuzz_matching
+          - target: fuzz_flow
+            corpus: fuzz_flow
+          - target: fuzz_spanning_tree
+            corpus: fuzz_spanning_tree
+          - target: fuzz_clustering
+            corpus: fuzz_clustering
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly

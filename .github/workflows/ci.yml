@@ -276,6 +276,21 @@ jobs:
         run: cd fuzz && cargo +nightly fuzz run fuzz_node_link corpus/fuzz_node_link -- -max_total_time=60
       - name: Fuzz attribute value coercion paths (60s)
         run: cd fuzz && cargo +nightly fuzz run fuzz_attribute_value corpus/fuzz_attribute_value -- -max_total_time=60
+      # E7: Structure-aware algorithm fuzzers (30s each)
+      - name: Fuzz shortest path algorithms (30s)
+        run: cd fuzz && cargo +nightly fuzz run fuzz_shortest_path corpus/fuzz_shortest_path -- -max_total_time=30
+      - name: Fuzz centrality algorithms (30s)
+        run: cd fuzz && cargo +nightly fuzz run fuzz_centrality corpus/fuzz_centrality -- -max_total_time=30
+      - name: Fuzz connectivity algorithms (30s)
+        run: cd fuzz && cargo +nightly fuzz run fuzz_connectivity corpus/fuzz_connectivity -- -max_total_time=30
+      - name: Fuzz matching algorithms (30s)
+        run: cd fuzz && cargo +nightly fuzz run fuzz_matching corpus/fuzz_matching -- -max_total_time=30
+      - name: Fuzz flow algorithms (30s)
+        run: cd fuzz && cargo +nightly fuzz run fuzz_flow corpus/fuzz_flow -- -max_total_time=30
+      - name: Fuzz spanning tree algorithms (30s)
+        run: cd fuzz && cargo +nightly fuzz run fuzz_spanning_tree corpus/fuzz_spanning_tree -- -max_total_time=30
+      - name: Fuzz clustering algorithms (30s)
+        run: cd fuzz && cargo +nightly fuzz run fuzz_clustering corpus/fuzz_clustering -- -max_total_time=30
 
   g8-raptorq:
     name: G8 RaptorQ scrub

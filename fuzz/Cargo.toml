@@ -9,8 +9,10 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+arbitrary = { version = "1.4", features = ["derive"] }
 fnx-readwrite = { path = "../crates/fnx-readwrite" }
 fnx-classes = { path = "../crates/fnx-classes" }
+fnx-algorithms = { path = "../crates/fnx-algorithms" }
 fnx_python = { package = "fnx-python", path = "../crates/fnx-python" }
 fnx-runtime = { path = "../crates/fnx-runtime" }
 
@@ -50,4 +52,40 @@ doc = false
 [[bin]]
 name = "fuzz_attribute_value"
 path = "fuzz_targets/fuzz_attribute_value.rs"
+doc = false
+
+# Structure-aware algorithm fuzzers (E7)
+[[bin]]
+name = "fuzz_shortest_path"
+path = "fuzz_targets/fuzz_shortest_path.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_centrality"
+path = "fuzz_targets/fuzz_centrality.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_connectivity"
+path = "fuzz_targets/fuzz_connectivity.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_matching"
+path = "fuzz_targets/fuzz_matching.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_flow"
+path = "fuzz_targets/fuzz_flow.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_spanning_tree"
+path = "fuzz_targets/fuzz_spanning_tree.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_clustering"
+path = "fuzz_targets/fuzz_clustering.rs"
 doc = false

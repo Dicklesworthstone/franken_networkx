@@ -15,31 +15,6 @@
 
 All declared public exports are classified. `--check` fails if this generated report drifts from the live module surface.
 
-## Duplicate `__all__` Entries
-
-The live module currently declares 20 duplicate name(s) in `__all__`. The matrix deduplicates them before counting the public surface.
-
-- `attr_sparse_matrix`
-- `directed_modularity_matrix`
-- `from_nested_tuple`
-- `from_pandas_adjacency`
-- `from_prufer_sequence`
-- `gaussian_random_partition_graph`
-- `grid_graph`
-- `hexagonal_lattice_graph`
-- `is_semiconnected`
-- `modularity_matrix`
-- `modularity_spectrum`
-- `planted_partition_graph`
-- `random_partition_graph`
-- `relaxed_caveman_graph`
-- `stochastic_block_model`
-- `sudoku_graph`
-- `to_nested_tuple`
-- `to_pandas_adjacency`
-- `to_prufer_sequence`
-- `triangular_lattice_graph`
-
 ## Module Breakdown
 
 | Module | Count |

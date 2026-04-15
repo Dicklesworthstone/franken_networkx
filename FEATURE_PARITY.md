@@ -29,6 +29,24 @@ commands, and durability evidence.
 Note: CGSE witness hashing uses length-prefixed decision encoding to avoid
 ambiguities with variable-length labels (2026-04 update).
 
+## Machine-Checked Public Surface
+
+The public API inventory is tracked by [`docs/coverage.md`](docs/coverage.md),
+which is generated from `franken_networkx.__all__` rather than maintained by
+hand.
+
+Current generated snapshot:
+
+- 779 unique public exports total
+- 239 `RUST_NATIVE`
+- 383 `PY_WRAPPER`
+- 136 `NX_DELEGATED`
+- 19 public classes
+- 2 public constants
+
+This document should describe family-level status and caveats. The exact public
+surface counts live in the generated coverage matrix, not in prose here.
+
 ## Mode Decision
 
 Strict/hardened mode is retained, not retracted.
@@ -47,13 +65,13 @@ fixture evidence.
 | View and mutation contracts | in_progress | `fnx-views` now provides live node/edge/neighbor views plus revision-aware cached snapshots. |
 | Dispatchable/backend behavior | in_progress | `fnx-dispatch` now has deterministic backend registry, strict/hardened fail-closed routing, and dispatch evidence ledger. |
 | Algorithm core families | in_progress | 280+ Rust algorithms covering shortest path (26 variants), connectivity (20), centrality (24), clustering (11), matching (11), flow (4), trees (18), Euler (5), paths/cycles (7), operators (6), traversal (17), DAG (16), link prediction (5), distance (8), efficiency (4), predicates (18+), graph metrics, and more. Eigenvector centrality, density (directed-aware), all_simple_paths (directed DFS), betweenness normalization fixed. Pure-Python: `compose_all`, `union_all`, `intersection_all`, `relabel_nodes`, `dedensify`, `quotient_graph`, `full_join`, `identified_nodes`. |
-| Graph generator families | in_progress | `fnx-generators` ships 42+ classic generators plus 9 random generators (`gnp_random_graph`, `erdos_renyi_graph`, `fast_gnp_random_graph`, `watts_strogatz_graph`, `newman_watts_strogatz_graph`, `connected_watts_strogatz_graph`, `barabasi_albert_graph`, `random_regular_graph`, `powerlaw_cluster_graph`). Rust also has `gn_graph`, `gnr_graph`, `gnc_graph`, `scale_free_graph`. Random generator coverage ~50%. |
-| Bipartite algorithms | in_progress | Core recognition (`is_bipartite`, `bipartite_sets`) in Rust. Python wrappers for `is_bipartite_node_set`, `projected_graph`, `bipartite_density`, `hopcroft_karp_matching`. Coverage ~30%. |
-| Community detection | in_progress | Rust: `louvain_communities`, `label_propagation_communities`, `greedy_modularity_communities`, `modularity`. Python: `girvan_newman`, `k_clique_communities`. Coverage ~60%. |
-| Graph utilities | in_progress | `set/get_node_attributes`, `set/get_edge_attributes`, `create_empty_copy`, `number_of_selfloops`, `selfloop_edges`, `nodes_with_selfloops`, `all_neighbors`, `add_path/cycle/star`, `adjacency_matrix`, `has_bridges`, `local_bridges`, `stochastic_graph`. Coverage: 446 public exports (41 Rust-native, 306 Python wrappers, 96 NX-delegated, 3 classes). See [`docs/coverage.md`](docs/coverage.md) for the machine-checked breakdown. |
+| Graph generator families | in_progress | `fnx-generators` ships a broad native generator set including classic, stochastic, and scale-free families. See [`docs/coverage.md`](docs/coverage.md) for the machine-checked public export inventory; remaining gaps are tracked as family-specific work, not estimated here with hand-maintained percentages. |
+| Bipartite algorithms | in_progress | Core recognition (`is_bipartite`, `bipartite_sets`) is native. Higher-level helpers such as projections and matching-adjacent helpers still rely on Python-layer wrappers and need more explicit parity accounting. |
+| Community detection | in_progress | Rust covers `louvain_communities`, `label_propagation_communities`, `greedy_modularity_communities`, and `modularity`. Other community APIs still rely on Python-layer implementations or remain outside the current native surface. |
+| Graph utilities | in_progress | Public-surface accounting now comes from the generated coverage matrix rather than prose counts. Use [`docs/coverage.md`](docs/coverage.md) for exact `RUST_NATIVE` / `PY_WRAPPER` / `NX_DELEGATED` counts at HEAD. |
 | MultiGraph/MultiDiGraph | parity_green | Full method parity with Graph/DiGraph (34 methods + 6 view types). Algorithm dispatch supports all 4 graph types via automatic simple-graph projection. Backend conversion round-trips work. |
 | Conversion baseline behavior | in_progress | `fnx-convert` ships edge-list/adjacency conversions with strict/hardened malformed-input handling and normalization output. |
-| Read/write baseline formats | in_progress | `fnx-readwrite` ships edgelist, adjacency-list, JSON graph, GraphML, and GML parse/write with strict/hardened parser modes. I/O format coverage ~56%. |
+| Read/write baseline formats | in_progress | `fnx-readwrite` ships edgelist, adjacency-list, JSON graph, GraphML, and GML parse/write with strict/hardened parser modes. Core V1 formats are native; exotic or out-of-scope formats should be treated as explicit gaps or delegations rather than rolled into a hand-estimated percentage. |
 | Differential conformance harness | in_progress | Canonical parity lives in `tests/python/`. `fnx-conformance` executes curated graph + views + dispatch + convert + readwrite + components + generators + traversal (BFS edges/layers, DFS edges/preorder/postorder, depth-limit cutoffs) + centrality + clustering + flow + structure (articulation points, bridges) + matching (maximal, max-weight, min-weight) + Bellman-Ford + multi-source Dijkstra + GNP random graph + distance measures + average shortest path length + is_connected + density + has_path + shortest_path_length + minimum spanning tree (Kruskal) + triangles + square clustering + tree/forest detection + greedy coloring + bipartite detection + k-core decomposition + average neighbor degree + degree assortativity + VoteRank + clique enumeration + node connectivity + cycle basis + all simple paths + global/local efficiency + minimum edge cover + Euler path/circuit fixtures and emits report artifacts under `artifacts/conformance/latest/`. |
 | RaptorQ durability pipeline | in_progress | `fnx-durability` generates RaptorQ sidecars, runs scrub verification, and emits decode proofs for conformance reports. |
 | Benchmark percentile gating | in_progress | `scripts/run_benchmark_gate.sh` emits p50/p95/p99 artifact and enforces threshold budgets with durability sidecars. |
