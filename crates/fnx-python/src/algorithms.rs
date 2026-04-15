@@ -6367,6 +6367,19 @@ pub fn grid_graph(py: Python<'_>, dim: Vec<usize>) -> PyResult<PyObject> {
     rust_graph_to_py_standalone(py, &result)
 }
 
+/// Return the Dorogovtsev-Goltsev-Mendes graph.
+///
+/// A hierarchically constructed scale-free graph with deterministic structure.
+/// After n generations: (3^n + 3)/2 nodes, 3^n edges.
+#[pyfunction]
+#[pyo3(signature = (n,))]
+pub fn dorogovtsev_goltsev_mendes_graph(py: Python<'_>, n: usize) -> PyResult<PyObject> {
+    let result = py
+        .allow_threads(|| fnx_algorithms::dorogovtsev_goltsev_mendes_graph(n))
+        .map_err(NetworkXError::new_err)?;
+    rust_graph_to_py_standalone(py, &result)
+}
+
 #[pyfunction]
 pub fn null_graph(py: Python<'_>) -> PyResult<PyObject> {
     let result = py.allow_threads(fnx_algorithms::null_graph);
@@ -12601,6 +12614,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(complete_multipartite_graph, m)?)?;
     m.add_function(wrap_pyfunction!(grid_2d_graph, m)?)?;
     m.add_function(wrap_pyfunction!(grid_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(dorogovtsev_goltsev_mendes_graph, m)?)?;
     m.add_function(wrap_pyfunction!(null_graph, m)?)?;
     m.add_function(wrap_pyfunction!(trivial_graph, m)?)?;
     m.add_function(wrap_pyfunction!(binomial_tree, m)?)?;

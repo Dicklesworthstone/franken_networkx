@@ -21185,6 +21185,53 @@ pub fn grid_graph(dim: &[usize]) -> Graph {
     g
 }
 
+/// Return the Dorogovtsev-Goltsev-Mendes graph.
+///
+/// A hierarchically constructed scale-free graph with deterministic structure.
+/// Starting from a single edge, at each generation every edge spawns a new node
+/// connected to both endpoints.
+///
+/// After n transitions: (3/2)(3^(n-1)+1) nodes, 3^n edges.
+pub fn dorogovtsev_goltsev_mendes_graph(n: usize) -> Result<Graph, String> {
+    // DGM graph construction:
+    // - Start with single edge (nodes 0, 1)
+    // - For each generation, for each edge, add a new node connected to both endpoints
+
+    let mut g = Graph::strict();
+
+    // Base case: single edge
+    g.add_node("0");
+    g.add_node("1");
+    let _ = g.add_edge("0", "1");
+
+    if n == 0 {
+        return Ok(g);
+    }
+
+    // Track edges to process at each generation
+    let mut next_node_id = 2usize;
+
+    for _gen in 0..n {
+        // Get all current edges (we'll add new nodes for each)
+        let current_edges: Vec<(String, String)> = g
+            .edges_ordered()
+            .into_iter()
+            .map(|e| (e.left, e.right))
+            .collect();
+
+        for (u, v) in current_edges {
+            // Add new node connected to both endpoints
+            let new_node = next_node_id.to_string();
+            g.add_node(&new_node);
+            let _ = g.add_edge(&new_node, &u);
+            let _ = g.add_edge(&new_node, &v);
+            next_node_id += 1;
+        }
+    }
+
+    Ok(g)
+}
+
 /// Return the null graph (0 nodes).
 #[must_use]
 pub fn null_graph() -> Graph {

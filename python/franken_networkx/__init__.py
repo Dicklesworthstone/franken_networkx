@@ -761,6 +761,7 @@ from franken_networkx._fnx import (
     complete_multipartite_graph as _rust_complete_multipartite_graph,
     grid_2d_graph as _rust_grid_2d_graph,
     grid_graph as _rust_grid_graph,
+    dorogovtsev_goltsev_mendes_graph as _rust_dorogovtsev_goltsev_mendes_graph,
     null_graph as _rust_null_graph,
     trivial_graph as _rust_trivial_graph,
     binomial_tree as _rust_binomial_tree,
@@ -11292,10 +11293,18 @@ def mycielski_graph(n):
 
 
 def dorogovtsev_goltsev_mendes_graph(n, create_using=None):
-    """Return the Dorogovtsev-Goltsev-Mendes graph."""
+    """Return the Dorogovtsev-Goltsev-Mendes graph.
+
+    A hierarchically constructed scale-free graph with deterministic structure.
+    After n generations: (3^n + 3)/2 nodes, 3^n edges.
+    """
     import networkx as nx
 
     from franken_networkx.readwrite import _from_nx_graph
+
+    # Use native Rust for default case
+    if create_using is None:
+        return _rust_dorogovtsev_goltsev_mendes_graph(n)
 
     graph = nx.dorogovtsev_goltsev_mendes_graph(n, create_using=None)
     return _from_nx_graph(graph, create_using=create_using)

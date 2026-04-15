@@ -6,9 +6,9 @@
 
 | Category | Count | % |
 |----------|-------|---|
-| RUST_NATIVE (calls `_fnx.*` directly) | 104 | 23% |
+| RUST_NATIVE (calls `_fnx.*` directly) | 105 | 23% |
 | PY_WRAPPER (pure Python, no NX delegation) | 300 | 66% |
-| NX_DELEGATED (delegates to upstream NetworkX) | 45 | 9% |
+| NX_DELEGATED (delegates to upstream NetworkX) | 44 | 9% |
 | CLASS (graph types, exceptions, etc.) | 3 | 0% |
 | **Total public exports** | **452** | |
 
@@ -43,6 +43,7 @@
 - `desargues_graph`
 - `diamond_graph`
 - `dodecahedral_graph`
+- `dorogovtsev_goltsev_mendes_graph`
 - `edge_current_flow_betweenness_centrality`
 - `edge_disjoint_paths`
 - `effective_size`
@@ -434,7 +435,6 @@
 - `directed_configuration_model`
 - `directed_havel_hakimi_graph`
 - `directed_joint_degree_graph`
-- `dorogovtsev_goltsev_mendes_graph`
 - `expected_degree_graph`
 - `extended_barabasi_albert_graph`
 - `from_dict_of_dicts`
