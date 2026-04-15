@@ -3655,6 +3655,391 @@ pub struct TailGateDecision {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// G2: Bayesian rare-event estimation with Generalized Pareto Distribution (GPD)
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Parameters of the Generalized Pareto Distribution.
+///
+/// The GPD CDF is:
+/// - F(x) = 1 - (1 + ξx/σ)^(-1/ξ) for ξ ≠ 0
+/// - F(x) = 1 - exp(-x/σ) for ξ = 0 (exponential)
+///
+/// The shape parameter ξ (xi) determines tail behavior:
+/// - ξ > 0: heavy-tailed (Pareto-type), infinite higher moments
+/// - ξ = 0: exponential tails (light-tailed)
+/// - ξ < 0: bounded support, finite endpoint at -σ/ξ
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GpdParameters {
+    /// Shape parameter (xi). Controls tail heaviness.
+    pub shape: f64,
+    /// Scale parameter (sigma). Must be positive.
+    pub scale: f64,
+    /// Threshold above which GPD applies.
+    pub threshold: f64,
+}
+
+impl GpdParameters {
+    /// Create new GPD parameters.
+    ///
+    /// # Panics
+    /// Panics if scale is not positive.
+    #[must_use]
+    pub fn new(shape: f64, scale: f64, threshold: f64) -> Self {
+        assert!(scale > 0.0, "scale must be positive");
+        Self {
+            shape,
+            scale,
+            threshold,
+        }
+    }
+
+    /// Compute the quantile (inverse CDF) for probability p.
+    ///
+    /// Returns the value x such that P(X <= x) = p for exceedances.
+    #[must_use]
+    pub fn quantile(&self, p: f64) -> f64 {
+        let p = p.clamp(0.0, 1.0 - 1e-15);
+        let exceedance = if self.shape.abs() < 1e-10 {
+            // Exponential case (shape ≈ 0)
+            -self.scale * (1.0 - p).ln()
+        } else {
+            // General GPD case
+            self.scale / self.shape * ((1.0 - p).powf(-self.shape) - 1.0)
+        };
+        self.threshold + exceedance
+    }
+
+    /// Compute the survival probability P(X > x) for exceedance x above threshold.
+    #[must_use]
+    pub fn survival_probability(&self, x: f64) -> f64 {
+        if x <= self.threshold {
+            return 1.0;
+        }
+        let y = (x - self.threshold) / self.scale;
+        if self.shape.abs() < 1e-10 {
+            // Exponential case
+            (-y).exp()
+        } else {
+            let base = 1.0 + self.shape * y;
+            if base <= 0.0 {
+                // Beyond support for negative shape
+                0.0
+            } else {
+                base.powf(-1.0 / self.shape)
+            }
+        }
+    }
+
+    /// Estimate the extreme quantile using POT (Peaks Over Threshold).
+    ///
+    /// Given n total observations and nu threshold exceedances,
+    /// estimates the p-quantile of the original distribution.
+    #[must_use]
+    pub fn pot_quantile(&self, p: f64, n: usize, nu: usize) -> f64 {
+        if nu == 0 || n == 0 {
+            return self.threshold;
+        }
+        // Adjust probability for exceedance rate
+        let exceed_rate = nu as f64 / n as f64;
+        let exceed_prob = (1.0 - p) / exceed_rate;
+        if exceed_prob >= 1.0 {
+            return self.threshold;
+        }
+        self.quantile(1.0 - exceed_prob)
+    }
+}
+
+/// Prior distribution for Bayesian GPD parameter estimation.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GpdPrior {
+    /// Prior mean for shape parameter.
+    pub shape_mean: f64,
+    /// Prior variance for shape parameter.
+    pub shape_variance: f64,
+    /// Prior mean for log(scale).
+    pub log_scale_mean: f64,
+    /// Prior variance for log(scale).
+    pub log_scale_variance: f64,
+}
+
+impl Default for GpdPrior {
+    fn default() -> Self {
+        // Weakly informative priors centered on light tails
+        Self {
+            shape_mean: 0.1,      // Slight positive shape (common for latency)
+            shape_variance: 0.25, // Allows range roughly [-0.9, 1.1]
+            log_scale_mean: 0.0,  // Scale prior centered at 1.0
+            log_scale_variance: 4.0, // Wide prior on scale
+        }
+    }
+}
+
+impl GpdPrior {
+    /// Create a prior for heavy-tailed data (e.g., p99.9 latency).
+    #[must_use]
+    pub fn heavy_tailed() -> Self {
+        Self {
+            shape_mean: 0.3,
+            shape_variance: 0.16,
+            log_scale_mean: 0.0,
+            log_scale_variance: 4.0,
+        }
+    }
+
+    /// Create a prior for light-tailed data (e.g., low-variance latency).
+    #[must_use]
+    pub fn light_tailed() -> Self {
+        Self {
+            shape_mean: 0.0,
+            shape_variance: 0.09,
+            log_scale_mean: 0.0,
+            log_scale_variance: 4.0,
+        }
+    }
+}
+
+/// Bayesian GPD estimator for rare-event tail latency modeling.
+///
+/// Uses Peaks Over Threshold (POT) method with Bayesian parameter estimation.
+/// Provides credible intervals for extreme quantiles like P99.9, P99.99.
+#[derive(Debug, Clone)]
+pub struct BayesianGpdEstimator {
+    /// Prior distribution for parameters.
+    prior: GpdPrior,
+    /// Exceedances (values above threshold).
+    exceedances: Vec<f64>,
+    /// Threshold value (e.g., empirical P95).
+    threshold: f64,
+    /// Total number of observations (including non-exceedances).
+    total_observations: usize,
+    /// Cached posterior parameters (updated on fit).
+    posterior_shape: Option<(f64, f64)>, // (mean, variance)
+    posterior_log_scale: Option<(f64, f64)>,
+}
+
+impl BayesianGpdEstimator {
+    /// Create a new estimator with default prior.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::with_prior(GpdPrior::default())
+    }
+
+    /// Create an estimator with custom prior.
+    #[must_use]
+    pub fn with_prior(prior: GpdPrior) -> Self {
+        Self {
+            prior,
+            exceedances: Vec::new(),
+            threshold: 0.0,
+            total_observations: 0,
+            posterior_shape: None,
+            posterior_log_scale: None,
+        }
+    }
+
+    /// Set the threshold and record observations.
+    ///
+    /// Values above threshold are recorded as exceedances.
+    pub fn observe(&mut self, values: &[f64], threshold: f64) {
+        self.threshold = threshold;
+        self.total_observations = values.len();
+        self.exceedances = values
+            .iter()
+            .filter(|&&v| v > threshold)
+            .map(|&v| v - threshold)
+            .collect();
+        self.fit();
+    }
+
+    /// Fit the GPD using method of moments with Bayesian shrinkage.
+    fn fit(&mut self) {
+        if self.exceedances.len() < 2 {
+            // Not enough data - use prior
+            self.posterior_shape = Some((self.prior.shape_mean, self.prior.shape_variance));
+            self.posterior_log_scale = Some((self.prior.log_scale_mean, self.prior.log_scale_variance));
+            return;
+        }
+
+        let n = self.exceedances.len() as f64;
+
+        // Method of moments estimates
+        let mean: f64 = self.exceedances.iter().sum::<f64>() / n;
+        let variance: f64 = self.exceedances.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n;
+
+        // MoM estimators for GPD
+        let mom_shape = 0.5 * (1.0 - mean.powi(2) / variance);
+        let mom_scale = mean * (1.0 - mom_shape);
+
+        // Bayesian shrinkage toward prior
+        let shape_shrink = self.compute_shrinkage(n, self.prior.shape_variance, 0.25);
+        let log_scale_shrink = self.compute_shrinkage(n, self.prior.log_scale_variance, 1.0);
+
+        let posterior_shape_mean = shape_shrink * self.prior.shape_mean
+            + (1.0 - shape_shrink) * mom_shape.clamp(-0.5, 1.0);
+        let posterior_shape_var = shape_shrink * self.prior.shape_variance;
+
+        let mom_log_scale = if mom_scale > 0.0 {
+            mom_scale.ln()
+        } else {
+            mean.ln()
+        };
+        let posterior_log_scale_mean = log_scale_shrink * self.prior.log_scale_mean
+            + (1.0 - log_scale_shrink) * mom_log_scale;
+        let posterior_log_scale_var = log_scale_shrink * self.prior.log_scale_variance;
+
+        self.posterior_shape = Some((posterior_shape_mean, posterior_shape_var));
+        self.posterior_log_scale = Some((posterior_log_scale_mean, posterior_log_scale_var));
+    }
+
+    fn compute_shrinkage(&self, n: f64, prior_var: f64, data_var: f64) -> f64 {
+        // Shrinkage weight: w = prior_var / (prior_var + data_var/n)
+        prior_var / (prior_var + data_var / n)
+    }
+
+    /// Get the posterior mean GPD parameters.
+    #[must_use]
+    pub fn posterior_parameters(&self) -> Option<GpdParameters> {
+        let (shape, _) = self.posterior_shape?;
+        let (log_scale, _) = self.posterior_log_scale?;
+        Some(GpdParameters::new(shape, log_scale.exp(), self.threshold))
+    }
+
+    /// Estimate an extreme quantile with credible interval.
+    ///
+    /// Returns (point estimate, lower bound, upper bound) at given credibility level.
+    #[must_use]
+    pub fn estimate_quantile(&self, p: f64, credibility: f64) -> Option<GpdQuantileEstimate> {
+        let params = self.posterior_parameters()?;
+        let (shape_mean, shape_var) = self.posterior_shape?;
+        let (log_scale_mean, log_scale_var) = self.posterior_log_scale?;
+
+        // Point estimate using posterior means
+        let point = params.pot_quantile(p, self.total_observations, self.exceedances.len());
+
+        // Approximate credible interval using parameter uncertainty
+        // Use Delta method: propagate variance through quantile function
+        let z = normal_quantile((1.0 + credibility) / 2.0);
+
+        // Compute bounds by perturbing parameters
+        let shape_lo = shape_mean - z * shape_var.sqrt();
+        let shape_hi = shape_mean + z * shape_var.sqrt();
+        let scale_lo = (log_scale_mean - z * log_scale_var.sqrt()).exp();
+        let scale_hi = (log_scale_mean + z * log_scale_var.sqrt()).exp();
+
+        let params_lo = GpdParameters::new(shape_lo, scale_lo, self.threshold);
+        let params_hi = GpdParameters::new(shape_hi, scale_hi, self.threshold);
+
+        let lower = params_lo.pot_quantile(p, self.total_observations, self.exceedances.len());
+        let upper = params_hi.pot_quantile(p, self.total_observations, self.exceedances.len());
+
+        Some(GpdQuantileEstimate {
+            quantile: p,
+            point_estimate: point,
+            lower_bound: lower.min(upper),
+            upper_bound: lower.max(upper),
+            credibility,
+            n_exceedances: self.exceedances.len(),
+            n_total: self.total_observations,
+        })
+    }
+
+    /// Estimate the probability of exceeding a given value.
+    #[must_use]
+    pub fn exceedance_probability(&self, value: f64) -> Option<f64> {
+        let params = self.posterior_parameters()?;
+        if self.total_observations == 0 {
+            return None;
+        }
+        let exceed_rate = self.exceedances.len() as f64 / self.total_observations as f64;
+        Some(exceed_rate * params.survival_probability(value))
+    }
+
+    /// Get the number of exceedances.
+    #[must_use]
+    pub fn n_exceedances(&self) -> usize {
+        self.exceedances.len()
+    }
+
+    /// Get the threshold.
+    #[must_use]
+    pub fn threshold(&self) -> f64 {
+        self.threshold
+    }
+}
+
+impl Default for BayesianGpdEstimator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Quantile estimate with credible interval from GPD model.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GpdQuantileEstimate {
+    /// The quantile being estimated (e.g., 0.999 for P99.9).
+    pub quantile: f64,
+    /// Point estimate (posterior mean).
+    pub point_estimate: f64,
+    /// Lower bound of credible interval.
+    pub lower_bound: f64,
+    /// Upper bound of credible interval.
+    pub upper_bound: f64,
+    /// Credibility level (e.g., 0.95 for 95% CI).
+    pub credibility: f64,
+    /// Number of threshold exceedances used for estimation.
+    pub n_exceedances: usize,
+    /// Total number of observations.
+    pub n_total: usize,
+}
+
+impl GpdQuantileEstimate {
+    /// Width of the credible interval.
+    #[must_use]
+    pub fn interval_width(&self) -> f64 {
+        self.upper_bound - self.lower_bound
+    }
+
+    /// Relative uncertainty (interval width / point estimate).
+    #[must_use]
+    pub fn relative_uncertainty(&self) -> f64 {
+        if self.point_estimate > 0.0 {
+            self.interval_width() / self.point_estimate
+        } else {
+            f64::INFINITY
+        }
+    }
+}
+
+/// Approximate standard normal quantile (inverse CDF).
+fn normal_quantile(p: f64) -> f64 {
+    // Rational approximation (Abramowitz & Stegun 26.2.23)
+    if p <= 0.0 {
+        return f64::NEG_INFINITY;
+    }
+    if p >= 1.0 {
+        return f64::INFINITY;
+    }
+
+    let t = if p < 0.5 {
+        (-2.0 * p.ln()).sqrt()
+    } else {
+        (-2.0 * (1.0 - p).ln()).sqrt()
+    };
+
+    // Coefficients for rational approximation
+    let c0 = 2.515517;
+    let c1 = 0.802853;
+    let c2 = 0.010328;
+    let d1 = 1.432788;
+    let d2 = 0.189269;
+    let d3 = 0.001308;
+
+    let q = t - (c0 + c1 * t + c2 * t * t) / (1.0 + d1 * t + d2 * t * t + d3 * t * t * t);
+
+    if p < 0.5 { -q } else { q }
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // E3: Profile-and-prove optimization loop per SLO row
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -7298,6 +7683,162 @@ mod tests {
         gate.reset();
 
         assert!(gate.is_open(), "Gate should be open after reset");
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // G2: Bayesian GPD tests
+    // ──────────────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn gpd_parameters_quantile_exponential_case() {
+        // When shape ≈ 0, GPD reduces to exponential
+        let params = super::GpdParameters::new(0.0, 1.0, 0.0);
+
+        // For exponential, median is ln(2) ≈ 0.693
+        let median = params.quantile(0.5);
+        assert!(
+            (median - 0.693).abs() < 0.01,
+            "Median should be ~0.693 for exponential, got {}",
+            median
+        );
+
+        // P99 for exponential is -ln(0.01) ≈ 4.605
+        let p99 = params.quantile(0.99);
+        assert!(
+            (p99 - 4.605).abs() < 0.01,
+            "P99 should be ~4.605 for exponential, got {}",
+            p99
+        );
+    }
+
+    #[test]
+    fn gpd_parameters_quantile_heavy_tail() {
+        // Positive shape = heavy tail (Pareto-type)
+        let params = super::GpdParameters::new(0.5, 1.0, 0.0);
+
+        // Heavy tail should have higher quantiles than exponential
+        let p99 = params.quantile(0.99);
+        assert!(p99 > 5.0, "Heavy tail P99 should exceed exponential, got {}", p99);
+
+        let p999 = params.quantile(0.999);
+        assert!(p999 > p99 * 2.0, "P99.9 should be much larger than P99 for heavy tail");
+    }
+
+    #[test]
+    fn gpd_survival_probability() {
+        let params = super::GpdParameters::new(0.0, 1.0, 5.0);
+
+        // At threshold, survival = 1
+        assert!((params.survival_probability(5.0) - 1.0).abs() < 1e-10);
+
+        // Below threshold, survival = 1
+        assert!((params.survival_probability(3.0) - 1.0).abs() < 1e-10);
+
+        // Above threshold: for exponential, P(X > u+x) = exp(-x)
+        let surv = params.survival_probability(6.0);
+        assert!(
+            (surv - (-1.0_f64).exp()).abs() < 0.01,
+            "Survival at threshold+1 should be exp(-1), got {}",
+            surv
+        );
+    }
+
+    #[test]
+    fn bayesian_gpd_estimator_with_exceedances() {
+        let mut estimator = super::BayesianGpdEstimator::new();
+
+        // Simulate some latency data with known tail
+        let values: Vec<f64> = (0..100).map(|i| (i as f64) + 1.0).collect();
+        let threshold = 90.0; // Top 10% are exceedances
+
+        estimator.observe(&values, threshold);
+
+        assert_eq!(estimator.n_exceedances(), 10);
+        assert!((estimator.threshold() - 90.0).abs() < 1e-10);
+
+        let params = estimator.posterior_parameters().unwrap();
+        assert!(params.scale > 0.0, "Scale should be positive");
+        assert!(params.threshold == 90.0);
+    }
+
+    #[test]
+    fn bayesian_gpd_quantile_estimate() {
+        let mut estimator = super::BayesianGpdEstimator::new();
+
+        // Generate data with known distribution (uniform 0-100)
+        let values: Vec<f64> = (0..1000).map(|i| i as f64 / 10.0).collect();
+        let threshold = 90.0;
+
+        estimator.observe(&values, threshold);
+
+        let est = estimator.estimate_quantile(0.99, 0.95).unwrap();
+
+        // Check that credible interval is reasonable
+        assert!(est.lower_bound <= est.point_estimate);
+        assert!(est.upper_bound >= est.point_estimate);
+        assert!(est.interval_width() > 0.0);
+
+        // Should have finite uncertainty with 1000 observations
+        assert!(
+            est.relative_uncertainty().is_finite(),
+            "Relative uncertainty should be finite with n=1000"
+        );
+    }
+
+    #[test]
+    fn gpd_prior_variants() {
+        let default = super::GpdPrior::default();
+        let heavy = super::GpdPrior::heavy_tailed();
+        let light = super::GpdPrior::light_tailed();
+
+        // Heavy-tailed prior should have higher shape mean
+        assert!(heavy.shape_mean > light.shape_mean);
+        assert!(heavy.shape_mean > default.shape_mean);
+
+        // Light-tailed should be close to exponential (shape = 0)
+        assert!((light.shape_mean).abs() < 0.1);
+    }
+
+    #[test]
+    fn gpd_exceedance_probability() {
+        let mut estimator = super::BayesianGpdEstimator::new();
+
+        let values: Vec<f64> = (0..100).map(|i| i as f64).collect();
+        estimator.observe(&values, 90.0);
+
+        // Probability of exceeding threshold should be ~exceedance rate
+        let p_exceed_threshold = estimator.exceedance_probability(90.0).unwrap();
+        assert!(
+            (p_exceed_threshold - 0.10).abs() < 0.05,
+            "P(X > 90) should be ~0.10, got {}",
+            p_exceed_threshold
+        );
+
+        // Probability of exceeding very high value should be small
+        let p_exceed_high = estimator.exceedance_probability(200.0).unwrap();
+        assert!(p_exceed_high < 0.01, "P(X > 200) should be very small");
+    }
+
+    #[test]
+    fn normal_quantile_symmetry() {
+        // Test symmetry of normal quantile approximation
+        let q_05 = super::normal_quantile(0.05);
+        let q_95 = super::normal_quantile(0.95);
+        assert!(
+            (q_05 + q_95).abs() < 0.01,
+            "Quantiles should be symmetric: {} + {} = {}",
+            q_05,
+            q_95,
+            q_05 + q_95
+        );
+
+        // Standard normal quantiles
+        let q_975 = super::normal_quantile(0.975);
+        assert!(
+            (q_975 - 1.96).abs() < 0.01,
+            "0.975 quantile should be ~1.96, got {}",
+            q_975
+        );
     }
 
     // ──────────────────────────────────────────────────────────────────────────
