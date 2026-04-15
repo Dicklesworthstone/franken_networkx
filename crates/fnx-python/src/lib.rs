@@ -13,6 +13,8 @@ mod generators;
 mod readwrite;
 mod views;
 
+pub use readwrite::{RawNodeLinkError, RawNodeLinkReport, parse_raw_node_link_json};
+
 use fnx_classes::{AttrMap, Graph, MultiGraph};
 use fnx_runtime::CgseValue;
 use pyo3::exceptions::{PyKeyError, PyTypeError, PyValueError};

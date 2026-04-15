@@ -11,6 +11,8 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 fnx-readwrite = { path = "../crates/fnx-readwrite" }
 fnx-classes = { path = "../crates/fnx-classes" }
+fnx_python = { package = "fnx-python", path = "../crates/fnx-python" }
+fnx-runtime = { path = "../crates/fnx-runtime" }
 
 # Prevent this from being discovered by cargo workspace
 [workspace]
@@ -38,4 +40,14 @@ doc = false
 [[bin]]
 name = "fuzz_adjlist"
 path = "fuzz_targets/fuzz_adjlist.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_node_link"
+path = "fuzz_targets/fuzz_node_link.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_attribute_value"
+path = "fuzz_targets/fuzz_attribute_value.rs"
 doc = false

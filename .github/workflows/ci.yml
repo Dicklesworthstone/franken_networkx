@@ -251,7 +251,7 @@ jobs:
     name: G7b fuzz smoke
     needs: g7-ubs
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
@@ -262,16 +262,20 @@ jobs:
           workspaces: fuzz
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz
-      - name: Fuzz edgelist parser (30s)
-        run: cd fuzz && cargo +nightly fuzz run fuzz_edgelist -- -max_total_time=30
-      - name: Fuzz JSON parser (30s)
-        run: cd fuzz && cargo +nightly fuzz run fuzz_json -- -max_total_time=30
-      - name: Fuzz GraphML parser (30s)
-        run: cd fuzz && cargo +nightly fuzz run fuzz_graphml -- -max_total_time=30
-      - name: Fuzz GML parser (30s)
-        run: cd fuzz && cargo +nightly fuzz run fuzz_gml -- -max_total_time=30
-      - name: Fuzz adjlist parser (30s)
-        run: cd fuzz && cargo +nightly fuzz run fuzz_adjlist -- -max_total_time=30
+      - name: Fuzz edgelist parser (60s)
+        run: cd fuzz && cargo +nightly fuzz run fuzz_edgelist corpus/fuzz_edgelist -- -max_total_time=60
+      - name: Fuzz JSON parser (60s)
+        run: cd fuzz && cargo +nightly fuzz run fuzz_json corpus/fuzz_json -- -max_total_time=60
+      - name: Fuzz GraphML parser (60s)
+        run: cd fuzz && cargo +nightly fuzz run fuzz_graphml corpus/fuzz_graphml -- -max_total_time=60
+      - name: Fuzz GML parser (60s)
+        run: cd fuzz && cargo +nightly fuzz run fuzz_gml corpus/fuzz_gml -- -max_total_time=60
+      - name: Fuzz adjlist parser (60s)
+        run: cd fuzz && cargo +nightly fuzz run fuzz_adjlist corpus/fuzz_adjlist -- -max_total_time=60
+      - name: Fuzz raw node-link parser (60s)
+        run: cd fuzz && cargo +nightly fuzz run fuzz_node_link corpus/fuzz_node_link -- -max_total_time=60
+      - name: Fuzz attribute value coercion paths (60s)
+        run: cd fuzz && cargo +nightly fuzz run fuzz_attribute_value corpus/fuzz_attribute_value -- -max_total_time=60
 
   g8-raptorq:
     name: G8 RaptorQ scrub

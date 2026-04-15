@@ -603,6 +603,7 @@ dependencies = [
  "proptest",
  "pyo3",
  "pyo3-log",
+ "serde_json",
 ]
 
 [[package]]

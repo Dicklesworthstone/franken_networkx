@@ -33,3 +33,38 @@ jobs:
         run: maturin develop --features pyo3/abi3-py310
       - name: Run Hypothesis property suite
         run: pytest tests/python/test_hypothesis.py -v --tb=long
+
+  parser-fuzz-soak:
+    name: Nightly Parser Fuzz (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: fuzz_edgelist
+            corpus: fuzz_edgelist
+          - target: fuzz_json
+            corpus: fuzz_json
+          - target: fuzz_graphml
+            corpus: fuzz_graphml
+          - target: fuzz_gml
+            corpus: fuzz_gml
+          - target: fuzz_adjlist
+            corpus: fuzz_adjlist
+          - target: fuzz_node_link
+            corpus: fuzz_node_link
+          - target: fuzz_attribute_value
+            corpus: fuzz_attribute_value
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+      - name: Run nightly parser fuzz soak
+        run: cd fuzz && cargo +nightly fuzz run ${{ matrix.target }} corpus/${{ matrix.corpus }} -- -max_total_time=3600

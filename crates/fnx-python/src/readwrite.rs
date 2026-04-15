@@ -7,10 +7,11 @@
 use crate::algorithms::{GraphRef, extract_graph};
 use crate::digraph::PyDiGraph;
 use crate::{PyGraph, py_dict_to_attr_map};
-use fnx_readwrite::{DiReadWriteReport, EdgeListEngine, ReadWriteReport};
+use fnx_readwrite::{DiReadWriteReport, EdgeListEngine, ReadWriteError, ReadWriteReport};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use pyo3::types::PyDict;
+use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 
 /// Read the file content from a path-like or file-like Python object.
@@ -158,6 +159,75 @@ fn rw_error_to_py(e: fnx_readwrite::ReadWriteError) -> PyErr {
     pyo3::exceptions::PyIOError::new_err(format!("{e}"))
 }
 
+#[derive(Debug)]
+pub enum RawNodeLinkReport {
+    Undirected(ReadWriteReport),
+    Directed(DiReadWriteReport),
+}
+
+#[derive(Debug)]
+pub enum RawNodeLinkError {
+    InvalidFlagType(&'static str),
+    MultigraphUnsupported,
+    ReadWrite(ReadWriteError),
+}
+
+impl From<ReadWriteError> for RawNodeLinkError {
+    fn from(value: ReadWriteError) -> Self {
+        Self::ReadWrite(value)
+    }
+}
+
+fn raw_node_link_flag(
+    object: &serde_json::Map<String, JsonValue>,
+    key: &'static str,
+) -> Result<Option<bool>, RawNodeLinkError> {
+    match object.get(key) {
+        None => Ok(None),
+        Some(JsonValue::Bool(value)) => Ok(Some(*value)),
+        Some(_) => Err(RawNodeLinkError::InvalidFlagType(key)),
+    }
+}
+
+pub fn parse_raw_node_link_json(input: &str) -> Result<RawNodeLinkReport, RawNodeLinkError> {
+    let parsed = match serde_json::from_str::<JsonValue>(input) {
+        Ok(value) => value,
+        Err(_) => {
+            let mut engine = EdgeListEngine::hardened();
+            return engine
+                .read_json_graph(input)
+                .map(RawNodeLinkReport::Undirected)
+                .map_err(RawNodeLinkError::from);
+        }
+    };
+
+    let Some(object) = parsed.as_object() else {
+        let mut engine = EdgeListEngine::hardened();
+        return engine
+            .read_json_graph(input)
+            .map(RawNodeLinkReport::Undirected)
+            .map_err(RawNodeLinkError::from);
+    };
+
+    if raw_node_link_flag(object, "multigraph")? == Some(true) {
+        return Err(RawNodeLinkError::MultigraphUnsupported);
+    }
+
+    let directed = raw_node_link_flag(object, "directed")?.unwrap_or(false);
+    let mut engine = EdgeListEngine::hardened();
+    if directed {
+        engine
+            .read_digraph_json_graph(input)
+            .map(RawNodeLinkReport::Directed)
+            .map_err(RawNodeLinkError::from)
+    } else {
+        engine
+            .read_json_graph(input)
+            .map(RawNodeLinkReport::Undirected)
+            .map_err(RawNodeLinkError::from)
+    }
+}
+
 fn graph_ref_attrs(gr: &GraphRef<'_>, py: Python<'_>) -> PyResult<fnx_classes::AttrMap> {
     let py_attrs = match gr {
         GraphRef::Undirected(pg) => pg.graph_attrs.bind(py),
@@ -176,18 +246,6 @@ fn reject_multigraph_write(gr: &GraphRef<'_>, operation: &str) -> PyResult<()> {
             )))
         }
         _ => Ok(()),
-    }
-}
-
-fn bool_payload_flag(data: &Bound<'_, PyAny>, key: &str) -> PyResult<Option<bool>> {
-    match data.get_item(key) {
-        Ok(value) => value.extract::<bool>().map(Some).map_err(|_| {
-            pyo3::exceptions::PyTypeError::new_err(format!(
-                "node_link_graph expected `{key}` to be a bool when present"
-            ))
-        }),
-        Err(err) if err.is_instance_of::<pyo3::exceptions::PyKeyError>(data.py()) => Ok(None),
-        Err(err) => Err(err),
     }
 }
 
@@ -380,29 +438,24 @@ fn node_link_graph(
     }
     let json_mod = py.import("json")?;
     let json_str: String = json_mod.call_method1("dumps", (data,))?.extract()?;
-    let mut engine = EdgeListEngine::hardened();
-    let multigraph = bool_payload_flag(data, "multigraph")?.unwrap_or(false);
-    if multigraph {
-        return Err(pyo3::exceptions::PyTypeError::new_err(
-            "node_link_graph does not support multigraph payloads without losing parallel edges",
-        ));
-    }
-    let directed = bool_payload_flag(data, "directed")?.unwrap_or(false);
-
-    if directed {
-        let report = engine
-            .read_digraph_json_graph(&json_str)
-            .map_err(rw_error_to_py)?;
-        Ok(di_report_to_pydigraph(py, report)?
+    match parse_raw_node_link_json(&json_str) {
+        Ok(RawNodeLinkReport::Directed(report)) => Ok(di_report_to_pydigraph(py, report)?
             .into_pyobject(py)?
             .into_any()
-            .unbind())
-    } else {
-        let report = engine.read_json_graph(&json_str).map_err(rw_error_to_py)?;
-        Ok(report_to_pygraph(py, report)?
+            .unbind()),
+        Ok(RawNodeLinkReport::Undirected(report)) => Ok(report_to_pygraph(py, report)?
             .into_pyobject(py)?
             .into_any()
-            .unbind())
+            .unbind()),
+        Err(RawNodeLinkError::InvalidFlagType(key)) => Err(pyo3::exceptions::PyTypeError::new_err(
+            format!("node_link_graph expected `{key}` to be a bool when present"),
+        )),
+        Err(RawNodeLinkError::MultigraphUnsupported) => {
+            Err(pyo3::exceptions::PyTypeError::new_err(
+                "node_link_graph does not support multigraph payloads without losing parallel edges",
+            ))
+        }
+        Err(RawNodeLinkError::ReadWrite(err)) => Err(rw_error_to_py(err)),
     }
 }
 
