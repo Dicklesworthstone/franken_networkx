@@ -567,6 +567,209 @@ pub fn assert_complexity_within_bounds(witness: &ComplexityWitness) {
 }
 
 // ---------------------------------------------------------------------------
+// Counter-Example Mining — G3
+// ---------------------------------------------------------------------------
+
+/// A counter-example candidate found during witness-hash mining.
+///
+/// When two executions of the same algorithm on the same graph produce
+/// different witness hashes, we have found a potential non-determinism bug.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CounterExample {
+    /// The algorithm that exhibited non-determinism.
+    pub algorithm: ReferenceAlgorithm,
+    /// The graph that triggered the issue (serialized as edge list).
+    pub graph_edges: Vec<(String, String)>,
+    /// Number of nodes in the graph.
+    pub node_count: usize,
+    /// Whether the graph is directed.
+    pub directed: bool,
+    /// Witness from the first run.
+    pub witness_a: ComplexityWitness,
+    /// Witness from the second run.
+    pub witness_b: ComplexityWitness,
+    /// Description of the discrepancy.
+    pub discrepancy: String,
+}
+
+/// Result of a counter-example mining session.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MiningResult {
+    /// Counter-examples found during mining.
+    pub counter_examples: Vec<CounterExample>,
+    /// Number of graphs tested.
+    pub graphs_tested: u64,
+    /// Number of algorithm executions.
+    pub executions: u64,
+    /// Algorithms that passed all tests.
+    pub passing_algorithms: Vec<ReferenceAlgorithm>,
+}
+
+impl MiningResult {
+    /// Returns true if no counter-examples were found.
+    #[must_use]
+    pub fn is_clean(&self) -> bool {
+        self.counter_examples.is_empty()
+    }
+}
+
+/// Configuration for counter-example mining.
+#[derive(Debug, Clone)]
+pub struct MiningConfig {
+    /// Number of random graphs to generate per algorithm.
+    pub graphs_per_algorithm: usize,
+    /// Number of repeated executions per graph (to detect non-determinism).
+    pub executions_per_graph: usize,
+    /// Maximum number of nodes in generated graphs.
+    pub max_nodes: usize,
+    /// Maximum edge density (0.0 to 1.0).
+    pub max_density: f64,
+    /// Seed for reproducible random generation.
+    pub seed: u64,
+}
+
+impl Default for MiningConfig {
+    fn default() -> Self {
+        Self {
+            graphs_per_algorithm: 100,
+            executions_per_graph: 3,
+            max_nodes: 20,
+            max_density: 0.5,
+            seed: 0,
+        }
+    }
+}
+
+/// Compares two witnesses for consistency.
+///
+/// Returns a description of the discrepancy if the witnesses differ in
+/// decision path (the main indicator of non-determinism).
+#[must_use]
+pub fn compare_witnesses(a: &ComplexityWitness, b: &ComplexityWitness) -> Option<String> {
+    if a.decision_path_blake3 != b.decision_path_blake3 {
+        let hash_a = hex::encode(&a.decision_path_blake3[..8]);
+        let hash_b = hex::encode(&b.decision_path_blake3[..8]);
+        return Some(format!(
+            "Decision path hash mismatch: {}... vs {}... (counts: {} vs {})",
+            hash_a, hash_b, a.observed_count, b.observed_count
+        ));
+    }
+
+    if a.observed_count != b.observed_count {
+        return Some(format!(
+            "Operation count mismatch: {} vs {} (hashes match)",
+            a.observed_count, b.observed_count
+        ));
+    }
+
+    None
+}
+
+/// Verifies witness determinism by running the same algorithm multiple times
+/// and checking for hash consistency.
+///
+/// Returns `None` if all runs produce identical witnesses, or a `CounterExample`
+/// if non-determinism is detected.
+pub fn verify_witness_determinism<F>(
+    algorithm: ReferenceAlgorithm,
+    graph_edges: Vec<(String, String)>,
+    node_count: usize,
+    directed: bool,
+    iterations: usize,
+    mut run_algorithm: F,
+) -> Option<CounterExample>
+where
+    F: FnMut() -> Vec<ComplexityWitness>,
+{
+    if iterations < 2 {
+        return None;
+    }
+
+    let first_witnesses = run_algorithm();
+    let first_witness = first_witnesses.into_iter().next()?;
+
+    for _ in 1..iterations {
+        let witnesses = run_algorithm();
+        if let Some(witness) = witnesses.into_iter().next() {
+            if let Some(discrepancy) = compare_witnesses(&first_witness, &witness) {
+                return Some(CounterExample {
+                    algorithm,
+                    graph_edges,
+                    node_count,
+                    directed,
+                    witness_a: first_witness,
+                    witness_b: witness,
+                    discrepancy,
+                });
+            }
+        }
+    }
+
+    None
+}
+
+/// Generates a deterministic pseudo-random value from a seed and index.
+#[must_use]
+fn seeded_random(seed: u64, index: u64) -> u64 {
+    // Simple LCG for reproducibility
+    let mut state = seed.wrapping_add(index);
+    state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+    state
+}
+
+/// Generates random graph edges for testing.
+#[must_use]
+pub fn generate_random_edges(
+    node_count: usize,
+    density: f64,
+    directed: bool,
+    seed: u64,
+) -> Vec<(String, String)> {
+    let mut edges = Vec::new();
+    let mut idx = 0u64;
+
+    for i in 0..node_count {
+        let j_start = if directed { 0 } else { i + 1 };
+        for j in j_start..node_count {
+            if i == j {
+                continue;
+            }
+            let rand = (seeded_random(seed, idx) % 1000) as f64 / 1000.0;
+            idx += 1;
+            if rand < density {
+                edges.push((i.to_string(), j.to_string()));
+            }
+        }
+    }
+
+    edges
+}
+
+/// Serializes a mining result to JSONL format.
+#[must_use]
+pub fn mining_result_to_jsonl(result: &MiningResult) -> String {
+    let mut lines = Vec::new();
+
+    // Header line
+    lines.push(serde_json::json!({
+        "type": "mining_summary",
+        "graphs_tested": result.graphs_tested,
+        "executions": result.executions,
+        "counter_examples_found": result.counter_examples.len(),
+        "passing_algorithms": result.passing_algorithms.iter()
+            .map(|a| a.algorithm())
+            .collect::<Vec<_>>(),
+    }).to_string());
+
+    // Counter-example lines
+    for ce in &result.counter_examples {
+        lines.push(serde_json::to_string(ce).unwrap_or_default());
+    }
+
+    lines.join("\n")
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -743,5 +946,181 @@ mod tests {
         assert!(result.is_err());
         // Verify that the thread-local state was reset correctly despite the panic.
         assert!(!witness_collection_enabled());
+    }
+
+    // -------------------------------------------------------------------------
+    // Counter-Example Mining Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_compare_witnesses_identical() {
+        let w1 = ComplexityWitness {
+            n: 10,
+            m: 15,
+            dominant_term: "n_plus_m".to_owned(),
+            observed_count: 25,
+            policy: TieBreakPolicy::LexMin,
+            seed: None,
+            decision_path_blake3: [42u8; 32],
+        };
+        let w2 = w1.clone();
+        assert!(compare_witnesses(&w1, &w2).is_none());
+    }
+
+    #[test]
+    fn test_compare_witnesses_hash_mismatch() {
+        let w1 = ComplexityWitness {
+            n: 10,
+            m: 15,
+            dominant_term: "n_plus_m".to_owned(),
+            observed_count: 25,
+            policy: TieBreakPolicy::LexMin,
+            seed: None,
+            decision_path_blake3: [42u8; 32],
+        };
+        let w2 = ComplexityWitness {
+            decision_path_blake3: [99u8; 32],
+            ..w1.clone()
+        };
+        let result = compare_witnesses(&w1, &w2);
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("hash mismatch"));
+    }
+
+    #[test]
+    fn test_compare_witnesses_count_mismatch() {
+        let w1 = ComplexityWitness {
+            n: 10,
+            m: 15,
+            dominant_term: "n_plus_m".to_owned(),
+            observed_count: 25,
+            policy: TieBreakPolicy::LexMin,
+            seed: None,
+            decision_path_blake3: [42u8; 32],
+        };
+        let w2 = ComplexityWitness {
+            observed_count: 30,
+            ..w1.clone()
+        };
+        let result = compare_witnesses(&w1, &w2);
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("count mismatch"));
+    }
+
+    #[test]
+    fn test_generate_random_edges_deterministic() {
+        let edges1 = generate_random_edges(5, 0.5, false, 12345);
+        let edges2 = generate_random_edges(5, 0.5, false, 12345);
+        assert_eq!(edges1, edges2);
+    }
+
+    #[test]
+    fn test_generate_random_edges_different_seeds() {
+        let edges1 = generate_random_edges(5, 0.5, false, 12345);
+        let edges2 = generate_random_edges(5, 0.5, false, 54321);
+        assert_ne!(edges1, edges2);
+    }
+
+    #[test]
+    fn test_generate_random_edges_directed() {
+        let edges = generate_random_edges(3, 1.0, true, 0);
+        // Directed graph with n=3 can have up to 6 edges (3*2)
+        // but some may be filtered by the random process
+        assert!(!edges.is_empty());
+    }
+
+    #[test]
+    fn test_mining_result_clean() {
+        let result = MiningResult {
+            counter_examples: vec![],
+            graphs_tested: 100,
+            executions: 300,
+            passing_algorithms: ReferenceAlgorithm::ALL.to_vec(),
+        };
+        assert!(result.is_clean());
+    }
+
+    #[test]
+    fn test_mining_result_to_jsonl_format() {
+        let result = MiningResult {
+            counter_examples: vec![],
+            graphs_tested: 10,
+            executions: 30,
+            passing_algorithms: vec![ReferenceAlgorithm::Bfs, ReferenceAlgorithm::Dfs],
+        };
+        let jsonl = mining_result_to_jsonl(&result);
+        assert!(jsonl.contains("mining_summary"));
+        assert!(jsonl.contains("graphs_tested"));
+        assert!(jsonl.contains("10"));
+    }
+
+    #[test]
+    fn test_verify_witness_determinism_consistent() {
+        let edges = vec![("0".to_string(), "1".to_string())];
+        let mut call_count = 0;
+
+        let result = verify_witness_determinism(
+            ReferenceAlgorithm::Bfs,
+            edges,
+            2,
+            false,
+            3,
+            || {
+                call_count += 1;
+                vec![ComplexityWitness {
+                    n: 2,
+                    m: 1,
+                    dominant_term: "n_plus_m".to_owned(),
+                    observed_count: 3,
+                    policy: TieBreakPolicy::InsertionOrder,
+                    seed: None,
+                    decision_path_blake3: [1u8; 32],
+                }]
+            },
+        );
+
+        assert!(result.is_none(), "Consistent witnesses should not produce counter-example");
+        assert_eq!(call_count, 3);
+    }
+
+    #[test]
+    fn test_verify_witness_determinism_inconsistent() {
+        let edges = vec![("0".to_string(), "1".to_string())];
+        let mut call_count = 0;
+
+        let result = verify_witness_determinism(
+            ReferenceAlgorithm::Bfs,
+            edges,
+            2,
+            false,
+            3,
+            || {
+                call_count += 1;
+                vec![ComplexityWitness {
+                    n: 2,
+                    m: 1,
+                    dominant_term: "n_plus_m".to_owned(),
+                    observed_count: 3,
+                    policy: TieBreakPolicy::InsertionOrder,
+                    seed: None,
+                    // Different hash each call to simulate non-determinism
+                    decision_path_blake3: [call_count as u8; 32],
+                }]
+            },
+        );
+
+        assert!(result.is_some(), "Inconsistent witnesses should produce counter-example");
+        let ce = result.unwrap();
+        assert_eq!(ce.algorithm, ReferenceAlgorithm::Bfs);
+        assert!(ce.discrepancy.contains("hash mismatch"));
+    }
+
+    #[test]
+    fn test_mining_config_default() {
+        let config = MiningConfig::default();
+        assert_eq!(config.graphs_per_algorithm, 100);
+        assert_eq!(config.executions_per_graph, 3);
+        assert_eq!(config.max_nodes, 20);
+        assert!(config.max_density > 0.0);
     }
 }
