@@ -481,6 +481,12 @@ enum Operation {
         nodes2: Vec<String>,
         edges2: Vec<(String, String)>,
     },
+    // Graph metrics
+    WienerIndexQuery,
+    GirthQuery,
+    DegreeAssortativityCoefficientQuery,
+    SMetricQuery,
+    RichClubCoefficientQuery,
     DispatchResolve {
         operation: String,
         #[serde(default)]
@@ -757,6 +763,17 @@ struct ExpectedState {
     could_be_isomorphic: Option<bool>,
     #[serde(default)]
     faster_could_be_isomorphic: Option<bool>,
+    // Graph metrics expected results
+    #[serde(default)]
+    wiener_index: Option<f64>,
+    #[serde(default)]
+    girth: Option<Option<usize>>,
+    #[serde(default)]
+    degree_assortativity_coefficient: Option<f64>,
+    #[serde(default)]
+    s_metric: Option<f64>,
+    #[serde(default)]
+    rich_club_coefficient: Option<Vec<ExpectedRichClubEntry>>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -764,6 +781,12 @@ struct ExpectedLinkPredictionScore {
     u: String,
     v: String,
     score: f64,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct ExpectedRichClubEntry {
+    k: usize,
+    phi: f64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -993,6 +1016,12 @@ struct ExecutionContext {
     is_isomorphic_result: Option<bool>,
     could_be_isomorphic_result: Option<bool>,
     faster_could_be_isomorphic_result: Option<bool>,
+    // Graph metrics results
+    wiener_index_result: Option<f64>,
+    girth_result: Option<Option<usize>>,
+    degree_assortativity_coefficient_result: Option<f64>,
+    s_metric_result: Option<f64>,
+    rich_club_coefficient_result: Option<std::collections::HashMap<usize, f64>>,
     warnings: Vec<String>,
     witness: Option<ComplexityWitness>,
 }
@@ -1797,6 +1826,11 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
         is_isomorphic_result: None,
         could_be_isomorphic_result: None,
         faster_could_be_isomorphic_result: None,
+        wiener_index_result: None,
+        girth_result: None,
+        degree_assortativity_coefficient_result: None,
+        s_metric_result: None,
+        rich_club_coefficient_result: None,
         warnings: Vec::new(),
         witness: None,
     };
@@ -2316,6 +2350,27 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
                 }
                 let result = fnx_algorithms::faster_could_be_isomorphic(&context.graph, &graph2);
                 context.faster_could_be_isomorphic_result = Some(result);
+            }
+            // Graph metrics operations
+            Operation::WienerIndexQuery => {
+                let result = fnx_algorithms::wiener_index(&context.graph);
+                context.wiener_index_result = Some(result);
+            }
+            Operation::GirthQuery => {
+                let result = fnx_algorithms::girth(&context.graph);
+                context.girth_result = Some(result);
+            }
+            Operation::DegreeAssortativityCoefficientQuery => {
+                let result = fnx_algorithms::degree_assortativity_coefficient(&context.graph);
+                context.degree_assortativity_coefficient_result = Some(result.coefficient);
+            }
+            Operation::SMetricQuery => {
+                let result = fnx_algorithms::s_metric(&context.graph);
+                context.s_metric_result = Some(result);
+            }
+            Operation::RichClubCoefficientQuery => {
+                let result = fnx_algorithms::rich_club_coefficient(&context.graph);
+                context.rich_club_coefficient_result = Some(result);
             }
             Operation::DispatchResolve {
                 operation,
@@ -4875,6 +4930,119 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
             None => mismatches.push(Mismatch {
                 category: "algorithm_isomorphism".to_owned(),
                 message: "expected faster_could_be_isomorphic result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    // Graph metrics comparisons
+    if let Some(expected) = fixture.expected.wiener_index {
+        match context.wiener_index_result {
+            Some(actual) => {
+                if (actual - expected).abs() > 1e-9 && !actual.is_infinite() {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_metrics".to_owned(),
+                        message: format!("wiener_index: expected {}, got {}", expected, actual),
+                    });
+                } else if actual.is_infinite() != expected.is_infinite() {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_metrics".to_owned(),
+                        message: format!("wiener_index: expected {}, got {}", expected, actual),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_metrics".to_owned(),
+                message: "expected wiener_index result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(expected) = fixture.expected.girth {
+        match context.girth_result {
+            Some(actual) => {
+                if actual != expected {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_metrics".to_owned(),
+                        message: format!("girth: expected {:?}, got {:?}", expected, actual),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_metrics".to_owned(),
+                message: "expected girth result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(expected) = fixture.expected.degree_assortativity_coefficient {
+        match context.degree_assortativity_coefficient_result {
+            Some(actual) => {
+                if (actual - expected).abs() > 1e-9 {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_metrics".to_owned(),
+                        message: format!(
+                            "degree_assortativity_coefficient: expected {}, got {}",
+                            expected, actual
+                        ),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_metrics".to_owned(),
+                message: "expected degree_assortativity_coefficient result but none produced"
+                    .to_owned(),
+            }),
+        }
+    }
+
+    if let Some(expected) = fixture.expected.s_metric {
+        match context.s_metric_result {
+            Some(actual) => {
+                if (actual - expected).abs() > 1e-9 {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_metrics".to_owned(),
+                        message: format!("s_metric: expected {}, got {}", expected, actual),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_metrics".to_owned(),
+                message: "expected s_metric result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(ref expected_entries) = fixture.expected.rich_club_coefficient {
+        match context.rich_club_coefficient_result.as_ref() {
+            Some(actual) => {
+                for entry in expected_entries {
+                    match actual.get(&entry.k) {
+                        Some(&actual_phi) => {
+                            if (actual_phi - entry.phi).abs() > 1e-9 {
+                                mismatches.push(Mismatch {
+                                    category: "algorithm_metrics".to_owned(),
+                                    message: format!(
+                                        "rich_club_coefficient[k={}]: expected {}, got {}",
+                                        entry.k, entry.phi, actual_phi
+                                    ),
+                                });
+                            }
+                        }
+                        None => {
+                            mismatches.push(Mismatch {
+                                category: "algorithm_metrics".to_owned(),
+                                message: format!(
+                                    "rich_club_coefficient: missing entry for k={}",
+                                    entry.k
+                                ),
+                            });
+                        }
+                    }
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_metrics".to_owned(),
+                message: "expected rich_club_coefficient result but none produced".to_owned(),
             }),
         }
     }

@@ -1,0 +1,29 @@
+{
+  "suite": "graph_metrics_v1",
+  "mode": "strict",
+  "operations": [
+    {"op": "add_edge", "left": "0", "right": "1"},
+    {"op": "add_edge", "left": "1", "right": "2"},
+    {"op": "add_edge", "left": "2", "right": "3"},
+    {"op": "add_edge", "left": "3", "right": "4"},
+    {"op": "wiener_index_query"},
+    {"op": "girth_query"},
+    {"op": "s_metric_query"},
+    {"op": "degree_assortativity_coefficient_query"}
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["0", "1", "2", "3", "4"],
+      "edges": [
+        {"left": "0", "right": "1", "attrs": {}},
+        {"left": "1", "right": "2", "attrs": {}},
+        {"left": "2", "right": "3", "attrs": {}},
+        {"left": "3", "right": "4", "attrs": {}}
+      ]
+    },
+    "wiener_index": 20.0,
+    "girth": null,
+    "s_metric": 12.0,
+    "degree_assortativity_coefficient": -0.3333333333333333
+  }
+}

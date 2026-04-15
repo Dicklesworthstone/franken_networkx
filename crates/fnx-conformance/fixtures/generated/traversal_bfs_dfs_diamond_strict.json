@@ -1,0 +1,131 @@
+{
+  "suite": "traversal_v1",
+  "mode": "strict",
+  "fixture_id": "traversal::diamond_bfs_dfs",
+  "operations": [
+    {
+      "op": "add_edge",
+      "left": "0",
+      "right": "1"
+    },
+    {
+      "op": "add_edge",
+      "left": "0",
+      "right": "2"
+    },
+    {
+      "op": "add_edge",
+      "left": "1",
+      "right": "3"
+    },
+    {
+      "op": "add_edge",
+      "left": "2",
+      "right": "3"
+    },
+    {
+      "op": "b_f_s_edges_query",
+      "source": "0"
+    },
+    {
+      "op": "b_f_s_layers_query",
+      "source": "0"
+    },
+    {
+      "op": "d_f_s_edges_query",
+      "source": "0"
+    },
+    {
+      "op": "d_f_s_preorder_nodes_query",
+      "source": "0"
+    },
+    {
+      "op": "d_f_s_postorder_nodes_query",
+      "source": "0"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "0",
+        "1",
+        "2",
+        "3"
+      ],
+      "edges": [
+        {
+          "left": "0",
+          "right": "1",
+          "attrs": {}
+        },
+        {
+          "left": "0",
+          "right": "2",
+          "attrs": {}
+        },
+        {
+          "left": "1",
+          "right": "3",
+          "attrs": {}
+        },
+        {
+          "left": "2",
+          "right": "3",
+          "attrs": {}
+        }
+      ]
+    },
+    "bfs_edges": [
+      {
+        "left": "0",
+        "right": "1"
+      },
+      {
+        "left": "0",
+        "right": "2"
+      },
+      {
+        "left": "1",
+        "right": "3"
+      }
+    ],
+    "bfs_layers": [
+      [
+        "0"
+      ],
+      [
+        "1",
+        "2"
+      ],
+      [
+        "3"
+      ]
+    ],
+    "dfs_edges": [
+      {
+        "left": "0",
+        "right": "1"
+      },
+      {
+        "left": "1",
+        "right": "3"
+      },
+      {
+        "left": "3",
+        "right": "2"
+      }
+    ],
+    "dfs_preorder_nodes": [
+      "0",
+      "1",
+      "3",
+      "2"
+    ],
+    "dfs_postorder_nodes": [
+      "2",
+      "3",
+      "1",
+      "0"
+    ]
+  }
+}

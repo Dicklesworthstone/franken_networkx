@@ -11978,7 +11978,12 @@ pub fn dfs_postorder_nodes(graph: &Graph, source: &str, depth_limit: Option<usiz
             continue;
         }
         visited.insert(node);
-        stack.push((node, true, depth));
+        // NetworkX emits a special reverse-depth_limit event for cutoff nodes.
+        // Those nodes appear in preorder but not in postorder, except for the
+        // root which still closes with a normal reverse event.
+        if node == source || depth < max_depth {
+            stack.push((node, true, depth));
+        }
 
         if depth < max_depth
             && let Some(neighbors) = graph.neighbors(node)
@@ -12020,7 +12025,10 @@ pub fn dfs_postorder_nodes_directed(
             continue;
         }
         visited.insert(node);
-        stack.push((node, true, depth));
+        // NetworkX omits cutoff nodes from postorder on depth-limited traversals.
+        if node == source || depth < max_depth {
+            stack.push((node, true, depth));
+        }
 
         if depth < max_depth
             && let Some(succs) = digraph.successors(node)
@@ -35413,6 +35421,16 @@ mod tests {
     }
 
     #[test]
+    fn dfs_postorder_nodes_depth_limit_omits_cutoff_node() {
+        let mut g = Graph::strict();
+        g.add_edge("a", "b").expect("edge");
+        g.add_edge("b", "c").expect("edge");
+        g.add_edge("c", "d").expect("edge");
+        let nodes = dfs_postorder_nodes(&g, "a", Some(2));
+        assert_eq!(nodes, vec!["b", "a"]);
+    }
+
+    #[test]
     fn dfs_postorder_directed() {
         let g = make_dag();
         let nodes = dfs_postorder_nodes_directed(&g, "a", None);
@@ -35425,6 +35443,16 @@ mod tests {
             .collect();
         assert!(pos["d"] < pos["b"] || pos["d"] < pos["c"]);
         assert_eq!(*pos.get("a").unwrap(), 3);
+    }
+
+    #[test]
+    fn dfs_postorder_directed_depth_limit_omits_cutoff_node() {
+        let mut g = DiGraph::strict();
+        g.add_edge("a", "b").expect("edge");
+        g.add_edge("b", "c").expect("edge");
+        g.add_edge("c", "d").expect("edge");
+        let nodes = dfs_postorder_nodes_directed(&g, "a", Some(2));
+        assert_eq!(nodes, vec!["b", "a"]);
     }
 
     // -----------------------------------------------------------------------
