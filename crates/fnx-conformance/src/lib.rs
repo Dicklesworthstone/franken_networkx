@@ -2088,12 +2088,8 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
             } => {
                 let result = fnx_algorithms::louvain_communities(
                     &context.graph,
-                    if weight_attr == "weight" {
-                        None
-                    } else {
-                        Some(weight_attr.as_str())
-                    },
                     resolution.unwrap_or(1.0),
+                    &weight_attr,
                     seed,
                 );
                 context.louvain_communities_result = Some(result);
@@ -2102,18 +2098,11 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
                 communities,
                 weight_attr,
             } => {
-                let comm_refs: Vec<Vec<&str>> = communities
-                    .iter()
-                    .map(|c| c.iter().map(|s| s.as_str()).collect())
-                    .collect();
                 let result = fnx_algorithms::modularity(
                     &context.graph,
-                    &comm_refs,
-                    if weight_attr == "weight" {
-                        None
-                    } else {
-                        Some(weight_attr.as_str())
-                    },
+                    &communities,
+                    1.0,
+                    &weight_attr,
                 );
                 context.modularity_result = Some(result);
             }
@@ -2124,11 +2113,8 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
             Operation::GreedyModularityCommunitiesQuery { weight_attr } => {
                 let result = fnx_algorithms::greedy_modularity_communities(
                     &context.graph,
-                    if weight_attr == "weight" {
-                        None
-                    } else {
-                        Some(weight_attr.as_str())
-                    },
+                    1.0,
+                    &weight_attr,
                 );
                 context.greedy_modularity_communities_result = Some(result);
             }
