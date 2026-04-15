@@ -6418,6 +6418,17 @@ pub fn chordal_cycle_graph(py: Python<'_>, n: usize) -> PyResult<PyObject> {
     rust_graph_to_py_standalone(py, &result)
 }
 
+/// Return the n-Sudoku graph.
+///
+/// The n-Sudoku graph has n^4 vertices (cells of an n^2 × n^2 grid).
+/// Two cells are adjacent iff they share a row, column, or n×n box.
+#[pyfunction]
+#[pyo3(signature = (n=3))]
+pub fn sudoku_graph(py: Python<'_>, n: usize) -> PyResult<PyObject> {
+    let result = py.allow_threads(|| fnx_algorithms::sudoku_graph(n));
+    rust_graph_to_py_standalone(py, &result)
+}
+
 // ===========================================================================
 // Single-source shortest paths
 // ===========================================================================
@@ -12586,6 +12597,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(kneser_graph, m)?)?;
     m.add_function(wrap_pyfunction!(paley_graph, m)?)?;
     m.add_function(wrap_pyfunction!(chordal_cycle_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(sudoku_graph, m)?)?;
     // Single-source shortest paths
     m.add_function(wrap_pyfunction!(single_source_shortest_path, m)?)?;
     m.add_function(wrap_pyfunction!(single_source_shortest_path_length, m)?)?;

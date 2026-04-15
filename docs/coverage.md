@@ -6,9 +6,9 @@
 
 | Category | Count | % |
 |----------|-------|---|
-| RUST_NATIVE (calls `_fnx.*` directly) | 102 | 22% |
+| RUST_NATIVE (calls `_fnx.*` directly) | 103 | 22% |
 | PY_WRAPPER (pure Python, no NX delegation) | 300 | 66% |
-| NX_DELEGATED (delegates to upstream NetworkX) | 47 | 10% |
+| NX_DELEGATED (delegates to upstream NetworkX) | 46 | 10% |
 | CLASS (graph types, exceptions, etc.) | 3 | 0% |
 | **Total public exports** | **452** | |
 
@@ -102,6 +102,7 @@
 - `star_graph`
 - `stochastic_block_model`
 - `stoer_wagner`
+- `sudoku_graph`
 - `tadpole_graph`
 - `tetrahedral_graph`
 - `to_dict_of_lists`
@@ -465,7 +466,6 @@
 - `random_powerlaw_tree`
 - `random_shell_graph`
 - `simrank_similarity`
-- `sudoku_graph`
 - `to_networkx_graph`
 - `tree_data`
 - `triangular_lattice_graph`

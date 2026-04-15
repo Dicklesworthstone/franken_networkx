@@ -21293,6 +21293,52 @@ pub fn chordal_cycle_graph(n: usize) -> Result<Graph, String> {
     Ok(g)
 }
 
+/// Return the n-Sudoku graph.
+///
+/// The n-Sudoku graph is a graph with n^4 vertices, corresponding to the
+/// cells of an n^2 by n^2 grid. Two distinct vertices are adjacent if and
+/// only if they belong to the same row, column, or n-by-n box.
+///
+/// For n=3 (standard Sudoku), this produces a graph with 81 nodes and 810 edges.
+#[must_use]
+pub fn sudoku_graph(n: usize) -> Graph {
+    if n == 0 {
+        return Graph::strict();
+    }
+
+    let n2 = n * n; // grid dimension (e.g., 9 for standard Sudoku)
+    let total = n2 * n2; // total cells (e.g., 81 for standard Sudoku)
+
+    let mut g = Graph::strict();
+    gen_nodes(&mut g, total);
+
+    // Add edges between cells in the same row, column, or box
+    for cell1 in 0..total {
+        let row1 = cell1 / n2;
+        let col1 = cell1 % n2;
+        let box_row1 = row1 / n;
+        let box_col1 = col1 / n;
+
+        for cell2 in (cell1 + 1)..total {
+            let row2 = cell2 / n2;
+            let col2 = cell2 % n2;
+            let box_row2 = row2 / n;
+            let box_col2 = col2 / n;
+
+            // Same row, same column, or same n×n box
+            let same_row = row1 == row2;
+            let same_col = col1 == col2;
+            let same_box = box_row1 == box_row2 && box_col1 == box_col2;
+
+            if same_row || same_col || same_box {
+                gen_edge(&mut g, cell1, cell2);
+            }
+        }
+    }
+
+    g
+}
+
 // ===========================================================================
 // Connectivity and cuts — additional
 // ===========================================================================

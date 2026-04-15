@@ -768,6 +768,7 @@ from franken_networkx._fnx import (
     kneser_graph,
     paley_graph as _rust_paley_graph,
     chordal_cycle_graph as _rust_chordal_cycle_graph,
+    sudoku_graph as _rust_sudoku_graph,
 )
 
 # Algorithm functions — single-source shortest paths
@@ -13015,12 +13016,12 @@ def margulis_gabber_galil_graph(n, create_using=None):
 
 
 def sudoku_graph(n=3):
-    """Return the Sudoku constraint graph of order *n*."""
-    import networkx as nx
+    """Return the Sudoku constraint graph of order *n*.
 
-    from franken_networkx.readwrite import _from_nx_graph
-
-    return _from_nx_graph(nx.sudoku_graph(n))
+    The n-Sudoku graph has n^4 vertices (cells of an n^2 × n^2 grid).
+    Two cells are adjacent iff they share a row, column, or n×n box.
+    """
+    return _rust_sudoku_graph(n)
 
 
 def fast_gnp_random_graph(n, p, seed=None, directed=False, create_using=None):
