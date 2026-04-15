@@ -5895,7 +5895,8 @@ def johnson(G, weight="weight"):
         ``result[u][v]`` is the shortest path length from u to v.
     """
     # For graphs without negative edges, just use all-pairs Dijkstra
-    return all_pairs_dijkstra_path_length(G, weight=weight)
+    # Convert generator to dict for NetworkX API compatibility
+    return dict(all_pairs_dijkstra_path_length(G, weight=weight))
 
 
 # ---------------------------------------------------------------------------
@@ -10612,8 +10613,10 @@ def panther_similarity(  # DELEGATED_TO_NETWORKX
     """Return Panther similarity scores."""
     import networkx as nx
 
+    from franken_networkx.drawing.layout import _to_nx
+
     return nx.panther_similarity(
-        _networkx_compat_graph(G),
+        _to_nx(G),
         source,
         k=k,
         path_length=path_length,

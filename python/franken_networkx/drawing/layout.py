@@ -1,6 +1,30 @@
 """Layout algorithms delegated to NetworkX after graph conversion."""
 
 
+def _to_nx(G):
+    """Convert an fnx graph to an nx graph for delegation to NetworkX functions.
+
+    This creates a proper nx.Graph (or nx.DiGraph) that can be passed to
+    NetworkX functions that require isinstance checks.
+    """
+    import networkx as nx
+
+    if G.is_directed():
+        nx_graph = nx.DiGraph()
+    else:
+        nx_graph = nx.Graph()
+
+    # Copy nodes with attributes
+    for node in G.nodes():
+        nx_graph.add_node(node, **G.nodes[node])
+
+    # Copy edges with attributes
+    for u, v, data in G.edges(data=True):
+        nx_graph.add_edge(u, v, **data)
+
+    return nx_graph
+
+
 def _delegate_layout(name, G, *args, **kwargs):
     """Dispatch a graph layout call to NetworkX."""
     import networkx as nx
