@@ -4938,12 +4938,9 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
     if let Some(expected) = fixture.expected.wiener_index {
         match context.wiener_index_result {
             Some(actual) => {
-                if (actual - expected).abs() > 1e-9 && !actual.is_infinite() {
-                    mismatches.push(Mismatch {
-                        category: "algorithm_metrics".to_owned(),
-                        message: format!("wiener_index: expected {}, got {}", expected, actual),
-                    });
-                } else if actual.is_infinite() != expected.is_infinite() {
+                let differs = actual.is_infinite() != expected.is_infinite()
+                    || (!actual.is_infinite() && (actual - expected).abs() > 1e-9);
+                if differs {
                     mismatches.push(Mismatch {
                         category: "algorithm_metrics".to_owned(),
                         message: format!("wiener_index: expected {}, got {}", expected, actual),
