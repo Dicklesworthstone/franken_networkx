@@ -89,3 +89,8 @@ doc = false
 name = "fuzz_clustering"
 path = "fuzz_targets/fuzz_clustering.rs"
 doc = false
+
+[[bin]]
+name = "fuzz_pajek"
+path = "fuzz_targets/fuzz_pajek.rs"
+doc = false

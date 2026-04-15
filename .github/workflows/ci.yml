@@ -276,6 +276,8 @@ jobs:
         run: cd fuzz && cargo +nightly fuzz run fuzz_node_link corpus/fuzz_node_link -- -max_total_time=60
       - name: Fuzz attribute value coercion paths (60s)
         run: cd fuzz && cargo +nightly fuzz run fuzz_attribute_value corpus/fuzz_attribute_value -- -max_total_time=60
+      - name: Fuzz Pajek parser (60s)
+        run: cd fuzz && cargo +nightly fuzz run fuzz_pajek corpus/fuzz_pajek -- -max_total_time=60
       # E7: Structure-aware algorithm fuzzers (30s each)
       - name: Fuzz shortest path algorithms (30s)
         run: cd fuzz && cargo +nightly fuzz run fuzz_shortest_path corpus/fuzz_shortest_path -- -max_total_time=30

@@ -56,6 +56,8 @@ jobs:
             corpus: fuzz_node_link
           - target: fuzz_attribute_value
             corpus: fuzz_attribute_value
+          - target: fuzz_pajek
+            corpus: fuzz_pajek
           # E7: Structure-aware algorithm fuzzers
           - target: fuzz_shortest_path
             corpus: fuzz_shortest_path

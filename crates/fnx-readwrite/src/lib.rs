@@ -123,6 +123,8 @@ impl EdgeListEngine {
                 "write_json_graph",
                 "read_graphml",
                 "write_graphml",
+                "read_pajek",
+                "write_pajek",
             ]
             .into_iter()
             .map(str::to_owned)
@@ -3553,6 +3555,450 @@ fn parse_graphml_edgedefault_value(value: &[u8]) -> Option<bool> {
         "directed" => Some(true),
         "undirected" => Some(false),
         _ => None,
+    }
+}
+
+// =============================================================================
+// Pajek format parser (.net files)
+// =============================================================================
+//
+// Pajek format is a text format used by Pajek network analysis software.
+// Format:
+//   *Vertices N
+//   1 "label1" [x y z]
+//   2 "label2" [x y z]
+//   ...
+//   *Edges (or *Arcs for directed)
+//   1 2 [weight]
+//   3 4 [weight]
+//   ...
+//
+// This parser handles the basic format without coordinate data.
+// All edges after *Edges are undirected; all edges after *Arcs are directed.
+
+/// Parser state for Pajek format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PajekSection {
+    None,
+    Vertices,
+    Edges,
+    Arcs,
+}
+
+impl EdgeListEngine {
+    /// Parse a Pajek format string into an undirected graph.
+    ///
+    /// Returns an error if the input contains *Arcs (directed edges) in strict mode.
+    /// In hardened mode, *Arcs are converted to undirected edges with a warning.
+    pub fn read_pajek(&mut self, input: &str) -> Result<ReadWriteReport, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "read_pajek".to_owned(),
+            requested_backend: None,
+            required_features: set(["read_pajek"]),
+            risk_probability: 0.08,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let mut graph = Graph::new(self.mode);
+        let mut warnings = Vec::new();
+        let mut section = PajekSection::None;
+        let mut vertex_map: BTreeMap<i64, String> = BTreeMap::new();
+        let mut vertex_count: Option<usize> = None;
+
+        for (line_no, raw_line) in input.lines().enumerate() {
+            let line = raw_line.trim();
+            if line.is_empty() || line.starts_with('%') {
+                continue;
+            }
+
+            // Section headers
+            let line_lower = line.to_ascii_lowercase();
+            if line_lower.starts_with("*vertices") {
+                section = PajekSection::Vertices;
+                // Parse vertex count if present
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2
+                    && let Ok(count) = parts[1].parse::<usize>()
+                {
+                    vertex_count = Some(count);
+                }
+                continue;
+            }
+            if line_lower.starts_with("*edges") || line_lower.starts_with("*edgeslist") {
+                section = PajekSection::Edges;
+                continue;
+            }
+            if line_lower.starts_with("*arcs") || line_lower.starts_with("*arcslist") {
+                section = PajekSection::Arcs;
+                if self.mode == CompatibilityMode::Strict {
+                    let warning = format!(
+                        "line {}: *Arcs section in undirected graph parse",
+                        line_no + 1
+                    );
+                    self.record("read_pajek", DecisionAction::FailClosed, &warning, 1.0);
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_pajek",
+                        reason: warning,
+                    });
+                }
+                warnings.push(format!(
+                    "line {}: *Arcs converted to undirected edges",
+                    line_no + 1
+                ));
+                continue;
+            }
+            if line_lower.starts_with('*') {
+                // Unknown section - skip
+                section = PajekSection::None;
+                continue;
+            }
+
+            match section {
+                PajekSection::None => {
+                    // Skip lines outside known sections
+                }
+                PajekSection::Vertices => {
+                    // Format: ID "label" [x y z ...]
+                    // We only care about ID and optional label
+                    let parts: Vec<&str> = line.splitn(2, char::is_whitespace).collect();
+                    let id = match parts.first().and_then(|s| s.parse::<i64>().ok()) {
+                        Some(id) => id,
+                        None => {
+                            let warning = format!("line {}: invalid vertex ID", line_no + 1);
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record("read_pajek", DecisionAction::FailClosed, &warning, 1.0);
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_pajek",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning);
+                            continue;
+                        }
+                    };
+
+                    // Extract label if present (quoted string)
+                    let label = if let Some(rest) = parts.get(1) {
+                        let rest = rest.trim();
+                        if let Some(stripped) = rest.strip_prefix('"') {
+                            // Find closing quote
+                            if let Some(end) = stripped.find('"') {
+                                stripped[..end].to_owned()
+                            } else {
+                                stripped.trim_matches('"').to_owned()
+                            }
+                        } else {
+                            // No quotes - use first token as label
+                            rest.split_whitespace()
+                                .next()
+                                .map_or_else(|| id.to_string(), |s| s.to_owned())
+                        }
+                    } else {
+                        id.to_string()
+                    };
+
+                    vertex_map.insert(id, label.clone());
+                    graph.add_node(&label);
+                }
+                PajekSection::Edges | PajekSection::Arcs => {
+                    // Format: source target [weight]
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() < 2 {
+                        let warning = format!("line {}: malformed edge", line_no + 1);
+                        if self.mode == CompatibilityMode::Strict {
+                            self.record("read_pajek", DecisionAction::FailClosed, &warning, 1.0);
+                            return Err(ReadWriteError::FailClosed {
+                                operation: "read_pajek",
+                                reason: warning,
+                            });
+                        }
+                        warnings.push(warning);
+                        continue;
+                    }
+
+                    let src_id = match parts[0].parse::<i64>() {
+                        Ok(id) => id,
+                        Err(_) => {
+                            let warning = format!("line {}: invalid source ID", line_no + 1);
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record("read_pajek", DecisionAction::FailClosed, &warning, 1.0);
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_pajek",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning);
+                            continue;
+                        }
+                    };
+
+                    let dst_id = match parts[1].parse::<i64>() {
+                        Ok(id) => id,
+                        Err(_) => {
+                            let warning = format!("line {}: invalid target ID", line_no + 1);
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record("read_pajek", DecisionAction::FailClosed, &warning, 1.0);
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_pajek",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning);
+                            continue;
+                        }
+                    };
+
+                    // Look up vertex labels
+                    let src_label = vertex_map
+                        .get(&src_id)
+                        .cloned()
+                        .unwrap_or_else(|| src_id.to_string());
+                    let dst_label = vertex_map
+                        .get(&dst_id)
+                        .cloned()
+                        .unwrap_or_else(|| dst_id.to_string());
+
+                    // Ensure nodes exist
+                    if !graph.has_node(&src_label) {
+                        graph.add_node(&src_label);
+                    }
+                    if !graph.has_node(&dst_label) {
+                        graph.add_node(&dst_label);
+                    }
+
+                    // Parse optional weight
+                    let mut attrs = AttrMap::new();
+                    if let Some(weight_str) = parts.get(2)
+                        && let Ok(weight) = weight_str.parse::<f64>()
+                    {
+                        attrs.insert("weight".to_owned(), CgseValue::Float(weight));
+                    }
+
+                    let _ = graph.add_edge_with_attrs(&src_label, &dst_label, attrs);
+                }
+            }
+        }
+
+        // Validate vertex count if declared
+        if let Some(expected) = vertex_count
+            && graph.node_count() != expected
+        {
+            let warning = format!(
+                "declared {} vertices but found {}",
+                expected,
+                graph.node_count()
+            );
+            warnings.push(warning);
+        }
+
+        self.record(
+            "read_pajek",
+            DecisionAction::Allow,
+            "pajek parse completed",
+            0.04,
+        );
+
+        Ok(ReadWriteReport {
+            graph,
+            graph_attrs: AttrMap::new(),
+            warnings,
+        })
+    }
+
+    /// Parse a Pajek format string into a directed graph.
+    ///
+    /// Both *Edges and *Arcs sections are supported.
+    /// *Edges are converted to bidirectional arcs.
+    pub fn read_digraph_pajek(&mut self, input: &str) -> Result<DiReadWriteReport, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "read_pajek".to_owned(),
+            requested_backend: None,
+            required_features: set(["read_pajek"]),
+            risk_probability: 0.08,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let mut graph = DiGraph::new(self.mode);
+        let mut warnings = Vec::new();
+        let mut section = PajekSection::None;
+        let mut vertex_map: BTreeMap<i64, String> = BTreeMap::new();
+        let mut vertex_count: Option<usize> = None;
+
+        for (line_no, raw_line) in input.lines().enumerate() {
+            let line = raw_line.trim();
+            if line.is_empty() || line.starts_with('%') {
+                continue;
+            }
+
+            let line_lower = line.to_ascii_lowercase();
+            if line_lower.starts_with("*vertices") {
+                section = PajekSection::Vertices;
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2
+                    && let Ok(count) = parts[1].parse::<usize>()
+                {
+                    vertex_count = Some(count);
+                }
+                continue;
+            }
+            if line_lower.starts_with("*edges") || line_lower.starts_with("*edgeslist") {
+                section = PajekSection::Edges;
+                continue;
+            }
+            if line_lower.starts_with("*arcs") || line_lower.starts_with("*arcslist") {
+                section = PajekSection::Arcs;
+                continue;
+            }
+            if line_lower.starts_with('*') {
+                section = PajekSection::None;
+                continue;
+            }
+
+            match section {
+                PajekSection::None => {}
+                PajekSection::Vertices => {
+                    let parts: Vec<&str> = line.splitn(2, char::is_whitespace).collect();
+                    let id = match parts.first().and_then(|s| s.parse::<i64>().ok()) {
+                        Some(id) => id,
+                        None => {
+                            let warning = format!("line {}: invalid vertex ID", line_no + 1);
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record("read_pajek", DecisionAction::FailClosed, &warning, 1.0);
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_pajek",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning);
+                            continue;
+                        }
+                    };
+
+                    let label = if let Some(rest) = parts.get(1) {
+                        let rest = rest.trim();
+                        if let Some(stripped) = rest.strip_prefix('"') {
+                            if let Some(end) = stripped.find('"') {
+                                stripped[..end].to_owned()
+                            } else {
+                                stripped.trim_matches('"').to_owned()
+                            }
+                        } else {
+                            rest.split_whitespace()
+                                .next()
+                                .map_or_else(|| id.to_string(), |s| s.to_owned())
+                        }
+                    } else {
+                        id.to_string()
+                    };
+
+                    vertex_map.insert(id, label.clone());
+                    graph.add_node(&label);
+                }
+                PajekSection::Edges | PajekSection::Arcs => {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() < 2 {
+                        let warning = format!("line {}: malformed edge", line_no + 1);
+                        if self.mode == CompatibilityMode::Strict {
+                            self.record("read_pajek", DecisionAction::FailClosed, &warning, 1.0);
+                            return Err(ReadWriteError::FailClosed {
+                                operation: "read_pajek",
+                                reason: warning,
+                            });
+                        }
+                        warnings.push(warning);
+                        continue;
+                    }
+
+                    let src_id = match parts[0].parse::<i64>() {
+                        Ok(id) => id,
+                        Err(_) => {
+                            let warning = format!("line {}: invalid source ID", line_no + 1);
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record("read_pajek", DecisionAction::FailClosed, &warning, 1.0);
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_pajek",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning);
+                            continue;
+                        }
+                    };
+
+                    let dst_id = match parts[1].parse::<i64>() {
+                        Ok(id) => id,
+                        Err(_) => {
+                            let warning = format!("line {}: invalid target ID", line_no + 1);
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record("read_pajek", DecisionAction::FailClosed, &warning, 1.0);
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_pajek",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning);
+                            continue;
+                        }
+                    };
+
+                    let src_label = vertex_map
+                        .get(&src_id)
+                        .cloned()
+                        .unwrap_or_else(|| src_id.to_string());
+                    let dst_label = vertex_map
+                        .get(&dst_id)
+                        .cloned()
+                        .unwrap_or_else(|| dst_id.to_string());
+
+                    if !graph.has_node(&src_label) {
+                        graph.add_node(&src_label);
+                    }
+                    if !graph.has_node(&dst_label) {
+                        graph.add_node(&dst_label);
+                    }
+
+                    let mut attrs = AttrMap::new();
+                    if let Some(weight_str) = parts.get(2)
+                        && let Ok(weight) = weight_str.parse::<f64>()
+                    {
+                        attrs.insert("weight".to_owned(), CgseValue::Float(weight));
+                    }
+
+                    // For *Edges, add both directions
+                    if section == PajekSection::Edges {
+                        let _ = graph.add_edge_with_attrs(&src_label, &dst_label, attrs.clone());
+                        let _ = graph.add_edge_with_attrs(&dst_label, &src_label, attrs);
+                    } else {
+                        // *Arcs - single direction
+                        let _ = graph.add_edge_with_attrs(&src_label, &dst_label, attrs);
+                    }
+                }
+            }
+        }
+
+        if let Some(expected) = vertex_count
+            && graph.node_count() != expected
+        {
+            let warning = format!(
+                "declared {} vertices but found {}",
+                expected,
+                graph.node_count()
+            );
+            warnings.push(warning);
+        }
+
+        self.record(
+            "read_pajek",
+            DecisionAction::Allow,
+            "digraph pajek parse completed",
+            0.04,
+        );
+
+        Ok(DiReadWriteReport {
+            graph,
+            graph_attrs: AttrMap::new(),
+            warnings,
+        })
     }
 }
 
