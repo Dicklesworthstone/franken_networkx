@@ -7,7 +7,7 @@
     "journey_count": 12,
     "strict_journey_count": 12,
     "hardened_journey_count": 12,
-    "fixture_inventory_count": 122,
+    "fixture_inventory_count": 124,
     "covered_fixture_count": 95,
     "uncovered_fixture_count": 22
   },
@@ -2708,6 +2708,8 @@
       "generated/tree_forest_strict.json",
       "generated/traversal_bfs_dfs_diamond_strict.json",
       "generated/traversal_depth_limit_path_strict.json",
+      "generated/traversal_depth_limit_zero_strict.json",
+      "generated/traversal_star_depth_limit_strict.json",
       "generated/triangles_k4_strict.json",
       "generated/triangles_square_clustering_strict.json",
       "generated/view_neighbors_strict.json",

@@ -1,0 +1,126 @@
+{
+  "suite": "traversal_v1",
+  "mode": "strict",
+  "fixture_id": "traversal::star_depth_limit",
+  "operations": [
+    {
+      "op": "add_edge",
+      "left": "0",
+      "right": "1"
+    },
+    {
+      "op": "add_edge",
+      "left": "0",
+      "right": "2"
+    },
+    {
+      "op": "add_edge",
+      "left": "0",
+      "right": "3"
+    },
+    {
+      "op": "add_edge",
+      "left": "0",
+      "right": "4"
+    },
+    {
+      "op": "b_f_s_edges_query",
+      "source": "0",
+      "depth_limit": 1
+    },
+    {
+      "op": "d_f_s_edges_query",
+      "source": "0",
+      "depth_limit": 1
+    },
+    {
+      "op": "d_f_s_preorder_nodes_query",
+      "source": "0",
+      "depth_limit": 1
+    },
+    {
+      "op": "d_f_s_postorder_nodes_query",
+      "source": "0",
+      "depth_limit": 1
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "edges": [
+        {
+          "left": "0",
+          "right": "1",
+          "attrs": {}
+        },
+        {
+          "left": "0",
+          "right": "2",
+          "attrs": {}
+        },
+        {
+          "left": "0",
+          "right": "3",
+          "attrs": {}
+        },
+        {
+          "left": "0",
+          "right": "4",
+          "attrs": {}
+        }
+      ]
+    },
+    "bfs_edges": [
+      {
+        "left": "0",
+        "right": "1"
+      },
+      {
+        "left": "0",
+        "right": "2"
+      },
+      {
+        "left": "0",
+        "right": "3"
+      },
+      {
+        "left": "0",
+        "right": "4"
+      }
+    ],
+    "dfs_edges": [
+      {
+        "left": "0",
+        "right": "1"
+      },
+      {
+        "left": "0",
+        "right": "2"
+      },
+      {
+        "left": "0",
+        "right": "3"
+      },
+      {
+        "left": "0",
+        "right": "4"
+      }
+    ],
+    "dfs_preorder_nodes": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4"
+    ],
+    "dfs_postorder_nodes": [
+      "0"
+    ]
+  }
+}

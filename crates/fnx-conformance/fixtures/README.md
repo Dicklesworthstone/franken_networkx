@@ -18,6 +18,8 @@ This folder stores normalized oracle-vs-target fixtures for fnx-conformance.
 - `generated/generators_complete_strict.json`: deterministic `complete_graph` generator parity.
 - `generated/traversal_bfs_dfs_diamond_strict.json`: BFS/DFS edge-order, layer, preorder, and postorder parity against the upstream traversal oracle.
 - `generated/traversal_depth_limit_path_strict.json`: traversal depth-limit cutoff parity for BFS and DFS against the upstream traversal oracle.
+- `generated/traversal_depth_limit_zero_strict.json`: edge-case parity for depth_limit=0 (immediate neighbors only, no recursion).
+- `generated/traversal_star_depth_limit_strict.json`: star-graph traversal with depth_limit=1 (all leaves at cutoff depth).
 - `generated/centrality_degree_strict.json`: deterministic degree-centrality parity.
 - `generated/centrality_betweenness_strict.json`: deterministic betweenness-centrality parity.
 - `generated/centrality_edge_betweenness_strict.json`: deterministic edge-betweenness-centrality parity.

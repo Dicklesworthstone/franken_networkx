@@ -11756,11 +11756,10 @@ pub fn dfs_edges(graph: &Graph, source: &str, depth_limit: Option<usize>) -> Vec
     let mut stack: Vec<(Option<&str>, &str, usize)> = Vec::new();
 
     visited.insert(source);
-    // Push children of source in reverse order for deterministic DFS
-    // Only push if we can actually visit depth 1 (max_depth > 0)
-    if max_depth > 0
-        && let Some(neighbors) = graph.neighbors(source)
-    {
+    // Push children of source in reverse order for deterministic DFS.
+    // NetworkX always visits immediate neighbors at depth 1, regardless of depth_limit.
+    // The depth_limit check only affects whether we recurse beyond those neighbors.
+    if let Some(neighbors) = graph.neighbors(source) {
         for neighbor in neighbors.into_iter().rev() {
             if !visited.contains(neighbor) {
                 stack.push((Some(source), neighbor, 1));
@@ -11825,10 +11824,9 @@ pub fn dfs_edges_directed(
     visited.insert(source);
     let mut stack: Vec<(Option<&str>, &str, usize)> = Vec::new();
 
-    // Only push if we can actually visit depth 1 (max_depth > 0)
-    if max_depth > 0
-        && let Some(succs) = digraph.successors(source)
-    {
+    // NetworkX always visits immediate successors at depth 1, regardless of depth_limit.
+    // The depth_limit check only affects whether we recurse beyond those successors.
+    if let Some(succs) = digraph.successors(source) {
         for succ in succs.into_iter().rev() {
             if !visited.contains(succ) {
                 stack.push((Some(source), succ, 1));
@@ -35352,9 +35350,10 @@ mod tests {
         let mut g = Graph::strict();
         g.add_edge("a", "b").expect("edge");
         g.add_edge("b", "c").expect("edge");
-        // depth_limit=0 means no edges should be returned
+        // NetworkX depth_limit=0 returns edges to immediate neighbors at depth 1,
+        // but does not recurse beyond them. So we get ("a", "b") but not ("b", "c").
         let edges = dfs_edges(&g, "a", Some(0));
-        assert!(edges.is_empty());
+        assert_eq!(edges, vec![("a".to_owned(), "b".to_owned())]);
     }
 
     #[test]
