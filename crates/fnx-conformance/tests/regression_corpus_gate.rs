@@ -1,3 +1,5 @@
+use fnx_algorithms::{faster_could_be_isomorphic, is_isomorphic};
+use fnx_classes::Graph;
 use fnx_conformance::{HarnessConfig, run_smoke};
 use serde_json::Value;
 use std::fs;
@@ -12,6 +14,95 @@ fn load_json(path: &Path) -> Value {
         .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
     serde_json::from_str(&raw)
         .unwrap_or_else(|err| panic!("failed to parse {}: {err}", path.display()))
+}
+
+#[derive(Debug)]
+struct RegressionFixtureTopology {
+    fixture_id: String,
+    fixture_name: String,
+    provenance_bead_ids: Vec<String>,
+    graph: Graph,
+}
+
+fn load_regression_fixture_topology(
+    regressions_root: &Path,
+    fixture_path: &Path,
+    bead_id: &str,
+) -> RegressionFixtureTopology {
+    let fixture = load_json(fixture_path);
+    let fixture_id = fixture["fixture_id"]
+        .as_str()
+        .expect("fixture_id should be a string")
+        .to_owned();
+    let fixture_name = fixture_path
+        .strip_prefix(regressions_root)
+        .expect("fixture should be under regressions root")
+        .to_string_lossy()
+        .to_string();
+
+    let mut provenance_bead_ids = fixture["provenance_bead_ids"]
+        .as_array()
+        .expect("regression fixture should declare provenance_bead_ids")
+        .iter()
+        .map(|entry| {
+            entry
+                .as_str()
+                .expect("provenance_bead_ids entries should be strings")
+                .to_owned()
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        !provenance_bead_ids.is_empty(),
+        "regression fixture {fixture_id} should list at least one provenance bead id"
+    );
+    let mut sorted_bead_ids = provenance_bead_ids.clone();
+    sorted_bead_ids.sort();
+    sorted_bead_ids.dedup();
+    assert_eq!(
+        provenance_bead_ids, sorted_bead_ids,
+        "regression fixture {fixture_id} should keep provenance_bead_ids sorted and duplicate-free"
+    );
+    assert!(
+        provenance_bead_ids.iter().any(|id| id == bead_id),
+        "regression fixture {fixture_id} should retain its directory bead id {bead_id} in provenance_bead_ids"
+    );
+
+    let mut graph = Graph::strict();
+    for node in fixture["expected"]["graph"]["nodes"]
+        .as_array()
+        .expect("expected.graph.nodes should be an array")
+    {
+        graph.add_node(
+            node.as_str()
+                .expect("expected.graph.nodes entries should be strings")
+                .to_owned(),
+        );
+    }
+    for edge in fixture["expected"]["graph"]["edges"]
+        .as_array()
+        .expect("expected.graph.edges should be an array")
+    {
+        let left = edge["left"]
+            .as_str()
+            .expect("expected.graph.edges[].left should be a string")
+            .to_owned();
+        let right = edge["right"]
+            .as_str()
+            .expect("expected.graph.edges[].right should be a string")
+            .to_owned();
+        graph
+            .add_edge(left.clone(), right.clone())
+            .unwrap_or_else(|err| {
+                panic!("failed to add expected regression edge ({left}, {right}): {err}")
+            });
+    }
+
+    RegressionFixtureTopology {
+        fixture_id,
+        fixture_name,
+        provenance_bead_ids: std::mem::take(&mut provenance_bead_ids),
+        graph,
+    }
 }
 
 #[test]
@@ -36,6 +127,7 @@ fn historical_regression_corpus_has_provenance_and_passes_smoke() {
     );
 
     let mut expected_fixture_names = Vec::new();
+    let mut regression_topologies = Vec::new();
     for dir in &regression_dirs {
         let bead_id = dir
             .file_name()
@@ -104,6 +196,31 @@ fn historical_regression_corpus_has_provenance_and_passes_smoke() {
                     .expect("fixture should be under regressions root")
                     .to_string_lossy()
                     .to_string(),
+            );
+            regression_topologies.push(load_regression_fixture_topology(
+                &regressions_root,
+                &fixture_path,
+                bead_id,
+            ));
+        }
+    }
+
+    for left_idx in 0..regression_topologies.len() {
+        for right_idx in (left_idx + 1)..regression_topologies.len() {
+            let left = &regression_topologies[left_idx];
+            let right = &regression_topologies[right_idx];
+            if !faster_could_be_isomorphic(&left.graph, &right.graph) {
+                continue;
+            }
+            assert!(
+                !is_isomorphic(&left.graph, &right.graph),
+                "historical regression fixtures {} [{}] ({:?}) and {} [{}] ({:?}) are isomorphic duplicates; merge them into one canonical fixture and attach all provenance bead ids to that fixture",
+                left.fixture_name,
+                left.fixture_id,
+                left.provenance_bead_ids,
+                right.fixture_name,
+                right.fixture_id,
+                right.provenance_bead_ids
             );
         }
     }

@@ -2,6 +2,7 @@
   "suite": "components_regression_v1",
   "mode": "strict",
   "fixture_id": "regression::franken_networkx-690::global_minimum_node_cut_leaf_bottleneck",
+  "provenance_bead_ids": ["franken_networkx-690"],
   "threat_class": "historical_regression",
   "replay_command": "rch exec -- CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture regressions/franken_networkx-690/global_minimum_node_cut_leaf_bottleneck_strict.json --mode strict",
   "operations": [

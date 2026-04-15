@@ -2,6 +2,7 @@
   "suite": "euler_regression_v1",
   "mode": "strict",
   "fixture_id": "regression::franken_networkx-3pdp::eulerian_path_source_validation",
+  "provenance_bead_ids": ["franken_networkx-3pdp"],
   "threat_class": "historical_regression",
   "replay_command": "rch exec -- CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture regressions/franken_networkx-3pdp/eulerian_triangle_with_isolate_strict.json --mode strict",
   "operations": [
