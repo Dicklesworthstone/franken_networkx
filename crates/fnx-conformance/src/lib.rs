@@ -430,6 +430,31 @@ enum Operation {
         #[serde(default = "default_weight_attr")]
         weight_attr: String,
     },
+    // Traversal algorithms
+    DFSEdgesQuery {
+        source: String,
+        #[serde(default)]
+        depth_limit: Option<usize>,
+    },
+    DFSPreorderNodesQuery {
+        source: String,
+        #[serde(default)]
+        depth_limit: Option<usize>,
+    },
+    DFSPostorderNodesQuery {
+        source: String,
+        #[serde(default)]
+        depth_limit: Option<usize>,
+    },
+    BFSEdgesQuery {
+        source: String,
+        #[serde(default)]
+        depth_limit: Option<usize>,
+    },
+    BFSLayersQuery {
+        source: String,
+    },
+    TopologicalSortQuery,
     DispatchResolve {
         operation: String,
         #[serde(default)]
@@ -677,6 +702,19 @@ struct ExpectedState {
     #[serde(default)]
     #[allow(dead_code)] // Reserved for exact community membership comparison
     greedy_modularity_communities: Option<Vec<Vec<String>>>,
+    // Traversal expected results
+    #[serde(default)]
+    dfs_edges: Option<Vec<ExpectedEdgePair>>,
+    #[serde(default)]
+    dfs_preorder_nodes: Option<Vec<String>>,
+    #[serde(default)]
+    dfs_postorder_nodes: Option<Vec<String>>,
+    #[serde(default)]
+    bfs_edges: Option<Vec<ExpectedEdgePair>>,
+    #[serde(default)]
+    bfs_layers: Option<Vec<Vec<String>>>,
+    #[serde(default)]
+    topological_sort: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -890,6 +928,13 @@ struct ExecutionContext {
     modularity_result: Option<f64>,
     label_propagation_communities_result: Option<Vec<Vec<String>>>,
     greedy_modularity_communities_result: Option<Vec<Vec<String>>>,
+    // Traversal results
+    dfs_edges_result: Option<Vec<(String, String)>>,
+    dfs_preorder_nodes_result: Option<Vec<String>>,
+    dfs_postorder_nodes_result: Option<Vec<String>>,
+    bfs_edges_result: Option<Vec<(String, String)>>,
+    bfs_layers_result: Option<Vec<Vec<String>>>,
+    topological_sort_result: Option<Vec<String>>,
     warnings: Vec<String>,
     witness: Option<ComplexityWitness>,
 }
@@ -1681,6 +1726,12 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
         modularity_result: None,
         label_propagation_communities_result: None,
         greedy_modularity_communities_result: None,
+        dfs_edges_result: None,
+        dfs_preorder_nodes_result: None,
+        dfs_postorder_nodes_result: None,
+        bfs_edges_result: None,
+        bfs_layers_result: None,
+        topological_sort_result: None,
         warnings: Vec::new(),
         witness: None,
     };
@@ -2120,6 +2171,34 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
                     &weight_attr,
                 );
                 context.greedy_modularity_communities_result = Some(result);
+            }
+            // Traversal operations
+            Operation::DFSEdgesQuery { source, depth_limit } => {
+                let result = fnx_algorithms::dfs_edges(&context.graph, &source, depth_limit);
+                context.dfs_edges_result = Some(result);
+            }
+            Operation::DFSPreorderNodesQuery { source, depth_limit } => {
+                let result =
+                    fnx_algorithms::dfs_preorder_nodes(&context.graph, &source, depth_limit);
+                context.dfs_preorder_nodes_result = Some(result);
+            }
+            Operation::DFSPostorderNodesQuery { source, depth_limit } => {
+                let result =
+                    fnx_algorithms::dfs_postorder_nodes(&context.graph, &source, depth_limit);
+                context.dfs_postorder_nodes_result = Some(result);
+            }
+            Operation::BFSEdgesQuery { source, depth_limit } => {
+                let result = fnx_algorithms::bfs_edges(&context.graph, &source, depth_limit);
+                context.bfs_edges_result = Some(result);
+            }
+            Operation::BFSLayersQuery { source } => {
+                let result = fnx_algorithms::bfs_layers(&context.graph, &source);
+                context.bfs_layers_result = Some(result);
+            }
+            Operation::TopologicalSortQuery => {
+                // Topological sort requires a DiGraph - convert from undirected for testing
+                // In practice, this should only be called on DAGs represented as digraphs
+                context.topological_sort_result = None; // Placeholder - requires DiGraph
             }
             Operation::DispatchResolve {
                 operation,
@@ -4323,6 +4402,135 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
             None => mismatches.push(Mismatch {
                 category: "algorithm_community".to_owned(),
                 message: "expected greedy_modularity_communities result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    // Traversal comparisons
+    if let Some(ref expected_edges) = fixture.expected.dfs_edges {
+        match context.dfs_edges_result.as_ref() {
+            Some(actual) => {
+                let expected_tuples: Vec<(String, String)> = expected_edges
+                    .iter()
+                    .map(|e| (e.left.clone(), e.right.clone()))
+                    .collect();
+                if *actual != expected_tuples {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_traversal".to_owned(),
+                        message: format!(
+                            "dfs_edges mismatch: expected {:?}, got {:?}",
+                            expected_tuples, actual
+                        ),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_traversal".to_owned(),
+                message: "expected dfs_edges result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(ref expected_nodes) = fixture.expected.dfs_preorder_nodes {
+        match context.dfs_preorder_nodes_result.as_ref() {
+            Some(actual) => {
+                if *actual != *expected_nodes {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_traversal".to_owned(),
+                        message: format!(
+                            "dfs_preorder_nodes mismatch: expected {:?}, got {:?}",
+                            expected_nodes, actual
+                        ),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_traversal".to_owned(),
+                message: "expected dfs_preorder_nodes result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(ref expected_nodes) = fixture.expected.dfs_postorder_nodes {
+        match context.dfs_postorder_nodes_result.as_ref() {
+            Some(actual) => {
+                if *actual != *expected_nodes {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_traversal".to_owned(),
+                        message: format!(
+                            "dfs_postorder_nodes mismatch: expected {:?}, got {:?}",
+                            expected_nodes, actual
+                        ),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_traversal".to_owned(),
+                message: "expected dfs_postorder_nodes result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(ref expected_edges) = fixture.expected.bfs_edges {
+        match context.bfs_edges_result.as_ref() {
+            Some(actual) => {
+                let expected_tuples: Vec<(String, String)> = expected_edges
+                    .iter()
+                    .map(|e| (e.left.clone(), e.right.clone()))
+                    .collect();
+                if *actual != expected_tuples {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_traversal".to_owned(),
+                        message: format!(
+                            "bfs_edges mismatch: expected {:?}, got {:?}",
+                            expected_tuples, actual
+                        ),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_traversal".to_owned(),
+                message: "expected bfs_edges result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(ref expected_layers) = fixture.expected.bfs_layers {
+        match context.bfs_layers_result.as_ref() {
+            Some(actual) => {
+                if *actual != *expected_layers {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_traversal".to_owned(),
+                        message: format!(
+                            "bfs_layers mismatch: expected {:?}, got {:?}",
+                            expected_layers, actual
+                        ),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_traversal".to_owned(),
+                message: "expected bfs_layers result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(ref expected_order) = fixture.expected.topological_sort {
+        match context.topological_sort_result.as_ref() {
+            Some(actual) => {
+                if *actual != *expected_order {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_traversal".to_owned(),
+                        message: format!(
+                            "topological_sort mismatch: expected {:?}, got {:?}",
+                            expected_order, actual
+                        ),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_traversal".to_owned(),
+                message: "expected topological_sort result but none produced".to_owned(),
             }),
         }
     }
