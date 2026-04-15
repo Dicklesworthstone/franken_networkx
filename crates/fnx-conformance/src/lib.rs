@@ -455,6 +455,19 @@ enum Operation {
         source: String,
     },
     TopologicalSortQuery,
+    // Link prediction algorithms
+    JaccardCoefficientQuery {
+        ebunch: Vec<(String, String)>,
+    },
+    AdamicAdarIndexQuery {
+        ebunch: Vec<(String, String)>,
+    },
+    PreferentialAttachmentQuery {
+        ebunch: Vec<(String, String)>,
+    },
+    ResourceAllocationIndexQuery {
+        ebunch: Vec<(String, String)>,
+    },
     DispatchResolve {
         operation: String,
         #[serde(default)]
@@ -715,6 +728,22 @@ struct ExpectedState {
     bfs_layers: Option<Vec<Vec<String>>>,
     #[serde(default)]
     topological_sort: Option<Vec<String>>,
+    // Link prediction expected results
+    #[serde(default)]
+    jaccard_coefficient: Option<Vec<ExpectedLinkPredictionScore>>,
+    #[serde(default)]
+    adamic_adar_index: Option<Vec<ExpectedLinkPredictionScore>>,
+    #[serde(default)]
+    preferential_attachment: Option<Vec<ExpectedLinkPredictionScore>>,
+    #[serde(default)]
+    resource_allocation_index: Option<Vec<ExpectedLinkPredictionScore>>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct ExpectedLinkPredictionScore {
+    u: String,
+    v: String,
+    score: f64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -935,6 +964,11 @@ struct ExecutionContext {
     bfs_edges_result: Option<Vec<(String, String)>>,
     bfs_layers_result: Option<Vec<Vec<String>>>,
     topological_sort_result: Option<Vec<String>>,
+    // Link prediction results
+    jaccard_coefficient_result: Option<Vec<(String, String, f64)>>,
+    adamic_adar_index_result: Option<Vec<(String, String, f64)>>,
+    preferential_attachment_result: Option<Vec<(String, String, f64)>>,
+    resource_allocation_index_result: Option<Vec<(String, String, f64)>>,
     warnings: Vec<String>,
     witness: Option<ComplexityWitness>,
 }
@@ -1732,6 +1766,10 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
         bfs_edges_result: None,
         bfs_layers_result: None,
         topological_sort_result: None,
+        jaccard_coefficient_result: None,
+        adamic_adar_index_result: None,
+        preferential_attachment_result: None,
+        resource_allocation_index_result: None,
         warnings: Vec::new(),
         witness: None,
     };
@@ -2199,6 +2237,23 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
                 // Topological sort requires a DiGraph - convert from undirected for testing
                 // In practice, this should only be called on DAGs represented as digraphs
                 context.topological_sort_result = None; // Placeholder - requires DiGraph
+            }
+            // Link prediction operations
+            Operation::JaccardCoefficientQuery { ebunch } => {
+                let result = fnx_algorithms::jaccard_coefficient(&context.graph, &ebunch);
+                context.jaccard_coefficient_result = Some(result);
+            }
+            Operation::AdamicAdarIndexQuery { ebunch } => {
+                let result = fnx_algorithms::adamic_adar_index(&context.graph, &ebunch);
+                context.adamic_adar_index_result = Some(result);
+            }
+            Operation::PreferentialAttachmentQuery { ebunch } => {
+                let result = fnx_algorithms::preferential_attachment(&context.graph, &ebunch);
+                context.preferential_attachment_result = Some(result);
+            }
+            Operation::ResourceAllocationIndexQuery { ebunch } => {
+                let result = fnx_algorithms::resource_allocation_index(&context.graph, &ebunch);
+                context.resource_allocation_index_result = Some(result);
             }
             Operation::DispatchResolve {
                 operation,
@@ -4531,6 +4586,175 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
             None => mismatches.push(Mismatch {
                 category: "algorithm_traversal".to_owned(),
                 message: "expected topological_sort result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    // Link prediction comparisons
+    if let Some(ref expected_scores) = fixture.expected.jaccard_coefficient {
+        match context.jaccard_coefficient_result.as_ref() {
+            Some(actual) => {
+                for (i, expected) in expected_scores.iter().enumerate() {
+                    if i >= actual.len() {
+                        mismatches.push(Mismatch {
+                            category: "algorithm_link_prediction".to_owned(),
+                            message: format!(
+                                "jaccard_coefficient: expected {} results, got {}",
+                                expected_scores.len(),
+                                actual.len()
+                            ),
+                        });
+                        break;
+                    }
+                    let (u, v, score) = &actual[i];
+                    if *u != expected.u || *v != expected.v {
+                        mismatches.push(Mismatch {
+                            category: "algorithm_link_prediction".to_owned(),
+                            message: format!(
+                                "jaccard_coefficient[{}]: expected pair ({}, {}), got ({}, {})",
+                                i, expected.u, expected.v, u, v
+                            ),
+                        });
+                    } else if (*score - expected.score).abs() > 1e-9 {
+                        mismatches.push(Mismatch {
+                            category: "algorithm_link_prediction".to_owned(),
+                            message: format!(
+                                "jaccard_coefficient[{}] ({}, {}): expected {}, got {}",
+                                i, u, v, expected.score, score
+                            ),
+                        });
+                    }
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_link_prediction".to_owned(),
+                message: "expected jaccard_coefficient result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(ref expected_scores) = fixture.expected.adamic_adar_index {
+        match context.adamic_adar_index_result.as_ref() {
+            Some(actual) => {
+                for (i, expected) in expected_scores.iter().enumerate() {
+                    if i >= actual.len() {
+                        mismatches.push(Mismatch {
+                            category: "algorithm_link_prediction".to_owned(),
+                            message: format!(
+                                "adamic_adar_index: expected {} results, got {}",
+                                expected_scores.len(),
+                                actual.len()
+                            ),
+                        });
+                        break;
+                    }
+                    let (u, v, score) = &actual[i];
+                    if *u != expected.u || *v != expected.v {
+                        mismatches.push(Mismatch {
+                            category: "algorithm_link_prediction".to_owned(),
+                            message: format!(
+                                "adamic_adar_index[{}]: expected pair ({}, {}), got ({}, {})",
+                                i, expected.u, expected.v, u, v
+                            ),
+                        });
+                    } else if (*score - expected.score).abs() > 1e-9 {
+                        mismatches.push(Mismatch {
+                            category: "algorithm_link_prediction".to_owned(),
+                            message: format!(
+                                "adamic_adar_index[{}] ({}, {}): expected {}, got {}",
+                                i, u, v, expected.score, score
+                            ),
+                        });
+                    }
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_link_prediction".to_owned(),
+                message: "expected adamic_adar_index result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(ref expected_scores) = fixture.expected.preferential_attachment {
+        match context.preferential_attachment_result.as_ref() {
+            Some(actual) => {
+                for (i, expected) in expected_scores.iter().enumerate() {
+                    if i >= actual.len() {
+                        mismatches.push(Mismatch {
+                            category: "algorithm_link_prediction".to_owned(),
+                            message: format!(
+                                "preferential_attachment: expected {} results, got {}",
+                                expected_scores.len(),
+                                actual.len()
+                            ),
+                        });
+                        break;
+                    }
+                    let (u, v, score) = &actual[i];
+                    if *u != expected.u || *v != expected.v {
+                        mismatches.push(Mismatch {
+                            category: "algorithm_link_prediction".to_owned(),
+                            message: format!(
+                                "preferential_attachment[{}]: expected pair ({}, {}), got ({}, {})",
+                                i, expected.u, expected.v, u, v
+                            ),
+                        });
+                    } else if (*score - expected.score).abs() > 1e-9 {
+                        mismatches.push(Mismatch {
+                            category: "algorithm_link_prediction".to_owned(),
+                            message: format!(
+                                "preferential_attachment[{}] ({}, {}): expected {}, got {}",
+                                i, u, v, expected.score, score
+                            ),
+                        });
+                    }
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_link_prediction".to_owned(),
+                message: "expected preferential_attachment result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(ref expected_scores) = fixture.expected.resource_allocation_index {
+        match context.resource_allocation_index_result.as_ref() {
+            Some(actual) => {
+                for (i, expected) in expected_scores.iter().enumerate() {
+                    if i >= actual.len() {
+                        mismatches.push(Mismatch {
+                            category: "algorithm_link_prediction".to_owned(),
+                            message: format!(
+                                "resource_allocation_index: expected {} results, got {}",
+                                expected_scores.len(),
+                                actual.len()
+                            ),
+                        });
+                        break;
+                    }
+                    let (u, v, score) = &actual[i];
+                    if *u != expected.u || *v != expected.v {
+                        mismatches.push(Mismatch {
+                            category: "algorithm_link_prediction".to_owned(),
+                            message: format!(
+                                "resource_allocation_index[{}]: expected pair ({}, {}), got ({}, {})",
+                                i, expected.u, expected.v, u, v
+                            ),
+                        });
+                    } else if (*score - expected.score).abs() > 1e-9 {
+                        mismatches.push(Mismatch {
+                            category: "algorithm_link_prediction".to_owned(),
+                            message: format!(
+                                "resource_allocation_index[{}] ({}, {}): expected {}, got {}",
+                                i, u, v, expected.score, score
+                            ),
+                        });
+                    }
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_link_prediction".to_owned(),
+                message: "expected resource_allocation_index result but none produced".to_owned(),
             }),
         }
     }

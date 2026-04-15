@@ -1,0 +1,40 @@
+{
+  "suite": "link_prediction_v1",
+  "mode": "strict",
+  "operations": [
+    {"op": "add_edge", "left": "alice", "right": "bob"},
+    {"op": "add_edge", "left": "alice", "right": "carol"},
+    {"op": "add_edge", "left": "bob", "right": "carol"},
+    {"op": "add_edge", "left": "bob", "right": "frank"},
+    {"op": "add_edge", "left": "carol", "right": "david"},
+    {"op": "add_edge", "left": "david", "right": "eve"},
+    {
+      "op": "jaccard_coefficient_query",
+      "ebunch": [
+        ["alice", "david"],
+        ["bob", "david"],
+        ["alice", "frank"],
+        ["carol", "frank"]
+      ]
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["alice", "bob", "carol", "frank", "david", "eve"],
+      "edges": [
+        {"left": "alice", "right": "bob", "attrs": {}},
+        {"left": "alice", "right": "carol", "attrs": {}},
+        {"left": "bob", "right": "carol", "attrs": {}},
+        {"left": "bob", "right": "frank", "attrs": {}},
+        {"left": "carol", "right": "david", "attrs": {}},
+        {"left": "david", "right": "eve", "attrs": {}}
+      ]
+    },
+    "jaccard_coefficient": [
+      {"u": "alice", "v": "david", "score": 0.3333333333333333},
+      {"u": "bob", "v": "david", "score": 0.25},
+      {"u": "alice", "v": "frank", "score": 0.5},
+      {"u": "carol", "v": "frank", "score": 0.3333333333333333}
+    ]
+  }
+}
