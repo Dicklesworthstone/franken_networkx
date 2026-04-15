@@ -663,16 +663,19 @@ struct ExpectedState {
     #[serde(default)]
     louvain_communities_count: Option<usize>,
     #[serde(default)]
+    #[allow(dead_code)] // Reserved for exact community membership comparison
     louvain_communities: Option<Vec<Vec<String>>>,
     #[serde(default)]
     modularity: Option<f64>,
     #[serde(default)]
     label_propagation_communities_count: Option<usize>,
     #[serde(default)]
+    #[allow(dead_code)] // Reserved for exact community membership comparison
     label_propagation_communities: Option<Vec<Vec<String>>>,
     #[serde(default)]
     greedy_modularity_communities_count: Option<usize>,
     #[serde(default)]
+    #[allow(dead_code)] // Reserved for exact community membership comparison
     greedy_modularity_communities: Option<Vec<Vec<String>>>,
 }
 

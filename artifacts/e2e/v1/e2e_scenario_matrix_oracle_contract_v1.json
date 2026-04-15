@@ -1237,6 +1237,9 @@
           "generated/centrality_pagerank_barabasi_strict.json",
           "generated/centrality_eigenvector_strict.json",
           "generated/clustering_coefficient_strict.json",
+          "generated/community_greedy_modularity_strict.json",
+          "generated/community_louvain_strict.json",
+          "generated/community_modularity_strict.json",
           "generated/triangles_square_clustering_strict.json",
           "generated/avg_neighbor_degree_strict.json"
         ],

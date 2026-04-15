@@ -21136,7 +21136,7 @@ pub fn grid_graph(dim: &[usize]) -> Graph {
     let mut g = Graph::strict();
 
     // Handle empty or zero dimensions
-    if dim.is_empty() || dim.iter().any(|&d| d == 0) {
+    if dim.is_empty() || dim.contains(&0) {
         return g;
     }
 
@@ -21165,7 +21165,7 @@ pub fn grid_graph(dim: &[usize]) -> Graph {
     // Add all nodes
     for i in 0..total {
         let coords = index_to_coords(i, dim);
-        g.add_node(&coords_to_label(&coords));
+        g.add_node(coords_to_label(&coords));
     }
 
     // Add edges: connect nodes that differ by exactly 1 in exactly one dimension
@@ -21177,7 +21177,7 @@ pub fn grid_graph(dim: &[usize]) -> Graph {
             if coords[d] + 1 < dim[d] {
                 let mut neighbor_coords = coords.clone();
                 neighbor_coords[d] += 1;
-                let _ = g.add_edge(&coords_to_label(&coords), &coords_to_label(&neighbor_coords));
+                let _ = g.add_edge(coords_to_label(&coords), coords_to_label(&neighbor_coords));
             }
         }
     }
