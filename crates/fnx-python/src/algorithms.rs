@@ -521,8 +521,7 @@ fn validate_node_str(gr: &GraphRef<'_>, canonical: &str, prefix: &str) -> PyResu
     if !gr.has_node(canonical) {
         return Err(crate::NodeNotFound::new_err(format!(
             "{} '{}' is not in G",
-            prefix,
-            canonical
+            prefix, canonical
         )));
     }
     Ok(())
@@ -2413,7 +2412,8 @@ pub fn closeness_vitality(
     if let Some(node_obj) = node {
         let node_str = node_obj.extract::<String>()?;
         let inner = gr.undirected();
-        let result = py.allow_threads(|| fnx_algorithms::closeness_vitality_single(inner, &node_str));
+        let result =
+            py.allow_threads(|| fnx_algorithms::closeness_vitality_single(inner, &node_str));
         match result {
             Some(v) => Ok(v.into_pyobject(py)?.unbind().into()),
             None => Err(crate::NodeNotFound::new_err(format!(
@@ -3341,7 +3341,11 @@ pub fn core_number(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>>
 /// If k is None, returns the main core (largest k-core).
 #[pyfunction]
 #[pyo3(signature = (g, k=None))]
-pub fn k_core_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: Option<usize>) -> PyResult<Py<PyGraph>> {
+pub fn k_core_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    k: Option<usize>,
+) -> PyResult<Py<PyGraph>> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::k_core(inner, k));
@@ -3364,7 +3368,11 @@ pub fn k_core_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: Option<usize>) -> Py
 /// If k is None, returns the outer shell (max core number).
 #[pyfunction]
 #[pyo3(signature = (g, k=None))]
-pub fn k_shell_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: Option<usize>) -> PyResult<Py<PyGraph>> {
+pub fn k_shell_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    k: Option<usize>,
+) -> PyResult<Py<PyGraph>> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::k_shell(inner, k));
@@ -3387,7 +3395,11 @@ pub fn k_shell_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: Option<usize>) -> P
 /// If k is None, uses max_core - 1 as the default.
 #[pyfunction]
 #[pyo3(signature = (g, k=None))]
-pub fn k_crust_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: Option<usize>) -> PyResult<Py<PyGraph>> {
+pub fn k_crust_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    k: Option<usize>,
+) -> PyResult<Py<PyGraph>> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::k_crust(inner, k));
@@ -4974,7 +4986,9 @@ pub fn dfs_edges(
                 _ => {
                     if gr.is_directed() {
                         let __gr_digraph = gr.digraph().expect("is_directed checked above");
-                        py.allow_threads(|| dfs_forest_directed(__gr_digraph, &nodes, depth_limit).0)
+                        py.allow_threads(|| {
+                            dfs_forest_directed(__gr_digraph, &nodes, depth_limit).0
+                        })
                     } else {
                         let inner = gr.undirected();
                         py.allow_threads(|| dfs_forest_undirected(inner, &nodes, depth_limit).0)
@@ -5129,7 +5143,9 @@ pub fn dfs_predecessors(
                 _ => {
                     if gr.is_directed() {
                         let __gr_digraph = gr.digraph().expect("is_directed checked above");
-                        py.allow_threads(|| dfs_forest_directed(__gr_digraph, &nodes, depth_limit).0)
+                        py.allow_threads(|| {
+                            dfs_forest_directed(__gr_digraph, &nodes, depth_limit).0
+                        })
                     } else {
                         let inner = gr.undirected();
                         py.allow_threads(|| dfs_forest_undirected(inner, &nodes, depth_limit).0)
@@ -5189,7 +5205,9 @@ pub fn dfs_successors(
                 GraphRef::Undirected(pg) => {
                     let inner = &pg.inner;
 
-                    py.allow_threads(|| fnx_algorithms::dfs_successors(inner, &source_key, depth_limit))
+                    py.allow_threads(|| {
+                        fnx_algorithms::dfs_successors(inner, &source_key, depth_limit)
+                    })
                 }
                 _ => {
                     if gr.is_directed() {
@@ -5234,7 +5252,9 @@ pub fn dfs_successors(
                 _ => {
                     if gr.is_directed() {
                         let __gr_digraph = gr.digraph().expect("is_directed checked above");
-                        py.allow_threads(|| dfs_forest_directed(__gr_digraph, &nodes, depth_limit).0)
+                        py.allow_threads(|| {
+                            dfs_forest_directed(__gr_digraph, &nodes, depth_limit).0
+                        })
                     } else {
                         let inner = gr.undirected();
                         py.allow_threads(|| dfs_forest_undirected(inner, &nodes, depth_limit).0)
@@ -5338,7 +5358,9 @@ pub fn dfs_preorder_nodes(
                 _ => {
                     if gr.is_directed() {
                         let __gr_digraph = gr.digraph().expect("is_directed checked above");
-                        py.allow_threads(|| dfs_forest_directed(__gr_digraph, &ordered, depth_limit).1)
+                        py.allow_threads(|| {
+                            dfs_forest_directed(__gr_digraph, &ordered, depth_limit).1
+                        })
                     } else {
                         let inner = gr.undirected();
                         py.allow_threads(|| dfs_forest_undirected(inner, &ordered, depth_limit).1)
@@ -5431,7 +5453,9 @@ pub fn dfs_postorder_nodes(
                 }
                 GraphRef::Undirected(pg) => {
                     let inner = &pg.inner;
-                    py.allow_threads(|| dfs_postorder_forest_undirected(inner, &ordered, depth_limit))
+                    py.allow_threads(|| {
+                        dfs_postorder_forest_undirected(inner, &ordered, depth_limit)
+                    })
                 }
                 _ => {
                     if gr.is_directed() {
@@ -7352,7 +7376,8 @@ fn cartesian_product(
     if gr1.is_directed() && gr2.is_directed() {
         let inner1 = gr1.digraph().expect("is_directed checked above");
         let inner2 = gr2.digraph().expect("is_directed checked above");
-        let result = py.allow_threads(|| fnx_algorithms::cartesian_product_directed(inner1, inner2));
+        let result =
+            py.allow_threads(|| fnx_algorithms::cartesian_product_directed(inner1, inner2));
         rust_digraph_to_py_standalone(py, &result)
     } else if !gr1.is_directed() && !gr2.is_directed() {
         let inner1 = gr1.undirected();

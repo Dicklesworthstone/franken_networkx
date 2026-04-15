@@ -248,11 +248,8 @@ impl DispatchCoverage {
     #[must_use]
     pub fn gap_report(&self, discovery: &DiscoveryReport) -> CoverageGapReport {
         let available_features = &discovery.all_features;
-        let available_backends: BTreeSet<String> = discovery
-            .backends
-            .iter()
-            .map(|b| b.name.clone())
-            .collect();
+        let available_backends: BTreeSet<String> =
+            discovery.backends.iter().map(|b| b.name.clone()).collect();
 
         let untested_features: BTreeSet<String> = available_features
             .difference(&self.requested_features)
@@ -288,8 +285,7 @@ impl DispatchCoverage {
             success_rate_pct: if self.success_count + self.failure_count == 0 {
                 100.0
             } else {
-                (self.success_count as f64
-                    / (self.success_count + self.failure_count) as f64)
+                (self.success_count as f64 / (self.success_count + self.failure_count) as f64)
                     * 100.0
             },
         }

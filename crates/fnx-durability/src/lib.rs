@@ -92,7 +92,7 @@ pub fn generate_sidecar_for_file(
 
     let data = fs::read(artifact_path)?;
     let source_hash = hash_bytes(&data);
-    
+
     if data.is_empty() {
         let envelope = ArtifactEnvelope {
             artifact_id: artifact_id.to_owned(),

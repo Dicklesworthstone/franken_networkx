@@ -12,16 +12,15 @@ use fnx_algorithms::{
     average_neighbor_degree, average_shortest_path_length, bellman_ford_shortest_paths,
     betweenness_centrality, bipartite_sets, bridges, closeness_centrality, clustering_coefficient,
     connected_components, core_number, cycle_basis, degree_assortativity_coefficient,
-    k_core, k_corona, k_crust, k_shell,
     degree_centrality, density, distance_measures, edge_betweenness_centrality,
     edge_connectivity_edmonds_karp, eigenvector_centrality, global_edge_connectivity_edmonds_karp,
     global_efficiency, global_minimum_edge_cut_edmonds_karp, greedy_color, harmonic_centrality,
-    has_path, hits_centrality, is_bipartite, is_connected, is_forest, is_tree, katz_centrality,
-    local_efficiency, max_flow_edmonds_karp, max_weight_matching, maximal_matching, min_edge_cover,
-    min_weight_matching, minimum_cut_edmonds_karp, minimum_spanning_tree,
-    minimum_st_edge_cut_edmonds_karp, multi_source_dijkstra, number_connected_components, pagerank,
-    shortest_path_length, shortest_path_unweighted, shortest_path_weighted, square_clustering,
-    triangles, voterank,
+    has_path, hits_centrality, is_bipartite, is_connected, is_forest, is_tree, k_core, k_corona,
+    k_crust, k_shell, katz_centrality, local_efficiency, max_flow_edmonds_karp,
+    max_weight_matching, maximal_matching, min_edge_cover, min_weight_matching,
+    minimum_cut_edmonds_karp, minimum_spanning_tree, minimum_st_edge_cut_edmonds_karp,
+    multi_source_dijkstra, number_connected_components, pagerank, shortest_path_length,
+    shortest_path_unweighted, shortest_path_weighted, square_clustering, triangles, voterank,
 };
 // find_cliques, node_connectivity, minimum_node_cut, global_node_connectivity,
 // global_minimum_node_cut used via fnx_algorithms:: prefix
@@ -1639,7 +1638,11 @@ fn collect_fixture_paths(path: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Path) -> FixtureReport {
+fn run_fixture(
+    path: PathBuf,
+    default_mode: CompatibilityMode,
+    fixture_root: &Path,
+) -> FixtureReport {
     let fixture_start = Instant::now();
     let fixture_name = fixture_name_for_path(&path, fixture_root);
     let fallback_source_hash = stable_hash_hex(&fixture_name);
@@ -2251,12 +2254,8 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
                 communities,
                 weight_attr,
             } => {
-                let result = fnx_algorithms::modularity(
-                    &context.graph,
-                    &communities,
-                    1.0,
-                    &weight_attr,
-                );
+                let result =
+                    fnx_algorithms::modularity(&context.graph, &communities, 1.0, &weight_attr);
                 context.modularity_result = Some(result);
             }
             Operation::LabelPropagationCommunitiesQuery => {
@@ -2272,21 +2271,33 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
                 context.greedy_modularity_communities_result = Some(result);
             }
             // Traversal operations
-            Operation::DFSEdgesQuery { source, depth_limit } => {
+            Operation::DFSEdgesQuery {
+                source,
+                depth_limit,
+            } => {
                 let result = fnx_algorithms::dfs_edges(&context.graph, &source, depth_limit);
                 context.dfs_edges_result = Some(result);
             }
-            Operation::DFSPreorderNodesQuery { source, depth_limit } => {
+            Operation::DFSPreorderNodesQuery {
+                source,
+                depth_limit,
+            } => {
                 let result =
                     fnx_algorithms::dfs_preorder_nodes(&context.graph, &source, depth_limit);
                 context.dfs_preorder_nodes_result = Some(result);
             }
-            Operation::DFSPostorderNodesQuery { source, depth_limit } => {
+            Operation::DFSPostorderNodesQuery {
+                source,
+                depth_limit,
+            } => {
                 let result =
                     fnx_algorithms::dfs_postorder_nodes(&context.graph, &source, depth_limit);
                 context.dfs_postorder_nodes_result = Some(result);
             }
-            Operation::BFSEdgesQuery { source, depth_limit } => {
+            Operation::BFSEdgesQuery {
+                source,
+                depth_limit,
+            } => {
                 let result = fnx_algorithms::bfs_edges(&context.graph, &source, depth_limit);
                 context.bfs_edges_result = Some(result);
             }
@@ -3883,7 +3894,8 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
             Some(actual) => {
                 let mut actual_nodes: Vec<&str> = actual.nodes.iter().map(|s| s.as_str()).collect();
                 actual_nodes.sort();
-                let mut expected_sorted: Vec<&str> = expected_nodes.iter().map(|s| s.as_str()).collect();
+                let mut expected_sorted: Vec<&str> =
+                    expected_nodes.iter().map(|s| s.as_str()).collect();
                 expected_sorted.sort();
                 if actual_nodes != expected_sorted {
                     mismatches.push(Mismatch {
@@ -3906,7 +3918,8 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
             Some(actual) => {
                 let mut actual_nodes: Vec<&str> = actual.nodes.iter().map(|s| s.as_str()).collect();
                 actual_nodes.sort();
-                let mut expected_sorted: Vec<&str> = expected_nodes.iter().map(|s| s.as_str()).collect();
+                let mut expected_sorted: Vec<&str> =
+                    expected_nodes.iter().map(|s| s.as_str()).collect();
                 expected_sorted.sort();
                 if actual_nodes != expected_sorted {
                     mismatches.push(Mismatch {
@@ -3929,7 +3942,8 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
             Some(actual) => {
                 let mut actual_nodes: Vec<&str> = actual.nodes.iter().map(|s| s.as_str()).collect();
                 actual_nodes.sort();
-                let mut expected_sorted: Vec<&str> = expected_nodes.iter().map(|s| s.as_str()).collect();
+                let mut expected_sorted: Vec<&str> =
+                    expected_nodes.iter().map(|s| s.as_str()).collect();
                 expected_sorted.sort();
                 if actual_nodes != expected_sorted {
                     mismatches.push(Mismatch {
@@ -3952,7 +3966,8 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
             Some(actual) => {
                 let mut actual_nodes: Vec<&str> = actual.nodes.iter().map(|s| s.as_str()).collect();
                 actual_nodes.sort();
-                let mut expected_sorted: Vec<&str> = expected_nodes.iter().map(|s| s.as_str()).collect();
+                let mut expected_sorted: Vec<&str> =
+                    expected_nodes.iter().map(|s| s.as_str()).collect();
                 expected_sorted.sort();
                 if actual_nodes != expected_sorted {
                     mismatches.push(Mismatch {
@@ -4553,7 +4568,8 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
             }
             None => mismatches.push(Mismatch {
                 category: "algorithm_community".to_owned(),
-                message: "expected label_propagation_communities result but none produced".to_owned(),
+                message: "expected label_propagation_communities result but none produced"
+                    .to_owned(),
             }),
         }
     }
@@ -4573,7 +4589,8 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
             }
             None => mismatches.push(Mismatch {
                 category: "algorithm_community".to_owned(),
-                message: "expected greedy_modularity_communities result but none produced".to_owned(),
+                message: "expected greedy_modularity_communities result but none produced"
+                    .to_owned(),
             }),
         }
     }
@@ -5546,7 +5563,10 @@ pub fn build_crosswalk_report(
     python_records: &[PythonParityRecord],
 ) -> CrossWalkReport {
     let rust_ids: BTreeSet<_> = rust_reports.iter().map(|r| r.fixture_id.clone()).collect();
-    let python_ids: BTreeSet<_> = python_records.iter().map(|r| r.fixture_id.clone()).collect();
+    let python_ids: BTreeSet<_> = python_records
+        .iter()
+        .map(|r| r.fixture_id.clone())
+        .collect();
 
     let combined: BTreeSet<_> = rust_ids.intersection(&python_ids).cloned().collect();
     let rust_only: Vec<_> = rust_ids.difference(&python_ids).cloned().collect();
@@ -5583,7 +5603,10 @@ pub fn run_crosswalk(
     python_parity_path: &Path,
 ) -> io::Result<CrossWalkReport> {
     let python_records = load_python_parity_records(python_parity_path)?;
-    Ok(build_crosswalk_report(&rust_report.fixture_reports, &python_records))
+    Ok(build_crosswalk_report(
+        &rust_report.fixture_reports,
+        &python_records,
+    ))
 }
 
 #[cfg(test)]
@@ -5666,50 +5689,46 @@ mod tests {
 
     #[test]
     fn test_build_crosswalk_report_merges_sources() {
-        let rust_reports = vec![
-            FixtureReport {
-                fixture_id: "rust-001".to_owned(),
-                fixture_name: "rust_fixture_1".to_owned(),
-                suite: "rust_conformance".to_owned(),
-                mode: CompatibilityMode::Strict,
-                seed: None,
-                threat_class: None,
-                replay_command: String::new(),
-                passed: true,
-                reason_code: None,
-                fixture_source_hash: String::new(),
-                duration_ms: 10,
-                strict_violation_count: 0,
-                hardened_allowlisted_count: 0,
-                mismatches: vec![],
-                mismatch_taxonomy: vec![],
-                witness: None,
-            },
-        ];
+        let rust_reports = vec![FixtureReport {
+            fixture_id: "rust-001".to_owned(),
+            fixture_name: "rust_fixture_1".to_owned(),
+            suite: "rust_conformance".to_owned(),
+            mode: CompatibilityMode::Strict,
+            seed: None,
+            threat_class: None,
+            replay_command: String::new(),
+            passed: true,
+            reason_code: None,
+            fixture_source_hash: String::new(),
+            duration_ms: 10,
+            strict_violation_count: 0,
+            hardened_allowlisted_count: 0,
+            mismatches: vec![],
+            mismatch_taxonomy: vec![],
+            witness: None,
+        }];
 
-        let python_records = vec![
-            PythonParityRecord {
-                fixture_id: "py-001".to_owned(),
-                fixture_name: "python_fixture_1".to_owned(),
-                suite: "python_parity".to_owned(),
-                mode: "strict".to_owned(),
-                seed: None,
-                threat_class: None,
-                replay_command: String::new(),
-                passed: true,
-                reason_code: None,
-                fixture_source_hash: String::new(),
-                duration_ms: 20,
-                strict_violation_count: 0,
-                hardened_allowlisted_count: 0,
-                mismatches: vec![],
-                mismatch_taxonomy: vec![],
-                witness: None,
-                python_module: String::new(),
-                python_markers: vec![],
-                schema_version: "python_parity_v1".to_owned(),
-            },
-        ];
+        let python_records = vec![PythonParityRecord {
+            fixture_id: "py-001".to_owned(),
+            fixture_name: "python_fixture_1".to_owned(),
+            suite: "python_parity".to_owned(),
+            mode: "strict".to_owned(),
+            seed: None,
+            threat_class: None,
+            replay_command: String::new(),
+            passed: true,
+            reason_code: None,
+            fixture_source_hash: String::new(),
+            duration_ms: 20,
+            strict_violation_count: 0,
+            hardened_allowlisted_count: 0,
+            mismatches: vec![],
+            mismatch_taxonomy: vec![],
+            witness: None,
+            python_module: String::new(),
+            python_markers: vec![],
+            schema_version: "python_parity_v1".to_owned(),
+        }];
 
         let crosswalk = build_crosswalk_report(&rust_reports, &python_records);
         assert_eq!(crosswalk.rust_fixture_count, 1);

@@ -1787,10 +1787,7 @@ impl VersionedDecisionLedger {
     #[must_use]
     pub fn from_evidence_ledger(ledger: &EvidenceLedger) -> Self {
         let now = unix_time_ms();
-        let last_updated = ledger
-            .records()
-            .last()
-            .map_or(now, |r| r.ts_unix_ms);
+        let last_updated = ledger.records().last().map_or(now, |r| r.ts_unix_ms);
 
         Self {
             schema_version: DECISION_LEDGER_SCHEMA_VERSION.to_owned(),
@@ -1978,13 +1975,15 @@ impl DriftAnalyzer {
             let week_number = (record.ts_unix_ms - min_ts) / MILLIS_PER_WEEK;
             let week_start = min_ts + (week_number * MILLIS_PER_WEEK);
 
-            let summary = weekly_map.entry(week_start).or_insert_with(|| WeeklySummary {
-                week_start_unix_ms: week_start,
-                total_decisions: 0,
-                under_confident_count: 0,
-                avg_probability: 0.0,
-                fail_closed_count: 0,
-            });
+            let summary = weekly_map
+                .entry(week_start)
+                .or_insert_with(|| WeeklySummary {
+                    week_start_unix_ms: week_start,
+                    total_decisions: 0,
+                    under_confident_count: 0,
+                    avg_probability: 0.0,
+                    fail_closed_count: 0,
+                });
 
             summary.total_decisions += 1;
             if record.incompatibility_probability >= self.threshold {
@@ -2065,9 +2064,8 @@ impl DriftAnalyzer {
             };
 
             if last_rate > first_rate * 1.5 {
-                recommendations.push(
-                    "Drift detected: under-confidence rate increasing over time.".to_owned(),
-                );
+                recommendations
+                    .push("Drift detected: under-confidence rate increasing over time.".to_owned());
             }
         }
 
@@ -2721,35 +2719,35 @@ impl BayesianAdmissionController {
         let e_validate = loss.validate_cost;
         let e_fail_closed = (1.0 - p) * loss.reject_false_positive;
 
-        let (action, expected_loss, rationale) = if e_allow <= e_validate && e_allow <= e_fail_closed
-        {
-            (
-                DecisionAction::Allow,
-                e_allow,
-                format!(
-                    "Allow: E[L]={:.2} < validate={:.2}, fail_closed={:.2}",
-                    e_allow, e_validate, e_fail_closed
-                ),
-            )
-        } else if e_validate <= e_fail_closed {
-            (
-                DecisionAction::FullValidate,
-                e_validate,
-                format!(
-                    "Validate: E[L]={:.2} < fail_closed={:.2}",
-                    e_validate, e_fail_closed
-                ),
-            )
-        } else {
-            (
-                DecisionAction::FailClosed,
-                e_fail_closed,
-                format!(
-                    "FailClosed: E[L]={:.2} < validate={:.2}",
-                    e_fail_closed, e_validate
-                ),
-            )
-        };
+        let (action, expected_loss, rationale) =
+            if e_allow <= e_validate && e_allow <= e_fail_closed {
+                (
+                    DecisionAction::Allow,
+                    e_allow,
+                    format!(
+                        "Allow: E[L]={:.2} < validate={:.2}, fail_closed={:.2}",
+                        e_allow, e_validate, e_fail_closed
+                    ),
+                )
+            } else if e_validate <= e_fail_closed {
+                (
+                    DecisionAction::FullValidate,
+                    e_validate,
+                    format!(
+                        "Validate: E[L]={:.2} < fail_closed={:.2}",
+                        e_validate, e_fail_closed
+                    ),
+                )
+            } else {
+                (
+                    DecisionAction::FailClosed,
+                    e_fail_closed,
+                    format!(
+                        "FailClosed: E[L]={:.2} < validate={:.2}",
+                        e_fail_closed, e_validate
+                    ),
+                )
+            };
 
         AdmissionDecision {
             action,
@@ -3062,8 +3060,7 @@ impl BrierScoreGate {
     #[must_use]
     pub fn is_open(&self) -> bool {
         // Gate is open if we don't have enough samples yet OR calibration is good
-        self.tracker.count() < self.min_samples
-            || self.tracker.brier_score() <= self.threshold
+        self.tracker.count() < self.min_samples || self.tracker.brier_score() <= self.threshold
     }
 
     /// Apply the gate to a proposed action.
@@ -3240,7 +3237,10 @@ impl TailStabilityTracker {
         if self.baseline.is_empty() {
             return;
         }
-        self.baseline_p99 = Some(Self::compute_percentile(&self.baseline, self.config.percentile));
+        self.baseline_p99 = Some(Self::compute_percentile(
+            &self.baseline,
+            self.config.percentile,
+        ));
         self.baseline_locked = true;
     }
 
@@ -3270,7 +3270,10 @@ impl TailStabilityTracker {
         if self.window.is_empty() {
             return None;
         }
-        Some(Self::compute_percentile(&self.window, self.config.percentile))
+        Some(Self::compute_percentile(
+            &self.window,
+            self.config.percentile,
+        ))
     }
 
     /// Get the baseline p99.
@@ -3283,9 +3286,7 @@ impl TailStabilityTracker {
     #[must_use]
     pub fn has_shift(&self) -> bool {
         match (self.baseline_p99, self.window_p99()) {
-            (Some(base), Some(current)) if base > 0.0 => {
-                current / base > self.config.max_p99_ratio
-            }
+            (Some(base), Some(current)) if base > 0.0 => current / base > self.config.max_p99_ratio,
             _ => false,
         }
     }
@@ -4085,7 +4086,9 @@ impl EffectTrace {
             self.record(effect);
         }
         // Update terminal index if the merged trace had a terminal
-        if self.terminal_effect.is_none() && let Some(idx) = other.terminal_effect {
+        if self.terminal_effect.is_none()
+            && let Some(idx) = other.terminal_effect
+        {
             self.terminal_effect = Some(offset + idx);
         }
     }
@@ -4191,11 +4194,7 @@ impl EffectHandler {
     pub fn handle(&mut self, effect: ParserEffect) -> Result<(), ParserEffect> {
         let should_fail = self.policy.should_fail(&effect);
         self.trace.record(effect.clone());
-        if should_fail {
-            Err(effect)
-        } else {
-            Ok(())
-        }
+        if should_fail { Err(effect) } else { Ok(()) }
     }
 
     /// Get the current effect trace.
@@ -5763,8 +5762,8 @@ mod tests {
         });
 
         let json = ledger.to_json_pretty().expect("serialization should work");
-        let restored = super::VersionedDecisionLedger::from_json(&json)
-            .expect("deserialization should work");
+        let restored =
+            super::VersionedDecisionLedger::from_json(&json).expect("deserialization should work");
 
         assert_eq!(restored.schema_version, ledger.schema_version);
         assert_eq!(restored.ledger_id, ledger.ledger_id);
@@ -5827,7 +5826,10 @@ mod tests {
         });
 
         let versioned = evidence.to_versioned();
-        assert_eq!(versioned.schema_version, super::DECISION_LEDGER_SCHEMA_VERSION);
+        assert_eq!(
+            versioned.schema_version,
+            super::DECISION_LEDGER_SCHEMA_VERSION
+        );
         assert_eq!(versioned.record_count, 1);
         assert_eq!(versioned.records[0].operation, "convert_op");
     }
@@ -5969,10 +5971,12 @@ mod tests {
         let report = analyzer.analyze(&ledger);
 
         assert!(!report.recommendations.is_empty());
-        assert!(report
-            .recommendations
-            .iter()
-            .any(|r| r.contains("High under-confidence")));
+        assert!(
+            report
+                .recommendations
+                .iter()
+                .any(|r| r.contains("High under-confidence"))
+        );
     }
 
     // ──────────────────────────────────────────────────────────────────────────
@@ -6021,13 +6025,11 @@ mod tests {
         let posterior_large = prior.posterior_mean(empirical_mean, empirical_variance, 100);
 
         assert!(
-            (posterior_small - prior.prior_mean).abs()
-                < (posterior_large - prior.prior_mean).abs(),
+            (posterior_small - prior.prior_mean).abs() < (posterior_large - prior.prior_mean).abs(),
             "Small sample posterior should be closer to prior"
         );
         assert!(
-            (posterior_large - empirical_mean).abs()
-                < (posterior_small - empirical_mean).abs(),
+            (posterior_large - empirical_mean).abs() < (posterior_small - empirical_mean).abs(),
             "Large sample posterior should be closer to empirical"
         );
     }
@@ -6242,9 +6244,7 @@ mod tests {
         assert_eq!(decision.action, DecisionAction::FailClosed);
         assert!(decision.hardened_override);
         assert!(
-            decision
-                .rationale
-                .contains("exceeds threshold"),
+            decision.rationale.contains("exceeds threshold"),
             "Rationale should mention threshold"
         );
     }
@@ -6561,8 +6561,7 @@ mod tests {
 
     #[test]
     fn brier_gate_custom_settings() {
-        let gate =
-            super::BrierScoreGate::with_settings(0.15, 20, DecisionAction::FullValidate);
+        let gate = super::BrierScoreGate::with_settings(0.15, 20, DecisionAction::FullValidate);
 
         assert!((gate.threshold() - 0.15).abs() < 0.01);
         // With min_samples=20, gate should be open until we have 20 samples
@@ -6727,7 +6726,10 @@ mod tests {
         // During baseline collection, gate should be open
         for i in 0..10 {
             gate.record(i as f64);
-            assert!(gate.is_open(), "Gate should be open during baseline collection");
+            assert!(
+                gate.is_open(),
+                "Gate should be open during baseline collection"
+            );
         }
     }
 
@@ -6878,7 +6880,10 @@ mod tests {
         };
 
         let delta = super::OptimizationDelta::compute(&baseline, &after);
-        assert!(!delta.is_improvement(), "Regression should not be improvement");
+        assert!(
+            !delta.is_improvement(),
+            "Regression should not be improvement"
+        );
     }
 
     #[test]
@@ -6934,8 +6939,7 @@ mod tests {
 
     #[test]
     fn profile_prove_state_fails_on_mismatch() {
-        let mut state =
-            super::ProfileProveState::new(super::SloRowId::Centrality, "cache results");
+        let mut state = super::ProfileProveState::new(super::SloRowId::Centrality, "cache results");
 
         state.record_baseline(super::SloBaseline {
             row_id: super::SloRowId::Centrality,
@@ -6972,9 +6976,11 @@ mod tests {
         // Start optimization for ShortestPath
         loop_runner.start(super::SloRowId::ShortestPath, "use priority queue");
 
-        assert!(loop_runner
-            .get_active(super::SloRowId::ShortestPath)
-            .is_some());
+        assert!(
+            loop_runner
+                .get_active(super::SloRowId::ShortestPath)
+                .is_some()
+        );
 
         // Simulate successful optimization
         if let Some(state) = loop_runner.get_active_mut(super::SloRowId::ShortestPath) {
@@ -7089,12 +7095,17 @@ mod tests {
     fn parser_effect_constructors() {
         use super::{CompatibilityMode, ParserEffect, ParserEffectKind};
 
-        let warning = ParserEffect::warning("read_graphml", "missing attribute", CompatibilityMode::Strict);
+        let warning = ParserEffect::warning(
+            "read_graphml",
+            "missing attribute",
+            CompatibilityMode::Strict,
+        );
         assert_eq!(warning.kind, ParserEffectKind::Warning);
         assert_eq!(warning.operation, "read_graphml");
         assert!(warning.risk_probability > 0.0);
 
-        let fail = ParserEffect::fail_closed("read_json", "invalid json", CompatibilityMode::Strict);
+        let fail =
+            ParserEffect::fail_closed("read_json", "invalid json", CompatibilityMode::Strict);
         assert_eq!(fail.kind, ParserEffectKind::FailClosed);
         assert!((fail.risk_probability - 1.0).abs() < 0.001);
 
@@ -7120,22 +7131,39 @@ mod tests {
         assert!(trace.is_empty());
         assert!(!trace.is_terminated());
 
-        trace.record(ParserEffect::warning("op1", "msg1", CompatibilityMode::Strict));
+        trace.record(ParserEffect::warning(
+            "op1",
+            "msg1",
+            CompatibilityMode::Strict,
+        ));
         assert_eq!(trace.len(), 1);
         assert!(!trace.is_empty());
         assert!(!trace.is_terminated());
 
-        trace.record(ParserEffect::allow("op2", "msg2", CompatibilityMode::Strict, 0.1));
+        trace.record(ParserEffect::allow(
+            "op2",
+            "msg2",
+            CompatibilityMode::Strict,
+            0.1,
+        ));
         assert_eq!(trace.len(), 2);
         assert!(!trace.is_terminated());
 
         // Add a terminal effect
-        trace.record(ParserEffect::fail_closed("op3", "error", CompatibilityMode::Strict));
+        trace.record(ParserEffect::fail_closed(
+            "op3",
+            "error",
+            CompatibilityMode::Strict,
+        ));
         assert_eq!(trace.len(), 3);
         assert!(trace.is_terminated());
 
         // Can still add more effects after terminal
-        trace.record(ParserEffect::warning("op4", "msg4", CompatibilityMode::Strict));
+        trace.record(ParserEffect::warning(
+            "op4",
+            "msg4",
+            CompatibilityMode::Strict,
+        ));
         assert_eq!(trace.len(), 4);
         assert!(trace.is_terminated());
 
@@ -7150,10 +7178,27 @@ mod tests {
         use super::{CompatibilityMode, EffectTrace, ParserEffect, ParserEffectKind};
 
         let mut trace = EffectTrace::new();
-        trace.record(ParserEffect::warning("op1", "warn1", CompatibilityMode::Strict));
-        trace.record(ParserEffect::warning("op2", "warn2", CompatibilityMode::Strict));
-        trace.record(ParserEffect::allow("op3", "ok", CompatibilityMode::Strict, 0.1));
-        trace.record(ParserEffect::warning("op4", "warn3", CompatibilityMode::Strict));
+        trace.record(ParserEffect::warning(
+            "op1",
+            "warn1",
+            CompatibilityMode::Strict,
+        ));
+        trace.record(ParserEffect::warning(
+            "op2",
+            "warn2",
+            CompatibilityMode::Strict,
+        ));
+        trace.record(ParserEffect::allow(
+            "op3",
+            "ok",
+            CompatibilityMode::Strict,
+            0.1,
+        ));
+        trace.record(ParserEffect::warning(
+            "op4",
+            "warn3",
+            CompatibilityMode::Strict,
+        ));
 
         let warnings = trace.warnings();
         assert_eq!(warnings.len(), 3);
@@ -7172,8 +7217,17 @@ mod tests {
         trace1.record(ParserEffect::warning("b", "m2", CompatibilityMode::Strict));
 
         let mut trace2 = EffectTrace::new();
-        trace2.record(ParserEffect::allow("c", "m3", CompatibilityMode::Strict, 0.1));
-        trace2.record(ParserEffect::fail_closed("d", "m4", CompatibilityMode::Strict));
+        trace2.record(ParserEffect::allow(
+            "c",
+            "m3",
+            CompatibilityMode::Strict,
+            0.1,
+        ));
+        trace2.record(ParserEffect::fail_closed(
+            "d",
+            "m4",
+            CompatibilityMode::Strict,
+        ));
 
         trace1.merge(trace2);
 
@@ -7198,7 +7252,11 @@ mod tests {
             CompatibilityMode::Strict,
             0.3,
         ));
-        trace.record(ParserEffect::fail_closed("c", "m3", CompatibilityMode::Strict));
+        trace.record(ParserEffect::fail_closed(
+            "c",
+            "m3",
+            CompatibilityMode::Strict,
+        ));
 
         let summary = trace.summary();
         assert_eq!(summary.total_effects, 3);
@@ -7245,15 +7303,28 @@ mod tests {
         let mut handler = EffectHandler::collect_all();
 
         // Warnings should be Ok
-        let result = handler.handle(ParserEffect::warning("op1", "m1", CompatibilityMode::Strict));
+        let result = handler.handle(ParserEffect::warning(
+            "op1",
+            "m1",
+            CompatibilityMode::Strict,
+        ));
         assert!(result.is_ok());
 
         // Allows should be Ok
-        let result = handler.handle(ParserEffect::allow("op2", "m2", CompatibilityMode::Strict, 0.1));
+        let result = handler.handle(ParserEffect::allow(
+            "op2",
+            "m2",
+            CompatibilityMode::Strict,
+            0.1,
+        ));
         assert!(result.is_ok());
 
         // FailClosed should be Err
-        let result = handler.handle(ParserEffect::fail_closed("op3", "m3", CompatibilityMode::Strict));
+        let result = handler.handle(ParserEffect::fail_closed(
+            "op3",
+            "m3",
+            CompatibilityMode::Strict,
+        ));
         assert!(result.is_err());
 
         // Trace should have all effects
@@ -7267,10 +7338,18 @@ mod tests {
 
         let mut handler = EffectHandler::fail_on_terminal();
 
-        let result = handler.handle(ParserEffect::warning("op", "msg", CompatibilityMode::Strict));
+        let result = handler.handle(ParserEffect::warning(
+            "op",
+            "msg",
+            CompatibilityMode::Strict,
+        ));
         assert!(result.is_ok());
 
-        let result = handler.handle(ParserEffect::fail_closed("op", "msg", CompatibilityMode::Strict));
+        let result = handler.handle(ParserEffect::fail_closed(
+            "op",
+            "msg",
+            CompatibilityMode::Strict,
+        ));
         assert!(result.is_err());
     }
 
@@ -7279,7 +7358,11 @@ mod tests {
         use super::{CompatibilityMode, EffectHandler, ParserEffect};
 
         let mut handler = EffectHandler::collect_all();
-        let _ = handler.handle(ParserEffect::warning("op", "msg", CompatibilityMode::Strict));
+        let _ = handler.handle(ParserEffect::warning(
+            "op",
+            "msg",
+            CompatibilityMode::Strict,
+        ));
 
         let trace = handler.into_trace();
         assert_eq!(trace.len(), 1);
@@ -7290,8 +7373,16 @@ mod tests {
         use super::{CompatibilityMode, EffectHandler, ParserEffect};
 
         let mut handler = EffectHandler::collect_all();
-        let _ = handler.handle(ParserEffect::warning("op1", "m1", CompatibilityMode::Strict));
-        let _ = handler.handle(ParserEffect::warning("op2", "m2", CompatibilityMode::Strict));
+        let _ = handler.handle(ParserEffect::warning(
+            "op1",
+            "m1",
+            CompatibilityMode::Strict,
+        ));
+        let _ = handler.handle(ParserEffect::warning(
+            "op2",
+            "m2",
+            CompatibilityMode::Strict,
+        ));
 
         let summary = handler.summary();
         assert_eq!(summary.total_effects, 2);

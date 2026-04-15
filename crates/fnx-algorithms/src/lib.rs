@@ -3111,11 +3111,7 @@ fn load_centrality_generic<G: GraphView>(graph: &G, normalized: bool) -> LoadCen
     }
 
     // Node index mapping
-    let node_idx: HashMap<&str, usize> = nodes
-        .iter()
-        .enumerate()
-        .map(|(i, n)| (*n, i))
-        .collect();
+    let node_idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
 
     let mut load = vec![0.0_f64; n];
     let mut total_nodes_touched = 0usize;
@@ -13394,7 +13390,9 @@ pub fn closeness_vitality_single(graph: &Graph, node: &str) -> Option<f64> {
                     if nbr == node {
                         continue;
                     }
-                    if let Some(&v) = node_to_idx.get(nbr) && dist[v].is_none() {
+                    if let Some(&v) = node_to_idx.get(nbr)
+                        && dist[v].is_none()
+                    {
                         dist[v] = Some(d + 1);
                         queue.push_back(v);
                     }
@@ -30675,12 +30673,12 @@ mod tests {
         lexicographic_topological_sort,
         line_graph,
         line_graph_directed,
+        load_centrality,
+        load_centrality_directed,
         local_bridges_list,
         local_efficiency,
         local_reaching_centrality,
         local_reaching_centrality_directed,
-        load_centrality,
-        load_centrality_directed,
         lollipop_graph,
         louvain_communities,
         make_max_clique_graph,
@@ -30747,6 +30745,8 @@ mod tests {
         predecessor,
         preferential_attachment,
         quotient_graph,
+        random_spanning_tree,
+        random_spanning_tree_directed,
         random_tree,
         reciprocity,
         reconstruct_path,
@@ -30782,16 +30782,14 @@ mod tests {
         spanner,
         spanning_tree_iterator,
         spanning_tree_iterator_ordered,
-        random_spanning_tree,
-        random_spanning_tree_directed,
         stochastic_block_model,
         // New algorithms (March 2026)
         stoer_wagner,
         strongly_connected_components,
         tadpole_graph,
-        tetrahedral_graph,
         tensor_product,
         tensor_product_directed,
+        tetrahedral_graph,
         to_dict_of_lists,
         to_edgelist,
         topological_generations,
@@ -36145,7 +36143,10 @@ mod tests {
         let result = closeness_vitality(&g);
         for node in ["0", "1", "2"] {
             let v = result.vitality.get(node).unwrap();
-            assert!((*v - 2.0).abs() < TEST_TOLERANCE, "node {node}: expected 2.0, got {v}");
+            assert!(
+                (*v - 2.0).abs() < TEST_TOLERANCE,
+                "node {node}: expected 2.0, got {v}"
+            );
         }
     }
 
@@ -36162,7 +36163,10 @@ mod tests {
 
         let result = closeness_vitality(&g);
         assert!((result.vitality.get("0").unwrap() - 3.0).abs() < TEST_TOLERANCE);
-        assert!(result.vitality.get("1").unwrap().is_infinite() && result.vitality.get("1").unwrap().is_sign_negative());
+        assert!(
+            result.vitality.get("1").unwrap().is_infinite()
+                && result.vitality.get("1").unwrap().is_sign_negative()
+        );
         assert!((result.vitality.get("2").unwrap() - 3.0).abs() < TEST_TOLERANCE);
     }
 
@@ -39233,7 +39237,12 @@ mod tests {
         let result = load_centrality(&g);
         assert_eq!(result.scores.len(), 4);
 
-        let score_center = result.scores.iter().find(|s| s.node == "center").unwrap().score;
+        let score_center = result
+            .scores
+            .iter()
+            .find(|s| s.node == "center")
+            .unwrap()
+            .score;
         let score_a = result.scores.iter().find(|s| s.node == "a").unwrap().score;
 
         // Center has highest load
@@ -40721,7 +40730,10 @@ mod tests {
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("c", "d");
         let result = random_spanning_tree(&g, 42);
-        assert!(result.is_none(), "two disconnected components should return None");
+        assert!(
+            result.is_none(),
+            "two disconnected components should return None"
+        );
     }
 
     #[test]
@@ -42138,7 +42150,14 @@ mod tests {
     fn k_core_k4_complete() {
         // K4 complete graph - all nodes have degree 3, so core number is 3
         let mut graph = Graph::strict();
-        for (u, v) in [("a", "b"), ("a", "c"), ("a", "d"), ("b", "c"), ("b", "d"), ("c", "d")] {
+        for (u, v) in [
+            ("a", "b"),
+            ("a", "c"),
+            ("a", "d"),
+            ("b", "c"),
+            ("b", "d"),
+            ("c", "d"),
+        ] {
             graph.add_edge(u, v).unwrap();
         }
 
@@ -42188,7 +42207,14 @@ mod tests {
     fn k_corona_complete_graph() {
         // K4: all nodes have core number 3 and 3 neighbors in the 3-core
         let mut graph = Graph::strict();
-        for (u, v) in [("a", "b"), ("a", "c"), ("a", "d"), ("b", "c"), ("b", "d"), ("c", "d")] {
+        for (u, v) in [
+            ("a", "b"),
+            ("a", "c"),
+            ("a", "d"),
+            ("b", "c"),
+            ("b", "d"),
+            ("c", "d"),
+        ] {
             graph.add_edge(u, v).unwrap();
         }
 

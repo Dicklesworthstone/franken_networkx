@@ -906,7 +906,10 @@ impl GraphGenerator {
             }
             if v < n as isize {
                 graph
-                    .add_edge(node_labels[v as usize].clone(), node_labels[w as usize].clone())
+                    .add_edge(
+                        node_labels[v as usize].clone(),
+                        node_labels[w as usize].clone(),
+                    )
                     .map_err(|err| GenerationError::FailClosed {
                         operation: "fast_gnp_random_graph",
                         reason: err.to_string(),
@@ -982,7 +985,10 @@ impl GraphGenerator {
             }
             if v < n as isize {
                 graph
-                    .add_edge(node_labels[w as usize].clone(), node_labels[v as usize].clone())
+                    .add_edge(
+                        node_labels[w as usize].clone(),
+                        node_labels[v as usize].clone(),
+                    )
                     .map_err(|err| GenerationError::FailClosed {
                         operation: "fast_gnp_random_digraph",
                         reason: err.to_string(),
@@ -1002,7 +1008,10 @@ impl GraphGenerator {
             }
             if v2 < n as isize {
                 graph
-                    .add_edge(node_labels[v2 as usize].clone(), node_labels[w2 as usize].clone())
+                    .add_edge(
+                        node_labels[v2 as usize].clone(),
+                        node_labels[w2 as usize].clone(),
+                    )
                     .map_err(|err| GenerationError::FailClosed {
                         operation: "fast_gnp_random_digraph",
                         reason: err.to_string(),

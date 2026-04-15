@@ -89,7 +89,7 @@ impl TieBreakPolicy {
                 candidates.sort_unstable_by(|a, b| b.as_ref().cmp(a.as_ref()));
             }
             Self::InsertionOrder | Self::ReverseInsertionOrder => {
-                // These are governed by the underlying IndexMap order; 
+                // These are governed by the underlying IndexMap order;
                 // typically no-op or handled at the iterator level.
             }
             Self::WeightThenLex | Self::LexThenWeight => {
@@ -510,26 +510,46 @@ pub fn analytic_upper_bound(dominant_term: &str, n: usize, m: usize) -> Option<u
         "m" => Some(m),
         "n_plus_m" => Some(n.saturating_add(m)),
         "n_log_n" => {
-            let log_n = if n <= 1 { 1 } else { (n as f64).log2().ceil() as u64 };
+            let log_n = if n <= 1 {
+                1
+            } else {
+                (n as f64).log2().ceil() as u64
+            };
             Some(n.saturating_mul(log_n))
         }
         "n_plus_m_log_n" => {
-            let log_n = if n <= 1 { 1 } else { (n as f64).log2().ceil() as u64 };
+            let log_n = if n <= 1 {
+                1
+            } else {
+                (n as f64).log2().ceil() as u64
+            };
             Some(n.saturating_add(m.saturating_mul(log_n)))
         }
         "n_m" => Some(n.saturating_mul(m)),
         "n_squared" => Some(n.saturating_mul(n)),
         "n_m_alpha" => {
             // n * m * inverse_ackermann(n), approximated as n * m * log*(n)
-            let alpha = if n <= 1 { 1 } else { ((n as f64).log2().log2().ceil() as u64).max(1) };
+            let alpha = if n <= 1 {
+                1
+            } else {
+                ((n as f64).log2().log2().ceil() as u64).max(1)
+            };
             Some(n.saturating_mul(m).saturating_mul(alpha))
         }
         "m_log_m" => {
-            let log_m = if m <= 1 { 1 } else { (m as f64).log2().ceil() as u64 };
+            let log_m = if m <= 1 {
+                1
+            } else {
+                (m as f64).log2().ceil() as u64
+            };
             Some(m.saturating_mul(log_m))
         }
         "m_log_n" => {
-            let log_n = if n <= 1 { 1 } else { (n as f64).log2().ceil() as u64 };
+            let log_n = if n <= 1 {
+                1
+            } else {
+                (n as f64).log2().ceil() as u64
+            };
             Some(m.saturating_mul(log_n))
         }
         _ => None,
@@ -557,11 +577,7 @@ pub fn assert_complexity_within_bounds(witness: &ComplexityWitness) {
         assert!(
             result.within_bounds,
             "Complexity bound violation: observed {} operations, expected at most {} for {} complexity (n={}, m={})",
-            result.observed_count,
-            result.upper_bound,
-            result.dominant_term,
-            witness.n,
-            witness.m
+            result.observed_count, result.upper_bound, result.dominant_term, witness.n, witness.m
         );
     }
 }
@@ -751,15 +767,18 @@ pub fn mining_result_to_jsonl(result: &MiningResult) -> String {
     let mut lines = Vec::new();
 
     // Header line
-    lines.push(serde_json::json!({
-        "type": "mining_summary",
-        "graphs_tested": result.graphs_tested,
-        "executions": result.executions,
-        "counter_examples_found": result.counter_examples.len(),
-        "passing_algorithms": result.passing_algorithms.iter()
-            .map(|a| a.algorithm())
-            .collect::<Vec<_>>(),
-    }).to_string());
+    lines.push(
+        serde_json::json!({
+            "type": "mining_summary",
+            "graphs_tested": result.graphs_tested,
+            "executions": result.executions,
+            "counter_examples_found": result.counter_examples.len(),
+            "passing_algorithms": result.passing_algorithms.iter()
+                .map(|a| a.algorithm())
+                .collect::<Vec<_>>(),
+        })
+        .to_string(),
+    );
 
     // Counter-example lines
     for ce in &result.counter_examples {
@@ -1059,13 +1078,8 @@ mod tests {
         let edges = vec![("0".to_string(), "1".to_string())];
         let mut call_count = 0;
 
-        let result = verify_witness_determinism(
-            ReferenceAlgorithm::Bfs,
-            edges,
-            2,
-            false,
-            3,
-            || {
+        let result =
+            verify_witness_determinism(ReferenceAlgorithm::Bfs, edges, 2, false, 3, || {
                 call_count += 1;
                 vec![ComplexityWitness {
                     n: 2,
@@ -1076,10 +1090,12 @@ mod tests {
                     seed: None,
                     decision_path_blake3: [1u8; 32],
                 }]
-            },
-        );
+            });
 
-        assert!(result.is_none(), "Consistent witnesses should not produce counter-example");
+        assert!(
+            result.is_none(),
+            "Consistent witnesses should not produce counter-example"
+        );
         assert_eq!(call_count, 3);
     }
 
@@ -1088,13 +1104,8 @@ mod tests {
         let edges = vec![("0".to_string(), "1".to_string())];
         let mut call_count = 0;
 
-        let result = verify_witness_determinism(
-            ReferenceAlgorithm::Bfs,
-            edges,
-            2,
-            false,
-            3,
-            || {
+        let result =
+            verify_witness_determinism(ReferenceAlgorithm::Bfs, edges, 2, false, 3, || {
                 call_count += 1;
                 vec![ComplexityWitness {
                     n: 2,
@@ -1106,10 +1117,12 @@ mod tests {
                     // Different hash each call to simulate non-determinism
                     decision_path_blake3: [call_count as u8; 32],
                 }]
-            },
-        );
+            });
 
-        assert!(result.is_some(), "Inconsistent witnesses should produce counter-example");
+        assert!(
+            result.is_some(),
+            "Inconsistent witnesses should produce counter-example"
+        );
         let ce = result.unwrap();
         assert_eq!(ce.algorithm, ReferenceAlgorithm::Bfs);
         assert!(ce.discrepancy.contains("hash mismatch"));
