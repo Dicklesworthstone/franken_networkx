@@ -6,55 +6,116 @@
 
 | Category | Count | % |
 |----------|-------|---|
-| RUST_NATIVE (calls `_fnx.*` directly) | 41 | 9% |
-| PY_WRAPPER (pure Python, no NX delegation) | 311 | 68% |
-| NX_DELEGATED (delegates to upstream NetworkX) | 96 | 21% |
+| RUST_NATIVE (calls `_fnx.*` directly) | 102 | 22% |
+| PY_WRAPPER (pure Python, no NX delegation) | 300 | 66% |
+| NX_DELEGATED (delegates to upstream NetworkX) | 47 | 10% |
 | CLASS (graph types, exceptions, etc.) | 3 | 0% |
-| **Total public exports** | **451** | |
+| **Total public exports** | **452** | |
 
 ## RUST_NATIVE functions
 
 - `all_pairs_all_shortest_paths`
 - `all_pairs_node_connectivity`
+- `all_simple_paths`
 - `all_topological_sorts`
+- `balanced_tree`
+- `barabasi_albert_graph`
+- `barbell_graph`
 - `bfs_labeled_edges`
+- `binomial_tree`
+- `bull_graph`
+- `chain_decomposition`
+- `chordal_cycle_graph`
+- `chvatal_graph`
+- `circulant_graph`
+- `circular_ladder_graph`
+- `closeness_vitality`
 - `communicability_betweenness_centrality`
+- `complete_bipartite_graph`
+- `complete_graph`
+- `complete_multipartite_graph`
 - `connected_dominating_set`
+- `connected_watts_strogatz_graph`
+- `constraint`
+- `cubical_graph`
 - `current_flow_betweenness_centrality`
+- `cycle_graph`
+- `desargues_graph`
+- `diamond_graph`
+- `dodecahedral_graph`
 - `edge_current_flow_betweenness_centrality`
 - `edge_disjoint_paths`
+- `effective_size`
 - `ego_graph`
+- `empty_graph`
+- `erdos_renyi_graph`
+- `fast_gnp_random_graph`
 - `find_asteroidal_triple`
 - `flow_hierarchy`
 - `from_prufer_sequence`
+- `frucht_graph`
+- `full_rary_tree`
+- `generalized_petersen_graph`
 - `generic_bfs_edges`
 - `global_parameters`
 - `gn_graph`
 - `gnc_graph`
+- `gnp_random_graph`
 - `gnr_graph`
 - `gomory_hu_tree`
+- `grid_2d_graph`
 - `group_betweenness_centrality`
 - `group_closeness_centrality`
 - `gutman_index`
 - `harmonic_diameter`
+- `heawood_graph`
+- `house_graph`
+- `house_x_graph`
 - `hyper_wiener_index`
+- `icosahedral_graph`
 - `is_at_free`
+- `is_d_separator`
 - `is_strongly_regular`
 - `k_clique_communities`
 - `k_truss`
+- `krackhardt_kite_graph`
+- `ladder_graph`
+- `lollipop_graph`
+- `moebius_kantor_graph`
+- `newman_watts_strogatz_graph`
 - `node_disjoint_paths`
 - `nodes_with_selfloops`
+- `null_graph`
 - `number_of_selfloops`
+- `octahedral_graph`
 - `onion_layers`
+- `paley_graph`
+- `path_graph`
+- `petersen_graph`
 - `power`
+- `powerlaw_cluster_graph`
+- `random_regular_graph`
 - `scale_free_graph`
 - `schultz_index`
 - `second_order_centrality`
 - `selfloop_edges`
+- `star_graph`
+- `stochastic_block_model`
+- `stoer_wagner`
+- `tadpole_graph`
+- `tetrahedral_graph`
 - `to_dict_of_lists`
 - `to_prufer_sequence`
 - `triad_type`
 - `triadic_census`
+- `trivial_graph`
+- `truncated_cube_graph`
+- `truncated_tetrahedron_graph`
+- `tutte_graph`
+- `voronoi_cells`
+- `watts_strogatz_graph`
+- `wheel_graph`
+- `windmill_graph`
 
 ## PY_WRAPPER functions
 
@@ -74,7 +135,6 @@
 - `all_pairs_dijkstra_path_length`
 - `all_pairs_lowest_common_ancestor`
 - `all_simple_edge_paths`
-- `all_simple_paths`
 - `all_triads`
 - `approximate_current_flow_betweenness_centrality`
 - `attr_matrix`
@@ -83,7 +143,7 @@
 - `attribute_mixing_dict`
 - `attribute_mixing_matrix`
 - `average_degree`
-- `barabasi_albert_graph`
+- `average_shortest_path_length`
 - `bellman_ford_predecessor_and_distance`
 - `bethe_hessian_matrix`
 - `bethe_hessian_spectrum`
@@ -100,23 +160,19 @@
 - `cartesian_product`
 - `caveman_graph`
 - `cd_index`
-- `chain_decomposition`
 - `check_planarity`
 - `chordless_cycles`
 - `chromatic_polynomial`
-- `closeness_vitality`
 - `cn_soundarajan_hopcroft`
 - `common_neighbor_centrality`
 - `communicability`
 - `communicability_exp`
-- `complete_multipartite_graph`
 - `complete_to_chordal_graph`
 - `compose_all`
 - `condensation`
 - `configuration_model`
 - `connected_caveman_graph`
 - `connected_double_edge_swap`
-- `constraint`
 - `contracted_edge`
 - `contracted_nodes`
 - `convert_node_labels_to_integers`
@@ -159,7 +215,6 @@
 - `edge_subgraph`
 - `edges`
 - `effective_graph_resistance`
-- `effective_size`
 - `eigenvector_centrality_numpy`
 - `equitable_color`
 - `equivalence_classes`
@@ -206,7 +261,6 @@
 - `inverse_line_graph`
 - `is_bipartite_node_set`
 - `is_connected_dominating_set`
-- `is_d_separator`
 - `is_directed`
 - `is_frozen`
 - `is_kl_connected`
@@ -329,9 +383,7 @@
 - `spectral_bisection`
 - `spectral_graph_forge`
 - `spectral_ordering`
-- `stochastic_block_model`
 - `stochastic_graph`
-- `stoer_wagner`
 - `strong_product`
 - `subgraph`
 - `subgraph_centrality`
@@ -363,11 +415,9 @@
 - `vf2pp_is_isomorphic`
 - `vf2pp_isomorphism`
 - `visibility_graph`
-- `voronoi_cells`
 - `waxman_graph`
 - `weisfeiler_lehman_graph_hash`
 - `weisfeiler_lehman_subgraph_hashes`
-- `windmill_graph`
 - `within_inter_cluster`
 
 ## NX_DELEGATED functions
@@ -376,98 +426,49 @@
 - `LFR_benchmark_graph`
 - `adjacency_graph`
 - `apply_matplotlib_colors`
-- `balanced_tree`
-- `barbell_graph`
-- `binomial_tree`
-- `bull_graph`
-- `chordal_cycle_graph`
-- `chvatal_graph`
-- `circulant_graph`
-- `circular_ladder_graph`
 - `combinatorial_embedding_to_pos`
-- `complete_bipartite_graph`
-- `complete_graph`
-- `connected_watts_strogatz_graph`
-- `cubical_graph`
-- `cycle_graph`
 - `cytoscape_graph`
 - `dense_gnm_random_graph`
-- `desargues_graph`
-- `diamond_graph`
 - `directed_configuration_model`
 - `directed_havel_hakimi_graph`
 - `directed_joint_degree_graph`
-- `dodecahedral_graph`
 - `dorogovtsev_goltsev_mendes_graph`
-- `empty_graph`
-- `erdos_renyi_graph`
 - `expected_degree_graph`
 - `extended_barabasi_albert_graph`
-- `fast_gnp_random_graph`
 - `from_dict_of_dicts`
 - `from_numpy_array`
 - `from_pandas_edgelist`
 - `from_scipy_sparse_array`
-- `frucht_graph`
-- `full_rary_tree`
-- `generalized_petersen_graph`
-- `gnp_random_graph`
 - `graph_atlas`
 - `graph_atlas_g`
 - `graph_edit_distance`
-- `grid_2d_graph`
 - `grid_graph`
 - `havel_hakimi_graph`
-- `heawood_graph`
 - `hexagonal_lattice_graph`
-- `house_graph`
-- `house_x_graph`
-- `icosahedral_graph`
 - `is_isomorphic`
 - `joint_degree_graph`
 - `k_edge_augmentation`
-- `krackhardt_kite_graph`
-- `ladder_graph`
 - `lattice_reference`
-- `lollipop_graph`
 - `margulis_gabber_galil_graph`
 - `mixing_dict`
-- `moebius_kantor_graph`
-- `newman_watts_strogatz_graph`
 - `node_link_graph`
 - `nonisomorphic_trees`
-- `null_graph`
-- `octahedral_graph`
 - `optimal_edit_paths`
 - `optimize_edit_paths`
 - `optimize_graph_edit_distance`
-- `paley_graph`
 - `panther_similarity`
 - `panther_vector_similarity`
 - `parse_graphml`
-- `path_graph`
-- `petersen_graph`
-- `powerlaw_cluster_graph`
 - `random_clustered_graph`
 - `random_degree_sequence_graph`
 - `random_lobster_graph`
 - `random_powerlaw_tree`
-- `random_regular_graph`
 - `random_shell_graph`
 - `simrank_similarity`
-- `star_graph`
 - `sudoku_graph`
-- `tadpole_graph`
-- `tetrahedral_graph`
 - `to_networkx_graph`
 - `tree_data`
 - `triangular_lattice_graph`
-- `trivial_graph`
-- `truncated_cube_graph`
-- `truncated_tetrahedron_graph`
-- `tutte_graph`
-- `watts_strogatz_graph`
-- `wheel_graph`
 
 ## CLASS definitions
 

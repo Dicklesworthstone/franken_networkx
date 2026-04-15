@@ -22,7 +22,14 @@ OUT_PATH = Path("docs/coverage.md")
 
 
 def classify_function(source_lines, node):
-    """Classify a function definition."""
+    """Classify a function definition.
+
+    Categories:
+      RUST_NATIVE    — calls _fnx.* or _rust_* functions (Rust backend)
+      HYBRID_RUST    — uses Rust by default, NX fallback for edge cases
+      NX_DELEGATED   — marked with DELEGATED_TO_NETWORKX or only uses nx.*
+      PY_WRAPPER     — pure Python implementation
+    """
     # Get the source text for this function
     start = node.lineno - 1
     end = node.end_lineno if node.end_lineno else start + 1
@@ -33,17 +40,19 @@ def classify_function(source_lines, node):
     if "DELEGATED_TO_NETWORKX" in first_line:
         return "NX_DELEGATED"
 
-    # Check for _fnx. calls (Rust native)
-    if "_fnx." in body_text:
-        return "RUST_NATIVE"
+    # Check for _fnx. calls or _rust_ prefixed calls (both are Rust native)
+    has_rust = "_fnx." in body_text or "_rust_" in body_text
+    has_nx = "nx." in body_text
 
-    # Check for import networkx / nx. calls (but not in docstrings)
-    # Remove docstrings first
-    clean = body_text
-    if "import networkx" in clean or "nx." in clean:
-        # Could be delegated without the marker — flag as NX_DELEGATED
-        if "nx." in clean and "_fnx." not in clean:
-            return "NX_DELEGATED"
+    if has_rust and has_nx:
+        # Uses Rust for default case but has NX fallback for edge cases
+        # (e.g., create_using parameter). Count as RUST_NATIVE since the
+        # common path uses Rust.
+        return "RUST_NATIVE"
+    elif has_rust:
+        return "RUST_NATIVE"
+    elif has_nx:
+        return "NX_DELEGATED"
 
     return "PY_WRAPPER"
 
