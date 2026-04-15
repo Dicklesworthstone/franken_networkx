@@ -116,7 +116,9 @@ def format_mtime(path: Path) -> str:
     return datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat()
 
 
-def check_fixture_report_freshness(artifacts_root: Path) -> tuple[bool, list[str]]:
+def check_fixture_report_freshness(
+    artifacts_root: Path, source_roots: list[Path] | None = None
+) -> tuple[bool, list[str]]:
     """Ensure fixture-level conformance reports are newer than source surfaces."""
     errors = []
     reports = sorted(artifacts_root.glob("*.report.json"))
@@ -124,7 +126,8 @@ def check_fixture_report_freshness(artifacts_root: Path) -> tuple[bool, list[str
         errors.append("no fixture-level conformance reports were generated")
         return False, errors
 
-    source_files = [path for root in SOURCE_ROOTS for path in root.rglob("*") if path.is_file()]
+    roots = SOURCE_ROOTS if source_roots is None else source_roots
+    source_files = [path for root in roots for path in root.rglob("*") if path.is_file()]
     if not source_files:
         errors.append("no source files found for freshness comparison")
         return False, errors
