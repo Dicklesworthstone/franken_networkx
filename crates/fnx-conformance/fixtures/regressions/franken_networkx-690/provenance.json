@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0.0",
+  "originating_bead_id": "franken_networkx-690",
+  "title": "Fix global_minimum_node_cut parity for node_connectivity_strict fixture",
+  "bug_class": "historical_regression",
+  "close_reason": "Fixed asymmetric undirected minimum_node_cut extraction and restored global_minimum_node_cut parity. Verified with targeted algorithm regressions, fnx-conformance smoke harness, cargo check, and clippy.",
+  "fixtures": [
+    "global_minimum_node_cut_leaf_bottleneck_strict.json"
+  ],
+  "notes": "Tier D historical regression fixture preserving the leaf-bottleneck graph that previously regressed global minimum node cut parity."
+}
