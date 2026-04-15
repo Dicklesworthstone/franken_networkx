@@ -29,6 +29,16 @@ commands, and durability evidence.
 Note: CGSE witness hashing uses length-prefixed decision encoding to avoid
 ambiguities with variable-length labels (2026-04 update).
 
+## Mode Decision
+
+Strict/hardened mode is retained, not retracted.
+
+Current state: `CompatibilityMode` and `CgsePolicyEngine` in `fnx-runtime`
+are the canonical decision boundary for this feature. Remaining Track D work is
+implementation and proof, not strategy churn: D2 wires `RuntimePolicy` through
+parser/high-risk entry points, and D3-D4 lock strict/hardened behavior with
+fixture evidence.
+
 ## Parity Matrix
 
 | Feature Family | Status | Notes |

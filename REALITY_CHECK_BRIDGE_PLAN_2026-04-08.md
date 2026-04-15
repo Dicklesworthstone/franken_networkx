@@ -96,6 +96,12 @@
 
 **Ambition note (round 1):** the simple "two enums + four fixtures each" plan below is the literal reading of SPEC §4 — but the SPEC is itself borrowing from the frankenlibc/frankenfs tradition, where mode separation is **decision-theoretic**: Strict minimizes expected loss under a "trust the input" prior, Hardened minimizes expected loss under an "input is adversarial" prior, and the policy boundary between them is *learned* from past incidents in a drift ledger. The expanded plan turns the modes into a Bayesian admission controller with calibrated confidence and explicit loss matrices, per SPEC §6 (the alien-artifact decision contract) — which is currently zero-implemented.
 
+**Decision update (2026-04-15):** D1 is resolved in favor of implementation, not
+retraction. The existing `CompatibilityMode` + `CgsePolicyEngine` surface in
+`fnx-runtime` is now the canonical boundary; the remaining Track D beads are
+about wiring that policy through parser/high-risk entry points and proving the
+observable strict/hardened behavior with fixtures and ledgers.
+
 | Bead | Title | Outcome |
 |---|---|---|
 | D1 | Decision point: implement (recommended) vs. retract. SPEC §4 + §16 makes this central. | Decision documented |
