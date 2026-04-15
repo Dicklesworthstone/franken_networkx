@@ -5,7 +5,9 @@ This gate checks:
 1. Conformance dashboard exists and shows pass status
 2. Smoke report shows zero mismatches
 3. Required conformance artifacts are present
-4. Dashboard generation timestamp is within CI run window
+4. Fixture-level ``*.report.json`` outputs are newer than the latest change in
+   ``crates/fnx-conformance/``, ``crates/fnx-algorithms/``, and
+   ``python/franken_networkx/``
 
 Exit codes:
   0 = all checks pass
@@ -17,6 +19,12 @@ import json
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+SOURCE_ROOTS = [
+    Path("crates/fnx-conformance"),
+    Path("crates/fnx-algorithms"),
+    Path("python/franken_networkx"),
+]
 
 
 def load_json(path: Path) -> dict | None:
@@ -103,6 +111,44 @@ def check_required_artifacts(artifacts_root: Path) -> tuple[bool, list[str]]:
     return len(errors) == 0, errors
 
 
+def format_mtime(path: Path) -> str:
+    """Return a path mtime in UTC ISO-8601 form."""
+    return datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat()
+
+
+def check_fixture_report_freshness(artifacts_root: Path) -> tuple[bool, list[str]]:
+    """Ensure fixture-level conformance reports are newer than source surfaces."""
+    errors = []
+    reports = sorted(artifacts_root.glob("*.report.json"))
+    if not reports:
+        errors.append("no fixture-level conformance reports were generated")
+        return False, errors
+
+    source_files = [path for root in SOURCE_ROOTS for path in root.rglob("*") if path.is_file()]
+    if not source_files:
+        errors.append("no source files found for freshness comparison")
+        return False, errors
+
+    newest_source = max(source_files, key=lambda path: path.stat().st_mtime)
+    newest_source_mtime = newest_source.stat().st_mtime
+    stale_reports = [
+        report for report in reports if report.stat().st_mtime < newest_source_mtime
+    ]
+    if stale_reports:
+        errors.append(
+            "fixture-level conformance reports are stale relative to "
+            f"{newest_source} ({format_mtime(newest_source)})"
+        )
+        for report in stale_reports[:10]:
+            errors.append(
+                f"stale report: {report} ({format_mtime(report)})"
+            )
+        if len(stale_reports) > 10:
+            errors.append(f"... and {len(stale_reports) - 10} more stale reports")
+
+    return len(errors) == 0, errors
+
+
 def main() -> int:
     artifacts_root = Path("artifacts/conformance/latest")
 
@@ -118,6 +164,7 @@ def main() -> int:
         ("required_artifacts", check_required_artifacts),
         ("smoke_report", check_smoke_report),
         ("dashboard", check_dashboard),
+        ("fixture_report_freshness", check_fixture_report_freshness),
     ]:
         ok, errors = check_fn(artifacts_root)
         if not ok:
