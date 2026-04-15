@@ -4222,6 +4222,301 @@ impl Default for EffectHandler {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Compressed-Sensing Replay Logs (G8)
+// ---------------------------------------------------------------------------
+
+/// Count-Min Sketch for space-efficient frequency estimation.
+///
+/// Uses multiple hash functions to estimate item frequencies with bounded
+/// error. Space usage is O(width * depth) regardless of stream size.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CountMinSketch {
+    /// Width of each row (number of counters per hash function).
+    width: usize,
+    /// Depth (number of hash functions / rows).
+    depth: usize,
+    /// Counter matrix stored in row-major order.
+    counters: Vec<u64>,
+    /// Seeds for hash functions (one per row).
+    seeds: Vec<u64>,
+    /// Total items added.
+    total_count: u64,
+}
+
+impl CountMinSketch {
+    /// Create a new sketch with given width and depth.
+    ///
+    /// - `width`: Number of counters per row (larger = more accurate)
+    /// - `depth`: Number of hash functions (larger = lower error probability)
+    ///
+    /// Typical values: width=1000, depth=5 for ~1% error with 99% confidence.
+    #[must_use]
+    pub fn new(width: usize, depth: usize) -> Self {
+        Self::with_seed(width, depth, 0)
+    }
+
+    /// Create a sketch with a specific seed for reproducibility.
+    #[must_use]
+    pub fn with_seed(width: usize, depth: usize, seed: u64) -> Self {
+        let seeds: Vec<u64> = (0..depth as u64).map(|i| seed.wrapping_add(i * 0x9E3779B97F4A7C15)).collect();
+        Self {
+            width,
+            depth,
+            counters: vec![0; width * depth],
+            seeds,
+            total_count: 0,
+        }
+    }
+
+    /// Add an item to the sketch.
+    pub fn add(&mut self, item: &str) {
+        self.add_count(item, 1);
+    }
+
+    /// Add an item with a specific count.
+    pub fn add_count(&mut self, item: &str, count: u64) {
+        for (row, &seed) in self.seeds.iter().enumerate() {
+            let col = self.hash(item, seed) % self.width;
+            self.counters[row * self.width + col] = self.counters[row * self.width + col].saturating_add(count);
+        }
+        self.total_count = self.total_count.saturating_add(count);
+    }
+
+    /// Estimate the frequency of an item.
+    ///
+    /// Returns the minimum count across all hash functions, which is
+    /// guaranteed to be >= true count (never underestimates).
+    #[must_use]
+    pub fn estimate(&self, item: &str) -> u64 {
+        self.seeds
+            .iter()
+            .enumerate()
+            .map(|(row, &seed)| {
+                let col = self.hash(item, seed) % self.width;
+                self.counters[row * self.width + col]
+            })
+            .min()
+            .unwrap_or(0)
+    }
+
+    /// Get the total count of all items added.
+    #[must_use]
+    pub fn total_count(&self) -> u64 {
+        self.total_count
+    }
+
+    /// Merge another sketch into this one (both must have same dimensions).
+    pub fn merge(&mut self, other: &Self) -> Result<(), &'static str> {
+        if self.width != other.width || self.depth != other.depth {
+            return Err("sketch dimensions must match for merge");
+        }
+        if self.seeds != other.seeds {
+            return Err("sketch seeds must match for merge");
+        }
+        for (a, b) in self.counters.iter_mut().zip(&other.counters) {
+            *a = a.saturating_add(*b);
+        }
+        self.total_count = self.total_count.saturating_add(other.total_count);
+        Ok(())
+    }
+
+    fn hash(&self, item: &str, seed: u64) -> usize {
+        // FNV-1a inspired hash with seed mixing
+        let mut h = seed ^ 0xcbf29ce484222325;
+        for byte in item.bytes() {
+            h ^= u64::from(byte);
+            h = h.wrapping_mul(0x100000001b3);
+        }
+        h as usize
+    }
+}
+
+/// Reservoir sampler for uniform random sampling from a stream.
+///
+/// Maintains a fixed-size sample that is uniformly distributed over
+/// all items seen, using Algorithm R.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReservoirSampler<T> {
+    /// Maximum number of items to retain.
+    capacity: usize,
+    /// Current sample.
+    reservoir: Vec<T>,
+    /// Number of items seen so far.
+    count: u64,
+    /// Random state for sampling decisions.
+    rng_state: u64,
+}
+
+impl<T: Clone> ReservoirSampler<T> {
+    /// Create a new sampler with given capacity.
+    #[must_use]
+    pub fn new(capacity: usize) -> Self {
+        Self::with_seed(capacity, 0)
+    }
+
+    /// Create a sampler with a specific seed for reproducibility.
+    #[must_use]
+    pub fn with_seed(capacity: usize, seed: u64) -> Self {
+        Self {
+            capacity,
+            reservoir: Vec::with_capacity(capacity),
+            count: 0,
+            rng_state: seed ^ 0x5DEECE66D,
+        }
+    }
+
+    /// Add an item to the stream.
+    ///
+    /// The item is added to the reservoir with probability k/n where
+    /// k is capacity and n is the number of items seen.
+    pub fn add(&mut self, item: T) {
+        self.count += 1;
+        if self.reservoir.len() < self.capacity {
+            self.reservoir.push(item);
+        } else {
+            let j = self.next_random() % self.count;
+            if j < self.capacity as u64 {
+                self.reservoir[j as usize] = item;
+            }
+        }
+    }
+
+    /// Get the current sample.
+    #[must_use]
+    pub fn sample(&self) -> &[T] {
+        &self.reservoir
+    }
+
+    /// Get the number of items seen.
+    #[must_use]
+    pub fn count(&self) -> u64 {
+        self.count
+    }
+
+    /// Check if the reservoir is full.
+    #[must_use]
+    pub fn is_full(&self) -> bool {
+        self.reservoir.len() >= self.capacity
+    }
+
+    /// Clear the reservoir and reset count.
+    pub fn clear(&mut self) {
+        self.reservoir.clear();
+        self.count = 0;
+    }
+
+    fn next_random(&mut self) -> u64 {
+        // Linear congruential generator
+        self.rng_state = self.rng_state.wrapping_mul(0x5DEECE66D).wrapping_add(11);
+        self.rng_state
+    }
+}
+
+/// Compressed replay log combining count-min sketch and reservoir sampling.
+///
+/// Tracks both frequency estimates (via CMS) and representative samples
+/// (via reservoir) for efficient log analysis.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompressedReplayLog {
+    /// Frequency sketch for operation counts.
+    pub frequency_sketch: CountMinSketch,
+    /// Sample of recent log entries.
+    pub entry_sample: ReservoirSampler<String>,
+    /// Sample of error messages.
+    pub error_sample: ReservoirSampler<String>,
+    /// Schema version for serialization compatibility.
+    pub schema_version: String,
+}
+
+impl CompressedReplayLog {
+    /// Create a new compressed replay log with default parameters.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::with_params(1000, 5, 100, 50)
+    }
+
+    /// Create with custom parameters.
+    ///
+    /// - `sketch_width`: Width of frequency sketch
+    /// - `sketch_depth`: Depth of frequency sketch
+    /// - `entry_sample_size`: Number of log entries to retain
+    /// - `error_sample_size`: Number of error messages to retain
+    #[must_use]
+    pub fn with_params(
+        sketch_width: usize,
+        sketch_depth: usize,
+        entry_sample_size: usize,
+        error_sample_size: usize,
+    ) -> Self {
+        Self {
+            frequency_sketch: CountMinSketch::new(sketch_width, sketch_depth),
+            entry_sample: ReservoirSampler::new(entry_sample_size),
+            error_sample: ReservoirSampler::new(error_sample_size),
+            schema_version: "1.0.0".to_owned(),
+        }
+    }
+
+    /// Record an operation.
+    pub fn record_operation(&mut self, operation: &str) {
+        self.frequency_sketch.add(operation);
+    }
+
+    /// Record a log entry.
+    pub fn record_entry(&mut self, entry: String) {
+        self.entry_sample.add(entry);
+    }
+
+    /// Record an error.
+    pub fn record_error(&mut self, error: String) {
+        self.frequency_sketch.add("__error__");
+        self.error_sample.add(error);
+    }
+
+    /// Estimate the frequency of an operation.
+    #[must_use]
+    pub fn estimate_frequency(&self, operation: &str) -> u64 {
+        self.frequency_sketch.estimate(operation)
+    }
+
+    /// Get sampled log entries.
+    #[must_use]
+    pub fn sampled_entries(&self) -> &[String] {
+        self.entry_sample.sample()
+    }
+
+    /// Get sampled errors.
+    #[must_use]
+    pub fn sampled_errors(&self) -> &[String] {
+        self.error_sample.sample()
+    }
+
+    /// Get total operation count.
+    #[must_use]
+    pub fn total_operations(&self) -> u64 {
+        self.frequency_sketch.total_count()
+    }
+
+    /// Merge another log into this one.
+    pub fn merge(&mut self, other: &Self) -> Result<(), &'static str> {
+        self.frequency_sketch.merge(&other.frequency_sketch)?;
+        // Note: reservoir merge is lossy - we just extend and re-sample
+        for entry in other.entry_sample.sample() {
+            self.entry_sample.add(entry.clone());
+        }
+        for error in other.error_sample.sample() {
+            self.error_sample.add(error.clone());
+        }
+        Ok(())
+    }
+}
+
+impl Default for CompressedReplayLog {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
