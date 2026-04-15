@@ -2154,6 +2154,210 @@ impl LossMatrix {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct RuntimePolicyPosterior {
+    pub incompatibility_probability: f64,
+    pub confidence: f64,
+    pub observation_count: usize,
+}
+
+impl Default for RuntimePolicyPosterior {
+    fn default() -> Self {
+        Self {
+            incompatibility_probability: 0.0,
+            confidence: 0.0,
+            observation_count: 0,
+        }
+    }
+}
+
+impl RuntimePolicyPosterior {
+    #[must_use]
+    pub fn observe(
+        self,
+        incompatibility_probability: f64,
+        evidence_count: usize,
+    ) -> RuntimePolicyPosterior {
+        let next_count = self.observation_count + 1;
+        let next_probability = if self.observation_count == 0 {
+            incompatibility_probability
+        } else {
+            ((self.incompatibility_probability * self.observation_count as f64)
+                + incompatibility_probability)
+                / next_count as f64
+        };
+
+        let evidence_weight = evidence_count as f64 / (evidence_count as f64 + 1.0);
+        let decisiveness = 0.5 + (incompatibility_probability - 0.5).abs();
+
+        RuntimePolicyPosterior {
+            incompatibility_probability: next_probability,
+            confidence: (evidence_weight * decisiveness).clamp(0.0, 1.0),
+            observation_count: next_count,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RuntimePolicy {
+    mode: CompatibilityMode,
+    allowlist: BTreeSet<String>,
+    decision_log: EvidenceLedger,
+    posterior: RuntimePolicyPosterior,
+    loss_matrix: LossMatrix,
+}
+
+impl RuntimePolicy {
+    #[must_use]
+    pub fn new(mode: CompatibilityMode) -> Self {
+        let loss_matrix = match mode {
+            CompatibilityMode::Strict => LossMatrix::strict_default(),
+            CompatibilityMode::Hardened => LossMatrix::hardened_default(),
+        };
+        Self {
+            mode,
+            allowlist: default_runtime_allowlist(mode),
+            decision_log: EvidenceLedger::new(),
+            posterior: RuntimePolicyPosterior::default(),
+            loss_matrix,
+        }
+    }
+
+    #[must_use]
+    pub fn with_allowlist<I, S>(mode: CompatibilityMode, allowlist: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let mut policy = Self::new(mode);
+        policy.allowlist = allowlist.into_iter().map(Into::into).collect();
+        policy
+    }
+
+    #[must_use]
+    pub fn strict() -> Self {
+        Self::new(CompatibilityMode::Strict)
+    }
+
+    #[must_use]
+    pub fn hardened() -> Self {
+        Self::new(CompatibilityMode::Hardened)
+    }
+
+    #[must_use]
+    pub const fn mode(&self) -> CompatibilityMode {
+        self.mode
+    }
+
+    #[must_use]
+    pub fn allowlist(&self) -> &BTreeSet<String> {
+        &self.allowlist
+    }
+
+    #[must_use]
+    pub fn allows(&self, ambiguity_tag: &str) -> bool {
+        self.allowlist.contains(ambiguity_tag)
+    }
+
+    #[must_use]
+    pub fn decision_log(&self) -> &EvidenceLedger {
+        &self.decision_log
+    }
+
+    #[must_use]
+    pub fn posterior(&self) -> RuntimePolicyPosterior {
+        self.posterior
+    }
+
+    #[must_use]
+    pub const fn loss_matrix(&self) -> LossMatrix {
+        self.loss_matrix
+    }
+
+    #[must_use]
+    pub fn action_for(
+        &self,
+        incompatibility_probability: f64,
+        unknown_incompatible_feature: bool,
+    ) -> DecisionAction {
+        if unknown_incompatible_feature || incompatibility_probability.is_nan() {
+            return DecisionAction::FailClosed;
+        }
+
+        let p = incompatibility_probability.clamp(0.0, 1.0);
+        let e_allow = p * self.loss_matrix.allow_false_negative;
+        let e_validate = self.loss_matrix.validate_cost;
+        let e_fail_closed = (1.0 - p) * self.loss_matrix.reject_false_positive;
+
+        if e_allow <= e_validate && e_allow <= e_fail_closed {
+            DecisionAction::Allow
+        } else if e_validate <= e_fail_closed {
+            DecisionAction::FullValidate
+        } else {
+            DecisionAction::FailClosed
+        }
+    }
+
+    pub fn record(
+        &mut self,
+        operation: &str,
+        action: DecisionAction,
+        incompatibility_probability: f64,
+        rationale: &str,
+        evidence: Vec<EvidenceTerm>,
+    ) {
+        let clamped_probability = if incompatibility_probability.is_nan() {
+            1.0
+        } else {
+            incompatibility_probability.clamp(0.0, 1.0)
+        };
+        let evidence_count = evidence.len().max(1);
+        self.posterior = self.posterior.observe(clamped_probability, evidence_count);
+        self.decision_log.record(DecisionRecord {
+            ts_unix_ms: unix_time_ms(),
+            operation: operation.to_owned(),
+            mode: self.mode,
+            action,
+            incompatibility_probability: clamped_probability,
+            rationale: rationale.to_owned(),
+            evidence,
+        });
+    }
+}
+
+impl Default for RuntimePolicy {
+    fn default() -> Self {
+        Self::strict()
+    }
+}
+
+fn default_runtime_allowlist(mode: CompatibilityMode) -> BTreeSet<String> {
+    if matches!(mode, CompatibilityMode::Strict) {
+        return BTreeSet::new();
+    }
+
+    [
+        CgsePolicyRule::R01,
+        CgsePolicyRule::R02,
+        CgsePolicyRule::R03,
+        CgsePolicyRule::R04,
+        CgsePolicyRule::R05,
+        CgsePolicyRule::R06,
+        CgsePolicyRule::R07,
+        CgsePolicyRule::R08,
+        CgsePolicyRule::R09,
+        CgsePolicyRule::R10,
+        CgsePolicyRule::R11,
+        CgsePolicyRule::R12,
+        CgsePolicyRule::R13,
+        CgsePolicyRule::R14,
+    ]
+    .into_iter()
+    .flat_map(|rule| rule.hardened_allowlist().iter().copied())
+    .map(str::to_owned)
+    .collect()
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // D5: Loss matrix calibration with Bayesian shrinkage prior
 // ──────────────────────────────────────────────────────────────────────────────
@@ -4259,7 +4463,9 @@ impl CountMinSketch {
     /// Create a sketch with a specific seed for reproducibility.
     #[must_use]
     pub fn with_seed(width: usize, depth: usize, seed: u64) -> Self {
-        let seeds: Vec<u64> = (0..depth as u64).map(|i| seed.wrapping_add(i * 0x9E3779B97F4A7C15)).collect();
+        let seeds: Vec<u64> = (0..depth as u64)
+            .map(|i| seed.wrapping_add(i * 0x9E3779B97F4A7C15))
+            .collect();
         Self {
             width,
             depth,
@@ -4278,7 +4484,8 @@ impl CountMinSketch {
     pub fn add_count(&mut self, item: &str, count: u64) {
         for (row, &seed) in self.seeds.iter().enumerate() {
             let col = self.hash(item, seed) % self.width;
-            self.counters[row * self.width + col] = self.counters[row * self.width + col].saturating_add(count);
+            self.counters[row * self.width + col] =
+                self.counters[row * self.width + col].saturating_add(count);
         }
         self.total_count = self.total_count.saturating_add(count);
     }
@@ -7682,5 +7889,43 @@ mod tests {
         let summary = handler.summary();
         assert_eq!(summary.total_effects, 2);
         assert_eq!(summary.warnings, 2);
+    }
+
+    #[test]
+    fn runtime_policy_defaults_track_mode_specific_state() {
+        let strict = super::RuntimePolicy::strict();
+        assert_eq!(strict.mode(), super::CompatibilityMode::Strict);
+        assert!(strict.allowlist().is_empty());
+        assert_eq!(strict.loss_matrix(), super::LossMatrix::strict_default());
+
+        let hardened = super::RuntimePolicy::hardened();
+        assert_eq!(hardened.mode(), super::CompatibilityMode::Hardened);
+        assert!(hardened.allows("bounded_diagnostic_enrichment"));
+        assert_eq!(
+            hardened.loss_matrix(),
+            super::LossMatrix::hardened_default()
+        );
+    }
+
+    #[test]
+    fn runtime_policy_records_decisions_and_updates_posterior() {
+        let mut policy = super::RuntimePolicy::hardened();
+        policy.record(
+            "read_graphml",
+            super::DecisionAction::FullValidate,
+            0.7,
+            "parser warning observed",
+            vec![super::EvidenceTerm {
+                signal: "warning".to_owned(),
+                observed_value: "parser warning observed".to_owned(),
+                log_likelihood_ratio: 1.25,
+            }],
+        );
+
+        assert_eq!(policy.decision_log().records().len(), 1);
+        assert_eq!(policy.decision_log().records()[0].mode, policy.mode());
+        assert_eq!(policy.posterior().observation_count, 1);
+        assert!(policy.posterior().confidence > 0.0);
+        assert!(policy.posterior().incompatibility_probability > 0.0);
     }
 }

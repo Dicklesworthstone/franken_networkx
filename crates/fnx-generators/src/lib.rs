@@ -2,10 +2,7 @@
 
 use fnx_classes::Graph;
 use fnx_classes::digraph::{DiGraph, MultiDiGraph};
-use fnx_runtime::{
-    CompatibilityMode, DecisionAction, DecisionRecord, EvidenceLedger, EvidenceTerm,
-    decision_theoretic_action, unix_time_ms,
-};
+use fnx_runtime::{CompatibilityMode, DecisionAction, EvidenceLedger, EvidenceTerm, RuntimePolicy};
 use mt19937::{MT19937, gen_res53};
 use rand::Rng;
 use std::fmt;
@@ -76,7 +73,7 @@ impl std::error::Error for GenerationError {}
 #[derive(Debug, Clone)]
 pub struct GraphGenerator {
     mode: CompatibilityMode,
-    ledger: EvidenceLedger,
+    runtime_policy: RuntimePolicy,
 }
 
 impl GraphGenerator {
@@ -84,7 +81,7 @@ impl GraphGenerator {
     pub fn new(mode: CompatibilityMode) -> Self {
         Self {
             mode,
-            ledger: EvidenceLedger::new(),
+            runtime_policy: RuntimePolicy::new(mode),
         }
     }
 
@@ -100,7 +97,12 @@ impl GraphGenerator {
 
     #[must_use]
     pub fn evidence_ledger(&self) -> &EvidenceLedger {
-        &self.ledger
+        self.runtime_policy.decision_log()
+    }
+
+    #[must_use]
+    pub fn runtime_policy(&self) -> &RuntimePolicy {
+        &self.runtime_policy
     }
 
     pub fn empty_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
@@ -451,7 +453,7 @@ impl GraphGenerator {
         }
 
         let reason = format!("n={n} exceeds max_allowed={max_allowed}");
-        let action = decision_theoretic_action(self.mode, 0.55, false);
+        let action = self.runtime_policy.action_for(0.55, false);
         if self.mode == CompatibilityMode::Strict || action == DecisionAction::FailClosed {
             self.record(operation, DecisionAction::FailClosed, 0.95, reason.clone());
             return Err(GenerationError::FailClosed { operation, reason });
@@ -1322,23 +1324,21 @@ impl GraphGenerator {
         incompatibility_probability: f64,
         rationale: String,
     ) {
-        self.ledger.record(DecisionRecord {
-            ts_unix_ms: unix_time_ms(),
-            operation: operation.to_owned(),
-            mode: self.mode,
+        self.runtime_policy.record(
+            operation,
             action,
-            incompatibility_probability: incompatibility_probability.clamp(0.0, 1.0),
-            rationale: rationale.clone(),
-            evidence: vec![EvidenceTerm {
+            incompatibility_probability,
+            &rationale,
+            vec![EvidenceTerm {
                 signal: "generator_rationale".to_owned(),
-                observed_value: rationale,
+                observed_value: rationale.clone(),
                 log_likelihood_ratio: if action == DecisionAction::Allow {
                     -1.0
                 } else {
                     2.0
                 },
             }],
-        });
+        );
     }
 }
 
@@ -2211,6 +2211,28 @@ mod tests {
         };
         log.validate()
             .expect("packet-007 unit telemetry log should satisfy strict schema");
+    }
+
+    #[test]
+    fn runtime_policy_tracks_generator_validation_state() {
+        let mut generator = GraphGenerator::hardened();
+        let report = generator
+            .gnp_random_graph(8, f64::NAN, 7)
+            .expect("hardened generator should recover from NaN probability");
+
+        assert!(!report.warnings.is_empty());
+        assert_eq!(
+            generator.runtime_policy().mode(),
+            CompatibilityMode::Hardened
+        );
+        assert!(
+            !generator
+                .runtime_policy()
+                .decision_log()
+                .records()
+                .is_empty()
+        );
+        assert!(generator.runtime_policy().posterior().observation_count >= 1);
     }
 
     proptest! {

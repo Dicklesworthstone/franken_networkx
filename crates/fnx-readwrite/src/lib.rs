@@ -21,8 +21,7 @@ use fnx_classes::digraph::{DiGraph, DiGraphSnapshot};
 use fnx_classes::{AttrMap, Graph, GraphError, GraphSnapshot};
 use fnx_dispatch::{BackendRegistry, BackendSpec, DispatchError, DispatchRequest};
 use fnx_runtime::{
-    CgseValue, CompatibilityMode, DecisionAction, DecisionRecord, EvidenceLedger, EvidenceTerm,
-    unix_time_ms,
+    CgseValue, CompatibilityMode, DecisionAction, EvidenceLedger, EvidenceTerm, RuntimePolicy,
 };
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::{Reader, Writer};
@@ -104,7 +103,7 @@ impl From<GraphError> for ReadWriteError {
 pub struct EdgeListEngine {
     mode: CompatibilityMode,
     dispatch: BackendRegistry,
-    ledger: EvidenceLedger,
+    runtime_policy: RuntimePolicy,
 }
 
 impl EdgeListEngine {
@@ -136,7 +135,7 @@ impl EdgeListEngine {
         Self {
             mode,
             dispatch,
-            ledger: EvidenceLedger::new(),
+            runtime_policy: RuntimePolicy::new(mode),
         }
     }
 
@@ -152,7 +151,12 @@ impl EdgeListEngine {
 
     #[must_use]
     pub fn evidence_ledger(&self) -> &EvidenceLedger {
-        &self.ledger
+        self.runtime_policy.decision_log()
+    }
+
+    #[must_use]
+    pub fn runtime_policy(&self) -> &RuntimePolicy {
+        &self.runtime_policy
     }
 
     pub fn write_edgelist(&mut self, graph: &Graph) -> Result<String, ReadWriteError> {
@@ -3067,14 +3071,12 @@ impl EdgeListEngine {
         message: &str,
         incompatibility_probability: f64,
     ) {
-        self.ledger.record(DecisionRecord {
-            ts_unix_ms: unix_time_ms(),
-            operation: operation.to_owned(),
-            mode: self.mode,
+        self.runtime_policy.record(
+            operation,
             action,
-            incompatibility_probability: incompatibility_probability.clamp(0.0, 1.0),
-            rationale: message.to_owned(),
-            evidence: vec![EvidenceTerm {
+            incompatibility_probability,
+            message,
+            vec![EvidenceTerm {
                 signal: "message".to_owned(),
                 observed_value: message.to_owned(),
                 log_likelihood_ratio: if action == DecisionAction::Allow {
@@ -3083,7 +3085,7 @@ impl EdgeListEngine {
                     2.0
                 },
             }],
-        });
+        );
     }
 }
 
@@ -6612,6 +6614,19 @@ mod tests {
         let mut engine = EdgeListEngine::hardened();
         // Must not panic. Should return Ok with warnings or Err.
         let _ = engine.read_gml(input);
+    }
+
+    #[test]
+    fn runtime_policy_tracks_parser_decisions() {
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_edgelist("malformed")
+            .expect("hardened malformed edgelist should recover with warnings");
+
+        assert!(!report.warnings.is_empty());
+        assert_eq!(engine.runtime_policy().mode(), CompatibilityMode::Hardened);
+        assert!(!engine.runtime_policy().decision_log().records().is_empty());
+        assert!(engine.runtime_policy().posterior().observation_count >= 1);
     }
 
     proptest! {
