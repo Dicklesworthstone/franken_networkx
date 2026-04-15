@@ -760,6 +760,7 @@ from franken_networkx._fnx import (
     complete_bipartite_graph as _rust_complete_bipartite_graph,
     complete_multipartite_graph as _rust_complete_multipartite_graph,
     grid_2d_graph as _rust_grid_2d_graph,
+    grid_graph as _rust_grid_graph,
     null_graph as _rust_null_graph,
     trivial_graph as _rust_trivial_graph,
     binomial_tree as _rust_binomial_tree,
@@ -12970,10 +12971,18 @@ def triangular_lattice_graph(
 
 
 def grid_graph(dim, periodic=False):
-    """Return an n-dimensional grid graph."""
+    """Return an n-dimensional grid graph.
+
+    The dimension n is the length of `dim` and the size in each dimension
+    is the value of the corresponding list element.
+    """
     import networkx as nx
 
     from franken_networkx.readwrite import _from_nx_graph
+
+    # Use native Rust for non-periodic case (most common)
+    if not periodic:
+        return _rust_grid_graph(list(dim))
 
     return _from_nx_graph(nx.grid_graph(dim, periodic=periodic))
 

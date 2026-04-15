@@ -21125,6 +21125,66 @@ pub fn grid_2d_graph(m: usize, n: usize) -> Graph {
     g
 }
 
+/// Return the n-dimensional grid graph.
+///
+/// The dimension n is the length of `dim` and the size in each dimension
+/// is the value of the corresponding list element.
+///
+/// Nodes are tuples represented as comma-separated strings (e.g., "0,1,2").
+#[must_use]
+pub fn grid_graph(dim: &[usize]) -> Graph {
+    let mut g = Graph::strict();
+
+    // Handle empty or zero dimensions
+    if dim.is_empty() || dim.iter().any(|&d| d == 0) {
+        return g;
+    }
+
+    // Calculate total number of nodes
+    let total: usize = dim.iter().product();
+
+    // Generate all nodes (all coordinate tuples)
+    // Each node is represented as a comma-separated string of coordinates
+    fn index_to_coords(mut index: usize, dim: &[usize]) -> Vec<usize> {
+        let mut coords = vec![0; dim.len()];
+        for (i, &d) in dim.iter().enumerate().rev() {
+            coords[i] = index % d;
+            index /= d;
+        }
+        coords
+    }
+
+    fn coords_to_label(coords: &[usize]) -> String {
+        coords
+            .iter()
+            .map(|c| c.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+
+    // Add all nodes
+    for i in 0..total {
+        let coords = index_to_coords(i, dim);
+        g.add_node(&coords_to_label(&coords));
+    }
+
+    // Add edges: connect nodes that differ by exactly 1 in exactly one dimension
+    for i in 0..total {
+        let coords = index_to_coords(i, dim);
+
+        // For each dimension, connect to neighbor +1 in that dimension
+        for d in 0..dim.len() {
+            if coords[d] + 1 < dim[d] {
+                let mut neighbor_coords = coords.clone();
+                neighbor_coords[d] += 1;
+                let _ = g.add_edge(&coords_to_label(&coords), &coords_to_label(&neighbor_coords));
+            }
+        }
+    }
+
+    g
+}
+
 /// Return the null graph (0 nodes).
 #[must_use]
 pub fn null_graph() -> Graph {

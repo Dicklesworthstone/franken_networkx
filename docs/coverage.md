@@ -6,9 +6,9 @@
 
 | Category | Count | % |
 |----------|-------|---|
-| RUST_NATIVE (calls `_fnx.*` directly) | 103 | 22% |
+| RUST_NATIVE (calls `_fnx.*` directly) | 104 | 23% |
 | PY_WRAPPER (pure Python, no NX delegation) | 300 | 66% |
-| NX_DELEGATED (delegates to upstream NetworkX) | 46 | 10% |
+| NX_DELEGATED (delegates to upstream NetworkX) | 45 | 9% |
 | CLASS (graph types, exceptions, etc.) | 3 | 0% |
 | **Total public exports** | **452** | |
 
@@ -64,6 +64,7 @@
 - `gnr_graph`
 - `gomory_hu_tree`
 - `grid_2d_graph`
+- `grid_graph`
 - `group_betweenness_centrality`
 - `group_closeness_centrality`
 - `gutman_index`
@@ -443,7 +444,6 @@
 - `graph_atlas`
 - `graph_atlas_g`
 - `graph_edit_distance`
-- `grid_graph`
 - `havel_hakimi_graph`
 - `hexagonal_lattice_graph`
 - `is_isomorphic`

@@ -6356,6 +6356,17 @@ pub fn grid_2d_graph(py: Python<'_>, m: usize, n: usize) -> PyResult<PyObject> {
     rust_graph_to_py_standalone(py, &result)
 }
 
+/// Return the n-dimensional grid graph.
+///
+/// The dimension n is the length of `dim` and the size in each dimension
+/// is the value of the corresponding list element.
+#[pyfunction]
+#[pyo3(signature = (dim,))]
+pub fn grid_graph(py: Python<'_>, dim: Vec<usize>) -> PyResult<PyObject> {
+    let result = py.allow_threads(|| fnx_algorithms::grid_graph(&dim));
+    rust_graph_to_py_standalone(py, &result)
+}
+
 #[pyfunction]
 pub fn null_graph(py: Python<'_>) -> PyResult<PyObject> {
     let result = py.allow_threads(fnx_algorithms::null_graph);
@@ -12589,6 +12600,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(complete_bipartite_graph, m)?)?;
     m.add_function(wrap_pyfunction!(complete_multipartite_graph, m)?)?;
     m.add_function(wrap_pyfunction!(grid_2d_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(grid_graph, m)?)?;
     m.add_function(wrap_pyfunction!(null_graph, m)?)?;
     m.add_function(wrap_pyfunction!(trivial_graph, m)?)?;
     m.add_function(wrap_pyfunction!(binomial_tree, m)?)?;
