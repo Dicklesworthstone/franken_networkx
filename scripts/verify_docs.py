@@ -159,12 +159,39 @@ def run_example(path: Path, python_bin: str) -> list[str]:
         return []
 
 
+def validate_generated_docs(python_bin: str) -> list[str]:
+    env = os.environ.copy()
+    env.setdefault("PYTHONPATH", str(ROOT))
+    try:
+        subprocess.run(
+            [python_bin, str(ROOT / "scripts" / "generate_coverage_matrix.py"), "--check"],
+            cwd=ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+        )  # nosec B603 - the executed generator is repository-owned
+    except subprocess.CalledProcessError as exc:
+        return [
+            "\n".join(
+                [
+                    "generated docs validation failed",
+                    exc.stdout.strip(),
+                    exc.stderr.strip(),
+                ]
+            ).strip()
+        ]
+    else:
+        return []
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--python-bin", default=sys.executable)
     args = parser.parse_args()
 
     failures: list[str] = []
+    failures.extend(validate_generated_docs(args.python_bin))
 
     for path in markdown_sources():
         failures.extend(run_markdown(path, args.python_bin))

@@ -1,138 +1,192 @@
 #!/usr/bin/env python3
-"""Generate docs/coverage.md from python/franken_networkx/__init__.py.
+"""Generate docs/coverage.md from the live franken_networkx export surface.
 
-Classifies every public export as:
-  RUST_NATIVE    — calls _fnx.* directly
-  PY_WRAPPER     — pure Python implementation (no NX delegation)
-  NX_DELEGATED   — marked with # DELEGATED_TO_NETWORKX
-  CLASS          — class definitions (Graph, DiGraph, etc.)
-  CONSTANT       — module-level constants
+The matrix is derived from ``franken_networkx.__all__`` so it reflects the
+declared public API instead of a best-effort AST census of ``__init__.py``.
 
-Usage:
-    python3 scripts/generate_coverage_matrix.py
+Classification rules:
+  RUST_NATIVE   — public callables implemented in ``franken_networkx._fnx``
+  PY_WRAPPER    — public Python callables without runtime NetworkX use
+  NX_DELEGATED  — public Python callables that import or call NetworkX
+  CLASS         — public classes, exceptions, and iterator types
+  CONSTANT      — public non-callable values such as ``config`` or ``__version__``
 """
 
+from __future__ import annotations
+
+import argparse
 import ast
-import re
+import difflib
+import inspect
 import sys
+import textwrap
+from collections import Counter, defaultdict
 from pathlib import Path
 
-INIT_PATH = Path("python/franken_networkx/__init__.py")
-OUT_PATH = Path("docs/coverage.md")
+ROOT = Path(__file__).resolve().parents[1]
+OUT_PATH = ROOT / "docs/coverage.md"
+CATEGORY_ORDER = ("RUST_NATIVE", "PY_WRAPPER", "NX_DELEGATED", "CLASS", "CONSTANT")
+NETWORKX_NAMES = {"networkx", "nx", "_nx"}
 
 
-def classify_function(source_lines, node):
-    """Classify a function definition.
+def load_public_exports():
+    sys.path.insert(0, str(ROOT))
+    sys.path.insert(0, str(ROOT / "python"))
+    import franken_networkx as fnx  # pylint: disable=import-outside-toplevel
 
-    Categories:
-      RUST_NATIVE    — calls _fnx.* or _rust_* functions (Rust backend)
-      HYBRID_RUST    — uses Rust by default, NX fallback for edge cases
-      NX_DELEGATED   — marked with DELEGATED_TO_NETWORKX or only uses nx.*
-      PY_WRAPPER     — pure Python implementation
-    """
-    # Get the source text for this function
-    start = node.lineno - 1
-    end = node.end_lineno if node.end_lineno else start + 1
-    body_text = "\n".join(source_lines[start:end])
+    duplicates = [name for name, count in Counter(fnx.__all__).items() if count > 1]
+    if duplicates:
+        joined = ", ".join(sorted(duplicates))
+        raise RuntimeError(f"Duplicate names in __all__: {joined}")
 
-    # Check for DELEGATED_TO_NETWORKX marker
-    first_line = source_lines[start]
-    if "DELEGATED_TO_NETWORKX" in first_line:
-        return "NX_DELEGATED"
+    exports = []
+    missing = []
+    for name in fnx.__all__:
+        try:
+            exports.append((name, getattr(fnx, name)))
+        except AttributeError:
+            missing.append(name)
+    if missing:
+        joined = ", ".join(sorted(missing))
+        raise RuntimeError(f"Names declared in __all__ but missing at runtime: {joined}")
+    return exports
 
-    # Check for _fnx. calls or _rust_ prefixed calls (both are Rust native)
-    has_rust = "_fnx." in body_text or "_rust_" in body_text
-    has_nx = "nx." in body_text
 
-    if has_rust and has_nx:
-        # Uses Rust for default case but has NX fallback for edge cases
-        # (e.g., create_using parameter). Count as RUST_NATIVE since the
-        # common path uses Rust.
+def uses_networkx_runtime(obj) -> bool:
+    """Return True when the function source imports or references NetworkX."""
+    try:
+        source = inspect.getsource(obj)
+    except (OSError, TypeError):
+        return False
+
+    try:
+        tree = ast.parse(textwrap.dedent(source))
+    except SyntaxError:
+        return False
+
+    aliases = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.split(".")[0] == "networkx":
+                    aliases.add(alias.asname or alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            if node.module and node.module.split(".")[0] == "networkx":
+                aliases.add("networkx")
+                for alias in node.names:
+                    aliases.add(alias.asname or alias.name)
+        elif isinstance(node, ast.Attribute):
+            if isinstance(node.value, ast.Name) and node.value.id in (NETWORKX_NAMES | aliases):
+                return True
+        elif isinstance(node, ast.Name):
+            if node.id in aliases:
+                return True
+    return False
+
+
+def classify_export(obj) -> str:
+    if inspect.isclass(obj):
+        return "CLASS"
+    if not (inspect.isbuiltin(obj) or inspect.isfunction(obj)):
+        return "CONSTANT"
+
+    module_name = getattr(obj, "__module__", "") or ""
+    if module_name == "franken_networkx._fnx":
         return "RUST_NATIVE"
-    elif has_rust:
-        return "RUST_NATIVE"
-    elif has_nx:
+    if inspect.isfunction(obj) and uses_networkx_runtime(obj):
         return "NX_DELEGATED"
-
     return "PY_WRAPPER"
 
 
-def main():
-    if not INIT_PATH.exists():
-        print(f"ERROR: {INIT_PATH} not found", file=sys.stderr)
-        sys.exit(1)
+def render_markdown(exports) -> str:
+    categorized = defaultdict(list)
+    module_counts = Counter()
 
-    source = INIT_PATH.read_text()
-    source_lines = source.splitlines()
-    tree = ast.parse(source)
+    for name, obj in exports:
+        category = classify_export(obj)
+        categorized[category].append(name)
+        module_name = getattr(obj, "__module__", type(obj).__module__)
+        module_counts[module_name] += 1
 
-    results = {
-        "RUST_NATIVE": [],
-        "PY_WRAPPER": [],
-        "NX_DELEGATED": [],
-        "CLASS": [],
-    }
-
-    for node in ast.iter_child_nodes(tree):
-        if isinstance(node, ast.FunctionDef):
-            if node.name.startswith("_"):
-                continue  # skip private
-            category = classify_function(source_lines, node)
-            results[category].append(node.name)
-        elif isinstance(node, ast.ClassDef):
-            if not node.name.startswith("_"):
-                results["CLASS"].append(node.name)
-
-    # Generate markdown
-    total = sum(len(v) for v in results.values())
-    rust_count = len(results["RUST_NATIVE"])
-    py_count = len(results["PY_WRAPPER"])
-    nx_count = len(results["NX_DELEGATED"])
-    class_count = len(results["CLASS"])
-
+    total = len(exports)
     lines = [
         "# FrankenNetworkX Coverage Matrix",
         "",
-        f"*Auto-generated by `scripts/generate_coverage_matrix.py` — do not edit manually.*",
+        "*Auto-generated by `scripts/generate_coverage_matrix.py` from `franken_networkx.__all__` — do not edit manually.*",
         "",
         "## Summary",
         "",
-        f"| Category | Count | % |",
-        f"|----------|-------|---|",
-        f"| RUST_NATIVE (calls `_fnx.*` directly) | {rust_count} | {rust_count*100//max(total,1)}% |",
-        f"| PY_WRAPPER (pure Python, no NX delegation) | {py_count} | {py_count*100//max(total,1)}% |",
-        f"| NX_DELEGATED (delegates to upstream NetworkX) | {nx_count} | {nx_count*100//max(total,1)}% |",
-        f"| CLASS (graph types, exceptions, etc.) | {class_count} | {class_count*100//max(total,1)}% |",
-        f"| **Total public exports** | **{total}** | |",
+        "| Category | Count | % | Rule |",
+        "|----------|-------|---|------|",
+        f"| RUST_NATIVE | {len(categorized['RUST_NATIVE'])} | {len(categorized['RUST_NATIVE'])*100//max(total,1)}% | native extension exports from `franken_networkx._fnx` |",
+        f"| PY_WRAPPER | {len(categorized['PY_WRAPPER'])} | {len(categorized['PY_WRAPPER'])*100//max(total,1)}% | Python-defined exports with no runtime NetworkX dependency detected |",
+        f"| NX_DELEGATED | {len(categorized['NX_DELEGATED'])} | {len(categorized['NX_DELEGATED'])*100//max(total,1)}% | Python-defined exports that import or call NetworkX at runtime |",
+        f"| CLASS | {len(categorized['CLASS'])} | {len(categorized['CLASS'])*100//max(total,1)}% | public classes, exceptions, iterators |",
+        f"| CONSTANT | {len(categorized['CONSTANT'])} | {len(categorized['CONSTANT'])*100//max(total,1)}% | public non-callable values |",
+        f"| **Total public exports** | **{total}** | | `len(franken_networkx.__all__)` |",
         "",
-        "## RUST_NATIVE functions",
+        "All declared public exports are classified. `--check` fails if this generated report drifts from the live module surface.",
         "",
+        "## Module Breakdown",
+        "",
+        "| Module | Count |",
+        "|--------|-------|",
     ]
-    for name in sorted(results["RUST_NATIVE"]):
-        lines.append(f"- `{name}`")
+    for module_name, count in sorted(module_counts.items(), key=lambda item: (-item[1], item[0])):
+        lines.append(f"| `{module_name}` | {count} |")
 
-    lines.extend(["", "## PY_WRAPPER functions", ""])
-    for name in sorted(results["PY_WRAPPER"]):
-        lines.append(f"- `{name}`")
-
-    lines.extend(["", "## NX_DELEGATED functions", ""])
-    for name in sorted(results["NX_DELEGATED"]):
-        lines.append(f"- `{name}`")
-
-    lines.extend(["", "## CLASS definitions", ""])
-    for name in sorted(results["CLASS"]):
-        lines.append(f"- `{name}`")
+    for category in CATEGORY_ORDER:
+        names = sorted(categorized[category])
+        lines.extend(["", f"## {category} exports ({len(names)})", ""])
+        for name in names:
+            lines.append(f"- `{name}`")
 
     lines.append("")
+    return "\n".join(lines)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="fail if docs/coverage.md is stale",
+    )
+    args = parser.parse_args()
+
+    try:
+        exports = load_public_exports()
+    except Exception as exc:  # pragma: no cover - exercised in CI on failure
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 1
+
+    rendered = render_markdown(exports)
+    existing = OUT_PATH.read_text(encoding="utf-8") if OUT_PATH.exists() else ""
+
+    if args.check:
+        if existing != rendered:
+            diff = "".join(
+                difflib.unified_diff(
+                    existing.splitlines(keepends=True),
+                    rendered.splitlines(keepends=True),
+                    fromfile=str(OUT_PATH),
+                    tofile=f"{OUT_PATH} (regenerated)",
+                )
+            )
+            print(diff or f"{OUT_PATH} is stale", file=sys.stderr)
+            return 1
+        print(f"{OUT_PATH} is up to date")
+        return 0
 
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    OUT_PATH.write_text("\n".join(lines))
-    print(f"Generated {OUT_PATH} with {total} exports classified")
-    print(f"  RUST_NATIVE: {rust_count}")
-    print(f"  PY_WRAPPER:  {py_count}")
-    print(f"  NX_DELEGATED: {nx_count}")
-    print(f"  CLASS:        {class_count}")
+    OUT_PATH.write_text(rendered, encoding="utf-8")
+
+    counts = Counter(classify_export(obj) for _, obj in exports)
+    print(f"Generated {OUT_PATH} with {len(exports)} exports classified")
+    for category in CATEGORY_ORDER:
+        print(f"  {category}: {counts[category]}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
