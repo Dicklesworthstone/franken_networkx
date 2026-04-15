@@ -412,6 +412,24 @@ enum Operation {
         source: Option<String>,
     },
     ClosenessVitalityQuery,
+    LouvainCommunitiesQuery {
+        #[serde(default = "default_weight_attr")]
+        weight_attr: String,
+        #[serde(default)]
+        resolution: Option<f64>,
+        #[serde(default)]
+        seed: Option<u64>,
+    },
+    ModularityQuery {
+        communities: Vec<Vec<String>>,
+        #[serde(default = "default_weight_attr")]
+        weight_attr: String,
+    },
+    LabelPropagationCommunitiesQuery,
+    GreedyModularityCommunitiesQuery {
+        #[serde(default = "default_weight_attr")]
+        weight_attr: String,
+    },
     DispatchResolve {
         operation: String,
         #[serde(default)]
@@ -642,6 +660,20 @@ struct ExpectedState {
     view_neighbors: Option<Vec<String>>,
     #[serde(default)]
     warnings_contains: Vec<String>,
+    #[serde(default)]
+    louvain_communities_count: Option<usize>,
+    #[serde(default)]
+    louvain_communities: Option<Vec<Vec<String>>>,
+    #[serde(default)]
+    modularity: Option<f64>,
+    #[serde(default)]
+    label_propagation_communities_count: Option<usize>,
+    #[serde(default)]
+    label_propagation_communities: Option<Vec<Vec<String>>>,
+    #[serde(default)]
+    greedy_modularity_communities_count: Option<usize>,
+    #[serde(default)]
+    greedy_modularity_communities: Option<Vec<Vec<String>>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -851,6 +883,10 @@ struct ExecutionContext {
     closeness_vitality_result: Option<fnx_algorithms::ClosenessVitalityResult>,
     eulerian_circuit_result: Option<fnx_algorithms::EulerianCircuitResult>,
     eulerian_path_result: Option<fnx_algorithms::EulerianPathResult>,
+    louvain_communities_result: Option<Vec<Vec<String>>>,
+    modularity_result: Option<f64>,
+    label_propagation_communities_result: Option<Vec<Vec<String>>>,
+    greedy_modularity_communities_result: Option<Vec<Vec<String>>>,
     warnings: Vec<String>,
     witness: Option<ComplexityWitness>,
 }
@@ -1638,6 +1674,10 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
         closeness_vitality_result: None,
         eulerian_circuit_result: None,
         eulerian_path_result: None,
+        louvain_communities_result: None,
+        modularity_result: None,
+        label_propagation_communities_result: None,
+        greedy_modularity_communities_result: None,
         warnings: Vec::new(),
         witness: None,
     };
@@ -2040,6 +2080,57 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
                 if let Some(ref r) = result {
                     context.witness = Some(r.witness.clone());
                 }
+            }
+            Operation::LouvainCommunitiesQuery {
+                weight_attr,
+                resolution,
+                seed,
+            } => {
+                let result = fnx_algorithms::louvain_communities(
+                    &context.graph,
+                    if weight_attr == "weight" {
+                        None
+                    } else {
+                        Some(weight_attr.as_str())
+                    },
+                    resolution.unwrap_or(1.0),
+                    seed,
+                );
+                context.louvain_communities_result = Some(result);
+            }
+            Operation::ModularityQuery {
+                communities,
+                weight_attr,
+            } => {
+                let comm_refs: Vec<Vec<&str>> = communities
+                    .iter()
+                    .map(|c| c.iter().map(|s| s.as_str()).collect())
+                    .collect();
+                let result = fnx_algorithms::modularity(
+                    &context.graph,
+                    &comm_refs,
+                    if weight_attr == "weight" {
+                        None
+                    } else {
+                        Some(weight_attr.as_str())
+                    },
+                );
+                context.modularity_result = Some(result);
+            }
+            Operation::LabelPropagationCommunitiesQuery => {
+                let result = fnx_algorithms::label_propagation_communities(&context.graph);
+                context.label_propagation_communities_result = Some(result);
+            }
+            Operation::GreedyModularityCommunitiesQuery { weight_attr } => {
+                let result = fnx_algorithms::greedy_modularity_communities(
+                    &context.graph,
+                    if weight_attr == "weight" {
+                        None
+                    } else {
+                        Some(weight_attr.as_str())
+                    },
+                );
+                context.greedy_modularity_communities_result = Some(result);
             }
             Operation::DispatchResolve {
                 operation,
@@ -4162,6 +4253,87 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
             None => mismatches.push(Mismatch {
                 category: "algorithm_euler".to_owned(),
                 message: "expected eulerian_path result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    // Community detection comparisons
+    if let Some(expected_count) = fixture.expected.louvain_communities_count {
+        match context.louvain_communities_result.as_ref() {
+            Some(actual) => {
+                if actual.len() != expected_count {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_community".to_owned(),
+                        message: format!(
+                            "louvain_communities count mismatch: expected {expected_count}, got {}",
+                            actual.len()
+                        ),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_community".to_owned(),
+                message: "expected louvain_communities result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(ref expected_modularity) = fixture.expected.modularity {
+        match context.modularity_result {
+            Some(actual) => {
+                let diff = (actual - expected_modularity).abs();
+                if diff > 1e-6 {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_community".to_owned(),
+                        message: format!(
+                            "modularity mismatch: expected {expected_modularity}, got {actual}"
+                        ),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_community".to_owned(),
+                message: "expected modularity result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(expected_count) = fixture.expected.label_propagation_communities_count {
+        match context.label_propagation_communities_result.as_ref() {
+            Some(actual) => {
+                if actual.len() != expected_count {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_community".to_owned(),
+                        message: format!(
+                            "label_propagation_communities count mismatch: expected {expected_count}, got {}",
+                            actual.len()
+                        ),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_community".to_owned(),
+                message: "expected label_propagation_communities result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(expected_count) = fixture.expected.greedy_modularity_communities_count {
+        match context.greedy_modularity_communities_result.as_ref() {
+            Some(actual) => {
+                if actual.len() != expected_count {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_community".to_owned(),
+                        message: format!(
+                            "greedy_modularity_communities count mismatch: expected {expected_count}, got {}",
+                            actual.len()
+                        ),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_community".to_owned(),
+                message: "expected greedy_modularity_communities result but none produced".to_owned(),
             }),
         }
     }
