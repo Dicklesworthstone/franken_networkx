@@ -7,8 +7,8 @@
     "journey_count": 12,
     "strict_journey_count": 12,
     "hardened_journey_count": 12,
-    "fixture_inventory_count": 113,
-    "covered_fixture_count": 86,
+    "fixture_inventory_count": 116,
+    "covered_fixture_count": 89,
     "uncovered_fixture_count": 22
   },
   "deterministic_seed_policy": {
@@ -1245,7 +1245,10 @@
           "generated/link_prediction_jaccard_strict.json",
           "generated/link_prediction_adamic_adar_strict.json",
           "generated/link_prediction_preferential_attachment_strict.json",
-          "generated/link_prediction_resource_allocation_strict.json"
+          "generated/link_prediction_resource_allocation_strict.json",
+          "generated/isomorphism_true_strict.json",
+          "generated/isomorphism_false_strict.json",
+          "generated/isomorphism_square_vs_star_strict.json"
         ],
         "deterministic_seed": 3420695649051788629,
         "replay_command": "CARGO_TARGET_DIR=target-codex cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_edge_betweenness_strict.json --mode strict",
@@ -2656,6 +2659,9 @@
       "generated/has_path_strict.json",
       "generated/is_connected_density_strict.json",
       "generated/is_eulerian_k4_strict.json",
+      "generated/isomorphism_false_strict.json",
+      "generated/isomorphism_square_vs_star_strict.json",
+      "generated/isomorphism_true_strict.json",
       "generated/k_core_triangle_pendant_strict.json",
       "generated/link_prediction_adamic_adar_strict.json",
       "generated/link_prediction_jaccard_strict.json",
@@ -2758,6 +2764,9 @@
       "generated/greedy_color_strict.json",
       "generated/has_path_strict.json",
       "generated/is_connected_density_strict.json",
+      "generated/isomorphism_false_strict.json",
+      "generated/isomorphism_square_vs_star_strict.json",
+      "generated/isomorphism_true_strict.json",
       "generated/link_prediction_adamic_adar_strict.json",
       "generated/link_prediction_jaccard_strict.json",
       "generated/link_prediction_preferential_attachment_strict.json",

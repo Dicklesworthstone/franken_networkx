@@ -1,0 +1,39 @@
+{
+  "suite": "isomorphism_v1",
+  "mode": "strict",
+  "operations": [
+    {"op": "add_edge", "left": "1", "right": "2"},
+    {"op": "add_edge", "left": "2", "right": "3"},
+    {"op": "add_edge", "left": "3", "right": "4"},
+    {"op": "add_edge", "left": "4", "right": "1"},
+    {
+      "op": "is_isomorphic_query",
+      "nodes2": ["center", "leaf1", "leaf2", "leaf3"],
+      "edges2": [["center", "leaf1"], ["center", "leaf2"], ["center", "leaf3"]]
+    },
+    {
+      "op": "could_be_isomorphic_query",
+      "nodes2": ["center", "leaf1", "leaf2", "leaf3"],
+      "edges2": [["center", "leaf1"], ["center", "leaf2"], ["center", "leaf3"]]
+    },
+    {
+      "op": "faster_could_be_isomorphic_query",
+      "nodes2": ["center", "leaf1", "leaf2", "leaf3"],
+      "edges2": [["center", "leaf1"], ["center", "leaf2"], ["center", "leaf3"]]
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["1", "2", "3", "4"],
+      "edges": [
+        {"left": "1", "right": "2", "attrs": {}},
+        {"left": "1", "right": "4", "attrs": {}},
+        {"left": "2", "right": "3", "attrs": {}},
+        {"left": "3", "right": "4", "attrs": {}}
+      ]
+    },
+    "is_isomorphic": false,
+    "could_be_isomorphic": false,
+    "faster_could_be_isomorphic": false
+  }
+}

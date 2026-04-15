@@ -468,6 +468,19 @@ enum Operation {
     ResourceAllocationIndexQuery {
         ebunch: Vec<(String, String)>,
     },
+    // Isomorphism algorithms
+    IsIsomorphicQuery {
+        nodes2: Vec<String>,
+        edges2: Vec<(String, String)>,
+    },
+    CouldBeIsomorphicQuery {
+        nodes2: Vec<String>,
+        edges2: Vec<(String, String)>,
+    },
+    FasterCouldBeIsomorphicQuery {
+        nodes2: Vec<String>,
+        edges2: Vec<(String, String)>,
+    },
     DispatchResolve {
         operation: String,
         #[serde(default)]
@@ -737,6 +750,13 @@ struct ExpectedState {
     preferential_attachment: Option<Vec<ExpectedLinkPredictionScore>>,
     #[serde(default)]
     resource_allocation_index: Option<Vec<ExpectedLinkPredictionScore>>,
+    // Isomorphism expected results
+    #[serde(default)]
+    is_isomorphic: Option<bool>,
+    #[serde(default)]
+    could_be_isomorphic: Option<bool>,
+    #[serde(default)]
+    faster_could_be_isomorphic: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -969,6 +989,10 @@ struct ExecutionContext {
     adamic_adar_index_result: Option<Vec<(String, String, f64)>>,
     preferential_attachment_result: Option<Vec<(String, String, f64)>>,
     resource_allocation_index_result: Option<Vec<(String, String, f64)>>,
+    // Isomorphism results
+    is_isomorphic_result: Option<bool>,
+    could_be_isomorphic_result: Option<bool>,
+    faster_could_be_isomorphic_result: Option<bool>,
     warnings: Vec<String>,
     witness: Option<ComplexityWitness>,
 }
@@ -1770,6 +1794,9 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
         adamic_adar_index_result: None,
         preferential_attachment_result: None,
         resource_allocation_index_result: None,
+        is_isomorphic_result: None,
+        could_be_isomorphic_result: None,
+        faster_could_be_isomorphic_result: None,
         warnings: Vec::new(),
         witness: None,
     };
@@ -2254,6 +2281,41 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
             Operation::ResourceAllocationIndexQuery { ebunch } => {
                 let result = fnx_algorithms::resource_allocation_index(&context.graph, &ebunch);
                 context.resource_allocation_index_result = Some(result);
+            }
+            // Isomorphism operations
+            Operation::IsIsomorphicQuery { nodes2, edges2 } => {
+                // Build second graph from provided nodes and edges
+                let mut graph2 = Graph::new(mode);
+                for node in nodes2 {
+                    graph2.add_node(&node);
+                }
+                for (u, v) in edges2 {
+                    let _ = graph2.add_edge(&u, &v);
+                }
+                let result = fnx_algorithms::is_isomorphic(&context.graph, &graph2);
+                context.is_isomorphic_result = Some(result);
+            }
+            Operation::CouldBeIsomorphicQuery { nodes2, edges2 } => {
+                let mut graph2 = Graph::new(mode);
+                for node in nodes2 {
+                    graph2.add_node(&node);
+                }
+                for (u, v) in edges2 {
+                    let _ = graph2.add_edge(&u, &v);
+                }
+                let result = fnx_algorithms::could_be_isomorphic(&context.graph, &graph2);
+                context.could_be_isomorphic_result = Some(result);
+            }
+            Operation::FasterCouldBeIsomorphicQuery { nodes2, edges2 } => {
+                let mut graph2 = Graph::new(mode);
+                for node in nodes2 {
+                    graph2.add_node(&node);
+                }
+                for (u, v) in edges2 {
+                    let _ = graph2.add_edge(&u, &v);
+                }
+                let result = fnx_algorithms::faster_could_be_isomorphic(&context.graph, &graph2);
+                context.faster_could_be_isomorphic_result = Some(result);
             }
             Operation::DispatchResolve {
                 operation,
@@ -4755,6 +4817,64 @@ fn run_fixture(path: PathBuf, default_mode: CompatibilityMode, fixture_root: &Pa
             None => mismatches.push(Mismatch {
                 category: "algorithm_link_prediction".to_owned(),
                 message: "expected resource_allocation_index result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    // Isomorphism comparisons
+    if let Some(expected) = fixture.expected.is_isomorphic {
+        match context.is_isomorphic_result {
+            Some(actual) => {
+                if actual != expected {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_isomorphism".to_owned(),
+                        message: format!("is_isomorphic: expected {}, got {}", expected, actual),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_isomorphism".to_owned(),
+                message: "expected is_isomorphic result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(expected) = fixture.expected.could_be_isomorphic {
+        match context.could_be_isomorphic_result {
+            Some(actual) => {
+                if actual != expected {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_isomorphism".to_owned(),
+                        message: format!(
+                            "could_be_isomorphic: expected {}, got {}",
+                            expected, actual
+                        ),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_isomorphism".to_owned(),
+                message: "expected could_be_isomorphic result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(expected) = fixture.expected.faster_could_be_isomorphic {
+        match context.faster_could_be_isomorphic_result {
+            Some(actual) => {
+                if actual != expected {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_isomorphism".to_owned(),
+                        message: format!(
+                            "faster_could_be_isomorphic: expected {}, got {}",
+                            expected, actual
+                        ),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_isomorphism".to_owned(),
+                message: "expected faster_could_be_isomorphic result but none produced".to_owned(),
             }),
         }
     }
