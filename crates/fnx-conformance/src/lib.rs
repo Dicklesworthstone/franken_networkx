@@ -699,7 +699,11 @@ struct ExpectedState {
     #[serde(default)]
     closeness_vitality: Option<Vec<ExpectedClosenessVitality>>,
     #[serde(default)]
+    eulerian_circuit: Option<Vec<ExpectedEdgePair>>,
+    #[serde(default)]
     eulerian_circuit_edge_count: Option<usize>,
+    #[serde(default)]
+    eulerian_path: Option<Vec<ExpectedEdgePair>>,
     #[serde(default)]
     eulerian_path_edge_count: Option<usize>,
     #[serde(default)]
@@ -907,7 +911,9 @@ struct ExpectedAvgNeighborDegree {
 
 #[derive(Debug, Clone, Deserialize)]
 struct ExpectedEdgePair {
+    #[serde(alias = "from")]
     left: String,
+    #[serde(alias = "to")]
     right: String,
 }
 
@@ -4479,6 +4485,30 @@ fn run_fixture(
         }
     }
 
+    if let Some(ref expected_edges) = fixture.expected.eulerian_circuit {
+        match context.eulerian_circuit_result.as_ref() {
+            Some(actual) => {
+                let expected_tuples: Vec<(String, String)> = expected_edges
+                    .iter()
+                    .map(|edge| (edge.left.clone(), edge.right.clone()))
+                    .collect();
+                if actual.edges != expected_tuples {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_euler".to_owned(),
+                        message: format!(
+                            "eulerian_circuit mismatch: expected {:?}, got {:?}",
+                            expected_tuples, actual.edges
+                        ),
+                    });
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_euler".to_owned(),
+                message: "expected eulerian_circuit result but none produced".to_owned(),
+            }),
+        }
+    }
+
     if let Some(expected_count) = fixture.expected.eulerian_path_edge_count {
         match context.eulerian_path_result.as_ref() {
             Some(actual) => {
@@ -4503,6 +4533,30 @@ fn run_fixture(
                         });
                         break;
                     }
+                }
+            }
+            None => mismatches.push(Mismatch {
+                category: "algorithm_euler".to_owned(),
+                message: "expected eulerian_path result but none produced".to_owned(),
+            }),
+        }
+    }
+
+    if let Some(ref expected_edges) = fixture.expected.eulerian_path {
+        match context.eulerian_path_result.as_ref() {
+            Some(actual) => {
+                let expected_tuples: Vec<(String, String)> = expected_edges
+                    .iter()
+                    .map(|edge| (edge.left.clone(), edge.right.clone()))
+                    .collect();
+                if actual.edges != expected_tuples {
+                    mismatches.push(Mismatch {
+                        category: "algorithm_euler".to_owned(),
+                        message: format!(
+                            "eulerian_path mismatch: expected {:?}, got {:?}",
+                            expected_tuples, actual.edges
+                        ),
+                    });
                 }
             }
             None => mismatches.push(Mismatch {

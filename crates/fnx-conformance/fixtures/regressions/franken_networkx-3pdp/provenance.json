@@ -7,5 +7,5 @@
   "fixtures": [
     "eulerian_triangle_with_isolate_strict.json"
   ],
-  "notes": "Tier D historical regression fixture preserving the isolate-sensitive Eulerian parity case from the originating bead."
+  "notes": "Tier D historical regression fixture preserving the source-constrained semieulerian replay from the originating bead; null-graph and isolate exception cases still require error-aware fixture assertions."
 }

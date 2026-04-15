@@ -17,10 +17,10 @@
 //!   --output PATH    Output file for results (default: stdout)
 
 use fnx_cgse::{
-    collect_witnesses, generate_random_edges, mining_result_to_jsonl, verify_witness_determinism,
-    MiningConfig, MiningResult, ReferenceAlgorithm,
+    MiningConfig, MiningResult, ReferenceAlgorithm, collect_witnesses, generate_random_edges,
+    mining_result_to_jsonl, verify_witness_determinism,
 };
-use fnx_classes::{digraph::DiGraph, Graph};
+use fnx_classes::{Graph, digraph::DiGraph};
 use fnx_runtime::CompatibilityMode;
 use std::fs::File;
 use std::io::Write;
@@ -78,10 +78,8 @@ fn parse_args() -> Result<ExtendedConfig, Box<dyn std::error::Error>> {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--graphs" => {
-                config.graphs_per_algorithm = args
-                    .next()
-                    .ok_or("--graphs requires a value")?
-                    .parse()?;
+                config.graphs_per_algorithm =
+                    args.next().ok_or("--graphs requires a value")?.parse()?;
             }
             "--iterations" => {
                 config.executions_per_graph = args
@@ -90,16 +88,10 @@ fn parse_args() -> Result<ExtendedConfig, Box<dyn std::error::Error>> {
                     .parse()?;
             }
             "--max-nodes" => {
-                config.max_nodes = args
-                    .next()
-                    .ok_or("--max-nodes requires a value")?
-                    .parse()?;
+                config.max_nodes = args.next().ok_or("--max-nodes requires a value")?.parse()?;
             }
             "--density" => {
-                config.max_density = args
-                    .next()
-                    .ok_or("--density requires a value")?
-                    .parse()?;
+                config.max_density = args.next().ok_or("--density requires a value")?.parse()?;
             }
             "--seed" => {
                 config.seed = args.next().ok_or("--seed requires a value")?.parse()?;
