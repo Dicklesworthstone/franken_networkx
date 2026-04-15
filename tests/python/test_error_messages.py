@@ -53,19 +53,20 @@ class TestNodeNotFound:
     """NodeNotFound messages must include the missing node identifier."""
 
     def test_remove_node_message(self):
+        """NetworkX raises NetworkXError (not NodeNotFound) for remove_node."""
         G = fnx.Graph()
         G.add_node("a")
-        with pytest.raises(fnx.NodeNotFound, match=r"The node.*is not in the graph"):
+        with pytest.raises(fnx.NetworkXError, match=r"The node.*is not in the graph"):
             G.remove_node("z")
 
     def test_shortest_path_source_not_found(self):
         G = _make_path()
-        with pytest.raises(fnx.NodeNotFound, match=r"Node.*is not in G"):
+        with pytest.raises(fnx.NodeNotFound, match=r"Source.*is not in G"):
             fnx.shortest_path(G, "z", "b")
 
     def test_shortest_path_target_not_found(self):
         G = _make_path()
-        with pytest.raises(fnx.NodeNotFound, match=r"Node.*is not in G"):
+        with pytest.raises(fnx.NodeNotFound, match=r"Target.*is not in G"):
             fnx.shortest_path(G, "a", "z")
 
 
@@ -325,6 +326,56 @@ class TestPointlessConceptNullGraph:
             match=r"the null graph has no paths, thus there is no average shortest path length",
         ):
             fnx.average_shortest_path_length(G)
+
+
+# ---------------------------------------------------------------------------
+# HasACycle — cycle detection errors
+# ---------------------------------------------------------------------------
+
+class TestHasACycle:
+    """HasACycle messages must indicate a cycle was found."""
+
+    def test_topological_sort_cyclic_graph(self):
+        """Topological sort on cyclic graph must raise HasACycle."""
+        DG = fnx.DiGraph()
+        DG.add_edge("a", "b")
+        DG.add_edge("b", "c")
+        DG.add_edge("c", "a")  # Creates cycle
+        with pytest.raises(fnx.HasACycle):
+            list(fnx.topological_sort(DG))
+
+
+# ---------------------------------------------------------------------------
+# NetworkXNoCycle — no cycle found
+# ---------------------------------------------------------------------------
+
+class TestNetworkXNoCycle:
+    """NetworkXNoCycle messages must indicate no cycle exists."""
+
+    def test_find_cycle_acyclic_graph(self):
+        """find_cycle on DAG must raise NetworkXNoCycle."""
+        DG = fnx.DiGraph()
+        DG.add_edge("a", "b")
+        DG.add_edge("b", "c")
+        with pytest.raises(fnx.NetworkXNoCycle, match=r"No cycle found"):
+            fnx.find_cycle(DG)
+
+
+# ---------------------------------------------------------------------------
+# NetworkXUnfeasible — infeasible operations
+# ---------------------------------------------------------------------------
+
+class TestNetworkXUnfeasible:
+    """NetworkXUnfeasible for operations that cannot be completed."""
+
+    def test_min_cost_flow_unsatisfiable_demand(self):
+        """min_cost_flow with unsatisfiable demand must raise NetworkXUnfeasible."""
+        DG = fnx.DiGraph()
+        DG.add_node("s", demand=-10)  # Source supplies 10
+        DG.add_node("t", demand=10)   # Sink demands 10
+        # No edges, so demand can't be satisfied
+        with pytest.raises(fnx.NetworkXUnfeasible, match=r"no flow satisfies all node demands"):
+            fnx.min_cost_flow(DG)
 
 
 # ---------------------------------------------------------------------------

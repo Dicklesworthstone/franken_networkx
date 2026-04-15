@@ -6282,10 +6282,10 @@ def min_cost_flow(G, demand="demand", capacity="capacity", weight="weight"):
     # Check if all demands are satisfied
     for source in sources:
         if remaining_supply.get(source, 0) > 1e-10:
-            raise NetworkXUnfeasible("Infeasible: not all supply could be routed")
+            raise NetworkXUnfeasible("no flow satisfies all node demands")
     for sink in sinks:
         if remaining_demand.get(sink, 0) > 1e-10:
-            raise NetworkXUnfeasible("Infeasible: not all demand could be satisfied")
+            raise NetworkXUnfeasible("no flow satisfies all node demands")
 
     return flow
 
