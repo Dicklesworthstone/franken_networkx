@@ -27458,7 +27458,7 @@ pub fn all_pairs_all_shortest_paths(
 pub fn gomory_hu_tree(graph: &Graph, weight_attr: &str) -> Graph {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
-    let mut tree = Graph::new(graph.mode());
+    let mut tree = Graph::with_runtime_policy(graph.runtime_policy().clone());
     if n == 0 {
         return tree;
     }
@@ -27617,7 +27617,7 @@ pub fn snap_aggregation(graph: &Graph, node_attributes: &[String]) -> Graph {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     if n == 0 {
-        return Graph::new(graph.mode());
+        return Graph::with_runtime_policy(graph.runtime_policy().clone());
     }
 
     let idx: std::collections::HashMap<&str, usize> =
@@ -27689,7 +27689,7 @@ pub fn snap_aggregation(graph: &Graph, node_attributes: &[String]) -> Graph {
     }
 
     // Build summary graph
-    let mut summary = Graph::new(graph.mode());
+    let mut summary = Graph::with_runtime_policy(graph.runtime_policy().clone());
     let mut group_names: std::collections::HashMap<usize, String> =
         std::collections::HashMap::new();
     for i in 0..n {
@@ -27807,7 +27807,7 @@ fn build_partitioned_graph(
     partition: &PartitionDict,
     partition_attr: &str,
 ) -> Graph {
-    let mut g = Graph::new(graph.mode());
+    let mut g = Graph::with_runtime_policy(graph.runtime_policy().clone());
     for node in graph.nodes_ordered() {
         let _ = g.add_node(node.to_owned());
     }
@@ -27866,7 +27866,7 @@ fn compute_partition_mst(
 }
 
 fn build_tree(nodes: &[&str], edges: &[(String, String)], runtime_policy: &RuntimePolicy) -> Graph {
-    let mut tree = Graph::new(runtime_policy.mode());
+    let mut tree = Graph::with_runtime_policy(runtime_policy.clone());
     for &node in nodes {
         let _ = tree.add_node(node.to_owned());
     }
@@ -27942,14 +27942,14 @@ impl Iterator for SpanningTreeIteratorState {
         if n == 0 {
             if !self.yielded_forest {
                 self.yielded_forest = true;
-                return Some(Graph::new(self.runtime_policy.mode()));
+                return Some(Graph::with_runtime_policy(self.runtime_policy.clone()));
             }
             return None;
         }
         if n == 1 {
             if !self.yielded_forest {
                 self.yielded_forest = true;
-                let mut g = Graph::new(self.runtime_policy.mode());
+                let mut g = Graph::with_runtime_policy(self.runtime_policy.clone());
                 let _ = g.add_node(self.nodes[0].clone());
                 return Some(g);
             }
@@ -28067,7 +28067,7 @@ pub fn random_spanning_tree(graph: &Graph, seed: u64) -> Option<Graph> {
 
     // Single node: return graph with just that node
     if n == 1 {
-        let mut result = Graph::new(graph.mode());
+        let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
         let _ = result.add_node(nodes[0].to_owned());
         return Some(result);
     }
@@ -28150,7 +28150,7 @@ pub fn random_spanning_tree(graph: &Graph, seed: u64) -> Option<Graph> {
     }
 
     // Build result graph
-    let mut result = Graph::new(graph.mode());
+    let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
     for node in &nodes {
         let _ = result.add_node((*node).to_owned());
     }
@@ -28178,7 +28178,7 @@ pub fn random_spanning_tree_directed(digraph: &DiGraph, root: &str, seed: u64) -
     }
 
     if n == 1 {
-        let mut result = DiGraph::new(digraph.mode());
+        let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
         let _ = result.add_node(nodes[0].to_owned());
         return Some(result);
     }
@@ -28256,7 +28256,7 @@ pub fn random_spanning_tree_directed(digraph: &DiGraph, root: &str, seed: u64) -
         }
     }
 
-    let mut result = DiGraph::new(digraph.mode());
+    let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
     for node in &nodes {
         let _ = result.add_node((*node).to_owned());
     }
@@ -28356,7 +28356,7 @@ fn build_arborescence(
     edges: &[(String, String)],
     runtime_policy: &RuntimePolicy,
 ) -> DiGraph {
-    let mut arb = DiGraph::new(runtime_policy.mode());
+    let mut arb = DiGraph::with_runtime_policy(runtime_policy.clone());
     for &node in nodes {
         arb.add_node(node.to_owned());
     }
@@ -28449,14 +28449,14 @@ impl Iterator for ArborescenceIteratorState {
         if n == 0 {
             if !self.yielded_forest {
                 self.yielded_forest = true;
-                return Some(DiGraph::new(self.runtime_policy.mode()));
+                return Some(DiGraph::with_runtime_policy(self.runtime_policy.clone()));
             }
             return None;
         }
         if n == 1 {
             if !self.yielded_forest {
                 self.yielded_forest = true;
-                let mut g = DiGraph::new(self.runtime_policy.mode());
+                let mut g = DiGraph::with_runtime_policy(self.runtime_policy.clone());
                 g.add_node(self.nodes[0].clone());
                 return Some(g);
             }
@@ -28532,10 +28532,10 @@ pub fn arborescence_iterator_ordered_with_partition(
     let n = nodes.len();
     let runtime_policy = digraph.runtime_policy().clone();
     if n == 0 {
-        return vec![DiGraph::new(runtime_policy.mode())];
+        return vec![DiGraph::with_runtime_policy(runtime_policy)];
     }
     if n == 1 {
-        let mut g = DiGraph::new(runtime_policy.mode());
+        let mut g = DiGraph::with_runtime_policy(runtime_policy);
         g.add_node(nodes[0].to_owned());
         return vec![g];
     }
@@ -30578,6 +30578,7 @@ mod tests {
         global_minimum_edge_cut_edmonds_karp,
         global_reaching_centrality,
         global_reaching_centrality_directed,
+        gomory_hu_tree,
         google_matrix,
         graph_compose,
         graph_difference,
@@ -40863,6 +40864,43 @@ mod tests {
     }
 
     #[test]
+    fn test_random_tree_builders_preserve_runtime_policy() {
+        let mut g = Graph::hardened();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let graph_policy = g.runtime_policy().clone();
+
+        let tree = random_spanning_tree(&g, 42).expect("connected graph should yield tree");
+        assert_runtime_policy_preserved(&graph_policy, tree.runtime_policy());
+
+        let mut single = Graph::hardened();
+        let _ = single.add_node("solo".to_owned());
+        let single_policy = single.runtime_policy().clone();
+        let single_tree =
+            random_spanning_tree(&single, 42).expect("single node should yield singleton tree");
+        assert_runtime_policy_preserved(&single_policy, single_tree.runtime_policy());
+    }
+
+    #[test]
+    fn test_random_directed_tree_builders_preserve_runtime_policy() {
+        let mut dg = DiGraph::hardened();
+        dg.add_edge("a", "b").unwrap();
+        dg.add_edge("a", "c").unwrap();
+        let digraph_policy = dg.runtime_policy().clone();
+
+        let tree = random_spanning_tree_directed(&dg, "a", 42)
+            .expect("root-reachable digraph should yield arborescence");
+        assert_runtime_policy_preserved(&digraph_policy, tree.runtime_policy());
+
+        let mut single = DiGraph::hardened();
+        single.add_node("solo".to_owned());
+        let single_policy = single.runtime_policy().clone();
+        let single_tree = random_spanning_tree_directed(&single, "solo", 42)
+            .expect("single node digraph should yield singleton arborescence");
+        assert_runtime_policy_preserved(&single_policy, single_tree.runtime_policy());
+    }
+
+    #[test]
     fn test_write_graphml_contains_structure() {
         let mut g = Graph::strict();
         let _ = g.add_edge("a", "b");
@@ -41210,27 +41248,21 @@ mod tests {
     #[test]
     fn test_spanning_tree_iterator_empty_graph_preserves_hardened_mode() {
         let g = Graph::hardened();
+        let expected_policy = g.runtime_policy().clone();
         let trees = spanning_tree_iterator(&g, "weight", 100);
         assert_eq!(trees.len(), 1);
-        assert_eq!(trees[0].mode(), CompatibilityMode::Hardened);
-        assert_eq!(
-            trees[0].runtime_policy().mode(),
-            CompatibilityMode::Hardened
-        );
+        assert_runtime_policy_preserved(&expected_policy, trees[0].runtime_policy());
     }
 
     #[test]
     fn test_spanning_tree_iterator_single_node_preserves_hardened_mode() {
         let mut g = Graph::hardened();
         let _ = g.add_node("a".to_owned());
+        let expected_policy = g.runtime_policy().clone();
         let trees = spanning_tree_iterator(&g, "weight", 100);
         assert_eq!(trees.len(), 1);
         assert_eq!(trees[0].nodes_ordered().len(), 1);
-        assert_eq!(trees[0].mode(), CompatibilityMode::Hardened);
-        assert_eq!(
-            trees[0].runtime_policy().mode(),
-            CompatibilityMode::Hardened
-        );
+        assert_runtime_policy_preserved(&expected_policy, trees[0].runtime_policy());
     }
 
     #[test]
@@ -41380,21 +41412,21 @@ mod tests {
     #[test]
     fn test_arborescence_iterator_empty_graph_preserves_hardened_mode() {
         let d = DiGraph::hardened();
+        let expected_policy = d.runtime_policy().clone();
         let arbs = arborescence_iterator(&d, "weight", 100);
         assert_eq!(arbs.len(), 1);
-        assert_eq!(arbs[0].mode(), CompatibilityMode::Hardened);
-        assert_eq!(arbs[0].runtime_policy().mode(), CompatibilityMode::Hardened);
+        assert_runtime_policy_preserved(&expected_policy, arbs[0].runtime_policy());
     }
 
     #[test]
     fn test_arborescence_iterator_single_node_preserves_hardened_mode() {
         let mut d = DiGraph::hardened();
         d.add_node("a".to_owned());
+        let expected_policy = d.runtime_policy().clone();
         let arbs = arborescence_iterator(&d, "weight", 100);
         assert_eq!(arbs.len(), 1);
         assert_eq!(arbs[0].nodes_ordered(), vec!["a"]);
-        assert_eq!(arbs[0].mode(), CompatibilityMode::Hardened);
-        assert_eq!(arbs[0].runtime_policy().mode(), CompatibilityMode::Hardened);
+        assert_runtime_policy_preserved(&expected_policy, arbs[0].runtime_policy());
     }
 
     #[test]
@@ -41524,18 +41556,27 @@ mod tests {
         let _ = g.add_node_with_attrs("b".to_owned(), single_attr("color", "red"));
         let _ = g.add_node_with_attrs("c".to_owned(), single_attr("color", "blue"));
         let _ = g.add_edge("a", "c");
+        let expected_policy = g.runtime_policy().clone();
 
         let summary = snap_aggregation(&g, &["color".to_owned()]);
-        assert_eq!(summary.mode(), CompatibilityMode::Hardened);
-        assert_eq!(summary.runtime_policy().mode(), CompatibilityMode::Hardened);
+        assert_runtime_policy_preserved(&expected_policy, summary.runtime_policy());
 
         let empty = Graph::hardened();
+        let empty_policy = empty.runtime_policy().clone();
         let empty_summary = snap_aggregation(&empty, &["color".to_owned()]);
-        assert_eq!(empty_summary.mode(), CompatibilityMode::Hardened);
-        assert_eq!(
-            empty_summary.runtime_policy().mode(),
-            CompatibilityMode::Hardened
-        );
+        assert_runtime_policy_preserved(&empty_policy, empty_summary.runtime_policy());
+    }
+
+    #[test]
+    fn test_gomory_hu_tree_preserves_runtime_policy() {
+        let mut g = Graph::hardened();
+        let _ = g.add_edge_with_attrs("a", "b", single_attr("weight", "1.0"));
+        let _ = g.add_edge_with_attrs("b", "c", single_attr("weight", "2.0"));
+        let _ = g.add_edge_with_attrs("a", "c", single_attr("weight", "3.0"));
+        let expected_policy = g.runtime_policy().clone();
+
+        let tree = gomory_hu_tree(&g, "weight");
+        assert_runtime_policy_preserved(&expected_policy, tree.runtime_policy());
     }
 
     #[test]
