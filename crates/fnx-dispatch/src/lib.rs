@@ -1,9 +1,6 @@
 #![forbid(unsafe_code)]
 
-use fnx_runtime::{
-    CompatibilityMode, DecisionAction, EvidenceLedger, EvidenceTerm, RuntimePolicy,
-    decision_theoretic_action,
-};
+use fnx_runtime::{CompatibilityMode, DecisionAction, EvidenceLedger, EvidenceTerm, RuntimePolicy};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fmt;
@@ -420,8 +417,7 @@ impl BackendRegistry {
         &mut self,
         request: &DispatchRequest,
     ) -> Result<DispatchDecision, DispatchError> {
-        let action = decision_theoretic_action(
-            self.mode,
+        let action = self.runtime_policy.action_for(
             request.risk_probability,
             request.unknown_incompatible_feature,
         );

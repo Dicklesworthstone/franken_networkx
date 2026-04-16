@@ -595,11 +595,9 @@ impl Graph {
         unknown_incompatible_feature: bool,
         evidence: Vec<EvidenceTerm>,
     ) -> DecisionAction {
-        let action = fnx_runtime::decision_theoretic_action(
-            self.mode,
-            incompatibility_probability,
-            unknown_incompatible_feature,
-        );
+        let action = self
+            .runtime_policy
+            .action_for(incompatibility_probability, unknown_incompatible_feature);
         self.runtime_policy.record(
             operation,
             action,
@@ -1115,11 +1113,9 @@ impl MultiGraph {
         unknown_incompatible_feature: bool,
         evidence: Vec<EvidenceTerm>,
     ) -> DecisionAction {
-        let action = fnx_runtime::decision_theoretic_action(
-            self.mode,
-            incompatibility_probability,
-            unknown_incompatible_feature,
-        );
+        let action = self
+            .runtime_policy
+            .action_for(incompatibility_probability, unknown_incompatible_feature);
         self.runtime_policy.record(
             operation,
             action,
