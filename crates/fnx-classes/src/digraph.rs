@@ -658,7 +658,7 @@ impl DiGraph {
     /// When both exist, the latter's attributes overwrite the former's.
     #[must_use]
     pub fn to_undirected(&self) -> crate::Graph {
-        let mut g = crate::Graph::new(self.mode);
+        let mut g = crate::Graph::with_runtime_policy(self.runtime_policy.clone());
         for (node, attrs) in &self.nodes {
             g.add_node_with_attrs(node.clone(), attrs.clone());
         }
@@ -1250,7 +1250,9 @@ impl MultiDiGraph {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fnx_runtime::{CgseValue, CompatibilityMode, DecisionAction, DecisionRecord};
+    use fnx_runtime::{
+        CgseValue, CompatibilityMode, DecisionAction, DecisionRecord, RuntimePolicy,
+    };
     use proptest::prelude::*;
 
     fn node_name(id: u8) -> String {
@@ -1261,6 +1263,19 @@ mod tests {
         let mut attrs = AttrMap::new();
         attrs.insert(key.to_owned(), CgseValue::from(value));
         attrs
+    }
+
+    fn assert_runtime_policy_preserved(source: &RuntimePolicy, result: &RuntimePolicy) {
+        assert_eq!(result.mode(), source.mode());
+        assert_eq!(result.allowlist(), source.allowlist());
+        assert_eq!(result.loss_matrix(), source.loss_matrix());
+        assert!(result.posterior().observation_count >= source.posterior().observation_count);
+        assert!(
+            result
+                .decision_log()
+                .records()
+                .starts_with(source.decision_log().records())
+        );
     }
 
     // -- Invariant checker --------------------------------------------------
@@ -1574,6 +1589,18 @@ mod tests {
         assert!(ug.has_edge("a", "b"));
         assert!(ug.has_edge("b", "a")); // undirected: same edge
         assert!(ug.has_edge("b", "c"));
+    }
+
+    #[test]
+    fn to_undirected_preserves_runtime_policy() {
+        let mut g = DiGraph::hardened();
+        g.add_edge("a", "b").unwrap();
+        g.add_edge("b", "a").unwrap();
+        let expected_policy = g.runtime_policy().clone();
+
+        let ug = g.to_undirected();
+
+        assert_runtime_policy_preserved(&expected_policy, ug.runtime_policy());
     }
 
     #[test]
