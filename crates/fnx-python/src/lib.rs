@@ -16,7 +16,7 @@ mod views;
 pub use readwrite::{RawNodeLinkError, RawNodeLinkReport, parse_raw_node_link_json};
 
 use fnx_classes::{AttrMap, Graph, MultiGraph};
-use fnx_runtime::{CgseValue, CompatibilityMode};
+use fnx_runtime::{CgseValue, CompatibilityMode, RuntimePolicy};
 use pyo3::exceptions::{PyKeyError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyIterator, PyTuple};
@@ -121,6 +121,33 @@ pub(crate) fn compatibility_mode_from_py(
     }
 }
 
+pub(crate) fn runtime_policy_json(policy: &RuntimePolicy) -> PyResult<String> {
+    serde_json::to_string(policy)
+        .map_err(|err| PyValueError::new_err(format!("failed to serialize runtime policy: {err}")))
+}
+
+pub(crate) fn runtime_policy_from_state(
+    state: &Bound<'_, PyDict>,
+    expected_mode: CompatibilityMode,
+) -> PyResult<RuntimePolicy> {
+    let runtime_policy_json = state
+        .get_item("runtime_policy")?
+        .ok_or_else(|| PyValueError::new_err("missing runtime_policy in graph state"))?
+        .extract::<String>()?;
+    let runtime_policy =
+        serde_json::from_str::<RuntimePolicy>(&runtime_policy_json).map_err(|err| {
+            PyValueError::new_err(format!("failed to deserialize runtime policy: {err}"))
+        })?;
+    if runtime_policy.mode() != expected_mode {
+        return Err(PyValueError::new_err(format!(
+            "runtime policy mode `{}` does not match graph mode `{}`",
+            compatibility_mode_name(runtime_policy.mode()),
+            compatibility_mode_name(expected_mode)
+        )));
+    }
+    Ok(runtime_policy)
+}
+
 // ---------------------------------------------------------------------------
 // PyGraph — the main graph class wrapping fnx_classes::Graph.
 // ---------------------------------------------------------------------------
@@ -167,8 +194,15 @@ impl PyGraph {
     }
 
     pub(crate) fn new_empty_with_mode(py: Python<'_>, mode: CompatibilityMode) -> PyResult<Self> {
+        Self::new_empty_with_policy(py, RuntimePolicy::new(mode))
+    }
+
+    pub(crate) fn new_empty_with_policy(
+        py: Python<'_>,
+        runtime_policy: RuntimePolicy,
+    ) -> PyResult<Self> {
         Ok(Self {
-            inner: Graph::new(mode),
+            inner: Graph::with_runtime_policy(runtime_policy),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -213,6 +247,23 @@ impl PyMultiGraph {
         }
         Ok(result.unbind())
     }
+
+    pub(crate) fn new_empty_with_mode(py: Python<'_>, mode: CompatibilityMode) -> PyResult<Self> {
+        Self::new_empty_with_policy(py, RuntimePolicy::new(mode))
+    }
+
+    pub(crate) fn new_empty_with_policy(
+        py: Python<'_>,
+        runtime_policy: RuntimePolicy,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            inner: MultiGraph::with_runtime_policy(runtime_policy),
+            node_key_map: HashMap::new(),
+            node_py_attrs: HashMap::new(),
+            edge_py_attrs: HashMap::new(),
+            graph_attrs: PyDict::new(py).unbind(),
+        })
+    }
 }
 
 #[pymethods]
@@ -229,17 +280,12 @@ impl PyMultiGraph {
             graph_attrs.update(a.as_mapping())?;
         }
 
-        let mut g = Self {
-            inner: MultiGraph::strict(),
-            node_key_map: HashMap::new(),
-            node_py_attrs: HashMap::new(),
-            edge_py_attrs: HashMap::new(),
-            graph_attrs: graph_attrs.unbind(),
-        };
+        let mut g = Self::new_empty_with_mode(py, CompatibilityMode::Strict)?;
+        g.graph_attrs = graph_attrs.unbind();
 
         if let Some(data) = incoming_graph_data {
             if let Ok(other) = data.extract::<PyRef<'_, PyMultiGraph>>() {
-                g.inner = MultiGraph::new(other.inner.mode());
+                g.inner = MultiGraph::with_runtime_policy(other.inner.runtime_policy().clone());
                 for (canonical, py_key) in &other.node_key_map {
                     let rust_attrs = other
                         .node_py_attrs
@@ -267,7 +313,7 @@ impl PyMultiGraph {
                 }
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
             } else if let Ok(other) = data.extract::<PyRef<'_, PyGraph>>() {
-                g.inner = MultiGraph::new(other.inner.mode());
+                g.inner = MultiGraph::with_runtime_policy(other.inner.runtime_policy().clone());
                 for (canonical, py_key) in &other.node_key_map {
                     let rust_attrs = other
                         .node_py_attrs
@@ -741,7 +787,7 @@ impl PyMultiGraph {
     }
 
     fn clear(&mut self, py: Python<'_>) -> PyResult<()> {
-        self.inner = MultiGraph::new(self.inner.mode());
+        self.inner = MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone());
         self.node_key_map.clear();
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
@@ -750,7 +796,7 @@ impl PyMultiGraph {
     }
 
     fn clear_edges(&mut self) {
-        self.inner = MultiGraph::new(self.inner.mode());
+        self.inner = MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone());
         Python::with_gil(|py| {
             for canonical in self.node_key_map.keys() {
                 let rust_attrs = self
@@ -959,7 +1005,7 @@ impl PyMultiGraph {
     /// Return a deep copy of the multigraph.
     fn copy(&self, py: Python<'_>) -> PyResult<Self> {
         let mut new_graph = Self {
-            inner: MultiGraph::new(self.inner.mode()),
+            inner: MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -1011,7 +1057,7 @@ impl PyMultiGraph {
         }
 
         let mut new_graph = Self {
-            inner: MultiGraph::new(self.inner.mode()),
+            inner: MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -1080,7 +1126,7 @@ impl PyMultiGraph {
 
         let mut involved_nodes: HashSet<String> = HashSet::new();
         let mut new_graph = Self {
-            inner: MultiGraph::new(self.inner.mode()),
+            inner: MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -1155,7 +1201,9 @@ impl PyMultiGraph {
     /// Return a directed copy of the graph.
     fn to_directed(&self, py: Python<'_>) -> PyResult<crate::digraph::PyMultiDiGraph> {
         let mut mdg = crate::digraph::PyMultiDiGraph {
-            inner: fnx_classes::digraph::MultiDiGraph::new(self.inner.mode()),
+            inner: fnx_classes::digraph::MultiDiGraph::with_runtime_policy(
+                self.inner.runtime_policy().clone(),
+            ),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -1307,6 +1355,10 @@ impl PyMultiGraph {
     fn __getstate__(&self, py: Python<'_>) -> PyResult<PyObject> {
         let state = PyDict::new(py);
         state.set_item("mode", compatibility_mode_name(self.inner.mode()))?;
+        state.set_item(
+            "runtime_policy",
+            runtime_policy_json(self.inner.runtime_policy())?,
+        )?;
 
         let nodes_list: Vec<(PyObject, Py<PyDict>)> = self
             .inner
@@ -1344,7 +1396,7 @@ impl PyMultiGraph {
 
     fn __setstate__(&mut self, py: Python<'_>, state: &Bound<'_, PyDict>) -> PyResult<()> {
         let mode = compatibility_mode_from_py(state.get_item("mode")?.as_ref())?;
-        self.inner = MultiGraph::new(mode);
+        self.inner = MultiGraph::with_runtime_policy(runtime_policy_from_state(state, mode)?);
         self.node_key_map.clear();
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
@@ -1618,18 +1670,13 @@ impl PyGraph {
             graph_attrs.update(a.as_mapping())?;
         }
 
-        let mut g = Self {
-            inner: Graph::strict(),
-            node_key_map: HashMap::new(),
-            node_py_attrs: HashMap::new(),
-            edge_py_attrs: HashMap::new(),
-            graph_attrs: graph_attrs.unbind(),
-        };
+        let mut g = Self::new_empty_with_mode(py, CompatibilityMode::Strict)?;
+        g.graph_attrs = graph_attrs.unbind();
 
         if let Some(data) = incoming_graph_data {
             // If it's another PyGraph, copy it.
             if let Ok(other) = data.extract::<PyRef<'_, PyGraph>>() {
-                g.inner = Graph::new(other.inner.mode());
+                g.inner = Graph::with_runtime_policy(other.inner.runtime_policy().clone());
                 for (canonical, py_key) in &other.node_key_map {
                     let rust_attrs = other
                         .node_py_attrs
@@ -2098,7 +2145,7 @@ impl PyGraph {
     /// Remove all nodes and edges.
     fn clear(&mut self, py: Python<'_>) -> PyResult<()> {
         // Rebuild from scratch is simpler and correct.
-        self.inner = Graph::new(self.inner.mode());
+        self.inner = Graph::with_runtime_policy(self.inner.runtime_policy().clone());
         self.node_key_map.clear();
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
@@ -2252,7 +2299,7 @@ impl PyGraph {
     /// Return a deep copy of the graph.
     fn copy(&self, py: Python<'_>) -> PyResult<Self> {
         let mut new_graph = Self {
-            inner: Graph::new(self.inner.mode()),
+            inner: Graph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -2307,7 +2354,7 @@ impl PyGraph {
         }
 
         let mut new_graph = Self {
-            inner: Graph::new(self.inner.mode()),
+            inner: Graph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -2370,7 +2417,7 @@ impl PyGraph {
         }
 
         let mut new_graph = Self {
-            inner: Graph::new(self.inner.mode()),
+            inner: Graph::with_runtime_policy(self.inner.runtime_policy().clone()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -2435,7 +2482,10 @@ impl PyGraph {
 
     /// Return a directed copy of the graph.
     fn to_directed(&self, py: Python<'_>) -> PyResult<Py<crate::digraph::PyDiGraph>> {
-        let mut dg = crate::digraph::PyDiGraph::new_empty_with_mode(py, self.inner.mode())?;
+        let mut dg = crate::digraph::PyDiGraph::new_empty_with_policy(
+            py,
+            self.inner.runtime_policy().clone(),
+        )?;
 
         for (canonical, py_key) in &self.node_key_map {
             let rust_attrs = self
@@ -2640,6 +2690,10 @@ impl PyGraph {
     fn __getstate__(&self, py: Python<'_>) -> PyResult<PyObject> {
         let state = PyDict::new(py);
         state.set_item("mode", compatibility_mode_name(self.inner.mode()))?;
+        state.set_item(
+            "runtime_policy",
+            runtime_policy_json(self.inner.runtime_policy())?,
+        )?;
         // Store nodes as list of (key, attrs) tuples.
         let nodes_list: Vec<(PyObject, Py<PyDict>)> = self
             .inner
@@ -2673,7 +2727,7 @@ impl PyGraph {
 
     fn __setstate__(&mut self, py: Python<'_>, state: &Bound<'_, PyDict>) -> PyResult<()> {
         let mode = compatibility_mode_from_py(state.get_item("mode")?.as_ref())?;
-        self.inner = Graph::new(mode);
+        self.inner = Graph::with_runtime_policy(runtime_policy_from_state(state, mode)?);
         self.node_key_map.clear();
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
@@ -2719,67 +2773,70 @@ pub(crate) fn unwrap_infallible<T>(result: Result<T, Infallible>) -> T {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fnx_runtime::RuntimePolicy;
 
     fn ensure_python() {
         pyo3::prepare_freethreaded_python();
     }
 
+    fn seeded_graph_policy() -> RuntimePolicy {
+        let mut graph = Graph::new(CompatibilityMode::Hardened);
+        graph.add_node("seed".to_owned());
+        graph.runtime_policy().clone()
+    }
+
+    fn seeded_multigraph_policy() -> RuntimePolicy {
+        let mut graph = MultiGraph::new(CompatibilityMode::Hardened);
+        graph.add_node("seed".to_owned());
+        graph.runtime_policy().clone()
+    }
+
     #[test]
-    fn graph_new_empty_with_mode_preserves_mode() {
+    fn graph_new_empty_with_policy_preserves_runtime_policy_state() {
         ensure_python();
         Python::with_gil(|py| {
-            let graph = PyGraph::new_empty_with_mode(py, CompatibilityMode::Hardened)
+            let expected_policy = seeded_graph_policy();
+            let graph = PyGraph::new_empty_with_policy(py, expected_policy.clone())
                 .expect("graph should initialize");
-            assert_eq!(graph.inner.mode(), CompatibilityMode::Hardened);
-            assert_eq!(
-                graph.inner.runtime_policy().mode(),
-                CompatibilityMode::Hardened
-            );
+            assert_eq!(graph.inner.runtime_policy(), &expected_policy);
         });
     }
 
     #[test]
-    fn graph_clear_preserves_mode() {
+    fn graph_clear_preserves_runtime_policy_state() {
         ensure_python();
         Python::with_gil(|py| {
-            let mut graph = PyGraph::new_empty(py).expect("graph should initialize");
-            graph.inner = Graph::new(CompatibilityMode::Hardened);
+            let expected_policy = seeded_graph_policy();
+            let mut graph = PyGraph::new_empty_with_policy(py, expected_policy.clone())
+                .expect("graph should initialize");
 
             graph.clear(py).expect("clear should succeed");
 
-            assert_eq!(graph.inner.mode(), CompatibilityMode::Hardened);
-            assert_eq!(
-                graph.inner.runtime_policy().mode(),
-                CompatibilityMode::Hardened
-            );
+            assert_eq!(graph.inner.runtime_policy(), &expected_policy);
         });
     }
 
     #[test]
-    fn multigraph_clear_edges_preserves_mode() {
+    fn multigraph_clear_edges_preserves_runtime_policy_state() {
         ensure_python();
         Python::with_gil(|py| {
-            let mut graph =
-                PyMultiGraph::new(py, None, None).expect("multigraph should initialize");
-            graph.inner = MultiGraph::new(CompatibilityMode::Hardened);
+            let expected_policy = seeded_multigraph_policy();
+            let mut graph = PyMultiGraph::new_empty_with_policy(py, expected_policy.clone())
+                .expect("multigraph should initialize");
 
             graph.clear_edges();
 
-            assert_eq!(graph.inner.mode(), CompatibilityMode::Hardened);
-            assert_eq!(
-                graph.inner.runtime_policy().mode(),
-                CompatibilityMode::Hardened
-            );
+            assert_eq!(graph.inner.runtime_policy(), &expected_policy);
         });
     }
 
     #[test]
-    fn graph_pickle_state_roundtrips_mode() {
+    fn graph_pickle_state_roundtrips_runtime_policy_state() {
         ensure_python();
         Python::with_gil(|py| {
-            let mut graph = PyGraph::new_empty(py).expect("graph should initialize");
-            graph.inner = Graph::new(CompatibilityMode::Hardened);
-            graph.inner.add_node("n".to_owned());
+            let expected_policy = seeded_graph_policy();
+            let graph = PyGraph::new_empty_with_policy(py, expected_policy.clone())
+                .expect("graph should initialize");
 
             let state = graph
                 .__getstate__(py)
@@ -2794,68 +2851,63 @@ mod tests {
                 .extract::<String>()
                 .expect("mode should be a string");
             assert_eq!(mode, "hardened");
+            assert!(
+                state
+                    .get_item("runtime_policy")
+                    .expect("dict lookup should succeed")
+                    .is_some(),
+                "runtime policy should be serialized"
+            );
 
             let mut restored = PyGraph::new_empty(py).expect("graph should initialize");
             restored
                 .__setstate__(py, &state)
                 .expect("state import should succeed");
 
-            assert_eq!(restored.inner.mode(), CompatibilityMode::Hardened);
-            assert_eq!(
-                restored.inner.runtime_policy().mode(),
-                CompatibilityMode::Hardened
-            );
+            assert_eq!(restored.inner.runtime_policy(), &expected_policy);
         });
     }
 
     #[test]
-    fn graph_constructor_copy_preserves_mode() {
+    fn graph_constructor_copy_preserves_runtime_policy_state() {
         ensure_python();
         Python::with_gil(|py| {
-            let source = Py::new(py, PyGraph::new_empty(py).expect("graph should initialize"))
-                .expect("py graph should initialize");
-            source.borrow_mut(py).inner = Graph::new(CompatibilityMode::Hardened);
+            let expected_policy = seeded_graph_policy();
+            let source = Py::new(
+                py,
+                PyGraph::new_empty_with_policy(py, expected_policy.clone())
+                    .expect("graph should initialize"),
+            )
+            .expect("py graph should initialize");
 
             let copied = PyGraph::new(py, Some(source.bind(py).as_any()), None)
                 .expect("copy construction should succeed");
 
-            assert_eq!(copied.inner.mode(), CompatibilityMode::Hardened);
-            assert_eq!(
-                copied.inner.runtime_policy().mode(),
-                CompatibilityMode::Hardened
-            );
+            assert_eq!(copied.inner.runtime_policy(), &expected_policy);
         });
     }
 
     #[test]
-    fn multigraph_to_directed_preserves_mode() {
+    fn multigraph_to_directed_preserves_runtime_policy_state() {
         ensure_python();
         Python::with_gil(|py| {
-            let mut graph =
-                PyMultiGraph::new(py, None, None).expect("multigraph should initialize");
-            graph.inner = MultiGraph::new(CompatibilityMode::Hardened);
+            let expected_policy = seeded_multigraph_policy();
+            let graph = PyMultiGraph::new_empty_with_policy(py, expected_policy.clone())
+                .expect("multigraph should initialize");
 
             let directed = graph.to_directed(py).expect("conversion should succeed");
 
-            assert_eq!(directed.inner.mode(), CompatibilityMode::Hardened);
-            assert_eq!(
-                directed.inner.runtime_policy().mode(),
-                CompatibilityMode::Hardened
-            );
+            assert_eq!(directed.inner.runtime_policy(), &expected_policy);
         });
     }
 
     #[test]
-    fn multigraph_pickle_state_roundtrips_mode() {
+    fn multigraph_pickle_state_roundtrips_runtime_policy_state() {
         ensure_python();
         Python::with_gil(|py| {
-            let mut graph =
-                PyMultiGraph::new(py, None, None).expect("multigraph should initialize");
-            graph.inner = MultiGraph::new(CompatibilityMode::Hardened);
-            graph
-                .inner
-                .add_edge_with_key_and_attrs("u".to_owned(), "v".to_owned(), 7, AttrMap::new())
-                .expect("edge should add");
+            let expected_policy = seeded_multigraph_policy();
+            let graph = PyMultiGraph::new_empty_with_policy(py, expected_policy.clone())
+                .expect("multigraph should initialize");
 
             let state = graph
                 .__getstate__(py)
@@ -2870,6 +2922,13 @@ mod tests {
                 .extract::<String>()
                 .expect("mode should be a string");
             assert_eq!(mode, "hardened");
+            assert!(
+                state
+                    .get_item("runtime_policy")
+                    .expect("dict lookup should succeed")
+                    .is_some(),
+                "runtime policy should be serialized"
+            );
 
             let mut restored =
                 PyMultiGraph::new(py, None, None).expect("multigraph should initialize");
@@ -2877,11 +2936,7 @@ mod tests {
                 .__setstate__(py, &state)
                 .expect("state import should succeed");
 
-            assert_eq!(restored.inner.mode(), CompatibilityMode::Hardened);
-            assert_eq!(
-                restored.inner.runtime_policy().mode(),
-                CompatibilityMode::Hardened
-            );
+            assert_eq!(restored.inner.runtime_policy(), &expected_policy);
         });
     }
 }

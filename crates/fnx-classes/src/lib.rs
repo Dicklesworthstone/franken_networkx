@@ -133,6 +133,19 @@ impl Graph {
     }
 
     #[must_use]
+    pub fn with_runtime_policy(runtime_policy: RuntimePolicy) -> Self {
+        let mode = runtime_policy.mode();
+        Self {
+            mode,
+            revision: 0,
+            nodes: IndexMap::new(),
+            adjacency: IndexMap::new(),
+            edges: IndexMap::new(),
+            runtime_policy,
+        }
+    }
+
+    #[must_use]
     pub fn strict() -> Self {
         Self::new(CompatibilityMode::Strict)
     }
@@ -630,6 +643,20 @@ impl MultiGraph {
             adjacency: IndexMap::new(),
             edges: IndexMap::new(),
             runtime_policy: RuntimePolicy::new(mode),
+            edge_count: 0,
+        }
+    }
+
+    #[must_use]
+    pub fn with_runtime_policy(runtime_policy: RuntimePolicy) -> Self {
+        let mode = runtime_policy.mode();
+        Self {
+            mode,
+            revision: 0,
+            nodes: IndexMap::new(),
+            adjacency: IndexMap::new(),
+            edges: IndexMap::new(),
+            runtime_policy,
             edge_count: 0,
         }
     }
