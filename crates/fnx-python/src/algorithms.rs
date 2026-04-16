@@ -356,7 +356,7 @@ pub(crate) fn extract_graph<'py>(g: &'py Bound<'py, PyAny>) -> PyResult<GraphRef
 /// Convert a MultiGraph to a simple Graph by collapsing parallel edges.
 /// Edge attributes from the first parallel edge (key 0) are kept.
 fn multigraph_to_simple_graph(mg: &fnx_classes::MultiGraph) -> fnx_classes::Graph {
-    let mut g = fnx_classes::Graph::strict();
+    let mut g = fnx_classes::Graph::new(mg.mode());
     for node in mg.nodes_ordered() {
         let attrs = mg.node_attrs(node).cloned().unwrap_or_default();
         g.add_node_with_attrs(node.to_owned(), attrs);
@@ -843,7 +843,7 @@ fn spanning_input_graph(
     require_undirected(gr, "spanning_edges")?;
 
     let inner = gr.undirected();
-    let mut sanitized = fnx_classes::Graph::strict();
+    let mut sanitized = fnx_classes::Graph::new(inner.mode());
 
     for node in inner.nodes_ordered() {
         sanitized.add_node(node.to_owned());
@@ -922,6 +922,7 @@ fn undirected_spanning_edges_to_pygraph(
     edges: &[(String, String)],
 ) -> PyResult<PyGraph> {
     let mut tree = PyGraph::new_empty(py)?;
+    tree.inner = fnx_classes::Graph::new(pg.inner.mode());
     tree.graph_attrs = pg.graph_attrs.bind(py).copy()?.unbind();
 
     for node in pg.inner.nodes_ordered() {
@@ -1065,6 +1066,7 @@ fn directed_branching_to_pydigraph(
     preserve_attrs: bool,
 ) -> PyResult<PyDiGraph> {
     let mut tree = PyDiGraph::new_empty(py)?;
+    tree.inner = fnx_classes::digraph::DiGraph::new(dg.inner.mode());
     for node in dg.inner.nodes_ordered() {
         let py_key = dg.py_node_key(py, node);
         tree.node_key_map.insert(node.to_owned(), py_key);
@@ -3351,6 +3353,7 @@ pub fn k_core_rust(
     let result = py.allow_threads(|| fnx_algorithms::k_core(inner, k));
 
     let mut new_graph = PyGraph::new_empty(py)?;
+    new_graph.inner = fnx_classes::Graph::new(inner.mode());
     for node in &result.nodes {
         new_graph.inner.add_node(node.clone());
         new_graph
@@ -3378,6 +3381,7 @@ pub fn k_shell_rust(
     let result = py.allow_threads(|| fnx_algorithms::k_shell(inner, k));
 
     let mut new_graph = PyGraph::new_empty(py)?;
+    new_graph.inner = fnx_classes::Graph::new(inner.mode());
     for node in &result.nodes {
         new_graph.inner.add_node(node.clone());
         new_graph
@@ -3405,6 +3409,7 @@ pub fn k_crust_rust(
     let result = py.allow_threads(|| fnx_algorithms::k_crust(inner, k));
 
     let mut new_graph = PyGraph::new_empty(py)?;
+    new_graph.inner = fnx_classes::Graph::new(inner.mode());
     for node in &result.nodes {
         new_graph.inner.add_node(node.clone());
         new_graph
@@ -3427,6 +3432,7 @@ pub fn k_corona_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult
     let result = py.allow_threads(|| fnx_algorithms::k_corona(inner, k));
 
     let mut new_graph = PyGraph::new_empty(py)?;
+    new_graph.inner = fnx_classes::Graph::new(inner.mode());
     for node in &result.nodes {
         new_graph.inner.add_node(node.clone());
         new_graph
@@ -3526,6 +3532,7 @@ pub fn minimum_spanning_tree(
     let w = weight.to_owned();
     let result = py.allow_threads(move || fnx_algorithms::minimum_spanning_tree(inner, &w));
     let mut new_graph = PyGraph::new_empty(py)?;
+    new_graph.inner = fnx_classes::Graph::new(inner.mode());
 
     // Add all nodes from original graph
     for node in inner.nodes_ordered() {
@@ -3585,6 +3592,7 @@ pub fn maximum_spanning_tree(
     let w = weight.to_owned();
     let result = py.allow_threads(move || fnx_algorithms::maximum_spanning_tree(inner, &w));
     let mut new_graph = PyGraph::new_empty(py)?;
+    new_graph.inner = fnx_classes::Graph::new(inner.mode());
 
     for node in inner.nodes_ordered() {
         new_graph.inner.add_node(node.to_owned());
@@ -4450,6 +4458,12 @@ pub fn bfs_tree(
     };
 
     let mut tree = crate::digraph::PyDiGraph::new_empty(py)?;
+    let tree_mode = if gr.is_directed() {
+        gr.digraph().expect("is_directed checked above").mode()
+    } else {
+        gr.undirected().mode()
+    };
+    tree.inner = fnx_classes::digraph::DiGraph::new(tree_mode);
     let source_py = source.clone().unbind();
     let source_s = source_key.clone();
     tree.inner.add_node(&source_s);
@@ -5019,6 +5033,12 @@ pub fn dfs_tree(
 
     let gr = extract_graph(g)?;
     let mut tree = crate::digraph::PyDiGraph::new_empty(py)?;
+    let tree_mode = if gr.is_directed() {
+        gr.digraph().expect("is_directed checked above").mode()
+    } else {
+        gr.undirected().mode()
+    };
+    tree.inner = fnx_classes::digraph::DiGraph::new(tree_mode);
 
     if let Some(s) = source {
         let sk = node_key_to_string(py, s)?;
@@ -5779,6 +5799,7 @@ pub fn complement(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
         };
 
         let mut py_graph = PyGraph::new_empty(py)?;
+        py_graph.inner = fnx_classes::Graph::new(result.mode());
         // Add nodes
         for node in result.nodes_ordered() {
             let py_key = pg.py_node_key(py, node);
@@ -5805,6 +5826,7 @@ pub fn complement(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
         };
 
         let mut py_dg = PyDiGraph::new_empty(py)?;
+        py_dg.inner = fnx_classes::digraph::DiGraph::new(result.mode());
         for node in result.nodes_ordered() {
             let py_key = dg.py_node_key(py, node);
             py_dg.node_key_map.insert(node.to_owned(), py_key);
@@ -6641,6 +6663,7 @@ pub fn condensation(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<(PyObject,
         let (cond_graph, node_mapping) = py.allow_threads(|| fnx_algorithms::condensation(dg_ref));
         // Build the condensation DiGraph
         let mut py_dg = PyDiGraph::new_empty(py)?;
+        py_dg.inner = fnx_classes::digraph::DiGraph::new(cond_graph.mode());
         for node in cond_graph.nodes_ordered() {
             py_dg.node_key_map.insert(
                 node.to_owned(),
@@ -6759,6 +6782,7 @@ pub fn transitive_closure(
         let result =
             py.allow_threads(|| fnx_algorithms::transitive_closure(dg_ref, Some(reflexive)));
         let mut py_dg = PyDiGraph::new_empty(py)?;
+        py_dg.inner = fnx_classes::digraph::DiGraph::new(result.mode());
         for node in result.nodes_ordered() {
             let py_key = gr.py_node_key(py, node);
             py_dg.node_key_map.insert(node.to_owned(), py_key);
@@ -6792,6 +6816,7 @@ pub fn transitive_reduction(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py
         match py.allow_threads(|| fnx_algorithms::transitive_reduction(dg_ref)) {
             Some(result) => {
                 let mut py_dg = PyDiGraph::new_empty(py)?;
+                py_dg.inner = fnx_classes::digraph::DiGraph::new(result.mode());
                 for node in result.nodes_ordered() {
                     let py_key = gr.py_node_key(py, node);
                     py_dg.node_key_map.insert(node.to_owned(), py_key);
@@ -7077,6 +7102,7 @@ fn rust_graph_to_py(
     source_gr: &GraphRef<'_>,
 ) -> PyResult<PyObject> {
     let mut py_graph = PyGraph::new_empty(py)?;
+    py_graph.inner = fnx_classes::Graph::new(result.mode());
     for node in result.nodes_ordered() {
         let py_key = source_gr.py_node_key(py, node);
         py_graph.node_key_map.insert(node.to_owned(), py_key);
@@ -7104,6 +7130,7 @@ fn rust_graph_to_py_binary(
     gr2: &GraphRef<'_>,
 ) -> PyResult<PyObject> {
     let mut py_graph = PyGraph::new_empty(py)?;
+    py_graph.inner = fnx_classes::Graph::new(result.mode());
     for node in result.nodes_ordered() {
         // Try gr1 first, then gr2; if node exists in neither, parse as integer or keep as string
         let py_key = if gr1.has_node(node) {
@@ -7141,6 +7168,7 @@ fn rust_graph_to_py_with_source_edge_attrs(
     source_gr: &GraphRef<'_>,
 ) -> PyResult<PyObject> {
     let mut py_graph = PyGraph::new_empty(py)?;
+    py_graph.inner = fnx_classes::Graph::new(result.mode());
     for node in result.nodes_ordered() {
         let py_key = source_gr.py_node_key(py, node);
         py_graph.node_key_map.insert(node.to_owned(), py_key);
@@ -7168,6 +7196,7 @@ fn rust_graph_to_py_with_source_edge_attrs(
 /// when the canonical keys are numeric.
 fn rust_graph_to_py_standalone(py: Python<'_>, result: &fnx_classes::Graph) -> PyResult<PyObject> {
     let mut py_graph = PyGraph::new_empty(py)?;
+    py_graph.inner = fnx_classes::Graph::new(result.mode());
     for node in result.nodes_ordered() {
         let py_key = if let Ok(i) = node.parse::<i64>() {
             crate::unwrap_infallible(i.into_pyobject(py))
@@ -7200,6 +7229,7 @@ fn rust_digraph_to_py_standalone(
     result: &fnx_classes::digraph::DiGraph,
 ) -> PyResult<PyObject> {
     let mut py_graph = crate::digraph::PyDiGraph::new_empty(py)?;
+    py_graph.inner = fnx_classes::digraph::DiGraph::new(result.mode());
     for node in result.nodes_ordered() {
         let py_key = crate::unwrap_infallible(node.to_owned().into_pyobject(py))
             .into_any()
@@ -7226,6 +7256,7 @@ fn rust_graph_to_py_subgraph(
     source_gr: &GraphRef<'_>,
 ) -> PyResult<PyObject> {
     let mut py_graph = PyGraph::new_empty(py)?;
+    py_graph.inner = fnx_classes::Graph::new(result.mode());
     py_graph.graph_attrs = source_gr.graph_attrs().bind(py).copy()?.unbind();
     for node in result.nodes_ordered() {
         py_graph
@@ -7256,6 +7287,7 @@ fn rust_digraph_to_py_subgraph(
     source_gr: &GraphRef<'_>,
 ) -> PyResult<PyObject> {
     let mut py_graph = PyDiGraph::new_empty(py)?;
+    py_graph.inner = fnx_classes::digraph::DiGraph::new(result.mode());
     py_graph.graph_attrs = source_gr.graph_attrs().bind(py).copy()?.unbind();
     for node in result.nodes_ordered() {
         py_graph
@@ -12950,4 +12982,158 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m
     )?)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fnx_classes::digraph::MultiDiGraph;
+    use fnx_classes::{AttrMap, MultiGraph};
+    use fnx_runtime::CompatibilityMode;
+
+    fn ensure_python() {
+        pyo3::prepare_freethreaded_python();
+    }
+
+    #[test]
+    fn multigraph_projections_preserve_mode() {
+        let mut graph = MultiGraph::new(CompatibilityMode::Hardened);
+        let mut attrs = AttrMap::new();
+        attrs.insert("weight".to_owned(), 2.0.into());
+        graph
+            .add_edge_with_attrs("u".to_owned(), "v".to_owned(), attrs)
+            .expect("edge should add");
+
+        let simple = multigraph_to_simple_graph(&graph);
+        let weighted = multigraph_to_weighted_simple_graph(&graph, "weight");
+
+        assert_eq!(simple.mode(), CompatibilityMode::Hardened);
+        assert_eq!(simple.runtime_policy().mode(), CompatibilityMode::Hardened);
+        assert_eq!(weighted.mode(), CompatibilityMode::Hardened);
+        assert_eq!(
+            weighted.runtime_policy().mode(),
+            CompatibilityMode::Hardened
+        );
+    }
+
+    #[test]
+    fn multidigraph_projections_preserve_mode() {
+        let mut graph = MultiDiGraph::new(CompatibilityMode::Hardened);
+        let mut attrs = AttrMap::new();
+        attrs.insert("weight".to_owned(), 3.0.into());
+        graph
+            .add_edge_with_attrs("u".to_owned(), "v".to_owned(), attrs)
+            .expect("edge should add");
+
+        let simple = multidigraph_to_simple_digraph(&graph);
+        let weighted = multidigraph_to_weighted_simple_digraph(&graph, "weight");
+
+        assert_eq!(simple.mode(), CompatibilityMode::Hardened);
+        assert_eq!(simple.runtime_policy().mode(), CompatibilityMode::Hardened);
+        assert_eq!(weighted.mode(), CompatibilityMode::Hardened);
+        assert_eq!(
+            weighted.runtime_policy().mode(),
+            CompatibilityMode::Hardened
+        );
+    }
+
+    #[test]
+    fn spanning_helpers_preserve_mode() {
+        ensure_python();
+        Python::with_gil(|py| {
+            let mut graph = PyGraph::new_empty(py).expect("graph should initialize");
+            graph.inner = fnx_classes::Graph::new(CompatibilityMode::Hardened);
+            let mut attrs = AttrMap::new();
+            attrs.insert("weight".to_owned(), 1.0.into());
+            graph
+                .inner
+                .add_edge_with_attrs("a".to_owned(), "b".to_owned(), attrs)
+                .expect("edge should add");
+
+            let source = Py::new(py, graph).expect("py graph should initialize");
+
+            {
+                let borrow = source.bind(py).borrow();
+                let gr = GraphRef::Undirected(borrow);
+                let sanitized = spanning_input_graph(py, &gr, "weight", false)
+                    .expect("sanitization should work");
+                assert_eq!(sanitized.mode(), CompatibilityMode::Hardened);
+                assert_eq!(
+                    sanitized.runtime_policy().mode(),
+                    CompatibilityMode::Hardened
+                );
+            }
+
+            let borrow = source.bind(py).borrow();
+            let tree = undirected_spanning_edges_to_pygraph(
+                py,
+                &borrow,
+                &[("a".to_owned(), "b".to_owned())],
+            )
+            .expect("tree conversion should work");
+            assert_eq!(tree.inner.mode(), CompatibilityMode::Hardened);
+            assert_eq!(
+                tree.inner.runtime_policy().mode(),
+                CompatibilityMode::Hardened
+            );
+        });
+    }
+
+    #[test]
+    fn python_algorithm_wrappers_preserve_mode() {
+        ensure_python();
+        Python::with_gil(|py| {
+            let mut multigraph = PyMultiGraph {
+                inner: MultiGraph::new(CompatibilityMode::Hardened),
+                node_key_map: HashMap::new(),
+                node_py_attrs: HashMap::new(),
+                edge_py_attrs: HashMap::new(),
+                graph_attrs: PyDict::new(py).unbind(),
+            };
+            let mut weighted_attrs = AttrMap::new();
+            weighted_attrs.insert("weight".to_owned(), 1.0.into());
+            multigraph
+                .inner
+                .add_edge_with_attrs("a".to_owned(), "b".to_owned(), weighted_attrs)
+                .expect("edge should add");
+            let multigraph = Py::new(py, multigraph).expect("py multigraph should initialize");
+
+            let mst =
+                minimum_spanning_tree(py, multigraph.bind(py).as_any(), "weight").expect("mst");
+            assert_eq!(mst.inner.mode(), CompatibilityMode::Hardened);
+            assert_eq!(
+                mst.inner.runtime_policy().mode(),
+                CompatibilityMode::Hardened
+            );
+
+            let mut graph = PyGraph::new_empty(py).expect("graph should initialize");
+            graph.inner = fnx_classes::Graph::new(CompatibilityMode::Hardened);
+            graph
+                .inner
+                .add_edge("a".to_owned(), "b".to_owned())
+                .expect("edge should add");
+            graph
+                .inner
+                .add_edge("b".to_owned(), "c".to_owned())
+                .expect("edge should add");
+            let graph = Py::new(py, graph).expect("py graph should initialize");
+
+            let core =
+                k_core_rust(py, graph.bind(py).as_any(), None).expect("k-core should succeed");
+            let core_ref = core.bind(py).borrow();
+            assert_eq!(core_ref.inner.mode(), CompatibilityMode::Hardened);
+            assert_eq!(
+                core_ref.inner.runtime_policy().mode(),
+                CompatibilityMode::Hardened
+            );
+
+            let dfs = dfs_tree(py, graph.bind(py).as_any(), None, None, None)
+                .expect("dfs tree should succeed");
+            assert_eq!(dfs.inner.mode(), CompatibilityMode::Hardened);
+            assert_eq!(
+                dfs.inner.runtime_policy().mode(),
+                CompatibilityMode::Hardened
+            );
+        });
+    }
 }
