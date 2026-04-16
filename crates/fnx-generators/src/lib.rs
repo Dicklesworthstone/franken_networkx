@@ -105,6 +105,29 @@ impl GraphGenerator {
         &self.runtime_policy
     }
 
+    fn finish_graph_report(&self, mut graph: Graph, warnings: Vec<String>) -> GenerationReport {
+        graph.set_runtime_policy(self.runtime_policy.clone());
+        GenerationReport { graph, warnings }
+    }
+
+    fn finish_digraph_report(
+        &self,
+        mut graph: DiGraph,
+        warnings: Vec<String>,
+    ) -> DiGenerationReport {
+        graph.set_runtime_policy(self.runtime_policy.clone());
+        DiGenerationReport { graph, warnings }
+    }
+
+    fn finish_multidigraph_report(
+        &self,
+        mut graph: MultiDiGraph,
+        warnings: Vec<String>,
+    ) -> MultiDiGenerationReport {
+        graph.set_runtime_policy(self.runtime_policy.clone());
+        MultiDiGenerationReport { graph, warnings }
+    }
+
     pub fn empty_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
         let (n, warnings) = self.validate_n("empty_graph", n, MAX_N_GENERIC)?;
         let (graph, _) = graph_with_n_nodes(self.mode, n);
@@ -114,7 +137,7 @@ impl GraphGenerator {
             0.02,
             format!("generated empty graph with n={n}"),
         );
-        Ok(GenerationReport { graph, warnings })
+        Ok(self.finish_graph_report(graph, warnings))
     }
 
     pub fn path_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
@@ -136,7 +159,7 @@ impl GraphGenerator {
             0.03,
             format!("generated path graph with n={n}"),
         );
-        Ok(GenerationReport { graph, warnings })
+        Ok(self.finish_graph_report(graph, warnings))
     }
 
     pub fn star_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
@@ -160,7 +183,7 @@ impl GraphGenerator {
             0.03,
             format!("generated star graph with spokes={n}"),
         );
-        Ok(GenerationReport { graph, warnings })
+        Ok(self.finish_graph_report(graph, warnings))
     }
 
     pub fn cycle_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
@@ -210,7 +233,7 @@ impl GraphGenerator {
             0.03,
             format!("generated cycle graph with n={n}"),
         );
-        Ok(GenerationReport { graph, warnings })
+        Ok(self.finish_graph_report(graph, warnings))
     }
 
     pub fn complete_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
@@ -234,7 +257,7 @@ impl GraphGenerator {
             0.05,
             format!("generated complete graph with n={n}"),
         );
-        Ok(GenerationReport { graph, warnings })
+        Ok(self.finish_graph_report(graph, warnings))
     }
 
     pub fn gnp_random_graph(
@@ -275,7 +298,7 @@ impl GraphGenerator {
             if warnings.is_empty() { 0.08 } else { 0.35 },
             format!("generated gnp graph with n={n}, p={p}, seed={seed}"),
         );
-        Ok(GenerationReport { graph, warnings })
+        Ok(self.finish_graph_report(graph, warnings))
     }
 
     /// Generate a Watts-Strogatz small-world graph.
@@ -366,7 +389,7 @@ impl GraphGenerator {
             if warnings.is_empty() { 0.08 } else { 0.35 },
             format!("generated watts-strogatz graph with n={n}, k={k}, p={p}, seed={seed}"),
         );
-        Ok(GenerationReport { graph, warnings })
+        Ok(self.finish_graph_report(graph, warnings))
     }
 
     /// Generate a Barabási-Albert preferential attachment graph.
@@ -439,7 +462,7 @@ impl GraphGenerator {
             0.08,
             format!("generated barabasi-albert graph with n={n}, m={m}, seed={seed}"),
         );
-        Ok(GenerationReport { graph, warnings })
+        Ok(self.finish_graph_report(graph, warnings))
     }
 
     fn validate_n(
@@ -583,7 +606,7 @@ impl GraphGenerator {
             0.08,
             format!("generated newman-watts-strogatz graph with n={n}, k={k}, p={p}, seed={seed}"),
         );
-        Ok(GenerationReport { graph, warnings })
+        Ok(self.finish_graph_report(graph, warnings))
     }
 
     /// Generate a connected Watts-Strogatz small-world graph.
@@ -709,7 +732,7 @@ impl GraphGenerator {
                     0.08,
                     format!("generated random regular graph with n={n}, d={d}, seed={seed}"),
                 );
-                return Ok(GenerationReport { graph, warnings });
+                return Ok(self.finish_graph_report(graph, warnings));
             }
         }
 
@@ -834,7 +857,7 @@ impl GraphGenerator {
             0.08,
             format!("generated powerlaw cluster graph with n={n}, m={m}, p={p}, seed={seed}"),
         );
-        Ok(GenerationReport { graph, warnings })
+        Ok(self.finish_graph_report(graph, warnings))
     }
 
     /// Fast G(n,p) random graph using Batagelj-Brandes algorithm.
@@ -870,7 +893,7 @@ impl GraphGenerator {
                 0.05,
                 format!("fast_gnp empty: n={n}, p={p}"),
             );
-            return Ok(GenerationReport { graph, warnings });
+            return Ok(self.finish_graph_report(graph, warnings));
         }
         if p >= 1.0 {
             // Complete graph
@@ -890,7 +913,7 @@ impl GraphGenerator {
                 0.05,
                 format!("fast_gnp complete: n={n}, p={p}"),
             );
-            return Ok(GenerationReport { graph, warnings });
+            return Ok(self.finish_graph_report(graph, warnings));
         }
 
         let mut rng = PythonRandom::new(seed);
@@ -925,7 +948,7 @@ impl GraphGenerator {
             0.08,
             format!("generated fast_gnp graph: n={n}, p={p}, directed={directed}, seed={seed}"),
         );
-        Ok(GenerationReport { graph, warnings })
+        Ok(self.finish_graph_report(graph, warnings))
     }
 
     pub fn fast_gnp_random_digraph(
@@ -948,7 +971,7 @@ impl GraphGenerator {
                 0.05,
                 format!("fast_gnp digraph empty: n={n}, p={p}"),
             );
-            return Ok(DiGenerationReport { graph, warnings });
+            return Ok(self.finish_digraph_report(graph, warnings));
         }
         if p >= 1.0 {
             for i in 0..n {
@@ -969,7 +992,7 @@ impl GraphGenerator {
                 0.05,
                 format!("fast_gnp digraph complete: n={n}, p={p}"),
             );
-            return Ok(DiGenerationReport { graph, warnings });
+            return Ok(self.finish_digraph_report(graph, warnings));
         }
 
         let mut rng = PythonRandom::new(seed);
@@ -1027,7 +1050,7 @@ impl GraphGenerator {
             0.08,
             format!("generated fast_gnp digraph: n={n}, p={p}, seed={seed}"),
         );
-        Ok(DiGenerationReport { graph, warnings })
+        Ok(self.finish_digraph_report(graph, warnings))
     }
 
     /// Generate a growing network digraph (GN model).
@@ -1044,7 +1067,7 @@ impl GraphGenerator {
                 0.05,
                 "gn_graph n=0".to_owned(),
             );
-            return Ok(DiGenerationReport { graph, warnings });
+            return Ok(self.finish_digraph_report(graph, warnings));
         }
         let _ = graph.add_node("0".to_owned());
         if n == 1 {
@@ -1054,7 +1077,7 @@ impl GraphGenerator {
                 0.05,
                 "gn_graph n=1".to_owned(),
             );
-            return Ok(DiGenerationReport { graph, warnings });
+            return Ok(self.finish_digraph_report(graph, warnings));
         }
 
         let mut rng = PythonRandom::new(seed);
@@ -1084,7 +1107,7 @@ impl GraphGenerator {
             0.08,
             format!("generated gn_graph: n={n}, seed={seed}"),
         );
-        Ok(DiGenerationReport { graph, warnings })
+        Ok(self.finish_digraph_report(graph, warnings))
     }
 
     /// Generate a growing network with redirection digraph (GNR model).
@@ -1106,7 +1129,7 @@ impl GraphGenerator {
                 0.05,
                 "gnr_graph n=0".to_owned(),
             );
-            return Ok(DiGenerationReport { graph, warnings });
+            return Ok(self.finish_digraph_report(graph, warnings));
         }
         let _ = graph.add_node("0".to_owned());
         let mut rng = PythonRandom::new(seed);
@@ -1139,7 +1162,7 @@ impl GraphGenerator {
             0.08,
             format!("generated gnr_graph: n={n}, p={p}, seed={seed}"),
         );
-        Ok(DiGenerationReport { graph, warnings })
+        Ok(self.finish_digraph_report(graph, warnings))
     }
 
     /// Generate a growing network with copying digraph (GNC model).
@@ -1160,7 +1183,7 @@ impl GraphGenerator {
                 0.05,
                 "gnc_graph n=0".to_owned(),
             );
-            return Ok(DiGenerationReport { graph, warnings });
+            return Ok(self.finish_digraph_report(graph, warnings));
         }
         let _ = graph.add_node("0".to_owned());
         let mut rng = PythonRandom::new(seed);
@@ -1197,7 +1220,7 @@ impl GraphGenerator {
             0.08,
             format!("generated gnc_graph: n={n}, seed={seed}"),
         );
-        Ok(DiGenerationReport { graph, warnings })
+        Ok(self.finish_digraph_report(graph, warnings))
     }
 
     /// Generate a scale-free directed graph using Bollobás's model.
@@ -1314,7 +1337,7 @@ impl GraphGenerator {
                 "generated scale_free_graph: n={n}, α={alpha}, β={beta}, γ={gamma}, δ_in={delta_in}, δ_out={delta_out}, seed={seed}"
             ),
         );
-        Ok(MultiDiGenerationReport { graph, warnings })
+        Ok(self.finish_multidigraph_report(graph, warnings))
     }
 
     fn record(
@@ -2233,6 +2256,39 @@ mod tests {
                 .is_empty()
         );
         assert!(generator.runtime_policy().posterior().observation_count >= 1);
+    }
+
+    #[test]
+    fn result_graph_inherits_generator_runtime_policy() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .path_graph(4)
+            .expect("path graph generation should succeed");
+
+        assert_eq!(report.graph.runtime_policy(), generator.runtime_policy());
+        assert_eq!(report.graph.evidence_ledger(), generator.evidence_ledger());
+    }
+
+    #[test]
+    fn result_digraph_inherits_generator_runtime_policy() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .gn_graph(6, 1)
+            .expect("gn_graph generation should succeed");
+
+        assert_eq!(report.graph.runtime_policy(), generator.runtime_policy());
+        assert_eq!(report.graph.evidence_ledger(), generator.evidence_ledger());
+    }
+
+    #[test]
+    fn result_multidigraph_inherits_generator_runtime_policy() {
+        let mut generator = GraphGenerator::strict();
+        let report = generator
+            .scale_free_graph(6, 0.41, 0.54, 0.05, 0.2, 0.0, None, 1)
+            .expect("scale_free_graph generation should succeed");
+
+        assert_eq!(report.graph.runtime_policy(), generator.runtime_policy());
+        assert_eq!(report.graph.evidence_ledger(), generator.evidence_ledger());
     }
 
     proptest! {
