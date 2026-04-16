@@ -1612,7 +1612,7 @@ impl CgsePolicyEngine {
         {
             DecisionAction::FailClosed
         } else {
-            decision_theoretic_action(self.mode, clamped_probability, false)
+            RuntimePolicy::new(self.mode).action_for(clamped_probability, false)
         };
 
         let rationale = if nan_detected {
@@ -3766,9 +3766,9 @@ impl Default for GpdPrior {
     fn default() -> Self {
         // Weakly informative priors centered on light tails
         Self {
-            shape_mean: 0.1,      // Slight positive shape (common for latency)
-            shape_variance: 0.25, // Allows range roughly [-0.9, 1.1]
-            log_scale_mean: 0.0,  // Scale prior centered at 1.0
+            shape_mean: 0.1,         // Slight positive shape (common for latency)
+            shape_variance: 0.25,    // Allows range roughly [-0.9, 1.1]
+            log_scale_mean: 0.0,     // Scale prior centered at 1.0
             log_scale_variance: 4.0, // Wide prior on scale
         }
     }
@@ -3856,7 +3856,8 @@ impl BayesianGpdEstimator {
         if self.exceedances.len() < 2 {
             // Not enough data - use prior
             self.posterior_shape = Some((self.prior.shape_mean, self.prior.shape_variance));
-            self.posterior_log_scale = Some((self.prior.log_scale_mean, self.prior.log_scale_variance));
+            self.posterior_log_scale =
+                Some((self.prior.log_scale_mean, self.prior.log_scale_variance));
             return;
         }
 
@@ -3864,7 +3865,12 @@ impl BayesianGpdEstimator {
 
         // Method of moments estimates
         let mean: f64 = self.exceedances.iter().sum::<f64>() / n;
-        let variance: f64 = self.exceedances.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n;
+        let variance: f64 = self
+            .exceedances
+            .iter()
+            .map(|x| (x - mean).powi(2))
+            .sum::<f64>()
+            / n;
 
         // MoM estimators for GPD
         let mom_shape = 0.5 * (1.0 - mean.powi(2) / variance);
@@ -3883,8 +3889,8 @@ impl BayesianGpdEstimator {
         } else {
             mean.ln()
         };
-        let posterior_log_scale_mean = log_scale_shrink * self.prior.log_scale_mean
-            + (1.0 - log_scale_shrink) * mom_log_scale;
+        let posterior_log_scale_mean =
+            log_scale_shrink * self.prior.log_scale_mean + (1.0 - log_scale_shrink) * mom_log_scale;
         let posterior_log_scale_var = log_scale_shrink * self.prior.log_scale_variance;
 
         self.posterior_shape = Some((posterior_shape_mean, posterior_shape_var));
@@ -5213,6 +5219,16 @@ mod tests {
         let right = engine.evaluate_at(CgsePolicyRule::R08, Some("CGSE-AMB-008"), 0.3, false, 42);
         assert_eq!(left, right);
         assert_eq!(left.decision.action, DecisionAction::FullValidate);
+    }
+
+    #[test]
+    fn cgse_policy_engine_allowlisted_path_matches_runtime_policy_action() {
+        let engine = CgsePolicyEngine::new(CompatibilityMode::Strict);
+        let decision =
+            engine.evaluate_at(CgsePolicyRule::R08, Some("CGSE-AMB-008"), 0.3, false, 42);
+        let expected = super::RuntimePolicy::new(CompatibilityMode::Strict).action_for(0.3, false);
+
+        assert_eq!(decision.decision.action, expected);
     }
 
     #[test]
@@ -7718,10 +7734,17 @@ mod tests {
 
         // Heavy tail should have higher quantiles than exponential
         let p99 = params.quantile(0.99);
-        assert!(p99 > 5.0, "Heavy tail P99 should exceed exponential, got {}", p99);
+        assert!(
+            p99 > 5.0,
+            "Heavy tail P99 should exceed exponential, got {}",
+            p99
+        );
 
         let p999 = params.quantile(0.999);
-        assert!(p999 > p99 * 2.0, "P99.9 should be much larger than P99 for heavy tail");
+        assert!(
+            p999 > p99 * 2.0,
+            "P99.9 should be much larger than P99 for heavy tail"
+        );
     }
 
     #[test]
