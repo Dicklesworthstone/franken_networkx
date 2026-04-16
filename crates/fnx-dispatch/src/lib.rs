@@ -1,8 +1,8 @@
 #![forbid(unsafe_code)]
 
 use fnx_runtime::{
-    CompatibilityMode, DecisionAction, DecisionRecord, EvidenceLedger, EvidenceTerm,
-    decision_theoretic_action, unix_time_ms,
+    CompatibilityMode, DecisionAction, EvidenceLedger, EvidenceTerm, RuntimePolicy,
+    decision_theoretic_action,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -339,7 +339,7 @@ impl CoverageGapReport {
 pub struct BackendRegistry {
     mode: CompatibilityMode,
     backends: Vec<BackendSpec>,
-    ledger: EvidenceLedger,
+    runtime_policy: RuntimePolicy,
 }
 
 impl BackendRegistry {
@@ -348,7 +348,7 @@ impl BackendRegistry {
         Self {
             mode,
             backends: Vec::new(),
-            ledger: EvidenceLedger::new(),
+            runtime_policy: RuntimePolicy::new(mode),
         }
     }
 
@@ -408,7 +408,12 @@ impl BackendRegistry {
 
     #[must_use]
     pub fn evidence_ledger(&self) -> &EvidenceLedger {
-        &self.ledger
+        self.runtime_policy.decision_log()
+    }
+
+    #[must_use]
+    pub fn runtime_policy(&self) -> &RuntimePolicy {
+        &self.runtime_policy
     }
 
     pub fn resolve(
@@ -504,18 +509,12 @@ impl BackendRegistry {
         selected_backend: Option<&str>,
         reason: &str,
     ) {
-        self.ledger.record(DecisionRecord {
-            ts_unix_ms: unix_time_ms(),
-            operation: format!("dispatch::{}", request.operation),
-            mode: self.mode,
+        self.runtime_policy.record(
+            &format!("dispatch::{}", request.operation),
             action,
-            incompatibility_probability: if request.risk_probability.is_nan() {
-                1.0
-            } else {
-                request.risk_probability.clamp(0.0, 1.0)
-            },
-            rationale: reason.to_owned(),
-            evidence: vec![
+            request.risk_probability,
+            reason,
+            vec![
                 EvidenceTerm {
                     signal: "requested_backend".to_owned(),
                     observed_value: request
@@ -540,7 +539,7 @@ impl BackendRegistry {
                     },
                 },
             ],
-        });
+        );
     }
 }
 
@@ -712,6 +711,42 @@ mod tests {
             .expect("dispatch should succeed in hardened mode");
         assert_eq!(decision.action, DecisionAction::FullValidate);
         assert_eq!(decision.selected_backend, Some("native".to_owned()));
+    }
+
+    #[test]
+    fn runtime_policy_tracks_hardened_dispatch_decision() {
+        let mut registry = BackendRegistry::hardened();
+        registry.register_backend(BackendSpec {
+            name: "native".to_owned(),
+            priority: 100,
+            supported_features: set(&["convert"]),
+            allow_in_strict: true,
+            allow_in_hardened: true,
+        });
+
+        let request = DispatchRequest {
+            operation: "convert".to_owned(),
+            requested_backend: None,
+            required_features: set(&["convert"]),
+            risk_probability: 0.3,
+            unknown_incompatible_feature: false,
+        };
+
+        registry
+            .resolve(&request)
+            .expect("dispatch should succeed in hardened mode");
+        assert_eq!(
+            registry.runtime_policy().mode(),
+            CompatibilityMode::Hardened
+        );
+        assert!(
+            !registry
+                .runtime_policy()
+                .decision_log()
+                .records()
+                .is_empty()
+        );
+        assert!(registry.runtime_policy().posterior().observation_count >= 1);
     }
 
     #[test]
