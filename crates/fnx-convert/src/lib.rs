@@ -3,9 +3,7 @@
 use fnx_classes::digraph::{DiGraph, MultiDiGraph};
 use fnx_classes::{AttrMap, Graph, GraphError, GraphSnapshot, MultiGraph};
 use fnx_dispatch::{BackendRegistry, BackendSpec, DispatchError, DispatchRequest};
-use fnx_runtime::{
-    CompatibilityMode, DecisionAction, DecisionRecord, EvidenceLedger, EvidenceTerm, unix_time_ms,
-};
+use fnx_runtime::{CompatibilityMode, DecisionAction, EvidenceLedger, EvidenceTerm, RuntimePolicy};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -109,7 +107,7 @@ impl From<GraphError> for ConvertError {
 pub struct GraphConverter {
     mode: CompatibilityMode,
     dispatch: BackendRegistry,
-    ledger: EvidenceLedger,
+    runtime_policy: RuntimePolicy,
 }
 
 impl GraphConverter {
@@ -130,7 +128,7 @@ impl GraphConverter {
         Self {
             mode,
             dispatch,
-            ledger: EvidenceLedger::new(),
+            runtime_policy: RuntimePolicy::new(mode),
         }
     }
 
@@ -146,7 +144,12 @@ impl GraphConverter {
 
     #[must_use]
     pub fn evidence_ledger(&self) -> &EvidenceLedger {
-        &self.ledger
+        self.runtime_policy.decision_log()
+    }
+
+    #[must_use]
+    pub fn runtime_policy(&self) -> &RuntimePolicy {
+        &self.runtime_policy
     }
 
     pub fn from_edge_list(
@@ -177,7 +180,7 @@ impl GraphConverter {
         Ok(ConvertReport {
             graph,
             warnings,
-            ledger: self.ledger.clone(),
+            ledger: self.runtime_policy.decision_log().clone(),
         })
     }
 
@@ -209,7 +212,7 @@ impl GraphConverter {
         Ok(DiConvertReport {
             graph,
             warnings,
-            ledger: self.ledger.clone(),
+            ledger: self.runtime_policy.decision_log().clone(),
         })
     }
 
@@ -241,7 +244,7 @@ impl GraphConverter {
         Ok(MultiConvertReport {
             graph,
             warnings,
-            ledger: self.ledger.clone(),
+            ledger: self.runtime_policy.decision_log().clone(),
         })
     }
 
@@ -273,7 +276,7 @@ impl GraphConverter {
         Ok(MultiDiConvertReport {
             graph,
             warnings,
-            ledger: self.ledger.clone(),
+            ledger: self.runtime_policy.decision_log().clone(),
         })
     }
 
@@ -405,7 +408,7 @@ impl GraphConverter {
         Ok(ConvertReport {
             graph,
             warnings,
-            ledger: self.ledger.clone(),
+            ledger: self.runtime_policy.decision_log().clone(),
         })
     }
 
@@ -437,7 +440,7 @@ impl GraphConverter {
         Ok(DiConvertReport {
             graph,
             warnings,
-            ledger: self.ledger.clone(),
+            ledger: self.runtime_policy.decision_log().clone(),
         })
     }
 
@@ -469,7 +472,7 @@ impl GraphConverter {
         Ok(MultiConvertReport {
             graph,
             warnings,
-            ledger: self.ledger.clone(),
+            ledger: self.runtime_policy.decision_log().clone(),
         })
     }
 
@@ -501,7 +504,7 @@ impl GraphConverter {
         Ok(MultiDiConvertReport {
             graph,
             warnings,
-            ledger: self.ledger.clone(),
+            ledger: self.runtime_policy.decision_log().clone(),
         })
     }
 
@@ -710,14 +713,12 @@ impl GraphConverter {
         message: &str,
         incompatibility_probability: f64,
     ) {
-        self.ledger.record(DecisionRecord {
-            ts_unix_ms: unix_time_ms(),
-            operation: operation.to_owned(),
-            mode: self.mode,
+        self.runtime_policy.record(
+            operation,
             action,
-            incompatibility_probability: incompatibility_probability.clamp(0.0, 1.0),
-            rationale: message.to_owned(),
-            evidence: vec![EvidenceTerm {
+            incompatibility_probability,
+            message,
+            vec![EvidenceTerm {
                 signal: "message".to_owned(),
                 observed_value: message.to_owned(),
                 log_likelihood_ratio: if action == DecisionAction::Allow {
@@ -726,7 +727,7 @@ impl GraphConverter {
                     2.0
                 },
             }],
-        });
+        );
     }
 }
 
@@ -736,7 +737,7 @@ mod tests {
         AdjacencyEntry, AdjacencyPayload, ConvertError, EdgeListPayload, EdgeRecord, GraphConverter,
     };
     use fnx_classes::AttrMap;
-    use fnx_runtime::CgseValue;
+    use fnx_runtime::{CgseValue, CompatibilityMode};
     use std::collections::BTreeMap;
 
     #[test]
@@ -927,5 +928,36 @@ mod tests {
             .expect("conversion should succeed");
         assert_eq!(report.graph.node_count(), 2);
         assert_eq!(report.graph.edge_count(), 2);
+    }
+
+    #[test]
+    fn runtime_policy_tracks_hardened_conversion_recovery() {
+        let mut converter = GraphConverter::hardened();
+        let payload = EdgeListPayload {
+            nodes: vec!["a".to_owned(), "b".to_owned()],
+            edges: vec![EdgeRecord {
+                left: "a".to_owned(),
+                right: "b".to_owned(),
+                key: Some(9),
+                attrs: AttrMap::new(),
+            }],
+        };
+
+        let report = converter
+            .from_edge_list(&payload)
+            .expect("hardened conversion should recover by dropping the key");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(
+            converter.runtime_policy().mode(),
+            CompatibilityMode::Hardened
+        );
+        assert!(
+            !converter
+                .runtime_policy()
+                .decision_log()
+                .records()
+                .is_empty()
+        );
+        assert!(converter.runtime_policy().posterior().observation_count >= 1);
     }
 }
