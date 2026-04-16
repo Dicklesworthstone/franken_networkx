@@ -384,7 +384,7 @@ fn multigraph_to_weighted_simple_graph(
     mg: &fnx_classes::MultiGraph,
     weight_attr: &str,
 ) -> fnx_classes::Graph {
-    let mut g = fnx_classes::Graph::strict();
+    let mut g = fnx_classes::Graph::new(mg.mode());
     let mut selected = HashMap::<(String, String), (f64, usize)>::new();
 
     for node in mg.nodes_ordered() {
@@ -424,7 +424,7 @@ fn multigraph_to_weighted_simple_graph(
 fn multidigraph_to_simple_digraph(
     mdg: &fnx_classes::digraph::MultiDiGraph,
 ) -> fnx_classes::digraph::DiGraph {
-    let mut dg = fnx_classes::digraph::DiGraph::strict();
+    let mut dg = fnx_classes::digraph::DiGraph::new(mdg.mode());
     for node in mdg.nodes_ordered() {
         let attrs = mdg.node_attrs(node).cloned().unwrap_or_default();
         dg.add_node_with_attrs(node.to_owned(), attrs);
@@ -443,7 +443,7 @@ fn multidigraph_to_weighted_simple_digraph(
     mdg: &fnx_classes::digraph::MultiDiGraph,
     weight_attr: &str,
 ) -> fnx_classes::digraph::DiGraph {
-    let mut dg = fnx_classes::digraph::DiGraph::strict();
+    let mut dg = fnx_classes::digraph::DiGraph::new(mdg.mode());
     let mut selected = HashMap::<(String, String), (f64, usize)>::new();
 
     for node in mdg.nodes_ordered() {
