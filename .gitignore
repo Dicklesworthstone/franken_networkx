@@ -155,3 +155,19 @@ storage.sqlite3-wal.corrupt-*
 .beads/*.pre_repair_*
 .beads/*.repair_candidate_*
 .beads/*.bak-corrupt
+
+# Beads ephemeral artifacts (recovery, bad/rebuild snapshots)
+.beads/*.bad_*
+.beads/*.backup_*
+.beads/*.rebuild_*
+.beads/recovery*/
+.beads_recovery/
+
+# Root-level agent scratch output
+/*.txt
+/*.log
+/*.json
+!package.json
+/*.out
+/*.py
+/*.sh
