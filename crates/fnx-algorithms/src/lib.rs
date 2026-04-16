@@ -14654,7 +14654,7 @@ pub fn greedy_modularity_communities(
 /// Matches `networkx.union(G, H)`.
 #[must_use]
 pub fn graph_union(g1: &Graph, g2: &Graph) -> Graph {
-    let mut result = Graph::strict();
+    let mut result = Graph::new(g1.mode());
     // Add all nodes and edges from G1
     for node in g1.nodes_ordered() {
         if let Some(attrs) = g1.node_attrs(node) {
@@ -14690,7 +14690,7 @@ pub fn graph_union(g1: &Graph, g2: &Graph) -> Graph {
 /// Matches `networkx.intersection(G, H)`.
 #[must_use]
 pub fn graph_intersection(g1: &Graph, g2: &Graph) -> Graph {
-    let mut result = Graph::strict();
+    let mut result = Graph::new(g1.mode());
     // Nodes in both
     for node in g1.nodes_ordered() {
         if g2.has_node(node) {
@@ -14718,7 +14718,7 @@ pub fn graph_intersection(g1: &Graph, g2: &Graph) -> Graph {
 /// Matches `networkx.compose(G, H)`.
 #[must_use]
 pub fn graph_compose(g1: &Graph, g2: &Graph) -> Graph {
-    let mut result = Graph::strict();
+    let mut result = Graph::new(g1.mode());
     // Start with all of G2
     for node in g2.nodes_ordered() {
         if let Some(attrs) = g2.node_attrs(node) {
@@ -14750,7 +14750,7 @@ pub fn graph_compose(g1: &Graph, g2: &Graph) -> Graph {
 /// Matches `networkx.difference(G, H)`.
 #[must_use]
 pub fn graph_difference(g1: &Graph, g2: &Graph) -> Graph {
-    let mut result = Graph::strict();
+    let mut result = Graph::new(g1.mode());
     // All nodes from G1
     for node in g1.nodes_ordered() {
         if let Some(attrs) = g1.node_attrs(node) {
@@ -14775,7 +14775,7 @@ pub fn graph_difference(g1: &Graph, g2: &Graph) -> Graph {
 /// Matches `networkx.symmetric_difference(G, H)`.
 #[must_use]
 pub fn graph_symmetric_difference(g1: &Graph, g2: &Graph) -> Graph {
-    let mut result = Graph::strict();
+    let mut result = Graph::new(g1.mode());
     // All nodes from both
     for node in g1.nodes_ordered() {
         if let Some(attrs) = g1.node_attrs(node) {
@@ -37219,6 +37219,31 @@ mod tests {
         assert!(sd.has_edge("a", "b"));
         assert!(sd.has_edge("c", "d"));
         assert!(!sd.has_edge("b", "c"));
+    }
+
+    #[test]
+    fn test_graph_operators_preserve_left_hand_hardened_mode() {
+        let mut g1 = Graph::hardened();
+        let _ = g1.add_edge("a", "b");
+        let _ = g1.add_edge("b", "c");
+
+        let mut g2 = Graph::strict();
+        let _ = g2.add_edge("b", "c");
+        let _ = g2.add_edge("c", "d");
+
+        let operators: [fn(&Graph, &Graph) -> Graph; 5] = [
+            graph_union,
+            graph_intersection,
+            graph_compose,
+            graph_difference,
+            graph_symmetric_difference,
+        ];
+
+        for operator in operators {
+            let result = operator(&g1, &g2);
+            assert_eq!(result.mode(), CompatibilityMode::Hardened);
+            assert_eq!(result.runtime_policy().mode(), CompatibilityMode::Hardened);
+        }
     }
 
     #[test]
