@@ -2124,7 +2124,7 @@ impl DriftFeedbackReport {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct LossMatrix {
     /// False allow: we allowed an actually incompatible operation.
     pub allow_false_negative: f64,
@@ -2198,7 +2198,7 @@ impl RuntimePolicyPosterior {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RuntimePolicy {
     mode: CompatibilityMode,
     allowlist: BTreeSet<String>,
