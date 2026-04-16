@@ -12994,7 +12994,7 @@ fn build_all_paths_from_preds(
 #[must_use]
 pub fn complement(graph: &Graph) -> Graph {
     let nodes: Vec<&str> = graph.nodes_ordered().into_iter().collect();
-    let mut result = Graph::new(graph.mode());
+    let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
 
     for &node in &nodes {
         result.add_node(node);
@@ -13015,7 +13015,7 @@ pub fn complement(graph: &Graph) -> Graph {
 #[must_use]
 pub fn complement_directed(digraph: &DiGraph) -> DiGraph {
     let nodes: Vec<&str> = digraph.nodes_ordered().into_iter().collect();
-    let mut result = DiGraph::new(digraph.mode());
+    let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
 
     for &node in &nodes {
         result.add_node(node);
@@ -25241,7 +25241,7 @@ pub fn bfs_labeled_edges(graph: &Graph, source: &str) -> Vec<(String, String, St
 /// Union of both graphs plus all cross-edges between G1 and G2 nodes.
 #[must_use]
 pub fn full_join(g1: &Graph, g2: &Graph) -> Graph {
-    let mut result = Graph::new(g1.mode());
+    let mut result = Graph::with_runtime_policy(g1.runtime_policy().clone());
     let g1_nodes: Vec<&str> = g1.nodes_ordered();
     let g2_nodes: Vec<&str> = g2.nodes_ordered();
 
@@ -25286,7 +25286,7 @@ fn pair_label(left: &str, right: &str) -> String {
 /// Matches `networkx.line_graph(G)`.
 #[must_use]
 pub fn line_graph(graph: &Graph) -> Graph {
-    let mut result = Graph::new(graph.mode());
+    let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
 
     // Collect edges with canonical ordering (sorted endpoints)
     let edges: Vec<(String, String)> = graph
@@ -25333,7 +25333,7 @@ pub fn line_graph(graph: &Graph) -> Graph {
 /// Matches `networkx.line_graph(G)` for directed graphs.
 #[must_use]
 pub fn line_graph_directed(digraph: &DiGraph) -> DiGraph {
-    let mut result = DiGraph::new(digraph.mode());
+    let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
 
     // Collect all edges
     let edges: Vec<(String, String)> = digraph
@@ -25377,7 +25377,7 @@ pub fn line_graph_directed(digraph: &DiGraph) -> DiGraph {
 /// Matches `networkx.cartesian_product(G, H)`.
 #[must_use]
 pub fn cartesian_product(g: &Graph, h: &Graph) -> Graph {
-    let mut result = Graph::new(g.mode());
+    let mut result = Graph::with_runtime_policy(g.runtime_policy().clone());
 
     let g_nodes = g.nodes_ordered();
     let h_nodes = h.nodes_ordered();
@@ -25414,7 +25414,7 @@ pub fn cartesian_product(g: &Graph, h: &Graph) -> Graph {
 /// Return the Cartesian product of two directed graphs.
 #[must_use]
 pub fn cartesian_product_directed(g: &DiGraph, h: &DiGraph) -> DiGraph {
-    let mut result = DiGraph::new(g.mode());
+    let mut result = DiGraph::with_runtime_policy(g.runtime_policy().clone());
 
     let g_nodes = g.nodes_ordered();
     let h_nodes = h.nodes_ordered();
@@ -25453,7 +25453,7 @@ pub fn cartesian_product_directed(g: &DiGraph, h: &DiGraph) -> DiGraph {
 /// Matches `networkx.tensor_product(G, H)`.
 #[must_use]
 pub fn tensor_product(g: &Graph, h: &Graph) -> Graph {
-    let mut result = Graph::new(g.mode());
+    let mut result = Graph::with_runtime_policy(g.runtime_policy().clone());
 
     let g_nodes = g.nodes_ordered();
     let h_nodes = h.nodes_ordered();
@@ -25504,7 +25504,7 @@ pub fn tensor_product(g: &Graph, h: &Graph) -> Graph {
 /// Return the tensor product of two directed graphs.
 #[must_use]
 pub fn tensor_product_directed(g: &DiGraph, h: &DiGraph) -> DiGraph {
-    let mut result = DiGraph::new(g.mode());
+    let mut result = DiGraph::with_runtime_policy(g.runtime_policy().clone());
 
     let g_nodes = g.nodes_ordered();
     let h_nodes = h.nodes_ordered();
@@ -25549,7 +25549,7 @@ pub fn tensor_product_directed(g: &DiGraph, h: &DiGraph) -> DiGraph {
 /// in the mapping keep their original labels.
 #[must_use]
 pub fn relabel_nodes(graph: &Graph, mapping: &std::collections::HashMap<String, String>) -> Graph {
-    let mut result = Graph::new(graph.mode());
+    let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
 
     // Add nodes with new labels
     for node in graph.nodes_ordered() {
@@ -25582,7 +25582,7 @@ pub fn relabel_nodes_directed(
     digraph: &DiGraph,
     mapping: &std::collections::HashMap<String, String>,
 ) -> DiGraph {
-    let mut result = DiGraph::new(digraph.mode());
+    let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
 
     for node in digraph.nodes_ordered() {
         let new_label = mapping
@@ -25633,7 +25633,7 @@ pub fn convert_node_labels_to_integers(
 /// redirected to `u`. Self-loops from the contraction are discarded.
 #[must_use]
 pub fn identified_nodes(graph: &Graph, u: &str, v: &str) -> Graph {
-    let mut result = Graph::new(graph.mode());
+    let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
 
     // Add all nodes except v
     for node in graph.nodes_ordered() {
@@ -25878,7 +25878,7 @@ pub fn node_degree_xy_directed(
 /// node. Returns the modified graph and a set of compressor node names.
 #[must_use]
 pub fn dedensify(graph: &Graph, threshold: usize) -> (Graph, Vec<String>) {
-    let mut result = Graph::new(graph.mode());
+    let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
     let nodes = graph.nodes_ordered();
 
     // Copy all nodes
@@ -26217,7 +26217,7 @@ pub fn ra_index_soundarajan_hopcroft(
 /// blocks if any edge connects their members.
 #[must_use]
 pub fn quotient_graph(graph: &Graph, partition: &[Vec<String>]) -> Graph {
-    let mut result = Graph::new(graph.mode());
+    let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
 
     // Map each node to its block index
     let mut node_to_block: std::collections::HashMap<&str, usize> =
@@ -26263,7 +26263,7 @@ pub fn quotient_graph(graph: &Graph, partition: &[Vec<String>]) -> Graph {
 /// 2. Co-parents (nodes sharing a child) are connected
 #[must_use]
 pub fn moral_graph(digraph: &DiGraph) -> Graph {
-    let mut result = Graph::new(digraph.mode());
+    let mut result = Graph::with_runtime_policy(digraph.runtime_policy().clone());
     for node in digraph.nodes_ordered() {
         let _ = result.add_node(node.to_owned());
     }
@@ -30395,7 +30395,7 @@ pub fn write_weighted_edgelist(graph: &Graph, weight_attr: &str, delimiter: &str
 /// a new graph with the attribute removed.
 #[must_use]
 pub fn remove_node_attributes(graph: &Graph, name: &str) -> Graph {
-    let mut result = Graph::new(graph.mode());
+    let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
     for node in graph.nodes_ordered() {
         if let Some(attrs) = graph.node_attrs(node) {
             let mut new_attrs = attrs.clone();
@@ -30512,6 +30512,7 @@ mod tests {
         cycle_basis,
         dag_longest_path,
         dag_longest_path_length,
+        dedensify,
         degree_centrality,
         degree_histogram,
         degree_mixing_dict,
@@ -30749,7 +30750,9 @@ mod tests {
         reciprocity,
         reconstruct_path,
         relabel_nodes,
+        relabel_nodes_directed,
         relaxed_caveman_graph,
+        remove_node_attributes,
         resource_allocation_index,
         reverse_digraph,
         rich_club_coefficient,
@@ -30825,7 +30828,7 @@ mod tests {
         structured_test_log_schema_version,
     };
     use proptest::prelude::*;
-    use std::collections::{BTreeMap, BTreeSet, HashSet};
+    use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
     /// Standard tolerance for floating-point assertions in tests.
     /// Matches DISTANCE_COMPARISON_EPSILON from the production constants.
@@ -42348,6 +42351,74 @@ mod tests {
         assert_eq!(tp.node_count(), 4);
         // Directed tensor: only (0,a) -> (1,b)
         assert_eq!(tp.edge_count(), 1);
+    }
+
+    #[test]
+    fn test_graph_utility_transforms_preserve_runtime_policy() {
+        let mut graph = Graph::hardened();
+        let _ = graph.add_node_with_attrs("a".to_owned(), single_attr("color", "red"));
+        let _ = graph.add_node_with_attrs("b".to_owned(), single_attr("color", "blue"));
+        let _ = graph.add_node_with_attrs("c".to_owned(), single_attr("color", "blue"));
+        let _ = graph.add_edge("a", "b");
+        let _ = graph.add_edge("b", "c");
+        let expected_policy = graph.runtime_policy().clone();
+
+        let mut other = Graph::strict();
+        let _ = other.add_edge("x", "y");
+
+        let mut mapping = HashMap::new();
+        mapping.insert("a".to_owned(), "alpha".to_owned());
+
+        let utilities = [
+            complement(&graph),
+            full_join(&graph, &other),
+            line_graph(&graph),
+            cartesian_product(&graph, &other),
+            tensor_product(&graph, &other),
+            relabel_nodes(&graph, &mapping),
+            identified_nodes(&graph, "a", "b"),
+            quotient_graph(
+                &graph,
+                &[vec!["a".to_owned(), "b".to_owned()], vec!["c".to_owned()]],
+            ),
+            remove_node_attributes(&graph, "color"),
+        ];
+
+        for result in &utilities {
+            assert_runtime_policy_preserved(&expected_policy, result.runtime_policy());
+        }
+
+        let (dedensified, _compressors) = dedensify(&graph, 1);
+        assert_runtime_policy_preserved(&expected_policy, dedensified.runtime_policy());
+    }
+
+    #[test]
+    fn test_directed_utility_transforms_preserve_runtime_policy() {
+        let mut digraph = DiGraph::hardened();
+        digraph.add_edge("a", "b").unwrap();
+        digraph.add_edge("b", "c").unwrap();
+        let expected_policy = digraph.runtime_policy().clone();
+
+        let mut other = DiGraph::strict();
+        other.add_edge("x", "y").unwrap();
+
+        let mut mapping = HashMap::new();
+        mapping.insert("a".to_owned(), "alpha".to_owned());
+
+        let utilities = [
+            complement_directed(&digraph),
+            line_graph_directed(&digraph),
+            cartesian_product_directed(&digraph, &other),
+            tensor_product_directed(&digraph, &other),
+            relabel_nodes_directed(&digraph, &mapping),
+        ];
+
+        for result in &utilities {
+            assert_runtime_policy_preserved(&expected_policy, result.runtime_policy());
+        }
+
+        let moral = moral_graph(&digraph);
+        assert_runtime_policy_preserved(&expected_policy, moral.runtime_policy());
     }
 
     // ---------------------------------------------------------------------------
