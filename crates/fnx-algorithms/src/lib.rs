@@ -7,7 +7,7 @@ use fnx_cgse::{
 };
 use fnx_classes::digraph::DiGraph;
 use fnx_classes::{Graph, GraphError};
-use fnx_runtime::CgseValue;
+use fnx_runtime::{CgseValue, RuntimePolicy};
 use mt19937::{MT19937, gen_res53};
 use mwmatching::{Matching as BlossomMatching, SENTINEL as BLOSSOM_SENTINEL};
 use serde::{Deserialize, Serialize};
@@ -27865,12 +27865,8 @@ fn compute_partition_mst(
     }
 }
 
-fn build_tree(
-    nodes: &[&str],
-    edges: &[(String, String)],
-    mode: fnx_runtime::CompatibilityMode,
-) -> Graph {
-    let mut tree = Graph::new(mode);
+fn build_tree(nodes: &[&str], edges: &[(String, String)], runtime_policy: &RuntimePolicy) -> Graph {
+    let mut tree = Graph::new(runtime_policy.mode());
     for &node in nodes {
         let _ = tree.add_node(node.to_owned());
     }
@@ -27886,7 +27882,7 @@ pub struct SpanningTreeIteratorState {
     minimum: bool,
     heap: Vec<QueueEntry>,
     nodes: Vec<String>,
-    mode: fnx_runtime::CompatibilityMode,
+    runtime_policy: RuntimePolicy,
     is_connected: bool,
     yielded_forest: bool,
 }
@@ -27899,7 +27895,7 @@ impl SpanningTreeIteratorState {
             .map(|s| (*s).to_owned())
             .collect();
         let n = nodes.len();
-        let mode = graph.mode();
+        let runtime_policy = graph.runtime_policy().clone();
         let mut is_conn = is_connected(graph).is_connected;
         let mut heap = Vec::new();
 
@@ -27931,7 +27927,7 @@ impl SpanningTreeIteratorState {
             minimum,
             heap,
             nodes,
-            mode,
+            runtime_policy,
             is_connected: is_conn,
             yielded_forest: false,
         }
@@ -27946,14 +27942,14 @@ impl Iterator for SpanningTreeIteratorState {
         if n == 0 {
             if !self.yielded_forest {
                 self.yielded_forest = true;
-                return Some(Graph::strict());
+                return Some(Graph::new(self.runtime_policy.mode()));
             }
             return None;
         }
         if n == 1 {
             if !self.yielded_forest {
                 self.yielded_forest = true;
-                let mut g = Graph::strict();
+                let mut g = Graph::new(self.runtime_policy.mode());
                 let _ = g.add_node(self.nodes[0].clone());
                 return Some(g);
             }
@@ -27974,7 +27970,7 @@ impl Iterator for SpanningTreeIteratorState {
                     .map(|edge| (edge.left.clone(), edge.right.clone()))
                     .collect();
                 let nodes_refs: Vec<&str> = self.nodes.iter().map(|s| s.as_str()).collect();
-                return Some(build_tree(&nodes_refs, &forest_edges, self.mode));
+                return Some(build_tree(&nodes_refs, &forest_edges, &self.runtime_policy));
             }
             return None;
         }
@@ -27992,7 +27988,7 @@ impl Iterator for SpanningTreeIteratorState {
             };
 
             let nodes_refs: Vec<&str> = self.nodes.iter().map(|s| s.as_str()).collect();
-            let tree = build_tree(&nodes_refs, &tree_edges, self.mode);
+            let tree = build_tree(&nodes_refs, &tree_edges, &self.runtime_policy);
 
             // Janssens-Sörensen child partition generation
             let mut p1 = entry.partition.clone();
@@ -28014,7 +28010,7 @@ impl Iterator for SpanningTreeIteratorState {
                     &self.weight_attr,
                     partition_attr,
                 ) {
-                    let p1_tree = build_tree(&nodes_refs, &p1_edges, self.mode);
+                    let p1_tree = build_tree(&nodes_refs, &p1_edges, &self.runtime_policy);
                     if is_connected(&p1_tree).is_connected {
                         partition_heap_push(
                             &mut self.heap,
@@ -28358,9 +28354,9 @@ pub fn maximum_spanning_arborescence_with_edge_partition(
 fn build_arborescence(
     nodes: &[&str],
     edges: &[(String, String)],
-    mode: fnx_runtime::CompatibilityMode,
+    runtime_policy: &RuntimePolicy,
 ) -> DiGraph {
-    let mut arb = DiGraph::new(mode);
+    let mut arb = DiGraph::new(runtime_policy.mode());
     for &node in nodes {
         arb.add_node(node.to_owned());
     }
@@ -28396,7 +28392,7 @@ pub struct ArborescenceIteratorState {
     minimum: bool,
     heap: Vec<QueueEntry>,
     nodes: Vec<String>,
-    mode: fnx_runtime::CompatibilityMode,
+    runtime_policy: RuntimePolicy,
     yielded_forest: bool,
 }
 
@@ -28408,7 +28404,7 @@ impl ArborescenceIteratorState {
             .map(|s| (*s).to_owned())
             .collect();
         let n = nodes.len();
-        let mode = digraph.mode();
+        let runtime_policy = digraph.runtime_policy().clone();
         let mut heap = Vec::new();
 
         if n > 1 {
@@ -28439,7 +28435,7 @@ impl ArborescenceIteratorState {
             minimum,
             heap,
             nodes,
-            mode,
+            runtime_policy,
             yielded_forest: false,
         })
     }
@@ -28453,14 +28449,14 @@ impl Iterator for ArborescenceIteratorState {
         if n == 0 {
             if !self.yielded_forest {
                 self.yielded_forest = true;
-                return Some(DiGraph::strict());
+                return Some(DiGraph::new(self.runtime_policy.mode()));
             }
             return None;
         }
         if n == 1 {
             if !self.yielded_forest {
                 self.yielded_forest = true;
-                let mut g = DiGraph::strict();
+                let mut g = DiGraph::new(self.runtime_policy.mode());
                 g.add_node(self.nodes[0].clone());
                 return Some(g);
             }
@@ -28479,7 +28475,7 @@ impl Iterator for ArborescenceIteratorState {
 
             let ordered_arb_edges = order_directed_edges_like_graph(&self.digraph, &arb_edges);
             let nodes_refs: Vec<&str> = self.nodes.iter().map(|s| s.as_str()).collect();
-            let arb = build_arborescence(&nodes_refs, &ordered_arb_edges, self.mode);
+            let arb = build_arborescence(&nodes_refs, &ordered_arb_edges, &self.runtime_policy);
             let ordered_edges = arb.edges_ordered();
 
             let mut p1 = entry.partition.clone();
@@ -28534,16 +28530,15 @@ pub fn arborescence_iterator_ordered_with_partition(
 ) -> Vec<DiGraph> {
     let nodes = digraph.nodes_ordered();
     let n = nodes.len();
+    let runtime_policy = digraph.runtime_policy().clone();
     if n == 0 {
-        return vec![DiGraph::strict()];
+        return vec![DiGraph::new(runtime_policy.mode())];
     }
     if n == 1 {
-        let mut g = DiGraph::strict();
+        let mut g = DiGraph::new(runtime_policy.mode());
         g.add_node(nodes[0].to_owned());
         return vec![g];
     }
-
-    let mode = digraph.mode();
     let initial_partition =
         build_initial_arborescence_partition(digraph, included_edges, excluded_edges);
 
@@ -28575,7 +28570,7 @@ pub fn arborescence_iterator_ordered_with_partition(
         };
 
         let ordered_arb_edges = order_directed_edges_like_graph(digraph, &arb_edges);
-        let arb = build_arborescence(&nodes_refs, &ordered_arb_edges, mode);
+        let arb = build_arborescence(&nodes_refs, &ordered_arb_edges, &runtime_policy);
         let ordered_edges = arb.edges_ordered();
         results.push(arb);
 
@@ -41090,6 +41085,32 @@ mod tests {
     }
 
     #[test]
+    fn test_spanning_tree_iterator_empty_graph_preserves_hardened_mode() {
+        let g = Graph::hardened();
+        let trees = spanning_tree_iterator(&g, "weight", 100);
+        assert_eq!(trees.len(), 1);
+        assert_eq!(trees[0].mode(), CompatibilityMode::Hardened);
+        assert_eq!(
+            trees[0].runtime_policy().mode(),
+            CompatibilityMode::Hardened
+        );
+    }
+
+    #[test]
+    fn test_spanning_tree_iterator_single_node_preserves_hardened_mode() {
+        let mut g = Graph::hardened();
+        let _ = g.add_node("a".to_owned());
+        let trees = spanning_tree_iterator(&g, "weight", 100);
+        assert_eq!(trees.len(), 1);
+        assert_eq!(trees[0].nodes_ordered().len(), 1);
+        assert_eq!(trees[0].mode(), CompatibilityMode::Hardened);
+        assert_eq!(
+            trees[0].runtime_policy().mode(),
+            CompatibilityMode::Hardened
+        );
+    }
+
+    #[test]
     fn test_spanning_tree_iterator_max_count_limit() {
         let mut g = Graph::strict();
         let _ = g.add_edge("a", "b");
@@ -41231,6 +41252,26 @@ mod tests {
         d.add_node("a".to_owned());
         let arbs = arborescence_iterator(&d, "weight", 100);
         assert_eq!(arbs.len(), 1);
+    }
+
+    #[test]
+    fn test_arborescence_iterator_empty_graph_preserves_hardened_mode() {
+        let d = DiGraph::hardened();
+        let arbs = arborescence_iterator(&d, "weight", 100);
+        assert_eq!(arbs.len(), 1);
+        assert_eq!(arbs[0].mode(), CompatibilityMode::Hardened);
+        assert_eq!(arbs[0].runtime_policy().mode(), CompatibilityMode::Hardened);
+    }
+
+    #[test]
+    fn test_arborescence_iterator_single_node_preserves_hardened_mode() {
+        let mut d = DiGraph::hardened();
+        d.add_node("a".to_owned());
+        let arbs = arborescence_iterator(&d, "weight", 100);
+        assert_eq!(arbs.len(), 1);
+        assert_eq!(arbs[0].nodes_ordered(), vec!["a"]);
+        assert_eq!(arbs[0].mode(), CompatibilityMode::Hardened);
+        assert_eq!(arbs[0].runtime_policy().mode(), CompatibilityMode::Hardened);
     }
 
     #[test]
