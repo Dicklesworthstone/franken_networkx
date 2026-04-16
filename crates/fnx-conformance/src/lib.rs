@@ -1031,6 +1031,23 @@ struct ExecutionContext {
     witness: Option<ComplexityWitness>,
 }
 
+fn build_helper_graph_from_source(
+    source: &Graph,
+    nodes: &[String],
+    edges: &[(String, String)],
+) -> Graph {
+    let runtime_policy = source.runtime_policy().clone();
+    let mut graph = Graph::with_runtime_policy(runtime_policy.clone());
+    for node in nodes {
+        graph.add_node(node);
+    }
+    for (left, right) in edges {
+        let _ = graph.add_edge(left, right);
+    }
+    graph.set_runtime_policy(runtime_policy);
+    graph
+}
+
 #[must_use]
 pub fn run_smoke(config: &HarnessConfig) -> HarnessReport {
     let mut fixture_reports = Vec::new();
@@ -2335,36 +2352,17 @@ fn run_fixture(
             }
             // Isomorphism operations
             Operation::IsIsomorphicQuery { nodes2, edges2 } => {
-                // Build second graph from provided nodes and edges
-                let mut graph2 = Graph::new(mode);
-                for node in nodes2 {
-                    graph2.add_node(&node);
-                }
-                for (u, v) in edges2 {
-                    let _ = graph2.add_edge(&u, &v);
-                }
+                let graph2 = build_helper_graph_from_source(&context.graph, &nodes2, &edges2);
                 let result = fnx_algorithms::is_isomorphic(&context.graph, &graph2);
                 context.is_isomorphic_result = Some(result);
             }
             Operation::CouldBeIsomorphicQuery { nodes2, edges2 } => {
-                let mut graph2 = Graph::new(mode);
-                for node in nodes2 {
-                    graph2.add_node(&node);
-                }
-                for (u, v) in edges2 {
-                    let _ = graph2.add_edge(&u, &v);
-                }
+                let graph2 = build_helper_graph_from_source(&context.graph, &nodes2, &edges2);
                 let result = fnx_algorithms::could_be_isomorphic(&context.graph, &graph2);
                 context.could_be_isomorphic_result = Some(result);
             }
             Operation::FasterCouldBeIsomorphicQuery { nodes2, edges2 } => {
-                let mut graph2 = Graph::new(mode);
-                for node in nodes2 {
-                    graph2.add_node(&node);
-                }
-                for (u, v) in edges2 {
-                    let _ = graph2.add_edge(&u, &v);
-                }
+                let graph2 = build_helper_graph_from_source(&context.graph, &nodes2, &edges2);
                 let result = fnx_algorithms::faster_could_be_isomorphic(&context.graph, &graph2);
                 context.faster_could_be_isomorphic_result = Some(result);
             }
@@ -5791,5 +5789,24 @@ mod tests {
         assert!(crosswalk.combined_fixture_ids.is_empty()); // no overlap
         assert_eq!(crosswalk.rust_only_fixture_ids, vec!["rust-001"]);
         assert_eq!(crosswalk.python_only_fixture_ids, vec!["py-001"]);
+    }
+
+    #[test]
+    fn helper_graph_builder_preserves_source_runtime_policy() {
+        let mut source = Graph::hardened();
+        source
+            .add_edge("a".to_owned(), "b".to_owned())
+            .expect("source edge add should succeed");
+        let expected_policy = source.runtime_policy().clone();
+
+        let helper = build_helper_graph_from_source(
+            &source,
+            &["x".to_owned(), "y".to_owned()],
+            &[("x".to_owned(), "y".to_owned())],
+        );
+
+        assert_eq!(helper.runtime_policy(), &expected_policy);
+        assert_eq!(helper.nodes_ordered(), vec!["x", "y"]);
+        assert!(helper.has_edge("x", "y"));
     }
 }
