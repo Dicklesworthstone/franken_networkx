@@ -25557,7 +25557,8 @@ pub fn relabel_nodes(graph: &Graph, mapping: &std::collections::HashMap<String, 
             .get(node)
             .cloned()
             .unwrap_or_else(|| node.to_owned());
-        let _ = result.add_node(new_label);
+        let attrs = graph.node_attrs(node).cloned().unwrap_or_default();
+        let _ = result.add_node_with_attrs(new_label, attrs);
     }
 
     // Add edges with remapped endpoints
@@ -25589,7 +25590,8 @@ pub fn relabel_nodes_directed(
             .get(node)
             .cloned()
             .unwrap_or_else(|| node.to_owned());
-        result.add_node(new_label);
+        let attrs = digraph.node_attrs(node).cloned().unwrap_or_default();
+        let _ = result.add_node_with_attrs(new_label, attrs);
     }
 
     for edge in digraph.edges_ordered() {
@@ -25638,7 +25640,8 @@ pub fn identified_nodes(graph: &Graph, u: &str, v: &str) -> Graph {
     // Add all nodes except v
     for node in graph.nodes_ordered() {
         if node != v {
-            let _ = result.add_node(node.to_owned());
+            let attrs = graph.node_attrs(node).cloned().unwrap_or_default();
+            let _ = result.add_node_with_attrs(node.to_owned(), attrs);
         }
     }
 
@@ -40951,6 +40954,63 @@ mod tests {
         m.insert("a".to_owned(), "x".to_owned());
         let r = relabel_nodes(&g, &m);
         assert!(r.has_edge("x", "b"));
+    }
+
+    #[test]
+    fn test_relabel_nodes_preserves_node_attrs() {
+        let mut g = Graph::strict();
+        let _ = g.add_node_with_attrs("a".to_owned(), single_attr("color", "red"));
+        let _ = g.add_node_with_attrs("b".to_owned(), single_attr("shape", "square"));
+        let _ = g.add_edge("a", "b");
+
+        let mut mapping = std::collections::HashMap::new();
+        mapping.insert("a".to_owned(), "x".to_owned());
+        let r = relabel_nodes(&g, &mapping);
+
+        let x_attrs = r
+            .node_attrs("x")
+            .expect("relabeled node attrs should exist");
+        let b_attrs = r.node_attrs("b").expect("unmapped node attrs should exist");
+        assert_eq!(x_attrs.get("color"), Some(&CgseValue::from("red")));
+        assert_eq!(b_attrs.get("shape"), Some(&CgseValue::from("square")));
+    }
+
+    #[test]
+    fn test_relabel_nodes_directed_preserves_node_attrs() {
+        let mut g = DiGraph::strict();
+        let _ = g.add_node_with_attrs("a".to_owned(), single_attr("color", "red"));
+        let _ = g.add_node_with_attrs("b".to_owned(), single_attr("shape", "square"));
+        g.add_edge("a", "b").unwrap();
+
+        let mut mapping = std::collections::HashMap::new();
+        mapping.insert("a".to_owned(), "x".to_owned());
+        let r = relabel_nodes_directed(&g, &mapping);
+
+        let x_attrs = r
+            .node_attrs("x")
+            .expect("relabeled node attrs should exist");
+        let b_attrs = r.node_attrs("b").expect("unmapped node attrs should exist");
+        assert_eq!(x_attrs.get("color"), Some(&CgseValue::from("red")));
+        assert_eq!(b_attrs.get("shape"), Some(&CgseValue::from("square")));
+    }
+
+    #[test]
+    fn test_identified_nodes_preserves_retained_node_attrs() {
+        let mut g = Graph::strict();
+        let _ = g.add_node_with_attrs("a".to_owned(), single_attr("color", "red"));
+        let _ = g.add_node_with_attrs("b".to_owned(), single_attr("color", "blue"));
+        let _ = g.add_node_with_attrs("c".to_owned(), single_attr("shape", "square"));
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+
+        let r = identified_nodes(&g, "a", "b");
+
+        let a_attrs = r.node_attrs("a").expect("retained u attrs should exist");
+        let c_attrs = r
+            .node_attrs("c")
+            .expect("retained neighbor attrs should exist");
+        assert_eq!(a_attrs.get("color"), Some(&CgseValue::from("red")));
+        assert_eq!(c_attrs.get("shape"), Some(&CgseValue::from("square")));
     }
 
     // -----------------------------------------------------------------------
