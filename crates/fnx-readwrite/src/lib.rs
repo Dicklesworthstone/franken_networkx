@@ -159,6 +159,34 @@ impl EdgeListEngine {
         &self.runtime_policy
     }
 
+    fn finish_graph_report(
+        &self,
+        mut graph: Graph,
+        graph_attrs: AttrMap,
+        warnings: Vec<String>,
+    ) -> ReadWriteReport {
+        graph.set_runtime_policy(self.runtime_policy.clone());
+        ReadWriteReport {
+            graph,
+            graph_attrs,
+            warnings,
+        }
+    }
+
+    fn finish_digraph_report(
+        &self,
+        mut graph: DiGraph,
+        graph_attrs: AttrMap,
+        warnings: Vec<String>,
+    ) -> DiReadWriteReport {
+        graph.set_runtime_policy(self.runtime_policy.clone());
+        DiReadWriteReport {
+            graph,
+            graph_attrs,
+            warnings,
+        }
+    }
+
     pub fn write_edgelist(&mut self, graph: &Graph) -> Result<String, ReadWriteError> {
         self.dispatch.resolve(&DispatchRequest {
             operation: "write_edgelist".to_owned(),
@@ -347,11 +375,7 @@ impl EdgeListEngine {
             0.04,
         );
 
-        Ok(ReadWriteReport {
-            graph,
-            graph_attrs: AttrMap::new(),
-            warnings,
-        })
+        Ok(self.finish_graph_report(graph, AttrMap::new(), warnings))
     }
 
     pub fn read_digraph_edgelist(
@@ -429,11 +453,7 @@ impl EdgeListEngine {
             0.04,
         );
 
-        Ok(DiReadWriteReport {
-            graph,
-            graph_attrs: AttrMap::new(),
-            warnings,
-        })
+        Ok(self.finish_digraph_report(graph, AttrMap::new(), warnings))
     }
 
     pub fn read_adjlist(&mut self, input: &str) -> Result<ReadWriteReport, ReadWriteError> {
@@ -490,11 +510,7 @@ impl EdgeListEngine {
             0.04,
         );
 
-        Ok(ReadWriteReport {
-            graph,
-            graph_attrs: AttrMap::new(),
-            warnings,
-        })
+        Ok(self.finish_graph_report(graph, AttrMap::new(), warnings))
     }
 
     pub fn read_digraph_adjlist(
@@ -554,11 +570,7 @@ impl EdgeListEngine {
             0.04,
         );
 
-        Ok(DiReadWriteReport {
-            graph,
-            graph_attrs: AttrMap::new(),
-            warnings,
-        })
+        Ok(self.finish_digraph_report(graph, AttrMap::new(), warnings))
     }
 
     pub fn write_json_graph(&mut self, graph: &Graph) -> Result<String, ReadWriteError> {
@@ -675,11 +687,11 @@ impl EdgeListEngine {
                         &warning,
                         0.8,
                     );
-                    return Ok(ReadWriteReport {
-                        graph: Graph::new(self.mode),
-                        graph_attrs: AttrMap::new(),
-                        warnings: vec![warning],
-                    });
+                    return Ok(self.finish_graph_report(
+                        Graph::new(self.mode),
+                        AttrMap::new(),
+                        vec![warning],
+                    ));
                 }
             },
         };
@@ -753,11 +765,7 @@ impl EdgeListEngine {
             0.04,
         );
 
-        Ok(ReadWriteReport {
-            graph,
-            graph_attrs: parsed.graph_attrs,
-            warnings,
-        })
+        Ok(self.finish_graph_report(graph, parsed.graph_attrs, warnings))
     }
 
     pub fn read_digraph_json_graph(
@@ -797,11 +805,11 @@ impl EdgeListEngine {
                         &warning,
                         0.8,
                     );
-                    return Ok(DiReadWriteReport {
-                        graph: DiGraph::new(self.mode),
-                        graph_attrs: AttrMap::new(),
-                        warnings: vec![warning],
-                    });
+                    return Ok(self.finish_digraph_report(
+                        DiGraph::new(self.mode),
+                        AttrMap::new(),
+                        vec![warning],
+                    ));
                 }
             },
         };
@@ -875,11 +883,7 @@ impl EdgeListEngine {
             0.04,
         );
 
-        Ok(DiReadWriteReport {
-            graph,
-            graph_attrs: parsed.graph_attrs,
-            warnings,
-        })
+        Ok(self.finish_digraph_report(graph, parsed.graph_attrs, warnings))
     }
 
     pub fn write_graphml(&mut self, graph: &Graph) -> Result<String, ReadWriteError> {
@@ -1319,11 +1323,7 @@ impl EdgeListEngine {
             0.04,
         );
 
-        Ok(ReadWriteReport {
-            graph,
-            graph_attrs,
-            warnings,
-        })
+        Ok(self.finish_graph_report(graph, graph_attrs, warnings))
     }
 
     pub fn graphml_declares_directed(&mut self, input: &str) -> Result<bool, ReadWriteError> {
@@ -1507,11 +1507,7 @@ impl EdgeListEngine {
             0.04,
         );
 
-        Ok(DiReadWriteReport {
-            graph,
-            graph_attrs,
-            warnings,
-        })
+        Ok(self.finish_digraph_report(graph, graph_attrs, warnings))
     }
 
     fn read_graphml_into<G>(
@@ -2549,11 +2545,7 @@ impl EdgeListEngine {
             "gml parse completed",
             0.04,
         );
-        Ok(ReadWriteReport {
-            graph,
-            graph_attrs,
-            warnings,
-        })
+        Ok(self.finish_graph_report(graph, graph_attrs, warnings))
     }
 
     /// Read a GML string into a directed graph.
@@ -2580,11 +2572,7 @@ impl EdgeListEngine {
             "digraph gml parse completed",
             0.04,
         );
-        Ok(DiReadWriteReport {
-            graph,
-            graph_attrs,
-            warnings,
-        })
+        Ok(self.finish_digraph_report(graph, graph_attrs, warnings))
     }
 
     pub fn gml_declares_directed(&mut self, input: &str) -> Result<bool, ReadWriteError> {
@@ -3815,11 +3803,7 @@ impl EdgeListEngine {
             0.04,
         );
 
-        Ok(ReadWriteReport {
-            graph,
-            graph_attrs: AttrMap::new(),
-            warnings,
-        })
+        Ok(self.finish_graph_report(graph, AttrMap::new(), warnings))
     }
 
     /// Parse a Pajek format string into a directed graph.
@@ -4026,11 +4010,7 @@ impl EdgeListEngine {
             0.04,
         );
 
-        Ok(DiReadWriteReport {
-            graph,
-            graph_attrs: AttrMap::new(),
-            warnings,
-        })
+        Ok(self.finish_digraph_report(graph, AttrMap::new(), warnings))
     }
 }
 
@@ -6627,6 +6607,35 @@ mod tests {
         assert_eq!(engine.runtime_policy().mode(), CompatibilityMode::Hardened);
         assert!(!engine.runtime_policy().decision_log().records().is_empty());
         assert!(engine.runtime_policy().posterior().observation_count >= 1);
+    }
+
+    #[test]
+    fn graph_report_inherits_engine_runtime_policy() {
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_edgelist("malformed")
+            .expect("hardened malformed edgelist should recover with warnings");
+
+        assert_eq!(report.graph.runtime_policy(), engine.runtime_policy());
+        assert_eq!(report.graph.evidence_ledger(), engine.evidence_ledger());
+    }
+
+    #[test]
+    fn digraph_report_inherits_engine_runtime_policy() {
+        let input = r#"{
+  "mode": "strict",
+  "directed": true,
+  "graph_attrs": {"name": "demo"},
+  "nodes": ["a", "b"],
+  "edges": [{"left": "a", "right": "b", "attrs": {"weight": 1}}]
+}"#;
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_digraph_json_graph(input)
+            .expect("directed json graph should parse");
+
+        assert_eq!(report.graph.runtime_policy(), engine.runtime_policy());
+        assert_eq!(report.graph.evidence_ledger(), engine.evidence_ledger());
     }
 
     proptest! {
