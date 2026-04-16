@@ -11,6 +11,7 @@ use crate::{
 };
 use fnx_classes::AttrMap;
 use fnx_classes::digraph::{DiGraph, MultiDiGraph};
+use fnx_runtime::CompatibilityMode;
 use pyo3::IntoPyObjectExt;
 use pyo3::exceptions::{PyKeyError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -1555,8 +1556,12 @@ impl PyDiGraph {
 
     #[allow(dead_code)] // Used by directed algorithm bindings (bd-uode.3).
     pub(crate) fn new_empty(py: Python<'_>) -> PyResult<Self> {
+        Self::new_empty_with_mode(py, CompatibilityMode::Strict)
+    }
+
+    pub(crate) fn new_empty_with_mode(py: Python<'_>, mode: CompatibilityMode) -> PyResult<Self> {
         Ok(Self {
-            inner: DiGraph::strict(),
+            inner: DiGraph::new(mode),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -2141,8 +2146,7 @@ impl PyDiGraph {
 
     /// Convert to undirected PyGraph — merges parallel directed edges.
     fn to_undirected(&self, py: Python<'_>) -> PyResult<PyGraph> {
-        let mut ug = PyGraph::new_empty(py)?;
-        ug.inner = fnx_classes::Graph::new(self.inner.mode());
+        let mut ug = PyGraph::new_empty_with_mode(py, self.inner.mode())?;
         // Copy nodes.
         for (canonical, py_key) in &self.node_key_map {
             let rust_attrs = self
@@ -3220,6 +3224,20 @@ mod tests {
 
     fn ensure_python() {
         pyo3::prepare_freethreaded_python();
+    }
+
+    #[test]
+    fn digraph_new_empty_with_mode_preserves_mode() {
+        ensure_python();
+        Python::with_gil(|py| {
+            let graph = PyDiGraph::new_empty_with_mode(py, CompatibilityMode::Hardened)
+                .expect("digraph should initialize");
+            assert_eq!(graph.inner.mode(), CompatibilityMode::Hardened);
+            assert_eq!(
+                graph.inner.runtime_policy().mode(),
+                CompatibilityMode::Hardened
+            );
+        });
     }
 
     #[test]

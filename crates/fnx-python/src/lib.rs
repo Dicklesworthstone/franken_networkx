@@ -163,8 +163,12 @@ impl PyGraph {
 
     /// Create a new empty PyGraph (no nodes, no edges, empty graph attrs).
     pub(crate) fn new_empty(py: Python<'_>) -> PyResult<Self> {
+        Self::new_empty_with_mode(py, CompatibilityMode::Strict)
+    }
+
+    pub(crate) fn new_empty_with_mode(py: Python<'_>, mode: CompatibilityMode) -> PyResult<Self> {
         Ok(Self {
-            inner: Graph::strict(),
+            inner: Graph::new(mode),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -2431,8 +2435,7 @@ impl PyGraph {
 
     /// Return a directed copy of the graph.
     fn to_directed(&self, py: Python<'_>) -> PyResult<Py<crate::digraph::PyDiGraph>> {
-        let mut dg = crate::digraph::PyDiGraph::new_empty(py)?;
-        dg.inner = fnx_classes::digraph::DiGraph::new(self.inner.mode());
+        let mut dg = crate::digraph::PyDiGraph::new_empty_with_mode(py, self.inner.mode())?;
 
         for (canonical, py_key) in &self.node_key_map {
             let rust_attrs = self
@@ -2719,6 +2722,20 @@ mod tests {
 
     fn ensure_python() {
         pyo3::prepare_freethreaded_python();
+    }
+
+    #[test]
+    fn graph_new_empty_with_mode_preserves_mode() {
+        ensure_python();
+        Python::with_gil(|py| {
+            let graph = PyGraph::new_empty_with_mode(py, CompatibilityMode::Hardened)
+                .expect("graph should initialize");
+            assert_eq!(graph.inner.mode(), CompatibilityMode::Hardened);
+            assert_eq!(
+                graph.inner.runtime_policy().mode(),
+                CompatibilityMode::Hardened
+            );
+        });
     }
 
     #[test]
