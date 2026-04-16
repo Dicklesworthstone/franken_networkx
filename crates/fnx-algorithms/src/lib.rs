@@ -20166,7 +20166,7 @@ pub fn chordal_graph_cliques(graph: &Graph) -> Vec<Vec<String>> {
 #[must_use]
 pub fn make_max_clique_graph(graph: &Graph) -> Graph {
     let cliques = find_cliques(graph).cliques;
-    let mut result = Graph::strict();
+    let mut result = Graph::new(graph.mode());
 
     // Each clique becomes a node (named by sorted members joined with ",")
     let clique_names: Vec<String> = cliques.iter().map(|c| c.join(",")).collect();
@@ -27617,7 +27617,7 @@ pub fn snap_aggregation(graph: &Graph, node_attributes: &[String]) -> Graph {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     if n == 0 {
-        return Graph::strict();
+        return Graph::new(graph.mode());
     }
 
     let idx: std::collections::HashMap<&str, usize> =
@@ -27689,7 +27689,7 @@ pub fn snap_aggregation(graph: &Graph, node_attributes: &[String]) -> Graph {
     }
 
     // Build summary graph
-    let mut summary = Graph::strict();
+    let mut summary = Graph::new(graph.mode());
     let mut group_names: std::collections::HashMap<usize, String> =
         std::collections::HashMap::new();
     for i in 0..n {
@@ -40048,6 +40048,17 @@ mod tests {
     }
 
     #[test]
+    fn test_make_max_clique_graph_preserves_hardened_mode() {
+        let mut g = Graph::hardened();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("c", "a");
+        let mcg = make_max_clique_graph(&g);
+        assert_eq!(mcg.mode(), CompatibilityMode::Hardened);
+        assert_eq!(mcg.runtime_policy().mode(), CompatibilityMode::Hardened);
+    }
+
+    #[test]
     fn test_ring_of_cliques_basic() {
         let g = ring_of_cliques(3, 3).expect("ring_of_cliques failed");
         // 3 cliques of size 3 = 9 nodes
@@ -41447,6 +41458,27 @@ mod tests {
         let summary = snap_aggregation(&g, &["color".to_owned()]);
         // Same color + same neighbor structure = might merge
         assert!(summary.nodes_ordered().len() <= 2);
+    }
+
+    #[test]
+    fn test_snap_aggregation_preserves_hardened_mode() {
+        let mut g = Graph::hardened();
+        let _ = g.add_node_with_attrs("a".to_owned(), single_attr("color", "red"));
+        let _ = g.add_node_with_attrs("b".to_owned(), single_attr("color", "red"));
+        let _ = g.add_node_with_attrs("c".to_owned(), single_attr("color", "blue"));
+        let _ = g.add_edge("a", "c");
+
+        let summary = snap_aggregation(&g, &["color".to_owned()]);
+        assert_eq!(summary.mode(), CompatibilityMode::Hardened);
+        assert_eq!(summary.runtime_policy().mode(), CompatibilityMode::Hardened);
+
+        let empty = Graph::hardened();
+        let empty_summary = snap_aggregation(&empty, &["color".to_owned()]);
+        assert_eq!(empty_summary.mode(), CompatibilityMode::Hardened);
+        assert_eq!(
+            empty_summary.runtime_policy().mode(),
+            CompatibilityMode::Hardened
+        );
     }
 
     #[test]
