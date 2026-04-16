@@ -6,8 +6,8 @@
 //! - Additional methods: `predecessors`, `successors`, `in_degree`, `out_degree`.
 
 use crate::{
-    NetworkXError, NodeNotFound, PyGraph, node_key_to_string, py_dict_to_attr_map,
-    unwrap_infallible,
+    NetworkXError, NodeNotFound, PyGraph, compatibility_mode_from_py, compatibility_mode_name,
+    node_key_to_string, py_dict_to_attr_map, unwrap_infallible,
 };
 use fnx_classes::AttrMap;
 use fnx_classes::digraph::{DiGraph, MultiDiGraph};
@@ -620,7 +620,7 @@ impl PyMultiDiGraph {
     }
 
     fn clear(&mut self, py: Python<'_>) -> PyResult<()> {
-        self.inner = MultiDiGraph::strict();
+        self.inner = MultiDiGraph::new(self.inner.mode());
         self.node_key_map.clear();
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
@@ -629,7 +629,7 @@ impl PyMultiDiGraph {
     }
 
     fn clear_edges(&mut self) {
-        self.inner = MultiDiGraph::strict();
+        self.inner = MultiDiGraph::new(self.inner.mode());
         Python::with_gil(|py| {
             for canonical in self.node_key_map.keys() {
                 let rust_attrs = self
@@ -1987,7 +1987,7 @@ impl PyDiGraph {
     // ---- Utility methods ----
 
     fn clear(&mut self, py: Python<'_>) -> PyResult<()> {
-        self.inner = DiGraph::strict();
+        self.inner = DiGraph::new(self.inner.mode());
         self.node_key_map.clear();
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
@@ -2557,6 +2557,7 @@ impl PyDiGraph {
 
     fn __getstate__(&self, py: Python<'_>) -> PyResult<PyObject> {
         let state = PyDict::new(py);
+        state.set_item("mode", compatibility_mode_name(self.inner.mode()))?;
         let nodes_list: Vec<(PyObject, Py<PyDict>)> = self
             .inner
             .nodes_ordered()
@@ -2587,10 +2588,12 @@ impl PyDiGraph {
     }
 
     fn __setstate__(&mut self, py: Python<'_>, state: &Bound<'_, PyDict>) -> PyResult<()> {
-        self.inner = DiGraph::strict();
+        let mode = compatibility_mode_from_py(state.get_item("mode")?.as_ref())?;
+        self.inner = DiGraph::new(mode);
         self.node_key_map.clear();
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
+        self.graph_attrs = PyDict::new(py).unbind();
 
         if let Some(graph_attrs) = state.get_item("graph")? {
             self.graph_attrs = graph_attrs.downcast::<PyDict>()?.copy()?.unbind();
@@ -3126,4 +3129,84 @@ pub fn register_digraph_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<MultiDiGraphEdgeView>()?;
     m.add_class::<MultiDiGraphDegreeView>()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fnx_runtime::CompatibilityMode;
+
+    fn ensure_python() {
+        pyo3::prepare_freethreaded_python();
+    }
+
+    #[test]
+    fn digraph_clear_preserves_mode() {
+        ensure_python();
+        Python::with_gil(|py| {
+            let mut graph = PyDiGraph::new(py, None, None).expect("digraph should initialize");
+            graph.inner = DiGraph::new(CompatibilityMode::Hardened);
+
+            graph.clear(py).expect("clear should succeed");
+
+            assert_eq!(graph.inner.mode(), CompatibilityMode::Hardened);
+            assert_eq!(
+                graph.inner.runtime_policy().mode(),
+                CompatibilityMode::Hardened
+            );
+        });
+    }
+
+    #[test]
+    fn multidigraph_clear_edges_preserves_mode() {
+        ensure_python();
+        Python::with_gil(|py| {
+            let mut graph =
+                PyMultiDiGraph::new(py, None, None).expect("multidigraph should initialize");
+            graph.inner = MultiDiGraph::new(CompatibilityMode::Hardened);
+
+            graph.clear_edges();
+
+            assert_eq!(graph.inner.mode(), CompatibilityMode::Hardened);
+            assert_eq!(
+                graph.inner.runtime_policy().mode(),
+                CompatibilityMode::Hardened
+            );
+        });
+    }
+
+    #[test]
+    fn digraph_pickle_state_roundtrips_mode() {
+        ensure_python();
+        Python::with_gil(|py| {
+            let mut graph = PyDiGraph::new(py, None, None).expect("digraph should initialize");
+            graph.inner = DiGraph::new(CompatibilityMode::Hardened);
+            graph.inner.add_node("n".to_owned());
+
+            let state = graph
+                .__getstate__(py)
+                .expect("state export should succeed")
+                .into_bound(py)
+                .downcast_into::<PyDict>()
+                .expect("state should be a dict");
+            let mode = state
+                .get_item("mode")
+                .expect("dict lookup should succeed")
+                .expect("mode should be present")
+                .extract::<String>()
+                .expect("mode should be a string");
+            assert_eq!(mode, "hardened");
+
+            let mut restored = PyDiGraph::new(py, None, None).expect("digraph should initialize");
+            restored
+                .__setstate__(py, &state)
+                .expect("state import should succeed");
+
+            assert_eq!(restored.inner.mode(), CompatibilityMode::Hardened);
+            assert_eq!(
+                restored.inner.runtime_policy().mode(),
+                CompatibilityMode::Hardened
+            );
+        });
+    }
 }

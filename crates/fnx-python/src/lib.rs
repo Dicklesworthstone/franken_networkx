@@ -16,7 +16,7 @@ mod views;
 pub use readwrite::{RawNodeLinkError, RawNodeLinkReport, parse_raw_node_link_json};
 
 use fnx_classes::{AttrMap, Graph, MultiGraph};
-use fnx_runtime::CgseValue;
+use fnx_runtime::{CgseValue, CompatibilityMode};
 use pyo3::exceptions::{PyKeyError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyIterator, PyTuple};
@@ -96,6 +96,28 @@ pub(crate) fn cgse_value_to_py(py: Python<'_>, val: &CgseValue) -> PyResult<PyOb
             }
             dict.into_py_any(py)
         }
+    }
+}
+
+pub(crate) const fn compatibility_mode_name(mode: CompatibilityMode) -> &'static str {
+    match mode {
+        CompatibilityMode::Strict => "strict",
+        CompatibilityMode::Hardened => "hardened",
+    }
+}
+
+pub(crate) fn compatibility_mode_from_py(
+    value: Option<&Bound<'_, PyAny>>,
+) -> PyResult<CompatibilityMode> {
+    let Some(value) = value else {
+        return Ok(CompatibilityMode::Strict);
+    };
+    match value.extract::<String>()?.as_str() {
+        "strict" => Ok(CompatibilityMode::Strict),
+        "hardened" => Ok(CompatibilityMode::Hardened),
+        other => Err(PyValueError::new_err(format!(
+            "unknown compatibility mode `{other}` in graph state"
+        ))),
     }
 }
 
@@ -713,7 +735,7 @@ impl PyMultiGraph {
     }
 
     fn clear(&mut self, py: Python<'_>) -> PyResult<()> {
-        self.inner = MultiGraph::strict();
+        self.inner = MultiGraph::new(self.inner.mode());
         self.node_key_map.clear();
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
@@ -722,7 +744,7 @@ impl PyMultiGraph {
     }
 
     fn clear_edges(&mut self) {
-        self.inner = MultiGraph::strict();
+        self.inner = MultiGraph::new(self.inner.mode());
         Python::with_gil(|py| {
             for canonical in self.node_key_map.keys() {
                 let rust_attrs = self
@@ -1990,7 +2012,7 @@ impl PyGraph {
     /// Remove all nodes and edges.
     fn clear(&mut self, py: Python<'_>) -> PyResult<()> {
         // Rebuild from scratch is simpler and correct.
-        self.inner = Graph::strict();
+        self.inner = Graph::new(self.inner.mode());
         self.node_key_map.clear();
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
@@ -2532,6 +2554,7 @@ impl PyGraph {
 
     fn __getstate__(&self, py: Python<'_>) -> PyResult<PyObject> {
         let state = PyDict::new(py);
+        state.set_item("mode", compatibility_mode_name(self.inner.mode()))?;
         // Store nodes as list of (key, attrs) tuples.
         let nodes_list: Vec<(PyObject, Py<PyDict>)> = self
             .inner
@@ -2564,10 +2587,12 @@ impl PyGraph {
     }
 
     fn __setstate__(&mut self, py: Python<'_>, state: &Bound<'_, PyDict>) -> PyResult<()> {
-        self.inner = Graph::strict();
+        let mode = compatibility_mode_from_py(state.get_item("mode")?.as_ref())?;
+        self.inner = Graph::new(mode);
         self.node_key_map.clear();
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
+        self.graph_attrs = PyDict::new(py).unbind();
 
         if let Some(graph_attrs) = state.get_item("graph")? {
             self.graph_attrs = graph_attrs.downcast::<PyDict>()?.copy()?.unbind();
@@ -2604,6 +2629,85 @@ impl PyGraph {
 
 pub(crate) fn unwrap_infallible<T>(result: Result<T, Infallible>) -> T {
     result.unwrap_or_else(|never| match never {})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ensure_python() {
+        pyo3::prepare_freethreaded_python();
+    }
+
+    #[test]
+    fn graph_clear_preserves_mode() {
+        ensure_python();
+        Python::with_gil(|py| {
+            let mut graph = PyGraph::new_empty(py).expect("graph should initialize");
+            graph.inner = Graph::new(CompatibilityMode::Hardened);
+
+            graph.clear(py).expect("clear should succeed");
+
+            assert_eq!(graph.inner.mode(), CompatibilityMode::Hardened);
+            assert_eq!(
+                graph.inner.runtime_policy().mode(),
+                CompatibilityMode::Hardened
+            );
+        });
+    }
+
+    #[test]
+    fn multigraph_clear_edges_preserves_mode() {
+        ensure_python();
+        Python::with_gil(|py| {
+            let mut graph =
+                PyMultiGraph::new(py, None, None).expect("multigraph should initialize");
+            graph.inner = MultiGraph::new(CompatibilityMode::Hardened);
+
+            graph.clear_edges();
+
+            assert_eq!(graph.inner.mode(), CompatibilityMode::Hardened);
+            assert_eq!(
+                graph.inner.runtime_policy().mode(),
+                CompatibilityMode::Hardened
+            );
+        });
+    }
+
+    #[test]
+    fn graph_pickle_state_roundtrips_mode() {
+        ensure_python();
+        Python::with_gil(|py| {
+            let mut graph = PyGraph::new_empty(py).expect("graph should initialize");
+            graph.inner = Graph::new(CompatibilityMode::Hardened);
+            graph.inner.add_node("n".to_owned());
+
+            let state = graph
+                .__getstate__(py)
+                .expect("state export should succeed")
+                .into_bound(py)
+                .downcast_into::<PyDict>()
+                .expect("state should be a dict");
+            let mode = state
+                .get_item("mode")
+                .expect("dict lookup should succeed")
+                .expect("mode should be present")
+                .extract::<String>()
+                .expect("mode should be a string");
+            assert_eq!(mode, "hardened");
+
+            let mut restored = PyGraph::new_empty(py).expect("graph should initialize");
+            restored
+                .__setstate__(py, &state)
+                .expect("state import should succeed");
+
+            assert_eq!(restored.inner.mode(), CompatibilityMode::Hardened);
+            assert_eq!(
+                restored.inner.runtime_policy().mode(),
+                CompatibilityMode::Hardened
+            );
+        });
+    }
 }
 
 // ---------------------------------------------------------------------------
