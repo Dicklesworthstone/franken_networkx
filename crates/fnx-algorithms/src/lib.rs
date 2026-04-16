@@ -6382,7 +6382,7 @@ pub fn random_spanning_tree_from_samples(
     shuffled_edges: &[(String, String)],
     random_values: &[f64],
 ) -> Result<Graph, RandomSpanningTreeError> {
-    let mut tree = Graph::new(graph.mode());
+    let mut tree = Graph::with_runtime_policy(graph.runtime_policy().clone());
     for &node in &graph.nodes_ordered() {
         tree.add_node(node);
     }
@@ -12605,7 +12605,7 @@ pub fn lexicographic_topological_sort(digraph: &DiGraph) -> Option<Vec<String>> 
 /// Matches `networkx.transitive_closure(G)`.
 #[must_use]
 pub fn transitive_closure(digraph: &DiGraph, reflexive: Option<bool>) -> DiGraph {
-    let mut result = DiGraph::new(digraph.mode());
+    let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
     let nodes = digraph.nodes_ordered();
 
     let add_all_self_loops = reflexive == Some(true);
@@ -12653,7 +12653,7 @@ pub fn transitive_reduction(digraph: &DiGraph) -> Option<DiGraph> {
     // Must be a DAG
     let topo = topological_sort(digraph)?;
 
-    let mut result = DiGraph::new(digraph.mode());
+    let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
     let nodes = digraph.nodes_ordered();
 
     // Add all nodes
@@ -13871,7 +13871,7 @@ pub fn condensation(digraph: &DiGraph) -> (DiGraph, HashMap<String, usize>) {
     }
 
     // Build the condensation DAG
-    let mut result = DiGraph::new(digraph.mode());
+    let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
     for i in 0..sccs.len() {
         result.add_node(i.to_string());
     }
@@ -14654,7 +14654,7 @@ pub fn greedy_modularity_communities(
 /// Matches `networkx.union(G, H)`.
 #[must_use]
 pub fn graph_union(g1: &Graph, g2: &Graph) -> Graph {
-    let mut result = Graph::new(g1.mode());
+    let mut result = Graph::with_runtime_policy(g1.runtime_policy().clone());
     // Add all nodes and edges from G1
     for node in g1.nodes_ordered() {
         if let Some(attrs) = g1.node_attrs(node) {
@@ -14690,7 +14690,7 @@ pub fn graph_union(g1: &Graph, g2: &Graph) -> Graph {
 /// Matches `networkx.intersection(G, H)`.
 #[must_use]
 pub fn graph_intersection(g1: &Graph, g2: &Graph) -> Graph {
-    let mut result = Graph::new(g1.mode());
+    let mut result = Graph::with_runtime_policy(g1.runtime_policy().clone());
     // Nodes in both
     for node in g1.nodes_ordered() {
         if g2.has_node(node) {
@@ -14718,7 +14718,7 @@ pub fn graph_intersection(g1: &Graph, g2: &Graph) -> Graph {
 /// Matches `networkx.compose(G, H)`.
 #[must_use]
 pub fn graph_compose(g1: &Graph, g2: &Graph) -> Graph {
-    let mut result = Graph::new(g1.mode());
+    let mut result = Graph::with_runtime_policy(g1.runtime_policy().clone());
     // Start with all of G2
     for node in g2.nodes_ordered() {
         if let Some(attrs) = g2.node_attrs(node) {
@@ -14750,7 +14750,7 @@ pub fn graph_compose(g1: &Graph, g2: &Graph) -> Graph {
 /// Matches `networkx.difference(G, H)`.
 #[must_use]
 pub fn graph_difference(g1: &Graph, g2: &Graph) -> Graph {
-    let mut result = Graph::new(g1.mode());
+    let mut result = Graph::with_runtime_policy(g1.runtime_policy().clone());
     // All nodes from G1
     for node in g1.nodes_ordered() {
         if let Some(attrs) = g1.node_attrs(node) {
@@ -14775,7 +14775,7 @@ pub fn graph_difference(g1: &Graph, g2: &Graph) -> Graph {
 /// Matches `networkx.symmetric_difference(G, H)`.
 #[must_use]
 pub fn graph_symmetric_difference(g1: &Graph, g2: &Graph) -> Graph {
-    let mut result = Graph::new(g1.mode());
+    let mut result = Graph::with_runtime_policy(g1.runtime_policy().clone());
     // All nodes from both
     for node in g1.nodes_ordered() {
         if let Some(attrs) = g1.node_attrs(node) {
@@ -15308,7 +15308,7 @@ pub fn spanner(
         return Err(SpannerError::InvalidStretch);
     }
 
-    let mut result = Graph::new(graph.mode());
+    let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
     for node in graph.nodes_ordered() {
         result.add_node(node);
     }
@@ -20166,7 +20166,7 @@ pub fn chordal_graph_cliques(graph: &Graph) -> Vec<Vec<String>> {
 #[must_use]
 pub fn make_max_clique_graph(graph: &Graph) -> Graph {
     let cliques = find_cliques(graph).cliques;
-    let mut result = Graph::new(graph.mode());
+    let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
 
     // Each clique becomes a node (named by sorted members joined with ",")
     let clique_names: Vec<String> = cliques.iter().map(|c| c.join(",")).collect();
@@ -26831,7 +26831,7 @@ pub fn union_all(graphs: &[&Graph]) -> Result<Graph, String> {
     if graphs.is_empty() {
         return Err("cannot apply union_all to empty sequence".to_owned());
     }
-    let mut result = Graph::new(graphs[0].mode());
+    let mut result = Graph::with_runtime_policy(graphs[0].runtime_policy().clone());
     for &g in graphs {
         for node in g.nodes_ordered() {
             if result.has_node(node) {
@@ -26866,7 +26866,7 @@ pub fn intersection_all(graphs: &[&Graph]) -> Graph {
             g.nodes_ordered().iter().map(|&n| n.to_owned()).collect();
         common = common.intersection(&ns).cloned().collect();
     }
-    let mut result = Graph::new(graphs[0].mode());
+    let mut result = Graph::with_runtime_policy(graphs[0].runtime_policy().clone());
     for n in &common {
         let _ = result.add_node(n.clone());
     }
@@ -30262,7 +30262,7 @@ pub fn is_connected_dominating_set(graph: &Graph, nodes: &[&str]) -> bool {
 ///
 /// For each clique, create a clique-node and connect it to all members.
 pub fn make_clique_bipartite(graph: &Graph, cliques: &[Vec<String>]) -> Graph {
-    let mut result = Graph::new(graph.mode());
+    let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
     for node in graph.nodes_ordered() {
         let _ = result.add_node(node.to_owned());
     }
