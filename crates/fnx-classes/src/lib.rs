@@ -3,8 +3,7 @@
 pub mod digraph;
 
 use fnx_runtime::{
-    CgseValue, CompatibilityMode, DecisionAction, DecisionRecord, EvidenceLedger, EvidenceTerm,
-    unix_time_ms,
+    CgseValue, CompatibilityMode, DecisionAction, EvidenceLedger, EvidenceTerm, RuntimePolicy,
 };
 use indexmap::{IndexMap, IndexSet};
 use serde::{Deserialize, Serialize};
@@ -117,7 +116,7 @@ pub struct Graph {
     nodes: IndexMap<String, AttrMap>,
     adjacency: IndexMap<String, IndexSet<String>>,
     edges: IndexMap<EdgeKey, AttrMap>,
-    ledger: EvidenceLedger,
+    runtime_policy: RuntimePolicy,
 }
 
 impl Graph {
@@ -129,7 +128,7 @@ impl Graph {
             nodes: IndexMap::new(),
             adjacency: IndexMap::new(),
             edges: IndexMap::new(),
-            ledger: EvidenceLedger::new(),
+            runtime_policy: RuntimePolicy::new(mode),
         }
     }
 
@@ -232,7 +231,12 @@ impl Graph {
 
     #[must_use]
     pub fn evidence_ledger(&self) -> &EvidenceLedger {
-        &self.ledger
+        self.runtime_policy.decision_log()
+    }
+
+    #[must_use]
+    pub fn runtime_policy(&self) -> &RuntimePolicy {
+        &self.runtime_policy
     }
 
     /// Type identity: always `false` for undirected Graph.
@@ -596,15 +600,13 @@ impl Graph {
             incompatibility_probability,
             unknown_incompatible_feature,
         );
-        self.ledger.record(DecisionRecord {
-            ts_unix_ms: unix_time_ms(),
-            operation: operation.to_owned(),
-            mode: self.mode,
+        self.runtime_policy.record(
+            operation,
             action,
             incompatibility_probability,
-            rationale: "argmin expected loss over {allow,full_validate,fail_closed}".to_owned(),
+            "argmin expected loss over {allow,full_validate,fail_closed}",
             evidence,
-        });
+        );
         action
     }
 }
@@ -616,7 +618,7 @@ pub struct MultiGraph {
     nodes: IndexMap<String, AttrMap>,
     adjacency: IndexMap<String, IndexMap<String, IndexSet<usize>>>,
     edges: IndexMap<EdgeKey, IndexMap<usize, AttrMap>>,
-    ledger: EvidenceLedger,
+    runtime_policy: RuntimePolicy,
     edge_count: usize,
 }
 
@@ -629,7 +631,7 @@ impl MultiGraph {
             nodes: IndexMap::new(),
             adjacency: IndexMap::new(),
             edges: IndexMap::new(),
-            ledger: EvidenceLedger::new(),
+            runtime_policy: RuntimePolicy::new(mode),
             edge_count: 0,
         }
     }
@@ -724,7 +726,12 @@ impl MultiGraph {
 
     #[must_use]
     pub fn evidence_ledger(&self) -> &EvidenceLedger {
-        &self.ledger
+        self.runtime_policy.decision_log()
+    }
+
+    #[must_use]
+    pub fn runtime_policy(&self) -> &RuntimePolicy {
+        &self.runtime_policy
     }
 
     #[must_use]
@@ -1113,15 +1120,13 @@ impl MultiGraph {
             incompatibility_probability,
             unknown_incompatible_feature,
         );
-        self.ledger.record(DecisionRecord {
-            ts_unix_ms: unix_time_ms(),
-            operation: operation.to_owned(),
-            mode: self.mode,
+        self.runtime_policy.record(
+            operation,
             action,
             incompatibility_probability,
-            rationale: "argmin expected loss over {allow,full_validate,fail_closed}".to_owned(),
+            "argmin expected loss over {allow,full_validate,fail_closed}",
             evidence,
-        });
+        );
         action
     }
 }
@@ -1413,6 +1418,18 @@ mod tests {
     }
 
     #[test]
+    fn runtime_policy_tracks_hardened_graph_recovery() {
+        let mut graph = Graph::hardened();
+        graph
+            .add_edge("a", "b")
+            .expect("hardened graph edge add should succeed");
+
+        assert_eq!(graph.runtime_policy().mode(), CompatibilityMode::Hardened);
+        assert!(!graph.runtime_policy().decision_log().records().is_empty());
+        assert!(graph.runtime_policy().posterior().observation_count >= 1);
+    }
+
+    #[test]
     fn snapshot_roundtrip_replays_to_identical_state() {
         let mut graph = Graph::strict();
 
@@ -1481,6 +1498,18 @@ mod tests {
         assert_eq!(graph.neighbors("a"), Some(vec![]));
         assert_eq!(graph.neighbors("c"), Some(vec![]));
         assert_multigraph_core_invariants(&graph);
+    }
+
+    #[test]
+    fn runtime_policy_tracks_hardened_multigraph_recovery() {
+        let mut graph = MultiGraph::hardened();
+        graph
+            .add_edge("a", "b")
+            .expect("hardened multigraph edge add should succeed");
+
+        assert_eq!(graph.runtime_policy().mode(), CompatibilityMode::Hardened);
+        assert!(!graph.runtime_policy().decision_log().records().is_empty());
+        assert!(graph.runtime_policy().posterior().observation_count >= 1);
     }
 
     #[test]
