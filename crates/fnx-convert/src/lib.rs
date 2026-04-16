@@ -177,6 +177,8 @@ impl GraphConverter {
             0.02,
         );
 
+        graph.adopt_runtime_policy(self.runtime_policy.clone());
+
         Ok(ConvertReport {
             graph,
             warnings,
@@ -208,6 +210,8 @@ impl GraphConverter {
             "digraph edge-list conversion completed",
             0.02,
         );
+
+        graph.adopt_runtime_policy(self.runtime_policy.clone());
 
         Ok(DiConvertReport {
             graph,
@@ -241,6 +245,8 @@ impl GraphConverter {
             0.02,
         );
 
+        graph.adopt_runtime_policy(self.runtime_policy.clone());
+
         Ok(MultiConvertReport {
             graph,
             warnings,
@@ -272,6 +278,8 @@ impl GraphConverter {
             "multidigraph edge-list conversion completed",
             0.02,
         );
+
+        graph.adopt_runtime_policy(self.runtime_policy.clone());
 
         Ok(MultiDiConvertReport {
             graph,
@@ -405,6 +413,8 @@ impl GraphConverter {
             0.03,
         );
 
+        graph.adopt_runtime_policy(self.runtime_policy.clone());
+
         Ok(ConvertReport {
             graph,
             warnings,
@@ -436,6 +446,8 @@ impl GraphConverter {
             "digraph adjacency conversion completed",
             0.03,
         );
+
+        graph.adopt_runtime_policy(self.runtime_policy.clone());
 
         Ok(DiConvertReport {
             graph,
@@ -469,6 +481,8 @@ impl GraphConverter {
             0.03,
         );
 
+        graph.adopt_runtime_policy(self.runtime_policy.clone());
+
         Ok(MultiConvertReport {
             graph,
             warnings,
@@ -500,6 +514,8 @@ impl GraphConverter {
             "multidigraph adjacency conversion completed",
             0.03,
         );
+
+        graph.adopt_runtime_policy(self.runtime_policy.clone());
 
         Ok(MultiDiConvertReport {
             graph,
@@ -616,6 +632,7 @@ trait GraphLike {
         attrs: AttrMap,
     ) -> Result<usize, GraphError>;
     fn supports_parallel_edges(&self) -> bool;
+    fn adopt_runtime_policy(&mut self, runtime_policy: RuntimePolicy);
 }
 
 impl GraphLike for Graph {
@@ -634,6 +651,9 @@ impl GraphLike for Graph {
     fn supports_parallel_edges(&self) -> bool {
         false
     }
+    fn adopt_runtime_policy(&mut self, runtime_policy: RuntimePolicy) {
+        self.set_runtime_policy(runtime_policy);
+    }
 }
 
 impl GraphLike for DiGraph {
@@ -651,6 +671,9 @@ impl GraphLike for DiGraph {
     }
     fn supports_parallel_edges(&self) -> bool {
         false
+    }
+    fn adopt_runtime_policy(&mut self, runtime_policy: RuntimePolicy) {
+        self.set_runtime_policy(runtime_policy);
     }
 }
 
@@ -673,6 +696,9 @@ impl GraphLike for MultiGraph {
     fn supports_parallel_edges(&self) -> bool {
         true
     }
+    fn adopt_runtime_policy(&mut self, runtime_policy: RuntimePolicy) {
+        self.set_runtime_policy(runtime_policy);
+    }
 }
 
 impl GraphLike for MultiDiGraph {
@@ -693,6 +719,9 @@ impl GraphLike for MultiDiGraph {
     }
     fn supports_parallel_edges(&self) -> bool {
         true
+    }
+    fn adopt_runtime_policy(&mut self, runtime_policy: RuntimePolicy) {
+        self.set_runtime_policy(runtime_policy);
     }
 }
 
@@ -959,5 +988,48 @@ mod tests {
                 .is_empty()
         );
         assert!(converter.runtime_policy().posterior().observation_count >= 1);
+    }
+
+    #[test]
+    fn result_graph_inherits_converter_runtime_policy_after_recovery() {
+        let mut converter = GraphConverter::hardened();
+        let payload = EdgeListPayload {
+            nodes: vec!["a".to_owned(), "b".to_owned()],
+            edges: vec![EdgeRecord {
+                left: "a".to_owned(),
+                right: "b".to_owned(),
+                key: Some(9),
+                attrs: AttrMap::new(),
+            }],
+        };
+
+        let report = converter
+            .from_edge_list(&payload)
+            .expect("hardened conversion should recover by dropping the key");
+
+        assert_eq!(report.graph.runtime_policy(), converter.runtime_policy());
+        assert_eq!(&report.ledger, report.graph.evidence_ledger());
+    }
+
+    #[test]
+    fn result_multidigraph_inherits_converter_runtime_policy() {
+        let mut converter = GraphConverter::hardened();
+        let payload = AdjacencyPayload {
+            adjacency: BTreeMap::from([(
+                "a".to_owned(),
+                vec![AdjacencyEntry {
+                    to: "b".to_owned(),
+                    key: Some(3),
+                    attrs: AttrMap::new(),
+                }],
+            )]),
+        };
+
+        let report = converter
+            .multidigraph_from_adjacency(&payload)
+            .expect("multidigraph adjacency conversion should succeed");
+
+        assert_eq!(report.graph.runtime_policy(), converter.runtime_policy());
+        assert_eq!(&report.ledger, report.graph.evidence_ledger());
     }
 }

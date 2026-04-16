@@ -252,6 +252,11 @@ impl Graph {
         &self.runtime_policy
     }
 
+    pub fn set_runtime_policy(&mut self, runtime_policy: RuntimePolicy) {
+        self.mode = runtime_policy.mode();
+        self.runtime_policy = runtime_policy;
+    }
+
     /// Type identity: always `false` for undirected Graph.
     #[must_use]
     pub fn is_directed(&self) -> bool {
@@ -757,6 +762,11 @@ impl MultiGraph {
     #[must_use]
     pub fn runtime_policy(&self) -> &RuntimePolicy {
         &self.runtime_policy
+    }
+
+    pub fn set_runtime_policy(&mut self, runtime_policy: RuntimePolicy) {
+        self.mode = runtime_policy.mode();
+        self.runtime_policy = runtime_policy;
     }
 
     #[must_use]
