@@ -189,6 +189,7 @@ impl PyGraph {
     }
 
     /// Create a new empty PyGraph (no nodes, no edges, empty graph attrs).
+    #[allow(dead_code)] // Used by wrapper tests and parity helpers.
     pub(crate) fn new_empty(py: Python<'_>) -> PyResult<Self> {
         Self::new_empty_with_mode(py, CompatibilityMode::Strict)
     }
