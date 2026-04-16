@@ -23819,7 +23819,7 @@ pub fn generate_random_paths(
 #[must_use]
 pub fn complement_graph(graph: &Graph) -> Graph {
     let nodes = graph.nodes_ordered();
-    let mut result = Graph::new(graph.mode());
+    let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
     for &node in &nodes {
         let _ = result.add_node(node.to_owned());
     }
@@ -23837,7 +23837,7 @@ pub fn complement_graph(graph: &Graph) -> Graph {
 #[must_use]
 pub fn complement_digraph(digraph: &DiGraph) -> DiGraph {
     let nodes = digraph.nodes_ordered();
-    let mut result = DiGraph::new(digraph.mode());
+    let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
     for &node in &nodes {
         result.add_node(node.to_owned());
     }
@@ -23858,7 +23858,7 @@ pub fn complement_digraph(digraph: &DiGraph) -> DiGraph {
 /// Return the reverse of a directed graph (all edges reversed).
 #[must_use]
 pub fn reverse_digraph(digraph: &DiGraph) -> DiGraph {
-    let mut result = DiGraph::new(digraph.mode());
+    let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
     for node in digraph.nodes_ordered() {
         result.add_node(node.to_owned());
     }
@@ -24186,7 +24186,7 @@ pub fn power(graph: &Graph, k: usize) -> Graph {
     let idx: std::collections::HashMap<&str, usize> =
         nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
 
-    let mut result = Graph::new(graph.mode());
+    let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
     for &node in &nodes {
         let _ = result.add_node(node.to_owned());
     }
@@ -24256,7 +24256,7 @@ pub fn ego_graph(graph: &Graph, center: &str, radius: usize) -> Graph {
 
     let center_idx = match idx.get(center) {
         Some(&i) => i,
-        None => return Graph::new(graph.mode()),
+        None => return Graph::with_runtime_policy(graph.runtime_policy().clone()),
     };
 
     // BFS from center up to radius
@@ -24286,7 +24286,7 @@ pub fn ego_graph(graph: &Graph, center: &str, radius: usize) -> Graph {
 
     // Build subgraph
     let ego_set: std::collections::HashSet<usize> = ego_nodes.iter().copied().collect();
-    let mut result = Graph::new(graph.mode());
+    let mut result = Graph::with_runtime_policy(graph.runtime_policy().clone());
     for &i in &ego_nodes {
         let _ = result.add_node(nodes[i].to_owned());
     }
@@ -24316,7 +24316,7 @@ pub fn ego_graph_directed(digraph: &DiGraph, center: &str, radius: usize) -> DiG
 
     let center_idx = match idx.get(center) {
         Some(&i) => i,
-        None => return DiGraph::new(digraph.mode()),
+        None => return DiGraph::with_runtime_policy(digraph.runtime_policy().clone()),
     };
 
     let mut dist = vec![usize::MAX; n];
@@ -24355,7 +24355,7 @@ pub fn ego_graph_directed(digraph: &DiGraph, center: &str, radius: usize) -> DiG
     }
 
     let ego_set: std::collections::HashSet<usize> = ego_nodes.iter().copied().collect();
-    let mut result = DiGraph::new(digraph.mode());
+    let mut result = DiGraph::with_runtime_policy(digraph.runtime_policy().clone());
     for &i in &ego_nodes {
         result.add_node(nodes[i].to_owned());
     }
@@ -30493,6 +30493,7 @@ mod tests {
         common_neighbors,
         communicability_betweenness_centrality,
         complement,
+        complement_digraph,
         complement_directed,
         complement_graph,
         complete_bipartite_graph,
@@ -30545,6 +30546,7 @@ mod tests {
         effective_size,
         efficiency,
         ego_graph,
+        ego_graph_directed,
         eigenvector_centrality,
         enumerate_all_cliques,
         eulerian_circuit,
@@ -30748,6 +30750,7 @@ mod tests {
         relabel_nodes,
         relaxed_caveman_graph,
         resource_allocation_index,
+        reverse_digraph,
         rich_club_coefficient,
         ring_of_cliques,
         s_metric,
@@ -30816,8 +30819,9 @@ mod tests {
     use fnx_classes::Graph;
     use fnx_classes::digraph::DiGraph;
     use fnx_runtime::{
-        CgseValue, CompatibilityMode, ForensicsBundleIndex, StructuredTestLog, TestKind,
-        TestStatus, canonical_environment_fingerprint, structured_test_log_schema_version,
+        CgseValue, CompatibilityMode, ForensicsBundleIndex, RuntimePolicy, StructuredTestLog,
+        TestKind, TestStatus, canonical_environment_fingerprint,
+        structured_test_log_schema_version,
     };
     use proptest::prelude::*;
     use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -30825,6 +30829,19 @@ mod tests {
     /// Standard tolerance for floating-point assertions in tests.
     /// Matches DISTANCE_COMPARISON_EPSILON from the production constants.
     const TEST_TOLERANCE: f64 = 1e-12;
+
+    fn assert_runtime_policy_preserved(source: &RuntimePolicy, result: &RuntimePolicy) {
+        assert_eq!(result.mode(), source.mode());
+        assert_eq!(result.allowlist(), source.allowlist());
+        assert_eq!(result.loss_matrix(), source.loss_matrix());
+        assert!(result.posterior().observation_count >= source.posterior().observation_count);
+        assert!(
+            result
+                .decision_log()
+                .records()
+                .starts_with(source.decision_log().records())
+        );
+    }
 
     /// Verify all default constants match NetworkX exactly.
     /// If any of these fail, the constant was changed without updating
@@ -40979,6 +40996,46 @@ mod tests {
         let c = complement_graph(&g);
         assert_eq!(c.edge_count(), 0);
         assert_eq!(c.nodes_ordered().len(), 3);
+    }
+
+    #[test]
+    fn test_graph_transforms_preserve_runtime_policy() {
+        let mut g = Graph::hardened();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let graph_policy = g.runtime_policy().clone();
+
+        let comp = complement_graph(&g);
+        assert_runtime_policy_preserved(&graph_policy, comp.runtime_policy());
+
+        let p2 = power(&g, 2);
+        assert_runtime_policy_preserved(&graph_policy, p2.runtime_policy());
+
+        let ego = ego_graph(&g, "a", 1);
+        assert_runtime_policy_preserved(&graph_policy, ego.runtime_policy());
+
+        let missing = ego_graph(&g, "missing", 1);
+        assert_runtime_policy_preserved(&graph_policy, missing.runtime_policy());
+    }
+
+    #[test]
+    fn test_digraph_transforms_preserve_runtime_policy() {
+        let mut dg = DiGraph::hardened();
+        dg.add_edge("a", "b").unwrap();
+        dg.add_edge("b", "c").unwrap();
+        let digraph_policy = dg.runtime_policy().clone();
+
+        let comp = complement_digraph(&dg);
+        assert_runtime_policy_preserved(&digraph_policy, comp.runtime_policy());
+
+        let reversed = reverse_digraph(&dg);
+        assert_runtime_policy_preserved(&digraph_policy, reversed.runtime_policy());
+
+        let ego = ego_graph_directed(&dg, "a", 1);
+        assert_runtime_policy_preserved(&digraph_policy, ego.runtime_policy());
+
+        let missing = ego_graph_directed(&dg, "missing", 1);
+        assert_runtime_policy_preserved(&digraph_policy, missing.runtime_policy());
     }
 
     #[test]
