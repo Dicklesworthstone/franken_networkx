@@ -171,3 +171,4 @@ storage.sqlite3-wal.corrupt-*
 /*.out
 /*.py
 /*.sh
+.env
