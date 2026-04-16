@@ -12605,7 +12605,7 @@ pub fn lexicographic_topological_sort(digraph: &DiGraph) -> Option<Vec<String>> 
 /// Matches `networkx.transitive_closure(G)`.
 #[must_use]
 pub fn transitive_closure(digraph: &DiGraph, reflexive: Option<bool>) -> DiGraph {
-    let mut result = DiGraph::strict();
+    let mut result = DiGraph::new(digraph.mode());
     let nodes = digraph.nodes_ordered();
 
     let add_all_self_loops = reflexive == Some(true);
@@ -12653,7 +12653,7 @@ pub fn transitive_reduction(digraph: &DiGraph) -> Option<DiGraph> {
     // Must be a DAG
     let topo = topological_sort(digraph)?;
 
-    let mut result = DiGraph::strict();
+    let mut result = DiGraph::new(digraph.mode());
     let nodes = digraph.nodes_ordered();
 
     // Add all nodes
@@ -13871,7 +13871,7 @@ pub fn condensation(digraph: &DiGraph) -> (DiGraph, HashMap<String, usize>) {
     }
 
     // Build the condensation DAG
-    let mut result = DiGraph::strict();
+    let mut result = DiGraph::new(digraph.mode());
     for i in 0..sccs.len() {
         result.add_node(i.to_string());
     }
@@ -36525,6 +36525,15 @@ mod tests {
     }
 
     #[test]
+    fn transitive_closure_preserves_hardened_mode() {
+        let mut dg = DiGraph::hardened();
+        dg.add_edge("a", "b").unwrap();
+        let tc = transitive_closure(&dg, Some(true));
+        assert_eq!(tc.mode(), CompatibilityMode::Hardened);
+        assert_eq!(tc.runtime_policy().mode(), CompatibilityMode::Hardened);
+    }
+
+    #[test]
     fn transitive_reduction_diamond() {
         // a -> b -> d, a -> c -> d, a -> d (redundant)
         let mut dg = DiGraph::strict();
@@ -36570,6 +36579,17 @@ mod tests {
         let tr = transitive_reduction(&dg).unwrap();
         assert_eq!(tr.node_count(), 3);
         assert!(tr.has_node("c"));
+    }
+
+    #[test]
+    fn transitive_reduction_preserves_hardened_mode() {
+        let mut dg = DiGraph::hardened();
+        dg.add_edge("a", "b").unwrap();
+        dg.add_edge("b", "c").unwrap();
+        dg.add_edge("a", "c").unwrap();
+        let tr = transitive_reduction(&dg).unwrap();
+        assert_eq!(tr.mode(), CompatibilityMode::Hardened);
+        assert_eq!(tr.runtime_policy().mode(), CompatibilityMode::Hardened);
     }
 
     // -----------------------------------------------------------------------
@@ -36933,6 +36953,16 @@ mod tests {
         dg.add_edge("c", "a").unwrap();
         let (cond, _) = condensation(&dg);
         assert_eq!(cond.node_count(), 1);
+    }
+
+    #[test]
+    fn condensation_preserves_hardened_mode() {
+        let mut dg = DiGraph::hardened();
+        dg.add_edge("a", "b").unwrap();
+        dg.add_edge("b", "a").unwrap();
+        let (cond, _) = condensation(&dg);
+        assert_eq!(cond.mode(), CompatibilityMode::Hardened);
+        assert_eq!(cond.runtime_policy().mode(), CompatibilityMode::Hardened);
     }
 
     // =======================================================================
