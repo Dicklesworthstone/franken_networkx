@@ -114,26 +114,26 @@
     "eulerian_circuit": [
       {
         "from": "a",
-        "to": "c"
-      },
-      {
-        "from": "c",
-        "to": "e"
-      },
-      {
-        "from": "e",
-        "to": "d"
-      },
-      {
-        "from": "d",
-        "to": "c"
-      },
-      {
-        "from": "c",
         "to": "b"
       },
       {
         "from": "b",
+        "to": "c"
+      },
+      {
+        "from": "c",
+        "to": "d"
+      },
+      {
+        "from": "d",
+        "to": "e"
+      },
+      {
+        "from": "e",
+        "to": "c"
+      },
+      {
+        "from": "c",
         "to": "a"
       }
     ]
