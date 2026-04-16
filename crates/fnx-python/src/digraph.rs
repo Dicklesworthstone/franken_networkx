@@ -1250,6 +1250,85 @@ impl PyMultiDiGraph {
             }
         }
     }
+
+    fn __getstate__(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let state = PyDict::new(py);
+        state.set_item("mode", compatibility_mode_name(self.inner.mode()))?;
+
+        let nodes_list: Vec<(PyObject, Py<PyDict>)> = self
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(|n| {
+                let py_key = self.py_node_key(py, n);
+                let attrs = self
+                    .node_py_attrs
+                    .get(n)
+                    .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+                (py_key, attrs)
+            })
+            .collect();
+        state.set_item("nodes", nodes_list)?;
+
+        let edges_list: Vec<(PyObject, PyObject, usize, Py<PyDict>)> = self
+            .inner
+            .edges_ordered()
+            .into_iter()
+            .map(|edge| {
+                let py_u = self.py_node_key(py, &edge.source);
+                let py_v = self.py_node_key(py, &edge.target);
+                let attrs = self
+                    .edge_py_attrs
+                    .get(&Self::edge_key(&edge.source, &edge.target, edge.key))
+                    .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
+                (py_u, py_v, edge.key, attrs)
+            })
+            .collect();
+        state.set_item("edges", edges_list)?;
+        state.set_item("graph", self.graph_attrs.bind(py))?;
+        Ok(state.into_any().unbind())
+    }
+
+    fn __setstate__(&mut self, py: Python<'_>, state: &Bound<'_, PyDict>) -> PyResult<()> {
+        let mode = compatibility_mode_from_py(state.get_item("mode")?.as_ref())?;
+        self.inner = MultiDiGraph::new(mode);
+        self.node_key_map.clear();
+        self.node_py_attrs.clear();
+        self.edge_py_attrs.clear();
+        self.graph_attrs = PyDict::new(py).unbind();
+
+        if let Some(graph_attrs) = state.get_item("graph")? {
+            self.graph_attrs = graph_attrs.downcast::<PyDict>()?.copy()?.unbind();
+        }
+
+        if let Some(nodes) = state.get_item("nodes")? {
+            let iter = PyIterator::from_object(&nodes)?;
+            for item in iter {
+                let item = item?;
+                let tuple = item.downcast::<PyTuple>()?;
+                let node = tuple.get_item(0)?;
+                let attrs = tuple.get_item(1)?;
+                let attrs_dict = attrs.downcast::<PyDict>()?;
+                self.add_node(py, &node, Some(attrs_dict))?;
+            }
+        }
+
+        if let Some(edges) = state.get_item("edges")? {
+            let iter = PyIterator::from_object(&edges)?;
+            for item in iter {
+                let item = item?;
+                let tuple = item.downcast::<PyTuple>()?;
+                let u = tuple.get_item(0)?;
+                let v = tuple.get_item(1)?;
+                let key = tuple.get_item(2)?.extract::<usize>()?;
+                let attrs = tuple.get_item(3)?;
+                let attrs_dict = attrs.downcast::<PyDict>()?;
+                self.add_edge(py, &u, &v, Some(key), Some(attrs_dict))?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3248,6 +3327,46 @@ mod tests {
             assert_eq!(reversed.inner.mode(), CompatibilityMode::Hardened);
             assert_eq!(
                 reversed.inner.runtime_policy().mode(),
+                CompatibilityMode::Hardened
+            );
+        });
+    }
+
+    #[test]
+    fn multidigraph_pickle_state_roundtrips_mode() {
+        ensure_python();
+        Python::with_gil(|py| {
+            let mut graph =
+                PyMultiDiGraph::new(py, None, None).expect("multidigraph should initialize");
+            graph.inner = MultiDiGraph::new(CompatibilityMode::Hardened);
+            graph
+                .inner
+                .add_edge_with_key_and_attrs("u".to_owned(), "v".to_owned(), 3, AttrMap::new())
+                .expect("edge should add");
+
+            let state = graph
+                .__getstate__(py)
+                .expect("state export should succeed")
+                .into_bound(py)
+                .downcast_into::<PyDict>()
+                .expect("state should be a dict");
+            let mode = state
+                .get_item("mode")
+                .expect("dict lookup should succeed")
+                .expect("mode should be present")
+                .extract::<String>()
+                .expect("mode should be a string");
+            assert_eq!(mode, "hardened");
+
+            let mut restored =
+                PyMultiDiGraph::new(py, None, None).expect("multidigraph should initialize");
+            restored
+                .__setstate__(py, &state)
+                .expect("state import should succeed");
+
+            assert_eq!(restored.inner.mode(), CompatibilityMode::Hardened);
+            assert_eq!(
+                restored.inner.runtime_policy().mode(),
                 CompatibilityMode::Hardened
             );
         });
