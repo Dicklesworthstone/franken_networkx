@@ -7,7 +7,7 @@
     "journey_count": 12,
     "strict_journey_count": 12,
     "hardened_journey_count": 12,
-    "fixture_inventory_count": 124,
+    "fixture_inventory_count": 128,
     "covered_fixture_count": 95,
     "uncovered_fixture_count": 22
   },
@@ -2715,7 +2715,11 @@
       "generated/view_neighbors_strict.json",
       "generated/voterank_star_strict.json",
       "graph_core_mutation_hardened.json",
-      "graph_core_shortest_path_strict.json"
+      "graph_core_shortest_path_strict.json",
+      "regressions/franken_networkx-3pdp/eulerian_triangle_with_isolate_strict.json",
+      "regressions/franken_networkx-3pdp/provenance.json",
+      "regressions/franken_networkx-690/global_minimum_node_cut_leaf_bottleneck_strict.json",
+      "regressions/franken_networkx-690/provenance.json"
     ],
     "covered_fixture_ids": [
       "adversarial/empty_input.json",
