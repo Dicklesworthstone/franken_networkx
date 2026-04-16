@@ -101,6 +101,7 @@ impl PyMultiDiGraph {
 
         if let Some(data) = incoming_graph_data {
             if let Ok(other) = data.extract::<PyRef<'_, PyMultiDiGraph>>() {
+                g.inner = MultiDiGraph::new(other.inner.mode());
                 for (canonical, py_key) in &other.node_key_map {
                     let rust_attrs = other
                         .node_py_attrs
@@ -128,6 +129,7 @@ impl PyMultiDiGraph {
                 }
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
             } else if let Ok(other) = data.extract::<PyRef<'_, PyDiGraph>>() {
+                g.inner = MultiDiGraph::new(other.inner.mode());
                 for (canonical, py_key) in &other.node_key_map {
                     let rust_attrs = other
                         .node_py_attrs
@@ -844,7 +846,7 @@ impl PyMultiDiGraph {
 
     fn copy(&self, py: Python<'_>) -> PyResult<Self> {
         let mut new_graph = Self {
-            inner: MultiDiGraph::strict(),
+            inner: MultiDiGraph::new(self.inner.mode()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -895,7 +897,7 @@ impl PyMultiDiGraph {
         }
 
         let mut new_graph = Self {
-            inner: MultiDiGraph::strict(),
+            inner: MultiDiGraph::new(self.inner.mode()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -947,7 +949,7 @@ impl PyMultiDiGraph {
         let iter = PyIterator::from_object(edges)?;
         let mut involved_nodes: HashSet<String> = HashSet::new();
         let mut new_graph = Self {
-            inner: MultiDiGraph::strict(),
+            inner: MultiDiGraph::new(self.inner.mode()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -1081,7 +1083,7 @@ impl PyMultiDiGraph {
 
     fn reverse(&self, py: Python<'_>) -> PyResult<Self> {
         let mut new_graph = Self {
-            inner: MultiDiGraph::strict(),
+            inner: MultiDiGraph::new(self.inner.mode()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -1510,6 +1512,7 @@ impl PyDiGraph {
         if let Some(data) = incoming_graph_data {
             // Copy from another PyDiGraph.
             if let Ok(other) = data.extract::<PyRef<'_, PyDiGraph>>() {
+                g.inner = DiGraph::new(other.inner.mode());
                 for (canonical, py_key) in &other.node_key_map {
                     let rust_attrs = other
                         .node_py_attrs
@@ -3205,6 +3208,46 @@ mod tests {
             assert_eq!(restored.inner.mode(), CompatibilityMode::Hardened);
             assert_eq!(
                 restored.inner.runtime_policy().mode(),
+                CompatibilityMode::Hardened
+            );
+        });
+    }
+
+    #[test]
+    fn digraph_constructor_copy_preserves_mode() {
+        ensure_python();
+        Python::with_gil(|py| {
+            let source = Py::new(
+                py,
+                PyDiGraph::new_empty(py).expect("digraph should initialize"),
+            )
+            .expect("py digraph should initialize");
+            source.borrow_mut(py).inner = DiGraph::new(CompatibilityMode::Hardened);
+
+            let copied = PyDiGraph::new(py, Some(source.bind(py).as_any()), None)
+                .expect("copy construction should succeed");
+
+            assert_eq!(copied.inner.mode(), CompatibilityMode::Hardened);
+            assert_eq!(
+                copied.inner.runtime_policy().mode(),
+                CompatibilityMode::Hardened
+            );
+        });
+    }
+
+    #[test]
+    fn multidigraph_reverse_preserves_mode() {
+        ensure_python();
+        Python::with_gil(|py| {
+            let mut graph =
+                PyMultiDiGraph::new(py, None, None).expect("multidigraph should initialize");
+            graph.inner = MultiDiGraph::new(CompatibilityMode::Hardened);
+
+            let reversed = graph.reverse(py).expect("reverse should succeed");
+
+            assert_eq!(reversed.inner.mode(), CompatibilityMode::Hardened);
+            assert_eq!(
+                reversed.inner.runtime_policy().mode(),
                 CompatibilityMode::Hardened
             );
         });

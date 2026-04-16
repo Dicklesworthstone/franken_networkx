@@ -235,6 +235,7 @@ impl PyMultiGraph {
 
         if let Some(data) = incoming_graph_data {
             if let Ok(other) = data.extract::<PyRef<'_, PyMultiGraph>>() {
+                g.inner = MultiGraph::new(other.inner.mode());
                 for (canonical, py_key) in &other.node_key_map {
                     let rust_attrs = other
                         .node_py_attrs
@@ -262,6 +263,7 @@ impl PyMultiGraph {
                 }
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
             } else if let Ok(other) = data.extract::<PyRef<'_, PyGraph>>() {
+                g.inner = MultiGraph::new(other.inner.mode());
                 for (canonical, py_key) in &other.node_key_map {
                     let rust_attrs = other
                         .node_py_attrs
@@ -1149,7 +1151,7 @@ impl PyMultiGraph {
     /// Return a directed copy of the graph.
     fn to_directed(&self, py: Python<'_>) -> PyResult<crate::digraph::PyMultiDiGraph> {
         let mut mdg = crate::digraph::PyMultiDiGraph {
-            inner: fnx_classes::digraph::MultiDiGraph::strict(),
+            inner: fnx_classes::digraph::MultiDiGraph::new(self.inner.mode()),
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
@@ -1544,6 +1546,7 @@ impl PyGraph {
         if let Some(data) = incoming_graph_data {
             // If it's another PyGraph, copy it.
             if let Ok(other) = data.extract::<PyRef<'_, PyGraph>>() {
+                g.inner = Graph::new(other.inner.mode());
                 for (canonical, py_key) in &other.node_key_map {
                     let rust_attrs = other
                         .node_py_attrs
@@ -2704,6 +2707,43 @@ mod tests {
             assert_eq!(restored.inner.mode(), CompatibilityMode::Hardened);
             assert_eq!(
                 restored.inner.runtime_policy().mode(),
+                CompatibilityMode::Hardened
+            );
+        });
+    }
+
+    #[test]
+    fn graph_constructor_copy_preserves_mode() {
+        ensure_python();
+        Python::with_gil(|py| {
+            let source = Py::new(py, PyGraph::new_empty(py).expect("graph should initialize"))
+                .expect("py graph should initialize");
+            source.borrow_mut(py).inner = Graph::new(CompatibilityMode::Hardened);
+
+            let copied = PyGraph::new(py, Some(source.bind(py).as_any()), None)
+                .expect("copy construction should succeed");
+
+            assert_eq!(copied.inner.mode(), CompatibilityMode::Hardened);
+            assert_eq!(
+                copied.inner.runtime_policy().mode(),
+                CompatibilityMode::Hardened
+            );
+        });
+    }
+
+    #[test]
+    fn multigraph_to_directed_preserves_mode() {
+        ensure_python();
+        Python::with_gil(|py| {
+            let mut graph =
+                PyMultiGraph::new(py, None, None).expect("multigraph should initialize");
+            graph.inner = MultiGraph::new(CompatibilityMode::Hardened);
+
+            let directed = graph.to_directed(py).expect("conversion should succeed");
+
+            assert_eq!(directed.inner.mode(), CompatibilityMode::Hardened);
+            assert_eq!(
+                directed.inner.runtime_policy().mode(),
                 CompatibilityMode::Hardened
             );
         });
