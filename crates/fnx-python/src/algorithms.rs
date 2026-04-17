@@ -356,7 +356,8 @@ pub(crate) fn extract_graph<'py>(g: &'py Bound<'py, PyAny>) -> PyResult<GraphRef
 /// Convert a MultiGraph to a simple Graph by collapsing parallel edges.
 /// Edge attributes from the first parallel edge (key 0) are kept.
 fn multigraph_to_simple_graph(mg: &fnx_classes::MultiGraph) -> fnx_classes::Graph {
-    let mut g = fnx_classes::Graph::with_runtime_policy(mg.runtime_policy().clone());
+    let runtime_policy = mg.runtime_policy().clone();
+    let mut g = fnx_classes::Graph::with_runtime_policy(runtime_policy.clone());
     for node in mg.nodes_ordered() {
         let attrs = mg.node_attrs(node).cloned().unwrap_or_default();
         g.add_node_with_attrs(node.to_owned(), attrs);
@@ -367,6 +368,7 @@ fn multigraph_to_simple_graph(mg: &fnx_classes::MultiGraph) -> fnx_classes::Grap
             let _ = g.add_edge_with_attrs(edge.left, edge.right, edge.attrs);
         }
     }
+    g.set_runtime_policy(runtime_policy);
     g
 }
 
@@ -384,7 +386,8 @@ fn multigraph_to_weighted_simple_graph(
     mg: &fnx_classes::MultiGraph,
     weight_attr: &str,
 ) -> fnx_classes::Graph {
-    let mut g = fnx_classes::Graph::with_runtime_policy(mg.runtime_policy().clone());
+    let runtime_policy = mg.runtime_policy().clone();
+    let mut g = fnx_classes::Graph::with_runtime_policy(runtime_policy.clone());
     let mut selected = HashMap::<(String, String), (f64, usize)>::new();
 
     for node in mg.nodes_ordered() {
@@ -417,6 +420,7 @@ fn multigraph_to_weighted_simple_graph(
         }
     }
 
+    g.set_runtime_policy(runtime_policy);
     g
 }
 
@@ -424,7 +428,8 @@ fn multigraph_to_weighted_simple_graph(
 fn multidigraph_to_simple_digraph(
     mdg: &fnx_classes::digraph::MultiDiGraph,
 ) -> fnx_classes::digraph::DiGraph {
-    let mut dg = fnx_classes::digraph::DiGraph::with_runtime_policy(mdg.runtime_policy().clone());
+    let runtime_policy = mdg.runtime_policy().clone();
+    let mut dg = fnx_classes::digraph::DiGraph::with_runtime_policy(runtime_policy.clone());
     for node in mdg.nodes_ordered() {
         let attrs = mdg.node_attrs(node).cloned().unwrap_or_default();
         dg.add_node_with_attrs(node.to_owned(), attrs);
@@ -434,6 +439,7 @@ fn multidigraph_to_simple_digraph(
             let _ = dg.add_edge_with_attrs(edge.source, edge.target, edge.attrs);
         }
     }
+    dg.set_runtime_policy(runtime_policy);
     dg
 }
 
@@ -443,7 +449,8 @@ fn multidigraph_to_weighted_simple_digraph(
     mdg: &fnx_classes::digraph::MultiDiGraph,
     weight_attr: &str,
 ) -> fnx_classes::digraph::DiGraph {
-    let mut dg = fnx_classes::digraph::DiGraph::with_runtime_policy(mdg.runtime_policy().clone());
+    let runtime_policy = mdg.runtime_policy().clone();
+    let mut dg = fnx_classes::digraph::DiGraph::with_runtime_policy(runtime_policy.clone());
     let mut selected = HashMap::<(String, String), (f64, usize)>::new();
 
     for node in mdg.nodes_ordered() {
@@ -476,6 +483,7 @@ fn multidigraph_to_weighted_simple_digraph(
         }
     }
 
+    dg.set_runtime_policy(runtime_policy);
     dg
 }
 
@@ -843,7 +851,8 @@ fn spanning_input_graph(
     require_undirected(gr, "spanning_edges")?;
 
     let inner = gr.undirected();
-    let mut sanitized = fnx_classes::Graph::with_runtime_policy(inner.runtime_policy().clone());
+    let runtime_policy = inner.runtime_policy().clone();
+    let mut sanitized = fnx_classes::Graph::with_runtime_policy(runtime_policy.clone());
 
     for node in inner.nodes_ordered() {
         sanitized.add_node(node.to_owned());
@@ -889,6 +898,7 @@ fn spanning_input_graph(
             .map_err(|err| PyValueError::new_err(err.to_string()))?;
     }
 
+    sanitized.set_runtime_policy(runtime_policy);
     Ok(sanitized)
 }
 
@@ -921,7 +931,8 @@ fn undirected_spanning_edges_to_pygraph(
     pg: &PyGraph,
     edges: &[(String, String)],
 ) -> PyResult<PyGraph> {
-    let mut tree = PyGraph::new_empty_with_policy(py, pg.inner.runtime_policy().clone())?;
+    let runtime_policy = pg.inner.runtime_policy().clone();
+    let mut tree = PyGraph::new_empty_with_policy(py, runtime_policy.clone())?;
     tree.graph_attrs = pg.graph_attrs.bind(py).copy()?.unbind();
 
     for node in pg.inner.nodes_ordered() {
@@ -945,6 +956,7 @@ fn undirected_spanning_edges_to_pygraph(
         tree.edge_py_attrs.insert(edge_key, edge_attrs);
     }
 
+    tree.inner.set_runtime_policy(runtime_policy);
     Ok(tree)
 }
 
@@ -1064,7 +1076,8 @@ fn directed_branching_to_pydigraph(
     attr: &str,
     preserve_attrs: bool,
 ) -> PyResult<PyDiGraph> {
-    let mut tree = PyDiGraph::new_empty_with_policy(py, dg.inner.runtime_policy().clone())?;
+    let runtime_policy = dg.inner.runtime_policy().clone();
+    let mut tree = PyDiGraph::new_empty_with_policy(py, runtime_policy.clone())?;
     for node in dg.inner.nodes_ordered() {
         let py_key = dg.py_node_key(py, node);
         tree.node_key_map.insert(node.to_owned(), py_key);
@@ -1089,6 +1102,7 @@ fn directed_branching_to_pydigraph(
         tree.edge_py_attrs
             .insert((edge.left.clone(), edge.right.clone()), attrs.unbind());
     }
+    tree.inner.set_runtime_policy(runtime_policy);
     Ok(tree)
 }
 
@@ -3348,9 +3362,10 @@ pub fn k_core_rust(
 ) -> PyResult<Py<PyGraph>> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
+    let runtime_policy = inner.runtime_policy().clone();
     let result = py.allow_threads(|| fnx_algorithms::k_core(inner, k));
 
-    let mut new_graph = PyGraph::new_empty_with_policy(py, inner.runtime_policy().clone())?;
+    let mut new_graph = PyGraph::new_empty_with_policy(py, runtime_policy.clone())?;
     for node in &result.nodes {
         new_graph.inner.add_node(node.clone());
         new_graph
@@ -3360,6 +3375,7 @@ pub fn k_core_rust(
     for (u, v) in &result.edges {
         let _ = new_graph.inner.add_edge(u.clone(), v.clone());
     }
+    new_graph.inner.set_runtime_policy(runtime_policy);
     Py::new(py, new_graph)
 }
 
@@ -3375,9 +3391,10 @@ pub fn k_shell_rust(
 ) -> PyResult<Py<PyGraph>> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
+    let runtime_policy = inner.runtime_policy().clone();
     let result = py.allow_threads(|| fnx_algorithms::k_shell(inner, k));
 
-    let mut new_graph = PyGraph::new_empty_with_policy(py, inner.runtime_policy().clone())?;
+    let mut new_graph = PyGraph::new_empty_with_policy(py, runtime_policy.clone())?;
     for node in &result.nodes {
         new_graph.inner.add_node(node.clone());
         new_graph
@@ -3387,6 +3404,7 @@ pub fn k_shell_rust(
     for (u, v) in &result.edges {
         let _ = new_graph.inner.add_edge(u.clone(), v.clone());
     }
+    new_graph.inner.set_runtime_policy(runtime_policy);
     Py::new(py, new_graph)
 }
 
@@ -3402,9 +3420,10 @@ pub fn k_crust_rust(
 ) -> PyResult<Py<PyGraph>> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
+    let runtime_policy = inner.runtime_policy().clone();
     let result = py.allow_threads(|| fnx_algorithms::k_crust(inner, k));
 
-    let mut new_graph = PyGraph::new_empty_with_policy(py, inner.runtime_policy().clone())?;
+    let mut new_graph = PyGraph::new_empty_with_policy(py, runtime_policy.clone())?;
     for node in &result.nodes {
         new_graph.inner.add_node(node.clone());
         new_graph
@@ -3414,6 +3433,7 @@ pub fn k_crust_rust(
     for (u, v) in &result.edges {
         let _ = new_graph.inner.add_edge(u.clone(), v.clone());
     }
+    new_graph.inner.set_runtime_policy(runtime_policy);
     Py::new(py, new_graph)
 }
 
@@ -3424,9 +3444,10 @@ pub fn k_crust_rust(
 pub fn k_corona_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult<Py<PyGraph>> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
+    let runtime_policy = inner.runtime_policy().clone();
     let result = py.allow_threads(|| fnx_algorithms::k_corona(inner, k));
 
-    let mut new_graph = PyGraph::new_empty_with_policy(py, inner.runtime_policy().clone())?;
+    let mut new_graph = PyGraph::new_empty_with_policy(py, runtime_policy.clone())?;
     for node in &result.nodes {
         new_graph.inner.add_node(node.clone());
         new_graph
@@ -3436,6 +3457,7 @@ pub fn k_corona_rust(py: Python<'_>, g: &Bound<'_, PyAny>, k: usize) -> PyResult
     for (u, v) in &result.edges {
         let _ = new_graph.inner.add_edge(u.clone(), v.clone());
     }
+    new_graph.inner.set_runtime_policy(runtime_policy);
     Py::new(py, new_graph)
 }
 
@@ -3523,9 +3545,10 @@ pub fn minimum_spanning_tree(
 ) -> PyResult<PyGraph> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
+    let runtime_policy = inner.runtime_policy().clone();
     let w = weight.to_owned();
     let result = py.allow_threads(move || fnx_algorithms::minimum_spanning_tree(inner, &w));
-    let mut new_graph = PyGraph::new_empty_with_policy(py, inner.runtime_policy().clone())?;
+    let mut new_graph = PyGraph::new_empty_with_policy(py, runtime_policy.clone())?;
 
     // Add all nodes from original graph
     for node in inner.nodes_ordered() {
@@ -3548,6 +3571,7 @@ pub fn minimum_spanning_tree(
                 .insert(ek, attrs.bind(py).copy()?.unbind());
         }
     }
+    new_graph.inner.set_runtime_policy(runtime_policy);
     Ok(new_graph)
 }
 
@@ -3582,9 +3606,10 @@ pub fn maximum_spanning_tree(
 ) -> PyResult<PyGraph> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
+    let runtime_policy = inner.runtime_policy().clone();
     let w = weight.to_owned();
     let result = py.allow_threads(move || fnx_algorithms::maximum_spanning_tree(inner, &w));
-    let mut new_graph = PyGraph::new_empty_with_policy(py, inner.runtime_policy().clone())?;
+    let mut new_graph = PyGraph::new_empty_with_policy(py, runtime_policy.clone())?;
 
     for node in inner.nodes_ordered() {
         new_graph.inner.add_node(node.to_owned());
@@ -3605,6 +3630,7 @@ pub fn maximum_spanning_tree(
                 .insert(ek, attrs.bind(py).copy()?.unbind());
         }
     }
+    new_graph.inner.set_runtime_policy(runtime_policy);
     Ok(new_graph)
 }
 
@@ -4457,7 +4483,7 @@ pub fn bfs_tree(
     } else {
         gr.undirected().runtime_policy().clone()
     };
-    let mut tree = crate::digraph::PyDiGraph::new_empty_with_policy(py, tree_policy)?;
+    let mut tree = crate::digraph::PyDiGraph::new_empty_with_policy(py, tree_policy.clone())?;
     let source_py = source.clone().unbind();
     let source_s = source_key.clone();
     tree.inner.add_node(&source_s);
@@ -4479,6 +4505,7 @@ pub fn bfs_tree(
         );
     }
 
+    tree.inner.set_runtime_policy(tree_policy);
     Ok(tree)
 }
 
@@ -5034,7 +5061,7 @@ pub fn dfs_tree(
     } else {
         gr.undirected().runtime_policy().clone()
     };
-    let mut tree = crate::digraph::PyDiGraph::new_empty_with_policy(py, tree_policy)?;
+    let mut tree = crate::digraph::PyDiGraph::new_empty_with_policy(py, tree_policy.clone())?;
 
     if let Some(s) = source {
         let sk = node_key_to_string(py, s)?;
@@ -5066,6 +5093,7 @@ pub fn dfs_tree(
             .insert((u_key, v_key), pyo3::types::PyDict::new(py).unbind());
     }
 
+    tree.inner.set_runtime_policy(tree_policy);
     Ok(tree)
 }
 
