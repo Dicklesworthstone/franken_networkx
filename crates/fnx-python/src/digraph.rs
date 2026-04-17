@@ -1432,6 +1432,24 @@ impl MultiDiGraphNodeView {
             |d| d.clone_ref(py).into_any(),
         ))
     }
+
+    #[pyo3(signature = (n, default=None))]
+    fn get(
+        &self,
+        py: Python<'_>,
+        n: &Bound<'_, PyAny>,
+        default: Option<PyObject>,
+    ) -> PyResult<PyObject> {
+        let g = self.graph.borrow(py);
+        let canonical = node_key_to_string(py, n)?;
+        if !g.inner.has_node(&canonical) {
+            return Ok(default.unwrap_or_else(|| py.None()));
+        }
+        Ok(g.node_py_attrs.get(&canonical).map_or_else(
+            || PyDict::new(py).into_any().unbind(),
+            |d| d.clone_ref(py).into_any(),
+        ))
+    }
 }
 
 #[pyclass]
@@ -2864,6 +2882,24 @@ impl DiNodeView {
         Ok(g.node_py_attrs
             .get(&canonical)
             .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py)))
+    }
+
+    #[pyo3(signature = (n, default=None))]
+    fn get(
+        &self,
+        py: Python<'_>,
+        n: &Bound<'_, PyAny>,
+        default: Option<PyObject>,
+    ) -> PyResult<PyObject> {
+        let g = self.graph.borrow(py);
+        let canonical = node_key_to_string(py, n)?;
+        if !g.inner.has_node(&canonical) {
+            return Ok(default.unwrap_or_else(|| py.None()));
+        }
+        Ok(g.node_py_attrs.get(&canonical).map_or_else(
+            || PyDict::new(py).into_any().unbind(),
+            |d| d.clone_ref(py).into_any(),
+        ))
     }
 
     fn __bool__(&self, py: Python<'_>) -> bool {
