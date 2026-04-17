@@ -462,6 +462,8 @@ class BackendInterface:
             inspect.signature(fn).bind(*args, **kwargs)
         except TypeError:
             return False
+        if name == "average_shortest_path_length" and kwargs.get("method") is not None:
+            return False
         return True
 
     @staticmethod
