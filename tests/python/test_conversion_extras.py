@@ -410,3 +410,100 @@ def test_from_pandas_edgelist_matches_networkx_without_fallback(monkeypatch):
     )
 
     assert _graph_data_signature(actual) == _graph_data_signature(expected)
+
+
+def test_to_networkx_graph_matches_networkx_without_fallback_for_graph_like_and_dict(
+    monkeypatch,
+):
+    source = nx.MultiGraph()
+    source.graph["name"] = "demo"
+    source.add_node("a", color="red")
+    source.add_edge("a", "b", key=7, weight=2)
+    expected_graph_like = nx.to_networkx_graph(source)
+
+    generic_dict = {"x": {"y": {"weight": 7}}}
+    expected_generic_dict = nx.to_networkx_graph(generic_dict)
+
+    multigraph_input = {
+        0: {1: {7: {"weight": 3}}},
+        1: {0: {7: {"weight": 3}}},
+    }
+    expected_multigraph_input = nx.to_networkx_graph(multigraph_input, multigraph_input=True)
+
+    def fail(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(nx, "to_networkx_graph", fail)
+
+    actual_graph_like = fnx.to_networkx_graph(source)
+    actual_generic_dict = fnx.to_networkx_graph(generic_dict)
+    actual_multigraph_input = fnx.to_networkx_graph(multigraph_input, multigraph_input=True)
+
+    assert _graph_data_signature(actual_graph_like) == _graph_data_signature(expected_graph_like)
+    assert _graph_data_signature(actual_generic_dict) == _graph_data_signature(expected_generic_dict)
+    assert _graph_data_signature(actual_multigraph_input) == _graph_data_signature(
+        expected_multigraph_input
+    )
+
+
+def test_to_networkx_graph_matches_networkx_without_fallback_for_iterables(monkeypatch):
+    edge_list = [(0, 1), (1, 2, {"weight": 5})]
+    expected_list = nx.to_networkx_graph(edge_list)
+    expected_iterator = nx.to_networkx_graph(iter([(0, 1), (1, 2)]))
+
+    def fail(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(nx, "to_networkx_graph", fail)
+
+    actual_list = fnx.to_networkx_graph(edge_list)
+    actual_iterator = fnx.to_networkx_graph(iter([(0, 1), (1, 2)]))
+
+    assert _graph_data_signature(actual_list) == _graph_data_signature(expected_list)
+    assert _graph_data_signature(actual_iterator) == _graph_data_signature(expected_iterator)
+
+
+def test_to_networkx_graph_matches_networkx_without_fallback_for_matrix_inputs(monkeypatch):
+    np = pytest.importorskip("numpy")
+    scipy_sparse = pytest.importorskip("scipy.sparse")
+
+    matrix = np.array([[0, 2], [2, 0]], dtype=int)
+    sparse_matrix = scipy_sparse.csr_array(matrix)
+    expected_numpy = nx.to_networkx_graph(matrix)
+    expected_sparse = nx.to_networkx_graph(sparse_matrix)
+
+    def fail(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(nx, "to_networkx_graph", fail)
+
+    actual_numpy = fnx.to_networkx_graph(matrix)
+    actual_sparse = fnx.to_networkx_graph(sparse_matrix)
+
+    assert _graph_data_signature(actual_numpy) == _graph_data_signature(expected_numpy)
+    assert _graph_data_signature(actual_sparse) == _graph_data_signature(expected_sparse)
+
+
+def test_to_networkx_graph_matches_networkx_without_fallback_for_pandas_frames(monkeypatch):
+    pd = pytest.importorskip("pandas")
+
+    adjacency_frame = pd.DataFrame([[0, 2], [2, 0]], index=["a", "b"], columns=["a", "b"])
+    edge_frame = pd.DataFrame(
+        [
+            {"source": "a", "target": "b", "weight": 3},
+            {"source": "b", "target": "c", "weight": 4},
+        ]
+    )
+    expected_adjacency = nx.to_networkx_graph(adjacency_frame)
+    expected_edge_frame = nx.to_networkx_graph(edge_frame)
+
+    def fail(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(nx, "to_networkx_graph", fail)
+
+    actual_adjacency = fnx.to_networkx_graph(adjacency_frame)
+    actual_edge_frame = fnx.to_networkx_graph(edge_frame)
+
+    assert _graph_data_signature(actual_adjacency) == _graph_data_signature(expected_adjacency)
+    assert _graph_data_signature(actual_edge_frame) == _graph_data_signature(expected_edge_frame)

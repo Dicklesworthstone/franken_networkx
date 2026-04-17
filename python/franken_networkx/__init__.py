@@ -17,7 +17,7 @@ Or as a NetworkX backend (zero code changes required)::
 """
 
 from collections import defaultdict, deque
-from collections.abc import Mapping
+from collections.abc import Collection, Generator, Iterator, Mapping
 from copy import deepcopy
 from enum import Enum
 from heapq import heappop, heappush
@@ -9079,15 +9079,14 @@ def number_of_edges(G):
 
 def from_pandas_adjacency(df, create_using=None):
     """Build graph from pandas DataFrame adjacency matrix."""
-    G = _empty_graph_from_create_using(create_using)
-    for node in df.index:
-        G.add_node(node)
-    for u in df.index:
-        for v in df.columns:
-            val = df.loc[u, v]
-            if val != 0:
-                G.add_edge(u, v, weight=float(val))
-    return G
+    try:
+        df = df[df.index]
+    except Exception as err:
+        missing = list(set(df.index).difference(set(df.columns)))
+        msg = f"{missing} not in columns"
+        raise NetworkXError("Columns must match Indices.", msg) from err
+
+    return from_numpy_array(df.values, create_using=create_using, nodelist=df.columns)
 
 
 def to_pandas_adjacency(
@@ -13020,6 +13019,13 @@ def from_scipy_sparse_array(
     G : Graph or DiGraph
         The constructed graph.
     """
+    kind_to_python_type = {
+        "f": float,
+        "i": int,
+        "u": int,
+        "b": bool,
+        "c": complex,
+    }
     graph = _empty_graph_from_create_using(create_using)
     n, m = A.shape
     if n != m:
@@ -13027,7 +13033,15 @@ def from_scipy_sparse_array(
 
     graph.add_nodes_from(range(n))
     coo = A.tocoo()
-    triples = ((int(u), int(v), weight) for u, v, weight in zip(coo.row, coo.col, coo.data))
+    python_type = kind_to_python_type.get(A.dtype.kind)
+    triples = (
+        (
+            int(u),
+            int(v),
+            python_type(weight) if python_type is not None else weight,
+        )
+        for u, v, weight in zip(coo.row, coo.col, coo.data)
+    )
     if A.dtype.kind in ("i", "u") and graph.is_multigraph() and parallel_edges:
         chain = itertools.chain.from_iterable
         triples = chain(((u, v, 1) for _ in range(int(weight))) for (u, v, weight) in triples)
@@ -13226,18 +13240,92 @@ def cytoscape_graph(data, name="name", ident="id"):
     return graph
 
 
-def to_networkx_graph(data, create_using=None, multigraph_input=False):  # DELEGATED_TO_NETWORKX
+def to_networkx_graph(data, create_using=None, multigraph_input=False):
     """Convert supported input data to a graph."""
-    import networkx as nx
+    if hasattr(data, "adj"):
+        try:
+            result = from_dict_of_dicts(
+                data.adj,
+                create_using=create_using,
+                multigraph_input=data.is_multigraph(),
+            )
+            result.graph.update(data.graph)
+            for node, attrs in data.nodes(data=True):
+                result.nodes[node].update(attrs)
+            return result
+        except Exception as err:
+            raise NetworkXError("Input is not a correct NetworkX graph.") from err
 
-    from franken_networkx.readwrite import _from_nx_graph, _to_nx_create_using
+    if isinstance(data, dict):
+        try:
+            return from_dict_of_dicts(
+                data,
+                create_using=create_using,
+                multigraph_input=multigraph_input,
+            )
+        except Exception as err1:
+            if multigraph_input is True:
+                raise NetworkXError(
+                    f"converting multigraph_input raised:\n{type(err1)}: {err1}"
+                )
+            try:
+                return from_dict_of_lists(data, create_using=create_using)
+            except Exception as err2:
+                raise TypeError("Input is not known type.") from err2
 
-    graph = nx.to_networkx_graph(
-        data,
-        create_using=_to_nx_create_using(create_using),
-        multigraph_input=multigraph_input,
-    )
-    return _from_nx_graph(graph, create_using=create_using)
+    if isinstance(data, (list, tuple, Iterator)):
+        try:
+            return from_edgelist(data, create_using=create_using)
+        except Exception:
+            pass
+
+    try:
+        import pandas as pd
+
+        if isinstance(data, pd.DataFrame):
+            if data.shape[0] == data.shape[1]:
+                try:
+                    return from_pandas_adjacency(data, create_using=create_using)
+                except Exception as err:
+                    msg = "Input is not a correct Pandas DataFrame adjacency matrix."
+                    raise NetworkXError(msg) from err
+            else:
+                try:
+                    return from_pandas_edgelist(
+                        data,
+                        edge_attr=True,
+                        create_using=create_using,
+                    )
+                except Exception as err:
+                    msg = "Input is not a correct Pandas DataFrame edge-list."
+                    raise NetworkXError(msg) from err
+    except ImportError:
+        pass
+
+    try:
+        import numpy as np
+
+        if isinstance(data, np.ndarray):
+            try:
+                return from_numpy_array(data, create_using=create_using)
+            except Exception as err:
+                raise NetworkXError("Failed to interpret array as an adjacency matrix.") from err
+    except ImportError:
+        pass
+
+    try:
+        if hasattr(data, "format"):
+            return from_scipy_sparse_array(data, create_using=create_using)
+    except Exception as err:
+        raise NetworkXError("Input is not a correct scipy sparse array type.") from err
+
+    if isinstance(data, (Collection, Generator, Iterator)):
+        try:
+            return from_edgelist(data, create_using=create_using)
+        except Exception as err:
+            raise NetworkXError("Input is not a valid edge list") from err
+
+    raise NetworkXError("Input is not a known data type for conversion.")
 
 
 def prominent_group(
