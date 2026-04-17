@@ -1,7 +1,67 @@
 """Tests for conversion and serialization compatibility wrappers."""
 
-import franken_networkx as fnx
+import networkx as nx
 import pytest
+
+import franken_networkx as fnx
+
+
+def _node_key(node):
+    return (type(node).__name__, repr(node))
+
+
+def _value_key(value):
+    if isinstance(value, dict):
+        return tuple(
+            sorted(((type(key).__name__, repr(key)), _value_key(inner)) for key, inner in value.items())
+        )
+    if isinstance(value, (list, tuple)):
+        return tuple(_value_key(item) for item in value)
+    if isinstance(value, set):
+        return tuple(sorted(_value_key(item) for item in value))
+    return (type(value).__name__, repr(value))
+
+
+def _mapping_key(mapping):
+    return tuple(
+        sorted(((type(key).__name__, repr(key)), _value_key(value)) for key, value in mapping.items())
+    )
+
+
+def _graph_data_signature(graph):
+    nodes = [(_node_key(node), _mapping_key(attrs)) for node, attrs in graph.nodes(data=True)]
+    if graph.is_multigraph():
+        edges = sorted(
+            (
+                *(
+                    tuple(sorted((_node_key(u), _node_key(v))))
+                    if not graph.is_directed()
+                    else (_node_key(u), _node_key(v))
+                ),
+                (type(key).__name__, repr(key)),
+                _mapping_key(attrs),
+            )
+            for u, v, key, attrs in graph.edges(keys=True, data=True)
+        )
+    else:
+        edges = sorted(
+            (
+                *(
+                    tuple(sorted((_node_key(u), _node_key(v))))
+                    if not graph.is_directed()
+                    else (_node_key(u), _node_key(v))
+                ),
+                _mapping_key(attrs),
+            )
+            for u, v, attrs in graph.edges(data=True)
+        )
+    return (
+        graph.is_directed(),
+        graph.is_multigraph(),
+        _mapping_key(graph.graph),
+        nodes,
+        edges,
+    )
 
 
 def test_pandas_adjacency_round_trip():
@@ -66,3 +126,140 @@ def test_attr_sparse_matrix_returns_sparse_and_ordering():
 
     assert isinstance(matrix, scipy.sparse.sparray)
     assert ordering == [0, 1]
+
+
+def test_json_graph_constructors_match_networkx_without_fallback(monkeypatch):
+    adjacency_source = nx.MultiDiGraph()
+    adjacency_source.graph["name"] = "demo"
+    adjacency_source.add_node("a", color="red")
+    adjacency_source.add_node("b")
+    adjacency_source.add_edge("a", "b", key=7, weight=2)
+    adjacency_payload = nx.adjacency_data(adjacency_source, attrs={"id": "name", "key": "ekey"})
+    expected_adjacency = nx.adjacency_graph(adjacency_payload, attrs={"id": "name", "key": "ekey"})
+
+    node_link_source = nx.MultiDiGraph()
+    node_link_source.graph["name"] = "demo"
+    node_link_source.add_node("a", color="red")
+    node_link_source.add_node("b")
+    node_link_source.add_edge("a", "b", key=7, weight=2)
+    node_link_payload = nx.node_link_data(
+        node_link_source,
+        edges="links",
+        nodes="verts",
+        source="src",
+        target="dst",
+        name="name",
+        key="ekey",
+    )
+    expected_node_link = nx.node_link_graph(
+        node_link_payload,
+        edges="links",
+        nodes="verts",
+        source="src",
+        target="dst",
+        name="name",
+        key="ekey",
+    )
+
+    cytoscape_source = nx.MultiDiGraph()
+    cytoscape_source.graph["name"] = "demo"
+    cytoscape_source.add_node("a", label="A")
+    cytoscape_source.add_node("b", label="B")
+    cytoscape_source.add_edge("a", "b", key=7, weight=2)
+    cytoscape_payload = nx.cytoscape_data(cytoscape_source, name="label", ident="value")
+    expected_cytoscape = nx.cytoscape_graph(cytoscape_payload, name="label", ident="value")
+
+    def fail(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(nx, "adjacency_graph", fail)
+    monkeypatch.setattr(nx, "node_link_graph", fail)
+    monkeypatch.setattr(nx, "cytoscape_graph", fail)
+
+    actual_adjacency = fnx.adjacency_graph(adjacency_payload, attrs={"id": "name", "key": "ekey"})
+    actual_node_link = fnx.node_link_graph(
+        node_link_payload,
+        edges="links",
+        nodes="verts",
+        source="src",
+        target="dst",
+        name="name",
+        key="ekey",
+    )
+    actual_cytoscape = fnx.cytoscape_graph(cytoscape_payload, name="label", ident="value")
+
+    assert _graph_data_signature(actual_adjacency) == _graph_data_signature(expected_adjacency)
+    assert _graph_data_signature(actual_node_link) == _graph_data_signature(expected_node_link)
+    assert _graph_data_signature(actual_cytoscape) == _graph_data_signature(expected_cytoscape)
+
+
+def test_node_link_graph_converts_list_nodes_to_tuples_without_fallback(monkeypatch):
+    payload = {
+        "graph": {"name": "demo"},
+        "nodes": [{"id": ["a", "b"]}, {"id": "c"}],
+        "edges": [{"source": ["a", "b"], "target": "c", "weight": 2}],
+    }
+    expected = nx.node_link_graph(payload)
+
+    def fail(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(nx, "node_link_graph", fail)
+
+    actual = fnx.node_link_graph(payload)
+
+    assert _graph_data_signature(actual) == _graph_data_signature(expected)
+
+
+def test_json_graph_constructors_preserve_existing_non_integer_key_contract_without_fallback(
+    monkeypatch,
+):
+    adjacency_source = nx.MultiDiGraph()
+    adjacency_source.add_edge("a", "b", key=("left", "right"), weight=2)
+    adjacency_payload = nx.adjacency_data(adjacency_source, attrs={"id": "name", "key": "ekey"})
+    expected_adjacency = fnx.readwrite._from_nx_graph(
+        nx.adjacency_graph(adjacency_payload, attrs={"id": "name", "key": "ekey"})
+    )
+
+    node_link_source = nx.MultiDiGraph()
+    node_link_source.add_edge("a", "b", key=("left", "right"), weight=2)
+    node_link_payload = nx.node_link_data(
+        node_link_source,
+        edges="links",
+        nodes="verts",
+        source="src",
+        target="dst",
+        name="name",
+        key="ekey",
+    )
+    expected_node_link = fnx.readwrite._from_nx_graph(
+        nx.node_link_graph(
+            node_link_payload,
+            edges="links",
+            nodes="verts",
+            source="src",
+            target="dst",
+            name="name",
+            key="ekey",
+        )
+    )
+
+    def fail(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(nx, "adjacency_graph", fail)
+    monkeypatch.setattr(nx, "node_link_graph", fail)
+
+    actual_adjacency = fnx.adjacency_graph(adjacency_payload, attrs={"id": "name", "key": "ekey"})
+    actual_node_link = fnx.node_link_graph(
+        node_link_payload,
+        edges="links",
+        nodes="verts",
+        source="src",
+        target="dst",
+        name="name",
+        key="ekey",
+    )
+
+    assert _graph_data_signature(actual_adjacency) == _graph_data_signature(expected_adjacency)
+    assert _graph_data_signature(actual_node_link) == _graph_data_signature(expected_node_link)

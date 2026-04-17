@@ -36,6 +36,7 @@ BEHAVIOR_FORMATS = [
     "json",
     "edgelist",
     "adjlist",
+    "pajek",
 ]
 
 def populate_graph(G, fmt):
@@ -321,6 +322,14 @@ def networkx_round_trip(G, fmt):
             return nx.read_adjlist(path)
         finally:
             os.unlink(path)
+    elif fmt == "pajek":
+        with tempfile.NamedTemporaryFile(suffix=".pajek", delete=False) as f:
+            path = f.name
+        try:
+            nx.write_pajek(G, path)
+            return nx.read_pajek(path)
+        finally:
+            os.unlink(path)
     else:
         raise ValueError(f"Unknown format {fmt}")
 
@@ -330,9 +339,6 @@ def networkx_round_trip(G, fmt):
 def test_round_trip_identity(graph_type, fmt):
     G = graph_type()
     G = populate_graph(G, fmt)
-    
-    if fmt == "pajek":
-        pytest.skip("Pajek round-trip currently requires NodeView.get compatibility")
 
     try:
         G2 = round_trip(G, fmt)
@@ -340,12 +346,27 @@ def test_round_trip_identity(graph_type, fmt):
         if fmt == "gexf" and "not implemented" in str(e).lower():
             pytest.skip(f"GEXF not fully supported: {e}")
         raise
-        
+
     if fmt == "pajek":
-        assert set(G.nodes()) == set(G2.nodes())
+        if not HAS_NX:
+            pytest.skip("networkx not installed")
+        expected = networkx_round_trip(_reference_graph(graph_type, fmt), fmt)
+        assert_graphs_equal(expected, G2, fmt)
         return
 
     assert_graphs_equal(G, G2, fmt)
+
+
+@pytest.mark.parametrize("graph_type", GRAPH_TYPES)
+def test_nodeview_get_matches_mapping_contract(graph_type):
+    G = graph_type()
+    G.add_node("n1", color="red")
+
+    attrs = G.nodes.get("n1")
+    assert isinstance(attrs, dict)
+    assert attrs == {"color": "red"}
+    assert G.nodes.get("missing") is None
+    assert G.nodes.get("missing", {}) == {}
 
 
 @needs_nx

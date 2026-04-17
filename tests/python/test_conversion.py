@@ -2,6 +2,7 @@
 to/from_dict_of_dicts, to/from_dict_of_lists, to/from_edgelist,
 to/from_numpy_array, to/from_scipy_sparse_array, to/from_pandas_edgelist."""
 
+import networkx as nx
 import pytest
 
 import franken_networkx as fnx
@@ -187,6 +188,15 @@ class TestDictOfLists:
         assert H is G
         assert not H.has_node("stale")
         assert H.number_of_edges() == 1
+
+    def test_multigraph_symmetric_adjacency_deduplicates_parallel_edges(self):
+        adjacency = {0: [1, 2], 1: [0, 2, 3], 2: [0, 1, 4], 3: [1], 4: [2]}
+
+        actual = fnx.from_dict_of_lists(adjacency, create_using=fnx.MultiGraph())
+        expected = nx.from_dict_of_lists(adjacency, create_using=nx.MultiGraph())
+
+        assert actual.number_of_edges() == expected.number_of_edges() == 5
+        assert sorted(actual.edges(keys=True)) == sorted(expected.edges(keys=True))
 
 
 # ---------------------------------------------------------------------------
