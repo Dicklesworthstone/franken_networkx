@@ -12670,7 +12670,7 @@ def to_pandas_edgelist(
     return pd.DataFrame(payload, dtype=dtype)
 
 
-def from_pandas_edgelist(  # DELEGATED_TO_NETWORKX (pandas conversion)
+def from_pandas_edgelist(
     df,
     source="source",
     target="target",
@@ -12698,19 +12698,64 @@ def from_pandas_edgelist(  # DELEGATED_TO_NETWORKX (pandas conversion)
     -------
     G : Graph or DiGraph
     """
-    import networkx as nx
+    graph = _empty_graph_from_create_using(create_using)
 
-    from franken_networkx.readwrite import _from_nx_graph, _to_nx_create_using
+    if edge_attr is None:
+        if graph.is_multigraph() and edge_key is not None:
+            for u, v, edge_key_value in zip(df[source], df[target], df[edge_key]):
+                _add_json_multiedge(graph, u, v, edge_key_value, {})
+        else:
+            graph.add_edges_from(zip(df[source], df[target]))
+        return graph
 
-    graph = nx.from_pandas_edgelist(
-        df,
-        source=source,
-        target=target,
-        edge_attr=edge_attr,
-        create_using=_to_nx_create_using(create_using),
-        edge_key=edge_key,
-    )
-    return _from_nx_graph(graph, create_using=create_using)
+    reserved_columns = [source, target]
+    if graph.is_multigraph() and edge_key is not None:
+        reserved_columns.append(edge_key)
+
+    if isinstance(edge_attr, bool) and edge_attr:
+        attr_col_headings = [column for column in df.columns if column not in reserved_columns]
+    elif isinstance(edge_attr, list | tuple):
+        attr_col_headings = edge_attr
+    else:
+        attr_col_headings = [edge_attr]
+    if len(attr_col_headings) == 0:
+        raise NetworkXError(
+            f"Invalid edge_attr argument: No columns found with name: {attr_col_headings}"
+        )
+
+    try:
+        attribute_data = zip(*[df[column] for column in attr_col_headings])
+    except (KeyError, TypeError) as err:
+        msg = f"Invalid edge_attr argument: {edge_attr}"
+        raise NetworkXError(msg) from err
+
+    if graph.is_multigraph():
+        if edge_key is not None:
+            try:
+                attribute_data = zip(attribute_data, df[edge_key])
+            except (KeyError, TypeError) as err:
+                msg = f"Invalid edge_key argument: {edge_key}"
+                raise NetworkXError(msg) from err
+
+        for source_node, target_node, attrs in zip(df[source], df[target], attribute_data):
+            if edge_key is not None:
+                attrs, edge_key_value = attrs
+                _add_json_multiedge(
+                    graph,
+                    source_node,
+                    target_node,
+                    edge_key_value,
+                    dict(zip(attr_col_headings, attrs)),
+                )
+            else:
+                actual_key = graph.add_edge(source_node, target_node)
+                graph[source_node][target_node][actual_key].update(zip(attr_col_headings, attrs))
+    else:
+        for source_node, target_node, attrs in zip(df[source], df[target], attribute_data):
+            graph.add_edge(source_node, target_node)
+            graph[source_node][target_node].update(zip(attr_col_headings, attrs))
+
+    return graph
 
 
 def to_numpy_array(
@@ -12791,7 +12836,7 @@ def to_numpy_array(
     return matrix
 
 
-def from_numpy_array(  # DELEGATED_TO_NETWORKX (numpy conversion)
+def from_numpy_array(
     A,
     parallel_edges=False,
     create_using=None,
@@ -12814,18 +12859,74 @@ def from_numpy_array(  # DELEGATED_TO_NETWORKX (numpy conversion)
     G : Graph or DiGraph
         The constructed graph.
     """
-    import networkx as nx
+    kind_to_python_type = {
+        "f": float,
+        "i": int,
+        "u": int,
+        "b": bool,
+        "c": complex,
+        "S": str,
+        "U": str,
+        "V": "void",
+    }
+    graph = _empty_graph_from_create_using(create_using)
+    if A.ndim != 2:
+        raise NetworkXError(f"Input array must be 2D, not {A.ndim}")
+    n, m = A.shape
+    if n != m:
+        raise NetworkXError(f"Adjacency matrix not square: nx,ny={A.shape}")
+    dtype = A.dtype
+    try:
+        python_type = kind_to_python_type[dtype.kind]
+    except Exception as err:
+        raise TypeError(f"Unknown numpy data type: {dtype}") from err
 
-    from franken_networkx.readwrite import _from_nx_graph, _to_nx_create_using
+    default_nodes = nodelist is None
+    if default_nodes:
+        nodelist = range(n)
+    else:
+        if len(nodelist) != n:
+            raise ValueError("nodelist must have the same length as A.shape[0]")
 
-    graph = nx.from_numpy_array(
-        A,
-        parallel_edges=parallel_edges,
-        create_using=_to_nx_create_using(create_using),
-        edge_attr=edge_attr,
-        nodelist=nodelist,
-    )
-    return _from_nx_graph(graph, create_using=create_using)
+    graph.add_nodes_from(nodelist)
+    edges = ((int(u), int(v)) for u, v in zip(*A.nonzero()))
+    if python_type == "void":
+        fields = sorted((offset, field_dtype, name) for name, (field_dtype, offset) in dtype.fields.items())
+        triples = (
+            (
+                u,
+                v,
+                {}
+                if edge_attr in [False, None]
+                else {
+                    name: kind_to_python_type[field_dtype.kind](value)
+                    for (_, field_dtype, name), value in zip(fields, A[u, v])
+                },
+            )
+            for u, v in edges
+        )
+    elif python_type is int and graph.is_multigraph() and parallel_edges:
+        chain = itertools.chain.from_iterable
+        if edge_attr in [False, None]:
+            triples = chain(((u, v, {}) for _ in range(A[u, v])) for (u, v) in edges)
+        else:
+            triples = chain(
+                ((u, v, {edge_attr: 1}) for _ in range(A[u, v])) for (u, v) in edges
+            )
+    else:
+        if edge_attr in [False, None]:
+            triples = ((u, v, {}) for u, v in edges)
+        else:
+            triples = ((u, v, {edge_attr: python_type(A[u, v])}) for u, v in edges)
+
+    if graph.is_multigraph() and not graph.is_directed():
+        triples = ((u, v, attrs) for u, v, attrs in triples if u <= v)
+    if not default_nodes:
+        idx_to_node = dict(enumerate(nodelist))
+        triples = ((idx_to_node[u], idx_to_node[v], attrs) for u, v, attrs in triples)
+
+    graph.add_edges_from(triples)
+    return graph
 
 
 def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format="csr"):
@@ -12897,7 +12998,7 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
     return matrix.asformat(format)
 
 
-def from_scipy_sparse_array(  # DELEGATED_TO_NETWORKX (scipy conversion)
+def from_scipy_sparse_array(
     A, parallel_edges=False, create_using=None, edge_attribute="weight"
 ):
     """Return a graph from a SciPy sparse array.
@@ -12919,31 +13020,83 @@ def from_scipy_sparse_array(  # DELEGATED_TO_NETWORKX (scipy conversion)
     G : Graph or DiGraph
         The constructed graph.
     """
-    import networkx as nx
+    graph = _empty_graph_from_create_using(create_using)
+    n, m = A.shape
+    if n != m:
+        raise NetworkXError(f"Adjacency matrix not square: nx,ny={A.shape}")
 
-    from franken_networkx.readwrite import _from_nx_graph, _to_nx_create_using
+    graph.add_nodes_from(range(n))
+    coo = A.tocoo()
+    triples = ((int(u), int(v), weight) for u, v, weight in zip(coo.row, coo.col, coo.data))
+    if A.dtype.kind in ("i", "u") and graph.is_multigraph() and parallel_edges:
+        chain = itertools.chain.from_iterable
+        triples = chain(((u, v, 1) for _ in range(int(weight))) for (u, v, weight) in triples)
+    if graph.is_multigraph() and not graph.is_directed():
+        triples = ((u, v, weight) for u, v, weight in triples if u <= v)
 
-    graph = nx.from_scipy_sparse_array(
-        A,
-        parallel_edges=parallel_edges,
-        create_using=_to_nx_create_using(create_using),
-        edge_attribute=edge_attribute,
-    )
-    return _from_nx_graph(graph, create_using=create_using)
+    graph.add_weighted_edges_from(triples, weight=edge_attribute)
+    return graph
 
 
-def from_dict_of_dicts(d, create_using=None, multigraph_input=False):  # DELEGATED_TO_NETWORKX
+def from_dict_of_dicts(d, create_using=None, multigraph_input=False):
     """Return a graph from a dictionary of dictionaries."""
-    import networkx as nx
+    graph = _empty_graph_from_create_using(create_using)
+    graph.add_nodes_from(d)
 
-    from franken_networkx.readwrite import _from_nx_graph, _to_nx_create_using
+    if multigraph_input:
+        if graph.is_directed():
+            if graph.is_multigraph():
+                for u, nbrs in d.items():
+                    for v, edge_map in nbrs.items():
+                        for edge_key, edge_attrs in edge_map.items():
+                            _add_json_multiedge(graph, u, v, edge_key, dict(edge_attrs))
+            else:
+                for u, nbrs in d.items():
+                    for v, edge_map in nbrs.items():
+                        for _, edge_attrs in edge_map.items():
+                            graph.add_edge(u, v)
+                            graph[u][v].update(edge_attrs)
+        else:
+            seen = set()
+            if graph.is_multigraph():
+                for u, nbrs in d.items():
+                    for v, edge_map in nbrs.items():
+                        if (u, v) in seen:
+                            continue
+                        for edge_key, edge_attrs in edge_map.items():
+                            _add_json_multiedge(graph, u, v, edge_key, dict(edge_attrs))
+                        seen.add((v, u))
+            else:
+                for u, nbrs in d.items():
+                    for v, edge_map in nbrs.items():
+                        if (u, v) in seen:
+                            continue
+                        for _, edge_attrs in edge_map.items():
+                            graph.add_edge(u, v)
+                            graph[u][v].update(edge_attrs)
+                        seen.add((v, u))
+        return graph
 
-    graph = nx.from_dict_of_dicts(
-        d,
-        create_using=_to_nx_create_using(create_using),
-        multigraph_input=multigraph_input,
-    )
-    return _from_nx_graph(graph, create_using=create_using)
+    if graph.is_multigraph():
+        if graph.is_directed():
+            for u, nbrs in d.items():
+                for v, edge_attrs in nbrs.items():
+                    _add_json_multiedge(graph, u, v, 0, dict(edge_attrs))
+        else:
+            seen = set()
+            for u, nbrs in d.items():
+                for v, edge_attrs in nbrs.items():
+                    if (u, v) in seen:
+                        continue
+                    _add_json_multiedge(graph, u, v, 0, dict(edge_attrs))
+                    seen.add((v, u))
+    else:
+        for u, nbrs in d.items():
+            for v, edge_attrs in nbrs.items():
+                graph.add_edge(u, v)
+                graph[u][v].update(edge_attrs)
+
+    return graph
 
 
 def from_edgelist(edgelist, create_using=None):

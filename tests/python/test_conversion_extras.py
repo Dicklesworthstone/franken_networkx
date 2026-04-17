@@ -263,3 +263,150 @@ def test_json_graph_constructors_preserve_existing_non_integer_key_contract_with
 
     assert _graph_data_signature(actual_adjacency) == _graph_data_signature(expected_adjacency)
     assert _graph_data_signature(actual_node_link) == _graph_data_signature(expected_node_link)
+
+
+def test_from_dict_of_dicts_matches_networkx_without_fallback(monkeypatch):
+    payload = {0: {1: {7: {"w": 1}}}, 1: {0: {7: {"w": 1}}}, 5: {}}
+    expected = nx.from_dict_of_dicts(
+        payload,
+        create_using=nx.MultiGraph(),
+        multigraph_input=True,
+    )
+
+    def fail(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(nx, "from_dict_of_dicts", fail)
+
+    actual = fnx.from_dict_of_dicts(
+        payload,
+        create_using=fnx.MultiGraph(),
+        multigraph_input=True,
+    )
+
+    assert _graph_data_signature(actual) == _graph_data_signature(expected)
+
+
+def test_from_dict_of_dicts_preserves_existing_non_integer_key_contract_without_fallback(
+    monkeypatch,
+):
+    payload = {0: {1: {"left": {"w": 1}}}, 1: {0: {"left": {"w": 1}}}}
+    expected = fnx.readwrite._from_nx_graph(
+        nx.from_dict_of_dicts(
+            payload,
+            create_using=nx.MultiGraph(),
+            multigraph_input=True,
+        )
+    )
+
+    def fail(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(nx, "from_dict_of_dicts", fail)
+
+    actual = fnx.from_dict_of_dicts(
+        payload,
+        create_using=fnx.MultiGraph(),
+        multigraph_input=True,
+    )
+
+    assert _graph_data_signature(actual) == _graph_data_signature(expected)
+
+
+def test_from_numpy_array_matches_networkx_without_fallback(monkeypatch):
+    np = pytest.importorskip("numpy")
+    matrix = np.array([[0, 2], [2, 0]], dtype=int)
+    expected = nx.from_numpy_array(
+        matrix,
+        parallel_edges=True,
+        create_using=nx.MultiGraph(),
+        nodelist=["left", "right"],
+    )
+
+    def fail(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(nx, "from_numpy_array", fail)
+
+    actual = fnx.from_numpy_array(
+        matrix,
+        parallel_edges=True,
+        create_using=fnx.MultiGraph(),
+        nodelist=["left", "right"],
+    )
+
+    assert _graph_data_signature(actual) == _graph_data_signature(expected)
+
+
+def test_from_numpy_array_structured_dtype_matches_networkx_without_fallback(monkeypatch):
+    np = pytest.importorskip("numpy")
+    dtype = np.dtype([("weight", float), ("cost", int)])
+    matrix = np.array([[(0.0, 0), (1.5, 2)], [(1.5, 2), (0.0, 0)]], dtype=dtype)
+    expected = nx.from_numpy_array(matrix, nodelist=["left", "right"])
+
+    def fail(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(nx, "from_numpy_array", fail)
+
+    actual = fnx.from_numpy_array(matrix, nodelist=["left", "right"])
+
+    assert _graph_data_signature(actual) == _graph_data_signature(expected)
+
+
+def test_from_scipy_sparse_array_matches_networkx_without_fallback(monkeypatch):
+    np = pytest.importorskip("numpy")
+    scipy_sparse = pytest.importorskip("scipy.sparse")
+    matrix = scipy_sparse.csr_array(np.array([[0, 2], [2, 0]], dtype=int))
+    expected = nx.from_scipy_sparse_array(
+        matrix,
+        parallel_edges=True,
+        create_using=nx.MultiGraph(),
+    )
+
+    def fail(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(nx, "from_scipy_sparse_array", fail)
+
+    actual = fnx.from_scipy_sparse_array(
+        matrix,
+        parallel_edges=True,
+        create_using=fnx.MultiGraph(),
+    )
+
+    assert _graph_data_signature(actual) == _graph_data_signature(expected)
+
+
+def test_from_pandas_edgelist_matches_networkx_without_fallback(monkeypatch):
+    pd = pytest.importorskip("pandas")
+    frame = pd.DataFrame(
+        [
+            {"src": "a", "dst": "b", "ek": 7, "weight": 3},
+            {"src": "a", "dst": "b", "ek": 8, "weight": 4},
+        ]
+    )
+    expected = nx.from_pandas_edgelist(
+        frame,
+        source="src",
+        target="dst",
+        edge_attr="weight",
+        create_using=nx.MultiGraph(),
+        edge_key="ek",
+    )
+
+    def fail(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(nx, "from_pandas_edgelist", fail)
+
+    actual = fnx.from_pandas_edgelist(
+        frame,
+        source="src",
+        target="dst",
+        edge_attr="weight",
+        create_using=fnx.MultiGraph(),
+        edge_key="ek",
+    )
+
+    assert _graph_data_signature(actual) == _graph_data_signature(expected)

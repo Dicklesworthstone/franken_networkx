@@ -7,8 +7,8 @@
 | Category | Count | % | Rule |
 |----------|-------|---|------|
 | RUST_NATIVE | 239 | 30% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 437 | 56% | Python-defined exports with no runtime NetworkX dependency detected |
-| NX_DELEGATED | 82 | 10% | Python-defined exports that import or call NetworkX at runtime |
+| PY_WRAPPER | 441 | 56% | Python-defined exports with no runtime NetworkX dependency detected |
+| NX_DELEGATED | 78 | 10% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 19 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
 | **Total public exports** | **779** | | unique names from `franken_networkx.__all__` |
@@ -270,7 +270,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_gml`
 - `write_graphml`
 
-## PY_WRAPPER exports (437)
+## PY_WRAPPER exports (441)
 
 - `LCF_graph`
 - `add_cycle`
@@ -432,11 +432,15 @@ All declared public exports are classified. `--check` fails if this generated re
 - `floyd_warshall_numpy`
 - `forceatlas2_layout`
 - `freeze`
+- `from_dict_of_dicts`
 - `from_dict_of_lists`
 - `from_edgelist`
 - `from_nested_tuple`
+- `from_numpy_array`
 - `from_pandas_adjacency`
+- `from_pandas_edgelist`
 - `from_prufer_sequence`
+- `from_scipy_sparse_array`
 - `frucht_graph`
 - `fruchterman_reingold_layout`
 - `full_join`
@@ -710,7 +714,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_network_text`
 - `write_weighted_edgelist`
 
-## NX_DELEGATED exports (82)
+## NX_DELEGATED exports (78)
 
 - `LFR_benchmark_graph`
 - `apply_matplotlib_colors`
@@ -731,11 +735,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `draw_spring`
 - `expected_degree_graph`
 - `extended_barabasi_albert_graph`
-- `from_dict_of_dicts`
 - `from_graph6_bytes`
-- `from_numpy_array`
-- `from_pandas_edgelist`
-- `from_scipy_sparse_array`
 - `from_sparse6_bytes`
 - `generate_gexf`
 - `generate_gml`
