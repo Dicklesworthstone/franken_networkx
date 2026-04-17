@@ -13264,7 +13264,7 @@ def to_networkx_graph(data, create_using=None, multigraph_input=False):
                 multigraph_input=multigraph_input,
             )
         except Exception as err1:
-            if multigraph_input is True:
+            if isinstance(multigraph_input, bool) and multigraph_input:
                 raise NetworkXError(
                     f"converting multigraph_input raised:\n{type(err1)}: {err1}"
                 )
