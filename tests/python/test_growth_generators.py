@@ -1,8 +1,37 @@
 """Tests for growth-model and degree-model generator wrappers."""
 
 import networkx as nx
+import pytest
 
 import franken_networkx as fnx
+
+
+def _graph_signature(graph):
+    nodes = sorted((repr(node), tuple(sorted(attrs.items()))) for node, attrs in graph.nodes(data=True))
+    if graph.is_multigraph():
+        edges = sorted(
+            (
+                *((repr(u), repr(v)) if graph.is_directed() else tuple(sorted((repr(u), repr(v))))),
+                key,
+                tuple(sorted(attrs.items())),
+            )
+            for u, v, key, attrs in graph.edges(keys=True, data=True)
+        )
+    else:
+        edges = sorted(
+            (
+                *((repr(u), repr(v)) if graph.is_directed() else tuple(sorted((repr(u), repr(v))))),
+                tuple(sorted(attrs.items())),
+            )
+            for u, v, attrs in graph.edges(data=True)
+        )
+    return (
+        graph.is_directed(),
+        graph.is_multigraph(),
+        tuple(sorted(graph.graph.items())),
+        nodes,
+        edges,
+    )
 
 
 def test_gnc_and_gnr_graph_shapes():
@@ -119,6 +148,8 @@ def test_native_random_generators_do_not_fallback_to_networkx(monkeypatch):
     monkeypatch.setattr(nx, "connected_watts_strogatz_graph", fail)
     monkeypatch.setattr(nx, "random_regular_graph", fail)
     monkeypatch.setattr(nx, "powerlaw_cluster_graph", fail)
+    monkeypatch.setattr(nx, "random_lobster_graph", fail)
+    monkeypatch.setattr(nx, "random_shell_graph", fail)
 
     assert fnx.balanced_tree(2, 2).number_of_nodes() == 7
     assert fnx.barbell_graph(3, 2).number_of_nodes() == 8
@@ -172,3 +203,119 @@ def test_native_random_generators_do_not_fallback_to_networkx(monkeypatch):
     assert fnx.connected_watts_strogatz_graph(12, 4, 0.2, tries=5, seed=42).number_of_nodes() == 12
     assert fnx.random_regular_graph(2, 6, seed=42).number_of_nodes() == 6
     assert fnx.powerlaw_cluster_graph(10, 2, 0.5, seed=42).number_of_nodes() == 10
+    assert fnx.random_lobster_graph(8, 0.4, 0.3, seed=1).number_of_nodes() == 2
+    assert fnx.random_shell_graph([(4, 8, 0.8)], seed=1).number_of_nodes() == 4
+
+
+def test_small_world_generators_support_create_using_without_fallback(monkeypatch):
+    expected_connected = fnx.readwrite._from_nx_graph(
+        nx.connected_watts_strogatz_graph(12, 4, 0.2, tries=5, seed=42, create_using=None),
+        create_using=fnx.Graph(),
+    )
+    expected_powerlaw = fnx.readwrite._from_nx_graph(
+        nx.powerlaw_cluster_graph(10, 2, 0.5, seed=42, create_using=None),
+        create_using=fnx.Graph(),
+    )
+    expected_ws = fnx.readwrite._from_nx_graph(
+        nx.watts_strogatz_graph(12, 4, 0.2, seed=42, create_using=None),
+        create_using=fnx.Graph(),
+    )
+    expected_nws = fnx.readwrite._from_nx_graph(
+        nx.newman_watts_strogatz_graph(12, 4, 0.2, seed=42, create_using=None),
+        create_using=fnx.Graph(),
+    )
+
+    def fail(*args, **kwargs):
+        raise AssertionError("networkx fallback was used")
+
+    monkeypatch.setattr(nx, "watts_strogatz_graph", fail)
+    monkeypatch.setattr(nx, "newman_watts_strogatz_graph", fail)
+    monkeypatch.setattr(nx, "connected_watts_strogatz_graph", fail)
+    monkeypatch.setattr(nx, "powerlaw_cluster_graph", fail)
+
+    actual_ws = fnx.watts_strogatz_graph(12, 4, 0.2, seed=42, create_using=fnx.Graph())
+    actual_nws = fnx.newman_watts_strogatz_graph(12, 4, 0.2, seed=42, create_using=fnx.Graph())
+    actual_connected = fnx.connected_watts_strogatz_graph(
+        12, 4, 0.2, tries=5, seed=42, create_using=fnx.Graph()
+    )
+    actual_powerlaw = fnx.powerlaw_cluster_graph(10, 2, 0.5, seed=42, create_using=fnx.Graph())
+
+    assert _graph_signature(actual_ws) == _graph_signature(expected_ws)
+    assert _graph_signature(actual_nws) == _graph_signature(expected_nws)
+    assert _graph_signature(actual_connected) == _graph_signature(expected_connected)
+    assert _graph_signature(actual_powerlaw) == _graph_signature(expected_powerlaw)
+
+
+def test_small_world_generators_match_networkx_for_seeded_random_cases():
+    assert _graph_signature(fnx.watts_strogatz_graph(12, 4, 0.2, seed=42)) == _graph_signature(
+        nx.watts_strogatz_graph(12, 4, 0.2, seed=42)
+    )
+    assert _graph_signature(fnx.newman_watts_strogatz_graph(12, 4, 0.2, seed=42)) == _graph_signature(
+        nx.newman_watts_strogatz_graph(12, 4, 0.2, seed=42)
+    )
+    assert _graph_signature(
+        fnx.connected_watts_strogatz_graph(12, 4, 0.2, tries=5, seed=42)
+    ) == _graph_signature(nx.connected_watts_strogatz_graph(12, 4, 0.2, tries=5, seed=42))
+    assert _graph_signature(fnx.powerlaw_cluster_graph(10, 2, 0.5, seed=42)) == _graph_signature(
+        nx.powerlaw_cluster_graph(10, 2, 0.5, seed=42)
+    )
+
+
+def test_small_world_generators_reject_incompatible_create_using():
+    factories = (
+        lambda create_using: fnx.watts_strogatz_graph(12, 4, 0.2, seed=42, create_using=create_using),
+        lambda create_using: fnx.newman_watts_strogatz_graph(12, 4, 0.2, seed=42, create_using=create_using),
+        lambda create_using: fnx.connected_watts_strogatz_graph(
+            12, 4, 0.2, tries=5, seed=42, create_using=create_using
+        ),
+        lambda create_using: fnx.powerlaw_cluster_graph(10, 2, 0.5, seed=42, create_using=create_using),
+    )
+
+    for factory in factories:
+        with pytest.raises(fnx.NetworkXError, match="create_using must not be a multi-graph"):
+            factory(fnx.MultiGraph())
+        with pytest.raises(fnx.NetworkXError, match="create_using must not be directed"):
+            factory(fnx.DiGraph())
+
+
+def test_lobster_and_shell_generators_support_create_using_without_fallback(monkeypatch):
+    expected_lobster = fnx.readwrite._from_nx_graph(
+        nx.random_lobster_graph(8, 0.4, 0.3, seed=1, create_using=None),
+        create_using=fnx.Graph(),
+    )
+    expected_shell = fnx.readwrite._from_nx_graph(
+        nx.random_shell_graph([(4, 8, 0.8)], seed=1, create_using=None),
+        create_using=fnx.Graph(),
+    )
+
+    def fail(*args, **kwargs):
+        raise AssertionError("networkx fallback was used")
+
+    monkeypatch.setattr(nx, "random_lobster_graph", fail)
+    monkeypatch.setattr(nx, "random_shell_graph", fail)
+
+    actual_lobster = fnx.random_lobster_graph(8, 0.4, 0.3, seed=1, create_using=fnx.Graph())
+    actual_shell = fnx.random_shell_graph([(4, 8, 0.8)], seed=1, create_using=fnx.Graph())
+
+    assert _graph_signature(actual_lobster) == _graph_signature(expected_lobster)
+    assert _graph_signature(actual_shell) == _graph_signature(expected_shell)
+
+
+def test_lobster_and_shell_generators_match_networkx_for_seeded_cases():
+    assert _graph_signature(fnx.random_lobster_graph(8, 0.4, 0.3, seed=1)) == _graph_signature(
+        nx.random_lobster_graph(8, 0.4, 0.3, seed=1)
+    )
+    assert _graph_signature(fnx.random_shell_graph([(4, 8, 0.8)], seed=1)) == _graph_signature(
+        nx.random_shell_graph([(4, 8, 0.8)], seed=1)
+    )
+
+
+def test_lobster_and_shell_generators_reject_incompatible_create_using():
+    for factory in (
+        lambda create_using: fnx.random_lobster_graph(8, 0.4, 0.3, seed=1, create_using=create_using),
+        lambda create_using: fnx.random_shell_graph([(4, 8, 0.8)], seed=1, create_using=create_using),
+    ):
+        with pytest.raises(fnx.NetworkXError, match="create_using must not be a multi-graph"):
+            factory(fnx.MultiGraph())
+        with pytest.raises(fnx.NetworkXError, match="create_using must not be directed"):
+            factory(fnx.DiGraph())

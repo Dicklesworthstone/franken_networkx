@@ -7,8 +7,8 @@
 | Category | Count | % | Rule |
 |----------|-------|---|------|
 | RUST_NATIVE | 239 | 30% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 442 | 56% | Python-defined exports with no runtime NetworkX dependency detected |
-| NX_DELEGATED | 77 | 9% | Python-defined exports that import or call NetworkX at runtime |
+| PY_WRAPPER | 448 | 57% | Python-defined exports with no runtime NetworkX dependency detected |
+| NX_DELEGATED | 71 | 9% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 19 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
 | **Total public exports** | **779** | | unique names from `franken_networkx.__all__` |
@@ -270,7 +270,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_gml`
 - `write_graphml`
 
-## PY_WRAPPER exports (442)
+## PY_WRAPPER exports (448)
 
 - `LCF_graph`
 - `add_cycle`
@@ -352,6 +352,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `connected_caveman_graph`
 - `connected_dominating_set`
 - `connected_double_edge_swap`
+- `connected_watts_strogatz_graph`
 - `constraint`
 - `contracted_edge`
 - `contracted_nodes`
@@ -565,6 +566,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `navigable_small_world_graph`
 - `neighbors`
 - `network_simplex`
+- `newman_watts_strogatz_graph`
 - `node_attribute_xy`
 - `node_degree_xy`
 - `node_disjoint_paths`
@@ -598,6 +600,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `petersen_graph`
 - `planted_partition_graph`
 - `power`
+- `powerlaw_cluster_graph`
 - `prefix_tree`
 - `prefix_tree_recursive`
 - `projected_graph`
@@ -613,12 +616,14 @@ All declared public exports are classified. `--check` fails if this generated re
 - `random_labeled_rooted_tree`
 - `random_labeled_tree`
 - `random_lobster`
+- `random_lobster_graph`
 - `random_partition_graph`
 - `random_powerlaw_tree`
 - `random_powerlaw_tree_sequence`
 - `random_reference`
 - `random_regular_expander_graph`
 - `random_regular_graph`
+- `random_shell_graph`
 - `random_tree`
 - `random_unlabeled_rooted_forest`
 - `random_unlabeled_rooted_tree`
@@ -703,6 +708,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `vf2pp_isomorphism`
 - `visibility_graph`
 - `voronoi_cells`
+- `watts_strogatz_graph`
 - `waxman_graph`
 - `weisfeiler_lehman_graph_hash`
 - `weisfeiler_lehman_subgraph_hashes`
@@ -715,13 +721,12 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_network_text`
 - `write_weighted_edgelist`
 
-## NX_DELEGATED exports (77)
+## NX_DELEGATED exports (71)
 
 - `LFR_benchmark_graph`
 - `apply_matplotlib_colors`
 - `circular_layout`
 - `combinatorial_embedding_to_pos`
-- `connected_watts_strogatz_graph`
 - `directed_configuration_model`
 - `directed_havel_hakimi_graph`
 - `directed_joint_degree_graph`
@@ -755,7 +760,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `lattice_reference`
 - `margulis_gabber_galil_graph`
 - `mixing_dict`
-- `newman_watts_strogatz_graph`
 - `nonisomorphic_trees`
 - `optimal_edit_paths`
 - `optimize_edit_paths`
@@ -767,12 +771,9 @@ All declared public exports are classified. `--check` fails if this generated re
 - `parse_leda`
 - `parse_pajek`
 - `planar_layout`
-- `powerlaw_cluster_graph`
 - `random_clustered_graph`
 - `random_degree_sequence_graph`
 - `random_layout`
-- `random_lobster_graph`
-- `random_shell_graph`
 - `read_gexf`
 - `read_graph6`
 - `read_leda`
@@ -788,7 +789,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `to_sparse6_bytes`
 - `tree_data`
 - `triangular_lattice_graph`
-- `watts_strogatz_graph`
 - `write_gexf`
 - `write_graph6`
 - `write_latex`

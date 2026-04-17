@@ -338,46 +338,9 @@ impl GraphGenerator {
             });
         }
 
-        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
         let half_k = k / 2;
         let mut rng = PythonRandom::new(seed);
-
-        // Step 1: Build ring lattice — each node connects to k/2 neighbors on each side.
-        for i in 0..n {
-            for j in 1..=half_k {
-                let right = (i + j) % n;
-                let _ = graph.add_edge(node_labels[i].clone(), node_labels[right].clone());
-            }
-        }
-
-        // Step 2: Rewire edges with probability p.
-        // Iterate over each node and its k/2 rightward neighbors.
-        for i in 0..n {
-            for j in 1..=half_k {
-                if rng.random() < p {
-                    let right = (i + j) % n;
-                    // Remove the original edge.
-                    let _ = graph.remove_edge(&node_labels[i], &node_labels[right]);
-                    // Pick a random target that isn't self and isn't already a neighbor.
-                    let mut new_target = rng.randrange(n);
-                    let mut attempts = 0;
-                    while (new_target == i
-                        || graph.has_edge(&node_labels[i], &node_labels[new_target]))
-                        && attempts < n
-                    {
-                        new_target = rng.randrange(n);
-                        attempts += 1;
-                    }
-                    if attempts < n {
-                        let _ =
-                            graph.add_edge(node_labels[i].clone(), node_labels[new_target].clone());
-                    } else {
-                        // Restore the original edge if no valid target found.
-                        let _ = graph.add_edge(node_labels[i].clone(), node_labels[right].clone());
-                    }
-                }
-            }
-        }
+        let graph = watts_strogatz_graph_core(self.mode, n, half_k, p, &mut rng);
 
         self.record(
             "watts_strogatz_graph",
@@ -571,31 +534,37 @@ impl GraphGenerator {
         let half_k = k / 2;
         let mut rng = PythonRandom::new(seed);
 
-        // Step 1: Build ring lattice.
-        for i in 0..n {
-            for j in 1..=half_k {
-                let right = (i + j) % n;
-                let _ = graph.add_edge(node_labels[i].clone(), node_labels[right].clone());
-            }
+        let ring_edges = ring_lattice_edges(n, half_k);
+        for &(u, v) in &ring_edges {
+            let _ = graph.add_edge(node_labels[u].clone(), node_labels[v].clone());
         }
 
-        // Step 2: Add shortcut edges with probability p (don't remove originals).
-        for i in 0..n {
-            for _ in 1..=half_k {
-                if rng.random() < p {
-                    let mut new_target = rng.randrange(n);
-                    let mut attempts = 0;
-                    while (new_target == i
-                        || graph.has_edge(&node_labels[i], &node_labels[new_target]))
-                        && attempts < n
-                    {
-                        new_target = rng.randrange(n);
-                        attempts += 1;
+        let edge_order: Vec<(usize, usize)> = (0..n)
+            .flat_map(|u| {
+                graph
+                    .neighbors(&node_labels[u])
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(move |neighbor| {
+                        let v = neighbor.parse::<usize>().ok()?;
+                        (v > u).then_some((u, v))
+                    })
+            })
+            .collect();
+
+        for (u, _) in edge_order {
+            if rng.random() < p {
+                let mut new_target = rng.randrange(n);
+                let mut skip_shortcut = false;
+                while new_target == u || graph.has_edge(&node_labels[u], &node_labels[new_target]) {
+                    new_target = rng.randrange(n);
+                    if graph.degree(&node_labels[u]) >= n - 1 {
+                        skip_shortcut = true;
+                        break;
                     }
-                    if attempts < n {
-                        let _ =
-                            graph.add_edge(node_labels[i].clone(), node_labels[new_target].clone());
-                    }
+                }
+                if !skip_shortcut {
+                    let _ = graph.add_edge(node_labels[u].clone(), node_labels[new_target].clone());
                 }
             }
         }
@@ -612,7 +581,7 @@ impl GraphGenerator {
     /// Generate a connected Watts-Strogatz small-world graph.
     ///
     /// Repeatedly generates a Watts-Strogatz graph until a connected one is
-    /// found, incrementing the seed each attempt.
+    /// found, advancing a single RNG stream across attempts.
     pub fn connected_watts_strogatz_graph(
         &mut self,
         n: usize,
@@ -621,32 +590,46 @@ impl GraphGenerator {
         tries: usize,
         seed: u64,
     ) -> Result<GenerationReport, GenerationError> {
-        for attempt in 0..tries {
-            let report = self.watts_strogatz_graph(n, k, p, seed.wrapping_add(attempt as u64))?;
-            // Check if the generated graph is connected via BFS.
-            let is_connected = {
-                let nodes = report.graph.nodes_ordered();
-                if nodes.len() <= 1 {
-                    true
-                } else {
-                    let mut visited = std::collections::HashSet::new();
-                    let mut queue = std::collections::VecDeque::new();
-                    visited.insert(nodes[0]);
-                    queue.push_back(nodes[0]);
-                    while let Some(current) = queue.pop_front() {
-                        if let Some(nbrs) = report.graph.neighbors(current) {
-                            for nb in nbrs {
-                                if visited.insert(nb) {
-                                    queue.push_back(nb);
-                                }
-                            }
-                        }
-                    }
-                    visited.len() == nodes.len()
-                }
-            };
-            if is_connected {
-                return Ok(report);
+        let (n, mut warnings) = self.validate_n("connected_watts_strogatz_graph", n, MAX_N_GNP)?;
+        let (p, p_warning) = self.validate_probability("connected_watts_strogatz_graph", p)?;
+        if let Some(warning) = p_warning {
+            warnings.push(warning);
+        }
+
+        if k > n {
+            return Err(GenerationError::FailClosed {
+                operation: "connected_watts_strogatz_graph",
+                reason: "k>n, choose smaller k or larger n".to_owned(),
+            });
+        }
+        if k == n {
+            return self.complete_graph(n);
+        }
+        if k < 2 {
+            return Err(GenerationError::FailClosed {
+                operation: "connected_watts_strogatz_graph",
+                reason: format!("requires k >= 2, got k={k}"),
+            });
+        }
+
+        let half_k = k / 2;
+        let mut rng = PythonRandom::new(seed);
+        for _ in 0..tries {
+            let graph = watts_strogatz_graph_core(self.mode, n, half_k, p, &mut rng);
+            if graph_is_connected(&graph) {
+                self.record(
+                    "connected_watts_strogatz_graph",
+                    if warnings.is_empty() {
+                        DecisionAction::Allow
+                    } else {
+                        DecisionAction::FullValidate
+                    },
+                    if warnings.is_empty() { 0.08 } else { 0.35 },
+                    format!(
+                        "generated connected watts-strogatz graph with n={n}, k={k}, p={p}, tries={tries}, seed={seed}"
+                    ),
+                );
+                return Ok(self.finish_graph_report(graph, warnings));
             }
         }
         Err(GenerationError::FailClosed {
@@ -770,85 +753,48 @@ impl GraphGenerator {
         let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
         let mut rng = PythonRandom::new(seed);
 
-        // Start with a complete graph on m nodes
-        for i in 0..m {
-            for j in (i + 1)..m {
-                let _ = graph.add_edge(node_labels[i].clone(), node_labels[j].clone());
-            }
-        }
-
-        let mut repeated_nodes: Vec<usize> = Vec::new();
-        for i in 0..m {
-            for _ in 0..(m - 1) {
-                repeated_nodes.push(i);
-            }
-        }
-        if repeated_nodes.is_empty() {
-            for i in 0..m {
-                repeated_nodes.push(i);
-            }
-        }
+        let mut repeated_nodes: Vec<usize> = (0..m).collect();
 
         for source in m..n {
-            let mut targets = Vec::with_capacity(m);
-            let mut target_set = std::collections::HashSet::new();
+            let mut possible_targets = random_subset_python(&repeated_nodes, m, &mut rng);
+            let Some(mut target) = possible_targets.pop_first() else {
+                continue;
+            };
+            let _ = graph.add_edge(node_labels[source].clone(), node_labels[target].clone());
+            repeated_nodes.push(target);
 
-            // First attachment: preferential
-            let idx = rng.randrange(repeated_nodes.len());
-            let first_target = repeated_nodes[idx];
-            target_set.insert(first_target);
-            targets.push(first_target);
-
-            // Remaining attachments: triad formation or preferential
             let mut count = 1;
             while count < m {
                 if rng.random() < p {
-                    // Try to close a triangle
-                    let last_target = *targets.last().unwrap();
-                    let nbrs = graph
-                        .neighbors(&node_labels[last_target])
-                        .unwrap_or_default();
-                    let candidates: Vec<&str> = nbrs
+                    let neighborhood = graph.neighbors(&node_labels[target]).unwrap_or_default();
+                    let candidates: Vec<usize> = neighborhood
                         .into_iter()
-                        .filter(|nb| {
-                            let nb_idx = nb.parse::<usize>().unwrap_or(n);
-                            nb_idx != source && !target_set.contains(&nb_idx)
+                        .filter_map(|neighbor| neighbor.parse::<usize>().ok())
+                        .filter(|&neighbor| {
+                            neighbor != source
+                                && !graph.has_edge(&node_labels[source], &node_labels[neighbor])
                         })
                         .collect();
                     if !candidates.is_empty() {
-                        let chosen_name = candidates[rng.randrange(candidates.len())];
-                        let chosen_idx = chosen_name.parse::<usize>().unwrap_or(n);
-                        if chosen_idx < n {
-                            target_set.insert(chosen_idx);
-                            targets.push(chosen_idx);
-                            count += 1;
-                            continue;
-                        }
-                    }
-                }
-                // Fall back to preferential attachment
-                let mut attempts = 0;
-                loop {
-                    let idx = rng.randrange(repeated_nodes.len());
-                    let candidate = repeated_nodes[idx];
-                    if target_set.insert(candidate) {
-                        targets.push(candidate);
+                        let nbr = candidates[rng.choice_index(candidates.len())];
+                        let _ =
+                            graph.add_edge(node_labels[source].clone(), node_labels[nbr].clone());
+                        repeated_nodes.push(nbr);
                         count += 1;
-                        break;
-                    }
-                    attempts += 1;
-                    if attempts > repeated_nodes.len() {
-                        count = m; // break outer
-                        break;
+                        continue;
                     }
                 }
+
+                let Some(next_target) = possible_targets.pop_first() else {
+                    break;
+                };
+                target = next_target;
+                let _ = graph.add_edge(node_labels[source].clone(), node_labels[target].clone());
+                repeated_nodes.push(target);
+                count += 1;
             }
 
-            for &target in &targets {
-                let _ = graph.add_edge(node_labels[source].clone(), node_labels[target].clone());
-                repeated_nodes.push(source);
-                repeated_nodes.push(target);
-            }
+            repeated_nodes.extend(std::iter::repeat_n(source, m));
         }
 
         self.record(
@@ -1424,6 +1370,85 @@ impl PythonRandom {
         }
         result
     }
+}
+
+fn ring_lattice_edges(n: usize, half_k: usize) -> Vec<(usize, usize)> {
+    let mut edges = Vec::with_capacity(n * half_k);
+    for offset in 1..=half_k {
+        for source in 0..n {
+            edges.push((source, (source + offset) % n));
+        }
+    }
+    edges
+}
+
+fn watts_strogatz_graph_core(
+    mode: CompatibilityMode,
+    n: usize,
+    half_k: usize,
+    p: f64,
+    rng: &mut PythonRandom,
+) -> Graph {
+    let (mut graph, node_labels) = graph_with_n_nodes(mode, n);
+    let ring_edges = ring_lattice_edges(n, half_k);
+    for &(u, v) in &ring_edges {
+        let _ = graph.add_edge(node_labels[u].clone(), node_labels[v].clone());
+    }
+
+    for &(u, v) in &ring_edges {
+        if rng.random() < p {
+            let mut new_target = rng.randrange(n);
+            let mut skip_rewire = false;
+            while new_target == u || graph.has_edge(&node_labels[u], &node_labels[new_target]) {
+                new_target = rng.randrange(n);
+                if graph.degree(&node_labels[u]) >= n - 1 {
+                    skip_rewire = true;
+                    break;
+                }
+            }
+            if !skip_rewire {
+                let _ = graph.remove_edge(&node_labels[u], &node_labels[v]);
+                let _ = graph.add_edge(node_labels[u].clone(), node_labels[new_target].clone());
+            }
+        }
+    }
+
+    graph
+}
+
+fn graph_is_connected(graph: &Graph) -> bool {
+    let nodes = graph.nodes_ordered();
+    if nodes.len() <= 1 {
+        return true;
+    }
+
+    let mut visited = std::collections::HashSet::new();
+    let mut queue = std::collections::VecDeque::new();
+    visited.insert(nodes[0]);
+    queue.push_back(nodes[0]);
+    while let Some(current) = queue.pop_front() {
+        if let Some(neighbors) = graph.neighbors(current) {
+            for neighbor in neighbors {
+                if visited.insert(neighbor) {
+                    queue.push_back(neighbor);
+                }
+            }
+        }
+    }
+    visited.len() == nodes.len()
+}
+
+fn random_subset_python(
+    seq: &[usize],
+    count: usize,
+    rng: &mut PythonRandom,
+) -> std::collections::BTreeSet<usize> {
+    let mut targets = std::collections::BTreeSet::new();
+    while targets.len() < count {
+        let choice = seq[rng.choice_index(seq.len())];
+        targets.insert(choice);
+    }
+    targets
 }
 
 fn weighted_choice_python(weights: &[f64], rng: &mut PythonRandom) -> usize {

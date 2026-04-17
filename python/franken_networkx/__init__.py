@@ -3267,20 +3267,18 @@ def erdos_renyi_graph(n, p, seed=None, directed=False, create_using=None):
 
 def watts_strogatz_graph(n, k, p, seed=None, create_using=None):
     """Return a Watts-Strogatz small-world graph."""
-    import networkx as nx
-    from franken_networkx.readwrite import _from_nx_graph
-
+    graph = _rust_watts_strogatz_graph(n, k, p, seed=_native_random_seed(seed))
     if create_using is None:
-        return _rust_watts_strogatz_graph(n, k, p, seed=_native_random_seed(seed))
-
-    graph = nx.watts_strogatz_graph(
-        n,
-        k,
-        p,
-        seed=seed,
-        create_using=None,
+        return graph
+    return _copy_graph_into(
+        graph,
+        _checked_create_using(
+            create_using,
+            directed=False,
+            multigraph=False,
+            default=Graph,
+        ),
     )
-    return _from_nx_graph(graph, create_using=create_using)
 
 
 def barabasi_albert_graph(
@@ -11673,38 +11671,95 @@ def number_of_nonisomorphic_trees(order):
 
 def random_lobster(n, p1, p2, seed=None):
     """Random lobster graph."""
-    import random as _random
+    rng = _generator_random_state(seed)
+    p1, p2 = abs(p1), abs(p2)
+    if any(p >= 1 for p in [p1, p2]):
+        raise NetworkXError("Probability values for `p1` and `p2` must both be < 1.")
 
-    rng = _random.Random(seed)
-    G = path_graph(n)
-    nid = n
-    for i in range(n):
-        if rng.random() < p1:
-            G.add_edge(i, nid)
-            nid += 1
-            if rng.random() < p2:
-                G.add_edge(nid - 1, nid)
-                nid += 1
-    return G
+    backbone_length = int(2 * rng.random() * n + 0.5)
+    graph = path_graph(backbone_length)
+    current_node = backbone_length - 1
+    for backbone_node in range(backbone_length):
+        while rng.random() < p1:
+            current_node += 1
+            graph.add_edge(backbone_node, current_node)
+            caterpillar_node = current_node
+            while rng.random() < p2:
+                current_node += 1
+                graph.add_edge(caterpillar_node, current_node)
+    return graph
 
 
 def random_lobster_graph(n, p1, p2, seed=None, create_using=None):
     """Return a random lobster graph."""
-    import networkx as nx
+    graph = random_lobster(n, p1, p2, seed=seed)
+    if create_using is None:
+        return graph
+    return _copy_graph_into(
+        graph,
+        _checked_create_using(
+            create_using,
+            directed=False,
+            multigraph=False,
+            default=Graph,
+        ),
+    )
 
-    from franken_networkx.readwrite import _from_nx_graph
 
-    graph = nx.random_lobster_graph(n, p1, p2, seed=seed, create_using=None)
-    return _from_nx_graph(graph, create_using=create_using)
-
-
-def random_shell_graph(constructor, seed=None):
+def random_shell_graph(constructor, seed=None, create_using=None):
     """Multi-shell random graph."""
-    import networkx as nx
+    rng = _generator_random_state(seed)
+    graph = _checked_create_using(
+        create_using,
+        directed=False,
+        multigraph=False,
+        default=Graph,
+    )
 
-    from franken_networkx.readwrite import _from_nx_graph
+    shell_nodes = []
+    inter_shell_edges = []
+    next_label = 0
 
-    return _from_nx_graph(nx.random_shell_graph(constructor, seed=seed))
+    for shell_size, shell_edges, ratio in constructor:
+        within_shell_edges = int(shell_edges * ratio)
+        inter_shell_edges.append(shell_edges - within_shell_edges)
+
+        nodes = list(range(next_label, next_label + shell_size))
+        for node in nodes:
+            graph.add_node(node)
+
+        if shell_size > 1:
+            max_edges = shell_size * (shell_size - 1) // 2
+            target_edges = min(within_shell_edges, max_edges)
+            added_edges = set()
+            while len(added_edges) < target_edges:
+                left = nodes[rng.randint(0, shell_size - 1)]
+                right = nodes[rng.randint(0, shell_size - 1)]
+                if left == right:
+                    continue
+                edge = (min(left, right), max(left, right))
+                if edge in added_edges:
+                    continue
+                added_edges.add(edge)
+                graph.add_edge(left, right)
+
+        shell_nodes.append(nodes)
+        next_label += shell_size
+
+    for shell_index in range(len(shell_nodes) - 1):
+        left_shell = shell_nodes[shell_index]
+        right_shell = shell_nodes[shell_index + 1]
+        total_edges = inter_shell_edges[shell_index]
+        edge_count = 0
+        while edge_count < total_edges:
+            left = rng.choice(left_shell)
+            right = rng.choice(right_shell)
+            if left == right or graph.has_edge(left, right):
+                continue
+            graph.add_edge(left, right)
+            edge_count += 1
+
+    return graph
 
 
 def random_clustered_graph(joint_degree_sequence, seed=None, create_using=None):
@@ -13899,39 +13954,42 @@ def fast_gnp_random_graph(n, p, seed=None, directed=False, create_using=None):
 
 def newman_watts_strogatz_graph(n, k, p, seed=None, create_using=None):
     """Return a Newman-Watts-Strogatz small-world graph."""
-    import networkx as nx
-    from franken_networkx.readwrite import _from_nx_graph
-
+    graph = _rust_newman_watts_strogatz_graph(
+        n, k, p, seed=_native_random_seed(seed)
+    )
     if create_using is None:
-        return _rust_newman_watts_strogatz_graph(
-            n, k, p, seed=_native_random_seed(seed)
-        )
-    graph = nx.newman_watts_strogatz_graph(n, k, p, seed=seed, create_using=None)
-    return _from_nx_graph(graph, create_using=create_using)
+        return graph
+    return _copy_graph_into(
+        graph,
+        _checked_create_using(
+            create_using,
+            directed=False,
+            multigraph=False,
+            default=Graph,
+        ),
+    )
 
 
 def connected_watts_strogatz_graph(n, k, p, tries=100, seed=None, create_using=None):
     """Return a connected Watts-Strogatz small-world graph."""
-    import networkx as nx
-    from franken_networkx.readwrite import _from_nx_graph
-
-    if create_using is None:
-        return _rust_connected_watts_strogatz_graph(
-            n,
-            k,
-            p,
-            tries=tries,
-            seed=_native_random_seed(seed),
-        )
-    graph = nx.connected_watts_strogatz_graph(
+    graph = _rust_connected_watts_strogatz_graph(
         n,
         k,
         p,
         tries=tries,
-        seed=seed,
-        create_using=None,
+        seed=_native_random_seed(seed),
     )
-    return _from_nx_graph(graph, create_using=create_using)
+    if create_using is None:
+        return graph
+    return _copy_graph_into(
+        graph,
+        _checked_create_using(
+            create_using,
+            directed=False,
+            multigraph=False,
+            default=Graph,
+        ),
+    )
 
 
 def random_regular_graph(d, n, seed=None, create_using=None):
@@ -14004,13 +14062,18 @@ def random_regular_graph(d, n, seed=None, create_using=None):
 
 def powerlaw_cluster_graph(n, m, p, seed=None, create_using=None):
     """Return a powerlaw-cluster graph."""
-    import networkx as nx
-    from franken_networkx.readwrite import _from_nx_graph
-
+    graph = _rust_powerlaw_cluster_graph(n, m, p, seed=_native_random_seed(seed))
     if create_using is None:
-        return _rust_powerlaw_cluster_graph(n, m, p, seed=_native_random_seed(seed))
-    graph = nx.powerlaw_cluster_graph(n, m, p, seed=seed, create_using=None)
-    return _from_nx_graph(graph, create_using=create_using)
+        return graph
+    return _copy_graph_into(
+        graph,
+        _checked_create_using(
+            create_using,
+            directed=False,
+            multigraph=False,
+            default=Graph,
+        ),
+    )
 
 
 def directed_configuration_model(
