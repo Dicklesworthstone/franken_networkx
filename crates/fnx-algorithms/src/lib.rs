@@ -18213,7 +18213,7 @@ pub fn single_source_dijkstra_path_length_directed(
     source: &str,
     weight_attr: &str,
 ) -> HashMap<String, f64> {
-    single_source_dijkstra_full_directed(digraph, source, weight_attr).0
+    single_source_dijkstra_directed(digraph, source, weight_attr)
 }
 
 /// Single-source Bellman-Ford returning paths only.
@@ -18383,6 +18383,49 @@ pub fn single_target_shortest_path(
     result
 }
 
+/// Single-target shortest path for a directed graph (unweighted reverse BFS).
+/// Matches `networkx.single_target_shortest_path(G, target, cutoff=None)`.
+#[must_use]
+pub fn single_target_shortest_path_directed(
+    digraph: &DiGraph,
+    target: &str,
+    cutoff: Option<usize>,
+) -> HashMap<String, Vec<String>> {
+    let mut result: HashMap<String, Vec<String>> = HashMap::new();
+    if !digraph.has_node(target) {
+        return result;
+    }
+
+    result.insert(target.to_owned(), vec![target.to_owned()]);
+    let mut frontier: Vec<&str> = vec![target];
+    let mut level = 0usize;
+
+    while !frontier.is_empty() {
+        if let Some(c) = cutoff
+            && level >= c
+        {
+            break;
+        }
+        let mut next_frontier: Vec<&str> = Vec::new();
+        for &node in &frontier {
+            if let Some(predecessors) = digraph.predecessors_iter(node) {
+                for pred in predecessors {
+                    if !result.contains_key(pred) {
+                        let mut path = vec![pred.to_owned()];
+                        path.extend(result[node].iter().cloned());
+                        result.insert(pred.to_owned(), path);
+                        next_frontier.push(pred);
+                    }
+                }
+            }
+        }
+        frontier = next_frontier;
+        level += 1;
+    }
+
+    result
+}
+
 /// Single-target shortest path lengths (unweighted BFS, reversed).
 /// Matches `networkx.single_target_shortest_path_length(G, target, cutoff=None)`.
 #[must_use]
@@ -18393,6 +18436,47 @@ pub fn single_target_shortest_path_length(
 ) -> HashMap<String, usize> {
     // For undirected graphs, lengths are the same regardless of direction
     single_source_shortest_path_length(graph, target, cutoff)
+}
+
+/// Single-target shortest path lengths for a directed graph (unweighted reverse BFS).
+/// Matches `networkx.single_target_shortest_path_length(G, target, cutoff=None)`.
+#[must_use]
+pub fn single_target_shortest_path_length_directed(
+    digraph: &DiGraph,
+    target: &str,
+    cutoff: Option<usize>,
+) -> HashMap<String, usize> {
+    let mut result: HashMap<String, usize> = HashMap::new();
+    if !digraph.has_node(target) {
+        return result;
+    }
+
+    result.insert(target.to_owned(), 0);
+    let mut frontier: Vec<&str> = vec![target];
+    let mut level = 0usize;
+
+    while !frontier.is_empty() {
+        if let Some(c) = cutoff
+            && level >= c
+        {
+            break;
+        }
+        let mut next_frontier: Vec<&str> = Vec::new();
+        for &node in &frontier {
+            if let Some(predecessors) = digraph.predecessors_iter(node) {
+                for pred in predecessors {
+                    if !result.contains_key(pred) {
+                        result.insert(pred.to_owned(), level + 1);
+                        next_frontier.push(pred);
+                    }
+                }
+            }
+        }
+        frontier = next_frontier;
+        level += 1;
+    }
+
+    result
 }
 
 /// All-pairs Dijkstra returning (distances, paths).
@@ -18422,6 +18506,22 @@ pub fn all_pairs_dijkstra_directed(
     for node in digraph.nodes_ordered() {
         let (dists, paths) = single_source_dijkstra_full_directed(digraph, node, weight_attr);
         result.insert(node.to_owned(), (dists, paths));
+    }
+    result
+}
+
+/// All-pairs Dijkstra returning distances only for directed graphs.
+#[must_use]
+pub fn all_pairs_dijkstra_path_length_directed(
+    digraph: &DiGraph,
+    weight_attr: &str,
+) -> HashMap<String, HashMap<String, f64>> {
+    let mut result = HashMap::new();
+    for node in digraph.nodes_ordered() {
+        result.insert(
+            node.to_owned(),
+            single_source_dijkstra_directed(digraph, node, weight_attr),
+        );
     }
     result
 }
@@ -30435,6 +30535,7 @@ mod tests {
         all_pairs_bellman_ford_path_length,
         all_pairs_dijkstra_path,
         all_pairs_dijkstra_path_length,
+        all_pairs_dijkstra_path_length_directed,
         all_pairs_lowest_common_ancestor,
         all_pairs_shortest_path,
         all_pairs_shortest_path_length,
@@ -30779,10 +30880,13 @@ mod tests {
         single_source_dijkstra_full,
         single_source_dijkstra_path,
         single_source_dijkstra_path_length,
+        single_source_dijkstra_path_length_directed,
         single_source_shortest_path,
         single_source_shortest_path_length,
         single_target_shortest_path,
+        single_target_shortest_path_directed,
         single_target_shortest_path_length,
+        single_target_shortest_path_length_directed,
         snap_aggregation,
         spanner,
         spanning_tree_iterator,
@@ -38521,6 +38625,18 @@ mod tests {
         assert_eq!(dists["c"], 2.0);
     }
 
+    #[test]
+    fn test_single_source_dijkstra_path_length_directed_only() {
+        let mut g = DiGraph::strict();
+        let _ = g.add_edge_with_attrs("a", "b", attrs([("weight", "1.0")]));
+        let _ = g.add_edge_with_attrs("b", "c", attrs([("weight", "2.0")]));
+        let _ = g.add_edge_with_attrs("a", "c", attrs([("weight", "10.0")]));
+        let dists = single_source_dijkstra_path_length_directed(&g, "a", "weight");
+        assert_eq!(dists["a"], 0.0);
+        assert_eq!(dists["b"], 1.0);
+        assert_eq!(dists["c"], 3.0);
+    }
+
     // -----------------------------------------------------------------------
     // single_source_bellman_ford tests
     // -----------------------------------------------------------------------
@@ -38584,6 +38700,31 @@ mod tests {
         assert_eq!(lengths["a"], 2);
     }
 
+    #[test]
+    fn test_single_target_shortest_path_directed() {
+        let mut g = DiGraph::strict();
+        let _ = g.add_edge("a", "c");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("a", "b");
+        let paths = single_target_shortest_path_directed(&g, "c", None);
+        assert_eq!(paths["c"], vec!["c"]);
+        assert_eq!(paths["b"], vec!["b", "c"]);
+        assert_eq!(paths["a"], vec!["a", "c"]);
+    }
+
+    #[test]
+    fn test_single_target_shortest_path_length_directed_cutoff() {
+        let mut g = DiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_edge("d", "c");
+        let lengths = single_target_shortest_path_length_directed(&g, "c", Some(1));
+        assert_eq!(lengths["c"], 0);
+        assert_eq!(lengths["b"], 1);
+        assert_eq!(lengths["d"], 1);
+        assert!(!lengths.contains_key("a"));
+    }
+
     // -----------------------------------------------------------------------
     // all_pairs_dijkstra tests
     // -----------------------------------------------------------------------
@@ -38606,6 +38747,18 @@ mod tests {
         let dists = all_pairs_dijkstra_path_length(&g, "weight");
         assert_eq!(dists["a"]["c"], 2.0);
         assert_eq!(dists["a"]["a"], 0.0);
+    }
+
+    #[test]
+    fn test_all_pairs_dijkstra_path_length_directed() {
+        let mut g = DiGraph::strict();
+        let _ = g.add_edge_with_attrs("a", "b", attrs([("weight", "1.0")]));
+        let _ = g.add_edge_with_attrs("b", "c", attrs([("weight", "2.0")]));
+        let _ = g.add_edge_with_attrs("a", "c", attrs([("weight", "10.0")]));
+        let dists = all_pairs_dijkstra_path_length_directed(&g, "weight");
+        assert_eq!(dists["a"]["c"], 3.0);
+        assert_eq!(dists["a"]["a"], 0.0);
+        assert!(!dists["c"].contains_key("a"));
     }
 
     // -----------------------------------------------------------------------

@@ -1639,18 +1639,39 @@ pub fn has_path(
 // average_shortest_path_length
 // ---------------------------------------------------------------------------
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AverageShortestPathLengthFailure {
+    Disconnected,
+    NegativeCycle,
+}
+
+fn accumulate_weighted_average_shortest_path_length<F>(
+    sources: &[&str],
+    node_count: usize,
+    mut distances_for_source: F,
+) -> Result<f64, AverageShortestPathLengthFailure>
+where
+    F: FnMut(&str) -> Result<HashMap<String, f64>, AverageShortestPathLengthFailure>,
+{
+    let mut total_distance = 0.0;
+    for &source in sources {
+        let distances = distances_for_source(source)?;
+        if distances.len() < node_count {
+            return Err(AverageShortestPathLengthFailure::Disconnected);
+        }
+        total_distance += distances.values().sum::<f64>();
+    }
+    Ok(total_distance)
+}
+
 #[pyfunction]
-#[pyo3(signature = (g, weight=None))]
+#[pyo3(signature = (g, weight=None, method=None))]
 pub fn average_shortest_path_length(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     weight: Option<&str>,
+    method: Option<&str>,
 ) -> PyResult<f64> {
-    if weight.is_some() {
-        return Err(crate::NetworkXNotImplemented::new_err(
-            "weighted average_shortest_path_length not yet supported",
-        ));
-    }
     let gr = extract_graph(g)?;
     if gr.node_count_original() == 0 {
         return Err(crate::NetworkXPointlessConcept::new_err(
@@ -1658,22 +1679,154 @@ pub fn average_shortest_path_length(
         ));
     }
 
-    if gr.is_directed() {
-        let dg_ref = gr.digraph().expect("is_directed checked above");
-        let result =
-            py.allow_threads(|| fnx_algorithms::average_shortest_path_length_directed(dg_ref));
+    let effective_method = match method.unwrap_or(if weight.is_some() {
+        "dijkstra"
+    } else {
+        "unweighted"
+    }) {
+        "unweighted" => "unweighted",
+        "dijkstra" => "dijkstra",
+        "bellman-ford" => "bellman-ford",
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "method not supported: {other}"
+            )));
+        }
+    };
+
+    if weight.is_none() || effective_method == "unweighted" {
+        if gr.is_directed() {
+            let dg_ref = gr.digraph().expect("is_directed checked above");
+            let result =
+                py.allow_threads(|| fnx_algorithms::average_shortest_path_length_directed(dg_ref));
+            if !result.average_shortest_path_length.is_finite() {
+                return Err(NetworkXError::new_err("Graph is not strongly connected."));
+            }
+            return Ok(result.average_shortest_path_length);
+        }
+
+        let inner = gr.undirected();
+        let result = py.allow_threads(|| fnx_algorithms::average_shortest_path_length(inner));
         if !result.average_shortest_path_length.is_finite() {
-            return Err(NetworkXError::new_err("Graph is not strongly connected."));
+            return Err(NetworkXError::new_err("Graph is not connected."));
         }
         return Ok(result.average_shortest_path_length);
     }
 
-    let inner = gr.undirected();
-    let result = py.allow_threads(|| fnx_algorithms::average_shortest_path_length(inner));
-    if !result.average_shortest_path_length.is_finite() {
-        return Err(NetworkXError::new_err("Graph is not connected."));
+    let weight_attr = weight.expect("weighted branch requires weight");
+    let node_count = gr.node_count_original();
+    if node_count <= 1 {
+        return Ok(0.0);
     }
-    Ok(result.average_shortest_path_length)
+    let denominator = (node_count * (node_count - 1)) as f64;
+
+    if gr.is_directed() {
+        let weighted_projection = gr
+            .weighted_digraph_projection(weight_attr)
+            .expect("directed graph");
+        let dg_ref = weighted_projection.as_ref();
+
+        let total_distance = match effective_method {
+            "dijkstra" => match py.allow_threads(|| {
+                let sources = dg_ref.nodes_ordered();
+                accumulate_weighted_average_shortest_path_length(&sources, node_count, |source| {
+                    Ok(fnx_algorithms::single_source_dijkstra_path_length_directed(
+                        dg_ref,
+                        source,
+                        weight_attr,
+                    ))
+                })
+            }) {
+                Ok(total_distance) => total_distance,
+                Err(AverageShortestPathLengthFailure::Disconnected) => {
+                    return Err(NetworkXError::new_err("Graph is not strongly connected."));
+                }
+                Err(AverageShortestPathLengthFailure::NegativeCycle) => {
+                    unreachable!("Dijkstra traversal cannot emit negative-cycle failure")
+                }
+            },
+            "bellman-ford" => {
+                let result = py.allow_threads(|| {
+                    let sources = dg_ref.nodes_ordered();
+                    accumulate_weighted_average_shortest_path_length(
+                        &sources,
+                        node_count,
+                        |source| {
+                            fnx_algorithms::single_source_bellman_ford_path_length_directed(
+                                dg_ref,
+                                source,
+                                weight_attr,
+                            )
+                            .ok_or(AverageShortestPathLengthFailure::NegativeCycle)
+                        },
+                    )
+                });
+                match result {
+                    Ok(total_distance) => total_distance,
+                    Err(AverageShortestPathLengthFailure::Disconnected) => {
+                        return Err(NetworkXError::new_err("Graph is not strongly connected."));
+                    }
+                    Err(AverageShortestPathLengthFailure::NegativeCycle) => {
+                        return Err(crate::NetworkXUnbounded::new_err(
+                            "Negative cycle detected.",
+                        ));
+                    }
+                }
+            }
+            _ => unreachable!("weighted directed branch only supports dijkstra or bellman-ford"),
+        };
+        return Ok(total_distance / denominator);
+    }
+
+    let weighted_projection = gr.weighted_undirected_projection(weight_attr);
+    let graph_ref = weighted_projection.as_ref();
+
+    let total_distance = match effective_method {
+        "dijkstra" => match py.allow_threads(|| {
+            let sources = graph_ref.nodes_ordered();
+            accumulate_weighted_average_shortest_path_length(&sources, node_count, |source| {
+                Ok(fnx_algorithms::single_source_dijkstra_path_length(
+                    graph_ref,
+                    source,
+                    weight_attr,
+                ))
+            })
+        }) {
+            Ok(total_distance) => total_distance,
+            Err(AverageShortestPathLengthFailure::Disconnected) => {
+                return Err(NetworkXError::new_err("Graph is not connected."));
+            }
+            Err(AverageShortestPathLengthFailure::NegativeCycle) => {
+                unreachable!("Dijkstra traversal cannot emit negative-cycle failure")
+            }
+        },
+        "bellman-ford" => {
+            match py.allow_threads(|| {
+                let sources = graph_ref.nodes_ordered();
+                accumulate_weighted_average_shortest_path_length(&sources, node_count, |source| {
+                    fnx_algorithms::single_source_bellman_ford_path_length(
+                        graph_ref,
+                        source,
+                        weight_attr,
+                    )
+                    .ok_or(AverageShortestPathLengthFailure::NegativeCycle)
+                })
+            }) {
+                Ok(total_distance) => total_distance,
+                Err(AverageShortestPathLengthFailure::Disconnected) => {
+                    return Err(NetworkXError::new_err("Graph is not connected."));
+                }
+                Err(AverageShortestPathLengthFailure::NegativeCycle) => {
+                    return Err(crate::NetworkXUnbounded::new_err(
+                        "Negative cycle detected.",
+                    ));
+                }
+            }
+        }
+        _ => unreachable!("weighted undirected branch only supports dijkstra or bellman-ford"),
+    };
+
+    Ok(total_distance / denominator)
 }
 
 // ---------------------------------------------------------------------------
@@ -9231,11 +9384,13 @@ fn single_source_dijkstra(
     weight: &str,
 ) -> PyResult<(PyObject, PyObject)> {
     let gr = extract_graph(g)?;
-    require_undirected(&gr, "single_source_dijkstra")?;
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s, "Source")?;
-    let weighted_projection = gr.weighted_undirected_projection(weight);
-    let (dists, paths) = {
+    let (dists, paths) = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
+        let __wp = weighted_projection.as_ref();
+        py.allow_threads(|| fnx_algorithms::single_source_dijkstra_full_directed(__wp, &s, weight))
+    } else {
+        let weighted_projection = gr.weighted_undirected_projection(weight);
         let __wp = weighted_projection.as_ref();
         py.allow_threads(|| fnx_algorithms::single_source_dijkstra_full(__wp, &s, weight))
     };
@@ -9261,11 +9416,13 @@ fn single_source_dijkstra_path(
     weight: &str,
 ) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
-    require_undirected(&gr, "single_source_dijkstra_path")?;
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s, "Source")?;
-    let weighted_projection = gr.weighted_undirected_projection(weight);
-    let paths = {
+    let paths = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
+        let __wp = weighted_projection.as_ref();
+        py.allow_threads(|| fnx_algorithms::single_source_dijkstra_path_directed(__wp, &s, weight))
+    } else {
+        let weighted_projection = gr.weighted_undirected_projection(weight);
         let __wp = weighted_projection.as_ref();
         py.allow_threads(|| fnx_algorithms::single_source_dijkstra_path(__wp, &s, weight))
     };
@@ -9287,11 +9444,15 @@ fn single_source_dijkstra_path_length(
     weight: &str,
 ) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
-    require_undirected(&gr, "single_source_dijkstra_path_length")?;
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s, "Source")?;
-    let weighted_projection = gr.weighted_undirected_projection(weight);
-    let dists = {
+    let dists = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
+        let __wp = weighted_projection.as_ref();
+        py.allow_threads(|| {
+            fnx_algorithms::single_source_dijkstra_path_length_directed(__wp, &s, weight)
+        })
+    } else {
+        let weighted_projection = gr.weighted_undirected_projection(weight);
         let __wp = weighted_projection.as_ref();
         py.allow_threads(|| fnx_algorithms::single_source_dijkstra_path_length(__wp, &s, weight))
     };
@@ -9312,11 +9473,43 @@ fn single_source_bellman_ford(
     weight: &str,
 ) -> PyResult<(PyObject, PyObject)> {
     let gr = extract_graph(g)?;
-    require_undirected(&gr, "single_source_bellman_ford")?;
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s, "Source")?;
-    let weighted_projection = gr.weighted_undirected_projection(weight);
-    let result = {
+    let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
+        let bf = {
+            let __wp = weighted_projection.as_ref();
+            py.allow_threads(|| {
+                fnx_algorithms::bellman_ford_shortest_paths_directed(__wp, &s, weight)
+            })
+        };
+        if bf.negative_cycle_detected {
+            None
+        } else {
+            let distances = bf
+                .distances
+                .into_iter()
+                .map(|entry| (entry.node, entry.distance))
+                .collect::<HashMap<_, _>>();
+            let predecessors = bf
+                .predecessors
+                .into_iter()
+                .map(|entry| (entry.node, entry.predecessor))
+                .collect::<HashMap<_, _>>();
+            let mut paths = HashMap::new();
+            for node in distances.keys() {
+                let mut path = vec![node.clone()];
+                let mut cur = node.as_str();
+                while let Some(Some(prev)) = predecessors.get(cur) {
+                    path.push(prev.clone());
+                    cur = prev;
+                }
+                path.reverse();
+                paths.insert(node.clone(), path);
+            }
+            Some((distances, paths))
+        }
+    } else {
+        let weighted_projection = gr.weighted_undirected_projection(weight);
         let __wp = weighted_projection.as_ref();
         py.allow_threads(|| fnx_algorithms::single_source_bellman_ford(__wp, &s, weight))
     };
@@ -9334,7 +9527,7 @@ fn single_source_bellman_ford(
             Ok((dist_dict.into_any().unbind(), path_dict.into_any().unbind()))
         }
         None => Err(crate::NetworkXUnbounded::new_err(
-            "Negative cost cycle detected.",
+            "Negative cycle detected.",
         )),
     }
 }
@@ -9349,11 +9542,15 @@ fn single_source_bellman_ford_path(
     weight: &str,
 ) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
-    require_undirected(&gr, "single_source_bellman_ford_path")?;
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s, "Source")?;
-    let weighted_projection = gr.weighted_undirected_projection(weight);
-    let result = {
+    let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
+        let __wp = weighted_projection.as_ref();
+        py.allow_threads(|| {
+            fnx_algorithms::single_source_bellman_ford_path_directed(__wp, &s, weight)
+        })
+    } else {
+        let weighted_projection = gr.weighted_undirected_projection(weight);
         let __wp = weighted_projection.as_ref();
         py.allow_threads(|| fnx_algorithms::single_source_bellman_ford_path(__wp, &s, weight))
     };
@@ -9367,7 +9564,7 @@ fn single_source_bellman_ford_path(
             Ok(dict.into_any().unbind())
         }
         None => Err(crate::NetworkXUnbounded::new_err(
-            "Negative cost cycle detected.",
+            "Negative cycle detected.",
         )),
     }
 }
@@ -9382,11 +9579,15 @@ fn single_source_bellman_ford_path_length(
     weight: &str,
 ) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
-    require_undirected(&gr, "single_source_bellman_ford_path_length")?;
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s, "Source")?;
-    let weighted_projection = gr.weighted_undirected_projection(weight);
-    let result = {
+    let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
+        let __wp = weighted_projection.as_ref();
+        py.allow_threads(|| {
+            fnx_algorithms::single_source_bellman_ford_path_length_directed(__wp, &s, weight)
+        })
+    } else {
+        let weighted_projection = gr.weighted_undirected_projection(weight);
         let __wp = weighted_projection.as_ref();
         py.allow_threads(|| {
             fnx_algorithms::single_source_bellman_ford_path_length(__wp, &s, weight)
@@ -9401,7 +9602,7 @@ fn single_source_bellman_ford_path_length(
             Ok(dict.into_any().unbind())
         }
         None => Err(crate::NetworkXUnbounded::new_err(
-            "Negative cost cycle detected.",
+            "Negative cycle detected.",
         )),
     }
 }
@@ -9416,10 +9617,11 @@ fn single_target_shortest_path(
     cutoff: Option<usize>,
 ) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
-    require_undirected(&gr, "single_target_shortest_path")?;
     let t = node_key_to_string(py, target)?;
     validate_node_str(&gr, &t, "Target")?;
-    let result = {
+    let result = if let Some(dg) = gr.digraph() {
+        py.allow_threads(|| fnx_algorithms::single_target_shortest_path_directed(dg, &t, cutoff))
+    } else {
         let __gr_undirected = gr.undirected();
         py.allow_threads(|| {
             fnx_algorithms::single_target_shortest_path(__gr_undirected, &t, cutoff)
@@ -9443,10 +9645,13 @@ fn single_target_shortest_path_length(
     cutoff: Option<usize>,
 ) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
-    require_undirected(&gr, "single_target_shortest_path_length")?;
     let t = node_key_to_string(py, target)?;
     validate_node_str(&gr, &t, "Target")?;
-    let result = {
+    let result = if let Some(dg) = gr.digraph() {
+        py.allow_threads(|| {
+            fnx_algorithms::single_target_shortest_path_length_directed(dg, &t, cutoff)
+        })
+    } else {
         let __gr_undirected = gr.undirected();
         py.allow_threads(|| {
             fnx_algorithms::single_target_shortest_path_length(__gr_undirected, &t, cutoff)
@@ -9472,10 +9677,9 @@ fn all_pairs_dijkstra_path_length(
         let dg = gr
             .weighted_digraph_projection(weight)
             .expect("is_directed checked above");
-        py.allow_threads(|| fnx_algorithms::all_pairs_dijkstra_directed(dg.as_ref(), weight))
-            .into_iter()
-            .map(|(source, (dists, _paths))| (source, dists))
-            .collect::<HashMap<_, _>>()
+        py.allow_threads(|| {
+            fnx_algorithms::all_pairs_dijkstra_path_length_directed(dg.as_ref(), weight)
+        })
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
         {
@@ -9539,9 +9743,24 @@ fn all_pairs_bellman_ford_path_length(
     weight: &str,
 ) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
-    require_undirected(&gr, "all_pairs_bellman_ford_path_length")?;
-    let weighted_projection = gr.weighted_undirected_projection(weight);
-    let result = {
+    let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
+        let __wp = weighted_projection.as_ref();
+        let mut all_distances = HashMap::new();
+        for source in __wp.nodes_ordered() {
+            let Some(distances) = py.allow_threads(|| {
+                fnx_algorithms::single_source_bellman_ford_path_length_directed(
+                    __wp, source, weight,
+                )
+            }) else {
+                return Err(crate::NetworkXUnbounded::new_err(
+                    "Negative cycle detected.",
+                ));
+            };
+            all_distances.insert(source.to_owned(), distances);
+        }
+        Some(all_distances)
+    } else {
+        let weighted_projection = gr.weighted_undirected_projection(weight);
         let __wp = weighted_projection.as_ref();
         py.allow_threads(|| fnx_algorithms::all_pairs_bellman_ford_path_length(__wp, weight))
     };
@@ -9558,7 +9777,7 @@ fn all_pairs_bellman_ford_path_length(
             Ok(outer_dict.into_any().unbind())
         }
         None => Err(crate::NetworkXUnbounded::new_err(
-            "Negative cost cycle detected.",
+            "Negative cycle detected.",
         )),
     }
 }
@@ -9572,9 +9791,22 @@ fn all_pairs_bellman_ford_path(
     weight: &str,
 ) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
-    require_undirected(&gr, "all_pairs_bellman_ford_path")?;
-    let weighted_projection = gr.weighted_undirected_projection(weight);
-    let result = {
+    let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
+        let __wp = weighted_projection.as_ref();
+        let mut all_paths = HashMap::new();
+        for source in __wp.nodes_ordered() {
+            let Some(paths) = py.allow_threads(|| {
+                fnx_algorithms::single_source_bellman_ford_path_directed(__wp, source, weight)
+            }) else {
+                return Err(crate::NetworkXUnbounded::new_err(
+                    "Negative cycle detected.",
+                ));
+            };
+            all_paths.insert(source.to_owned(), paths);
+        }
+        Some(all_paths)
+    } else {
+        let weighted_projection = gr.weighted_undirected_projection(weight);
         let __wp = weighted_projection.as_ref();
         py.allow_threads(|| fnx_algorithms::all_pairs_bellman_ford_path(__wp, weight))
     };
@@ -9593,7 +9825,7 @@ fn all_pairs_bellman_ford_path(
             Ok(outer_dict.into_any().unbind())
         }
         None => Err(crate::NetworkXUnbounded::new_err(
-            "Negative cost cycle detected.",
+            "Negative cycle detected.",
         )),
     }
 }
@@ -13104,6 +13336,7 @@ mod tests {
                 node_key_map: HashMap::new(),
                 node_py_attrs: HashMap::new(),
                 edge_py_attrs: HashMap::new(),
+                edge_py_keys: HashMap::new(),
                 graph_attrs: PyDict::new(py).unbind(),
             };
             let mut weighted_attrs = AttrMap::new();
@@ -13144,5 +13377,47 @@ mod tests {
             assert_eq!(dfs.inner.mode(), CompatibilityMode::Hardened);
             assert_eq!(dfs.inner.runtime_policy(), &expected_graph_policy);
         });
+    }
+
+    #[test]
+    fn accumulate_weighted_average_shortest_path_length_sums_per_source() {
+        let sources = vec!["a", "b", "c"];
+        let mut visited = Vec::new();
+
+        let total = accumulate_weighted_average_shortest_path_length(&sources, 3, |source| {
+            visited.push(source.to_owned());
+            Ok(HashMap::from([
+                (source.to_owned(), 0.0),
+                ("x".to_owned(), 1.5),
+                ("y".to_owned(), 2.5),
+            ]))
+        })
+        .expect("all sources should contribute");
+
+        assert_eq!(visited, vec!["a", "b", "c"]);
+        assert!((total - 12.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn accumulate_weighted_average_shortest_path_length_rejects_disconnected_sources() {
+        let sources = vec!["a", "b"];
+        let result = accumulate_weighted_average_shortest_path_length(&sources, 3, |_source| {
+            Ok(HashMap::from([
+                ("a".to_owned(), 0.0),
+                ("b".to_owned(), 1.0),
+            ]))
+        });
+
+        assert_eq!(result, Err(AverageShortestPathLengthFailure::Disconnected));
+    }
+
+    #[test]
+    fn accumulate_weighted_average_shortest_path_length_propagates_negative_cycle() {
+        let sources = vec!["a"];
+        let result = accumulate_weighted_average_shortest_path_length(&sources, 1, |_source| {
+            Err(AverageShortestPathLengthFailure::NegativeCycle)
+        });
+
+        assert_eq!(result, Err(AverageShortestPathLengthFailure::NegativeCycle));
     }
 }
