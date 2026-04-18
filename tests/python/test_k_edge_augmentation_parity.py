@@ -111,6 +111,9 @@ class TestKEdgeAugmentation:
         with mock.patch(
             "franken_networkx.drawing.layout._to_nx",
             side_effect=AssertionError("_to_nx fallback should not be used"),
+        ), mock.patch(
+            "networkx.k_edge_augmentation",
+            side_effect=AssertionError("networkx fallback should not be used"),
         ):
             aug = fnx.k_edge_augmentation(G, 2, avail=avail)
 

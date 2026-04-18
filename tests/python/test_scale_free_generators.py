@@ -31,6 +31,28 @@ def test_dual_barabasi_albert_graph_does_not_delegate_to_networkx(monkeypatch):
     assert sorted(_to_nx(actual).edges()) == sorted(expected.edges())
 
 
+def test_extended_barabasi_albert_graph_does_not_delegate_to_networkx(monkeypatch):
+    cases = [
+        (10, 2, 0.3, 0.2, 11),
+        (12, 2, 0.0, 0.0, 5),
+        (12, 2, 0.7, 0.0, 13),
+        (12, 2, 0.0, 0.7, 17),
+    ]
+    expected = [
+        (case, nx.extended_barabasi_albert_graph(*case[:4], seed=case[4]))
+        for case in cases
+    ]
+
+    def fail(*args, **kwargs):
+        raise AssertionError("networkx fallback was used")
+
+    monkeypatch.setattr(nx, "extended_barabasi_albert_graph", fail)
+
+    for (n, m, p, q, seed), expected_graph in expected:
+        actual = fnx.extended_barabasi_albert_graph(n, m, p, q, seed=seed)
+        assert sorted(_to_nx(actual).edges()) == sorted(expected_graph.edges())
+
+
 def test_scale_free_graph_matches_networkx_multiedges():
     graph = fnx.scale_free_graph(12, seed=5)
     graph_nx = nx.scale_free_graph(12, seed=5)

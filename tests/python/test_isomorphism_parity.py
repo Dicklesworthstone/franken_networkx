@@ -40,7 +40,7 @@ def test_is_isomorphic_uses_rust_when_no_callbacks(monkeypatch):
     assert called["rust"] is True
 
 
-def test_is_isomorphic_with_callbacks_delegates_to_networkx(monkeypatch):
+def test_is_isomorphic_with_callbacks_avoids_networkx(monkeypatch):
     g1 = fnx.Graph()
     g1.add_node(1, color="red")
     g1.add_node(2, color="blue")
@@ -54,27 +54,22 @@ def test_is_isomorphic_with_callbacks_delegates_to_networkx(monkeypatch):
     def fail_rust(*args, **kwargs):
         raise AssertionError("Rust fast path should not be used with callbacks")
 
-    real_isomorphic = nx.is_isomorphic
-    called = {"networkx": False}
+    def node_match(left, right):
+        return left == right
 
-    def wrapped_networkx(left, right, node_match=None, edge_match=None):
-        called["networkx"] = True
-        assert node_match is not None
-        return real_isomorphic(
-            left,
-            right,
-            node_match=node_match,
-            edge_match=edge_match,
-        )
+    expected = nx.is_isomorphic(
+        _to_nx(g1),
+        _to_nx(g2),
+        node_match=node_match,
+    )
+
+    def fail_networkx(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
 
     monkeypatch.setattr(fnx, "_is_isomorphic_rust", fail_rust)
-    monkeypatch.setattr(nx, "is_isomorphic", wrapped_networkx)
+    monkeypatch.setattr(nx, "is_isomorphic", fail_networkx)
 
-    assert (
-        fnx.is_isomorphic(g1, g2, node_match=lambda left, right: left == right)
-        is False
-    )
-    assert called["networkx"] is True
+    assert fnx.is_isomorphic(g1, g2, node_match=node_match) == expected
 
 
 def test_vf2pp_is_isomorphic_matches_networkx():

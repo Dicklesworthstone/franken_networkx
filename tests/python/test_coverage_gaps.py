@@ -1434,11 +1434,50 @@ class TestDelegateFixes:
 
     @needs_nx
     def test_graph_atlas_helpers_match_networkx(self):
-        atlas = fnx.graph_atlas(6)
         atlas_nx = nx.graph_atlas(6)
+        atlas_all_nx = nx.graph_atlas_g()
+        sample_indices = [0, 1, 6, 7, 208, 1252]
+        expected_samples = [
+            (
+                graph.name,
+                sorted(graph.nodes()),
+                sorted(graph.edges()),
+            )
+            for graph in (atlas_all_nx[index] for index in sample_indices)
+        ]
 
+        with (
+            mock.patch.object(
+                nx,
+                "graph_atlas",
+                side_effect=AssertionError("NetworkX graph_atlas fallback used"),
+            ),
+            mock.patch.object(
+                nx,
+                "graph_atlas_g",
+                side_effect=AssertionError("NetworkX graph_atlas_g fallback used"),
+            ),
+        ):
+            atlas = fnx.graph_atlas(6)
+            atlas_all = fnx.graph_atlas_g()
+
+        assert atlas.name == atlas_nx.name
+        assert sorted(atlas.nodes()) == sorted(atlas_nx.nodes())
         assert sorted(atlas.edges()) == sorted(atlas_nx.edges())
-        assert len(fnx.graph_atlas_g()) == len(nx.graph_atlas_g())
+        assert len(atlas_all) == len(atlas_all_nx)
+        assert [
+            (
+                graph.name,
+                sorted(graph.nodes()),
+                sorted(graph.edges()),
+            )
+            for graph in (atlas_all[index] for index in sample_indices)
+        ] == expected_samples
+
+        with pytest.raises(ValueError, match="index must be between 0 and 1253"):
+            fnx.graph_atlas(-1)
+        with pytest.raises(ValueError, match="index must be between 0 and 1253"):
+            fnx.graph_atlas(1253)
 
     @needs_nx
     def test_random_shell_and_clustered_generators_delegate(self):
@@ -1483,6 +1522,18 @@ class TestDelegateFixes:
             graph.nodes[node]["score"] = value
         fnx.apply_matplotlib_colors(graph, "score", "rgba", mpl.cm.viridis)
         assert "rgba" in graph.nodes[0]
+
+    @needs_nx
+    def test_combinatorial_embedding_to_pos_matches_networkx_without_fallback(self, monkeypatch):
+        _, embedding = nx.check_planarity(nx.complete_graph(4))
+        expected = nx.combinatorial_embedding_to_pos(embedding)
+
+        def fail(*args, **kwargs):
+            raise AssertionError("networkx combinatorial embedding fallback was used")
+
+        monkeypatch.setattr(nx, "combinatorial_embedding_to_pos", fail)
+
+        assert fnx.combinatorial_embedding_to_pos(embedding) == expected
 
     @needs_nx
     def test_equitable_coloring_and_goldberg_radzik_delegate(self):
@@ -1588,19 +1639,29 @@ class TestDelegateFixes:
     def test_panther_helpers_match_networkx_without_to_nx_fallback(self):
         graph = fnx.path_graph(4)
         expected_graph = nx.path_graph(4)
+        expected_similarity = nx.panther_similarity(expected_graph, 0, k=3, seed=1)
+        expected_vector_similarity = nx.panther_vector_similarity(
+            expected_graph,
+            0,
+            D=3,
+            k=3,
+            seed=1,
+        )
+
+        def fail(*args, **kwargs):
+            raise AssertionError("NetworkX Panther fallback should not be used")
 
         with mock.patch(
             "franken_networkx.drawing.layout._to_nx",
             side_effect=AssertionError("_to_nx fallback should not be used"),
+        ), mock.patch.object(nx, "panther_similarity", fail), mock.patch.object(
+            nx,
+            "panther_vector_similarity",
+            fail,
         ):
-            assert fnx.panther_similarity(graph, 0, k=3, seed=1) == nx.panther_similarity(
-                expected_graph,
-                0,
-                k=3,
-                seed=1,
-            )
+            assert fnx.panther_similarity(graph, 0, k=3, seed=1) == expected_similarity
 
-            with pytest.raises(nx.NetworkXUnfeasible):
+            with pytest.raises(fnx.NetworkXUnfeasible):
                 fnx.panther_vector_similarity(graph, 0, k=5, seed=1)
 
             assert fnx.panther_vector_similarity(
@@ -1609,10 +1670,4 @@ class TestDelegateFixes:
                 D=3,
                 k=3,
                 seed=1,
-            ) == nx.panther_vector_similarity(
-                expected_graph,
-                0,
-                D=3,
-                k=3,
-                seed=1,
-            )
+            ) == expected_vector_similarity

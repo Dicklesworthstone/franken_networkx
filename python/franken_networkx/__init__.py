@@ -16,11 +16,14 @@ Or as a NetworkX backend (zero code changes required)::
     # Now all supported algorithms dispatch to Rust automatically.
 """
 
+import base64
 from collections import defaultdict, deque
-from collections.abc import Collection, Generator, Iterator, Mapping
+from collections.abc import Collection, Generator, Iterable, Iterator, Mapping
 from copy import deepcopy
 from enum import Enum
+import gzip
 from heapq import heappop, heappush
+import io
 import itertools
 from itertools import combinations, count
 import math
@@ -9943,6 +9946,115 @@ def k_edge_subgraphs(G, k):
         yield G.subgraph(comp)
 
 
+def _k_edge_degree(G, node):
+    return G.degree[node]
+
+
+def _k_edge_complement_edges(G):
+    nodes = list(G.nodes())
+    for u, v in combinations(nodes, 2):
+        if not G.has_edge(u, v):
+            yield (u, v)
+
+
+def _k_edge_avail_weight(raw_weight, weight):
+    if raw_weight is None:
+        return 1
+    if isinstance(raw_weight, Mapping):
+        key = "weight" if weight is None else weight
+        return raw_weight[key]
+    return raw_weight
+
+
+def _k_edge_unpack_available_edges(avail, weight=None, G=None):
+    if isinstance(avail, Mapping):
+        available = list(avail.items())
+        edges = [edge for edge, _ in available]
+        weights = [raw_weight for _, raw_weight in available]
+    else:
+        edges = []
+        weights = []
+        for edge in avail:
+            u, v = edge[:2]
+            edges.append((u, v))
+            weights.append(1 if len(edge) == 2 else _k_edge_avail_weight(edge[-1], weight))
+
+    if G is None:
+        return edges, weights
+
+    filtered_edges = []
+    filtered_weights = []
+    for (u, v), edge_weight in zip(edges, weights):
+        if not G.has_edge(u, v):
+            filtered_edges.append((u, v))
+            filtered_weights.append(edge_weight)
+    return filtered_edges, filtered_weights
+
+
+def _k_edge_is_locally_connected(G, source, target, k):
+    if source == target:
+        return True
+    try:
+        return edge_connectivity(G, source, target) >= k
+    except (NetworkXError, NetworkXUnbounded, ValueError):
+        return False
+
+
+def _k_edge_greedy_augmentation(G, k, avail=None, weight=None, seed=0):
+    if is_k_edge_connected(G, k):
+        return []
+
+    if avail is None:
+        avail_edges = list(_k_edge_complement_edges(G))
+        avail_weights = [1] * len(avail_edges)
+    else:
+        avail_edges, avail_weights = _k_edge_unpack_available_edges(
+            avail,
+            weight=weight,
+            G=G,
+        )
+
+    weighted_edges = sorted(
+        (
+            edge_weight,
+            _k_edge_degree(G, u) + _k_edge_degree(G, v),
+            (u, v),
+        )
+        for (u, v), edge_weight in zip(avail_edges, avail_weights)
+    )
+
+    H = G.copy()
+    aug_edges = []
+    done = False
+    for _, _, (u, v) in weighted_edges:
+        if not _k_edge_is_locally_connected(H, u, v, k):
+            aug_edges.append((u, v))
+            H.add_edge(u, v)
+            if _k_edge_degree(H, u) >= k and _k_edge_degree(H, v) >= k:
+                done = is_k_edge_connected(H, k)
+        if done:
+            break
+
+    if not done:
+        raise NetworkXUnfeasible("not able to k-edge-connect with available edges")
+
+    import random as _random
+
+    if not (k == 2 and avail is not None):
+        rng = _random.Random(seed)
+        rng.shuffle(aug_edges)
+        for u, v in list(aug_edges):
+            if _k_edge_degree(H, u) <= k or _k_edge_degree(H, v) <= k:
+                continue
+            H.remove_edge(u, v)
+            aug_edges.remove((u, v))
+            if not is_k_edge_connected(H, k):
+                H.add_edge(u, v)
+                aug_edges.append((u, v))
+
+    return aug_edges
+
+
 def spectral_bisection(G, weight=None):
     """Partition graph using Fiedler vector sign."""
     fv = fiedler_vector(G)
@@ -9981,12 +10093,28 @@ def k_edge_augmentation(G, k, avail=None, weight=None, partial=False):
     Notes
     -----
     For k=1 with no avail/weight, uses a fast native implementation
-    that connects components. For the remaining cases, runs the
-    upstream NetworkX implementation directly on an FNX-backed proxy
-    so we preserve semantics without copying into a plain NetworkX
-    graph first.
+    that connects components. For remaining cases, uses the same
+    greedy augmentation policy as the upstream reference: add light
+    candidate edges between node pairs that are not yet locally
+    k-edge-connected, then prune redundant additions deterministically.
     """
     if k <= 0:
+        return []
+
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.number_of_nodes() < k + 1:
+        msg = f"impossible to {k} connect in graph with less than {k + 1} nodes"
+        if partial:
+            return list(_k_edge_complement_edges(G))
+        raise NetworkXUnfeasible(msg)
+    if avail is not None and len(avail) == 0:
+        if not is_k_edge_connected(G, k):
+            if partial:
+                return []
+            raise NetworkXUnfeasible("no available edges")
         return []
 
     # Fast native path for k=1 (connect components)
@@ -9998,24 +10126,15 @@ def k_edge_augmentation(G, k, avail=None, weight=None, partial=False):
             (list(comps[i])[0], list(comps[i + 1])[0]) for i in range(len(comps) - 1)
         ]
 
-    import networkx as nx
-
-    proxy = G
-    original_set_node_attributes = nx.set_node_attributes
-    if hasattr(original_set_node_attributes, "orig_func"):
-        nx.set_node_attributes = original_set_node_attributes.orig_func
     try:
-        return list(
-            nx.k_edge_augmentation(
-                proxy,
-                k,
-                avail=avail,
-                weight=weight,
-                partial=partial,
-            )
-        )
-    finally:
-        nx.set_node_attributes = original_set_node_attributes
+        return _k_edge_greedy_augmentation(G, k, avail=avail, weight=weight, seed=0)
+    except NetworkXUnfeasible:
+        if not partial:
+            raise
+        if avail is None:
+            return list(_k_edge_complement_edges(G))
+        avail_edges, _ = _k_edge_unpack_available_edges(avail, weight=weight, G=G)
+        return avail_edges
 
 
 # Stochastic Block Models (br-1p2)
@@ -10834,14 +10953,290 @@ def chromatic_polynomial(G):
     return sympy.simplify(polynomial)
 
 
+def _embedding_connected_components(embedding):
+    nodes = list(embedding.nodes())
+    unseen = set(nodes)
+    components = []
+    while unseen:
+        start = next(iter(unseen))
+        unseen.remove(start)
+        component = {start}
+        stack = [start]
+        while stack:
+            node = stack.pop()
+            for neighbor in embedding.neighbors_cw_order(node):
+                if neighbor in unseen:
+                    unseen.remove(neighbor)
+                    component.add(neighbor)
+                    stack.append(neighbor)
+        components.append(component)
+    return components
+
+
+def _embedding_set_position(parent, tree, remaining_nodes, delta_x, y_coordinate, pos):
+    child = tree[parent]
+    if child is not None:
+        pos[child] = (pos[parent][0] + delta_x[child], y_coordinate[child])
+        remaining_nodes.append(child)
+
+
+def _embedding_make_bi_connected(embedding, starting_node, outgoing_node, edges_counted):
+    if (starting_node, outgoing_node) in edges_counted:
+        return []
+    edges_counted.add((starting_node, outgoing_node))
+
+    v1 = starting_node
+    v2 = outgoing_node
+    face_list = [starting_node]
+    face_set = set(face_list)
+    _, v3 = embedding.next_face_half_edge(v1, v2)
+
+    while v2 != starting_node or v3 != outgoing_node:
+        if v1 == v2:
+            raise NetworkXError("Invalid half-edge")
+        if v2 in face_set:
+            embedding.add_half_edge(v1, v3, ccw=v2)
+            embedding.add_half_edge(v3, v1, cw=v2)
+            edges_counted.add((v2, v3))
+            edges_counted.add((v3, v1))
+            v2 = v1
+        else:
+            face_set.add(v2)
+            face_list.append(v2)
+
+        v1 = v2
+        v2, v3 = embedding.next_face_half_edge(v2, v3)
+        edges_counted.add((v1, v2))
+
+    return face_list
+
+
+def _embedding_triangulate_face(embedding, v1, v2):
+    _, v3 = embedding.next_face_half_edge(v1, v2)
+    _, v4 = embedding.next_face_half_edge(v2, v3)
+    if v1 in (v2, v3):
+        return
+    while v1 != v4:
+        if embedding.has_edge(v1, v3):
+            v1, v2, v3 = v2, v3, v4
+        else:
+            embedding.add_half_edge(v1, v3, ccw=v2)
+            embedding.add_half_edge(v3, v1, cw=v2)
+            v1, v2, v3 = v1, v3, v4
+        _, v4 = embedding.next_face_half_edge(v2, v3)
+
+
+def _embedding_triangulate(embedding, fully_triangulate=True):
+    nodes = list(embedding.nodes())
+    if len(nodes) <= 1:
+        return embedding, nodes
+
+    embedding = embedding.copy()
+    component_nodes = [next(iter(component)) for component in _embedding_connected_components(embedding)]
+    for index in range(len(component_nodes) - 1):
+        embedding.connect_components(component_nodes[index], component_nodes[index + 1])
+
+    outer_face = []
+    face_list = []
+    edges_visited = set()
+    for v in embedding.nodes():
+        for w in embedding.neighbors_cw_order(v):
+            new_face = _embedding_make_bi_connected(embedding, v, w, edges_visited)
+            if new_face:
+                face_list.append(new_face)
+                if len(new_face) > len(outer_face):
+                    outer_face = new_face
+
+    for face in face_list:
+        if face is not outer_face or fully_triangulate:
+            _embedding_triangulate_face(embedding, face[0], face[1])
+
+    if fully_triangulate:
+        v1 = outer_face[0]
+        v2 = outer_face[1]
+        v3 = embedding[v2][v1]["ccw"]
+        outer_face = [v1, v2, v3]
+
+    return embedding, outer_face
+
+
+def _embedding_canonical_ordering(embedding, outer_face):
+    v1 = outer_face[0]
+    v2 = outer_face[1]
+    chords = defaultdict(int)
+    marked_nodes = set()
+    ready_to_pick = set(outer_face)
+
+    outer_face_ccw_nbr = {}
+    prev_nbr = v2
+    for index in range(2, len(outer_face)):
+        outer_face_ccw_nbr[prev_nbr] = outer_face[index]
+        prev_nbr = outer_face[index]
+    outer_face_ccw_nbr[prev_nbr] = v1
+
+    outer_face_cw_nbr = {}
+    prev_nbr = v1
+    for index in range(len(outer_face) - 1, 0, -1):
+        outer_face_cw_nbr[prev_nbr] = outer_face[index]
+        prev_nbr = outer_face[index]
+
+    def is_outer_face_nbr(x, y):
+        if x not in outer_face_ccw_nbr:
+            return outer_face_cw_nbr[x] == y
+        if x not in outer_face_cw_nbr:
+            return outer_face_ccw_nbr[x] == y
+        return outer_face_ccw_nbr[x] == y or outer_face_cw_nbr[x] == y
+
+    def is_on_outer_face(x):
+        return x not in marked_nodes and (x in outer_face_ccw_nbr or x == v1)
+
+    for v in outer_face:
+        for neighbor in embedding.neighbors_cw_order(v):
+            if is_on_outer_face(neighbor) and not is_outer_face_nbr(v, neighbor):
+                chords[v] += 1
+                ready_to_pick.discard(v)
+
+    canonical_ordering = [None] * len(list(embedding.nodes()))
+    canonical_ordering[0] = (v1, [])
+    canonical_ordering[1] = (v2, [])
+    ready_to_pick.discard(v1)
+    ready_to_pick.discard(v2)
+
+    for k in range(len(list(embedding.nodes())) - 1, 1, -1):
+        v = ready_to_pick.pop()
+        marked_nodes.add(v)
+
+        wp = None
+        wq = None
+        neighbor_iterator = iter(embedding.neighbors_cw_order(v))
+        while True:
+            neighbor = next(neighbor_iterator)
+            if neighbor in marked_nodes:
+                continue
+            if is_on_outer_face(neighbor):
+                if neighbor == v1:
+                    wp = v1
+                elif neighbor == v2:
+                    wq = v2
+                elif outer_face_cw_nbr[neighbor] == v:
+                    wp = neighbor
+                else:
+                    wq = neighbor
+            if wp is not None and wq is not None:
+                break
+
+        wp_wq = [wp]
+        neighbor = wp
+        while neighbor != wq:
+            next_neighbor = embedding[v][neighbor]["ccw"]
+            wp_wq.append(next_neighbor)
+            outer_face_cw_nbr[neighbor] = next_neighbor
+            outer_face_ccw_nbr[next_neighbor] = neighbor
+            neighbor = next_neighbor
+
+        if len(wp_wq) == 2:
+            chords[wp] -= 1
+            if chords[wp] == 0:
+                ready_to_pick.add(wp)
+            chords[wq] -= 1
+            if chords[wq] == 0:
+                ready_to_pick.add(wq)
+        else:
+            new_face_nodes = set(wp_wq[1:-1])
+            for w in new_face_nodes:
+                ready_to_pick.add(w)
+                for neighbor in embedding.neighbors_cw_order(w):
+                    if is_on_outer_face(neighbor) and not is_outer_face_nbr(w, neighbor):
+                        chords[w] += 1
+                        ready_to_pick.discard(w)
+                        if neighbor not in new_face_nodes:
+                            chords[neighbor] += 1
+                            ready_to_pick.discard(neighbor)
+        canonical_ordering[k] = (v, wp_wq)
+
+    return canonical_ordering
+
+
 def combinatorial_embedding_to_pos(embedding, fully_triangulate=False):
     """Convert combinatorial embedding to positions."""
-    import networkx as nx
+    nodes = list(embedding.nodes())
+    if len(nodes) < 4:
+        default_positions = [(0, 0), (2, 0), (1, 1)]
+        return {node: default_positions[index] for index, node in enumerate(nodes)}
 
-    return nx.combinatorial_embedding_to_pos(
-        embedding,
-        fully_triangulate=fully_triangulate,
-    )
+    embedding, outer_face = _embedding_triangulate(embedding, fully_triangulate)
+
+    left_t_child = {}
+    right_t_child = {}
+    delta_x = {}
+    y_coordinate = {}
+
+    node_list = _embedding_canonical_ordering(embedding, outer_face)
+
+    v1, v2, v3 = node_list[0][0], node_list[1][0], node_list[2][0]
+
+    delta_x[v1] = 0
+    y_coordinate[v1] = 0
+    right_t_child[v1] = v3
+    left_t_child[v1] = None
+
+    delta_x[v2] = 1
+    y_coordinate[v2] = 0
+    right_t_child[v2] = None
+    left_t_child[v2] = None
+
+    delta_x[v3] = 1
+    y_coordinate[v3] = 1
+    right_t_child[v3] = v2
+    left_t_child[v3] = None
+
+    for k in range(3, len(node_list)):
+        vk, contour_neighbors = node_list[k]
+        wp = contour_neighbors[0]
+        wp1 = contour_neighbors[1]
+        wq = contour_neighbors[-1]
+        wq1 = contour_neighbors[-2]
+        adds_multiple_triangles = len(contour_neighbors) > 2
+
+        delta_x[wp1] += 1
+        delta_x[wq] += 1
+
+        delta_x_wp_wq = sum(delta_x[node] for node in contour_neighbors[1:])
+        delta_x[vk] = (-y_coordinate[wp] + delta_x_wp_wq + y_coordinate[wq]) // 2
+        y_coordinate[vk] = (y_coordinate[wp] + delta_x_wp_wq + y_coordinate[wq]) // 2
+        delta_x[wq] = delta_x_wp_wq - delta_x[vk]
+        if adds_multiple_triangles:
+            delta_x[wp1] -= delta_x[vk]
+
+        right_t_child[wp] = vk
+        right_t_child[vk] = wq
+        if adds_multiple_triangles:
+            left_t_child[vk] = wp1
+            right_t_child[wq1] = None
+        else:
+            left_t_child[vk] = None
+
+    pos = {v1: (0, y_coordinate[v1])}
+    remaining_nodes = [v1]
+    while remaining_nodes:
+        parent_node = remaining_nodes.pop()
+        _embedding_set_position(
+            parent_node,
+            left_t_child,
+            remaining_nodes,
+            delta_x,
+            y_coordinate,
+            pos,
+        )
+        _embedding_set_position(
+            parent_node,
+            right_t_child,
+            remaining_nodes,
+            delta_x,
+            y_coordinate,
+            pos,
+        )
+    return pos
 
 
 def _vf2pp_node_label_value_local(G, node, node_label, default_label):
@@ -10885,18 +11280,82 @@ def _vf2pp_labeled_mappings_local(G1, G2, *, node_label, default_label):
 
 
 # Isomorphism VF2++ (br-req)
+def _edge_attrs_between(G, u, v):
+    """Return edge attribute payloads between two nodes."""
+    if G.is_multigraph():
+        return [dict(attrs) for attrs in G[u][v].values()]
+    return [dict(G[u][v])]
+
+
+def _edge_attrs_match(left_attrs, right_attrs, edge_match):
+    """Return whether edge attribute payloads can be matched pairwise."""
+    if edge_match is None:
+        return True
+    if len(left_attrs) != len(right_attrs):
+        return False
+
+    used = [False] * len(right_attrs)
+    for left in left_attrs:
+        for index, right in enumerate(right_attrs):
+            if not used[index] and edge_match(left, right):
+                used[index] = True
+                break
+        else:
+            return False
+    return True
+
+
+def _isomorphic_mapping_matches_callbacks(G1, G2, mapping, node_match, edge_match):
+    """Filter a structural isomorphism mapping through NetworkX-style callbacks."""
+    if node_match is not None:
+        for node, mapped in mapping.items():
+            if not node_match(G1.nodes[node], G2.nodes[mapped]):
+                return False
+
+    if edge_match is not None:
+        edge_iter = (
+            ((u, v) for u, v, _key in G1.edges(keys=True))
+            if G1.is_multigraph()
+            else G1.edges()
+        )
+        seen = set()
+        for u, v in edge_iter:
+            mapped_u = mapping[u]
+            mapped_v = mapping[v]
+            edge_key = (
+                frozenset((u, v))
+                if not G1.is_directed()
+                else (u, v)
+            )
+            if not G1.is_multigraph() and edge_key in seen:
+                continue
+            seen.add(edge_key)
+            left_attrs = _edge_attrs_between(G1, u, v)
+            right_attrs = _edge_attrs_between(G2, mapped_u, mapped_v)
+            if not _edge_attrs_match(left_attrs, right_attrs, edge_match):
+                return False
+    return True
+
+
 def is_isomorphic(G1, G2, node_match=None, edge_match=None):
     """Test graph isomorphism, preserving NetworkX callback semantics."""
     if node_match is None and edge_match is None:
         return _is_isomorphic_rust(G1, G2)
 
-    import networkx as nx
+    if G1.is_directed() != G2.is_directed():
+        raise NetworkXError("G1 and G2 must have the same directedness")
+    if G1.is_multigraph() != G2.is_multigraph():
+        return False
 
-    return nx.is_isomorphic(
-        G1,
-        G2,
-        node_match=node_match,
-        edge_match=edge_match,
+    return any(
+        _isomorphic_mapping_matches_callbacks(
+            G1,
+            G2,
+            mapping,
+            node_match,
+            edge_match,
+        )
+        for mapping in _vf2pp_all_isomorphisms_rust(G1, G2)
     )
 
 
@@ -11030,17 +11489,11 @@ def random_unlabeled_rooted_forest(n, q=None, number_of_forests=None, seed=None)
 
 def tree_data(G, root, ident="id", children="children"):
     """Serialize a rooted directed tree to nested data."""
-    import networkx as nx
-
     if G.number_of_nodes() != G.number_of_edges() + 1:
         raise TypeError("G is not a tree.")
     if not G.is_directed():
         raise TypeError("G is not directed.")
-    if isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
-        weakly_connected = is_weakly_connected(G)
-    else:
-        weakly_connected = nx.is_weakly_connected(G)
-    if not weakly_connected:
+    if not _tree_data_is_weakly_connected(G):
         raise TypeError("G is not weakly connected.")
     if ident == children:
         raise NetworkXError("The values for `id` and `children` must be different.")
@@ -11059,6 +11512,23 @@ def tree_data(G, root, ident="id", children="children"):
         return payload
 
     return {**G.nodes[root], ident: root, children: add_children(root)}
+
+
+def _tree_data_is_weakly_connected(G):
+    nodes = list(G.nodes)
+    if not nodes:
+        return False
+
+    seen = {nodes[0]}
+    stack = [nodes[0]]
+    while stack:
+        node = stack.pop()
+        neighbors = itertools.chain(G[node], G.predecessors(node))
+        for neighbor in neighbors:
+            if neighbor not in seen:
+                seen.add(neighbor)
+                stack.append(neighbor)
+    return len(seen) == len(nodes)
 
 
 def tree_graph(data, ident="id", children="children"):
@@ -11244,7 +11714,153 @@ def simrank_similarity(  # DELEGATED_TO_NETWORKX
     )
 
 
-def panther_similarity(  # DELEGATED_TO_NETWORKX
+def _numpy_random_state(seed):
+    import numpy as np
+
+    if seed is None or seed is np.random:
+        return np.random.mtrand._rand
+    if isinstance(seed, np.random.RandomState | np.random.Generator):
+        return seed
+    if isinstance(seed, int):
+        return np.random.RandomState(seed)
+    raise ValueError(
+        f"{seed} cannot be used to create a numpy.random.RandomState or Generator",
+    )
+
+
+def _panther_isolates(G):
+    return {node for node in G if G.degree[node] == 0}
+
+
+def _panther_induced_ordered_copy(G, nodes):
+    node_set = set(nodes)
+    graph = G.__class__()
+    graph.graph.update(dict(G.graph))
+    graph.add_nodes_from((node, dict(G.nodes[node])) for node in G if node in node_set)
+    if G.is_multigraph():
+        for u, v, key, attrs in G.edges(keys=True, data=True):
+            if u in node_set and v in node_set:
+                graph.add_edge(u, v, key=key, **dict(attrs))
+    else:
+        for u, v, attrs in G.edges(data=True):
+            if u in node_set and v in node_set:
+                graph.add_edge(u, v, **dict(attrs))
+    return graph
+
+
+def _panther_generate_random_paths(
+    G,
+    sample_size,
+    path_length=5,
+    index_map=None,
+    weight="weight",
+    seed=None,
+    *,
+    source=None,
+):
+    import numpy as np
+
+    rng = _numpy_random_state(seed)
+    randint_fn = rng.integers if isinstance(rng, np.random.Generator) else rng.randint
+
+    node_map = list(G)
+    node_index = {node: index for index, node in enumerate(node_map)}
+    num_nodes = G.number_of_nodes()
+    adjacency = to_numpy_array(G, nodelist=node_map, weight=weight)
+
+    row_sums = adjacency.sum(axis=1).reshape(-1, 1)
+    transition_probabilities = adjacency * np.reciprocal(row_sums)
+
+    for path_index in range(sample_size):
+        if source is None:
+            current_index = int(randint_fn(num_nodes))
+            node = node_map[current_index]
+        else:
+            if source not in node_index:
+                raise NodeNotFound(f"Initial node {source} not in G")
+            node = source
+            current_index = node_index[node]
+
+        path = [node]
+        if index_map is not None:
+            index_map.setdefault(node, set()).add(path_index)
+
+        for _ in range(path_length):
+            neighbor_index = int(
+                rng.choice(num_nodes, p=transition_probabilities[current_index]),
+            )
+            current_index = neighbor_index
+            neighbor = node_map[neighbor_index]
+            path.append(neighbor)
+            if index_map is not None:
+                index_map.setdefault(neighbor, set()).add(path_index)
+
+        yield path
+
+
+def _prepare_panther_paths(
+    G,
+    source,
+    path_length=5,
+    c=0.5,
+    delta=0.1,
+    eps=None,
+    weight="weight",
+    remove_isolates=True,
+    k=None,
+    seed=None,
+):
+    import numpy as np
+
+    if source not in G:
+        raise NodeNotFound(f"Source node {source} not in G")
+
+    isolates = _panther_isolates(G)
+    if source in isolates:
+        raise NetworkXUnfeasible(
+            f"Panther similarity is not defined for the isolated source node {source}.",
+        )
+
+    if remove_isolates:
+        G = _panther_induced_ordered_copy(
+            G,
+            (node for node in G if node not in isolates),
+        )
+
+    if eps is None:
+        eps = np.sqrt(1.0 / G.number_of_edges())
+
+    num_nodes = G.number_of_nodes()
+    if k is not None and not remove_isolates and num_nodes < k:
+        raise NetworkXUnfeasible(
+            f"The number of requested nodes {k} is greater than the number of nodes {num_nodes}.",
+        )
+
+    inv_node_map = {name: index for index, name in enumerate(G)}
+    t_choose_2 = math.comb(path_length, 2)
+    sample_size = int((c / eps**2) * (np.log2(t_choose_2) + 1 + np.log(1 / delta)))
+    index_map = {}
+
+    remaining_isolates = _panther_isolates(G)
+    if remaining_isolates:
+        raise NetworkXUnfeasible(
+            f"Cannot generate random paths with isolated nodes present: {remaining_isolates}",
+        )
+
+    for _ in _panther_generate_random_paths(
+        G,
+        sample_size,
+        path_length=path_length,
+        index_map=index_map,
+        weight=weight,
+        seed=seed,
+    ):
+        pass
+
+    return G, inv_node_map, index_map, 1 / sample_size, eps
+
+
+def panther_similarity(
     G,
     source,
     k=5,
@@ -11256,20 +11872,38 @@ def panther_similarity(  # DELEGATED_TO_NETWORKX
     seed=None,
 ):
     """Return Panther similarity scores."""
-    import networkx as nx
-    from franken_networkx.backend import _fnx_to_nx
+    import numpy as np
 
-    return nx.panther_similarity(
-        _fnx_to_nx(G),
+    G, inv_node_map, index_map, inv_sample_size, _eps = _prepare_panther_paths(
+        G,
         source,
-        k=k,
         path_length=path_length,
         c=c,
         delta=delta,
         eps=eps,
         weight=weight,
+        k=k,
         seed=seed,
     )
+
+    num_nodes = G.number_of_nodes()
+    if num_nodes < k:
+        raise NetworkXUnfeasible(
+            f"The number of requested nodes {k} is greater than the number of nodes {num_nodes}.",
+        )
+
+    node_list = list(G.nodes)
+    scores = np.zeros(num_nodes)
+    source_paths = set(index_map[source])
+    for node, paths in index_map.items():
+        scores[inv_node_map[node]] = len(source_paths.intersection(paths)) * inv_sample_size
+
+    partition_k = min(k + 1, num_nodes)
+    top_k_unsorted = np.argpartition(scores, -partition_k)[-partition_k:]
+    top_k_sorted = top_k_unsorted[np.argsort(scores[top_k_unsorted])][::-1]
+    result = dict(zip((node_list[index] for index in top_k_sorted), scores[top_k_sorted].tolist()))
+    result.pop(source, None)
+    return result
 
 
 def optimal_edit_paths(  # DELEGATED_TO_NETWORKX
@@ -11526,31 +12160,40 @@ def apply_matplotlib_colors(
     G, src_attr, dest_attr, map, vmin=None, vmax=None, nodes=True
 ):
     """Apply matplotlib colors to graph."""
-    import networkx as nx
-
-    nx.apply_matplotlib_colors(
-        G,
-        src_attr,
-        dest_attr,
-        map,
-        vmin=vmin,
-        vmax=vmax,
-        nodes=nodes,
-    )
+    import matplotlib as mpl
 
     if nodes:
-        for node, attrs in H.nodes(data=True):
-            if dest_attr in attrs:
-                G.nodes[node][dest_attr] = attrs[dest_attr]
+        items = list(G.nodes())
+        values = [G.nodes[node][src_attr] for node in items]
     else:
         if G.is_multigraph():
-            for u, v, key, attrs in H.edges(keys=True, data=True):
-                if dest_attr in attrs:
-                    G[u][v][key][dest_attr] = attrs[dest_attr]
+            items = list(G.edges(keys=True))
+            values = [G[u][v][key][src_attr] for u, v, key in items]
         else:
-            for u, v, attrs in H.edges(data=True):
-                if dest_attr in attrs:
-                    G[u][v][dest_attr] = attrs[dest_attr]
+            items = list(G.edges())
+            values = [G[u][v][src_attr] for u, v in items]
+
+    if vmin is None or vmax is None:
+        if vmin is None:
+            vmin = min(values)
+        if vmax is None:
+            vmax = max(values)
+
+    mapper = mpl.cm.ScalarMappable(cmap=map)
+    mapper.set_clim(vmin, vmax)
+
+    def do_map(value):
+        return tuple(float(component) for component in mapper.to_rgba(value))
+
+    if nodes:
+        for node in items:
+            G.nodes[node][dest_attr] = do_map(G.nodes[node][src_attr])
+    elif G.is_multigraph():
+        for u, v, key in items:
+            G[u][v][key][dest_attr] = do_map(G[u][v][key][src_attr])
+    else:
+        for u, v in items:
+            G[u][v][dest_attr] = do_map(G[u][v][src_attr])
 
 
 def communicability_exp(G):
@@ -11575,7 +12218,7 @@ def communicability_exp(G):
     return result
 
 
-def panther_vector_similarity(  # DELEGATED_TO_NETWORKX
+def panther_vector_similarity(
     G,
     source,
     *,
@@ -11589,21 +12232,59 @@ def panther_vector_similarity(  # DELEGATED_TO_NETWORKX
     seed=None,
 ):
     """Return Panther++ vector similarity scores."""
-    import networkx as nx
-    from franken_networkx.backend import _fnx_to_nx
+    import numpy as np
+    import scipy as sp
 
-    return nx.panther_vector_similarity(
-        _fnx_to_nx(G),
+    G, inv_node_map, index_map, inv_sample_size, eps = _prepare_panther_paths(
+        G,
         source,
-        D=D,
-        k=k,
         path_length=path_length,
         c=c,
         delta=delta,
         eps=eps,
         weight=weight,
+        remove_isolates=False,
+        k=k,
         seed=seed,
     )
+    num_nodes = G.number_of_nodes()
+    if num_nodes < D:
+        raise NetworkXUnfeasible(
+            f"The number of requested similarity scores {D} is greater than the number of nodes {num_nodes}.",
+        )
+
+    node_list = list(G.nodes)
+    similarities = np.zeros((num_nodes, num_nodes))
+    theta = np.zeros((num_nodes, D))
+    index_map_sets = {node: set(paths) for node, paths in index_map.items()}
+
+    for vi_idx, vi in enumerate(G.nodes):
+        vi_paths = index_map_sets[vi]
+        for node, node_paths in index_map_sets.items():
+            similarities[vi_idx, inv_node_map[node]] = (
+                len(vi_paths.intersection(node_paths)) * inv_sample_size
+            )
+        theta[vi_idx] = np.sort(np.partition(similarities[vi_idx], -D)[-D:])[::-1]
+
+    kdtree = sp.spatial.KDTree(theta)
+    query_k = min(k + 1, num_nodes)
+    neighbor_distances, nearest_neighbors = kdtree.query(
+        theta[inv_node_map[source]],
+        k=query_k,
+    )
+
+    neighbor_distances = np.atleast_1d(neighbor_distances)
+    nearest_neighbors = np.atleast_1d(nearest_neighbors)
+    neighbor_distances = np.maximum(neighbor_distances, eps)
+    scores = 1 / neighbor_distances
+    if len(scores) > 0 and (max_score := np.max(scores)) > 0:
+        scores /= max_score
+
+    result = dict(zip((node_list[index] for index in nearest_neighbors), scores.tolist()))
+    result.pop(source, None)
+    if len(result) > k:
+        result = dict(sorted(result.items(), key=lambda item: item[1], reverse=True)[:k])
+    return result
 
 
 def effective_graph_resistance(G, weight=None, invert_weight=True):
@@ -11872,17 +12553,172 @@ def parse_graphml(
     force_multigraph=False,
 ):
     """Parse a GraphML string."""
-    import networkx as nx
+    if isinstance(graphml_string, str):
+        payload = graphml_string.encode("utf-8")
+    else:
+        payload = graphml_string
 
-    from franken_networkx.readwrite import _from_nx_graph
+    graph = read_graphml(io.BytesIO(payload))
 
-    graph = nx.parse_graphml(
-        graphml_string,
-        node_type=node_type,
-        edge_key_type=edge_key_type,
-        force_multigraph=force_multigraph,
+    if node_type is not str:
+        mapping = {node: node_type(node) for node in list(graph.nodes())}
+        graph = relabel_nodes(graph, mapping, copy=True)
+
+    if force_multigraph and not graph.is_multigraph():
+        graph_type = MultiDiGraph if graph.is_directed() else MultiGraph
+        graph = _copy_graph_into(graph, graph_type())
+
+    if graph.is_multigraph() and edge_key_type is not int:
+        converted = MultiDiGraph() if graph.is_directed() else MultiGraph()
+        converted.graph.update(dict(graph.graph))
+        for node, attrs in graph.nodes(data=True):
+            converted.add_node(node, **dict(attrs))
+        for u, v, key, attrs in graph.edges(keys=True, data=True):
+            converted.add_edge(u, v, key=edge_key_type(key), **dict(attrs))
+        graph = converted
+
+    return graph
+
+
+_GRAPHML_XML_TYPES = {
+    int: "long",
+    str: "string",
+    float: "double",
+    bool: "boolean",
+}
+
+
+def _graphml_xml_type(value):
+    value_type = type(value)
+    if value_type in _GRAPHML_XML_TYPES:
+        return _GRAPHML_XML_TYPES[value_type]
+    raise TypeError(f"GraphML does not support type {value_type} as data values.")
+
+
+def _graphml_make_data_element(element_factory, key_id, value):
+    data_element = element_factory("data", {"key": key_id})
+    data_element.text = str(value)
+    return data_element
+
+
+def _graphml_indent(element, level=0):
+    indent = "\n" + level * "  "
+    if len(element):
+        if not element.text or not element.text.strip():
+            element.text = indent + "  "
+        if not element.tail or not element.tail.strip():
+            element.tail = indent
+        for child in element:
+            _graphml_indent(child, level + 1)
+        if not child.tail or not child.tail.strip():
+            child.tail = indent
+    elif level and (not element.tail or not element.tail.strip()):
+        element.tail = indent
+
+
+def _graphml_string(
+    G,
+    encoding,
+    prettyprint,
+    named_key_ids,
+    edge_id_from_attribute,
+):
+    from xml.etree.ElementTree import Element, tostring
+
+    root = Element(
+        "graphml",
+        {
+            "xmlns": "http://graphml.graphdrawing.org/xmlns",
+            "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+            "xsi:schemaLocation": (
+                "http://graphml.graphdrawing.org/xmlns "
+                "http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd"
+            ),
+        },
     )
-    return _from_nx_graph(graph)
+    keys = {}
+    attributes = defaultdict(list)
+
+    def get_key(name, attr_type, scope, default):
+        keys_key = (name, attr_type, scope)
+        if keys_key in keys:
+            return keys[keys_key]
+        key_id = name if named_key_ids else f"d{len(keys)}"
+        keys[keys_key] = key_id
+        key_element = Element(
+            "key",
+            {
+                "id": key_id,
+                "for": scope,
+                "attr.name": name,
+                "attr.type": attr_type,
+            },
+        )
+        if default is not None:
+            default_element = Element("default")
+            default_element.text = str(default)
+            key_element.append(default_element)
+        root.insert(0, key_element)
+        return key_id
+
+    def add_attributes(scope, xml_obj, data, default):
+        for name, value in data.items():
+            attributes[xml_obj].append((str(name), value, scope, default.get(name)))
+
+    graph_element_attrs = {
+        "edgedefault": "directed" if G.is_directed() else "undirected",
+    }
+    graph_id = G.graph.get("id")
+    if graph_id is not None:
+        graph_element_attrs["id"] = graph_id
+    graph_element = Element("graph", graph_element_attrs)
+
+    graph_data = {
+        key: value
+        for key, value in G.graph.items()
+        if key not in {"id", "node_default", "edge_default"}
+    }
+    add_attributes("graph", graph_element, graph_data, {})
+
+    node_default = G.graph.get("node_default", {})
+    for node, data in G.nodes(data=True):
+        node_element = Element("node", {"id": str(node)})
+        add_attributes("node", node_element, data, node_default)
+        graph_element.append(node_element)
+
+    edge_default = G.graph.get("edge_default", {})
+    if G.is_multigraph():
+        edge_iter = G.edges(data=True, keys=True)
+        for u, v, key, data in edge_iter:
+            edge_id = (
+                str(data[edge_id_from_attribute])
+                if edge_id_from_attribute and edge_id_from_attribute in data
+                else str(key)
+            )
+            edge_element = Element(
+                "edge",
+                {"source": str(u), "target": str(v), "id": edge_id},
+            )
+            add_attributes("edge", edge_element, data, edge_default)
+            graph_element.append(edge_element)
+    else:
+        for u, v, data in G.edges(data=True):
+            edge_attrs = {"source": str(u), "target": str(v)}
+            if edge_id_from_attribute and edge_id_from_attribute in data:
+                edge_attrs["id"] = str(data[edge_id_from_attribute])
+            edge_element = Element("edge", edge_attrs)
+            add_attributes("edge", edge_element, data, edge_default)
+            graph_element.append(edge_element)
+
+    for xml_obj, data_entries in attributes.items():
+        for name, value, scope, default in data_entries:
+            key_id = get_key(name, _graphml_xml_type(value), scope, default)
+            xml_obj.append(_graphml_make_data_element(Element, key_id, value))
+
+    root.append(graph_element)
+    if prettyprint:
+        _graphml_indent(root)
+    return tostring(root).decode(encoding)
 
 
 def generate_graphml(
@@ -11893,16 +12729,13 @@ def generate_graphml(
     edge_id_from_attribute=None,
 ):
     """Generate GraphML lines."""
-    from networkx.readwrite.graphml import GraphMLWriter
-
-    writer = GraphMLWriter(
+    yield from _graphml_string(
+        G,
         encoding=encoding,
         prettyprint=prettyprint,
         named_key_ids=named_key_ids,
         edge_id_from_attribute=edge_id_from_attribute,
-    )
-    writer.add_graph_element(G)
-    yield from str(writer).splitlines()
+    ).splitlines()
 
 
 # Generators
@@ -11973,13 +12806,103 @@ def prefix_tree_recursive(paths):
     return prefix_tree(paths)
 
 
+def _nonisomorphic_split_tree(layout):
+    """Split a level-sequence tree into its left subtree and remainder."""
+    one_found = False
+    split_at = None
+    for index, level in enumerate(layout):
+        if level == 1:
+            if one_found:
+                split_at = index
+                break
+            one_found = True
+
+    if split_at is None:
+        split_at = len(layout)
+
+    left = [layout[index] - 1 for index in range(1, split_at)]
+    rest = [0] + [layout[index] for index in range(split_at, len(layout))]
+    return left, rest
+
+
+def _nonisomorphic_next_rooted_tree(predecessor, pivot=None):
+    """Advance one Beyer-Hedetniemi rooted-tree layout step."""
+    if pivot is None:
+        pivot = len(predecessor) - 1
+        while predecessor[pivot] == 1:
+            pivot -= 1
+    if pivot == 0:
+        return None
+
+    q = pivot - 1
+    while predecessor[q] != predecessor[pivot] - 1:
+        q -= 1
+
+    result = list(predecessor)
+    for index in range(pivot, len(result)):
+        result[index] = result[index - pivot + q]
+    return result
+
+
+def _nonisomorphic_next_tree(candidate):
+    """Advance one Wright-Richmond-Odlyzko-McKay free-tree step."""
+    left, rest = _nonisomorphic_split_tree(candidate)
+    left_height = max(left)
+    rest_height = max(rest)
+    valid = rest_height >= left_height
+
+    if valid and rest_height == left_height:
+        if len(left) > len(rest):
+            valid = False
+        elif len(left) == len(rest) and left > rest:
+            valid = False
+
+    if valid:
+        return candidate
+
+    pivot = len(left)
+    new_candidate = _nonisomorphic_next_rooted_tree(candidate, pivot)
+    if candidate[pivot] > 2:
+        new_left, _new_rest = _nonisomorphic_split_tree(new_candidate)
+        suffix = range(1, max(new_left) + 2)
+        new_candidate[-len(suffix) :] = suffix
+    return new_candidate
+
+
+def _nonisomorphic_layout_to_graph(layout):
+    """Create a graph from a non-isomorphic tree level sequence."""
+    graph = Graph()
+    stack = []
+    for node, level in enumerate(layout):
+        if stack:
+            parent = stack[-1]
+            parent_level = layout[parent]
+            while parent_level >= level:
+                stack.pop()
+                parent = stack[-1]
+                parent_level = layout[parent]
+            graph.add_edge(node, parent)
+        stack.append(node)
+    return graph
+
+
 def nonisomorphic_trees(order):
     """Generate all non-isomorphic trees on n nodes."""
-    import networkx as nx
+    if order < 0:
+        raise ValueError("order must be non-negative")
+    if order == 0:
+        return
+        yield
+    if order == 1:
+        yield empty_graph(1)
+        return
 
-    from franken_networkx.readwrite import _from_nx_graph
-
-    yield from (_from_nx_graph(t) for t in nx.nonisomorphic_trees(order))
+    layout = list(range(order // 2 + 1)) + list(range(1, (order + 1) // 2))
+    while layout is not None:
+        layout = _nonisomorphic_next_tree(layout)
+        if layout is not None:
+            yield _nonisomorphic_layout_to_graph(layout)
+            layout = _nonisomorphic_next_rooted_tree(layout)
 
 
 def number_of_nonisomorphic_trees(order):
@@ -12247,22 +13170,202 @@ def geometric_soft_configuration_graph(beta=1, n=100, dim=2, pos=None, seed=None
     return random_geometric_graph(n, 0.3, dim=dim, seed=seed)
 
 
+_GRAPH_ATLAS_NUM_GRAPHS = 1253
+_GRAPH_ATLAS_DATA_GZ = (
+    "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"
+)
+_GRAPH_ATLAS_RECORDS = None
+
+
+def _graph_atlas_records():
+    """Return cached graph-atlas records parsed from the local upstream data."""
+    global _GRAPH_ATLAS_RECORDS
+    if _GRAPH_ATLAS_RECORDS is not None:
+        return _GRAPH_ATLAS_RECORDS
+
+    lines = gzip.decompress(base64.b64decode(_GRAPH_ATLAS_DATA_GZ)).decode().splitlines()
+    records = []
+    index = 0
+    while index < len(lines):
+        graph_line = lines[index]
+        if not graph_line.startswith("GRAPH "):
+            raise NetworkXError("invalid graph atlas data")
+        graph_index = int(graph_line.split()[1])
+        index += 1
+
+        if index >= len(lines) or not lines[index].startswith("NODES "):
+            raise NetworkXError("invalid graph atlas data")
+        node_count = int(lines[index].split()[1])
+        index += 1
+
+        edges = []
+        while index < len(lines) and not lines[index].startswith("GRAPH "):
+            edge_line = lines[index].strip()
+            if edge_line:
+                u, v = edge_line.split()
+                edges.append((int(u), int(v)))
+            index += 1
+        records.append((graph_index, node_count, tuple(edges)))
+
+    if len(records) != _GRAPH_ATLAS_NUM_GRAPHS:
+        raise NetworkXError("invalid graph atlas data")
+    _GRAPH_ATLAS_RECORDS = tuple(records)
+    return _GRAPH_ATLAS_RECORDS
+
+
+def _graph_atlas_from_record(record):
+    graph_index, node_count, edges = record
+    graph = Graph()
+    graph.name = f"G{graph_index}"
+    graph.add_nodes_from(range(node_count))
+    graph.add_edges_from(edges)
+    return graph
+
+
 def graph_atlas(i):
     """Return graph i from the atlas."""
-    import networkx as nx
-
-    from franken_networkx.readwrite import _from_nx_graph
-
-    return _from_nx_graph(nx.graph_atlas(i))
+    if not 0 <= i < _GRAPH_ATLAS_NUM_GRAPHS:
+        raise ValueError(f"index must be between 0 and {_GRAPH_ATLAS_NUM_GRAPHS}")
+    return _graph_atlas_from_record(_graph_atlas_records()[i])
 
 
 def graph_atlas_g():
     """Return list of all graphs in the atlas."""
-    import networkx as nx
-
-    from franken_networkx.readwrite import _from_nx_graph
-
-    return [_from_nx_graph(graph) for graph in nx.graph_atlas_g()]
+    return [_graph_atlas_from_record(record) for record in _graph_atlas_records()]
 
 
 def find_asteroidal_triple(G):
@@ -13939,19 +15042,91 @@ def dual_barabasi_albert_graph(
 
 def extended_barabasi_albert_graph(n, m, p, q, seed=None, create_using=None):
     """Return an extended Barabasi-Albert graph."""
-    import networkx as nx
+    graph = _checked_create_using(create_using, directed=False, multigraph=False, default=Graph)
+    if m < 1 or m >= n:
+        raise NetworkXError(
+            f"Extended Barabasi-Albert network needs m>=1 and m<n, m={m}, n={n}"
+        )
+    if p + q >= 1:
+        raise NetworkXError(
+            f"Extended Barabasi-Albert network needs p + q <= 1, p={p}, q={q}"
+        )
 
-    from franken_networkx.readwrite import _from_nx_graph
+    rng = _generator_random_state(seed)
+    graph.add_nodes_from(range(m))
+    attachment_preference = list(range(m))
+    new_node = m
 
-    graph = nx.extended_barabasi_albert_graph(
-        n,
-        m,
-        p,
-        q,
-        seed=seed,
-        create_using=None,
-    )
-    return _from_nx_graph(graph, create_using=create_using)
+    def random_subset(population, count):
+        targets = set()
+        while len(targets) < count:
+            targets.add(rng.choice(population))
+        return targets
+
+    while new_node < n:
+        a_probability = rng.random()
+        clique_degree = len(graph) - 1
+        clique_size = (len(graph) * clique_degree) / 2
+
+        if a_probability < p and graph.size() <= clique_size - m:
+            eligible_nodes = [
+                node for node, degree_value in graph.degree if degree_value < clique_degree
+            ]
+            for _ in range(m):
+                src_node = rng.choice(eligible_nodes)
+                prohibited_nodes = list(graph[src_node])
+                prohibited_nodes.append(src_node)
+                dest_node = rng.choice(
+                    [node for node in attachment_preference if node not in prohibited_nodes]
+                )
+                graph.add_edge(src_node, dest_node)
+                attachment_preference.append(src_node)
+                attachment_preference.append(dest_node)
+
+                if graph.degree[src_node] == clique_degree:
+                    eligible_nodes.remove(src_node)
+                if graph.degree[dest_node] == clique_degree and dest_node in eligible_nodes:
+                    eligible_nodes.remove(dest_node)
+
+        elif p <= a_probability < (p + q) and m <= graph.size() < clique_size:
+            eligible_nodes = [
+                node
+                for node, degree_value in graph.degree
+                if 0 < degree_value < clique_degree
+            ]
+            for _ in range(m):
+                node = rng.choice(eligible_nodes)
+                nbr_nodes = list(graph[node])
+                src_node = rng.choice(nbr_nodes)
+                nbr_nodes.append(node)
+                dest_node = rng.choice(
+                    [
+                        candidate
+                        for candidate in attachment_preference
+                        if candidate not in nbr_nodes
+                    ]
+                )
+                graph.remove_edge(node, src_node)
+                graph.add_edge(node, dest_node)
+                attachment_preference.remove(src_node)
+                attachment_preference.append(dest_node)
+
+                if graph.degree[src_node] == 0 and src_node in eligible_nodes:
+                    eligible_nodes.remove(src_node)
+                if dest_node in eligible_nodes:
+                    if graph.degree[dest_node] == clique_degree:
+                        eligible_nodes.remove(dest_node)
+                elif graph.degree[dest_node] == 1:
+                    eligible_nodes.append(dest_node)
+
+        else:
+            targets = random_subset(attachment_preference, m)
+            graph.add_edges_from(zip([new_node] * m, targets))
+            attachment_preference.extend(targets)
+            attachment_preference.extend([new_node] * (m + 1))
+            new_node += 1
+
+    return graph
 
 
 def scale_free_graph(
@@ -14131,18 +15306,58 @@ def hexagonal_lattice_graph(
     create_using=None,
 ):
     """Return a hexagonal lattice graph."""
-    import networkx as nx
+    graph = empty_graph(0, create_using)
+    if m == 0 or n == 0:
+        return graph
+    if periodic and (n % 2 == 1 or m < 2 or n < 2):
+        raise NetworkXError(
+            "periodic hexagonal lattice needs m > 1, n > 1 and even n"
+        )
 
-    from franken_networkx.readwrite import _from_nx_graph
+    height = 2 * m
+    rows = range(height + 2)
+    cols = range(n + 1)
 
-    graph = nx.hexagonal_lattice_graph(
-        m,
-        n,
-        periodic=periodic,
-        with_positions=with_positions,
-        create_using=None,
+    col_edges = (
+        ((i, j), (i, j + 1))
+        for i in cols
+        for j in rows[: height + 1]
     )
-    return _from_nx_graph(graph, create_using=create_using)
+    row_edges = (
+        ((i, j), (i + 1, j))
+        for i in cols[:n]
+        for j in rows
+        if i % 2 == j % 2
+    )
+    graph.add_edges_from(col_edges)
+    graph.add_edges_from(row_edges)
+    graph.remove_node((0, height + 1))
+    graph.remove_node((n, (height + 1) * (n % 2)))
+
+    if periodic:
+        for i in cols[:n]:
+            graph = contracted_nodes(graph, (i, 0), (i, height), copy=True)
+        for i in cols[1:]:
+            graph = contracted_nodes(graph, (i, 1), (i, height + 1), copy=True)
+        for j in rows[1:height]:
+            graph = contracted_nodes(graph, (0, j), (n, j), copy=True)
+        graph.remove_node((n, height))
+
+    if with_positions:
+        sqrt3_over_2 = math.sqrt(3) / 2
+        positions = {}
+        for i in cols:
+            for j in rows:
+                if (i, j) not in graph:
+                    continue
+                x = 0.5 + i + i // 2 + (j % 2) * ((i % 2) - 0.5)
+                if periodic:
+                    y = sqrt3_over_2 * j + 0.01 * i * i
+                else:
+                    y = sqrt3_over_2 * j
+                positions[(i, j)] = (x, y)
+        set_node_attributes(graph, positions, "pos")
+    return graph
 
 
 def triangular_lattice_graph(
@@ -14153,18 +15368,52 @@ def triangular_lattice_graph(
     create_using=None,
 ):
     """Return a triangular lattice graph."""
-    import networkx as nx
+    graph = empty_graph(0, create_using)
+    if n == 0 or m == 0:
+        return graph
+    if periodic and (n < 5 or m < 3):
+        raise NetworkXError(f"m > 2 and n > 4 required for periodic. m={m}, n={n}")
 
-    from franken_networkx.readwrite import _from_nx_graph
+    width = (n + 1) // 2
+    rows = range(m + 1)
+    cols = range(width + 1)
 
-    graph = nx.triangular_lattice_graph(
-        m,
-        n,
-        periodic=periodic,
-        with_positions=with_positions,
-        create_using=None,
+    graph.add_edges_from(((i, j), (i + 1, j)) for j in rows for i in cols[:width])
+    graph.add_edges_from(((i, j), (i, j + 1)) for j in rows[:m] for i in cols)
+    graph.add_edges_from(
+        ((i, j), (i + 1, j + 1))
+        for j in rows[1:m:2]
+        for i in cols[:width]
     )
-    return _from_nx_graph(graph, create_using=create_using)
+    graph.add_edges_from(
+        ((i + 1, j), (i, j + 1))
+        for j in rows[:m:2]
+        for i in cols[:width]
+    )
+
+    if periodic:
+        for i in cols:
+            graph = contracted_nodes(graph, (i, 0), (i, m), copy=True)
+        for j in rows[:m]:
+            graph = contracted_nodes(graph, (0, j), (width, j), copy=True)
+    elif n % 2:
+        graph.remove_nodes_from((width, j) for j in rows[1::2])
+
+    if with_positions:
+        sqrt3_over_2 = math.sqrt(3) / 2
+        positions = {}
+        for i in cols:
+            for j in rows:
+                if (i, j) not in graph:
+                    continue
+                x = 0.5 * (j % 2) + i
+                if periodic:
+                    y = sqrt3_over_2 * j + 0.01 * i * i
+                else:
+                    y = sqrt3_over_2 * j
+                positions[(i, j)] = (x, y)
+        set_node_attributes(graph, positions, "pos")
+    return graph
 
 
 def grid_graph(dim, periodic=False):
@@ -14173,52 +15422,191 @@ def grid_graph(dim, periodic=False):
     The dimension n is the length of `dim` and the size in each dimension
     is the value of the corresponding list element.
     """
-    import networkx as nx
+    if not dim:
+        return Graph()
 
-    from franken_networkx.readwrite import _from_nx_graph
+    dimensions = list(dim)
+    periodic_flags = (
+        iter(periodic) if isinstance(periodic, Iterable) else itertools.repeat(periodic)
+    )
 
-    # Use native Rust for non-periodic case (most common)
-    if not periodic:
-        return _rust_grid_graph(list(dim))
+    axes = []
+    periods = []
+    for axis in dimensions:
+        periods.append(bool(next(periodic_flags)))
+        if isinstance(axis, numbers.Integral):
+            axes.append(list(range(axis)))
+        else:
+            axes.append(list(axis))
 
-    return _from_nx_graph(nx.grid_graph(dim, periodic=periodic))
+    graph = Graph()
+    output_axes = list(reversed(axes))
+    if not output_axes or any(len(axis) == 0 for axis in output_axes):
+        return graph
+
+    index_axes = [range(len(axis)) for axis in output_axes]
+
+    def make_node(positions):
+        values = [
+            output_axes[index][position]
+            for index, position in enumerate(positions)
+        ]
+        return values[0] if len(values) == 1 else tuple(values)
+
+    for positions in itertools.product(*index_axes):
+        graph.add_node(make_node(positions))
+
+    for positions in itertools.product(*index_axes):
+        left = make_node(positions)
+        for output_index, axis in enumerate(output_axes):
+            axis_pos = positions[output_index]
+            right_positions = list(positions)
+            if axis_pos + 1 < len(axis):
+                right_positions[output_index] = axis_pos + 1
+            elif periods[len(output_axes) - 1 - output_index]:
+                if len(axis) == 1:
+                    graph.add_edge(left, left)
+                    continue
+                if len(axis) == 2:
+                    continue
+                right_positions[output_index] = 0
+            else:
+                continue
+            graph.add_edge(left, make_node(right_positions))
+
+    return graph
 
 
 def lattice_reference(G, niter=5, D=None, connectivity=True, seed=None):
     """Return a lattice-like rewiring of *G* preserving degree sequence."""
-    import networkx as nx
-
-    from franken_networkx.readwrite import _from_nx_graph
+    import bisect
+    import math
 
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if len(G) < 4:
+        raise NetworkXError("Graph has fewer than four nodes.")
+    if G.number_of_edges() < 2:
+        raise NetworkXError("Graph has fewer that 2 edges")
 
-    graph = nx.Graph()
+    def cumulative_distribution(distribution):
+        cdf = [0.0]
+        cumulative = 0.0
+        for element in distribution:
+            cumulative += element
+            cdf.append(cumulative)
+        return [element / cumulative for element in cdf]
+
+    def discrete_sequence(count, cdistribution, rng):
+        return [
+            bisect.bisect_left(cdistribution, rng.random()) - 1
+            for _ in range(count)
+        ]
+
+    def matrix_value(matrix, row, col):
+        try:
+            return matrix[row, col]
+        except (TypeError, KeyError):
+            return matrix[row][col]
+
+    def has_path(graph, source, target):
+        if source == target:
+            return True
+        seen = {source}
+        queue = [source]
+        index = 0
+        while index < len(queue):
+            node = queue[index]
+            index += 1
+            for neighbor in graph[node]:
+                if neighbor == target:
+                    return True
+                if neighbor not in seen:
+                    seen.add(neighbor)
+                    queue.append(neighbor)
+        return False
+
+    graph = Graph()
     graph.graph.update(dict(G.graph))
     graph.add_nodes_from((node, dict(attrs)) for node, attrs in G.nodes(data=True))
     graph.add_edges_from((u, v, dict(attrs)) for u, v, attrs in G.edges(data=True))
+    rng = _generator_random_state(seed)
+    keys, degrees = zip(*graph.degree)
+    cdf = cumulative_distribution(degrees)
 
-    return _from_nx_graph(
-        nx.algorithms.smallworld.lattice_reference(
-            graph,
-            niter=niter,
-            D=D,
-            connectivity=connectivity,
-            seed=seed,
-        )
-    )
+    node_count = len(graph)
+    edge_count = graph.number_of_edges()
+    if D is None:
+        distance = [[0 for _ in range(node_count)] for _ in range(node_count)]
+        lower = list(range(1, node_count))
+        upper = list(range(node_count - 1, 0, -1))
+        wrapped = [0] + [min(left, right) for left, right in zip(lower, upper)]
+        for v in range(math.ceil(node_count / 2)):
+            row = wrapped[v + 1 :] + wrapped[: v + 1]
+            distance[node_count - v - 1] = row
+            distance[v] = list(reversed(row))
+    else:
+        distance = D
+
+    total_iterations = niter * edge_count
+    max_attempts = int(node_count * edge_count / (node_count * (node_count - 1) / 2))
+
+    for _ in range(total_iterations):
+        attempts = 0
+        while attempts < max_attempts:
+            ai, ci = discrete_sequence(2, cdf, rng)
+            if ai == ci:
+                continue
+            a = keys[ai]
+            c = keys[ci]
+            b = rng.choice(list(graph.neighbors(a)))
+            d = rng.choice(list(graph.neighbors(c)))
+            bi = keys.index(b)
+            di = keys.index(d)
+
+            if b in [a, c, d] or d in [a, b, c]:
+                continue
+
+            if d not in graph[a] and b not in graph[c]:
+                if (
+                    matrix_value(distance, ai, bi) + matrix_value(distance, ci, di)
+                    >= matrix_value(distance, ai, ci) + matrix_value(distance, bi, di)
+                ):
+                    graph.add_edge(a, d)
+                    graph.add_edge(c, b)
+                    graph.remove_edge(a, b)
+                    graph.remove_edge(c, d)
+
+                    if connectivity and not has_path(graph, a, b):
+                        graph.remove_edge(a, d)
+                        graph.remove_edge(c, b)
+                        graph.add_edge(a, b)
+                        graph.add_edge(c, d)
+                    else:
+                        break
+            attempts += 1
+
+    return graph
 
 
 def margulis_gabber_galil_graph(n, create_using=None):
     """Return a Margulis-Gabber-Galil expander graph."""
-    import networkx as nx
+    graph = empty_graph(0, create_using, default=MultiGraph)
+    if graph.is_directed() or not graph.is_multigraph():
+        raise NetworkXError("`create_using` must be an undirected multigraph.")
 
-    from franken_networkx.readwrite import _from_nx_graph
-
-    graph = nx.margulis_gabber_galil_graph(n, create_using=None)
-    return _from_nx_graph(graph, create_using=create_using)
+    for x, y in itertools.product(range(n), repeat=2):
+        for u, v in (
+            ((x + 2 * y) % n, y),
+            ((x + (2 * y + 1)) % n, y),
+            (x, (y + 2 * x) % n),
+            (x, (y + (2 * x + 1)) % n),
+        ):
+            graph.add_edge((x, y), (u, v))
+    graph.graph["name"] = f"margulis_gabber_galil_graph({n})"
+    return graph
 
 
 def sudoku_graph(n=3):
