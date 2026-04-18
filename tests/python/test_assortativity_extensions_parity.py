@@ -1,4 +1,5 @@
 import math
+from unittest import mock
 
 import numpy as np
 import pytest
@@ -13,7 +14,32 @@ def _assert_nested_dicts_close(actual, expected, tol=1e-12):
     for left in expected:
         assert set(actual[left]) == set(expected[left])
         for right in expected[left]:
-            assert math.isclose(actual[left][right], expected[left][right], rel_tol=tol, abs_tol=tol)
+            assert math.isclose(
+                actual[left][right],
+                expected[left][right],
+                rel_tol=tol,
+                abs_tol=tol,
+            )
+
+
+def test_mixing_dict_matches_networkx_without_delegation():
+    pairs = [("red", "blue"), ("red", "blue"), ("blue", "green")]
+    expected_counts = nx.mixing_dict(pairs, normalized=False)
+    expected_normalized = nx.mixing_dict(pairs, normalized=True)
+
+    with mock.patch(
+        "networkx.mixing_dict",
+        side_effect=AssertionError("NetworkX mixing_dict should not be used"),
+    ):
+        _assert_nested_dicts_close(
+            fnx.mixing_dict(pairs, normalized=False),
+            expected_counts,
+        )
+        _assert_nested_dicts_close(
+            fnx.mixing_dict(pairs, normalized=True),
+            expected_normalized,
+        )
+        assert fnx.mixing_dict([], normalized=True) == {}
 
 
 def test_degree_mixing_dict_matches_networkx():

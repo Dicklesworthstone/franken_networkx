@@ -11460,9 +11460,21 @@ def describe(G):
 
 def mixing_dict(xy, normalized=False):
     """Generic mixing dictionary from (x,y) iterator."""
-    import networkx as nx
+    result = {}
+    total = 0.0
+    for x, y in xy:
+        if x not in result:
+            result[x] = {}
+        if y not in result:
+            result[y] = {}
+        result[x][y] = result[x].get(y, 0) + 1
+        total += 1
 
-    return nx.mixing_dict(xy, normalized=normalized)
+    if normalized:
+        for row in result.values():
+            for key in row:
+                row[key] /= total
+    return result
 
 
 def _edge_weight_sum(G, u, v, weight=None):

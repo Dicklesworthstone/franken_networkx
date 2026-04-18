@@ -7,8 +7,8 @@
 | Category | Count | % | Rule |
 |----------|-------|---|------|
 | RUST_NATIVE | 239 | 30% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 473 | 60% | Python-defined exports with no runtime NetworkX dependency detected |
-| NX_DELEGATED | 46 | 5% | Python-defined exports that import or call NetworkX at runtime |
+| PY_WRAPPER | 474 | 60% | Python-defined exports with no runtime NetworkX dependency detected |
+| NX_DELEGATED | 45 | 5% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 19 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
 | **Total public exports** | **779** | | unique names from `franken_networkx.__all__` |
@@ -270,7 +270,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_gml`
 - `write_graphml`
 
-## PY_WRAPPER exports (473)
+## PY_WRAPPER exports (474)
 
 - `LCF_graph`
 - `add_cycle`
@@ -564,6 +564,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `minimum_cycle_basis`
 - `minimum_edge_cut`
 - `minimum_st_node_cut`
+- `mixing_dict`
 - `modular_product`
 - `modularity_matrix`
 - `modularity_spectrum`
@@ -746,7 +747,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_sparse6`
 - `write_weighted_edgelist`
 
-## NX_DELEGATED exports (46)
+## NX_DELEGATED exports (45)
 
 - `LFR_benchmark_graph`
 - `apply_matplotlib_colors`
@@ -773,7 +774,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `kamada_kawai_layout`
 - `lattice_reference`
 - `margulis_gabber_galil_graph`
-- `mixing_dict`
 - `nonisomorphic_trees`
 - `optimal_edit_paths`
 - `optimize_edit_paths`

@@ -39,8 +39,8 @@ Current generated snapshot:
 
 - 779 unique public exports total
 - 239 `RUST_NATIVE`
-- 473 `PY_WRAPPER`
-- 46 `NX_DELEGATED`
+- 474 `PY_WRAPPER`
+- 45 `NX_DELEGATED`
 - 19 public classes
 - 2 public constants
 
@@ -68,7 +68,7 @@ fixture evidence.
 | Graph generator families | in_progress | `fnx-generators` ships a broad native generator set including classic, stochastic, scale-free, and degree-sequence families. The Python surface no longer delegates the focused degree-sequence generators covered by `franken_networkx-vh7p`, and `dorogovtsev_goltsev_mendes_graph(create_using=...)` now stays on the native path. See [`docs/coverage.md`](docs/coverage.md) for the machine-checked public export inventory. Remaining gaps are tracked as family-specific work, not estimated here with hand-maintained percentages. |
 | Bipartite algorithms | in_progress | Core recognition (`is_bipartite`, `bipartite_sets`) is native. Higher-level helpers such as projections and matching-adjacent helpers still rely on Python-layer wrappers and need more explicit parity accounting. |
 | Community detection | in_progress | Rust covers `louvain_communities`, `label_propagation_communities`, `greedy_modularity_communities`, and `modularity`. Other community APIs still rely on Python-layer implementations or remain outside the current native surface. |
-| Graph utilities | in_progress | Public-surface accounting now comes from the generated coverage matrix rather than prose counts. Simple drawing layout helpers (`circular_layout`, `random_layout`, `shell_layout`, `rescale_layout_dict`) now avoid NetworkX delegation, and remaining delegated drawing helpers preserve graph edges/attributes through conversion. Use [`docs/coverage.md`](docs/coverage.md) for exact `RUST_NATIVE` / `PY_WRAPPER` / `NX_DELEGATED` counts at HEAD. |
+| Graph utilities | in_progress | Public-surface accounting now comes from the generated coverage matrix rather than prose counts. Simple drawing layout helpers (`circular_layout`, `random_layout`, `shell_layout`, `rescale_layout_dict`) and the generic assortativity helper `mixing_dict` now avoid NetworkX delegation, and remaining delegated drawing helpers preserve graph edges/attributes through conversion. Use [`docs/coverage.md`](docs/coverage.md) for exact `RUST_NATIVE` / `PY_WRAPPER` / `NX_DELEGATED` counts at HEAD. |
 | MultiGraph/MultiDiGraph | parity_green | Full method parity with Graph/DiGraph (34 methods + 6 view types). Algorithm dispatch supports all 4 graph types via automatic simple-graph projection. Backend conversion round-trips work. |
 | Conversion baseline behavior | in_progress | `fnx-convert` ships edge-list/adjacency conversions with strict/hardened malformed-input handling and normalization output. |
 | Read/write baseline formats | in_progress | `fnx-readwrite` ships edgelist, adjacency-list, JSON graph, GraphML, GML, and focused GEXF parse/write with strict/hardened parser modes. Core V1 formats are native; exotic or out-of-scope formats should be treated as explicit gaps or delegations rather than rolled into a hand-estimated percentage. |
