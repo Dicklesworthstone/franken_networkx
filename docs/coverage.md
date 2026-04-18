@@ -7,8 +7,8 @@
 | Category | Count | % | Rule |
 |----------|-------|---|------|
 | RUST_NATIVE | 239 | 30% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 468 | 60% | Python-defined exports with no runtime NetworkX dependency detected |
-| NX_DELEGATED | 51 | 6% | Python-defined exports that import or call NetworkX at runtime |
+| PY_WRAPPER | 469 | 60% | Python-defined exports with no runtime NetworkX dependency detected |
+| NX_DELEGATED | 50 | 6% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 19 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
 | **Total public exports** | **779** | | unique names from `franken_networkx.__all__` |
@@ -270,7 +270,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_gml`
 - `write_graphml`
 
-## PY_WRAPPER exports (468)
+## PY_WRAPPER exports (469)
 
 - `LCF_graph`
 - `add_cycle`
@@ -399,6 +399,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `dispersion`
 - `display`
 - `dodecahedral_graph`
+- `dorogovtsev_goltsev_mendes_graph`
 - `double_edge_swap`
 - `draw_bipartite`
 - `draw_forceatlas2`
@@ -741,13 +742,12 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_sparse6`
 - `write_weighted_edgelist`
 
-## NX_DELEGATED exports (51)
+## NX_DELEGATED exports (50)
 
 - `LFR_benchmark_graph`
 - `apply_matplotlib_colors`
 - `circular_layout`
 - `combinatorial_embedding_to_pos`
-- `dorogovtsev_goltsev_mendes_graph`
 - `draw`
 - `draw_circular`
 - `draw_kamada_kawai`

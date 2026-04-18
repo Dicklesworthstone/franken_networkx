@@ -262,6 +262,54 @@ def test_degree_sequence_generators_preserve_error_contracts(call, message):
         call()
 
 
+def test_dorogovtsev_goltsev_mendes_create_using_matches_networkx_without_fallback(
+    monkeypatch,
+):
+    expected = nx.dorogovtsev_goltsev_mendes_graph(2, create_using=nx.Graph())
+
+    def fail(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(nx, "dorogovtsev_goltsev_mendes_graph", fail)
+
+    actual = fnx.dorogovtsev_goltsev_mendes_graph(2, create_using=fnx.Graph())
+
+    assert isinstance(actual, fnx.Graph)
+    assert _graph_data_signature(_to_nx(actual)) == _graph_data_signature(expected)
+
+
+@pytest.mark.parametrize(
+    ("create_using", "message"),
+    [
+        (fnx.DiGraph(), "directed graph not supported"),
+        (fnx.MultiGraph(), "multigraph not supported"),
+        (fnx.MultiDiGraph(), "directed graph not supported"),
+    ],
+)
+def test_dorogovtsev_goltsev_mendes_create_using_errors_without_fallback(
+    monkeypatch,
+    create_using,
+    message,
+):
+    def fail(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(nx, "dorogovtsev_goltsev_mendes_graph", fail)
+
+    with pytest.raises(fnx.NetworkXError, match=message):
+        fnx.dorogovtsev_goltsev_mendes_graph(1, create_using=create_using)
+
+
+def test_dorogovtsev_goltsev_mendes_rejects_negative_n_without_fallback(monkeypatch):
+    def fail(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(nx, "dorogovtsev_goltsev_mendes_graph", fail)
+
+    with pytest.raises(fnx.NetworkXError, match="n must be greater than or equal to 0"):
+        fnx.dorogovtsev_goltsev_mendes_graph(-1)
+
+
 @pytest.mark.parametrize(
     ("function_name", "args", "kwargs", "nx_factory", "fnx_factory"),
     [

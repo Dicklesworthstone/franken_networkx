@@ -11940,16 +11940,20 @@ def dorogovtsev_goltsev_mendes_graph(n, create_using=None):
     A hierarchically constructed scale-free graph with deterministic structure.
     After n generations: (3^n + 3)/2 nodes, 3^n edges.
     """
-    import networkx as nx
+    if n < 0:
+        raise NetworkXError("n must be greater than or equal to 0")
 
-    from franken_networkx.readwrite import _from_nx_graph
-
-    # Use native Rust for default case
     if create_using is None:
         return _rust_dorogovtsev_goltsev_mendes_graph(n)
 
-    graph = nx.dorogovtsev_goltsev_mendes_graph(n, create_using=None)
-    return _from_nx_graph(graph, create_using=create_using)
+    target = _empty_graph_from_create_using(create_using, default=Graph)
+    if target.is_directed():
+        raise NetworkXError("directed graph not supported")
+    if target.is_multigraph():
+        raise NetworkXError("multigraph not supported")
+
+    graph = _rust_dorogovtsev_goltsev_mendes_graph(n)
+    return _copy_graph_into(graph, target)
 
 
 def prefix_tree_recursive(paths):
