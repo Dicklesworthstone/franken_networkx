@@ -91,6 +91,7 @@ fn report_to_pymultidigraph(
         node_key_map: HashMap::new(),
         node_py_attrs: HashMap::new(),
         edge_py_attrs: HashMap::new(),
+        edge_py_keys: HashMap::new(),
         graph_attrs: PyDict::new(py).unbind(),
     };
 

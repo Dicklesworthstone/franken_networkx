@@ -57,6 +57,24 @@ fn node_key_to_string(_py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<Strin
     Ok(repr.to_string())
 }
 
+pub(crate) fn edge_key_lookup_string(_py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String> {
+    if let Ok(s) = key.extract::<String>() {
+        return Ok(format!("str:{s}"));
+    }
+    if let Ok(b) = key.extract::<bool>() {
+        return Ok(format!("bool:{b}"));
+    }
+    if let Ok(i) = key.extract::<i64>() {
+        return Ok(format!("int:{i}"));
+    }
+    if let Ok(f) = key.extract::<f64>() {
+        return Ok(format!("float:{f:?}"));
+    }
+    let ty = key.get_type().name()?.to_string_lossy().into_owned();
+    let repr = key.repr()?.to_string();
+    Ok(format!("{ty}:{repr}"))
+}
+
 pub(crate) fn py_dict_to_attr_map(attrs: &Bound<'_, PyDict>) -> PyResult<AttrMap> {
     let mut rust_attrs = AttrMap::new();
     for (k, v) in attrs.iter() {
@@ -224,6 +242,7 @@ pub(crate) struct PyMultiGraph {
     pub(crate) node_key_map: HashMap<String, PyObject>,
     pub(crate) node_py_attrs: HashMap<String, Py<PyDict>>,
     pub(crate) edge_py_attrs: HashMap<(String, String, usize), Py<PyDict>>,
+    pub(crate) edge_py_keys: HashMap<(String, String, usize), PyObject>,
     pub(crate) graph_attrs: Py<PyDict>,
 }
 
@@ -244,9 +263,70 @@ impl PyMultiGraph {
                 .edge_py_attrs
                 .get(&ek)
                 .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
-            result.set_item(key, attrs.bind(py))?;
+            result.set_item(self.py_edge_key(py, node, neighbor, key), attrs.bind(py))?;
         }
         Ok(result.unbind())
+    }
+
+    fn py_edge_key(&self, py: Python<'_>, u: &str, v: &str, key: usize) -> PyObject {
+        self.edge_py_keys
+            .get(&Self::edge_key(u, v, key))
+            .map_or_else(
+                || unwrap_infallible(key.into_pyobject(py)).into_any().unbind(),
+                |obj| obj.clone_ref(py),
+            )
+    }
+
+    fn remember_edge_key(
+        &mut self,
+        py: Python<'_>,
+        u: &str,
+        v: &str,
+        key: usize,
+        external_key: Option<&Bound<'_, PyAny>>,
+    ) -> PyObject {
+        let py_key = external_key.map_or_else(
+            || unwrap_infallible(key.into_pyobject(py)).into_any().unbind(),
+            |value| value.clone().unbind(),
+        );
+        self.edge_py_keys
+            .insert(Self::edge_key(u, v, key), py_key.clone_ref(py));
+        py_key
+    }
+
+    fn remember_edge_key_object(
+        &mut self,
+        py: Python<'_>,
+        u: &str,
+        v: &str,
+        key: usize,
+        external_key: &PyObject,
+    ) {
+        self.edge_py_keys
+            .insert(Self::edge_key(u, v, key), external_key.clone_ref(py));
+    }
+
+    fn resolve_internal_edge_key(
+        &self,
+        py: Python<'_>,
+        u: &str,
+        v: &str,
+        key: &Bound<'_, PyAny>,
+    ) -> PyResult<Option<usize>> {
+        let requested = edge_key_lookup_string(py, key)?;
+        for internal_key in self.inner.edge_keys(u, v).unwrap_or_default() {
+            let stored_key = self.py_edge_key(py, u, v, internal_key);
+            if edge_key_lookup_string(py, stored_key.bind(py).as_any())? == requested {
+                return Ok(Some(internal_key));
+            }
+        }
+        Ok(None)
+    }
+
+    fn remove_edge_metadata(&mut self, u: &str, v: &str, key: usize) {
+        let ek = Self::edge_key(u, v, key);
+        self.edge_py_attrs.remove(&ek);
+        self.edge_py_keys.remove(&ek);
     }
 
     pub(crate) fn new_empty_with_mode(py: Python<'_>, mode: CompatibilityMode) -> PyResult<Self> {
@@ -262,6 +342,7 @@ impl PyMultiGraph {
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
+            edge_py_keys: HashMap::new(),
             graph_attrs: PyDict::new(py).unbind(),
         })
     }
@@ -311,6 +392,11 @@ impl PyMultiGraph {
                         (u.clone(), v.clone(), *key),
                         attrs.bind(py).copy()?.unbind(),
                     );
+                    if let Some(py_key) = other.edge_py_keys.get(&(u.clone(), v.clone(), *key)) {
+                        g.remember_edge_key_object(py, u, v, *key, py_key);
+                    } else {
+                        g.remember_edge_key(py, u, v, *key, None);
+                    }
                 }
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
             } else if let Ok(other) = data.extract::<PyRef<'_, PyGraph>>() {
@@ -338,6 +424,7 @@ impl PyMultiGraph {
                         .map_err(|e| NetworkXError::new_err(e.to_string()))?;
                     g.edge_py_attrs
                         .insert((u.clone(), v.clone(), key), attrs.bind(py).copy()?.unbind());
+                    g.remember_edge_key(py, u, v, key, None);
                 }
                 g.graph_attrs = other.graph_attrs.bind(py).copy()?.unbind();
             } else if let Ok(iter) = PyIterator::from_object(data) {
@@ -367,18 +454,17 @@ impl PyMultiGraph {
                                         Some(&merged),
                                     )?;
                                 } else {
-                                    let edge_key = third.extract::<usize>()?;
                                     g.add_edge(
                                         py,
                                         &tuple.get_item(0)?,
                                         &tuple.get_item(1)?,
-                                        Some(edge_key),
+                                        Some(&third),
                                         Some(&merged),
                                     )?;
                                 }
                             }
                             4 => {
-                                let edge_key = tuple.get_item(2)?.extract::<usize>()?;
+                                let edge_key = tuple.get_item(2)?;
                                 if let Ok(d) = tuple.get_item(3)?.downcast::<PyDict>() {
                                     merged.update(d.as_mapping())?;
                                 }
@@ -386,7 +472,7 @@ impl PyMultiGraph {
                                     py,
                                     &tuple.get_item(0)?,
                                     &tuple.get_item(1)?,
-                                    Some(edge_key),
+                                    Some(&edge_key),
                                     Some(&merged),
                                 )?;
                             }
@@ -465,13 +551,17 @@ impl PyMultiGraph {
         py: Python<'_>,
         u: &Bound<'_, PyAny>,
         v: &Bound<'_, PyAny>,
-        key: Option<usize>,
+        key: Option<&Bound<'_, PyAny>>,
         default: Option<PyObject>,
     ) -> PyResult<PyObject> {
         let u_c = node_key_to_string(py, u)?;
         let v_c = node_key_to_string(py, v)?;
-        if let Some(k) = key {
-            let ek = Self::edge_key(&u_c, &v_c, k);
+        if let Some(key_obj) = key {
+            let Some(internal_key) = self.resolve_internal_edge_key(py, &u_c, &v_c, key_obj)?
+            else {
+                return Ok(default.unwrap_or_else(|| py.None()));
+            };
+            let ek = Self::edge_key(&u_c, &v_c, internal_key);
             Ok(self.edge_py_attrs.get(&ek).map_or_else(
                 || default.unwrap_or_else(|| py.None()),
                 |d| d.clone_ref(py).into_any(),
@@ -488,7 +578,7 @@ impl PyMultiGraph {
                         .edge_py_attrs
                         .get(&ek)
                         .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
-                    result.set_item(k, attrs.bind(py))?;
+                    result.set_item(self.py_edge_key(py, &u_c, &v_c, k), attrs.bind(py))?;
                 }
                 Ok(result.into_any().unbind())
             }
@@ -580,12 +670,15 @@ impl PyMultiGraph {
         }
 
         // surgically remove attributes for incident edges before removing node from inner graph
-        if let Some(neighbors) = self.inner.neighbors(&canonical) {
+        let neighbors = self
+            .inner
+            .neighbors(&canonical)
+            .map(|neighbors| neighbors.into_iter().map(str::to_owned).collect::<Vec<_>>());
+        if let Some(neighbors) = neighbors {
             for nb in neighbors {
-                if let Some(keys) = self.inner.edge_keys(&canonical, nb) {
+                if let Some(keys) = self.inner.edge_keys(&canonical, &nb) {
                     for key in keys {
-                        let ek = Self::edge_key(&canonical, nb, key);
-                        self.edge_py_attrs.remove(&ek);
+                        self.remove_edge_metadata(&canonical, &nb, key);
                     }
                 }
             }
@@ -603,12 +696,15 @@ impl PyMultiGraph {
             let item = item?;
             let canonical = node_key_to_string(py, &item)?;
             if self.inner.has_node(&canonical) {
-                if let Some(neighbors) = self.inner.neighbors(&canonical) {
+                let neighbors = self
+                    .inner
+                    .neighbors(&canonical)
+                    .map(|neighbors| neighbors.into_iter().map(str::to_owned).collect::<Vec<_>>());
+                if let Some(neighbors) = neighbors {
                     for nb in neighbors {
-                        if let Some(keys) = self.inner.edge_keys(&canonical, nb) {
+                        if let Some(keys) = self.inner.edge_keys(&canonical, &nb) {
                             for key in keys {
-                                let ek = Self::edge_key(&canonical, nb, key);
-                                self.edge_py_attrs.remove(&ek);
+                                self.remove_edge_metadata(&canonical, &nb, key);
                             }
                         }
                     }
@@ -627,9 +723,9 @@ impl PyMultiGraph {
         py: Python<'_>,
         u: &Bound<'_, PyAny>,
         v: &Bound<'_, PyAny>,
-        key: Option<usize>,
+        key: Option<&Bound<'_, PyAny>>,
         attr: Option<&Bound<'_, PyDict>>,
-    ) -> PyResult<usize> {
+    ) -> PyResult<PyObject> {
         let u_canonical = node_key_to_string(py, u)?;
         let v_canonical = node_key_to_string(py, v)?;
 
@@ -652,15 +748,24 @@ impl PyMultiGraph {
         }
 
         let actual_key = match key {
-            Some(explicit_key) => self
-                .inner
-                .add_edge_with_key_and_attrs(
-                    u_canonical.clone(),
-                    v_canonical.clone(),
-                    explicit_key,
-                    rust_attrs,
-                )
-                .map_err(|e| NetworkXError::new_err(e.to_string()))?,
+            Some(explicit_key) => {
+                if let Some(internal_key) =
+                    self.resolve_internal_edge_key(py, &u_canonical, &v_canonical, explicit_key)?
+                {
+                    self.inner
+                        .add_edge_with_key_and_attrs(
+                            u_canonical.clone(),
+                            v_canonical.clone(),
+                            internal_key,
+                            rust_attrs,
+                        )
+                        .map_err(|e| NetworkXError::new_err(e.to_string()))?
+                } else {
+                    self.inner
+                        .add_edge_with_attrs(u_canonical.clone(), v_canonical.clone(), rust_attrs)
+                        .map_err(|e| NetworkXError::new_err(e.to_string()))?
+                }
+            }
             None => self
                 .inner
                 .add_edge_with_attrs(u_canonical.clone(), v_canonical.clone(), rust_attrs)
@@ -677,8 +782,7 @@ impl PyMultiGraph {
                 py_dict.bind(py).set_item(k, val)?;
             }
         }
-
-        Ok(actual_key)
+        Ok(self.remember_edge_key(py, &u_canonical, &v_canonical, actual_key, key))
     }
 
     #[pyo3(signature = (ebunch_to_add, **attr))]
@@ -722,18 +826,17 @@ impl PyMultiGraph {
                             Some(&merged),
                         )?;
                     } else {
-                        let edge_key = third.extract::<usize>()?;
                         self.add_edge(
                             py,
                             &tuple.get_item(0)?,
                             &tuple.get_item(1)?,
-                            Some(edge_key),
+                            Some(&third),
                             Some(&merged),
                         )?;
                     }
                 }
                 4 => {
-                    let edge_key = tuple.get_item(2)?.extract::<usize>()?;
+                    let edge_key = tuple.get_item(2)?;
                     if let Ok(d) = tuple.get_item(3)?.downcast::<PyDict>() {
                         merged.update(d.as_mapping())?;
                     }
@@ -741,7 +844,7 @@ impl PyMultiGraph {
                         py,
                         &tuple.get_item(0)?,
                         &tuple.get_item(1)?,
-                        Some(edge_key),
+                        Some(&edge_key),
                         Some(&merged),
                     )?;
                 }
@@ -761,18 +864,23 @@ impl PyMultiGraph {
         py: Python<'_>,
         u: &Bound<'_, PyAny>,
         v: &Bound<'_, PyAny>,
-        key: Option<usize>,
+        key: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<()> {
         let u_canonical = node_key_to_string(py, u)?;
         let v_canonical = node_key_to_string(py, v)?;
-        let auto_removal_key = key.or_else(|| {
-            self.inner
+        let auto_removal_key = match key {
+            Some(explicit_key) => {
+                self.resolve_internal_edge_key(py, &u_canonical, &v_canonical, explicit_key)?
+            }
+            None => self
+                .inner
                 .edge_keys(&u_canonical, &v_canonical)
-                .and_then(|keys| keys.last().copied())
-        });
-        let removed = self
-            .inner
-            .remove_edge(&u_canonical, &v_canonical, auto_removal_key);
+                .and_then(|keys| keys.last().copied()),
+        };
+        let removed = auto_removal_key.is_some()
+            && self
+                .inner
+                .remove_edge(&u_canonical, &v_canonical, auto_removal_key);
         if !removed {
             return Err(NetworkXError::new_err(format!(
                 "The edge {}-{} is not in the graph",
@@ -781,8 +889,7 @@ impl PyMultiGraph {
             )));
         }
         if let Some(explicit_key) = auto_removal_key {
-            self.edge_py_attrs
-                .remove(&Self::edge_key(&u_canonical, &v_canonical, explicit_key));
+            self.remove_edge_metadata(&u_canonical, &v_canonical, explicit_key);
         }
         Ok(())
     }
@@ -792,6 +899,7 @@ impl PyMultiGraph {
         self.node_key_map.clear();
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
+        self.edge_py_keys.clear();
         self.graph_attrs = PyDict::new(py).unbind();
         Ok(())
     }
@@ -813,6 +921,7 @@ impl PyMultiGraph {
             }
         });
         self.edge_py_attrs.clear();
+        self.edge_py_keys.clear();
     }
 
     fn has_node(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
@@ -826,12 +935,16 @@ impl PyMultiGraph {
         py: Python<'_>,
         u: &Bound<'_, PyAny>,
         v: &Bound<'_, PyAny>,
-        key: Option<usize>,
+        key: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<bool> {
         let u_c = node_key_to_string(py, u)?;
         let v_c = node_key_to_string(py, v)?;
         Ok(match key {
-            Some(edge_key) => self.inner.edge_attrs(&u_c, &v_c, edge_key).is_some(),
+            Some(edge_key) => self
+                .resolve_internal_edge_key(py, &u_c, &v_c, edge_key)?
+                .is_some_and(|internal_key| {
+                    self.inner.edge_attrs(&u_c, &v_c, internal_key).is_some()
+                }),
             None => self.inner.has_edge(&u_c, &v_c),
         })
     }
@@ -1010,6 +1123,7 @@ impl PyMultiGraph {
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
+            edge_py_keys: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
         };
         for (canonical, py_key) in &self.node_key_map {
@@ -1041,6 +1155,11 @@ impl PyMultiGraph {
                 (u.clone(), v.clone(), *key),
                 attrs.bind(py).copy()?.unbind(),
             );
+            if let Some(py_key) = self.edge_py_keys.get(&(u.clone(), v.clone(), *key)) {
+                new_graph.remember_edge_key_object(py, u, v, *key, py_key);
+            } else {
+                new_graph.remember_edge_key(py, u, v, *key, None);
+            }
         }
         Ok(new_graph)
     }
@@ -1062,6 +1181,7 @@ impl PyMultiGraph {
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
+            edge_py_keys: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
         };
 
@@ -1100,6 +1220,11 @@ impl PyMultiGraph {
                     (u.clone(), v.clone(), *key),
                     attrs.bind(py).copy()?.unbind(),
                 );
+                if let Some(py_key) = self.edge_py_keys.get(&(u.clone(), v.clone(), *key)) {
+                    new_graph.remember_edge_key_object(py, u, v, *key, py_key);
+                } else {
+                    new_graph.remember_edge_key(py, u, v, *key, None);
+                }
             }
         }
 
@@ -1118,7 +1243,7 @@ impl PyMultiGraph {
             let u = node_key_to_string(py, &tuple.get_item(0)?)?;
             let v = node_key_to_string(py, &tuple.get_item(1)?)?;
             let key = if tuple.len() >= 3 {
-                Some(tuple.get_item(2)?.extract::<usize>()?)
+                self.resolve_internal_edge_key(py, &u, &v, &tuple.get_item(2)?)?
             } else {
                 None
             };
@@ -1131,6 +1256,7 @@ impl PyMultiGraph {
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
+            edge_py_keys: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
         };
 
@@ -1154,6 +1280,11 @@ impl PyMultiGraph {
                     new_graph
                         .edge_py_attrs
                         .insert(ek, attrs.bind(py).copy()?.unbind());
+                    if let Some(py_key) = self.edge_py_keys.get(&Self::edge_key(u, v, k)) {
+                        new_graph.remember_edge_key_object(py, u, v, k, py_key);
+                    } else {
+                        new_graph.remember_edge_key(py, u, v, k, None);
+                    }
                 } else {
                     let _ = new_graph.inner.add_edge_with_key_and_attrs(
                         u.clone(),
@@ -1208,6 +1339,7 @@ impl PyMultiGraph {
             node_key_map: HashMap::new(),
             node_py_attrs: HashMap::new(),
             edge_py_attrs: HashMap::new(),
+            edge_py_keys: HashMap::new(),
             graph_attrs: self.graph_attrs.bind(py).copy()?.unbind(),
         };
 
@@ -1242,6 +1374,7 @@ impl PyMultiGraph {
                 mdg.edge_py_attrs
                     .insert((u.clone(), v.clone(), new_k1), pa.clone_ref(py));
             }
+            mdg.remember_edge_key_object(py, u, v, new_k1, &self.py_edge_key(py, u, v, k));
 
             if u != v {
                 let new_k2 = mdg
@@ -1251,6 +1384,7 @@ impl PyMultiGraph {
                 if let Some(pa) = py_attrs_copy {
                     mdg.edge_py_attrs.insert((v.clone(), u.clone(), new_k2), pa);
                 }
+                mdg.remember_edge_key_object(py, v, u, new_k2, &self.py_edge_key(py, u, v, k));
             }
         }
 
@@ -1301,15 +1435,15 @@ impl PyMultiGraph {
             let u = &tuple.get_item(0)?;
             let v = &tuple.get_item(1)?;
             let key = if tuple.len() >= 3 {
-                Some(tuple.get_item(2)?.extract::<usize>()?)
+                Some(tuple.get_item(2)?)
             } else {
                 None
             };
-            // Silently skip edges not in the graph
             let u_c = node_key_to_string(py, u)?;
             let v_c = node_key_to_string(py, v)?;
+            // Silently skip edges not in the graph
             if self.inner.has_edge(&u_c, &v_c) {
-                let _ = self.remove_edge(py, u, v, key);
+                let _ = self.remove_edge(py, u, v, key.as_ref());
             }
         }
         Ok(())
@@ -1376,18 +1510,19 @@ impl PyMultiGraph {
             .collect();
         state.set_item("nodes", nodes_list)?;
 
-        let edges_list: Vec<(PyObject, PyObject, usize, Py<PyDict>)> = self
+        let edges_list: Vec<(PyObject, PyObject, PyObject, Py<PyDict>)> = self
             .inner
             .edges_ordered()
             .into_iter()
             .map(|edge| {
                 let py_u = self.py_node_key(py, &edge.left);
                 let py_v = self.py_node_key(py, &edge.right);
+                let py_key = self.py_edge_key(py, &edge.left, &edge.right, edge.key);
                 let attrs = self
                     .edge_py_attrs
                     .get(&Self::edge_key(&edge.left, &edge.right, edge.key))
                     .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
-                (py_u, py_v, edge.key, attrs)
+                (py_u, py_v, py_key, attrs)
             })
             .collect();
         state.set_item("edges", edges_list)?;
@@ -1401,6 +1536,7 @@ impl PyMultiGraph {
         self.node_key_map.clear();
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
+        self.edge_py_keys.clear();
         self.graph_attrs = PyDict::new(py).unbind();
 
         if let Some(graph_attrs) = state.get_item("graph")? {
@@ -1426,10 +1562,10 @@ impl PyMultiGraph {
                 let tuple = item.downcast::<PyTuple>()?;
                 let u = tuple.get_item(0)?;
                 let v = tuple.get_item(1)?;
-                let key = tuple.get_item(2)?.extract::<usize>()?;
+                let key = tuple.get_item(2)?;
                 let attrs = tuple.get_item(3)?;
                 let attrs_dict = attrs.downcast::<PyDict>()?;
-                self.add_edge(py, &u, &v, Some(key), Some(attrs_dict))?;
+                self.add_edge(py, &u, &v, Some(&key), Some(attrs_dict))?;
             }
         }
 
@@ -1593,7 +1729,7 @@ impl MultiGraphEdgeView {
                     },
                     |d| d.clone_ref(py).into_any(),
                 );
-                let key_obj = edge.key.into_py_any(py)?;
+                let key_obj = g.py_edge_key(py, &edge.left, &edge.right, edge.key);
                 let tuple = PyTuple::new(py, &[py_u, py_v, key_obj, attrs])?;
                 result.push(tuple.into_any().unbind());
             } else if data {
@@ -1610,7 +1746,7 @@ impl MultiGraphEdgeView {
                 let tuple = PyTuple::new(py, &[py_u, py_v, attrs])?;
                 result.push(tuple.into_any().unbind());
             } else if keys {
-                let key_obj = edge.key.into_py_any(py)?;
+                let key_obj = g.py_edge_key(py, &edge.left, &edge.right, edge.key);
                 let tuple = PyTuple::new(py, &[py_u, py_v, key_obj])?;
                 result.push(tuple.into_any().unbind());
             } else {
