@@ -39,8 +39,8 @@ Current generated snapshot:
 
 - 779 unique public exports total
 - 239 `RUST_NATIVE`
-- 456 `PY_WRAPPER`
-- 63 `NX_DELEGATED`
+- 468 `PY_WRAPPER`
+- 51 `NX_DELEGATED`
 - 19 public classes
 - 2 public constants
 
@@ -65,7 +65,7 @@ fixture evidence.
 | View and mutation contracts | in_progress | `fnx-views` now provides live node/edge/neighbor views plus revision-aware cached snapshots. |
 | Dispatchable/backend behavior | in_progress | `fnx-dispatch` now has deterministic backend registry, strict/hardened fail-closed routing, and dispatch evidence ledger. |
 | Algorithm core families | in_progress | 280+ Rust algorithms covering shortest path (26 variants), connectivity (20), centrality (24), clustering (11), matching (11), flow (4), trees (18), Euler (5), paths/cycles (7), operators (6), traversal (17), DAG (16), link prediction (5), distance (8), efficiency (4), predicates (18+), graph metrics, and more. Eigenvector centrality, density (directed-aware), all_simple_paths (directed DFS), betweenness normalization fixed. Pure-Python: `compose_all`, `union_all`, `intersection_all`, `relabel_nodes`, `dedensify`, `quotient_graph`, `full_join`, `identified_nodes`. |
-| Graph generator families | in_progress | `fnx-generators` ships a broad native generator set including classic, stochastic, and scale-free families. See [`docs/coverage.md`](docs/coverage.md) for the machine-checked public export inventory; remaining gaps are tracked as family-specific work, not estimated here with hand-maintained percentages. |
+| Graph generator families | in_progress | `fnx-generators` ships a broad native generator set including classic, stochastic, scale-free, and degree-sequence families. The Python surface no longer delegates the focused degree-sequence generators covered by `franken_networkx-vh7p`; see [`docs/coverage.md`](docs/coverage.md) for the machine-checked public export inventory. Remaining gaps are tracked as family-specific work, not estimated here with hand-maintained percentages. |
 | Bipartite algorithms | in_progress | Core recognition (`is_bipartite`, `bipartite_sets`) is native. Higher-level helpers such as projections and matching-adjacent helpers still rely on Python-layer wrappers and need more explicit parity accounting. |
 | Community detection | in_progress | Rust covers `louvain_communities`, `label_propagation_communities`, `greedy_modularity_communities`, and `modularity`. Other community APIs still rely on Python-layer implementations or remain outside the current native surface. |
 | Graph utilities | in_progress | Public-surface accounting now comes from the generated coverage matrix rather than prose counts. Use [`docs/coverage.md`](docs/coverage.md) for exact `RUST_NATIVE` / `PY_WRAPPER` / `NX_DELEGATED` counts at HEAD. |

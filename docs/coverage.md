@@ -7,8 +7,8 @@
 | Category | Count | % | Rule |
 |----------|-------|---|------|
 | RUST_NATIVE | 239 | 30% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 456 | 58% | Python-defined exports with no runtime NetworkX dependency detected |
-| NX_DELEGATED | 63 | 8% | Python-defined exports that import or call NetworkX at runtime |
+| PY_WRAPPER | 468 | 60% | Python-defined exports with no runtime NetworkX dependency detected |
+| NX_DELEGATED | 51 | 6% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 19 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
 | **Total public exports** | **779** | | unique names from `franken_networkx.__all__` |
@@ -270,7 +270,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_gml`
 - `write_graphml`
 
-## PY_WRAPPER exports (460)
+## PY_WRAPPER exports (468)
 
 - `LCF_graph`
 - `add_cycle`
@@ -388,7 +388,10 @@ All declared public exports are classified. `--check` fails if this generated re
 - `diamond_graph`
 - `dijkstra_predecessor_and_distance`
 - `directed_combinatorial_laplacian_matrix`
+- `directed_configuration_model`
 - `directed_edge_swap`
+- `directed_havel_hakimi_graph`
+- `directed_joint_degree_graph`
 - `directed_laplacian_matrix`
 - `directed_modularity_matrix`
 - `disjoint_union`
@@ -423,6 +426,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `erdos_renyi_graph`
 - `estrada_index`
 - `eulerize`
+- `expected_degree_graph`
 - `fast_gnp_random_graph`
 - `fiedler_vector`
 - `find_asteroidal_triple`
@@ -480,6 +484,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `gutman_index`
 - `harmonic_diameter`
 - `has_bridges`
+- `havel_hakimi_graph`
 - `heawood_graph`
 - `hkn_harary_graph`
 - `hnm_harary_graph`
@@ -516,6 +521,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `is_valid_joint_degree`
 - `johnson`
 - `join_trees`
+- `joint_degree_graph`
 - `junction_tree`
 - `k_clique_communities`
 - `k_components`
@@ -610,7 +616,9 @@ All declared public exports are classified. `--check` fails if this generated re
 - `prominent_group`
 - `quotient_graph`
 - `ra_index_soundarajan_hopcroft`
+- `random_clustered_graph`
 - `random_cograph`
+- `random_degree_sequence_graph`
 - `random_geometric_graph`
 - `random_internet_as_graph`
 - `random_k_out_graph`
@@ -631,8 +639,8 @@ All declared public exports are classified. `--check` fails if this generated re
 - `random_unlabeled_rooted_forest`
 - `random_unlabeled_rooted_tree`
 - `random_unlabeled_tree`
-- `read_graph6`
 - `read_gexf`
+- `read_graph6`
 - `read_multiline_adjlist`
 - `read_sparse6`
 - `read_weighted_edgelist`
@@ -724,8 +732,8 @@ All declared public exports are classified. `--check` fails if this generated re
 - `wheel_graph`
 - `windmill_graph`
 - `within_inter_cluster`
-- `write_graph6`
 - `write_gexf`
+- `write_graph6`
 - `write_graphml_lxml`
 - `write_graphml_xml`
 - `write_multiline_adjlist`
@@ -733,15 +741,12 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_sparse6`
 - `write_weighted_edgelist`
 
-## NX_DELEGATED exports (59)
+## NX_DELEGATED exports (51)
 
 - `LFR_benchmark_graph`
 - `apply_matplotlib_colors`
 - `circular_layout`
 - `combinatorial_embedding_to_pos`
-- `directed_configuration_model`
-- `directed_havel_hakimi_graph`
-- `directed_joint_degree_graph`
 - `dorogovtsev_goltsev_mendes_graph`
 - `draw`
 - `draw_circular`
@@ -751,7 +756,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `draw_shell`
 - `draw_spectral`
 - `draw_spring`
-- `expected_degree_graph`
 - `extended_barabasi_albert_graph`
 - `generate_gml`
 - `generate_graphml`
@@ -760,10 +764,8 @@ All declared public exports are classified. `--check` fails if this generated re
 - `graph_atlas_g`
 - `graph_edit_distance`
 - `grid_graph`
-- `havel_hakimi_graph`
 - `hexagonal_lattice_graph`
 - `is_isomorphic`
-- `joint_degree_graph`
 - `k_edge_augmentation`
 - `kamada_kawai_layout`
 - `lattice_reference`
@@ -780,8 +782,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `parse_leda`
 - `parse_pajek`
 - `planar_layout`
-- `random_clustered_graph`
-- `random_degree_sequence_graph`
 - `random_layout`
 - `read_leda`
 - `read_pajek`

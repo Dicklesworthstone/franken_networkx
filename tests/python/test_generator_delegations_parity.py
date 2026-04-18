@@ -150,6 +150,119 @@ def test_degree_sequence_tree_rejects_directed_create_using():
 
 
 @pytest.mark.parametrize(
+    ("function_name", "args", "kwargs"),
+    [
+        ("configuration_model", ([2, 2, 2, 2],), {"seed": 1}),
+        ("random_clustered_graph", ([(1, 0), (1, 0), (0, 1), (0, 1), (0, 1)],), {"seed": 1}),
+        ("random_degree_sequence_graph", ([2, 2, 2, 2],), {"seed": 1}),
+    ],
+)
+def test_degree_sequence_multigraph_generators_match_networkx_without_fallback(
+    monkeypatch,
+    function_name,
+    args,
+    kwargs,
+):
+    expected = getattr(nx, function_name)(*args, **kwargs)
+
+    def fail(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(nx, function_name, fail)
+
+    actual = getattr(fnx, function_name)(*args, **kwargs)
+
+    assert _graph_data_signature(_to_nx(actual)) == _graph_data_signature(expected)
+
+
+@pytest.mark.parametrize(
+    ("function_name", "args", "kwargs"),
+    [
+        ("havel_hakimi_graph", ([3, 3, 2, 2, 2],), {"create_using": fnx.MultiGraph()}),
+        ("expected_degree_graph", ([3, 3, 3, 3],), {"seed": 1, "selfloops": False}),
+        ("joint_degree_graph", ({1: {1: 2}},), {"seed": 1}),
+    ],
+)
+def test_degree_sequence_simple_generators_match_networkx_without_fallback(
+    monkeypatch,
+    function_name,
+    args,
+    kwargs,
+):
+    nx_kwargs = dict(kwargs)
+    if "create_using" in nx_kwargs:
+        nx_kwargs["create_using"] = nx.MultiGraph()
+    expected = getattr(nx, function_name)(*args, **nx_kwargs)
+
+    def fail(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(nx, function_name, fail)
+
+    actual = getattr(fnx, function_name)(*args, **kwargs)
+
+    assert _graph_data_signature(_to_nx(actual)) == _graph_data_signature(expected)
+
+
+@pytest.mark.parametrize(
+    ("function_name", "args", "kwargs"),
+    [
+        ("directed_configuration_model", ([1, 1], [1, 1]), {"seed": 1}),
+        ("directed_havel_hakimi_graph", ([1, 1], [1, 1]), {}),
+        (
+            "directed_joint_degree_graph",
+            ([0, 1, 1, 2], [1, 1, 1, 1], {1: {1: 2, 2: 2}}),
+            {"seed": 1},
+        ),
+    ],
+)
+def test_directed_degree_sequence_generators_match_networkx_without_fallback(
+    monkeypatch,
+    function_name,
+    args,
+    kwargs,
+):
+    expected = getattr(nx, function_name)(*args, **kwargs)
+
+    def fail(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(nx, function_name, fail)
+
+    actual = getattr(fnx, function_name)(*args, **kwargs)
+
+    assert _graph_data_signature(_to_nx(actual)) == _graph_data_signature(expected)
+
+
+@pytest.mark.parametrize(
+    ("call", "message"),
+    [
+        (lambda: fnx.configuration_model([1, 2]), "sum of degrees must be even"),
+        (lambda: fnx.havel_hakimi_graph([4, 1, 1]), "Invalid degree sequence"),
+        (
+            lambda: fnx.directed_configuration_model([1], [2]),
+            "sequences must have equal sums",
+        ),
+        (
+            lambda: fnx.directed_havel_hakimi_graph([1], [2]),
+            "Sequences must have equal sums",
+        ),
+        (
+            lambda: fnx.random_clustered_graph([(1, 1), (2, 1), (0, 1)]),
+            "Invalid degree sequence",
+        ),
+        (
+            lambda: fnx.random_degree_sequence_graph([3, 1, 1]),
+            "degree sequence is not graphical",
+        ),
+    ],
+)
+def test_degree_sequence_generators_preserve_error_contracts(call, message):
+    with pytest.raises((fnx.NetworkXError, fnx.NetworkXUnfeasible), match=message):
+        call()
+
+
+@pytest.mark.parametrize(
     ("function_name", "args", "kwargs", "nx_factory", "fnx_factory"),
     [
         ("gn_graph", (8,), {"seed": 42}, nx.DiGraph, fnx.DiGraph),

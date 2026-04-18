@@ -5408,7 +5408,10 @@ mod tests {
         graph.add_node_with_attrs(
             "n0".to_owned(),
             BTreeMap::from([
-                ("label".to_owned(), CgseValue::String("Node Zero".to_owned())),
+                (
+                    "label".to_owned(),
+                    CgseValue::String("Node Zero".to_owned()),
+                ),
                 ("color".to_owned(), CgseValue::String("red".to_owned())),
                 ("size".to_owned(), CgseValue::Int(3)),
                 ("ok".to_owned(), CgseValue::Bool(true)),
@@ -5427,7 +5430,9 @@ mod tests {
             .expect("edge add should succeed");
 
         let mut engine = EdgeListEngine::strict();
-        let xml = engine.write_gexf(&graph).expect("gexf write should succeed");
+        let xml = engine
+            .write_gexf(&graph)
+            .expect("gexf write should succeed");
         assert!(xml.contains("<gexf"));
         assert!(xml.contains("defaultedgetype=\"undirected\""));
 
@@ -5440,7 +5445,10 @@ mod tests {
             attrs.get("label"),
             Some(&CgseValue::String("Node Zero".to_owned()))
         );
-        assert_eq!(attrs.get("color"), Some(&CgseValue::String("red".to_owned())));
+        assert_eq!(
+            attrs.get("color"),
+            Some(&CgseValue::String("red".to_owned()))
+        );
         assert_eq!(attrs.get("size"), Some(&CgseValue::Int(3)));
         assert_eq!(attrs.get("ok"), Some(&CgseValue::Bool(true)));
         let edge_attrs = parsed
@@ -5452,7 +5460,10 @@ mod tests {
             edge_attrs.get("kind"),
             Some(&CgseValue::String("demo".to_owned()))
         );
-        assert_eq!(edge_attrs.get("id"), Some(&CgseValue::String("0".to_owned())));
+        assert_eq!(
+            edge_attrs.get("id"),
+            Some(&CgseValue::String("0".to_owned()))
+        );
     }
 
     #[test]

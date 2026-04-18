@@ -5703,7 +5703,242 @@ def is_directed(G):
 # ---------------------------------------------------------------------------
 
 
-def configuration_model(deg_sequence, seed=None):
+def _degree_sequence_stublist(degree_sequence):
+    return [
+        node
+        for node, degree in enumerate(degree_sequence)
+        for _ in range(int(degree))
+    ]
+
+
+def _configuration_model_local(
+    degree_sequence,
+    create_using,
+    *,
+    directed=False,
+    in_degree_sequence=None,
+    seed=None,
+):
+    graph = _empty_graph_from_create_using(create_using)
+    graph.add_nodes_from(range(len(degree_sequence)))
+    if len(degree_sequence) == 0:
+        return graph
+
+    rng = _generator_random_state(seed)
+    if directed:
+        pairs = itertools.zip_longest(degree_sequence, in_degree_sequence, fillvalue=0)
+        out_degrees, in_degrees = zip(*pairs)
+        out_stubs = _degree_sequence_stublist(out_degrees)
+        in_stubs = _degree_sequence_stublist(in_degrees)
+        rng.shuffle(out_stubs)
+        rng.shuffle(in_stubs)
+    else:
+        stubs = _degree_sequence_stublist(degree_sequence)
+        rng.shuffle(stubs)
+        half = len(stubs) // 2
+        out_stubs = stubs[:half]
+        in_stubs = stubs[half:]
+
+    graph.add_edges_from(zip(out_stubs, in_stubs))
+    return graph
+
+
+def _is_graphical_degree_sequence(degree_sequence):
+    try:
+        sequence = [int(degree) for degree in degree_sequence]
+    except (TypeError, ValueError):
+        return False
+    if any(degree < 0 for degree in sequence):
+        return False
+    return is_valid_degree_sequence_erdos_gallai(sequence)
+
+
+def _random_weighted_sample(mapping, k, rng):
+    if k > len(mapping):
+        raise ValueError("sample larger than population")
+    sample = set()
+    while len(sample) < k:
+        sample.add(_weighted_choice(mapping, rng))
+    return list(sample)
+
+
+def _weighted_choice(mapping, rng):
+    threshold = rng.random() * sum(mapping.values())
+    for key, weight in mapping.items():
+        threshold -= weight
+        if threshold < 0:
+            return key
+    return next(reversed(mapping))
+
+
+class _DegreeSequenceRandomGraph:
+    def __init__(self, degree, rng):
+        self.rng = rng
+        self.degree = list(degree)
+        if not _is_graphical_degree_sequence(self.degree):
+            raise NetworkXUnfeasible("degree sequence is not graphical")
+        self.m = sum(self.degree) / 2.0
+        self.dmax = max(self.degree, default=0)
+
+    def generate(self):
+        self.remaining_degree = dict(enumerate(self.degree))
+        self.graph = Graph()
+        self.graph.add_nodes_from(self.remaining_degree)
+        for node, degree in list(self.remaining_degree.items()):
+            if degree == 0:
+                del self.remaining_degree[node]
+        if self.remaining_degree:
+            self._phase1()
+            self._phase2()
+            self._phase3()
+        return self.graph
+
+    def _update_remaining(self, u, v, aux_graph=None):
+        if aux_graph is not None:
+            aux_graph.remove_edge(u, v)
+        if self.remaining_degree[u] == 1:
+            del self.remaining_degree[u]
+            if aux_graph is not None:
+                aux_graph.remove_node(u)
+        else:
+            self.remaining_degree[u] -= 1
+        if self.remaining_degree[v] == 1:
+            del self.remaining_degree[v]
+            if aux_graph is not None:
+                aux_graph.remove_node(v)
+        else:
+            self.remaining_degree[v] -= 1
+
+    def _degree_probability(self, u, v):
+        return 1 - self.degree[u] * self.degree[v] / (4.0 * self.m)
+
+    def _remaining_probability(self, u, v):
+        norm = max(self.remaining_degree.values()) ** 2
+        return self.remaining_degree[u] * self.remaining_degree[v] / norm
+
+    def _has_suitable_edge(self):
+        nodes = iter(self.remaining_degree)
+        u = next(nodes)
+        return any(not self.graph.has_edge(u, v) for v in nodes)
+
+    def _phase1(self):
+        remaining = self.remaining_degree
+        while sum(remaining.values()) >= 2 * self.dmax**2:
+            u, v = sorted(_random_weighted_sample(remaining, 2, self.rng))
+            if self.graph.has_edge(u, v):
+                continue
+            if self.rng.random() < self._degree_probability(u, v):
+                self.graph.add_edge(u, v)
+                self._update_remaining(u, v)
+
+    def _phase2(self):
+        remaining = self.remaining_degree
+        while len(remaining) >= 2 * self.dmax:
+            while True:
+                u, v = sorted(self.rng.sample(list(remaining.keys()), 2))
+                if self.graph.has_edge(u, v):
+                    continue
+                if self.rng.random() < self._remaining_probability(u, v):
+                    break
+            if self.rng.random() < self._degree_probability(u, v):
+                self.graph.add_edge(u, v)
+                self._update_remaining(u, v)
+
+    def _phase3(self):
+        aux_graph = Graph()
+        aux_graph.add_edges_from(
+            (u, v)
+            for u, v in combinations(self.remaining_degree, 2)
+            if not self.graph.has_edge(u, v)
+        )
+        while self.remaining_degree:
+            if not self._has_suitable_edge():
+                raise NetworkXUnfeasible("no suitable edges left")
+            while True:
+                u, v = sorted(self.rng.choice(list(aux_graph.edges())))
+                if self.rng.random() < self._remaining_probability(u, v):
+                    break
+            if self.rng.random() < self._degree_probability(u, v):
+                self.graph.add_edge(u, v)
+                self._update_remaining(u, v, aux_graph=aux_graph)
+
+
+def _neighbor_switch_local(graph, w, unsat, residual, avoid_node_id=None):
+    if avoid_node_id is None or residual[avoid_node_id] > 1:
+        w_prime = next(iter(unsat))
+    else:
+        iterator = iter(unsat)
+        while True:
+            w_prime = next(iterator)
+            if w_prime != avoid_node_id:
+                break
+
+    for switch_node in graph.neighbors(w):
+        if not graph.has_edge(w_prime, switch_node) and switch_node != w_prime:
+            graph.remove_edge(w, switch_node)
+            graph.add_edge(w_prime, switch_node)
+            residual[w] += 1
+            residual[w_prime] -= 1
+            if residual[w_prime] == 0:
+                unsat.remove(w_prime)
+            return
+
+
+def _directed_neighbor_switch_local(
+    graph,
+    w,
+    unsat,
+    residual_out,
+    chords,
+    partition_in,
+    partition,
+):
+    w_prime = unsat.pop()
+    unsat.add(w_prime)
+    w_prime_neighbors = set(graph.successors(w_prime))
+    for v in list(graph.successors(w)):
+        if v not in w_prime_neighbors and w_prime != v:
+            graph.remove_edge(w, v)
+            graph.add_edge(w_prime, v)
+            if partition_in[v] == partition:
+                chords.add((w, v))
+                chords.discard((w_prime, v))
+            residual_out[w] += 1
+            residual_out[w_prime] -= 1
+            if residual_out[w_prime] == 0:
+                unsat.remove(w_prime)
+            return None
+    return w_prime
+
+
+def _directed_neighbor_switch_rev_local(
+    graph,
+    w,
+    unsat,
+    residual_in,
+    chords,
+    partition_out,
+    partition,
+):
+    w_prime = unsat.pop()
+    unsat.add(w_prime)
+    w_prime_predecessors = set(graph.predecessors(w_prime))
+    for v in list(graph.predecessors(w)):
+        if v not in w_prime_predecessors and w_prime != v:
+            graph.remove_edge(v, w)
+            graph.add_edge(v, w_prime)
+            if partition_out[v] == partition:
+                chords.add((v, w))
+                chords.discard((v, w_prime))
+            residual_in[w] += 1
+            residual_in[w_prime] -= 1
+            if residual_in[w_prime] == 0:
+                unsat.remove(w_prime)
+            return None
+    return w_prime
+
+
+def configuration_model(deg_sequence, create_using=None, seed=None):
     """Return a random graph with the given degree sequence.
 
     Uses the configuration model: create stubs and pair them randomly.
@@ -5719,37 +5954,61 @@ def configuration_model(deg_sequence, seed=None):
     -------
     MultiGraph
     """
-    import random as _random
-
-    rng = _random.Random(seed)
-
     if sum(deg_sequence) % 2 != 0:
-        raise ValueError("Invalid degree sequence: sum must be even")
+        raise NetworkXError("Invalid degree sequence: sum of degrees must be even, not odd")
 
-    n = len(deg_sequence)
-    G = MultiGraph()
-    for i in range(n):
-        G.add_node(i)
-
-    stubs = []
-    for i, d in enumerate(deg_sequence):
-        stubs.extend([i] * d)
-
-    rng.shuffle(stubs)
-    for i in range(0, len(stubs) - 1, 2):
-        G.add_edge(stubs[i], stubs[i + 1])
-
-    return G
+    graph = _checked_create_using(create_using, directed=False, default=MultiGraph)
+    return _configuration_model_local(deg_sequence, graph, seed=seed)
 
 
 def havel_hakimi_graph(deg_sequence, create_using=None):
     """Return a simple graph with the given degree sequence."""
-    import networkx as nx
+    if not _is_graphical_degree_sequence(deg_sequence):
+        raise NetworkXError("Invalid degree sequence")
 
-    from franken_networkx.readwrite import _from_nx_graph
+    degree_sequence = list(deg_sequence)
+    p = len(degree_sequence)
+    graph = _checked_create_using(create_using, directed=False, default=Graph)
+    graph.add_nodes_from(range(p))
 
-    graph = nx.havel_hakimi_graph(deg_sequence, create_using=None)
-    return _from_nx_graph(graph, create_using=create_using)
+    degree_buckets = [[] for _ in range(p)]
+    dmax = 0
+    active = 0
+    for node, degree in enumerate(degree_sequence):
+        if degree > 0:
+            degree_buckets[degree].append(node)
+            dmax = max(dmax, degree)
+            active += 1
+    if active == 0:
+        return graph
+
+    modified = [(0, 0)] * (dmax + 1)
+    while active > 0:
+        while not degree_buckets[dmax]:
+            dmax -= 1
+        if dmax > active - 1:
+            raise NetworkXError("Non-graphical integer sequence")
+
+        source = degree_buckets[dmax].pop()
+        active -= 1
+        modified_len = 0
+        k = dmax
+        for _ in range(dmax):
+            while not degree_buckets[k]:
+                k -= 1
+            target = degree_buckets[k].pop()
+            graph.add_edge(source, target)
+            active -= 1
+            if k > 1:
+                modified[modified_len] = (k - 1, target)
+                modified_len += 1
+
+        for i in range(modified_len):
+            stub_value, stub_target = modified[i]
+            degree_buckets[stub_value].append(stub_target)
+            active += 1
+
+    return graph
 
 
 def degree_sequence_tree(deg_sequence, create_using=None):
@@ -7146,11 +7405,32 @@ def is_valid_degree_sequence_havel_hakimi(sequence):
 
 def is_valid_joint_degree(joint_degrees):
     """Check if a joint degree dictionary is realizable."""
-    if not joint_degrees:
-        return True
-    for (d1, d2), count in joint_degrees.items():
-        if count < 0 or d1 < 0 or d2 < 0:
-            return False
+    degree_count = {}
+    for degree in joint_degrees:
+        if degree > 0:
+            degree_size = sum(joint_degrees[degree].values()) / degree
+            if not degree_size.is_integer():
+                return False
+            degree_count[degree] = degree_size
+
+    for degree_left in joint_degrees:
+        for degree_right in joint_degrees[degree_left]:
+            edge_count = joint_degrees[degree_left][degree_right]
+            if not float(edge_count).is_integer():
+                return False
+
+            if (
+                degree_left != degree_right
+                and edge_count > degree_count[degree_left] * degree_count[degree_right]
+            ):
+                return False
+            if degree_left == degree_right:
+                if edge_count > degree_count[degree_left] * (
+                    degree_count[degree_left] - 1
+                ):
+                    return False
+                if edge_count % 2 != 0:
+                    return False
     return True
 
 
@@ -9253,18 +9533,40 @@ def find_minimal_d_separator(G, u, v):
     return minimal
 
 
-def is_valid_directed_joint_degree(joint_degrees):
-    """Check if a directed joint degree dictionary is realizable."""
-    if not joint_degrees:
-        return True
-    total_in = 0
-    total_out = 0
-    for (d_in, d_out), count in joint_degrees.items():
-        if count < 0 or d_in < 0 or d_out < 0:
-            return False
-        total_in += d_in * count
-        total_out += d_out * count
-    return total_in == total_out
+def is_valid_directed_joint_degree(in_degrees, out_degrees, nkk):
+    """Check if directed joint degree inputs are realizable."""
+    if len(in_degrees) != len(out_degrees):
+        return False
+
+    partition_count = {}
+    forbidden = {}
+    for idx, in_degree in enumerate(in_degrees):
+        out_degree = out_degrees[idx]
+        partition_count[(in_degree, 0)] = partition_count.get((in_degree, 0), 0) + 1
+        partition_count[(out_degree, 1)] = partition_count.get((out_degree, 1), 0) + 1
+        forbidden[(out_degree, in_degree)] = forbidden.get((out_degree, in_degree), 0) + 1
+
+    edge_sums = {}
+    for out_degree in nkk:
+        for in_degree in nkk[out_degree]:
+            edge_count = nkk[out_degree][in_degree]
+            if not float(edge_count).is_integer():
+                return False
+            if edge_count > 0:
+                edge_sums[(out_degree, 1)] = (
+                    edge_sums.get((out_degree, 1), 0) + edge_count
+                )
+                edge_sums[(in_degree, 0)] = (
+                    edge_sums.get((in_degree, 0), 0) + edge_count
+                )
+                if (
+                    edge_count + forbidden.get((out_degree, in_degree), 0)
+                    > partition_count[(out_degree, 1)]
+                    * partition_count[(in_degree, 0)]
+                ):
+                    return False
+
+    return all(edge_sums[key] / key[0] == partition_count[key] for key in edge_sums)
 
 
 # Social datasets (br-yzm)
@@ -11764,14 +12066,31 @@ def random_shell_graph(constructor, seed=None, create_using=None):
 
 def random_clustered_graph(joint_degree_sequence, seed=None, create_using=None):
     """Random graph from joint degree sequence."""
-    import networkx as nx
+    joint_degree_sequence = list(joint_degree_sequence)
+    graph = _checked_create_using(create_using, directed=False, default=MultiGraph)
+    graph.add_nodes_from(range(len(joint_degree_sequence)))
 
-    from franken_networkx.readwrite import _from_nx_graph
+    independent_stubs = []
+    triangle_stubs = []
+    for node in graph:
+        independent_degree, triangle_degree = joint_degree_sequence[node]
+        independent_stubs.extend([node] * independent_degree)
+        triangle_stubs.extend([node] * triangle_degree)
 
-    graph = nx.random_clustered_graph(
-        joint_degree_sequence, create_using=None, seed=seed
-    )
-    return _from_nx_graph(graph, create_using=create_using)
+    if len(independent_stubs) % 2 != 0 or len(triangle_stubs) % 3 != 0:
+        raise NetworkXError("Invalid degree sequence")
+
+    rng = _generator_random_state(seed)
+    rng.shuffle(independent_stubs)
+    rng.shuffle(triangle_stubs)
+    while independent_stubs:
+        graph.add_edge(independent_stubs.pop(), independent_stubs.pop())
+    while triangle_stubs:
+        first = triangle_stubs.pop()
+        second = triangle_stubs.pop()
+        third = triangle_stubs.pop()
+        graph.add_edges_from([(first, second), (first, third), (second, third)])
+    return graph
 
 
 def random_cograph(n, seed=None):
@@ -11798,13 +12117,13 @@ def random_cograph(n, seed=None):
 
 def random_degree_sequence_graph(sequence, seed=None, tries=10):
     """Random graph with given degree sequence."""
-    import networkx as nx
-
-    from franken_networkx.readwrite import _from_nx_graph
-
-    return _from_nx_graph(
-        nx.random_degree_sequence_graph(sequence, seed=seed, tries=tries)
-    )
+    generator = _DegreeSequenceRandomGraph(sequence, _generator_random_state(seed))
+    for _ in range(tries):
+        try:
+            return generator.generate()
+        except NetworkXUnfeasible:
+            pass
+    raise NetworkXError(f"failed to generate graph in {tries} tries")
 
 
 def random_internet_as_graph(n, seed=None):
@@ -14083,60 +14402,307 @@ def directed_configuration_model(
     seed=None,
 ):
     """Return a directed configuration model graph."""
-    import networkx as nx
+    if sum(in_degree_sequence) != sum(out_degree_sequence):
+        raise NetworkXError("Invalid degree sequences: sequences must have equal sums")
 
-    from franken_networkx.readwrite import _from_nx_graph
-
-    graph = nx.directed_configuration_model(
-        in_degree_sequence,
+    graph = _empty_graph_from_create_using(
+        create_using,
+        default=MultiDiGraph,
+    )
+    return _configuration_model_local(
         out_degree_sequence,
-        create_using=None,
+        graph,
+        directed=True,
+        in_degree_sequence=in_degree_sequence,
         seed=seed,
     )
-    return _from_nx_graph(graph, create_using=create_using)
 
 
 def directed_joint_degree_graph(in_degrees, out_degrees, nkk, seed=None):
     """Return a directed graph matching a directed joint-degree distribution."""
-    import networkx as nx
+    if not is_valid_directed_joint_degree(in_degrees, out_degrees, nkk):
+        raise NetworkXError("Input is not realizable as a simple graph")
 
-    from franken_networkx.readwrite import _from_nx_graph
+    graph = DiGraph()
+    degree_nodes_in = {}
+    degree_nodes_out = {}
+    degree_nodes_in_unsat = {}
+    degree_nodes_out_unsat = {}
+    residual_out = {}
+    residual_in = {}
+    partition_out = {}
+    partition_in = {}
+    non_chords = {}
 
-    return _from_nx_graph(
-        nx.directed_joint_degree_graph(in_degrees, out_degrees, nkk, seed=seed)
-    )
+    for idx, in_degree in enumerate(in_degrees):
+        idx = int(idx)
+        if in_degree > 0:
+            degree_nodes_in.setdefault(in_degree, [])
+            degree_nodes_in_unsat.setdefault(in_degree, set())
+            degree_nodes_in[in_degree].append(idx)
+            degree_nodes_in_unsat[in_degree].add(idx)
+            residual_in[idx] = in_degree
+            partition_in[idx] = in_degree
+
+    for idx, out_degree in enumerate(out_degrees):
+        non_chords[(out_degree, in_degrees[idx])] = (
+            non_chords.get((out_degree, in_degrees[idx]), 0) + 1
+        )
+        idx = int(idx)
+        if out_degree > 0:
+            degree_nodes_out.setdefault(out_degree, [])
+            degree_nodes_out_unsat.setdefault(out_degree, set())
+            degree_nodes_out[out_degree].append(idx)
+            degree_nodes_out_unsat[out_degree].add(idx)
+            residual_out[idx] = out_degree
+            partition_out[idx] = out_degree
+        graph.add_node(idx)
+
+    count_in = {degree: len(nodes) for degree, nodes in degree_nodes_in.items()}
+    count_out = {degree: len(nodes) for degree, nodes in degree_nodes_out.items()}
+    rng = _generator_random_state(seed)
+
+    for out_degree in nkk:
+        for in_degree in nkk[out_degree]:
+            edges_to_add = nkk[out_degree][in_degree]
+            if edges_to_add <= 0:
+                continue
+
+            chords = set()
+            out_count = count_out[out_degree]
+            in_count = count_in[in_degree]
+            sample = rng.sample(
+                range(out_count * in_count),
+                edges_to_add + non_chords.get((out_degree, in_degree), 0),
+            )
+
+            sample_index = 0
+            while len(chords) < edges_to_add:
+                source = degree_nodes_out[out_degree][sample[sample_index] % out_count]
+                target = degree_nodes_in[in_degree][sample[sample_index] // out_count]
+                sample_index += 1
+                if source != target:
+                    chords.add((source, target))
+
+            out_unsat = degree_nodes_out_unsat[out_degree]
+            in_unsat = degree_nodes_in_unsat[in_degree]
+
+            while edges_to_add > 0:
+                source, target = chords.pop()
+                chords.add((source, target))
+
+                if residual_out[source] == 0:
+                    switched = _directed_neighbor_switch_local(
+                        graph,
+                        source,
+                        out_unsat,
+                        residual_out,
+                        chords,
+                        partition_in,
+                        in_degree,
+                    )
+                    if switched is not None:
+                        source = switched
+
+                if residual_in[target] == 0:
+                    switched = _directed_neighbor_switch_rev_local(
+                        graph,
+                        target,
+                        in_unsat,
+                        residual_in,
+                        chords,
+                        partition_out,
+                        out_degree,
+                    )
+                    if switched is not None:
+                        target = switched
+
+                graph.add_edge(source, target)
+                residual_out[source] -= 1
+                residual_in[target] -= 1
+                edges_to_add -= 1
+                chords.discard((source, target))
+
+                if residual_out[source] == 0:
+                    out_unsat.discard(source)
+                if residual_in[target] == 0:
+                    in_unsat.discard(target)
+
+    return graph
 
 
 def joint_degree_graph(joint_degrees, seed=None):
     """Return an undirected graph matching a joint-degree distribution."""
-    import networkx as nx
+    if not is_valid_joint_degree(joint_degrees):
+        raise NetworkXError("Input joint degree dict not realizable as a simple graph")
 
-    from franken_networkx.readwrite import _from_nx_graph
+    degree_count = {
+        degree: sum(edges.values()) // degree
+        for degree, edges in joint_degrees.items()
+        if degree > 0
+    }
+    graph = empty_graph(sum(degree_count.values()))
 
-    return _from_nx_graph(nx.joint_degree_graph(joint_degrees, seed=seed))
+    degree_nodes = {}
+    residual = {}
+    node_id = 0
+    for degree, num_nodes in degree_count.items():
+        degree_nodes[degree] = range(node_id, node_id + num_nodes)
+        for node in degree_nodes[degree]:
+            residual[node] = degree
+        node_id += int(num_nodes)
+
+    rng = _generator_random_state(seed)
+    for degree_left in joint_degrees:
+        for degree_right in joint_degrees[degree_left]:
+            edges_to_add = joint_degrees[degree_left][degree_right]
+            if edges_to_add <= 0 or degree_left < degree_right:
+                continue
+
+            left_count = degree_count[degree_left]
+            right_count = degree_count[degree_right]
+            left_nodes = degree_nodes[degree_left]
+            right_nodes = degree_nodes[degree_right]
+            left_unsat = {node for node in left_nodes if residual[node] > 0}
+
+            if degree_left != degree_right:
+                right_unsat = {node for node in right_nodes if residual[node] > 0}
+            else:
+                right_unsat = left_unsat
+                edges_to_add = joint_degrees[degree_left][degree_right] // 2
+
+            while edges_to_add > 0:
+                source = left_nodes[rng.randrange(left_count)]
+                target = right_nodes[rng.randrange(right_count)]
+
+                if graph.has_edge(source, target) or source == target:
+                    continue
+
+                if residual[source] == 0:
+                    _neighbor_switch_local(graph, source, left_unsat, residual)
+                if residual[target] == 0:
+                    if degree_left != degree_right:
+                        _neighbor_switch_local(graph, target, right_unsat, residual)
+                    else:
+                        _neighbor_switch_local(
+                            graph,
+                            target,
+                            right_unsat,
+                            residual,
+                            avoid_node_id=source,
+                        )
+
+                graph.add_edge(source, target)
+                residual[source] -= 1
+                residual[target] -= 1
+                edges_to_add -= 1
+
+                if residual[source] == 0:
+                    left_unsat.discard(source)
+                if residual[target] == 0:
+                    right_unsat.discard(target)
+
+    return graph
 
 
 def expected_degree_graph(w, seed=None, selfloops=True):
     """Return a Chung-Lu expected-degree random graph."""
-    import networkx as nx
+    n = len(w)
+    graph = empty_graph(n)
+    if n == 0 or max(w) == 0:
+        return graph
 
-    from franken_networkx.readwrite import _from_nx_graph
-
-    return _from_nx_graph(nx.expected_degree_graph(w, seed=seed, selfloops=selfloops))
+    rng = _generator_random_state(seed)
+    rho = 1 / sum(w)
+    order = sorted(enumerate(w), key=lambda item: item[1], reverse=True)
+    mapping = {canonical: node for canonical, (node, _) in enumerate(order)}
+    sequence = [weight for _, weight in order]
+    last = n if selfloops else n - 1
+    for source in range(last):
+        target = source if selfloops else source + 1
+        factor = sequence[source] * rho
+        probability = min(sequence[target] * factor, 1)
+        while target < n and probability > 0:
+            if probability != 1:
+                target += math.floor(math.log(rng.random(), 1 - probability))
+            if target < n:
+                next_probability = min(sequence[target] * factor, 1)
+                if rng.random() < next_probability / probability:
+                    graph.add_edge(mapping[source], mapping[target])
+                target += 1
+                probability = next_probability
+    return graph
 
 
 def directed_havel_hakimi_graph(in_deg_sequence, out_deg_sequence, create_using=None):
     """Return a directed graph with prescribed in/out degree sequences."""
-    import networkx as nx
+    try:
+        in_deg_sequence = [int(degree) for degree in in_deg_sequence]
+        out_deg_sequence = [int(degree) for degree in out_deg_sequence]
+    except (TypeError, ValueError):
+        raise NetworkXError("Invalid degree sequences. Sequence values must be positive.")
 
-    from franken_networkx.readwrite import _from_nx_graph
+    sumin = 0
+    sumout = 0
+    nin = len(in_deg_sequence)
+    nout = len(out_deg_sequence)
+    maxn = max(nin, nout)
+    graph = _empty_graph_from_create_using(create_using, default=DiGraph)
+    graph.add_nodes_from(range(maxn))
+    if maxn == 0:
+        return graph
 
-    graph = nx.directed_havel_hakimi_graph(
-        in_deg_sequence,
-        out_deg_sequence,
-        create_using=None,
-    )
-    return _from_nx_graph(graph, create_using=create_using)
+    maxin = 0
+    stubheap = []
+    zeroheap = []
+    for node in range(maxn):
+        out_degree = out_deg_sequence[node] if node < nout else 0
+        in_degree = in_deg_sequence[node] if node < nin else 0
+        if in_degree < 0 or out_degree < 0:
+            raise NetworkXError(
+                "Invalid degree sequences. Sequence values must be positive."
+            )
+        sumin += in_degree
+        sumout += out_degree
+        maxin = max(maxin, in_degree)
+        if in_degree > 0:
+            heappush(stubheap, (-out_degree, -in_degree, node))
+        elif out_degree > 0:
+            heappush(zeroheap, (-out_degree, node))
+    if sumin != sumout:
+        raise NetworkXError("Invalid degree sequences. Sequences must have equal sums.")
+
+    modified = [(0, 0, 0)] * (maxin + 1)
+    while stubheap:
+        freeout, freein, target = heappop(stubheap)
+        freein *= -1
+        if freein > len(stubheap) + len(zeroheap):
+            raise NetworkXError("Non-digraphical integer sequence")
+
+        modified_len = 0
+        for _ in range(freein):
+            if zeroheap and (not stubheap or stubheap[0][0] > zeroheap[0][0]):
+                stubout, source = heappop(zeroheap)
+                stubin = 0
+            else:
+                stubout, stubin, source = heappop(stubheap)
+            if stubout == 0:
+                raise NetworkXError("Non-digraphical integer sequence")
+            graph.add_edge(source, target)
+            if stubout + 1 < 0 or stubin < 0:
+                modified[modified_len] = (stubout + 1, stubin, source)
+                modified_len += 1
+
+        for i in range(modified_len):
+            stub = modified[i]
+            if stub[1] < 0:
+                heappush(stubheap, stub)
+            else:
+                heappush(zeroheap, (stub[0], stub[2]))
+        if freeout < 0:
+            heappush(zeroheap, (freeout, target))
+
+    return graph
 
 
 # stochastic_block_model, planted_partition_graph, gaussian_random_partition_graph,
