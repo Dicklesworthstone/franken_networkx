@@ -7,8 +7,8 @@
 | Category | Count | % | Rule |
 |----------|-------|---|------|
 | RUST_NATIVE | 239 | 30% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 514 | 65% | Python-defined exports with no runtime NetworkX dependency detected |
-| NX_DELEGATED | 5 | 0% | Python-defined exports that import or call NetworkX at runtime |
+| PY_WRAPPER | 519 | 66% | Python-defined exports with no runtime NetworkX dependency detected |
+| NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 19 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
 | **Total public exports** | **779** | | unique names from `franken_networkx.__all__` |
@@ -270,9 +270,10 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_gml`
 - `write_graphml`
 
-## PY_WRAPPER exports (514)
+## PY_WRAPPER exports (519)
 
 - `LCF_graph`
+- `LFR_benchmark_graph`
 - `add_cycle`
 - `add_path`
 - `add_star`
@@ -496,6 +497,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `google_matrix`
 - `graph_atlas`
 - `graph_atlas_g`
+- `graph_edit_distance`
 - `grid_2d_graph`
 - `grid_graph`
 - `group_betweenness_centrality`
@@ -623,6 +625,9 @@ All declared public exports are classified. `--check` fails if this generated re
 - `octahedral_graph`
 - `omega`
 - `onion_layers`
+- `optimal_edit_paths`
+- `optimize_edit_paths`
+- `optimize_graph_edit_distance`
 - `paley_graph`
 - `panther_similarity`
 - `panther_vector_similarity`
@@ -787,13 +792,8 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_sparse6`
 - `write_weighted_edgelist`
 
-## NX_DELEGATED exports (5)
+## NX_DELEGATED exports (0)
 
-- `LFR_benchmark_graph`
-- `graph_edit_distance`
-- `optimal_edit_paths`
-- `optimize_edit_paths`
-- `optimize_graph_edit_distance`
 
 ## CLASS exports (19)
 
