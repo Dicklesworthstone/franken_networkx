@@ -7,8 +7,8 @@
 | Category | Count | % | Rule |
 |----------|-------|---|------|
 | RUST_NATIVE | 239 | 30% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 469 | 60% | Python-defined exports with no runtime NetworkX dependency detected |
-| NX_DELEGATED | 50 | 6% | Python-defined exports that import or call NetworkX at runtime |
+| PY_WRAPPER | 473 | 60% | Python-defined exports with no runtime NetworkX dependency detected |
+| NX_DELEGATED | 46 | 5% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 19 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
 | **Total public exports** | **779** | | unique names from `franken_networkx.__all__` |
@@ -270,7 +270,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_gml`
 - `write_graphml`
 
-## PY_WRAPPER exports (469)
+## PY_WRAPPER exports (473)
 
 - `LCF_graph`
 - `add_cycle`
@@ -336,6 +336,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `chvatal_graph`
 - `circulant_graph`
 - `circular_ladder_graph`
+- `circular_layout`
 - `closeness_vitality`
 - `cn_soundarajan_hopcroft`
 - `common_neighbor_centrality`
@@ -627,6 +628,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `random_labeled_rooted_forest`
 - `random_labeled_rooted_tree`
 - `random_labeled_tree`
+- `random_layout`
 - `random_lobster`
 - `random_lobster_graph`
 - `random_partition_graph`
@@ -654,6 +656,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `remove_edge_attributes`
 - `remove_node_attributes`
 - `rescale_layout`
+- `rescale_layout_dict`
 - `resistance_distance`
 - `restricted_view`
 - `reverse`
@@ -665,6 +668,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `selfloop_edges`
 - `set_edge_attributes`
 - `set_node_attributes`
+- `shell_layout`
 - `shortest_path_length`
 - `sigma`
 - `simrank_similarity`
@@ -742,11 +746,10 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_sparse6`
 - `write_weighted_edgelist`
 
-## NX_DELEGATED exports (50)
+## NX_DELEGATED exports (46)
 
 - `LFR_benchmark_graph`
 - `apply_matplotlib_colors`
-- `circular_layout`
 - `combinatorial_embedding_to_pos`
 - `draw`
 - `draw_circular`
@@ -782,11 +785,8 @@ All declared public exports are classified. `--check` fails if this generated re
 - `parse_leda`
 - `parse_pajek`
 - `planar_layout`
-- `random_layout`
 - `read_leda`
 - `read_pajek`
-- `rescale_layout_dict`
-- `shell_layout`
 - `spectral_layout`
 - `spring_layout`
 - `to_latex`

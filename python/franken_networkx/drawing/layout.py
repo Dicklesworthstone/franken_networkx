@@ -19,7 +19,11 @@ def _delegate_layout(name, G, *args, **kwargs):
     import networkx as nx
 
     fn = getattr(nx, name)
-    return fn(G, *args, **kwargs)
+    try:
+        graph = _to_nx(G)
+    except AttributeError:
+        graph = G
+    return fn(graph, *args, **kwargs)
 
 
 def _process_params(G, center, dim):
