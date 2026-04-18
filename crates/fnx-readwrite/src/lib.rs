@@ -23,6 +23,8 @@ use fnx_dispatch::{BackendRegistry, BackendSpec, DispatchError, DispatchRequest}
 use fnx_runtime::{
     CgseValue, CompatibilityMode, DecisionAction, EvidenceLedger, EvidenceTerm, RuntimePolicy,
 };
+use quick_xml::encoding::Decoder;
+use quick_xml::events::attributes::Attribute;
 use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
 use quick_xml::{Reader, Writer};
 use serde::{Deserialize, Serialize};
@@ -61,6 +63,13 @@ struct GraphmlKeyDef {
     name: String,
     attr_type: String,
     default: Option<CgseValue>,
+}
+
+#[derive(Debug, Clone)]
+struct GexfAttrDef {
+    class: String,
+    title: String,
+    attr_type: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,6 +131,8 @@ impl EdgeListEngine {
                 "write_json_graph",
                 "read_graphml",
                 "write_graphml",
+                "read_gexf",
+                "write_gexf",
                 "read_pajek",
                 "write_pajek",
             ]
@@ -2400,6 +2411,876 @@ impl EdgeListEngine {
     }
 
     // -----------------------------------------------------------------------
+    // GEXF
+    // -----------------------------------------------------------------------
+
+    pub fn write_gexf(&mut self, graph: &Graph) -> Result<String, ReadWriteError> {
+        self.write_gexf_with_graph_attrs(graph, &AttrMap::new())
+    }
+
+    pub fn write_gexf_with_graph_attrs(
+        &mut self,
+        graph: &Graph,
+        graph_attrs: &AttrMap,
+    ) -> Result<String, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "write_gexf".to_owned(),
+            requested_backend: None,
+            required_features: set(["write_gexf"]),
+            risk_probability: 0.08,
+            unknown_incompatible_feature: false,
+        })?;
+
+        self.write_gexf_impl(graph, graph_attrs, false)
+    }
+
+    pub fn write_digraph_gexf(&mut self, graph: &DiGraph) -> Result<String, ReadWriteError> {
+        self.write_digraph_gexf_with_graph_attrs(graph, &AttrMap::new())
+    }
+
+    pub fn write_digraph_gexf_with_graph_attrs(
+        &mut self,
+        graph: &DiGraph,
+        graph_attrs: &AttrMap,
+    ) -> Result<String, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "write_gexf".to_owned(),
+            requested_backend: None,
+            required_features: set(["write_gexf"]),
+            risk_probability: 0.08,
+            unknown_incompatible_feature: false,
+        })?;
+
+        self.write_gexf_impl(graph, graph_attrs, true)
+    }
+
+    fn write_gexf_impl<G>(
+        &mut self,
+        graph: &G,
+        graph_attrs: &AttrMap,
+        directed: bool,
+    ) -> Result<String, ReadWriteError>
+    where
+        G: GraphLikeRead,
+    {
+        let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 2);
+        writer
+            .write_event(Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), None)))
+            .map_err(|e| xml_write_err_for("write_gexf", "xml_decl", e))?;
+
+        let mut gexf_start = BytesStart::new("gexf");
+        gexf_start.push_attribute(("xmlns", "http://www.gexf.net/1.2draft"));
+        gexf_start.push_attribute(("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance"));
+        gexf_start.push_attribute((
+            "xsi:schemaLocation",
+            "http://www.gexf.net/1.2draft http://www.gexf.net/1.2draft/gexf.xsd",
+        ));
+        gexf_start.push_attribute(("version", "1.2"));
+        writer
+            .write_event(Event::Start(gexf_start))
+            .map_err(|e| xml_write_err_for("write_gexf", "gexf_start", e))?;
+
+        let meta_start = BytesStart::new("meta");
+        writer
+            .write_event(Event::Start(meta_start))
+            .map_err(|e| xml_write_err_for("write_gexf", "meta_start", e))?;
+        writer
+            .write_event(Event::Start(BytesStart::new("creator")))
+            .map_err(|e| xml_write_err_for("write_gexf", "creator_start", e))?;
+        writer
+            .write_event(Event::Text(BytesText::new("FrankenNetworkX")))
+            .map_err(|e| xml_write_err_for("write_gexf", "creator_text", e))?;
+        writer
+            .write_event(Event::End(BytesEnd::new("creator")))
+            .map_err(|e| xml_write_err_for("write_gexf", "creator_end", e))?;
+        writer
+            .write_event(Event::End(BytesEnd::new("meta")))
+            .map_err(|e| xml_write_err_for("write_gexf", "meta_end", e))?;
+
+        let mut node_attr_types: BTreeMap<String, GexfValueType> = BTreeMap::new();
+        let mut edge_attr_types: BTreeMap<String, GexfValueType> = BTreeMap::new();
+        let nodes = graph.nodes_ordered();
+        for node_id in &nodes {
+            if let Some(attrs) = graph.node_attrs(node_id) {
+                for (key, value) in attrs {
+                    if key == "label" {
+                        continue;
+                    }
+                    insert_gexf_attr_type(&mut node_attr_types, key.clone(), value);
+                }
+            }
+        }
+        let edges = graph.edges_ordered();
+        for edge in &edges {
+            for (key, value) in &edge.attrs {
+                if key == "id" || key == "weight" {
+                    continue;
+                }
+                insert_gexf_attr_type(&mut edge_attr_types, key.clone(), value);
+            }
+        }
+
+        let graph_name = graph_attrs
+            .get("name")
+            .map(CgseValue::as_str)
+            .unwrap_or_default();
+        let mut graph_elem = BytesStart::new("graph");
+        graph_elem.push_attribute((
+            "defaultedgetype",
+            if directed { "directed" } else { "undirected" },
+        ));
+        graph_elem.push_attribute(("mode", "static"));
+        graph_elem.push_attribute(("name", graph_name.as_str()));
+        writer
+            .write_event(Event::Start(graph_elem))
+            .map_err(|e| xml_write_err_for("write_gexf", "graph_start", e))?;
+
+        let mut next_attr_id = 0_usize;
+        let mut node_attr_ids = BTreeMap::new();
+        if !node_attr_types.is_empty() {
+            write_gexf_attr_decls(
+                &mut writer,
+                "node",
+                &node_attr_types,
+                &mut node_attr_ids,
+                &mut next_attr_id,
+            )?;
+        }
+        let mut edge_attr_ids = BTreeMap::new();
+        if !edge_attr_types.is_empty() {
+            write_gexf_attr_decls(
+                &mut writer,
+                "edge",
+                &edge_attr_types,
+                &mut edge_attr_ids,
+                &mut next_attr_id,
+            )?;
+        }
+
+        writer
+            .write_event(Event::Start(BytesStart::new("nodes")))
+            .map_err(|e| xml_write_err_for("write_gexf", "nodes_start", e))?;
+        for node_id in &nodes {
+            let node_attrs = graph.node_attrs(node_id);
+            let mut node_elem = BytesStart::new("node");
+            node_elem.push_attribute(("id", *node_id));
+            let label = node_attrs
+                .and_then(|attrs| attrs.get("label"))
+                .map(CgseValue::as_str)
+                .unwrap_or_else(|| (*node_id).to_owned());
+            node_elem.push_attribute(("label", label.as_str()));
+            let gexf_attrs = node_attrs
+                .map(|attrs| {
+                    attrs
+                        .iter()
+                        .filter(|(key, _)| key.as_str() != "label")
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            if gexf_attrs.is_empty() {
+                writer
+                    .write_event(Event::Empty(node_elem))
+                    .map_err(|e| xml_write_err_for("write_gexf", "node_empty", e))?;
+            } else {
+                writer
+                    .write_event(Event::Start(node_elem))
+                    .map_err(|e| xml_write_err_for("write_gexf", "node_start", e))?;
+                write_gexf_attvalues(&mut writer, &gexf_attrs, &node_attr_ids)?;
+                writer
+                    .write_event(Event::End(BytesEnd::new("node")))
+                    .map_err(|e| xml_write_err_for("write_gexf", "node_end", e))?;
+            }
+        }
+        writer
+            .write_event(Event::End(BytesEnd::new("nodes")))
+            .map_err(|e| xml_write_err_for("write_gexf", "nodes_end", e))?;
+
+        writer
+            .write_event(Event::Start(BytesStart::new("edges")))
+            .map_err(|e| xml_write_err_for("write_gexf", "edges_start", e))?;
+        for (idx, edge) in edges.iter().enumerate() {
+            let mut edge_elem = BytesStart::new("edge");
+            edge_elem.push_attribute(("source", edge.left.as_str()));
+            edge_elem.push_attribute(("target", edge.right.as_str()));
+            let edge_id = edge
+                .attrs
+                .get("id")
+                .map(gexf_value_str)
+                .unwrap_or_else(|| idx.to_string());
+            edge_elem.push_attribute(("id", edge_id.as_str()));
+            let weight = edge.attrs.get("weight").map(gexf_value_str);
+            if let Some(weight) = weight.as_ref() {
+                edge_elem.push_attribute(("weight", weight.as_str()));
+            }
+            let gexf_attrs = edge
+                .attrs
+                .iter()
+                .filter(|(key, _)| key.as_str() != "id" && key.as_str() != "weight")
+                .collect::<Vec<_>>();
+            if gexf_attrs.is_empty() {
+                writer
+                    .write_event(Event::Empty(edge_elem))
+                    .map_err(|e| xml_write_err_for("write_gexf", "edge_empty", e))?;
+            } else {
+                writer
+                    .write_event(Event::Start(edge_elem))
+                    .map_err(|e| xml_write_err_for("write_gexf", "edge_start", e))?;
+                write_gexf_attvalues(&mut writer, &gexf_attrs, &edge_attr_ids)?;
+                writer
+                    .write_event(Event::End(BytesEnd::new("edge")))
+                    .map_err(|e| xml_write_err_for("write_gexf", "edge_end", e))?;
+            }
+        }
+        writer
+            .write_event(Event::End(BytesEnd::new("edges")))
+            .map_err(|e| xml_write_err_for("write_gexf", "edges_end", e))?;
+        writer
+            .write_event(Event::End(BytesEnd::new("graph")))
+            .map_err(|e| xml_write_err_for("write_gexf", "graph_end", e))?;
+        writer
+            .write_event(Event::End(BytesEnd::new("gexf")))
+            .map_err(|e| xml_write_err_for("write_gexf", "gexf_end", e))?;
+
+        let result = writer.into_inner().into_inner();
+        let output = String::from_utf8(result).map_err(|e| ReadWriteError::FailClosed {
+            operation: "write_gexf",
+            reason: format!("UTF-8 encoding error: {e}"),
+        })?;
+        self.record(
+            "write_gexf",
+            DecisionAction::Allow,
+            "gexf serialization completed",
+            0.04,
+        );
+        Ok(output)
+    }
+
+    pub fn read_gexf(&mut self, input: &str) -> Result<ReadWriteReport, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "read_gexf".to_owned(),
+            requested_backend: None,
+            required_features: set(["read_gexf"]),
+            risk_probability: 0.12,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let mut graph = Graph::new(self.mode);
+        let mut graph_attrs = AttrMap::new();
+        let mut warnings = Vec::new();
+        let directed = self.gexf_directed_flag(input)?;
+        if directed.declared && directed.value {
+            let warning = "GEXF declares directed but read into undirected Graph".to_owned();
+            if self.mode == CompatibilityMode::Strict {
+                self.record("read_gexf", DecisionAction::FailClosed, &warning, 1.0);
+                return Err(ReadWriteError::FailClosed {
+                    operation: "read_gexf",
+                    reason: warning,
+                });
+            }
+            warnings.push(warning.clone());
+            self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.7);
+        }
+        self.read_gexf_into(&mut graph, &mut graph_attrs, &mut warnings, input)?;
+        self.record(
+            "read_gexf",
+            DecisionAction::Allow,
+            "gexf parse completed",
+            0.05,
+        );
+        Ok(self.finish_graph_report(graph, graph_attrs, warnings))
+    }
+
+    pub fn read_digraph_gexf(&mut self, input: &str) -> Result<DiReadWriteReport, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "read_gexf".to_owned(),
+            requested_backend: None,
+            required_features: set(["read_gexf"]),
+            risk_probability: 0.12,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let mut graph = DiGraph::new(self.mode);
+        let mut graph_attrs = AttrMap::new();
+        let mut warnings = Vec::new();
+        let directed = self.gexf_directed_flag(input)?;
+        if directed.declared && !directed.value {
+            let warning = "GEXF declares undirected but read into directed DiGraph".to_owned();
+            if self.mode == CompatibilityMode::Strict {
+                self.record("read_gexf", DecisionAction::FailClosed, &warning, 1.0);
+                return Err(ReadWriteError::FailClosed {
+                    operation: "read_gexf",
+                    reason: warning,
+                });
+            }
+            warnings.push(warning.clone());
+            self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.7);
+        }
+        self.read_gexf_into(&mut graph, &mut graph_attrs, &mut warnings, input)?;
+        self.record(
+            "read_gexf",
+            DecisionAction::Allow,
+            "digraph gexf parse completed",
+            0.05,
+        );
+        Ok(self.finish_digraph_report(graph, graph_attrs, warnings))
+    }
+
+    pub fn gexf_declares_directed(&mut self, input: &str) -> Result<bool, ReadWriteError> {
+        self.gexf_directed_flag(input).map(|flag| flag.value)
+    }
+
+    fn gexf_directed_flag(&mut self, input: &str) -> Result<GexfDirectedFlag, ReadWriteError> {
+        let mut reader = Reader::from_str(input);
+        reader.config_mut().trim_text(true);
+
+        loop {
+            match reader.read_event() {
+                Ok(Event::Start(element)) | Ok(Event::Empty(element))
+                    if xml_local_name(element.name().as_ref()) == b"graph" =>
+                {
+                    for attr in element.attributes() {
+                        let attr = match attr {
+                            Ok(attr) => attr,
+                            Err(err) => {
+                                let warning = format!("gexf graph attribute parse error: {err}");
+                                if self.mode == CompatibilityMode::Strict {
+                                    self.record(
+                                        "read_gexf",
+                                        DecisionAction::FailClosed,
+                                        &warning,
+                                        1.0,
+                                    );
+                                    return Err(ReadWriteError::FailClosed {
+                                        operation: "read_gexf",
+                                        reason: warning,
+                                    });
+                                }
+                                self.record(
+                                    "read_gexf",
+                                    DecisionAction::FullValidate,
+                                    &warning,
+                                    0.7,
+                                );
+                                return Ok(GexfDirectedFlag {
+                                    declared: false,
+                                    value: false,
+                                });
+                            }
+                        };
+                        if xml_local_name(attr.key.as_ref()) == b"defaultedgetype" {
+                            let value = xml_attr_value(&attr, reader.decoder())?;
+                            return match value.trim().to_ascii_lowercase().as_str() {
+                                "directed" | "mutual" => Ok(GexfDirectedFlag {
+                                    declared: true,
+                                    value: true,
+                                }),
+                                "undirected" => Ok(GexfDirectedFlag {
+                                    declared: true,
+                                    value: false,
+                                }),
+                                _ => {
+                                    let warning =
+                                        format!("gexf defaultedgetype invalid: value={value:?}");
+                                    if self.mode == CompatibilityMode::Strict {
+                                        self.record(
+                                            "read_gexf",
+                                            DecisionAction::FailClosed,
+                                            &warning,
+                                            1.0,
+                                        );
+                                        Err(ReadWriteError::FailClosed {
+                                            operation: "read_gexf",
+                                            reason: warning,
+                                        })
+                                    } else {
+                                        self.record(
+                                            "read_gexf",
+                                            DecisionAction::FullValidate,
+                                            &warning,
+                                            0.7,
+                                        );
+                                        Ok(GexfDirectedFlag {
+                                            declared: false,
+                                            value: false,
+                                        })
+                                    }
+                                }
+                            };
+                        }
+                    }
+                    return Ok(GexfDirectedFlag {
+                        declared: false,
+                        value: false,
+                    });
+                }
+                Ok(Event::Eof) => {
+                    return Ok(GexfDirectedFlag {
+                        declared: false,
+                        value: false,
+                    });
+                }
+                Err(err) => {
+                    let warning = format!("gexf directed detection failed: {err}");
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_gexf", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_gexf",
+                            reason: warning,
+                        });
+                    }
+                    self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.7);
+                    return Ok(GexfDirectedFlag {
+                        declared: false,
+                        value: false,
+                    });
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn read_gexf_into<G>(
+        &mut self,
+        graph: &mut G,
+        graph_attrs: &mut AttrMap,
+        warnings: &mut Vec<String>,
+        input: &str,
+    ) -> Result<(), ReadWriteError>
+    where
+        G: GraphLike,
+    {
+        let mut reader = Reader::from_str(input);
+        reader.config_mut().trim_text(true);
+
+        let mut attr_defs: BTreeMap<String, GexfAttrDef> = BTreeMap::new();
+        let mut current_attr_class: Option<String> = None;
+        let mut current_node: Option<String> = None;
+        let mut current_edge: Option<(String, String)> = None;
+        let mut current_edge_skip = false;
+        let mut pending_node_attrs = AttrMap::new();
+        let mut pending_edge_attrs = AttrMap::new();
+
+        loop {
+            match reader.read_event() {
+                Ok(Event::Start(ref element)) => {
+                    self.handle_gexf_start_element(
+                        element,
+                        reader.decoder(),
+                        graph,
+                        graph_attrs,
+                        warnings,
+                        &mut attr_defs,
+                        &mut current_attr_class,
+                        &mut current_node,
+                        &mut current_edge,
+                        &mut current_edge_skip,
+                        &mut pending_node_attrs,
+                        &mut pending_edge_attrs,
+                    )?;
+                }
+                Ok(Event::Empty(ref element)) => {
+                    self.handle_gexf_start_element(
+                        element,
+                        reader.decoder(),
+                        graph,
+                        graph_attrs,
+                        warnings,
+                        &mut attr_defs,
+                        &mut current_attr_class,
+                        &mut current_node,
+                        &mut current_edge,
+                        &mut current_edge_skip,
+                        &mut pending_node_attrs,
+                        &mut pending_edge_attrs,
+                    )?;
+                    self.handle_gexf_end_element(
+                        xml_local_name(element.name().as_ref()),
+                        graph,
+                        &mut current_attr_class,
+                        &mut current_node,
+                        &mut current_edge,
+                        &mut current_edge_skip,
+                        &mut pending_node_attrs,
+                        &mut pending_edge_attrs,
+                        warnings,
+                    )?;
+                }
+                Ok(Event::End(ref element)) => {
+                    self.handle_gexf_end_element(
+                        xml_local_name(element.name().as_ref()),
+                        graph,
+                        &mut current_attr_class,
+                        &mut current_node,
+                        &mut current_edge,
+                        &mut current_edge_skip,
+                        &mut pending_node_attrs,
+                        &mut pending_edge_attrs,
+                        warnings,
+                    )?;
+                }
+                Ok(Event::Eof) => break,
+                Err(err) => {
+                    let warning = format!("gexf xml parse error: {err}");
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_gexf", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_gexf",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.8);
+                    break;
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn handle_gexf_start_element<G>(
+        &mut self,
+        element: &BytesStart<'_>,
+        decoder: Decoder,
+        graph: &mut G,
+        graph_attrs: &mut AttrMap,
+        warnings: &mut Vec<String>,
+        attr_defs: &mut BTreeMap<String, GexfAttrDef>,
+        current_attr_class: &mut Option<String>,
+        current_node: &mut Option<String>,
+        current_edge: &mut Option<(String, String)>,
+        current_edge_skip: &mut bool,
+        pending_node_attrs: &mut AttrMap,
+        pending_edge_attrs: &mut AttrMap,
+    ) -> Result<(), ReadWriteError>
+    where
+        G: GraphLike,
+    {
+        match xml_local_name(element.name().as_ref()) {
+            b"graph" => {
+                for attr in element.attributes() {
+                    let attr = parse_xml_attr(attr, "read_gexf", "gexf graph attribute")?;
+                    if xml_local_name(attr.key.as_ref()) == b"name" {
+                        let value = xml_attr_value(&attr, decoder)?;
+                        if !value.is_empty() {
+                            graph_attrs.insert("name".to_owned(), CgseValue::String(value));
+                        }
+                    }
+                }
+            }
+            b"attributes" => {
+                let mut class = String::new();
+                for attr in element.attributes() {
+                    let attr = parse_xml_attr(attr, "read_gexf", "gexf attributes attribute")?;
+                    if xml_local_name(attr.key.as_ref()) == b"class" {
+                        class = xml_attr_value(&attr, decoder)?;
+                    }
+                }
+                *current_attr_class = Some(class);
+            }
+            b"attribute" => {
+                let mut id = String::new();
+                let mut title = String::new();
+                let mut attr_type = "string".to_owned();
+                for attr in element.attributes() {
+                    let attr = parse_xml_attr(attr, "read_gexf", "gexf attribute attribute")?;
+                    match xml_local_name(attr.key.as_ref()) {
+                        b"id" => id = xml_attr_value(&attr, decoder)?,
+                        b"title" => title = xml_attr_value(&attr, decoder)?,
+                        b"type" => attr_type = xml_attr_value(&attr, decoder)?,
+                        _ => {}
+                    }
+                }
+                if id.is_empty() || title.is_empty() {
+                    let warning =
+                        format!("gexf attribute missing id/title: id={id:?} title={title:?}");
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_gexf", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_gexf",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.7);
+                    return Ok(());
+                }
+                attr_defs.insert(
+                    id,
+                    GexfAttrDef {
+                        class: current_attr_class.clone().unwrap_or_default(),
+                        title,
+                        attr_type,
+                    },
+                );
+            }
+            b"node" => {
+                let mut id = String::new();
+                let mut label: Option<String> = None;
+                for attr in element.attributes() {
+                    let attr = parse_xml_attr(attr, "read_gexf", "gexf node attribute")?;
+                    match xml_local_name(attr.key.as_ref()) {
+                        b"id" => id = xml_attr_value(&attr, decoder)?,
+                        b"label" => label = Some(xml_attr_value(&attr, decoder)?),
+                        _ => {}
+                    }
+                }
+                if id.is_empty() {
+                    let warning = "gexf node missing id attribute".to_owned();
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_gexf", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_gexf",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.7);
+                    return Ok(());
+                }
+                let _ = graph.add_node(id.clone());
+                pending_node_attrs.clear();
+                pending_node_attrs.insert(
+                    "label".to_owned(),
+                    CgseValue::String(label.unwrap_or_else(|| id.clone())),
+                );
+                *current_node = Some(id);
+            }
+            b"edge" => {
+                let mut source = String::new();
+                let mut target = String::new();
+                pending_edge_attrs.clear();
+                *current_edge_skip = false;
+                for attr in element.attributes() {
+                    let attr = parse_xml_attr(attr, "read_gexf", "gexf edge attribute")?;
+                    match xml_local_name(attr.key.as_ref()) {
+                        b"source" => source = xml_attr_value(&attr, decoder)?,
+                        b"target" => target = xml_attr_value(&attr, decoder)?,
+                        b"id" => {
+                            pending_edge_attrs.insert(
+                                "id".to_owned(),
+                                CgseValue::String(xml_attr_value(&attr, decoder)?),
+                            );
+                        }
+                        b"weight" => {
+                            let value = xml_attr_value(&attr, decoder)?;
+                            pending_edge_attrs.insert(
+                                "weight".to_owned(),
+                                value
+                                    .parse::<f64>()
+                                    .map(CgseValue::Float)
+                                    .unwrap_or_else(|_| CgseValue::String(value)),
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+                if source.is_empty() || target.is_empty() {
+                    let warning = format!(
+                        "gexf edge missing source/target: source={source:?} target={target:?}"
+                    );
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_gexf", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_gexf",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.7);
+                    *current_edge_skip = true;
+                } else if graph.has_edge(&source, &target) {
+                    let warning = format!(
+                        "gexf multiedge not supported: source={source:?} target={target:?}"
+                    );
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_gexf", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_gexf",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.7);
+                    *current_edge_skip = true;
+                }
+                *current_edge = Some((source, target));
+            }
+            b"attvalue" => {
+                let mut attr_id = String::new();
+                let mut raw_value = String::new();
+                for attr in element.attributes() {
+                    let attr = parse_xml_attr(attr, "read_gexf", "gexf attvalue attribute")?;
+                    match xml_local_name(attr.key.as_ref()) {
+                        b"for" => attr_id = xml_attr_value(&attr, decoder)?,
+                        b"value" => raw_value = xml_attr_value(&attr, decoder)?,
+                        _ => {}
+                    }
+                }
+                let Some(def) = attr_defs.get(&attr_id).cloned() else {
+                    let warning = format!("gexf attvalue key not declared: key={attr_id}");
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_gexf", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_gexf",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.7);
+                    return Ok(());
+                };
+                let target_class = if current_edge.is_some() {
+                    "edge"
+                } else if current_node.is_some() {
+                    "node"
+                } else {
+                    "graph"
+                };
+                if !gexf_class_matches(&def.class, target_class) {
+                    let warning = format!(
+                        "gexf attvalue class mismatch: key={attr_id} declared_for={:?} target={target_class}",
+                        def.class
+                    );
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_gexf", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_gexf",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.7);
+                    return Ok(());
+                }
+                let value =
+                    self.parse_gexf_typed_value(&attr_id, &def.attr_type, raw_value, warnings)?;
+                if current_edge.is_some() {
+                    pending_edge_attrs.insert(def.title, value);
+                } else if current_node.is_some() {
+                    pending_node_attrs.insert(def.title, value);
+                } else {
+                    graph_attrs.insert(def.title, value);
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn handle_gexf_end_element<G>(
+        &mut self,
+        local: &[u8],
+        graph: &mut G,
+        current_attr_class: &mut Option<String>,
+        current_node: &mut Option<String>,
+        current_edge: &mut Option<(String, String)>,
+        current_edge_skip: &mut bool,
+        pending_node_attrs: &mut AttrMap,
+        pending_edge_attrs: &mut AttrMap,
+        warnings: &mut Vec<String>,
+    ) -> Result<(), ReadWriteError>
+    where
+        G: GraphLike,
+    {
+        match local {
+            b"attributes" => {
+                *current_attr_class = None;
+            }
+            b"node" => {
+                if let Some(node_id) = current_node.take()
+                    && !pending_node_attrs.is_empty()
+                {
+                    graph.add_node_with_attrs(node_id, std::mem::take(pending_node_attrs));
+                }
+                pending_node_attrs.clear();
+            }
+            b"edge" => {
+                if let Some((source, target)) = current_edge.take() {
+                    if *current_edge_skip {
+                        *current_edge_skip = false;
+                        pending_edge_attrs.clear();
+                    } else {
+                        let result = graph.add_edge_with_attrs(
+                            source,
+                            target,
+                            std::mem::take(pending_edge_attrs),
+                        );
+                        if let Err(err) = result {
+                            let warning = format!("gexf edge add failed: {err}");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record("read_gexf", DecisionAction::FailClosed, &warning, 1.0);
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_gexf",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.7);
+                        }
+                    }
+                }
+                pending_edge_attrs.clear();
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn parse_gexf_typed_value(
+        &mut self,
+        attr_id: &str,
+        attr_type: &str,
+        raw_value: String,
+        warnings: &mut Vec<String>,
+    ) -> Result<CgseValue, ReadWriteError> {
+        if raw_value.is_empty() {
+            return Ok(CgseValue::String(raw_value));
+        }
+
+        let raw_for_error = raw_value.clone();
+        let trimmed = raw_value.trim();
+        let parsed = match attr_type.trim().to_ascii_lowercase().as_str() {
+            "boolean" => match trimmed.to_ascii_lowercase().as_str() {
+                "true" | "1" => Ok(CgseValue::Bool(true)),
+                "false" | "0" => Ok(CgseValue::Bool(false)),
+                _ => Err("boolean"),
+            },
+            "integer" | "int" | "long" => trimmed
+                .parse::<i64>()
+                .map(CgseValue::Int)
+                .map_err(|_| "integer"),
+            "float" | "double" => trimmed
+                .parse::<f64>()
+                .map(CgseValue::Float)
+                .map_err(|_| "float"),
+            "" | "string" | "liststring" | "anyuri" => Ok(CgseValue::String(raw_value)),
+            _ => Ok(CgseValue::parse_relaxed(trimmed)),
+        };
+
+        match parsed {
+            Ok(value) => Ok(value),
+            Err(expected) => {
+                let warning = format!(
+                    "gexf attr parse failed: key={attr_id} type={attr_type} expected={expected} value={raw_for_error:?}"
+                );
+                if self.mode == CompatibilityMode::Strict {
+                    self.record("read_gexf", DecisionAction::FailClosed, &warning, 1.0);
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_gexf",
+                        reason: warning,
+                    });
+                }
+                warnings.push(warning.clone());
+                self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.8);
+                Ok(CgseValue::String(raw_for_error))
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // GML (Graph Modelling Language)
     // -----------------------------------------------------------------------
 
@@ -3234,6 +4115,122 @@ impl GraphmlValueType {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum GexfValueType {
+    Boolean,
+    Long,
+    Double,
+    String,
+}
+
+impl GexfValueType {
+    fn from_value(value: &CgseValue) -> Self {
+        match value {
+            CgseValue::Bool(_) => Self::Boolean,
+            CgseValue::Int(_) => Self::Long,
+            CgseValue::Float(_) => Self::Double,
+            CgseValue::String(_) | CgseValue::Map(_) => Self::String,
+        }
+    }
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Boolean => "boolean",
+            Self::Long => "long",
+            Self::Double => "double",
+            Self::String => "string",
+        }
+    }
+}
+
+fn insert_gexf_attr_type(
+    attr_types: &mut BTreeMap<String, GexfValueType>,
+    key: String,
+    value: &CgseValue,
+) {
+    let incoming = GexfValueType::from_value(value);
+    attr_types
+        .entry(key)
+        .and_modify(|existing| {
+            if *existing != incoming {
+                *existing = GexfValueType::String;
+            }
+        })
+        .or_insert(incoming);
+}
+
+fn gexf_value_str(value: &CgseValue) -> String {
+    match value {
+        CgseValue::Bool(flag) => flag.to_string(),
+        CgseValue::Int(value) => value.to_string(),
+        CgseValue::Float(value) => value.to_string(),
+        CgseValue::String(value) => value.clone(),
+        CgseValue::Map(map) => serde_json::to_string(map).unwrap_or_else(|_| "{}".to_owned()),
+    }
+}
+
+fn write_gexf_attr_decls(
+    writer: &mut Writer<Cursor<Vec<u8>>>,
+    class: &str,
+    attr_types: &BTreeMap<String, GexfValueType>,
+    attr_ids: &mut BTreeMap<String, String>,
+    next_attr_id: &mut usize,
+) -> Result<(), ReadWriteError> {
+    let mut attrs_elem = BytesStart::new("attributes");
+    attrs_elem.push_attribute(("mode", "static"));
+    attrs_elem.push_attribute(("class", class));
+    writer
+        .write_event(Event::Start(attrs_elem))
+        .map_err(|e| xml_write_err_for("write_gexf", "attributes_start", e))?;
+
+    for (title, attr_type) in attr_types {
+        let attr_id = next_attr_id.to_string();
+        *next_attr_id += 1;
+        let mut attr_elem = BytesStart::new("attribute");
+        attr_elem.push_attribute(("id", attr_id.as_str()));
+        attr_elem.push_attribute(("title", title.as_str()));
+        attr_elem.push_attribute(("type", attr_type.as_str()));
+        writer
+            .write_event(Event::Empty(attr_elem))
+            .map_err(|e| xml_write_err_for("write_gexf", "attribute_empty", e))?;
+        attr_ids.insert(title.clone(), attr_id);
+    }
+
+    writer
+        .write_event(Event::End(BytesEnd::new("attributes")))
+        .map_err(|e| xml_write_err_for("write_gexf", "attributes_end", e))?;
+    Ok(())
+}
+
+fn write_gexf_attvalues(
+    writer: &mut Writer<Cursor<Vec<u8>>>,
+    attrs: &[(&String, &CgseValue)],
+    attr_ids: &BTreeMap<String, String>,
+) -> Result<(), ReadWriteError> {
+    writer
+        .write_event(Event::Start(BytesStart::new("attvalues")))
+        .map_err(|e| xml_write_err_for("write_gexf", "attvalues_start", e))?;
+    for (title, value) in attrs {
+        let Some(attr_id) = attr_ids.get(*title) else {
+            return Err(ReadWriteError::FailClosed {
+                operation: "write_gexf",
+                reason: format!("gexf attribute id not declared: title={title}"),
+            });
+        };
+        let value = gexf_value_str(value);
+        let mut attvalue_elem = BytesStart::new("attvalue");
+        attvalue_elem.push_attribute(("for", attr_id.as_str()));
+        attvalue_elem.push_attribute(("value", value.as_str()));
+        writer
+            .write_event(Event::Empty(attvalue_elem))
+            .map_err(|e| xml_write_err_for("write_gexf", "attvalue_empty", e))?;
+    }
+    writer
+        .write_event(Event::End(BytesEnd::new("attvalues")))
+        .map_err(|e| xml_write_err_for("write_gexf", "attvalues_end", e))?;
+    Ok(())
+}
+
 /// Remove surrounding quotes from a GML token.
 fn gml_unescape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -3488,10 +4485,38 @@ fn decode_attrs(
 }
 
 fn xml_write_err(context: &str, err: std::io::Error) -> ReadWriteError {
+    xml_write_err_for("write_graphml", context, err)
+}
+
+fn xml_write_err_for(
+    operation: &'static str,
+    context: &str,
+    err: std::io::Error,
+) -> ReadWriteError {
     ReadWriteError::FailClosed {
-        operation: "write_graphml",
+        operation,
         reason: format!("xml write error ({context}): {err}"),
     }
+}
+
+fn parse_xml_attr<'a>(
+    attr: Result<Attribute<'a>, quick_xml::events::attributes::AttrError>,
+    operation: &'static str,
+    context: &str,
+) -> Result<Attribute<'a>, ReadWriteError> {
+    attr.map_err(|err| ReadWriteError::FailClosed {
+        operation,
+        reason: format!("{context} parse error: {err}"),
+    })
+}
+
+fn xml_attr_value(attr: &Attribute<'_>, decoder: Decoder) -> Result<String, ReadWriteError> {
+    attr.decode_and_unescape_value(decoder)
+        .map(|value| value.into_owned())
+        .map_err(|err| ReadWriteError::FailClosed {
+            operation: "read_gexf",
+            reason: format!("xml attribute decode error: {err}"),
+        })
 }
 
 fn set<const N: usize>(values: [&str; N]) -> BTreeSet<String> {
@@ -3522,12 +4547,23 @@ struct GraphmlDirectedFlag {
     warning: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct GexfDirectedFlag {
+    declared: bool,
+    value: bool,
+}
+
 fn graphml_scope_matches(for_scope: &str, target: &str) -> bool {
     let scope = for_scope.trim().to_ascii_lowercase();
     if scope.is_empty() || scope == "all" {
         return true;
     }
     scope == target
+}
+
+fn gexf_class_matches(class: &str, target: &str) -> bool {
+    let class = class.trim().to_ascii_lowercase();
+    class.is_empty() || class == target
 }
 
 fn parse_graphml_directed_value(value: &[u8]) -> Option<bool> {
@@ -4364,6 +5400,80 @@ mod tests {
             .expect("graphml read should succeed");
         assert!(parsed.warnings.is_empty());
         assert_eq!(graph.snapshot(), parsed.graph.snapshot());
+    }
+
+    #[test]
+    fn gexf_round_trip_preserves_labels_and_typed_attrs() {
+        let mut graph = Graph::strict();
+        graph.add_node_with_attrs(
+            "n0".to_owned(),
+            BTreeMap::from([
+                ("label".to_owned(), CgseValue::String("Node Zero".to_owned())),
+                ("color".to_owned(), CgseValue::String("red".to_owned())),
+                ("size".to_owned(), CgseValue::Int(3)),
+                ("ok".to_owned(), CgseValue::Bool(true)),
+            ]),
+        );
+        graph.add_node("n1");
+        graph
+            .add_edge_with_attrs(
+                "n0".to_owned(),
+                "n1".to_owned(),
+                BTreeMap::from([
+                    ("weight".to_owned(), CgseValue::Float(2.5)),
+                    ("kind".to_owned(), CgseValue::String("demo".to_owned())),
+                ]),
+            )
+            .expect("edge add should succeed");
+
+        let mut engine = EdgeListEngine::strict();
+        let xml = engine.write_gexf(&graph).expect("gexf write should succeed");
+        assert!(xml.contains("<gexf"));
+        assert!(xml.contains("defaultedgetype=\"undirected\""));
+
+        let parsed = engine.read_gexf(&xml).expect("gexf read should succeed");
+        assert!(parsed.warnings.is_empty());
+        assert_eq!(parsed.graph.node_count(), 2);
+        assert_eq!(parsed.graph.edge_count(), 1);
+        let attrs = parsed.graph.node_attrs("n0").expect("node attrs");
+        assert_eq!(
+            attrs.get("label"),
+            Some(&CgseValue::String("Node Zero".to_owned()))
+        );
+        assert_eq!(attrs.get("color"), Some(&CgseValue::String("red".to_owned())));
+        assert_eq!(attrs.get("size"), Some(&CgseValue::Int(3)));
+        assert_eq!(attrs.get("ok"), Some(&CgseValue::Bool(true)));
+        let edge_attrs = parsed
+            .graph
+            .edge_attrs("n0", "n1")
+            .expect("edge attrs should exist");
+        assert_eq!(edge_attrs.get("weight"), Some(&CgseValue::Float(2.5)));
+        assert_eq!(
+            edge_attrs.get("kind"),
+            Some(&CgseValue::String("demo".to_owned()))
+        );
+        assert_eq!(edge_attrs.get("id"), Some(&CgseValue::String("0".to_owned())));
+    }
+
+    #[test]
+    fn digraph_gexf_round_trip_preserves_direction() {
+        let mut graph = DiGraph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+
+        let mut engine = EdgeListEngine::strict();
+        let xml = engine
+            .write_digraph_gexf(&graph)
+            .expect("gexf write should succeed");
+        assert!(xml.contains("defaultedgetype=\"directed\""));
+
+        let parsed = engine
+            .read_digraph_gexf(&xml)
+            .expect("gexf read should succeed");
+        assert!(parsed.warnings.is_empty());
+        assert_eq!(parsed.graph.node_count(), 2);
+        assert_eq!(parsed.graph.edge_count(), 1);
+        assert!(parsed.graph.has_edge("a", "b"));
+        assert!(!parsed.graph.has_edge("b", "a"));
     }
 
     #[test]

@@ -7,8 +7,8 @@
 | Category | Count | % | Rule |
 |----------|-------|---|------|
 | RUST_NATIVE | 239 | 30% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 448 | 57% | Python-defined exports with no runtime NetworkX dependency detected |
-| NX_DELEGATED | 71 | 9% | Python-defined exports that import or call NetworkX at runtime |
+| PY_WRAPPER | 456 | 58% | Python-defined exports with no runtime NetworkX dependency detected |
+| NX_DELEGATED | 63 | 8% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 19 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
 | **Total public exports** | **779** | | unique names from `franken_networkx.__all__` |
@@ -270,7 +270,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_gml`
 - `write_graphml`
 
-## PY_WRAPPER exports (448)
+## PY_WRAPPER exports (460)
 
 - `LCF_graph`
 - `add_cycle`
@@ -436,12 +436,14 @@ All declared public exports are classified. `--check` fails if this generated re
 - `from_dict_of_dicts`
 - `from_dict_of_lists`
 - `from_edgelist`
+- `from_graph6_bytes`
 - `from_nested_tuple`
 - `from_numpy_array`
 - `from_pandas_adjacency`
 - `from_pandas_edgelist`
 - `from_prufer_sequence`
 - `from_scipy_sparse_array`
+- `from_sparse6_bytes`
 - `frucht_graph`
 - `fruchterman_reingold_layout`
 - `full_join`
@@ -452,6 +454,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `generalized_petersen_graph`
 - `generate_adjlist`
 - `generate_edgelist`
+- `generate_gexf`
 - `generate_multiline_adjlist`
 - `generate_network_text`
 - `generate_random_paths`
@@ -628,11 +631,15 @@ All declared public exports are classified. `--check` fails if this generated re
 - `random_unlabeled_rooted_forest`
 - `random_unlabeled_rooted_tree`
 - `random_unlabeled_tree`
+- `read_graph6`
+- `read_gexf`
 - `read_multiline_adjlist`
+- `read_sparse6`
 - `read_weighted_edgelist`
 - `reciprocity`
 - `reconstruct_path`
 - `recursive_simple_cycles`
+- `relabel_gexf_graph`
 - `relabel_nodes`
 - `relaxed_caveman_graph`
 - `remove_edge_attributes`
@@ -677,6 +684,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `to_dict_of_lists`
 - `to_directed`
 - `to_edgelist`
+- `to_graph6_bytes`
 - `to_latex_raw`
 - `to_nested_tuple`
 - `to_networkx_graph`
@@ -685,6 +693,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `to_pandas_edgelist`
 - `to_prufer_sequence`
 - `to_scipy_sparse_array`
+- `to_sparse6_bytes`
 - `to_undirected`
 - `transitive_closure_dag`
 - `tree_all_pairs_lowest_common_ancestor`
@@ -715,13 +724,16 @@ All declared public exports are classified. `--check` fails if this generated re
 - `wheel_graph`
 - `windmill_graph`
 - `within_inter_cluster`
+- `write_graph6`
+- `write_gexf`
 - `write_graphml_lxml`
 - `write_graphml_xml`
 - `write_multiline_adjlist`
 - `write_network_text`
+- `write_sparse6`
 - `write_weighted_edgelist`
 
-## NX_DELEGATED exports (71)
+## NX_DELEGATED exports (59)
 
 - `LFR_benchmark_graph`
 - `apply_matplotlib_colors`
@@ -741,9 +753,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `draw_spring`
 - `expected_degree_graph`
 - `extended_barabasi_albert_graph`
-- `from_graph6_bytes`
-- `from_sparse6_bytes`
-- `generate_gexf`
 - `generate_gml`
 - `generate_graphml`
 - `generate_pajek`
@@ -774,26 +783,17 @@ All declared public exports are classified. `--check` fails if this generated re
 - `random_clustered_graph`
 - `random_degree_sequence_graph`
 - `random_layout`
-- `read_gexf`
-- `read_graph6`
 - `read_leda`
 - `read_pajek`
-- `read_sparse6`
-- `relabel_gexf_graph`
 - `rescale_layout_dict`
 - `shell_layout`
 - `spectral_layout`
 - `spring_layout`
-- `to_graph6_bytes`
 - `to_latex`
-- `to_sparse6_bytes`
 - `tree_data`
 - `triangular_lattice_graph`
-- `write_gexf`
-- `write_graph6`
 - `write_latex`
 - `write_pajek`
-- `write_sparse6`
 
 ## CLASS exports (19)
 

@@ -2,6 +2,7 @@
 
 import ast
 from io import BytesIO
+from pathlib import Path
 
 
 def _normalize_lines(lines):
@@ -35,6 +36,13 @@ def _to_nx_create_using(create_using=None):
     if graph.is_multigraph():
         return nx.MultiDiGraph() if graph.is_directed() else nx.MultiGraph()
     return nx.DiGraph() if graph.is_directed() else nx.Graph()
+
+
+def _to_nx(G):
+    """Convert a FrankenNetworkX graph into a NetworkX graph for delegated formats."""
+    from franken_networkx.backend import _fnx_to_nx
+
+    return _fnx_to_nx(G)
 
 
 def _strip_comment(line, comments):
@@ -93,6 +101,137 @@ def _from_nx_graph_or_graphs(graph_or_graphs, create_using=None):
     if isinstance(graph_or_graphs, list):
         return [_from_nx_graph(graph) for graph in graph_or_graphs]
     return _from_nx_graph(graph_or_graphs, create_using=create_using)
+
+
+def _read_bytes(path):
+    """Read bytes from a path-like or file-like object."""
+    if hasattr(path, "read"):
+        data = path.read()
+    else:
+        data = Path(path).read_bytes()
+    if isinstance(data, str):
+        return data.encode("ascii")
+    return bytes(data)
+
+
+def _write_bytes(path, data):
+    """Write bytes to a path-like or file-like object."""
+    if hasattr(path, "write"):
+        try:
+            path.write(data)
+        except TypeError:
+            path.write(data.decode("ascii"))
+        return None
+    Path(path).write_bytes(data)
+    return None
+
+
+def _graph6_data_to_n(data):
+    """Decode the graph6 variable-length node count prefix."""
+    if data[0] <= 62:
+        return data[0], data[1:]
+    if data[1] <= 62:
+        return (data[1] << 12) + (data[2] << 6) + data[3], data[4:]
+    return (
+        (data[2] << 30)
+        + (data[3] << 24)
+        + (data[4] << 18)
+        + (data[5] << 12)
+        + (data[6] << 6)
+        + data[7],
+        data[8:],
+    )
+
+
+def _graph6_n_to_data(n):
+    """Encode a graph6 variable-length node count prefix."""
+    if n <= 62:
+        return [n]
+    if n <= 258047:
+        return [63, (n >> 12) & 0x3F, (n >> 6) & 0x3F, n & 0x3F]
+    return [
+        63,
+        63,
+        (n >> 30) & 0x3F,
+        (n >> 24) & 0x3F,
+        (n >> 18) & 0x3F,
+        (n >> 12) & 0x3F,
+        (n >> 6) & 0x3F,
+        n & 0x3F,
+    ]
+
+
+def _graph6_values(data):
+    """Convert ASCII graph6/sparse6 payload bytes into 6-bit values."""
+    values = [byte - 63 for byte in data]
+    if any(value < 0 or value > 63 for value in values):
+        raise ValueError("each input character must be in range(63, 127)")
+    return values
+
+
+def _graph6_bits(values):
+    """Yield bits from graph6 6-bit values, most-significant bit first."""
+    for value in values:
+        for shift in (5, 4, 3, 2, 1, 0):
+            yield (value >> shift) & 1
+
+
+def _bits_to_graph6_bytes(bits):
+    """Pack a bit list into graph6 6-bit ASCII payload bytes."""
+    if len(bits) % 6:
+        bits = [*bits, *([0] * (6 - (len(bits) % 6)))]
+    output = bytearray()
+    for index in range(0, len(bits), 6):
+        chunk = bits[index : index + 6]
+        value = 0
+        for bit in chunk:
+            value = (value << 1) | bit
+        output.append(value + 63)
+    return bytes(output)
+
+
+def _format_nodes_for_graph6(G, nodes):
+    """Return the node ordering used by graph6 writers."""
+    if nodes is None:
+        return list(G.nodes())
+    return list(nodes)
+
+
+def _format_nodes_for_sparse6(G, nodes):
+    """Return the sorted node ordering used by NetworkX sparse6 writers."""
+    if nodes is None:
+        return sorted(G.nodes())
+    return sorted(nodes)
+
+
+def _ensure_undirected_for_graph6(G, operation, *, reject_multigraph):
+    """Raise NetworkX-compatible errors for unsupported graph6/sparse6 writes."""
+    import franken_networkx as fnx
+
+    if G.is_directed():
+        raise fnx.NetworkXNotImplemented("not implemented for directed type")
+    if reject_multigraph and G.is_multigraph():
+        raise fnx.NetworkXNotImplemented("not implemented for multigraph type")
+
+
+def _graph6_has_edge(G, left, right):
+    """Return whether an edge exists, ignoring self-loop-only format details."""
+    return G.has_edge(left, right)
+
+
+def _sparse6_edges(G, mapping):
+    """Return sparse6 edge pairs as integer labels, preserving parallel edges."""
+    edges = []
+    if G.is_multigraph():
+        raw_edges = ((u, v) for u, v, _key in G.edges(keys=True))
+    else:
+        raw_edges = G.edges()
+    for u, v in raw_edges:
+        if u in mapping and v in mapping:
+            left = mapping[u]
+            right = mapping[v]
+            edges.append((max(left, right), min(left, right)))
+    return sorted(edges)
 
 
 def parse_adjlist(
@@ -178,30 +317,66 @@ def parse_gml(lines, label="label", destringizer=None):
 
 def from_graph6_bytes(bytes_in):
     """Parse graph6 bytes into a FrankenNetworkX graph."""
-    import networkx as nx
+    import franken_networkx as fnx
 
-    return _from_nx_graph(nx.from_graph6_bytes(bytes_in))
+    data = bytes(bytes_in).rstrip(b"\n")
+    if data.startswith(b">>graph6<<"):
+        data = data[10:]
+    values = _graph6_values(data)
+    n, values = _graph6_data_to_n(values)
+    expected_units = (n * (n - 1) // 2 + 5) // 6
+    if len(values) != expected_units:
+        raise fnx.NetworkXError(
+            f"Expected {n * (n - 1) // 2} bits but got {len(values) * 6} in graph6"
+        )
+
+    graph = fnx.Graph()
+    for node in range(n):
+        graph.add_node(node)
+    for (i, j), bit in zip(
+        ((i, j) for j in range(1, n) for i in range(j)), _graph6_bits(values)
+    ):
+        if bit:
+            graph.add_edge(i, j)
+    return graph
 
 
 def to_graph6_bytes(G, nodes=None, header=True):
-    """Serialize a FrankenNetworkX graph to graph6 bytes through NetworkX."""
-    import networkx as nx
+    """Serialize a simple undirected FrankenNetworkX graph to graph6 bytes."""
+    _ensure_undirected_for_graph6(G, "to_graph6_bytes", reject_multigraph=True)
 
-    return nx.to_graph6_bytes(G, nodes=nodes, header=header)
+    ordered_nodes = _format_nodes_for_graph6(G, nodes)
+    n = len(ordered_nodes)
+    if n >= 2**36:
+        raise ValueError("graph6 is only defined if number of nodes is less than 2 ** 36")
+
+    output = bytearray()
+    if header:
+        output.extend(b">>graph6<<")
+    output.extend(value + 63 for value in _graph6_n_to_data(n))
+    bits = [
+        1 if _graph6_has_edge(G, ordered_nodes[i], ordered_nodes[j]) else 0
+        for j in range(1, n)
+        for i in range(j)
+    ]
+    output.extend(_bits_to_graph6_bytes(bits))
+    output.extend(b"\n")
+    return bytes(output)
 
 
 def read_graph6(path):
-    """Read graph6 files through NetworkX."""
-    import networkx as nx
-
-    return _from_nx_graph_or_graphs(nx.read_graph6(path))
+    """Read graph6 data from a path or file-like object."""
+    graphs = []
+    for line in _read_bytes(path).splitlines():
+        line = line.strip()
+        if line:
+            graphs.append(from_graph6_bytes(line))
+    return graphs[0] if len(graphs) == 1 else graphs
 
 
 def write_graph6(G, path, nodes=None, header=True):
-    """Write graph6 files through NetworkX."""
-    import networkx as nx
-
-    return nx.write_graph6(G, path, nodes=nodes, header=header)
+    """Write graph6 data to a path or file-like object."""
+    return _write_bytes(path, to_graph6_bytes(G, nodes=nodes, header=header))
 
 
 def parse_graph6(string):
@@ -215,30 +390,138 @@ def parse_graph6(string):
 
 def from_sparse6_bytes(bytes_in):
     """Parse sparse6 bytes into a FrankenNetworkX graph."""
-    import networkx as nx
+    import franken_networkx as fnx
 
-    return _from_nx_graph(nx.from_sparse6_bytes(bytes_in))
+    data = bytes(bytes_in).rstrip(b"\n")
+    if data.startswith(b">>sparse6<<"):
+        data = data[11:]
+    if not data.startswith(b":"):
+        raise fnx.NetworkXError("Expected leading colon in sparse6")
+
+    values = _graph6_values(data[1:])
+    n, values = _graph6_data_to_n(values)
+    k = 1
+    while 1 << k < n:
+        k += 1
+
+    def pairs():
+        chunks = iter(values)
+        current = None
+        remaining = 0
+        while True:
+            if remaining < 1:
+                try:
+                    current = next(chunks)
+                except StopIteration:
+                    return
+                remaining = 6
+            remaining -= 1
+            bit = (current >> remaining) & 1
+
+            x = current & ((1 << remaining) - 1)
+            x_len = remaining
+            while x_len < k:
+                try:
+                    current = next(chunks)
+                except StopIteration:
+                    return
+                remaining = 6
+                x = (x << 6) + current
+                x_len += 6
+            x >>= x_len - k
+            remaining = x_len - k
+            yield bit, x
+
+    v = 0
+    edges = []
+    edge_counts = {}
+    multigraph = False
+    for bit, x in pairs():
+        if bit == 1:
+            v += 1
+        if x >= n or v >= n:
+            break
+        if x > v:
+            v = x
+            continue
+        edge = (min(x, v), max(x, v))
+        edge_counts[edge] = edge_counts.get(edge, 0) + 1
+        if edge_counts[edge] > 1:
+            multigraph = True
+        edges.append((x, v))
+
+    graph = fnx.MultiGraph() if multigraph else fnx.Graph()
+    for node in range(n):
+        graph.add_node(node)
+    for left, right in edges:
+        graph.add_edge(left, right)
+    return graph
 
 
 def to_sparse6_bytes(G, nodes=None, header=True):
-    """Serialize a FrankenNetworkX graph to sparse6 bytes through NetworkX."""
-    import networkx as nx
+    """Serialize an undirected FrankenNetworkX graph to sparse6 bytes."""
+    _ensure_undirected_for_graph6(G, "to_sparse6_bytes", reject_multigraph=False)
 
-    return nx.to_sparse6_bytes(G, nodes=nodes, header=header)
+    ordered_nodes = _format_nodes_for_sparse6(G, nodes)
+    n = len(ordered_nodes)
+    if n >= 2**36:
+        raise ValueError("sparse6 is only defined if number of nodes is less than 2 ** 36")
+
+    output = bytearray()
+    if header:
+        output.extend(b">>sparse6<<")
+    output.append(ord(":"))
+    output.extend(value + 63 for value in _graph6_n_to_data(n))
+
+    k = 1
+    while 1 << k < n:
+        k += 1
+
+    def enc(value):
+        return [1 if value & (1 << (k - 1 - i)) else 0 for i in range(k)]
+
+    mapping = {node: index for index, node in enumerate(ordered_nodes)}
+    bits = []
+    current_v = 0
+    for v, u in _sparse6_edges(G, mapping):
+        if v == current_v:
+            bits.append(0)
+            bits.extend(enc(u))
+        elif v == current_v + 1:
+            current_v += 1
+            bits.append(1)
+            bits.extend(enc(u))
+        else:
+            current_v = v
+            bits.append(1)
+            bits.extend(enc(v))
+            bits.append(0)
+            bits.extend(enc(u))
+
+    padding = (-len(bits)) % 6
+    if k < 6 and n == (1 << k) and padding >= k and current_v < n - 1:
+        bits.append(0)
+        bits.extend([1] * ((-len(bits)) % 6))
+    else:
+        bits.extend([1] * padding)
+    output.extend(_bits_to_graph6_bytes(bits))
+    output.extend(b"\n")
+    return bytes(output)
 
 
 def read_sparse6(path):
-    """Read sparse6 files through NetworkX."""
-    import networkx as nx
-
-    return _from_nx_graph_or_graphs(nx.read_sparse6(path))
+    """Read sparse6 data from a path or file-like object."""
+    graphs = []
+    for line in _read_bytes(path).splitlines():
+        line = line.strip()
+        if line:
+            graphs.append(from_sparse6_bytes(line))
+    return graphs[0] if len(graphs) == 1 else graphs
 
 
 def write_sparse6(G, path, nodes=None, header=True):
-    """Write sparse6 files through NetworkX."""
-    import networkx as nx
-
-    return nx.write_sparse6(G, path, nodes=nodes, header=header)
+    """Write sparse6 data to a path or file-like object."""
+    return _write_bytes(path, to_sparse6_bytes(G, nodes=nodes, header=header))
 
 
 def parse_sparse6(string):
@@ -498,42 +781,53 @@ def write_graphml_lxml(
     return fnx.write_graphml(G, path)
 
 
-def read_gexf(path, node_type=None, relabel=False, version="1.2draft"):
-    """Read GEXF through NetworkX and convert the result back to FrankenNetworkX."""
-    import networkx as nx
+def _validate_gexf_version(version):
+    if version not in ("1.1draft", "1.2draft", "1.2"):
+        raise ValueError("version must be one of: '1.1draft', '1.2draft', '1.2'")
 
-    graph = nx.read_gexf(
-        path,
-        node_type=node_type,
-        relabel=relabel,
-        version=version,
-    )
-    return _from_nx_graph(graph)
+
+def _apply_gexf_node_type(graph, node_type):
+    if node_type is None:
+        return graph
+    import franken_networkx as fnx
+
+    mapping = {node: node_type(node) for node in graph.nodes()}
+    return fnx.relabel_nodes(graph, mapping, copy=True)
+
+
+def read_gexf(path, node_type=None, relabel=False, version="1.2draft"):
+    """Read GEXF using the native Rust parser."""
+    import franken_networkx as fnx
+    from franken_networkx import _fnx
+
+    _validate_gexf_version(version)
+    graph = _fnx.read_gexf(path)
+    graph = _apply_gexf_node_type(graph, node_type)
+    if relabel:
+        graph = relabel_gexf_graph(graph)
+    return graph
 
 
 def write_gexf(G, path, encoding="utf-8", prettyprint=True, version="1.2draft"):
-    """Write GEXF through NetworkX."""
-    import networkx as nx
+    """Write GEXF using the native Rust writer."""
+    import franken_networkx as fnx
+    from franken_networkx import _fnx
 
-    return nx.write_gexf(
-        G,
-        path,
-        encoding=encoding,
-        prettyprint=prettyprint,
-        version=version,
-    )
+    _validate_gexf_version(version)
+    if G.is_multigraph():
+        raise fnx.NetworkXNotImplemented("not implemented for multigraph type")
+    return _fnx.write_gexf(G, path)
 
 
 def generate_gexf(G, encoding="utf-8", prettyprint=True, version="1.2draft"):
-    """Yield GEXF lines through NetworkX."""
-    import networkx as nx
+    """Yield GEXF lines using the native Rust writer."""
+    import franken_networkx as fnx
+    from franken_networkx import _fnx
 
-    yield from nx.generate_gexf(
-        G,
-        encoding=encoding,
-        prettyprint=prettyprint,
-        version=version,
-    )
+    _validate_gexf_version(version)
+    if G.is_multigraph():
+        raise fnx.NetworkXNotImplemented("not implemented for multigraph type")
+    yield from _fnx.write_gexf_string_rust(G).splitlines()
 
 
 def parse_gexf(string, node_type=None, relabel=False, version="1.2draft"):
@@ -547,7 +841,17 @@ def parse_gexf(string, node_type=None, relabel=False, version="1.2draft"):
 
 
 def relabel_gexf_graph(G):
-    """Relabel a GEXF graph from internal ids to labels via NetworkX."""
-    import networkx as nx
+    """Relabel a GEXF graph from internal ids to label attributes."""
+    import franken_networkx as fnx
 
-    return _from_nx_graph(nx.relabel_gexf_graph(G))
+    mapping = {}
+    for node, attrs in G.nodes(data=True):
+        label = attrs.get("label")
+        if label is not None:
+            mapping[node] = label
+    relabeled = fnx.relabel_nodes(G, mapping, copy=True)
+    for original, label in mapping.items():
+        attrs = relabeled.nodes[label]
+        attrs["id"] = original
+        attrs.pop("label", None)
+    return relabeled
