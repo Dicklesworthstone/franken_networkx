@@ -1,7 +1,10 @@
 """Tests for drawing layout delegation helpers."""
 
+from unittest import mock
+
 import networkx as nx
 import numpy as np
+import pytest
 
 import franken_networkx as fnx
 from franken_networkx.backend import _fnx_to_nx as _to_nx
@@ -38,6 +41,97 @@ def test_spiral_layout_matches_networkx():
     _assert_positions_close(actual, expected)
 
 
+def test_circular_layout_matches_networkx_without_delegation():
+    graph = fnx.path_graph(4)
+    expected = _as_tuples(
+        nx.circular_layout(
+            nx.path_graph(4),
+            scale=2,
+            center=[1.0, -1.0, 0.5],
+            dim=3,
+        )
+    )
+
+    with mock.patch(
+        "networkx.circular_layout",
+        side_effect=AssertionError("NetworkX circular_layout should not be used"),
+    ):
+        actual = _as_tuples(
+            fnx.circular_layout(
+                graph,
+                scale=2,
+                center=[1.0, -1.0, 0.5],
+                dim=3,
+            )
+        )
+
+    _assert_positions_close(actual, expected)
+
+
+def test_random_layout_matches_networkx_without_delegation():
+    graph = fnx.path_graph(4)
+    expected = _as_tuples(nx.random_layout(nx.path_graph(4), seed=11, center=[2.0, -2.0]))
+
+    with mock.patch(
+        "networkx.random_layout",
+        side_effect=AssertionError("NetworkX random_layout should not be used"),
+    ):
+        actual = _as_tuples(fnx.random_layout(graph, seed=11, center=[2.0, -2.0]))
+
+    _assert_positions_close(actual, expected)
+
+
+def test_shell_layout_matches_networkx_without_delegation():
+    graph = fnx.path_graph(4)
+    shells = [[0], [1, 2, 3]]
+    expected = _as_tuples(
+        nx.shell_layout(
+            nx.path_graph(4),
+            nlist=shells,
+            rotate=0.0,
+            scale=2.0,
+            center=[1.0, 1.0],
+        )
+    )
+
+    with mock.patch(
+        "networkx.shell_layout",
+        side_effect=AssertionError("NetworkX shell_layout should not be used"),
+    ):
+        actual = _as_tuples(
+            fnx.shell_layout(
+                graph,
+                nlist=shells,
+                rotate=0.0,
+                scale=2.0,
+                center=[1.0, 1.0],
+            )
+        )
+
+    _assert_positions_close(actual, expected)
+
+
+def test_layout_helpers_store_positions_without_delegation():
+    graph = fnx.path_graph(3)
+
+    with mock.patch(
+        "networkx.circular_layout",
+        side_effect=AssertionError("NetworkX circular_layout should not be used"),
+    ):
+        pos = fnx.circular_layout(graph, store_pos_as="pos")
+
+    for node, coords in pos.items():
+        assert np.allclose(graph.nodes[node]["pos"], coords)
+
+
+def test_layout_dimension_errors_match_networkx():
+    with pytest.raises(ValueError, match="cannot handle dimensions < 2"):
+        fnx.circular_layout(fnx.path_graph(2), dim=1)
+
+    with pytest.raises(ValueError, match="can only handle 2 dimensions"):
+        fnx.shell_layout(fnx.path_graph(2), dim=3)
+
+
 def test_multipartite_layout_matches_networkx():
     graph = fnx.Graph()
     graph.add_node("a", subset=0)
@@ -61,7 +155,13 @@ def test_multipartite_layout_matches_networkx():
 def test_rescale_layout_dict_matches_networkx():
     pos = {"a": np.array([0.0, 0.0]), "b": np.array([2.0, 4.0]), "c": np.array([4.0, 8.0])}
     expected = _as_tuples(nx.rescale_layout_dict(pos, scale=3))
-    actual = _as_tuples(fnx.rescale_layout_dict(pos, scale=3))
+
+    with mock.patch(
+        "networkx.rescale_layout_dict",
+        side_effect=AssertionError("NetworkX rescale_layout_dict should not be used"),
+    ):
+        actual = _as_tuples(fnx.rescale_layout_dict(pos, scale=3))
+
     _assert_positions_close(actual, expected)
 
 

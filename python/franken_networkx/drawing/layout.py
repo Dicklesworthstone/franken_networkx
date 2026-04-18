@@ -1,4 +1,6 @@
-"""Layout algorithms delegated to NetworkX after graph conversion."""
+"""Drawing layout helpers."""
+
+import numpy as np
 
 
 def _to_nx(G):
@@ -18,6 +20,58 @@ def _delegate_layout(name, G, *args, **kwargs):
 
     fn = getattr(nx, name)
     return fn(G, *args, **kwargs)
+
+
+def _process_params(G, center, dim):
+    nodes = list(G)
+    if center is None:
+        center = np.zeros(dim)
+    else:
+        center = np.asarray(center)
+
+    if len(center) != dim:
+        raise ValueError("length of center coordinates must match dimension of layout")
+
+    return nodes, center
+
+
+def _store_positions(G, pos, store_pos_as):
+    if store_pos_as is None or not hasattr(G, "nodes"):
+        return
+
+    has_node = getattr(G, "has_node", None)
+    for node, coords in pos.items():
+        if has_node is not None and not has_node(node):
+            continue
+        try:
+            G.nodes[node][store_pos_as] = coords
+        except (KeyError, TypeError):
+            continue
+
+
+def _create_random_state(seed):
+    if seed is None or seed is np.random:
+        return np.random.mtrand._rand
+    if isinstance(seed, np.random.RandomState):
+        return seed
+    if isinstance(seed, int):
+        return np.random.RandomState(seed)
+    if isinstance(seed, np.random.Generator):
+        return seed
+    msg = (
+        f"{seed} cannot be used to create a numpy.random.RandomState or\n"
+        "numpy.random.Generator instance"
+    )
+    raise ValueError(msg)
+
+
+def rescale_layout(pos, scale=1):
+    """Return scaled positions with largest coordinate magnitude equal to scale."""
+    pos -= pos.mean(axis=0)
+    lim = np.abs(pos).max()
+    if lim > 0:
+        pos *= scale / lim
+    return pos
 
 
 def arf_layout(G, *args, **kwargs):
@@ -42,25 +96,78 @@ def spring_layout(G, **kwargs):
     return nx.spring_layout(G, **kwargs)
 
 
-def circular_layout(G, **kwargs):
+def circular_layout(G, scale=1, center=None, dim=2, store_pos_as=None):
     """Position nodes on a circle."""
-    import networkx as nx
+    if dim < 2:
+        raise ValueError("cannot handle dimensions < 2")
 
-    return nx.circular_layout(G, **kwargs)
+    nodes, center = _process_params(G, center, dim)
+    paddims = max(0, dim - 2)
+
+    if len(nodes) == 0:
+        pos = {}
+    elif len(nodes) == 1:
+        pos = {nodes[0]: center}
+    else:
+        theta = np.linspace(0, 1, len(nodes) + 1)[:-1] * 2 * np.pi
+        theta = theta.astype(np.float32)
+        pos_arr = np.column_stack(
+            [np.cos(theta), np.sin(theta), np.zeros((len(nodes), paddims))]
+        )
+        pos_arr = rescale_layout(pos_arr, scale=scale) + center
+        pos = dict(zip(nodes, pos_arr))
+
+    _store_positions(G, pos, store_pos_as)
+    return pos
 
 
-def random_layout(G, **kwargs):
+def random_layout(G, center=None, dim=2, seed=None, store_pos_as=None):
     """Position nodes uniformly at random."""
-    import networkx as nx
+    nodes, center = _process_params(G, center, dim)
+    rng = _create_random_state(seed)
+    pos_arr = rng.rand(len(nodes), dim) + center
+    pos_arr = pos_arr.astype(np.float32)
+    pos = dict(zip(nodes, pos_arr))
+    _store_positions(G, pos, store_pos_as)
+    return pos
 
-    return nx.random_layout(G, **kwargs)
 
-
-def shell_layout(G, **kwargs):
+def shell_layout(G, nlist=None, rotate=None, scale=1, center=None, dim=2, store_pos_as=None):
     """Position nodes in concentric circles."""
-    import networkx as nx
+    if dim != 2:
+        raise ValueError("can only handle 2 dimensions")
 
-    return nx.shell_layout(G, **kwargs)
+    nodes, center = _process_params(G, center, dim)
+
+    if len(nodes) == 0:
+        return {}
+    if len(nodes) == 1:
+        pos = {nodes[0]: center}
+        _store_positions(G, pos, store_pos_as)
+        return pos
+
+    if nlist is None:
+        nlist = [nodes]
+
+    radius_bump = scale / len(nlist)
+    radius = 0.0 if len(nlist[0]) == 1 else radius_bump
+
+    if rotate is None:
+        rotate = np.pi / len(nlist)
+    first_theta = rotate
+    pos = {}
+    for shell_nodes in nlist:
+        theta = (
+            np.linspace(0, 2 * np.pi, len(shell_nodes), endpoint=False, dtype=np.float32)
+            + first_theta
+        )
+        shell_pos = radius * np.column_stack([np.cos(theta), np.sin(theta)]) + center
+        pos.update(zip(shell_nodes, shell_pos))
+        radius += radius_bump
+        first_theta += rotate
+
+    _store_positions(G, pos, store_pos_as)
+    return pos
 
 
 def spectral_layout(G, **kwargs):
@@ -100,10 +207,12 @@ def multipartite_layout(G, *args, **kwargs):
 
 
 def rescale_layout_dict(pos, scale=1):
-    """Rescale a position dict using NetworkX's layout helper."""
-    import networkx as nx
-
-    return nx.rescale_layout_dict(pos, scale=scale)
+    """Return a dictionary of scaled positions keyed by node."""
+    if not pos:
+        return {}
+    pos_v = np.array(list(pos.values()))
+    pos_v = rescale_layout(pos_v, scale=scale)
+    return dict(zip(pos, pos_v))
 
 
 def spiral_layout(G, *args, **kwargs):
