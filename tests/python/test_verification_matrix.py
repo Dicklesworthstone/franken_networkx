@@ -3,6 +3,7 @@
 import inspect
 
 import networkx as nx
+import pytest
 
 import franken_networkx as fnx
 
@@ -60,15 +61,36 @@ def test_lcf_graph_wrapper_matches_networkx():
 
 
 def test_lfr_benchmark_graph_wrapper_smoke():
-    graph = fnx.LFR_benchmark_graph(
-        30,
-        3,
-        1.5,
-        0.1,
-        average_degree=4,
-        min_community=10,
-        seed=1,
-    )
+    params = {
+        "n": 30,
+        "tau1": 3,
+        "tau2": 1.5,
+        "mu": 0.1,
+        "average_degree": 4,
+        "min_community": 10,
+        "seed": 1,
+    }
+    expected = nx.LFR_benchmark_graph(**params)
+
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(
+            nx,
+            "LFR_benchmark_graph",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("networkx fallback should not be used"),
+            ),
+        )
+        graph = fnx.LFR_benchmark_graph(**params)
 
     assert graph.number_of_nodes() == 30
-    assert graph.number_of_edges() > 0
+    assert graph.number_of_edges() == expected.number_of_edges()
+    assert {frozenset(edge) for edge in graph.edges()} == {
+        frozenset(edge) for edge in expected.edges()
+    }
+    assert {
+        node: frozenset(graph.nodes[node]["community"])
+        for node in graph.nodes()
+    } == {
+        node: frozenset(expected.nodes[node]["community"])
+        for node in expected.nodes()
+    }

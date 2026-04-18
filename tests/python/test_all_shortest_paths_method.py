@@ -4,6 +4,21 @@ import franken_networkx as fnx
 import networkx as nx
 
 
+def _assert_same_result_or_exception(fnx_call, nx_call):
+    try:
+        nx_result = nx_call()
+    except Exception as nx_exc:
+        with pytest.raises(Exception) as fnx_exc_info:
+            fnx_call()
+        fnx_exc = fnx_exc_info.value
+        assert type(fnx_exc).__name__ == type(nx_exc).__name__
+        assert str(fnx_exc) == str(nx_exc)
+        return
+
+    fnx_result = fnx_call()
+    assert fnx_result == nx_result
+
+
 @pytest.fixture
 def weighted_graph():
     G = fnx.Graph()
@@ -76,3 +91,39 @@ class TestAllShortestPathsMethod:
         G.add_nodes_from([0, 1])
         with pytest.raises(fnx.NetworkXNoPath):
             list(fnx.all_shortest_paths(G, 0, 1))
+
+    def test_negative_weight_dijkstra_matches_networkx(self):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", weight=2.0)
+            graph.add_edge("b", "c", weight=-5.0)
+            graph.add_edge("a", "c", weight=1.0)
+
+        for kwargs in ({"weight": "weight"}, {"weight": "weight", "method": "dijkstra"}):
+            _assert_same_result_or_exception(
+                lambda kwargs=kwargs: list(
+                    fnx.all_shortest_paths(G_fnx, "a", "c", **kwargs)
+                ),
+                lambda kwargs=kwargs: list(
+                    nx.all_shortest_paths(G_nx, "a", "c", **kwargs)
+                ),
+            )
+
+    def test_negative_weight_directed_dijkstra_matches_networkx(self):
+        D_fnx = fnx.DiGraph()
+        D_nx = nx.DiGraph()
+        for graph in (D_fnx, D_nx):
+            graph.add_edge("a", "b", weight=2.0)
+            graph.add_edge("b", "c", weight=-5.0)
+            graph.add_edge("a", "c", weight=1.0)
+
+        for kwargs in ({"weight": "weight"}, {"weight": "weight", "method": "dijkstra"}):
+            _assert_same_result_or_exception(
+                lambda kwargs=kwargs: list(
+                    fnx.all_shortest_paths(D_fnx, "a", "c", **kwargs)
+                ),
+                lambda kwargs=kwargs: list(
+                    nx.all_shortest_paths(D_nx, "a", "c", **kwargs)
+                ),
+            )

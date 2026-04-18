@@ -31,6 +31,73 @@ def small_digraph():
     return D
 
 
+def _normalize_mapping(value):
+    if isinstance(value, dict):
+        return tuple(sorted((repr(key), _normalize_mapping(item)) for key, item in value.items()))
+    return repr(value)
+
+
+def _canonical_edge_nodes(graph, u, v):
+    if graph.is_directed():
+        return repr(u), repr(v)
+    return tuple(sorted((repr(u), repr(v))))
+
+
+def _graph_signature(graph):
+    graph_attrs = tuple(sorted((repr(key), _normalize_mapping(value)) for key, value in graph.graph.items()))
+    nodes = sorted(
+        (repr(node), tuple(sorted((repr(key), _normalize_mapping(value)) for key, value in dict(attrs).items())))
+        for node, attrs in graph.nodes(data=True)
+    )
+    if graph.is_multigraph():
+        edges = sorted(
+            (
+                *_canonical_edge_nodes(graph, u, v),
+                repr(key),
+                tuple(sorted((repr(attr), _normalize_mapping(value)) for attr, value in dict(data).items())),
+            )
+            for u, v, key, data in graph.edges(keys=True, data=True)
+        )
+    else:
+        edges = sorted(
+            (
+                *_canonical_edge_nodes(graph, u, v),
+                tuple(sorted((repr(attr), _normalize_mapping(value)) for attr, value in dict(data).items())),
+            )
+            for u, v, data in graph.edges(data=True)
+        )
+    return graph_attrs, nodes, edges
+
+
+def _label_graph_pair(fnx_cls, nx_cls):
+    graph = fnx_cls()
+    expected = nx_cls()
+    graph.graph["name"] = "labels"
+    expected.graph["name"] = "labels"
+    for node, color in [("b", "blue"), ("a", "red"), ("c", "green")]:
+        graph.add_node(node, color=color)
+        expected.add_node(node, color=color)
+    if graph.is_multigraph():
+        graph.add_edge("b", "a", key=7, weight=2)
+        graph.add_edge("a", "c", key=3, weight=4)
+        expected.add_edge("b", "a", key=7, weight=2)
+        expected.add_edge("a", "c", key=3, weight=4)
+    else:
+        graph.add_edge("b", "a", weight=2)
+        graph.add_edge("a", "c", weight=4)
+        expected.add_edge("b", "a", weight=2)
+        expected.add_edge("a", "c", weight=4)
+    return graph, expected
+
+
+def _block_networkx_conversion(monkeypatch, *names):
+    def fail_networkx(*args, **kwargs):
+        raise AssertionError("NetworkX conversion fallback should not be used")
+
+    for name in names:
+        monkeypatch.setattr(nx, name, fail_networkx)
+
+
 # ---------------------------------------------------------------------------
 # relabel_nodes
 # ---------------------------------------------------------------------------
@@ -79,6 +146,88 @@ class TestRelabelNodes:
         edge_data = H.edges[0, 1]
         assert edge_data.get("weight") == 1.0
 
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls"),
+        [
+            (fnx.Graph, nx.Graph),
+            (fnx.DiGraph, nx.DiGraph),
+            (fnx.MultiGraph, nx.MultiGraph),
+            (fnx.MultiDiGraph, nx.MultiDiGraph),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "mapping",
+        [
+            {"a": "x"},
+            lambda node: node.upper(),
+        ],
+    )
+    def test_matches_networkx_without_fallback(self, monkeypatch, fnx_cls, nx_cls, mapping):
+        graph, expected = _label_graph_pair(fnx_cls, nx_cls)
+        expected_result = nx.relabel_nodes(expected, mapping, copy=True)
+        expected_signature = _graph_signature(expected_result)
+
+        _block_networkx_conversion(monkeypatch, "relabel_nodes")
+
+        result = fnx.relabel_nodes(graph, mapping, copy=True)
+
+        assert result.is_directed() == expected_result.is_directed()
+        assert result.is_multigraph() == expected_result.is_multigraph()
+        assert _graph_signature(result) == expected_signature
+
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls"),
+        [
+            (fnx.Graph, nx.Graph),
+            (fnx.DiGraph, nx.DiGraph),
+            (fnx.MultiGraph, nx.MultiGraph),
+            (fnx.MultiDiGraph, nx.MultiDiGraph),
+        ],
+    )
+    def test_copy_false_collision_matches_networkx_without_fallback(self, monkeypatch, fnx_cls, nx_cls):
+        graph, expected = _label_graph_pair(fnx_cls, nx_cls)
+        expected_result = nx.relabel_nodes(expected, {"a": "b"}, copy=False)
+        expected_signature = _graph_signature(expected_result)
+
+        _block_networkx_conversion(monkeypatch, "relabel_nodes")
+
+        result = fnx.relabel_nodes(graph, {"a": "b"}, copy=False)
+
+        assert result is graph
+        assert _graph_signature(graph) == expected_signature
+
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls"),
+        [
+            (fnx.Graph, nx.Graph),
+            (fnx.DiGraph, nx.DiGraph),
+            (fnx.MultiGraph, nx.MultiGraph),
+            (fnx.MultiDiGraph, nx.MultiDiGraph),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "mapping",
+        [
+            {"a": "b", "b": "c", "c": "a"},
+            {"x": "y", "y": "x"},
+        ],
+    )
+    def test_copy_false_cyclic_overlap_raises_like_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls, mapping
+    ):
+        graph, expected = _label_graph_pair(fnx_cls, nx_cls)
+
+        with pytest.raises(Exception) as nx_exc:
+            nx.relabel_nodes(expected, mapping, copy=False)
+
+        _block_networkx_conversion(monkeypatch, "relabel_nodes")
+
+        with pytest.raises(Exception) as fnx_exc:
+            fnx.relabel_nodes(graph, mapping, copy=False)
+
+        assert type(fnx_exc.value).__name__ == type(nx_exc.value).__name__
+        assert str(fnx_exc.value) == str(nx_exc.value)
+
 
 # ---------------------------------------------------------------------------
 # convert_node_labels_to_integers
@@ -107,6 +256,48 @@ class TestConvertNodeLabelsToIntegers:
     def test_preserves_edges(self, triangle):
         H = fnx.convert_node_labels_to_integers(triangle)
         assert H.number_of_edges() == 3
+
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls"),
+        [
+            (fnx.Graph, nx.Graph),
+            (fnx.DiGraph, nx.DiGraph),
+            (fnx.MultiGraph, nx.MultiGraph),
+            (fnx.MultiDiGraph, nx.MultiDiGraph),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "ordering",
+        ["default", "sorted", "increasing degree", "decreasing degree"],
+    )
+    def test_orderings_match_networkx_without_fallback(
+        self,
+        monkeypatch,
+        fnx_cls,
+        nx_cls,
+        ordering,
+    ):
+        graph, expected = _label_graph_pair(fnx_cls, nx_cls)
+        expected_result = nx.convert_node_labels_to_integers(
+            expected,
+            first_label=10,
+            ordering=ordering,
+            label_attribute="old",
+        )
+        expected_signature = _graph_signature(expected_result)
+
+        _block_networkx_conversion(monkeypatch, "convert_node_labels_to_integers")
+
+        result = fnx.convert_node_labels_to_integers(
+            graph,
+            first_label=10,
+            ordering=ordering,
+            label_attribute="old",
+        )
+
+        assert result.is_directed() == expected_result.is_directed()
+        assert result.is_multigraph() == expected_result.is_multigraph()
+        assert _graph_signature(result) == expected_signature
 
 
 # ---------------------------------------------------------------------------

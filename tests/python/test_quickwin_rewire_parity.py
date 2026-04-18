@@ -1,6 +1,7 @@
 """Parity tests for quick-win FNX rewires."""
 
 import networkx as nx
+import pytest
 
 import franken_networkx as fnx
 
@@ -44,28 +45,55 @@ def test_ego_graph_matches_nx():
     assert sorted(ego_no_center.edges(data=True)) == sorted(ego_no_center_nx.edges(data=True))
 
 
-def test_create_empty_copy_matches_nx():
-    graph = fnx.MultiGraph()
+def _populate_empty_copy_graph(graph):
     graph.graph["name"] = "base"
     graph.add_node("a", color="red")
-    graph.add_node("b")
-    graph.add_edge("a", "b", key=4, weight=2)
+    graph.add_node("b", seen=True)
+    if graph.is_multigraph():
+        graph.add_edge("a", "b", key=4, weight=2)
+    else:
+        graph.add_edge("a", "b", weight=2)
 
-    expected = nx.MultiGraph()
-    expected.graph["name"] = "base"
-    expected.add_node("a", color="red")
-    expected.add_node("b")
-    expected.add_edge("a", "b", key=4, weight=2)
+
+def _node_snapshot(graph):
+    return sorted((node, dict(attrs)) for node, attrs in graph.nodes(data=True))
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+    ids=["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"],
+)
+def test_create_empty_copy_matches_nx_without_fallback(monkeypatch, fnx_cls, nx_cls):
+    graph = fnx_cls()
+    expected = nx_cls()
+    _populate_empty_copy_graph(graph)
+    _populate_empty_copy_graph(expected)
+
+    copy_with_data_nx = nx.create_empty_copy(expected, with_data=True)
+    copy_without_data_nx = nx.create_empty_copy(expected, with_data=False)
+
+    def blocked_create_empty_copy(*args, **kwargs):
+        raise AssertionError("NetworkX create_empty_copy fallback used")
+
+    monkeypatch.setattr(nx, "create_empty_copy", blocked_create_empty_copy)
 
     copy_with_data = fnx.create_empty_copy(graph, with_data=True)
-    copy_with_data_nx = nx.create_empty_copy(expected, with_data=True)
-    assert dict(copy_with_data.graph) == copy_with_data_nx.graph
-    assert sorted(copy_with_data.nodes(data=True)) == sorted(copy_with_data_nx.nodes(data=True))
+    assert type(copy_with_data).__name__ == type(copy_with_data_nx).__name__
+    assert dict(copy_with_data.graph) == dict(copy_with_data_nx.graph)
+    assert _node_snapshot(copy_with_data) == _node_snapshot(copy_with_data_nx)
     assert copy_with_data.number_of_edges() == copy_with_data_nx.number_of_edges() == 0
 
     copy_without_data = fnx.create_empty_copy(graph, with_data=False)
-    copy_without_data_nx = nx.create_empty_copy(expected, with_data=False)
-    assert sorted(copy_without_data.nodes(data=True)) == sorted(copy_without_data_nx.nodes(data=True))
+    assert type(copy_without_data).__name__ == type(copy_without_data_nx).__name__
+    assert dict(copy_without_data.graph) == dict(copy_without_data_nx.graph) == {}
+    assert _node_snapshot(copy_without_data) == _node_snapshot(copy_without_data_nx)
+    assert copy_without_data.number_of_edges() == copy_without_data_nx.number_of_edges() == 0
 
 
 def test_node_degree_xy_matches_nx():

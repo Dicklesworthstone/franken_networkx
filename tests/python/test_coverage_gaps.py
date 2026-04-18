@@ -6,6 +6,8 @@ planarity, transitive operations, and remaining shortest path variants.
 
 from datetime import datetime, timedelta
 import math
+from pathlib import Path
+from runpy import run_path
 from unittest import mock
 
 import pytest
@@ -20,6 +22,36 @@ except ImportError:
     HAS_NX = False
 
 needs_nx = pytest.mark.skipif(not HAS_NX, reason="networkx not installed")
+
+
+def _repo_root():
+    return Path(__file__).resolve().parents[2]
+
+
+def _load_coverage_matrix_script():
+    script_path = _repo_root() / "scripts" / "generate_coverage_matrix.py"
+    return run_path(str(script_path))
+
+
+def test_public_coverage_has_no_networkx_delegated_exports():
+    coverage_matrix = _load_coverage_matrix_script()
+    exports, _duplicates = coverage_matrix["load_public_exports"]()
+    delegated_exports = sorted(
+        name
+        for name, obj in exports
+        if coverage_matrix["classify_export"](obj) == "NX_DELEGATED"
+    )
+
+    assert delegated_exports == []
+
+
+def test_generated_coverage_matrix_document_is_current():
+    coverage_matrix = _load_coverage_matrix_script()
+    exports, duplicates = coverage_matrix["load_public_exports"]()
+    rendered = coverage_matrix["render_markdown"](exports, duplicates)
+    coverage_path = _repo_root() / "docs" / "coverage.md"
+
+    assert coverage_path.read_text(encoding="utf-8") == rendered
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +190,437 @@ class TestPlanarity:
         # K5 is not planar (Kuratowski's theorem)
         G = fnx.complete_graph(5)
         assert not fnx.is_planar(G)
+
+    def test_is_planar_transformed_graphs_match_networkx(self):
+        planar_self_loop = fnx.cycle_graph(4)
+        expected_planar_self_loop = nx.cycle_graph(4)
+        planar_self_loop.add_edge(0, 0)
+        expected_planar_self_loop.add_edge(0, 0)
+
+        tuple_mapping = {node: ("cycle-node", node) for node in range(4)}
+        tuple_labeled_planar = fnx.relabel_nodes(fnx.cycle_graph(4), tuple_mapping)
+        expected_tuple_labeled_planar = nx.relabel_nodes(
+            nx.cycle_graph(4),
+            tuple_mapping,
+        )
+
+        disconnected_planar = fnx.Graph()
+        expected_disconnected_planar = nx.Graph()
+        disconnected_edges = [
+            (0, 1),
+            (1, 2),
+            (2, 0),
+            ("path-a", "path-b"),
+            ("path-b", "path-c"),
+        ]
+        disconnected_planar.add_edges_from(disconnected_edges)
+        expected_disconnected_planar.add_edges_from(disconnected_edges)
+
+        nonplanar_self_loop = fnx.complete_graph(5)
+        expected_nonplanar_self_loop = nx.complete_graph(5)
+        nonplanar_self_loop.add_edge(0, 0)
+        expected_nonplanar_self_loop.add_edge(0, 0)
+
+        tuple_mapping = {node: ("k5-node", node) for node in range(5)}
+        tuple_labeled_nonplanar = fnx.relabel_nodes(fnx.complete_graph(5), tuple_mapping)
+        expected_tuple_labeled_nonplanar = nx.relabel_nodes(
+            nx.complete_graph(5),
+            tuple_mapping,
+        )
+
+        for actual_graph, expected_graph in [
+            (planar_self_loop, expected_planar_self_loop),
+            (tuple_labeled_planar, expected_tuple_labeled_planar),
+            (disconnected_planar, expected_disconnected_planar),
+            (nonplanar_self_loop, expected_nonplanar_self_loop),
+            (tuple_labeled_nonplanar, expected_tuple_labeled_nonplanar),
+        ]:
+            assert fnx.is_planar(actual_graph) == nx.is_planar(expected_graph)
+
+    def test_check_planarity_certificate_contract_matches_networkx(self):
+        graph = fnx.cycle_graph(4)
+        expected_planar, expected_embedding = nx.check_planarity(nx.cycle_graph(4))
+
+        actual_planar, embedding = fnx.check_planarity(graph)
+
+        assert actual_planar == expected_planar
+        assert actual_planar
+        assert isinstance(embedding, nx.PlanarEmbedding)
+        assert set(embedding.nodes()) == set(expected_embedding.nodes())
+        embedding.check_structure()
+
+    def test_check_planarity_counterexample_contract_matches_networkx(self):
+        graph = fnx.complete_graph(5)
+        expected_planar, expected_counterexample = nx.check_planarity(
+            nx.complete_graph(5),
+            counterexample=True,
+        )
+
+        actual_planar, certificate = fnx.check_planarity(graph)
+        actual_counter_planar, counterexample = fnx.check_planarity(
+            graph,
+            counterexample=True,
+        )
+
+        assert not actual_planar
+        assert certificate is None
+        assert actual_counter_planar == expected_planar
+        assert not actual_counter_planar
+        assert set(counterexample.nodes()) == set(expected_counterexample.nodes())
+        assert {
+            frozenset(edge) for edge in counterexample.edges()
+        } == {frozenset(edge) for edge in expected_counterexample.edges()}
+
+    @pytest.mark.parametrize(
+        ("actual_graph", "expected_graph"),
+        [
+            (fnx.path_graph(5), nx.path_graph(5)),
+            (fnx.cycle_graph(6), nx.cycle_graph(6)),
+            (fnx.complete_graph(4), nx.complete_graph(4)),
+            (fnx.wheel_graph(6), nx.wheel_graph(6)),
+        ],
+    )
+    def test_check_planarity_planar_family_certificates_match_networkx(
+        self,
+        actual_graph,
+        expected_graph,
+    ):
+        expected_planar, expected_embedding = nx.check_planarity(expected_graph)
+
+        actual_planar, embedding = fnx.check_planarity(actual_graph)
+
+        assert actual_planar == expected_planar
+        assert actual_planar
+        assert isinstance(embedding, nx.PlanarEmbedding)
+        assert set(embedding.nodes()) == set(expected_embedding.nodes())
+        embedding.check_structure()
+
+    @pytest.mark.parametrize(
+        ("actual_graph", "expected_graph"),
+        [
+            (fnx.complete_graph(5), nx.complete_graph(5)),
+            (fnx.complete_bipartite_graph(3, 3), nx.complete_bipartite_graph(3, 3)),
+        ],
+    )
+    def test_check_planarity_nonplanar_family_counterexamples_match_networkx(
+        self,
+        actual_graph,
+        expected_graph,
+    ):
+        expected_planar, expected_counterexample = nx.check_planarity(
+            expected_graph,
+            counterexample=True,
+        )
+
+        actual_planar, certificate = fnx.check_planarity(actual_graph)
+        actual_counter_planar, counterexample = fnx.check_planarity(
+            actual_graph,
+            counterexample=True,
+        )
+
+        assert actual_planar == expected_planar
+        assert not actual_planar
+        assert certificate is None
+        assert actual_counter_planar == expected_planar
+        assert not actual_counter_planar
+        assert set(counterexample.nodes()) == set(expected_counterexample.nodes())
+        assert {
+            frozenset(edge) for edge in counterexample.edges()
+        } == {frozenset(edge) for edge in expected_counterexample.edges()}
+
+    def test_check_planarity_isolated_nodes_preserve_classification(self):
+        actual_graph = fnx.cycle_graph(4)
+        expected_graph = nx.cycle_graph(4)
+        actual_graph.add_nodes_from(["isolated-a", "isolated-b"])
+        expected_graph.add_nodes_from(["isolated-a", "isolated-b"])
+
+        base_planar, _base_embedding = fnx.check_planarity(fnx.cycle_graph(4))
+        expected_planar, expected_embedding = nx.check_planarity(expected_graph)
+        actual_planar, embedding = fnx.check_planarity(actual_graph)
+
+        assert base_planar == actual_planar == expected_planar
+        assert set(embedding.nodes()) == set(expected_embedding.nodes())
+        assert set(embedding.nodes()) == set(expected_graph.nodes())
+        embedding.check_structure()
+
+    def test_check_planarity_isolated_nodes_preserve_counterexample_shape(self):
+        actual_graph = fnx.complete_graph(5)
+        expected_graph = nx.complete_graph(5)
+        actual_graph.add_nodes_from(["isolated-a", "isolated-b"])
+        expected_graph.add_nodes_from(["isolated-a", "isolated-b"])
+
+        expected_planar, expected_counterexample = nx.check_planarity(
+            expected_graph,
+            counterexample=True,
+        )
+        actual_planar, certificate = fnx.check_planarity(actual_graph)
+        actual_counter_planar, counterexample = fnx.check_planarity(
+            actual_graph,
+            counterexample=True,
+        )
+
+        assert actual_planar == expected_planar
+        assert not actual_planar
+        assert certificate is None
+        assert actual_counter_planar == expected_planar
+        assert set(counterexample.nodes()) == set(expected_counterexample.nodes())
+        assert {
+            frozenset(edge) for edge in counterexample.edges()
+        } == {frozenset(edge) for edge in expected_counterexample.edges()}
+
+    def test_check_planarity_relabeling_preserves_planar_certificate_labels(self):
+        mapping = {node: f"wheel-node-{node}" for node in range(6)}
+        actual_graph = fnx.relabel_nodes(fnx.wheel_graph(6), mapping)
+        expected_graph = nx.relabel_nodes(nx.wheel_graph(6), mapping)
+
+        expected_planar, expected_embedding = nx.check_planarity(expected_graph)
+        actual_planar, embedding = fnx.check_planarity(actual_graph)
+
+        assert actual_planar == expected_planar
+        assert actual_planar
+        assert set(embedding.nodes()) == set(expected_embedding.nodes())
+        assert set(embedding.nodes()) == set(mapping.values())
+        embedding.check_structure()
+
+    def test_check_planarity_relabeling_preserves_counterexample_shape(self):
+        mapping = {node: f"k5-node-{node}" for node in range(5)}
+        actual_graph = fnx.relabel_nodes(fnx.complete_graph(5), mapping)
+        expected_graph = nx.relabel_nodes(nx.complete_graph(5), mapping)
+
+        expected_planar, expected_counterexample = nx.check_planarity(
+            expected_graph,
+            counterexample=True,
+        )
+        actual_planar, certificate = fnx.check_planarity(actual_graph)
+        actual_counter_planar, counterexample = fnx.check_planarity(
+            actual_graph,
+            counterexample=True,
+        )
+
+        assert actual_planar == expected_planar
+        assert not actual_planar
+        assert certificate is None
+        assert actual_counter_planar == expected_planar
+        assert set(counterexample.nodes()) == set(expected_counterexample.nodes())
+        assert set(counterexample.nodes()) == set(mapping.values())
+        assert {
+            frozenset(edge) for edge in counterexample.edges()
+        } == {frozenset(edge) for edge in expected_counterexample.edges()}
+
+    def test_check_planarity_pendant_leaf_preserves_planar_certificate(self):
+        actual_graph = fnx.complete_graph(4)
+        expected_graph = nx.complete_graph(4)
+        actual_graph.add_edge(0, "pendant-leaf")
+        expected_graph.add_edge(0, "pendant-leaf")
+
+        base_planar, _base_embedding = fnx.check_planarity(fnx.complete_graph(4))
+        expected_planar, expected_embedding = nx.check_planarity(expected_graph)
+        actual_planar, embedding = fnx.check_planarity(actual_graph)
+
+        assert base_planar == actual_planar == expected_planar
+        assert set(embedding.nodes()) == set(expected_embedding.nodes())
+        assert set(embedding.nodes()) == set(expected_graph.nodes())
+        embedding.check_structure()
+
+    def test_check_planarity_pendant_leaf_preserves_counterexample_shape(self):
+        actual_graph = fnx.complete_graph(5)
+        expected_graph = nx.complete_graph(5)
+        actual_graph.add_edge(0, "pendant-leaf")
+        expected_graph.add_edge(0, "pendant-leaf")
+
+        expected_planar, expected_counterexample = nx.check_planarity(
+            expected_graph,
+            counterexample=True,
+        )
+        actual_planar, certificate = fnx.check_planarity(actual_graph)
+        actual_counter_planar, counterexample = fnx.check_planarity(
+            actual_graph,
+            counterexample=True,
+        )
+
+        assert actual_planar == expected_planar
+        assert not actual_planar
+        assert certificate is None
+        assert actual_counter_planar == expected_planar
+        assert set(counterexample.nodes()) == set(expected_counterexample.nodes())
+        assert {
+            frozenset(edge) for edge in counterexample.edges()
+        } == {frozenset(edge) for edge in expected_counterexample.edges()}
+
+    def test_check_planarity_edge_subdivision_preserves_planar_certificate(self):
+        actual_graph = fnx.cycle_graph(4)
+        expected_graph = nx.cycle_graph(4)
+        actual_graph.remove_edge(0, 1)
+        expected_graph.remove_edge(0, 1)
+        actual_graph.add_edges_from([(0, "subdivision-node"), ("subdivision-node", 1)])
+        expected_graph.add_edges_from([(0, "subdivision-node"), ("subdivision-node", 1)])
+
+        base_planar, _base_embedding = fnx.check_planarity(fnx.cycle_graph(4))
+        expected_planar, expected_embedding = nx.check_planarity(expected_graph)
+        actual_planar, embedding = fnx.check_planarity(actual_graph)
+
+        assert base_planar == actual_planar == expected_planar
+        assert set(embedding.nodes()) == set(expected_embedding.nodes())
+        assert set(embedding.nodes()) == set(expected_graph.nodes())
+        embedding.check_structure()
+
+    def test_check_planarity_edge_subdivision_preserves_counterexample_shape(self):
+        actual_graph = fnx.complete_graph(5)
+        expected_graph = nx.complete_graph(5)
+        actual_graph.remove_edge(0, 1)
+        expected_graph.remove_edge(0, 1)
+        actual_graph.add_edges_from([(0, "subdivision-node"), ("subdivision-node", 1)])
+        expected_graph.add_edges_from([(0, "subdivision-node"), ("subdivision-node", 1)])
+
+        expected_planar, expected_counterexample = nx.check_planarity(
+            expected_graph,
+            counterexample=True,
+        )
+        actual_planar, certificate = fnx.check_planarity(actual_graph)
+        actual_counter_planar, counterexample = fnx.check_planarity(
+            actual_graph,
+            counterexample=True,
+        )
+
+        assert actual_planar == expected_planar
+        assert not actual_planar
+        assert certificate is None
+        assert actual_counter_planar == expected_planar
+        assert set(counterexample.nodes()) == set(expected_counterexample.nodes())
+        assert {
+            frozenset(edge) for edge in counterexample.edges()
+        } == {frozenset(edge) for edge in expected_counterexample.edges()}
+
+    def test_check_planarity_disconnected_planar_components_share_certificate(self):
+        actual_graph = fnx.Graph()
+        expected_graph = nx.Graph()
+        component_edges = [
+            (0, 1),
+            (1, 2),
+            (2, 0),
+            ("path-a", "path-b"),
+            ("path-b", "path-c"),
+        ]
+        actual_graph.add_edges_from(component_edges)
+        expected_graph.add_edges_from(component_edges)
+
+        expected_planar, expected_embedding = nx.check_planarity(expected_graph)
+        actual_planar, embedding = fnx.check_planarity(actual_graph)
+
+        assert actual_planar == expected_planar
+        assert actual_planar
+        assert set(embedding.nodes()) == set(expected_embedding.nodes())
+        assert set(embedding.nodes()) == set(expected_graph.nodes())
+        embedding.check_structure()
+
+    def test_check_planarity_disconnected_planar_component_keeps_nonplanarity(self):
+        actual_graph = fnx.complete_graph(5)
+        expected_graph = nx.complete_graph(5)
+        component_edges = [
+            ("triangle-a", "triangle-b"),
+            ("triangle-b", "triangle-c"),
+            ("triangle-c", "triangle-a"),
+        ]
+        actual_graph.add_edges_from(component_edges)
+        expected_graph.add_edges_from(component_edges)
+
+        expected_planar, expected_counterexample = nx.check_planarity(
+            expected_graph,
+            counterexample=True,
+        )
+        actual_planar, certificate = fnx.check_planarity(actual_graph)
+        actual_counter_planar, counterexample = fnx.check_planarity(
+            actual_graph,
+            counterexample=True,
+        )
+
+        assert actual_planar == expected_planar
+        assert not actual_planar
+        assert certificate is None
+        assert actual_counter_planar == expected_planar
+        assert set(counterexample.nodes()) == set(expected_counterexample.nodes())
+        assert {
+            frozenset(edge) for edge in counterexample.edges()
+        } == {frozenset(edge) for edge in expected_counterexample.edges()}
+
+    def test_check_planarity_self_loop_preserves_planar_certificate(self):
+        actual_graph = fnx.cycle_graph(4)
+        expected_graph = nx.cycle_graph(4)
+        actual_graph.add_edge(0, 0)
+        expected_graph.add_edge(0, 0)
+
+        base_planar, _base_embedding = fnx.check_planarity(fnx.cycle_graph(4))
+        expected_planar, expected_embedding = nx.check_planarity(expected_graph)
+        actual_planar, embedding = fnx.check_planarity(actual_graph)
+
+        assert base_planar == actual_planar == expected_planar
+        assert set(embedding.nodes()) == set(expected_embedding.nodes())
+        assert set(embedding.nodes()) == set(expected_graph.nodes())
+        embedding.check_structure()
+
+    def test_check_planarity_self_loop_preserves_counterexample_shape(self):
+        actual_graph = fnx.complete_graph(5)
+        expected_graph = nx.complete_graph(5)
+        actual_graph.add_edge(0, 0)
+        expected_graph.add_edge(0, 0)
+
+        expected_planar, expected_counterexample = nx.check_planarity(
+            expected_graph,
+            counterexample=True,
+        )
+        actual_planar, certificate = fnx.check_planarity(actual_graph)
+        actual_counter_planar, counterexample = fnx.check_planarity(
+            actual_graph,
+            counterexample=True,
+        )
+
+        assert actual_planar == expected_planar
+        assert not actual_planar
+        assert certificate is None
+        assert actual_counter_planar == expected_planar
+        assert set(counterexample.nodes()) == set(expected_counterexample.nodes())
+        assert {
+            frozenset(edge) for edge in counterexample.edges()
+        } == {frozenset(edge) for edge in expected_counterexample.edges()}
+
+    def test_check_planarity_tuple_labels_preserve_planar_certificate(self):
+        mapping = {node: ("cycle-node", node) for node in range(4)}
+        actual_graph = fnx.relabel_nodes(fnx.cycle_graph(4), mapping)
+        expected_graph = nx.relabel_nodes(nx.cycle_graph(4), mapping)
+
+        expected_planar, expected_embedding = nx.check_planarity(expected_graph)
+        actual_planar, embedding = fnx.check_planarity(actual_graph)
+
+        assert actual_planar == expected_planar
+        assert actual_planar
+        assert set(embedding.nodes()) == set(expected_embedding.nodes())
+        assert set(embedding.nodes()) == set(mapping.values())
+        embedding.check_structure()
+
+    def test_check_planarity_tuple_labels_preserve_counterexample_shape(self):
+        mapping = {node: ("k5-node", node) for node in range(5)}
+        actual_graph = fnx.relabel_nodes(fnx.complete_graph(5), mapping)
+        expected_graph = nx.relabel_nodes(nx.complete_graph(5), mapping)
+
+        expected_planar, expected_counterexample = nx.check_planarity(
+            expected_graph,
+            counterexample=True,
+        )
+        actual_planar, certificate = fnx.check_planarity(actual_graph)
+        actual_counter_planar, counterexample = fnx.check_planarity(
+            actual_graph,
+            counterexample=True,
+        )
+
+        assert actual_planar == expected_planar
+        assert not actual_planar
+        assert certificate is None
+        assert actual_counter_planar == expected_planar
+        assert set(counterexample.nodes()) == set(expected_counterexample.nodes())
+        assert set(counterexample.nodes()) == set(mapping.values())
+        assert {
+            frozenset(edge) for edge in counterexample.edges()
+        } == {frozenset(edge) for edge in expected_counterexample.edges()}
 
 
 # ---------------------------------------------------------------------------
@@ -662,11 +1125,21 @@ class TestGenerators:
         stochastic = fnx.stochastic_graph(digraph, copy=True, weight="w")
         expected_stochastic = nx.stochastic_graph(nx.DiGraph([(0, 2), (1, 2)]), copy=True, weight="w")
 
-        moral = fnx.moral_graph(digraph)
         expected_moral = nx.moral_graph(nx.DiGraph([(0, 2), (1, 2)]))
+        with mock.patch.object(
+            nx,
+            "moral_graph",
+            side_effect=AssertionError("NetworkX moral_graph fallback used"),
+        ):
+            moral = fnx.moral_graph(digraph)
 
-        chordal_graph, alpha = fnx.complete_to_chordal_graph(fnx.cycle_graph(4))
         expected_chordal_graph, expected_alpha = nx.complete_to_chordal_graph(nx.cycle_graph(4))
+        with mock.patch.object(
+            nx,
+            "complete_to_chordal_graph",
+            side_effect=AssertionError("NetworkX complete_to_chordal_graph fallback used"),
+        ):
+            chordal_graph, alpha = fnx.complete_to_chordal_graph(fnx.cycle_graph(4))
 
         assert isinstance(line, fnx.Graph)
         assert sorted(line.edges()) == sorted(expected_line.edges())
@@ -698,7 +1171,6 @@ class TestGenerators:
         weighted.add_edge(1, 2, weight=1)
         weighted.add_edge(2, 3, weight=5)
 
-        ego = fnx.ego_graph(weighted, 1, radius=1, distance="weight")
         expected_ego = nx.ego_graph(
             nx.Graph(
                 [
@@ -711,6 +1183,12 @@ class TestGenerators:
             radius=1,
             distance="weight",
         )
+        with mock.patch.object(
+            nx,
+            "ego_graph",
+            side_effect=AssertionError("NetworkX ego_graph fallback used"),
+        ):
+            ego = fnx.ego_graph(weighted, 1, radius=1, distance="weight")
 
         multigraph = fnx.from_dict_of_dicts(
             {0: {1: {7: {"w": 1}}}, 1: {0: {7: {"w": 1}}}},
@@ -804,19 +1282,11 @@ class TestGenerators:
         expected_graph.add_edge("a", "b", key=7, weight=3)
         expected_graph.add_edge("a", "b", key=8, weight=4)
 
-        frame = fnx.to_pandas_edgelist(graph, source="src", target="dst", edge_key="ek")
         expected_frame = nx.to_pandas_edgelist(
             expected_graph,
             source="src",
             target="dst",
             edge_key="ek",
-        )
-
-        matrix = fnx.to_numpy_array(
-            graph,
-            nodelist=["a", "b"],
-            multigraph_weight=max,
-            weight="weight",
         )
         expected_matrix = nx.to_numpy_array(
             expected_graph,
@@ -824,30 +1294,107 @@ class TestGenerators:
             multigraph_weight=max,
             weight="weight",
         )
-        pandas_adjacency = fnx.to_pandas_adjacency(
-            graph,
-            nodelist=["a", "b"],
-            multigraph_weight=max,
-            nonedge=-1.0,
-        )
         expected_pandas_adjacency = nx.to_pandas_adjacency(
             expected_graph,
             nodelist=["a", "b"],
             multigraph_weight=max,
             nonedge=-1.0,
         )
-        sparse = fnx.to_scipy_sparse_array(graph, nodelist=["a", "b"], format="csr")
         expected_sparse = nx.to_scipy_sparse_array(
             expected_graph,
             nodelist=["a", "b"],
             format="csr",
         )
 
+        with (
+            mock.patch.object(
+                nx,
+                "to_pandas_edgelist",
+                side_effect=AssertionError("NetworkX to_pandas_edgelist fallback used"),
+            ),
+            mock.patch.object(
+                nx,
+                "to_numpy_array",
+                side_effect=AssertionError("NetworkX to_numpy_array fallback used"),
+            ),
+            mock.patch.object(
+                nx,
+                "to_pandas_adjacency",
+                side_effect=AssertionError("NetworkX to_pandas_adjacency fallback used"),
+            ),
+            mock.patch.object(
+                nx,
+                "to_scipy_sparse_array",
+                side_effect=AssertionError("NetworkX to_scipy_sparse_array fallback used"),
+            ),
+        ):
+            frame = fnx.to_pandas_edgelist(graph, source="src", target="dst", edge_key="ek")
+            matrix = fnx.to_numpy_array(
+                graph,
+                nodelist=["a", "b"],
+                multigraph_weight=max,
+                weight="weight",
+            )
+            pandas_adjacency = fnx.to_pandas_adjacency(
+                graph,
+                nodelist=["a", "b"],
+                multigraph_weight=max,
+                nonedge=-1.0,
+            )
+            sparse = fnx.to_scipy_sparse_array(graph, nodelist=["a", "b"], format="csr")
+
         assert frame.sort_values(["ek"]).reset_index(drop=True).equals(
             expected_frame.sort_values(["ek"]).reset_index(drop=True)
         )
         assert np.array_equal(matrix, expected_matrix)
         assert pandas_adjacency.equals(expected_pandas_adjacency)
+        assert np.array_equal(sparse.toarray(), expected_sparse.toarray())
+
+    @needs_nx
+    def test_matrix_exporters_match_networkx_without_fallback(self):
+        np = pytest.importorskip("numpy")
+        pytest.importorskip("scipy.sparse")
+
+        graph = fnx.MultiGraph()
+        graph.add_edge("a", "b", key=7, weight=3)
+        graph.add_edge("a", "b", key=8, weight=4)
+
+        expected_graph = nx.MultiGraph()
+        expected_graph.add_edge("a", "b", key=7, weight=3)
+        expected_graph.add_edge("a", "b", key=8, weight=4)
+        expected_matrix = nx.to_numpy_array(
+            expected_graph,
+            nodelist=["a", "b"],
+            multigraph_weight=max,
+            weight="weight",
+        )
+        expected_sparse = nx.to_scipy_sparse_array(
+            expected_graph,
+            nodelist=["a", "b"],
+            format="csr",
+        )
+
+        with (
+            mock.patch.object(
+                nx,
+                "to_numpy_array",
+                side_effect=AssertionError("NetworkX to_numpy_array fallback used"),
+            ),
+            mock.patch.object(
+                nx,
+                "to_scipy_sparse_array",
+                side_effect=AssertionError("NetworkX to_scipy_sparse_array fallback used"),
+            ),
+        ):
+            matrix = fnx.to_numpy_array(
+                graph,
+                nodelist=["a", "b"],
+                multigraph_weight=max,
+                weight="weight",
+            )
+            sparse = fnx.to_scipy_sparse_array(graph, nodelist=["a", "b"], format="csr")
+
+        assert np.array_equal(matrix, expected_matrix)
         assert np.array_equal(sparse.toarray(), expected_sparse.toarray())
 
     @needs_nx
@@ -864,16 +1411,33 @@ class TestGenerators:
         expected_graph.add_node("a", color="red")
         expected_graph.add_node("b")
 
-        assert fnx.get_node_attributes(graph, "color", default=None) == nx.get_node_attributes(
+        expected_node_attributes = nx.get_node_attributes(
             expected_graph,
             "color",
             default=None,
         )
-        assert fnx.get_edge_attributes(graph, "weight", default=0) == nx.get_edge_attributes(
+        expected_edge_attributes = nx.get_edge_attributes(
             expected_graph,
             "weight",
             default=0,
         )
+        with (
+            mock.patch.object(
+                nx,
+                "get_node_attributes",
+                side_effect=AssertionError("NetworkX get_node_attributes fallback used"),
+            ),
+            mock.patch.object(
+                nx,
+                "get_edge_attributes",
+                side_effect=AssertionError("NetworkX get_edge_attributes fallback used"),
+            ),
+        ):
+            node_attributes = fnx.get_node_attributes(graph, "color", default=None)
+            edge_attributes = fnx.get_edge_attributes(graph, "weight", default=0)
+
+        assert node_attributes == expected_node_attributes
+        assert edge_attributes == expected_edge_attributes
 
     @needs_nx
     def test_attribute_mutators_preserve_networkx_multigraph_contract(self):
@@ -889,11 +1453,22 @@ class TestGenerators:
         expected_graph.add_node("a")
         expected_graph.add_node("b")
 
-        fnx.set_edge_attributes(graph, {("a", "b", 7): 5}, "weight")
         nx.set_edge_attributes(expected_graph, {("a", "b", 7): 5}, "weight")
-
-        fnx.set_node_attributes(graph, "blue", "color")
         nx.set_node_attributes(expected_graph, "blue", "color")
+        with (
+            mock.patch.object(
+                nx,
+                "set_edge_attributes",
+                side_effect=AssertionError("NetworkX set_edge_attributes fallback used"),
+            ),
+            mock.patch.object(
+                nx,
+                "set_node_attributes",
+                side_effect=AssertionError("NetworkX set_node_attributes fallback used"),
+            ),
+        ):
+            fnx.set_edge_attributes(graph, {("a", "b", 7): 5}, "weight")
+            fnx.set_node_attributes(graph, "blue", "color")
 
         assert sorted(graph.edges(keys=True, data=True)) == sorted(
             expected_graph.edges(keys=True, data=True)
@@ -912,11 +1487,33 @@ class TestGenerators:
         expected_graph.add_edge(1, 2, weight=3)
         expected_graph.add_edge(2, 3, weight=4)
 
-        assert list(fnx.nodes(graph)) == list(nx.nodes(expected_graph))
-        assert sorted(fnx.edges(graph, [1, 2])) == sorted(nx.edges(expected_graph, [1, 2]))
-        assert dict(fnx.degree(graph, weight="weight")) == dict(
-            nx.degree(expected_graph, weight="weight")
-        )
+        expected_nodes = list(nx.nodes(expected_graph))
+        expected_edges = sorted(nx.edges(expected_graph, [1, 2]))
+        expected_degree = dict(nx.degree(expected_graph, weight="weight"))
+        with (
+            mock.patch.object(
+                nx,
+                "nodes",
+                side_effect=AssertionError("NetworkX nodes fallback used"),
+            ),
+            mock.patch.object(
+                nx,
+                "edges",
+                side_effect=AssertionError("NetworkX edges fallback used"),
+            ),
+            mock.patch.object(
+                nx,
+                "degree",
+                side_effect=AssertionError("NetworkX degree fallback used"),
+            ),
+        ):
+            actual_nodes = list(fnx.nodes(graph))
+            actual_edges = sorted(fnx.edges(graph, [1, 2]))
+            actual_degree = dict(fnx.degree(graph, weight="weight"))
+
+        assert actual_nodes == expected_nodes
+        assert actual_edges == expected_edges
+        assert actual_degree == expected_degree
 
     @needs_nx
     def test_default_node_link_serialization_matches_networkx(self):
@@ -926,9 +1523,21 @@ class TestGenerators:
         expected_graph = nx.MultiGraph()
         expected_graph.add_edge("a", "b", key=7, weight=3)
 
-        payload = fnx.node_link_data(graph)
         expected_payload = nx.node_link_data(expected_graph)
-        roundtrip = fnx.node_link_graph(expected_payload)
+        with (
+            mock.patch.object(
+                nx,
+                "node_link_data",
+                side_effect=AssertionError("NetworkX node_link_data fallback used"),
+            ),
+            mock.patch.object(
+                nx,
+                "node_link_graph",
+                side_effect=AssertionError("NetworkX node_link_graph fallback used"),
+            ),
+        ):
+            payload = fnx.node_link_data(graph)
+            roundtrip = fnx.node_link_graph(expected_payload)
 
         assert payload == expected_payload
         assert isinstance(roundtrip, fnx.MultiGraph)
@@ -942,14 +1551,35 @@ class TestGenerators:
         graph = fnx.path_graph(4)
         expected_graph = nx.path_graph(4)
 
-        assert fnx.attribute_mixing_dict(graph, "missing", normalized=False) == nx.attribute_mixing_dict(
+        expected_dict = nx.attribute_mixing_dict(
             expected_graph,
             "missing",
             normalized=False,
         )
+        expected_matrix = nx.attribute_mixing_matrix(
+            expected_graph,
+            "missing",
+            normalized=True,
+        )
+        with (
+            mock.patch.object(
+                nx,
+                "attribute_mixing_dict",
+                side_effect=AssertionError("NetworkX attribute_mixing_dict fallback used"),
+            ),
+            mock.patch.object(
+                nx,
+                "attribute_mixing_matrix",
+                side_effect=AssertionError("NetworkX attribute_mixing_matrix fallback used"),
+            ),
+        ):
+            actual_dict = fnx.attribute_mixing_dict(graph, "missing", normalized=False)
+            actual_matrix = fnx.attribute_mixing_matrix(graph, "missing", normalized=True)
+
+        assert actual_dict == expected_dict
         assert np.array_equal(
-            fnx.attribute_mixing_matrix(graph, "missing", normalized=True),
-            nx.attribute_mixing_matrix(expected_graph, "missing", normalized=True),
+            actual_matrix,
+            expected_matrix,
         )
 
     @needs_nx
@@ -965,7 +1595,14 @@ class TestGenerators:
         expected_graph.nodes["b"]["color"] = "red"
 
         expected = nx.attribute_assortativity_coefficient(expected_graph, "color")
-        actual = fnx.attribute_assortativity_coefficient(graph, "color")
+        with mock.patch.object(
+            nx,
+            "attribute_assortativity_coefficient",
+            side_effect=AssertionError(
+                "NetworkX attribute_assortativity_coefficient fallback used"
+            ),
+        ):
+            actual = fnx.attribute_assortativity_coefficient(graph, "color")
 
         assert math.isnan(expected)
         assert math.isnan(actual)
@@ -977,17 +1614,30 @@ class TestGenerators:
 
         with pytest.raises(KeyError):
             nx.numeric_assortativity_coefficient(expected_graph, "missing")
-        with pytest.raises(KeyError):
-            fnx.numeric_assortativity_coefficient(graph, "missing")
+        with mock.patch.object(
+            nx,
+            "numeric_assortativity_coefficient",
+            side_effect=AssertionError(
+                "NetworkX numeric_assortativity_coefficient fallback used"
+            ),
+        ):
+            with pytest.raises(KeyError):
+                fnx.numeric_assortativity_coefficient(graph, "missing")
 
     @needs_nx
     def test_all_pairs_node_connectivity_matches_networkx(self):
         graph = fnx.path_graph(4)
         expected_graph = nx.path_graph(4)
 
-        assert fnx.all_pairs_node_connectivity(graph) == nx.all_pairs_node_connectivity(
-            expected_graph
-        )
+        expected = nx.all_pairs_node_connectivity(expected_graph)
+        with mock.patch.object(
+            nx,
+            "all_pairs_node_connectivity",
+            side_effect=AssertionError("NetworkX all_pairs_node_connectivity fallback used"),
+        ):
+            actual = fnx.all_pairs_node_connectivity(graph)
+
+        assert actual == expected
 
     @needs_nx
     def test_degree_pearson_and_generalized_degree_match_networkx(self):
@@ -1008,21 +1658,38 @@ class TestGenerators:
         expected_graph = nx.Graph()
         expected_graph.add_edges_from([(0, 1), (1, 2), (2, 0), (2, 3)])
 
-        actual_corr = fnx.degree_pearson_correlation_coefficient(
-            digraph,
-            x="in",
-            y="out",
-        )
         expected_corr = nx.degree_pearson_correlation_coefficient(
             expected_digraph,
             x="in",
             y="out",
         )
+        expected_generalized = nx.generalized_degree(expected_graph)
+        with (
+            mock.patch.object(
+                nx,
+                "degree_pearson_correlation_coefficient",
+                side_effect=AssertionError(
+                    "NetworkX degree_pearson_correlation_coefficient fallback used"
+                ),
+            ),
+            mock.patch.object(
+                nx,
+                "generalized_degree",
+                side_effect=AssertionError("NetworkX generalized_degree fallback used"),
+            ),
+        ):
+            actual_corr = fnx.degree_pearson_correlation_coefficient(
+                digraph,
+                x="in",
+                y="out",
+            )
+            actual_generalized = fnx.generalized_degree(graph)
+
         if math.isnan(expected_corr):
             assert math.isnan(actual_corr)
         else:
             assert actual_corr == expected_corr
-        assert fnx.generalized_degree(graph) == nx.generalized_degree(expected_graph)
+        assert actual_generalized == expected_generalized
 
     @needs_nx
     def test_load_centrality_matches_networkx_weighted_contract(self):
@@ -1036,11 +1703,19 @@ class TestGenerators:
         expected_graph.add_edge(2, 1, key=8, weight=3)
         expected_graph.add_edge(2, 3, key=9, weight=4)
 
-        assert fnx.load_centrality(graph, normalized=False, weight="weight") == nx.load_centrality(
+        expected = nx.load_centrality(
             expected_graph,
             normalized=False,
             weight="weight",
         )
+        with mock.patch.object(
+            nx,
+            "load_centrality",
+            side_effect=AssertionError("NetworkX load_centrality fallback used"),
+        ):
+            actual = fnx.load_centrality(graph, normalized=False, weight="weight")
+
+        assert actual == expected
 
     def test_backend_can_run_rejects_incompatible_signatures(self):
         from franken_networkx.backend import BackendInterface
@@ -1146,18 +1821,16 @@ class TestMisc:
 
 class TestDelegateFixes:
     @needs_nx
-    def test_graph_operator_batches_delegate(self):
-        empty_cases = [
-            ("compose_all", fnx.compose_all, nx.compose_all),
-            ("union_all", fnx.union_all, nx.union_all),
-            ("intersection_all", fnx.intersection_all, nx.intersection_all),
-            ("disjoint_union_all", fnx.disjoint_union_all, nx.disjoint_union_all),
+    def test_graph_operator_batches_match_networkx_without_fallback(self):
+        empty_func_names = [
+            "compose_all",
+            "union_all",
+            "intersection_all",
+            "disjoint_union_all",
         ]
-        for _, fnx_func, nx_func in empty_cases:
+        for name in empty_func_names:
             with pytest.raises(ValueError):
-                nx_func([])
-            with pytest.raises(ValueError):
-                fnx_func([])
+                getattr(nx, name)([])
 
         left = fnx.MultiGraph()
         left.graph["left"] = 1
@@ -1179,24 +1852,54 @@ class TestDelegateFixes:
         right_nx.add_node("c", color="blue")
         right_nx.add_edge("c", "d", key=3, cost=4)
 
-        composed = fnx.compose_all([left, right])
         composed_nx = nx.compose_all([left_nx, right_nx])
+        unioned_nx = nx.union_all([left_nx, right_nx], rename=("L-", "R-"))
+        disjoint_nx = nx.disjoint_union_all([left_nx, right_nx])
+
+        with (
+            mock.patch.object(
+                nx,
+                "compose_all",
+                side_effect=AssertionError("fnx.compose_all fell back to networkx"),
+            ),
+            mock.patch.object(
+                nx,
+                "union_all",
+                side_effect=AssertionError("fnx.union_all fell back to networkx"),
+            ),
+            mock.patch.object(
+                nx,
+                "intersection_all",
+                side_effect=AssertionError("fnx.intersection_all fell back to networkx"),
+            ),
+            mock.patch.object(
+                nx,
+                "disjoint_union_all",
+                side_effect=AssertionError(
+                    "fnx.disjoint_union_all fell back to networkx"
+                ),
+            ),
+        ):
+            for name in empty_func_names:
+                with pytest.raises(ValueError):
+                    getattr(fnx, name)([])
+
+            composed = fnx.compose_all([left, right])
+            unioned = fnx.union_all([left, right], rename=("L-", "R-"))
+            disjoint = fnx.disjoint_union_all([left, right])
+
         assert composed.is_multigraph()
         assert dict(composed.graph) == composed_nx.graph
         assert sorted(composed.edges(keys=True, data=True)) == sorted(
             composed_nx.edges(keys=True, data=True)
         )
 
-        unioned = fnx.union_all([left, right], rename=("L-", "R-"))
-        unioned_nx = nx.union_all([left_nx, right_nx], rename=("L-", "R-"))
         assert unioned.is_multigraph()
         assert dict(unioned.graph) == unioned_nx.graph
         assert sorted(unioned.edges(keys=True, data=True)) == sorted(
             unioned_nx.edges(keys=True, data=True)
         )
 
-        disjoint = fnx.disjoint_union_all([left, right])
-        disjoint_nx = nx.disjoint_union_all([left_nx, right_nx])
         assert disjoint.is_multigraph()
         assert dict(disjoint.graph) == disjoint_nx.graph
         assert sorted(disjoint.edges(keys=True, data=True)) == sorted(
@@ -1218,7 +1921,7 @@ class TestDelegateFixes:
         assert sorted(roundtrip["a"]["b"].keys()) == [9]
 
     @needs_nx
-    def test_disjoint_union_and_relabel_helpers_delegate(self):
+    def test_disjoint_union_and_relabel_helpers_match_networkx_without_fallback(self):
         left = fnx.MultiGraph()
         left.graph["left"] = 1
         left.add_edge("a", "b", key=7, weight=2)
@@ -1235,38 +1938,64 @@ class TestDelegateFixes:
         right_nx.graph["right"] = 2
         right_nx.add_edge("c", "d", key=3, cost=4)
 
-        disjoint = fnx.disjoint_union(left, right)
         disjoint_nx = nx.disjoint_union(left_nx, right_nx)
+
+        graph = fnx.Graph()
+        graph.graph["name"] = "base"
+        graph.add_edge("a", "b", weight=1)
+
+        expected_graph = nx.Graph()
+        expected_graph.graph["name"] = "base"
+        expected_graph.add_edge("a", "b", weight=1)
+        relabeled_nx = nx.relabel_nodes(expected_graph, {"a": "x"})
+        converted_nx = nx.convert_node_labels_to_integers(
+            expected_graph,
+            label_attribute="old",
+        )
+
+        with (
+            mock.patch.object(
+                nx,
+                "disjoint_union",
+                side_effect=AssertionError("fnx.disjoint_union fell back to networkx"),
+            ),
+            mock.patch.object(
+                nx,
+                "relabel_nodes",
+                side_effect=AssertionError("fnx.relabel_nodes fell back to networkx"),
+            ),
+            mock.patch.object(
+                nx,
+                "convert_node_labels_to_integers",
+                side_effect=AssertionError(
+                    "fnx.convert_node_labels_to_integers fell back to networkx"
+                ),
+            ),
+        ):
+            disjoint = fnx.disjoint_union(left, right)
+            relabeled = fnx.relabel_nodes(graph, {"a": "x"})
+            converted = fnx.convert_node_labels_to_integers(
+                graph,
+                label_attribute="old",
+            )
+
         assert disjoint.is_multigraph()
         assert dict(disjoint.graph) == disjoint_nx.graph
         assert sorted(disjoint.edges(keys=True, data=True)) == sorted(
             disjoint_nx.edges(keys=True, data=True)
         )
 
-        graph = fnx.Graph()
-        graph.graph["name"] = "base"
-        graph.add_edge("a", "b", weight=1)
-
-        relabeled = fnx.relabel_nodes(graph, {"a": "x"})
-        relabeled_nx = nx.relabel_nodes(nx.Graph([("a", "b", {"weight": 1})]), {"a": "x"})
-        relabeled_nx.graph["name"] = "base"
         assert dict(relabeled.graph) == dict(graph.graph)
         assert sorted((frozenset((u, v)), data) for u, v, data in relabeled.edges(data=True)) == sorted(
             (frozenset((u, v)), data) for u, v, data in relabeled_nx.edges(data=True)
         )
 
-        converted = fnx.convert_node_labels_to_integers(graph, label_attribute="old")
-        converted_nx = nx.convert_node_labels_to_integers(
-            nx.Graph([("a", "b", {"weight": 1})]),
-            label_attribute="old",
-        )
-        converted_nx.graph["name"] = "base"
         assert dict(converted.graph) == dict(graph.graph)
         assert sorted(converted.edges(data=True)) == sorted(converted_nx.edges(data=True))
         assert sorted(converted.nodes(data=True)) == sorted(converted_nx.nodes(data=True))
 
     @needs_nx
-    def test_line_graph_reverse_and_empty_copy_delegate(self):
+    def test_line_graph_reverse_and_empty_copy_match_networkx_without_fallback(self):
         graph = fnx.MultiGraph()
         graph.graph["name"] = "multi"
         graph.add_edge("a", "b", key=5, weight=2)
@@ -1275,17 +2004,8 @@ class TestDelegateFixes:
         graph_nx.graph["name"] = "multi"
         graph_nx.add_edge("a", "b", key=5, weight=2)
 
-        line = fnx.line_graph(graph)
         line_nx = nx.line_graph(graph_nx)
-        assert type(line).__name__ == type(line_nx).__name__
-        assert sorted(line.nodes(data=True)) == sorted(line_nx.nodes(data=True))
-        assert sorted(line.edges(data=True)) == sorted(line_nx.edges(data=True))
-
-        empty = fnx.create_empty_copy(graph)
         empty_nx = nx.create_empty_copy(graph_nx)
-        assert dict(empty.graph) == empty_nx.graph
-        assert sorted(empty.nodes(data=True)) == sorted(empty_nx.nodes(data=True))
-        assert empty.number_of_edges() == empty_nx.number_of_edges()
 
         digraph = fnx.MultiDiGraph()
         digraph.graph["kind"] = "digraph"
@@ -1295,15 +2015,44 @@ class TestDelegateFixes:
         digraph_nx.graph["kind"] = "digraph"
         digraph_nx.add_edge("u", "v", key=9, capacity=4)
 
-        reversed_graph = fnx.reverse(digraph)
         reversed_nx = nx.reverse(digraph_nx)
+
+        with (
+            mock.patch.object(
+                nx,
+                "line_graph",
+                side_effect=AssertionError("fnx.line_graph fell back to networkx"),
+            ),
+            mock.patch.object(
+                nx,
+                "create_empty_copy",
+                side_effect=AssertionError("fnx.create_empty_copy fell back to networkx"),
+            ),
+            mock.patch.object(
+                nx,
+                "reverse",
+                side_effect=AssertionError("fnx.reverse fell back to networkx"),
+            ),
+        ):
+            line = fnx.line_graph(graph)
+            empty = fnx.create_empty_copy(graph)
+            reversed_graph = fnx.reverse(digraph)
+
+        assert type(line).__name__ == type(line_nx).__name__
+        assert sorted(line.nodes(data=True)) == sorted(line_nx.nodes(data=True))
+        assert sorted(line.edges(data=True)) == sorted(line_nx.edges(data=True))
+
+        assert dict(empty.graph) == empty_nx.graph
+        assert sorted(empty.nodes(data=True)) == sorted(empty_nx.nodes(data=True))
+        assert empty.number_of_edges() == empty_nx.number_of_edges()
+
         assert dict(reversed_graph.graph) == reversed_nx.graph
         assert sorted(reversed_graph.edges(keys=True, data=True)) == sorted(
             reversed_nx.edges(keys=True, data=True)
         )
 
     @needs_nx
-    def test_directed_undirected_conversion_and_freeze_delegate(self):
+    def test_directed_undirected_conversion_and_freeze_match_networkx_without_fallback(self):
         graph = fnx.MultiGraph()
         graph.graph["name"] = "base"
         graph.add_node("a", color="red")
@@ -1314,8 +2063,39 @@ class TestDelegateFixes:
         graph_nx.add_node("a", color="red")
         graph_nx.add_edge("a", "b", key=4, weight=2)
 
-        directed = fnx.to_directed(graph)
         directed_nx = nx.to_directed(graph_nx)
+        undirected_nx = nx.to_undirected(directed_nx)
+        expected_frozen = nx.freeze(nx.Graph())
+        expected_is_frozen = nx.is_frozen(expected_frozen)
+        graph_to_freeze = fnx.Graph()
+
+        with (
+            mock.patch.object(
+                nx,
+                "to_directed",
+                side_effect=AssertionError("fnx.to_directed fell back to networkx"),
+            ),
+            mock.patch.object(
+                nx,
+                "to_undirected",
+                side_effect=AssertionError("fnx.to_undirected fell back to networkx"),
+            ),
+            mock.patch.object(
+                nx,
+                "freeze",
+                side_effect=AssertionError("fnx.freeze fell back to networkx"),
+            ),
+            mock.patch.object(
+                nx,
+                "is_frozen",
+                side_effect=AssertionError("fnx.is_frozen fell back to networkx"),
+            ),
+        ):
+            directed = fnx.to_directed(graph)
+            undirected = fnx.to_undirected(directed)
+            frozen = fnx.freeze(graph_to_freeze)
+            actual_is_frozen = fnx.is_frozen(frozen)
+
         assert directed.is_directed()
         assert directed.is_multigraph()
         assert dict(directed.graph) == directed_nx.graph
@@ -1324,8 +2104,6 @@ class TestDelegateFixes:
             directed_nx.edges(keys=True, data=True)
         )
 
-        undirected = fnx.to_undirected(directed)
-        undirected_nx = nx.to_undirected(directed_nx)
         assert not undirected.is_directed()
         assert undirected.is_multigraph()
         assert dict(undirected.graph) == undirected_nx.graph
@@ -1334,14 +2112,14 @@ class TestDelegateFixes:
             undirected_nx.edges(keys=True, data=True)
         )
 
-        frozen = fnx.freeze(fnx.Graph())
-        assert frozen is not None
-        assert fnx.is_frozen(frozen)
+        assert frozen is graph_to_freeze
+        assert actual_is_frozen == expected_is_frozen
+        assert getattr(frozen, "frozen", False) == getattr(expected_frozen, "frozen", False)
         with pytest.raises(fnx.NetworkXError, match="Frozen graph can't be modified"):
             frozen.add_edge(1, 2)
 
     @needs_nx
-    def test_graph_products_delegate_for_multigraph_attrs(self):
+    def test_graph_products_match_networkx_without_fallback_for_multigraph_attrs(self):
         left = fnx.MultiGraph()
         left.add_node(0, a1=True)
         left.add_edge(0, 1, key=7, w=2)
@@ -1364,8 +2142,14 @@ class TestDelegateFixes:
             "strong_product",
             "lexicographic_product",
         ):
-            graph = getattr(fnx, name)(left, right)
             expected = getattr(nx, name)(left_nx, right_nx)
+
+            with mock.patch.object(
+                nx,
+                name,
+                side_effect=AssertionError(f"NetworkX {name} fallback used"),
+            ):
+                graph = getattr(fnx, name)(left, right)
 
             assert graph.is_multigraph()
             assert sorted(graph.nodes(data=True)) == sorted(expected.nodes(data=True))
@@ -1374,7 +2158,7 @@ class TestDelegateFixes:
             )
 
     @needs_nx
-    def test_corona_rooted_and_modular_products_delegate(self):
+    def test_corona_rooted_and_modular_products_match_networkx_without_fallback(self):
         def canonical_nodes(graph):
             return sorted(
                 ((repr(node), node_data) for node, node_data in graph.nodes(data=True)),
@@ -1406,18 +2190,33 @@ class TestDelegateFixes:
         right_nx.add_node("a", label="A")
         right_nx.add_edge("a", "b", cost=3)
 
-        corona = fnx.corona_product(left, right)
         corona_nx = nx.corona_product(left_nx, right_nx)
+        with mock.patch.object(
+            nx,
+            "corona_product",
+            side_effect=AssertionError("NetworkX corona_product fallback used"),
+        ):
+            corona = fnx.corona_product(left, right)
         assert canonical_nodes(corona) == canonical_nodes(corona_nx)
         assert canonical_edges(corona) == canonical_edges(corona_nx)
 
-        rooted = fnx.rooted_product(left, right, "a")
         rooted_nx = nx.rooted_product(left_nx, right_nx, "a")
+        with mock.patch.object(
+            nx,
+            "rooted_product",
+            side_effect=AssertionError("NetworkX rooted_product fallback used"),
+        ):
+            rooted = fnx.rooted_product(left, right, "a")
         assert canonical_nodes(rooted) == canonical_nodes(rooted_nx)
         assert canonical_edges(rooted) == canonical_edges(rooted_nx)
 
-        modular = fnx.modular_product(left, right)
         modular_nx = nx.modular_product(left_nx, right_nx)
+        with mock.patch.object(
+            nx,
+            "modular_product",
+            side_effect=AssertionError("NetworkX modular_product fallback used"),
+        ):
+            modular = fnx.modular_product(left, right)
         assert canonical_nodes(modular) == canonical_nodes(modular_nx)
         assert canonical_edges(modular) == canonical_edges(modular_nx)
 
@@ -1480,48 +2279,128 @@ class TestDelegateFixes:
             fnx.graph_atlas(1253)
 
     @needs_nx
-    def test_random_shell_and_clustered_generators_delegate(self):
-        shell = fnx.random_shell_graph([(4, 8, 0.8)], seed=1)
-        shell_nx = nx.random_shell_graph([(4, 8, 0.8)], seed=1)
+    def test_random_shell_and_clustered_generators_match_networkx_without_fallback(self):
+        shell_constructor = [(4, 8, 0.8)]
+        shell_nx = nx.random_shell_graph(shell_constructor, seed=1)
         clustered_sequence = [(1, 0), (1, 0), (1, 0), (1, 0)]
-        clustered = fnx.random_clustered_graph(clustered_sequence, seed=1)
         clustered_nx = nx.random_clustered_graph(clustered_sequence, seed=1)
+
+        with (
+            mock.patch.object(
+                nx,
+                "random_shell_graph",
+                side_effect=AssertionError("NetworkX random_shell_graph fallback used"),
+            ),
+            mock.patch.object(
+                nx,
+                "random_clustered_graph",
+                side_effect=AssertionError("NetworkX random_clustered_graph fallback used"),
+            ),
+        ):
+            shell = fnx.random_shell_graph(shell_constructor, seed=1)
+            clustered = fnx.random_clustered_graph(clustered_sequence, seed=1)
 
         assert sorted(shell.edges()) == sorted(shell_nx.edges())
         assert clustered.number_of_nodes() == clustered_nx.number_of_nodes()
         assert clustered.number_of_edges() == clustered_nx.number_of_edges()
 
     @needs_nx
-    def test_spectral_graph_forge_and_edit_distance_delegate(self):
+    def test_spectral_graph_forge_and_edit_distance_match_networkx_without_fallback(self):
         graph = fnx.path_graph(5)
-        forged = fnx.spectral_graph_forge(graph, alpha=0.5, seed=1)
         forged_nx = nx.spectral_graph_forge(nx.path_graph(5), alpha=0.5, seed=1)
-
-        assert forged.number_of_nodes() == forged_nx.number_of_nodes()
-        assert fnx.graph_edit_distance(fnx.path_graph(3), fnx.path_graph(4)) == nx.graph_edit_distance(
+        expected_distance = nx.graph_edit_distance(
             nx.path_graph(3), nx.path_graph(4)
         )
-        assert fnx.optimal_edit_paths(fnx.path_graph(3), fnx.path_graph(3))[1] == 0
-        assert next(fnx.optimize_edit_paths(fnx.path_graph(3), fnx.path_graph(3)))[2] == 0
+        expected_optimal_cost = nx.optimal_edit_paths(
+            nx.path_graph(3),
+            nx.path_graph(3),
+        )[1]
+        expected_iter_cost = next(
+            nx.optimize_edit_paths(nx.path_graph(3), nx.path_graph(3))
+        )[2]
+
+        with (
+            mock.patch.object(
+                nx,
+                "spectral_graph_forge",
+                side_effect=AssertionError("NetworkX spectral_graph_forge fallback used"),
+            ),
+            mock.patch.object(
+                nx,
+                "graph_edit_distance",
+                side_effect=AssertionError("NetworkX graph_edit_distance fallback used"),
+            ),
+            mock.patch.object(
+                nx,
+                "optimal_edit_paths",
+                side_effect=AssertionError("NetworkX optimal_edit_paths fallback used"),
+            ),
+            mock.patch.object(
+                nx,
+                "optimize_edit_paths",
+                side_effect=AssertionError("NetworkX optimize_edit_paths fallback used"),
+            ),
+        ):
+            forged = fnx.spectral_graph_forge(graph, alpha=0.5, seed=1)
+            actual_distance = fnx.graph_edit_distance(
+                fnx.path_graph(3),
+                fnx.path_graph(4),
+            )
+            actual_optimal_cost = fnx.optimal_edit_paths(
+                fnx.path_graph(3),
+                fnx.path_graph(3),
+            )[1]
+            actual_iter_cost = next(
+                fnx.optimize_edit_paths(fnx.path_graph(3), fnx.path_graph(3))
+            )[2]
+
+        assert forged.number_of_nodes() == forged_nx.number_of_nodes()
+        assert actual_distance == expected_distance
+        assert actual_optimal_cost == expected_optimal_cost
+        assert actual_iter_cost == expected_iter_cost
 
     @needs_nx
-    def test_embedding_and_matplotlib_color_helpers_delegate(self):
+    def test_embedding_and_matplotlib_color_helpers_match_networkx_without_fallback(self):
         embedding = nx.PlanarEmbedding()
         embedding.add_half_edge_cw(0, 1, None)
         embedding.add_half_edge_cw(1, 0, None)
         embedding.add_half_edge_cw(1, 2, 0)
         embedding.add_half_edge_cw(2, 1, None)
         embedding.check_structure()
-
-        pos = fnx.combinatorial_embedding_to_pos(embedding)
-        assert set(pos) == {0, 1, 2}
+        expected_pos = nx.combinatorial_embedding_to_pos(embedding)
 
         mpl = pytest.importorskip("matplotlib")
         graph = fnx.path_graph(3)
+        expected_graph = nx.path_graph(3)
         for node, value in enumerate([0.0, 0.5, 1.0]):
             graph.nodes[node]["score"] = value
-        fnx.apply_matplotlib_colors(graph, "score", "rgba", mpl.cm.viridis)
-        assert "rgba" in graph.nodes[0]
+            expected_graph.nodes[node]["score"] = value
+        nx.apply_matplotlib_colors(expected_graph, "score", "rgba", mpl.cm.viridis)
+        expected_colors = [
+            expected_graph.nodes[node]["rgba"] for node in expected_graph.nodes()
+        ]
+
+        with (
+            mock.patch.object(
+                nx,
+                "combinatorial_embedding_to_pos",
+                side_effect=AssertionError(
+                    "NetworkX combinatorial_embedding_to_pos fallback used"
+                ),
+            ),
+            mock.patch.object(
+                nx,
+                "apply_matplotlib_colors",
+                side_effect=AssertionError(
+                    "NetworkX apply_matplotlib_colors fallback used"
+                ),
+            ),
+        ):
+            pos = fnx.combinatorial_embedding_to_pos(embedding)
+            fnx.apply_matplotlib_colors(graph, "score", "rgba", mpl.cm.viridis)
+
+        assert set(pos) == set(expected_pos) == {0, 1, 2}
+        assert [graph.nodes[node]["rgba"] for node in graph.nodes()] == expected_colors
 
     @needs_nx
     def test_combinatorial_embedding_to_pos_matches_networkx_without_fallback(self, monkeypatch):
@@ -1536,11 +2415,49 @@ class TestDelegateFixes:
         assert fnx.combinatorial_embedding_to_pos(embedding) == expected
 
     @needs_nx
-    def test_equitable_coloring_and_goldberg_radzik_delegate(self):
-        coloring = fnx.equitable_color(fnx.cycle_graph(4), 3)
-        expected_coloring = nx.equitable_color(nx.cycle_graph(4), 3)
+    @pytest.mark.parametrize("fully_triangulate", [False, True])
+    def test_combinatorial_embedding_to_pos_relabels_match_networkx_without_fallback(
+        self,
+        fully_triangulate,
+        monkeypatch,
+    ):
+        labels = [
+            ("hub", 0),
+            ("rim", 1),
+            ("rim", 2),
+            ("rim", 3),
+            ("rim", 4),
+            ("rim", 5),
+        ]
+        relabeling = dict(enumerate(labels))
 
-        assert coloring == expected_coloring
+        expected_graph = nx.relabel_nodes(nx.wheel_graph(6), relabeling)
+        actual_graph = fnx.relabel_nodes(fnx.wheel_graph(6), relabeling)
+        expected_planar, expected_embedding = nx.check_planarity(expected_graph)
+        actual_planar, actual_embedding = fnx.check_planarity(actual_graph)
+        expected = nx.combinatorial_embedding_to_pos(
+            expected_embedding,
+            fully_triangulate=fully_triangulate,
+        )
+
+        def fail(*args, **kwargs):
+            raise AssertionError("networkx combinatorial embedding fallback was used")
+
+        monkeypatch.setattr(nx, "combinatorial_embedding_to_pos", fail)
+
+        assert actual_planar == expected_planar
+        assert actual_planar
+        assert (
+            fnx.combinatorial_embedding_to_pos(
+                actual_embedding,
+                fully_triangulate=fully_triangulate,
+            )
+            == expected
+        )
+
+    @needs_nx
+    def test_equitable_coloring_and_goldberg_radzik_match_networkx_without_fallback(self):
+        expected_coloring = nx.equitable_color(nx.cycle_graph(4), 3)
 
         graph = fnx.DiGraph()
         graph.add_weighted_edges_from([(0, 1, 1), (1, 2, -2), (0, 2, 4)])
@@ -1548,59 +2465,139 @@ class TestDelegateFixes:
         expected_graph.add_weighted_edges_from([(0, 1, 1), (1, 2, -2), (0, 2, 4)])
         expected = nx.goldberg_radzik(expected_graph, 0)
 
-        assert fnx.goldberg_radzik(graph, 0) == expected
+        with (
+            mock.patch.object(
+                nx,
+                "equitable_color",
+                side_effect=AssertionError("NetworkX equitable_color fallback used"),
+            ),
+            mock.patch.object(
+                nx,
+                "goldberg_radzik",
+                side_effect=AssertionError("NetworkX goldberg_radzik fallback used"),
+            ),
+        ):
+            coloring = fnx.equitable_color(fnx.cycle_graph(4), 3)
+            actual = fnx.goldberg_radzik(graph, 0)
+
+        assert coloring == expected_coloring
+        assert actual == expected
 
     @needs_nx
-    def test_random_degree_sequence_and_edit_distance_iter_delegate(self):
+    def test_random_degree_sequence_and_edit_distance_iter_match_networkx_without_fallback(self):
         sequence = [2, 2, 2, 2]
-        graph = fnx.random_degree_sequence_graph(sequence, seed=1)
         expected = nx.random_degree_sequence_graph(sequence, seed=1)
+        expected_edit_distances = list(
+            nx.optimize_graph_edit_distance(nx.path_graph(3), nx.path_graph(3))
+        )
+
+        with (
+            mock.patch.object(
+                nx,
+                "random_degree_sequence_graph",
+                side_effect=AssertionError(
+                    "NetworkX random_degree_sequence_graph fallback used"
+                ),
+            ),
+            mock.patch.object(
+                nx,
+                "optimize_graph_edit_distance",
+                side_effect=AssertionError(
+                    "NetworkX optimize_graph_edit_distance fallback used"
+                ),
+            ),
+        ):
+            graph = fnx.random_degree_sequence_graph(sequence, seed=1)
+            actual_edit_distances = list(
+                fnx.optimize_graph_edit_distance(
+                    fnx.path_graph(3),
+                    fnx.path_graph(3),
+                )
+            )
 
         assert sorted(graph.degree[node] for node in graph.nodes()) == sorted(
             degree for _, degree in expected.degree()
         )
-        assert list(fnx.optimize_graph_edit_distance(fnx.path_graph(3), fnx.path_graph(3))) == list(
-            nx.optimize_graph_edit_distance(nx.path_graph(3), nx.path_graph(3))
-        )
+        assert actual_edit_distances == expected_edit_distances
 
     @needs_nx
-    def test_neighbors_and_describe_delegate(self, capsys):
+    def test_neighbors_and_describe_match_networkx_without_fallback(self, capsys):
         graph = fnx.path_graph(3)
         expected_graph = nx.path_graph(3)
 
-        neighbors = fnx.neighbors(graph, 1)
-        assert iter(neighbors) is neighbors
-        assert tuple(neighbors) == tuple(nx.neighbors(expected_graph, 1))
-        assert fnx.describe(graph) is None
-
-        out = capsys.readouterr().out
+        expected_neighbors = tuple(nx.neighbors(expected_graph, 1))
         nx.describe(expected_graph)
         expected_out = capsys.readouterr().out
+
+        with (
+            mock.patch.object(
+                nx,
+                "neighbors",
+                side_effect=AssertionError("NetworkX neighbors fallback used"),
+            ),
+            mock.patch.object(
+                nx,
+                "describe",
+                side_effect=AssertionError("NetworkX describe fallback used"),
+            ),
+        ):
+            neighbors = fnx.neighbors(graph, 1)
+            assert iter(neighbors) is neighbors
+            actual_neighbors = tuple(neighbors)
+            assert fnx.describe(graph) is None
+
+        out = capsys.readouterr().out
+        assert actual_neighbors == expected_neighbors
         assert out == expected_out
 
     @needs_nx
     def test_mixing_and_resistance_helpers_match_networkx_without_to_nx_fallback(self):
-        assert fnx.mixing_dict([(1, 2), (1, 2), (2, 3)], normalized=True) == nx.mixing_dict(
+        expected_mixing = nx.mixing_dict(
             [(1, 2), (1, 2), (2, 3)],
             normalized=True,
         )
 
         graph = fnx.path_graph(4)
         expected_graph = nx.path_graph(4)
+        expected_constraint = nx.local_constraint(expected_graph, 1, 0)
+        expected_communicability = nx.communicability_exp(expected_graph)
+        expected_resistance = nx.effective_graph_resistance(expected_graph)
 
-        with mock.patch(
-            "franken_networkx.drawing.layout._to_nx",
-            side_effect=AssertionError("_to_nx fallback should not be used"),
+        with (
+            mock.patch.object(
+                nx,
+                "mixing_dict",
+                side_effect=AssertionError("NetworkX mixing_dict fallback used"),
+            ),
+            mock.patch.object(
+                nx,
+                "local_constraint",
+                side_effect=AssertionError("NetworkX local_constraint fallback used"),
+            ),
+            mock.patch.object(
+                nx,
+                "communicability_exp",
+                side_effect=AssertionError("NetworkX communicability_exp fallback used"),
+            ),
+            mock.patch.object(
+                nx,
+                "effective_graph_resistance",
+                side_effect=AssertionError("NetworkX effective_graph_resistance fallback used"),
+            ),
+            mock.patch(
+                "franken_networkx.drawing.layout._to_nx",
+                side_effect=AssertionError("_to_nx fallback should not be used"),
+            ),
         ):
-            assert fnx.local_constraint(graph, 1, 0) == nx.local_constraint(
-                expected_graph,
-                1,
-                0,
-            )
-            assert fnx.communicability_exp(graph) == nx.communicability_exp(expected_graph)
-            assert fnx.effective_graph_resistance(graph) == nx.effective_graph_resistance(
-                expected_graph
-            )
+            actual_mixing = fnx.mixing_dict([(1, 2), (1, 2), (2, 3)], normalized=True)
+            actual_constraint = fnx.local_constraint(graph, 1, 0)
+            actual_communicability = fnx.communicability_exp(graph)
+            actual_resistance = fnx.effective_graph_resistance(graph)
+
+        assert actual_mixing == expected_mixing
+        assert actual_constraint == expected_constraint
+        assert actual_communicability == expected_communicability
+        assert actual_resistance == expected_resistance
 
     @needs_nx
     def test_cd_index_matches_networkx_without_to_nx_fallback(self):
@@ -1623,17 +2620,24 @@ class TestDelegateFixes:
             expected_graph.nodes[node].update(attrs)
 
         delta = timedelta(days=400)
-        with mock.patch(
-            "franken_networkx.drawing.layout._to_nx",
-            side_effect=AssertionError("_to_nx fallback should not be used"),
+        expected = nx.cd_index(expected_graph, 0, delta)
+        expected_weighted = nx.cd_index(expected_graph, 0, delta, weight="weight")
+        with (
+            mock.patch.object(
+                nx,
+                "cd_index",
+                side_effect=AssertionError("NetworkX cd_index fallback used"),
+            ),
+            mock.patch(
+                "franken_networkx.drawing.layout._to_nx",
+                side_effect=AssertionError("_to_nx fallback should not be used"),
+            ),
         ):
-            assert fnx.cd_index(graph, 0, delta) == nx.cd_index(expected_graph, 0, delta)
-            assert fnx.cd_index(graph, 0, delta, weight="weight") == nx.cd_index(
-                expected_graph,
-                0,
-                delta,
-                weight="weight",
-            )
+            actual = fnx.cd_index(graph, 0, delta)
+            actual_weighted = fnx.cd_index(graph, 0, delta, weight="weight")
+
+        assert actual == expected
+        assert actual_weighted == expected_weighted
 
     @needs_nx
     def test_panther_helpers_match_networkx_without_to_nx_fallback(self):

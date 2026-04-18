@@ -54,6 +54,41 @@ def disconnected_graph():
     return g
 
 
+def _bellman_ford_directed_graph_pair():
+    g_fnx = fnx.DiGraph()
+    g_nx = nx.DiGraph()
+    for graph in (g_fnx, g_nx):
+        graph.add_edge("a", "b", weight=1.0)
+        graph.add_edge("b", "c", weight=2.0)
+        graph.add_edge("c", "a", weight=4.0)
+        graph.add_edge("a", "c", weight=5.0)
+        graph.add_edge("c", "b", weight=1.0)
+        graph.add_edge("b", "a", weight=3.0)
+    return g_fnx, g_nx
+
+
+def _dijkstra_directed_graph_pair():
+    g_fnx = fnx.DiGraph()
+    g_nx = nx.DiGraph()
+    for graph in (g_fnx, g_nx):
+        graph.add_edge("a", "b", weight=1.0)
+        graph.add_edge("b", "c", weight=2.0)
+        graph.add_edge("a", "c", weight=10.0)
+    return g_fnx, g_nx
+
+
+def _single_target_directed_graph_pair():
+    g_fnx = fnx.DiGraph()
+    g_nx = nx.DiGraph()
+    for graph in (g_fnx, g_nx):
+        graph.add_edge("a", "c")
+        graph.add_edge("b", "c")
+        graph.add_edge("a", "b")
+        graph.add_edge("b", "d")
+        graph.add_edge("d", "c")
+    return g_fnx, g_nx
+
+
 # ---------------------------------------------------------------------------
 # dijkstra_path_length
 # ---------------------------------------------------------------------------
@@ -121,6 +156,12 @@ class TestSingleSourceDijkstra:
         assert dists == {"x": 0.0}
         assert paths == {"x": ["x"]}
 
+    def test_directed_matches_networkx(self):
+        g_fnx, g_nx = _dijkstra_directed_graph_pair()
+        assert fnx.single_source_dijkstra(
+            g_fnx, "a", weight="weight"
+        ) == nx.single_source_dijkstra(g_nx, "a", weight="weight")
+
 
 class TestDirectedMultiSourceDijkstra:
     def test_only_reaches_successors(self):
@@ -150,6 +191,12 @@ class TestSingleSourceDijkstraPath:
         paths = fnx.single_source_dijkstra_path(g, "x", weight="weight")
         assert paths == {"x": ["x"]}
 
+    def test_directed_matches_networkx(self):
+        g_fnx, g_nx = _dijkstra_directed_graph_pair()
+        assert fnx.single_source_dijkstra_path(
+            g_fnx, "a", weight="weight"
+        ) == nx.single_source_dijkstra_path(g_nx, "a", weight="weight")
+
 
 # ---------------------------------------------------------------------------
 # single_source_dijkstra_path_length
@@ -161,6 +208,12 @@ class TestSingleSourceDijkstraPathLength:
         assert dists["a"] == 0.0
         assert dists["b"] == 2.0
         assert dists["c"] == 5.0
+
+    def test_directed_matches_networkx(self):
+        g_fnx, g_nx = _dijkstra_directed_graph_pair()
+        assert fnx.single_source_dijkstra_path_length(
+            g_fnx, "a", weight="weight"
+        ) == nx.single_source_dijkstra_path_length(g_nx, "a", weight="weight")
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +232,12 @@ class TestSingleSourceBellmanFord:
         assert dists["c"] == 5.0
         assert paths["c"] == ["a", "b", "c"]
 
+    def test_directed_matches_networkx(self):
+        g_fnx, g_nx = _bellman_ford_directed_graph_pair()
+        assert fnx.single_source_bellman_ford(
+            g_fnx, "a", weight="weight"
+        ) == nx.single_source_bellman_ford(g_nx, "a", weight="weight")
+
 
 # ---------------------------------------------------------------------------
 # single_source_bellman_ford_path
@@ -188,6 +247,12 @@ class TestSingleSourceBellmanFordPath:
     def test_paths(self, path_graph):
         paths = fnx.single_source_bellman_ford_path(path_graph, "a", weight="weight")
         assert paths["c"] == ["a", "b", "c"]
+
+    def test_directed_matches_networkx(self):
+        g_fnx, g_nx = _bellman_ford_directed_graph_pair()
+        assert fnx.single_source_bellman_ford_path(
+            g_fnx, "a", weight="weight"
+        ) == nx.single_source_bellman_ford_path(g_nx, "a", weight="weight")
 
 
 # ---------------------------------------------------------------------------
@@ -199,6 +264,12 @@ class TestSingleSourceBellmanFordPathLength:
         dists = fnx.single_source_bellman_ford_path_length(path_graph, "a", weight="weight")
         assert dists["a"] == 0.0
         assert dists["d"] == 3.0
+
+    def test_directed_matches_networkx(self):
+        g_fnx, g_nx = _bellman_ford_directed_graph_pair()
+        assert fnx.single_source_bellman_ford_path_length(
+            g_fnx, "a", weight="weight"
+        ) == nx.single_source_bellman_ford_path_length(g_nx, "a", weight="weight")
 
 
 # ---------------------------------------------------------------------------
@@ -221,6 +292,12 @@ class TestSingleTargetShortestPath:
         paths = fnx.single_target_shortest_path(path_graph, "d", cutoff=1)
         assert "c" in paths
         assert "a" not in paths  # a is 3 hops away
+
+    def test_directed_matches_networkx(self):
+        g_fnx, g_nx = _single_target_directed_graph_pair()
+        assert fnx.single_target_shortest_path(
+            g_fnx, "c"
+        ) == nx.single_target_shortest_path(g_nx, "c")
 
 
 # ---------------------------------------------------------------------------
@@ -248,6 +325,12 @@ class TestSingleTargetShortestPathLength:
         assert lengths["c"] == 0.0
         assert lengths["b"] == 3.0
         assert lengths["a"] == 5.0
+
+    def test_directed_matches_networkx(self):
+        g_fnx, g_nx = _single_target_directed_graph_pair()
+        assert fnx.single_target_shortest_path_length(
+            g_fnx, "c"
+        ) == nx.single_target_shortest_path_length(g_nx, "c")
 
 
 # ---------------------------------------------------------------------------
@@ -279,6 +362,18 @@ class TestAllPairsDijkstraPathLength:
         dists = dict(fnx.all_pairs_dijkstra_path_length(path_graph, weight="weight"))
         assert dists["a"]["d"] == dists["d"]["a"]
 
+    def test_directed_distances(self):
+        g_fnx = fnx.DiGraph()
+        g_nx = nx.DiGraph()
+        for graph in (g_fnx, g_nx):
+            graph.add_edge("a", "b", weight=1.0)
+            graph.add_edge("b", "c", weight=2.0)
+            graph.add_edge("a", "c", weight=10.0)
+
+        assert dict(fnx.all_pairs_dijkstra_path_length(
+            g_fnx, weight="weight"
+        )) == dict(nx.all_pairs_dijkstra_path_length(g_nx, weight="weight"))
+
 
 # ---------------------------------------------------------------------------
 # all_pairs_bellman_ford_path
@@ -289,6 +384,12 @@ class TestAllPairsBellmanFordPath:
         paths = dict(fnx.all_pairs_bellman_ford_path(path_graph, weight="weight"))
         assert paths["a"]["d"] == ["a", "b", "c", "d"]
 
+    def test_directed_matches_networkx(self):
+        g_fnx, g_nx = _bellman_ford_directed_graph_pair()
+        assert dict(fnx.all_pairs_bellman_ford_path(
+            g_fnx, weight="weight"
+        )) == dict(nx.all_pairs_bellman_ford_path(g_nx, weight="weight"))
+
 
 # ---------------------------------------------------------------------------
 # all_pairs_bellman_ford_path_length
@@ -298,6 +399,12 @@ class TestAllPairsBellmanFordPathLength:
     def test_distances(self, path_graph):
         dists = dict(fnx.all_pairs_bellman_ford_path_length(path_graph, weight="weight"))
         assert dists["a"]["d"] == 3.0
+
+    def test_directed_matches_networkx(self):
+        g_fnx, g_nx = _bellman_ford_directed_graph_pair()
+        assert dict(fnx.all_pairs_bellman_ford_path_length(
+            g_fnx, weight="weight"
+        )) == dict(nx.all_pairs_bellman_ford_path_length(g_nx, weight="weight"))
 
 
 # ---------------------------------------------------------------------------

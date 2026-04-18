@@ -1,4 +1,5 @@
 import networkx as nx
+import pytest
 
 import franken_networkx as fnx
 
@@ -17,6 +18,16 @@ def _mapping_signature(mapping):
             for left, right in mapping.items()
         )
     )
+
+
+def _block_networkx_graph_edit(monkeypatch):
+    def fail_networkx(*args, **kwargs):
+        raise AssertionError("NetworkX graph-edit fallback should not be used")
+
+    monkeypatch.setattr(nx, "graph_edit_distance", fail_networkx)
+    monkeypatch.setattr(nx, "optimal_edit_paths", fail_networkx)
+    monkeypatch.setattr(nx, "optimize_edit_paths", fail_networkx)
+    monkeypatch.setattr(nx, "optimize_graph_edit_distance", fail_networkx)
 
 
 def test_is_isomorphic_uses_rust_when_no_callbacks(monkeypatch):
@@ -345,24 +356,55 @@ def test_edit_path_helpers_use_native_common_case(monkeypatch):
     assert called["rust"] == 3
 
 
-def test_graph_edit_distance_with_callbacks_delegates_to_networkx(monkeypatch):
+def test_edit_optimizers_route_through_local_wrappers(monkeypatch):
+    g1 = fnx.path_graph(2)
+    g2 = fnx.path_graph(3)
+
+    def fail_networkx(*args, **kwargs):
+        raise AssertionError("optimizer NetworkX fallback should not be used")
+
+    monkeypatch.setattr(nx, "optimize_edit_paths", fail_networkx)
+    monkeypatch.setattr(nx, "optimize_graph_edit_distance", fail_networkx)
+    monkeypatch.setattr(
+        fnx,
+        "optimal_edit_paths",
+        lambda *args, **kwargs: (
+            [
+                (
+                    [(0, 0), (1, 1), (None, 2)],
+                    [((0, 1), (0, 1)), (None, (1, 2))],
+                )
+            ],
+            2.0,
+        ),
+    )
+    monkeypatch.setattr(fnx, "graph_edit_distance", lambda *args, **kwargs: 2.0)
+
+    assert list(fnx.optimize_graph_edit_distance(g1, g2)) == [2.0]
+    assert list(fnx.optimize_edit_paths(g1, g2)) == [
+        (
+            [(0, 0), (1, 1), (None, 2)],
+            [((0, 1), (0, 1)), (None, (1, 2))],
+            2.0,
+        )
+    ]
+
+
+def test_graph_edit_distance_with_callbacks_uses_local_optimal_paths(monkeypatch):
     g1 = fnx.Graph()
     g1.add_node(1, color="red")
     g2 = fnx.Graph()
     g2.add_node(2, color="blue")
-    called = {"networkx": False}
 
     def fail_rust(*args, **kwargs):
         raise AssertionError("native common-case path should not be used")
 
-    real_graph_edit_distance = nx.graph_edit_distance
-
-    def wrapped_networkx(*args, **kwargs):
-        called["networkx"] = True
-        return real_graph_edit_distance(*args, **kwargs)
+    def fail_networkx(*args, **kwargs):
+        raise AssertionError("NetworkX edit-distance fallback should not be used")
 
     monkeypatch.setattr(fnx, "_graph_edit_distance_common_rust", fail_rust)
-    monkeypatch.setattr(nx, "graph_edit_distance", wrapped_networkx)
+    monkeypatch.setattr(nx, "graph_edit_distance", fail_networkx)
+    monkeypatch.setattr(nx, "optimal_edit_paths", fail_networkx)
 
     assert (
         fnx.graph_edit_distance(
@@ -372,4 +414,249 @@ def test_graph_edit_distance_with_callbacks_delegates_to_networkx(monkeypatch):
         )
         == 1.0
     )
-    assert called["networkx"] is True
+
+
+def test_optimal_edit_paths_with_callbacks_matches_networkx_without_fallback(monkeypatch):
+    g1 = fnx.Graph()
+    g1.add_node(1, color="red")
+    g2 = fnx.Graph()
+    g2.add_node(2, color="blue")
+    node_match = lambda left, right: left == right
+
+    expected_paths, expected_cost = nx.optimal_edit_paths(
+        _to_nx(g1),
+        _to_nx(g2),
+        node_match=node_match,
+    )
+
+    def fail_networkx(*args, **kwargs):
+        raise AssertionError("NetworkX optimal_edit_paths fallback should not be used")
+
+    monkeypatch.setattr(nx, "optimal_edit_paths", fail_networkx)
+    paths, cost = fnx.optimal_edit_paths(g1, g2, node_match=node_match)
+
+    assert cost == expected_cost
+    assert paths == expected_paths
+
+
+def test_optimal_edit_paths_callback_costs_match_networkx_without_fallback(monkeypatch):
+    g1 = fnx.Graph()
+    g1.add_node("a", size=1)
+    g1.add_node("b", size=3)
+    g1.add_edge("a", "b", weight=4)
+
+    g2 = fnx.Graph()
+    g2.add_node("x", size=2)
+    g2.add_node("y", size=5)
+    g2.add_edge("x", "y", weight=7)
+
+    kwargs = {
+        "node_subst_cost": lambda left, right: abs(left.get("size", 0) - right.get("size", 0)),
+        "node_del_cost": lambda attrs: attrs.get("size", 1),
+        "node_ins_cost": lambda attrs: attrs.get("size", 1),
+        "edge_subst_cost": lambda left, right: abs(left.get("weight", 0) - right.get("weight", 0)),
+        "edge_del_cost": lambda attrs: attrs.get("weight", 1),
+        "edge_ins_cost": lambda attrs: attrs.get("weight", 1),
+    }
+    expected_paths, expected_cost = nx.optimal_edit_paths(_to_nx(g1), _to_nx(g2), **kwargs)
+
+    monkeypatch.setattr(
+        fnx,
+        "_graph_edit_distance_common_rust",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("native common-case path should not be used with callbacks")
+        ),
+    )
+    _block_networkx_graph_edit(monkeypatch)
+
+    paths, cost = fnx.optimal_edit_paths(g1, g2, **kwargs)
+
+    assert cost == expected_cost
+    assert [edge_path for _, edge_path in paths] == [
+        edge_path for _, edge_path in expected_paths
+    ]
+    assert fnx.graph_edit_distance(g1, g2, **kwargs) == expected_cost
+    assert list(fnx.optimize_graph_edit_distance(g1, g2, **kwargs)) == [expected_cost]
+    assert [item[2] for item in fnx.optimize_edit_paths(g1, g2, **kwargs)] == [
+        expected_cost
+    ]
+
+
+def test_directed_graph_edit_respects_edge_direction_without_fallback(monkeypatch):
+    g1 = fnx.DiGraph()
+    g1.add_node("a", color="red")
+    g1.add_node("b", color="blue")
+    g1.add_edge("a", "b")
+
+    g2 = fnx.DiGraph()
+    g2.add_node("x", color="red")
+    g2.add_node("y", color="blue")
+    g2.add_edge("y", "x")
+
+    kwargs = {
+        "node_subst_cost": lambda left, right: 0
+        if left.get("color") == right.get("color")
+        else 10,
+    }
+    expected_paths, expected_cost = nx.optimal_edit_paths(_to_nx(g1), _to_nx(g2), **kwargs)
+
+    monkeypatch.setattr(
+        fnx,
+        "_graph_edit_distance_common_rust",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("native common-case path should not be used with callbacks")
+        ),
+    )
+    _block_networkx_graph_edit(monkeypatch)
+
+    paths, cost = fnx.optimal_edit_paths(g1, g2, **kwargs)
+
+    assert cost == expected_cost
+    assert cost == pytest.approx(2.0)
+    assert {tuple(edge_path) for _, edge_path in paths} == {
+        tuple(edge_path) for _, edge_path in expected_paths
+    }
+    assert fnx.graph_edit_distance(g1, g2, **kwargs) == expected_cost
+
+
+def test_directed_graph_edit_edge_match_without_fallback(monkeypatch):
+    g1 = fnx.DiGraph()
+    g1.add_node("a", color="red")
+    g1.add_node("b", color="blue")
+    g1.add_edge("a", "b", kind="uses")
+
+    g2 = fnx.DiGraph()
+    g2.add_node("x", color="red")
+    g2.add_node("y", color="blue")
+    g2.add_edge("x", "y", kind="blocks")
+
+    kwargs = {
+        "node_match": lambda left, right: left == right,
+        "edge_match": lambda left, right: left == right,
+    }
+    expected_paths, expected_cost = nx.optimal_edit_paths(_to_nx(g1), _to_nx(g2), **kwargs)
+
+    monkeypatch.setattr(
+        fnx,
+        "_graph_edit_distance_common_rust",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("native common-case path should not be used with callbacks")
+        ),
+    )
+    _block_networkx_graph_edit(monkeypatch)
+
+    paths, cost = fnx.optimal_edit_paths(g1, g2, **kwargs)
+
+    assert cost == expected_cost
+    assert cost == pytest.approx(1.0)
+    assert [edge_path for _, edge_path in paths] == [
+        edge_path for _, edge_path in expected_paths
+    ]
+    assert fnx.graph_edit_distance(g1, g2, **kwargs) == expected_cost
+
+
+def test_graph_edit_self_loop_costs_match_networkx_without_fallback(monkeypatch):
+    g1 = fnx.Graph()
+    g1.add_node("a", color="red")
+    g1.add_edge("a", "a", weight=3)
+
+    g2 = fnx.Graph()
+    g2.add_node("x", color="red")
+
+    kwargs = {
+        "node_match": lambda left, right: left == right,
+        "edge_del_cost": lambda attrs: attrs.get("weight", 1),
+    }
+    expected_paths, expected_cost = nx.optimal_edit_paths(_to_nx(g1), _to_nx(g2), **kwargs)
+
+    monkeypatch.setattr(
+        fnx,
+        "_graph_edit_distance_common_rust",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("native common-case path should not be used with callbacks")
+        ),
+    )
+    _block_networkx_graph_edit(monkeypatch)
+
+    paths, cost = fnx.optimal_edit_paths(g1, g2, **kwargs)
+
+    assert cost == expected_cost
+    assert cost == pytest.approx(3.0)
+    assert paths == expected_paths
+    assert fnx.graph_edit_distance(g1, g2, **kwargs) == expected_cost
+
+
+def test_graph_edit_weighted_edge_costs_match_networkx_without_fallback(monkeypatch):
+    g1 = fnx.DiGraph()
+    g1.add_node("a", color="red")
+    g1.add_node("b", color="blue")
+    g1.add_edge("a", "b", weight=2)
+
+    g2 = fnx.DiGraph()
+    g2.add_node("x", color="red")
+    g2.add_node("y", color="blue")
+    g2.add_edge("y", "x", weight=5)
+
+    kwargs = {
+        "node_subst_cost": lambda left, right: 0
+        if left.get("color") == right.get("color")
+        else 10,
+        "edge_del_cost": lambda attrs: attrs.get("weight", 1),
+        "edge_ins_cost": lambda attrs: attrs.get("weight", 1),
+    }
+    expected_paths, expected_cost = nx.optimal_edit_paths(_to_nx(g1), _to_nx(g2), **kwargs)
+
+    monkeypatch.setattr(
+        fnx,
+        "_graph_edit_distance_common_rust",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("native common-case path should not be used with callbacks")
+        ),
+    )
+    _block_networkx_graph_edit(monkeypatch)
+
+    paths, cost = fnx.optimal_edit_paths(g1, g2, **kwargs)
+
+    assert cost == expected_cost
+    assert cost == pytest.approx(7.0)
+    assert {tuple(edge_path) for _, edge_path in paths} == {
+        tuple(edge_path) for _, edge_path in expected_paths
+    }
+    assert fnx.graph_edit_distance(g1, g2, **kwargs) == expected_cost
+
+
+def test_graph_edit_upper_bound_matches_networkx_without_fallback(monkeypatch):
+    g1 = fnx.Graph()
+    g1.add_node(1, color="red")
+    g2 = fnx.Graph()
+    g2.add_node(2, color="blue")
+    kwargs = {
+        "node_match": lambda left, right: left == right,
+        "upper_bound": 0,
+    }
+    expected_paths, expected_cost = nx.optimal_edit_paths(_to_nx(g1), _to_nx(g2), **kwargs)
+
+    _block_networkx_graph_edit(monkeypatch)
+
+    assert fnx.optimal_edit_paths(g1, g2, **kwargs) == (expected_paths, expected_cost)
+    assert fnx.graph_edit_distance(g1, g2, **kwargs) == expected_cost
+    assert list(fnx.optimize_graph_edit_distance(g1, g2, **kwargs)) == []
+    assert list(fnx.optimize_edit_paths(g1, g2, **kwargs)) == []
+
+
+def test_graph_edit_directed_mismatch_and_unsupported_modes_do_not_fallback(monkeypatch):
+    _block_networkx_graph_edit(monkeypatch)
+
+    with pytest.raises(fnx.NetworkXError):
+        fnx.graph_edit_distance(fnx.Graph(), fnx.DiGraph())
+
+    multigraph = fnx.MultiGraph()
+    multigraph.add_edge(1, 2)
+    with pytest.raises(fnx.NetworkXNotImplemented):
+        fnx.optimal_edit_paths(multigraph, fnx.Graph())
+
+    with pytest.raises(fnx.NetworkXNotImplemented):
+        fnx.graph_edit_distance(fnx.path_graph(2), fnx.path_graph(2), roots=(0, 0))
+
+    with pytest.raises(fnx.NetworkXNotImplemented):
+        list(fnx.optimize_edit_paths(fnx.path_graph(2), fnx.path_graph(2), timeout=1))

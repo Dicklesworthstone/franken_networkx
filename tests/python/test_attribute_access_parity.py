@@ -1,6 +1,7 @@
 """Parity coverage for graph attribute helper wrappers."""
 
 import networkx as nx
+import pytest
 
 import franken_networkx as fnx
 
@@ -157,6 +158,49 @@ def test_attribute_roundtrip_matches_networkx_on_directed_multigraph():
 
     assert fnx.get_node_attributes(graph, "role") == nx.get_node_attributes(expected, "role")
     assert fnx.get_edge_attributes(graph, "weight") == nx.get_edge_attributes(expected, "weight")
+
+
+@pytest.mark.parametrize(
+    ("fnx_factory", "nx_factory"),
+    [
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_non_integer_multigraph_edge_keys_roundtrip_matches_networkx(
+    fnx_factory,
+    nx_factory,
+):
+    graph = fnx_factory()
+    expected = nx_factory()
+    key = ("left", "right")
+
+    assert graph.add_edge("a", "b", key=key, weight=3) == expected.add_edge(
+        "a",
+        "b",
+        key=key,
+        weight=3,
+    )
+    assert graph.has_edge("a", "b", key=key) == expected.has_edge("a", "b", key=key)
+    assert graph.get_edge_data("a", "b", key=key) == expected.get_edge_data("a", "b", key=key)
+    assert dict(graph["a"]["b"]) == dict(expected["a"]["b"])
+    assert list(graph.edges(keys=True, data=True)) == list(expected.edges(keys=True, data=True))
+
+    copied = graph.copy()
+    expected_copied = expected.copy()
+    assert list(copied.edges(keys=True, data=True)) == list(
+        expected_copied.edges(keys=True, data=True)
+    )
+
+    subgraph = graph.edge_subgraph([("a", "b", key)])
+    expected_subgraph = expected.edge_subgraph([("a", "b", key)]).copy()
+    assert list(subgraph.edges(keys=True, data=True)) == list(
+        expected_subgraph.edges(keys=True, data=True)
+    )
+
+    graph.remove_edge("a", "b", key=key)
+    expected.remove_edge("a", "b", key=key)
+    assert list(graph.edges(keys=True, data=True)) == list(expected.edges(keys=True, data=True))
 
 
 def test_matches_networkx_on_mixed_attribute_workflow():
