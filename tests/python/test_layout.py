@@ -165,6 +165,22 @@ def test_rescale_layout_dict_matches_networkx():
     _assert_positions_close(actual, expected)
 
 
+def test_remaining_layout_wrappers_convert_graphs_before_delegation():
+    graph = fnx.cycle_graph(4)
+    expected_graph = nx.cycle_graph(4)
+
+    cases = [
+        ("spring_layout", {"seed": 7}),
+        ("spectral_layout", {}),
+        ("kamada_kawai_layout", {}),
+        ("planar_layout", {}),
+    ]
+    for name, kwargs in cases:
+        actual = _as_tuples(getattr(fnx, name)(graph, **kwargs))
+        expected = _as_tuples(getattr(nx, name)(expected_graph, **kwargs))
+        _assert_positions_close(actual, expected)
+
+
 def test_force_directed_layout_exports_are_usable():
     graph = fnx.cycle_graph(5)
 

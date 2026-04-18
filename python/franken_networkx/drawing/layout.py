@@ -95,9 +95,7 @@ def bipartite_layout(G, *args, **kwargs):
 
 def spring_layout(G, **kwargs):
     """Position nodes using Fruchterman-Reingold force-directed algorithm."""
-    import networkx as nx
-
-    return nx.spring_layout(G, **kwargs)
+    return _delegate_layout("spring_layout", G, **kwargs)
 
 
 def circular_layout(G, scale=1, center=None, dim=2, store_pos_as=None):
@@ -176,23 +174,17 @@ def shell_layout(G, nlist=None, rotate=None, scale=1, center=None, dim=2, store_
 
 def spectral_layout(G, **kwargs):
     """Position nodes using eigenvectors of the graph Laplacian."""
-    import networkx as nx
-
-    return nx.spectral_layout(G, **kwargs)
+    return _delegate_layout("spectral_layout", G, **kwargs)
 
 
 def kamada_kawai_layout(G, **kwargs):
     """Position nodes using Kamada-Kawai path-length cost function."""
-    import networkx as nx
-
-    return nx.kamada_kawai_layout(G, **kwargs)
+    return _delegate_layout("kamada_kawai_layout", G, **kwargs)
 
 
 def planar_layout(G, **kwargs):
     """Position nodes without edge crossings (if graph is planar)."""
-    import networkx as nx
-
-    return nx.planar_layout(G, **kwargs)
+    return _delegate_layout("planar_layout", G, **kwargs)
 
 
 def forceatlas2_layout(G, *args, **kwargs):
