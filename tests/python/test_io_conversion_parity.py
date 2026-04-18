@@ -53,6 +53,23 @@ def test_tree_data_matches_networkx():
     assert fnx.tree_data(graph, 0, ident="name", children="kids") == expected
 
 
+def test_tree_data_networkx_input_without_weak_connectivity_fallback(monkeypatch):
+    graph = nx.DiGraph()
+    graph.add_node("root", color="blue")
+    graph.add_node("left", color="red")
+    graph.add_node("right", weight=2)
+    graph.add_edge("root", "left")
+    graph.add_edge("root", "right")
+    expected = nx.tree_data(graph, "root", ident="name", children="kids")
+
+    def fail(*args, **kwargs):
+        raise AssertionError("NetworkX weak-connectivity fallback was used")
+
+    monkeypatch.setattr(nx, "is_weakly_connected", fail)
+
+    assert fnx.tree_data(graph, "root", ident="name", children="kids") == expected
+
+
 def test_cytoscape_data_matches_networkx():
     graph = fnx.path_graph(2)
     expected = nx.path_graph(2)

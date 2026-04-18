@@ -1,6 +1,7 @@
 """Tests for parse/generate I/O wrapper variants."""
 
 from pathlib import Path
+from unittest import mock
 
 import franken_networkx as fnx
 import franken_networkx._fnx as _fnx
@@ -42,10 +43,49 @@ def test_parse_and_generate_gml_round_trip():
     graph.add_edge("a", "b", weight=3)
 
     lines = list(fnx.generate_gml(graph))
-    parsed = fnx.parse_gml(lines)
+    with mock.patch.object(
+        nx,
+        "parse_gml",
+        side_effect=AssertionError("NetworkX parse_gml fallback used"),
+    ):
+        parsed = fnx.parse_gml(lines)
 
     assert parsed.number_of_nodes() == 2
     assert parsed.number_of_edges() == 1
+
+
+def test_generate_gml_matches_networkx_without_fallback(monkeypatch):
+    class Token:
+        def __str__(self):
+            return "token-value"
+
+    def stringizer(value):
+        if isinstance(value, str):
+            return value
+        if isinstance(value, Token):
+            return str(value)
+        raise ValueError
+
+    graph = fnx.MultiDiGraph()
+    graph.graph["name"] = "demo"
+    graph.graph["flags"] = ["a", "b"]
+    graph.add_node(("left", 1), color="red", nested={"score": 2})
+    graph.add_node("right", empty=[])
+    graph.add_edge(("left", 1), "right", key=3, weight=1.5, custom=Token())
+
+    expected_graph = nx.MultiDiGraph()
+    expected_graph.graph.update(graph.graph)
+    expected_graph.add_node(("left", 1), color="red", nested={"score": 2})
+    expected_graph.add_node("right", empty=[])
+    expected_graph.add_edge(("left", 1), "right", key=3, weight=1.5, custom=Token())
+    expected = list(nx.generate_gml(expected_graph, stringizer=stringizer))
+
+    def fail(*args, **kwargs):
+        raise AssertionError("networkx fallback was used")
+
+    monkeypatch.setattr(nx, "generate_gml", fail)
+
+    assert list(fnx.generate_gml(graph, stringizer=stringizer)) == expected
 
 
 def test_graphml_variant_writers_delegate_to_core_writer(tmp_path: Path):
@@ -66,7 +106,12 @@ def test_parse_and_generate_graphml_honor_networkx_kwargs(tmp_path: Path):
     nx.write_graphml(graph_nx, path)
 
     graphml = path.read_text(encoding="utf-8")
-    parsed = fnx.parse_graphml(graphml, node_type=int)
+    with mock.patch.object(
+        nx,
+        "parse_graphml",
+        side_effect=AssertionError("NetworkX parse_graphml fallback used"),
+    ):
+        parsed = fnx.parse_graphml(graphml, node_type=int)
     graph = fnx.path_graph(2)
     generated = list(fnx.generate_graphml(graph, prettyprint=False, named_key_ids=True))
     expected = list(nx.generate_graphml(nx.path_graph(2), prettyprint=False, named_key_ids=True))
@@ -76,6 +121,8 @@ def test_parse_and_generate_graphml_honor_networkx_kwargs(tmp_path: Path):
 
 
 def test_generate_graphml_does_not_delegate_to_networkx(monkeypatch):
+    from networkx.readwrite import graphml as nx_graphml
+
     graph = fnx.path_graph(2)
     expected = list(
         nx.generate_graphml(nx.path_graph(2), prettyprint=False, named_key_ids=True)
@@ -85,6 +132,7 @@ def test_generate_graphml_does_not_delegate_to_networkx(monkeypatch):
         raise AssertionError("networkx fallback was used")
 
     monkeypatch.setattr(nx, "generate_graphml", fail)
+    monkeypatch.setattr(nx_graphml, "GraphMLWriter", fail)
 
     generated = list(fnx.generate_graphml(graph, prettyprint=False, named_key_ids=True))
     assert generated == expected
@@ -129,7 +177,8 @@ def test_rust_read_graphml_preserves_graph_attrs(tmp_path: Path):
 
     graph = fnx.read_graphml(path)
 
-    assert dict(graph.graph) == {"name": "demo", "version": 3}
+    assert graph.graph["name"] == "demo"
+    assert graph.graph["version"] == 3
 
 
 def test_rust_write_gml_preserves_graph_attrs(tmp_path: Path):

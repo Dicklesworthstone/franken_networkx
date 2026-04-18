@@ -1,8 +1,13 @@
 """Pure-Python graph I/O helpers layered on top of the core bindings."""
 
 import ast
-from io import BytesIO
+import bz2
+import gzip
+from io import BytesIO, StringIO
 from pathlib import Path
+import re
+import shlex
+import warnings
 
 
 def _normalize_lines(lines):
@@ -307,12 +312,21 @@ def parse_edgelist(
 
 def parse_gml(lines, label="label", destringizer=None):
     """Parse GML text or lines into a FrankenNetworkX graph."""
-    import networkx as nx
+    import franken_networkx as fnx
 
-    graph = nx.parse_gml(
-        _normalize_lines(lines), label=label, destringizer=destringizer
+    if label != "label" or destringizer is not None:
+        # The local Rust reader implements the default NetworkX label handling.
+        # Keep unsupported parser customizations explicit instead of silently
+        # falling back to NetworkX.
+        raise fnx.NetworkXError(
+            "parse_gml currently supports only label='label' and no destringizer",
+        )
+
+    text = "\n".join(
+        line.decode("utf-8") if isinstance(line, bytes) else str(line)
+        for line in _normalize_lines(lines)
     )
-    return _from_nx_graph(graph)
+    return fnx.read_gml(StringIO(text))
 
 
 def from_graph6_bytes(bytes_in):
@@ -534,45 +548,254 @@ def parse_sparse6(string):
 
 
 def read_pajek(path, encoding="UTF-8"):
-    """Read Pajek text through NetworkX and convert it back to FrankenNetworkX."""
-    import networkx as nx
+    """Read Pajek text without NetworkX delegation."""
+    if hasattr(path, "read"):
+        data = path.read()
+        if isinstance(data, bytes):
+            data = data.decode(encoding)
+        return parse_pajek(data)
 
-    return _from_nx_graph(nx.read_pajek(path, encoding=encoding))
+    input_path = Path(path)
+    if input_path.suffix == ".gz":
+        with gzip.open(input_path, "rt", encoding=encoding) as fh:
+            return parse_pajek(fh)
+    if input_path.suffix == ".bz2":
+        with bz2.open(input_path, "rt", encoding=encoding) as fh:
+            return parse_pajek(fh)
+    return parse_pajek(input_path.read_text(encoding=encoding))
 
 
 def write_pajek(G, path, encoding="UTF-8"):
-    """Write Pajek through NetworkX."""
-    import networkx as nx
+    """Write Pajek text without NetworkX delegation."""
+    data = "".join(f"{line}\n" for line in generate_pajek(G)).encode(encoding)
+    if hasattr(path, "write"):
+        try:
+            path.write(data)
+        except TypeError:
+            path.write(data.decode(encoding))
+        return None
 
-    return nx.write_pajek(G, path, encoding=encoding)
+    output_path = Path(path)
+    if output_path.suffix == ".gz":
+        with gzip.open(output_path, "wb") as fh:
+            fh.write(data)
+    elif output_path.suffix == ".bz2":
+        with bz2.open(output_path, "wb") as fh:
+            fh.write(data)
+    else:
+        output_path.write_bytes(data)
+    return None
 
 
 def parse_pajek(lines):
     """Parse Pajek text or lines into a FrankenNetworkX graph."""
-    import networkx as nx
+    import franken_networkx as fnx
 
-    return _from_nx_graph(nx.parse_pajek(_normalize_lines(lines)))
+    def split_line(line):
+        try:
+            return [part.decode("utf-8") for part in shlex.split(str(line).encode("utf-8"))]
+        except AttributeError:
+            return shlex.split(str(line))
+
+    def graph_as(graph, graph_type):
+        converted = graph_type()
+        converted.graph.update(graph.graph)
+        converted.add_nodes_from(graph.nodes(data=True))
+        if graph.is_multigraph():
+            for left, right, key, attrs in graph.edges(keys=True, data=True):
+                converted.add_edge(left, right, key=key, **attrs)
+        else:
+            for left, right, attrs in graph.edges(data=True):
+                converted.add_edge(left, right, **attrs)
+        return converted
+
+    if isinstance(lines, str):
+        lines_iter = iter(lines.split("\n"))
+    else:
+        lines_iter = iter(lines)
+    lines_iter = iter(line.rstrip("\n") for line in lines_iter)
+
+    graph = fnx.MultiDiGraph()
+    labels = []
+    node_labels = {}
+
+    while True:
+        try:
+            line = next(lines_iter)
+        except StopIteration:
+            break
+        lower = line.lower()
+        if lower.startswith("*network"):
+            try:
+                _, name = line.split(None, 1)
+            except ValueError:
+                pass
+            else:
+                graph.graph["name"] = name
+        elif lower.startswith("*vertices"):
+            _, node_count = line.split()
+            for _ in range(int(node_count)):
+                splitline = split_line(next(lines_iter))
+                node_id, label = splitline[0:2]
+                labels.append(label)
+                graph.add_node(label)
+                node_labels[node_id] = label
+                graph.nodes[label]["id"] = node_id
+                try:
+                    node_position = {
+                        "x": float(splitline[2]),
+                        "y": float(splitline[3]),
+                        "shape": splitline[4],
+                    }
+                except (IndexError, TypeError, ValueError):
+                    node_position = None
+                if node_position is not None:
+                    graph.nodes[label].update(node_position)
+                graph.nodes[label].update(zip(splitline[5::2], splitline[6::2]))
+        elif lower.startswith("*edges") or lower.startswith("*arcs"):
+            if lower.startswith("*edge"):
+                graph = graph_as(graph, fnx.MultiGraph)
+            if lower.startswith("*arcs"):
+                graph = graph.to_directed()
+            for line in lines_iter:
+                splitline = split_line(line)
+                if len(splitline) < 2:
+                    continue
+                left_id, right_id = splitline[0:2]
+                left = node_labels.get(left_id, left_id)
+                right = node_labels.get(right_id, right_id)
+                edge_data = {}
+                try:
+                    edge_weight = float(splitline[2])
+                except (IndexError, TypeError, ValueError):
+                    edge_weight = None
+                if edge_weight is not None:
+                    edge_data["weight"] = edge_weight
+                edge_data.update(zip(splitline[3::2], splitline[4::2]))
+                graph.add_edge(left, right, **edge_data)
+        elif lower.startswith("*matrix"):
+            graph = graph_as(graph, fnx.DiGraph)
+            for row, matrix_line in enumerate(lines_iter):
+                for col, data in enumerate(matrix_line.split()):
+                    if int(data) != 0:
+                        graph.add_edge(labels[row], labels[col], weight=int(data))
+
+    return graph
 
 
 def generate_pajek(G):
-    """Yield Pajek lines through NetworkX."""
-    import networkx as nx
+    """Yield Pajek lines without NetworkX delegation."""
 
-    yield from nx.generate_pajek(_to_nx(G))
+    def make_qstr(value):
+        if not isinstance(value, str):
+            value = str(value)
+        if " " in value:
+            value = f'"{value}"'
+        return value
+
+    yield f"*vertices {G.order()}"
+    nodes = list(G)
+    nodenumber = dict(zip(nodes, range(1, len(nodes) + 1)))
+
+    for node in nodes:
+        node_attrs = G.nodes.get(node, {}).copy()
+        x = node_attrs.pop("x", 0.0)
+        y = node_attrs.pop("y", 0.0)
+        try:
+            node_id = int(node_attrs.pop("id", nodenumber[node]))
+        except ValueError as err:
+            err.args += (
+                (
+                    "Pajek format requires 'id' to be an int()."
+                    " Refer to the 'Relabeling nodes' section."
+                ),
+            )
+            raise
+        nodenumber[node] = node_id
+        shape = node_attrs.pop("shape", "ellipse")
+        line = " ".join(map(make_qstr, (node_id, node, x, y, shape)))
+        for key, value in node_attrs.items():
+            if isinstance(value, str) and value.strip() != "":
+                line += f" {make_qstr(key)} {make_qstr(value)}"
+            else:
+                reason = "Empty attribute" if isinstance(value, str) else "Non-string attribute"
+                warnings.warn(f"Node attribute {key} is not processed. {reason}.")
+        yield line
+
+    yield "*arcs" if G.is_directed() else "*edges"
+    for left, right, edge_attrs in G.edges(data=True):
+        attrs = edge_attrs.copy()
+        value = attrs.pop("weight", 1.0)
+        line = " ".join(map(make_qstr, (nodenumber[left], nodenumber[right], value)))
+        for key, attr_value in attrs.items():
+            if isinstance(attr_value, str) and attr_value.strip() != "":
+                line += f" {make_qstr(key)} {make_qstr(attr_value)}"
+            else:
+                reason = (
+                    "Empty attribute"
+                    if isinstance(attr_value, str)
+                    else "Non-string attribute"
+                )
+                warnings.warn(f"Edge attribute {key} is not processed. {reason}.")
+        yield line
 
 
 def read_leda(path, encoding="UTF-8"):
-    """Read LEDA text through NetworkX and convert it back to FrankenNetworkX."""
-    import networkx as nx
+    """Read LEDA text without NetworkX delegation."""
+    if hasattr(path, "read"):
+        data = path.read()
+        if isinstance(data, bytes):
+            data = data.decode(encoding)
+        return parse_leda(data)
 
-    return _from_nx_graph(nx.read_leda(path, encoding=encoding))
+    input_path = Path(path)
+    if input_path.suffix == ".gz":
+        with gzip.open(input_path, "rt", encoding=encoding) as fh:
+            return parse_leda(fh)
+    if input_path.suffix == ".bz2":
+        with bz2.open(input_path, "rt", encoding=encoding) as fh:
+            return parse_leda(fh)
+    return parse_leda(input_path.read_text(encoding=encoding))
 
 
 def parse_leda(lines):
     """Parse LEDA text or lines into a FrankenNetworkX graph."""
-    import networkx as nx
+    import franken_networkx as fnx
 
-    return _from_nx_graph(nx.parse_leda(_normalize_lines(lines)))
+    if isinstance(lines, str):
+        lines_iter = iter(lines.split("\n"))
+    else:
+        lines_iter = iter(lines)
+    lines_iter = iter(
+        line.rstrip("\n")
+        for line in lines_iter
+        if not (line.startswith(("#", "\n")) or line == "")
+    )
+    for _ in range(3):
+        next(lines_iter)
+
+    directed_flag = int(next(lines_iter))
+    graph = fnx.DiGraph() if directed_flag == -1 else fnx.Graph()
+
+    node_count = int(next(lines_iter))
+    nodes = {}
+    for index in range(1, node_count + 1):
+        symbol = next(lines_iter).rstrip().strip("|{}|  ")
+        if symbol == "":
+            symbol = str(index)
+        nodes[index] = symbol
+    graph.add_nodes_from(nodes.values())
+
+    edge_count = int(next(lines_iter))
+    for edge_index in range(edge_count):
+        try:
+            source, target, _reversal, label = next(lines_iter).split()
+        except BaseException as err:
+            raise fnx.NetworkXError(
+                f"Too few fields in LEDA.GRAPH edge {edge_index + 1}"
+            ) from err
+        graph.add_edge(nodes[int(source)], nodes[int(target)], label=label[2:-2])
+    return graph
 
 
 def read_multiline_adjlist(
@@ -747,10 +970,117 @@ def generate_edgelist(G, delimiter=" ", data=True):
 
 
 def generate_gml(G, stringizer=None):
-    """Yield GML lines using NetworkX's generator."""
-    import networkx as nx
+    """Yield GML lines from a graph without NetworkX delegation."""
+    import franken_networkx as fnx
 
-    yield from nx.generate_gml(G, stringizer=stringizer)
+    valid_keys = re.compile("^[A-Za-z][0-9A-Za-z_]*$")
+    list_start_value = "_networkx_list_start"
+
+    def escape(text):
+        def fixup(match):
+            ch = match.group(0)
+            return "&#" + str(ord(ch)) + ";"
+
+        return re.sub('[^ -~]|[&"]', fixup, text)
+
+    def stringize(key, value, ignored_keys, indent, in_list=False):
+        if not isinstance(key, str):
+            raise fnx.NetworkXError(f"{key!r} is not a string")
+        if not valid_keys.match(key):
+            raise fnx.NetworkXError(f"{key!r} is not a valid key")
+        if key not in ignored_keys:
+            if isinstance(value, bool):
+                if key == "label":
+                    yield indent + key + ' "' + str(value) + '"'
+                elif value:
+                    yield indent + key + " 1"
+                else:
+                    yield indent + key + " 0"
+            elif isinstance(value, int):
+                if key == "label":
+                    yield indent + key + ' "' + str(value) + '"'
+                elif value < -(2**31) or value >= 2**31:
+                    yield indent + key + ' "' + str(value) + '"'
+                else:
+                    yield indent + key + " " + str(value)
+            elif isinstance(value, float):
+                text = repr(value).upper()
+                if text == repr(float("inf")).upper():
+                    text = "+" + text
+                else:
+                    epos = text.rfind("E")
+                    if epos != -1 and text.find(".", 0, epos) == -1:
+                        text = text[:epos] + "." + text[epos:]
+                if key == "label":
+                    yield indent + key + ' "' + text + '"'
+                else:
+                    yield indent + key + " " + text
+            elif isinstance(value, dict):
+                yield indent + key + " ["
+                next_indent = indent + "  "
+                for child_key, child_value in value.items():
+                    yield from stringize(child_key, child_value, (), next_indent)
+                yield indent + "]"
+            elif isinstance(value, tuple) and key == "label":
+                label = ",".join(repr(item) for item in value)
+                yield indent + key + f' "({label})"'
+            elif isinstance(value, (list, tuple)) and key != "label" and not in_list:
+                if len(value) == 0:
+                    yield indent + key + " " + f'"{value!r}"'
+                if len(value) == 1:
+                    yield indent + key + " " + f'"{list_start_value}"'
+                for item in value:
+                    yield from stringize(key, item, (), indent, True)
+            else:
+                if stringizer:
+                    try:
+                        value = stringizer(value)
+                    except ValueError as err:
+                        raise fnx.NetworkXError(
+                            f"{value!r} cannot be converted into a string"
+                        ) from err
+                if not isinstance(value, str):
+                    raise fnx.NetworkXError(f"{value!r} is not a string")
+                yield indent + key + ' "' + escape(value) + '"'
+
+    multigraph = G.is_multigraph()
+    yield "graph ["
+    if G.is_directed():
+        yield "  directed 1"
+    if multigraph:
+        yield "  multigraph 1"
+
+    ignored_keys = {"directed", "multigraph", "node", "edge"}
+    for attr, value in G.graph.items():
+        yield from stringize(attr, value, ignored_keys, "  ")
+
+    node_id = dict(zip(G, range(len(G))))
+    ignored_keys = {"id", "label"}
+    for node, attrs in G.nodes(data=True):
+        yield "  node ["
+        yield "    id " + str(node_id[node])
+        yield from stringize("label", node, (), "    ")
+        for attr, value in attrs.items():
+            yield from stringize(attr, value, ignored_keys, "    ")
+        yield "  ]"
+
+    ignored_keys = {"source", "target"}
+    if multigraph:
+        ignored_keys.add("key")
+        edges = G.edges(keys=True, data=True)
+    else:
+        edges = G.edges(data=True)
+
+    for edge in edges:
+        yield "  edge ["
+        yield "    source " + str(node_id[edge[0]])
+        yield "    target " + str(node_id[edge[1]])
+        if multigraph:
+            yield from stringize("key", edge[2], (), "    ")
+        for attr, value in edge[-1].items():
+            yield from stringize(attr, value, ignored_keys, "    ")
+        yield "  ]"
+    yield "]"
 
 
 def write_graphml_xml(
