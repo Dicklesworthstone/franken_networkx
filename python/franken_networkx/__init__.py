@@ -13891,34 +13891,37 @@ def tree_graph(data, ident="id", children="children"):
 def complete_to_chordal_graph(G):
     """Return a chordal completion and elimination ordering map.
 
-    Uses MCS-M (maximum cardinality search with minimal fill-in) to produce
-    a chordal supergraph and a perfect elimination ordering.
+    Uses MCS-M (maximum cardinality search with minimal fill-in) per Berry,
+    Blair, Heggernes, Peyton (2004) to produce a chordal supergraph H and an
+    elimination ordering alpha. For inputs that are already chordal, returns
+    H equal to G and alpha mapping every node to 0.
     """
     H = G.copy()
-    nodes = list(G.nodes())
-    n = len(nodes)
-    weight = {v: 0 for v in nodes}
-    alpha = {}
-    unnumbered = set(nodes)
-
-    for i in range(n, 0, -1):
-        # Pick unnumbered node with maximum weight.
-        z = max(unnumbered, key=lambda v: weight[v])
+    alpha = {node: 0 for node in H}
+    if is_chordal(H):
+        return H, alpha
+    chords = set()
+    weight = {node: 0 for node in H.nodes()}
+    unnumbered_nodes = list(H.nodes())
+    for i in range(len(H.nodes()), 0, -1):
+        z = max(unnumbered_nodes, key=lambda node: weight[node])
+        unnumbered_nodes.remove(z)
         alpha[z] = i
-        unnumbered.remove(z)
-        # Update weights and add fill edges.
-        update_nodes = set()
-        for y in unnumbered:
-            if H.has_edge(z, y):
-                update_nodes.add(y)
-        for y in update_nodes:
-            weight[y] += 1
-            # Add fill edges between y and other numbered neighbors of z
-            # that are also neighbors of y's reach through z.
-            for w in update_nodes:
-                if w != y and not H.has_edge(y, w):
-                    H.add_edge(y, w)
-
+        update_nodes = []
+        for y in unnumbered_nodes:
+            if G.has_edge(y, z):
+                update_nodes.append(y)
+            else:
+                y_weight = weight[y]
+                lower_nodes = [
+                    node for node in unnumbered_nodes if weight[node] < y_weight
+                ]
+                if has_path(H.subgraph(lower_nodes + [z, y]), y, z):
+                    update_nodes.append(y)
+                    chords.add((z, y))
+        for node in update_nodes:
+            weight[node] += 1
+    H.add_edges_from(chords)
     return H, alpha
 
 

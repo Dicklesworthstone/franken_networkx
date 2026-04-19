@@ -540,6 +540,57 @@ class TestGenerators:
         assert fnx.is_chordal(H)
 
 
+@needs_nx
+class TestCompleteToChordalGraphParity:
+    @pytest.mark.parametrize(
+        "builder",
+        [
+            lambda: nx.wheel_graph(10),
+            lambda: nx.cycle_graph(5),
+            lambda: nx.cycle_graph(6),
+            lambda: nx.cycle_graph(8),
+            lambda: nx.ladder_graph(4),
+        ],
+    )
+    def test_non_chordal_matches_networkx_counts(self, builder):
+        Gn = builder()
+        Gf = fnx.Graph()
+        Gf.add_nodes_from(Gn.nodes())
+        Gf.add_edges_from(Gn.edges())
+
+        Hn, alpha_n = nx.complete_to_chordal_graph(Gn)
+        Hf, alpha_f = fnx.complete_to_chordal_graph(Gf)
+
+        nx_added = Hn.number_of_edges() - Gn.number_of_edges()
+        fnx_added = Hf.number_of_edges() - Gf.number_of_edges()
+        assert fnx_added == nx_added, f"chord count {fnx_added} != nx {nx_added}"
+        assert fnx.is_chordal(Hf)
+        assert set(alpha_f.keys()) == set(alpha_n.keys())
+        assert sorted(alpha_f.values()) == sorted(alpha_n.values())
+
+    @pytest.mark.parametrize(
+        "builder",
+        [
+            lambda: nx.path_graph(5),
+            lambda: nx.complete_graph(4),
+            lambda: nx.star_graph(4),
+            lambda: nx.empty_graph(3),
+        ],
+    )
+    def test_already_chordal_returns_zero_alpha_and_unchanged_graph(self, builder):
+        Gn = builder()
+        Gf = fnx.Graph()
+        Gf.add_nodes_from(Gn.nodes())
+        Gf.add_edges_from(Gn.edges())
+
+        Hf, alpha_f = fnx.complete_to_chordal_graph(Gf)
+
+        assert Hf.number_of_edges() == Gf.number_of_edges()
+        assert set(Hf.nodes()) == set(Gf.nodes())
+        assert all(v == 0 for v in alpha_f.values())
+        assert set(alpha_f.keys()) == set(Gf.nodes())
+
+
 def _build_find_induced_nodes_case(graph, case_name):
     if case_name == "path_0_3":
         graph.add_edges_from([(0, 1), (1, 2), (2, 3)])
