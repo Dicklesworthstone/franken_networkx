@@ -12978,7 +12978,6 @@ fn build_all_paths_from_preds(
         }
     }
 
-    result.sort();
     result
 }
 
@@ -15155,10 +15154,6 @@ fn chordal_mcs_max_clique_size(graph: &Graph) -> Result<usize, ChordalGraphTreew
     Ok(max_clique_size)
 }
 
-fn is_chordal_internal(graph: &Graph) -> bool {
-    chordal_mcs_max_clique_size(graph).is_ok()
-}
-
 /// Return the treewidth of a chordal graph.
 ///
 /// This is the size of the largest maximal clique minus one.
@@ -16903,12 +16898,11 @@ pub fn barycenter(graph: &Graph) -> Vec<String> {
         totals.push((node.to_string(), total));
     }
 
-    let mut result: Vec<String> = totals
+    let result: Vec<String> = totals
         .into_iter()
         .filter(|(_, t)| (*t - min_total).abs() < f64::EPSILON)
         .map(|(n, _)| n)
         .collect();
-    result.sort();
     result
 }
 
@@ -17012,7 +17006,6 @@ pub fn edge_boundary(
             }
         }
     }
-    result.sort();
     result
 }
 
@@ -20167,10 +20160,6 @@ pub fn find_cliques_recursive(graph: &Graph) -> Vec<Vec<String>> {
 /// Uses perfect elimination ordering to find maximal cliques efficiently.
 #[must_use]
 pub fn chordal_graph_cliques(graph: &Graph) -> Vec<Vec<String>> {
-    if !is_chordal_internal(graph) {
-        return Vec::new();
-    }
-
     let mut result = Vec::new();
 
     for component in connected_components(graph).components {
@@ -20257,7 +20246,6 @@ pub fn chordal_graph_cliques(graph: &Graph) -> Vec<Vec<String>> {
         result.push(clique);
     }
 
-    result.sort();
     result
 }
 
@@ -40193,6 +40181,24 @@ mod tests {
                 vec!["0".to_owned(), "2".to_owned()],
                 vec!["0".to_owned(), "3".to_owned()],
                 vec!["0".to_owned(), "4".to_owned()],
+            ]
+        );
+    }
+
+    #[test]
+    fn test_chordal_graph_cliques_cycle4_matches_networkx_runtime() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("0", "1");
+        let _ = g.add_edge("1", "2");
+        let _ = g.add_edge("2", "3");
+        let _ = g.add_edge("3", "0");
+        let cliques = chordal_graph_cliques(&g);
+        assert_eq!(
+            cliques,
+            vec![
+                vec!["0".to_owned(), "1".to_owned()],
+                vec!["1".to_owned(), "2".to_owned()],
+                vec!["0".to_owned(), "2".to_owned(), "3".to_owned()],
             ]
         );
     }

@@ -62,6 +62,9 @@ def _build_clustering_case(graph, case_name):
     if case_name == "bidirectional_triangle":
         graph.add_edges_from([(0, 1), (1, 0), (1, 2), (2, 1), (2, 0), (0, 2)])
         return
+    if case_name == "selfloop":
+        graph.add_edge(0, 0)
+        return
     if case_name == "weighted_triangle_tail":
         graph.add_edge(0, 1, weight=2)
         graph.add_edge(1, 2, weight=4)
@@ -310,6 +313,82 @@ class TestTransitivityParity:
 
         with pytest.raises(Exception) as fnx_exc:
             fnx.transitivity(G_fnx)
+
+        assert type(fnx_exc.value).__name__ == expected_type
+        assert str(fnx_exc.value) == expected_message
+
+
+@pytest.mark.conformance
+class TestGeneralizedDegreeParity:
+    @pytest.mark.parametrize(
+        ("fnx_cls_name", "nx_cls_name", "case_name", "kwargs"),
+        [
+            ("Graph", "Graph", "empty", {}),
+            ("Graph", "Graph", "triangle_tail", {}),
+            ("Graph", "Graph", "triangle_tail", {"nodes": 0}),
+            ("Graph", "Graph", "triangle_tail", {"nodes": [0, 2, 9]}),
+            ("Graph", "Graph", "selfloop", {}),
+        ],
+    )
+    def test_matches_networkx_without_fallback(
+        self, monkeypatch, fnx, nx, fnx_cls_name, nx_cls_name, case_name, kwargs
+    ):
+        G_fnx = getattr(fnx, fnx_cls_name)()
+        G_nx = getattr(nx, nx_cls_name)()
+        _build_clustering_case(G_fnx, case_name)
+        _build_clustering_case(G_nx, case_name)
+
+        expected = nx.generalized_degree(G_nx, **kwargs)
+
+        monkeypatch.setattr(
+            nx,
+            "generalized_degree",
+            lambda *call_args, **call_kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX generalized_degree fallback should not be used"
+                )
+            ),
+        )
+
+        actual = fnx.generalized_degree(G_fnx, **kwargs)
+        assert actual == expected
+
+    @pytest.mark.parametrize(
+        ("fnx_cls_name", "nx_cls_name", "case_name", "kwargs"),
+        [
+            ("Graph", "Graph", "triangle_tail", {"nodes": 9}),
+            ("Graph", "Graph", "triangle_tail", {"nodes": [[0]]}),
+            ("DiGraph", "DiGraph", "triangle_tail", {}),
+            ("MultiGraph", "MultiGraph", "triangle_tail", {}),
+            ("MultiDiGraph", "MultiDiGraph", "triangle_tail", {}),
+        ],
+    )
+    def test_error_contract_matches_networkx_without_fallback(
+        self, monkeypatch, fnx, nx, fnx_cls_name, nx_cls_name, case_name, kwargs
+    ):
+        G_fnx = getattr(fnx, fnx_cls_name)()
+        G_nx = getattr(nx, nx_cls_name)()
+        _build_clustering_case(G_fnx, case_name)
+        _build_clustering_case(G_nx, case_name)
+
+        try:
+            nx.generalized_degree(G_nx, **kwargs)
+        except Exception as exc:
+            expected_type = type(exc).__name__
+            expected_message = str(exc)
+
+        monkeypatch.setattr(
+            nx,
+            "generalized_degree",
+            lambda *call_args, **call_kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX generalized_degree fallback should not be used"
+                )
+            ),
+        )
+
+        with pytest.raises(Exception) as fnx_exc:
+            fnx.generalized_degree(G_fnx, **kwargs)
 
         assert type(fnx_exc.value).__name__ == expected_type
         assert str(fnx_exc.value) == expected_message

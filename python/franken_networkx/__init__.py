@@ -413,7 +413,7 @@ from franken_networkx._fnx import (
 from franken_networkx._fnx import (
     average_clustering as _raw_average_clustering,
     clustering,
-    find_cliques,
+    find_cliques as _raw_find_cliques,
     graph_clique_number,
     square_clustering,
     triangles as _raw_triangles,
@@ -923,11 +923,9 @@ from franken_networkx._fnx import (
 from franken_networkx._fnx import (
     is_empty,
     non_neighbors,
-    number_of_cliques,
     all_triangles as _rust_all_triangles,
-    node_clique_number,
     enumerate_all_cliques,
-    find_cliques_recursive,
+    find_cliques_recursive as _raw_find_cliques_recursive,
     chordal_graph_cliques,
     chordal_graph_treewidth,
     make_max_clique_graph as _rust_make_max_clique_graph,
@@ -968,6 +966,130 @@ def all_triangles(G, nbunch=None):
             for w in v_neighbors & u_neighbors:
                 if node_to_id.get(w, -1) > v_id:
                     yield (u, v, w)
+
+
+def find_cliques(G, nodes=None):
+    """Return all maximal cliques in an undirected graph."""
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+
+    if nodes is None:
+        return _raw_find_cliques(G)
+
+    if len(G) == 0:
+        return []
+
+    adjacency = {u: {v for v in G[u] if v != u} for u in G}
+    current_clique = nodes[:]
+    candidates = set(G)
+
+    for node in current_clique:
+        if node not in candidates:
+            raise ValueError(f"The given `nodes` {nodes} do not form a clique")
+        candidates &= adjacency[node]
+
+    maximal_cliques = []
+    if not candidates:
+        maximal_cliques.append(current_clique[:])
+        return maximal_cliques
+
+    subgraph = candidates.copy()
+    stack = []
+    current_clique.append(None)
+
+    pivot = max(subgraph, key=lambda node: len(candidates & adjacency[node]))
+    extension = candidates - adjacency[pivot]
+
+    try:
+        while True:
+            if extension:
+                selected = extension.pop()
+                candidates.remove(selected)
+                current_clique[-1] = selected
+                selected_neighbors = adjacency[selected]
+                subgraph_selected = subgraph & selected_neighbors
+                if not subgraph_selected:
+                    maximal_cliques.append(current_clique[:])
+                else:
+                    candidates_selected = candidates & selected_neighbors
+                    if candidates_selected:
+                        stack.append((subgraph, candidates, extension))
+                        current_clique.append(None)
+                        subgraph = subgraph_selected
+                        candidates = candidates_selected
+                        pivot = max(
+                            subgraph, key=lambda node: len(candidates & adjacency[node])
+                        )
+                        extension = candidates - adjacency[pivot]
+            else:
+                current_clique.pop()
+                subgraph, candidates, extension = stack.pop()
+    except IndexError:
+        pass
+
+    return maximal_cliques
+
+
+def find_cliques_recursive(G, nodes=None):
+    """Return all maximal cliques in an undirected graph."""
+    if nodes is None:
+        return _raw_find_cliques_recursive(G)
+    return find_cliques(G, nodes=nodes)
+
+
+def number_of_cliques(G, nodes=None, cliques=None):
+    """Return the number of maximal cliques each node is part of."""
+    if cliques is None:
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+        cliques = find_cliques(G)
+
+    if nodes is None:
+        nodes = list(G.nodes())
+
+    if not isinstance(nodes, list):
+        return sum(1 for clique in cliques if nodes in clique)
+
+    clique_counts = Counter()
+    for clique in cliques:
+        clique_counts.update(clique)
+    return {node: clique_counts[node] for node in nodes}
+
+
+def node_clique_number(G, nodes=None, cliques=None, separate_nodes=False):
+    """Return the size of the largest maximal clique containing each node."""
+    if cliques is None:
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+        cliques = list(find_cliques(G))
+        if nodes is not None:
+            if nodes in G:
+                return max(len(clique) for clique in cliques if nodes in clique)
+            try:
+                requested_nodes = []
+                for node in nodes:
+                    if node not in G:
+                        raise NodeNotFound(f"Source {node} is not in G")
+                    requested_nodes.append(node)
+                return {
+                    node: max(len(clique) for clique in cliques if node in clique)
+                    for node in requested_nodes
+                }
+            except TypeError:
+                return {node: 0 for node in nodes}
+
+    if nodes in G:
+        return max(len(clique) for clique in cliques if nodes in clique)
+
+    size_for_node = defaultdict(int)
+    for clique in cliques:
+        clique_size = len(clique)
+        for node in clique:
+            if size_for_node[node] < clique_size:
+                size_for_node[node] = clique_size
+    if nodes is None:
+        return size_for_node
+    return {node: size_for_node[node] for node in nodes}
 
 # Classic graph generators
 from franken_networkx._fnx import (
@@ -3052,6 +3174,8 @@ def line_graph(G, create_using=None):
 
 def make_max_clique_graph(G, create_using=None):
     """Return the maximal-clique intersection graph of *G*."""
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     graph = _empty_graph_from_create_using(create_using, default=G.__class__)
     cliques = list(find_cliques(G))
     for index in range(len(cliques)):
@@ -5914,27 +6038,22 @@ def generalized_degree(G, nodes=None):
         ``{node: Counter}`` where Counter maps triangle count to
         number of edges with that many triangles.
     """
-    from collections import Counter
-
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
 
-    def _generalized_degree_for(node):
-        counter = Counter()
-        for nbr in G.neighbors(node):
-            if nbr == node:
-                continue
-            shared = set(G.neighbors(node)) & set(G.neighbors(nbr))
-            shared.discard(node)
-            shared.discard(nbr)
-            counter[len(shared)] += 1
-        return counter
+    selected_nodes, single_node = _triangle_selection(G, nodes)
+    generalized_degrees = {
+        node: generalized_degree_counter
+        for node, _, _, generalized_degree_counter in _triangles_and_degree_iter_local(
+            G, selected_nodes
+        )
+    }
 
-    if nodes in G:
-        return _generalized_degree_for(nodes)
-    if nodes is None:
-        nodes = G.nodes()
-    return {node: _generalized_degree_for(node) for node in nodes}
+    if single_node:
+        return generalized_degrees[nodes]
+    return generalized_degrees
 
 
 def all_pairs_node_connectivity(G, nbunch=None, flow_func=None):
@@ -15970,18 +16089,15 @@ def random_regular_expander_graph(
     return graph
 
 
-def make_clique_bipartite(G, faux=True):
-    """Replace each clique with a bipartite star."""
-    H = Graph()
-    for n in G.nodes():
-        H.add_node(n)
-    cliques = list(find_cliques(G))
-    for i, clique in enumerate(cliques):
-        center = f"clique_{i}"
-        H.add_node(center)
-        for node in clique:
-            H.add_edge(center, node)
-    return H
+def make_clique_bipartite(G, fpos=None, create_using=None, name=None):
+    """Returns the bipartite clique graph corresponding to ``G``."""
+    B = empty_graph(0, create_using)
+    B.add_nodes_from(G, bipartite=1)
+    for i, clique in enumerate(find_cliques(G)):
+        clique_node = -i - 1
+        B.add_node(clique_node, bipartite=0)
+        B.add_edges_from((node, clique_node) for node in clique)
+    return B
 
 
 def k_components(G):

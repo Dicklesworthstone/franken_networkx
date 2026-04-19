@@ -111,6 +111,15 @@ def _build_all_triangles_case(graph, case_name):
     raise ValueError(f"unknown all_triangles case {case_name}")
 
 
+def _build_number_of_cliques_case(graph, case_name):
+    if case_name == "triangle_tail":
+        graph.add_edges_from([(0, 1), (1, 2), (2, 0), (2, 3)])
+        return
+    if case_name == "empty":
+        return
+    raise ValueError(f"unknown number_of_cliques case {case_name}")
+
+
 class TestAllTrianglesParity:
     @pytest.mark.parametrize(
         ("fnx_cls", "nx_cls", "case_name", "kwargs"),
@@ -183,8 +192,213 @@ class TestAllTrianglesParity:
 
 
 # ---------------------------------------------------------------------------
+# number_of_cliques
+# ---------------------------------------------------------------------------
+
+class TestNumberOfCliquesParity:
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls", "case_name", "kwargs"),
+        [
+            (fnx.Graph, nx.Graph, "triangle_tail", {}),
+            (fnx.Graph, nx.Graph, "triangle_tail", {"nodes": 0}),
+            (fnx.Graph, nx.Graph, "triangle_tail", {"nodes": [0, 2, 9]}),
+            (fnx.Graph, nx.Graph, "triangle_tail", {"nodes": 9}),
+            (
+                fnx.Graph,
+                nx.Graph,
+                "triangle_tail",
+                {"cliques": [[0, 1, 2], [2, 3]]},
+            ),
+            (
+                fnx.Graph,
+                nx.Graph,
+                "triangle_tail",
+                {"nodes": [0, 2, 9], "cliques": [[0, 1, 2], [2, 3]]},
+            ),
+            (fnx.MultiGraph, nx.MultiGraph, "triangle_tail", {}),
+            (
+                fnx.DiGraph,
+                nx.DiGraph,
+                "triangle_tail",
+                {"cliques": [[0, 1, 2], [2, 3]]},
+            ),
+            (
+                fnx.DiGraph,
+                nx.DiGraph,
+                "triangle_tail",
+                {"nodes": 0, "cliques": [[0, 1, 2], [2, 3]]},
+            ),
+        ],
+    )
+    def test_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls, case_name, kwargs
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        _build_number_of_cliques_case(graph, case_name)
+        _build_number_of_cliques_case(expected, case_name)
+
+        expected_result = nx.number_of_cliques(expected, **kwargs)
+
+        monkeypatch.setattr(
+            nx,
+            "number_of_cliques",
+            lambda *call_args, **call_kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX number_of_cliques fallback should not be used")
+            ),
+        )
+
+        actual_result = fnx.number_of_cliques(graph, **kwargs)
+        assert actual_result == expected_result
+
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls", "case_name", "kwargs"),
+        [
+            (fnx.DiGraph, nx.DiGraph, "triangle_tail", {}),
+            (fnx.DiGraph, nx.DiGraph, "triangle_tail", {"nodes": 0}),
+            (fnx.DiGraph, nx.DiGraph, "triangle_tail", {"nodes": [0, 2, 9]}),
+            (fnx.Graph, nx.Graph, "triangle_tail", {"nodes": [[0]]}),
+        ],
+    )
+    def test_error_contract_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls, case_name, kwargs
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        _build_number_of_cliques_case(graph, case_name)
+        _build_number_of_cliques_case(expected, case_name)
+
+        try:
+            nx.number_of_cliques(expected, **kwargs)
+        except Exception as exc:
+            expected_type = type(exc).__name__
+            expected_message = str(exc)
+
+        monkeypatch.setattr(
+            nx,
+            "number_of_cliques",
+            lambda *call_args, **call_kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX number_of_cliques fallback should not be used")
+            ),
+        )
+
+        with pytest.raises(Exception) as fnx_exc:
+            fnx.number_of_cliques(graph, **kwargs)
+
+        assert type(fnx_exc.value).__name__ == expected_type
+        assert str(fnx_exc.value) == expected_message
+
+
+# ---------------------------------------------------------------------------
 # node_clique_number
 # ---------------------------------------------------------------------------
+
+class TestNodeCliqueNumberParity:
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls", "case_name", "kwargs"),
+        [
+            (fnx.Graph, nx.Graph, "triangle_tail", {}),
+            (fnx.Graph, nx.Graph, "triangle_tail", {"nodes": 0}),
+            (fnx.Graph, nx.Graph, "triangle_tail", {"nodes": [0, 2]}),
+            (
+                fnx.Graph,
+                nx.Graph,
+                "triangle_tail",
+                {"cliques": [[0, 1, 2], [2, 3]]},
+            ),
+            (
+                fnx.Graph,
+                nx.Graph,
+                "triangle_tail",
+                {"nodes": [0, 2, 9], "cliques": [[0, 1, 2], [2, 3]]},
+            ),
+            (fnx.MultiGraph, nx.MultiGraph, "triangle_tail", {}),
+            (fnx.MultiGraph, nx.MultiGraph, "triangle_tail", {"nodes": 0}),
+            (
+                fnx.DiGraph,
+                nx.DiGraph,
+                "triangle_tail",
+                {"cliques": [[0, 1, 2], [2, 3]]},
+            ),
+            (
+                fnx.MultiDiGraph,
+                nx.MultiDiGraph,
+                "triangle_tail",
+                {"nodes": [0, 2, 9], "cliques": [[0, 1, 2], [2, 3]]},
+            ),
+        ],
+    )
+    def test_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls, case_name, kwargs
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        _build_number_of_cliques_case(graph, case_name)
+        _build_number_of_cliques_case(expected, case_name)
+
+        expected_result = nx.node_clique_number(expected, **kwargs)
+
+        monkeypatch.setattr(
+            nx,
+            "node_clique_number",
+            lambda *call_args, **call_kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX node_clique_number fallback should not be used")
+            ),
+        )
+
+        actual_result = fnx.node_clique_number(graph, **kwargs)
+        assert actual_result == expected_result
+
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls", "case_name", "kwargs"),
+        [
+            (fnx.Graph, nx.Graph, "triangle_tail", {"nodes": 9}),
+            (fnx.Graph, nx.Graph, "triangle_tail", {"nodes": [[0]]}),
+            (
+                fnx.Graph,
+                nx.Graph,
+                "triangle_tail",
+                {"nodes": 9, "cliques": [[0, 1, 2], [2, 3]]},
+            ),
+            (
+                fnx.Graph,
+                nx.Graph,
+                "triangle_tail",
+                {"nodes": [[0]], "cliques": [[0, 1, 2], [2, 3]]},
+            ),
+            (fnx.DiGraph, nx.DiGraph, "triangle_tail", {}),
+            (fnx.DiGraph, nx.DiGraph, "triangle_tail", {"nodes": 0}),
+            (fnx.DiGraph, nx.DiGraph, "triangle_tail", {"nodes": [0, 2, 9]}),
+        ],
+    )
+    def test_error_contract_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls, case_name, kwargs
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        _build_number_of_cliques_case(graph, case_name)
+        _build_number_of_cliques_case(expected, case_name)
+
+        try:
+            nx.node_clique_number(expected, **kwargs)
+        except Exception as exc:
+            expected_type = type(exc).__name__
+            expected_message = str(exc)
+
+        monkeypatch.setattr(
+            nx,
+            "node_clique_number",
+            lambda *call_args, **call_kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX node_clique_number fallback should not be used")
+            ),
+        )
+
+        with pytest.raises(Exception) as fnx_exc:
+            fnx.node_clique_number(graph, **kwargs)
+
+        assert type(fnx_exc.value).__name__ == expected_type
+        assert str(fnx_exc.value) == expected_message
+
 
 class TestNodeCliqueNumber:
     def test_triangle(self, triangle):
@@ -256,6 +470,117 @@ class TestEnumerateAllCliques:
 
 
 # ---------------------------------------------------------------------------
+# find_cliques
+# ---------------------------------------------------------------------------
+
+def _build_find_cliques_case(graph, case_name):
+    if case_name == "triangle_tail":
+        graph.add_edges_from([(0, 1), (1, 2), (2, 0), (2, 3)])
+        return
+    if case_name == "path3":
+        graph.add_edges_from([(0, 1), (1, 2)])
+        return
+    if case_name == "empty":
+        return
+    raise ValueError(f"unknown find_cliques case {case_name}")
+
+
+def _normalize_graph_with_attrs(graph):
+    nodes = sorted(
+        ((repr(node), dict(attrs)) for node, attrs in graph.nodes(data=True)),
+        key=lambda item: item[0],
+    )
+    if graph.is_directed():
+        edges = sorted(
+            ((repr(u), repr(v), dict(attrs)) for u, v, attrs in graph.edges(data=True)),
+            key=lambda item: (item[0], item[1]),
+        )
+    else:
+        edges = sorted(
+            (
+                tuple(sorted((repr(u), repr(v)))),
+                dict(attrs),
+            )
+            for u, v, attrs in graph.edges(data=True)
+        )
+    return type(graph).__name__, nodes, edges
+
+
+class TestFindCliquesParity:
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls", "case_name", "kwargs"),
+        [
+            (fnx.Graph, nx.Graph, "triangle_tail", {}),
+            (fnx.Graph, nx.Graph, "triangle_tail", {"nodes": [0, 2]}),
+            (fnx.Graph, nx.Graph, "path3", {"nodes": [0, 1]}),
+            (fnx.MultiGraph, nx.MultiGraph, "triangle_tail", {}),
+            (fnx.MultiGraph, nx.MultiGraph, "triangle_tail", {"nodes": [0, 2]}),
+            (fnx.Graph, nx.Graph, "empty", {}),
+        ],
+    )
+    def test_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls, case_name, kwargs
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        _build_find_cliques_case(graph, case_name)
+        _build_find_cliques_case(expected, case_name)
+
+        expected_result = list(nx.find_cliques(expected, **kwargs))
+
+        monkeypatch.setattr(
+            nx,
+            "find_cliques",
+            lambda *call_args, **call_kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX find_cliques fallback should not be used")
+            ),
+        )
+
+        actual_result = list(fnx.find_cliques(graph, **kwargs))
+        normalize = lambda cliques: sorted(tuple(sorted(clique)) for clique in cliques)
+        assert normalize(actual_result) == normalize(expected_result)
+
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls", "case_name", "kwargs"),
+        [
+            (fnx.DiGraph, nx.DiGraph, "triangle_tail", {}),
+            (fnx.DiGraph, nx.DiGraph, "triangle_tail", {"nodes": [0, 2]}),
+            (fnx.Graph, nx.Graph, "triangle_tail", {"nodes": 0}),
+            (fnx.Graph, nx.Graph, "triangle_tail", {"nodes": [0, 9]}),
+            (fnx.Graph, nx.Graph, "triangle_tail", {"nodes": [[0]]}),
+            (fnx.Graph, nx.Graph, "path3", {"nodes": [0, 2]}),
+        ],
+    )
+    def test_error_contract_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls, case_name, kwargs
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        _build_find_cliques_case(graph, case_name)
+        _build_find_cliques_case(expected, case_name)
+
+        try:
+            list(nx.find_cliques(expected, **kwargs))
+        except Exception as exc:
+            expected_type = type(exc).__name__
+            expected_message = str(exc)
+
+        monkeypatch.setattr(
+            nx,
+            "find_cliques",
+            lambda *call_args, **call_kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX find_cliques fallback should not be used")
+            ),
+        )
+
+        with pytest.raises(Exception) as fnx_exc:
+            list(fnx.find_cliques(graph, **kwargs))
+
+        assert type(fnx_exc.value).__name__ == expected_type
+        assert str(fnx_exc.value) == expected_message
+
+
+# ---------------------------------------------------------------------------
 # find_cliques_recursive
 # ---------------------------------------------------------------------------
 
@@ -286,6 +611,184 @@ class TestFindCliquesRecursive:
         assert fnx.find_cliques_recursive(g) == []
 
 
+class TestFindCliquesRecursiveParity:
+    @pytest.mark.parametrize(
+        ("graph", "expected_graph", "case_name", "kwargs"),
+        [
+            (fnx.Graph(), nx.Graph(), "triangle_tail", {}),
+            (fnx.Graph(), nx.Graph(), "triangle_tail", {"nodes": [0, 2]}),
+            (fnx.Graph(), nx.Graph(), "path3", {"nodes": [0, 1]}),
+            (fnx.MultiGraph(), nx.MultiGraph(), "triangle_tail", {}),
+            (fnx.MultiGraph(), nx.MultiGraph(), "triangle_tail", {"nodes": [0, 2]}),
+            (fnx.Graph(), nx.Graph(), "empty", {}),
+        ],
+    )
+    def test_matches_networkx_without_fallback(
+        self, monkeypatch, graph, expected_graph, case_name, kwargs
+    ):
+        _build_find_cliques_case(graph, case_name)
+        _build_find_cliques_case(expected_graph, case_name)
+
+        expected_result = list(nx.find_cliques_recursive(expected_graph, **kwargs))
+        monkeypatch.setattr(
+            nx,
+            "find_cliques_recursive",
+            lambda *args, **inner_kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX find_cliques_recursive fallback should not be used"
+                )
+            ),
+        )
+
+        actual_result = list(fnx.find_cliques_recursive(graph, **kwargs))
+        normalize = lambda cliques: sorted(tuple(sorted(clique)) for clique in cliques)
+        assert normalize(actual_result) == normalize(expected_result)
+
+    @pytest.mark.parametrize(
+        ("graph", "expected_graph", "case_name", "kwargs"),
+        [
+            (fnx.DiGraph(), nx.DiGraph(), "triangle_tail", {}),
+            (fnx.DiGraph(), nx.DiGraph(), "triangle_tail", {"nodes": [0, 2]}),
+            (fnx.Graph(), nx.Graph(), "triangle_tail", {"nodes": 0}),
+            (fnx.Graph(), nx.Graph(), "triangle_tail", {"nodes": [0, 9]}),
+            (fnx.Graph(), nx.Graph(), "triangle_tail", {"nodes": [[0]]}),
+            (fnx.Graph(), nx.Graph(), "path3", {"nodes": [0, 2]}),
+        ],
+    )
+    def test_error_contract_matches_networkx_without_fallback(
+        self, monkeypatch, graph, expected_graph, case_name, kwargs
+    ):
+        _build_find_cliques_case(graph, case_name)
+        _build_find_cliques_case(expected_graph, case_name)
+
+        try:
+            list(nx.find_cliques_recursive(expected_graph, **kwargs))
+        except Exception as exc:
+            expected_type = type(exc).__name__
+            expected_message = str(exc)
+
+        monkeypatch.setattr(
+            nx,
+            "find_cliques_recursive",
+            lambda *args, **inner_kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX find_cliques_recursive fallback should not be used"
+                )
+            ),
+        )
+
+        with pytest.raises(Exception) as fnx_exc:
+            list(fnx.find_cliques_recursive(graph, **kwargs))
+
+        assert type(fnx_exc.value).__name__ == expected_type
+        assert str(fnx_exc.value) == expected_message
+
+
+# ---------------------------------------------------------------------------
+# make_clique_bipartite
+# ---------------------------------------------------------------------------
+
+class TestMakeCliqueBipartiteParity:
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls", "case_name"),
+        [
+            (fnx.Graph, nx.Graph, "triangle_tail"),
+            (fnx.MultiGraph, nx.MultiGraph, "triangle_tail"),
+            (fnx.Graph, nx.Graph, "empty"),
+        ],
+    )
+    def test_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls, case_name
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        _build_find_cliques_case(graph, case_name)
+        _build_find_cliques_case(expected, case_name)
+
+        expected_result = nx.make_clique_bipartite(expected)
+
+        monkeypatch.setattr(
+            nx,
+            "make_clique_bipartite",
+            lambda *call_args, **call_kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX make_clique_bipartite fallback should not be used"
+                )
+            ),
+        )
+
+        actual_result = fnx.make_clique_bipartite(graph)
+        assert _normalize_graph_with_attrs(actual_result) == _normalize_graph_with_attrs(
+            expected_result
+        )
+
+    def test_create_using_instance_matches_networkx_without_fallback(self, monkeypatch):
+        graph = fnx.Graph()
+        expected = nx.Graph()
+        _build_find_cliques_case(graph, "triangle_tail")
+        _build_find_cliques_case(expected, "triangle_tail")
+
+        fnx_target = fnx.DiGraph()
+        fnx_target.add_edge("stale", "edge")
+        expected_target = nx.DiGraph()
+        expected_target.add_edge("stale", "edge")
+
+        expected_result = nx.make_clique_bipartite(expected, create_using=expected_target)
+
+        monkeypatch.setattr(
+            nx,
+            "make_clique_bipartite",
+            lambda *call_args, **call_kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX make_clique_bipartite fallback should not be used"
+                )
+            ),
+        )
+
+        actual_result = fnx.make_clique_bipartite(graph, create_using=fnx_target)
+        assert actual_result is fnx_target
+        assert _normalize_graph_with_attrs(actual_result) == _normalize_graph_with_attrs(
+            expected_result
+        )
+
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls", "case_name"),
+        [
+            (fnx.DiGraph, nx.DiGraph, "triangle_tail"),
+            (fnx.MultiDiGraph, nx.MultiDiGraph, "triangle_tail"),
+        ],
+    )
+    def test_error_contract_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls, case_name
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        _build_find_cliques_case(graph, case_name)
+        _build_find_cliques_case(expected, case_name)
+
+        try:
+            nx.make_clique_bipartite(expected)
+        except Exception as exc:
+            expected_type = type(exc).__name__
+            expected_message = str(exc)
+
+        monkeypatch.setattr(
+            nx,
+            "make_clique_bipartite",
+            lambda *call_args, **call_kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX make_clique_bipartite fallback should not be used"
+                )
+            ),
+        )
+
+        with pytest.raises(Exception) as fnx_exc:
+            fnx.make_clique_bipartite(graph)
+
+        assert type(fnx_exc.value).__name__ == expected_type
+        assert str(fnx_exc.value) == expected_message
+
+
 # ---------------------------------------------------------------------------
 # chordal_graph_cliques
 # ---------------------------------------------------------------------------
@@ -312,6 +815,90 @@ class TestChordalGraphCliques:
             fnx.chordal_graph_cliques(g)
 
 
+def _build_chordal_graph_cliques_case(graph, case_name):
+    if case_name == "triangle_tail":
+        graph.add_edges_from([(0, 1), (1, 2), (2, 0), (2, 3)])
+        return
+    if case_name == "cycle4":
+        graph.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 0)])
+        return
+    if case_name == "self_loop":
+        graph.add_edge(0, 0)
+        return
+    raise ValueError(f"unknown chordal_graph_cliques case {case_name}")
+
+
+class TestChordalGraphCliquesParity:
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls", "case_name"),
+        [
+            (fnx.Graph, nx.Graph, "triangle_tail"),
+            (fnx.MultiGraph, nx.MultiGraph, "triangle_tail"),
+            (fnx.Graph, nx.Graph, "cycle4"),
+            (fnx.MultiGraph, nx.MultiGraph, "cycle4"),
+        ],
+    )
+    def test_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls, case_name
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        _build_chordal_graph_cliques_case(graph, case_name)
+        _build_chordal_graph_cliques_case(expected, case_name)
+
+        expected_result = [sorted(clique) for clique in nx.chordal_graph_cliques(expected)]
+
+        monkeypatch.setattr(
+            nx,
+            "chordal_graph_cliques",
+            lambda *call_args, **call_kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX chordal_graph_cliques fallback should not be used"
+                )
+            ),
+        )
+
+        actual_result = [sorted(clique) for clique in fnx.chordal_graph_cliques(graph)]
+        assert actual_result == expected_result
+
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls", "case_name"),
+        [
+            (fnx.Graph, nx.Graph, "self_loop"),
+            (fnx.DiGraph, nx.DiGraph, "triangle_tail"),
+        ],
+    )
+    def test_error_contract_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls, case_name
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        _build_chordal_graph_cliques_case(graph, case_name)
+        _build_chordal_graph_cliques_case(expected, case_name)
+
+        try:
+            list(nx.chordal_graph_cliques(expected))
+        except Exception as exc:
+            expected_type = type(exc).__name__
+            expected_message = str(exc)
+
+        monkeypatch.setattr(
+            nx,
+            "chordal_graph_cliques",
+            lambda *call_args, **call_kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX chordal_graph_cliques fallback should not be used"
+                )
+            ),
+        )
+
+        with pytest.raises(Exception) as fnx_exc:
+            list(fnx.chordal_graph_cliques(graph))
+
+        assert type(fnx_exc.value).__name__ == expected_type
+        assert str(fnx_exc.value) == expected_message
+
+
 # ---------------------------------------------------------------------------
 # make_max_clique_graph
 # ---------------------------------------------------------------------------
@@ -334,6 +921,87 @@ class TestMakeMaxCliqueGraph:
         # Path a-b-c: 2 maximal cliques {a,b} and {b,c}, sharing b → edge
         assert mcg.number_of_nodes() == 2
         assert mcg.number_of_edges() == 1
+
+
+def _build_make_max_clique_graph_case(graph, case_name):
+    if case_name == "triangle_tail":
+        graph.add_edges_from([(0, 1), (1, 2), (2, 0), (2, 3)])
+        return
+    if case_name == "path3":
+        graph.add_edges_from([(0, 1), (1, 2)])
+        return
+    if case_name == "empty":
+        return
+    raise ValueError(f"unknown make_max_clique_graph case {case_name}")
+
+
+class TestMakeMaxCliqueGraphParity:
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls", "case_name"),
+        [
+            (fnx.Graph, nx.Graph, "triangle_tail"),
+            (fnx.Graph, nx.Graph, "path3"),
+            (fnx.Graph, nx.Graph, "empty"),
+            (fnx.MultiGraph, nx.MultiGraph, "triangle_tail"),
+        ],
+    )
+    def test_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls, case_name
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        _build_make_max_clique_graph_case(graph, case_name)
+        _build_make_max_clique_graph_case(expected, case_name)
+
+        expected_result = nx.make_max_clique_graph(expected)
+
+        monkeypatch.setattr(
+            nx,
+            "make_max_clique_graph",
+            lambda *call_args, **call_kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX make_max_clique_graph fallback should not be used")
+            ),
+        )
+
+        actual_result = fnx.make_max_clique_graph(graph)
+        assert type(actual_result).__name__ == type(expected_result).__name__
+        assert sorted(actual_result.nodes()) == sorted(expected_result.nodes())
+        assert sorted(actual_result.edges()) == sorted(expected_result.edges())
+
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls", "case_name"),
+        [
+            (fnx.DiGraph, nx.DiGraph, "triangle_tail"),
+            (fnx.MultiDiGraph, nx.MultiDiGraph, "triangle_tail"),
+        ],
+    )
+    def test_error_contract_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls, case_name
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        _build_make_max_clique_graph_case(graph, case_name)
+        _build_make_max_clique_graph_case(expected, case_name)
+
+        try:
+            nx.make_max_clique_graph(expected)
+        except Exception as exc:
+            expected_type = type(exc).__name__
+            expected_message = str(exc)
+
+        monkeypatch.setattr(
+            nx,
+            "make_max_clique_graph",
+            lambda *call_args, **call_kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX make_max_clique_graph fallback should not be used")
+            ),
+        )
+
+        with pytest.raises(Exception) as fnx_exc:
+            fnx.make_max_clique_graph(graph)
+
+        assert type(fnx_exc.value).__name__ == expected_type
+        assert str(fnx_exc.value) == expected_message
 
 
 # ---------------------------------------------------------------------------
