@@ -83,6 +83,60 @@ def test_is_isomorphic_with_callbacks_avoids_networkx(monkeypatch):
     assert fnx.is_isomorphic(g1, g2, node_match=node_match) == expected
 
 
+def test_could_be_isomorphic_properties_matches_networkx_without_fallback(monkeypatch):
+    g1 = fnx.Graph()
+    g1.add_edges_from(
+        [(0, 1), (0, 2), (0, 3), (0, 4), (1, 2), (3, 4), (4, 5), (4, 6), (0, 7)]
+    )
+    g2 = fnx.Graph()
+    g2.add_edges_from(
+        [(0, 1), (0, 2), (0, 3), (0, 4), (1, 2), (3, 4), (4, 5), (4, 6), (4, 7)]
+    )
+
+    expected = {
+        properties: nx.could_be_isomorphic(_to_nx(g1), _to_nx(g2), properties=properties)
+        for properties in ("d", "t", "dt", "c", "dtc", "x")
+    }
+
+    def fail_networkx(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(nx, "could_be_isomorphic", fail_networkx)
+
+    actual = {
+        properties: fnx.could_be_isomorphic(g1, g2, properties=properties)
+        for properties in ("d", "t", "dt", "c", "dtc", "x")
+    }
+
+    assert actual == expected
+
+
+@pytest.mark.parametrize("properties", ["d", "x", "t", "dtc"])
+def test_could_be_isomorphic_directed_properties_match_networkx_without_fallback(
+    monkeypatch, properties
+):
+    g1 = fnx.DiGraph()
+    g1.add_edges_from([(0, 1), (1, 2)])
+    g2 = fnx.DiGraph()
+    g2.add_edges_from([("a", "b"), ("b", "c")])
+
+    try:
+        expected = nx.could_be_isomorphic(_to_nx(g1), _to_nx(g2), properties=properties)
+    except Exception as exc:
+        expected = exc
+
+    def fail_networkx(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(nx, "could_be_isomorphic", fail_networkx)
+
+    if isinstance(expected, Exception):
+        with pytest.raises(getattr(fnx, type(expected).__name__), match=str(expected)):
+            fnx.could_be_isomorphic(g1, g2, properties=properties)
+    else:
+        assert fnx.could_be_isomorphic(g1, g2, properties=properties) == expected
+
+
 def test_vf2pp_is_isomorphic_matches_networkx():
     g1 = fnx.path_graph(4)
     g2 = fnx.relabel_nodes(g1, {0: "a", 1: "b", 2: "c", 3: "d"})

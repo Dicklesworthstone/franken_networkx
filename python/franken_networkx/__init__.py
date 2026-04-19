@@ -1497,7 +1497,6 @@ from franken_networkx._fnx import (
 
 # Algorithm functions — graph isomorphism
 from franken_networkx._fnx import (
-    could_be_isomorphic,
     fast_could_be_isomorphic,
     graph_edit_distance_common_rust as _graph_edit_distance_common_rust,
     faster_could_be_isomorphic,
@@ -13752,6 +13751,41 @@ def _isomorphic_mapping_matches_callbacks(G1, G2, mapping, node_match, edge_matc
             right_attrs = _edge_attrs_between(G2, mapped_u, mapped_v)
             if not _edge_attrs_match(left_attrs, right_attrs, edge_match):
                 return False
+    return True
+
+
+def could_be_isomorphic(G1, G2, *, properties="dtc"):
+    """Return False if graphs are definitely not isomorphic."""
+    if G1.order() != G2.order():
+        return False
+
+    properties_to_check = set(properties)
+    G1_props = []
+    G2_props = []
+
+    def _properties_consistent():
+        g1_table = [tuple(prop[node] for prop in G1_props) for node in G1]
+        g2_table = [tuple(prop[node] for prop in G2_props) for node in G2]
+        return sorted(g1_table) == sorted(g2_table)
+
+    if "d" in properties_to_check:
+        G1_props.append(G1.degree)
+        G2_props.append(G2.degree)
+        if not _properties_consistent():
+            return False
+
+    if "t" in properties_to_check:
+        G1_props.append(triangles(G1))
+        G2_props.append(triangles(G2))
+        if not _properties_consistent():
+            return False
+
+    if "c" in properties_to_check:
+        G1_props.append(Counter(itertools.chain.from_iterable(find_cliques(G1))))
+        G2_props.append(Counter(itertools.chain.from_iterable(find_cliques(G2))))
+        if not _properties_consistent():
+            return False
+
     return True
 
 
