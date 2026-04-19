@@ -435,6 +435,317 @@ class TestIsTournament:
 
 
 # ---------------------------------------------------------------------------
+# Directed component predicates
+# ---------------------------------------------------------------------------
+
+
+def _build_semiconnected_case(graph, case_name):
+    if case_name == "empty":
+        return
+    if case_name == "path":
+        graph.add_edges_from([("a", "b"), ("b", "c")])
+        return
+    if case_name == "fork":
+        graph.add_edges_from([("a", "b"), ("c", "b")])
+        return
+    if case_name == "cycle":
+        graph.add_edges_from([("a", "b"), ("b", "c"), ("c", "a")])
+        return
+    raise ValueError(f"unknown semiconnected case {case_name}")
+
+
+def _build_attracting_case(graph, case_name):
+    if case_name == "empty":
+        return
+    if case_name == "path":
+        graph.add_edges_from([("a", "b"), ("b", "c")])
+        return
+    if case_name == "cycle":
+        graph.add_edges_from([("a", "b"), ("b", "c"), ("c", "a")])
+        return
+    if case_name == "two_sinks":
+        graph.add_edges_from([("a", "b"), ("b", "a"), ("c", "d"), ("d", "c")])
+        return
+    raise ValueError(f"unknown attracting-components case {case_name}")
+
+
+def _normalize_components(components):
+    return sorted(
+        (tuple(sorted(component)) for component in components),
+        key=lambda component: (len(component), component),
+    )
+
+
+class TestIsSemiconnected:
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls"),
+        [
+            (fnx.DiGraph, nx.DiGraph),
+            (fnx.MultiDiGraph, nx.MultiDiGraph),
+            (fnx.Graph, nx.Graph),
+            (fnx.MultiGraph, nx.MultiGraph),
+        ],
+    )
+    @pytest.mark.parametrize("case_name", ["empty", "path", "fork", "cycle"])
+    def test_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls, case_name
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        _build_semiconnected_case(graph, case_name)
+        _build_semiconnected_case(expected, case_name)
+
+        try:
+            expected_result = nx.is_semiconnected(expected)
+        except Exception as exc:
+            expected_result = exc
+
+        monkeypatch.setattr(
+            nx,
+            "is_semiconnected",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX is_semiconnected fallback should not be used")
+            ),
+        )
+
+        if isinstance(expected_result, Exception):
+            with pytest.raises(Exception) as fnx_exc:
+                fnx.is_semiconnected(graph)
+            assert type(fnx_exc.value).__name__ == type(expected_result).__name__
+            assert str(fnx_exc.value) == str(expected_result)
+        else:
+            assert fnx.is_semiconnected(graph) is expected_result
+
+
+class TestAttractingComponents:
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls"),
+        [
+            (fnx.DiGraph, nx.DiGraph),
+            (fnx.MultiDiGraph, nx.MultiDiGraph),
+            (fnx.Graph, nx.Graph),
+            (fnx.MultiGraph, nx.MultiGraph),
+        ],
+    )
+    @pytest.mark.parametrize("case_name", ["empty", "path", "cycle", "two_sinks"])
+    def test_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls, case_name
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        _build_attracting_case(graph, case_name)
+        _build_attracting_case(expected, case_name)
+
+        try:
+            expected_result = list(nx.attracting_components(expected))
+        except Exception as exc:
+            expected_result = exc
+
+        monkeypatch.setattr(
+            nx,
+            "attracting_components",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX attracting_components fallback should not be used"
+                )
+            ),
+        )
+
+        if isinstance(expected_result, Exception):
+            with pytest.raises(Exception) as fnx_exc:
+                fnx.attracting_components(graph)
+            assert type(fnx_exc.value).__name__ == type(expected_result).__name__
+            assert str(fnx_exc.value) == str(expected_result)
+        else:
+            actual_result = fnx.attracting_components(graph)
+            assert not isinstance(actual_result, list)
+            assert _normalize_components(actual_result) == _normalize_components(
+                expected_result
+            )
+
+
+class TestAttractingComponentHelpers:
+    @pytest.mark.parametrize(
+        "function_name",
+        ["number_attracting_components", "is_attracting_component"],
+    )
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls"),
+        [
+            (fnx.DiGraph, nx.DiGraph),
+            (fnx.MultiDiGraph, nx.MultiDiGraph),
+            (fnx.Graph, nx.Graph),
+            (fnx.MultiGraph, nx.MultiGraph),
+        ],
+    )
+    @pytest.mark.parametrize("case_name", ["empty", "path", "cycle", "two_sinks"])
+    def test_matches_networkx_without_fallback(
+        self, monkeypatch, function_name, fnx_cls, nx_cls, case_name
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        _build_attracting_case(graph, case_name)
+        _build_attracting_case(expected, case_name)
+
+        nx_function = getattr(nx, function_name)
+        try:
+            expected_result = nx_function(expected)
+        except Exception as exc:
+            expected_result = exc
+
+        monkeypatch.setattr(
+            nx,
+            function_name,
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    f"NetworkX {function_name} fallback should not be used"
+                )
+            ),
+        )
+
+        fnx_function = getattr(fnx, function_name)
+        if isinstance(expected_result, Exception):
+            with pytest.raises(Exception) as fnx_exc:
+                fnx_function(graph)
+            assert type(fnx_exc.value).__name__ == type(expected_result).__name__
+            assert str(fnx_exc.value) == str(expected_result)
+        else:
+            assert fnx_function(graph) == expected_result
+
+
+# ---------------------------------------------------------------------------
+# Non-randomness
+# ---------------------------------------------------------------------------
+
+
+def _build_non_randomness_case(graph, case_name):
+    if case_name == "path4":
+        graph.add_edges_from([(0, 1), (1, 2), (2, 3)])
+        return
+    if case_name == "cycle4_weighted":
+        graph.add_edge(0, 1, weight=1.0)
+        graph.add_edge(1, 2, weight=2.0)
+        graph.add_edge(2, 3, weight=3.0)
+        graph.add_edge(3, 0, weight=4.0)
+        return
+    if case_name == "empty":
+        graph.add_nodes_from([0, 1, 2])
+        return
+    if case_name == "disconnected":
+        graph.add_edges_from([(0, 1), (2, 3)])
+        return
+    if case_name == "self_loop":
+        graph.add_edge(0, 1)
+        graph.add_edge(1, 1)
+        return
+    raise ValueError(f"unknown non_randomness case {case_name}")
+
+
+class TestNonRandomness:
+    @pytest.mark.parametrize(
+        ("case_name", "kwargs"),
+        [
+            ("path4", {"k": 1}),
+            ("path4", {}),
+            ("cycle4_weighted", {"k": 1, "weight": "weight"}),
+            ("cycle4_weighted", {"k": 1, "weight": None}),
+        ],
+    )
+    def test_matches_networkx_without_fallback(self, monkeypatch, case_name, kwargs):
+        graph = fnx.Graph()
+        expected = nx.Graph()
+        _build_non_randomness_case(graph, case_name)
+        _build_non_randomness_case(expected, case_name)
+
+        expected_result = nx.non_randomness(expected, **kwargs)
+
+        monkeypatch.setattr(
+            nx,
+            "non_randomness",
+            lambda *args, **other_kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX non_randomness fallback should not be used")
+            ),
+        )
+
+        actual_result = fnx.non_randomness(graph, **kwargs)
+        assert actual_result == pytest.approx(expected_result)
+
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls"),
+        [
+            (fnx.DiGraph, nx.DiGraph),
+            (fnx.MultiGraph, nx.MultiGraph),
+            (fnx.MultiDiGraph, nx.MultiDiGraph),
+        ],
+    )
+    def test_unsupported_graph_types_match_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        graph.add_edge(0, 1)
+        expected.add_edge(0, 1)
+
+        try:
+            nx.non_randomness(expected)
+        except Exception as exc:
+            expected_type = type(exc).__name__
+            expected_message = str(exc)
+
+        monkeypatch.setattr(
+            nx,
+            "non_randomness",
+            lambda *args, **other_kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX non_randomness fallback should not be used")
+            ),
+        )
+
+        with pytest.raises(Exception) as fnx_exc:
+            fnx.non_randomness(graph)
+
+        assert type(fnx_exc.value).__name__ == expected_type
+        assert str(fnx_exc.value) == expected_message
+
+    @pytest.mark.parametrize(
+        ("case_name", "kwargs"),
+        [
+            ("empty", {}),
+            ("disconnected", {}),
+            ("self_loop", {}),
+            ("path4", {"k": 2}),
+            ("path4", {"k": 3}),
+        ],
+    )
+    def test_error_contract_matches_networkx_without_fallback(
+        self, monkeypatch, case_name, kwargs
+    ):
+        graph = fnx.Graph()
+        expected = nx.Graph()
+        _build_non_randomness_case(graph, case_name)
+        _build_non_randomness_case(expected, case_name)
+
+        try:
+            nx.non_randomness(expected, **kwargs)
+        except Exception as exc:
+            expected_type = type(exc).__name__
+            expected_message = str(exc)
+
+        monkeypatch.setattr(
+            nx,
+            "non_randomness",
+            lambda *args, **other_kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX non_randomness fallback should not be used")
+            ),
+        )
+
+        with pytest.raises(Exception) as fnx_exc:
+            fnx.non_randomness(graph, **kwargs)
+
+        assert type(fnx_exc.value).__name__ == expected_type
+        assert str(fnx_exc.value) == expected_message
+
+
+# ---------------------------------------------------------------------------
 # Weighted predicates
 # ---------------------------------------------------------------------------
 
@@ -655,6 +966,91 @@ class TestIsDistanceRegular:
 
     def test_complete_graph(self, triangle):
         assert fnx.is_distance_regular(triangle) is True
+
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls", "builder"),
+        [
+            (fnx.Graph, nx.Graph, lambda graph: None),
+            (fnx.Graph, nx.Graph, lambda graph: graph.add_node("a")),
+            (
+                fnx.Graph,
+                nx.Graph,
+                lambda graph: graph.add_edges_from(
+                    [("a", "b"), ("b", "c"), ("c", "d"), ("d", "e"), ("e", "a")]
+                ),
+            ),
+            (
+                fnx.Graph,
+                nx.Graph,
+                lambda graph: graph.add_edges_from([("a", "b"), ("b", "c"), ("c", "d")]),
+            ),
+            (
+                fnx.Graph,
+                nx.Graph,
+                lambda graph: graph.add_edges_from(
+                    [
+                        ("a", "b"),
+                        ("a", "c"),
+                        ("a", "d"),
+                        ("b", "c"),
+                        ("b", "d"),
+                        ("c", "d"),
+                    ]
+                ),
+            ),
+            (
+                fnx.DiGraph,
+                nx.DiGraph,
+                lambda graph: graph.add_edges_from(
+                    [("a", "b"), ("b", "c"), ("c", "d"), ("d", "a")]
+                ),
+            ),
+            (
+                fnx.MultiGraph,
+                nx.MultiGraph,
+                lambda graph: graph.add_edges_from(
+                    [("a", "b"), ("b", "c"), ("c", "d"), ("d", "a")]
+                ),
+            ),
+            (
+                fnx.MultiDiGraph,
+                nx.MultiDiGraph,
+                lambda graph: graph.add_edges_from(
+                    [("a", "b"), ("b", "c"), ("c", "d"), ("d", "a")]
+                ),
+            ),
+        ],
+    )
+    def test_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls, builder
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        builder(graph)
+        builder(expected)
+
+        try:
+            expected_result = nx.is_distance_regular(expected)
+        except Exception as exc:
+            expected_result = exc
+
+        monkeypatch.setattr(
+            nx,
+            "is_distance_regular",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX is_distance_regular fallback should not be used"
+                )
+            ),
+        )
+
+        if isinstance(expected_result, Exception):
+            with pytest.raises(Exception) as fnx_exc:
+                fnx.is_distance_regular(graph)
+            assert type(fnx_exc.value).__name__ == type(expected_result).__name__
+            assert str(fnx_exc.value) == str(expected_result)
+        else:
+            assert fnx.is_distance_regular(graph) is expected_result
 
 
 class TestIsRegularExpander:

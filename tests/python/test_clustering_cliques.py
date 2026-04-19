@@ -10,6 +10,7 @@ Tests cover:
 - ring_of_cliques
 """
 
+import networkx as nx
 import pytest
 import franken_networkx as fnx
 
@@ -61,34 +62,124 @@ def diamond():
 
 class TestAllTriangles:
     def test_triangle(self, triangle):
-        tris = fnx.all_triangles(triangle)
+        tris = list(fnx.all_triangles(triangle))
         assert len(tris) == 1
         # The triangle should contain all three nodes
         tri_set = set(tris[0])
         assert tri_set == {"a", "b", "c"}
 
     def test_k4(self, k4):
-        tris = fnx.all_triangles(k4)
+        tris = list(fnx.all_triangles(k4))
         # K4 has C(4,3) = 4 triangles
         assert len(tris) == 4
 
     def test_path_no_triangles(self, path3):
-        tris = fnx.all_triangles(path3)
+        tris = list(fnx.all_triangles(path3))
         assert tris == []
 
     def test_diamond(self, diamond):
-        tris = fnx.all_triangles(diamond)
+        tris = list(fnx.all_triangles(diamond))
         # Diamond has 2 triangles: (a,b,c) and (b,c,d)
         assert len(tris) == 2
 
     def test_empty_graph(self):
         g = fnx.Graph()
-        assert fnx.all_triangles(g) == []
+        assert list(fnx.all_triangles(g)) == []
 
     def test_single_node(self):
         g = fnx.Graph()
         g.add_node("x")
-        assert fnx.all_triangles(g) == []
+        assert list(fnx.all_triangles(g)) == []
+
+
+def _build_all_triangles_case(graph, case_name):
+    if case_name == "triangle":
+        graph.add_edges_from([(0, 1), (1, 2), (2, 0)])
+        return
+    if case_name == "two_triangles":
+        graph.add_edges_from([(0, 1), (1, 2), (2, 0), (2, 3), (3, 4), (4, 2)])
+        return
+    if case_name == "parallel_triangle":
+        graph.add_edge(0, 1)
+        graph.add_edge(0, 1)
+        graph.add_edge(1, 2)
+        graph.add_edge(2, 0)
+        graph.add_edge(2, 2)
+        return
+    if case_name == "empty":
+        return
+    raise ValueError(f"unknown all_triangles case {case_name}")
+
+
+class TestAllTrianglesParity:
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls", "case_name", "kwargs"),
+        [
+            (fnx.Graph, nx.Graph, "two_triangles", {}),
+            (fnx.Graph, nx.Graph, "two_triangles", {"nbunch": 2}),
+            (fnx.Graph, nx.Graph, "two_triangles", {"nbunch": [2, 3, 99]}),
+            (fnx.Graph, nx.Graph, "empty", {"nbunch": []}),
+            (fnx.MultiGraph, nx.MultiGraph, "parallel_triangle", {}),
+            (fnx.MultiGraph, nx.MultiGraph, "parallel_triangle", {"nbunch": [0, 99]}),
+        ],
+    )
+    def test_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls, case_name, kwargs
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        _build_all_triangles_case(graph, case_name)
+        _build_all_triangles_case(expected, case_name)
+
+        expected_result = list(nx.all_triangles(expected, **kwargs))
+
+        monkeypatch.setattr(
+            nx,
+            "all_triangles",
+            lambda *call_args, **call_kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX all_triangles fallback should not be used")
+            ),
+        )
+
+        actual_result = list(fnx.all_triangles(graph, **kwargs))
+        assert actual_result == expected_result
+
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls", "case_name", "kwargs"),
+        [
+            (fnx.DiGraph, nx.DiGraph, "triangle", {}),
+            (fnx.DiGraph, nx.DiGraph, "triangle", {"nbunch": [0]}),
+            (fnx.Graph, nx.Graph, "triangle", {"nbunch": 9}),
+            (fnx.Graph, nx.Graph, "triangle", {"nbunch": [[0]]}),
+        ],
+    )
+    def test_error_contract_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls, case_name, kwargs
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        _build_all_triangles_case(graph, case_name)
+        _build_all_triangles_case(expected, case_name)
+
+        try:
+            list(nx.all_triangles(expected, **kwargs))
+        except Exception as exc:
+            expected_type = type(exc).__name__
+            expected_message = str(exc)
+
+        monkeypatch.setattr(
+            nx,
+            "all_triangles",
+            lambda *call_args, **call_kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX all_triangles fallback should not be used")
+            ),
+        )
+
+        with pytest.raises(Exception) as fnx_exc:
+            list(fnx.all_triangles(graph, **kwargs))
+
+        assert type(fnx_exc.value).__name__ == expected_type
+        assert str(fnx_exc.value) == expected_message
 
 
 # ---------------------------------------------------------------------------
