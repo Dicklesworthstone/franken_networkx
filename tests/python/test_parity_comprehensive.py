@@ -591,6 +591,51 @@ class TestCompleteToChordalGraphParity:
         assert set(alpha_f.keys()) == set(Gf.nodes())
 
 
+@needs_nx
+class TestNoNetworkxRuntimeDependency:
+    """Guard that functions previously flagged NX_DELEGATED still work end-to-end
+    without importing or touching NetworkX at runtime.
+    """
+
+    def test_is_graphical_bad_method_raises(self):
+        with pytest.raises(fnx.NetworkXError):
+            fnx.is_graphical([2, 2, 2], method="not-a-method")
+
+    def test_is_graphical_happy_path_matches_nx(self):
+        for seq in ([2, 2, 2], [3, 3, 3, 3], [4, 2, 2, 1, 1], [1, 1]):
+            assert fnx.is_graphical(seq) == nx.is_graphical(seq)
+
+    def test_maybe_regular_expander_graph_shape(self):
+        G = fnx.maybe_regular_expander_graph(12, 4, seed=42)
+        assert G.number_of_nodes() == 12
+        assert all(deg == 4 for _, deg in G.degree())
+
+    def test_random_regular_expander_graph_shape(self):
+        G = fnx.random_regular_expander_graph(10, 4, seed=7)
+        assert G.number_of_nodes() == 10
+        assert all(deg == 4 for _, deg in G.degree())
+
+    def test_non_randomness_matches_networkx(self):
+        Gn = nx.karate_club_graph()
+        Gf = fnx.Graph()
+        Gf.add_nodes_from(Gn.nodes())
+        Gf.add_edges_from(Gn.edges())
+
+        # Pass explicit k so the label propagation path is exercised but we
+        # avoid dependence on its non-deterministic community count.
+        k = 4
+        nr_f, nrr_f = fnx.non_randomness(Gf, k=k)
+        nr_n, nrr_n = nx.non_randomness(Gn, k=k)
+        assert nr_f == pytest.approx(nr_n, rel=1e-9, abs=1e-9)
+        assert nrr_f == pytest.approx(nrr_n, rel=1e-9, abs=1e-9)
+
+    def test_non_randomness_rejects_disconnected(self):
+        G = fnx.Graph()
+        G.add_edges_from([(0, 1), (2, 3)])
+        with pytest.raises(fnx.NetworkXError):
+            fnx.non_randomness(G, k=2)
+
+
 def _build_find_induced_nodes_case(graph, case_name):
     if case_name == "path_0_3":
         graph.add_edges_from([(0, 1), (1, 2), (2, 3)])

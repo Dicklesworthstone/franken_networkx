@@ -1676,7 +1676,7 @@ def is_graphical(sequence, method="eg"):
         return is_valid_degree_sequence_erdos_gallai(deg_sequence)
     if method == "hh":
         return is_valid_degree_sequence_havel_hakimi(deg_sequence)
-    raise _nx.NetworkXException("`method` must be 'eg' or 'hh'")
+    raise NetworkXError("`method` must be 'eg' or 'hh'")
 
 
 def is_digraphical(in_sequence, out_sequence):
@@ -8949,7 +8949,7 @@ def non_randomness(G, k=None, weight="weight"):
     if G.number_of_edges() == 0:
         raise NetworkXError("non_randomness not applicable to empty graphs")
     if not is_connected(G):
-        raise _nx.NetworkXException("Non connected graph.")
+        raise NetworkXError("Non connected graph.")
     if len(list(selfloop_edges(G))) > 0:
         raise NetworkXError("Graph must not contain self-loops")
 
@@ -8957,10 +8957,7 @@ def non_randomness(G, k=None, weight="weight"):
     m = G.number_of_edges()
 
     if k is None:
-        community_graph = _nx.Graph()
-        community_graph.add_nodes_from(G.nodes(data=True))
-        community_graph.add_edges_from(G.edges(data=True))
-        k = len(tuple(_nx.community.label_propagation_communities(community_graph)))
+        k = len(tuple(label_propagation_communities(G)))
 
     p = (2 * k * m) / (n * (n - k))
     if not 1 <= k < n or not 0 < p < 1:
@@ -13897,13 +13894,17 @@ def complete_to_chordal_graph(G):
     H equal to G and alpha mapping every node to 0.
     """
     H = G.copy()
-    alpha = {node: 0 for node in H}
+    # Use the original graph's node order — on franken_networkx, Graph.copy()
+    # does not preserve insertion order, which shifts tie-breaking in MCS-M
+    # away from NetworkX's expected alpha mapping.
+    node_order = list(G.nodes())
+    alpha = {node: 0 for node in node_order}
     if is_chordal(H):
         return H, alpha
     chords = set()
-    weight = {node: 0 for node in H.nodes()}
-    unnumbered_nodes = list(H.nodes())
-    for i in range(len(H.nodes()), 0, -1):
+    weight = {node: 0 for node in node_order}
+    unnumbered_nodes = list(node_order)
+    for i in range(len(node_order), 0, -1):
         z = max(unnumbered_nodes, key=lambda node: weight[node])
         unnumbered_nodes.remove(z)
         alpha[z] = i
@@ -16093,8 +16094,6 @@ def maybe_regular_expander(n, d, seed=None):
 
 def maybe_regular_expander_graph(n, d, *, create_using=None, max_tries=100, seed=None):
     """Utility for creating a random regular expander."""
-    from networkx.utils.misc import create_random_state
-
     if n < 1:
         raise NetworkXError("n must be a positive integer")
     if not (d >= 2):
@@ -16110,7 +16109,7 @@ def maybe_regular_expander_graph(n, d, *, create_using=None, max_tries=100, seed
     if n < 2:
         return graph
 
-    seed = create_random_state(seed)
+    seed = _numpy_random_state(seed)
     edges = set()
 
     for i in range(d // 2):
@@ -16143,9 +16142,7 @@ def random_regular_expander_graph(
     seed=None,
 ):
     """Return a random regular expander graph on n nodes with degree d."""
-    from networkx.utils.misc import create_random_state
-
-    seed = create_random_state(seed)
+    seed = _numpy_random_state(seed)
     graph = maybe_regular_expander_graph(
         n,
         d,
