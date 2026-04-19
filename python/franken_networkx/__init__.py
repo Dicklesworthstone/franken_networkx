@@ -411,13 +411,12 @@ from franken_networkx._fnx import (
 
 # Algorithm functions — clustering
 from franken_networkx._fnx import (
-    average_clustering,
+    average_clustering as _raw_average_clustering,
     clustering,
     find_cliques,
     graph_clique_number,
     square_clustering,
-    transitivity,
-    triangles,
+    triangles as _raw_triangles,
 )
 
 # Algorithm functions — matching
@@ -738,8 +737,27 @@ def dfs_tree(G, source=None, depth_limit=None, sort_neighbors=None):
 
 
 # Algorithm functions — reciprocity (wrapped to match NetworkX API)
-from franken_networkx._fnx import overall_reciprocity
-from franken_networkx._fnx import reciprocity as _reciprocity_raw
+def overall_reciprocity(G):
+    """Compute the reciprocity for the whole graph."""
+    if G.is_multigraph() and not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected multigraph type")
+
+    n_all_edge = G.number_of_edges()
+    if n_all_edge == 0:
+        raise NetworkXError("Not defined for empty graphs")
+
+    n_overlap_edge = (n_all_edge - G.to_undirected().number_of_edges()) * 2
+    return n_overlap_edge / n_all_edge
+
+
+def _reciprocity_value_for_node(G, node):
+    pred = set(G.predecessors(node))
+    succ = set(G.successors(node))
+    overlap = pred & succ
+    n_total = len(pred) + len(succ)
+    if n_total == 0:
+        return None
+    return 2 * len(overlap) / n_total
 
 
 def reciprocity(G, nodes=None):
@@ -752,13 +770,86 @@ def reciprocity(G, nodes=None):
     """
     if nodes is None:
         return overall_reciprocity(G)
-    return _reciprocity_raw(G, nodes)
+
+    if G.is_multigraph() and not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected multigraph type")
+    if not G.is_directed():
+        raise AttributeError(f"'{type(G).__name__}' object has no attribute 'predecessors'")
+
+    try:
+        if nodes in G:
+            reciprocity_value = _reciprocity_value_for_node(G, nodes)
+            if reciprocity_value is None:
+                raise NetworkXError("Not defined for isolated nodes.")
+            return reciprocity_value
+    except TypeError:
+        pass
+
+    try:
+        iterator = iter(nodes)
+    except TypeError:
+        raise NetworkXError(f"Node {nodes} is not in the graph.") from None
+
+    result = {}
+    for node in iterator:
+        if node not in G:
+            continue
+        result[node] = _reciprocity_value_for_node(G, node)
+    return result
 
 
 # Algorithm functions — Wiener index
-from franken_networkx._fnx import (
-    wiener_index,
-)
+def wiener_index(G, weight=None):
+    """Returns the Wiener index of the given graph."""
+    connected = is_strongly_connected(G) if G.is_directed() else is_connected(G)
+    if not connected:
+        return float("inf")
+
+    def _single_source_unweighted_lengths(source):
+        lengths = {source: 0}
+        queue = deque([source])
+        while queue:
+            node = queue.popleft()
+            next_distance = lengths[node] + 1
+            for neighbor in G.neighbors(node):
+                if neighbor in lengths:
+                    continue
+                lengths[neighbor] = next_distance
+                queue.append(neighbor)
+        return lengths
+
+    def _single_source_weighted_lengths(source):
+        distances = {source: 0.0}
+        queue = [(0.0, next(counter), source)]
+
+        while queue:
+            distance, _, node = heappop(queue)
+            if distance > distances[node]:
+                continue
+
+            for neighbor in G.neighbors(node):
+                edge_data = G.get_edge_data(node, neighbor)
+                if G.is_multigraph():
+                    edge_weight = min(
+                        attrs.get(weight, 1) for attrs in edge_data.values()
+                    )
+                else:
+                    edge_weight = edge_data.get(weight, 1)
+
+                candidate = distance + edge_weight
+                if candidate < distances.get(neighbor, float("inf")):
+                    distances[neighbor] = candidate
+                    heappush(queue, (candidate, next(counter), neighbor))
+
+        return distances
+
+    if weight is None:
+        total = sum(sum(_single_source_unweighted_lengths(node).values()) for node in G)
+    else:
+        counter = count()
+        total = sum(sum(_single_source_weighted_lengths(node).values()) for node in G)
+
+    return total if G.is_directed() else total / 2
 
 # Algorithm functions — maximum spanning tree
 from franken_networkx._fnx import (
@@ -833,7 +924,7 @@ from franken_networkx._fnx import (
     is_empty,
     non_neighbors,
     number_of_cliques,
-    all_triangles,
+    all_triangles as _rust_all_triangles,
     node_clique_number,
     enumerate_all_cliques,
     find_cliques_recursive,
@@ -842,6 +933,41 @@ from franken_networkx._fnx import (
     make_max_clique_graph as _rust_make_max_clique_graph,
     ring_of_cliques,
 )
+
+
+def all_triangles(G, nbunch=None):
+    """Yield unique triangles in an undirected graph."""
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+
+    if nbunch is None:
+        yield from _rust_all_triangles(G)
+        return
+
+    nbunch_nodes = _global_nbunch_nodes(G, nbunch)
+    nbunch_lookup = dict.fromkeys(nbunch_nodes)
+    relevant_nodes = itertools.chain(
+        nbunch_lookup,
+        (
+            neighbor
+            for node in nbunch_lookup
+            for neighbor in G.neighbors(node)
+            if neighbor not in nbunch_lookup
+        ),
+    )
+    node_to_id = {node: index for index, node in enumerate(relevant_nodes)}
+
+    for u in nbunch_lookup:
+        u_id = node_to_id[u]
+        u_neighbors = G.adj[u].keys()
+        for v in u_neighbors:
+            v_id = node_to_id.get(v, -1)
+            if v_id <= u_id:
+                continue
+            v_neighbors = G.adj[v].keys()
+            for w in v_neighbors & u_neighbors:
+                if node_to_id.get(w, -1) > v_id:
+                    yield (u, v, w)
 
 # Classic graph generators
 from franken_networkx._fnx import (
@@ -939,12 +1065,251 @@ def degree_histogram(G):
     counts = Counter(degree for _node, degree in degree_view)
     return [counts.get(i, 0) for i in range(max(counts) + 1 if counts else 0)]
 
-# Algorithm functions — graph metrics
-from franken_networkx._fnx import (
-    average_degree_connectivity,
-    rich_club_coefficient,
-    s_metric,
-)
+def _adc_iter_nodes(G, nodes):
+    if nodes is None:
+        return list(G.nodes())
+    try:
+        if nodes in G:
+            return [nodes]
+    except TypeError:
+        pass
+    try:
+        return [node for node in nodes if node in G]
+    except TypeError:
+        return []
+
+
+def _adc_weighted_degree(G, node, *, incoming=False, outgoing=False, weight=None):
+    if not incoming and not outgoing:
+        incoming = True
+        outgoing = True
+
+    def edge_total(edge_data):
+        if weight is None:
+            if G.is_multigraph():
+                return len(edge_data)
+            return 1
+        if G.is_multigraph():
+            return sum(attrs.get(weight, 1) for attrs in edge_data.values())
+        return edge_data.get(weight, 1)
+
+    total = 0
+    if outgoing:
+        for nbr, edge_data in G[node].items():
+            contribution = edge_total(edge_data)
+            if not G.is_directed() and nbr == node:
+                contribution *= 2
+            total += contribution
+    if incoming and G.is_directed():
+        for nbr in G.predecessors(node):
+            total += edge_total(G[nbr][node])
+    return total
+
+
+def average_degree_connectivity(
+    G, source="in+out", target="in+out", nodes=None, weight=None
+):
+    """Compute the average degree connectivity of graph."""
+    if G.is_directed():
+        if source not in ("in", "out", "in+out"):
+            raise NetworkXError('source must be one of "in", "out", or "in+out"')
+        if target not in ("in", "out", "in+out"):
+            raise NetworkXError('target must be one of "in", "out", or "in+out"')
+
+        def source_degree(node, *, weighted):
+            return _adc_weighted_degree(
+                G,
+                node,
+                incoming=source in ("in", "in+out"),
+                outgoing=source in ("out", "in+out"),
+                weight=weight if weighted else None,
+            )
+
+        def target_degree(node):
+            return _adc_weighted_degree(
+                G,
+                node,
+                incoming=target in ("in", "in+out"),
+                outgoing=target in ("out", "in+out"),
+                weight=None,
+            )
+
+        if source == "in":
+            neighbors = lambda node: G.predecessors(node)
+        elif source == "out":
+            neighbors = lambda node: G.successors(node)
+        else:
+            neighbors = lambda node: G.neighbors(node)
+        reverse = source == "in"
+    else:
+        if source != "in+out" or target != "in+out":
+            raise NetworkXError(
+                "source and target arguments are only supported for directed graphs"
+            )
+
+        def source_degree(node, *, weighted):
+            return _adc_weighted_degree(G, node, weight=weight if weighted else None)
+
+        def target_degree(node):
+            return _adc_weighted_degree(G, node)
+
+        neighbors = lambda node: G.neighbors(node)
+        reverse = False
+
+    dsum = defaultdict(int)
+    dnorm = defaultdict(int)
+    source_nodes = _adc_iter_nodes(G, nodes)
+
+    for node in source_nodes:
+        degree_key = source_degree(node, weighted=False)
+        if weight is None:
+            total = sum(target_degree(neighbor) for neighbor in neighbors(node))
+        else:
+            if reverse:
+                total = sum(
+                    G[neighbor][node].get(weight, 1) * target_degree(neighbor)
+                    for neighbor in neighbors(node)
+                )
+            else:
+                total = sum(
+                    G[node][neighbor].get(weight, 1) * target_degree(neighbor)
+                    for neighbor in neighbors(node)
+                )
+        dnorm[degree_key] += source_degree(node, weighted=True)
+        dsum[degree_key] += total
+
+    return {k: avg if dnorm[k] == 0 else avg / dnorm[k] for k, avg in dsum.items()}
+
+
+def _compute_rich_club_coefficients(G):
+    """Return the rich-club coefficient by degree threshold."""
+    deghist = degree_histogram(G)
+    total = sum(deghist)
+    nks = (total - cs for cs in itertools.accumulate(deghist) if total - cs > 1)
+
+    degree_view = G.degree
+    if callable(degree_view):
+        degree_of = degree_view
+    else:
+        degree_of = degree_view.__getitem__
+
+    edge_degrees = sorted(
+        (sorted((degree_of(u), degree_of(v))) for u, v in G.edges()),
+        reverse=True,
+    )
+    ek = G.number_of_edges()
+    if ek == 0:
+        return {}
+
+    k1, k2 = edge_degrees.pop()
+    rc = {}
+    for d, nk in enumerate(nks):
+        while k1 <= d:
+            if not edge_degrees:
+                ek = 0
+                break
+            k1, k2 = edge_degrees.pop()
+            ek -= 1
+        rc[d] = 2 * ek / (nk * (nk - 1))
+    return rc
+
+
+def _rich_club_double_edge_swap(G, nswap=1, max_tries=100, seed=None):
+    """NetworkX-style swap loop used for rich-club normalization."""
+    import bisect
+
+    if nswap > max_tries:
+        raise NetworkXError("Number of swaps > number of tries allowed.")
+    if len(G) < 4:
+        raise NetworkXError("Graph has fewer than four nodes.")
+    if G.number_of_edges() < 2:
+        raise NetworkXError("Graph has fewer than 2 edges")
+
+    rng = _generator_random_state(seed)
+
+    def choice(seq):
+        if hasattr(rng, "choice"):
+            return rng.choice(seq)
+        return seq[rng.randint(0, len(seq) - 1)]
+
+    degree_view = G.degree
+    if callable(degree_view):
+        degree_items = degree_view()
+    else:
+        degree_items = degree_view
+    keys, degrees = zip(*degree_items)
+    total_degree = sum(degrees)
+    cumulative = 0.0
+    cdf = []
+    for degree in degrees:
+        cumulative += degree
+        cdf.append(cumulative / total_degree)
+
+    n = 0
+    swapcount = 0
+    while swapcount < nswap:
+        ui = bisect.bisect_left(cdf, rng.random())
+        xi = bisect.bisect_left(cdf, rng.random())
+        if ui == xi:
+            continue
+
+        u = keys[ui]
+        x = keys[xi]
+        v = choice(list(G[u]))
+        y = choice(list(G[x]))
+        if v == y:
+            continue
+
+        if (x not in G[u]) and (y not in G[v]):
+            G.add_edge(u, x)
+            G.add_edge(v, y)
+            G.remove_edge(u, v)
+            G.remove_edge(x, y)
+            swapcount += 1
+
+        if n >= max_tries:
+            raise NetworkXAlgorithmError(
+                f"Maximum number of swap attempts ({n}) exceeded "
+                f"before desired swaps achieved ({nswap})."
+            )
+        n += 1
+    return G
+
+
+def rich_club_coefficient(G, normalized=True, Q=100, seed=None):
+    """Return the rich-club coefficient of the graph."""
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if number_of_selfloops(G) > 0:
+        raise Exception(
+            "rich_club_coefficient is not implemented for graphs with self loops."
+        )
+
+    rc = _compute_rich_club_coefficients(G)
+    if normalized:
+        randomized = G.copy()
+        edge_count = randomized.number_of_edges()
+        _rich_club_double_edge_swap(
+            randomized,
+            Q * edge_count,
+            max_tries=Q * edge_count * 10,
+            seed=seed,
+        )
+        randomized_rc = _compute_rich_club_coefficients(randomized)
+        rc = {k: v / randomized_rc[k] for k, v in rc.items()}
+    return rc
+
+
+def s_metric(G):
+    """Return the s-metric of the graph."""
+    degree_view = G.degree
+    if callable(degree_view):
+        degree_of = degree_view
+    else:
+        degree_of = degree_view.__getitem__
+    return float(sum(degree_of(u) * degree_of(v) for (u, v) in G.edges()))
 
 # Algorithm functions — graph metrics (expansion, conductance, volume)
 from franken_networkx._fnx import (
@@ -1061,6 +1426,62 @@ from franken_networkx._fnx import (
     normalized_cut_size,
 )
 
+
+def volume(G, S, weight=None):
+    """Return the volume of a set of nodes."""
+    return sum(
+        _adc_weighted_degree(
+            G,
+            node,
+            incoming=not G.is_directed(),
+            outgoing=True,
+            weight=weight,
+        )
+        for node in S
+    )
+
+
+def edge_expansion(G, S, T=None, weight=None):
+    """Return the edge expansion between two node sets."""
+    if T is None:
+        T = list(set(G) - set(S))
+    num_cut_edges = cut_size(G, S, nbunch2=T, weight=weight)
+    denominator = min(len(S), len(T))
+    if denominator == 0:
+        raise ZeroDivisionError("division by zero")
+    return num_cut_edges / denominator
+
+
+def mixing_expansion(G, S, T=None, weight=None):
+    """Return the mixing expansion between two node sets."""
+    num_cut_edges = cut_size(G, S, nbunch2=T, weight=weight)
+    num_total_edges = G.number_of_edges()
+    return num_cut_edges / (2 * num_total_edges)
+
+
+def node_expansion(G, S):
+    """Return the node expansion of a set."""
+    neighborhood = set(itertools.chain.from_iterable(G.neighbors(v) for v in S))
+    return len(neighborhood) / len(S)
+
+
+def boundary_expansion(G, S):
+    """Return the boundary expansion of a set."""
+    return len(node_boundary(G, S)) / len(S)
+
+
+def conductance(G, S, T=None, weight=None):
+    """Return the conductance between two node sets."""
+    if T is None:
+        T = list(set(G) - set(S))
+    num_cut_edges = cut_size(G, S, T, weight=weight)
+    volume_s = volume(G, S, weight=weight)
+    volume_t = volume(G, T, weight=weight)
+    denominator = min(volume_s, volume_t)
+    if denominator == 0:
+        raise ZeroDivisionError("division by zero")
+    return num_cut_edges / denominator
+
 # Algorithm functions — path validation
 from franken_networkx._fnx import is_simple_path
 
@@ -1088,7 +1509,7 @@ from franken_networkx._fnx import (
     is_k_regular,
     is_weighted,
     is_negatively_weighted,
-    is_distance_regular,
+    is_distance_regular as _raw_is_distance_regular,
 )
 
 
@@ -1408,11 +1829,11 @@ from franken_networkx._fnx import (
     is_biconnected,
     biconnected_components,
     biconnected_component_edges,
-    is_semiconnected,
+    is_semiconnected as _raw_is_semiconnected,
     kosaraju_strongly_connected_components,
-    attracting_components,
-    number_attracting_components,
-    is_attracting_component,
+    attracting_components as _raw_attracting_components,
+    number_attracting_components as _raw_number_attracting_components,
+    is_attracting_component as _raw_is_attracting_component,
 )
 
 # Graph generators — classic
@@ -1489,6 +1910,39 @@ from franken_networkx.readwrite import (
     write_sparse6,
     write_weighted_edgelist,
 )
+
+
+def is_semiconnected(G):
+    """Returns True if the graph is semiconnected, False otherwise."""
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
+    if len(G) == 0:
+        raise NetworkXPointlessConcept("Connectivity is undefined for the null graph.")
+    return _raw_is_semiconnected(G)
+
+
+def attracting_components(G):
+    """Generates the attracting components in ``G``."""
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
+    return (set(component) for component in _raw_attracting_components(G))
+
+
+def number_attracting_components(G):
+    """Returns the number of attracting components in ``G``."""
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
+    return _raw_number_attracting_components(G)
+
+
+def is_attracting_component(G):
+    """Returns True if ``G`` consists of a single attracting component."""
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
+    components = list(attracting_components(G))
+    if len(components) == 1:
+        return len(components[0]) == len(G)
+    return False
 
 
 def complete_graph(n, create_using=None):
@@ -3156,11 +3610,25 @@ def constraint(G, nodes=None, weight=None):
     """Return Burt's constraint for nodes in *G*."""
     from franken_networkx._fnx import constraint_rust as _rust_constraint
 
+    if len(G) == 0:
+        raise NetworkXError("Graph has no nodes or edges")
+
+    if nodes is None:
+        requested_nodes = list(G)
+    else:
+        requested_nodes = list(nodes)
+        for node in requested_nodes:
+            if node not in G:
+                raise KeyError(node)
+
     result = _rust_constraint(G)
-    if nodes is not None:
-        node_set = set(nodes)
-        return {k: v for k, v in result.items() if k in node_set}
-    return result
+    constrained = {}
+    for node in requested_nodes:
+        if all(neighbor == node for neighbor in G[node]):
+            constrained[node] = float("nan")
+        else:
+            constrained[node] = result[node]
+    return constrained
 
 
 def effective_size(G, nodes=None, weight=None):
@@ -3180,16 +3648,27 @@ def effective_size(G, nodes=None, weight=None):
     dict
         ``{node: effective_size}``
     """
+    if len(G) == 0:
+        raise NetworkXError("Graph has no nodes or edges")
+
     if nodes is None:
-        nodes = list(G.nodes())
+        requested_nodes = list(G.nodes())
+    else:
+        requested_nodes = list(nodes)
+        for node in requested_nodes:
+            if node not in G:
+                raise KeyError(node)
 
     from franken_networkx._fnx import effective_size_rust as _rust_eff_size
 
     result = _rust_eff_size(G)
-    if nodes is not None:
-        node_set = set(nodes)
-        return {k: v for k, v in result.items() if k in node_set}
-    return result
+    effective = {}
+    for node in requested_nodes:
+        if all(neighbor == node for neighbor in G[node]):
+            effective[node] = float("nan")
+        else:
+            effective[node] = result[node]
+    return effective
 
 
 def dispersion(G, u=None, v=None, normalized=True, alpha=1.0, b=0.0, c=0.0):
@@ -3271,46 +3750,17 @@ def closeness_vitality(G, node=None, weight=None, wiener_index=None):
     -------
     float or dict
     """
-    # Use native Rust implementation for unweighted graphs without precomputed wiener_index
-    if weight is None and wiener_index is None:
-        return _rust_closeness_vitality(G, node=node)
-
-    # Fall back to Python implementation for weighted or precomputed cases
-    if wiener_index is None:
-        try:
-            from franken_networkx._fnx import wiener_index as compute_wi
-
-            wi = compute_wi(G)
-        except Exception:
-            wi = 0.0
-            for u in G.nodes():
-                lengths = single_source_shortest_path_length(G, u)
-                wi += sum(lengths.values())
-            wi /= 2.0  # Each pair counted twice
-    else:
-        wi = wiener_index
-
+    wi = (
+        wiener_index
+        if wiener_index is not None
+        else globals()["wiener_index"](G, weight=weight)
+    )
     if node is not None:
-        H = G.copy()
-        H.remove_node(node)
-        if H.number_of_nodes() == 0:
-            return 0.0
-        try:
-            from franken_networkx._fnx import wiener_index as compute_wi
-
-            wi_without = compute_wi(H)
-        except Exception:
-            wi_without = 0.0
-            for u in H.nodes():
-                lengths = single_source_shortest_path_length(H, u)
-                wi_without += sum(lengths.values())
-            wi_without /= 2.0
-        return wi - wi_without
-
-    result = {}
-    for n in G.nodes():
-        result[n] = closeness_vitality(G, node=n, wiener_index=wi)
-    return result
+        after = globals()["wiener_index"](G.subgraph(set(G) - {node}), weight=weight)
+        return wi - after
+    return {
+        v: closeness_vitality(G, node=v, weight=weight, wiener_index=wi) for v in G
+    }
 
 
 def spectral_ordering(G, normalized=False):
@@ -8204,12 +8654,54 @@ def estrada_index(G):
     return float(np.sum(np.exp(spec)))
 
 
+def _simple_graph_weighted_shortest_path_lengths(G, source, weight):
+    distances = {source: 0.0}
+    counter = count()
+    queue = [(0.0, next(counter), source)]
+
+    while queue:
+        distance, _, node = heappop(queue)
+        if distance > distances[node]:
+            continue
+
+        for neighbor in G.neighbors(node):
+            edge_weight = G.get_edge_data(node, neighbor).get(weight, 1)
+            candidate = distance + edge_weight
+            if candidate < distances.get(neighbor, float("inf")):
+                distances[neighbor] = candidate
+                heappush(queue, (candidate, next(counter), neighbor))
+
+    return distances
+
+
 def gutman_index(G, weight=None):
     """Return the Gutman index (degree-distance) of *G*.
 
     Sum over all pairs of deg(u)*deg(v)*dist(u,v).
     """
-    return _fnx.gutman_index_rust(G)
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if not is_connected(G):
+        return float("inf")
+
+    degrees = dict(G.degree)
+    if weight is None:
+        spl = shortest_path_length(G)
+        return sum(
+            dist * degrees[u] * degrees[v]
+            for u, vinfo in spl
+            for v, dist in vinfo.items()
+        ) / 2
+
+    return sum(
+        dist * degrees[u] * degrees[v]
+        for u in G
+        for v, dist in _simple_graph_weighted_shortest_path_lengths(
+            G, u, weight
+        ).items()
+    ) / 2
 
 
 def schultz_index(G, weight=None):
@@ -8217,7 +8709,29 @@ def schultz_index(G, weight=None):
 
     Sum over all pairs of (deg(u)+deg(v))*dist(u,v).
     """
-    return _fnx.schultz_index_rust(G)
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if not is_connected(G):
+        return float("inf")
+
+    degrees = dict(G.degree)
+    if weight is None:
+        spl = shortest_path_length(G)
+        return sum(
+            dist * (degrees[u] + degrees[v])
+            for u, vinfo in spl
+            for v, dist in vinfo.items()
+        ) / 2
+
+    return sum(
+        dist * (degrees[u] + degrees[v])
+        for u in G
+        for v, dist in _simple_graph_weighted_shortest_path_lengths(
+            G, u, weight
+        ).items()
+    ) / 2
 
 
 def hyper_wiener_index(G):
@@ -8278,10 +8792,13 @@ def kemeny_constant(G):
     """
     import numpy as np
 
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+
     nodelist = list(G.nodes())
     n = len(nodelist)
     if n == 0:
-        return 0.0
+        raise NetworkXError("Graph G must contain at least one node.")
 
     A = to_numpy_array(G, nodelist=nodelist, weight=None)
     d = A.sum(axis=1)
@@ -8298,27 +8815,49 @@ def kemeny_constant(G):
     return float(total)
 
 
-def non_randomness(G, k=None):
-    """Return the non-randomness coefficient of *G*.
-
-    Compares the spectral radius to that of an Erdos-Renyi random graph.
-    """
+def non_randomness(G, k=None, weight="weight"):
+    """Compute the non-randomness of a graph."""
     import numpy as np
 
-    spec = adjacency_spectrum(G)
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if G.number_of_edges() == 0:
+        raise NetworkXError("non_randomness not applicable to empty graphs")
+    if not is_connected(G):
+        raise _nx.NetworkXException("Non connected graph.")
+    if len(list(selfloop_edges(G))) > 0:
+        raise NetworkXError("Graph must not contain self-loops")
+
     n = G.number_of_nodes()
     m = G.number_of_edges()
-    if n < 2 or m == 0:
-        return 0.0
 
-    spectral_radius = float(np.max(np.abs(spec)))
-    # Expected spectral radius of ER graph with same density
-    p = 2 * m / (n * (n - 1))
-    expected_radius = max(np.sqrt(n * p * (1 - p)), p * (n - 1))
-    if expected_radius == 0:
-        return 0.0
+    if k is None:
+        community_graph = _nx.Graph()
+        community_graph.add_nodes_from(G.nodes(data=True))
+        community_graph.add_edges_from(G.edges(data=True))
+        k = len(tuple(_nx.community.label_propagation_communities(community_graph)))
 
-    return float((spectral_radius - expected_radius) / expected_radius)
+    p = (2 * k * m) / (n * (n - k))
+    if not 1 <= k < n or not 0 < p < 1:
+        raise ValueError(
+            f"invalid number of communities for graph with {n} nodes and {m} edges: {k}"
+        )
+
+    eigenvalues = np.linalg.eigvals(to_numpy_array(G, weight=weight))
+    nr = float(np.real(np.sum(eigenvalues[:k])))
+    nr_rd = (nr - ((n - 2 * k) * p + k)) / math.sqrt(2 * k * p * (1 - p))
+    return nr, nr_rd
+
+
+def is_distance_regular(G):
+    """Returns True if the graph is distance regular, False otherwise."""
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if len(G) == 0:
+        raise NetworkXPointlessConcept("Graph has no nodes.")
+    return _raw_is_distance_regular(G)
 
 
 def sigma(G, niter=100, nrand=10, seed=None):
@@ -8327,34 +8866,29 @@ def sigma(G, niter=100, nrand=10, seed=None):
     sigma = (C/C_rand) / (L/L_rand) where C is clustering, L is avg path.
     sigma > 1 indicates small-world structure.
     """
+    import numpy as np
     import random as _random
 
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if len(G) < 4:
+        raise NetworkXError("Graph has fewer than four nodes.")
+
     rng = _random.Random(seed)
+    rand_metrics = {"C": [], "L": []}
+    for _ in range(nrand):
+        reference = random_reference(G, niter=niter, seed=rng.randint(0, 2**31))
+        rand_metrics["C"].append(transitivity(reference))
+        rand_metrics["L"].append(average_shortest_path_length(reference))
 
     C = transitivity(G)
-    try:
-        L = average_shortest_path_length(G)
-    except Exception:
-        return 0.0
+    L = average_shortest_path_length(G)
+    Cr = np.mean(rand_metrics["C"])
+    Lr = np.mean(rand_metrics["L"])
 
-    # Generate random graph with same degree sequence
-    n = G.number_of_nodes()
-    m = G.number_of_edges()
-    C_rand_total = 0.0
-    L_rand_total = 0.0
-    for _ in range(nrand):
-        R = gnm_random_graph(n, m, seed=rng.randint(0, 2**31))
-        C_rand_total += transitivity(R)
-        try:
-            L_rand_total += average_shortest_path_length(R)
-        except Exception:
-            L_rand_total += L
-    C_rand = C_rand_total / nrand
-    L_rand = L_rand_total / nrand
-
-    if C_rand == 0 or L_rand == 0:
-        return 0.0
-    return (C / C_rand) / (L / L_rand)
+    return float((C / Cr) / (L / Lr))
 
 
 def omega(G, niter=5, nrand=5, seed=None):
@@ -8363,44 +8897,44 @@ def omega(G, niter=5, nrand=5, seed=None):
     omega = L_rand/L - C/C_lattice.
     omega near 0 = small-world, near -1 = lattice, near 1 = random.
     """
-    import random as _random
+    import numpy as np
 
-    rng = _random.Random(seed)
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if len(G) == 0:
+        raise ZeroDivisionError("division by zero")
 
-    C = transitivity(G)
-    try:
-        L = average_shortest_path_length(G)
-    except Exception:
-        return 0.0
+    rng = _generator_random_state(seed)
+    rand_metrics = {"L": []}
+    Cl = average_clustering(G)
 
-    n = G.number_of_nodes()
-    m = G.number_of_edges()
+    niter_lattice_reference = niter
+    niter_random_reference = niter * 2
 
-    L_rand_total = 0.0
     for _ in range(nrand):
-        R = gnm_random_graph(n, m, seed=rng.randint(0, 2**31))
-        try:
-            L_rand_total += average_shortest_path_length(R)
-        except Exception:
-            L_rand_total += L
-    L_rand = L_rand_total / nrand
+        reference_random = random_reference(
+            G,
+            niter=niter_random_reference,
+            seed=rng.randint(0, 2**31 - 1),
+        )
+        rand_metrics["L"].append(average_shortest_path_length(reference_random))
 
-    # Lattice reference: ring lattice has high clustering
-    k = max(2, 2 * m // n)
-    if k % 2 != 0:
-        k -= 1
-    k = max(k, 2)
-    if k <= n:
-        try:
-            C_lattice = transitivity(watts_strogatz_graph(n, k, 0, seed=42))
-        except Exception:
-            C_lattice = C
-    else:
-        C_lattice = C
+        reference_lattice = lattice_reference(
+            G,
+            niter=niter_lattice_reference,
+            seed=rng.randint(0, 2**31 - 1),
+        )
+        Cl_temp = average_clustering(reference_lattice)
+        if Cl_temp > Cl:
+            Cl = Cl_temp
 
-    if L == 0 or C_lattice == 0:
-        return 0.0
-    return L_rand / L - C / C_lattice
+    C = average_clustering(G)
+    L = average_shortest_path_length(G)
+    Lr = np.mean(rand_metrics["L"])
+
+    return float((Lr / L) - (C / Cl))
 
 
 # ---------------------------------------------------------------------------
@@ -9291,6 +9825,13 @@ def node_degree_xy(G, x="out", y="in", weight=None, nodes=None):
 def number_of_walks(G, walk_length):
     """Count walks of given length via adjacency matrix power."""
     import numpy as np
+
+    if len(G) == 0:
+        raise NetworkXError("Graph has no nodes or edges")
+    if walk_length < 0:
+        raise ValueError(f"`walk_length` cannot be negative: {walk_length}")
+    if not isinstance(walk_length, numbers.Integral):
+        raise ValueError("exponent must be an integer")
 
     A = to_numpy_array(G, weight=None)
     Ak = np.linalg.matrix_power(A.astype(int), walk_length)
@@ -10512,6 +11053,312 @@ def _global_nbunch_nodes(G, nbunch):
         if "object is not iterable" in message:
             raise NetworkXError(f"Node {nbunch} is not in the graph.") from exc
         raise NetworkXError("nbunch is not a node or a sequence of nodes.") from exc
+
+
+def _triangle_selection(G, nodes):
+    if nodes is None:
+        return None, False
+
+    try:
+        if nodes in G:
+            return [nodes], True
+    except TypeError:
+        pass
+
+    return _global_nbunch_nodes(G, nodes), False
+
+
+def _triangles_and_degree_iter_local(G, nodes=None):
+    node_iter = G if nodes is None else nodes
+    nodes_neighbors = ((node, G[node]) for node in node_iter)
+
+    for node, node_neighbors in nodes_neighbors:
+        neighbor_set = set(node_neighbors) - {node}
+        generalized_degree = Counter(
+            len(neighbor_set & (set(G[neighbor]) - {neighbor})) for neighbor in neighbor_set
+        )
+        triangle_count = sum(size * count for size, count in generalized_degree.items())
+        yield (node, len(neighbor_set), triangle_count, generalized_degree)
+
+
+def _weighted_triangles_and_degree_iter_local(G, nodes=None, weight="weight"):
+    if weight is None or G.number_of_edges() == 0:
+        max_weight = 1
+    else:
+        max_weight = max(
+            attrs.get(weight, 1) for _, _, attrs in G.edges(data=True)
+        )
+
+    node_iter = G if nodes is None else nodes
+    nodes_neighbors = ((node, G[node]) for node in node_iter)
+
+    def normalized_weight(u, v):
+        return G[u][v].get(weight, 1) / max_weight
+
+    for node, node_neighbors in nodes_neighbors:
+        neighbor_set = set(node_neighbors) - {node}
+        weighted_triangle_sum = 0.0
+        seen_neighbors = set()
+        for neighbor in neighbor_set:
+            seen_neighbors.add(neighbor)
+            neighbor_neighbors = set(G[neighbor]) - seen_neighbors
+            edge_weight = normalized_weight(node, neighbor)
+            for shared_neighbor in neighbor_set & neighbor_neighbors:
+                weighted_triangle_sum += math.cbrt(
+                    edge_weight
+                    * normalized_weight(neighbor, shared_neighbor)
+                    * normalized_weight(shared_neighbor, node)
+                )
+        yield (node, len(neighbor_set), 2.0 * weighted_triangle_sum)
+
+
+def _directed_triangles_and_degree_iter_local(G, nodes=None):
+    node_iter = G if nodes is None else nodes
+    nodes_neighbors = ((node, G.pred[node], G.succ[node]) for node in node_iter)
+
+    for node, predecessors, successors in nodes_neighbors:
+        predecessor_set = set(predecessors) - {node}
+        successor_set = set(successors) - {node}
+
+        directed_triangle_count = 0
+        for neighbor in itertools.chain(predecessor_set, successor_set):
+            neighbor_predecessors = set(G.pred[neighbor]) - {neighbor}
+            neighbor_successors = set(G.succ[neighbor]) - {neighbor}
+            directed_triangle_count += sum(
+                1
+                for third_node in itertools.chain(
+                    predecessor_set & neighbor_predecessors,
+                    predecessor_set & neighbor_successors,
+                    successor_set & neighbor_predecessors,
+                    successor_set & neighbor_successors,
+                )
+            )
+
+        total_degree = len(predecessor_set) + len(successor_set)
+        reciprocal_degree = len(predecessor_set & successor_set)
+        yield (node, total_degree, reciprocal_degree, directed_triangle_count)
+
+
+def _directed_weighted_triangles_and_degree_iter_local(G, nodes=None, weight="weight"):
+    if weight is None or G.number_of_edges() == 0:
+        max_weight = 1
+    else:
+        max_weight = max(
+            attrs.get(weight, 1) for _, _, attrs in G.edges(data=True)
+        )
+
+    node_iter = G if nodes is None else nodes
+    nodes_neighbors = ((node, G.pred[node], G.succ[node]) for node in node_iter)
+
+    def normalized_weight(u, v):
+        return G[u][v].get(weight, 1) / max_weight
+
+    for node, predecessors, successors in nodes_neighbors:
+        predecessor_set = set(predecessors) - {node}
+        successor_set = set(successors) - {node}
+
+        directed_triangle_sum = 0.0
+        for neighbor in predecessor_set:
+            neighbor_predecessors = set(G.pred[neighbor]) - {neighbor}
+            neighbor_successors = set(G.succ[neighbor]) - {neighbor}
+            for third_node in predecessor_set & neighbor_predecessors:
+                directed_triangle_sum += math.cbrt(
+                    normalized_weight(neighbor, node)
+                    * normalized_weight(third_node, node)
+                    * normalized_weight(third_node, neighbor)
+                )
+            for third_node in predecessor_set & neighbor_successors:
+                directed_triangle_sum += math.cbrt(
+                    normalized_weight(neighbor, node)
+                    * normalized_weight(third_node, node)
+                    * normalized_weight(neighbor, third_node)
+                )
+            for third_node in successor_set & neighbor_predecessors:
+                directed_triangle_sum += math.cbrt(
+                    normalized_weight(neighbor, node)
+                    * normalized_weight(node, third_node)
+                    * normalized_weight(third_node, neighbor)
+                )
+            for third_node in successor_set & neighbor_successors:
+                directed_triangle_sum += math.cbrt(
+                    normalized_weight(neighbor, node)
+                    * normalized_weight(node, third_node)
+                    * normalized_weight(neighbor, third_node)
+                )
+
+        for neighbor in successor_set:
+            neighbor_predecessors = set(G.pred[neighbor]) - {neighbor}
+            neighbor_successors = set(G.succ[neighbor]) - {neighbor}
+            for third_node in predecessor_set & neighbor_predecessors:
+                directed_triangle_sum += math.cbrt(
+                    normalized_weight(node, neighbor)
+                    * normalized_weight(third_node, node)
+                    * normalized_weight(third_node, neighbor)
+                )
+            for third_node in predecessor_set & neighbor_successors:
+                directed_triangle_sum += math.cbrt(
+                    normalized_weight(node, neighbor)
+                    * normalized_weight(third_node, node)
+                    * normalized_weight(neighbor, third_node)
+                )
+            for third_node in successor_set & neighbor_predecessors:
+                directed_triangle_sum += math.cbrt(
+                    normalized_weight(node, neighbor)
+                    * normalized_weight(node, third_node)
+                    * normalized_weight(third_node, neighbor)
+                )
+            for third_node in successor_set & neighbor_successors:
+                directed_triangle_sum += math.cbrt(
+                    normalized_weight(node, neighbor)
+                    * normalized_weight(node, third_node)
+                    * normalized_weight(neighbor, third_node)
+                )
+
+        total_degree = len(predecessor_set) + len(successor_set)
+        reciprocal_degree = len(predecessor_set & successor_set)
+        yield (node, total_degree, reciprocal_degree, directed_triangle_sum)
+
+
+def clustering(G, nodes=None, weight=None):
+    """Compute the clustering coefficient for nodes."""
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+
+    selected_nodes, single_node = _triangle_selection(G, nodes)
+
+    if G.is_directed():
+        if weight is not None:
+            triangle_data = _directed_weighted_triangles_and_degree_iter_local(
+                G, selected_nodes, weight
+            )
+        else:
+            triangle_data = _directed_triangles_and_degree_iter_local(G, selected_nodes)
+        clustering_coefficients = {
+            node: 0 if triangle_count == 0 else triangle_count / ((total_degree * (total_degree - 1) - 2 * reciprocal_degree) * 2)
+            for node, total_degree, reciprocal_degree, triangle_count in triangle_data
+        }
+    else:
+        if weight is not None:
+            triangle_data = _weighted_triangles_and_degree_iter_local(
+                G, selected_nodes, weight
+            )
+            clustering_coefficients = {
+                node: 0 if triangle_count == 0 else triangle_count / (degree * (degree - 1))
+                for node, degree, triangle_count in triangle_data
+            }
+        else:
+            triangle_data = _triangles_and_degree_iter_local(G, selected_nodes)
+            clustering_coefficients = {
+                node: 0 if triangle_count == 0 else triangle_count / (degree * (degree - 1))
+                for node, degree, triangle_count, _ in triangle_data
+            }
+
+    if single_node:
+        return clustering_coefficients[nodes]
+    return clustering_coefficients
+
+
+def average_clustering(G, nodes=None, weight=None, count_zeros=True):
+    """Compute the average clustering coefficient for the graph."""
+    clustering_values = clustering(G, nodes, weight=weight).values()
+    if not count_zeros:
+        clustering_values = [value for value in clustering_values if abs(value) > 0]
+    return sum(clustering_values) / len(clustering_values)
+
+
+def transitivity(G):
+    """Compute graph transitivity."""
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+
+    triangles_contributions = [
+        (triangle_count, degree * (degree - 1))
+        for _, degree, triangle_count, _ in _triangles_and_degree_iter_local(G)
+    ]
+    if len(triangles_contributions) == 0:
+        return 0
+    triangles, contributions = map(sum, zip(*triangles_contributions))
+    return 0 if triangles == 0 else triangles / contributions
+
+
+def square_clustering(G, nodes=None):
+    """Compute the squares clustering coefficient for nodes."""
+    single_node = False
+    if nodes is None:
+        node_iter = G
+    elif nodes in G:
+        node_iter = [nodes]
+        single_node = True
+    else:
+        node_iter = _global_nbunch_nodes(G, nodes)
+
+    square_coefficients = {}
+    graph_adj = G.adj
+
+    class CachedNeighborSets(dict):
+        def __missing__(self, node):
+            neighbors = self[node] = set(graph_adj[node])
+            neighbors.discard(node)
+            return neighbors
+
+    neighbor_sets = CachedNeighborSets()
+
+    for node in node_iter:
+        node_neighbors = neighbor_sets[node]
+        neighbor_count_minus_one = len(node_neighbors) - 1
+        if neighbor_count_minus_one <= 0:
+            square_coefficients[node] = 0
+            continue
+
+        neighbor_pair_degrees = 0
+        neighbor_pair_count = len(node_neighbors) * neighbor_count_minus_one
+        triangle_count = 0
+        square_count = 0
+
+        for neighbor in node_neighbors:
+            neighbor_neighbors = neighbor_sets[neighbor]
+            neighbor_pair_degrees += len(neighbor_neighbors) * neighbor_count_minus_one
+            shared_neighbors = len(neighbor_neighbors & node_neighbors)
+            triangle_count += shared_neighbors
+            square_count += shared_neighbors * (shared_neighbors - 1)
+
+        two_hop_neighbors = set.union(
+            *(neighbor_sets[neighbor] for neighbor in node_neighbors)
+        )
+        two_hop_neighbors -= node_neighbors
+        two_hop_neighbors.discard(node)
+
+        for opposite_corner in two_hop_neighbors:
+            shared_neighbors = len(node_neighbors & neighbor_sets[opposite_corner])
+            square_count += shared_neighbors * (shared_neighbors - 1)
+
+        square_count //= 2
+        potential = (
+            neighbor_pair_degrees - neighbor_pair_count - triangle_count - square_count
+        )
+        square_coefficients[node] = square_count / potential if potential > 0 else 0
+
+    if single_node:
+        return square_coefficients[nodes]
+    return square_coefficients
+
+
+def triangles(G, nodes=None):
+    """Compute the number of triangles."""
+    if nodes is None:
+        return _raw_triangles(G)
+
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+
+    if nodes in G:
+        return _raw_triangles(G)[nodes]
+
+    triangle_counts = _raw_triangles(G)
+    nbunch_nodes = _global_nbunch_nodes(G, nodes)
+    return {node: triangle_counts[node] for node in nbunch_nodes}
 
 
 def edges(G, nbunch=None):
