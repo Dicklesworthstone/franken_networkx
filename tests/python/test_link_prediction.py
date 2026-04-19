@@ -1,5 +1,6 @@
 """Tests for link prediction functions."""
 
+import networkx as nx
 import pytest
 
 import franken_networkx as fnx
@@ -53,6 +54,96 @@ class TestCommonNeighbors:
         # Nodes 0 and 1 share neighbor 2
         cn = list(fnx.common_neighbors(triangle_plus, 0, 1))
         assert 2 in cn
+
+
+class TestCommonNeighborCentrality:
+    @pytest.mark.parametrize(
+        ("alpha", "ebunch"),
+        [
+            (0.2, [(0, 2)]),
+            (1.0, [(0, 2)]),
+            (0.8, None),
+        ],
+    )
+    def test_matches_networkx_without_fallback(self, monkeypatch, alpha, ebunch):
+        graph = fnx.path_graph(4)
+        expected = nx.path_graph(4)
+        expected_result = list(nx.common_neighbor_centrality(expected, ebunch, alpha=alpha))
+
+        monkeypatch.setattr(
+            nx,
+            "common_neighbor_centrality",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX common_neighbor_centrality fallback should not be used"
+                )
+            ),
+        )
+
+        assert list(fnx.common_neighbor_centrality(graph, ebunch, alpha=alpha)) == expected_result
+
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls"),
+        [
+            (fnx.DiGraph, nx.DiGraph),
+            (fnx.MultiGraph, nx.MultiGraph),
+            (fnx.MultiDiGraph, nx.MultiDiGraph),
+        ],
+    )
+    def test_unsupported_graph_types_match_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls
+    ):
+        graph = fnx_cls([(0, 1), (1, 2)])
+        expected = nx_cls([(0, 1), (1, 2)])
+
+        try:
+            list(nx.common_neighbor_centrality(expected, [(0, 2)]))
+        except Exception as exc:
+            expected_type = type(exc).__name__
+            expected_message = str(exc)
+
+        monkeypatch.setattr(
+            nx,
+            "common_neighbor_centrality",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX common_neighbor_centrality fallback should not be used"
+                )
+            ),
+        )
+
+        with pytest.raises(Exception) as fnx_exc:
+            list(fnx.common_neighbor_centrality(graph, [(0, 2)]))
+
+        assert type(fnx_exc.value).__name__ == expected_type
+        assert str(fnx_exc.value) == expected_message
+
+    @pytest.mark.parametrize("ebunch", [[(0, 0)], [(0, 9)], [(9, 0)]])
+    def test_error_contract_matches_networkx_without_fallback(self, monkeypatch, ebunch):
+        graph = fnx.path_graph(4)
+        expected = nx.path_graph(4)
+
+        try:
+            list(nx.common_neighbor_centrality(expected, ebunch))
+        except Exception as exc:
+            expected_type = type(exc).__name__
+            expected_message = str(exc)
+
+        monkeypatch.setattr(
+            nx,
+            "common_neighbor_centrality",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX common_neighbor_centrality fallback should not be used"
+                )
+            ),
+        )
+
+        with pytest.raises(Exception) as fnx_exc:
+            list(fnx.common_neighbor_centrality(graph, ebunch))
+
+        assert type(fnx_exc.value).__name__ == expected_type
+        assert str(fnx_exc.value) == expected_message
 
 
 # ---------------------------------------------------------------------------

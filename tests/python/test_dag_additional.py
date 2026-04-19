@@ -7,6 +7,7 @@ Tests cover:
 - dominance_frontiers
 """
 
+import networkx as nx
 import pytest
 import franken_networkx as fnx
 
@@ -70,15 +71,76 @@ class TestIsAperiodic:
         g.add_edge("d", "a")
         assert fnx.is_aperiodic(g) is True
 
-    def test_dag_is_aperiodic(self, chain):
-        # DAGs have no cycles, trivially aperiodic
-        assert fnx.is_aperiodic(chain) is True
+    def test_raises_on_not_strongly_connected(self, chain):
+        with pytest.raises(fnx.NetworkXError, match="Graph is not strongly connected."):
+            fnx.is_aperiodic(chain)
 
     def test_raises_on_undirected(self):
         g = fnx.Graph()
         g.add_edge("a", "b")
-        with pytest.raises(fnx.NetworkXNotImplemented):
+        with pytest.raises(
+            fnx.NetworkXError,
+            match="is_aperiodic not defined for undirected graphs",
+        ):
             fnx.is_aperiodic(g)
+
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls", "builder"),
+        [
+            (fnx.Graph, nx.Graph, lambda graph: None),
+            (fnx.MultiGraph, nx.MultiGraph, lambda graph: None),
+            (fnx.DiGraph, nx.DiGraph, lambda graph: None),
+            (fnx.MultiDiGraph, nx.MultiDiGraph, lambda graph: None),
+            (fnx.DiGraph, nx.DiGraph, lambda graph: graph.add_node("a")),
+            (fnx.MultiDiGraph, nx.MultiDiGraph, lambda graph: graph.add_node("a")),
+            (fnx.DiGraph, nx.DiGraph, lambda graph: graph.add_edge("a", "a")),
+            (
+                fnx.DiGraph,
+                nx.DiGraph,
+                lambda graph: graph.add_edges_from([("a", "b"), ("b", "c")]),
+            ),
+            (
+                fnx.DiGraph,
+                nx.DiGraph,
+                lambda graph: graph.add_edges_from([("a", "b"), ("b", "c"), ("c", "a")]),
+            ),
+            (
+                fnx.DiGraph,
+                nx.DiGraph,
+                lambda graph: graph.add_edges_from(
+                    [("a", "b"), ("b", "c"), ("c", "a"), ("a", "a")]
+                ),
+            ),
+        ],
+    )
+    def test_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls, builder
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        builder(graph)
+        builder(expected)
+
+        try:
+            expected_result = nx.is_aperiodic(expected)
+        except Exception as exc:
+            expected_result = exc
+
+        monkeypatch.setattr(
+            nx,
+            "is_aperiodic",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX is_aperiodic fallback should not be used")
+            ),
+        )
+
+        if isinstance(expected_result, Exception):
+            with pytest.raises(Exception) as fnx_exc:
+                fnx.is_aperiodic(graph)
+            assert type(fnx_exc.value).__name__ == type(expected_result).__name__
+            assert str(fnx_exc.value) == str(expected_result)
+        else:
+            assert fnx.is_aperiodic(graph) is expected_result
 
 
 # ---------------------------------------------------------------------------

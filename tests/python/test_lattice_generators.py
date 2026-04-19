@@ -1,6 +1,7 @@
 """Tests for lattice and structured graph generator wrappers."""
 
 import networkx as nx
+import pytest
 
 import franken_networkx as fnx
 from franken_networkx.backend import _fnx_to_nx as _to_nx
@@ -209,3 +210,85 @@ def test_nonisomorphic_trees_does_not_delegate_to_networkx(monkeypatch):
 
     assert actual == expected
     assert fnx.number_of_nonisomorphic_trees(5) == len(expected)
+
+
+@pytest.mark.parametrize(
+    ("function_name", "kwargs"),
+    [
+        ("maybe_regular_expander_graph", {"n": 4, "d": 2, "seed": 123}),
+        ("maybe_regular_expander_graph", {"n": 10, "d": 4, "seed": 123}),
+        ("random_regular_expander_graph", {"n": 10, "d": 4, "epsilon": 0.5, "seed": 123}),
+    ],
+)
+def test_expander_generators_match_networkx_without_fallback(
+    monkeypatch, function_name, kwargs
+):
+    expected = getattr(nx, function_name)(**kwargs)
+
+    def fail(*args, **other_kwargs):
+        raise AssertionError(f"networkx {function_name} fallback was used")
+
+    monkeypatch.setattr(nx, function_name, fail)
+
+    actual = _to_nx(getattr(fnx, function_name)(**kwargs))
+
+    assert type(actual) is type(expected)
+    assert sorted(actual.nodes()) == sorted(expected.nodes())
+    assert sorted(actual.edges()) == sorted(expected.edges())
+
+
+def test_random_regular_expander_graph_small_case_matches_networkx_contract_without_fallback(
+    monkeypatch,
+):
+    kwargs = {"n": 4, "d": 2, "seed": 123}
+    expected = nx.random_regular_expander_graph(**kwargs)
+
+    def fail(*args, **other_kwargs):
+        raise AssertionError(
+            "networkx random_regular_expander_graph fallback was used"
+        )
+
+    monkeypatch.setattr(nx, "random_regular_expander_graph", fail)
+
+    actual = _to_nx(fnx.random_regular_expander_graph(**kwargs))
+
+    # Upstream is not exact-edge deterministic for this degenerate case because the
+    # spectral acceptance step can accept different labeled 4-cycles on repeated runs.
+    assert type(actual) is type(expected)
+    assert sorted(actual.nodes()) == sorted(expected.nodes())
+    assert nx.is_isomorphic(actual, expected)
+    assert sorted(dict(actual.degree()).values()) == sorted(dict(expected.degree()).values())
+
+
+@pytest.mark.parametrize(
+    ("function_name", "kwargs"),
+    [
+        ("maybe_regular_expander_graph", {"n": 0, "d": 2, "seed": 123}),
+        ("maybe_regular_expander_graph", {"n": 2, "d": 1, "seed": 123}),
+        ("maybe_regular_expander_graph", {"n": 10, "d": 3, "seed": 123}),
+        ("maybe_regular_expander_graph", {"n": 2, "d": 2, "seed": 123}),
+        ("maybe_regular_expander_graph", {"n": 4, "d": 2, "max_tries": 1, "seed": 123}),
+        ("random_regular_expander_graph", {"n": 0, "d": 2, "seed": 123}),
+        ("random_regular_expander_graph", {"n": 10, "d": 3, "seed": 123}),
+        ("random_regular_expander_graph", {"n": 4, "d": 2, "max_tries": 1, "seed": 123}),
+    ],
+)
+def test_expander_generators_error_contract_matches_networkx_without_fallback(
+    monkeypatch, function_name, kwargs
+):
+    try:
+        getattr(nx, function_name)(**kwargs)
+    except Exception as exc:
+        expected_type = type(exc).__name__
+        expected_message = str(exc)
+
+    def fail(*args, **other_kwargs):
+        raise AssertionError(f"networkx {function_name} fallback was used")
+
+    monkeypatch.setattr(nx, function_name, fail)
+
+    with pytest.raises(Exception) as fnx_exc:
+        getattr(fnx, function_name)(**kwargs)
+
+    assert type(fnx_exc.value).__name__ == expected_type
+    assert str(fnx_exc.value) == expected_message

@@ -12,6 +12,7 @@ Tests cover:
 import networkx as nx
 import pytest
 import franken_networkx as fnx
+from copy import deepcopy
 
 
 # ---------------------------------------------------------------------------
@@ -59,19 +60,96 @@ class TestIsGraphical:
     def test_star(self):
         assert fnx.is_graphical([3, 1, 1, 1]) is True
 
+    @pytest.mark.parametrize(
+        ("sequence", "method"),
+        [
+            ([], "eg"),
+            ([], "hh"),
+            ([0], "eg"),
+            ([1], "eg"),
+            ([2, -1], "eg"),
+            ([-1, -1], "hh"),
+            ([1.0, 1.0], "eg"),
+            ([1.5, 1.5], "eg"),
+            (["1", 1], "hh"),
+            ([1, 1], "bogus"),
+        ],
+    )
+    def test_matches_networkx_without_fallback(self, monkeypatch, sequence, method):
+        expected_sequence = deepcopy(sequence)
+        try:
+            expected = nx.is_graphical(expected_sequence, method=method)
+        except Exception as exc:
+            expected = exc
+
+        monkeypatch.setattr(
+            nx,
+            "is_graphical",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX is_graphical fallback should not be used")
+            ),
+        )
+
+        actual_sequence = deepcopy(sequence)
+        if isinstance(expected, Exception):
+            with pytest.raises(Exception) as fnx_exc:
+                fnx.is_graphical(actual_sequence, method=method)
+            assert type(fnx_exc.value).__name__ == type(expected).__name__
+            assert str(fnx_exc.value) == str(expected)
+        else:
+            assert fnx.is_graphical(actual_sequence, method=method) is expected
+
 
 class TestIsDigraphical:
     def test_mutual(self):
-        assert fnx.is_digraphical([(1, 1), (1, 1)]) is True
+        assert fnx.is_digraphical([1, 1], [1, 1]) is True
 
     def test_one_way(self):
-        assert fnx.is_digraphical([(1, 0), (0, 1)]) is True
+        assert fnx.is_digraphical([1, 0], [0, 1]) is True
 
     def test_empty(self):
-        assert fnx.is_digraphical([]) is True
+        assert fnx.is_digraphical([], []) is True
 
     def test_unbalanced(self):
-        assert fnx.is_digraphical([(2, 0), (0, 1)]) is False
+        assert fnx.is_digraphical([2, 0], [0, 1]) is False
+
+    @pytest.mark.parametrize(
+        ("in_sequence", "out_sequence"),
+        [
+            ([], []),
+            ([1, 1], [1, 1]),
+            ([1, 0], [0, 1]),
+            ([2, 0], [0, 1]),
+            ([-1], [1]),
+            ([1.0], [1.0]),
+            ([1.5], [1]),
+            (["1"], [1]),
+            ([1], [1, 0]),
+        ],
+    )
+    def test_matches_networkx_without_fallback(
+        self, monkeypatch, in_sequence, out_sequence
+    ):
+        expected = nx.is_digraphical(
+            deepcopy(in_sequence),
+            deepcopy(out_sequence),
+        )
+
+        monkeypatch.setattr(
+            nx,
+            "is_digraphical",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX is_digraphical fallback should not be used")
+            ),
+        )
+
+        assert (
+            fnx.is_digraphical(
+                deepcopy(in_sequence),
+                deepcopy(out_sequence),
+            )
+            is expected
+        )
 
 
 class TestIsMultigraphical:
@@ -84,6 +162,31 @@ class TestIsMultigraphical:
     def test_odd_sum(self):
         assert fnx.is_multigraphical([1]) is False
 
+    @pytest.mark.parametrize(
+        "sequence",
+        [
+            [],
+            [0],
+            [1],
+            [2, -1],
+            [1.0, 1.0],
+            [1.5, 1.5],
+            ["1", 1],
+        ],
+    )
+    def test_matches_networkx_without_fallback(self, monkeypatch, sequence):
+        expected = nx.is_multigraphical(deepcopy(sequence))
+        monkeypatch.setattr(
+            nx,
+            "is_multigraphical",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX is_multigraphical fallback should not be used"
+                )
+            ),
+        )
+        assert fnx.is_multigraphical(deepcopy(sequence)) is expected
+
 
 class TestIsPseudographical:
     def test_self_loop(self):
@@ -91,6 +194,93 @@ class TestIsPseudographical:
 
     def test_odd_sum(self):
         assert fnx.is_pseudographical([1]) is False
+
+    @pytest.mark.parametrize(
+        "sequence",
+        [
+            [],
+            [0],
+            [1],
+            [2],
+            [2, -1],
+            [1.0, 1.0],
+            [1.5, 1.5],
+            ["1", 1],
+        ],
+    )
+    def test_matches_networkx_without_fallback(self, monkeypatch, sequence):
+        expected_sequence = deepcopy(sequence)
+        try:
+            expected = nx.is_pseudographical(expected_sequence)
+        except Exception as exc:
+            expected = exc
+
+        monkeypatch.setattr(
+            nx,
+            "is_pseudographical",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX is_pseudographical fallback should not be used"
+                )
+            ),
+        )
+
+        actual_sequence = deepcopy(sequence)
+        if isinstance(expected, Exception):
+            with pytest.raises(Exception) as fnx_exc:
+                fnx.is_pseudographical(actual_sequence)
+            assert type(fnx_exc.value).__name__ == type(expected).__name__
+            assert str(fnx_exc.value) == str(expected)
+        else:
+            assert fnx.is_pseudographical(actual_sequence) is expected
+
+
+class TestValidDegreeSequenceAlgorithms:
+    @pytest.mark.parametrize(
+        ("function_name", "sequence"),
+        [
+            ("is_valid_degree_sequence_erdos_gallai", []),
+            ("is_valid_degree_sequence_erdos_gallai", [3, 3, 2, 2, 2]),
+            ("is_valid_degree_sequence_erdos_gallai", [4, 1, 1]),
+            ("is_valid_degree_sequence_erdos_gallai", [1.0, 1.0]),
+            ("is_valid_degree_sequence_erdos_gallai", [1.5, 1.5]),
+            ("is_valid_degree_sequence_erdos_gallai", ["1", 1]),
+            ("is_valid_degree_sequence_havel_hakimi", []),
+            ("is_valid_degree_sequence_havel_hakimi", [3, 3, 2, 2, 2]),
+            ("is_valid_degree_sequence_havel_hakimi", [4, 1, 1]),
+            ("is_valid_degree_sequence_havel_hakimi", [1.0, 1.0]),
+            ("is_valid_degree_sequence_havel_hakimi", [1.5, 1.5]),
+            ("is_valid_degree_sequence_havel_hakimi", ["1", 1]),
+        ],
+    )
+    def test_matches_networkx_without_fallback(
+        self, monkeypatch, function_name, sequence
+    ):
+        expected_sequence = deepcopy(sequence)
+        nx_function = getattr(nx, function_name)
+        fnx_function = getattr(fnx, function_name)
+
+        try:
+            expected = nx_function(expected_sequence)
+        except Exception as exc:
+            expected = exc
+
+        monkeypatch.setattr(
+            nx,
+            function_name,
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError(f"NetworkX {function_name} fallback should not be used")
+            ),
+        )
+
+        actual_sequence = deepcopy(sequence)
+        if isinstance(expected, Exception):
+            with pytest.raises(Exception) as fnx_exc:
+                fnx_function(actual_sequence)
+            assert type(fnx_exc.value).__name__ == type(expected).__name__
+            assert str(fnx_exc.value) == str(expected)
+        else:
+            assert fnx_function(actual_sequence) is expected
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +298,53 @@ class TestIsRegular:
         g = fnx.Graph()
         g.add_node("a")
         assert fnx.is_regular(g) is True
+
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls"),
+        [
+            (fnx.Graph, nx.Graph),
+            (fnx.DiGraph, nx.DiGraph),
+            (fnx.MultiGraph, nx.MultiGraph),
+            (fnx.MultiDiGraph, nx.MultiDiGraph),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "builder",
+        [
+            lambda graph: None,
+            lambda graph: graph.add_node("a"),
+            lambda graph: graph.add_edge("a", "b"),
+            lambda graph: graph.add_edges_from([("a", "b"), ("b", "c"), ("c", "a")]),
+        ],
+    )
+    def test_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls, builder
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        builder(graph)
+        builder(expected)
+
+        try:
+            expected_result = nx.is_regular(expected)
+        except Exception as exc:
+            expected_result = exc
+
+        monkeypatch.setattr(
+            nx,
+            "is_regular",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX is_regular fallback should not be used")
+            ),
+        )
+
+        if isinstance(expected_result, Exception):
+            with pytest.raises(Exception) as fnx_exc:
+                fnx.is_regular(graph)
+            assert type(fnx_exc.value).__name__ == type(expected_result).__name__
+            assert str(fnx_exc.value) == str(expected_result)
+        else:
+            assert fnx.is_regular(graph) is expected_result
 
 
 class TestIsKRegular:
@@ -144,6 +381,58 @@ class TestIsTournament:
         with pytest.raises(fnx.NetworkXNotImplemented):
             fnx.is_tournament(triangle)
 
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls", "builder"),
+        [
+            (fnx.Graph, nx.Graph, lambda graph: None),
+            (fnx.MultiGraph, nx.MultiGraph, lambda graph: None),
+            (fnx.MultiDiGraph, nx.MultiDiGraph, lambda graph: None),
+            (
+                fnx.DiGraph,
+                nx.DiGraph,
+                lambda graph: graph.add_edges_from([("a", "b"), ("b", "c"), ("a", "c")]),
+            ),
+            (
+                fnx.DiGraph,
+                nx.DiGraph,
+                lambda graph: graph.add_edges_from([("a", "b"), ("b", "c")]),
+            ),
+            (
+                fnx.DiGraph,
+                nx.DiGraph,
+                lambda graph: graph.add_edge("a", "a"),
+            ),
+        ],
+    )
+    def test_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls, builder
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        builder(graph)
+        builder(expected)
+
+        try:
+            expected_result = nx.is_tournament(expected)
+        except Exception as exc:
+            expected_result = exc
+
+        monkeypatch.setattr(
+            nx,
+            "is_tournament",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX is_tournament fallback should not be used")
+            ),
+        )
+
+        if isinstance(expected_result, Exception):
+            with pytest.raises(Exception) as fnx_exc:
+                fnx.is_tournament(graph)
+            assert type(fnx_exc.value).__name__ == type(expected_result).__name__
+            assert str(fnx_exc.value) == str(expected_result)
+        else:
+            assert fnx.is_tournament(graph) is expected_result
+
 
 # ---------------------------------------------------------------------------
 # Weighted predicates
@@ -164,6 +453,61 @@ class TestIsWeighted:
         assert fnx.is_weighted(g, weight="cost") is True
         assert fnx.is_weighted(g) is False
 
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls"),
+        [
+            (fnx.Graph, nx.Graph),
+            (fnx.DiGraph, nx.DiGraph),
+            (fnx.MultiGraph, nx.MultiGraph),
+            (fnx.MultiDiGraph, nx.MultiDiGraph),
+        ],
+    )
+    def test_matches_networkx_without_fallback(self, monkeypatch, fnx_cls, nx_cls):
+        graph = fnx_cls()
+        expected = nx_cls()
+        graph.add_nodes_from(["a", "b", "c", "d"])
+        expected.add_nodes_from(["a", "b", "c", "d"])
+
+        if graph.is_multigraph():
+            graph.add_edge("a", "b", key="k1", weight=2)
+            graph.add_edge("a", "b", key="k2")
+            graph.add_edge("b", "c", key="k3")
+            expected.add_edge("a", "b", key="k1", weight=2)
+            expected.add_edge("a", "b", key="k2")
+            expected.add_edge("b", "c", key="k3")
+        else:
+            graph.add_edge("a", "b", weight=2)
+            graph.add_edge("b", "c")
+            expected.add_edge("a", "b", weight=2)
+            expected.add_edge("b", "c")
+
+        expected_graph = nx.is_weighted(expected)
+        expected_ab = nx.is_weighted(expected, ("a", "b"))
+        expected_bc = nx.is_weighted(expected, ("b", "c"))
+        try:
+            nx.is_weighted(expected, ("a", "d"))
+        except Exception as exc:
+            expected_missing_type = type(exc).__name__
+            expected_missing_message = str(exc)
+
+        monkeypatch.setattr(
+            nx,
+            "is_weighted",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX is_weighted fallback should not be used")
+            ),
+        )
+
+        assert fnx.is_weighted(graph) is expected_graph
+        assert fnx.is_weighted(graph, ("a", "b")) is expected_ab
+        assert fnx.is_weighted(graph, ("b", "c")) is expected_bc
+
+        with pytest.raises(Exception) as fnx_exc:
+            fnx.is_weighted(graph, ("a", "d"))
+
+        assert type(fnx_exc.value).__name__ == expected_missing_type
+        assert str(fnx_exc.value) == expected_missing_message
+
 
 class TestIsNegativelyWeighted:
     def test_negative(self):
@@ -175,6 +519,63 @@ class TestIsNegativelyWeighted:
         g = fnx.Graph()
         g.add_edge("a", "b", weight=1.0)
         assert fnx.is_negatively_weighted(g) is False
+
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls"),
+        [
+            (fnx.Graph, nx.Graph),
+            (fnx.DiGraph, nx.DiGraph),
+            (fnx.MultiGraph, nx.MultiGraph),
+            (fnx.MultiDiGraph, nx.MultiDiGraph),
+        ],
+    )
+    def test_matches_networkx_without_fallback(self, monkeypatch, fnx_cls, nx_cls):
+        graph = fnx_cls()
+        expected = nx_cls()
+        graph.add_nodes_from(["a", "b", "c", "d"])
+        expected.add_nodes_from(["a", "b", "c", "d"])
+
+        if graph.is_multigraph():
+            graph.add_edge("a", "b", key="k1", weight=2)
+            graph.add_edge("a", "b", key="k2")
+            graph.add_edge("b", "c", key="k3", weight=-1)
+            expected.add_edge("a", "b", key="k1", weight=2)
+            expected.add_edge("a", "b", key="k2")
+            expected.add_edge("b", "c", key="k3", weight=-1)
+        else:
+            graph.add_edge("a", "b", weight=2)
+            graph.add_edge("b", "c", weight=-1)
+            expected.add_edge("a", "b", weight=2)
+            expected.add_edge("b", "c", weight=-1)
+
+        expected_graph = nx.is_negatively_weighted(expected)
+        expected_ab = nx.is_negatively_weighted(expected, ("a", "b"))
+        expected_bc = nx.is_negatively_weighted(expected, ("b", "c"))
+        try:
+            nx.is_negatively_weighted(expected, ("a", "d"))
+        except Exception as exc:
+            expected_missing_type = type(exc).__name__
+            expected_missing_message = str(exc)
+
+        monkeypatch.setattr(
+            nx,
+            "is_negatively_weighted",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX is_negatively_weighted fallback should not be used"
+                )
+            ),
+        )
+
+        assert fnx.is_negatively_weighted(graph) is expected_graph
+        assert fnx.is_negatively_weighted(graph, ("a", "b")) is expected_ab
+        assert fnx.is_negatively_weighted(graph, ("b", "c")) is expected_bc
+
+        with pytest.raises(Exception) as fnx_exc:
+            fnx.is_negatively_weighted(graph, ("a", "d"))
+
+        assert type(fnx_exc.value).__name__ == expected_missing_type
+        assert str(fnx_exc.value) == expected_missing_message
 
 
 # ---------------------------------------------------------------------------
@@ -254,3 +655,102 @@ class TestIsDistanceRegular:
 
     def test_complete_graph(self, triangle):
         assert fnx.is_distance_regular(triangle) is True
+
+
+class TestIsRegularExpander:
+    @pytest.mark.parametrize(
+        ("builder", "epsilon"),
+        [
+            (lambda graph: graph.add_edges_from([("a", "b"), ("b", "c"), ("c", "d"), ("d", "a")]), 0),
+            (lambda graph: graph.add_edges_from([("a", "b"), ("b", "c"), ("c", "d"), ("d", "a")]), 0.5),
+            (lambda graph: graph.add_edges_from([("a", "b"), ("b", "c"), ("c", "d")]), 0),
+            (lambda graph: graph.add_edges_from([("a", "b"), ("a", "c"), ("a", "d"), ("b", "c"), ("b", "d"), ("c", "d")]), 0),
+        ],
+    )
+    def test_matches_networkx_without_fallback(self, monkeypatch, builder, epsilon):
+        graph = fnx.Graph()
+        expected = nx.Graph()
+        builder(graph)
+        builder(expected)
+
+        expected_result = nx.is_regular_expander(expected, epsilon=epsilon)
+        monkeypatch.setattr(
+            nx,
+            "is_regular_expander",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX is_regular_expander fallback should not be used")
+            ),
+        )
+
+        assert fnx.is_regular_expander(graph, epsilon=epsilon) is expected_result
+
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls"),
+        [
+            (fnx.DiGraph, nx.DiGraph),
+            (fnx.MultiGraph, nx.MultiGraph),
+            (fnx.MultiDiGraph, nx.MultiDiGraph),
+        ],
+    )
+    def test_unsupported_graph_types_match_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        graph.add_nodes_from(["a", "b", "c", "d"])
+        expected.add_nodes_from(["a", "b", "c", "d"])
+
+        try:
+            nx.is_regular_expander(expected)
+        except Exception as exc:
+            expected_type = type(exc).__name__
+            expected_message = str(exc)
+
+        monkeypatch.setattr(
+            nx,
+            "is_regular_expander",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX is_regular_expander fallback should not be used")
+            ),
+        )
+
+        with pytest.raises(Exception) as fnx_exc:
+            fnx.is_regular_expander(graph)
+
+        assert type(fnx_exc.value).__name__ == expected_type
+        assert str(fnx_exc.value) == expected_message
+
+    @pytest.mark.parametrize(
+        ("builder", "epsilon"),
+        [
+            (lambda graph: None, 0),
+            (lambda graph: graph.add_edges_from([("a", "b"), ("b", "c"), ("c", "d"), ("d", "a")]), -1),
+        ],
+    )
+    def test_error_contract_matches_networkx_without_fallback(
+        self, monkeypatch, builder, epsilon
+    ):
+        graph = fnx.Graph()
+        expected = nx.Graph()
+        builder(graph)
+        builder(expected)
+
+        try:
+            nx.is_regular_expander(expected, epsilon=epsilon)
+        except Exception as exc:
+            expected_type = type(exc).__name__
+            expected_message = str(exc)
+
+        monkeypatch.setattr(
+            nx,
+            "is_regular_expander",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX is_regular_expander fallback should not be used")
+            ),
+        )
+
+        with pytest.raises(Exception) as fnx_exc:
+            fnx.is_regular_expander(graph, epsilon=epsilon)
+
+        assert type(fnx_exc.value).__name__ == expected_type
+        assert str(fnx_exc.value) == expected_message

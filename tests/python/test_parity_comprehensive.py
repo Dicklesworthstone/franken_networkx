@@ -96,6 +96,63 @@ class TestDAGAlgorithms:
         pairs = list(fnx.all_pairs_lowest_common_ancestor(D, pairs=[(1, 2)]))
         assert len(pairs) == 1
 
+    def test_all_pairs_lowest_common_ancestor_missing_pair_error_matches_networkx_without_fallback(
+        self, monkeypatch
+    ):
+        graph = fnx.DiGraph([(0, 1), (0, 2), (1, 3), (2, 3)])
+        expected = nx.DiGraph([(0, 1), (0, 2), (1, 3), (2, 3)])
+        pairs = [(1, 9), (1, 9)]
+
+        try:
+            dict(nx.all_pairs_lowest_common_ancestor(expected, pairs=pairs))
+        except Exception as exc:
+            expected_type = type(exc).__name__
+            expected_message = str(exc)
+
+        monkeypatch.setattr(
+            nx,
+            "all_pairs_lowest_common_ancestor",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX all_pairs_lowest_common_ancestor fallback should not be used"
+                )
+            ),
+        )
+
+        with pytest.raises(Exception) as fnx_exc:
+            dict(fnx.all_pairs_lowest_common_ancestor(graph, pairs=pairs))
+
+        assert type(fnx_exc.value).__name__ == expected_type
+        assert str(fnx_exc.value) == expected_message
+
+    def test_all_pairs_lowest_common_ancestor_undirected_error_matches_networkx_without_fallback(
+        self, monkeypatch
+    ):
+        graph = fnx.Graph([(0, 1)])
+        expected = nx.Graph([(0, 1)])
+
+        try:
+            dict(nx.all_pairs_lowest_common_ancestor(expected))
+        except Exception as exc:
+            expected_type = type(exc).__name__
+            expected_message = str(exc)
+
+        monkeypatch.setattr(
+            nx,
+            "all_pairs_lowest_common_ancestor",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX all_pairs_lowest_common_ancestor fallback should not be used"
+                )
+            ),
+        )
+
+        with pytest.raises(Exception) as fnx_exc:
+            dict(fnx.all_pairs_lowest_common_ancestor(graph))
+
+        assert type(fnx_exc.value).__name__ == expected_type
+        assert str(fnx_exc.value) == expected_message
+
     def test_dag_to_branching(self):
         D = fnx.DiGraph()
         D.add_edges_from([(0, 1), (0, 2), (1, 3), (2, 3)])
@@ -332,6 +389,53 @@ class TestTriads:
                    '030T', '030C', '201', '120D', '120U', '120C', '210', '300']:
             G = fnx.triad_graph(t)
             assert fnx.triad_type(G) == t
+
+    @pytest.mark.parametrize(("fnx_cls", "nx_cls"), [(fnx.DiGraph, nx.DiGraph), (fnx.MultiDiGraph, nx.MultiDiGraph)])
+    def test_is_triad_self_loop_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls
+    ):
+        graph = fnx_cls([(0, 1), (1, 2), (2, 0)])
+        expected = nx_cls([(0, 1), (1, 2), (2, 0)])
+        graph.add_edge(0, 0)
+        expected.add_edge(0, 0)
+
+        expected_result = nx.is_triad(expected)
+        monkeypatch.setattr(
+            nx,
+            "is_triad",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX is_triad fallback should not be used")
+            ),
+        )
+
+        assert fnx.is_triad(graph) is expected_result
+
+    @pytest.mark.parametrize(("fnx_cls", "nx_cls"), [(fnx.Graph, nx.Graph), (fnx.MultiGraph, nx.MultiGraph)])
+    def test_all_triads_undirected_error_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls
+    ):
+        graph = fnx_cls([(0, 1), (1, 2), (2, 0)])
+        expected = nx_cls([(0, 1), (1, 2), (2, 0)])
+
+        try:
+            list(nx.all_triads(expected))
+        except Exception as exc:
+            expected_type = type(exc).__name__
+            expected_message = str(exc)
+
+        monkeypatch.setattr(
+            nx,
+            "all_triads",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX all_triads fallback should not be used")
+            ),
+        )
+
+        with pytest.raises(Exception) as fnx_exc:
+            list(fnx.all_triads(graph))
+
+        assert type(fnx_exc.value).__name__ == expected_type
+        assert str(fnx_exc.value) == expected_message
 
 
 # ---------------------------------------------------------------------------

@@ -150,6 +150,50 @@ def _selfloop_utility_graph_pair(fnx_cls, nx_cls):
     return graph, expected
 
 
+def _isolate_utility_graph_pair(fnx_cls, nx_cls):
+    graph = fnx_cls()
+    expected = nx_cls()
+    graph.add_nodes_from(["a", "b", "c", "d", "e"])
+    expected.add_nodes_from(["a", "b", "c", "d", "e"])
+
+    edge_payloads = [("a", "b", 1), ("c", "a", 2)]
+    for source, target, key in edge_payloads:
+        if graph.is_multigraph():
+            graph.add_edge(source, target, key=key)
+            expected.add_edge(source, target, key=key)
+        else:
+            graph.add_edge(source, target)
+            expected.add_edge(source, target)
+    return graph, expected
+
+
+def _degree_histogram_graph_pair(fnx_cls, nx_cls):
+    graph = fnx_cls()
+    expected = nx_cls()
+    graph.add_nodes_from(["a", "b", "c", "d"])
+    expected.add_nodes_from(["a", "b", "c", "d"])
+
+    if graph.is_multigraph():
+        edge_payloads = [
+            ("a", "b", "k1"),
+            ("a", "b", "k2"),
+            ("a", "c", "k3"),
+        ]
+        if graph.is_directed():
+            edge_payloads.append(("c", "a", "k4"))
+        for source, target, key in edge_payloads:
+            graph.add_edge(source, target, key=key)
+            expected.add_edge(source, target, key=key)
+    else:
+        edge_payloads = [("a", "b"), ("a", "c")]
+        if graph.is_directed():
+            edge_payloads.append(("c", "a"))
+        for source, target in edge_payloads:
+            graph.add_edge(source, target)
+            expected.add_edge(source, target)
+    return graph, expected
+
+
 def _graph_helper_result_pair(fnx_cls, nx_cls, helper_name, nodes, **attrs):
     graph = fnx_cls()
     expected = nx_cls()
@@ -657,6 +701,133 @@ def test_global_selfloop_edges_matches_networkx_without_fallback(
         list(fnx.selfloop_edges(graph, keys=keys, data=data, default=default))
         == expected_result
     )
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_global_is_isolate_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _isolate_utility_graph_pair(fnx_cls, nx_cls)
+    expected_true = nx.is_isolate(expected, "d")
+    expected_false = nx.is_isolate(expected, "a")
+
+    _block_networkx_utilities(monkeypatch, "is_isolate")
+
+    assert fnx.is_isolate(graph, "d") is expected_true
+    assert fnx.is_isolate(graph, "a") is expected_false
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_global_isolates_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _isolate_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = list(nx.isolates(expected))
+
+    _block_networkx_utilities(monkeypatch, "isolates")
+
+    assert list(fnx.isolates(graph)) == expected_result
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_global_number_of_isolates_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _isolate_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx.number_of_isolates(expected)
+
+    _block_networkx_utilities(monkeypatch, "number_of_isolates")
+
+    assert fnx.number_of_isolates(graph) == expected_result
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+@pytest.mark.parametrize("is_empty_graph", [False, True])
+def test_global_is_empty_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls, is_empty_graph
+):
+    if is_empty_graph:
+        graph = fnx_cls()
+        expected = nx_cls()
+    else:
+        graph, expected = _isolate_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx.is_empty(expected)
+
+    _block_networkx_utilities(monkeypatch, "is_empty")
+
+    assert fnx.is_empty(graph) is expected_result
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_global_density_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _degree_histogram_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx.density(expected)
+
+    _block_networkx_utilities(monkeypatch, "density")
+
+    assert fnx.density(graph) == expected_result
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_global_degree_histogram_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _degree_histogram_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx.degree_histogram(expected)
+
+    _block_networkx_utilities(monkeypatch, "degree_histogram")
+
+    assert fnx.degree_histogram(graph) == expected_result
 
 
 @pytest.mark.parametrize(

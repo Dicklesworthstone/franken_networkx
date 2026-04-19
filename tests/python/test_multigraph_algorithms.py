@@ -209,8 +209,7 @@ class TestMultiGraphTree:
 class TestMultiGraphOperators:
     def test_density(self, mg_triangle):
         d = fnx.density(mg_triangle)
-        # Simple projection is K3 -> density 1.0
-        assert d == pytest.approx(1.0)
+        assert d == pytest.approx(4 / 3)
 
 
 # ---------------------------------------------------------------------------
