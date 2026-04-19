@@ -1618,6 +1618,97 @@ from franken_networkx._fnx import (
     is_perfect_matching,
 )
 
+
+class _MinDegreeHeuristic:
+    def __init__(self, graph):
+        self._update_nodes = []
+        self._degreeq = []
+        self._counter = count()
+        for node in graph:
+            self._degreeq.append((len(graph[node]), next(self._counter), node))
+        import heapq
+
+        heapq.heapify(self._degreeq)
+
+    def best_node(self, graph):
+        for node in self._update_nodes:
+            heappush(self._degreeq, (len(graph[node]), next(self._counter), node))
+
+        while self._degreeq:
+            min_degree, _, elim_node = heappop(self._degreeq)
+            if elim_node not in graph or len(graph[elim_node]) != min_degree:
+                continue
+            if min_degree == len(graph) - 1:
+                return None
+
+            self._update_nodes = list(graph[elim_node])
+            return elim_node
+
+        return None
+
+
+def _treewidth_decomp(graph, heuristic):
+    graph_dict = {node: set(graph[node]) - {node} for node in graph}
+    node_stack = []
+
+    elim_node = heuristic(graph_dict)
+    while elim_node is not None:
+        nbrs = graph_dict[elim_node]
+        for u, v in itertools.permutations(nbrs, 2):
+            if v not in graph_dict[u]:
+                graph_dict[u].add(v)
+
+        node_stack.append((elim_node, set(nbrs)))
+
+        for node in graph_dict[elim_node]:
+            graph_dict[node].remove(elim_node)
+        del graph_dict[elim_node]
+        elim_node = heuristic(graph_dict)
+
+    decomp = Graph()
+    first_bag = frozenset(graph_dict.keys())
+    decomp.add_node(first_bag)
+    treewidth = len(first_bag) - 1
+
+    while node_stack:
+        curr_node, nbrs = node_stack.pop()
+        old_bag = None
+        for bag in decomp:
+            if nbrs <= bag:
+                old_bag = bag
+                break
+
+        if old_bag is None:
+            old_bag = first_bag
+
+        nbrs.add(curr_node)
+        new_bag = frozenset(nbrs)
+        treewidth = max(treewidth, len(new_bag) - 1)
+        decomp.add_edge(old_bag, new_bag)
+
+    return treewidth, decomp
+
+
+def _treewidth_min_degree(G):
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+
+    heuristic = _MinDegreeHeuristic(G)
+    return _treewidth_decomp(G, lambda graph: heuristic.best_node(graph))
+
+
+class _ApproximationNamespace:
+    def treewidth_min_degree(self, G):
+        return _treewidth_min_degree(G)
+
+    def __getattr__(self, name):
+        return getattr(_nx.approximation, name)
+
+    def __dir__(self):
+        return sorted(set(dir(_nx.approximation)) | {"treewidth_min_degree"})
+
 # Algorithm functions — cycles
 from franken_networkx._fnx import (
     simple_cycles,
@@ -19922,6 +20013,7 @@ import networkx as _nx
 # Match NetworkX's top-level config object rather than exposing the older stub
 # helper function shape from this module.
 config = _nx.config
+approximation = _ApproximationNamespace()
 
 
 def __getattr__(name):

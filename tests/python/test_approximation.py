@@ -4,6 +4,14 @@ import pytest
 
 import franken_networkx as fnx
 
+try:
+    import networkx as nx
+    HAS_NX = True
+except ImportError:
+    HAS_NX = False
+
+needs_nx = pytest.mark.skipif(not HAS_NX, reason="networkx not installed")
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -332,6 +340,87 @@ class TestChordalGraphTreewidth:
     def test_empty_graph_matches_reference_exception_shape(self):
         with pytest.raises(ValueError, match="max\\(\\) iterable argument is empty"):
             fnx.chordal_graph_treewidth(fnx.Graph())
+
+
+# ---------------------------------------------------------------------------
+# treewidth_min_degree parity
+# ---------------------------------------------------------------------------
+
+
+@needs_nx
+class TestTreewidthMinDegreeParity:
+    @pytest.mark.parametrize(
+        "graph_builder",
+        [
+            lambda mod: mod.path_graph(5),
+            lambda mod: mod.cycle_graph(5),
+            lambda mod: mod.complete_graph(4),
+        ],
+    )
+    def test_matches_networkx_without_fallback(self, monkeypatch, graph_builder):
+        graph = graph_builder(fnx)
+        expected = graph_builder(nx)
+
+        expected_width, expected_decomp = nx.approximation.treewidth_min_degree(expected)
+        expected_bags = {frozenset(bag) for bag in expected_decomp.nodes()}
+        expected_edges = {
+            frozenset((frozenset(u), frozenset(v))) for u, v in expected_decomp.edges()
+        }
+
+        monkeypatch.setattr(
+            nx.approximation,
+            "treewidth_min_degree",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX approximation.treewidth_min_degree fallback should not be used"
+                )
+            ),
+        )
+
+        actual_width, actual_decomp = fnx.approximation.treewidth_min_degree(graph)
+        actual_bags = {frozenset(bag) for bag in actual_decomp.nodes()}
+        actual_edges = {
+            frozenset((frozenset(u), frozenset(v))) for u, v in actual_decomp.edges()
+        }
+
+        assert actual_width == expected_width
+        assert actual_bags == expected_bags
+        assert actual_edges == expected_edges
+
+    @pytest.mark.parametrize(
+        ("fnx_builder", "nx_builder"),
+        [
+            (lambda: fnx.DiGraph([(0, 1)]), lambda: nx.DiGraph([(0, 1)])),
+            (lambda: fnx.MultiGraph([(0, 1)]), lambda: nx.MultiGraph([(0, 1)])),
+        ],
+    )
+    def test_error_contract_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_builder, nx_builder
+    ):
+        graph = fnx_builder()
+        expected = nx_builder()
+
+        try:
+            nx.approximation.treewidth_min_degree(expected)
+        except Exception as exc:
+            expected_type = type(exc).__name__
+            expected_message = str(exc)
+
+        monkeypatch.setattr(
+            nx.approximation,
+            "treewidth_min_degree",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX approximation.treewidth_min_degree fallback should not be used"
+                )
+            ),
+        )
+
+        with pytest.raises(Exception) as fnx_exc:
+            fnx.approximation.treewidth_min_degree(graph)
+
+        assert type(fnx_exc.value).__name__ == expected_type
+        assert str(fnx_exc.value) == expected_message
 
 
 # ---------------------------------------------------------------------------
