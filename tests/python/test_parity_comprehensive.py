@@ -540,6 +540,94 @@ class TestGenerators:
         assert fnx.is_chordal(H)
 
 
+def _build_find_induced_nodes_case(graph, case_name):
+    if case_name == "path_0_3":
+        graph.add_edges_from([(0, 1), (1, 2), (2, 3)])
+        return (0, 3), {}
+    if case_name == "path_0_2":
+        graph.add_edges_from([(0, 1), (1, 2), (2, 3)])
+        return (0, 2), {}
+    if case_name == "path_bound":
+        graph.add_edges_from([(0, 1), (1, 2), (2, 3)])
+        return (0, 3), {"treewidth_bound": 0}
+    if case_name == "cycle4":
+        graph.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 0)])
+        return (0, 2), {}
+    if case_name == "digraph":
+        graph.add_edges_from([(0, 1), (1, 2), (2, 3)])
+        return (0, 3), {}
+    if case_name == "multigraph":
+        graph.add_edges_from([(0, 1), (1, 2), (2, 3)])
+        return (0, 3), {}
+    raise ValueError(f"unknown find_induced_nodes case {case_name}")
+
+
+@needs_nx
+class TestFindInducedNodesParity:
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls", "case_name"),
+        [
+            (fnx.Graph, nx.Graph, "path_0_3"),
+            (fnx.Graph, nx.Graph, "path_0_2"),
+        ],
+    )
+    def test_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls, case_name
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        args, kwargs = _build_find_induced_nodes_case(graph, case_name)
+        _build_find_induced_nodes_case(expected, case_name)
+
+        expected_result = nx.find_induced_nodes(expected, *args, **kwargs)
+        monkeypatch.setattr(
+            nx,
+            "find_induced_nodes",
+            lambda *call_args, **call_kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX find_induced_nodes fallback should not be used")
+            ),
+        )
+
+        assert fnx.find_induced_nodes(graph, *args, **kwargs) == expected_result
+
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls", "case_name"),
+        [
+            (fnx.Graph, nx.Graph, "path_bound"),
+            (fnx.Graph, nx.Graph, "cycle4"),
+            (fnx.DiGraph, nx.DiGraph, "digraph"),
+            (fnx.MultiGraph, nx.MultiGraph, "multigraph"),
+        ],
+    )
+    def test_error_contract_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls, case_name
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        args, kwargs = _build_find_induced_nodes_case(graph, case_name)
+        _build_find_induced_nodes_case(expected, case_name)
+
+        try:
+            nx.find_induced_nodes(expected, *args, **kwargs)
+        except Exception as exc:
+            expected_type = type(exc).__name__
+            expected_message = str(exc)
+
+        monkeypatch.setattr(
+            nx,
+            "find_induced_nodes",
+            lambda *call_args, **call_kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX find_induced_nodes fallback should not be used")
+            ),
+        )
+
+        with pytest.raises(Exception) as fnx_exc:
+            fnx.find_induced_nodes(graph, *args, **kwargs)
+
+        assert type(fnx_exc.value).__name__ == expected_type
+        assert str(fnx_exc.value) == expected_message
+
+
 # ---------------------------------------------------------------------------
 # Graph products and operators
 # ---------------------------------------------------------------------------

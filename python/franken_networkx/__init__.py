@@ -206,6 +206,10 @@ from franken_networkx._fnx import (
     PowerIterationFailedConvergence,
 )
 
+
+class NetworkXTreewidthBoundExceeded(NetworkXError):
+    """Raised when a chordal search exceeds the requested treewidth bound."""
+
 # Algorithm functions — shortest path
 from franken_networkx._fnx import (
     average_shortest_path_length as _raw_average_shortest_path_length,
@@ -12318,10 +12322,82 @@ def spectral_bisection(G, weight=None):
     return (a, b)
 
 
-def find_induced_nodes(G, s, d):
-    """Nodes at exactly distance d from s."""
-    lengths = single_source_shortest_path_length(G, s)
-    return {n for n, dist in lengths.items() if dist == d}
+def _is_complete_graph_chordal(G):
+    if number_of_selfloops(G) > 0:
+        raise NetworkXError("Self loop found in _is_complete_graph()")
+
+    n = G.number_of_nodes()
+    if n < 2:
+        return True
+
+    return G.number_of_edges() == (n * (n - 1)) / 2
+
+
+def _find_missing_edge_chordal(G):
+    nodes = set(G)
+    for u in G:
+        missing = nodes - set(G[u]) - {u}
+        if missing:
+            return (u, next(iter(missing)))
+    return ()
+
+
+def _find_chordality_breaker(G, s=None, treewidth_bound=sys.maxsize):
+    if len(G) == 0:
+        raise NetworkXPointlessConcept("Graph has no nodes.")
+
+    unnumbered = set(G)
+    if s is None:
+        s = next(iter(G))
+    unnumbered.remove(s)
+    numbered = {s}
+    current_treewidth = -1
+
+    while unnumbered:
+        v = max(unnumbered, key=lambda n: len(set(G[n]) & numbered))
+        unnumbered.remove(v)
+        numbered.add(v)
+        clique_wanna_be = set(G[v]) & numbered
+        sg = G.subgraph(clique_wanna_be)
+        if _is_complete_graph_chordal(sg):
+            current_treewidth = max(current_treewidth, len(clique_wanna_be))
+            if current_treewidth > treewidth_bound:
+                raise NetworkXTreewidthBoundExceeded(
+                    f"treewidth_bound exceeded: {current_treewidth}"
+                )
+        else:
+            u, w = _find_missing_edge_chordal(sg)
+            return (u, v, w)
+    return ()
+
+
+def find_induced_nodes(G, s, t, treewidth_bound=sys.maxsize):
+    """Return the set of induced nodes in the path from ``s`` to ``t``."""
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if not is_chordal(G):
+        raise NetworkXError("Input graph is not chordal.")
+
+    H = G.copy()
+    H.add_edge(s, t)
+    induced_nodes = set()
+    triplet = _find_chordality_breaker(H, s, treewidth_bound)
+    while triplet:
+        induced_nodes.update(triplet)
+        for node in triplet:
+            if node != s:
+                H.add_edge(s, node)
+        triplet = _find_chordality_breaker(H, s, treewidth_bound)
+
+    if induced_nodes:
+        induced_nodes.add(t)
+        for node in G[s]:
+            if len(induced_nodes & set(G[node])) == 2:
+                induced_nodes.add(node)
+                break
+    return induced_nodes
 
 
 def k_edge_augmentation(G, k, avail=None, weight=None, partial=False):
@@ -19020,6 +19096,7 @@ __all__ = [
     "NetworkXNoPath",
     "NetworkXNotImplemented",
     "NetworkXPointlessConcept",
+    "NetworkXTreewidthBoundExceeded",
     "NetworkXUnbounded",
     "NetworkXUnfeasible",
     "NotATree",
