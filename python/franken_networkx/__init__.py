@@ -17,7 +17,7 @@ Or as a NetworkX backend (zero code changes required)::
 """
 
 import base64
-from collections import defaultdict, deque
+from collections import Counter, defaultdict, deque
 from collections.abc import Collection, Generator, Iterable, Iterator, Mapping
 from copy import deepcopy
 from enum import Enum
@@ -445,6 +445,19 @@ from franken_networkx._fnx import (
     periphery,
     radius,
 )
+
+
+def density(G):
+    r"""Returns the density of a graph."""
+    n = G.number_of_nodes()
+    m = G.number_of_edges()
+    if m == 0 or n <= 1:
+        return 0
+    result = m / (n * (n - 1))
+    if not G.is_directed():
+        result *= 2
+    return result
+
 
 # Algorithm functions — tree, forest, bipartite, coloring, core
 from franken_networkx._fnx import (
@@ -908,7 +921,7 @@ from franken_networkx._fnx import (
     compose,
     difference,
     symmetric_difference,
-    degree_histogram,
+    degree_histogram as _raw_degree_histogram,
 )
 
 # Algorithm functions — transitive closure/reduction
@@ -916,6 +929,15 @@ from franken_networkx._fnx import (
     transitive_closure,
     transitive_reduction,
 )
+
+
+def degree_histogram(G):
+    """Returns a list of the frequency of each degree value."""
+    degree_view = G.degree
+    if callable(degree_view):
+        degree_view = degree_view()
+    counts = Counter(degree for _node, degree in degree_view)
+    return [counts.get(i, 0) for i in range(max(counts) + 1 if counts else 0)]
 
 # Algorithm functions — graph metrics
 from franken_networkx._fnx import (
@@ -1060,16 +1082,182 @@ from franken_networkx._fnx import (
 # Algorithm functions — graph predicates
 from franken_networkx._fnx import (
     is_graphical,
-    is_digraphical,
+    is_digraphical as _raw_is_digraphical,
     is_multigraphical,
     is_pseudographical,
-    is_regular,
     is_k_regular,
-    is_tournament,
     is_weighted,
     is_negatively_weighted,
     is_distance_regular,
 )
+
+
+def _make_list_of_ints(sequence):
+    if not isinstance(sequence, list):
+        result = []
+        for value in sequence:
+            errmsg = f"sequence is not all integers: {value}"
+            try:
+                int_value = int(value)
+            except ValueError:
+                raise NetworkXError(errmsg) from None
+            if int_value != value:
+                raise NetworkXError(errmsg)
+            result.append(int_value)
+        return result
+
+    for idx, value in enumerate(sequence):
+        if isinstance(value, int):
+            continue
+        errmsg = f"sequence is not all integers: {value}"
+        try:
+            int_value = int(value)
+        except ValueError:
+            raise NetworkXError(errmsg) from None
+        if int_value != value:
+            raise NetworkXError(errmsg)
+        sequence[idx] = int_value
+    return sequence
+
+
+def is_graphical(sequence, method="eg"):
+    """Returns True if sequence is a valid degree sequence."""
+    deg_sequence = _make_list_of_ints(sequence)
+    if any(degree < 0 for degree in deg_sequence):
+        return False
+    if method == "eg":
+        return is_valid_degree_sequence_erdos_gallai(deg_sequence)
+    if method == "hh":
+        return is_valid_degree_sequence_havel_hakimi(deg_sequence)
+    raise _nx.NetworkXException("`method` must be 'eg' or 'hh'")
+
+
+def is_digraphical(in_sequence, out_sequence):
+    """Returns True if some directed graph can realize the in/out sequences."""
+    try:
+        in_deg_sequence = _make_list_of_ints(in_sequence)
+        out_deg_sequence = _make_list_of_ints(out_sequence)
+    except NetworkXError:
+        return False
+
+    max_len = max(len(in_deg_sequence), len(out_deg_sequence))
+    if max_len == 0:
+        return True
+
+    degree_pairs = []
+    for idx in range(max_len):
+        in_degree = in_deg_sequence[idx] if idx < len(in_deg_sequence) else 0
+        out_degree = out_deg_sequence[idx] if idx < len(out_deg_sequence) else 0
+        if in_degree < 0 or out_degree < 0:
+            return False
+        degree_pairs.append((in_degree, out_degree))
+    return _raw_is_digraphical(degree_pairs)
+
+
+def is_pseudographical(sequence):
+    """Returns True if some pseudograph can realize the sequence."""
+    try:
+        deg_sequence = _make_list_of_ints(sequence)
+    except NetworkXError:
+        return False
+    return sum(deg_sequence) % 2 == 0 and min(deg_sequence) >= 0
+
+
+def is_multigraphical(sequence):
+    """Returns True if some multigraph can realize the sequence."""
+    try:
+        deg_sequence = _make_list_of_ints(sequence)
+    except NetworkXError:
+        return False
+
+    degree_sum = 0
+    max_degree = 0
+    for degree in deg_sequence:
+        if degree < 0:
+            return False
+        degree_sum += degree
+        max_degree = max(max_degree, degree)
+    if degree_sum % 2 != 0 or degree_sum < 2 * max_degree:
+        return False
+    return True
+
+
+def is_tournament(G):
+    """Returns True if and only if ``G`` is a tournament."""
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
+    return (
+        all((v in G[u]) ^ (u in G[v]) for u, v in combinations(G, 2))
+        and number_of_selfloops(G) == 0
+    )
+
+
+def is_regular(G):
+    """Determines whether a graph is regular."""
+    if len(G) == 0:
+        raise NetworkXPointlessConcept("Graph has no nodes.")
+
+    node = next(iter(G))
+    degree_view = G.degree
+    if callable(degree_view):
+        degree = degree_view(node)
+        degree_items = degree_view()
+    else:
+        degree = degree_view[node]
+        degree_items = degree_view
+
+    if not G.is_directed():
+        return all(degree == current_degree for _node, current_degree in degree_items)
+
+    in_degree_view = G.in_degree
+    if callable(in_degree_view):
+        in_degree = in_degree_view(node)
+        in_degree_items = in_degree_view()
+    else:
+        in_degree = in_degree_view[node]
+        in_degree_items = in_degree_view
+
+    out_degree_view = G.out_degree
+    if callable(out_degree_view):
+        out_degree = out_degree_view(node)
+        out_degree_items = out_degree_view()
+    else:
+        out_degree = out_degree_view[node]
+        out_degree_items = out_degree_view
+
+    return all(
+        in_degree == current_degree for _node, current_degree in in_degree_items
+    ) and all(out_degree == current_degree for _node, current_degree in out_degree_items)
+
+
+def is_weighted(G, edge=None, weight="weight"):
+    """Returns True if ``G`` has weighted edges."""
+    if edge is not None:
+        data = G.get_edge_data(*edge)
+        if data is None:
+            msg = f"Edge {edge!r} does not exist."
+            raise NetworkXError(msg)
+        return weight in data
+
+    if G.number_of_edges() == 0:
+        return False
+
+    return all(weight in data for _u, _v, data in G.edges(data=True))
+
+
+def is_negatively_weighted(G, edge=None, weight="weight"):
+    """Returns True if ``G`` has negatively weighted edges."""
+    if edge is not None:
+        data = G.get_edge_data(*edge)
+        if data is None:
+            msg = f"Edge {edge!r} does not exist."
+            raise NetworkXError(msg)
+        return weight in data and data[weight] < 0
+
+    return any(weight in data and data[weight] < 0 for _u, _v, data in G.edges(data=True))
+
 
 # Algorithm functions — traversal additional
 from franken_networkx._fnx import (
@@ -1085,7 +1273,7 @@ from franken_networkx._fnx import (
 
 # Algorithm functions — DAG additional
 from franken_networkx._fnx import (
-    is_aperiodic,
+    is_aperiodic as _raw_is_aperiodic,
     antichains,
     immediate_dominators,
     dominance_frontiers,
@@ -1114,6 +1302,34 @@ from franken_networkx._fnx import (
     predecessor,
     path_weight,
 )
+
+
+def is_aperiodic(G):
+    """Returns True if ``G`` is aperiodic."""
+    if not G.is_directed():
+        raise NetworkXError("is_aperiodic not defined for undirected graphs")
+    if len(G) == 0:
+        raise NetworkXPointlessConcept("Graph has no nodes.")
+    if not is_strongly_connected(G):
+        raise NetworkXError("Graph is not strongly connected.")
+
+    source = next(iter(G))
+    levels = {source: 0}
+    this_level = [source]
+    gcd_cycle = 0
+    level = 1
+    while this_level:
+        next_level = []
+        for u in this_level:
+            for v in G[u]:
+                if v in levels:
+                    gcd_cycle = math.gcd(gcd_cycle, levels[u] - levels[v] + 1)
+                else:
+                    next_level.append(v)
+                    levels[v] = level
+        this_level = next_level
+        level += 1
+    return gcd_cycle == 1
 
 
 def dijkstra_path_length(G, source, target, weight="weight"):
@@ -6364,36 +6580,41 @@ def degree_sequence_tree(deg_sequence, create_using=None):
     return graph
 
 
-def common_neighbor_centrality(G, ebunch=None):
-    """Return the Common Neighbor Centrality (Cannistraci-Hebb) index
-    for pairs of nodes.
+def common_neighbor_centrality(G, ebunch=None, alpha=0.8):
+    """Return the CCPA score for each pair of nodes."""
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
 
-    Parameters
-    ----------
-    G : Graph
-    ebunch : iterable of (u, v) pairs, optional
+    if alpha == 1:
 
-    Yields
-    ------
-    (u, v, score) tuples
-    """
+        def predict(u, v):
+            if u == v:
+                raise NetworkXAlgorithmError("Self loops are not supported")
+            return len(common_neighbors(G, u, v))
+
+    else:
+        shortest_path_lengths = dict(shortest_path_length(G))
+        infinity = float("inf")
+
+        def predict(u, v):
+            if u == v:
+                raise NetworkXAlgorithmError("Self loops are not supported")
+            path_length = shortest_path_lengths[u].get(v, infinity)
+            common_neighbor_count = len(common_neighbors(G, u, v))
+            return alpha * common_neighbor_count + (1 - alpha) * len(G) / path_length
+
     if ebunch is None:
         ebunch = non_edges(G)
+    else:
+        for u, v in ebunch:
+            if u not in G:
+                raise NodeNotFound(f"Node {u} not in G.")
+            if v not in G:
+                raise NodeNotFound(f"Node {v} not in G.")
 
-    for u, v in ebunch:
-        u_nbrs = set(G.neighbors(u))
-        v_nbrs = set(G.neighbors(v))
-        common = u_nbrs & v_nbrs
-        if not common:
-            yield (u, v, 0)
-            continue
-        # CNC: sum of (number of common neighbors of each common neighbor
-        # that are also common neighbors of u and v)
-        score = 0
-        for w in common:
-            w_nbrs = set(G.neighbors(w))
-            score += len(w_nbrs & common)
-        yield (u, v, score)
+    return ((u, v, predict(u, v)) for u, v in ebunch)
 
 
 # ---------------------------------------------------------------------------
@@ -6469,6 +6690,8 @@ def all_pairs_lowest_common_ancestor(G, pairs=None):
     NetworkXError
         If `G` is not a DAG.
     """
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
     if not is_directed_acyclic_graph(G):
         raise NetworkXError("LCA only defined on directed acyclic graphs.")
     if len(G) == 0:
@@ -6479,15 +6702,12 @@ def all_pairs_lowest_common_ancestor(G, pairs=None):
 
         pairs = combinations_with_replacement(G, 2)
     else:
-        # Materialize to list so we can iterate twice (validate + compute)
-        pairs = list(pairs)
-        # Verify that each of the nodes in the provided pairs is in G
+        pairs = dict.fromkeys(pairs)
         nodeset = set(G)
-        for u, v in pairs:
-            if u not in nodeset:
-                raise NodeNotFound(f"Node {u} not in G.")
-            if v not in nodeset:
-                raise NodeNotFound(f"Node {v} not in G.")
+        for pair in pairs:
+            missing = set(pair) - nodeset
+            if missing:
+                raise NodeNotFound(f"Node(s) {missing} from pair {pair} not in G.")
 
     def generate_lca_from_pairs(G, pairs):
         ancestor_cache = {}
@@ -7518,7 +7738,7 @@ def all_triads(G):
         Each yielded graph is a 3-node subgraph.
     """
     if not G.is_directed():
-        raise NetworkXError("all_triads requires a directed graph")
+        raise NetworkXNotImplemented("not implemented for undirected type")
 
     nodes = list(G.nodes())
     n = len(nodes)
@@ -7526,8 +7746,7 @@ def all_triads(G):
     for i in range(n):
         for j in range(i + 1, n):
             for k in range(j + 1, n):
-                triad = G.subgraph([nodes[i], nodes[j], nodes[k]])
-                yield triad
+                yield G.subgraph([nodes[i], nodes[j], nodes[k]]).copy()
 
 
 def triad_type(G):
@@ -7551,7 +7770,11 @@ def triad_type(G):
 
 def is_triad(G):
     """Return True if *G* is a valid triad (3-node directed graph)."""
-    return G.is_directed() and G.number_of_nodes() == 3
+    return (
+        G.is_directed()
+        and G.number_of_nodes() == 3
+        and not any((node, node) in G.edges() for node in G.nodes())
+    )
 
 
 def triads_by_type(G):
@@ -7691,6 +7914,7 @@ def is_valid_degree_sequence_erdos_gallai(sequence):
     is graphical iff sum(d_i) is even and for each k:
     sum(d_i, i=1..k) <= k*(k-1) + sum(min(d_i, k), i=k+1..n).
     """
+    sequence = _make_list_of_ints(sequence)
     seq = sorted(sequence, reverse=True)
     n = len(seq)
     if sum(seq) % 2 != 0:
@@ -7709,6 +7933,7 @@ def is_valid_degree_sequence_havel_hakimi(sequence):
     Repeatedly removes the largest element d, subtracts 1 from the next
     d largest elements. If any become negative, not graphical.
     """
+    sequence = _make_list_of_ints(sequence)
     seq = list(sequence)
     while True:
         seq.sort(reverse=True)
@@ -14788,31 +15013,114 @@ def is_perfect_graph(G):
     return True
 
 
-def is_regular_expander(G, epsilon=0):
+def is_regular_expander(G, *, epsilon=0):
     """Check if G is a regular expander graph."""
     import numpy as np
+    import scipy as sp
 
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if epsilon < 0:
+        raise NetworkXError("epsilon must be non negative")
+    if len(G) == 0:
+        raise NetworkXPointlessConcept("Graph has no nodes.")
     if not is_regular(G):
         return False
-    spec = adjacency_spectrum(G)
-    d = G.degree[list(G.nodes())[0]]
-    lambda2 = sorted(np.abs(spec))[-2]
-    return lambda2 <= (1 - epsilon) * d
+
+    _, degree = next(iter(G.degree))
+    adjacency = adjacency_matrix(G, dtype=float)
+    eigenvalues = sp.sparse.linalg.eigsh(
+        adjacency,
+        which="LM",
+        k=2,
+        return_eigenvectors=False,
+    )
+    lambda2 = min(eigenvalues)
+    return bool(abs(lambda2) < 2 * np.sqrt(degree - 1) + epsilon)
 
 
 def maybe_regular_expander(n, d, seed=None):
     """Attempt to build a d-regular expander."""
-    return random_regular_graph(d, n, seed=seed or 0)
+    return maybe_regular_expander_graph(n, d, seed=seed)
 
 
-def maybe_regular_expander_graph(n, d, seed=None):
-    """Alias for maybe_regular_expander."""
-    return maybe_regular_expander(n, d, seed=seed)
+def maybe_regular_expander_graph(n, d, *, create_using=None, max_tries=100, seed=None):
+    """Utility for creating a random regular expander."""
+    from networkx.utils.misc import create_random_state
+
+    if n < 1:
+        raise NetworkXError("n must be a positive integer")
+    if not (d >= 2):
+        raise NetworkXError("d must be greater than or equal to 2")
+    if not (d % 2 == 0):
+        raise NetworkXError("d must be even")
+    if not (n - 1 >= d):
+        raise NetworkXError(
+            f"Need n-1>= d to have room for {d // 2} independent cycles with {n} nodes"
+        )
+
+    graph = empty_graph(n, create_using)
+    if n < 2:
+        return graph
+
+    seed = create_random_state(seed)
+    edges = set()
+
+    for i in range(d // 2):
+        iterations = max_tries
+        while len(edges) != (i + 1) * n:
+            iterations -= 1
+            cycle = seed.permutation(n - 1).tolist()
+            cycle.append(n - 1)
+            new_edges = {
+                (u, v)
+                for u, v in itertools.pairwise(cycle + [cycle[0]])
+                if (u, v) not in edges and (v, u) not in edges
+            }
+            if len(new_edges) == n:
+                edges.update(new_edges)
+            if iterations == 0:
+                raise NetworkXError("Too many iterations in maybe_regular_expander_graph")
+
+    graph.add_edges_from(edges)
+    return graph
 
 
-def random_regular_expander_graph(n, d, seed=None):
-    """Guaranteed regular expander (best-effort via random regular)."""
-    return random_regular_graph(d, n, seed=seed or 0)
+def random_regular_expander_graph(
+    n,
+    d,
+    *,
+    epsilon=0,
+    create_using=None,
+    max_tries=100,
+    seed=None,
+):
+    """Return a random regular expander graph on n nodes with degree d."""
+    from networkx.utils.misc import create_random_state
+
+    seed = create_random_state(seed)
+    graph = maybe_regular_expander_graph(
+        n,
+        d,
+        create_using=create_using,
+        max_tries=max_tries,
+        seed=seed,
+    )
+    iterations = max_tries
+    while not is_regular_expander(graph, epsilon=epsilon):
+        iterations -= 1
+        graph = maybe_regular_expander_graph(
+            n,
+            d,
+            create_using=create_using,
+            max_tries=max_tries,
+            seed=seed,
+        )
+        if iterations == 0:
+            raise NetworkXError("Too many iterations in random_regular_expander_graph")
+    return graph
 
 
 def make_clique_bipartite(G, faux=True):
