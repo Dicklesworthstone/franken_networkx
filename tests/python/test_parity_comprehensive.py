@@ -608,21 +608,19 @@ class TestNoNetworkxRuntimeDependency:
     def test_maybe_regular_expander_graph_shape(self):
         G = fnx.maybe_regular_expander_graph(12, 4, seed=42)
         assert G.number_of_nodes() == 12
-        assert all(deg == 4 for _, deg in G.degree())
+        assert all(G.degree[n] == 4 for n in G.nodes())
 
     def test_random_regular_expander_graph_shape(self):
         G = fnx.random_regular_expander_graph(10, 4, seed=7)
         assert G.number_of_nodes() == 10
-        assert all(deg == 4 for _, deg in G.degree())
+        assert all(G.degree[n] == 4 for n in G.nodes())
 
     def test_non_randomness_matches_networkx(self):
         Gn = nx.karate_club_graph()
         Gf = fnx.Graph()
         Gf.add_nodes_from(Gn.nodes())
-        Gf.add_edges_from(Gn.edges())
+        Gf.add_edges_from(Gn.edges(data=True))
 
-        # Pass explicit k so the label propagation path is exercised but we
-        # avoid dependence on its non-deterministic community count.
         k = 4
         nr_f, nrr_f = fnx.non_randomness(Gf, k=k)
         nr_n, nrr_n = nx.non_randomness(Gn, k=k)
