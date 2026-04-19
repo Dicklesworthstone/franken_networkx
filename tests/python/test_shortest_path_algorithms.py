@@ -545,7 +545,8 @@ class TestPredecessor:
 
 class TestPathWeight:
     def test_unweighted(self, path_graph):
-        assert fnx.path_weight(path_graph, ["a", "b", "c"], weight="weight") == 2.0
+        with pytest.raises(KeyError):
+            fnx.path_weight(path_graph, ["a", "b", "c"], weight="weight")
 
     def test_weighted(self, weighted_triangle):
         assert fnx.path_weight(weighted_triangle, ["a", "b", "c"], weight="weight") == 5.0
@@ -565,6 +566,90 @@ class TestPathWeight:
         g.add_edge("a", "b", weight=3.0)
         g.add_edge("b", "c", weight=4.0)
         assert fnx.path_weight(g, ["a", "b", "c"], weight="weight") == 7.0
+
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls"),
+        [
+            (fnx.Graph, nx.Graph),
+            (fnx.DiGraph, nx.DiGraph),
+            (fnx.MultiGraph, nx.MultiGraph),
+            (fnx.MultiDiGraph, nx.MultiDiGraph),
+        ],
+    )
+    def test_missing_weight_attribute_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        if graph.is_multigraph():
+            graph.add_edge("a", "b", key="k")
+            graph.add_edge("b", "c", key="j", weight=2)
+            expected.add_edge("a", "b", key="k")
+            expected.add_edge("b", "c", key="j", weight=2)
+        else:
+            graph.add_edge("a", "b")
+            graph.add_edge("b", "c", weight=2)
+            expected.add_edge("a", "b")
+            expected.add_edge("b", "c", weight=2)
+
+        with pytest.raises(Exception) as expected_exc:
+            nx.path_weight(expected, ["a", "b", "c"], weight="weight")
+        expected_type = type(expected_exc.value).__name__
+        expected_message = str(expected_exc.value)
+
+        monkeypatch.setattr(
+            nx,
+            "path_weight",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX path_weight fallback should not be used")
+            ),
+        )
+
+        with pytest.raises(Exception) as fnx_exc:
+            fnx.path_weight(graph, ["a", "b", "c"], weight="weight")
+
+        assert type(fnx_exc.value).__name__ == expected_type
+        assert str(fnx_exc.value) == expected_message
+
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls"),
+        [
+            (fnx.Graph, nx.Graph),
+            (fnx.DiGraph, nx.DiGraph),
+            (fnx.MultiGraph, nx.MultiGraph),
+            (fnx.MultiDiGraph, nx.MultiDiGraph),
+        ],
+    )
+    def test_missing_edge_error_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        if graph.is_multigraph():
+            graph.add_edge("a", "b", key="k", weight=1)
+            expected.add_edge("a", "b", key="k", weight=1)
+        else:
+            graph.add_edge("a", "b", weight=1)
+            expected.add_edge("a", "b", weight=1)
+
+        with pytest.raises(Exception) as expected_exc:
+            nx.path_weight(expected, ["a", "c"], weight="weight")
+        expected_type = type(expected_exc.value).__name__
+        expected_message = str(expected_exc.value)
+
+        monkeypatch.setattr(
+            nx,
+            "path_weight",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX path_weight fallback should not be used")
+            ),
+        )
+
+        with pytest.raises(Exception) as fnx_exc:
+            fnx.path_weight(graph, ["a", "c"], weight="weight")
+
+        assert type(fnx_exc.value).__name__ == expected_type
+        assert str(fnx_exc.value) == expected_message
 
 
 # ---------------------------------------------------------------------------

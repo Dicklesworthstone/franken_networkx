@@ -210,12 +210,77 @@ from franken_networkx._fnx import (
 from franken_networkx._fnx import (
     average_shortest_path_length as _raw_average_shortest_path_length,
     bellman_ford_path,
-    dijkstra_path,
+    dijkstra_path as _raw_dijkstra_path,
     has_path,
-    multi_source_dijkstra,
-    shortest_path,
+    multi_source_dijkstra as _raw_multi_source_dijkstra,
+    shortest_path as _raw_shortest_path,
     shortest_path_length as _shortest_path_length_raw,
 )
+
+
+def _networkx_graph_for_parity(G):
+    if isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
+        from franken_networkx.backend import _fnx_to_nx
+
+        return _fnx_to_nx(G)
+    return G
+
+
+def _has_negative_edge_weight_for_dijkstra(G, weight):
+    if not isinstance(weight, str):
+        return False
+
+    if G.is_multigraph():
+        edge_iter = G.edges(keys=True, data=True)
+        attrs_iter = (attrs for _, _, _, attrs in edge_iter)
+    else:
+        edge_iter = G.edges(data=True)
+        attrs_iter = (attrs for _, _, attrs in edge_iter)
+
+    for attrs in attrs_iter:
+        value = attrs.get(weight, 1)
+        if isinstance(value, numbers.Real) and math.isfinite(value) and value < 0:
+            return True
+    return False
+
+
+def _should_delegate_dijkstra_to_networkx(G, weight):
+    return _has_negative_edge_weight_for_dijkstra(G, weight)
+
+
+def _raise_translated_networkx_exception(exc):
+    import networkx as nx
+
+    if isinstance(exc, nx.NetworkXException):
+        translated_type = globals().get(type(exc).__name__)
+        if (
+            isinstance(translated_type, type)
+            and issubclass(translated_type, Exception)
+            and translated_type is not type(exc)
+        ):
+            raise translated_type(*exc.args) from exc
+    raise exc
+
+
+def _call_networkx_for_parity(name, G, /, *args, **kwargs):
+    import networkx as nx
+
+    try:
+        result = getattr(nx, name)(_networkx_graph_for_parity(G), *args, **kwargs)
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+    if isinstance(result, Iterator):
+        def _wrapped_iterator():
+            try:
+                yield from result
+            except Exception as exc:
+                _raise_translated_networkx_exception(exc)
+
+        return _wrapped_iterator()
+
+    return result
+
 
 def average_shortest_path_length(G, weight=None, method=None):
     """Return the average shortest path length.
@@ -224,19 +289,35 @@ def average_shortest_path_length(G, weight=None, method=None):
     """
     if method not in (None, "unweighted", "dijkstra", "bellman-ford"):
         raise ValueError(f"method not supported: {method}")
-    if method == "bellman-ford" and weight is not None:
-        n = len(G)
-        if n <= 1:
-            raise NetworkXPointlessConcept("Graph has fewer than 2 nodes.")
-        
-        lengths = all_pairs_bellman_ford_path_length(G, weight=weight)
-        total_dist = 0.0
-        for u, targets in lengths:
-            total_dist += sum(targets.values())
-        
-        return total_dist / (n * (n - 1))
-        
-    return _raw_average_shortest_path_length(G, weight=weight)
+    if weight is not None and method in (None, "dijkstra") and _should_delegate_dijkstra_to_networkx(G, weight):
+        kwargs = {"weight": weight}
+        if method is not None:
+            kwargs["method"] = method
+        return _call_networkx_for_parity("average_shortest_path_length", G, **kwargs)
+    return _raw_average_shortest_path_length(G, weight=weight, method=method)
+
+
+def dijkstra_path(G, source, target, weight="weight"):
+    if _should_delegate_dijkstra_to_networkx(G, weight):
+        return _call_networkx_for_parity(
+            "dijkstra_path", G, source, target, weight=weight
+        )
+    return _raw_dijkstra_path(G, source, target, weight=weight)
+
+
+def shortest_path(G, source=None, target=None, weight=None, method="dijkstra"):
+    if method not in ("dijkstra", "bellman-ford"):
+        raise ValueError(f"method not supported: {method}")
+    if weight is not None and method == "dijkstra" and _should_delegate_dijkstra_to_networkx(G, weight):
+        return _call_networkx_for_parity(
+            "shortest_path",
+            G,
+            source=source,
+            target=target,
+            weight=weight,
+            method=method,
+        )
+    return _raw_shortest_path(G, source=source, target=target, weight=weight, method=method)
 
 
 def shortest_path_length(G, source=None, target=None, weight=None, method="dijkstra"):
@@ -250,6 +331,16 @@ def shortest_path_length(G, source=None, target=None, weight=None, method="dijks
     """
     if method not in ("dijkstra", "bellman-ford"):
         raise ValueError(f"method not supported: {method}")
+
+    if weight is not None and method == "dijkstra" and _should_delegate_dijkstra_to_networkx(G, weight):
+        return _call_networkx_for_parity(
+            "shortest_path_length",
+            G,
+            source=source,
+            target=target,
+            weight=weight,
+            method=method,
+        )
 
     if source is not None and target is not None:
         if weight is not None and method == "bellman-ford":
@@ -267,7 +358,11 @@ def shortest_path_length(G, source=None, target=None, weight=None, method="dijks
         if weight is not None:
             if method == "bellman-ford":
                 if G.is_directed():
-                    raise NetworkXNotImplemented("single_target_bellman_ford_path_length not implemented")
+                    return dict(
+                        single_source_bellman_ford_path_length(
+                            G.reverse(), target, weight=weight
+                        )
+                    )
                 return dict(single_source_bellman_ford_path_length(G, target, weight=weight))
             if G.is_directed():
                 all_pairs = dict(all_pairs_dijkstra_path_length(G, weight=weight))
@@ -381,10 +476,19 @@ from franken_networkx._fnx import (
 
 # Algorithm functions — paths and cycles
 from franken_networkx._fnx import (
-    all_shortest_paths,
+    all_shortest_paths as _raw_all_shortest_paths,
     all_simple_paths as _rust_all_simple_paths,
     cycle_basis,
 )
+
+
+def all_shortest_paths(G, source, target, weight=None, method=None):
+    if weight is not None and method in (None, "dijkstra") and _should_delegate_dijkstra_to_networkx(G, weight):
+        kwargs = {"weight": weight}
+        if method is not None:
+            kwargs["method"] = method
+        return _call_networkx_for_parity("all_shortest_paths", G, source, target, **kwargs)
+    return _raw_all_shortest_paths(G, source, target, weight=weight, method=method)
 
 
 def all_simple_paths(G, source, target, cutoff=None):
@@ -828,7 +932,7 @@ from franken_networkx._fnx import (
     edge_expansion,
     node_expansion,
     mixing_expansion,
-    non_edges,
+    non_edges as _raw_non_edges,
     average_node_connectivity,
     is_k_edge_connected,
     all_pairs_dijkstra as _raw_all_pairs_dijkstra,
@@ -837,6 +941,9 @@ from franken_networkx._fnx import (
 )
 
 def all_pairs_dijkstra(G, weight="weight"):
+    if _should_delegate_dijkstra_to_networkx(G, weight):
+        yield from _call_networkx_for_parity("all_pairs_dijkstra", G, weight=weight)
+        return
     for k, v in _raw_all_pairs_dijkstra(G, weight=weight).items():
         yield (k, tuple(v))
 
@@ -856,7 +963,7 @@ from franken_networkx._fnx import (
 
 # Algorithm functions — link prediction
 from franken_networkx._fnx import (
-    common_neighbors,
+    common_neighbors as _raw_common_neighbors,
     jaccard_coefficient,
     adamic_adar_index,
     preferential_attachment,
@@ -961,7 +1068,6 @@ from franken_networkx._fnx import (
     is_tournament,
     is_weighted,
     is_negatively_weighted,
-    is_path,
     is_distance_regular,
 )
 
@@ -987,11 +1093,11 @@ from franken_networkx._fnx import (
 
 # Algorithm functions — additional shortest path
 from franken_networkx._fnx import (
-    dijkstra_path_length,
+    dijkstra_path_length as _raw_dijkstra_path_length,
     bellman_ford_path_length,
-    single_source_dijkstra,
-    single_source_dijkstra_path,
-    single_source_dijkstra_path_length,
+    single_source_dijkstra as _raw_single_source_dijkstra,
+    single_source_dijkstra_path as _raw_single_source_dijkstra_path,
+    single_source_dijkstra_path_length as _raw_single_source_dijkstra_path_length,
     single_source_bellman_ford,
     single_source_bellman_ford_path,
     single_source_bellman_ford_path_length,
@@ -1009,11 +1115,55 @@ from franken_networkx._fnx import (
     path_weight,
 )
 
+
+def dijkstra_path_length(G, source, target, weight="weight"):
+    if _should_delegate_dijkstra_to_networkx(G, weight):
+        return _call_networkx_for_parity(
+            "dijkstra_path_length", G, source, target, weight=weight
+        )
+    return _raw_dijkstra_path_length(G, source, target, weight=weight)
+
+
+def single_source_dijkstra(G, source, weight="weight"):
+    if _should_delegate_dijkstra_to_networkx(G, weight):
+        return _call_networkx_for_parity(
+            "single_source_dijkstra", G, source, weight=weight
+        )
+    return _raw_single_source_dijkstra(G, source, weight=weight)
+
+
+def single_source_dijkstra_path(G, source, weight="weight"):
+    if _should_delegate_dijkstra_to_networkx(G, weight):
+        return _call_networkx_for_parity(
+            "single_source_dijkstra_path", G, source, weight=weight
+        )
+    return _raw_single_source_dijkstra_path(G, source, weight=weight)
+
+
+def single_source_dijkstra_path_length(G, source, weight="weight"):
+    if _should_delegate_dijkstra_to_networkx(G, weight):
+        return _call_networkx_for_parity(
+            "single_source_dijkstra_path_length", G, source, weight=weight
+        )
+    return _raw_single_source_dijkstra_path_length(G, source, weight=weight)
+
+
 def all_pairs_dijkstra_path(G, weight="weight"):
+    if _should_delegate_dijkstra_to_networkx(G, weight):
+        yield from _call_networkx_for_parity(
+            "all_pairs_dijkstra_path", G, weight=weight
+        )
+        return
     for k, v in _raw_all_pairs_dijkstra_path(G, weight=weight).items():
         yield (k, v)
 
+
 def all_pairs_dijkstra_path_length(G, weight="weight"):
+    if _should_delegate_dijkstra_to_networkx(G, weight):
+        yield from _call_networkx_for_parity(
+            "all_pairs_dijkstra_path_length", G, weight=weight
+        )
+        return
     for k, v in _raw_all_pairs_dijkstra_path_length(G, weight=weight).items():
         yield (k, v)
 
@@ -1563,8 +1713,8 @@ def create_empty_copy(G, with_data=True):
         A graph with the same nodes but no edges.
     """
     H = G.__class__()
-    H.graph.update(dict(G.graph))
     if with_data:
+        H.graph.update(dict(G.graph))
         H.add_nodes_from((node, dict(attrs)) for node, attrs in G.nodes(data=True))
     else:
         H.add_nodes_from(G.nodes())
@@ -1573,45 +1723,121 @@ def create_empty_copy(G, with_data=True):
 
 def number_of_selfloops(G):
     """Return the number of self-loop edges in *G*."""
-    return _fnx.number_of_selfloops_rust(G)
+    return sum(1 for _ in selfloop_edges(G))
 
 
-def selfloop_edges(G, data=False):
+def selfloop_edges(G, data=False, keys=False, default=None):
     """Return an iterator over self-loop edges.
 
     Parameters
     ----------
     G : Graph
         The input graph.
-    data : bool, optional
-        If True, yield ``(u, u, data_dict)`` tuples.
+    data : string or bool, optional
+        Return self-loop edges as ``(u, u)`` tuples when ``False``, or include
+        edge data when ``True`` or an attribute value when set to a string.
+    keys : bool, optional
+        If True, include edge keys for multigraphs.
+    default : Any, optional
+        Default attribute value used when ``data`` names a missing attribute.
 
     Returns
     -------
-    list
-        Self-loop edges.
+    iterator
+        Iterator over self-loop edges.
     """
-    if data:
-        return [(u, v, d) for u, v, d in G.edges(data=True) if u == v]
-    return _fnx.selfloop_edges_rust(G)
+    def adjacency_entries():
+        for node in G.adj:
+            nbrs = G.adj[node]
+            if node in nbrs:
+                yield node, nbrs
+
+    if data is True:
+        if G.is_multigraph():
+            if keys is True:
+                return (
+                    (n, n, key, attrs)
+                    for n, nbrs in adjacency_entries()
+                    for key, attrs in nbrs[n].items()
+                )
+            return (
+                (n, n, attrs)
+                for n, nbrs in adjacency_entries()
+                for attrs in nbrs[n].values()
+            )
+        return ((n, n, nbrs[n]) for n, nbrs in adjacency_entries())
+
+    if data is not False:
+        if G.is_multigraph():
+            if keys is True:
+                return (
+                    (n, n, key, attrs.get(data, default))
+                    for n, nbrs in adjacency_entries()
+                    for key, attrs in nbrs[n].items()
+                )
+            return (
+                (n, n, attrs.get(data, default))
+                for n, nbrs in adjacency_entries()
+                for attrs in nbrs[n].values()
+            )
+        return (
+            (n, n, nbrs[n].get(data, default))
+            for n, nbrs in adjacency_entries()
+        )
+
+    if G.is_multigraph():
+        if keys is True:
+            return (
+                (n, n, key)
+                for n, nbrs in adjacency_entries()
+                for key in nbrs[n]
+            )
+        return (
+            (n, n)
+            for n, nbrs in adjacency_entries()
+            for _ in range(len(nbrs[n]))
+        )
+    return ((n, n) for n, nbrs in adjacency_entries())
 
 
 def nodes_with_selfloops(G):
     """Return nodes that have self-loops."""
-    return _fnx.nodes_with_selfloops_rust(G)
+    return (node for node in G.adj if node in G.adj[node])
 
 
 def all_neighbors(G, node):
     """Return all neighbors of *node* in *G* (including predecessors for DiGraph).
 
     For undirected graphs, equivalent to ``G.neighbors(node)``.
-    For directed graphs, returns the union of successors and predecessors.
+    For directed graphs, returns predecessors followed by successors.
     """
     if G.is_directed():
-        succs = set(G.successors(node)) if hasattr(G, "successors") else set()
-        preds = set(G.predecessors(node)) if hasattr(G, "predecessors") else set()
-        return list(succs | preds)
-    return list(G.neighbors(node))
+        return itertools.chain(G.predecessors(node), G.successors(node))
+    return G.neighbors(node)
+
+
+def is_path(G, path):
+    """Return whether or not the specified path exists in *G*."""
+    try:
+        return all(nbr in G[node] for node, nbr in itertools.pairwise(path))
+    except (KeyError, TypeError):
+        return False
+
+
+def path_weight(G, path, weight):
+    """Return the total cost associated with *path* using edge attribute *weight*."""
+    if not is_path(G, path):
+        raise NetworkXNoPath("path does not exist")
+
+    cost = 0
+    if G.is_multigraph():
+        for node, nbr in itertools.pairwise(path):
+            cost += min(attrs[weight] for attrs in G[node][nbr].values())
+        return cost
+
+    for node, nbr in itertools.pairwise(path):
+        cost += G[node][nbr][weight]
+    return cost
 
 
 def add_path(G, nodes, **attr):
@@ -1678,6 +1904,16 @@ def _paired_edge_attrs(g_attrs, h_attrs):
     return merged
 
 
+def _cross_product_edge_key(g_is_multigraph, h_is_multigraph, g_key, h_key):
+    if g_is_multigraph and h_is_multigraph:
+        return (g_key, h_key)
+    if g_is_multigraph:
+        return g_key
+    if h_is_multigraph:
+        return h_key
+    return None
+
+
 def cartesian_product(G, H):
     """Return the Cartesian product of *G* and *H*.
 
@@ -1740,9 +1976,10 @@ def tensor_product(G, H):
         for hu, hv, hk, h_attrs in h_edges:
             edge_attrs = _paired_edge_attrs(dict(g_attrs), dict(h_attrs))
             if P.is_multigraph():
-                P.add_edge((gu, hu), (gv, hv), **edge_attrs)
+                edge_key = _cross_product_edge_key(G.is_multigraph(), H.is_multigraph(), gk, hk)
+                P.add_edge((gu, hu), (gv, hv), key=edge_key, **edge_attrs)
                 if not G.is_directed():
-                    P.add_edge((gu, hv), (gv, hu), **edge_attrs)
+                    P.add_edge((gu, hv), (gv, hu), key=edge_key, **edge_attrs)
             else:
                 P.add_edge((gu, hu), (gv, hv), **edge_attrs)
                 if not G.is_directed():
@@ -1772,9 +2009,10 @@ def strong_product(G, H):
         for hu, hv, hk, h_attrs in h_edges:
             edge_attrs = _paired_edge_attrs(dict(g_attrs), dict(h_attrs))
             if P.is_multigraph():
-                P.add_edge((gu, hu), (gv, hv), **edge_attrs)
+                edge_key = _cross_product_edge_key(G.is_multigraph(), H.is_multigraph(), gk, hk)
+                P.add_edge((gu, hu), (gv, hv), key=edge_key, **edge_attrs)
                 if not G.is_directed():
-                    P.add_edge((gu, hv), (gv, hu), **edge_attrs)
+                    P.add_edge((gu, hv), (gv, hu), key=edge_key, **edge_attrs)
             else:
                 P.add_edge((gu, hu), (gv, hv), **edge_attrs)
                 if not G.is_directed():
@@ -2162,25 +2400,46 @@ def power(G, k):
     The k-th power G^k has the same nodes as G. Two nodes u, v are
     adjacent in G^k iff their shortest path distance in G is <= k.
     """
-    raw_graph = _fnx.power_rust(G, k)
-    canonical_to_node = {str(node): node for node in G.nodes()}
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if k <= 0:
+        raise ValueError("k must be a positive integer")
 
-    graph = G.__class__()
-    for raw_node in raw_graph.nodes():
-        graph.add_node(canonical_to_node.get(raw_node, raw_node))
-    if graph.is_multigraph():
-        for raw_u, raw_v, key in raw_graph.edges(keys=True):
-            graph.add_edge(
-                canonical_to_node.get(raw_u, raw_u),
-                canonical_to_node.get(raw_v, raw_v),
-                key=key,
-            )
-    else:
+    if isinstance(k, numbers.Integral):
+        raw_graph = _fnx.power_rust(G, int(k))
+        canonical_to_node = {str(node): node for node in G.nodes()}
+
+        graph = G.__class__()
+        for raw_node in raw_graph.nodes():
+            graph.add_node(canonical_to_node.get(raw_node, raw_node))
         for raw_u, raw_v in raw_graph.edges():
             graph.add_edge(
                 canonical_to_node.get(raw_u, raw_u),
                 canonical_to_node.get(raw_v, raw_v),
             )
+        return graph
+
+    graph = G.__class__()
+    graph.add_nodes_from(G)
+    for node in G:
+        seen = {}
+        level = 1
+        nextlevel = G[node]
+        while nextlevel:
+            thislevel = nextlevel
+            nextlevel = {}
+            for neighbor in thislevel:
+                if neighbor == node:
+                    continue
+                if neighbor not in seen:
+                    seen[neighbor] = level
+                    nextlevel.update(G[neighbor])
+            if k <= level:
+                break
+            level += 1
+        graph.add_edges_from((node, neighbor) for neighbor in seen)
     return graph
 
 
@@ -2193,7 +2452,8 @@ def compose_all(graphs):
     """Return the composition of all graphs in the iterable."""
     graphs = list(graphs)
     if not graphs:
-        raise ValueError("cannot apply compose_all to an empty sequence")
+        raise ValueError("cannot apply compose_all to an empty list")
+    _validate_same_graph_family(graphs)
     R = graphs[0].copy()
     for H in graphs[1:]:
         R.graph.update(H.graph)
@@ -2215,19 +2475,18 @@ def union_all(graphs, rename=()):
     ----------
     graphs : iterable of Graph
         Graphs to union.
-    rename : tuple of str or None, optional
-        Prefixes to apply to node names of each graph. If provided, must be
-        the same length as *graphs*. Default ``()`` means no renaming.
+    rename : iterable of str or None, optional
+        Prefixes to apply to node names of each graph. Shorter iterables
+        leave the remaining graphs unchanged. Default ``()`` means no renaming.
     """
     graphs = list(graphs)
     if not graphs:
-        raise ValueError("cannot apply union_all to an empty sequence")
-    if rename and len(rename) != len(graphs):
-        raise ValueError("rename must have the same length as graphs")
+        raise ValueError("cannot apply union_all to an empty list")
+    _validate_same_graph_family(graphs)
 
     R = graphs[0].__class__()
-    for i, G in enumerate(graphs):
-        prefix = rename[i] if rename and i < len(rename) else None
+    rename_iter = itertools.chain(rename, itertools.repeat(None))
+    for G, prefix in zip(graphs, rename_iter):
         R.graph.update(G.graph)
 
         def _rename(n, _prefix=prefix):
@@ -2237,8 +2496,9 @@ def union_all(graphs, rename=()):
             new_n = _rename(n)
             if new_n in R:
                 raise NetworkXError(
-                    f"Node {new_n} already exists in the union graph. "
-                    "Use rename to avoid name collisions."
+                    "The node sets of the graphs are not disjoint.\n"
+                    "Use `rename` to specify prefixes for the graphs or use\n"
+                    "disjoint_union(G1, G2, ..., GN)."
                 )
             R.add_node(new_n, **G.nodes[n])
         if R.is_multigraph():
@@ -3062,30 +3322,26 @@ def attribute_assortativity_coefficient(G, attribute, nodes=None):
 def intersection_all(graphs):
     """Return the intersection of all graphs in the iterable.
 
-    The intersection contains nodes in all graphs and edges present in all
-    graphs. Node and edge attributes come from the first graph.
+    The intersection contains nodes and edges present in all graphs.
     """
     graphs = list(graphs)
     if not graphs:
         raise ValueError("cannot apply intersection_all to an empty sequence")
-    R = graphs[0].copy()
-    # Keep only nodes present in every graph
-    common_nodes = set(graphs[0].nodes())
-    for G in graphs[1:]:
-        common_nodes &= set(G.nodes())
-    # Remove nodes not common to all graphs
-    to_remove = [n for n in list(R.nodes()) if n not in common_nodes]
-    for n in to_remove:
-        R.remove_node(n)
-    # Keep only edges present in every graph
-    edges_to_remove = []
-    for u, v in list(R.edges()):
-        for G in graphs[1:]:
-            if not G.has_edge(u, v):
-                edges_to_remove.append((u, v))
-                break
-    for u, v in edges_to_remove:
-        R.remove_edge(u, v)
+    _validate_same_graph_family(graphs)
+
+    R = graphs[0].__class__()
+    for node in graphs[0].nodes():
+        if all(node in G for G in graphs[1:]):
+            R.add_node(node)
+
+    if graphs[0].is_multigraph():
+        for u, v, key in graphs[0].edges(keys=True):
+            if u in R and v in R and all(G.has_edge(u, v, key) for G in graphs[1:]):
+                R.add_edge(u, v, key=key)
+    else:
+        for u, v in graphs[0].edges():
+            if u in R and v in R and all(G.has_edge(u, v) for G in graphs[1:]):
+                R.add_edge(u, v)
     return R
 
 
@@ -3140,12 +3396,9 @@ def rescale_layout(pos, scale=1.0):
 # Graph freezing
 # ---------------------------------------------------------------------------
 
-_FROZEN_GRAPHS = set()
-
 
 def freeze(G):
     """Modify *G* so that mutation raises an error. Returns *G*."""
-    _FROZEN_GRAPHS.add(id(G))
     for name in (
         "add_node",
         "add_nodes_from",
@@ -3167,7 +3420,7 @@ def freeze(G):
 
 def is_frozen(G):
     """Return True if *G* is frozen."""
-    return getattr(G, "frozen", False) or id(G) in _FROZEN_GRAPHS
+    return getattr(G, "frozen", False)
 
 
 def _frozen(*args, **kwargs):
@@ -4054,23 +4307,43 @@ def gnm_random_graph(n, m, seed=None):
 # ---------------------------------------------------------------------------
 
 
+def _planarity_graph_for_certificate(G):
+    import networkx as nx
+
+    try:
+        from franken_networkx.backend import _fnx_to_nx
+
+        return _fnx_to_nx(G)
+    except AttributeError:
+        if hasattr(G, "nodes") and hasattr(G, "edges"):
+            return G
+        graph = nx.Graph()
+        graph.add_nodes_from(G)
+        return graph
+
+
+def _check_planarity_certificate(G, counterexample=False):
+    import networkx as nx
+
+    graph = _planarity_graph_for_certificate(G)
+    return nx.check_planarity(graph, counterexample=counterexample)
+
+
 def check_planarity(G, counterexample=False):
-    """Check if *G* is planar and optionally return a counterexample.
+    """Check if *G* is planar and return a NetworkX-style certificate tuple.
 
     Parameters
     ----------
     G : Graph
     counterexample : bool, optional
-        If True, return ``(is_planar, certificate)`` tuple.
+        If True and the graph is not planar, return a Kuratowski subgraph as
+        the certificate. Otherwise planar graphs return a PlanarEmbedding.
 
     Returns
     -------
-    bool or (bool, None)
+    (bool, certificate)
     """
-    result = is_planar(G)
-    if counterexample:
-        return (result, None)
-    return result
+    return _check_planarity_certificate(G, counterexample=counterexample)
 
 
 def all_simple_edge_paths(G, source, target, cutoff=None):
@@ -4125,6 +4398,10 @@ def bidirectional_dijkstra(G, source, target, weight="weight"):
     -------
     (length, path) : tuple
     """
+    if _should_delegate_dijkstra_to_networkx(G, weight):
+        return _call_networkx_for_parity(
+            "bidirectional_dijkstra", G, source, target, weight=weight
+        )
     path = dijkstra_path(G, source, target, weight=weight)
     length = dijkstra_path_length(G, source, target, weight=weight)
     return (length, path)
@@ -5391,36 +5668,23 @@ def full_join(G, H, rename=(None, None)):
     -------
     Graph
     """
-    R = G.__class__()
-    prefix_g, prefix_h = rename
+    R = union_all([G, H], rename=rename)
 
-    def _rg(n):
-        return f"{prefix_g}{n}" if prefix_g is not None else n
+    def add_prefix(graph, prefix):
+        if prefix is None:
+            return graph
+        return relabel_nodes(graph, lambda node: f"{prefix}{node}")
 
-    def _rh(n):
-        return f"{prefix_h}{n}" if prefix_h is not None else n
+    G = add_prefix(G, rename[0])
+    H = add_prefix(H, rename[1])
 
-    g_nodes = []
-    for n in G.nodes():
-        new_n = _rg(n)
-        R.add_node(new_n, **G.nodes[n])
-        g_nodes.append(new_n)
-
-    h_nodes = []
-    for n in H.nodes():
-        new_n = _rh(n)
-        R.add_node(new_n, **H.nodes[n])
-        h_nodes.append(new_n)
-
-    for u, v, d in G.edges(data=True):
-        R.add_edge(_rg(u), _rg(v), **d)
-    for u, v, d in H.edges(data=True):
-        R.add_edge(_rh(u), _rh(v), **d)
-
-    # Full join: connect every node in G to every node in H
-    for gn in g_nodes:
-        for hn in h_nodes:
+    for gn in G:
+        for hn in H:
             R.add_edge(gn, hn)
+    if R.is_directed():
+        for hn in H:
+            for gn in G:
+                R.add_edge(hn, gn)
 
     return R
 
@@ -5458,6 +5722,24 @@ def identified_nodes(
     H = G.__class__()
     v_data = dict(G.nodes[v]) if v in G else {}
 
+    def add_node_with_deferred_contraction(graph, node, attrs):
+        attrs = dict(attrs)
+        deferred_contraction = None
+        if store_contraction_as:
+            deferred_contraction = attrs.pop(store_contraction_as, None)
+        graph.add_node(node, **attrs)
+        if deferred_contraction is not None:
+            graph.nodes[node][store_contraction_as] = deferred_contraction
+
+    def add_edge_with_deferred_contraction(graph, source, target, attrs):
+        attrs = dict(attrs)
+        deferred_contraction = None
+        if store_contraction_as:
+            deferred_contraction = attrs.pop(store_contraction_as, None)
+        graph.add_edge(source, target, **attrs)
+        if deferred_contraction is not None:
+            graph.edges[source, target][store_contraction_as] = deferred_contraction
+
     # Add all nodes except v, preserving insertion order from G
     for n in G.nodes():
         if n == v:
@@ -5467,32 +5749,42 @@ def identified_nodes(
             contraction = attrs.get(store_contraction_as, {})
             contraction[v] = v_data
             attrs[store_contraction_as] = contraction
-        H.add_node(n, **attrs)
+        add_node_with_deferred_contraction(H, n, attrs)
 
-    # Add edges, redirecting v -> u
-    added_edges = set()
-    for src, dst, d in G.edges(data=True):
+    def add_or_contract_edge(src, dst, d):
         new_src = u if src == v else src
         new_dst = u if dst == v else dst
-        if new_src == new_dst and not self_loops:
-            continue
-        if G.is_directed():
-            edge_key = (new_src, new_dst)
-        else:
-            try:
-                edge_key = (min(new_src, new_dst), max(new_src, new_dst))
-            except TypeError:
-                edge_key = (new_src, new_dst)
-        if edge_key not in added_edges:
-            H.add_edge(new_src, new_dst, **d)
-            added_edges.add(edge_key)
+        if {src, dst} == {u, v} and not self_loops:
+            return
+        if H.has_edge(new_src, new_dst) and not G.is_multigraph():
+            if store_contraction_as:
+                contraction = H.edges[new_src, new_dst].get(store_contraction_as, {})
+                if not G.is_directed() and (src == v or dst == v):
+                    other = dst if src == v else src
+                    contraction_edge = (v, other)
+                else:
+                    contraction_edge = (src, dst)
+                contraction[contraction_edge] = dict(d)
+                H.edges[new_src, new_dst][store_contraction_as] = contraction
+            return
+        add_edge_with_deferred_contraction(H, new_src, new_dst, d)
+
+    # Add stable edges first, then remap v's edges. NetworkX preserves the
+    # existing edge attributes and records remapped duplicates as contractions.
+    edges = list(G.edges(data=True))
+    for src, dst, d in edges:
+        if src != v and dst != v:
+            add_edge_with_deferred_contraction(H, src, dst, d)
+    for src, dst, d in edges:
+        if src == v or dst == v:
+            add_or_contract_edge(src, dst, d)
 
     if not copy:
         G.clear()
         for n in H.nodes():
-            G.add_node(n, **H.nodes[n])
+            add_node_with_deferred_contraction(G, n, H.nodes[n])
         for s, t, d_attr in H.edges(data=True):
-            G.add_edge(s, t, **d_attr)
+            add_edge_with_deferred_contraction(G, s, t, d_attr)
         return G
 
     return H
@@ -5645,7 +5937,15 @@ def inverse_line_graph(G):
 # ---------------------------------------------------------------------------
 
 
-def contracted_nodes(G, u, v, self_loops=True, copy=True):
+def contracted_nodes(
+    G,
+    u,
+    v,
+    self_loops=True,
+    copy=True,
+    *,
+    store_contraction_as="contraction",
+):
     """Contract nodes *u* and *v* in *G*.
 
     All edges to/from *v* are redirected to *u*, then *v* is removed.
@@ -5659,25 +5959,24 @@ def contracted_nodes(G, u, v, self_loops=True, copy=True):
     copy : bool, optional
         If True (default), return a new graph.
     """
-    H = G.copy() if copy else G
-    # Redirect v's edges to u
-    for nbr in list(H.neighbors(v)):
-        if nbr == v:
-            if self_loops:
-                H.add_edge(u, u)
-        elif nbr != u:
-            H.add_edge(u, nbr)
-        elif self_loops:
-            H.add_edge(u, u)
-    H.remove_node(v)
-    if not self_loops:
-        # Remove any self-loops on u
-        if H.has_edge(u, u):
-            H.remove_edge(u, u)
-    return H
+    return identified_nodes(
+        G,
+        u,
+        v,
+        self_loops=self_loops,
+        copy=copy,
+        store_contraction_as=store_contraction_as,
+    )
 
 
-def contracted_edge(G, edge, self_loops=True, copy=True):
+def contracted_edge(
+    G,
+    edge,
+    self_loops=True,
+    copy=True,
+    *,
+    store_contraction_as="contraction",
+):
     """Contract an edge in *G* by merging its endpoints.
 
     Parameters
@@ -5688,7 +5987,16 @@ def contracted_edge(G, edge, self_loops=True, copy=True):
     copy : bool, optional
     """
     u, v = edge[:2]
-    return contracted_nodes(G, u, v, self_loops=self_loops, copy=copy)
+    if not G.has_edge(u, v):
+        raise ValueError(f"Edge {edge} does not exist in graph G; cannot contract it")
+    return contracted_nodes(
+        G,
+        u,
+        v,
+        self_loops=self_loops,
+        copy=copy,
+        store_contraction_as=store_contraction_as,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -6326,6 +6634,15 @@ def dijkstra_predecessor_and_distance(G, source, cutoff=None, weight="weight"):
             pred[node] = []
 
     return pred, dist
+
+
+def multi_source_dijkstra(G, sources, weight="weight"):
+    """Return shortest path lengths and paths from any source in *sources*."""
+    if _should_delegate_dijkstra_to_networkx(G, weight):
+        return _call_networkx_for_parity(
+            "multi_source_dijkstra", G, sources, weight=weight
+        )
+    return _raw_multi_source_dijkstra(G, sources, weight=weight)
 
 
 def multi_source_dijkstra_path(G, sources, weight="weight"):
@@ -7515,11 +7832,11 @@ def corona_product(G, H):
     -------
     Graph
     """
-    _validate_product_graph_types(
-        G, H, allow_directed=False, allow_multigraph=not G.is_multigraph()
-    )
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    _validate_product_graph_types(G, H, allow_multigraph=True)
 
     P = _product_graph_class(G, H)()
     P.add_nodes_from(G.nodes())
@@ -7536,8 +7853,10 @@ def corona_product(G, H):
             P.add_node((g, h))
             P.add_edge(g, (g, h))
         if H.is_multigraph():
-            for u, v, key, attrs in H.edges(keys=True, data=True):
-                P.add_edge((g, u), (g, v), key=key, **dict(attrs))
+            # Match NetworkX's add_edges_from(H.edges.data()) behavior by letting the
+            # product graph assign fresh integer keys for copied multiedges.
+            for u, v, attrs in H.edges(data=True):
+                P.add_edge((g, u), (g, v), **dict(attrs))
         else:
             for u, v, attrs in H.edges(data=True):
                 P.add_edge((g, u), (g, v), **dict(attrs))
@@ -7552,7 +7871,10 @@ def modular_product(G, H):
     - u1-u2 is edge in G AND v1-v2 is edge in H, OR
     - u1-u2 is NOT edge in G AND v1-v2 is NOT edge in H (and u1≠u2, v1≠v2).
     """
-    _validate_product_graph_types(G, H, allow_directed=False, allow_multigraph=False)
+    if G.is_directed() or H.is_directed():
+        raise NetworkXNotImplemented("Modular product not implemented for directed graphs")
+    if G.is_multigraph() or H.is_multigraph():
+        raise NetworkXNotImplemented("Modular product not implemented for multigraphs")
     P = Graph()
 
     for g, g_attrs in G.nodes(data=True):
@@ -7585,12 +7907,7 @@ def rooted_product(G, H, root):
     Replace each node v in G with a copy of H, connecting v's copy of
     *root* to the neighbors of v.
     """
-    _validate_product_graph_types(
-        G, H, allow_directed=not G.is_directed(), allow_multigraph=False
-    )
-    if G.is_directed():
-        raise NetworkXNotImplemented("not implemented for directed type")
-    if G.is_multigraph() or H.is_multigraph():
+    if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if root not in H:
         raise NodeNotFound("root must be a vertex in H")
@@ -9233,32 +9550,711 @@ def chordless_cycles(G, length_bound=None):
 
 
 def to_undirected(G):
-    """Return an undirected copy of G."""
-    return G.to_undirected()
+    """Return a frozen live undirected view of G."""
+    if G.is_multigraph():
+        return _UndirectedMultiGraphConversionView(G)
+    return _UndirectedGraphConversionView(G)
 
 
 def to_directed(G):
-    """Return a directed copy of G (each undirected edge becomes two directed edges)."""
-    directed = G.to_directed()
-    if not G.is_multigraph():
-        return directed
+    """Return a frozen live directed view of G."""
+    if G.is_multigraph():
+        return _DirectedMultiGraphConversionView(G)
+    return _DirectedGraphConversionView(G)
 
-    result = G.__class__().to_directed()
-    result.graph.update(dict(G.graph))
-    for node, attrs in G.nodes(data=True):
-        result.add_node(node, **dict(attrs))
-    for u, v, key, attrs in G.edges(keys=True, data=True):
-        result.add_edge(u, v, key=key, **dict(attrs))
-        result.add_edge(v, u, key=key, **dict(attrs))
-    return result
+
+class _ReverseDirectedView:
+    def __init__(self, graph):
+        self._graph = graph
+        self.graph = graph.graph
+        self.frozen = True
+
+    def __iter__(self):
+        return iter(self._graph)
+
+    def __len__(self):
+        return len(self._graph)
+
+    def __contains__(self, node):
+        return node in self._graph
+
+    def is_directed(self):
+        return True
+
+    def is_multigraph(self):
+        return self._graph.is_multigraph()
+
+    def nodes(self, data=False):
+        return self._graph.nodes(data=data)
+
+    def _nbunch(self, nbunch):
+        if nbunch is None:
+            return list(self._graph.nodes())
+        if nbunch in self._graph:
+            return [nbunch]
+        try:
+            return [node for node in nbunch if node in self._graph]
+        except TypeError:
+            return []
+
+    def edges(self, nbunch=None, data=False, keys=False):
+        nodes = self._nbunch(nbunch)
+        result = []
+        if self._graph.is_multigraph():
+            for source in nodes:
+                for target, keyed_attrs in self._graph.pred[source].items():
+                    for key, attrs in keyed_attrs.items():
+                        if data and keys:
+                            result.append((source, target, key, attrs))
+                        elif data:
+                            result.append((source, target, attrs))
+                        elif keys:
+                            result.append((source, target, key))
+                        else:
+                            result.append((source, target))
+        else:
+            for source in nodes:
+                for target, attrs in self._graph.pred[source].items():
+                    if data:
+                        result.append((source, target, attrs))
+                    else:
+                        result.append((source, target))
+        return result
+
+    def number_of_edges(self):
+        return self._graph.number_of_edges()
+
+    def has_edge(self, u, v, key=None):
+        if self._graph.is_multigraph():
+            return self._graph.has_edge(v, u, key)
+        return self._graph.has_edge(v, u)
+
+    def neighbors(self, node):
+        return self._graph.predecessors(node)
+
+    def successors(self, node):
+        return self._graph.predecessors(node)
+
+    def predecessors(self, node):
+        return self._graph.successors(node)
+
+    def __getattr__(self, name):
+        if name in _FILTERED_VIEW_MUTATORS:
+            return _frozen
+        raise AttributeError(name)
+
+
+_FILTERED_VIEW_MUTATORS = (
+    "add_node",
+    "add_nodes_from",
+    "remove_node",
+    "remove_nodes_from",
+    "add_edge",
+    "add_edges_from",
+    "add_weighted_edges_from",
+    "remove_edge",
+    "remove_edges_from",
+    "clear",
+    "clear_edges",
+)
+
+
+class _FilteredNeighborMap(Mapping):
+    def __init__(self, view, node, *, reverse=False):
+        self._view = view
+        self._node = node
+        self._reverse = reverse
+
+    def _raw_neighbors(self):
+        if self._view.is_directed():
+            if self._reverse:
+                return self._view._graph.pred[self._node]
+            return self._view._graph.succ[self._node]
+        return self._view._graph.adj[self._node]
+
+    def _edge_visible(self, neighbor, key=None):
+        if self._reverse:
+            return self._view._edge_visible(neighbor, self._node, key)
+        return self._view._edge_visible(self._node, neighbor, key)
+
+    def __iter__(self):
+        for neighbor, edge_data in self._raw_neighbors().items():
+            if not self._view._node_visible(neighbor):
+                continue
+            if self._view.is_multigraph():
+                if any(self._edge_visible(neighbor, key) for key in edge_data):
+                    yield neighbor
+            elif self._edge_visible(neighbor):
+                yield neighbor
+
+    def __len__(self):
+        return sum(1 for _ in self)
+
+    def __getitem__(self, neighbor):
+        if not self._view._node_visible(neighbor):
+            raise KeyError(f"Key {neighbor} not found")
+
+        if self._view.is_multigraph():
+            keydict = self._raw_neighbors()[neighbor]
+            filtered = {
+                key: attrs
+                for key, attrs in keydict.items()
+                if self._edge_visible(neighbor, key)
+            }
+            if filtered:
+                return filtered
+        else:
+            if self._edge_visible(neighbor):
+                return self._raw_neighbors()[neighbor]
+
+        raise KeyError(f"Key {neighbor} not found")
+
+
+class _FilteredAdjacencyView(Mapping):
+    def __init__(self, view, *, reverse=False):
+        self._view = view
+        self._reverse = reverse
+
+    def __iter__(self):
+        return iter(self._view)
+
+    def __len__(self):
+        return len(self._view)
+
+    def __getitem__(self, node):
+        if not self._view._node_visible(node):
+            raise KeyError(f"Key {node} not found")
+        return _FilteredNeighborMap(self._view, node, reverse=self._reverse)
+
+
+class _FilteredGraphView:
+    def __init__(self, graph, *, filter_node=None, filter_edge=None):
+        self._graph = graph
+        self.graph = graph.graph
+        self._filter_node = filter_node or (lambda node: True)
+        self._filter_edge = filter_edge or (lambda *args: True)
+        self.frozen = True
+        self.adj = _FilteredAdjacencyView(self)
+        if graph.is_directed():
+            self.succ = _FilteredAdjacencyView(self)
+            self.pred = _FilteredAdjacencyView(self, reverse=True)
+
+    def __iter__(self):
+        for node in self._graph:
+            if self._node_visible(node):
+                yield node
+
+    def __len__(self):
+        return sum(1 for _ in self)
+
+    def __contains__(self, node):
+        return self._node_visible(node)
+
+    def __getitem__(self, node):
+        return self.adj[node]
+
+    def __getattr__(self, name):
+        if name in _FILTERED_VIEW_MUTATORS:
+            return _frozen
+        return getattr(self.copy(), name)
+
+    def is_directed(self):
+        return self._graph.is_directed()
+
+    def is_multigraph(self):
+        return self._graph.is_multigraph()
+
+    def _node_visible(self, node):
+        return node in self._graph and self._filter_node(node)
+
+    def _edge_visible(self, u, v, key=None):
+        if not (self._node_visible(u) and self._node_visible(v)):
+            return False
+        if self.is_multigraph():
+            return self._filter_edge(u, v, key)
+        return self._filter_edge(u, v)
+
+    def _nbunch(self, nbunch):
+        if nbunch is None:
+            return list(self)
+        if self._node_visible(nbunch):
+            return [nbunch]
+        try:
+            return [node for node in nbunch if self._node_visible(node)]
+        except TypeError:
+            return []
+
+    def nodes(self, data=False):
+        if data:
+            return [(node, self._graph.nodes[node]) for node in self]
+        return list(self)
+
+    def edges(self, nbunch=None, data=False, keys=False):
+        nodes = self._nbunch(nbunch)
+        result = []
+        if self.is_directed():
+            for source in nodes:
+                for target in self.adj[source]:
+                    if self.is_multigraph():
+                        for key, attrs in self.adj[source][target].items():
+                            if data and keys:
+                                result.append((source, target, key, attrs))
+                            elif data:
+                                result.append((source, target, attrs))
+                            elif keys:
+                                result.append((source, target, key))
+                            else:
+                                result.append((source, target))
+                    else:
+                        attrs = self.adj[source][target]
+                        if data:
+                            result.append((source, target, attrs))
+                        else:
+                            result.append((source, target))
+            return result
+
+        seen = set()
+        for source in nodes:
+            for target in self.adj[source]:
+                if target in seen:
+                    continue
+                if self.is_multigraph():
+                    for key, attrs in self.adj[source][target].items():
+                        if data and keys:
+                            result.append((source, target, key, attrs))
+                        elif data:
+                            result.append((source, target, attrs))
+                        elif keys:
+                            result.append((source, target, key))
+                        else:
+                            result.append((source, target))
+                else:
+                    attrs = self.adj[source][target]
+                    if data:
+                        result.append((source, target, attrs))
+                    else:
+                        result.append((source, target))
+            seen.add(source)
+        return result
+
+    def neighbors(self, node):
+        if not self._node_visible(node):
+            raise NetworkXError(f"The node {node} is not in the graph.")
+        return iter(self.adj[node])
+
+    def successors(self, node):
+        return self.neighbors(node)
+
+    def predecessors(self, node):
+        if not self.is_directed():
+            return self.neighbors(node)
+        if not self._node_visible(node):
+            raise NetworkXError(f"The node {node} is not in the graph.")
+        return iter(self.pred[node])
+
+    def has_edge(self, u, v, key=None):
+        if self.is_multigraph():
+            if not self._graph.has_edge(u, v, key):
+                return False
+            if key is not None:
+                return self._edge_visible(u, v, key)
+            return any(self._edge_visible(u, v, edge_key) for edge_key in self._graph[u][v])
+        if not self._graph.has_edge(u, v):
+            return False
+        return self._edge_visible(u, v)
+
+    def number_of_nodes(self):
+        return len(self)
+
+    def number_of_edges(self):
+        return len(self.edges(keys=True)) if self.is_multigraph() else len(self.edges())
+
+    def copy(self):
+        result = self._graph.__class__()
+        result.graph.update(dict(self.graph))
+        result.add_nodes_from((node, dict(attrs)) for node, attrs in self.nodes(data=True))
+        if self.is_multigraph():
+            for u, v, key, attrs in self.edges(keys=True, data=True):
+                result.add_edge(u, v, key=key, **dict(attrs))
+        else:
+            for u, v, attrs in self.edges(data=True):
+                result.add_edge(u, v, **dict(attrs))
+        return result
+
+
+class _ConversionNodeView(Mapping):
+    def __init__(self, view):
+        self._view = view
+
+    def __iter__(self):
+        return iter(self._view)
+
+    def __len__(self):
+        return len(self._view)
+
+    def __getitem__(self, node):
+        return self._view._graph.nodes[node]
+
+    def __call__(self, data=False):
+        if data:
+            return [(node, self[node]) for node in self]
+        return list(self)
+
+
+class _ConversionEdgeView:
+    def __init__(self, view):
+        self._view = view
+
+    def __iter__(self):
+        return iter(self())
+
+    def __len__(self):
+        return len(self())
+
+    def __call__(self, nbunch=None, data=False, keys=False):
+        return self._view._edges(nbunch=nbunch, data=data, keys=keys)
+
+
+class _UnionKeyAtlas(Mapping):
+    def __init__(self, primary, secondary):
+        self._primary = primary
+        self._secondary = secondary
+
+    def __iter__(self):
+        yielded = set()
+        for key in self._primary:
+            yielded.add(key)
+            yield key
+        for key in self._secondary:
+            if key not in yielded:
+                yield key
+
+    def __len__(self):
+        return sum(1 for _ in self)
+
+    def __getitem__(self, key):
+        if key in self._primary:
+            return self._primary[key]
+        return self._secondary[key]
+
+
+class _ConversionNeighborMap(Mapping):
+    def __init__(self, view, node, *, reverse=False):
+        self._view = view
+        self._node = node
+        self._reverse = reverse
+
+    def __iter__(self):
+        if self._reverse:
+            yield from self._view._pred_neighbors(self._node)
+        else:
+            yield from self._view._adj_neighbors(self._node)
+
+    def __len__(self):
+        return sum(1 for _ in self)
+
+    def __getitem__(self, neighbor):
+        if self._reverse:
+            return self._view._pred_neighbor_value(self._node, neighbor)
+        return self._view._adj_neighbor_value(self._node, neighbor)
+
+
+class _ConversionAdjacencyView(Mapping):
+    def __init__(self, view, *, reverse=False):
+        self._view = view
+        self._reverse = reverse
+
+    def __iter__(self):
+        return iter(self._view)
+
+    def __len__(self):
+        return len(self._view)
+
+    def __getitem__(self, node):
+        if node not in self._view._graph:
+            raise KeyError(f"Key {node} not found")
+        return _ConversionNeighborMap(self._view, node, reverse=self._reverse)
+
+
+class _ConversionGraphViewBase:
+    _directed = False
+    _multigraph = False
+
+    def __init__(self, graph):
+        self._graph = graph
+        self.graph = graph.graph
+        self.frozen = True
+        self.nodes = _ConversionNodeView(self)
+        self.edges = _ConversionEdgeView(self)
+        self.adj = _ConversionAdjacencyView(self)
+        if self.is_directed():
+            self.succ = self.adj
+            self.pred = _ConversionAdjacencyView(self, reverse=True)
+
+    def __iter__(self):
+        return iter(self._graph)
+
+    def __len__(self):
+        return len(self._graph)
+
+    def __contains__(self, node):
+        return node in self._graph
+
+    def __getitem__(self, node):
+        return self.adj[node]
+
+    def __getattr__(self, name):
+        if name in _FILTERED_VIEW_MUTATORS:
+            return _frozen
+        return getattr(self.copy(), name)
+
+    def is_directed(self):
+        return self._directed
+
+    def is_multigraph(self):
+        return self._multigraph
+
+    def _nbunch(self, nbunch):
+        if nbunch is None:
+            return list(self)
+        if nbunch in self._graph:
+            return [nbunch]
+        try:
+            return [node for node in nbunch if node in self._graph]
+        except TypeError:
+            return []
+
+    def _adj_neighbors(self, node):
+        raise NotImplementedError
+
+    def _adj_neighbor_value(self, node, neighbor):
+        raise NotImplementedError
+
+    def _pred_neighbors(self, node):
+        yield from self._adj_neighbors(node)
+
+    def _pred_neighbor_value(self, node, neighbor):
+        return self._adj_neighbor_value(node, neighbor)
+
+    def _edges(self, nbunch=None, data=False, keys=False):
+        nodes = self._nbunch(nbunch)
+        result = []
+        if self.is_directed():
+            for source in nodes:
+                for target in self.adj[source]:
+                    if self.is_multigraph():
+                        for key, attrs in self.adj[source][target].items():
+                            if data and keys:
+                                result.append((source, target, key, attrs))
+                            elif data:
+                                result.append((source, target, attrs))
+                            elif keys:
+                                result.append((source, target, key))
+                            else:
+                                result.append((source, target))
+                    else:
+                        attrs = self.adj[source][target]
+                        if data:
+                            result.append((source, target, attrs))
+                        else:
+                            result.append((source, target))
+            return result
+
+        seen = set()
+        for source in nodes:
+            for target in self.adj[source]:
+                if self.is_multigraph():
+                    for key, attrs in self.adj[source][target].items():
+                        marker = (frozenset((source, target)), key)
+                        if marker in seen:
+                            continue
+                        seen.add(marker)
+                        if data and keys:
+                            result.append((source, target, key, attrs))
+                        elif data:
+                            result.append((source, target, attrs))
+                        elif keys:
+                            result.append((source, target, key))
+                        else:
+                            result.append((source, target))
+                else:
+                    marker = frozenset((source, target))
+                    if marker in seen:
+                        continue
+                    seen.add(marker)
+                    attrs = self.adj[source][target]
+                    if data:
+                        result.append((source, target, attrs))
+                    else:
+                        result.append((source, target))
+        return result
+
+    def neighbors(self, node):
+        if node not in self._graph:
+            raise NetworkXError(f"The node {node} is not in the graph.")
+        return iter(self.adj[node])
+
+    def successors(self, node):
+        if not self.is_directed():
+            return self.neighbors(node)
+        if node not in self._graph:
+            raise NetworkXError(f"The node {node} is not in the graph.")
+        return iter(self.succ[node])
+
+    def predecessors(self, node):
+        if not self.is_directed():
+            return self.neighbors(node)
+        if node not in self._graph:
+            raise NetworkXError(f"The node {node} is not in the graph.")
+        return iter(self.pred[node])
+
+    def number_of_nodes(self):
+        return len(self)
+
+    def number_of_edges(self):
+        if self.is_multigraph():
+            return len(self.edges(keys=True))
+        return len(self.edges())
+
+    def copy(self):
+        result = self._copy_type()()
+        result.graph.update(dict(self.graph))
+        result.add_nodes_from((node, dict(attrs)) for node, attrs in self.nodes(data=True))
+        if self.is_multigraph():
+            for u, v, key, attrs in self.edges(keys=True, data=True):
+                result.add_edge(u, v, key=key, **dict(attrs))
+        else:
+            for u, v, attrs in self.edges(data=True):
+                result.add_edge(u, v, **dict(attrs))
+        return result
+
+    def _copy_type(self):
+        if self.is_directed():
+            return MultiDiGraph if self.is_multigraph() else DiGraph
+        return MultiGraph if self.is_multigraph() else Graph
+
+
+class _DirectedGraphConversionView(_ConversionGraphViewBase):
+    _directed = True
+
+    def _adj_neighbors(self, node):
+        return iter(self._graph[node])
+
+    def _adj_neighbor_value(self, node, neighbor):
+        return self._graph[node][neighbor]
+
+    def _pred_neighbors(self, node):
+        if self._graph.is_directed():
+            return iter(self._graph.pred[node])
+        return iter(self._graph[node])
+
+    def _pred_neighbor_value(self, node, neighbor):
+        if self._graph.is_directed():
+            return self._graph.pred[node][neighbor]
+        return self._graph[node][neighbor]
+
+    def has_edge(self, u, v, key=None):
+        return self._graph.has_edge(u, v)
+
+
+class _DirectedMultiGraphConversionView(_ConversionGraphViewBase):
+    _directed = True
+    _multigraph = True
+
+    def _adj_neighbors(self, node):
+        return iter(self._graph[node])
+
+    def _adj_neighbor_value(self, node, neighbor):
+        return self._graph[node][neighbor]
+
+    def _pred_neighbors(self, node):
+        if self._graph.is_directed():
+            return iter(self._graph.pred[node])
+        return iter(self._graph[node])
+
+    def _pred_neighbor_value(self, node, neighbor):
+        if self._graph.is_directed():
+            return self._graph.pred[node][neighbor]
+        return self._graph[node][neighbor]
+
+    def has_edge(self, u, v, key=None):
+        return self._graph.has_edge(u, v, key)
+
+
+class _UndirectedGraphConversionView(_ConversionGraphViewBase):
+    def _adj_neighbors(self, node):
+        if not self._graph.is_directed():
+            return iter(self._graph[node])
+
+        def merged():
+            yielded = set()
+            for neighbor in self._graph.succ[node]:
+                yielded.add(neighbor)
+                yield neighbor
+            for neighbor in self._graph.pred[node]:
+                if neighbor not in yielded:
+                    yield neighbor
+
+        return merged()
+
+    def _adj_neighbor_value(self, node, neighbor):
+        if not self._graph.is_directed():
+            return self._graph[node][neighbor]
+        if self._graph.has_edge(node, neighbor):
+            return self._graph.succ[node][neighbor]
+        return self._graph.pred[node][neighbor]
+
+    def has_edge(self, u, v, key=None):
+        if not self._graph.is_directed():
+            return self._graph.has_edge(u, v)
+        return self._graph.has_edge(u, v) or self._graph.has_edge(v, u)
+
+
+class _UndirectedMultiGraphConversionView(_ConversionGraphViewBase):
+    _multigraph = True
+
+    def _adj_neighbors(self, node):
+        if not self._graph.is_directed():
+            return iter(self._graph[node])
+
+        def merged():
+            yielded = set()
+            for neighbor in self._graph.succ[node]:
+                yielded.add(neighbor)
+                yield neighbor
+            for neighbor in self._graph.pred[node]:
+                if neighbor not in yielded:
+                    yield neighbor
+
+        return merged()
+
+    def _adj_neighbor_value(self, node, neighbor):
+        if not self._graph.is_directed():
+            return self._graph[node][neighbor]
+
+        outgoing = self._graph.succ[node].get(neighbor)
+        incoming = self._graph.pred[node].get(neighbor)
+        if outgoing is not None and incoming is not None:
+            return _UnionKeyAtlas(outgoing, incoming)
+        if outgoing is not None:
+            return outgoing
+        if incoming is not None:
+            return incoming
+        raise KeyError(f"Key {neighbor} not found")
+
+    def has_edge(self, u, v, key=None):
+        if not self._graph.is_directed():
+            return self._graph.has_edge(u, v, key)
+        return self._graph.has_edge(u, v, key) or self._graph.has_edge(v, u, key)
 
 
 def reverse(G, copy=True):
     """Return graph with all edges reversed."""
-    reversed_graph = G.reverse()
+    if not G.is_directed():
+        raise NetworkXError("Cannot reverse an undirected graph.")
     if copy:
-        return reversed_graph
-    return reversed_graph
+        return G.reverse()
+    return _ReverseDirectedView(G)
 
 
 def nodes(G):
@@ -9266,14 +10262,57 @@ def nodes(G):
     return G.nodes
 
 
+def _global_nbunch_nodes(G, nbunch):
+    if nbunch is None:
+        return None
+    try:
+        if nbunch in G:
+            return [nbunch]
+    except TypeError:
+        pass
+    try:
+        nodes = []
+        for node in nbunch:
+            try:
+                hash(node)
+            except TypeError as exc:
+                raise NetworkXError(
+                    f"Node {node} in sequence nbunch is not a valid node."
+                ) from exc
+            if node in G:
+                nodes.append(node)
+        return nodes
+    except TypeError as exc:
+        message = exc.args[0] if exc.args else ""
+        if "object is not iterable" in message:
+            raise NetworkXError(f"Node {nbunch} is not in the graph.") from exc
+        raise NetworkXError("nbunch is not a node or a sequence of nodes.") from exc
+
+
 def edges(G, nbunch=None):
     """Return edges of G (global function form)."""
     if nbunch is None:
         return G.edges
-    if G.is_directed():
-        return G.edges(nbunch=nbunch)
 
-    nbunch_nodes = set(nbunch)
+    nbunch_nodes = _global_nbunch_nodes(G, nbunch)
+    if G.is_directed():
+        result = []
+        if G.is_multigraph():
+            for u in nbunch_nodes:
+                if u not in G:
+                    continue
+                for v, keydict in G[u].items():
+                    for _key in keydict:
+                        result.append((u, v))
+            return result
+
+        for u in nbunch_nodes:
+            if u not in G:
+                continue
+            for v in G[u]:
+                result.append((u, v))
+        return result
+
     if G.is_multigraph():
         seen = set()
         result = []
@@ -9308,39 +10347,63 @@ def degree(G, nbunch=None, weight=None):
     if weight is None:
         if nbunch is None:
             return G.degree
-        if isinstance(nbunch, (str, bytes)) or not hasattr(nbunch, "__iter__"):
-            return G.degree[nbunch]
-        return ((node, G.degree[node]) for node in nbunch)
+        try:
+            if nbunch in G:
+                return G.degree[nbunch]
+        except TypeError:
+            pass
+
+        nbunch_nodes = _global_nbunch_nodes(G, nbunch)
+        return ((node, G.degree[node]) for node in nbunch_nodes)
+
+    def edge_weight(attrs):
+        return attrs.get(weight, 1)
 
     def weighted_degree(node):
-        total = 0
         if G.is_multigraph():
             if G.is_directed():
-                for _, _, _, attrs in G.edges(nbunch=[node], keys=True, data=True):
-                    total += attrs.get(weight, 1)
-                for src, _, _, attrs in G.in_edges(nbunch=[node], keys=True, data=True):
-                    if src != node:
-                        total += attrs.get(weight, 1)
-            else:
-                for _, _, _, attrs in G.edges(nbunch=[node], keys=True, data=True):
-                    total += attrs.get(weight, 1)
-        else:
-            if G.is_directed():
-                for _, _, attrs in G.edges(nbunch=[node], data=True):
-                    total += attrs.get(weight, 1)
-                for src, _, attrs in G.in_edges(nbunch=[node], data=True):
-                    if src != node:
-                        total += attrs.get(weight, 1)
-            else:
-                for _, _, attrs in G.edges(nbunch=[node], data=True):
-                    total += attrs.get(weight, 1)
+                total = 0
+                for keydict in G.succ[node].values():
+                    for attrs in keydict.values():
+                        total += edge_weight(attrs)
+                for keydict in G.pred[node].values():
+                    for attrs in keydict.values():
+                        total += edge_weight(attrs)
+                return total
+
+            total = 0
+            for neighbor, keydict in G.adj[node].items():
+                edge_total = 0
+                for attrs in keydict.values():
+                    edge_total += edge_weight(attrs)
+                total += edge_total * 2 if neighbor == node else edge_total
+            return total
+
+        if G.is_directed():
+            total = 0
+            for attrs in G.succ[node].values():
+                total += edge_weight(attrs)
+            for attrs in G.pred[node].values():
+                total += edge_weight(attrs)
+            return total
+
+        total = 0
+        for neighbor, attrs in G.adj[node].items():
+            edge_total = edge_weight(attrs)
+            total += edge_total * 2 if neighbor == node else edge_total
         return total
 
     if nbunch is None:
         return ((node, weighted_degree(node)) for node in G.nodes)
-    if isinstance(nbunch, (str, bytes)) or not hasattr(nbunch, "__iter__"):
-        return weighted_degree(nbunch)
-    return ((node, weighted_degree(node)) for node in nbunch)
+
+    try:
+        if nbunch in G:
+            return weighted_degree(nbunch)
+    except TypeError:
+        pass
+
+    nbunch_nodes = _global_nbunch_nodes(G, nbunch)
+    return ((node, weighted_degree(node)) for node in nbunch_nodes)
 
 
 def number_of_nodes(G):
@@ -11906,7 +12969,171 @@ def panther_similarity(
     return result
 
 
-def optimal_edit_paths(  # DELEGATED_TO_NETWORKX
+_PY_GRAPH_EDIT_DISTANCE_MAX_NODES = 8
+
+
+def _graph_edit_node_subst_cost(
+    G1,
+    G2,
+    left,
+    right,
+    node_match,
+    node_subst_cost,
+):
+    left_attrs = G1.nodes[left]
+    right_attrs = G2.nodes[right]
+    if node_subst_cost is not None:
+        return node_subst_cost(left_attrs, right_attrs)
+    if node_match is not None:
+        return 0 if node_match(left_attrs, right_attrs) else 1
+    return 0
+
+
+def _graph_edit_node_del_cost(G, node, node_del_cost):
+    return 1 if node_del_cost is None else node_del_cost(G.nodes[node])
+
+
+def _graph_edit_node_ins_cost(G, node, node_ins_cost):
+    return 1 if node_ins_cost is None else node_ins_cost(G.nodes[node])
+
+
+def _graph_edit_edge_attrs(G, edge):
+    u, v = edge
+    return G.get_edge_data(u, v)
+
+
+def _graph_edit_edge_subst_cost(
+    G1,
+    G2,
+    left_edge,
+    right_edge,
+    edge_match,
+    edge_subst_cost,
+):
+    left_attrs = _graph_edit_edge_attrs(G1, left_edge)
+    right_attrs = _graph_edit_edge_attrs(G2, right_edge)
+    if edge_subst_cost is not None:
+        return edge_subst_cost(left_attrs, right_attrs)
+    if edge_match is not None:
+        return 0 if edge_match(left_attrs, right_attrs) else 1
+    return 0
+
+
+def _graph_edit_edge_del_cost(G, edge, edge_del_cost):
+    return 1 if edge_del_cost is None else edge_del_cost(_graph_edit_edge_attrs(G, edge))
+
+
+def _graph_edit_edge_ins_cost(G, edge, edge_ins_cost):
+    return 1 if edge_ins_cost is None else edge_ins_cost(_graph_edit_edge_attrs(G, edge))
+
+
+def _graph_edit_exact_paths_python(
+    G1,
+    G2,
+    *,
+    node_match=None,
+    edge_match=None,
+    node_subst_cost=None,
+    node_del_cost=None,
+    node_ins_cost=None,
+    edge_subst_cost=None,
+    edge_del_cost=None,
+    edge_ins_cost=None,
+    upper_bound=None,
+):
+    if G1.is_multigraph() or G2.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G1.is_directed() != G2.is_directed():
+        raise NetworkXError("G1 and G2 must be both directed or both undirected")
+    if G1.number_of_nodes() + G2.number_of_nodes() > _PY_GRAPH_EDIT_DISTANCE_MAX_NODES:
+        raise NetworkXNotImplemented(
+            "local optimal_edit_paths is bounded to small simple graphs",
+        )
+
+    left_nodes = list(G1.nodes())
+    right_nodes = list(G2.nodes())
+    left_edges = list(G1.edges())
+    right_edges = list(G2.edges())
+    best_cost = math.inf
+    best_mappings = []
+
+    def evaluate(mapping):
+        matched_right_nodes = set(mapping.values())
+        cost = 0
+        for left, right in mapping.items():
+            cost += _graph_edit_node_subst_cost(
+                G1,
+                G2,
+                left,
+                right,
+                node_match,
+                node_subst_cost,
+            )
+        for left in left_nodes:
+            if left not in mapping:
+                cost += _graph_edit_node_del_cost(G1, left, node_del_cost)
+        for right in right_nodes:
+            if right not in matched_right_nodes:
+                cost += _graph_edit_node_ins_cost(G2, right, node_ins_cost)
+
+        matched_right_edges = set()
+        for left_edge in left_edges:
+            left_u, left_v = left_edge
+            right_u = mapping.get(left_u)
+            right_v = mapping.get(left_v)
+            if right_u is not None and right_v is not None and G2.has_edge(right_u, right_v):
+                right_edge = (right_u, right_v)
+                cost += _graph_edit_edge_subst_cost(
+                    G1,
+                    G2,
+                    left_edge,
+                    right_edge,
+                    edge_match,
+                    edge_subst_cost,
+                )
+                matched_right_edges.add(_graph_edit_distance_edge_key(G2, right_edge))
+            else:
+                cost += _graph_edit_edge_del_cost(G1, left_edge, edge_del_cost)
+
+        for right_edge in right_edges:
+            if _graph_edit_distance_edge_key(G2, right_edge) not in matched_right_edges:
+                cost += _graph_edit_edge_ins_cost(G2, right_edge, edge_ins_cost)
+        return cost
+
+    def search(index, available_right, mapping):
+        nonlocal best_cost, best_mappings
+        if index == len(left_nodes):
+            cost = evaluate(mapping)
+            if upper_bound is not None and cost > upper_bound:
+                return
+            if cost < best_cost:
+                best_cost = cost
+                best_mappings = [dict(mapping)]
+            elif cost == best_cost:
+                best_mappings.append(dict(mapping))
+            return
+
+        left = left_nodes[index]
+        search(index + 1, available_right, mapping)
+        for right_index, right in enumerate(available_right):
+            mapping[left] = right
+            search(
+                index + 1,
+                available_right[:right_index] + available_right[right_index + 1 :],
+                mapping,
+            )
+            del mapping[left]
+
+    search(0, tuple(right_nodes), {})
+    if not best_mappings:
+        return [], None
+    return [
+        _graph_edit_distance_paths_from_mapping(G1, G2, mapping)
+        for mapping in best_mappings
+    ], best_cost
+
+
+def optimal_edit_paths(
     G1,
     G2,
     node_match=None,
@@ -11942,13 +13169,9 @@ def optimal_edit_paths(  # DELEGATED_TO_NETWORKX
             for mapping in mappings
         ], cost
 
-    import networkx as nx
-
-    from franken_networkx.drawing.layout import _to_nx
-
-    return nx.optimal_edit_paths(
-        _to_nx(G1),
-        _to_nx(G2),
+    return _graph_edit_exact_paths_python(
+        G1,
+        G2,
         node_match=node_match,
         edge_match=edge_match,
         node_subst_cost=node_subst_cost,
@@ -11961,9 +13184,13 @@ def optimal_edit_paths(  # DELEGATED_TO_NETWORKX
     )
 
 
-def optimize_edit_paths(G1, G2, **kwargs):  # DELEGATED_TO_NETWORKX
-    """Iterator yielding progressively better edit paths."""
-    handled, native_result = _native_graph_edit_distance_common_case(
+def optimize_edit_paths(G1, G2, **kwargs):
+    """Iterator yielding final edit paths from the local optimal-path wrapper."""
+    if kwargs.get("roots") is not None or kwargs.get("timeout") is not None:
+        raise NetworkXNotImplemented(
+            "roots and timeout are not supported by local optimize_edit_paths",
+        )
+    paths, cost = optimal_edit_paths(
         G1,
         G2,
         node_match=kwargs.get("node_match"),
@@ -11975,28 +13202,15 @@ def optimize_edit_paths(G1, G2, **kwargs):  # DELEGATED_TO_NETWORKX
         edge_del_cost=kwargs.get("edge_del_cost"),
         edge_ins_cost=kwargs.get("edge_ins_cost"),
         upper_bound=kwargs.get("upper_bound"),
-        roots=kwargs.get("roots"),
-        timeout=kwargs.get("timeout"),
     )
-    if handled:
-        if native_result is None:
-            return
-        mappings, cost = native_result
-        paths = [
-            _graph_edit_distance_paths_from_mapping(G1, G2, mapping)
-            for mapping in mappings
-        ]
-        if kwargs.get("strictly_decreasing", True):
-            node_path, edge_path = paths[0]
-            yield node_path, edge_path, cost
-            return
-        for node_path, edge_path in paths:
-            yield node_path, edge_path, cost
+    if cost is None:
         return
-
-    import networkx as nx
-
-    yield from nx.optimize_edit_paths(G1, G2, **kwargs)
+    if kwargs.get("strictly_decreasing", True):
+        node_path, edge_path = paths[0]
+        yield node_path, edge_path, cost
+        return
+    for node_path, edge_path in paths:
+        yield node_path, edge_path, cost
 
 
 # ---------------------------------------------------------------------------
@@ -12005,54 +13219,190 @@ def optimize_edit_paths(G1, G2, **kwargs):  # DELEGATED_TO_NETWORKX
 
 
 # Simple aliases and trivial implementations
+def _subgraph_filter_from_nbunch(G, nbunch):
+    if nbunch is None:
+        return None
+    if nbunch in G:
+        allowed_nodes = {nbunch}
+    else:
+        try:
+            allowed_nodes = set()
+            for node in nbunch:
+                try:
+                    hash(node)
+                except TypeError as exc:
+                    raise NetworkXError(
+                        f"Node {node} in sequence nbunch is not a valid node."
+                    ) from exc
+                if node in G:
+                    allowed_nodes.add(node)
+        except TypeError as exc:
+            message = exc.args[0] if exc.args else ""
+            if "object is not iterable" in message:
+                raise NetworkXError(f"Node {nbunch} is not in the graph.") from exc
+            raise NetworkXError("nbunch is not a node or a sequence of nodes.") from exc
+
+    return lambda node: node in allowed_nodes
+
+
 def subgraph(G, nbunch):
     """Return subgraph induced by nbunch."""
-    return G.subgraph(nbunch)
+    return subgraph_view(
+        G,
+        filter_node=_subgraph_filter_from_nbunch(G, nbunch),
+    )
 
 
 def induced_subgraph(G, nbunch):
     """Return induced subgraph (alias for subgraph)."""
-    return G.subgraph(nbunch)
+    return subgraph(
+        G,
+        nbunch,
+    )
 
 
 def edge_subgraph(G, edges):
     """Return subgraph induced by edges."""
-    return G.edge_subgraph(edges) if hasattr(G, "edge_subgraph") else G.copy()
+    edges = set(edges)
+    nodes = set()
+    for edge in edges:
+        nodes.update(edge[:2])
+
+    def filter_node(node):
+        return node in nodes
+
+    if G.is_multigraph():
+        if G.is_directed():
+            visible_edges = {(u, v, k) for u, v, k in edges}
+
+            def filter_edge(u, v, key):
+                return (u, v, key) in visible_edges
+
+        else:
+            visible_edges = edges | {(v, u, k) for u, v, k in edges}
+
+            def filter_edge(u, v, key):
+                return (u, v, key) in visible_edges
+
+    else:
+        if G.is_directed():
+            visible_edges = {(u, v) for u, v in edges}
+
+            def filter_edge(u, v):
+                return (u, v) in visible_edges
+
+        else:
+            visible_edges = edges | {(v, u) for u, v in edges}
+
+            def filter_edge(u, v):
+                return (u, v) in visible_edges
+
+    return subgraph_view(
+        G,
+        filter_node=filter_node,
+        filter_edge=filter_edge,
+    )
 
 
 def subgraph_view(G, filter_node=None, filter_edge=None):
-    """Filtered view of graph (returns copy with filtered nodes/edges)."""
-    H = G.copy()
-    if filter_node:
-        for n in list(H.nodes()):
-            if not filter_node(n):
-                H.remove_node(n)
-    if filter_edge:
-        for u, v in list(H.edges()):
-            if not filter_edge(u, v):
-                H.remove_edge(u, v)
-    return H
+    """Filtered live view of graph."""
+    return _FilteredGraphView(
+        G,
+        filter_node=filter_node,
+        filter_edge=filter_edge,
+    )
 
 
 def restricted_view(G, nodes_to_remove, edges_to_remove):
     """View with specified nodes and edges removed."""
-    H = G.copy()
-    for n in nodes_to_remove:
-        if n in H:
-            H.remove_node(n)
-    for u, v in edges_to_remove:
-        if H.has_edge(u, v):
-            H.remove_edge(u, v)
-    return H
+    hidden_nodes = set(nodes_to_remove)
+
+    def filter_node(node):
+        return node not in hidden_nodes
+
+    if G.is_multigraph():
+        if G.is_directed():
+            hidden_edges = set(edges_to_remove)
+
+            def filter_edge(u, v, key):
+                return (u, v, key) not in hidden_edges
+
+        else:
+            hidden_edges = {
+                (frozenset((u, v)), key) for u, v, key in edges_to_remove
+            }
+
+            def filter_edge(u, v, key):
+                return (frozenset((u, v)), key) not in hidden_edges
+
+    else:
+        if G.is_directed():
+            hidden_edges = set(edges_to_remove)
+
+            def filter_edge(u, v):
+                return (u, v) not in hidden_edges
+
+        else:
+            hidden_edges = {frozenset((u, v)) for u, v in edges_to_remove}
+
+            def filter_edge(u, v):
+                return frozenset((u, v)) not in hidden_edges
+
+    return subgraph_view(
+        G,
+        filter_node=filter_node,
+        filter_edge=filter_edge,
+    )
 
 
 def reverse_view(G):
-    """View with reversed edges (returns reversed copy)."""
-    return reverse(G)
+    """View with reversed edges."""
+    return reverse(G, copy=False)
+
+
+def non_neighbors(graph, node):
+    """Returns the non-neighbors of the node in the graph."""
+    hash(node)
+    if node not in graph:
+        raise KeyError(node)
+    return set(graph.adj) - set(graph.adj[node]) - {node}
+
+
+def non_edges(graph):
+    """Returns the nonexistent edges in the graph."""
+    if graph.is_directed():
+        for u in graph:
+            for v in non_neighbors(graph, u):
+                yield (u, v)
+        return
+
+    nodes = set(graph)
+    while nodes:
+        u = nodes.pop()
+        for v in nodes - set(graph[u]):
+            yield (u, v)
+
+
+def common_neighbors(G, u, v):
+    """Returns the common neighbors of two nodes in a graph."""
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if u not in G:
+        raise NetworkXError("u is not in the graph.")
+    if v not in G:
+        raise NetworkXError("v is not in the graph.")
+    return set(G.adj[u]) & set(G.adj[v]) - {u, v}
 
 
 def neighbors(G, n):
     """Return neighbors of n (global function form)."""
+    try:
+        hash(n)
+    except TypeError:
+        raise
+    if n not in G:
+        graph_name = "digraph" if G.is_directed() else "graph"
+        raise NetworkXError(f"The node {n} is not in the {graph_name}.")
     return iter(G.neighbors(n))
 
 
@@ -12311,7 +13661,7 @@ def effective_graph_resistance(G, weight=None, invert_weight=True):
     return float(np.sum(1 / mu[1:]) * H.number_of_nodes())
 
 
-def graph_edit_distance(G1, G2, **kwargs):  # DELEGATED_TO_NETWORKX
+def graph_edit_distance(G1, G2, **kwargs):
     """Return graph edit distance."""
     handled, native_result = _native_graph_edit_distance_common_case(
         G1,
@@ -12334,14 +13684,11 @@ def graph_edit_distance(G1, G2, **kwargs):  # DELEGATED_TO_NETWORKX
         _, cost = native_result
         return cost
 
-    import networkx as nx
-
-    return nx.graph_edit_distance(G1, G2, **kwargs)
-
-
-def optimize_graph_edit_distance(G1, G2, **kwargs):  # DELEGATED_TO_NETWORKX
-    """Iterator yielding improving graph edit distances."""
-    handled, native_result = _native_graph_edit_distance_common_case(
+    if kwargs.get("roots") is not None or kwargs.get("timeout") is not None:
+        raise NetworkXNotImplemented(
+            "roots and timeout are not supported by local graph_edit_distance",
+        )
+    _, cost = optimal_edit_paths(
         G1,
         G2,
         node_match=kwargs.get("node_match"),
@@ -12354,18 +13701,14 @@ def optimize_graph_edit_distance(G1, G2, **kwargs):  # DELEGATED_TO_NETWORKX
         edge_ins_cost=kwargs.get("edge_ins_cost"),
         upper_bound=kwargs.get("upper_bound"),
     )
-    if handled:
-        if native_result is None:
-            return
-        _, cost = native_result
+    return cost
+
+
+def optimize_graph_edit_distance(G1, G2, **kwargs):
+    """Iterator yielding the final graph edit distance from the local wrapper."""
+    cost = graph_edit_distance(G1, G2, **kwargs)
+    if cost is not None:
         yield cost
-        return
-
-    import networkx as nx
-
-    from franken_networkx.drawing.layout import _to_nx
-
-    yield from nx.optimize_graph_edit_distance(_to_nx(G1), _to_nx(G2), **kwargs)
 
 
 _COMMON_GRAPH_EDIT_DISTANCE_MAX_NODES = 8
@@ -13748,26 +15091,98 @@ def relabel_nodes(G, mapping, copy=True):
                 H.add_edge(_map.get(u, u), _map.get(v, v), **d)
         return H
     else:
-        # In-place relabeling: collect all data, clear, re-add
-        node_data = [(n, dict(G.nodes[n])) for n in G.nodes()]
-        if G.is_multigraph():
-            edge_data = [
-                (u, v, key, dict(d)) for u, v, key, d in G.edges(keys=True, data=True)
-            ]
+        mapping_keys = set(_map)
+        mapping_values = set(_map.values())
+        if mapping_keys & mapping_values:
+            dependency_nodes = []
+            dependency_seen = set()
+            dependency_edges = {}
+            indegree = {}
+
+            def add_dependency_node(node):
+                if node in dependency_seen:
+                    return
+                dependency_seen.add(node)
+                dependency_nodes.append(node)
+                dependency_edges[node] = []
+                indegree[node] = indegree.get(node, 0)
+
+            for old, new in _map.items():
+                add_dependency_node(old)
+                add_dependency_node(new)
+                if old == new:
+                    continue
+                if new not in dependency_edges[old]:
+                    dependency_edges[old].append(new)
+                    indegree[new] = indegree.get(new, 0) + 1
+
+            queue = deque(node for node in dependency_nodes if indegree[node] == 0)
+            topo_order = []
+            while queue:
+                node = queue.popleft()
+                topo_order.append(node)
+                for neighbor in dependency_edges[node]:
+                    indegree[neighbor] -= 1
+                    if indegree[neighbor] == 0:
+                        queue.append(neighbor)
+
+            if len(topo_order) != len(dependency_nodes):
+                raise NetworkXUnfeasible(
+                    "The node label sets are overlapping and no ordering can "
+                    "resolve the mapping. Use copy=True."
+                )
+
+            nodes = list(reversed(topo_order))
         else:
-            edge_data = [(u, v, dict(d)) for u, v, d in G.edges(data=True)]
-        graph_attrs = dict(G.graph)
-        G.clear()
-        G.graph.update(graph_attrs)
-        for n, attrs in node_data:
-            new_n = _map.get(n, n)
-            G.add_node(new_n, **attrs)
-        if G.is_multigraph():
-            for u, v, key, d in edge_data:
-                G.add_edge(_map.get(u, u), _map.get(v, v), key=key, **d)
-        else:
-            for u, v, d in edge_data:
-                G.add_edge(_map.get(u, u), _map.get(v, v), **d)
+            nodes = [n for n in G if n in _map]
+
+        multigraph = G.is_multigraph()
+        directed = G.is_directed()
+
+        for old in nodes:
+            try:
+                new = _map[old]
+                G.add_node(new, **dict(G.nodes[old]))
+            except KeyError:
+                continue
+
+            if new == old:
+                continue
+
+            if multigraph:
+                new_edges = [
+                    (new, new if old == target else target, key, dict(data))
+                    for target, keyed_data in G[old].items()
+                    for key, data in keyed_data.items()
+                ]
+                if directed:
+                    new_edges += [
+                        (new if old == source else source, new, key, dict(data))
+                        for source, keyed_data in G.pred[old].items()
+                        for key, data in keyed_data.items()
+                    ]
+
+                seen = set()
+                for index, (source, target, key, data) in enumerate(new_edges):
+                    if target in G[source] and key in G[source][target]:
+                        new_key = key if isinstance(key, (int, float)) else 0
+                        while new_key in G[source][target] or (target, new_key) in seen:
+                            new_key += 1
+                        new_edges[index] = (source, target, new_key, data)
+                        seen.add((target, new_key))
+            else:
+                new_edges = [
+                    (new, new if old == target else target, dict(data))
+                    for target, data in G[old].items()
+                ]
+                if directed:
+                    new_edges += [
+                        (new if old == source else source, new, dict(data))
+                        for source, data in G.pred[old].items()
+                    ]
+
+            G.remove_node(old)
+            G.add_edges_from(new_edges)
         return G
 
 
@@ -13786,10 +15201,9 @@ def to_dict_of_lists(G, nodelist=None):
     d : dict
         ``d[u]`` is the list of neighbors of node u.
     """
-    if nodelist is not None:
-        nodeset = set(nodelist)
-        return {n: [nb for nb in G.neighbors(n) if nb in nodeset] for n in nodelist}
-    return _fnx.to_dict_of_lists_rust(G)
+    if nodelist is None:
+        nodelist = G
+    return {n: [nb for nb in G.neighbors(n) if nb in nodelist] for n in nodelist}
 
 
 def _empty_graph_from_create_using(create_using, default=Graph):
@@ -13804,6 +15218,25 @@ def _empty_graph_from_create_using(create_using, default=Graph):
     if hasattr(G, "clear"):
         G.clear()
     return G
+
+
+class _LiveMultiEdgeDataView(Mapping):
+    def __init__(self, graph, u, v):
+        self._graph = graph
+        self._u = u
+        self._v = v
+
+    def _current(self):
+        return self._graph[self._u][self._v]
+
+    def __iter__(self):
+        return iter(self._current())
+
+    def __len__(self):
+        return len(self._current())
+
+    def __getitem__(self, key):
+        return self._current()[key]
 
 
 def _checked_create_using(create_using=None, *, directed=None, multigraph=None, default=Graph):
@@ -14070,7 +15503,8 @@ def convert_node_labels_to_integers(
     elif ordering == "increasing degree":
         nodes = sorted(G.nodes(), key=lambda n: G.degree[n])
     elif ordering == "decreasing degree":
-        nodes = sorted(G.nodes(), key=lambda n: G.degree[n], reverse=True)
+        nodes = [node for node, _degree in sorted(G.degree, key=lambda item: item[1])]
+        nodes.reverse()
     else:
         raise NetworkXError(f"Unknown node ordering: {ordering}")
 
@@ -14657,7 +16091,10 @@ def to_dict_of_dicts(G, nodelist=None, edge_data=None):
                 if edge_data is not None:
                     d[u][v] = edge_data
                 else:
-                    d[u][v] = dict(data) if hasattr(data, "items") else data
+                    if G.is_multigraph():
+                        d[u][v] = _LiveMultiEdgeDataView(G, u, v)
+                    else:
+                        d[u][v] = data
     return d
 
 
@@ -15261,6 +16698,97 @@ def LCF_graph(n, shift_list, repeats, create_using=None):
     return graph
 
 
+def _lfr_zipf_rv(alpha, xmin, rng):
+    if xmin < 1:
+        raise ValueError("xmin < 1")
+    if alpha <= 1:
+        raise ValueError("a <= 1.0")
+    alpha_minus_one = alpha - 1.0
+    base = 2**alpha_minus_one
+    while True:
+        u = 1.0 - rng.random()
+        v = rng.random()
+        value = int(xmin * u ** -(1.0 / alpha_minus_one))
+        threshold = (1.0 + (1.0 / value)) ** alpha_minus_one
+        if v * value * (threshold - 1.0) / (base - 1.0) <= threshold / base:
+            return value
+
+
+def _lfr_zipf_rv_below(gamma, xmin, threshold, rng):
+    value = _lfr_zipf_rv(gamma, xmin, rng)
+    while value > threshold:
+        value = _lfr_zipf_rv(gamma, xmin, rng)
+    return value
+
+
+def _lfr_powerlaw_sequence(gamma, low, high, condition, length, max_iters, rng):
+    for _ in range(max_iters):
+        sequence = []
+        while not length(sequence):
+            sequence.append(_lfr_zipf_rv_below(gamma, low, high, rng))
+        if condition(sequence):
+            return sequence
+    raise NetworkXError("Could not create power law sequence")
+
+
+def _lfr_hurwitz_zeta(x, q, tolerance):
+    total = 0
+    previous = -float("inf")
+    k = 0
+    while abs(total - previous) > tolerance:
+        previous = total
+        total += 1 / ((k + q) ** x)
+        k += 1
+    return total
+
+
+def _lfr_generate_min_degree(gamma, average_degree, max_degree, tolerance, max_iters):
+    try:
+        from scipy.special import zeta
+    except ImportError:
+
+        def zeta(x, q):
+            return _lfr_hurwitz_zeta(x, q, tolerance)
+
+    min_degree_top = max_degree
+    min_degree_bottom = 1
+    min_degree_mid = (min_degree_top - min_degree_bottom) / 2 + min_degree_bottom
+    iterations = 0
+    mid_average_degree = 0
+    while abs(mid_average_degree - average_degree) > tolerance:
+        if iterations > max_iters:
+            raise NetworkXError("Could not match average_degree")
+        mid_average_degree = 0
+        for x in range(int(min_degree_mid), max_degree + 1):
+            mid_average_degree += (x ** (-gamma + 1)) / zeta(gamma, min_degree_mid)
+        if mid_average_degree > average_degree:
+            min_degree_top = min_degree_mid
+            min_degree_mid = (min_degree_top - min_degree_bottom) / 2 + min_degree_bottom
+        else:
+            min_degree_bottom = min_degree_mid
+            min_degree_mid = (min_degree_top - min_degree_bottom) / 2 + min_degree_bottom
+        iterations += 1
+    return round(min_degree_mid)
+
+
+def _lfr_generate_communities(degree_sequence, community_sizes, mu, max_iters, rng):
+    result = [set() for _ in community_sizes]
+    free = list(range(len(degree_sequence)))
+    for _ in range(max_iters):
+        node = free.pop()
+        community_index = rng.choice(range(len(community_sizes)))
+        internal_degree = round(degree_sequence[node] * (1 - mu))
+        if internal_degree < community_sizes[community_index]:
+            result[community_index].add(node)
+        else:
+            free.append(node)
+        if len(result[community_index]) > community_sizes[community_index]:
+            free.append(result[community_index].pop())
+        if not free:
+            return result
+    raise NetworkXError("Could not assign communities; try increasing min_community")
+
+
 def LFR_benchmark_graph(
     n,
     tau1,
@@ -15276,26 +16804,77 @@ def LFR_benchmark_graph(
     seed=None,
 ):
     """Return an LFR benchmark graph."""
-    import networkx as nx
+    if not tau1 > 1:
+        raise NetworkXError("tau1 must be greater than one")
+    if not tau2 > 1:
+        raise NetworkXError("tau2 must be greater than one")
+    if not 0 <= mu <= 1:
+        raise NetworkXError("mu must be in the interval [0, 1]")
 
-    from franken_networkx.readwrite import _from_nx_graph
-
-    return _from_nx_graph(
-        nx.LFR_benchmark_graph(
-            n,
-            tau1,
-            tau2,
-            mu,
-            average_degree=average_degree,
-            min_degree=min_degree,
-            max_degree=max_degree,
-            min_community=min_community,
-            max_community=max_community,
-            tol=tol,
-            max_iters=max_iters,
-            seed=seed,
+    if max_degree is None:
+        max_degree = n
+    elif not 0 < max_degree <= n:
+        raise NetworkXError("max_degree must be in the interval (0, n]")
+    if not ((min_degree is None) ^ (average_degree is None)):
+        raise NetworkXError(
+            "Must assign exactly one of min_degree and average_degree",
         )
+
+    rng = _generator_random_state(seed)
+    if min_degree is None:
+        min_degree = _lfr_generate_min_degree(
+            tau1,
+            average_degree,
+            max_degree,
+            tol,
+            max_iters,
+        )
+
+    degree_sequence = _lfr_powerlaw_sequence(
+        tau1,
+        min_degree,
+        max_degree,
+        lambda sequence: sum(sequence) % 2 == 0,
+        lambda sequence: len(sequence) >= n,
+        max_iters,
+        rng,
     )
+
+    if min_community is None:
+        min_community = min(degree_sequence)
+    if max_community is None:
+        max_community = max(degree_sequence)
+
+    community_sizes = _lfr_powerlaw_sequence(
+        tau2,
+        min_community,
+        max_community,
+        lambda sequence: sum(sequence) == n,
+        lambda sequence: sum(sequence) >= n,
+        max_iters,
+        rng,
+    )
+    communities = _lfr_generate_communities(
+        degree_sequence,
+        community_sizes,
+        mu,
+        max_iters * 10 * n,
+        rng,
+    )
+
+    graph = Graph()
+    graph.add_nodes_from(range(n))
+    for community in communities:
+        community_nodes = list(community)
+        for node in community:
+            while graph.degree[node] < round(degree_sequence[node] * (1 - mu)):
+                graph.add_edge(node, rng.choice(community_nodes))
+            while graph.degree[node] < degree_sequence[node]:
+                target = rng.choice(range(n))
+                if target not in community:
+                    graph.add_edge(node, target)
+            graph.nodes[node]["community"] = community
+    return graph
 
 
 def hexagonal_lattice_graph(

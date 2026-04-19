@@ -77,7 +77,7 @@ class TestSelfLoopParity:
         G = fnx.Graph()
         G.add_edge(0, 0)
         G.add_edge(1, 2)
-        loops = fnx.selfloop_edges(G)
+        loops = list(fnx.selfloop_edges(G))
         assert len(loops) == 1
         assert loops[0][0] == loops[0][1]
 

@@ -1,10 +1,161 @@
 """Tests for graph utility wrapper functions."""
 
+import gc
+
 import networkx as nx
 import pytest
 
 import franken_networkx as fnx
 from franken_networkx.backend import _fnx_to_nx as _to_nx
+
+
+def _block_networkx_utilities(monkeypatch, *names):
+    def fail_networkx(*args, **kwargs):
+        raise AssertionError("NetworkX utility fallback should not be used")
+
+    for name in names:
+        monkeypatch.setattr(nx, name, fail_networkx)
+
+
+def _normalize_attr(value):
+    if isinstance(value, dict):
+        return tuple(sorted((repr(key), _normalize_attr(item)) for key, item in value.items()))
+    return value
+
+
+def _graph_snapshot(graph):
+    if graph.is_multigraph():
+        edges = sorted(
+            (u, v, key, _normalize_attr(dict(data)))
+            for u, v, key, data in graph.edges(keys=True, data=True)
+        )
+    else:
+        edges = sorted((u, v, _normalize_attr(dict(data))) for u, v, data in graph.edges(data=True))
+    return (
+        sorted((node, _normalize_attr(dict(data))) for node, data in graph.nodes(data=True)),
+        edges,
+    )
+
+
+def _direction_utility_graph_pair(fnx_cls, nx_cls):
+    graph = fnx_cls()
+    expected = nx_cls()
+    graph.graph["name"] = "direction"
+    expected.graph["name"] = "direction"
+    for node, color in [("a", "red"), ("b", "blue"), ("c", "green")]:
+        graph.add_node(node, color=color)
+        expected.add_node(node, color=color)
+
+    edge_payloads = [
+        ("a", "b", 4, {"weight": 2}),
+        ("b", "c", 6, {"weight": 7}),
+    ]
+    for source, target, key, attrs in edge_payloads:
+        if graph.is_multigraph():
+            graph.add_edge(source, target, key=key, **attrs)
+            expected.add_edge(source, target, key=key, **attrs)
+        else:
+            graph.add_edge(source, target, **attrs)
+            expected.add_edge(source, target, **attrs)
+    return graph, expected
+
+
+def _view_utility_graph_pair(fnx_cls, nx_cls):
+    graph = fnx_cls()
+    expected = nx_cls()
+    graph.graph["name"] = "view"
+    expected.graph["name"] = "view"
+    for node, color in [
+        ("a", "red"),
+        ("b", "blue"),
+        ("c", "green"),
+        ("d", "yellow"),
+    ]:
+        graph.add_node(node, color=color)
+        expected.add_node(node, color=color)
+
+    edge_payloads = [
+        ("a", "b", 1, {"weight": 1}),
+        ("a", "b", 2, {"weight": 2}),
+        ("b", "c", 1, {"weight": 3}),
+        ("c", "d", 1, {"weight": 4}),
+    ]
+    for source, target, key, attrs in edge_payloads:
+        if graph.is_multigraph():
+            graph.add_edge(source, target, key=key, **attrs)
+            expected.add_edge(source, target, key=key, **attrs)
+        elif key == 1:
+            graph.add_edge(source, target, **attrs)
+            expected.add_edge(source, target, **attrs)
+    return graph, expected
+
+
+def _weighted_degree_graph_pair(fnx_cls, nx_cls):
+    graph = fnx_cls()
+    expected = nx_cls()
+    for node in ["a", "b", "c"]:
+        graph.add_node(node)
+        expected.add_node(node)
+
+    if graph.is_directed():
+        edge_payloads = [
+            ("a", "b", 1, {"weight": 1}),
+            ("b", "a", 2, {"weight": 2}),
+            ("a", "a", 3, {"weight": 4}),
+            ("c", "b", 4, {}),
+        ]
+    else:
+        edge_payloads = [
+            ("a", "b", 1, {"weight": 1}),
+            ("a", "a", 2, {"weight": 4}),
+            ("b", "c", 3, {}),
+        ]
+
+    for source, target, key, attrs in edge_payloads:
+        if graph.is_multigraph():
+            graph.add_edge(source, target, key=key, **attrs)
+            expected.add_edge(source, target, key=key, **attrs)
+        else:
+            graph.add_edge(source, target, **attrs)
+            expected.add_edge(source, target, **attrs)
+    return graph, expected
+
+
+def _selfloop_utility_graph_pair(fnx_cls, nx_cls):
+    graph = fnx_cls()
+    expected = nx_cls()
+    for node in ["a", "b", "c"]:
+        graph.add_node(node)
+        expected.add_node(node)
+
+    if graph.is_multigraph():
+        edge_payloads = [
+            ("a", "a", "k1", {"weight": 2}),
+            ("a", "a", "k2", {}),
+            ("b", "b", "k3", {"color": "blue"}),
+            ("a", "c", "k4", {"weight": 9}),
+        ]
+        for source, target, key, attrs in edge_payloads:
+            graph.add_edge(source, target, key=key, **attrs)
+            expected.add_edge(source, target, key=key, **attrs)
+    else:
+        edge_payloads = [
+            ("a", "a", {"weight": 2}),
+            ("b", "b", {"color": "blue"}),
+            ("a", "c", {"weight": 9}),
+        ]
+        for source, target, attrs in edge_payloads:
+            graph.add_edge(source, target, **attrs)
+            expected.add_edge(source, target, **attrs)
+    return graph, expected
+
+
+def _graph_helper_result_pair(fnx_cls, nx_cls, helper_name, nodes, **attrs):
+    graph = fnx_cls()
+    expected = nx_cls()
+    getattr(nx, helper_name)(expected, nodes, **attrs)
+    getattr(fnx, helper_name)(graph, nodes, **attrs)
+    return graph, expected
 
 
 def test_voronoi_cells_and_stoer_wagner_match_networkx():
@@ -28,6 +179,30 @@ def test_dedensify_and_quotient_graph_match_networkx():
     assert sorted(_to_nx(quotient).edges()) == sorted(quotient_nx.edges())
 
 
+def test_dedensify_and_quotient_graph_do_not_fallback(monkeypatch):
+    bipartite = fnx.complete_bipartite_graph(2, 4)
+    expected_dedensified, expected_compressors = nx.dedensify(
+        _to_nx(bipartite),
+        2,
+        prefix="aux",
+    )
+    expected_dedensified_edges = sorted(expected_dedensified.edges())
+
+    path = fnx.path_graph(4)
+    partition = [{0, 1}, {2, 3}]
+    expected_quotient = nx.quotient_graph(_to_nx(path), partition)
+    expected_quotient_edges = sorted(expected_quotient.edges())
+
+    _block_networkx_utilities(monkeypatch, "dedensify", "quotient_graph")
+
+    dedensified, compressors = fnx.dedensify(bipartite, 2, prefix="aux")
+    quotient = fnx.quotient_graph(path, partition)
+
+    assert sorted(_to_nx(dedensified).edges()) == expected_dedensified_edges
+    assert compressors == expected_compressors
+    assert sorted(_to_nx(quotient).edges()) == expected_quotient_edges
+
+
 def test_snap_aggregation_and_full_join_match_networkx():
     graph = fnx.path_graph(4)
     for node, color in [(0, "red"), (1, "red"), (2, "blue"), (3, "blue")]:
@@ -46,6 +221,90 @@ def test_snap_aggregation_and_full_join_match_networkx():
     assert sorted(_to_nx(joined).edges()) == sorted(joined_nx.edges())
 
 
+def test_full_join_does_not_fallback(monkeypatch):
+    expected = nx.full_join(nx.path_graph(2), nx.path_graph(2), rename=("L", "R"))
+    expected_edges = sorted(expected.edges())
+
+    _block_networkx_utilities(monkeypatch, "full_join")
+
+    joined = fnx.full_join(fnx.path_graph(2), fnx.path_graph(2), rename=("L", "R"))
+
+    assert sorted(_to_nx(joined).edges()) == expected_edges
+
+
+def test_full_join_union_contract_matches_networkx_without_fallback(monkeypatch):
+    left = fnx.DiGraph()
+    left.graph["who"] = "left"
+    left.add_node("a", color="red")
+    left.add_node("b")
+    left.add_edge("a", "b", weight=2)
+
+    right = fnx.DiGraph()
+    right.graph["who"] = "right"
+    right.add_node("c", color="blue")
+    right.add_node("d")
+    right.add_edge("c", "d", weight=3)
+
+    left_nx = nx.DiGraph()
+    left_nx.graph["who"] = "left"
+    left_nx.add_node("a", color="red")
+    left_nx.add_node("b")
+    left_nx.add_edge("a", "b", weight=2)
+
+    right_nx = nx.DiGraph()
+    right_nx.graph["who"] = "right"
+    right_nx.add_node("c", color="blue")
+    right_nx.add_node("d")
+    right_nx.add_edge("c", "d", weight=3)
+
+    expected = nx.full_join(left_nx, right_nx, rename=("L-", "R-"))
+
+    overlap_left_nx = nx.Graph()
+    overlap_left_nx.add_edge("x", "y")
+    overlap_right_nx = nx.Graph()
+    overlap_right_nx.add_edge("x", "z")
+    try:
+        nx.full_join(overlap_left_nx, overlap_right_nx)
+    except Exception as exc:
+        expected_overlap = (type(exc).__name__, str(exc))
+
+    mixed_left_nx = nx.Graph()
+    mixed_left_nx.add_edge("g0", "g1")
+    mixed_right_nx = nx.MultiGraph()
+    mixed_right_nx.add_edge("h0", "h1", key=1)
+    try:
+        nx.full_join(mixed_left_nx, mixed_right_nx)
+    except Exception as exc:
+        expected_mixed = (type(exc).__name__, str(exc))
+
+    _block_networkx_utilities(monkeypatch, "full_join")
+
+    result = fnx.full_join(left, right, rename=("L-", "R-"))
+
+    assert dict(result.graph) == expected.graph
+    assert result.is_directed() == expected.is_directed()
+    assert result.is_multigraph() == expected.is_multigraph()
+    assert _graph_snapshot(result) == _graph_snapshot(expected)
+
+    overlap_left = fnx.Graph()
+    overlap_left.add_edge("x", "y")
+    overlap_right = fnx.Graph()
+    overlap_right.add_edge("x", "z")
+    with pytest.raises(Exception) as overlap_exc:
+        fnx.full_join(overlap_left, overlap_right)
+    assert type(overlap_exc.value).__name__ == expected_overlap[0]
+    assert str(overlap_exc.value) == expected_overlap[1]
+
+    mixed_left = fnx.Graph()
+    mixed_left.add_edge("g0", "g1")
+    mixed_right = fnx.MultiGraph()
+    mixed_right.add_edge("h0", "h1", key=1)
+    with pytest.raises(Exception) as mixed_exc:
+        fnx.full_join(mixed_left, mixed_right)
+    assert type(mixed_exc.value).__name__ == expected_mixed[0]
+    assert str(mixed_exc.value) == expected_mixed[1]
+
+
 def test_identified_nodes_and_inverse_line_graph_match_networkx():
     path = fnx.path_graph(4)
     identified = fnx.identified_nodes(path, 1, 2)
@@ -57,6 +316,175 @@ def test_identified_nodes_and_inverse_line_graph_match_networkx():
 
     assert sorted(_to_nx(identified).edges()) == sorted(identified_nx.edges())
     assert sorted(_to_nx(inverse).edges()) == sorted(inverse_nx.edges())
+
+
+def test_identified_nodes_does_not_fallback(monkeypatch):
+    path = fnx.path_graph(4)
+    expected = nx.identified_nodes(_to_nx(path), 1, 2, self_loops=False)
+    expected_edges = sorted(expected.edges())
+    expected_node_data = dict(expected.nodes[1])
+
+    _block_networkx_utilities(monkeypatch, "identified_nodes")
+
+    identified = fnx.identified_nodes(path, 1, 2, self_loops=False)
+    identified_nx = _to_nx(identified)
+
+    assert sorted(identified_nx.edges()) == expected_edges
+    assert dict(identified_nx.nodes[1]) == expected_node_data
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("copy", [False, True])
+@pytest.mark.parametrize("self_loops", [False, True])
+@pytest.mark.parametrize("store_contraction_as", [None, "c", "contraction"])
+def test_identified_nodes_mode_matrix_matches_networkx_without_fallback(
+    monkeypatch,
+    directed,
+    copy,
+    self_loops,
+    store_contraction_as,
+):
+    graph = fnx.DiGraph() if directed else fnx.Graph()
+    expected = nx.DiGraph() if directed else nx.Graph()
+    for node, color in [(0, "zero"), (1, "one"), (2, "two"), (3, "three")]:
+        graph.add_node(node, color=color)
+        expected.add_node(node, color=color)
+    edges = (
+        [(0, 2, 5), (2, 1, 7), (2, 3, 11), (3, 2, 13)]
+        if directed
+        else [(0, 1, 10), (1, 2, 20), (2, 3, 30)]
+    )
+    for source, target, weight in edges:
+        graph.add_edge(source, target, weight=weight)
+        expected.add_edge(source, target, weight=weight)
+
+    expected_result = nx.identified_nodes(
+        expected,
+        1,
+        2,
+        copy=copy,
+        self_loops=self_loops,
+        store_contraction_as=store_contraction_as,
+    )
+    expected_nodes = sorted((node, dict(data)) for node, data in expected_result.nodes(data=True))
+    expected_edges = sorted((u, v, dict(data)) for u, v, data in expected_result.edges(data=True))
+
+    _block_networkx_utilities(monkeypatch, "identified_nodes")
+
+    result = fnx.identified_nodes(
+        graph,
+        1,
+        2,
+        copy=copy,
+        self_loops=self_loops,
+        store_contraction_as=store_contraction_as,
+    )
+    if not copy:
+        assert result is graph
+    result_nx = _to_nx(result)
+
+    assert sorted((node, dict(data)) for node, data in result_nx.nodes(data=True)) == expected_nodes
+    assert sorted((u, v, dict(data)) for u, v, data in result_nx.edges(data=True)) == expected_edges
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("copy", [False, True])
+@pytest.mark.parametrize("self_loops", [False, True])
+@pytest.mark.parametrize("store_contraction_as", [None, "c", "contraction"])
+def test_contracted_nodes_matches_networkx_without_fallback(
+    monkeypatch,
+    directed,
+    copy,
+    self_loops,
+    store_contraction_as,
+):
+    graph = fnx.DiGraph() if directed else fnx.Graph()
+    expected = nx.DiGraph() if directed else nx.Graph()
+    for node, color in [(0, "zero"), (1, "one"), (2, "two")]:
+        graph.add_node(node, color=color)
+        expected.add_node(node, color=color)
+    duplicate_edges = [(0, 1, 10), (2, 1, 100)] if directed else [(0, 1, 10), (1, 2, 100)]
+    for source, target, weight in duplicate_edges:
+        graph.add_edge(source, target, weight=weight)
+        expected.add_edge(source, target, weight=weight)
+
+    expected_result = nx.contracted_nodes(
+        expected,
+        0,
+        2,
+        copy=copy,
+        self_loops=self_loops,
+        store_contraction_as=store_contraction_as,
+    )
+    expected_snapshot = _graph_snapshot(expected_result)
+
+    _block_networkx_utilities(monkeypatch, "contracted_nodes")
+
+    result = fnx.contracted_nodes(
+        graph,
+        0,
+        2,
+        copy=copy,
+        self_loops=self_loops,
+        store_contraction_as=store_contraction_as,
+    )
+    if not copy:
+        assert result is graph
+
+    assert _graph_snapshot(result) == expected_snapshot
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("copy", [False, True])
+@pytest.mark.parametrize("self_loops", [False, True])
+@pytest.mark.parametrize("store_contraction_as", [None, "c", "contraction"])
+def test_contracted_edge_matches_networkx_without_fallback(
+    monkeypatch,
+    directed,
+    copy,
+    self_loops,
+    store_contraction_as,
+):
+    graph = fnx.DiGraph() if directed else fnx.Graph()
+    expected = nx.DiGraph() if directed else nx.Graph()
+    for node in range(3):
+        graph.add_node(node)
+        expected.add_node(node)
+    for source, target, weight in [(0, 1, 10), (1, 2, 20)]:
+        graph.add_edge(source, target, weight=weight)
+        expected.add_edge(source, target, weight=weight)
+
+    expected_result = nx.contracted_edge(
+        expected,
+        (0, 1),
+        copy=copy,
+        self_loops=self_loops,
+        store_contraction_as=store_contraction_as,
+    )
+    expected_snapshot = _graph_snapshot(expected_result)
+
+    _block_networkx_utilities(monkeypatch, "contracted_edge", "contracted_nodes")
+
+    result = fnx.contracted_edge(
+        graph,
+        (0, 1),
+        copy=copy,
+        self_loops=self_loops,
+        store_contraction_as=store_contraction_as,
+    )
+    if not copy:
+        assert result is graph
+
+    assert _graph_snapshot(result) == expected_snapshot
+
+
+def test_contracted_edge_rejects_missing_edge_without_fallback(monkeypatch):
+    graph = fnx.path_graph(3)
+
+    _block_networkx_utilities(monkeypatch, "contracted_edge", "contracted_nodes")
+
+    with pytest.raises(ValueError, match="does not exist"):
+        fnx.contracted_edge(graph, (0, 2))
 
 
 def test_inverse_line_graph_matches_networkx_edge_cases():
@@ -103,6 +531,678 @@ def test_graph_utility_wrappers_match_networkx():
     assert tuple(fnx.neighbors(graph, 1)) == tuple(nx.neighbors(expected, 1))
 
 
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_global_edges_nbunch_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = list(nx.edges(expected, ["b", "a"]))
+
+    _block_networkx_utilities(monkeypatch, "edges")
+
+    result = list(fnx.edges(graph, ["b", "a"]))
+
+    assert result == expected_result
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_global_edges_missing_scalar_node_error_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    missing_node = 9
+
+    try:
+        nx.edges(expected, missing_node)
+    except Exception as exc:
+        expected_type = type(exc).__name__
+        expected_message = str(exc)
+
+    _block_networkx_utilities(monkeypatch, "edges")
+
+    with pytest.raises(Exception) as fnx_exc:
+        fnx.edges(graph, missing_node)
+
+    assert type(fnx_exc.value).__name__ == expected_type
+    assert str(fnx_exc.value) == expected_message
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_global_nodes_with_selfloops_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _selfloop_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = list(nx.nodes_with_selfloops(expected))
+
+    _block_networkx_utilities(monkeypatch, "nodes_with_selfloops")
+
+    assert list(fnx.nodes_with_selfloops(graph)) == expected_result
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_global_number_of_selfloops_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _selfloop_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx.number_of_selfloops(expected)
+
+    _block_networkx_utilities(monkeypatch, "number_of_selfloops")
+
+    assert fnx.number_of_selfloops(graph) == expected_result
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+@pytest.mark.parametrize(
+    ("keys", "data", "default"),
+    [
+        (False, False, "fallback"),
+        (False, True, "fallback"),
+        (False, "weight", "fallback"),
+        (True, False, "fallback"),
+        (True, True, "fallback"),
+        (True, "weight", "fallback"),
+    ],
+)
+def test_global_selfloop_edges_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls, keys, data, default
+):
+    graph, expected = _selfloop_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = list(
+        nx.selfloop_edges(expected, keys=keys, data=data, default=default)
+    )
+
+    _block_networkx_utilities(monkeypatch, "selfloop_edges")
+
+    assert (
+        list(fnx.selfloop_edges(graph, keys=keys, data=data, default=default))
+        == expected_result
+    )
+
+
+@pytest.mark.parametrize(
+    ("helper_name", "nodes", "attrs"),
+    [
+        ("add_path", [0, 1, 2], {"weight": 5, "label": "path"}),
+        ("add_cycle", [0, 1, 2], {"weight": 7, "label": "cycle"}),
+        ("add_star", [0, 1, 2], {"weight": 11, "label": "star"}),
+        ("add_path", [], {}),
+        ("add_path", [1], {}),
+        ("add_path", [1, 1, 2], {}),
+        ("add_cycle", [], {}),
+        ("add_cycle", [1], {}),
+        ("add_cycle", [1, 1, 2], {}),
+        ("add_star", [], {}),
+        ("add_star", [1], {}),
+        ("add_star", [1, 1, 2], {}),
+    ],
+)
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_graph_helpers_match_networkx_without_fallback(
+    monkeypatch, helper_name, nodes, attrs, fnx_cls, nx_cls
+):
+    graph, expected = _graph_helper_result_pair(
+        fnx_cls,
+        nx_cls,
+        helper_name,
+        nodes,
+        **attrs,
+    )
+    expected_snapshot = _graph_snapshot(expected)
+
+    _block_networkx_utilities(monkeypatch, helper_name)
+
+    result = fnx_cls()
+    getattr(fnx, helper_name)(result, nodes, **attrs)
+
+    assert _graph_snapshot(result) == expected_snapshot
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_global_all_neighbors_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph = fnx_cls()
+    expected = nx_cls()
+    graph.add_nodes_from(["a", "b", "c", "d"])
+    expected.add_nodes_from(["a", "b", "c", "d"])
+
+    edge_payloads = [("a", "b"), ("c", "b"), ("b", "d")]
+    for source, target in edge_payloads:
+        graph.add_edge(source, target)
+        expected.add_edge(source, target)
+
+    expected_neighbors = list(nx.all_neighbors(expected, "b"))
+
+    _block_networkx_utilities(monkeypatch, "all_neighbors")
+
+    assert list(fnx.all_neighbors(graph, "b")) == expected_neighbors
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_global_all_neighbors_directed_duplicates_match_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph = fnx_cls()
+    expected = nx_cls()
+    graph.add_edges_from([("a", "b"), ("b", "a"), ("b", "c")])
+    expected.add_edges_from([("a", "b"), ("b", "a"), ("b", "c")])
+
+    expected_neighbors = list(nx.all_neighbors(expected, "b"))
+
+    _block_networkx_utilities(monkeypatch, "all_neighbors")
+
+    assert list(fnx.all_neighbors(graph, "b")) == expected_neighbors
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_global_neighbors_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    expected_neighbors = list(nx.neighbors(expected, "a"))
+
+    _block_networkx_utilities(monkeypatch, "neighbors")
+
+    assert list(fnx.neighbors(graph, "a")) == expected_neighbors
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls", "missing_node"),
+    [
+        (fnx.Graph, nx.Graph, 9),
+        (fnx.Graph, nx.Graph, "missing"),
+        (fnx.DiGraph, nx.DiGraph, 9),
+        (fnx.DiGraph, nx.DiGraph, "missing"),
+        (fnx.MultiGraph, nx.MultiGraph, 9),
+        (fnx.MultiGraph, nx.MultiGraph, "missing"),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, 9),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, "missing"),
+    ],
+)
+def test_global_neighbors_missing_node_error_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls, missing_node
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+
+    try:
+        nx.neighbors(expected, missing_node)
+    except Exception as exc:
+        expected_type = type(exc).__name__
+        expected_message = str(exc)
+
+    _block_networkx_utilities(monkeypatch, "neighbors")
+
+    with pytest.raises(Exception) as fnx_exc:
+        list(fnx.neighbors(graph, missing_node))
+
+    assert type(fnx_exc.value).__name__ == expected_type
+    assert str(fnx_exc.value) == expected_message
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_global_neighbors_invalid_node_type_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    invalid_node = ["a"]
+
+    try:
+        nx.neighbors(expected, invalid_node)
+    except Exception as exc:
+        expected_type = type(exc).__name__
+        expected_message = str(exc)
+
+    _block_networkx_utilities(monkeypatch, "neighbors")
+
+    with pytest.raises(Exception) as fnx_exc:
+        list(fnx.neighbors(graph, invalid_node))
+
+    assert type(fnx_exc.value).__name__ == expected_type
+    assert str(fnx_exc.value) == expected_message
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_global_non_neighbors_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = set(nx.non_neighbors(expected, "a"))
+
+    _block_networkx_utilities(monkeypatch, "non_neighbors")
+
+    assert set(fnx.non_neighbors(graph, "a")) == expected_result
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls", "missing_node"),
+    [
+        (fnx.Graph, nx.Graph, 9),
+        (fnx.Graph, nx.Graph, "missing"),
+        (fnx.DiGraph, nx.DiGraph, 9),
+        (fnx.DiGraph, nx.DiGraph, "missing"),
+        (fnx.MultiGraph, nx.MultiGraph, 9),
+        (fnx.MultiGraph, nx.MultiGraph, "missing"),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, 9),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, "missing"),
+    ],
+)
+def test_global_non_neighbors_missing_node_error_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls, missing_node
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+
+    try:
+        set(nx.non_neighbors(expected, missing_node))
+    except Exception as exc:
+        expected_type = type(exc).__name__
+        expected_message = str(exc)
+
+    _block_networkx_utilities(monkeypatch, "non_neighbors")
+
+    with pytest.raises(Exception) as fnx_exc:
+        set(fnx.non_neighbors(graph, missing_node))
+
+    assert type(fnx_exc.value).__name__ == expected_type
+    assert str(fnx_exc.value) == expected_message
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_global_non_neighbors_invalid_node_type_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    invalid_node = ["a"]
+
+    try:
+        set(nx.non_neighbors(expected, invalid_node))
+    except Exception as exc:
+        expected_type = type(exc).__name__
+        expected_message = str(exc)
+
+    _block_networkx_utilities(monkeypatch, "non_neighbors")
+
+    with pytest.raises(Exception) as fnx_exc:
+        set(fnx.non_neighbors(graph, invalid_node))
+
+    assert type(fnx_exc.value).__name__ == expected_type
+    assert str(fnx_exc.value) == expected_message
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_global_non_edges_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph = fnx_cls()
+    expected = nx_cls()
+    graph.add_nodes_from(["a", "b", "c", "d"])
+    expected.add_nodes_from(["a", "b", "c", "d"])
+    graph.add_edge("a", "b")
+    expected.add_edge("a", "b")
+    graph.add_edge("b", "c")
+    expected.add_edge("b", "c")
+    if graph.is_directed():
+        graph.add_edge("c", "a")
+        expected.add_edge("c", "a")
+    if graph.is_multigraph():
+        graph.add_edge("a", "b", key="k2")
+        expected.add_edge("a", "b", key="k2")
+
+    expected_result = list(nx.non_edges(expected))
+
+    _block_networkx_utilities(monkeypatch, "non_edges")
+
+    assert list(fnx.non_edges(graph)) == expected_result
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.MultiGraph, nx.MultiGraph),
+    ],
+)
+def test_global_common_neighbors_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx.common_neighbors(expected, "a", "c")
+
+    _block_networkx_utilities(monkeypatch, "common_neighbors")
+
+    result = fnx.common_neighbors(graph, "a", "c")
+
+    assert isinstance(result, set)
+    assert result == expected_result
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.MultiGraph, nx.MultiGraph),
+    ],
+)
+def test_global_common_neighbors_missing_node_error_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+
+    try:
+        nx.common_neighbors(expected, "a", "missing")
+    except Exception as exc:
+        expected_type = type(exc).__name__
+        expected_message = str(exc)
+
+    _block_networkx_utilities(monkeypatch, "common_neighbors")
+
+    with pytest.raises(Exception) as fnx_exc:
+        fnx.common_neighbors(graph, "a", "missing")
+
+    assert type(fnx_exc.value).__name__ == expected_type
+    assert str(fnx_exc.value) == expected_message
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_global_common_neighbors_directed_error_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+
+    try:
+        nx.common_neighbors(expected, "a", "missing")
+    except Exception as exc:
+        expected_type = type(exc).__name__
+        expected_message = str(exc)
+
+    _block_networkx_utilities(monkeypatch, "common_neighbors")
+
+    with pytest.raises(Exception) as fnx_exc:
+        fnx.common_neighbors(graph, "a", "missing")
+
+    assert type(fnx_exc.value).__name__ == expected_type
+    assert str(fnx_exc.value) == expected_message
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_global_degree_nbunch_normalization_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    expected_scalar = nx.degree(expected, "a")
+    expected_missing_string = list(nx.degree(expected, "missing"))
+    expected_missing_list = list(nx.degree(expected, ["missing"]))
+    expected_subset = list(nx.degree(expected, ["a", "missing"]))
+
+    _block_networkx_utilities(monkeypatch, "degree")
+
+    assert fnx.degree(graph, "a") == expected_scalar
+    assert list(fnx.degree(graph, "missing")) == expected_missing_string
+    assert list(fnx.degree(graph, ["missing"])) == expected_missing_list
+    assert list(fnx.degree(graph, ["a", "missing"])) == expected_subset
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_global_degree_missing_scalar_node_error_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    missing_node = 9
+
+    try:
+        nx.degree(expected, missing_node)
+    except Exception as exc:
+        expected_type = type(exc).__name__
+        expected_message = str(exc)
+
+    _block_networkx_utilities(monkeypatch, "degree")
+
+    with pytest.raises(Exception) as fnx_exc:
+        fnx.degree(graph, missing_node)
+
+    assert type(fnx_exc.value).__name__ == expected_type
+    assert str(fnx_exc.value) == expected_message
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_global_degree_invalid_nbunch_error_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    invalid_nbunch = [["a"]]
+
+    try:
+        nx.degree(expected, invalid_nbunch)
+    except Exception as exc:
+        expected_type = type(exc).__name__
+        expected_message = str(exc)
+
+    _block_networkx_utilities(monkeypatch, "degree")
+
+    with pytest.raises(Exception) as fnx_exc:
+        list(fnx.degree(graph, invalid_nbunch))
+
+    assert type(fnx_exc.value).__name__ == expected_type
+    assert str(fnx_exc.value) == expected_message
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_global_weighted_degree_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _weighted_degree_graph_pair(fnx_cls, nx_cls)
+    expected_all = list(nx.degree(expected, weight="weight"))
+    expected_scalar = nx.degree(expected, "a", weight="weight")
+    expected_subset = list(nx.degree(expected, ["a", "missing"], weight="weight"))
+    expected_missing_string = list(nx.degree(expected, "missing", weight="weight"))
+
+    _block_networkx_utilities(monkeypatch, "degree")
+
+    assert list(fnx.degree(graph, weight="weight")) == expected_all
+    assert fnx.degree(graph, "a", weight="weight") == expected_scalar
+    assert list(fnx.degree(graph, ["a", "missing"], weight="weight")) == expected_subset
+    assert list(fnx.degree(graph, "missing", weight="weight")) == expected_missing_string
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_global_weighted_degree_missing_scalar_node_error_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _weighted_degree_graph_pair(fnx_cls, nx_cls)
+    missing_node = 9
+
+    try:
+        nx.degree(expected, missing_node, weight="weight")
+    except Exception as exc:
+        expected_type = type(exc).__name__
+        expected_message = str(exc)
+
+    _block_networkx_utilities(monkeypatch, "degree")
+
+    with pytest.raises(Exception) as fnx_exc:
+        fnx.degree(graph, missing_node, weight="weight")
+
+    assert type(fnx_exc.value).__name__ == expected_type
+    assert str(fnx_exc.value) == expected_message
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_global_weighted_degree_invalid_nbunch_error_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _weighted_degree_graph_pair(fnx_cls, nx_cls)
+    invalid_nbunch = [["a"]]
+
+    try:
+        nx.degree(expected, invalid_nbunch, weight="weight")
+    except Exception as exc:
+        expected_type = type(exc).__name__
+        expected_message = str(exc)
+
+    _block_networkx_utilities(monkeypatch, "degree")
+
+    with pytest.raises(Exception) as fnx_exc:
+        list(fnx.degree(graph, invalid_nbunch, weight="weight"))
+
+    assert type(fnx_exc.value).__name__ == expected_type
+    assert str(fnx_exc.value) == expected_message
+
+
 def test_directed_conversion_helpers_match_networkx():
     graph = fnx.MultiGraph()
     graph.graph["name"] = "base"
@@ -131,6 +1231,290 @@ def test_directed_conversion_helpers_match_networkx():
     assert sorted(undirected.edges(keys=True, data=True)) == sorted(undirected_nx.edges(keys=True, data=True))
 
 
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_is_frozen_does_not_leak_across_reclaimed_ids(fnx_cls, nx_cls):
+    for _ in range(10):
+        frozen_graph = fnx_cls()
+        fnx.freeze(frozen_graph)
+        del frozen_graph
+
+        frozen_expected = nx_cls()
+        nx.freeze(frozen_expected)
+        del frozen_expected
+
+    gc.collect()
+
+    fresh_graph = fnx_cls()
+    fresh_expected = nx_cls()
+
+    assert fnx.is_frozen(fresh_graph) == nx.is_frozen(fresh_expected) == False
+
+
+def _frozen_mutation_outcome(graph, mutation_name):
+    try:
+        if mutation_name == "add_node":
+            graph.add_node("late")
+        elif mutation_name == "add_edge":
+            graph.add_edge("a", "late")
+        elif mutation_name == "remove_node":
+            graph.remove_node("a")
+        elif mutation_name == "remove_edge":
+            graph.remove_edge("a", "b")
+        elif mutation_name == "clear":
+            graph.clear()
+        elif mutation_name == "clear_edges":
+            graph.clear_edges()
+        else:
+            raise AssertionError(f"Unknown mutation: {mutation_name}")
+    except Exception as exc:
+        return type(exc).__name__, str(exc)
+    return None
+
+
+@pytest.mark.parametrize(
+    "mutation_name",
+    [
+        "add_node",
+        "add_edge",
+        "remove_node",
+        "remove_edge",
+        "clear",
+        "clear_edges",
+    ],
+)
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_freeze_mutation_errors_match_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls, mutation_name
+):
+    graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+
+    fnx.freeze(graph)
+    nx.freeze(expected)
+    expected_is_frozen = nx.is_frozen(expected)
+    expected_outcome = _frozen_mutation_outcome(expected, mutation_name)
+
+    _block_networkx_utilities(monkeypatch, "freeze", "is_frozen")
+
+    assert fnx.is_frozen(graph) == expected_is_frozen
+    assert _frozen_mutation_outcome(graph, mutation_name) == expected_outcome
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_to_directed_matches_networkx_without_fallback(monkeypatch, fnx_cls, nx_cls):
+    graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx.to_directed(expected)
+    expected_snapshot = _graph_snapshot(expected_result)
+
+    _block_networkx_utilities(monkeypatch, "to_directed")
+
+    result = fnx.to_directed(graph)
+
+    assert result.is_directed() == expected_result.is_directed()
+    assert result.is_multigraph() == expected_result.is_multigraph()
+    assert _graph_snapshot(result) == expected_snapshot
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_to_directed_is_frozen_like_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx.to_directed(expected)
+
+    _block_networkx_utilities(monkeypatch, "to_directed")
+
+    result = fnx.to_directed(graph)
+
+    assert fnx.is_frozen(result) == nx.is_frozen(expected_result)
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_to_directed_tracks_mutations_like_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx.to_directed(expected)
+
+    _block_networkx_utilities(monkeypatch, "to_directed")
+
+    result = fnx.to_directed(graph)
+
+    graph.graph["phase"] = "after"
+    expected.graph["phase"] = "after"
+    graph.nodes["a"]["shade"] = "scarlet"
+    expected.nodes["a"]["shade"] = "scarlet"
+
+    if graph.is_multigraph():
+        graph.add_edge("c", "a", key="late", weight=11)
+        expected.add_edge("c", "a", key="late", weight=11)
+    else:
+        graph.add_edge("c", "a", weight=11)
+        expected.add_edge("c", "a", weight=11)
+
+    assert dict(result.graph) == expected_result.graph
+    assert _graph_snapshot(result) == _graph_snapshot(expected_result)
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_to_undirected_matches_networkx_without_fallback(monkeypatch, fnx_cls, nx_cls):
+    graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx.to_undirected(expected)
+    expected_snapshot = _graph_snapshot(expected_result)
+
+    _block_networkx_utilities(monkeypatch, "to_undirected")
+
+    result = fnx.to_undirected(graph)
+
+    assert result.is_directed() == expected_result.is_directed()
+    assert result.is_multigraph() == expected_result.is_multigraph()
+    assert _graph_snapshot(result) == expected_snapshot
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_to_undirected_is_frozen_like_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx.to_undirected(expected)
+
+    _block_networkx_utilities(monkeypatch, "to_undirected")
+
+    result = fnx.to_undirected(graph)
+
+    assert fnx.is_frozen(result) == nx.is_frozen(expected_result)
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_to_undirected_tracks_mutations_like_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx.to_undirected(expected)
+
+    _block_networkx_utilities(monkeypatch, "to_undirected")
+
+    result = fnx.to_undirected(graph)
+
+    graph.graph["phase"] = "after"
+    expected.graph["phase"] = "after"
+    graph.nodes["b"]["shade"] = "violet"
+    expected.nodes["b"]["shade"] = "violet"
+
+    if graph.is_multigraph():
+        graph.add_edge("c", "a", key="late", weight=11)
+        expected.add_edge("c", "a", key="late", weight=11)
+    else:
+        graph.add_edge("c", "a", weight=11)
+        expected.add_edge("c", "a", weight=11)
+
+    assert dict(result.graph) == expected_result.graph
+    assert _graph_snapshot(result) == _graph_snapshot(expected_result)
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_to_undirected_reciprocal_edge_attrs_match_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph = fnx_cls()
+    expected = nx_cls()
+    graph.add_node("a")
+    graph.add_node("b")
+    expected.add_node("a")
+    expected.add_node("b")
+
+    if graph.is_multigraph():
+        graph.add_edge("b", "a", key="shared", weight="ba")
+        graph.add_edge("a", "b", key="shared", weight="ab")
+        expected.add_edge("b", "a", key="shared", weight="ba")
+        expected.add_edge("a", "b", key="shared", weight="ab")
+    else:
+        graph.add_edge("b", "a", weight="ba")
+        graph.add_edge("a", "b", weight="ab")
+        expected.add_edge("b", "a", weight="ba")
+        expected.add_edge("a", "b", weight="ab")
+
+    expected_result = nx.to_undirected(expected)
+    expected_snapshot = _graph_snapshot(expected_result)
+
+    _block_networkx_utilities(monkeypatch, "to_undirected")
+
+    result = fnx.to_undirected(graph)
+
+    assert result.is_directed() == expected_result.is_directed()
+    assert result.is_multigraph() == expected_result.is_multigraph()
+    assert _graph_snapshot(result) == expected_snapshot
+
+
 def test_reverse_helper_matches_networkx():
     digraph = fnx.MultiDiGraph()
     digraph.graph["kind"] = "digraph"
@@ -144,3 +1528,458 @@ def test_reverse_helper_matches_networkx():
     reversed_nx = nx.reverse(expected)
     assert dict(reversed_graph.graph) == reversed_nx.graph
     assert sorted(reversed_graph.edges(keys=True, data=True)) == sorted(reversed_nx.edges(keys=True, data=True))
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.MultiGraph, nx.MultiGraph),
+    ],
+)
+def test_reverse_undirected_error_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+
+    try:
+        nx.reverse(expected)
+    except Exception as exc:
+        expected_type = type(exc).__name__
+        expected_message = str(exc)
+
+    _block_networkx_utilities(monkeypatch, "reverse")
+
+    with pytest.raises(Exception) as fnx_exc:
+        fnx.reverse(graph)
+
+    assert type(fnx_exc.value).__name__ == expected_type
+    assert str(fnx_exc.value) == expected_message
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+@pytest.mark.parametrize("copy", [False, True])
+def test_reverse_matches_networkx_without_fallback(monkeypatch, fnx_cls, nx_cls, copy):
+    graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx.reverse(expected, copy=copy)
+    expected_snapshot = _graph_snapshot(expected_result)
+
+    _block_networkx_utilities(monkeypatch, "reverse")
+
+    result = fnx.reverse(graph, copy=copy)
+
+    assert result.is_directed() == expected_result.is_directed()
+    assert result.is_multigraph() == expected_result.is_multigraph()
+    assert _graph_snapshot(result) == expected_snapshot
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_reverse_copy_false_is_frozen_like_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx.reverse(expected, copy=False)
+
+    _block_networkx_utilities(monkeypatch, "reverse")
+
+    result = fnx.reverse(graph, copy=False)
+
+    assert fnx.is_frozen(result) == nx.is_frozen(expected_result)
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_reverse_copy_false_tracks_mutations_like_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph = fnx_cls()
+    expected = nx_cls()
+    if graph.is_multigraph():
+        graph.add_edge("a", "b", key="k", weight=1)
+        expected.add_edge("a", "b", key="k", weight=1)
+    else:
+        graph.add_edge("a", "b", weight=1)
+        expected.add_edge("a", "b", weight=1)
+
+    expected_result = nx.reverse(expected, copy=False)
+
+    _block_networkx_utilities(monkeypatch, "reverse")
+
+    result = fnx.reverse(graph, copy=False)
+
+    if graph.is_multigraph():
+        graph.add_edge("c", "a", key="j", weight=2)
+        expected.add_edge("c", "a", key="j", weight=2)
+    else:
+        graph.add_edge("c", "a", weight=2)
+        expected.add_edge("c", "a", weight=2)
+
+    assert result.is_directed() == expected_result.is_directed()
+    assert result.is_multigraph() == expected_result.is_multigraph()
+    assert _graph_snapshot(result) == _graph_snapshot(expected_result)
+
+
+@pytest.mark.parametrize("utility_name", ["subgraph", "induced_subgraph"])
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_induced_subgraph_helpers_match_networkx_without_fallback(
+    monkeypatch, utility_name, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = getattr(nx, utility_name)(expected, ["a", "b", "c"])
+    expected_snapshot = _graph_snapshot(expected_result)
+
+    _block_networkx_utilities(monkeypatch, utility_name)
+
+    result = getattr(fnx, utility_name)(graph, ["a", "b", "c"])
+
+    assert result.is_directed() == expected_result.is_directed()
+    assert result.is_multigraph() == expected_result.is_multigraph()
+    assert _graph_snapshot(result) == expected_snapshot
+
+
+@pytest.mark.parametrize("utility_name", ["subgraph", "induced_subgraph"])
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_induced_subgraph_helpers_track_mutations_like_networkx_without_fallback(
+    monkeypatch, utility_name, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = getattr(nx, utility_name)(expected, ["a", "b", "c"])
+
+    _block_networkx_utilities(monkeypatch, utility_name)
+
+    result = getattr(fnx, utility_name)(graph, ["a", "b", "c"])
+
+    if graph.is_multigraph():
+        graph.add_edge("a", "c", key=7, weight=9)
+        expected.add_edge("a", "c", key=7, weight=9)
+    else:
+        graph.add_edge("a", "c", weight=9)
+        expected.add_edge("a", "c", weight=9)
+
+    assert result.is_directed() == expected_result.is_directed()
+    assert result.is_multigraph() == expected_result.is_multigraph()
+    assert _graph_snapshot(result) == _graph_snapshot(expected_result)
+
+
+@pytest.mark.parametrize("utility_name", ["subgraph", "induced_subgraph"])
+def test_induced_subgraph_helpers_missing_node_error_match_networkx_without_fallback(
+    monkeypatch, utility_name
+):
+    graph = fnx.path_graph(4)
+    expected = nx.path_graph(4)
+
+    try:
+        getattr(nx, utility_name)(expected, 9)
+    except Exception as exc:
+        expected_type = type(exc).__name__
+        expected_message = str(exc)
+
+    _block_networkx_utilities(monkeypatch, utility_name)
+
+    with pytest.raises(Exception) as fnx_exc:
+        getattr(fnx, utility_name)(graph, 9)
+
+    assert type(fnx_exc.value).__name__ == expected_type
+    assert str(fnx_exc.value) == expected_message
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_edge_subgraph_matches_networkx_without_fallback(monkeypatch, fnx_cls, nx_cls):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    if graph.is_multigraph():
+        selected_edges = [("a", "b", 1), ("b", "c", 1)]
+    else:
+        selected_edges = [("a", "b"), ("b", "c")]
+    expected_result = nx.edge_subgraph(expected, selected_edges)
+    expected_snapshot = _graph_snapshot(expected_result)
+
+    _block_networkx_utilities(monkeypatch, "edge_subgraph")
+
+    result = fnx.edge_subgraph(graph, selected_edges)
+
+    assert result.is_directed() == expected_result.is_directed()
+    assert result.is_multigraph() == expected_result.is_multigraph()
+    assert _graph_snapshot(result) == expected_snapshot
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_edge_subgraph_tracks_mutations_like_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph = fnx_cls()
+    expected = nx_cls()
+    for node, color in [("a", "red"), ("b", "blue"), ("c", "green")]:
+        graph.add_node(node, color=color)
+        expected.add_node(node, color=color)
+
+    if graph.is_multigraph():
+        selected_edges = [("a", "c", 7)]
+        expected_result = nx.edge_subgraph(expected, selected_edges)
+        result_builder = lambda target: target.add_edge("a", "c", key=7, weight=9)
+        edge_snapshot = lambda g: sorted(g.edges(keys=True, data=True))
+    else:
+        selected_edges = [("a", "c")]
+        expected_result = nx.edge_subgraph(expected, selected_edges)
+        result_builder = lambda target: target.add_edge("a", "c", weight=9)
+        edge_snapshot = lambda g: sorted(g.edges(data=True))
+
+    _block_networkx_utilities(monkeypatch, "edge_subgraph")
+
+    result = fnx.edge_subgraph(graph, selected_edges)
+
+    graph.nodes["a"]["color"] = "black"
+    expected.nodes["a"]["color"] = "black"
+    result_builder(graph)
+    result_builder(expected)
+
+    assert result.is_directed() == expected_result.is_directed()
+    assert result.is_multigraph() == expected_result.is_multigraph()
+    assert sorted(result.nodes(data=True)) == sorted(expected_result.nodes(data=True))
+    assert edge_snapshot(result) == edge_snapshot(expected_result)
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_subgraph_view_matches_networkx_without_fallback(monkeypatch, fnx_cls, nx_cls):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    filter_node = lambda node: node != "d"
+    if graph.is_multigraph():
+        filter_edge = lambda u, v, key: key != 2 and (u, v) != ("b", "c")
+    else:
+        filter_edge = lambda u, v: (u, v) != ("b", "c")
+    expected_result = nx.subgraph_view(
+        expected,
+        filter_node=filter_node,
+        filter_edge=filter_edge,
+    )
+    expected_snapshot = _graph_snapshot(expected_result)
+
+    _block_networkx_utilities(monkeypatch, "subgraph_view")
+
+    result = fnx.subgraph_view(
+        graph,
+        filter_node=filter_node,
+        filter_edge=filter_edge,
+    )
+
+    assert result.is_directed() == expected_result.is_directed()
+    assert result.is_multigraph() == expected_result.is_multigraph()
+    assert _graph_snapshot(result) == expected_snapshot
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_subgraph_view_tracks_mutations_like_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    filter_node = lambda node: node != "d"
+    if graph.is_multigraph():
+        filter_edge = lambda u, v, key: key != 2 and (u, v) != ("b", "c")
+        add_edge = lambda target: target.add_edge("a", "c", key=7, weight=9)
+    else:
+        filter_edge = lambda u, v: (u, v) != ("b", "c")
+        add_edge = lambda target: target.add_edge("a", "c", weight=9)
+
+    expected_result = nx.subgraph_view(
+        expected,
+        filter_node=filter_node,
+        filter_edge=filter_edge,
+    )
+
+    _block_networkx_utilities(monkeypatch, "subgraph_view")
+
+    result = fnx.subgraph_view(
+        graph,
+        filter_node=filter_node,
+        filter_edge=filter_edge,
+    )
+
+    add_edge(graph)
+    add_edge(expected)
+
+    assert result.is_directed() == expected_result.is_directed()
+    assert result.is_multigraph() == expected_result.is_multigraph()
+    assert _graph_snapshot(result) == _graph_snapshot(expected_result)
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_reverse_view_tracks_mutations_like_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph = fnx_cls()
+    expected = nx_cls()
+    if graph.is_multigraph():
+        graph.add_edge("a", "b", key="k", weight=1)
+        expected.add_edge("a", "b", key="k", weight=1)
+    else:
+        graph.add_edge("a", "b", weight=1)
+        expected.add_edge("a", "b", weight=1)
+
+    expected_result = nx.reverse_view(expected)
+
+    _block_networkx_utilities(monkeypatch, "reverse_view")
+
+    result = fnx.reverse_view(graph)
+
+    if graph.is_multigraph():
+        graph.add_edge("c", "a", key="j", weight=2)
+        expected.add_edge("c", "a", key="j", weight=2)
+    else:
+        graph.add_edge("c", "a", weight=2)
+        expected.add_edge("c", "a", weight=2)
+
+    assert result.is_directed() == expected_result.is_directed()
+    assert result.is_multigraph() == expected_result.is_multigraph()
+    assert _graph_snapshot(result) == _graph_snapshot(expected_result)
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_restricted_view_matches_networkx_without_fallback(monkeypatch, fnx_cls, nx_cls):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    if graph.is_multigraph():
+        edges_to_remove = [("a", "b", 2)]
+    else:
+        edges_to_remove = [("b", "c")]
+    expected_result = nx.restricted_view(expected, ["d"], edges_to_remove)
+    expected_snapshot = _graph_snapshot(expected_result)
+
+    _block_networkx_utilities(monkeypatch, "restricted_view")
+
+    result = fnx.restricted_view(graph, ["d"], edges_to_remove)
+
+    assert result.is_directed() == expected_result.is_directed()
+    assert result.is_multigraph() == expected_result.is_multigraph()
+    assert _graph_snapshot(result) == expected_snapshot
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_restricted_view_tracks_mutations_like_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    if graph.is_multigraph():
+        edges_to_remove = [("a", "b", 2)]
+        add_edge = lambda target: target.add_edge("a", "c", key=7, weight=9)
+    else:
+        edges_to_remove = [("b", "c")]
+        add_edge = lambda target: target.add_edge("a", "c", weight=9)
+
+    expected_result = nx.restricted_view(expected, ["d"], edges_to_remove)
+
+    _block_networkx_utilities(monkeypatch, "restricted_view")
+
+    result = fnx.restricted_view(graph, ["d"], edges_to_remove)
+
+    add_edge(graph)
+    add_edge(expected)
+
+    assert result.is_directed() == expected_result.is_directed()
+    assert result.is_multigraph() == expected_result.is_multigraph()
+    assert _graph_snapshot(result) == _graph_snapshot(expected_result)
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_reverse_view_matches_networkx_without_fallback(monkeypatch, fnx_cls, nx_cls):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx.reverse_view(expected)
+    expected_snapshot = _graph_snapshot(expected_result)
+
+    _block_networkx_utilities(monkeypatch, "reverse_view")
+
+    result = fnx.reverse_view(graph)
+
+    assert result.is_directed() == expected_result.is_directed()
+    assert result.is_multigraph() == expected_result.is_multigraph()
+    assert _graph_snapshot(result) == expected_snapshot

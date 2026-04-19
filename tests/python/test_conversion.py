@@ -2,6 +2,8 @@
 to/from_dict_of_dicts, to/from_dict_of_lists, to/from_edgelist,
 to/from_numpy_array, to/from_scipy_sparse_array, to/from_pandas_edgelist."""
 
+from collections.abc import Mapping
+
 import networkx as nx
 import pytest
 
@@ -32,7 +34,7 @@ def small_digraph():
 
 
 def _normalize_mapping(value):
-    if isinstance(value, dict):
+    if isinstance(value, Mapping):
         return tuple(sorted((repr(key), _normalize_mapping(item)) for key, item in value.items()))
     return repr(value)
 
@@ -328,6 +330,46 @@ class TestDictOfDicts:
         d = fnx.to_dict_of_dicts(G, edge_data=1)
         assert d[0][1] == 1
 
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls"),
+        [
+            (fnx.Graph, nx.Graph),
+            (fnx.DiGraph, nx.DiGraph),
+            (fnx.MultiGraph, nx.MultiGraph),
+            (fnx.MultiDiGraph, nx.MultiDiGraph),
+        ],
+    )
+    def test_nodelist_tracks_mutations_like_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        if graph.is_multigraph():
+            graph.add_edge("a", "b", key="k1", weight=1)
+            expected.add_edge("a", "b", key="k1", weight=1)
+        else:
+            graph.add_edge("a", "b", weight=1)
+            expected.add_edge("a", "b", weight=1)
+
+        expected_result = nx.to_dict_of_dicts(expected, nodelist=["a", "b"])
+        monkeypatch.setattr(
+            nx,
+            "to_dict_of_dicts",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX to_dict_of_dicts fallback should not be used")
+            ),
+        )
+        result = fnx.to_dict_of_dicts(graph, nodelist=["a", "b"])
+
+        if graph.is_multigraph():
+            graph.add_edge("a", "b", key="k2", weight=2)
+            expected.add_edge("a", "b", key="k2", weight=2)
+        else:
+            graph["a"]["b"]["weight"] = 9
+            expected["a"]["b"]["weight"] = 9
+
+        assert _normalize_mapping(result) == _normalize_mapping(expected_result)
+
     def test_from_empty(self):
         G = fnx.from_dict_of_dicts({})
         assert G.number_of_nodes() == 0
@@ -362,6 +404,43 @@ class TestDictOfLists:
         G.add_edge(1, 2)
         d = fnx.to_dict_of_lists(G, nodelist=[0, 1])
         assert 2 not in d
+
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls"),
+        [
+            (fnx.DiGraph, nx.DiGraph),
+            (fnx.MultiDiGraph, nx.MultiDiGraph),
+        ],
+    )
+    def test_directed_parity_without_fallback(self, monkeypatch, fnx_cls, nx_cls):
+        graph = fnx_cls()
+        expected = nx_cls()
+        if graph.is_multigraph():
+            graph.add_edge("a", "b", key="k1")
+            graph.add_edge("a", "b", key="k2")
+            graph.add_edge("b", "c", key="j")
+            expected.add_edge("a", "b", key="k1")
+            expected.add_edge("a", "b", key="k2")
+            expected.add_edge("b", "c", key="j")
+        else:
+            graph.add_edge("a", "b")
+            graph.add_edge("b", "c")
+            expected.add_edge("a", "b")
+            expected.add_edge("b", "c")
+
+        expected_all = nx.to_dict_of_lists(expected)
+        expected_filtered = nx.to_dict_of_lists(expected, nodelist=["a", "b"])
+
+        monkeypatch.setattr(
+            nx,
+            "to_dict_of_lists",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX to_dict_of_lists fallback should not be used")
+            ),
+        )
+
+        assert fnx.to_dict_of_lists(graph) == expected_all
+        assert fnx.to_dict_of_lists(graph, nodelist=["a", "b"]) == expected_filtered
 
     def test_from_empty(self):
         G = fnx.from_dict_of_lists({})

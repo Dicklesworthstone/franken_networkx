@@ -9,6 +9,7 @@ Tests cover:
 - is_distance_regular
 """
 
+import networkx as nx
 import pytest
 import franken_networkx as fnx
 
@@ -177,20 +178,57 @@ class TestIsNegativelyWeighted:
 
 
 # ---------------------------------------------------------------------------
-# Path graph
+# Path validation
 # ---------------------------------------------------------------------------
 
 class TestIsPath:
-    def test_path(self, path3):
-        assert fnx.is_path(path3) is True
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls"),
+        [
+            (fnx.Graph, nx.Graph),
+            (fnx.DiGraph, nx.DiGraph),
+            (fnx.MultiGraph, nx.MultiGraph),
+            (fnx.MultiDiGraph, nx.MultiDiGraph),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "path",
+        [
+            ["a", "b", "c"],
+            ["a", "c"],
+            [],
+            ["missing"],
+            ["a", "missing"],
+            ["a", "b", "a"],
+            ["a", ["b"]],
+            "abc",
+            None,
+        ],
+    )
+    def test_matches_networkx_without_fallback(self, monkeypatch, fnx_cls, nx_cls, path):
+        graph = fnx_cls()
+        expected = nx_cls()
+        if graph.is_multigraph():
+            graph.add_edge("a", "b", key="k")
+            graph.add_edge("b", "c", key="j")
+            expected.add_edge("a", "b", key="k")
+            expected.add_edge("b", "c", key="j")
+        else:
+            graph.add_edge("a", "b")
+            graph.add_edge("b", "c")
+            expected.add_edge("a", "b")
+            expected.add_edge("b", "c")
 
-    def test_cycle_not_path(self, triangle):
-        assert fnx.is_path(triangle) is False
+        expected_result = nx.is_path(expected, path)
+        monkeypatch.setattr(
+            nx,
+            "is_path",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX is_path fallback should not be used")
+            ),
+        )
 
-    def test_single_node(self):
-        g = fnx.Graph()
-        g.add_node("a")
-        assert fnx.is_path(g) is True
+        assert fnx.is_path(graph, path) is expected_result
 
 
 # ---------------------------------------------------------------------------
