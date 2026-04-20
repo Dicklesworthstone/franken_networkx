@@ -144,6 +144,66 @@ def test_subgraph_centrality_normalized_and_error_contract_match_networkx(monkey
     assert str(actual_multigraph_error.value) == str(expected_multigraph_error.value)
 
 
+def test_katz_centrality_numpy_matches_networkx_without_fallback(monkeypatch):
+    graph = fnx.DiGraph()
+    graph.add_edge("a", "b", weight=2.0)
+    graph.add_edge("c", "b", weight=1.5)
+    graph.add_edge("b", "c", weight=0.5)
+
+    expected_graph = nx.DiGraph()
+    expected_graph.add_edge("a", "b", weight=2.0)
+    expected_graph.add_edge("c", "b", weight=1.5)
+    expected_graph.add_edge("b", "c", weight=0.5)
+
+    expected = nx.katz_centrality_numpy(
+        expected_graph,
+        alpha=0.1,
+        beta={"c": 3.0, "a": 1.0, "b": 2.0},
+        normalized=False,
+        weight="weight",
+    )
+
+    monkeypatch.setattr(
+        nx,
+        "katz_centrality_numpy",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("delegated")),
+    )
+
+    actual = fnx.katz_centrality_numpy(
+        graph,
+        alpha=0.1,
+        beta={"c": 3.0, "a": 1.0, "b": 2.0},
+        normalized=False,
+        weight="weight",
+    )
+    _assert_mapping_close(actual, expected)
+
+
+def test_katz_centrality_numpy_error_contract_matches_networkx():
+    actual_graph = fnx.path_graph(3)
+    expected_graph = nx.path_graph(3)
+
+    with pytest.raises(nx.NetworkXError) as expected_beta_error:
+        nx.katz_centrality_numpy(expected_graph, beta={0: 1.0})
+    with pytest.raises(fnx.NetworkXError) as actual_beta_error:
+        fnx.katz_centrality_numpy(actual_graph, beta={0: 1.0})
+    assert str(actual_beta_error.value) == str(expected_beta_error.value)
+
+    with pytest.raises(nx.NetworkXError) as expected_scalar_error:
+        nx.katz_centrality_numpy(expected_graph, beta="x")
+    with pytest.raises(fnx.NetworkXError) as actual_scalar_error:
+        fnx.katz_centrality_numpy(actual_graph, beta="x")
+    assert str(actual_scalar_error.value) == str(expected_scalar_error.value)
+
+    actual_multigraph = fnx.MultiGraph([(0, 1)])
+    expected_multigraph = nx.MultiGraph([(0, 1)])
+    with pytest.raises(nx.NetworkXNotImplemented) as expected_multigraph_error:
+        nx.katz_centrality_numpy(expected_multigraph)
+    with pytest.raises(fnx.NetworkXNotImplemented) as actual_multigraph_error:
+        fnx.katz_centrality_numpy(actual_multigraph)
+    assert str(actual_multigraph_error.value) == str(expected_multigraph_error.value)
+
+
 def test_group_closeness_centrality_native_and_directed_fallback_match_networkx():
     undirected = fnx.path_graph(4)
     expected_undirected = nx.path_graph(4)

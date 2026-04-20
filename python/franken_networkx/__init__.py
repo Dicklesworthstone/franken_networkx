@@ -13575,21 +13575,32 @@ def eigenvector_centrality_numpy(G, weight="weight", max_iter=50, tol=0):
     return {nodelist[i]: float(ev[i]) for i in range(n)}
 
 
-def katz_centrality_numpy(G, alpha=0.1, beta=1.0, weight="weight"):
-    """Katz centrality via matrix inversion."""
+def katz_centrality_numpy(G, alpha=0.1, beta=1.0, normalized=True, weight=None):
+    """Katz centrality via the upstream NumPy linear-solver contract."""
     import numpy as np
 
-    nodelist = list(G.nodes())
-    n = len(nodelist)
-    if n == 0:
+    if len(G) == 0:
         return {}
-    A = to_numpy_array(G, nodelist=nodelist, weight=weight)
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+
     try:
-        M = np.linalg.inv(np.eye(n) - alpha * A)
-    except np.linalg.LinAlgError:
-        M = np.linalg.pinv(np.eye(n) - alpha * A)
-    c = M.sum(axis=1) * beta
-    return {nodelist[i]: float(c[i]) for i in range(n)}
+        nodelist = beta.keys()
+        if set(nodelist) != set(G):
+            raise NetworkXError("beta dictionary must have a value for every node")
+        b = np.array(list(beta.values()), dtype=float)
+    except AttributeError:
+        nodelist = list(G)
+        try:
+            b = np.ones((len(nodelist), 1)) * beta
+        except (TypeError, ValueError, AttributeError) as err:
+            raise NetworkXError("beta must be a number") from err
+
+    A = to_numpy_array(G, nodelist=nodelist, weight=weight).T
+    n = A.shape[0]
+    centrality = np.linalg.solve(np.eye(n, n) - (alpha * A), b).squeeze()
+    norm = np.sign(sum(centrality)) * np.linalg.norm(centrality) if normalized else 1
+    return dict(zip(nodelist, (centrality / norm).tolist()))
 
 
 def incremental_closeness_centrality(G, u, prev_cc=None, insertion=True, wt_attr=None):
