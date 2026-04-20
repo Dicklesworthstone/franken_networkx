@@ -81,6 +81,49 @@ class TestShortestPath:
         G_fnx, G_nx = path_graph
         assert fnx.shortest_path_length(G_fnx, "a", "e") == nx.shortest_path_length(G_nx, "a", "e")
 
+    @pytest.mark.parametrize(
+        ("kwargs", "exc_type", "message"),
+        [
+            ({"source": "missing"}, "NodeNotFound", "Source missing is not in G"),
+            ({"source": ["a", "b"]}, "NodeNotFound", "Source ['a', 'b'] is not in G"),
+            ({"source": ("a", "b")}, "NodeNotFound", "Source ('a', 'b') is not in G"),
+            (
+                {"source": "missing", "weight": "weight", "method": "dijkstra"},
+                "NodeNotFound",
+                "Node missing not found in graph",
+            ),
+            (
+                {"source": "missing", "weight": "weight", "method": "bellman-ford"},
+                "NodeNotFound",
+                "Source missing not in G",
+            ),
+            (
+                {"source": ["a", "b"], "weight": "weight", "method": "dijkstra"},
+                "TypeError",
+                "unhashable type: 'list'",
+            ),
+            (
+                {"source": ["a", "b"], "weight": "weight", "method": "bellman-ford"},
+                "TypeError",
+                "unhashable type: 'list'",
+            ),
+            (
+                {"source": ("a", "b"), "weight": "weight", "method": "dijkstra"},
+                "NodeNotFound",
+                "Node ('a', 'b') not found in graph",
+            ),
+        ],
+    )
+    def test_shortest_path_length_source_only_networkx_34_source_validation(
+        self, fnx, path_graph, kwargs, exc_type, message
+    ):
+        G_fnx, _ = path_graph
+        with pytest.raises(Exception) as exc_info:
+            fnx.shortest_path_length(G_fnx, **kwargs)
+
+        assert type(exc_info.value).__name__ == exc_type
+        assert str(exc_info.value) == message
+
     def test_shortest_path_length_all_pairs_returns_iterator(self, fnx, nx, path_graph):
         G_fnx, G_nx = path_graph
 

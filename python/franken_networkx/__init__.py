@@ -286,6 +286,23 @@ def _call_networkx_for_parity(name, G, /, *args, **kwargs):
     return result
 
 
+def _validate_shortest_path_length_source_query(G, source, weight, method):
+    if weight is None:
+        if source not in G:
+            raise NodeNotFound(f"Source {source} is not in G")
+        return
+
+    hash(source)
+
+    if source in G:
+        return
+
+    if method == "dijkstra":
+        raise NodeNotFound(f"Node {source} not found in graph")
+
+    raise NodeNotFound(f"Source {source} not in G")
+
+
 def average_shortest_path_length(G, weight=None, method=None):
     """Return the average shortest path length.
 
@@ -352,6 +369,7 @@ def shortest_path_length(G, source=None, target=None, weight=None, method="dijks
         return _shortest_path_length_raw(G, source, target, weight=weight)
     
     if source is not None:
+        _validate_shortest_path_length_source_query(G, source, weight, method)
         if weight is not None:
             if method == "bellman-ford":
                 return dict(single_source_bellman_ford_path_length(G, source, weight=weight))
