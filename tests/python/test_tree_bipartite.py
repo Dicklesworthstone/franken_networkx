@@ -168,6 +168,87 @@ class TestBiadjacencyMatrix:
 
 
 @pytest.mark.conformance
+class TestGreedyBranchingParity:
+    @staticmethod
+    def _weighted_digraph(mod, seed=42):
+        import random as _random
+
+        rng = _random.Random(seed)
+        G = mod.DiGraph()
+        G.add_nodes_from(range(10))
+        for _ in range(25):
+            u = rng.randint(0, 9)
+            v = rng.randint(0, 9)
+            if u != v:
+                G.add_edge(u, v, weight=rng.uniform(1.0, 10.0))
+        return G
+
+    @pytest.mark.parametrize("kind", ["max", "min"])
+    def test_matches_networkx_edge_selection(self, fnx, nx, kind):
+        Gn = self._weighted_digraph(nx)
+        Gf = self._weighted_digraph(fnx)
+        Bn = nx.algorithms.tree.branchings.greedy_branching(Gn, kind=kind)
+        Bf = fnx.greedy_branching(Gf, kind=kind)
+
+        def triples(G):
+            return sorted(
+                (u, v, round(G.edges[u, v].get("weight", 1.0), 9))
+                for u, v in G.edges()
+            )
+
+        assert triples(Bn) == triples(Bf)
+
+    @pytest.mark.parametrize("kind", ["max", "min"])
+    def test_result_is_a_branching(self, fnx, kind):
+        Gf = self._weighted_digraph(fnx)
+        Bf = fnx.greedy_branching(Gf, kind=kind)
+        assert all(Bf.in_degree[n] <= 1 for n in Bf.nodes())
+        assert fnx.is_directed_acyclic_graph(Bf)
+        assert set(Bf.nodes()) == set(Gf.nodes())
+
+    def test_default_attribute_is_used_for_missing_edges(self, fnx, nx):
+        Gn = nx.DiGraph()
+        Gn.add_edge(0, 1, cost=3)
+        Gn.add_edge(1, 2, cost=5)
+        Gn.add_edge(0, 2)
+        Gf = fnx.DiGraph()
+        Gf.add_edge(0, 1, cost=3)
+        Gf.add_edge(1, 2, cost=5)
+        Gf.add_edge(0, 2)
+
+        Bn = nx.algorithms.tree.branchings.greedy_branching(
+            Gn, attr="cost", default=100, kind="max"
+        )
+        Bf = fnx.greedy_branching(Gf, attr="cost", default=100, kind="max")
+        assert sorted((u, v, B.edges[u, v].get("cost")) for u, v in Bn.edges() for B in [Bn]) == sorted(
+            (u, v, B.edges[u, v].get("cost")) for u, v in Bf.edges() for B in [Bf]
+        )
+
+    def test_none_attr_uses_random_key_and_keeps_edge_count_matching_networkx(
+        self, fnx, nx
+    ):
+        Gn = self._weighted_digraph(nx)
+        Gf = self._weighted_digraph(fnx)
+        Bn = nx.algorithms.tree.branchings.greedy_branching(
+            Gn, attr=None, kind="max", seed=7
+        )
+        Bf = fnx.greedy_branching(Gf, attr=None, kind="max", seed=7)
+        assert Bf.number_of_edges() == Bn.number_of_edges()
+        assert all(Bf.in_degree[n] <= 1 for n in Bf.nodes())
+
+    def test_invalid_kind_raises(self, fnx):
+        Gf = self._weighted_digraph(fnx)
+        with pytest.raises(fnx.NetworkXError):
+            fnx.greedy_branching(Gf, kind="not-a-kind")
+
+    def test_empty_graph_returns_empty_branching(self, fnx):
+        Gf = fnx.DiGraph()
+        Bf = fnx.greedy_branching(Gf)
+        assert Bf.number_of_nodes() == 0
+        assert Bf.number_of_edges() == 0
+
+
+@pytest.mark.conformance
 class TestColoring:
     def test_greedy_color_valid(self, fnx, path_graph):
         G_fnx, _ = path_graph

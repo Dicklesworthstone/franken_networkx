@@ -17723,6 +17723,56 @@ def tree_all_pairs_lowest_common_ancestor(G, root=None, pairs=None):
             ancestors[uf[parent]] = parent
 
 
+def greedy_branching(G, attr="weight", default=1, kind="max", seed=None):
+    """Return a branching obtained through a simple greedy algorithm.
+
+    Mirrors ``networkx.algorithms.tree.branchings.greedy_branching``. This is
+    the pedagogical baseline: edges are sorted by weight (with a node-id
+    tie-break to normalize across runs), then added as long as the result
+    remains a branching (no cycles and in-degree ≤ 1 per node). The output
+    is not guaranteed to be optimal.
+
+    When ``attr`` is None each edge is treated equally (weight 1) and the
+    stored edge attribute is suppressed so the returned graph has no edge
+    data, matching NetworkX.
+    """
+    if kind not in ("min", "max"):
+        raise NetworkXError("Unknown value for `kind`.")
+    reverse = kind == "max"
+
+    if attr is None:
+        import random as _random
+
+        rng = _random.Random(seed)
+        # Matches NetworkX: when attr is None, generate a random key that the
+        # graph is vanishingly unlikely to already have, then treat it as the
+        # attribute name throughout. Edges in the result carry this random
+        # key (mirroring the upstream behaviour exactly).
+        attr = f"_greedy_branching_{rng.getrandbits(64):016x}"
+
+    edges = [
+        (u, v, data.get(attr, default)) for (u, v, data) in G.edges(data=True)
+    ]
+    try:
+        edges.sort(key=lambda e: (e[2], e[0], e[1]), reverse=reverse)
+    except TypeError:
+        edges.sort(key=lambda e: e[2], reverse=reverse)
+
+    B = DiGraph()
+    B.add_nodes_from(G)
+
+    uf = _TarjanUnionFind()
+    for u, v, w in edges:
+        if uf[u] == uf[v]:
+            continue
+        if B.in_degree[v] >= 1:
+            continue
+        B.add_edge(u, v, **{attr: w})
+        uf.union(u, v)
+
+    return B
+
+
 def random_kernel_graph(n, kernel=None, seed=None):
     """Random graph from kernel function kernel(x_i, x_j) giving edge probability."""
     import random as _random
@@ -20559,6 +20609,7 @@ __all__ = [
     "is_bipartite",
     "is_forest",
     "is_tree",
+    "greedy_branching",
     "maximum_branching",
     "maximum_spanning_arborescence",
     "number_of_spanning_trees",
