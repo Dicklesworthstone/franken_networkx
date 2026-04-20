@@ -2935,6 +2935,154 @@ fn betweenness_centrality_generic<G: GraphView>(graph: &G) -> BetweennessCentral
 }
 
 #[must_use]
+pub fn betweenness_centrality_subset(
+    graph: &Graph,
+    sources: &[&str],
+    targets: &[&str],
+    normalized: bool,
+) -> BetweennessCentralityResult {
+    betweenness_centrality_subset_generic(graph, sources, targets, normalized)
+}
+
+#[must_use]
+pub fn betweenness_centrality_subset_directed(
+    graph: &DiGraph,
+    sources: &[&str],
+    targets: &[&str],
+    normalized: bool,
+) -> BetweennessCentralityResult {
+    betweenness_centrality_subset_generic(graph, sources, targets, normalized)
+}
+
+fn betweenness_centrality_subset_generic<G: GraphView>(
+    graph: &G,
+    sources: &[&str],
+    targets: &[&str],
+    normalized: bool,
+) -> BetweennessCentralityResult {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+
+    let empty_witness = || ComplexityWitness {
+        algorithm: "brandes_betweenness_centrality_subset".to_owned(),
+        complexity_claim: "O(|S| * |E|)".to_owned(),
+        nodes_touched: 0,
+        edges_scanned: 0,
+        queue_peak: 0,
+    };
+
+    if n == 0 {
+        return BetweennessCentralityResult {
+            scores: Vec::new(),
+            witness: empty_witness(),
+        };
+    }
+
+    let source_idx: Vec<usize> = sources
+        .iter()
+        .filter_map(|s| graph.get_node_index(s))
+        .collect();
+    let mut target_bitmap = vec![false; n];
+    for t in targets {
+        if let Some(i) = graph.get_node_index(t) {
+            target_bitmap[i] = true;
+        }
+    }
+
+    let mut centrality = vec![0.0; n];
+    let mut total_nodes_touched = 0usize;
+    let mut edges_scanned = 0usize;
+    let mut queue_peak = 0usize;
+
+    for &s in &source_idx {
+        let mut stack = Vec::<usize>::with_capacity(n);
+        let mut predecessors = vec![Vec::<usize>::new(); n];
+        let mut sigma = vec![0.0; n];
+        let mut distance = vec![-1i64; n];
+
+        sigma[s] = 1.0;
+        distance[s] = 0;
+
+        let mut queue = VecDeque::<usize>::new();
+        queue.push_back(s);
+        queue_peak = queue_peak.max(queue.len());
+
+        while let Some(v) = queue.pop_front() {
+            stack.push(v);
+            let dist_v = distance[v];
+            if let Some(neighbors) = graph.neighbors_iter(nodes[v]) {
+                for w_name in neighbors {
+                    edges_scanned += 1;
+                    let w = graph.get_node_index(w_name).unwrap();
+                    if distance[w] < 0 {
+                        distance[w] = dist_v + 1;
+                        queue.push_back(w);
+                        queue_peak = queue_peak.max(queue.len());
+                    }
+                    if distance[w] == dist_v + 1 {
+                        sigma[w] += sigma[v];
+                        predecessors[w].push(v);
+                    }
+                }
+            }
+        }
+        total_nodes_touched += stack.len();
+
+        let mut dependency = vec![0.0; n];
+        while let Some(w) = stack.pop() {
+            if sigma[w] > 0.0 {
+                let extra = if target_bitmap[w] && w != s { 1.0 } else { 0.0 };
+                let coeff = (extra + dependency[w]) / sigma[w];
+                for &v in &predecessors[w] {
+                    dependency[v] += sigma[v] * coeff;
+                }
+            }
+            if w != s {
+                centrality[w] += dependency[w];
+            }
+        }
+    }
+
+    let directed = graph.is_directed();
+    let scale_opt = if normalized {
+        if n > 2 {
+            Some(1.0 / ((n - 1) * (n - 2)) as f64)
+        } else {
+            None
+        }
+    } else if directed {
+        None
+    } else {
+        Some(0.5)
+    };
+    if let Some(scale) = scale_opt {
+        for c in &mut centrality {
+            *c *= scale;
+        }
+    }
+
+    let ordered_scores = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, node)| CentralityScore {
+            node: (*node).to_owned(),
+            score: centrality[i],
+        })
+        .collect();
+
+    BetweennessCentralityResult {
+        scores: ordered_scores,
+        witness: ComplexityWitness {
+            algorithm: "brandes_betweenness_centrality_subset".to_owned(),
+            complexity_claim: "O(|S| * |E|)".to_owned(),
+            nodes_touched: total_nodes_touched,
+            edges_scanned,
+            queue_peak,
+        },
+    }
+}
+
+#[must_use]
 pub fn edge_betweenness_centrality(graph: &Graph) -> EdgeBetweennessCentralityResult {
     edge_betweenness_centrality_generic(graph)
 }
@@ -3058,6 +3206,177 @@ fn edge_betweenness_centrality_generic<G: GraphView>(graph: &G) -> EdgeBetweenne
         witness: ComplexityWitness {
             algorithm: "brandes_edge_betweenness_centrality".to_owned(),
             complexity_claim: "O(|V| * |E|)".to_owned(),
+            nodes_touched,
+            edges_scanned,
+            queue_peak,
+        },
+    }
+}
+
+#[must_use]
+pub fn edge_betweenness_centrality_subset(
+    graph: &Graph,
+    sources: &[&str],
+    targets: &[&str],
+    normalized: bool,
+) -> EdgeBetweennessCentralityResult {
+    edge_betweenness_centrality_subset_generic(graph, sources, targets, normalized)
+}
+
+#[must_use]
+pub fn edge_betweenness_centrality_subset_directed(
+    graph: &DiGraph,
+    sources: &[&str],
+    targets: &[&str],
+    normalized: bool,
+) -> EdgeBetweennessCentralityResult {
+    edge_betweenness_centrality_subset_generic(graph, sources, targets, normalized)
+}
+
+fn edge_betweenness_centrality_subset_generic<G: GraphView>(
+    graph: &G,
+    sources: &[&str],
+    targets: &[&str],
+    normalized: bool,
+) -> EdgeBetweennessCentralityResult {
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+
+    let empty_witness = || ComplexityWitness {
+        algorithm: "brandes_edge_betweenness_centrality_subset".to_owned(),
+        complexity_claim: "O(|S| * |E|)".to_owned(),
+        nodes_touched: 0,
+        edges_scanned: 0,
+        queue_peak: 0,
+    };
+
+    if n == 0 {
+        return EdgeBetweennessCentralityResult {
+            scores: Vec::new(),
+            witness: empty_witness(),
+        };
+    }
+
+    let is_directed = graph.is_directed();
+    let canonical_edge_key = |left: &str, right: &str| -> (String, String) {
+        if is_directed || left <= right {
+            (left.to_owned(), right.to_owned())
+        } else {
+            (right.to_owned(), left.to_owned())
+        }
+    };
+
+    let mut edge_scores = HashMap::<(String, String), f64>::new();
+    for node in &nodes {
+        if let Some(neighbors) = graph.neighbors_iter(node) {
+            for neighbor in neighbors {
+                edge_scores
+                    .entry(canonical_edge_key(node, neighbor))
+                    .or_insert(0.0);
+            }
+        }
+    }
+
+    let source_idx: Vec<usize> = sources
+        .iter()
+        .filter_map(|s| graph.get_node_index(s))
+        .collect();
+    let mut target_bitmap = vec![false; n];
+    for t in targets {
+        if let Some(i) = graph.get_node_index(t) {
+            target_bitmap[i] = true;
+        }
+    }
+
+    let mut nodes_touched = 0usize;
+    let mut edges_scanned = 0usize;
+    let mut queue_peak = 0usize;
+
+    for &s in &source_idx {
+        let mut stack = Vec::<usize>::with_capacity(n);
+        let mut predecessors = vec![Vec::<usize>::new(); n];
+        let mut sigma = vec![0.0; n];
+        let mut distance = vec![-1i64; n];
+
+        sigma[s] = 1.0;
+        distance[s] = 0;
+
+        let mut queue = VecDeque::<usize>::new();
+        queue.push_back(s);
+        queue_peak = queue_peak.max(queue.len());
+
+        while let Some(v) = queue.pop_front() {
+            stack.push(v);
+            let dist_v = distance[v];
+            if let Some(neighbors) = graph.neighbors_iter(nodes[v]) {
+                for w_name in neighbors {
+                    edges_scanned += 1;
+                    let w = graph.get_node_index(w_name).unwrap();
+                    if distance[w] < 0 {
+                        distance[w] = dist_v + 1;
+                        queue.push_back(w);
+                        queue_peak = queue_peak.max(queue.len());
+                    }
+                    if distance[w] == dist_v + 1 {
+                        sigma[w] += sigma[v];
+                        predecessors[w].push(v);
+                    }
+                }
+            }
+        }
+        nodes_touched += stack.len();
+
+        let mut dependency = vec![0.0; n];
+        while let Some(w) = stack.pop() {
+            if sigma[w] > 0.0 {
+                let extra = if target_bitmap[w] && w != s { 1.0 } else { 0.0 };
+                let coeff = (extra + dependency[w]) / sigma[w];
+                for &v in &predecessors[w] {
+                    let contribution = sigma[v] * coeff;
+                    let key = canonical_edge_key(nodes[v], nodes[w]);
+                    *edge_scores.entry(key).or_insert(0.0) += contribution;
+                    dependency[v] += contribution;
+                }
+            }
+        }
+    }
+
+    let scale_opt = if normalized {
+        if n > 1 {
+            Some(1.0 / ((n * (n - 1)) as f64))
+        } else {
+            None
+        }
+    } else if is_directed {
+        None
+    } else {
+        Some(0.5)
+    };
+    if let Some(scale) = scale_opt {
+        for v in edge_scores.values_mut() {
+            *v *= scale;
+        }
+    }
+
+    let mut scores = edge_scores
+        .into_iter()
+        .map(|((left, right), score)| EdgeCentralityScore {
+            left,
+            right,
+            score,
+        })
+        .collect::<Vec<EdgeCentralityScore>>();
+    scores.sort_unstable_by(|left, right| {
+        left.left
+            .cmp(&right.left)
+            .then_with(|| left.right.cmp(&right.right))
+    });
+
+    EdgeBetweennessCentralityResult {
+        scores,
+        witness: ComplexityWitness {
+            algorithm: "brandes_edge_betweenness_centrality_subset".to_owned(),
+            complexity_claim: "O(|S| * |E|)".to_owned(),
             nodes_touched,
             edges_scanned,
             queue_peak,

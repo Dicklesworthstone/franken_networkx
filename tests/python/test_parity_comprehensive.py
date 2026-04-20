@@ -792,6 +792,98 @@ class TestNoNetworkxRuntimeDependency:
             fnx.non_randomness(G, k=2)
 
 
+@needs_nx
+class TestBetweennessCentralitySubsetRustParity:
+    """Unweighted betweenness_centrality_subset / edge variant now offloads
+    to Rust; this suite locks the behaviour against NetworkX.
+    """
+
+    @pytest.mark.parametrize(
+        ("builder", "directed"),
+        [
+            (lambda: nx.path_graph(6), False),
+            (lambda: nx.cycle_graph(8), False),
+            (lambda: nx.karate_club_graph(), False),
+            (lambda: nx.gnp_random_graph(12, 0.4, seed=3), False),
+            (lambda: nx.path_graph(5, create_using=nx.DiGraph), True),
+            (lambda: nx.gnp_random_graph(10, 0.3, seed=4, directed=True), True),
+        ],
+    )
+    @pytest.mark.parametrize("normalized", [False, True])
+    def test_node_subset_matches_networkx(self, builder, directed, normalized):
+        Gn = builder()
+        Gf = fnx.DiGraph() if directed else fnx.Graph()
+        Gf.add_nodes_from(Gn.nodes())
+        Gf.add_edges_from(Gn.edges())
+
+        nodes = list(Gn.nodes())
+        sources = nodes[: max(1, len(nodes) // 4)]
+        targets = nodes[-max(1, len(nodes) // 4) :]
+
+        expected = nx.betweenness_centrality_subset(
+            Gn, sources, targets, normalized=normalized
+        )
+        actual = fnx.betweenness_centrality_subset(
+            Gf, sources, targets, normalized=normalized
+        )
+        assert set(actual.keys()) == set(expected.keys())
+        for node in expected:
+            assert actual[node] == pytest.approx(expected[node], abs=1e-9)
+
+    @pytest.mark.parametrize(
+        ("builder", "directed"),
+        [
+            (lambda: nx.path_graph(6), False),
+            (lambda: nx.cycle_graph(8), False),
+            (lambda: nx.karate_club_graph(), False),
+            (lambda: nx.gnp_random_graph(10, 0.3, seed=4, directed=True), True),
+        ],
+    )
+    @pytest.mark.parametrize("normalized", [False, True])
+    def test_edge_subset_matches_networkx(self, builder, directed, normalized):
+        Gn = builder()
+        Gf = fnx.DiGraph() if directed else fnx.Graph()
+        Gf.add_nodes_from(Gn.nodes())
+        Gf.add_edges_from(Gn.edges())
+
+        nodes = list(Gn.nodes())
+        sources = nodes[: max(1, len(nodes) // 4)]
+        targets = nodes[-max(1, len(nodes) // 4) :]
+
+        expected = nx.edge_betweenness_centrality_subset(
+            Gn, sources, targets, normalized=normalized
+        )
+        actual = fnx.edge_betweenness_centrality_subset(
+            Gf, sources, targets, normalized=normalized
+        )
+
+        def canonical(pair):
+            return pair if directed else tuple(sorted(pair))
+
+        expected_canon = {canonical(e): v for e, v in expected.items()}
+        actual_canon = {canonical(e): v for e, v in actual.items()}
+        assert set(actual_canon.keys()) == set(expected_canon.keys())
+        for edge, value in expected_canon.items():
+            assert actual_canon[edge] == pytest.approx(value, abs=1e-9)
+
+    def test_weighted_fallback_still_matches_networkx(self):
+        Gn = nx.path_graph(6)
+        for u, v in Gn.edges():
+            Gn.edges[u, v]["w"] = 1.0 + (u + v) * 0.25
+        Gf = fnx.Graph()
+        Gf.add_nodes_from(Gn.nodes())
+        Gf.add_edges_from(Gn.edges(data=True))
+
+        expected = nx.betweenness_centrality_subset(
+            Gn, [0, 1], [4, 5], normalized=True, weight="w"
+        )
+        actual = fnx.betweenness_centrality_subset(
+            Gf, [0, 1], [4, 5], normalized=True, weight="w"
+        )
+        for node in expected:
+            assert actual[node] == pytest.approx(expected[node], abs=1e-9)
+
+
 def _build_find_induced_nodes_case(graph, case_name):
     if case_name == "path_0_3":
         graph.add_edges_from([(0, 1), (1, 2), (2, 3)])

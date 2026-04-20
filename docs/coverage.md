@@ -6,12 +6,12 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 184 | 23% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 575 | 73% | Python-defined exports with no runtime NetworkX dependency detected |
-| NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
+| RUST_NATIVE | 179 | 22% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 580 | 73% | Python-defined exports with no runtime NetworkX dependency detected |
+| NX_DELEGATED | 3 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 20 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
-| **Total public exports** | **781** | | unique names from `franken_networkx.__all__` |
+| **Total public exports** | **784** | | unique names from `franken_networkx.__all__` |
 
 All declared public exports are classified. `--check` fails if this generated report drifts from the live module surface.
 
@@ -19,8 +19,8 @@ All declared public exports are classified. `--check` fails if this generated re
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 512 |
-| `franken_networkx._fnx` | 184 |
+| `franken_networkx` | 520 |
+| `franken_networkx._fnx` | 179 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
@@ -28,7 +28,7 @@ All declared public exports are classified. `--check` fails if this generated re
 | `builtins` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (184)
+## RUST_NATIVE exports (179)
 
 - `adamic_adar_index`
 - `all_pairs_shortest_path`
@@ -52,7 +52,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `bridges`
 - `center`
 - `chordal_graph_cliques`
-- `chordal_graph_treewidth`
 - `clique_removal`
 - `closeness_centrality`
 - `complement`
@@ -71,7 +70,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `difference`
 - `dominance_frontiers`
 - `dominating_set`
-- `eccentricity`
 - `edge_betweenness_centrality`
 - `edge_boundary`
 - `edge_connectivity`
@@ -99,7 +97,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `harmonic_centrality`
 - `has_eulerian_path`
 - `has_path`
-- `hits`
 - `hoffman_singleton_graph`
 - `hypercube_graph`
 - `immediate_dominators`
@@ -134,7 +131,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `katz_centrality`
 - `kneser_graph`
 - `kosaraju_strongly_connected_components`
-- `label_propagation_communities`
 - `large_clique_size`
 - `lexicographic_topological_sort`
 - `local_efficiency`
@@ -173,7 +169,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `number_strongly_connected_components`
 - `number_weakly_connected_components`
 - `out_degree_centrality`
-- `pagerank`
 - `pappus_graph`
 - `partition_spanning_tree`
 - `periphery`
@@ -215,7 +210,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_gml`
 - `write_graphml`
 
-## PY_WRAPPER exports (575)
+## PY_WRAPPER exports (580)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -246,6 +241,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `apply_matplotlib_colors`
 - `approximate_current_flow_betweenness_centrality`
 - `arf_layout`
+- `asyn_fluidc`
 - `attr_matrix`
 - `attr_sparse_matrix`
 - `attracting_components`
@@ -285,6 +281,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `check_planarity`
 - `check_planarity_recursive`
 - `chordal_cycle_graph`
+- `chordal_graph_treewidth`
 - `chordless_cycles`
 - `chromatic_polynomial`
 - `chvatal_graph`
@@ -323,7 +320,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `cubical_graph`
 - `current_flow_betweenness_centrality`
 - `current_flow_betweenness_centrality_subset`
-- `current_flow_closeness_centrality`
 - `cycle_graph`
 - `cytoscape_data`
 - `cytoscape_graph`
@@ -382,9 +378,9 @@ All declared public exports are classified. `--check` fails if this generated re
 - `draw_spring`
 - `dual_barabasi_albert_graph`
 - `duplication_divergence_graph`
+- `eccentricity`
 - `edge_betweenness_centrality_subset`
 - `edge_bfs`
-- `edge_current_flow_betweenness_centrality`
 - `edge_current_flow_betweenness_centrality_subset`
 - `edge_dfs`
 - `edge_disjoint_paths`
@@ -473,6 +469,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `havel_hakimi_graph`
 - `heawood_graph`
 - `hexagonal_lattice_graph`
+- `hits`
 - `hkn_harary_graph`
 - `hnm_harary_graph`
 - `hopcroft_karp_matching`
@@ -540,8 +537,10 @@ All declared public exports are classified. `--check` fails if this generated re
 - `karate_club_graph`
 - `katz_centrality_numpy`
 - `kemeny_constant`
+- `kernighan_lin_bisection`
 - `kl_connected_subgraph`
 - `krackhardt_kite_graph`
+- `label_propagation_communities`
 - `ladder_graph`
 - `laplacian_centrality`
 - `laplacian_matrix`
@@ -617,6 +616,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `optimize_edit_paths`
 - `optimize_graph_edit_distance`
 - `overall_reciprocity`
+- `pagerank`
 - `paley_graph`
 - `panther_similarity`
 - `panther_vector_similarity`
@@ -695,6 +695,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `s_metric`
 - `scale_free_graph`
 - `schultz_index`
+- `score_sequence`
 - `second_order_centrality`
 - `selfloop_edges`
 - `set_edge_attributes`
@@ -749,7 +750,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `to_undirected`
 - `transitive_closure_dag`
 - `transitivity`
-- `tree_all_pairs_lowest_common_ancestor`
 - `tree_data`
 - `tree_graph`
 - `triad_graph`
@@ -793,8 +793,11 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_sparse6`
 - `write_weighted_edgelist`
 
-## NX_DELEGATED exports (0)
+## NX_DELEGATED exports (3)
 
+- `current_flow_closeness_centrality`
+- `edge_current_flow_betweenness_centrality`
+- `tree_all_pairs_lowest_common_ancestor`
 
 ## CLASS exports (20)
 

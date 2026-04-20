@@ -437,11 +437,13 @@ def local_edge_connectivity(
 from franken_networkx._fnx import (
     average_neighbor_degree,
     betweenness_centrality,
+    betweenness_centrality_subset_rust as _betweenness_centrality_subset_rust,
     closeness_centrality,
     closeness_vitality as _rust_closeness_vitality,
     degree_assortativity_coefficient,
     degree_centrality,
     edge_betweenness_centrality,
+    edge_betweenness_centrality_subset_rust as _edge_betweenness_centrality_subset_rust,
     eigenvector_centrality,
     harmonic_centrality,
     hits,
@@ -10355,6 +10357,11 @@ def current_flow_closeness_centrality(G, weight=None, dtype=float, solver="lu"):
 
 def betweenness_centrality_subset(G, sources, targets, normalized=False, weight=None):
     """Betweenness centrality restricted to source/target subsets."""
+    if weight is None and not G.is_multigraph():
+        scores = _betweenness_centrality_subset_rust(
+            G, list(sources), list(targets), normalized
+        )
+        return {node: scores.get(node, 0.0) for node in G}
     betweenness = dict.fromkeys(G, 0.0)
     for source in sources:
         if weight is None:
@@ -10381,6 +10388,18 @@ def edge_betweenness_centrality_subset(
     G, sources, targets, normalized=False, weight=None
 ):
     """Edge betweenness restricted to source/target subsets."""
+    if weight is None and not G.is_multigraph():
+        rust_scores = _edge_betweenness_centrality_subset_rust(
+            G, list(sources), list(targets), normalized
+        )
+        betweenness = dict.fromkeys(G.edges(), 0.0)
+        is_directed = G.is_directed()
+        for (u, v), score in rust_scores.items():
+            if (u, v) in betweenness:
+                betweenness[(u, v)] = score
+            elif not is_directed and (v, u) in betweenness:
+                betweenness[(v, u)] = score
+        return betweenness
     betweenness = dict.fromkeys(G, 0.0)
     betweenness.update(dict.fromkeys(G.edges(), 0.0))
     for source in sources:

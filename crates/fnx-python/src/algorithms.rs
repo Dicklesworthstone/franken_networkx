@@ -2500,6 +2500,156 @@ pub fn edge_betweenness_centrality(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyRe
     Ok(dict.unbind())
 }
 
+/// Betweenness centrality restricted to source/target node subsets (unweighted).
+#[pyfunction]
+#[pyo3(signature = (g, sources, targets, normalized=false))]
+pub fn betweenness_centrality_subset_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    sources: Vec<Bound<'_, PyAny>>,
+    targets: Vec<Bound<'_, PyAny>>,
+    normalized: bool,
+) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    let source_keys: Vec<String> = sources
+        .iter()
+        .map(|n| node_key_to_string(py, n))
+        .collect::<PyResult<_>>()?;
+    let target_keys: Vec<String> = targets
+        .iter()
+        .map(|n| node_key_to_string(py, n))
+        .collect::<PyResult<_>>()?;
+    let src_refs: Vec<&str> = source_keys.iter().map(String::as_str).collect();
+    let tgt_refs: Vec<&str> = target_keys.iter().map(String::as_str).collect();
+    let result = match &gr {
+        GraphRef::Undirected(pg) => {
+            let inner = &pg.inner;
+            py.allow_threads(|| {
+                fnx_algorithms::betweenness_centrality_subset(
+                    inner,
+                    &src_refs,
+                    &tgt_refs,
+                    normalized,
+                )
+            })
+        }
+        GraphRef::Directed { dg, .. } => {
+            let inner = &dg.inner;
+            py.allow_threads(|| {
+                fnx_algorithms::betweenness_centrality_subset_directed(
+                    inner,
+                    &src_refs,
+                    &tgt_refs,
+                    normalized,
+                )
+            })
+        }
+        _ => {
+            if gr.is_directed() {
+                let inner = gr.digraph().expect("is_directed checked above");
+                py.allow_threads(|| {
+                    fnx_algorithms::betweenness_centrality_subset_directed(
+                        inner,
+                        &src_refs,
+                        &tgt_refs,
+                        normalized,
+                    )
+                })
+            } else {
+                let inner = gr.undirected();
+                py.allow_threads(|| {
+                    fnx_algorithms::betweenness_centrality_subset(
+                        inner,
+                        &src_refs,
+                        &tgt_refs,
+                        normalized,
+                    )
+                })
+            }
+        }
+    };
+    centrality_to_dict(py, &gr, &result.scores)
+}
+
+/// Edge betweenness centrality restricted to source/target node subsets (unweighted).
+#[pyfunction]
+#[pyo3(signature = (g, sources, targets, normalized=false))]
+pub fn edge_betweenness_centrality_subset_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    sources: Vec<Bound<'_, PyAny>>,
+    targets: Vec<Bound<'_, PyAny>>,
+    normalized: bool,
+) -> PyResult<Py<PyDict>> {
+    let gr = extract_graph(g)?;
+    let source_keys: Vec<String> = sources
+        .iter()
+        .map(|n| node_key_to_string(py, n))
+        .collect::<PyResult<_>>()?;
+    let target_keys: Vec<String> = targets
+        .iter()
+        .map(|n| node_key_to_string(py, n))
+        .collect::<PyResult<_>>()?;
+    let src_refs: Vec<&str> = source_keys.iter().map(String::as_str).collect();
+    let tgt_refs: Vec<&str> = target_keys.iter().map(String::as_str).collect();
+    let result = match &gr {
+        GraphRef::Undirected(pg) => {
+            let inner = &pg.inner;
+            py.allow_threads(|| {
+                fnx_algorithms::edge_betweenness_centrality_subset(
+                    inner,
+                    &src_refs,
+                    &tgt_refs,
+                    normalized,
+                )
+            })
+        }
+        GraphRef::Directed { dg, .. } => {
+            let inner = &dg.inner;
+            py.allow_threads(|| {
+                fnx_algorithms::edge_betweenness_centrality_subset_directed(
+                    inner,
+                    &src_refs,
+                    &tgt_refs,
+                    normalized,
+                )
+            })
+        }
+        _ => {
+            if gr.is_directed() {
+                let inner = gr.digraph().expect("is_directed checked above");
+                py.allow_threads(|| {
+                    fnx_algorithms::edge_betweenness_centrality_subset_directed(
+                        inner,
+                        &src_refs,
+                        &tgt_refs,
+                        normalized,
+                    )
+                })
+            } else {
+                let inner = gr.undirected();
+                py.allow_threads(|| {
+                    fnx_algorithms::edge_betweenness_centrality_subset(
+                        inner,
+                        &src_refs,
+                        &tgt_refs,
+                        normalized,
+                    )
+                })
+            }
+        }
+    };
+    let dict = PyDict::new(py);
+    for s in &result.scores {
+        let key = pyo3::types::PyTuple::new(
+            py,
+            &[gr.py_node_key(py, &s.left), gr.py_node_key(py, &s.right)],
+        )?;
+        dict.set_item(key, s.score)?;
+    }
+    Ok(dict.unbind())
+}
+
 /// Return the load centrality for all nodes.
 ///
 /// Load centrality of a node is the fraction of all shortest paths that
@@ -12757,6 +12907,8 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(katz_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(betweenness_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(edge_betweenness_centrality, m)?)?;
+    m.add_function(wrap_pyfunction!(betweenness_centrality_subset_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(edge_betweenness_centrality_subset_rust, m)?)?;
     m.add_function(wrap_pyfunction!(load_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(closeness_vitality, m)?)?;
     m.add_function(wrap_pyfunction!(eigenvector_centrality, m)?)?;
