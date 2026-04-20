@@ -44,6 +44,22 @@ class TestCentrality:
         pr = fnx.pagerank(G_fnx)
         assert abs(sum(pr.values()) - 1.0) < 0.01
 
+    def test_pagerank_dangling(self, fnx, nx):
+        G_fnx = fnx.DiGraph()
+        G_nx = nx.DiGraph()
+        G_fnx.add_edge(0, 1)
+        G_nx.add_edge(0, 1)
+        G_fnx.add_node(2)
+        G_nx.add_node(2)
+        dangling = {0: 0.0, 1: 0.5, 2: 0.5}
+
+        assert_dicts_close(
+            fnx.pagerank(G_fnx, dangling=dangling),
+            nx.pagerank(G_nx, dangling=dangling),
+            atol=1e-6,
+            label="pagerank_dangling",
+        )
+
     def test_katz_centrality(self, fnx, nx, path_graph):
         G_fnx, G_nx = path_graph
         fnx_kc = fnx.katz_centrality(G_fnx)

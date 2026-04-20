@@ -428,7 +428,7 @@ from franken_networkx._fnx import (
     harmonic_centrality,
     hits,
     katz_centrality,
-    pagerank,
+    pagerank as _raw_pagerank,
     voterank,
 )
 
@@ -3406,6 +3406,112 @@ def stochastic_graph(G, copy=True, weight="weight"):
     for u, v, attrs in graph.edges(data=True):
         attrs[weight] = 0 if degree[u] == 0 else attrs.get(weight, 1) / degree[u]
     return graph
+
+
+def _normalize_pagerank_vector(vector, nodes):
+    total = math.fsum(vector.values())
+    return {node: vector.get(node, 0) / total for node in nodes}
+
+
+def _pagerank_outgoing_weights(G, node, weight):
+    if G.is_multigraph():
+        neighbor_weights = {}
+        for nbr, keyed_attrs in G.succ[node].items():
+            neighbor_weights[nbr] = math.fsum(
+                1.0 if weight is None else attrs.get(weight, 1)
+                for attrs in keyed_attrs.values()
+            )
+        return neighbor_weights
+
+    return {
+        nbr: 1.0 if weight is None else attrs.get(weight, 1)
+        for nbr, attrs in G.succ[node].items()
+    }
+
+
+def pagerank(
+    G,
+    alpha=0.85,
+    personalization=None,
+    max_iter=100,
+    tol=1.0e-6,
+    nstart=None,
+    weight="weight",
+    dangling=None,
+):
+    """Return the PageRank of the nodes in graph ``G``."""
+    if personalization is None and nstart is None and dangling is None and weight == "weight":
+        return _raw_pagerank(
+            G,
+            alpha=alpha,
+            personalization=None,
+            max_iter=max_iter,
+            tol=tol,
+            nstart=None,
+            weight="weight",
+            dangling=None,
+        )
+
+    if len(G) == 0:
+        return {}
+
+    directed_graph = G.to_directed()
+    nodes = list(directed_graph)
+    node_count = len(nodes)
+
+    if nstart is None:
+        current = dict.fromkeys(nodes, 1.0 / node_count)
+    else:
+        current = _normalize_pagerank_vector(nstart, nodes)
+
+    if personalization is None:
+        personalization_vector = dict.fromkeys(nodes, 1.0 / node_count)
+    else:
+        personalization_vector = _normalize_pagerank_vector(personalization, nodes)
+
+    if dangling is None:
+        dangling_weights = personalization_vector
+    else:
+        dangling_weights = _normalize_pagerank_vector(dangling, nodes)
+
+    transition_weights = {}
+    dangling_nodes = []
+    for node in nodes:
+        neighbor_weights = _pagerank_outgoing_weights(directed_graph, node, weight)
+        total_weight = math.fsum(neighbor_weights.values())
+        if total_weight == 0:
+            transition_weights[node] = None
+            dangling_nodes.append(node)
+            continue
+        transition_weights[node] = {
+            nbr: neighbor_weight / total_weight
+            for nbr, neighbor_weight in neighbor_weights.items()
+        }
+
+    for _ in range(max_iter):
+        previous = current
+        current = dict.fromkeys(nodes, 0.0)
+        dangling_sum = alpha * math.fsum(previous[node] for node in dangling_nodes)
+
+        for node in nodes:
+            neighbor_weights = transition_weights[node]
+            if not neighbor_weights:
+                continue
+            scaled_rank = alpha * previous[node]
+            for nbr, neighbor_weight in neighbor_weights.items():
+                current[nbr] += scaled_rank * neighbor_weight
+
+        for node in nodes:
+            current[node] += (
+                dangling_sum * dangling_weights.get(node, 0)
+                + (1.0 - alpha) * personalization_vector.get(node, 0)
+            )
+
+        error = math.fsum(abs(current[node] - previous[node]) for node in nodes)
+        if error < node_count * tol:
+            return current
+
+    raise PowerIterationFailedConvergence(max_iter)
 
 
 # ---------------------------------------------------------------------------
