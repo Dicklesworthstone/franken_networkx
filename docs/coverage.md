@@ -7,11 +7,11 @@
 | Category | Count | % | Rule |
 |----------|-------|---|------|
 | RUST_NATIVE | 179 | 22% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 581 | 74% | Python-defined exports with no runtime NetworkX dependency detected |
+| PY_WRAPPER | 583 | 74% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 2 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 20 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
-| **Total public exports** | **784** | | unique names from `franken_networkx.__all__` |
+| **Total public exports** | **786** | | unique names from `franken_networkx.__all__` |
 
 All declared public exports are classified. `--check` fails if this generated report drifts from the live module surface.
 
@@ -19,7 +19,7 @@ All declared public exports are classified. `--check` fails if this generated re
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 520 |
+| `franken_networkx` | 522 |
 | `franken_networkx._fnx` | 179 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
@@ -210,7 +210,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_gml`
 - `write_graphml`
 
-## PY_WRAPPER exports (581)
+## PY_WRAPPER exports (583)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -266,6 +266,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `bfs_predecessors`
 - `bfs_successors`
 - `bfs_tree`
+- `biadjacency_matrix`
 - `bidirectional_dijkstra`
 - `binomial_graph`
 - `binomial_tree`
@@ -412,6 +413,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `floyd_warshall_numpy`
 - `forceatlas2_layout`
 - `freeze`
+- `from_biadjacency_matrix`
 - `from_dict_of_dicts`
 - `from_dict_of_lists`
 - `from_edgelist`
