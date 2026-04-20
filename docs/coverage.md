@@ -6,12 +6,12 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 189 | 24% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 569 | 72% | Python-defined exports with no runtime NetworkX dependency detected |
+| RUST_NATIVE | 184 | 23% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 575 | 73% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 20 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
-| **Total public exports** | **780** | | unique names from `franken_networkx.__all__` |
+| **Total public exports** | **781** | | unique names from `franken_networkx.__all__` |
 
 All declared public exports are classified. `--check` fails if this generated report drifts from the live module surface.
 
@@ -19,8 +19,8 @@ All declared public exports are classified. `--check` fails if this generated re
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 506 |
-| `franken_networkx._fnx` | 189 |
+| `franken_networkx` | 512 |
+| `franken_networkx._fnx` | 184 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
@@ -28,7 +28,7 @@ All declared public exports are classified. `--check` fails if this generated re
 | `builtins` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (189)
+## RUST_NATIVE exports (184)
 
 - `adamic_adar_index`
 - `all_pairs_shortest_path`
@@ -59,7 +59,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `compose`
 - `connected_components`
 - `core_number`
-- `could_be_isomorphic`
 - `cut_size`
 - `cycle_basis`
 - `dag_longest_path`
@@ -74,10 +73,8 @@ All declared public exports are classified. `--check` fails if this generated re
 - `dominating_set`
 - `eccentricity`
 - `edge_betweenness_centrality`
-- `edge_bfs`
 - `edge_boundary`
 - `edge_connectivity`
-- `edge_dfs`
 - `efficiency`
 - `eigenvector_centrality`
 - `enumerate_all_cliques`
@@ -159,8 +156,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `min_weight_matching`
 - `min_weighted_vertex_cover`
 - `minimum_branching`
-- `minimum_cut`
-- `minimum_cut_value`
 - `minimum_node_cut`
 - `minimum_spanning_arborescence`
 - `minimum_spanning_edges`
@@ -220,7 +215,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_gml`
 - `write_graphml`
 
-## PY_WRAPPER exports (569)
+## PY_WRAPPER exports (575)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -288,6 +283,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `cd_index`
 - `chain_decomposition`
 - `check_planarity`
+- `check_planarity_recursive`
 - `chordal_cycle_graph`
 - `chordless_cycles`
 - `chromatic_polynomial`
@@ -322,6 +318,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `convert_node_labels_to_integers`
 - `corona_product`
 - `cost_of_flow`
+- `could_be_isomorphic`
 - `create_empty_copy`
 - `cubical_graph`
 - `current_flow_betweenness_centrality`
@@ -386,8 +383,10 @@ All declared public exports are classified. `--check` fails if this generated re
 - `dual_barabasi_albert_graph`
 - `duplication_divergence_graph`
 - `edge_betweenness_centrality_subset`
+- `edge_bfs`
 - `edge_current_flow_betweenness_centrality`
 - `edge_current_flow_betweenness_centrality_subset`
+- `edge_dfs`
 - `edge_disjoint_paths`
 - `edge_expansion`
 - `edge_load_centrality`
@@ -565,6 +564,8 @@ All declared public exports are classified. `--check` fails if this generated re
 - `maybe_regular_expander_graph`
 - `min_cost_flow`
 - `min_cost_flow_cost`
+- `minimum_cut`
+- `minimum_cut_value`
 - `minimum_cycle_basis`
 - `minimum_edge_cut`
 - `minimum_st_node_cut`

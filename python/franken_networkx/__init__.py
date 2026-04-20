@@ -5458,11 +5458,16 @@ def _planarity_graph_for_certificate(G):
         return graph
 
 
-def _check_planarity_certificate(G, counterexample=False):
-    import networkx as nx
+def _check_planarity_certificate(G, counterexample=False, recursive=False):
+    from networkx.algorithms import planarity as nx_planarity
 
     graph = _planarity_graph_for_certificate(G)
-    return nx.check_planarity(graph, counterexample=counterexample)
+    if recursive:
+        return nx_planarity.check_planarity_recursive(
+            graph,
+            counterexample=counterexample,
+        )
+    return nx_planarity.check_planarity(graph, counterexample=counterexample)
 
 
 def check_planarity(G, counterexample=False):
@@ -5480,6 +5485,15 @@ def check_planarity(G, counterexample=False):
     (bool, certificate)
     """
     return _check_planarity_certificate(G, counterexample=counterexample)
+
+
+def check_planarity_recursive(G, counterexample=False):
+    """Check if *G* is planar using NetworkX's recursive planarity routine."""
+    return _check_planarity_certificate(
+        G,
+        counterexample=counterexample,
+        recursive=True,
+    )
 
 
 def all_simple_edge_paths(G, source, target, cutoff=None):
@@ -19820,6 +19834,7 @@ __all__ = [
     "binomial_graph",
     "gnm_random_graph",
     "check_planarity",
+    "check_planarity_recursive",
     "all_simple_edge_paths",
     "chain_decomposition",
     "bidirectional_dijkstra",

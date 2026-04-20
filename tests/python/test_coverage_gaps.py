@@ -271,6 +271,42 @@ class TestPlanarity:
             frozenset(edge) for edge in counterexample.edges()
         } == {frozenset(edge) for edge in expected_counterexample.edges()}
 
+    def test_check_planarity_recursive_certificate_contract_matches_networkx(self):
+        graph = fnx.cycle_graph(4)
+        expected_planar, expected_embedding = nx.algorithms.planarity.check_planarity_recursive(
+            nx.cycle_graph(4)
+        )
+
+        actual_planar, embedding = fnx.check_planarity_recursive(graph)
+
+        assert actual_planar == expected_planar
+        assert actual_planar
+        assert isinstance(embedding, nx.PlanarEmbedding)
+        assert set(embedding.nodes()) == set(expected_embedding.nodes())
+        embedding.check_structure()
+
+    def test_check_planarity_recursive_counterexample_contract_matches_networkx(self):
+        graph = fnx.complete_graph(5)
+        expected_planar, expected_counterexample = nx.algorithms.planarity.check_planarity_recursive(
+            nx.complete_graph(5),
+            counterexample=True,
+        )
+
+        actual_planar, certificate = fnx.check_planarity_recursive(graph)
+        actual_counter_planar, counterexample = fnx.check_planarity_recursive(
+            graph,
+            counterexample=True,
+        )
+
+        assert not actual_planar
+        assert certificate is None
+        assert actual_counter_planar == expected_planar
+        assert not actual_counter_planar
+        assert set(counterexample.nodes()) == set(expected_counterexample.nodes())
+        assert {
+            frozenset(edge) for edge in counterexample.edges()
+        } == {frozenset(edge) for edge in expected_counterexample.edges()}
+
     @pytest.mark.parametrize(
         ("actual_graph", "expected_graph"),
         [
