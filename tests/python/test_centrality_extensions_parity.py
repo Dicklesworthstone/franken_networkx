@@ -103,6 +103,47 @@ def test_second_order_centrality_weighted_fallback_avoids_delegation(monkeypatch
     _assert_mapping_close(actual, expected)
 
 
+def test_subgraph_centrality_normalized_and_error_contract_match_networkx(monkeypatch):
+    graph = fnx.Graph()
+    graph.add_edge(0, 1, weight=5.0)
+    graph.add_edge(1, 2, weight=7.0)
+
+    expected_graph = nx.Graph()
+    expected_graph.add_edge(0, 1, weight=5.0)
+    expected_graph.add_edge(1, 2, weight=7.0)
+
+    original_subgraph_centrality = nx.subgraph_centrality
+    expected = original_subgraph_centrality(expected_graph)
+    expected_normalized = original_subgraph_centrality(expected_graph, normalized=True)
+
+    monkeypatch.setattr(
+        nx,
+        "subgraph_centrality",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("delegated")),
+    )
+
+    actual = fnx.subgraph_centrality(graph)
+    actual_normalized = fnx.subgraph_centrality(graph, normalized=True)
+    _assert_mapping_close(actual, expected)
+    _assert_mapping_close(actual_normalized, expected_normalized)
+
+    actual_directed = fnx.DiGraph([(0, 1)])
+    expected_directed = nx.DiGraph([(0, 1)])
+    with pytest.raises(nx.NetworkXNotImplemented) as expected_directed_error:
+        original_subgraph_centrality(expected_directed)
+    with pytest.raises(fnx.NetworkXNotImplemented) as actual_directed_error:
+        fnx.subgraph_centrality(actual_directed)
+    assert str(actual_directed_error.value) == str(expected_directed_error.value)
+
+    actual_multigraph = fnx.MultiGraph([(0, 1)])
+    expected_multigraph = nx.MultiGraph([(0, 1)])
+    with pytest.raises(nx.NetworkXNotImplemented) as expected_multigraph_error:
+        original_subgraph_centrality(expected_multigraph)
+    with pytest.raises(fnx.NetworkXNotImplemented) as actual_multigraph_error:
+        fnx.subgraph_centrality(actual_multigraph)
+    assert str(actual_multigraph_error.value) == str(expected_multigraph_error.value)
+
+
 def test_group_closeness_centrality_native_and_directed_fallback_match_networkx():
     undirected = fnx.path_graph(4)
     expected_undirected = nx.path_graph(4)

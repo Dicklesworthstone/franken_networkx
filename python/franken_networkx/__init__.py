@@ -4403,7 +4403,7 @@ def communicability(G):
     return result
 
 
-def subgraph_centrality(G):
+def subgraph_centrality(G, *, normalized=False):
     """Return the subgraph centrality for each node.
 
     The subgraph centrality is the diagonal of the matrix exponential
@@ -4416,10 +4416,22 @@ def subgraph_centrality(G):
     """
     import numpy as np
 
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+
     nodelist = list(G.nodes())
     A = to_numpy_array(G, nodelist=nodelist, weight=None)
-    expA = _matrix_exp(A)
-    return {nodelist[i]: float(expA[i, i]) for i in range(len(nodelist))}
+    A[np.nonzero(A)] = 1
+    eigenvalues, eigenvectors = np.linalg.eigh(A)
+    squared_eigenvectors = np.array(eigenvectors) ** 2
+    if normalized:
+        exp_eigenvalues = np.exp(eigenvalues - eigenvalues.max())
+    else:
+        exp_eigenvalues = np.exp(eigenvalues)
+    centralities = squared_eigenvectors @ exp_eigenvalues
+    return {nodelist[i]: float(centralities[i]) for i in range(len(nodelist))}
 
 
 def _matrix_exp(A):
