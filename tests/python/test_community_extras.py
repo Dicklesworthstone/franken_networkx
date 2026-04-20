@@ -22,6 +22,10 @@ def _assert_partition_equal(actual, expected):
     assert {frozenset(part) for part in actual} == {frozenset(part) for part in expected}
 
 
+def _normalize_partition_sequence(partitions):
+    return [{frozenset(part) for part in partition} for partition in partitions]
+
+
 def test_modularity_matrix_matches_networkx():
     graph = fnx.karate_club_graph()
     nx_graph = _to_nx(graph)
@@ -128,6 +132,42 @@ def test_label_propagation_communities_multigraph_matches_networkx():
     expected = nx_label_propagation_communities(nx_graph)
 
     assert _community_frozensets(result) == _community_frozensets(expected)
+
+
+def test_girvan_newman_directed_matches_networkx_without_fallback(monkeypatch):
+    graph = fnx.DiGraph(fnx.path_graph(4))
+    expected_graph = nx.DiGraph(nx.path_graph(4))
+
+    expected = list(nx.community.girvan_newman(expected_graph))
+
+    monkeypatch.setattr(
+        nx.community,
+        "girvan_newman",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("delegated")),
+    )
+
+    actual = list(fnx.girvan_newman(graph))
+    assert _normalize_partition_sequence(actual) == _normalize_partition_sequence(expected)
+
+
+def test_girvan_newman_empty_edges_and_custom_edge_match_networkx():
+    actual_empty = fnx.empty_graph(3)
+    expected_empty = nx.empty_graph(3)
+    assert _normalize_partition_sequence(list(fnx.girvan_newman(actual_empty))) == _normalize_partition_sequence(
+        list(nx.community.girvan_newman(expected_empty))
+    )
+
+    actual_weighted = fnx.Graph()
+    actual_weighted.add_weighted_edges_from([(0, 1, 3), (1, 2, 2), (2, 3, 1)])
+    expected_weighted = nx.Graph()
+    expected_weighted.add_weighted_edges_from([(0, 1, 3), (1, 2, 2), (2, 3, 1)])
+
+    def heaviest(graph):
+        return max(graph.edges(data="weight"), key=lambda edge: edge[2])[:2]
+
+    assert _normalize_partition_sequence(
+        list(fnx.girvan_newman(actual_weighted, heaviest))
+    ) == _normalize_partition_sequence(list(nx.community.girvan_newman(expected_weighted, heaviest)))
 
 
 @pytest.mark.parametrize(

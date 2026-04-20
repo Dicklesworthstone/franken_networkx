@@ -2707,46 +2707,33 @@ def hopcroft_karp_matching(G, top_nodes=None):
 
 
 def girvan_newman(G, most_valuable_edge=None):
-    """Find communities by iteratively removing the most-connected edge.
-
-    Yields partitions of the graph as a generator of tuples of sets.
-    Each partition has one more community than the previous.
-
-    Parameters
-    ----------
-    G : Graph
-        The input graph.
-    most_valuable_edge : callable, optional
-        Function that takes a graph and returns the edge to remove.
-        Default uses the edge with highest betweenness centrality.
-
-    Yields
-    ------
-    tuple of frozensets
-        Each yield is a partition of the graph into communities.
-    """
-    if G.number_of_nodes() == 0:
-        yield ()
+    """Find communities in graph ``G`` using the Girvan-Newman method."""
+    if G.number_of_edges() == 0:
+        yield tuple(connected_components(G))
         return
-
-    H = G.copy()
 
     if most_valuable_edge is None:
 
         def most_valuable_edge(graph):
-            ebc = edge_betweenness_centrality(graph)
-            return max(ebc, key=ebc.get)
+            betweenness = edge_betweenness_centrality(graph)
+            return max(betweenness, key=betweenness.get)
 
-    prev_num_components = number_connected_components(H)
+    graph = G.copy().to_undirected()
+    graph.remove_edges_from(list(selfloop_edges(graph)))
+    while graph.number_of_edges() > 0:
+        yield _without_most_valuable_edges(graph, most_valuable_edge)
 
-    while H.number_of_edges() > 0:
-        edge = most_valuable_edge(H)
-        H.remove_edge(*edge)
-        new_num = number_connected_components(H)
-        if new_num > prev_num_components:
-            components = connected_components(H)
-            yield tuple(frozenset(c) for c in components)
-            prev_num_components = new_num
+
+def _without_most_valuable_edges(G, most_valuable_edge):
+    """Remove edges until the number of connected components increases."""
+    original_num_components = number_connected_components(G)
+    num_new_components = original_num_components
+    while num_new_components <= original_num_components:
+        edge = most_valuable_edge(G)
+        G.remove_edge(*edge)
+        new_components = tuple(connected_components(G))
+        num_new_components = len(new_components)
+    return new_components
 
 
 def k_clique_communities(G, k):
