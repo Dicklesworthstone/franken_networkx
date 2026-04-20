@@ -9766,11 +9766,43 @@ def current_flow_betweenness_centrality(G, normalized=True, weight=None, solver=
     )
 
 
-def edge_current_flow_betweenness_centrality(G, normalized=True, weight=None):
+def edge_current_flow_betweenness_centrality(
+    G, normalized=True, weight=None, dtype=float, solver="full"
+):
     """Edge variant of current-flow betweenness centrality."""
-    return _fnx.edge_current_flow_betweenness_centrality_rust(
-        G, normalized, weight or "weight"
-    )
+    import numpy as np
+    import networkx as nx
+
+    from networkx.algorithms.centrality.flow_matrix import flow_matrix_row
+    from networkx.utils import reverse_cuthill_mckee_ordering
+
+    from franken_networkx.backend import _fnx_to_nx
+
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if not is_connected(G):
+        raise NetworkXError("Graph not connected.")
+
+    H_source = _fnx_to_nx(G)
+    n = H_source.number_of_nodes()
+    ordering = list(reverse_cuthill_mckee_ordering(H_source))
+    H = nx.relabel_nodes(H_source, dict(zip(ordering, range(n))))
+
+    edges = (tuple(sorted((u, v))) for u, v in H.edges())
+    betweenness = dict.fromkeys(edges, 0.0)
+    if normalized:
+        normalization = (n - 1.0) * (n - 2.0)
+    else:
+        normalization = 2.0
+
+    for row, edge in flow_matrix_row(H, weight=weight, dtype=dtype, solver=solver):
+        pos = dict(zip(row.argsort()[::-1], range(1, n + 1)))
+        for i in range(n):
+            betweenness[edge] += (i + 1 - pos[i]) * row.item(i)
+            betweenness[edge] += (n - i - pos[i]) * row.item(i)
+        betweenness[edge] /= normalization
+
+    return {(ordering[s], ordering[t]): value for (s, t), value in betweenness.items()}
 
 
 def approximate_current_flow_betweenness_centrality(

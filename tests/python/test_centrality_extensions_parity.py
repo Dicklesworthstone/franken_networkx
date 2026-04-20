@@ -1,5 +1,6 @@
 import math
 
+import numpy as np
 import pytest
 
 import franken_networkx as fnx
@@ -245,6 +246,101 @@ def test_edge_load_centrality_matches_networkx():
     expected = nx.edge_load_centrality(nx.cycle_graph(4))
     actual = fnx.edge_load_centrality(graph)
     _assert_mapping_close(actual, expected)
+
+
+def test_edge_current_flow_betweenness_centrality_matches_networkx_without_fallback(
+    monkeypatch,
+):
+    graph = fnx.Graph()
+    graph.add_edge(0, 1, weight=2.0)
+    graph.add_edge(1, 2, weight=3.0)
+    graph.add_edge(0, 2, weight=5.0)
+    graph.add_edge(2, 3, weight=1.0)
+
+    expected_graph = nx.Graph()
+    expected_graph.add_edge(0, 1, weight=2.0)
+    expected_graph.add_edge(1, 2, weight=3.0)
+    expected_graph.add_edge(0, 2, weight=5.0)
+    expected_graph.add_edge(2, 3, weight=1.0)
+
+    expected = nx.edge_current_flow_betweenness_centrality(
+        expected_graph,
+        normalized=True,
+        weight="weight",
+        dtype=np.float32,
+        solver="cg",
+    )
+
+    monkeypatch.setattr(
+        nx,
+        "edge_current_flow_betweenness_centrality",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("delegated")),
+    )
+
+    actual = fnx.edge_current_flow_betweenness_centrality(
+        graph,
+        normalized=True,
+        weight="weight",
+        dtype=np.float32,
+        solver="cg",
+    )
+    _assert_mapping_close(actual, expected, tol=1e-6)
+
+
+def test_edge_current_flow_betweenness_centrality_weight_none_matches_networkx():
+    graph = fnx.Graph()
+    graph.add_edge(0, 1, weight=10.0)
+    graph.add_edge(1, 2, weight=10.0)
+    graph.add_edge(0, 2, weight=1.0)
+
+    expected_graph = nx.Graph()
+    expected_graph.add_edge(0, 1, weight=10.0)
+    expected_graph.add_edge(1, 2, weight=10.0)
+    expected_graph.add_edge(0, 2, weight=1.0)
+
+    actual = fnx.edge_current_flow_betweenness_centrality(graph, weight=None)
+    expected = nx.edge_current_flow_betweenness_centrality(expected_graph, weight=None)
+    _assert_mapping_close(actual, expected)
+
+
+def test_edge_current_flow_betweenness_centrality_multigraph_matches_networkx():
+    graph = fnx.MultiGraph()
+    graph.add_edge(0, 1, weight=1.0)
+    graph.add_edge(0, 1, weight=3.0)
+    graph.add_edge(1, 2, weight=2.0)
+
+    expected_graph = nx.MultiGraph()
+    expected_graph.add_edge(0, 1, weight=1.0)
+    expected_graph.add_edge(0, 1, weight=3.0)
+    expected_graph.add_edge(1, 2, weight=2.0)
+
+    actual = fnx.edge_current_flow_betweenness_centrality(graph, weight="weight")
+    expected = nx.edge_current_flow_betweenness_centrality(expected_graph, weight="weight")
+    _assert_mapping_close(actual, expected)
+
+
+def test_edge_current_flow_betweenness_centrality_directed_error_contract_matches_networkx():
+    actual_graph = fnx.DiGraph([(0, 1)])
+    expected_graph = nx.DiGraph([(0, 1)])
+
+    with pytest.raises(nx.NetworkXNotImplemented) as expected:
+        nx.edge_current_flow_betweenness_centrality(expected_graph)
+    with pytest.raises(fnx.NetworkXNotImplemented) as actual:
+        fnx.edge_current_flow_betweenness_centrality(actual_graph)
+
+    assert str(actual.value) == str(expected.value)
+
+
+def test_edge_current_flow_betweenness_centrality_invalid_solver_matches_networkx():
+    graph = fnx.path_graph(4)
+    expected_graph = nx.path_graph(4)
+
+    with pytest.raises(KeyError) as expected:
+        nx.edge_current_flow_betweenness_centrality(expected_graph, solver="bogus")
+    with pytest.raises(KeyError) as actual:
+        fnx.edge_current_flow_betweenness_centrality(graph, solver="bogus")
+
+    assert actual.value.args == expected.value.args
 
 
 def test_percolation_centrality_honors_attribute_and_states(monkeypatch):
