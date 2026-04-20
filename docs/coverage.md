@@ -7,8 +7,8 @@
 | Category | Count | % | Rule |
 |----------|-------|---|------|
 | RUST_NATIVE | 179 | 22% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 580 | 73% | Python-defined exports with no runtime NetworkX dependency detected |
-| NX_DELEGATED | 3 | 0% | Python-defined exports that import or call NetworkX at runtime |
+| PY_WRAPPER | 581 | 74% | Python-defined exports with no runtime NetworkX dependency detected |
+| NX_DELEGATED | 2 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 20 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
 | **Total public exports** | **784** | | unique names from `franken_networkx.__all__` |
@@ -210,7 +210,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_gml`
 - `write_graphml`
 
-## PY_WRAPPER exports (580)
+## PY_WRAPPER exports (581)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -750,6 +750,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `to_undirected`
 - `transitive_closure_dag`
 - `transitivity`
+- `tree_all_pairs_lowest_common_ancestor`
 - `tree_data`
 - `tree_graph`
 - `triad_graph`
@@ -793,11 +794,10 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_sparse6`
 - `write_weighted_edgelist`
 
-## NX_DELEGATED exports (3)
+## NX_DELEGATED exports (2)
 
 - `current_flow_closeness_centrality`
 - `edge_current_flow_betweenness_centrality`
-- `tree_all_pairs_lowest_common_ancestor`
 
 ## CLASS exports (20)
 

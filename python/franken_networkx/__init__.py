@@ -17526,10 +17526,48 @@ def _tree_lca_dfs_postorder_nodes(G, root):
     return order
 
 
+class _TarjanUnionFind:
+    """Minimal union-find used by tree_all_pairs_lowest_common_ancestor.
+
+    Mirrors the subset of networkx.utils.UnionFind that the LCA routine
+    actually touches: `uf[x]` returns the canonical representative and
+    auto-inserts fresh elements, and `uf.union(a, b)` merges by size.
+    """
+
+    __slots__ = ("_parent", "_weight")
+
+    def __init__(self):
+        self._parent = {}
+        self._weight = {}
+
+    def __getitem__(self, item):
+        if item not in self._parent:
+            self._parent[item] = item
+            self._weight[item] = 1
+            return item
+        # Find root with path halving.
+        path = [item]
+        root = self._parent[item]
+        while root != path[-1]:
+            path.append(root)
+            root = self._parent[root]
+        for ancestor in path:
+            self._parent[ancestor] = root
+        return root
+
+    def union(self, *items):
+        roots = {self[item] for item in items}
+        if len(roots) <= 1:
+            return
+        heaviest = max(roots, key=lambda r: self._weight[r])
+        for root in roots:
+            if root != heaviest:
+                self._weight[heaviest] += self._weight[root]
+                self._parent[root] = heaviest
+
+
 def tree_all_pairs_lowest_common_ancestor(G, root=None, pairs=None):
     """Yield the lowest common ancestor for sets of pairs in a tree."""
-    from networkx.utils import UnionFind, arbitrary_element
-
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
     if len(G) == 0:
@@ -17564,7 +17602,7 @@ def tree_all_pairs_lowest_common_ancestor(G, root=None, pairs=None):
     elif root not in G:
         raise NetworkXError(f"The node {root} is not in the digraph.")
 
-    uf = UnionFind()
+    uf = _TarjanUnionFind()
     ancestors = {node: uf[node] for node in G}
     colors = defaultdict(bool)
 
@@ -17578,7 +17616,7 @@ def tree_all_pairs_lowest_common_ancestor(G, root=None, pairs=None):
                 if pairs is None or (other, node) in pairs:
                     yield (other, node), ancestors[uf[other]]
         if node != root:
-            parent = arbitrary_element(G.pred[node])
+            parent = next(iter(G.pred[node]))
             uf.union(parent, node)
             ancestors[uf[parent]] = parent
 
