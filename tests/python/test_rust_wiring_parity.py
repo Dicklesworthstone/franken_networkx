@@ -38,6 +38,26 @@ def _make_identical_digraphs():
     return D_fnx, D_nx
 
 
+def _make_empty_graphs():
+    return fnx.Graph(), nx.Graph()
+
+
+def _make_directed_single_edge_graphs():
+    fnx_graph = fnx.DiGraph()
+    nx_graph = nx.DiGraph()
+    fnx_graph.add_edge(0, 1)
+    nx_graph.add_edge(0, 1)
+    return fnx_graph, nx_graph
+
+
+def _make_weighted_single_edge_graphs():
+    fnx_graph = fnx.Graph()
+    nx_graph = nx.Graph()
+    fnx_graph.add_edge(0, 1, capacity=1)
+    nx_graph.add_edge(0, 1, capacity=1)
+    return fnx_graph, nx_graph
+
+
 # ---------------------------------------------------------------------------
 # Triadic analysis
 # ---------------------------------------------------------------------------
@@ -128,6 +148,76 @@ class TestFlowParity:
         G.add_edge(1, 2, weight=5)
         T = fnx.gomory_hu_tree(G, capacity='weight')
         assert T.number_of_nodes() == 3
+
+    @pytest.mark.parametrize(
+        "flow_func",
+        [nx.algorithms.flow.edmonds_karp, nx.algorithms.flow.shortest_augmenting_path],
+    )
+    def test_gomory_hu_tree_flow_func_matches_networkx_without_fallback(
+        self, monkeypatch, flow_func
+    ):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for u, v, capacity in [
+            (0, 1, 3),
+            (1, 2, 5),
+            (2, 3, 4),
+            (0, 3, 2),
+            (0, 2, 1),
+        ]:
+            G_fnx.add_edge(u, v, capacity=capacity)
+            G_nx.add_edge(u, v, capacity=capacity)
+
+        expected = nx.gomory_hu_tree(G_nx, flow_func=flow_func)
+
+        def fail(*args, **kwargs):
+            raise AssertionError("unexpected NetworkX gomory_hu_tree fallback")
+
+        monkeypatch.setattr(nx, "gomory_hu_tree", fail)
+
+        actual = fnx.gomory_hu_tree(G_fnx, flow_func=flow_func)
+        expected_edges = sorted(
+            (min(u, v), max(u, v), data["weight"]) for u, v, data in expected.edges(data=True)
+        )
+        actual_edges = sorted(
+            (min(u, v), max(u, v), data["weight"]) for u, v, data in actual.edges(data=True)
+        )
+        assert actual_edges == expected_edges
+
+    @pytest.mark.parametrize(
+        ("graph_factory", "flow_func"),
+        [
+            (_make_empty_graphs, None),
+            (_make_directed_single_edge_graphs, nx.algorithms.flow.edmonds_karp),
+            (_make_weighted_single_edge_graphs, 1),
+        ],
+    )
+    def test_gomory_hu_tree_error_contract_matches_networkx_without_fallback(
+        self, monkeypatch, graph_factory, flow_func
+    ):
+        G_fnx, G_nx = graph_factory()
+
+        try:
+            if flow_func is None:
+                nx.gomory_hu_tree(G_nx)
+            else:
+                nx.gomory_hu_tree(G_nx, flow_func=flow_func)
+        except Exception as exc:
+            expected = exc
+        else:
+            raise AssertionError("expected NetworkX gomory_hu_tree to fail for this case")
+
+        def fail(*args, **kwargs):
+            raise AssertionError("unexpected NetworkX gomory_hu_tree fallback")
+
+        monkeypatch.setattr(nx, "gomory_hu_tree", fail)
+
+        fnx_exc_type = getattr(fnx, type(expected).__name__)
+        with pytest.raises(fnx_exc_type, match=str(expected)):
+            if flow_func is None:
+                fnx.gomory_hu_tree(G_fnx)
+            else:
+                fnx.gomory_hu_tree(G_fnx, flow_func=flow_func)
 
     def test_edge_disjoint_paths(self):
         G = fnx.Graph()

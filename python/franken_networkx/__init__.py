@@ -435,9 +435,27 @@ from franken_networkx._fnx import (
 from franken_networkx._fnx import (
     maximum_flow,
     maximum_flow_value,
-    minimum_cut,
-    minimum_cut_value,
+    minimum_cut as _minimum_cut_raw,
+    minimum_cut_value as _minimum_cut_value_raw,
 )
+
+
+def _validate_flow_func_selector(flow_func):
+    if flow_func is not None and not callable(flow_func):
+        raise NetworkXError("flow_func has to be callable.")
+    return flow_func
+
+
+def minimum_cut(G, source, sink, capacity="capacity", flow_func=None):
+    """Return the minimum cut value and node partition."""
+    _validate_flow_func_selector(flow_func)
+    return _minimum_cut_raw(G, source, sink, capacity=capacity)
+
+
+def minimum_cut_value(G, source, sink, capacity="capacity", flow_func=None):
+    """Return the minimum cut value between source and sink."""
+    _validate_flow_func_selector(flow_func)
+    return _minimum_cut_value_raw(G, source, sink, capacity=capacity)
 
 # Algorithm functions — distance measures
 from franken_networkx._fnx import (
@@ -14332,9 +14350,45 @@ def hnm_harary_graph(n, m, create_using=None):
     return _harary_graph_from_edges(n, edges, create_using=create_using)
 
 
-def gomory_hu_tree(G, capacity="capacity"):
-    """Gomory-Hu minimum cut tree via n-1 max-flow computations."""
-    return _fnx.gomory_hu_tree_rust(G, capacity)
+def gomory_hu_tree(G, capacity="capacity", flow_func=None):
+    """Return the Gomory-Hu tree of an undirected graph."""
+    _validate_flow_func_selector(flow_func)
+
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if len(G) == 0:
+        raise NetworkXError("Empty Graph does not have a Gomory-Hu tree representation")
+
+    if flow_func is None:
+        return _fnx.gomory_hu_tree_rust(G, capacity)
+
+    tree = {}
+    labels = {}
+    iter_nodes = iter(G)
+    root = next(iter_nodes)
+    for node in iter_nodes:
+        tree[node] = root
+
+    for source in tree:
+        target = tree[source]
+        cut_value, partition = _minimum_cut_raw(G, source, target, capacity=capacity)
+        labels[(source, target)] = cut_value
+
+        for node in partition[0]:
+            if node != source and node in tree and tree[node] == target:
+                tree[node] = source
+                labels[(node, source)] = labels.get((node, target), cut_value)
+
+        if target != root and tree[target] in partition[0]:
+            labels[(source, tree[target])] = labels[(target, tree[target])]
+            labels[(target, source)] = cut_value
+            tree[source] = tree[target]
+            tree[target] = source
+
+    result = Graph()
+    result.add_nodes_from(G)
+    result.add_weighted_edges_from((u, v, labels[(u, v)]) for u, v in tree.items())
+    return result
 
 
 def visibility_graph(sequence):
