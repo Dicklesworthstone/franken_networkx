@@ -313,3 +313,93 @@ class TestCompleteMultipartiteGraphParity:
     def test_subset_attribute_is_present_for_every_node(self):
         g = fnx.complete_multipartite_graph(3, 2, 1)
         assert all("subset" in g.nodes[n] for n in g.nodes())
+
+
+@pytest.mark.skipif(not _HAS_NX, reason="networkx not installed")
+class TestRandomGeometricGraphParity:
+    @pytest.mark.parametrize("p", [1, 2, 3, float("inf")])
+    def test_minkowski_p_matches_networkx(self, p):
+        import networkx as nx
+
+        pos = {i: (i * 0.1, (i * 0.17) % 1.0) for i in range(25)}
+        expected = nx.random_geometric_graph(25, 0.25, pos=pos, p=p)
+        actual = fnx.random_geometric_graph(25, 0.25, pos=pos, p=p)
+        assert {tuple(sorted(e)) for e in expected.edges()} == {
+            tuple(sorted(e)) for e in actual.edges()
+        }
+
+    def test_positions_stored_under_custom_pos_name(self):
+        g = fnx.random_geometric_graph(10, 0.2, seed=7, pos_name="xy")
+        assert all("xy" in g.nodes[n] for n in g.nodes())
+        assert all("pos" not in g.nodes[n] for n in g.nodes())
+
+    def test_chebyshev_distance_inf(self):
+        # Square corners — all pairs are within chebyshev radius 1.
+        import networkx as nx
+
+        pos = {0: (0, 0), 1: (1, 0), 2: (1, 1), 3: (0, 1)}
+        expected = nx.random_geometric_graph(4, 1.0, pos=pos, p=float("inf"))
+        actual = fnx.random_geometric_graph(4, 1.0, pos=pos, p=float("inf"))
+        assert {tuple(sorted(e)) for e in actual.edges()} == {
+            tuple(sorted(e)) for e in expected.edges()
+        }
+        assert actual.number_of_edges() == 6  # complete graph on 4 nodes
+
+
+@pytest.mark.skipif(not _HAS_NX, reason="networkx not installed")
+class TestGeometricEdgesParity:
+    @pytest.fixture
+    def square(self):
+        points = [(0, 0), (1, 0), (1, 1), (0, 1)]
+        G = fnx.Graph()
+        for i, xy in enumerate(points):
+            G.add_node(i, pos=xy)
+        return G
+
+    def test_returns_list_and_does_not_mutate_graph(self, square):
+        before = square.number_of_edges()
+        result = fnx.geometric_edges(square, radius=1.5)
+        assert isinstance(result, list)
+        assert square.number_of_edges() == before  # caller controls mutation
+
+    def test_matches_networkx_edge_list(self):
+        import networkx as nx
+
+        points = [(0, 0), (3, 0), (8, 0)]
+        G_fn = fnx.Graph()
+        G_nx = nx.Graph()
+        for i, xy in enumerate(points):
+            G_fn.add_node(i, pos=xy)
+            G_nx.add_node(i, pos=xy)
+        for r in (1, 4, 6, 9):
+            assert sorted(fnx.geometric_edges(G_fn, radius=r)) == sorted(
+                nx.geometric_edges(G_nx, radius=r)
+            )
+
+    def test_missing_pos_raises_networkx_error(self):
+        G = fnx.Graph()
+        G.add_nodes_from([0, 1])  # no pos attribute
+        with pytest.raises(fnx.NetworkXError):
+            fnx.geometric_edges(G, radius=1.0)
+
+    def test_pos_name_kwarg_is_honored(self):
+        import networkx as nx
+
+        G_fn = fnx.Graph()
+        G_nx = nx.Graph()
+        G_fn.add_nodes_from([(0, {"xy": (0, 0)}), (1, {"xy": (1, 0)})])
+        G_nx.add_nodes_from([(0, {"xy": (0, 0)}), (1, {"xy": (1, 0)})])
+        assert fnx.geometric_edges(G_fn, radius=1.5, pos_name="xy") == (
+            nx.geometric_edges(G_nx, radius=1.5, pos_name="xy")
+        )
+
+    @pytest.mark.parametrize("p", [1, 2, float("inf")])
+    def test_minkowski_p_matches_networkx(self, p, square):
+        import networkx as nx
+
+        G_nx = nx.Graph()
+        for n in square.nodes():
+            G_nx.add_node(n, pos=square.nodes[n]["pos"])
+        assert sorted(fnx.geometric_edges(square, radius=1.1, p=p)) == sorted(
+            nx.geometric_edges(G_nx, radius=1.1, p=p)
+        )

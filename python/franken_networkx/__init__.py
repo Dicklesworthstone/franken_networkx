@@ -13847,27 +13847,41 @@ def edge_current_flow_betweenness_centrality_subset(
 
 
 # Geometric Graphs (br-yyw)
-def random_geometric_graph(n, radius, dim=2, pos=None, p=2, seed=None):
-    """Random geometric graph: nodes in unit cube, edges within radius."""
-    import random as _random
+def random_geometric_graph(n, radius, dim=2, pos=None, p=2, seed=None, *, pos_name="pos"):
+    """Random geometric graph: nodes in unit cube, edges within Minkowski radius.
+
+    ``p`` selects the Minkowski distance metric (``p=1`` Manhattan, ``p=2``
+    Euclidean, ``float('inf')`` Chebyshev). ``pos_name`` names the node
+    attribute that stores each position. Matches
+    ``networkx.random_geometric_graph``.
+    """
     import math
+    import random as _random
 
     rng = _random.Random(seed)
     G = Graph()
-    positions = {}
+    positions: dict = {}
     for i in range(n):
-        positions[i] = (
-            tuple(rng.random() for _ in range(dim))
-            if pos is None
-            else pos.get(i, tuple(rng.random() for _ in range(dim)))
-        )
-        G.add_node(i, pos=positions[i])
+        if pos is not None and i in pos:
+            positions[i] = tuple(pos[i])
+        else:
+            positions[i] = tuple(rng.random() for _ in range(dim))
+        G.add_node(i, **{pos_name: positions[i]})
+
+    if p == float("inf"):
+        def _dist(pu, pv):
+            return max(abs(a - b) for a, b in zip(pu, pv))
+
+        def _within(pu, pv):
+            return _dist(pu, pv) <= radius
+    else:
+        radius_p = radius ** p
+        def _within(pu, pv):
+            return sum(abs(a - b) ** p for a, b in zip(pu, pv)) <= radius_p
+
     for i in range(n):
         for j in range(i + 1, n):
-            d = math.sqrt(
-                sum((positions[i][k] - positions[j][k]) ** 2 for k in range(dim))
-            )
-            if d <= radius:
+            if _within(positions[i], positions[j]):
                 G.add_edge(i, j)
     return G
 
@@ -14004,29 +14018,40 @@ def navigable_small_world_graph(n, p=1, q=1, r=2, dim=2, seed=None):
     return G
 
 
-def geometric_edges(G, radius, p=2):
-    """Add edges between nodes within radius based on 'pos' attribute."""
-    import math
+def geometric_edges(G, radius, p=2, *, pos_name="pos"):
+    """Return the list of node pairs within ``radius`` Minkowski-p distance.
 
+    Each node in ``G`` must have an attribute named ``pos_name`` (default
+    ``"pos"``) holding its coordinates. ``p`` selects the Minkowski metric
+    (``1`` Manhattan, ``2`` Euclidean, ``float('inf')`` Chebyshev).
+    Matches ``networkx.geometric_edges``: returns a list of edges and does
+    not mutate ``G``.
+    """
     nodes = list(G.nodes())
+    positions = []
+    for node in nodes:
+        pos = G.nodes[node].get(pos_name)
+        if pos is None:
+            raise NetworkXError(
+                f"Node {node} (and all nodes) must have a '{pos_name}' attribute."
+            )
+        positions.append(tuple(pos))
+
+    edges: list = []
+    if p == float("inf"):
+        def _within(pu, pv):
+            return max(abs(a - b) for a, b in zip(pu, pv)) <= radius
+    else:
+        radius_p = radius ** p
+        def _within(pu, pv):
+            return sum(abs(a - b) ** p for a, b in zip(pu, pv)) <= radius_p
+
     for i in range(len(nodes)):
+        pu = positions[i]
         for j in range(i + 1, len(nodes)):
-            u, v = nodes[i], nodes[j]
-            pu = (
-                G.nodes[u].get("pos")
-                if hasattr(G.nodes, "__getitem__") and isinstance(G.nodes[u], dict)
-                else None
-            )
-            pv = (
-                G.nodes[v].get("pos")
-                if hasattr(G.nodes, "__getitem__") and isinstance(G.nodes[v], dict)
-                else None
-            )
-            if pu and pv:
-                d = math.sqrt(sum((a - b) ** 2 for a, b in zip(pu, pv)))
-                if d <= radius:
-                    G.add_edge(u, v)
-    return G
+            if _within(pu, positions[j]):
+                edges.append((nodes[i], nodes[j]))
+    return edges
 
 
 # Coloring & Planarity (br-y1g)
