@@ -1,8 +1,33 @@
 """Conformance tests: shortest path algorithms — fnx vs nx oracle."""
 
+import importlib.util
+from functools import lru_cache
+from pathlib import Path
+import sys
 from collections.abc import Iterator
 
 import pytest
+
+
+@lru_cache(maxsize=1)
+def _legacy_networkx():
+    module_name = "franken_networkx_legacy_networkx"
+    cached = sys.modules.get(module_name)
+    if cached is not None:
+        return cached
+
+    legacy_init = (
+        Path(__file__).resolve().parents[2]
+        / "legacy_networkx_code"
+        / "networkx"
+        / "networkx"
+        / "__init__.py"
+    )
+    spec = importlib.util.spec_from_file_location(module_name, legacy_init)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def _negative_weight_graph_pair(fnx, nx, *, directed=False):
@@ -349,6 +374,78 @@ class TestShortestPath:
                 nx.shortest_path_length(
                     G_nx, target="c", weight="weight", method="dijkstra"
                 )
+            ),
+        )
+
+    def test_multi_source_dijkstra_cutoff_and_callable_weight_match_legacy_networkx_34(
+        self, fnx
+    ):
+        legacy_nx = _legacy_networkx()
+        G_fnx = fnx.Graph()
+        G_legacy = legacy_nx.Graph()
+        for graph in (G_fnx, G_legacy):
+            graph.add_edge("a", "b", w=1)
+            graph.add_edge("b", "d", w=2)
+            graph.add_edge("c", "d", w=1)
+
+        def weight_fn(u, v, data):
+            return data.get("w", 1)
+
+        _assert_same_result_or_exception(
+            lambda: fnx.multi_source_dijkstra(
+                G_fnx, ["a", "c"], cutoff=1, weight="w"
+            ),
+            lambda: legacy_nx.multi_source_dijkstra(
+                G_legacy, ["a", "c"], cutoff=1, weight="w"
+            ),
+        )
+        _assert_same_result_or_exception(
+            lambda: fnx.multi_source_dijkstra(
+                G_fnx, ["a", "c"], weight=weight_fn
+            ),
+            lambda: legacy_nx.multi_source_dijkstra(
+                G_legacy, ["a", "c"], weight=weight_fn
+            ),
+        )
+        _assert_same_result_or_exception(
+            lambda: fnx.multi_source_dijkstra_path(
+                G_fnx, ["a", "c"], cutoff=0, weight=weight_fn
+            ),
+            lambda: legacy_nx.multi_source_dijkstra_path(
+                G_legacy, ["a", "c"], cutoff=0, weight=weight_fn
+            ),
+        )
+        _assert_same_result_or_exception(
+            lambda: fnx.multi_source_dijkstra_path_length(
+                G_fnx, ["a", "c"], cutoff=1, weight=weight_fn
+            ),
+            lambda: legacy_nx.multi_source_dijkstra_path_length(
+                G_legacy, ["a", "c"], cutoff=1, weight=weight_fn
+            ),
+        )
+
+    def test_multi_source_dijkstra_target_cutoff_matches_legacy_networkx_34(self, fnx):
+        legacy_nx = _legacy_networkx()
+        G_fnx = fnx.Graph()
+        G_legacy = legacy_nx.Graph()
+        for graph in (G_fnx, G_legacy):
+            graph.add_edge("a", "b", w=1)
+            graph.add_edge("c", "d", w=1)
+
+        _assert_same_result_or_exception(
+            lambda: fnx.multi_source_dijkstra(
+                G_fnx, ["a"], target="b", cutoff=0, weight="w"
+            ),
+            lambda: legacy_nx.multi_source_dijkstra(
+                G_legacy, ["a"], target="b", cutoff=0, weight="w"
+            ),
+        )
+        _assert_same_result_or_exception(
+            lambda: fnx.multi_source_dijkstra(
+                G_fnx, ["a"], target="d", cutoff=10, weight="w"
+            ),
+            lambda: legacy_nx.multi_source_dijkstra(
+                G_legacy, ["a"], target="d", cutoff=10, weight="w"
             ),
         )
 

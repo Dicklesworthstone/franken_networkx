@@ -8077,16 +8077,29 @@ def dijkstra_predecessor_and_distance(G, source, cutoff=None, weight="weight"):
     return pred, dist
 
 
-def multi_source_dijkstra(G, sources, weight="weight"):
+def multi_source_dijkstra(G, sources, target=None, cutoff=None, weight="weight"):
     """Return shortest path lengths and paths from any source in *sources*."""
-    if _should_delegate_dijkstra_to_networkx(G, weight):
+    if callable(weight) or _should_delegate_dijkstra_to_networkx(G, weight):
         return _call_networkx_for_parity(
-            "multi_source_dijkstra", G, sources, weight=weight
+            "multi_source_dijkstra",
+            G,
+            sources,
+            target=target,
+            cutoff=cutoff,
+            weight=weight,
         )
-    return _raw_multi_source_dijkstra(G, sources, weight=weight)
+    dists, paths = _raw_multi_source_dijkstra(G, sources, weight=weight)
+    if cutoff is not None:
+        dists = {node: distance for node, distance in dists.items() if distance <= cutoff}
+        paths = {node: path for node, path in paths.items() if node in dists}
+    if target is not None:
+        if target not in dists:
+            raise NetworkXNoPath(f"No path to {target}.")
+        return dists[target], paths[target]
+    return dists, paths
 
 
-def multi_source_dijkstra_path(G, sources, weight="weight"):
+def multi_source_dijkstra_path(G, sources, cutoff=None, weight="weight"):
     """Return shortest paths from any source to all reachable nodes.
 
     Parameters
@@ -8100,11 +8113,11 @@ def multi_source_dijkstra_path(G, sources, weight="weight"):
     dict
         ``{target: path}`` where path starts from the nearest source.
     """
-    _, paths = multi_source_dijkstra(G, sources, weight=weight)
+    _, paths = multi_source_dijkstra(G, sources, cutoff=cutoff, weight=weight)
     return paths
 
 
-def multi_source_dijkstra_path_length(G, sources, weight="weight"):
+def multi_source_dijkstra_path_length(G, sources, cutoff=None, weight="weight"):
     """Return shortest path lengths from any source to all reachable nodes.
 
     Parameters
@@ -8118,7 +8131,7 @@ def multi_source_dijkstra_path_length(G, sources, weight="weight"):
     dict
         ``{target: length}``
     """
-    dists, _ = multi_source_dijkstra(G, sources, weight=weight)
+    dists, _ = multi_source_dijkstra(G, sources, cutoff=cutoff, weight=weight)
     return dists
 
 
