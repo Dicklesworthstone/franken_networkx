@@ -18,7 +18,7 @@ Or as a NetworkX backend (zero code changes required)::
 
 import base64
 from collections import Counter, defaultdict, deque
-from collections.abc import Collection, Generator, Iterable, Iterator, Mapping
+from collections.abc import Collection, Generator, Iterable, Iterator, Mapping, Set
 from copy import deepcopy
 from enum import Enum
 import gzip
@@ -16946,9 +16946,81 @@ def tutte_polynomial(G, x, y):
     return 1
 
 
+def _tree_lca_dfs_postorder_nodes(G, root):
+    visited = {root}
+    stack = [(root, iter(G[root]))]
+    order = []
+
+    while stack:
+        node, children = stack[-1]
+        for child in children:
+            if child in visited:
+                continue
+            visited.add(child)
+            stack.append((child, iter(G[child])))
+            break
+        else:
+            order.append(node)
+            stack.pop()
+
+    return order
+
+
 def tree_all_pairs_lowest_common_ancestor(G, root=None, pairs=None):
-    """LCA for all pairs in a tree (delegates to all_pairs_lowest_common_ancestor)."""
-    return all_pairs_lowest_common_ancestor(G, pairs=pairs)
+    """Yield the lowest common ancestor for sets of pairs in a tree."""
+    from networkx.utils import UnionFind, arbitrary_element
+
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
+    if len(G) == 0:
+        raise NetworkXPointlessConcept("LCA meaningless on null graphs.")
+
+    pair_dict = None
+    if pairs is not None:
+        pair_dict = defaultdict(set)
+        if not isinstance(pairs, Mapping | Set):
+            pairs = set(pairs)
+        for u, v in pairs:
+            for node in (u, v):
+                if node not in G:
+                    raise NodeNotFound(f"The node {node} is not in the digraph.")
+            pair_dict[u].add(v)
+            pair_dict[v].add(u)
+
+    if root is None:
+        for node, degree in G.in_degree:
+            if degree == 0:
+                if root is not None:
+                    raise NetworkXError(
+                        "No root specified and tree has multiple sources."
+                    )
+                root = node
+            elif degree > 1 and len(G.pred[node]) > 1:
+                raise NetworkXError(
+                    "Tree LCA only defined on trees; use DAG routine."
+                )
+        if root is None:
+            raise NetworkXError("Graph contains a cycle.")
+    elif root not in G:
+        raise NetworkXError(f"The node {root} is not in the digraph.")
+
+    uf = UnionFind()
+    ancestors = {node: uf[node] for node in G}
+    colors = defaultdict(bool)
+
+    for node in _tree_lca_dfs_postorder_nodes(G, root):
+        colors[node] = True
+        candidates = pair_dict[node] if pairs is not None else G
+        for other in candidates:
+            if colors[other]:
+                if pairs is not None and (node, other) in pairs:
+                    yield (node, other), ancestors[uf[other]]
+                if pairs is None or (other, node) in pairs:
+                    yield (other, node), ancestors[uf[other]]
+        if node != root:
+            parent = arbitrary_element(G.pred[node])
+            uf.union(parent, node)
+            ancestors[uf[parent]] = parent
 
 
 def random_kernel_graph(n, kernel=None, seed=None):

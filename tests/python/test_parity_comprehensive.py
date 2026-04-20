@@ -96,6 +96,91 @@ class TestDAGAlgorithms:
         pairs = list(fnx.all_pairs_lowest_common_ancestor(D, pairs=[(1, 2)]))
         assert len(pairs) == 1
 
+    def test_tree_all_pairs_lowest_common_ancestor_matches_networkx_without_fallback(
+        self, monkeypatch
+    ):
+        graph = fnx.DiGraph([(0, 1), (0, 2), (1, 3), (1, 4)])
+        expected = nx.DiGraph([(0, 1), (0, 2), (1, 3), (1, 4)])
+
+        expected_result = list(nx.tree_all_pairs_lowest_common_ancestor(expected))
+
+        monkeypatch.setattr(
+            nx,
+            "tree_all_pairs_lowest_common_ancestor",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX tree_all_pairs_lowest_common_ancestor fallback should not be used"
+                )
+            ),
+        )
+
+        result = list(fnx.tree_all_pairs_lowest_common_ancestor(graph))
+        assert result == expected_result
+
+    def test_tree_all_pairs_lowest_common_ancestor_root_matches_networkx_without_fallback(
+        self, monkeypatch
+    ):
+        graph = fnx.DiGraph([(0, 1), (0, 2), (1, 3), (1, 4)])
+        expected = nx.DiGraph([(0, 1), (0, 2), (1, 3), (1, 4)])
+
+        expected_result = list(nx.tree_all_pairs_lowest_common_ancestor(expected, root=1))
+
+        monkeypatch.setattr(
+            nx,
+            "tree_all_pairs_lowest_common_ancestor",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX tree_all_pairs_lowest_common_ancestor fallback should not be used"
+                )
+            ),
+        )
+
+        result = list(fnx.tree_all_pairs_lowest_common_ancestor(graph, root=1))
+        assert result == expected_result
+
+    @pytest.mark.parametrize(
+        ("actual_graph", "expected_graph", "kwargs"),
+        [
+            (fnx.DiGraph(), nx.DiGraph(), {}),
+            (fnx.Graph([(0, 1)]), nx.Graph([(0, 1)]), {}),
+            (fnx.DiGraph([(0, 1), (2, 3)]), nx.DiGraph([(0, 1), (2, 3)]), {}),
+            (fnx.DiGraph([(0, 1)]), nx.DiGraph([(0, 1)]), {"root": 9}),
+            (
+                fnx.DiGraph([(0, 1)]),
+                nx.DiGraph([(0, 1)]),
+                {"pairs": [(0, 9)]},
+            ),
+        ],
+    )
+    def test_tree_all_pairs_lowest_common_ancestor_error_contract_matches_networkx_without_fallback(
+        self,
+        monkeypatch,
+        actual_graph,
+        expected_graph,
+        kwargs,
+    ):
+        try:
+            list(nx.tree_all_pairs_lowest_common_ancestor(expected_graph, **kwargs))
+        except Exception as exc:
+            expected_type = type(exc).__name__
+            expected_message = str(exc)
+
+        monkeypatch.setattr(
+            nx,
+            "tree_all_pairs_lowest_common_ancestor",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX tree_all_pairs_lowest_common_ancestor fallback should not be used"
+                )
+            ),
+        )
+
+        with pytest.raises(Exception) as fnx_exc:
+            list(fnx.tree_all_pairs_lowest_common_ancestor(actual_graph, **kwargs))
+
+        assert type(fnx_exc.value).__name__ == expected_type
+        assert str(fnx_exc.value) == expected_message
+
     def test_all_pairs_lowest_common_ancestor_missing_pair_error_matches_networkx_without_fallback(
         self, monkeypatch
     ):
