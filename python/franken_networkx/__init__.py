@@ -3532,6 +3532,48 @@ def pagerank(
     raise PowerIterationFailedConvergence(max_iter)
 
 
+def _make_power_iteration_failed_convergence(max_iter):
+    error = PowerIterationFailedConvergence.__new__(PowerIterationFailedConvergence)
+    Exception.__init__(
+        error,
+        error,
+        f"power iteration failed to converge within {max_iter} iterations",
+    )
+    return error
+
+
+def hits(G, max_iter=100, tol=1.0e-8, nstart=None, normalized=True):
+    """Return HITS hubs and authorities values for nodes."""
+    import numpy as np
+    import scipy as sp
+
+    if len(G) == 0:
+        return {}, {}
+
+    A = adjacency_matrix(G, nodelist=list(G), dtype=float)
+
+    if nstart is not None:
+        nstart = np.array(list(nstart.values()))
+    if max_iter <= 0:
+        raise _make_power_iteration_failed_convergence(max_iter)
+
+    try:
+        _, _, vt = sp.sparse.linalg.svds(A, k=1, v0=nstart, maxiter=max_iter, tol=tol)
+    except sp.sparse.linalg.ArpackNoConvergence as exc:
+        raise _make_power_iteration_failed_convergence(max_iter) from exc
+
+    authorities = vt.flatten().real
+    hubs = A @ authorities
+    if normalized:
+        hubs /= hubs.sum()
+        authorities /= authorities.sum()
+
+    return (
+        dict(zip(G, map(float, hubs))),
+        dict(zip(G, map(float, authorities))),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Graph structural algorithms — pure Python over Rust primitives
 # ---------------------------------------------------------------------------

@@ -204,6 +204,52 @@ def test_katz_centrality_numpy_error_contract_matches_networkx():
     assert str(actual_multigraph_error.value) == str(expected_multigraph_error.value)
 
 
+def test_hits_matches_networkx_without_fallback(monkeypatch):
+    graph = fnx.path_graph(4)
+    expected_graph = nx.path_graph(4)
+
+    expected_hubs, expected_authorities = nx.hits(
+        expected_graph,
+        max_iter=25,
+        tol=1.0e-12,
+        nstart={node: float(index + 1) for index, node in enumerate(expected_graph)},
+        normalized=False,
+    )
+
+    monkeypatch.setattr(
+        nx,
+        "hits",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("delegated")),
+    )
+
+    actual_hubs, actual_authorities = fnx.hits(
+        graph,
+        max_iter=25,
+        tol=1.0e-12,
+        nstart={node: float(index + 1) for index, node in enumerate(graph)},
+        normalized=False,
+    )
+    _assert_mapping_close(actual_hubs, expected_hubs)
+    _assert_mapping_close(actual_authorities, expected_authorities)
+
+
+def test_hits_error_contract_matches_networkx():
+    actual_graph = fnx.path_graph(4)
+    expected_graph = nx.path_graph(4)
+
+    with pytest.raises(nx.PowerIterationFailedConvergence) as expected_iter_error:
+        nx.hits(expected_graph, max_iter=0)
+    with pytest.raises(fnx.PowerIterationFailedConvergence) as actual_iter_error:
+        fnx.hits(actual_graph, max_iter=0)
+    assert str(actual_iter_error.value) == str(expected_iter_error.value)
+
+    with pytest.raises(ValueError) as expected_nstart_error:
+        nx.hits(expected_graph, nstart={node: index + 1 for index, node in enumerate(expected_graph)})
+    with pytest.raises(ValueError) as actual_nstart_error:
+        fnx.hits(actual_graph, nstart={node: index + 1 for index, node in enumerate(actual_graph)})
+    assert str(actual_nstart_error.value) == str(expected_nstart_error.value)
+
+
 def test_group_closeness_centrality_native_and_directed_fallback_match_networkx():
     undirected = fnx.path_graph(4)
     expected_undirected = nx.path_graph(4)
