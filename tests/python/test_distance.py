@@ -38,6 +38,37 @@ class TestDistance:
         for node in nx_ecc:
             assert fnx_ecc[node] == nx_ecc[node], f"eccentricity[{node}]"
 
+    def test_eccentricity_argument_weight_and_sp(self, fnx, nx):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge(0, 1, w=2)
+            graph.add_edge(1, 2, w=5)
+            graph.add_edge(0, 2, w=10)
+            graph.add_edge(2, 3, w=1)
+
+        assert fnx.eccentricity(G_fnx, v=2) == nx.eccentricity(G_nx, v=2)
+        assert fnx.eccentricity(G_fnx, v=[0, 3]) == nx.eccentricity(G_nx, v=[0, 3])
+
+        shortest_paths = dict(nx.shortest_path_length(G_nx))
+        assert fnx.eccentricity(G_fnx, sp=shortest_paths) == nx.eccentricity(
+            G_nx,
+            sp=shortest_paths,
+        )
+
+        assert fnx.eccentricity(G_fnx, weight="w") == nx.eccentricity(G_nx, weight="w")
+
+    def test_eccentricity_error_contract(self, fnx, nx, disconnected_graph):
+        G_fnx, G_nx = disconnected_graph
+
+        with pytest.raises(nx.NetworkXError) as expected:
+            nx.eccentricity(G_nx)
+        with pytest.raises(fnx.NetworkXError) as actual:
+            fnx.eccentricity(G_fnx)
+        assert str(actual.value) == str(expected.value)
+
+        assert fnx.eccentricity(fnx.Graph()) == nx.eccentricity(nx.Graph()) == {}
+
     def test_disconnected_raises(self, fnx, disconnected_graph):
         G_fnx, _ = disconnected_graph
         with pytest.raises(fnx.NetworkXError):

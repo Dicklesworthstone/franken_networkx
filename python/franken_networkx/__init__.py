@@ -481,7 +481,7 @@ from franken_networkx._fnx import (
     center,
     density,
     diameter,
-    eccentricity,
+    eccentricity as _raw_eccentricity,
     periphery,
     radius,
 )
@@ -497,6 +497,57 @@ def density(G):
     if not G.is_directed():
         result *= 2
     return result
+
+
+def eccentricity(G, v=None, sp=None, weight=None):
+    """Returns the eccentricity of nodes in G."""
+    if len(G) == 0:
+        return {}
+
+    if v is None:
+        nodes = list(G)
+        single_node = False
+    else:
+        single_node = False
+        try:
+            if v in G:
+                nodes = [v]
+                single_node = True
+            else:
+                nodes = _global_nbunch_nodes(G, v)
+        except TypeError:
+            nodes = _global_nbunch_nodes(G, v)
+
+    if v is None and sp is None and weight is None:
+        return _raw_eccentricity(G)
+
+    order = G.order()
+    eccentricities = {}
+    for node in nodes:
+        if sp is None:
+            lengths = shortest_path_length(G, source=node, weight=weight)
+            reachable = len(lengths)
+        else:
+            try:
+                lengths = sp[node]
+                reachable = len(lengths)
+            except TypeError as err:
+                raise NetworkXError('Format of "sp" is invalid.') from err
+
+        if reachable != order:
+            if G.is_directed():
+                raise NetworkXError(
+                    "Found infinite path length because the digraph is not strongly connected"
+                )
+            raise NetworkXError(
+                "Found infinite path length because the graph is not connected"
+            )
+
+        eccentricities[node] = max(lengths.values())
+
+    if single_node:
+        return eccentricities[v]
+    return eccentricities
 
 
 # Algorithm functions — tree, forest, bipartite, coloring, core
