@@ -2096,6 +2096,20 @@ def is_tournament(G):
     )
 
 
+def score_sequence(G):
+    """Return the sorted out-degree sequence for a tournament graph."""
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
+    out_degree_view = G.out_degree
+    if callable(out_degree_view):
+        degree_items = out_degree_view()
+    else:
+        degree_items = out_degree_view
+    return sorted(degree for _node, degree in degree_items)
+
+
 def is_regular(G):
     """Determines whether a graph is regular."""
     if len(G) == 0:
@@ -20467,6 +20481,7 @@ __all__ = [
     "is_regular",
     "is_k_regular",
     "is_tournament",
+    "score_sequence",
     "is_weighted",
     "is_negatively_weighted",
     "is_path",

@@ -434,6 +434,59 @@ class TestIsTournament:
             assert fnx.is_tournament(graph) is expected_result
 
 
+class TestTournamentScoreSequence:
+    def test_complete_oriented_scores(self):
+        graph = fnx.DiGraph()
+        graph.add_edges_from([(1, 0), (1, 3), (0, 2), (0, 3), (2, 1), (3, 2)])
+        assert fnx.score_sequence(graph) == [1, 1, 2, 2]
+
+    @pytest.mark.parametrize(
+        ("fnx_cls", "nx_cls", "builder"),
+        [
+            (
+                fnx.DiGraph,
+                nx.DiGraph,
+                lambda graph: graph.add_edges_from(
+                    [(1, 0), (1, 3), (0, 2), (0, 3), (2, 1), (3, 2)]
+                ),
+            ),
+            (fnx.Graph, nx.Graph, lambda graph: graph.add_edge("a", "b")),
+            (fnx.MultiGraph, nx.MultiGraph, lambda graph: graph.add_edge("a", "b")),
+            (fnx.MultiDiGraph, nx.MultiDiGraph, lambda graph: graph.add_edge("a", "b")),
+        ],
+    )
+    def test_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_cls, nx_cls, builder
+    ):
+        graph = fnx_cls()
+        expected = nx_cls()
+        builder(graph)
+        builder(expected)
+
+        try:
+            expected_result = nx.tournament.score_sequence(expected)
+        except Exception as exc:
+            expected_result = exc
+
+        monkeypatch.setattr(
+            nx.tournament,
+            "score_sequence",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX tournament.score_sequence fallback should not be used"
+                )
+            ),
+        )
+
+        if isinstance(expected_result, Exception):
+            with pytest.raises(Exception) as fnx_exc:
+                fnx.score_sequence(graph)
+            assert type(fnx_exc.value).__name__ == type(expected_result).__name__
+            assert str(fnx_exc.value) == str(expected_result)
+        else:
+            assert fnx.score_sequence(graph) == expected_result
+
+
 # ---------------------------------------------------------------------------
 # Directed component predicates
 # ---------------------------------------------------------------------------
