@@ -1183,7 +1183,7 @@ from franken_networkx._fnx import (
     enumerate_all_cliques,
     find_cliques_recursive as _raw_find_cliques_recursive,
     chordal_graph_cliques,
-    chordal_graph_treewidth,
+    chordal_graph_treewidth as _rust_chordal_graph_treewidth,
     make_max_clique_graph as _rust_make_max_clique_graph,
     ring_of_cliques,
 )
@@ -1222,6 +1222,17 @@ def all_triangles(G, nbunch=None):
             for w in v_neighbors & u_neighbors:
                 if node_to_id.get(w, -1) > v_id:
                     yield (u, v, w)
+
+
+def chordal_graph_treewidth(G):
+    """Return the treewidth of a chordal graph."""
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if G.number_of_nodes() == 0:
+        return -2
+    return _rust_chordal_graph_treewidth(G)
 
 
 def find_cliques(G, nodes=None):

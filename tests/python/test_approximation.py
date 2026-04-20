@@ -337,9 +337,71 @@ class TestChordalGraphTreewidth:
         with pytest.raises(fnx.NetworkXError):
             fnx.chordal_graph_treewidth(fnx.cycle_graph(5))
 
-    def test_empty_graph_matches_reference_exception_shape(self):
-        with pytest.raises(ValueError, match="max\\(\\) iterable argument is empty"):
-            fnx.chordal_graph_treewidth(fnx.Graph())
+    def test_empty_graph_matches_current_networkx_contract(self):
+        assert fnx.chordal_graph_treewidth(fnx.Graph()) == -2
+
+
+@needs_nx
+class TestChordalGraphTreewidthParity:
+    @pytest.mark.parametrize(
+        "graph_builder",
+        [
+            lambda mod: mod.Graph(),
+            lambda mod: mod.path_graph(5),
+            lambda mod: mod.barbell_graph(4, 6),
+        ],
+    )
+    def test_matches_networkx_without_fallback(self, monkeypatch, graph_builder):
+        graph = graph_builder(fnx)
+        expected = graph_builder(nx)
+
+        expected_value = nx.chordal_graph_treewidth(expected)
+
+        monkeypatch.setattr(
+            nx,
+            "chordal_graph_treewidth",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX chordal_graph_treewidth fallback should not be used"
+                )
+            ),
+        )
+
+        assert fnx.chordal_graph_treewidth(graph) == expected_value
+
+    @pytest.mark.parametrize(
+        ("fnx_builder", "nx_builder"),
+        [
+            (lambda: fnx.cycle_graph(5), lambda: nx.cycle_graph(5)),
+            (lambda: fnx.DiGraph([(0, 1)]), lambda: nx.DiGraph([(0, 1)])),
+            (lambda: fnx.MultiGraph([(0, 1)]), lambda: nx.MultiGraph([(0, 1)])),
+            (lambda: fnx.MultiDiGraph([(0, 1)]), lambda: nx.MultiDiGraph([(0, 1)])),
+        ],
+    )
+    def test_error_contract_matches_networkx_without_fallback(
+        self, monkeypatch, fnx_builder, nx_builder
+    ):
+        graph = fnx_builder()
+        expected = nx_builder()
+
+        with pytest.raises(Exception) as nx_exc:
+            nx.chordal_graph_treewidth(expected)
+
+        monkeypatch.setattr(
+            nx,
+            "chordal_graph_treewidth",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX chordal_graph_treewidth fallback should not be used"
+                )
+            ),
+        )
+
+        with pytest.raises(Exception) as fnx_exc:
+            fnx.chordal_graph_treewidth(graph)
+
+        assert type(fnx_exc.value).__name__ == type(nx_exc.value).__name__
+        assert str(fnx_exc.value) == str(nx_exc.value)
 
 
 # ---------------------------------------------------------------------------
