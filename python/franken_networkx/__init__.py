@@ -901,12 +901,15 @@ def edge_dfs(G, source=None, orientation=None):
 
 def bfs_predecessors(G, source, depth_limit=None, sort_neighbors=None):
     """Return (node, predecessor) pairs from BFS."""
-    if sort_neighbors is not None:
-        preds = {}
-        for u, v in _py_bfs_edges(G, source, depth_limit, sort_neighbors):
-            preds[v] = u
-        return preds
-    return _bfs_predecessors_raw(G, source, depth_limit=depth_limit)
+    return (
+        (child, parent)
+        for parent, child in bfs_edges(
+            G,
+            source,
+            depth_limit=depth_limit,
+            sort_neighbors=sort_neighbors,
+        )
+    )
 
 
 def bfs_successors(G, source, depth_limit=None, sort_neighbors=None):

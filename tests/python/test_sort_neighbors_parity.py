@@ -1,4 +1,5 @@
 """Parity tests for sort_neighbors parameter on BFS/DFS traversal (bead 0i2)."""
+from collections.abc import Iterator
 import pytest
 import franken_networkx as fnx
 import networkx as nx
@@ -51,8 +52,15 @@ class TestBFSSortNeighbors:
 
     def test_bfs_predecessors_sorted(self, tree_graph, nx_tree_graph):
         bp = fnx.bfs_predecessors(tree_graph, 0, sort_neighbors=sorted)
-        nbp = dict(nx.bfs_predecessors(nx_tree_graph, 0, sort_neighbors=sorted))
-        assert bp == nbp
+        nbp = nx.bfs_predecessors(nx_tree_graph, 0, sort_neighbors=sorted)
+        assert isinstance(bp, Iterator)
+        assert list(bp) == list(nbp)
+
+    def test_bfs_predecessors_unsorted_is_iterator(self, tree_graph, nx_tree_graph):
+        bp = fnx.bfs_predecessors(tree_graph, 0)
+        nbp = nx.bfs_predecessors(nx_tree_graph, 0)
+        assert isinstance(bp, Iterator)
+        assert list(bp) == list(nbp)
 
     def test_bfs_successors_sorted(self, tree_graph, nx_tree_graph):
         bs = fnx.bfs_successors(tree_graph, 0, sort_neighbors=sorted)
