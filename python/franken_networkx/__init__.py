@@ -8778,6 +8778,38 @@ def capacity_scaling(
     return cost, flow
 
 
+def _validate_network_simplex_inputs(G, demand, capacity, weight):
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
+
+    if len(G) == 0:
+        raise NetworkXError("graph has no nodes")
+
+    total_demand = 0.0
+    for node in G:
+        node_attrs = G.nodes[node] if hasattr(G.nodes, "__getitem__") else {}
+        if not isinstance(node_attrs, dict):
+            continue
+        node_demand = float(node_attrs.get(demand, 0))
+        if math.isinf(node_demand):
+            raise NetworkXError(f"node {node!r} has infinite demand")
+        total_demand += node_demand
+
+    for u, v, edge_attrs in G.edges(data=True):
+        if not isinstance(edge_attrs, dict):
+            continue
+        edge_weight = float(edge_attrs.get(weight, 0))
+        if math.isinf(edge_weight):
+            raise NetworkXError(f"edge {(u, v)!r} has infinite weight")
+
+        edge_capacity = float(edge_attrs.get(capacity, float("inf")))
+        if edge_capacity < 0:
+            raise NetworkXUnfeasible(f"edge {(u, v)!r} has negative capacity")
+
+    if abs(total_demand) > 1e-10:
+        raise NetworkXUnfeasible("total node demand is not zero")
+
+
 def network_simplex(G, demand="demand", capacity="capacity", weight="weight"):
     """Find minimum cost flow using the network simplex algorithm.
 
@@ -8792,6 +8824,7 @@ def network_simplex(G, demand="demand", capacity="capacity", weight="weight"):
     -------
     (cost, flowDict) : tuple
     """
+    _validate_network_simplex_inputs(G, demand, capacity, weight)
     flow = min_cost_flow(G, demand=demand, capacity=capacity, weight=weight)
     cost = cost_of_flow(G, flow, weight=weight)
     return (cost, flow)

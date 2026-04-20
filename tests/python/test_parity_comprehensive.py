@@ -331,6 +331,79 @@ class TestFlowAlgorithms:
         cost, flow = fnx.network_simplex(D)
         assert cost == 6.0
 
+    def test_network_simplex_error_contract_matches_networkx(self):
+        actual_undirected = fnx.Graph()
+        expected_undirected = nx.Graph()
+        with pytest.raises(nx.NetworkXNotImplemented) as expected_undirected_error:
+            nx.network_simplex(expected_undirected)
+        with pytest.raises(fnx.NetworkXNotImplemented) as actual_undirected_error:
+            fnx.network_simplex(actual_undirected)
+        assert str(actual_undirected_error.value) == str(expected_undirected_error.value)
+
+        actual_empty = fnx.DiGraph()
+        expected_empty = nx.DiGraph()
+        with pytest.raises(nx.NetworkXError) as expected_empty_error:
+            nx.network_simplex(expected_empty)
+        with pytest.raises(fnx.NetworkXError) as actual_empty_error:
+            fnx.network_simplex(actual_empty)
+        assert str(actual_empty_error.value) == str(expected_empty_error.value)
+
+        actual_nonzero = fnx.DiGraph()
+        expected_nonzero = nx.DiGraph()
+        actual_nonzero.add_node("a", demand=-1)
+        actual_nonzero.add_node("b", demand=2)
+        actual_nonzero.add_edge("a", "b", capacity=5, weight=1)
+        expected_nonzero.add_node("a", demand=-1)
+        expected_nonzero.add_node("b", demand=2)
+        expected_nonzero.add_edge("a", "b", capacity=5, weight=1)
+        with pytest.raises(nx.NetworkXUnfeasible) as expected_nonzero_error:
+            nx.network_simplex(expected_nonzero)
+        with pytest.raises(fnx.NetworkXUnfeasible) as actual_nonzero_error:
+            fnx.network_simplex(actual_nonzero)
+        assert str(actual_nonzero_error.value) == str(expected_nonzero_error.value)
+
+        actual_negative_capacity = fnx.DiGraph()
+        expected_negative_capacity = nx.DiGraph()
+        actual_negative_capacity.add_node("a", demand=-1)
+        actual_negative_capacity.add_node("b", demand=1)
+        actual_negative_capacity.add_edge("a", "b", capacity=-1, weight=1)
+        expected_negative_capacity.add_node("a", demand=-1)
+        expected_negative_capacity.add_node("b", demand=1)
+        expected_negative_capacity.add_edge("a", "b", capacity=-1, weight=1)
+        with pytest.raises(nx.NetworkXUnfeasible) as expected_capacity_error:
+            nx.network_simplex(expected_negative_capacity)
+        with pytest.raises(fnx.NetworkXUnfeasible) as actual_capacity_error:
+            fnx.network_simplex(actual_negative_capacity)
+        assert str(actual_capacity_error.value) == str(expected_capacity_error.value)
+
+        actual_infinite_weight = fnx.DiGraph()
+        expected_infinite_weight = nx.DiGraph()
+        actual_infinite_weight.add_node("a", demand=-1)
+        actual_infinite_weight.add_node("b", demand=1)
+        actual_infinite_weight.add_edge("a", "b", capacity=1, weight=float("inf"))
+        expected_infinite_weight.add_node("a", demand=-1)
+        expected_infinite_weight.add_node("b", demand=1)
+        expected_infinite_weight.add_edge("a", "b", capacity=1, weight=float("inf"))
+        with pytest.raises(nx.NetworkXError) as expected_weight_error:
+            nx.network_simplex(expected_infinite_weight)
+        with pytest.raises(fnx.NetworkXError) as actual_weight_error:
+            fnx.network_simplex(actual_infinite_weight)
+        assert str(actual_weight_error.value) == str(expected_weight_error.value)
+
+        actual_infinite_demand = fnx.DiGraph()
+        expected_infinite_demand = nx.DiGraph()
+        actual_infinite_demand.add_node("a", demand=float("inf"))
+        actual_infinite_demand.add_node("b", demand=-float("inf"))
+        actual_infinite_demand.add_edge("a", "b", capacity=1, weight=1)
+        expected_infinite_demand.add_node("a", demand=float("inf"))
+        expected_infinite_demand.add_node("b", demand=-float("inf"))
+        expected_infinite_demand.add_edge("a", "b", capacity=1, weight=1)
+        with pytest.raises(nx.NetworkXError) as expected_demand_error:
+            nx.network_simplex(expected_infinite_demand)
+        with pytest.raises(fnx.NetworkXError) as actual_demand_error:
+            fnx.network_simplex(actual_infinite_demand)
+        assert str(actual_demand_error.value) == str(expected_demand_error.value)
+
     def test_flow_hierarchy_dag(self):
         D = fnx.DiGraph()
         D.add_edges_from([(0, 1), (1, 2)])
