@@ -9812,20 +9812,52 @@ def approximate_current_flow_betweenness_centrality(
     return current_flow_betweenness_centrality(G, normalized=normalized, weight=weight)
 
 
-def current_flow_closeness_centrality(G, weight=None, solver="full"):
+def current_flow_closeness_centrality(G, weight=None, dtype=float, solver="lu"):
     """Closeness centrality based on effective resistance (information centrality)."""
-    import numpy as np
+    import networkx as nx
 
-    nodelist = list(G.nodes())
-    n = len(nodelist)
-    if n <= 1:
-        return {node: 0.0 for node in nodelist}
-    rd = resistance_distance(G, weight=weight)
-    cc = {}
-    for node in nodelist:
-        total_rd = sum(rd[node].get(other, 0) for other in nodelist if other != node)
-        cc[node] = (n - 1) / total_rd if total_rd > 0 else 0.0
-    return cc
+    from networkx.algorithms.centrality.flow_matrix import (
+        CGInverseLaplacian,
+        FullInverseLaplacian,
+        SuperLUInverseLaplacian,
+    )
+    from networkx.utils import reverse_cuthill_mckee_ordering
+
+    from franken_networkx.backend import _fnx_to_nx
+
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+
+    solvername = {
+        "full": FullInverseLaplacian,
+        "lu": SuperLUInverseLaplacian,
+        "cg": CGInverseLaplacian,
+    }
+
+    source_graph = _fnx_to_nx(G)
+    if not nx.is_connected(source_graph):
+        raise NetworkXError("Graph not connected.")
+
+    node_count = source_graph.number_of_nodes()
+    ordering = list(reverse_cuthill_mckee_ordering(source_graph))
+    relabeled = nx.relabel_nodes(source_graph, dict(zip(ordering, range(node_count))))
+    centrality = dict.fromkeys(relabeled, 0.0)
+
+    laplacian = nx.laplacian_matrix(
+        relabeled,
+        nodelist=range(node_count),
+        weight=weight,
+    ).asformat("csc")
+    laplacian = laplacian.astype(dtype)
+    inverse = solvername[solver](laplacian, width=1, dtype=dtype)
+
+    for node in relabeled:
+        row = inverse.get_row(node)
+        for other in relabeled:
+            centrality[node] += row.item(node) - 2 * row.item(other)
+            centrality[other] += row.item(node)
+
+    return {ordering[node]: 1 / value for node, value in centrality.items()}
 
 
 def betweenness_centrality_subset(G, sources, targets, normalized=False, weight=None):
@@ -9946,9 +9978,14 @@ def percolation_centrality(G, attribute="percolation", states=None, weight=None)
     return percolation
 
 
-def information_centrality(G, weight=None, solver="full"):
+def information_centrality(G, weight=None, dtype=float, solver="lu"):
     """Information centrality (same as current-flow closeness)."""
-    return current_flow_closeness_centrality(G, weight=weight)
+    return current_flow_closeness_centrality(
+        G,
+        weight=weight,
+        dtype=dtype,
+        solver=solver,
+    )
 
 
 def second_order_centrality(G):

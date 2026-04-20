@@ -343,6 +343,59 @@ def test_edge_current_flow_betweenness_centrality_invalid_solver_matches_network
     assert actual.value.args == expected.value.args
 
 
+def test_information_centrality_matches_networkx_without_fallback(monkeypatch):
+    graph = fnx.Graph()
+    graph.add_edge(0, 1, weight=2.0)
+    graph.add_edge(1, 2, weight=3.0)
+    graph.add_edge(2, 3, weight=4.0)
+
+    expected_graph = nx.Graph()
+    expected_graph.add_edge(0, 1, weight=2.0)
+    expected_graph.add_edge(1, 2, weight=3.0)
+    expected_graph.add_edge(2, 3, weight=4.0)
+
+    expected = nx.information_centrality(
+        expected_graph,
+        weight="weight",
+        dtype=np.float32,
+        solver="cg",
+    )
+
+    monkeypatch.setattr(
+        nx,
+        "information_centrality",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("delegated")),
+    )
+
+    actual = fnx.information_centrality(
+        graph,
+        weight="weight",
+        dtype=np.float32,
+        solver="cg",
+    )
+    _assert_mapping_close(actual, expected, tol=1e-6)
+
+
+def test_information_centrality_error_contract_matches_networkx():
+    actual_graph = fnx.path_graph(4)
+    expected_graph = nx.path_graph(4)
+
+    with pytest.raises(KeyError) as expected:
+        nx.information_centrality(expected_graph, solver="bogus")
+    with pytest.raises(KeyError) as actual:
+        fnx.information_centrality(actual_graph, solver="bogus")
+    assert actual.value.args == expected.value.args
+
+    actual_directed = fnx.DiGraph([(0, 1)])
+    expected_directed = nx.DiGraph([(0, 1)])
+
+    with pytest.raises(nx.NetworkXNotImplemented) as expected:
+        nx.information_centrality(expected_directed)
+    with pytest.raises(fnx.NetworkXNotImplemented) as actual:
+        fnx.information_centrality(actual_directed)
+    assert str(actual.value) == str(expected.value)
+
+
 def test_percolation_centrality_honors_attribute_and_states(monkeypatch):
     graph = fnx.path_graph(4)
     for node, value in [(0, 0.1), (1, 0.3), (2, 0.7), (3, 1.0)]:
