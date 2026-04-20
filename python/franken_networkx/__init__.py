@@ -1428,7 +1428,6 @@ from franken_networkx._fnx import (
 from franken_networkx._fnx import (
     louvain_communities,
     modularity,
-    label_propagation_communities,
     greedy_modularity_communities,
 )
 
@@ -9417,6 +9416,15 @@ def non_randomness(G, k=None, weight="weight"):
     nr = float(np.real(np.sum(eigenvalues[:k])))
     nr_rd = (nr - ((n - 2 * k) * p + k)) / math.sqrt(2 * k * p * (1 - p))
     return nr, nr_rd
+
+
+def label_propagation_communities(G):
+    """Generates community sets determined by label propagation."""
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+
+    communities = _fnx.label_propagation_communities(G)
+    return {index: set(community) for index, community in enumerate(communities)}.values()
 
 
 def is_distance_regular(G):
