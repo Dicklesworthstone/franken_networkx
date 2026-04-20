@@ -271,28 +271,32 @@ def parse_edgelist(
     """Parse an edge-list line stream into a FrankenNetworkX graph."""
     G = _new_graph(create_using)
     for line in _normalize_lines(lines):
-        line = _strip_comment(line, comments)
-        if not line:
+        if comments:
+            idx = line.find(comments)
+            if idx >= 0:
+                line = line[:idx]
+        if not line.strip():
             continue
+        split_line = line.rstrip("\n")
         # Split the line into tokens
         if isinstance(data, bool) and data:
             # Format: u v {key:val, ...}  -- data is a Python dict literal
             # Find the dict portion if present
-            brace = line.find("{")
+            brace = split_line.find("{")
             if brace >= 0:
-                head = line[:brace].strip()
-                tail = line[brace:]
+                head = split_line[:brace].strip()
+                tail = split_line[brace:]
                 tokens = head.split(delimiter)
                 edgedata = dict(ast.literal_eval(tail))
             else:
-                tokens = line.strip().split(delimiter)
+                tokens = split_line.split(delimiter)
                 edgedata = {}
         elif isinstance(data, bool) and not data:
-            tokens = line.strip().split(delimiter)
+            tokens = split_line.split(delimiter)
             edgedata = {}
         else:
             # data is a list of (name, type) tuples
-            tokens = line.strip().split(delimiter)
+            tokens = split_line.split(delimiter)
             edge_tokens = tokens[2:]
             tokens = tokens[:2]
             edgedata = {}

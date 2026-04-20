@@ -37,6 +37,33 @@ def test_parse_edgelist_dict_literal_attrs_uses_safe_literal_parser():
     assert parsed["a"]["b"]["color"] == "blue"
 
 
+def test_parse_edgelist_explicit_delimiter_preserves_trailing_empty_field_without_fallback(
+    monkeypatch,
+):
+    lines = ["1\t2\t3", "2\t3\t", "3\t4\t3.0"]
+    expected = sorted(
+        nx.parse_edgelist(
+            lines, delimiter="\t", nodetype=int, data=[("value", str)]
+        ).edges(data="value")
+    )
+
+    monkeypatch.setattr(
+        nx,
+        "parse_edgelist",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("NetworkX parse_edgelist fallback was used")
+        ),
+    )
+
+    actual = sorted(
+        fnx.parse_edgelist(
+            lines, delimiter="\t", nodetype=int, data=[("value", str)]
+        ).edges(data="value")
+    )
+
+    assert actual == expected
+
+
 def test_parse_and_generate_gml_round_trip():
     graph = fnx.Graph()
     graph.add_node("a", label="A")
