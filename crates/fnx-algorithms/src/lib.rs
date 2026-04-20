@@ -15649,6 +15649,8 @@ pub fn clique_removal(graph: &Graph) -> (Vec<String>, Vec<Vec<String>>) {
 
 // ── A* shortest path ────────────────────────────────────────────────────────
 
+type AstarHeuristic<'a, E> = &'a dyn Fn(&str) -> Result<f64, E>;
+
 /// A* shortest path algorithm.
 ///
 /// Uses a heuristic function to guide the search toward the target.
@@ -15658,24 +15660,24 @@ pub fn clique_removal(graph: &Graph) -> (Vec<String>, Vec<Vec<String>>) {
 /// If None, uses zero heuristic (degenerates to Dijkstra).
 ///
 /// NetworkX equivalent: `networkx.algorithms.shortest_paths.astar.astar_path`
-pub fn astar_path(
+pub fn astar_path<E>(
     graph: &Graph,
     source: &str,
     target: &str,
     weight_attr: &str,
-    heuristic: Option<&dyn Fn(&str) -> f64>,
-) -> Option<Vec<String>> {
+    heuristic: Option<AstarHeuristic<'_, E>>,
+) -> Result<Option<Vec<String>>, E> {
     use std::cmp::Ordering;
 
     if !graph.has_node(source) || !graph.has_node(target) {
-        return None;
+        return Ok(None);
     }
     if source == target {
-        return Some(vec![source.to_string()]);
+        return Ok(Some(vec![source.to_string()]));
     }
 
-    let zero_h = |_: &str| 0.0;
-    let h: &dyn Fn(&str) -> f64 = heuristic.unwrap_or(&zero_h);
+    let zero_h = |_: &str| Ok(0.0);
+    let h: AstarHeuristic<'_, E> = heuristic.unwrap_or(&zero_h);
 
     #[derive(PartialEq)]
     struct State {
@@ -15707,7 +15709,7 @@ pub fn astar_path(
 
     g_scores.insert(source.to_string(), 0.0);
     heap.push(State {
-        f_score: h(source),
+        f_score: h(source)?,
         g_score: 0.0,
         node: source.to_string(),
     });
@@ -15721,7 +15723,7 @@ pub fn astar_path(
                 current = prev.clone();
             }
             path.reverse();
-            return Some(path);
+            return Ok(Some(path));
         }
 
         if !visited.insert(node.clone()) {
@@ -15744,7 +15746,7 @@ pub fn astar_path(
                     g_scores.insert(nbr.to_string(), tentative_g);
                     came_from.insert(nbr.to_string(), node.clone());
                     heap.push(State {
-                        f_score: tentative_g + h(nbr),
+                        f_score: tentative_g + h(nbr)?,
                         g_score: tentative_g,
                         node: nbr.to_string(),
                     });
@@ -15753,28 +15755,30 @@ pub fn astar_path(
         }
     }
 
-    None
+    Ok(None)
 }
 
 /// A* shortest path length.
 ///
 /// Returns the total weight of the A* shortest path, or None if no path exists.
-pub fn astar_path_length(
+pub fn astar_path_length<E>(
     graph: &Graph,
     source: &str,
     target: &str,
     weight_attr: &str,
-    heuristic: Option<&dyn Fn(&str) -> f64>,
-) -> Option<f64> {
-    let path = astar_path(graph, source, target, weight_attr, heuristic)?;
+    heuristic: Option<AstarHeuristic<'_, E>>,
+) -> Result<Option<f64>, E> {
+    let Some(path) = astar_path(graph, source, target, weight_attr, heuristic)? else {
+        return Ok(None);
+    };
     if path.len() <= 1 {
-        return Some(0.0);
+        return Ok(Some(0.0));
     }
     let mut total = 0.0;
     for i in 0..path.len() - 1 {
         total += edge_weight_or_default(graph, &path[i], &path[i + 1], weight_attr);
     }
-    Some(total)
+    Ok(Some(total))
 }
 
 // ── Yen's K-shortest simple paths ───────────────────────────────────────────
@@ -37654,10 +37658,14 @@ mod tests {
         let _ = g.add_edge_with_attrs("b", "c", attrs([("weight", "1.0")]));
         let _ = g.add_edge_with_attrs("a", "c", attrs([("weight", "5.0")]));
 
-        let path = astar_path(&g, "a", "c", "weight", None);
+        let path = astar_path::<()>(&g, "a", "c", "weight", None);
         assert_eq!(
             path,
-            Some(vec!["a".to_string(), "b".to_string(), "c".to_string()])
+            Ok(Some(vec![
+                "a".to_string(),
+                "b".to_string(),
+                "c".to_string()
+            ]))
         );
     }
 
@@ -37666,16 +37674,16 @@ mod tests {
         let mut g = Graph::strict();
         g.add_node("a");
         g.add_node("b");
-        let path = astar_path(&g, "a", "b", "weight", None);
-        assert_eq!(path, None);
+        let path = astar_path::<()>(&g, "a", "b", "weight", None);
+        assert_eq!(path, Ok(None));
     }
 
     #[test]
     fn test_astar_path_same_node() {
         let mut g = Graph::strict();
         g.add_node("a");
-        let path = astar_path(&g, "a", "a", "weight", None);
-        assert_eq!(path, Some(vec!["a".to_string()]));
+        let path = astar_path::<()>(&g, "a", "a", "weight", None);
+        assert_eq!(path, Ok(Some(vec!["a".to_string()])));
     }
 
     #[test]
@@ -37686,11 +37694,15 @@ mod tests {
         let _ = g.add_edge_with_attrs("a", "c", attrs([("weight", "3.0")]));
 
         // Heuristic: estimate 0 for all (admissible)
-        let h = |_: &str| 0.0;
+        let h = |_: &str| Ok::<_, ()>(0.0);
         let path = astar_path(&g, "a", "c", "weight", Some(&h));
         assert_eq!(
             path,
-            Some(vec!["a".to_string(), "b".to_string(), "c".to_string()])
+            Ok(Some(vec![
+                "a".to_string(),
+                "b".to_string(),
+                "c".to_string()
+            ]))
         );
     }
 
@@ -37700,15 +37712,26 @@ mod tests {
         let _ = g.add_edge_with_attrs("a", "b", attrs([("weight", "2.0")]));
         let _ = g.add_edge_with_attrs("b", "c", attrs([("weight", "3.0")]));
 
-        let length = astar_path_length(&g, "a", "c", "weight", None);
-        assert_eq!(length, Some(5.0));
+        let length = astar_path_length::<()>(&g, "a", "c", "weight", None);
+        assert_eq!(length, Ok(Some(5.0)));
     }
 
     #[test]
     fn test_astar_nonexistent_node() {
         let g = Graph::strict();
-        let path = astar_path(&g, "x", "y", "weight", None);
-        assert_eq!(path, None);
+        let path = astar_path::<()>(&g, "x", "y", "weight", None);
+        assert_eq!(path, Ok(None));
+    }
+
+    #[test]
+    fn test_astar_path_propagates_heuristic_error() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+
+        let h = |_: &str| Err::<f64, &str>("boom");
+        let path = astar_path(&g, "a", "c", "weight", Some(&h));
+        assert_eq!(path, Err("boom"));
     }
 
     // ── Yen's K-shortest simple paths tests ─────────────────────────────────

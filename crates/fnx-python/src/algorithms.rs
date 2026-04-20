@@ -7756,27 +7756,29 @@ fn astar_path(
         // and invokes the user-supplied heuristic(u, target).
         let tgt_obj = target.clone().unbind();
         let callable_obj = callable.clone().unbind();
-        let h = |node_str: &str| -> f64 {
+        let h = |node_str: &str| -> PyResult<f64> {
             let node_py = gr.py_node_key(py, node_str);
             let tgt_bound = tgt_obj.bind(py);
             callable_obj
                 .bind(py)
                 .call1((node_py, tgt_bound))
                 .and_then(|r| r.extract::<f64>())
-                .unwrap_or(0.0)
         };
         fnx_algorithms::astar_path(inner, &src_key, &tgt_key, weight, Some(&h))
     } else {
         // Without heuristic: can release the GIL.
-        py.allow_threads(|| fnx_algorithms::astar_path(inner, &src_key, &tgt_key, weight, None))
+        py.allow_threads(|| {
+            fnx_algorithms::astar_path::<PyErr>(inner, &src_key, &tgt_key, weight, None)
+        })
     };
 
     match result {
-        Some(path) => Ok(path.iter().map(|n| gr.py_node_key(py, n)).collect()),
-        None => Err(pyo3::exceptions::PyValueError::new_err(format!(
+        Ok(Some(path)) => Ok(path.iter().map(|n| gr.py_node_key(py, n)).collect()),
+        Ok(None) => Err(pyo3::exceptions::PyValueError::new_err(format!(
             "No path between {} and {}.",
             src_key, tgt_key
         ))),
+        Err(err) => Err(err),
     }
 }
 
@@ -7801,28 +7803,28 @@ fn astar_path_length(
     let result = if let Some(callable) = heuristic {
         let tgt_obj = target.clone().unbind();
         let callable_obj = callable.clone().unbind();
-        let h = |node_str: &str| -> f64 {
+        let h = |node_str: &str| -> PyResult<f64> {
             let node_py = gr.py_node_key(py, node_str);
             let tgt_bound = tgt_obj.bind(py);
             callable_obj
                 .bind(py)
                 .call1((node_py, tgt_bound))
                 .and_then(|r| r.extract::<f64>())
-                .unwrap_or(0.0)
         };
         fnx_algorithms::astar_path_length(inner, &src_key, &tgt_key, weight, Some(&h))
     } else {
         py.allow_threads(|| {
-            fnx_algorithms::astar_path_length(inner, &src_key, &tgt_key, weight, None)
+            fnx_algorithms::astar_path_length::<PyErr>(inner, &src_key, &tgt_key, weight, None)
         })
     };
 
     match result {
-        Some(length) => Ok(length),
-        None => Err(pyo3::exceptions::PyValueError::new_err(format!(
+        Ok(Some(length)) => Ok(length),
+        Ok(None) => Err(pyo3::exceptions::PyValueError::new_err(format!(
             "No path between {} and {}.",
             src_key, tgt_key
         ))),
+        Err(err) => Err(err),
     }
 }
 

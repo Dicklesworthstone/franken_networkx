@@ -1,5 +1,8 @@
 """Tests for A* shortest path and Yen's K-shortest simple paths."""
 
+import re
+
+import networkx as nx
 import pytest
 
 import franken_networkx as fnx
@@ -82,6 +85,19 @@ class TestAstarPath:
         path = fnx.astar_path(G, "a", "c")
         assert path == ["a", "b", "c"]
 
+    def test_heuristic_exception_matches_networkx(self):
+        G_fnx = fnx.path_graph(3)
+        G_nx = nx.path_graph(3)
+
+        def heuristic(u, v):
+            raise RuntimeError("boom")
+
+        with pytest.raises(RuntimeError) as expected:
+            nx.astar_path(G_nx, 0, 2, heuristic=heuristic)
+
+        with pytest.raises(type(expected.value), match=re.escape(str(expected.value))):
+            fnx.astar_path(G_fnx, 0, 2, heuristic=heuristic)
+
 
 # ---------------------------------------------------------------------------
 # astar_path_length
@@ -113,6 +129,19 @@ class TestAstarPathLength:
     def test_unit_weights(self, path5):
         length = fnx.astar_path_length(path5, 0, 4)
         assert abs(length - 4.0) < 1e-9
+
+    def test_heuristic_exception_matches_networkx(self):
+        G_fnx = fnx.path_graph(3)
+        G_nx = nx.path_graph(3)
+
+        def heuristic(u, v):
+            raise RuntimeError("boom")
+
+        with pytest.raises(RuntimeError) as expected:
+            nx.astar_path_length(G_nx, 0, 2, heuristic=heuristic)
+
+        with pytest.raises(type(expected.value), match=re.escape(str(expected.value))):
+            fnx.astar_path_length(G_fnx, 0, 2, heuristic=heuristic)
 
 
 # ---------------------------------------------------------------------------
