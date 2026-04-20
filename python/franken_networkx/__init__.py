@@ -12082,17 +12082,21 @@ def attr_sparse_matrix(
 # ---------------------------------------------------------------------------
 
 
-def modularity_matrix(G, nodelist=None):
+def modularity_matrix(G, nodelist=None, weight=None):
     """Modularity matrix B = A - k*k^T/(2m)."""
     import numpy as np
 
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.number_of_nodes() == 0 or G.number_of_edges() == 0:
+        raise NetworkXError("Graph has no nodes or edges")
     if nodelist is None:
         nodelist = list(G.nodes())
-    A = to_numpy_array(G, nodelist=nodelist, weight=None)
+    A = to_numpy_array(G, nodelist=nodelist, weight=weight)
     k = A.sum(axis=1)
     m = A.sum() / 2.0
-    if m == 0:
-        return A
     return A - np.outer(k, k) / (2 * m)
 
 
