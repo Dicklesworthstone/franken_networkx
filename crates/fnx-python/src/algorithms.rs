@@ -7646,18 +7646,31 @@ fn degree_histogram(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Vec<usize>
 // ===========================================================================
 
 #[pyfunction]
-#[pyo3(signature = (g, resolution=1.0, weight="weight", seed=None))]
+#[pyo3(signature = (g, weight="weight", resolution=1.0, threshold=1.0e-7, max_level=None, seed=None))]
 fn louvain_communities(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
-    resolution: f64,
     weight: &str,
+    resolution: f64,
+    threshold: f64,
+    max_level: Option<isize>,
     seed: Option<u64>,
 ) -> PyResult<Vec<Vec<PyObject>>> {
     let gr = extract_graph(g)?;
-    let inner = gr.undirected();
-    let result =
-        py.allow_threads(|| fnx_algorithms::louvain_communities(inner, resolution, weight, seed));
+    let max_level = match max_level {
+        Some(level) if level <= 0 => {
+            return Err(PyValueError::new_err(
+                "max_level argument must be a positive integer or None",
+            ));
+        }
+        Some(level) => Some(level as usize),
+        None => None,
+    };
+    let projection = gr.weighted_undirected_projection(weight);
+    let inner = projection.as_ref();
+    let result = py.allow_threads(|| {
+        fnx_algorithms::louvain_communities(inner, resolution, weight, threshold, max_level, seed)
+    });
     Ok(result
         .into_iter()
         .map(|comm| comm.into_iter().map(|n| gr.py_node_key(py, &n)).collect())

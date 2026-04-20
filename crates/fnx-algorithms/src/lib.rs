@@ -10,6 +10,7 @@ use fnx_classes::{Graph, GraphError};
 use fnx_runtime::{CgseValue, RuntimePolicy};
 use mt19937::{MT19937, gen_res53};
 use mwmatching::{Matching as BlossomMatching, SENTINEL as BLOSSOM_SENTINEL};
+use rand_core::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, VecDeque};
 use std::fmt;
@@ -14099,147 +14100,340 @@ pub fn resource_allocation_index(
 ///
 /// The `weight_attr` parameter specifies the edge attribute name for weights.
 ///
-/// Matches `networkx.community.louvain_communities(G, resolution=..., weight=...)`.
+/// Matches `networkx.community.louvain_communities(
+///     G, weight=..., resolution=..., threshold=..., max_level=..., seed=...
+/// )`.
+#[derive(Clone, Debug)]
+struct LouvainLevelGraph {
+    members: Vec<Vec<usize>>,
+    edges: Vec<(usize, usize, f64)>,
+}
+
+fn louvain_seed_rng(seed: Option<u64>) -> Option<MT19937> {
+    seed.map(|value| {
+        if value <= u32::MAX as u64 {
+            MT19937::new_with_slice_seed(&[value as u32])
+        } else {
+            MT19937::new_with_slice_seed(&[value as u32, (value >> 32) as u32])
+        }
+    })
+}
+
+fn louvain_randbelow(rng: &mut MT19937, upper_bound: usize) -> usize {
+    debug_assert!(upper_bound > 0);
+    let bit_count = usize::BITS - (upper_bound - 1).leading_zeros();
+    loop {
+        let candidate = if bit_count >= 32 {
+            rng.next_u32() as usize
+        } else {
+            (rng.next_u32() >> (32 - bit_count)) as usize
+        };
+        if candidate < upper_bound {
+            return candidate;
+        }
+    }
+}
+
+fn louvain_shuffle(node_order: &mut [usize], rng: &mut MT19937) {
+    for index in (1..node_order.len()).rev() {
+        let swap_index = louvain_randbelow(rng, index + 1);
+        node_order.swap(index, swap_index);
+    }
+}
+
+fn build_louvain_level_graph(graph: &Graph, weight_attr: &str) -> (LouvainLevelGraph, Vec<String>) {
+    let node_names: Vec<String> = graph
+        .nodes_ordered()
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    let node_to_idx: HashMap<&str, usize> = node_names
+        .iter()
+        .enumerate()
+        .map(|(index, name)| (name.as_str(), index))
+        .collect();
+
+    let mut edges = Vec::with_capacity(graph.edge_count());
+    for (left, right, attrs) in graph.edges_ordered_borrowed() {
+        let weight = attrs
+            .get(weight_attr)
+            .and_then(|value| value.as_f64())
+            .filter(|value| value.is_finite() && *value >= 0.0)
+            .unwrap_or(1.0);
+        let left_idx = node_to_idx[left];
+        let right_idx = node_to_idx[right];
+        let (left_idx, right_idx) = if left_idx <= right_idx {
+            (left_idx, right_idx)
+        } else {
+            (right_idx, left_idx)
+        };
+        edges.push((left_idx, right_idx, weight));
+    }
+
+    let members = (0..node_names.len()).map(|index| vec![index]).collect();
+    (LouvainLevelGraph { members, edges }, node_names)
+}
+
+fn louvain_level_stats(level: &LouvainLevelGraph) -> (f64, Vec<f64>, Vec<BTreeMap<usize, f64>>) {
+    let mut degrees = vec![0.0; level.members.len()];
+    let mut neighbors = vec![BTreeMap::<usize, f64>::new(); level.members.len()];
+    let mut total_weight = 0.0;
+
+    for &(left, right, weight) in &level.edges {
+        total_weight += weight;
+        if left == right {
+            degrees[left] += 2.0 * weight;
+        } else {
+            degrees[left] += weight;
+            degrees[right] += weight;
+            *neighbors[left].entry(right).or_insert(0.0) += weight;
+            *neighbors[right].entry(left).or_insert(0.0) += weight;
+        }
+    }
+
+    (total_weight, degrees, neighbors)
+}
+
+fn louvain_collect_partitions(
+    level: &LouvainLevelGraph,
+    node_to_community: &[usize],
+) -> (Vec<Vec<usize>>, Vec<Vec<usize>>) {
+    let mut grouped = vec![Vec::new(); level.members.len()];
+    for (node, &community) in node_to_community.iter().enumerate() {
+        grouped[community].push(node);
+    }
+
+    let inner_partition: Vec<Vec<usize>> = grouped
+        .into_iter()
+        .filter(|group| !group.is_empty())
+        .collect();
+    let partition = inner_partition
+        .iter()
+        .map(|group| {
+            let mut members = Vec::new();
+            for &node in group {
+                members.extend(level.members[node].iter().copied());
+            }
+            members.sort_unstable();
+            members
+        })
+        .collect();
+
+    (partition, inner_partition)
+}
+
+fn louvain_level_modularity(
+    level: &LouvainLevelGraph,
+    communities: &[Vec<usize>],
+    resolution: f64,
+) -> f64 {
+    let (m, degrees, _) = louvain_level_stats(level);
+    if m == 0.0 {
+        return 0.0;
+    }
+
+    let mut node_to_community = vec![usize::MAX; level.members.len()];
+    let mut degree_sums = vec![0.0; communities.len()];
+    for (community_index, community) in communities.iter().enumerate() {
+        for &node in community {
+            node_to_community[node] = community_index;
+            degree_sums[community_index] += degrees[node];
+        }
+    }
+
+    let mut intra_weights = vec![0.0; communities.len()];
+    for &(left, right, weight) in &level.edges {
+        let community = node_to_community[left];
+        if community != usize::MAX && community == node_to_community[right] {
+            intra_weights[community] += weight;
+        }
+    }
+
+    intra_weights
+        .iter()
+        .zip(degree_sums.iter())
+        .map(|(intra_weight, degree_sum)| {
+            intra_weight / m - resolution * (degree_sum / (2.0 * m)).powi(2)
+        })
+        .sum()
+}
+
+fn louvain_one_level(
+    level: &LouvainLevelGraph,
+    resolution: f64,
+    rng: Option<&mut MT19937>,
+) -> (Vec<Vec<usize>>, Vec<Vec<usize>>, bool) {
+    let node_count = level.members.len();
+    let (m, degrees, neighbors) = louvain_level_stats(level);
+    if node_count == 0 || m == 0.0 {
+        let singleton_partition = level.members.clone();
+        let singleton_inner = (0..node_count).map(|index| vec![index]).collect();
+        return (singleton_partition, singleton_inner, false);
+    }
+
+    let mut node_to_community: Vec<usize> = (0..node_count).collect();
+    let mut sigma_tot = degrees.clone();
+
+    let mut node_order: Vec<usize> = (0..node_count).collect();
+    if let Some(rng) = rng {
+        louvain_shuffle(&mut node_order, rng);
+    }
+
+    let mut improvement = false;
+    let mut moved = 1;
+    while moved > 0 {
+        moved = 0;
+
+        for &node in &node_order {
+            let current_community = node_to_community[node];
+            let degree = degrees[node];
+
+            let mut weights_to_community = BTreeMap::<usize, f64>::new();
+            for (&neighbor, &weight) in &neighbors[node] {
+                *weights_to_community
+                    .entry(node_to_community[neighbor])
+                    .or_insert(0.0) += weight;
+            }
+
+            sigma_tot[current_community] -= degree;
+            let remove_cost = -weights_to_community
+                .get(&current_community)
+                .copied()
+                .unwrap_or(0.0)
+                / m
+                + resolution * sigma_tot[current_community] * degree / (2.0 * m * m);
+
+            let mut best_gain = 0.0;
+            let mut best_community = current_community;
+            for (&target_community, &weight) in &weights_to_community {
+                if target_community == current_community {
+                    continue;
+                }
+
+                let gain = remove_cost + weight / m
+                    - resolution * sigma_tot[target_community] * degree / (2.0 * m * m);
+                if gain > best_gain {
+                    best_gain = gain;
+                    best_community = target_community;
+                }
+            }
+
+            sigma_tot[best_community] += degree;
+            if best_community != current_community {
+                node_to_community[node] = best_community;
+                improvement = true;
+                moved += 1;
+            }
+        }
+    }
+
+    let (partition, inner_partition) = louvain_collect_partitions(level, &node_to_community);
+    (partition, inner_partition, improvement)
+}
+
+fn louvain_coarsen(level: &LouvainLevelGraph, communities: &[Vec<usize>]) -> LouvainLevelGraph {
+    let mut node_to_community = vec![usize::MAX; level.members.len()];
+    let mut members = Vec::with_capacity(communities.len());
+    for (community_index, community) in communities.iter().enumerate() {
+        let mut original_members = Vec::new();
+        for &node in community {
+            node_to_community[node] = community_index;
+            original_members.extend(level.members[node].iter().copied());
+        }
+        original_members.sort_unstable();
+        members.push(original_members);
+    }
+
+    let mut edge_weights = HashMap::<(usize, usize), f64>::new();
+    for &(left, right, weight) in &level.edges {
+        let left_community = node_to_community[left];
+        let right_community = node_to_community[right];
+        let key = if left_community <= right_community {
+            (left_community, right_community)
+        } else {
+            (right_community, left_community)
+        };
+        *edge_weights.entry(key).or_insert(0.0) += weight;
+    }
+
+    let mut edges: Vec<(usize, usize, f64)> = edge_weights
+        .into_iter()
+        .map(|((left, right), weight)| (left, right, weight))
+        .collect();
+    edges.sort_by(|left, right| {
+        left.0
+            .cmp(&right.0)
+            .then_with(|| left.1.cmp(&right.1))
+            .then_with(|| left.2.total_cmp(&right.2))
+    });
+
+    LouvainLevelGraph { members, edges }
+}
+
+fn louvain_partition_to_node_names(
+    partition: Vec<Vec<usize>>,
+    node_names: &[String],
+) -> Vec<Vec<String>> {
+    let mut result: Vec<Vec<String>> = partition
+        .into_iter()
+        .map(|community| {
+            let mut named: Vec<String> = community
+                .into_iter()
+                .map(|index| node_names[index].clone())
+                .collect();
+            named.sort();
+            named
+        })
+        .collect();
+    result.sort_by(|left, right| left[0].cmp(&right[0]));
+    result
+}
+
+/// Matches the NetworkX multi-level Louvain routine for undirected graphs.
 #[must_use]
 pub fn louvain_communities(
     graph: &Graph,
     resolution: f64,
     weight_attr: &str,
+    threshold: f64,
+    max_level: Option<usize>,
     seed: Option<u64>,
 ) -> Vec<Vec<String>> {
-    let n = graph.node_count();
-    if n == 0 {
+    let node_count = graph.node_count();
+    if node_count == 0 {
         return Vec::new();
     }
 
-    let nodes = graph.nodes_ordered();
-
-    // Build a deterministic node-index mapping
-    let node_to_idx: HashMap<&str, usize> =
-        nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
-
-    // Build adjacency with weights in index space
-    let mut adj: Vec<Vec<(usize, f64)>> = vec![Vec::new(); n];
-    let mut total_weight = 0.0;
-
-    for &node in &nodes {
-        let idx = node_to_idx[node];
-        if let Some(nbrs) = graph.neighbors(node) {
-            for nbr in nbrs {
-                let j = node_to_idx[nbr];
-                let w = edge_weight_or_default(graph, node, nbr, weight_attr);
-                adj[idx].push((j, w));
-                total_weight += w;
-            }
-        }
-    }
-    // Each undirected edge is counted twice in the adjacency, so m = total_weight / 2
-    let m = total_weight / 2.0;
-    if m == 0.0 {
-        // No edges: each node is its own community
-        return nodes.iter().map(|&nd| vec![nd.to_owned()]).collect();
+    let (mut level_graph, node_names) = build_louvain_level_graph(graph, weight_attr);
+    if level_graph.edges.is_empty() {
+        return louvain_partition_to_node_names(level_graph.members, &node_names);
     }
 
-    // Weighted degree of each node
-    let k: Vec<f64> = adj
-        .iter()
-        .map(|nbrs| nbrs.iter().map(|(_, w)| w).sum())
+    let singleton_partition: Vec<Vec<usize>> = (0..level_graph.members.len())
+        .map(|index| vec![index])
         .collect();
+    let mut modularity_value =
+        louvain_level_modularity(&level_graph, &singleton_partition, resolution);
+    let mut rng = louvain_seed_rng(seed);
+    let mut level_count = 0usize;
 
-    // Initial assignment: each node in its own community
-    let mut community: Vec<usize> = (0..n).collect();
-    // Optional seeded shuffle for tie-breaking
-    let node_order: Vec<usize> = if let Some(s) = seed {
-        let mut order: Vec<usize> = (0..n).collect();
-        // Simple LCG shuffle (deterministic)
-        let mut rng = s;
-        for i in (1..n).rev() {
-            rng = rng.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
-            let j = (rng >> 33) as usize % (i + 1);
-            order.swap(i, j);
-        }
-        order
-    } else {
-        (0..n).collect()
-    };
+    loop {
+        let (partition, inner_partition, improvement) =
+            louvain_one_level(&level_graph, resolution, rng.as_mut());
+        level_count += 1;
 
-    // Maintain the total weighted degree of each community (Σ_tot)
-    let mut sigma_tot: HashMap<usize, f64> = HashMap::new();
-    for i in 0..n {
-        *sigma_tot.entry(community[i]).or_insert(0.0) += k[i];
-    }
-
-    // Phase 1: Local modularity optimization (iterate until no improvement)
-    let max_iterations = 100;
-    for _ in 0..max_iterations {
-        let mut improved = false;
-
-        for &i in &node_order {
-            let current_comm = community[i];
-
-            // Compute sum of weights from i to each neighbor community
-            let mut comm_weights: HashMap<usize, f64> = HashMap::new();
-            for &(j, w) in &adj[i] {
-                *comm_weights.entry(community[j]).or_insert(0.0) += w;
-            }
-
-            // Weight from node i to its own community
-            let ki_in_own = comm_weights.get(&current_comm).copied().unwrap_or(0.0);
-            let own_sigma = sigma_tot.get(&current_comm).copied().unwrap_or(0.0);
-
-            // Find best community to move into
-            // Standard Louvain: ΔQ = [k_i_in/m - res*Σ_tot*k_i/(2m²)]
-            //                       - [k_i_own/m - res*(Σ_own - k_i)*k_i/(2m²)]
-            let remove_delta = ki_in_own / (2.0 * m)
-                - resolution * (own_sigma - k[i]) * k[i] / (2.0 * m * 2.0 * m);
-
-            let mut best_gain = 0.0;
-            let mut best_comm = current_comm;
-
-            for (&target_comm, &ki_to) in &comm_weights {
-                if target_comm == current_comm {
-                    continue;
-                }
-                let target_sigma = sigma_tot.get(&target_comm).copied().unwrap_or(0.0);
-                let insert_delta =
-                    ki_to / (2.0 * m) - resolution * target_sigma * k[i] / (2.0 * m * 2.0 * m);
-                let gain = insert_delta - remove_delta;
-                if gain > best_gain || (gain == best_gain && target_comm < best_comm) {
-                    best_gain = gain;
-                    best_comm = target_comm;
-                }
-            }
-
-            if best_comm != current_comm {
-                // Update sigma_tot
-                *sigma_tot.entry(current_comm).or_insert(0.0) -= k[i];
-                *sigma_tot.entry(best_comm).or_insert(0.0) += k[i];
-                community[i] = best_comm;
-                improved = true;
-            }
+        if max_level.is_some_and(|limit| level_count >= limit) {
+            return louvain_partition_to_node_names(partition, &node_names);
         }
 
-        if !improved {
-            break;
+        let new_modularity = louvain_level_modularity(&level_graph, &inner_partition, resolution);
+        if !improvement || new_modularity - modularity_value <= threshold {
+            return louvain_partition_to_node_names(partition, &node_names);
         }
-    }
 
-    // Collect final communities from Phase 1 result
-    let mut comm_members: HashMap<usize, Vec<usize>> = HashMap::new();
-    for (i, &c) in community.iter().enumerate() {
-        comm_members.entry(c).or_default().push(i);
+        modularity_value = new_modularity;
+        level_graph = louvain_coarsen(&level_graph, &inner_partition);
     }
-
-    let mut result: Vec<Vec<String>> = comm_members
-        .values()
-        .map(|members| {
-            let mut comm: Vec<String> = members.iter().map(|&i| nodes[i].to_owned()).collect();
-            comm.sort();
-            comm
-        })
-        .collect();
-    result.sort_by(|a, b| a[0].cmp(&b[0]));
-    result
 }
 
 /// Compute modularity of a partition.
@@ -37092,7 +37286,7 @@ mod tests {
     #[test]
     fn louvain_empty_graph() {
         let g = Graph::strict();
-        let comms = louvain_communities(&g, 1.0, "weight", None);
+        let comms = louvain_communities(&g, 1.0, "weight", 1.0e-7, None, None);
         assert!(comms.is_empty());
     }
 
@@ -37100,7 +37294,7 @@ mod tests {
     fn louvain_single_node() {
         let mut g = Graph::strict();
         g.add_node("a");
-        let comms = louvain_communities(&g, 1.0, "weight", None);
+        let comms = louvain_communities(&g, 1.0, "weight", 1.0e-7, None, None);
         assert_eq!(comms.len(), 1);
         assert_eq!(comms[0], vec!["a"]);
     }
@@ -37124,7 +37318,7 @@ mod tests {
         // Bridge
         let _ = g.add_edge("a0", "b0");
 
-        let comms = louvain_communities(&g, 1.0, "weight", None);
+        let comms = louvain_communities(&g, 1.0, "weight", 1.0e-7, None, None);
         // Should find 2 communities
         assert_eq!(comms.len(), 2);
         // Total nodes should cover all 10
@@ -37138,9 +37332,33 @@ mod tests {
         let mut g = Graph::strict();
         let _ = g.add_edge("a", "b");
         let _ = g.add_edge("c", "d");
-        let comms = louvain_communities(&g, 1.0, "weight", None);
+        let comms = louvain_communities(&g, 1.0, "weight", 1.0e-7, None, None);
         // At least 2 communities
         assert!(comms.len() >= 2);
+    }
+
+    #[test]
+    fn louvain_max_level_stops_after_first_partition() {
+        let mut g = Graph::strict();
+        for left in 0..4 {
+            for right in (left + 1)..4 {
+                let _ = g.add_edge(left.to_string(), right.to_string());
+            }
+        }
+        let _ = g.add_edge("3", "4");
+        let _ = g.add_edge("4", "5");
+        let _ = g.add_edge("5", "6");
+        for left in 6..10 {
+            for right in (left + 1)..10 {
+                let _ = g.add_edge(left.to_string(), right.to_string());
+            }
+        }
+
+        let first_level = louvain_communities(&g, 0.5, "weight", 1.0e-7, Some(1), Some(7));
+        let full = louvain_communities(&g, 0.5, "weight", 1.0e-7, None, Some(7));
+
+        assert_eq!(first_level.len(), 3);
+        assert_eq!(full.len(), 2);
     }
 
     #[test]
@@ -37155,7 +37373,7 @@ mod tests {
                 }
             }
         }
-        let comms = louvain_communities(&g, 1.0, "weight", None);
+        let comms = louvain_communities(&g, 1.0, "weight", 1.0e-7, None, None);
         let total: usize = comms.iter().map(|c| c.len()).sum();
         assert_eq!(total, 10);
         // Check no duplicates

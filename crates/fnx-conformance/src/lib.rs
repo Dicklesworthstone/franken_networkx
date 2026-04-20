@@ -2269,6 +2269,8 @@ fn run_fixture(
                     &context.graph,
                     resolution.unwrap_or(1.0),
                     &weight_attr,
+                    1.0e-7,
+                    None,
                     seed,
                 );
                 context.louvain_communities_result = Some(result);

@@ -131,6 +131,37 @@ def test_label_propagation_communities_multigraph_matches_networkx():
 
 
 @pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"seed": 7},
+        {"seed": 7, "resolution": 0.5},
+        {"seed": 7, "resolution": 0.5, "threshold": 0.1},
+        {"seed": 7, "resolution": 0.5, "max_level": 1},
+    ],
+)
+def test_louvain_communities_matches_networkx_for_multilevel_controls(kwargs):
+    graph = fnx.barbell_graph(4, 2)
+    nx_graph = _to_nx(graph)
+
+    result = fnx.louvain_communities(graph, **kwargs)
+    expected = nx.community.louvain_communities(nx_graph, **kwargs)
+
+    _assert_partition_equal(result, expected)
+
+
+def test_louvain_communities_max_level_error_contract_matches_networkx():
+    graph = fnx.path_graph(4)
+    nx_graph = _to_nx(graph)
+
+    with pytest.raises(ValueError) as expected:
+        nx.community.louvain_communities(nx_graph, max_level=0)
+    with pytest.raises(ValueError) as actual:
+        fnx.louvain_communities(graph, max_level=0)
+
+    assert str(actual.value) == str(expected.value)
+
+
+@pytest.mark.parametrize(
     ("actual_graph", "expected_graph", "expected_error", "actual_error"),
     [
         (

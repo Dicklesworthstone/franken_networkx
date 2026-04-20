@@ -502,6 +502,7 @@ dependencies = [
  "mt19937",
  "mwmatching",
  "proptest",
+ "rand_core 0.10.0",
  "serde",
 ]
 

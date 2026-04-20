@@ -977,8 +977,10 @@ def barycenter(g: Graph) -> list[Any]: ...
 
 def louvain_communities(
     g: Graph,
-    resolution: float = 1.0,
     weight: str = "weight",
+    resolution: float = 1.0,
+    threshold: float = 1.0e-7,
+    max_level: Optional[int] = None,
     seed: Optional[int] = None,
 ) -> list[list[Any]]: ...
 def modularity(
