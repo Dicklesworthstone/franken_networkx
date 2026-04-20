@@ -9444,6 +9444,135 @@ def non_randomness(G, k=None, weight="weight"):
     return nr, nr_rd
 
 
+class _KernighanLinHeap:
+    def __init__(self):
+        self._heap = []
+        self._values = {}
+        self._counter = count()
+
+    def insert(self, key, value, allow_increase=False):
+        current = self._values.get(key)
+        if current is not None and value > current and not allow_increase:
+            return
+        self._values[key] = value
+        heappush(self._heap, (value, next(self._counter), key))
+
+    def pop(self):
+        while self._heap:
+            value, _, key = heappop(self._heap)
+            current = self._values.get(key)
+            if current is None or current != value:
+                continue
+            del self._values[key]
+            return key, value
+        raise KeyError("pop from an empty heap")
+
+    def get(self, key):
+        return self._values[key]
+
+    def __contains__(self, key):
+        return key in self._values
+
+    def __bool__(self):
+        return bool(self._values)
+
+
+def _is_partition_of_graph(G, communities):
+    nodes = set(G)
+    seen = set()
+    for community in communities:
+        community_nodes = set(community)
+        if seen & community_nodes:
+            return False
+        seen.update(community_nodes)
+    return seen == nodes
+
+
+def _kernighan_lin_sweep(edge_info, side):
+    """Yield cumulative costs and node pairs for a KL sweep."""
+    heap0, heap1 = cost_heaps = _KernighanLinHeap(), _KernighanLinHeap()
+    for u, nbrs in edge_info.items():
+        cost_u = sum(wt if side[v] else -wt for v, wt in nbrs.items())
+        if side[u]:
+            heap1.insert(u, cost_u)
+        else:
+            heap0.insert(u, -cost_u)
+
+    def _update_heap_values(node):
+        side_node = side[node]
+        for nbr, wt in edge_info[node].items():
+            side_nbr = side[nbr]
+            if side_nbr == side_node:
+                wt = -wt
+            heap_nbr = cost_heaps[side_nbr]
+            if nbr in heap_nbr:
+                cost_nbr = heap_nbr.get(nbr) + 2 * wt
+                heap_nbr.insert(nbr, cost_nbr, allow_increase=True)
+
+    index = 0
+    total_cost = 0
+    while heap0 and heap1:
+        u, cost_u = heap0.pop()
+        _update_heap_values(u)
+        v, cost_v = heap1.pop()
+        _update_heap_values(v)
+        total_cost += cost_u + cost_v
+        index += 1
+        yield total_cost, index, (u, v)
+
+
+def kernighan_lin_bisection(G, partition=None, max_iter=10, weight="weight", seed=None):
+    """Partition a graph into two blocks using the Kernighan-Lin algorithm."""
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+
+    nodes = list(G)
+    if partition is None:
+        rng = _generator_random_state(seed)
+        rng.shuffle(nodes)
+        mid = len(nodes) // 2
+        A, B = nodes[:mid], nodes[mid:]
+    else:
+        try:
+            A, B = partition
+        except (TypeError, ValueError) as err:
+            raise NetworkXError("partition must be two sets") from err
+        if not _is_partition_of_graph(G, [A, B]):
+            raise NetworkXError("partition invalid")
+
+    side = {node: (node in A) for node in nodes}
+
+    if callable(weight):
+        sum_weight = weight
+    elif G.is_multigraph():
+        sum_weight = lambda u, v, d: sum(dd.get(weight, 1) for dd in d.values())
+    else:
+        sum_weight = lambda u, v, d: d.get(weight, 1)
+
+    edge_info = {
+        u: {
+            v: wt
+            for v, d in G.adj[u].items()
+            if (wt := sum_weight(u, v, d)) is not None
+        }
+        for u in G.adj
+    }
+
+    for _ in range(max_iter):
+        costs = list(_kernighan_lin_sweep(edge_info, side))
+        min_cost, min_index, _ = min(costs)
+        if min_cost >= 0:
+            break
+
+        for _, _, (u, v) in costs[:min_index]:
+            side[u] = 1
+            side[v] = 0
+
+    part1 = {u for u, s in side.items() if s == 0}
+    part2 = {u for u, s in side.items() if s == 1}
+    return part1, part2
+
+
 def label_propagation_communities(G):
     """Generates community sets determined by label propagation."""
     if G.is_directed():
@@ -20133,6 +20262,7 @@ __all__ = [
     "degree_sequence_tree",
     "common_neighbor_centrality",
     "all_topological_sorts",
+    "kernighan_lin_bisection",
     "lowest_common_ancestor",
     "all_pairs_lowest_common_ancestor",
     "transitive_closure_dag",

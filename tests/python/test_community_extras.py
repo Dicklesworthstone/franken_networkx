@@ -5,6 +5,7 @@ import networkx as nx
 import numpy as np
 import pytest
 from networkx.algorithms.community import (
+    kernighan_lin_bisection as nx_kernighan_lin_bisection,
     label_propagation_communities as nx_label_propagation_communities,
 )
 
@@ -14,6 +15,10 @@ from franken_networkx.backend import _fnx_to_nx as _to_nx
 
 def _community_frozensets(communities):
     return {frozenset(community) for community in communities}
+
+
+def _assert_partition_equal(actual, expected):
+    assert {frozenset(part) for part in actual} == {frozenset(part) for part in expected}
 
 
 def test_modularity_matrix_matches_networkx():
@@ -153,6 +158,80 @@ def test_label_propagation_communities_directed_error_contract_matches_networkx(
         list(fnx.label_propagation_communities(actual_graph))
 
     assert str(actual.value) == str(expected.value)
+
+
+def test_kernighan_lin_bisection_matches_networkx():
+    graph = fnx.barbell_graph(3, 0)
+    expected_graph = nx.barbell_graph(3, 0)
+
+    actual = fnx.kernighan_lin_bisection(graph, seed=1)
+    expected = nx_kernighan_lin_bisection(expected_graph, seed=1)
+
+    _assert_partition_equal(actual, expected)
+
+
+def test_kernighan_lin_bisection_partition_and_multigraph_match_networkx():
+    graph = fnx.Graph()
+    graph.add_edges_from([("A", "B"), ("A", "C"), ("B", "C"), ("C", "D")])
+    expected_graph = nx.Graph()
+    expected_graph.add_edges_from([("A", "B"), ("A", "C"), ("B", "C"), ("C", "D")])
+    partition = ({"A", "B"}, {"C", "D"})
+
+    actual = fnx.kernighan_lin_bisection(graph, partition=partition)
+    expected = nx_kernighan_lin_bisection(expected_graph, partition=partition)
+    _assert_partition_equal(actual, expected)
+
+    multigraph = fnx.MultiGraph()
+    multigraph.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 0)])
+    multigraph.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 0)])
+    multigraph.remove_edge(1, 2)
+
+    expected_multigraph = nx.MultiGraph()
+    expected_multigraph.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 0)])
+    expected_multigraph.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 0)])
+    expected_multigraph.remove_edge(1, 2)
+
+    actual_multigraph = fnx.kernighan_lin_bisection(multigraph, seed=0)
+    expected_multigraph_partition = nx_kernighan_lin_bisection(expected_multigraph, seed=0)
+    _assert_partition_equal(actual_multigraph, expected_multigraph_partition)
+
+
+def test_kernighan_lin_bisection_weight_and_error_contract_match_networkx():
+    graph = fnx.cycle_graph(4)
+    expected_graph = nx.cycle_graph(4)
+
+    def my_weight(u, v, d):
+        if u == 2 and v == 3:
+            return None
+        return u + v
+
+    actual = fnx.kernighan_lin_bisection(graph, weight=my_weight)
+    expected = nx_kernighan_lin_bisection(expected_graph, weight=my_weight)
+    _assert_partition_equal(actual, expected)
+
+    actual_directed = fnx.DiGraph([(0, 1)])
+    expected_directed = nx.DiGraph([(0, 1)])
+    with pytest.raises(nx.NetworkXNotImplemented) as expected_directed_error:
+        nx_kernighan_lin_bisection(expected_directed)
+    with pytest.raises(fnx.NetworkXNotImplemented) as actual_directed_error:
+        fnx.kernighan_lin_bisection(actual_directed)
+    assert str(actual_directed_error.value) == str(expected_directed_error.value)
+
+    invalid_partition = ({0, 1}, {1, 2, 3})
+    actual_graph = fnx.path_graph(4)
+    expected_invalid_graph = nx.path_graph(4)
+    with pytest.raises(nx.NetworkXError) as expected_invalid_error:
+        nx_kernighan_lin_bisection(expected_invalid_graph, partition=invalid_partition)
+    with pytest.raises(fnx.NetworkXError) as actual_invalid_error:
+        fnx.kernighan_lin_bisection(actual_graph, partition=invalid_partition)
+    assert str(actual_invalid_error.value) == str(expected_invalid_error.value)
+
+    too_many_blocks = ({0}, {1}, {2, 3})
+    with pytest.raises(nx.NetworkXError) as expected_block_error:
+        nx_kernighan_lin_bisection(expected_invalid_graph, partition=too_many_blocks)
+    with pytest.raises(fnx.NetworkXError) as actual_block_error:
+        fnx.kernighan_lin_bisection(actual_graph, partition=too_many_blocks)
+    assert str(actual_block_error.value) == str(expected_block_error.value)
 
 
 def test_within_inter_cluster_matches_networkx():
