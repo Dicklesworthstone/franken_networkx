@@ -2,6 +2,7 @@
 
 import pytest
 from conftest import assert_sets_equal
+from networkx.algorithms.connectivity import local_edge_connectivity as nx_local_edge_connectivity
 
 
 @pytest.mark.conformance
@@ -201,6 +202,65 @@ class TestConnectivity:
         D_nx.add_edge(1, 0)
 
         assert fnx.edge_connectivity(D_fnx) == nx.edge_connectivity(D_nx)
+
+    def test_local_edge_connectivity_matches_networkx_without_fallback(self, fnx, nx, monkeypatch):
+        D_fnx = fnx.DiGraph()
+        D_fnx.add_edges_from([(0, 1), (0, 2), (1, 3), (2, 3)])
+
+        D_nx = nx.DiGraph()
+        D_nx.add_edges_from([(0, 1), (0, 2), (1, 3), (2, 3)])
+
+        expected_default = nx_local_edge_connectivity(D_nx, 0, 3)
+        expected_alt = nx_local_edge_connectivity(
+            D_nx,
+            0,
+            3,
+            flow_func=nx.algorithms.flow.shortest_augmenting_path,
+        )
+
+        def fail_networkx_fallback(*args, **kwargs):
+            raise AssertionError("unexpected NetworkX fallback")
+
+        monkeypatch.setattr(
+            "networkx.algorithms.connectivity.local_edge_connectivity",
+            fail_networkx_fallback,
+        )
+
+        assert fnx.local_edge_connectivity(D_fnx, 0, 3) == expected_default
+        assert (
+            fnx.local_edge_connectivity(
+                D_fnx,
+                0,
+                3,
+                flow_func=nx.algorithms.flow.shortest_augmenting_path,
+            )
+            == expected_alt
+        )
+
+    def test_local_edge_connectivity_invalid_flow_func_matches_networkx_without_fallback(
+        self, fnx, nx, monkeypatch
+    ):
+        D_fnx = fnx.DiGraph()
+        D_fnx.add_edges_from([(0, 1), (0, 2), (1, 3), (2, 3)])
+
+        D_nx = nx.DiGraph()
+        D_nx.add_edges_from([(0, 1), (0, 2), (1, 3), (2, 3)])
+
+        with pytest.raises(nx.NetworkXError) as expected:
+            nx_local_edge_connectivity(D_nx, 0, 3, flow_func=1)
+
+        def fail_networkx_fallback(*args, **kwargs):
+            raise AssertionError("unexpected NetworkX fallback")
+
+        monkeypatch.setattr(
+            "networkx.algorithms.connectivity.local_edge_connectivity",
+            fail_networkx_fallback,
+        )
+
+        with pytest.raises(fnx.NetworkXError) as actual:
+            fnx.local_edge_connectivity(D_fnx, 0, 3, flow_func=1)
+
+        assert str(actual.value) == str(expected.value)
 
     def test_articulation_points(self, fnx, nx, path_graph):
         G_fnx, G_nx = path_graph

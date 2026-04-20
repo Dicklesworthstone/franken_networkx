@@ -396,6 +396,25 @@ from franken_networkx._fnx import (
     number_connected_components,
 )
 
+
+def local_edge_connectivity(
+    G,
+    s,
+    t,
+    flow_func=None,
+    auxiliary=None,
+    residual=None,
+    cutoff=None,
+):
+    """Return the local edge connectivity between ``s`` and ``t``."""
+    _validate_flow_func_selector(flow_func)
+    return edge_connectivity(
+        G,
+        s=s,
+        t=t,
+        cutoff=cutoff,
+    )
+
 # Algorithm functions — centrality
 from franken_networkx._fnx import (
     average_neighbor_degree,
