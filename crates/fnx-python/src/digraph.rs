@@ -1592,58 +1592,85 @@ impl MultiDiGraphEdgeView {
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<crate::NodeIterator>> {
-        self.__call__(py, false, false, None)
+        self.__call__(py, None, None, false, None)
     }
 
-    #[pyo3(signature = (data=false, keys=false, default=None))]
+    #[pyo3(signature = (nbunch=None, data=None, keys=false, default=None))]
     fn __call__(
         &self,
         py: Python<'_>,
-        data: bool,
+        nbunch: Option<&Bound<'_, PyAny>>,
+        data: Option<&Bound<'_, PyAny>>,
         keys: bool,
-        default: Option<PyObject>,
+        default: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Py<crate::NodeIterator>> {
         let g = self.graph.borrow(py);
+        let source_nodes = parse_edge_nbunch_for_multidigraph(py, &g, nbunch)?;
+        let mut view_data = parse_view_data(data)?;
+        if let (Some(def), ViewData::Attr(attr)) = (default, &view_data) {
+            view_data = ViewData::AttrWithDefault(attr.clone(), def.clone().unbind());
+        }
         let mut result = Vec::new();
         let edges = g.inner.edges_ordered();
         for edge in &edges {
+            if let Some(source_nodes) = source_nodes.as_ref()
+                && !source_nodes.contains(&edge.source)
+            {
+                continue;
+            }
             let py_u = g.py_node_key(py, &edge.source);
             let py_v = g.py_node_key(py, &edge.target);
-            if data && keys {
-                let ek = PyMultiDiGraph::edge_key(&edge.source, &edge.target, edge.key);
-                let attrs = g.edge_py_attrs.get(&ek).map_or_else(
-                    || {
-                        default.as_ref().map_or_else(
-                            || PyDict::new(py).into_any().unbind(),
-                            |d| d.clone_ref(py),
-                        )
-                    },
-                    |d| d.clone_ref(py).into_any(),
-                );
-                let key_obj = g.py_edge_key(py, &edge.source, &edge.target, edge.key);
-                let tuple = PyTuple::new(py, &[py_u, py_v, key_obj, attrs])?;
-                result.push(tuple.into_any().unbind());
-            } else if data {
-                let ek = PyMultiDiGraph::edge_key(&edge.source, &edge.target, edge.key);
-                let attrs = g.edge_py_attrs.get(&ek).map_or_else(
-                    || {
-                        default.as_ref().map_or_else(
-                            || PyDict::new(py).into_any().unbind(),
-                            |d| d.clone_ref(py),
-                        )
-                    },
-                    |d| d.clone_ref(py).into_any(),
-                );
-                let tuple = PyTuple::new(py, &[py_u, py_v, attrs])?;
-                result.push(tuple.into_any().unbind());
-            } else if keys {
-                let key_obj = g.py_edge_key(py, &edge.source, &edge.target, edge.key);
-                let tuple = PyTuple::new(py, &[py_u, py_v, key_obj])?;
-                result.push(tuple.into_any().unbind());
-            } else {
-                let tuple = PyTuple::new(py, &[py_u, py_v])?;
-                result.push(tuple.into_any().unbind());
-            }
+            let ek = PyMultiDiGraph::edge_key(&edge.source, &edge.target, edge.key);
+            let key_obj = g.py_edge_key(py, &edge.source, &edge.target, edge.key);
+            let item = match &view_data {
+                ViewData::NoData => {
+                    if keys {
+                        tuple_object(py, &[py_u, py_v, key_obj])?
+                    } else {
+                        tuple_object(py, &[py_u, py_v])?
+                    }
+                }
+                ViewData::AllData => {
+                    let attrs = g.edge_py_attrs.get(&ek).map_or_else(
+                        || PyDict::new(py).into_any().unbind(),
+                        |d| d.clone_ref(py).into_any(),
+                    );
+                    if keys {
+                        tuple_object(py, &[py_u, py_v, key_obj, attrs])?
+                    } else {
+                        tuple_object(py, &[py_u, py_v, attrs])?
+                    }
+                }
+                ViewData::Attr(attr_name) => {
+                    let val = g
+                        .edge_py_attrs
+                        .get(&ek)
+                        .and_then(|attrs| {
+                            attrs.bind(py).get_item(attr_name.as_str()).ok().flatten()
+                        })
+                        .map_or_else(|| py.None(), |v| v.unbind());
+                    if keys {
+                        tuple_object(py, &[py_u, py_v, key_obj, val])?
+                    } else {
+                        tuple_object(py, &[py_u, py_v, val])?
+                    }
+                }
+                ViewData::AttrWithDefault(attr_name, def_val) => {
+                    let val = g
+                        .edge_py_attrs
+                        .get(&ek)
+                        .and_then(|attrs| {
+                            attrs.bind(py).get_item(attr_name.as_str()).ok().flatten()
+                        })
+                        .map_or_else(|| def_val.clone_ref(py), |v| v.unbind());
+                    if keys {
+                        tuple_object(py, &[py_u, py_v, key_obj, val])?
+                    } else {
+                        tuple_object(py, &[py_u, py_v, val])?
+                    }
+                }
+            };
+            result.push(item);
         }
         Py::new(
             py,
@@ -2924,6 +2951,61 @@ fn parse_view_data(data: Option<&Bound<'_, PyAny>>) -> PyResult<ViewData> {
             } else {
                 Err(PyTypeError::new_err(
                     "data must be True, False, or a string attribute name",
+                ))
+            }
+        }
+    }
+}
+
+fn parse_edge_nbunch_for_multidigraph(
+    py: Python<'_>,
+    graph: &PyMultiDiGraph,
+    nbunch: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Option<HashSet<String>>> {
+    let Some(nbunch) = nbunch else {
+        return Ok(None);
+    };
+
+    if let Ok(canonical) = node_key_to_string(py, nbunch)
+        && graph.inner.has_node(&canonical)
+    {
+        let mut nodes = HashSet::new();
+        nodes.insert(canonical);
+        return Ok(Some(nodes));
+    }
+
+    match PyIterator::from_object(nbunch) {
+        Ok(iter) => {
+            let mut nodes = HashSet::new();
+            for item in iter {
+                let item = item?;
+                if let Err(exc) = item.hash() {
+                    if exc.is_instance_of::<PyTypeError>(py) {
+                        let display = item.str()?.to_string_lossy().into_owned();
+                        return Err(NetworkXError::new_err(format!(
+                            "Node {} in sequence nbunch is not a valid node.",
+                            display
+                        )));
+                    }
+                    return Err(exc);
+                }
+                let canonical = node_key_to_string(py, &item)?;
+                if graph.inner.has_node(&canonical) {
+                    nodes.insert(canonical);
+                }
+            }
+            Ok(Some(nodes))
+        }
+        Err(exc) => {
+            if exc.is_instance_of::<PyTypeError>(py) {
+                let display = nbunch.str()?.to_string_lossy().into_owned();
+                Err(NetworkXError::new_err(format!(
+                    "Node {} is not in the graph.",
+                    display
+                )))
+            } else {
+                Err(NetworkXError::new_err(
+                    "nbunch is not a node or a sequence of nodes.",
                 ))
             }
         }

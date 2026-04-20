@@ -160,6 +160,41 @@ def test_attribute_roundtrip_matches_networkx_on_directed_multigraph():
     assert fnx.get_edge_attributes(graph, "weight") == nx.get_edge_attributes(expected, "weight")
 
 
+def test_multidigraph_edges_keys_view_matches_networkx():
+    graph = fnx.MultiDiGraph()
+    expected = nx.MultiDiGraph()
+    for target_graph in (graph, expected):
+        target_graph.add_edge("a", "b", key="k1", weight=1)
+        target_graph.add_edge("a", "b", key="k2", weight=2)
+        target_graph.add_edge("b", "a", key="k3")
+
+    assert list(graph.edges("a", keys=True)) == list(expected.edges("a", keys=True))
+    assert list(graph.edges(nbunch=["a"], keys=True)) == list(
+        expected.edges(nbunch=["a"], keys=True)
+    )
+    assert list(graph.edges(["a"], data=True, keys=True)) == list(
+        expected.edges(["a"], data=True, keys=True)
+    )
+    assert list(graph.edges(data="weight", keys=True, default=99)) == list(
+        expected.edges(data="weight", keys=True, default=99)
+    )
+    assert list(graph.edges(["z", "a"], data="weight", keys=True, default=99)) == list(
+        expected.edges(["z", "a"], data="weight", keys=True, default=99)
+    )
+    assert list(graph.edges(["z"], keys=True)) == list(expected.edges(["z"], keys=True))
+
+    try:
+        list(expected.edges(1, keys=True))
+    except Exception as exc:
+        expected_exc = exc
+    else:
+        raise AssertionError("expected NetworkX MultiDiGraph.edges(1, keys=True) to fail")
+
+    fnx_exc_type = getattr(fnx, type(expected_exc).__name__)
+    with pytest.raises(fnx_exc_type, match=str(expected_exc)):
+        list(graph.edges(1, keys=True))
+
+
 @pytest.mark.parametrize(
     ("fnx_factory", "nx_factory"),
     [
