@@ -186,9 +186,12 @@ class TestParametricGenerators:
         assert g.number_of_edges() == 12
 
     def test_complete_multipartite_graph(self):
-        g = fnx.complete_multipartite_graph([2, 2, 2])
+        # Each positional arg is one partition (matching NetworkX). Pass
+        # sizes as separate ints, not a single list of ints.
+        g = fnx.complete_multipartite_graph(2, 2, 2)
         assert g.number_of_nodes() == 6
         assert g.number_of_edges() == 12
+        assert sorted(g.nodes[n]["subset"] for n in g.nodes()) == [0, 0, 1, 1, 2, 2]
 
     def test_grid_2d_graph(self):
         g = fnx.grid_2d_graph(3, 4)
@@ -241,3 +244,72 @@ class TestParametricGenerators:
     def test_wheel_is_connected(self):
         g = fnx.wheel_graph(6)
         assert fnx.is_connected(g)
+
+
+try:
+    import networkx as _nx_import
+
+    _HAS_NX = True
+except ImportError:  # pragma: no cover - nx is an optional oracle here
+    _HAS_NX = False
+
+
+import pytest
+
+
+@pytest.mark.skipif(not _HAS_NX, reason="networkx not installed")
+class TestCompleteMultipartiteGraphParity:
+    @pytest.mark.parametrize(
+        "sizes",
+        [(2, 2), (3, 2, 1), (4,), (1, 1, 1, 1), (0, 2, 3), (), (0, 0, 0)],
+    )
+    def test_sizes_only_matches_networkx(self, sizes):
+        import networkx as nx
+
+        expected = nx.complete_multipartite_graph(*sizes)
+        actual = fnx.complete_multipartite_graph(*sizes)
+        assert actual.number_of_nodes() == expected.number_of_nodes()
+        assert actual.number_of_edges() == expected.number_of_edges()
+        expected_attrs = {n: expected.nodes[n].get("subset") for n in expected.nodes()}
+        actual_attrs = {n: actual.nodes[n].get("subset") for n in actual.nodes()}
+        assert actual_attrs == expected_attrs
+
+    def test_iterable_partitions_label_nodes_and_set_subset(self):
+        import networkx as nx
+
+        expected = nx.complete_multipartite_graph(["a", "b"], ["c", "d", "e"])
+        actual = fnx.complete_multipartite_graph(["a", "b"], ["c", "d", "e"])
+        assert set(actual.nodes()) == set(expected.nodes())
+        for node in expected.nodes():
+            assert actual.nodes[node]["subset"] == expected.nodes[node]["subset"]
+        assert actual.number_of_edges() == expected.number_of_edges()
+
+    def test_strings_are_treated_as_node_iterables(self):
+        import networkx as nx
+
+        expected = nx.complete_multipartite_graph("a", "bc", "def")
+        actual = fnx.complete_multipartite_graph("a", "bc", "def")
+        assert set(actual.nodes()) == set(expected.nodes())
+        assert actual.number_of_edges() == expected.number_of_edges()
+
+    def test_single_iterable_arg_is_one_partition_not_unpacked(self):
+        import networkx as nx
+
+        expected = nx.complete_multipartite_graph([1, 2, 3])
+        actual = fnx.complete_multipartite_graph([1, 2, 3])
+        assert set(actual.nodes()) == set(expected.nodes()) == {1, 2, 3}
+        assert actual.number_of_edges() == 0
+        assert [actual.nodes[n]["subset"] for n in sorted(actual.nodes())] == [0, 0, 0]
+
+    @pytest.mark.parametrize("args", [(2, ["a", "b"]), (["x"], 3), (1, "ab")])
+    def test_mixed_int_and_iterable_rejected(self, args):
+        with pytest.raises(fnx.NetworkXError):
+            fnx.complete_multipartite_graph(*args)
+
+    def test_negative_size_rejected(self):
+        with pytest.raises(fnx.NetworkXError):
+            fnx.complete_multipartite_graph(2, -1, 3)
+
+    def test_subset_attribute_is_present_for_every_node(self):
+        g = fnx.complete_multipartite_graph(3, 2, 1)
+        assert all("subset" in g.nodes[n] for n in g.nodes())

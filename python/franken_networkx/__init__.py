@@ -5817,13 +5817,52 @@ def windmill_graph(n, k):
 
 
 def complete_multipartite_graph(*subset_sizes):
-    """Return the complete multipartite graph with the given subset sizes."""
-    if len(subset_sizes) == 1:
-        try:
-            subset_sizes = tuple(subset_sizes[0])
-        except TypeError:
-            pass
-    return _rust_complete_multipartite_graph(list(subset_sizes))
+    """Return the complete multipartite graph over the given subsets.
+
+    Each argument is either an integer partition size or an iterable of node
+    labels for that partition. Mixing the two kinds raises
+    ``NetworkXError`` with the same message as upstream NetworkX. Every node
+    receives a ``subset`` attribute equal to the index of its partition.
+    """
+    if len(subset_sizes) == 0:
+        return Graph()
+
+    int_sizes: list[int] | None = None
+    if all(isinstance(s, int) for s in subset_sizes):
+        int_sizes = list(subset_sizes)
+        if any(size < 0 for size in int_sizes):
+            raise NetworkXError(
+                f"Negative number of nodes not valid: {subset_sizes}"
+            )
+    else:
+        # Reject mixed-type input with NetworkX's exact wording. Only accept
+        # all-iterables when every argument is a non-int iterable.
+        for item in subset_sizes:
+            if isinstance(item, int):
+                raise NetworkXError("Arguments must be all ints or all iterables")
+            try:
+                iter(item)
+            except TypeError as err:
+                raise NetworkXError(
+                    "Arguments must be all ints or all iterables"
+                ) from err
+
+    if int_sizes is not None:
+        graph = _rust_complete_multipartite_graph(int_sizes)
+        offset = 0
+        for partition_index, size in enumerate(int_sizes):
+            for node_id in range(offset, offset + size):
+                graph.nodes[node_id]["subset"] = partition_index
+            offset += size
+        return graph
+
+    subsets = [list(item) for item in subset_sizes]
+    graph = Graph()
+    for partition_index, subset in enumerate(subsets):
+        graph.add_nodes_from(subset, subset=partition_index)
+    for left, right in itertools.combinations(subsets, 2):
+        graph.add_edges_from(itertools.product(left, right))
+    return graph
 
 
 def gnm_random_graph(n, m, seed=None):
