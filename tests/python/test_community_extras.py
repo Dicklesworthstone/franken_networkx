@@ -5,6 +5,7 @@ import networkx as nx
 import numpy as np
 import pytest
 from networkx.algorithms.community import (
+    asyn_fluidc as nx_asyn_fluidc,
     kernighan_lin_bisection as nx_kernighan_lin_bisection,
     label_propagation_communities as nx_label_propagation_communities,
 )
@@ -158,6 +159,93 @@ def test_label_propagation_communities_directed_error_contract_matches_networkx(
         list(fnx.label_propagation_communities(actual_graph))
 
     assert str(actual.value) == str(expected.value)
+
+
+@pytest.mark.parametrize("graph_constructor", (fnx.DiGraph, fnx.MultiGraph))
+def test_asyn_fluidc_rejects_directed_and_multigraph(graph_constructor):
+    actual_graph = graph_constructor([(0, 1), (1, 2)])
+    expected_graph = nx.DiGraph([(0, 1), (1, 2)]) if graph_constructor is fnx.DiGraph else nx.MultiGraph([(0, 1), (1, 2)])
+
+    with pytest.raises(nx.NetworkXNotImplemented) as expected:
+        list(nx_asyn_fluidc(expected_graph, 1))
+    with pytest.raises(fnx.NetworkXNotImplemented) as actual:
+        list(fnx.asyn_fluidc(actual_graph, 1))
+
+    assert str(actual.value) == str(expected.value)
+
+
+def test_asyn_fluidc_error_contract_matches_networkx():
+    actual_graph = fnx.Graph()
+    expected_graph = nx.Graph()
+    actual_graph.add_node("a")
+    expected_graph.add_node("a")
+
+    for k in ("hi", -1, 3):
+        with pytest.raises(nx.NetworkXError) as expected:
+            list(nx_asyn_fluidc(expected_graph, k))
+        with pytest.raises(fnx.NetworkXError) as actual:
+            list(fnx.asyn_fluidc(actual_graph, k))
+        assert str(actual.value) == str(expected.value)
+
+    with pytest.raises(ValueError) as expected:
+        list(nx_asyn_fluidc(expected_graph, 1, max_iter=0))
+    with pytest.raises(ValueError) as actual:
+        list(fnx.asyn_fluidc(actual_graph, 1, max_iter=0))
+    assert str(actual.value) == str(expected.value)
+
+    actual_graph.add_node("b")
+    expected_graph.add_node("b")
+    with pytest.raises(nx.NetworkXError) as expected:
+        list(nx_asyn_fluidc(expected_graph, 1))
+    with pytest.raises(fnx.NetworkXError) as actual:
+        list(fnx.asyn_fluidc(actual_graph, 1))
+    assert str(actual.value) == str(expected.value)
+
+
+def test_asyn_fluidc_seeded_cases_match_networkx():
+    single_actual = fnx.Graph()
+    single_actual.add_node("a")
+    single_expected = nx.Graph()
+    single_expected.add_node("a")
+    assert _community_frozensets(fnx.asyn_fluidc(single_actual, 1)) == _community_frozensets(
+        nx_asyn_fluidc(single_expected, 1),
+    )
+
+    two_actual = fnx.Graph()
+    two_actual.add_edge("a", "b")
+    two_expected = nx.Graph()
+    two_expected.add_edge("a", "b")
+    assert _community_frozensets(fnx.asyn_fluidc(two_actual, 2)) == _community_frozensets(
+        nx_asyn_fluidc(two_expected, 2),
+    )
+
+    graph = fnx.Graph()
+    graph.add_edges_from(
+        [
+            ("a", "b"),
+            ("a", "c"),
+            ("b", "c"),
+            ("c", "d"),
+            ("d", "e"),
+            ("d", "f"),
+            ("f", "e"),
+        ],
+    )
+    expected_graph = nx.Graph()
+    expected_graph.add_edges_from(
+        [
+            ("a", "b"),
+            ("a", "c"),
+            ("b", "c"),
+            ("c", "d"),
+            ("d", "e"),
+            ("d", "f"),
+            ("f", "e"),
+        ],
+    )
+    assert _community_frozensets(fnx.asyn_fluidc(graph, 2, seed=7)) == _community_frozensets(
+        nx_asyn_fluidc(expected_graph, 2, seed=7),
+    )
 
 
 def test_kernighan_lin_bisection_matches_networkx():

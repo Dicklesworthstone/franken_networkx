@@ -9624,6 +9624,94 @@ def kernighan_lin_bisection(G, partition=None, max_iter=10, weight="weight", see
     return part1, part2
 
 
+def asyn_fluidc(G, k, max_iter=100, seed=None):
+    """Return communities in G as detected by the Fluid Communities algorithm."""
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if not isinstance(k, int):
+        raise NetworkXError("k must be an integer.")
+    if k <= 0:
+        raise NetworkXError("k must be greater than 0.")
+    if not is_connected(G):
+        raise NetworkXError("Fluid Communities require connected Graphs.")
+    if len(G) < k:
+        raise NetworkXError("k cannot be bigger than the number of nodes.")
+    if max_iter <= 0:
+        raise ValueError(f"{max_iter=} must be greater than 0")
+
+    rng = _generator_random_state(seed)
+    max_density = 1.0
+    vertices = list(G)
+    rng.shuffle(vertices)
+    communities = {node: index for index, node in enumerate(vertices[:k])}
+    density = {}
+    community_sizes = {}
+    for node in communities:
+        community_sizes[communities[node]] = 1
+        density[communities[node]] = max_density
+
+    iteration_count = 0
+    should_continue = True
+    while should_continue and iteration_count < max_iter:
+        should_continue = False
+        iteration_count += 1
+        vertices = list(G)
+        rng.shuffle(vertices)
+        for vertex in vertices:
+            community_counter = Counter()
+            try:
+                community_counter.update(
+                    {communities[vertex]: density[communities[vertex]]},
+                )
+            except KeyError:
+                pass
+
+            for neighbor in G[vertex]:
+                try:
+                    community_counter.update(
+                        {communities[neighbor]: density[communities[neighbor]]},
+                    )
+                except KeyError:
+                    continue
+
+            new_community = -1
+            if community_counter:
+                max_frequency = max(community_counter.values())
+                best_communities = [
+                    community
+                    for community, frequency in community_counter.items()
+                    if (max_frequency - frequency) < 0.0001
+                ]
+                try:
+                    if communities[vertex] in best_communities:
+                        new_community = communities[vertex]
+                except KeyError:
+                    pass
+
+                if new_community == -1:
+                    should_continue = True
+                    new_community = rng.choice(best_communities)
+                    try:
+                        community_sizes[communities[vertex]] -= 1
+                        density[communities[vertex]] = (
+                            max_density / community_sizes[communities[vertex]]
+                        )
+                    except KeyError:
+                        pass
+                    communities[vertex] = new_community
+                    community_sizes[communities[vertex]] += 1
+                    density[communities[vertex]] = (
+                        max_density / community_sizes[communities[vertex]]
+                    )
+
+    grouped = {}
+    for node, community in communities.items():
+        grouped.setdefault(community, set()).add(node)
+    return iter(grouped.values())
+
+
 def label_propagation_communities(G):
     """Generates community sets determined by label propagation."""
     if G.is_directed():
@@ -20559,6 +20647,7 @@ __all__ = [
     "make_clique_bipartite",
     "k_components",
     "k_factor",
+    "asyn_fluidc",
     "spectral_graph_forge",
     "tutte_polynomial",
     "tree_all_pairs_lowest_common_ancestor",
