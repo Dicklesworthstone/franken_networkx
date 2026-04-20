@@ -647,6 +647,221 @@ def dfs_edges(G, source=None, depth_limit=None, sort_neighbors=None):
     return _dfs_edges_raw(G, source=source, depth_limit=depth_limit)
 
 
+_EDGE_TRAVERSAL_FORWARD = "forward"
+_EDGE_TRAVERSAL_REVERSE = "reverse"
+
+
+def edge_bfs(G, source=None, orientation=None):
+    """Iterate edges in breadth-first-search order, matching NetworkX."""
+    nbunch_nodes = _global_nbunch_nodes(G, source)
+    nodes = list(G) if nbunch_nodes is None else nbunch_nodes
+    if not nodes:
+        return
+
+    directed = G.is_directed()
+    if orientation is None:
+        if G.is_multigraph():
+
+            def edges_from(node):
+                for nbr, keydict in G.adj[node].items():
+                    for key in keydict:
+                        yield (node, nbr, key)
+
+        else:
+
+            def edges_from(node):
+                for nbr in G.adj[node]:
+                    yield (node, nbr)
+
+    elif not directed or orientation == "original":
+        if G.is_multigraph():
+
+            def edges_from(node):
+                for nbr, keydict in G.adj[node].items():
+                    for key in keydict:
+                        yield (node, nbr, key, _EDGE_TRAVERSAL_FORWARD)
+
+        else:
+
+            def edges_from(node):
+                for nbr in G.adj[node]:
+                    yield (node, nbr, _EDGE_TRAVERSAL_FORWARD)
+
+    elif orientation == "reverse":
+        if G.is_multigraph():
+
+            def edges_from(node):
+                for nbr, keydict in G.pred[node].items():
+                    for key in keydict:
+                        yield (nbr, node, key, _EDGE_TRAVERSAL_REVERSE)
+
+        else:
+
+            def edges_from(node):
+                for nbr in G.pred[node]:
+                    yield (nbr, node, _EDGE_TRAVERSAL_REVERSE)
+
+    elif orientation == "ignore":
+        if G.is_multigraph():
+
+            def edges_from(node):
+                for nbr, keydict in G.adj[node].items():
+                    for key in keydict:
+                        yield (node, nbr, key, _EDGE_TRAVERSAL_FORWARD)
+                for nbr, keydict in G.pred[node].items():
+                    for key in keydict:
+                        yield (nbr, node, key, _EDGE_TRAVERSAL_REVERSE)
+
+        else:
+
+            def edges_from(node):
+                for nbr in G.adj[node]:
+                    yield (node, nbr, _EDGE_TRAVERSAL_FORWARD)
+                for nbr in G.pred[node]:
+                    yield (nbr, node, _EDGE_TRAVERSAL_REVERSE)
+
+    else:
+        raise NetworkXError("invalid orientation argument.")
+
+    if directed:
+
+        def edge_id(edge):
+            return edge[:-1] if orientation is not None else edge
+
+    else:
+
+        def edge_id(edge):
+            return (frozenset(edge[:2]),) + edge[2:]
+
+    check_reverse = directed and orientation in ("reverse", "ignore")
+    visited_nodes = set(nodes)
+    visited_edges = set()
+    queue = deque((node, edges_from(node)) for node in nodes)
+
+    while queue:
+        _parent, children_edges = queue.popleft()
+        for edge in children_edges:
+            child = edge[0] if check_reverse and edge[-1] == _EDGE_TRAVERSAL_REVERSE else edge[1]
+            if child not in visited_nodes:
+                visited_nodes.add(child)
+                queue.append((child, edges_from(child)))
+            current_edge_id = edge_id(edge)
+            if current_edge_id not in visited_edges:
+                visited_edges.add(current_edge_id)
+                yield edge
+
+
+def edge_dfs(G, source=None, orientation=None):
+    """Iterate edges in depth-first-search order, matching NetworkX."""
+    nbunch_nodes = _global_nbunch_nodes(G, source)
+    nodes = list(G) if nbunch_nodes is None else nbunch_nodes
+    if not nodes:
+        return
+
+    directed = G.is_directed()
+    if orientation is None:
+        if G.is_multigraph():
+
+            def edges_from(node):
+                for nbr, keydict in G.adj[node].items():
+                    for key in keydict:
+                        yield (node, nbr, key)
+
+        else:
+
+            def edges_from(node):
+                for nbr in G.adj[node]:
+                    yield (node, nbr)
+
+    elif not directed or orientation == "original":
+        if G.is_multigraph():
+
+            def edges_from(node):
+                for nbr, keydict in G.adj[node].items():
+                    for key in keydict:
+                        yield (node, nbr, key, _EDGE_TRAVERSAL_FORWARD)
+
+        else:
+
+            def edges_from(node):
+                for nbr in G.adj[node]:
+                    yield (node, nbr, _EDGE_TRAVERSAL_FORWARD)
+
+    elif orientation == "reverse":
+        if G.is_multigraph():
+
+            def edges_from(node):
+                for nbr, keydict in G.pred[node].items():
+                    for key in keydict:
+                        yield (nbr, node, key, _EDGE_TRAVERSAL_REVERSE)
+
+        else:
+
+            def edges_from(node):
+                for nbr in G.pred[node]:
+                    yield (nbr, node, _EDGE_TRAVERSAL_REVERSE)
+
+    elif orientation == "ignore":
+        if G.is_multigraph():
+
+            def edges_from(node):
+                for nbr, keydict in G.adj[node].items():
+                    for key in keydict:
+                        yield (node, nbr, key, _EDGE_TRAVERSAL_FORWARD)
+                for nbr, keydict in G.pred[node].items():
+                    for key in keydict:
+                        yield (nbr, node, key, _EDGE_TRAVERSAL_REVERSE)
+
+        else:
+
+            def edges_from(node):
+                for nbr in G.adj[node]:
+                    yield (node, nbr, _EDGE_TRAVERSAL_FORWARD)
+                for nbr in G.pred[node]:
+                    yield (nbr, node, _EDGE_TRAVERSAL_REVERSE)
+
+    else:
+        raise NetworkXError("invalid orientation argument.")
+
+    if directed:
+
+        def edge_id(edge):
+            return edge[:-1] if orientation is not None else edge
+
+    else:
+
+        def edge_id(edge):
+            return (frozenset(edge[:2]),) + edge[2:]
+
+    check_reverse = directed and orientation in ("reverse", "ignore")
+    visited_edges = set()
+    visited_nodes = set()
+    edges = {}
+
+    for start_node in nodes:
+        stack = [start_node]
+        while stack:
+            current_node = stack[-1]
+            if current_node not in visited_nodes:
+                edges[current_node] = edges_from(current_node)
+                visited_nodes.add(current_node)
+
+            try:
+                edge = next(edges[current_node])
+            except StopIteration:
+                stack.pop()
+            else:
+                current_edge_id = edge_id(edge)
+                if current_edge_id not in visited_edges:
+                    visited_edges.add(current_edge_id)
+                    stack.append(
+                        edge[0]
+                        if check_reverse and edge[-1] == _EDGE_TRAVERSAL_REVERSE
+                        else edge[1]
+                    )
+                    yield edge
+
+
 def bfs_predecessors(G, source, depth_limit=None, sort_neighbors=None):
     """Return (node, predecessor) pairs from BFS."""
     if sort_neighbors is not None:
@@ -1898,8 +2113,8 @@ def is_negatively_weighted(G, edge=None, weight="weight"):
 
 # Algorithm functions — traversal additional
 from franken_networkx._fnx import (
-    edge_bfs,
-    edge_dfs,
+    edge_bfs as _edge_bfs_raw,
+    edge_dfs as _edge_dfs_raw,
 )
 
 # Algorithm functions — matching additional
