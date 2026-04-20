@@ -4268,14 +4268,37 @@ def spectral_ordering(G, normalized=False):
     return [nodelist[i] for i in order]
 
 
-def bellman_ford_predecessor_and_distance(G, source, weight="weight"):
+def _bellman_ford_weight_function(G, weight):
+    if callable(weight):
+        return weight
+    if G.is_multigraph():
+        return lambda u, v, d: min(attr.get(weight, 1) for attr in d.values())
+    return lambda u, v, data: data.get(weight, 1)
+
+
+def _bellman_ford_adjacency_entries(G):
+    if G.is_multigraph():
+        for u in G:
+            for v, keyed_data in G.adj[u].items():
+                yield u, v, keyed_data
+        return
+    for u in G:
+        for v, data in G.adj[u].items():
+            yield u, v, data
+
+
+def bellman_ford_predecessor_and_distance(
+    G, source, target=None, weight="weight", heuristic=False
+):
     """Return predecessors and distances from Bellman-Ford.
 
     Parameters
     ----------
     G : Graph or DiGraph
     source : node
-    weight : str, optional
+    target : node, optional
+    weight : str or callable, optional
+    heuristic : bool, optional
 
     Returns
     -------
@@ -4283,20 +4306,57 @@ def bellman_ford_predecessor_and_distance(G, source, weight="weight"):
         pred maps each node to its predecessor list.
         dist maps each node to its distance from source.
     """
-    from franken_networkx._fnx import (
-        single_source_bellman_ford_path_length,
-        single_source_bellman_ford_path,
-    )
+    del target, heuristic
 
-    dist = single_source_bellman_ford_path_length(G, source, weight=weight)
-    paths = single_source_bellman_ford_path(G, source, weight=weight)
+    if source not in G:
+        raise NodeNotFound(f"Node {source} is not found in the graph")
 
-    pred = {}
-    for node, path in paths.items():
-        if len(path) >= 2:
-            pred[node] = [path[-2]]
-        else:
-            pred[node] = []
+    weight_fn = _bellman_ford_weight_function(G, weight)
+    if G.is_multigraph():
+        if any(
+            weight_fn(u, v, {k: d}) < 0
+            for u, v, k, d in selfloop_edges(G, keys=True, data=True)
+        ):
+            raise NetworkXUnbounded("Negative cycle detected.")
+    else:
+        if any(weight_fn(u, v, d) < 0 for u, v, d in selfloop_edges(G, data=True)):
+            raise NetworkXUnbounded("Negative cycle detected.")
+
+    dist = {source: 0}
+    pred = {source: []}
+
+    if len(G) == 1:
+        return pred, dist
+
+    for _ in range(len(G) - 1):
+        updated = False
+        for u, v, edge_data in _bellman_ford_adjacency_entries(G):
+            if u not in dist:
+                continue
+            edge_weight = weight_fn(u, v, edge_data)
+            if edge_weight is None:
+                continue
+            candidate = dist[u] + edge_weight
+            current = dist.get(v)
+            if current is None or candidate < current:
+                dist[v] = candidate
+                pred[v] = [u]
+                updated = True
+            elif candidate == current:
+                predecessors = pred.setdefault(v, [])
+                if u not in predecessors:
+                    predecessors.append(u)
+        if not updated:
+            break
+
+    for u, v, edge_data in _bellman_ford_adjacency_entries(G):
+        if u not in dist:
+            continue
+        edge_weight = weight_fn(u, v, edge_data)
+        if edge_weight is None:
+            continue
+        if dist[u] + edge_weight < dist.get(v, math.inf):
+            raise NetworkXUnbounded("Negative cycle detected.")
 
     return pred, dist
 

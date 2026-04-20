@@ -273,6 +273,48 @@ class TestSingleSourceBellmanFordPathLength:
 
 
 # ---------------------------------------------------------------------------
+# bellman_ford_predecessor_and_distance
+# ---------------------------------------------------------------------------
+
+class TestBellmanFordPredecessorAndDistance:
+    def test_multiple_predecessors_match_networkx(self):
+        g_fnx = fnx.DiGraph()
+        g_nx = nx.DiGraph()
+        for graph in (g_fnx, g_nx):
+            graph.add_edge("s", "a", weight=1.0)
+            graph.add_edge("s", "b", weight=1.0)
+            graph.add_edge("a", "t", weight=1.0)
+            graph.add_edge("b", "t", weight=1.0)
+
+        assert fnx.bellman_ford_predecessor_and_distance(
+            g_fnx, "s", weight="weight"
+        ) == nx.bellman_ford_predecessor_and_distance(g_nx, "s", weight="weight")
+
+    def test_target_kwarg_matches_networkx(self):
+        g_fnx, g_nx = _bellman_ford_directed_graph_pair()
+        assert fnx.bellman_ford_predecessor_and_distance(
+            g_fnx, "a", target="c", weight="weight"
+        ) == nx.bellman_ford_predecessor_and_distance(
+            g_nx, "a", target="c", weight="weight"
+        )
+
+    def test_callable_weight_matches_networkx(self):
+        g_fnx = fnx.DiGraph()
+        g_nx = nx.DiGraph()
+        for graph in (g_fnx, g_nx):
+            graph.add_edge("s", "a", cost=2.0)
+            graph.add_edge("s", "b", cost=1.0)
+            graph.add_edge("b", "a", cost=0.5)
+            graph.add_edge("a", "t", cost=2.0)
+            graph.add_edge("b", "t", cost=5.0)
+
+        weight = lambda u, v, data: data["cost"]
+        assert fnx.bellman_ford_predecessor_and_distance(
+            g_fnx, "s", weight=weight
+        ) == nx.bellman_ford_predecessor_and_distance(g_nx, "s", weight=weight)
+
+
+# ---------------------------------------------------------------------------
 # single_target_shortest_path
 # ---------------------------------------------------------------------------
 
