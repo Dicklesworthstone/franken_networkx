@@ -4374,7 +4374,15 @@ def degree_mixing_dict(G, x="out", y="in", weight=None, nodes=None, normalized=F
     )
 
 
-def degree_mixing_matrix(G, normalized=True, weight=None):
+def degree_mixing_matrix(
+    G,
+    x="out",
+    y="in",
+    weight=None,
+    nodes=None,
+    normalized=True,
+    mapping=None,
+):
     """Return the degree mixing matrix of *G*.
 
     Returns
@@ -4385,19 +4393,29 @@ def degree_mixing_matrix(G, normalized=True, weight=None):
     """
     import numpy as np
 
-    mixing = degree_mixing_dict(G, normalized=False, weight=weight)
-    if not mixing:
-        return np.array([[]])
-    max_deg = max(max(mixing.keys()), max(max(v.keys()) for v in mixing.values()))
-    M = np.zeros((max_deg + 1, max_deg + 1))
-    for d1, inner in mixing.items():
-        for d2, count in inner.items():
-            M[d1, d2] = count
-    if normalized:
-        total = M.sum()
-        if total > 0:
-            M /= total
-    return M
+    mixing = degree_mixing_dict(
+        G,
+        x=x,
+        y=y,
+        weight=weight,
+        nodes=nodes,
+        normalized=False,
+    )
+    if mapping is None:
+        keys = list(mixing)
+        mapping = {key: index for index, key in enumerate(keys)}
+
+    matrix = np.zeros((len(mapping), len(mapping)))
+    for left, inner in mixing.items():
+        if left not in mapping:
+            continue
+        for right, value in inner.items():
+            if right not in mapping:
+                continue
+            matrix[mapping[left], mapping[right]] = value
+    if normalized and matrix.sum() > 0:
+        matrix = matrix / matrix.sum()
+    return matrix
 
 
 def numeric_assortativity_coefficient(G, attribute, nodes=None):

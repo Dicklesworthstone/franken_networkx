@@ -52,6 +52,65 @@ def test_degree_mixing_dict_matches_networkx():
     )
 
 
+def test_degree_mixing_matrix_directed_matches_networkx_without_fallback(
+    monkeypatch,
+):
+    graph = fnx.DiGraph([(0, 1), (1, 2), (2, 0), (2, 3)])
+    expected = nx.DiGraph([(0, 1), (1, 2), (2, 0), (2, 3)])
+
+    wanted = nx.degree_mixing_matrix(expected)
+
+    monkeypatch.setattr(
+        nx,
+        "degree_mixing_matrix",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("NetworkX degree_mixing_matrix fallback should not be used")
+        ),
+    )
+
+    np.testing.assert_allclose(
+        fnx.degree_mixing_matrix(graph),
+        wanted,
+    )
+
+
+def test_degree_mixing_matrix_weighted_mapping_matches_networkx_without_fallback(
+    monkeypatch,
+):
+    graph = fnx.Graph()
+    expected = nx.Graph()
+    for G in (graph, expected):
+        G.add_edge("a", "b", weight=0.5)
+        G.add_edge("b", "c", weight=1.0)
+        G.add_edge("c", "a", weight=1.0)
+
+    mapping = {0.5: 1, 1.5: 0, "unused": 2}
+    wanted = nx.degree_mixing_matrix(
+        expected,
+        weight="weight",
+        normalized=False,
+        mapping=mapping,
+    )
+
+    monkeypatch.setattr(
+        nx,
+        "degree_mixing_matrix",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("NetworkX degree_mixing_matrix fallback should not be used")
+        ),
+    )
+
+    np.testing.assert_allclose(
+        fnx.degree_mixing_matrix(
+            graph,
+            weight="weight",
+            normalized=False,
+            mapping=mapping,
+        ),
+        wanted,
+    )
+
+
 def test_attribute_mixing_dict_and_matrix_match_networkx():
     graph = fnx.Graph()
     graph.add_nodes_from(
