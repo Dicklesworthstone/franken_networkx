@@ -4942,7 +4942,7 @@ def binomial_graph(n, p, seed=None, directed=False, create_using=None):
 
 def gnp_random_graph(n, p, seed=None, directed=False, create_using=None):
     """Return a G(n,p) random graph."""
-    if not directed and create_using is None:
+    if not directed and create_using is None and (seed is None or isinstance(seed, int)):
         return _rust_gnp_random_graph(n, p, seed=_native_random_seed(seed))
 
     rng = _generator_random_state(seed)

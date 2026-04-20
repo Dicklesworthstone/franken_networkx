@@ -1,3 +1,5 @@
+import random
+
 import networkx as nx
 import pytest
 
@@ -434,6 +436,21 @@ def test_erdos_renyi_graph_create_using_matches_networkx_without_fallback(monkey
     actual = fnx.erdos_renyi_graph(8, 0.2, seed=42, directed=True, create_using=fnx.DiGraph())
 
     assert isinstance(actual, fnx.DiGraph)
+    assert _graph_data_signature(_to_nx(actual)) == _graph_data_signature(expected)
+
+
+def test_erdos_renyi_graph_random_object_seed_matches_networkx_without_fallback(monkeypatch):
+    expected = nx.erdos_renyi_graph(8, 0.2, seed=random.Random(42))
+
+    def fail(*args, **kwargs):
+        raise AssertionError("unexpected NetworkX fallback")
+
+    monkeypatch.setattr(nx, "erdos_renyi_graph", fail)
+    monkeypatch.setattr(nx, "gnp_random_graph", fail)
+
+    actual = fnx.erdos_renyi_graph(8, 0.2, seed=random.Random(42))
+
+    assert isinstance(actual, fnx.Graph)
     assert _graph_data_signature(_to_nx(actual)) == _graph_data_signature(expected)
 
 
