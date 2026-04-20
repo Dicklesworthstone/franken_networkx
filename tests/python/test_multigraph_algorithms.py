@@ -19,6 +19,10 @@ except ImportError:
 needs_nx = pytest.mark.skipif(not HAS_NX, reason="networkx not installed")
 
 
+def _normalized_matching(matching):
+    return {frozenset(edge) for edge in matching}
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -183,6 +187,37 @@ class TestMultiGraphMatching:
     def test_maximal_matching(self, mg_triangle):
         m = fnx.maximal_matching(mg_triangle)
         assert len(m) >= 1
+
+    @needs_nx
+    def test_max_weight_matching_maxcardinality_matches_networkx(self):
+        graph = fnx.Graph()
+        graph.add_edge(1, 2, weight=2)
+        graph.add_edge(1, 3, weight=-2)
+        graph.add_edge(2, 3, weight=1)
+        graph.add_edge(2, 4, weight=-1)
+        graph.add_edge(3, 4, weight=-6)
+
+        expected = nx.Graph()
+        expected.add_edge(1, 2, weight=2)
+        expected.add_edge(1, 3, weight=-2)
+        expected.add_edge(2, 3, weight=1)
+        expected.add_edge(2, 4, weight=-1)
+        expected.add_edge(3, 4, weight=-6)
+
+        default_matching = _normalized_matching(fnx.max_weight_matching(graph))
+        default_expected = _normalized_matching(nx.max_weight_matching(expected))
+        maxcard_matching = _normalized_matching(
+            fnx.max_weight_matching(graph, maxcardinality=True)
+        )
+        maxcard_expected = _normalized_matching(
+            nx.max_weight_matching(expected, maxcardinality=True)
+        )
+
+        assert default_matching == default_expected == {frozenset((1, 2))}
+        assert maxcard_matching == maxcard_expected == {
+            frozenset((1, 3)),
+            frozenset((2, 4)),
+        }
 
 
 # ---------------------------------------------------------------------------

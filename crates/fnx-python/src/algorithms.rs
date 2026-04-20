@@ -2918,16 +2918,18 @@ pub fn maximal_matching(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<pyo
 
 /// Return a max-weight matching as a set of edge tuples.
 #[pyfunction]
-#[pyo3(signature = (g, weight="weight"))]
+#[pyo3(signature = (g, maxcardinality=false, weight="weight"))]
 pub fn max_weight_matching(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
+    maxcardinality: bool,
     weight: &str,
 ) -> PyResult<Py<pyo3::types::PySet>> {
     let gr = extract_graph(g)?;
     let inner = gr.undirected();
     let w = weight.to_owned();
-    let result = py.allow_threads(move || fnx_algorithms::max_weight_matching(inner, false, &w));
+    let result =
+        py.allow_threads(move || fnx_algorithms::max_weight_matching(inner, maxcardinality, &w));
 
     let set = pyo3::types::PySet::empty(py)?;
     for (u, v) in result.matching {
