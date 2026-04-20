@@ -1,5 +1,7 @@
 import networkx as nx
 import pytest
+import re
+from builtins import ValueError as BuiltinValueError
 
 import franken_networkx as fnx
 
@@ -710,7 +712,38 @@ def test_graph_edit_directed_mismatch_and_unsupported_modes_do_not_fallback(monk
         fnx.optimal_edit_paths(multigraph, fnx.Graph())
 
     with pytest.raises(fnx.NetworkXNotImplemented):
-        fnx.graph_edit_distance(fnx.path_graph(2), fnx.path_graph(2), roots=(0, 0))
+        list(fnx.optimize_edit_paths(fnx.path_graph(2), fnx.path_graph(2), timeout=1))
 
     with pytest.raises(fnx.NetworkXNotImplemented):
-        list(fnx.optimize_edit_paths(fnx.path_graph(2), fnx.path_graph(2), timeout=1))
+        fnx.graph_edit_distance(fnx.path_graph(2), fnx.path_graph(2), timeout=1)
+
+
+def test_graph_edit_distance_roots_matches_networkx_without_fallback(monkeypatch):
+    expected_cost = nx.graph_edit_distance(nx.path_graph(3), nx.path_graph(3), roots=(1, 0))
+    expected_paths = list(nx.optimize_edit_paths(nx.path_graph(3), nx.path_graph(3), roots=(1, 0)))
+
+    _block_networkx_graph_edit(monkeypatch)
+
+    assert fnx.graph_edit_distance(fnx.path_graph(3), fnx.path_graph(3), roots=(1, 0)) == expected_cost
+    assert list(fnx.optimize_edit_paths(fnx.path_graph(3), fnx.path_graph(3), roots=(1, 0))) == expected_paths
+
+
+@pytest.mark.parametrize("roots", [("x", "x"), (), (0,)])
+def test_graph_edit_distance_roots_error_contract_matches_networkx_without_fallback(
+    monkeypatch, roots
+):
+    try:
+        nx.graph_edit_distance(nx.path_graph(3), nx.path_graph(3), roots=roots)
+    except Exception as exc:
+        expected = exc
+    else:
+        raise AssertionError("expected NetworkX graph_edit_distance to fail for invalid roots")
+
+    _block_networkx_graph_edit(monkeypatch)
+
+    fnx_exc_type = getattr(fnx, type(expected).__name__, BuiltinValueError)
+    with pytest.raises(fnx_exc_type, match=re.escape(str(expected))):
+        fnx.graph_edit_distance(fnx.path_graph(3), fnx.path_graph(3), roots=roots)
+
+    with pytest.raises(fnx_exc_type, match=re.escape(str(expected))):
+        list(fnx.optimize_edit_paths(fnx.path_graph(3), fnx.path_graph(3), roots=roots))

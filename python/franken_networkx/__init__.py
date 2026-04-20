@@ -14705,6 +14705,7 @@ def _graph_edit_exact_paths_python(
     edge_del_cost=None,
     edge_ins_cost=None,
     upper_bound=None,
+    roots=None,
 ):
     if G1.is_multigraph() or G2.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
@@ -14721,6 +14722,15 @@ def _graph_edit_exact_paths_python(
     right_edges = list(G2.edges())
     best_cost = math.inf
     best_mappings = []
+    initial_mapping = {}
+
+    if roots is not None:
+        root_left, root_right = roots
+        if root_left not in G1 or root_right not in G2:
+            raise NodeNotFound("Root node not in graph.")
+        initial_mapping[root_left] = root_right
+        left_nodes = [node for node in left_nodes if node != root_left]
+        right_nodes = [node for node in right_nodes if node != root_right]
 
     def evaluate(mapping):
         matched_right_nodes = set(mapping.values())
@@ -14789,11 +14799,16 @@ def _graph_edit_exact_paths_python(
             )
             del mapping[left]
 
-    search(0, tuple(right_nodes), {})
+    search(0, tuple(right_nodes), dict(initial_mapping))
     if not best_mappings:
         return [], None
     return [
-        _graph_edit_distance_paths_from_mapping(G1, G2, mapping)
+        _graph_edit_distance_paths_from_mapping(
+            G1,
+            G2,
+            mapping,
+            normalize_undirected_right_edges=roots is not None,
+        )
         for mapping in best_mappings
     ], best_cost
 
@@ -14851,23 +14866,40 @@ def optimal_edit_paths(
 
 def optimize_edit_paths(G1, G2, **kwargs):
     """Iterator yielding final edit paths from the local optimal-path wrapper."""
-    if kwargs.get("roots") is not None or kwargs.get("timeout") is not None:
+    if kwargs.get("timeout") is not None:
         raise NetworkXNotImplemented(
-            "roots and timeout are not supported by local optimize_edit_paths",
+            "timeout is not supported by local optimize_edit_paths",
         )
-    paths, cost = optimal_edit_paths(
-        G1,
-        G2,
-        node_match=kwargs.get("node_match"),
-        edge_match=kwargs.get("edge_match"),
-        node_subst_cost=kwargs.get("node_subst_cost"),
-        node_del_cost=kwargs.get("node_del_cost"),
-        node_ins_cost=kwargs.get("node_ins_cost"),
-        edge_subst_cost=kwargs.get("edge_subst_cost"),
-        edge_del_cost=kwargs.get("edge_del_cost"),
-        edge_ins_cost=kwargs.get("edge_ins_cost"),
-        upper_bound=kwargs.get("upper_bound"),
-    )
+    roots = kwargs.get("roots")
+    if roots is None:
+        paths, cost = optimal_edit_paths(
+            G1,
+            G2,
+            node_match=kwargs.get("node_match"),
+            edge_match=kwargs.get("edge_match"),
+            node_subst_cost=kwargs.get("node_subst_cost"),
+            node_del_cost=kwargs.get("node_del_cost"),
+            node_ins_cost=kwargs.get("node_ins_cost"),
+            edge_subst_cost=kwargs.get("edge_subst_cost"),
+            edge_del_cost=kwargs.get("edge_del_cost"),
+            edge_ins_cost=kwargs.get("edge_ins_cost"),
+            upper_bound=kwargs.get("upper_bound"),
+        )
+    else:
+        paths, cost = _graph_edit_exact_paths_python(
+            G1,
+            G2,
+            node_match=kwargs.get("node_match"),
+            edge_match=kwargs.get("edge_match"),
+            node_subst_cost=kwargs.get("node_subst_cost"),
+            node_del_cost=kwargs.get("node_del_cost"),
+            node_ins_cost=kwargs.get("node_ins_cost"),
+            edge_subst_cost=kwargs.get("edge_subst_cost"),
+            edge_del_cost=kwargs.get("edge_del_cost"),
+            edge_ins_cost=kwargs.get("edge_ins_cost"),
+            upper_bound=kwargs.get("upper_bound"),
+            roots=roots,
+        )
     if cost is None:
         return
     if kwargs.get("strictly_decreasing", True):
@@ -15349,11 +15381,11 @@ def graph_edit_distance(G1, G2, **kwargs):
         _, cost = native_result
         return cost
 
-    if kwargs.get("roots") is not None or kwargs.get("timeout") is not None:
+    if kwargs.get("timeout") is not None:
         raise NetworkXNotImplemented(
-            "roots and timeout are not supported by local graph_edit_distance",
+            "timeout is not supported by local graph_edit_distance",
         )
-    _, cost = optimal_edit_paths(
+    _, cost = _graph_edit_exact_paths_python(
         G1,
         G2,
         node_match=kwargs.get("node_match"),
@@ -15365,6 +15397,7 @@ def graph_edit_distance(G1, G2, **kwargs):
         edge_del_cost=kwargs.get("edge_del_cost"),
         edge_ins_cost=kwargs.get("edge_ins_cost"),
         upper_bound=kwargs.get("upper_bound"),
+        roots=kwargs.get("roots"),
     )
     return cost
 
@@ -15385,7 +15418,23 @@ def _graph_edit_distance_edge_key(G, edge):
     return frozenset(edge)
 
 
-def _graph_edit_distance_paths_from_mapping(G1, G2, mapping):
+def _graph_edit_display_edge(G, edge):
+    if G.is_directed():
+        return edge
+    wanted = frozenset(edge)
+    for candidate in G.edges():
+        if frozenset(candidate) == wanted:
+            return candidate
+    return edge
+
+
+def _graph_edit_distance_paths_from_mapping(
+    G1,
+    G2,
+    mapping,
+    *,
+    normalize_undirected_right_edges=False,
+):
     matched_right_nodes = set(mapping.values())
     node_path = list(mapping.items())
     node_path.extend((node, None) for node in G1.nodes() if node not in mapping)
@@ -15401,6 +15450,8 @@ def _graph_edit_distance_paths_from_mapping(G1, G2, mapping):
         right_v = mapping.get(left_v)
         if right_u is not None and right_v is not None and G2.has_edge(right_u, right_v):
             right_edge = (right_u, right_v)
+            if normalize_undirected_right_edges:
+                right_edge = _graph_edit_display_edge(G2, right_edge)
             edge_path.append((left_edge, right_edge))
             matched_right_edges.add(_graph_edit_distance_edge_key(G2, right_edge))
         else:
