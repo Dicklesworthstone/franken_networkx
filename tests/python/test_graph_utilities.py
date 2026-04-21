@@ -1,5 +1,6 @@
 """Tests for graph utility wrapper functions."""
 
+from collections.abc import Mapping
 import gc
 
 import networkx as nx
@@ -35,6 +36,12 @@ def _graph_snapshot(graph):
         sorted((node, _normalize_attr(dict(data))) for node, data in graph.nodes(data=True)),
         edges,
     )
+
+
+def _mapping_snapshot(value):
+    if isinstance(value, Mapping):
+        return tuple(sorted((repr(key), _mapping_snapshot(item)) for key, item in value.items()))
+    return value
 
 
 def _direction_utility_graph_pair(fnx_cls, nx_cls):
@@ -2154,3 +2161,24 @@ def test_reverse_view_matches_networkx_without_fallback(monkeypatch, fnx_cls, nx
     assert result.is_directed() == expected_result.is_directed()
     assert result.is_multigraph() == expected_result.is_multigraph()
     assert _graph_snapshot(result) == expected_snapshot
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_reverse_view_exposes_succ_and_pred_like_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx.reverse_view(expected)
+
+    _block_networkx_utilities(monkeypatch, "reverse_view")
+
+    result = fnx.reverse_view(graph)
+
+    assert _mapping_snapshot(result.succ) == _mapping_snapshot(expected_result.succ)
+    assert _mapping_snapshot(result.pred) == _mapping_snapshot(expected_result.pred)

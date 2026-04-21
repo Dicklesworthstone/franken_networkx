@@ -13152,6 +13152,8 @@ class _ReverseDirectedView:
         self._graph = graph
         self.graph = graph.graph
         self.frozen = True
+        self.succ = _ReverseAdjacencyView(self)
+        self.pred = _ReverseAdjacencyView(self, reverse=True)
 
     def __iter__(self):
         return iter(self._graph)
@@ -13226,6 +13228,44 @@ class _ReverseDirectedView:
         if name in _FILTERED_VIEW_MUTATORS:
             return _frozen
         raise AttributeError(name)
+
+
+class _ReverseNeighborMap(Mapping):
+    def __init__(self, view, node, *, reverse=False):
+        self._view = view
+        self._node = node
+        self._reverse = reverse
+
+    def _raw_neighbors(self):
+        if self._reverse:
+            return self._view._graph.succ[self._node]
+        return self._view._graph.pred[self._node]
+
+    def __iter__(self):
+        return iter(self._raw_neighbors())
+
+    def __len__(self):
+        return len(self._raw_neighbors())
+
+    def __getitem__(self, neighbor):
+        return self._raw_neighbors()[neighbor]
+
+
+class _ReverseAdjacencyView(Mapping):
+    def __init__(self, view, *, reverse=False):
+        self._view = view
+        self._reverse = reverse
+
+    def __iter__(self):
+        return iter(self._view)
+
+    def __len__(self):
+        return len(self._view)
+
+    def __getitem__(self, node):
+        if node not in self._view._graph:
+            raise KeyError(f"Key {node} not found")
+        return _ReverseNeighborMap(self._view, node, reverse=self._reverse)
 
 
 _FILTERED_VIEW_MUTATORS = (
