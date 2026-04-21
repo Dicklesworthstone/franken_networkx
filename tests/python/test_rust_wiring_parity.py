@@ -477,6 +477,21 @@ class TestTraversalParity:
         params = fnx.global_parameters(G)
         assert params is not None  # Petersen graph is distance-regular
 
+    def test_intersection_array_matches_networkx(self):
+        for fnx_graph, nx_graph in [
+            (fnx.cycle_graph(4), nx.cycle_graph(4)),
+            (fnx.petersen_graph(), nx.petersen_graph()),
+        ]:
+            assert fnx.intersection_array(fnx_graph) == nx.intersection_array(nx_graph)
+
+        fnx_graph = fnx.path_graph(4)
+        nx_graph = nx.path_graph(4)
+        with pytest.raises(fnx.NetworkXError, match=r"^Graph is not distance regular\.$") as fnx_exc:
+            fnx.intersection_array(fnx_graph)
+        with pytest.raises(nx.NetworkXError, match=r"^Graph is not distance regular\.$") as nx_exc:
+            nx.intersection_array(nx_graph)
+        assert str(fnx_exc.value) == str(nx_exc.value)
+
 
 # ---------------------------------------------------------------------------
 # Assortativity

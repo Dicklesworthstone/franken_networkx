@@ -12805,8 +12805,9 @@ def intersection_array(G):
     """Return the intersection array of a distance-regular graph."""
     params = global_parameters(G)
     if params is None:
-        raise NetworkXError("Graph is not distance-regular")
-    return params
+        raise NetworkXError("Graph is not distance regular.")
+    b, c = params
+    return (b[:-1], c[1:])
 
 
 # ---------------------------------------------------------------------------
