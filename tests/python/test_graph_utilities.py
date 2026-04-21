@@ -1719,6 +1719,62 @@ def test_to_directed_exposes_callable_in_and_out_degree_without_fallback(
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],
 )
+def test_graph_classes_size_preserve_networkx_return_types(fnx_cls, nx_cls):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+
+    assert graph.size() == expected.size()
+    assert type(graph.size()).__name__ == type(expected.size()).__name__
+    assert graph.size(weight="weight") == expected.size(weight="weight")
+    assert type(graph.size(weight="weight")).__name__ == type(
+        expected.size(weight="weight")
+    ).__name__
+
+
+@pytest.mark.parametrize(
+    ("builder_name", "fnx_builder", "nx_builder", "fnx_cls", "nx_cls"),
+    [
+        ("to_directed", fnx.to_directed, nx.to_directed, fnx.Graph, nx.Graph),
+        ("to_undirected", fnx.to_undirected, nx.to_undirected, fnx.DiGraph, nx.DiGraph),
+        (
+            "subgraph_view",
+            lambda graph: fnx.subgraph_view(graph, filter_node=lambda node: node != "d"),
+            lambda graph: nx.subgraph_view(graph, filter_node=lambda node: node != "d"),
+            fnx.Graph,
+            nx.Graph,
+        ),
+        (
+            "restricted_view",
+            lambda graph: fnx.restricted_view(graph, [], []),
+            lambda graph: nx.restricted_view(graph, [], []),
+            fnx.Graph,
+            nx.Graph,
+        ),
+    ],
+)
+def test_common_live_views_size_preserve_networkx_return_types(
+    builder_name, fnx_builder, nx_builder, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    result = fnx_builder(graph)
+    expected_result = nx_builder(expected)
+
+    assert result.size() == expected_result.size(), builder_name
+    assert type(result.size()).__name__ == type(expected_result.size()).__name__, builder_name
+    assert result.size(weight="weight") == expected_result.size(weight="weight"), builder_name
+    assert type(result.size(weight="weight")).__name__ == type(
+        expected_result.size(weight="weight")
+    ).__name__, builder_name
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
 def test_conversion_live_views_expose_class_factories_without_fallback(
     monkeypatch, fnx_cls, nx_cls
 ):

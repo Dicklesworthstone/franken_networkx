@@ -80,10 +80,24 @@ def _graph_nbunch_iter(self, nbunch=None):
     return bunch_iter(nbunch, adjacency)
 
 
+def _size_with_unweighted_int(size_impl):
+    def size(self, weight=None):
+        if weight is None:
+            return self.number_of_edges()
+        return size_impl(self, weight)
+
+    return size
+
+
 Graph.nbunch_iter = _graph_nbunch_iter
 DiGraph.nbunch_iter = _graph_nbunch_iter
 MultiGraph.nbunch_iter = _graph_nbunch_iter
 MultiDiGraph.nbunch_iter = _graph_nbunch_iter
+
+Graph.size = _size_with_unweighted_int(Graph.size)
+DiGraph.size = _size_with_unweighted_int(DiGraph.size)
+MultiGraph.size = _size_with_unweighted_int(MultiGraph.size)
+MultiDiGraph.size = _size_with_unweighted_int(MultiDiGraph.size)
 
 
 DiGraph.has_successor = _directed_graph_has_successor
