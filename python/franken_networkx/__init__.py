@@ -10560,11 +10560,23 @@ def connected_double_edge_swap(G, nswap=1, _window_threshold=3, seed=None):
 
 def _current_flow_pseudo_peripheral_node(G):
     """Return a pseudo-peripheral node for reverse Cuthill-McKee ordering."""
+    def _ordered_path_lengths(source):
+        distances = {source: 0}
+        queue = deque([source])
+        while queue:
+            parent = queue.popleft()
+            next_distance = distances[parent] + 1
+            for child in G[parent]:
+                if child not in distances:
+                    distances[child] = next_distance
+                    queue.append(child)
+        return distances
+
     node = next(iter(G))
     longest_path = 0
     peripheral = node
     while True:
-        path_lengths = shortest_path_length(G, peripheral)
+        path_lengths = _ordered_path_lengths(peripheral)
         eccentricity = max(path_lengths.values())
         if eccentricity <= longest_path:
             break
@@ -10596,11 +10608,7 @@ def _connected_cuthill_mckee_ordering(G, heuristic=None):
 
 def _reverse_cuthill_mckee_ordering(G, heuristic=None):
     """Yield the reverse Cuthill-McKee ordering for an undirected graph."""
-    ordering = []
-    for component in connected_components(G):
-        subgraph = G.subgraph(component)
-        ordering.extend(_connected_cuthill_mckee_ordering(subgraph, heuristic=heuristic))
-    return reversed(ordering)
+    return reversed(list(_connected_cuthill_mckee_ordering(G, heuristic=heuristic)))
 
 
 class _InverseLaplacian:
@@ -10705,6 +10713,29 @@ class _CGInverseLaplacian(_InverseLaplacian):
         return self._sp.sparse.linalg.cg(self.L1, rhs[1:], M=self.M, atol=0)[0]
 
 
+def _flow_matrix_row(G, weight=None, dtype=float, solver="lu"):
+    """Yield rows of the current-flow matrix using local Laplacian helpers."""
+    import numpy as np
+
+    solvername = {
+        "full": _FullInverseLaplacian,
+        "lu": _SuperLUInverseLaplacian,
+        "cg": _CGInverseLaplacian,
+    }
+    n = G.number_of_nodes()
+    L = laplacian_matrix(G, nodelist=range(n), weight=weight).asformat("csc")
+    L = L.astype(dtype)
+    C = solvername[solver](L, dtype=dtype)
+    w = C.w
+    for u, v in sorted(tuple(sorted((u, v))) for u, v in G.edges()):
+        B = np.zeros(w, dtype=dtype)
+        c = G[u][v].get(weight, 1.0)
+        B[u % w] = c
+        B[v % w] = -c
+        row = B @ C.get_rows(u, v)
+        yield row, (u, v)
+
+
 def current_flow_betweenness_centrality(G, normalized=True, weight=None, solver="full"):
     """Current-flow betweenness centrality based on electrical current flow."""
     return _fnx.current_flow_betweenness_centrality_rust(
@@ -10716,23 +10747,14 @@ def edge_current_flow_betweenness_centrality(
     G, normalized=True, weight=None, dtype=float, solver="full"
 ):
     """Edge variant of current-flow betweenness centrality."""
-    import numpy as np
-    import networkx as nx
-
-    from networkx.algorithms.centrality.flow_matrix import flow_matrix_row
-    from networkx.utils import reverse_cuthill_mckee_ordering
-
-    from franken_networkx.backend import _fnx_to_nx
-
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     if not is_connected(G):
         raise NetworkXError("Graph not connected.")
 
-    H_source = _fnx_to_nx(G)
-    n = H_source.number_of_nodes()
-    ordering = list(reverse_cuthill_mckee_ordering(H_source))
-    H = nx.relabel_nodes(H_source, dict(zip(ordering, range(n))))
+    n = G.number_of_nodes()
+    ordering = list(_reverse_cuthill_mckee_ordering(G))
+    H = relabel_nodes(G, dict(zip(ordering, range(n))), copy=True)
 
     edges = (tuple(sorted((u, v))) for u, v in H.edges())
     betweenness = dict.fromkeys(edges, 0.0)
@@ -10741,7 +10763,7 @@ def edge_current_flow_betweenness_centrality(
     else:
         normalization = 2.0
 
-    for row, edge in flow_matrix_row(H, weight=weight, dtype=dtype, solver=solver):
+    for row, edge in _flow_matrix_row(H, weight=weight, dtype=dtype, solver=solver):
         pos = dict(zip(row.argsort()[::-1], range(1, n + 1)))
         for i in range(n):
             betweenness[edge] += (i + 1 - pos[i]) * row.item(i)

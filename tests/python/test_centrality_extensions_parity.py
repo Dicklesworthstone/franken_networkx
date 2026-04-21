@@ -398,6 +398,8 @@ def test_edge_load_centrality_matches_networkx():
 def test_edge_current_flow_betweenness_centrality_matches_networkx_without_fallback(
     monkeypatch,
 ):
+    import franken_networkx.backend as fnx_backend
+
     graph = fnx.Graph()
     graph.add_edge(0, 1, weight=2.0)
     graph.add_edge(1, 2, weight=3.0)
@@ -418,10 +420,18 @@ def test_edge_current_flow_betweenness_centrality_matches_networkx_without_fallb
         solver="cg",
     )
 
+    for attr in ("edge_current_flow_betweenness_centrality", "is_connected", "laplacian_matrix", "relabel_nodes"):
+        monkeypatch.setattr(
+            nx,
+            attr,
+            lambda *args, _attr=attr, **kwargs: (_ for _ in ()).throw(
+                AssertionError(f"delegated to networkx.{_attr}")
+            ),
+        )
     monkeypatch.setattr(
-        nx,
-        "edge_current_flow_betweenness_centrality",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("delegated")),
+        fnx_backend,
+        "_fnx_to_nx",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("delegated to backend._fnx_to_nx")),
     )
 
     actual = fnx.edge_current_flow_betweenness_centrality(
