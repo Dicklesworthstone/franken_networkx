@@ -1717,6 +1717,28 @@ def test_graph_classes_expose_nbunch_iter_like_networkx(fnx_cls, nx_cls):
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],
 )
+def test_graph_classes_expose_class_factories_like_networkx(fnx_cls, nx_cls):
+    graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+
+    assert graph.to_directed_class() is (
+        fnx.MultiDiGraph if graph.is_multigraph() else fnx.DiGraph
+    )
+    assert graph.to_undirected_class() is (
+        fnx.MultiGraph if graph.is_multigraph() else fnx.Graph
+    )
+    assert graph.to_directed_class().__name__ == expected.to_directed_class().__name__
+    assert graph.to_undirected_class().__name__ == expected.to_undirected_class().__name__
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
 def test_to_directed_exposes_callable_in_and_out_degree_without_fallback(
     monkeypatch, fnx_cls, nx_cls
 ):

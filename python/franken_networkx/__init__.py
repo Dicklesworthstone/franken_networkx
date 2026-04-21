@@ -130,6 +130,14 @@ def _size_with_unweighted_int(size_impl):
     return size
 
 
+def _to_directed_class(self):
+    return MultiDiGraph if self.is_multigraph() else DiGraph
+
+
+def _to_undirected_class(self):
+    return MultiGraph if self.is_multigraph() else Graph
+
+
 def _simple_graph_adjacency(self):
     return [(node, self.adj[node]) for node in self]
 
@@ -147,6 +155,14 @@ Graph.size = _size_with_unweighted_int(Graph.size)
 DiGraph.size = _size_with_unweighted_int(DiGraph.size)
 MultiGraph.size = _size_with_unweighted_int(MultiGraph.size)
 MultiDiGraph.size = _size_with_unweighted_int(MultiDiGraph.size)
+Graph.to_directed_class = _to_directed_class
+Graph.to_undirected_class = _to_undirected_class
+DiGraph.to_directed_class = _to_directed_class
+DiGraph.to_undirected_class = _to_undirected_class
+MultiGraph.to_directed_class = _to_directed_class
+MultiGraph.to_undirected_class = _to_undirected_class
+MultiDiGraph.to_directed_class = _to_directed_class
+MultiDiGraph.to_undirected_class = _to_undirected_class
 Graph.adjacency = _simple_graph_adjacency
 DiGraph.adjacency = _simple_graph_adjacency
 MultiGraph.adjacency = _multigraph_adjacency
