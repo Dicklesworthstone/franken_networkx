@@ -2611,20 +2611,26 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
     return dists, paths
 
 
-def single_source_dijkstra_path(G, source, weight="weight"):
+def single_source_dijkstra_path(G, source, cutoff=None, weight="weight"):
     if _should_delegate_dijkstra_to_networkx(G, weight):
         return _call_networkx_for_parity(
-            "single_source_dijkstra_path", G, source, weight=weight
+            "single_source_dijkstra_path", G, source, cutoff=cutoff, weight=weight
         )
-    return _raw_single_source_dijkstra_path(G, source, weight=weight)
+    _, paths = single_source_dijkstra(G, source, cutoff=cutoff, weight=weight)
+    return paths
 
 
-def single_source_dijkstra_path_length(G, source, weight="weight"):
+def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
     if _should_delegate_dijkstra_to_networkx(G, weight):
         return _call_networkx_for_parity(
-            "single_source_dijkstra_path_length", G, source, weight=weight
+            "single_source_dijkstra_path_length",
+            G,
+            source,
+            cutoff=cutoff,
+            weight=weight,
         )
-    return _raw_single_source_dijkstra_path_length(G, source, weight=weight)
+    dists, _ = single_source_dijkstra(G, source, cutoff=cutoff, weight=weight)
+    return dists
 
 
 def single_source_bellman_ford(G, source, weight="weight"):
