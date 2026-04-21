@@ -13336,8 +13336,24 @@ class _ReverseDirectedView:
                 result.add_edge(u, v, **dict(attrs))
         return result
 
+    def number_of_nodes(self):
+        return len(self._graph)
+
+    def order(self):
+        return self.number_of_nodes()
+
     def number_of_edges(self):
         return self._graph.number_of_edges()
+
+    def size(self, weight=None):
+        if weight is None:
+            return self.number_of_edges()
+
+        if self._graph.is_multigraph():
+            return float(
+                sum(attrs.get(weight, 1) for _, _, _, attrs in self.edges(keys=True, data=True))
+            )
+        return float(sum(attrs.get(weight, 1) for _, _, attrs in self.edges(data=True)))
 
     def has_node(self, node):
         return node in self._graph

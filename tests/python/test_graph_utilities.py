@@ -2538,6 +2538,33 @@ def test_reverse_view_exposes_query_helpers_without_fallback(
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],
 )
+def test_reverse_view_exposes_size_helpers_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx.reverse_view(expected)
+
+    _block_networkx_utilities(monkeypatch, "reverse_view")
+
+    result = fnx.reverse_view(graph)
+
+    assert result.number_of_nodes() == expected_result.number_of_nodes()
+    assert result.order() == expected_result.order()
+    assert result.size() == expected_result.size()
+    assert type(result.size()).__name__ == type(expected_result.size()).__name__
+    assert result.size(weight="weight") == expected_result.size(weight="weight")
+    assert type(result.size(weight="weight")).__name__ == type(
+        expected_result.size(weight="weight")
+    ).__name__
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
 def test_reverse_view_exposes_edge_and_degree_apis_like_networkx_without_fallback(
     monkeypatch, fnx_cls, nx_cls
 ):
