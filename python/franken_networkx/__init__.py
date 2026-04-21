@@ -458,12 +458,75 @@ from franken_networkx._fnx import (
     articulation_points,
     bridges,
     connected_components,
-    edge_connectivity,
+    edge_connectivity as _raw_edge_connectivity,
     is_connected,
     minimum_node_cut,
-    node_connectivity,
+    node_connectivity as _raw_node_connectivity,
     number_connected_components,
 )
+
+
+def node_connectivity(G, s=None, t=None, flow_func=None):
+    """Return the node connectivity of the graph.
+
+    Parameters
+    ----------
+    G : graph
+        An undirected graph.
+    s : node, optional
+        Source node.
+    t : node, optional
+        Target node.
+    flow_func : function, optional
+        A function for computing the maximum flow between a pair of nodes.
+
+    Returns
+    -------
+    int
+        The node connectivity of G.
+    """
+    if flow_func is not None:
+        return _call_networkx_for_parity(
+            "node_connectivity",
+            G,
+            s=s,
+            t=t,
+            flow_func=flow_func,
+        )
+    return _raw_node_connectivity(G, s=s, t=t)
+
+
+def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None):
+    """Return the edge connectivity of the graph.
+
+    Parameters
+    ----------
+    G : graph
+        An undirected graph.
+    s : node, optional
+        Source node.
+    t : node, optional
+        Target node.
+    flow_func : function, optional
+        A function for computing the maximum flow between a pair of nodes.
+    cutoff : int, optional
+        If specified, stop computing when connectivity is found to be at least cutoff.
+
+    Returns
+    -------
+    int
+        The edge connectivity of G.
+    """
+    if flow_func is not None:
+        return _call_networkx_for_parity(
+            "edge_connectivity",
+            G,
+            s=s,
+            t=t,
+            flow_func=flow_func,
+            cutoff=cutoff,
+        )
+    return _raw_edge_connectivity(G, s=s, t=t, cutoff=cutoff)
 
 
 def local_edge_connectivity(
@@ -2305,12 +2368,36 @@ from franken_networkx._fnx import (
     node_expansion,
     mixing_expansion,
     non_edges as _raw_non_edges,
-    average_node_connectivity,
+    average_node_connectivity as _raw_average_node_connectivity,
     is_k_edge_connected,
     all_pairs_dijkstra as _raw_all_pairs_dijkstra,
     number_of_spanning_arborescences,
     global_node_connectivity,
 )
+
+
+def average_node_connectivity(G, flow_func=None):
+    """Return the average node connectivity of the graph.
+
+    Parameters
+    ----------
+    G : graph
+        An undirected graph.
+    flow_func : function, optional
+        A function for computing the maximum flow between a pair of nodes.
+
+    Returns
+    -------
+    float
+        The average node connectivity of G.
+    """
+    if flow_func is not None:
+        return _call_networkx_for_parity(
+            "average_node_connectivity",
+            G,
+            flow_func=flow_func,
+        )
+    return _raw_average_node_connectivity(G)
 
 def all_pairs_dijkstra(G, cutoff=None, weight="weight"):
     if cutoff is not None:
