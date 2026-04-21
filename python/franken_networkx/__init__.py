@@ -361,7 +361,16 @@ def bellman_ford_path(G, source, target, weight="weight"):
         return _call_networkx_for_parity(
             "bellman_ford_path", G, source, target, weight=weight
         )
-    return _raw_bellman_ford_path(G, source, target, weight=weight)
+    if source not in G:
+        raise NodeNotFound(f"Source {source} not in G")
+    if target not in G:
+        raise NetworkXNoPath(f"Target {target} cannot be reached from given sources")
+    try:
+        return _raw_bellman_ford_path(G, source, target, weight=weight)
+    except NetworkXNoPath as exc:
+        raise NetworkXNoPath(
+            f"Target {target} cannot be reached from given sources"
+        ) from exc
 
 
 def shortest_path(G, source=None, target=None, weight=None, method="dijkstra"):
@@ -3419,7 +3428,14 @@ def bellman_ford_path_length(G, source, target, weight="weight"):
         return _call_networkx_for_parity(
             "bellman_ford_path_length", G, source, target, weight=weight
         )
-    return _raw_bellman_ford_path_length(G, source, target, weight=weight)
+    if source not in G:
+        raise NodeNotFound(f"Source {source} not in G")
+    if target not in G:
+        raise NetworkXNoPath(f"node {target} not reachable from {source}")
+    try:
+        return _raw_bellman_ford_path_length(G, source, target, weight=weight)
+    except NetworkXNoPath as exc:
+        raise NetworkXNoPath(f"node {target} not reachable from {source}") from exc
 
 
 def negative_edge_cycle(G, weight="weight", heuristic=True):

@@ -294,6 +294,49 @@ class TestShortestPath:
         G_fnx, G_nx = weighted_graph
         assert fnx.bellman_ford_path(G_fnx, "a", "d") == nx.bellman_ford_path(G_nx, "a", "d")
 
+    def test_bellman_ford_path_wrappers_preserve_missing_node_and_target_contracts(
+        self, fnx, nx
+    ):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        G_fnx.add_edge("a", "b", weight=1.0)
+        G_nx.add_edge("a", "b", weight=1.0)
+        G_fnx.add_node("z")
+        G_nx.add_node("z")
+
+        _assert_same_result_or_exception(
+            lambda: fnx.bellman_ford_path(G_fnx, "missing", "b", weight="weight"),
+            lambda: nx.bellman_ford_path(G_nx, "missing", "b", weight="weight"),
+        )
+        _assert_same_result_or_exception(
+            lambda: fnx.bellman_ford_path_length(
+                G_fnx, "missing", "b", weight="weight"
+            ),
+            lambda: nx.bellman_ford_path_length(
+                G_nx, "missing", "b", weight="weight"
+            ),
+        )
+        _assert_same_result_or_exception(
+            lambda: fnx.bellman_ford_path(G_fnx, "a", "not-there", weight="weight"),
+            lambda: nx.bellman_ford_path(G_nx, "a", "not-there", weight="weight"),
+        )
+        _assert_same_result_or_exception(
+            lambda: fnx.bellman_ford_path_length(
+                G_fnx, "a", "not-there", weight="weight"
+            ),
+            lambda: nx.bellman_ford_path_length(
+                G_nx, "a", "not-there", weight="weight"
+            ),
+        )
+        _assert_same_result_or_exception(
+            lambda: fnx.bellman_ford_path(G_fnx, "a", "z", weight="weight"),
+            lambda: nx.bellman_ford_path(G_nx, "a", "z", weight="weight"),
+        )
+        _assert_same_result_or_exception(
+            lambda: fnx.bellman_ford_path_length(G_fnx, "a", "z", weight="weight"),
+            lambda: nx.bellman_ford_path_length(G_nx, "a", "z", weight="weight"),
+        )
+
     def test_negative_weight_dijkstra_point_to_point_parity(self, fnx, nx):
         G_fnx, G_nx = _negative_weight_graph_pair(fnx, nx)
 
