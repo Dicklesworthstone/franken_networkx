@@ -1274,6 +1274,24 @@ class TestShortestPath:
             ),
         )
 
+    @pytest.mark.parametrize("method", ["SPAM", "bogus", None])
+    def test_all_shortest_paths_rejects_unsupported_weighted_method(self, fnx, nx, method):
+        G_fnx = fnx.path_graph(["a", "b"])
+        G_nx = nx.path_graph(["a", "b"])
+        for graph in (G_fnx, G_nx):
+            graph["a"]["b"]["weight"] = 1.0
+
+        _assert_same_result_or_exception(
+            lambda: list(
+                fnx.all_shortest_paths(
+                    G_fnx, "a", "b", weight="weight", method=method
+                )
+            ),
+            lambda: list(
+                nx.all_shortest_paths(G_nx, "a", "b", weight="weight", method=method)
+            ),
+        )
+
     def test_directed_target_only_bellman_ford_shortest_path_length_parity(self, fnx, nx):
         D_fnx = fnx.DiGraph()
         D_nx = nx.DiGraph()

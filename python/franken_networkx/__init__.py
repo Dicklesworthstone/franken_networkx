@@ -1232,6 +1232,8 @@ from franken_networkx._fnx import (
 
 
 def all_shortest_paths(G, source, target, weight=None, method="dijkstra"):
+    if weight is not None and method not in {"dijkstra", "bellman-ford"}:
+        raise ValueError(f"method not supported: {method}")
     if weight is not None and method == "dijkstra" and _should_delegate_dijkstra_to_networkx(G, weight):
         kwargs = {"weight": weight}
         if method is not None:
