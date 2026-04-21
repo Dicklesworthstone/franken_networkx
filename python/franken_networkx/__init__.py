@@ -797,7 +797,7 @@ from franken_networkx._fnx import (
     minimum_spanning_edges,
     minimum_branching,
     minimum_spanning_arborescence,
-    minimum_spanning_tree,
+    minimum_spanning_tree as _raw_minimum_spanning_tree,
     partition_spanning_tree,
     random_spanning_tree,
 )
@@ -1397,8 +1397,69 @@ def wiener_index(G, weight=None):
 # Algorithm functions — maximum spanning tree
 from franken_networkx._fnx import (
     maximum_spanning_edges,
-    maximum_spanning_tree,
+    maximum_spanning_tree as _raw_maximum_spanning_tree,
 )
+
+
+def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=False):
+    """Return a minimum spanning tree or forest of an undirected weighted graph.
+
+    Parameters
+    ----------
+    G : undirected graph
+        An undirected graph.
+    weight : str, optional (default='weight')
+        Edge attribute key to use as weight.
+    algorithm : str, optional (default='kruskal')
+        Algorithm to use: 'kruskal', 'prim', or 'boruvka'.
+    ignore_nan : bool, optional (default=False)
+        If True, edges with NaN weights are ignored.
+
+    Returns
+    -------
+    Graph
+        A minimum spanning tree or forest.
+    """
+    if algorithm != "kruskal" or ignore_nan:
+        return _call_networkx_for_parity(
+            "minimum_spanning_tree",
+            G,
+            weight=weight,
+            algorithm=algorithm,
+            ignore_nan=ignore_nan,
+        )
+    return _raw_minimum_spanning_tree(G, weight=weight)
+
+
+def maximum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=False):
+    """Return a maximum spanning tree or forest of an undirected weighted graph.
+
+    Parameters
+    ----------
+    G : undirected graph
+        An undirected graph.
+    weight : str, optional (default='weight')
+        Edge attribute key to use as weight.
+    algorithm : str, optional (default='kruskal')
+        Algorithm to use: 'kruskal', 'prim', or 'boruvka'.
+    ignore_nan : bool, optional (default=False)
+        If True, edges with NaN weights are ignored.
+
+    Returns
+    -------
+    Graph
+        A maximum spanning tree or forest.
+    """
+    if algorithm != "kruskal" or ignore_nan:
+        return _call_networkx_for_parity(
+            "maximum_spanning_tree",
+            G,
+            weight=weight,
+            algorithm=algorithm,
+            ignore_nan=ignore_nan,
+        )
+    return _raw_maximum_spanning_tree(G, weight=weight)
+
 
 # Algorithm functions — condensation (wrapped to match NetworkX API)
 from franken_networkx._fnx import condensation as _condensation_raw
