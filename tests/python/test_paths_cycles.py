@@ -22,6 +22,21 @@ class TestPathsCycles:
         nx_sorted = sorted([list(map(str, p)) for p in nx_paths])
         assert fnx_sorted == nx_sorted
 
+    def test_all_simple_paths_preserves_multigraph_multiplicity(self, fnx, nx):
+        G_fnx = fnx.MultiGraph()
+        G_nx = nx.MultiGraph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", key="k1")
+            graph.add_edge("a", "b", key="k2")
+            graph.add_edge("b", "c", key="k3")
+
+        assert list(fnx.all_simple_paths(G_fnx, "a", "c")) == list(
+            nx.all_simple_paths(G_nx, "a", "c")
+        )
+        assert list(fnx.all_simple_paths(G_fnx, "a", "c", cutoff=2)) == list(
+            nx.all_simple_paths(G_nx, "a", "c", cutoff=2)
+        )
+
     def test_cycle_basis_count(self, fnx, nx, cycle_graph):
         G_fnx, G_nx = cycle_graph
         fnx_cycles = fnx.cycle_basis(G_fnx)

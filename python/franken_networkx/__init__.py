@@ -1301,6 +1301,10 @@ def all_simple_paths(G, source, target, cutoff=None):
 
     Delegates to the Rust implementation.
     """
+    if G.is_multigraph():
+        return _call_networkx_for_parity(
+            "all_simple_paths", G, source, target, cutoff=cutoff
+        )
     # Trivial case: source is target
     if source == target:
         return [[source]]
