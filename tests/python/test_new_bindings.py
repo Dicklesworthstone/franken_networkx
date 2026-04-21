@@ -756,3 +756,22 @@ class TestFindCycle:
         G.add_edge(1, 2)
         with pytest.raises(fnx.NetworkXNoCycle):
             fnx.find_cycle(G)
+
+    def test_source_and_orientation_match_networkx(self, nx):
+        for graph_type in ("Graph", "DiGraph"):
+            G_fnx = getattr(fnx, graph_type)()
+            G_nx = getattr(nx, graph_type)()
+            for u, v in ((0, 1), (1, 2), (2, 0)):
+                G_fnx.add_edge(u, v)
+                G_nx.add_edge(u, v)
+
+            assert fnx.find_cycle(G_fnx, source=1) == nx.find_cycle(G_nx, source=1)
+            assert fnx.find_cycle(G_fnx, orientation="original") == nx.find_cycle(
+                G_nx, orientation="original"
+            )
+            assert fnx.find_cycle(G_fnx, orientation="ignore") == nx.find_cycle(
+                G_nx, orientation="ignore"
+            )
+            assert fnx.find_cycle(
+                G_fnx, source=1, orientation="original"
+            ) == nx.find_cycle(G_nx, source=1, orientation="original")
