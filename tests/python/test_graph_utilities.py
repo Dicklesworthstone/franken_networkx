@@ -1637,6 +1637,46 @@ def test_directed_graph_classes_expose_predecessor_and_successor_queries(
 @pytest.mark.parametrize(
     ("fnx_cls", "nx_cls"),
     [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_directed_graph_classes_expose_in_and_out_edges(fnx_cls, nx_cls):
+    graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+
+    assert list(graph.out_edges()) == list(expected.out_edges())
+    assert list(graph.out_edges(["a"], data=True)) == list(expected.out_edges(["a"], data=True))
+    assert list(graph.out_edges(data="weight", default="NA")) == list(
+        expected.out_edges(data="weight", default="NA")
+    )
+
+    assert list(graph.in_edges()) == list(expected.in_edges())
+    assert list(graph.in_edges(["b"], data=True)) == list(expected.in_edges(["b"], data=True))
+    assert list(graph.in_edges(data="weight", default="NA")) == list(
+        expected.in_edges(data="weight", default="NA")
+    )
+
+    if graph.is_multigraph():
+        assert list(graph.out_edges(keys=True)) == list(expected.out_edges(keys=True))
+        assert list(graph.out_edges(keys=True, data=True)) == list(
+            expected.out_edges(keys=True, data=True)
+        )
+        assert list(graph.out_edges(keys=True, data="weight", default="NA")) == list(
+            expected.out_edges(keys=True, data="weight", default="NA")
+        )
+
+        assert list(graph.in_edges(keys=True)) == list(expected.in_edges(keys=True))
+        assert list(graph.in_edges(keys=True, data=True)) == list(
+            expected.in_edges(keys=True, data=True)
+        )
+        assert list(graph.in_edges(keys=True, data="weight", default="NA")) == list(
+            expected.in_edges(keys=True, data="weight", default="NA")
+        )
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
         (fnx.Graph, nx.Graph),
         (fnx.DiGraph, nx.DiGraph),
         (fnx.MultiGraph, nx.MultiGraph),

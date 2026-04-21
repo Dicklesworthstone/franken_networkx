@@ -54,6 +54,47 @@ def _directed_graph_has_predecessor(self, u, v):
     return u in self and v in self.pred[u]
 
 
+def _digraph_out_edges(self, nbunch=None, data=False, default=None):
+    return list(self.edges(nbunch=nbunch, data=data, default=default))
+
+
+def _digraph_in_edges(self, nbunch=None, data=False, default=None):
+    result = []
+    for target in self.nbunch_iter(nbunch):
+        for source, attrs in self.pred[target].items():
+            if data is True:
+                result.append((source, target, attrs))
+            elif data is False:
+                result.append((source, target))
+            else:
+                result.append((source, target, attrs.get(data, default)))
+    return result
+
+
+def _multidigraph_out_edges(self, nbunch=None, data=False, keys=False, default=None):
+    return list(self.edges(nbunch=nbunch, data=data, keys=keys, default=default))
+
+
+def _multidigraph_in_edges(self, nbunch=None, data=False, keys=False, default=None):
+    result = []
+    for target in self.nbunch_iter(nbunch):
+        for source, keyed_attrs in self.pred[target].items():
+            for key, attrs in keyed_attrs.items():
+                if data is True and keys:
+                    result.append((source, target, key, attrs))
+                elif data is True:
+                    result.append((source, target, attrs))
+                elif data is False and keys:
+                    result.append((source, target, key))
+                elif data is False:
+                    result.append((source, target))
+                elif keys:
+                    result.append((source, target, key, attrs.get(data, default)))
+                else:
+                    result.append((source, target, attrs.get(data, default)))
+    return result
+
+
 def _graph_nbunch_iter(self, nbunch=None):
     adjacency = self.adj
     if nbunch is None:
@@ -114,8 +155,12 @@ MultiDiGraph.adjacency = _multigraph_adjacency
 
 DiGraph.has_successor = _directed_graph_has_successor
 DiGraph.has_predecessor = _directed_graph_has_predecessor
+DiGraph.out_edges = _digraph_out_edges
+DiGraph.in_edges = _digraph_in_edges
 MultiDiGraph.has_successor = _directed_graph_has_successor
 MultiDiGraph.has_predecessor = _directed_graph_has_predecessor
+MultiDiGraph.out_edges = _multidigraph_out_edges
+MultiDiGraph.in_edges = _multidigraph_in_edges
 
 
 def _nan_filtered_graph(G, weight, ignore_nan):
