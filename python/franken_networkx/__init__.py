@@ -3055,7 +3055,7 @@ from franken_networkx._fnx import (
 
 
 def find_cycle(G, source=None, orientation=None):
-    if source is not None or orientation is not None:
+    if G.is_multigraph() or source is not None or orientation is not None:
         return _call_networkx_for_parity(
             "find_cycle",
             G,

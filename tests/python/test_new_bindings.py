@@ -775,3 +775,17 @@ class TestFindCycle:
             assert fnx.find_cycle(
                 G_fnx, source=1, orientation="original"
             ) == nx.find_cycle(G_nx, source=1, orientation="original")
+
+    def test_multigraph_preserves_edge_keys(self, nx):
+        for graph_type in ("MultiGraph", "MultiDiGraph"):
+            G_fnx = getattr(fnx, graph_type)()
+            G_nx = getattr(nx, graph_type)()
+            for graph in (G_fnx, G_nx):
+                graph.add_edge("a", "b", key="k1")
+                graph.add_edge("b", "c", key="k2")
+                graph.add_edge("c", "a", key="k3")
+
+            assert fnx.find_cycle(G_fnx) == nx.find_cycle(G_nx)
+            assert fnx.find_cycle(G_fnx, source="b") == nx.find_cycle(
+                G_nx, source="b"
+            )
