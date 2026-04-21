@@ -651,6 +651,35 @@ class TestShortestPath:
         for name, run in cases:
             assert run(fnx, G_fnx) == run(nx, G_nx), name
 
+    def test_callable_weight_floyd_warshall_wrappers_match_networkx(self, fnx, nx):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", length=2, penalty=0)
+            graph.add_edge("a", "c", length=5, penalty=0)
+            graph.add_edge("b", "c", length=1, penalty=0)
+            graph.add_edge("b", "d", length=5, penalty=0)
+            graph.add_edge("c", "d", length=1, penalty=0)
+
+        def weight_fn(u, v, data):
+            return data["length"] + data.get("penalty", 0)
+
+        cases = [
+            (
+                "floyd_warshall",
+                lambda mod, graph: dict(mod.floyd_warshall(graph, weight=weight_fn)),
+            ),
+            (
+                "floyd_warshall_predecessor_and_distance",
+                lambda mod, graph: mod.floyd_warshall_predecessor_and_distance(
+                    graph, weight=weight_fn
+                ),
+            ),
+        ]
+
+        for name, run in cases:
+            assert run(fnx, G_fnx) == run(nx, G_nx), name
+
     def test_multi_source_dijkstra_target_cutoff_matches_legacy_networkx_34(self, fnx):
         legacy_nx = _legacy_networkx()
         G_fnx = fnx.Graph()

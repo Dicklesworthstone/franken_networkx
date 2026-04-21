@@ -258,6 +258,10 @@ def _should_delegate_bellman_ford_to_networkx(weight):
     return callable(weight)
 
 
+def _should_delegate_floyd_warshall_to_networkx(weight):
+    return callable(weight)
+
+
 def _raise_translated_networkx_exception(exc):
     import networkx as nx
 
@@ -2478,8 +2482,8 @@ from franken_networkx._fnx import (
     all_pairs_dijkstra_path_length as _raw_all_pairs_dijkstra_path_length,
     all_pairs_bellman_ford_path as _raw_all_pairs_bellman_ford_path,
     all_pairs_bellman_ford_path_length as _raw_all_pairs_bellman_ford_path_length,
-    floyd_warshall,
-    floyd_warshall_predecessor_and_distance,
+    floyd_warshall as _raw_floyd_warshall,
+    floyd_warshall_predecessor_and_distance as _raw_floyd_warshall_predecessor_and_distance,
     bidirectional_shortest_path,
     negative_edge_cycle,
     predecessor,
@@ -2617,6 +2621,21 @@ def all_pairs_bellman_ford_path_length(G, weight="weight"):
         return
     for k, v in _raw_all_pairs_bellman_ford_path_length(G, weight=weight).items():
         yield (k, v)
+
+
+def floyd_warshall(G, weight="weight"):
+    if _should_delegate_floyd_warshall_to_networkx(weight):
+        return _call_networkx_for_parity("floyd_warshall", G, weight=weight)
+    return _raw_floyd_warshall(G, weight=weight)
+
+
+def floyd_warshall_predecessor_and_distance(G, weight="weight"):
+    if _should_delegate_floyd_warshall_to_networkx(weight):
+        return _call_networkx_for_parity(
+            "floyd_warshall_predecessor_and_distance", G, weight=weight
+        )
+    return _raw_floyd_warshall_predecessor_and_distance(G, weight=weight)
+
 
 # Additional centrality algorithms
 from franken_networkx._fnx import (
