@@ -13867,6 +13867,64 @@ class _ConversionGraphViewBase:
             return len(self.edges(keys=True))
         return len(self.edges())
 
+    def degree(self, nbunch=None, weight=None):
+        def edge_weight(attrs):
+            return attrs.get(weight, 1)
+
+        def node_degree(node):
+            if self.is_multigraph():
+                if self.is_directed():
+                    if weight is None:
+                        total = sum(len(keydict) for keydict in self.succ[node].values())
+                        total += sum(len(keydict) for keydict in self.pred[node].values())
+                        return total
+
+                    total = 0
+                    for keydict in self.succ[node].values():
+                        for attrs in keydict.values():
+                            total += edge_weight(attrs)
+                    for keydict in self.pred[node].values():
+                        for attrs in keydict.values():
+                            total += edge_weight(attrs)
+                    return total
+
+                total = 0
+                for neighbor, keydict in self.adj[node].items():
+                    edge_total = len(keydict) if weight is None else sum(
+                        edge_weight(attrs) for attrs in keydict.values()
+                    )
+                    total += edge_total * 2 if neighbor == node else edge_total
+                return total
+
+            if self.is_directed():
+                if weight is None:
+                    return len(self.succ[node]) + len(self.pred[node])
+
+                total = 0
+                for attrs in self.succ[node].values():
+                    total += edge_weight(attrs)
+                for attrs in self.pred[node].values():
+                    total += edge_weight(attrs)
+                return total
+
+            total = 0
+            for neighbor, attrs in self.adj[node].items():
+                edge_total = 1 if weight is None else edge_weight(attrs)
+                total += edge_total * 2 if neighbor == node else edge_total
+            return total
+
+        if nbunch is None:
+            return ((node, node_degree(node)) for node in self)
+
+        try:
+            if nbunch in self._graph:
+                return node_degree(nbunch)
+        except TypeError:
+            pass
+
+        nodes = self._nbunch(nbunch)
+        return ((node, node_degree(node)) for node in nodes)
+
     def copy(self):
         result = self._copy_type()()
         result.graph.update(dict(self.graph))
