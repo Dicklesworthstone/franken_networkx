@@ -3344,30 +3344,42 @@ def single_target_shortest_path(G, target, cutoff=None):
     return paths
 
 
-def _ordered_predecessor_nodes(G, source, predecessor_map):
+def _ordered_predecessor_nodes_and_levels(G, source, predecessor_map):
     ordered_nodes = [source]
-    seen = {source}
+    seen_levels = {source: 0}
     nextlevel = [source]
+    level = 0
 
     while nextlevel and len(ordered_nodes) < len(predecessor_map):
+        level += 1
         thislevel = nextlevel
         nextlevel = []
         for node in thislevel:
             for neighbor in G[node]:
-                if neighbor in predecessor_map and neighbor not in seen:
-                    seen.add(neighbor)
+                if neighbor in predecessor_map and neighbor not in seen_levels:
+                    seen_levels[neighbor] = level
                     nextlevel.append(neighbor)
                     ordered_nodes.append(neighbor)
 
-    return ordered_nodes
+    return ordered_nodes, seen_levels
 
 
-def predecessor(G, source, target=None, cutoff=None):
+def predecessor(G, source, target=None, cutoff=None, return_seen=None):
     predecessor_map = _raw_predecessor(G, source, cutoff=cutoff)
+    ordered_nodes, seen_levels = _ordered_predecessor_nodes_and_levels(
+        G, source, predecessor_map
+    )
     if target is not None:
+        if return_seen:
+            if target not in predecessor_map:
+                return ([], -1)
+            return (predecessor_map[target], seen_levels[target])
         return predecessor_map.get(target, [])
-    ordered_nodes = _ordered_predecessor_nodes(G, source, predecessor_map)
-    return {node: predecessor_map[node] for node in ordered_nodes}
+    ordered_predecessor_map = {node: predecessor_map[node] for node in ordered_nodes}
+    if return_seen:
+        ordered_seen_levels = {node: seen_levels[node] for node in ordered_nodes}
+        return ordered_predecessor_map, ordered_seen_levels
+    return ordered_predecessor_map
 
 
 def dijkstra_path_length(G, source, target, weight="weight"):

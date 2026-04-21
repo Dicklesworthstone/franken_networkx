@@ -1198,6 +1198,30 @@ class TestShortestPath:
                 lambda run=run: run(nx, G_nx),
             )
 
+    def test_predecessor_return_seen_matches_networkx(self, fnx, nx):
+        G_fnx = fnx.path_graph(["a", "b", "c", "d"])
+        G_nx = nx.path_graph(["a", "b", "c", "d"])
+
+        fnx_pred, fnx_seen = fnx.predecessor(G_fnx, "a", return_seen=True)
+        nx_pred, nx_seen = nx.predecessor(G_nx, "a", return_seen=True)
+        assert list(fnx_pred.items()) == list(nx_pred.items())
+        assert list(fnx_seen.items()) == list(nx_seen.items())
+
+        cases = [
+            lambda mod, graph: mod.predecessor(graph, "a", target="d", return_seen=True),
+            lambda mod, graph: mod.predecessor(graph, "a", target="missing", return_seen=True),
+            lambda mod, graph: mod.predecessor(
+                graph, "a", target="d", cutoff=2, return_seen=True
+            ),
+            lambda mod, graph: mod.predecessor(graph, "a", cutoff=2, return_seen=True),
+        ]
+
+        for run in cases:
+            _assert_same_result_or_exception(
+                lambda run=run: run(fnx, G_fnx),
+                lambda run=run: run(nx, G_nx),
+            )
+
     def test_negative_weight_dijkstra_directed_api_parity(self, fnx, nx):
         D_fnx, D_nx = _negative_weight_graph_pair(fnx, nx, directed=True)
 

@@ -1160,8 +1160,17 @@ def floyd_warshall_predecessor_and_distance(
 def bidirectional_shortest_path(g: Graph, source: Any, target: Any) -> list[Any]: ...
 def negative_edge_cycle(g: Graph, weight: str = "weight") -> bool: ...
 def predecessor(
-    g: Graph, source: Any, cutoff: Optional[int] = None
-) -> dict[Any, list[Any]]: ...
+    g: Graph,
+    source: Any,
+    target: Any = None,
+    cutoff: Optional[int] = None,
+    return_seen: Optional[bool] = None,
+) -> Union[
+    dict[Any, list[Any]],
+    list[Any],
+    tuple[dict[Any, list[Any]], dict[Any, int]],
+    tuple[list[Any], int],
+]: ...
 def path_weight(
     g: Union[Graph, DiGraph], path: list[Any], weight: str = "weight"
 ) -> float: ...
