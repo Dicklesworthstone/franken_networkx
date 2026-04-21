@@ -3362,8 +3362,10 @@ def _ordered_predecessor_nodes(G, source, predecessor_map):
     return ordered_nodes
 
 
-def predecessor(G, source, cutoff=None):
+def predecessor(G, source, target=None, cutoff=None):
     predecessor_map = _raw_predecessor(G, source, cutoff=cutoff)
+    if target is not None:
+        return predecessor_map.get(target, [])
     ordered_nodes = _ordered_predecessor_nodes(G, source, predecessor_map)
     return {node: predecessor_map[node] for node in ordered_nodes}
 

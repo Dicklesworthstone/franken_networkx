@@ -1181,6 +1181,23 @@ class TestShortestPath:
             nx.predecessor(G_nx, "a", cutoff=2).items()
         )
 
+    def test_predecessor_target_matches_networkx(self, fnx, nx):
+        G_fnx = fnx.path_graph(["a", "b", "c", "d"])
+        G_nx = nx.path_graph(["a", "b", "c", "d"])
+
+        cases = [
+            lambda mod, graph: mod.predecessor(graph, "a", target="d"),
+            lambda mod, graph: mod.predecessor(graph, "a", target="a"),
+            lambda mod, graph: mod.predecessor(graph, "a", target="missing"),
+            lambda mod, graph: mod.predecessor(graph, "a", target="d", cutoff=2),
+        ]
+
+        for run in cases:
+            _assert_same_result_or_exception(
+                lambda run=run: run(fnx, G_fnx),
+                lambda run=run: run(nx, G_nx),
+            )
+
     def test_negative_weight_dijkstra_directed_api_parity(self, fnx, nx):
         D_fnx, D_nx = _negative_weight_graph_pair(fnx, nx, directed=True)
 
