@@ -2650,10 +2650,14 @@ def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
     return dists
 
 
-def single_source_bellman_ford(G, source, weight="weight"):
-    if _should_delegate_bellman_ford_to_networkx(weight):
+def single_source_bellman_ford(G, source, target=None, weight="weight"):
+    if target is not None or _should_delegate_bellman_ford_to_networkx(weight):
         return _call_networkx_for_parity(
-            "single_source_bellman_ford", G, source, weight=weight
+            "single_source_bellman_ford",
+            G,
+            source,
+            target=target,
+            weight=weight,
         )
     return _raw_single_source_bellman_ford(G, source, weight=weight)
 

@@ -797,6 +797,69 @@ class TestShortestPath:
         for name, run in cases:
             assert run(fnx, G_fnx) == run(nx, G_nx), name
 
+    def test_single_source_bellman_ford_target_matches_networkx(self, fnx, nx):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", weight=1.0)
+            graph.add_edge("b", "c", weight=2.0)
+            graph.add_edge("c", "d", weight=1.0)
+            graph.add_edge("x", "y", weight=1.0)
+
+        def weight_fn(u, v, data):
+            return data["weight"]
+
+        cases = [
+            (
+                "target_reachable",
+                lambda mod, graph: mod.single_source_bellman_ford(
+                    graph, "a", target="d", weight="weight"
+                ),
+            ),
+            (
+                "target_unreachable",
+                lambda mod, graph: mod.single_source_bellman_ford(
+                    graph, "a", target="y", weight="weight"
+                ),
+            ),
+            (
+                "target_missing",
+                lambda mod, graph: mod.single_source_bellman_ford(
+                    graph, "a", target="missing", weight="weight"
+                ),
+            ),
+            (
+                "target_source",
+                lambda mod, graph: mod.single_source_bellman_ford(
+                    graph, "a", target="a", weight="weight"
+                ),
+            ),
+            (
+                "source_missing",
+                lambda mod, graph: mod.single_source_bellman_ford(
+                    graph, "missing", target="other", weight="weight"
+                ),
+            ),
+            (
+                "source_missing_target_same",
+                lambda mod, graph: mod.single_source_bellman_ford(
+                    graph, "missing", target="missing", weight="weight"
+                ),
+            ),
+            (
+                "callable_weight_target",
+                lambda mod, graph: mod.single_source_bellman_ford(
+                    graph, "a", target="d", weight=weight_fn
+                ),
+            ),
+        ]
+
+        for name, run in cases:
+            _assert_same_result_or_exception(
+                lambda run=run: run(fnx, G_fnx),
+                lambda run=run: run(nx, G_nx),
+            )
+
     def test_negative_edge_cycle_heuristic_and_directed_match_networkx(self, fnx, nx):
         G_fnx = fnx.Graph()
         G_nx = nx.Graph()
