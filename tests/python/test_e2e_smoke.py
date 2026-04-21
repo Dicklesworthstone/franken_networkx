@@ -324,7 +324,11 @@ def test_multigraph_extended_surface(fnx):
     assert g.degree["a"] == 2
     assert list(g.degree) == [("a", 2), ("b", 2), ("c", 0)]
     assert sorted(g.adj["a"]["b"].keys()) == [0, 1]
-    assert list(g.adjacency()) == ["a", "b", "c"]
+    assert [(node, sorted(neighbors.keys())) for node, neighbors in g.adjacency()] == [
+        ("a", ["b"]),
+        ("b", ["a"]),
+        ("c", []),
+    ]
 
     copied = g.copy()
     copied.remove_edge("a", "b", key=0)

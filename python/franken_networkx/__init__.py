@@ -89,6 +89,10 @@ def _size_with_unweighted_int(size_impl):
     return size
 
 
+def _multigraph_adjacency(self):
+    return [(node, self.adj[node]) for node in self]
+
+
 Graph.nbunch_iter = _graph_nbunch_iter
 DiGraph.nbunch_iter = _graph_nbunch_iter
 MultiGraph.nbunch_iter = _graph_nbunch_iter
@@ -98,6 +102,8 @@ Graph.size = _size_with_unweighted_int(Graph.size)
 DiGraph.size = _size_with_unweighted_int(DiGraph.size)
 MultiGraph.size = _size_with_unweighted_int(MultiGraph.size)
 MultiDiGraph.size = _size_with_unweighted_int(MultiDiGraph.size)
+MultiGraph.adjacency = _multigraph_adjacency
+MultiDiGraph.adjacency = _multigraph_adjacency
 
 
 DiGraph.has_successor = _directed_graph_has_successor

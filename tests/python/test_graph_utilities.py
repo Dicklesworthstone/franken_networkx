@@ -1767,6 +1767,25 @@ def test_common_live_views_size_preserve_networkx_return_types(
 
 
 @pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_multigraph_classes_adjacency_preserve_networkx_mapping_contract(
+    fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+
+    assert [
+        (node, _mapping_snapshot(neighbors)) for node, neighbors in graph.adjacency()
+    ] == [
+        (node, _mapping_snapshot(neighbors)) for node, neighbors in expected.adjacency()
+    ]
+
+
+@pytest.mark.parametrize(
     ("builder_name", "fnx_builder", "nx_builder", "fnx_cls", "nx_cls"),
     [
         ("to_directed", fnx.to_directed, nx.to_directed, fnx.Graph, nx.Graph),
