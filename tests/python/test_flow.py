@@ -14,6 +14,77 @@ def _directed_flow_pair(fnx, nx, edges):
 
 @pytest.mark.conformance
 class TestFlow:
+    def test_edmonds_karp_residual_matches_networkx(self, fnx, nx):
+        DG_fnx, DG_nx = _directed_flow_pair(
+            fnx,
+            nx,
+            [
+                ("s", "a", 3.0),
+                ("s", "b", 2.0),
+                ("a", "b", 1.0),
+                ("a", "t", 2.0),
+                ("b", "t", 3.0),
+            ],
+        )
+
+        fnx_residual = fnx.edmonds_karp(DG_fnx, "s", "t")
+        nx_residual = nx.algorithms.flow.edmonds_karp(DG_nx, "s", "t")
+
+        assert fnx_residual.graph["algorithm"] == nx_residual.graph["algorithm"]
+        assert abs(fnx_residual.graph["flow_value"] - nx_residual.graph["flow_value"]) < 1e-9
+        assert abs(fnx_residual.graph["inf"] - nx_residual.graph["inf"]) < 1e-9
+
+        fnx_edges = sorted(
+            (u, v, attrs["capacity"], attrs["flow"])
+            for u, v, attrs in fnx_residual.edges(data=True)
+        )
+        nx_edges = sorted(
+            (u, v, attrs["capacity"], attrs["flow"])
+            for u, v, attrs in nx_residual.edges(data=True)
+        )
+        assert fnx_edges == nx_edges
+
+    def test_edmonds_karp_infinite_capacity_path_matches_networkx(self, fnx, nx):
+        DG_fnx = fnx.DiGraph()
+        DG_nx = nx.DiGraph()
+        DG_fnx.add_edge("s", "a")
+        DG_fnx.add_edge("a", "t")
+        DG_nx.add_edge("s", "a")
+        DG_nx.add_edge("a", "t")
+
+        message = "Infinite capacity path, flow unbounded above."
+        with pytest.raises(fnx.NetworkXUnbounded, match=message):
+            fnx.edmonds_karp(DG_fnx, "s", "t")
+        with pytest.raises(nx.NetworkXUnbounded, match=message):
+            nx.algorithms.flow.edmonds_karp(DG_nx, "s", "t")
+
+    def test_edmonds_karp_cutoff_matches_networkx(self, fnx, nx):
+        DG_fnx, DG_nx = _directed_flow_pair(
+            fnx,
+            nx,
+            [
+                ("s", "a", 3.0),
+                ("s", "b", 2.0),
+                ("a", "b", 1.0),
+                ("a", "t", 2.0),
+                ("b", "t", 3.0),
+            ],
+        )
+
+        fnx_residual = fnx.edmonds_karp(DG_fnx, "s", "t", cutoff=3.0)
+        nx_residual = nx.algorithms.flow.edmonds_karp(DG_nx, "s", "t", cutoff=3.0)
+
+        assert abs(fnx_residual.graph["flow_value"] - nx_residual.graph["flow_value"]) < 1e-9
+        fnx_edges = sorted(
+            (u, v, attrs["capacity"], attrs["flow"])
+            for u, v, attrs in fnx_residual.edges(data=True)
+        )
+        nx_edges = sorted(
+            (u, v, attrs["capacity"], attrs["flow"])
+            for u, v, attrs in nx_residual.edges(data=True)
+        )
+        assert fnx_edges == nx_edges
+
     def test_maximum_flow(self, fnx, nx, weighted_graph):
         G_fnx, G_nx = weighted_graph
         fnx_val, fnx_flow = fnx.maximum_flow(G_fnx, "a", "d", capacity="weight")

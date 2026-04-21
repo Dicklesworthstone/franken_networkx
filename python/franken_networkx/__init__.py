@@ -485,6 +485,168 @@ def _validate_flow_func_selector(flow_func):
     return flow_func
 
 
+def _flow_capacity_value(u, v, attrs, capacity):
+    del u, v
+    raw_value = attrs.get(capacity, float("inf"))
+    if raw_value is None:
+        return None
+
+    return float(raw_value)
+
+
+def _build_flow_residual_network(G, capacity):
+    if G.is_multigraph():
+        raise NetworkXError("MultiGraph and MultiDiGraph not supported (yet).")
+
+    residual = DiGraph()
+    if hasattr(residual, "__networkx_cache__"):
+        residual.__networkx_cache__ = None
+    residual.add_nodes_from(G)
+
+    edge_list = []
+    for u, v, attrs in G.edges(data=True):
+        if u == v:
+            continue
+        edge_capacity = _flow_capacity_value(u, v, attrs, capacity)
+        if edge_capacity is None or edge_capacity <= 0:
+            continue
+        edge_list.append((u, v, edge_capacity))
+
+    inf = (
+        3 * sum(edge_capacity for _, _, edge_capacity in edge_list if edge_capacity != float("inf"))
+        or 1
+    )
+
+    if G.is_directed():
+        for u, v, edge_capacity in edge_list:
+            residual_capacity = min(edge_capacity, inf)
+            if not residual.has_edge(u, v):
+                residual.add_edge(u, v, capacity=residual_capacity)
+                residual.add_edge(v, u, capacity=0)
+            else:
+                residual[u][v]["capacity"] = residual_capacity
+    else:
+        for u, v, edge_capacity in edge_list:
+            residual_capacity = min(edge_capacity, inf)
+            residual.add_edge(u, v, capacity=residual_capacity)
+            residual.add_edge(v, u, capacity=residual_capacity)
+
+    residual.graph["inf"] = inf
+    return residual
+
+
+def _edmonds_karp_core(residual, source, sink, cutoff):
+    inf = residual.graph["inf"]
+
+    def augment(path):
+        flow = inf
+        path_iter = iter(path)
+        left = next(path_iter)
+        for right in path_iter:
+            attrs = residual.succ[left][right]
+            flow = min(flow, attrs["capacity"] - attrs["flow"])
+            left = right
+
+        if flow * 2 > inf:
+            raise NetworkXUnbounded("Infinite capacity path, flow unbounded above.")
+
+        path_iter = iter(path)
+        left = next(path_iter)
+        for right in path_iter:
+            residual.succ[left][right]["flow"] += flow
+            residual.succ[right][left]["flow"] -= flow
+            left = right
+
+        return flow
+
+    def bidirectional_bfs():
+        pred = {source: None}
+        queue_from_source = [source]
+        succ = {sink: None}
+        queue_from_sink = [sink]
+
+        while True:
+            next_queue = []
+            if len(queue_from_source) <= len(queue_from_sink):
+                for left in queue_from_source:
+                    for right, attrs in residual.succ[left].items():
+                        if right not in pred and attrs["flow"] < attrs["capacity"]:
+                            pred[right] = left
+                            if right in succ:
+                                return right, pred, succ
+                            next_queue.append(right)
+                if not next_queue:
+                    return None, None, None
+                queue_from_source = next_queue
+            else:
+                for right in queue_from_sink:
+                    for left, attrs in residual.pred[right].items():
+                        if left not in succ and attrs["flow"] < attrs["capacity"]:
+                            succ[left] = right
+                            if left in pred:
+                                return left, pred, succ
+                            next_queue.append(left)
+                if not next_queue:
+                    return None, None, None
+                queue_from_sink = next_queue
+
+    flow_value = 0
+    while flow_value < cutoff:
+        meeting_node, pred, succ = bidirectional_bfs()
+        if pred is None:
+            break
+
+        path = [meeting_node]
+        cursor = meeting_node
+        while cursor != source:
+            cursor = pred[cursor]
+            path.append(cursor)
+        path.reverse()
+
+        cursor = meeting_node
+        while cursor != sink:
+            cursor = succ[cursor]
+            path.append(cursor)
+
+        flow_value += augment(path)
+
+    return flow_value
+
+
+def edmonds_karp(
+    G,
+    source,
+    sink,
+    capacity="capacity",
+    residual=None,
+    value_only=False,
+    cutoff=None,
+):
+    """Find a maximum single-commodity flow using the Edmonds-Karp algorithm."""
+    del value_only
+
+    if source not in G:
+        raise NetworkXError(f"node {source} not in graph")
+    if sink not in G:
+        raise NetworkXError(f"node {sink} not in graph")
+    if source == sink:
+        raise NetworkXError("source and sink are the same node")
+
+    if residual is None:
+        residual = _build_flow_residual_network(G, capacity)
+
+    for node in residual:
+        for attrs in residual[node].values():
+            attrs["flow"] = 0
+
+    if cutoff is None:
+        cutoff = float("inf")
+
+    residual.graph["flow_value"] = _edmonds_karp_core(residual, source, sink, cutoff)
+    residual.graph["algorithm"] = "edmonds_karp"
+    return residual
+
+
 def minimum_cut(G, source, sink, capacity="capacity", flow_func=None):
     """Return the minimum cut value and node partition."""
     _validate_flow_func_selector(flow_func)
@@ -20646,6 +20808,7 @@ __all__ = [
     "min_edge_cover",
     "min_weight_matching",
     # Algorithms — flow
+    "edmonds_karp",
     "maximum_flow",
     "maximum_flow_value",
     "minimum_cut",
