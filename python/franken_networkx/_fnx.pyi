@@ -1074,7 +1074,7 @@ def is_perfect_matching(g: Graph, matching: list[tuple[Any, Any]]) -> bool: ...
 # ---------------------------------------------------------------------------
 
 def simple_cycles(
-    g: DiGraph,
+    g: Union[Graph, DiGraph, MultiGraph, MultiDiGraph],
     length_bound: Optional[int] = ...,
 ) -> Iterable[list[Any]]: ...
 def find_cycle(

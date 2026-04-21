@@ -3055,7 +3055,7 @@ from franken_networkx._fnx import (
 
 
 def simple_cycles(G, length_bound=None):
-    if length_bound is not None:
+    if length_bound is not None or not G.is_directed():
         return _call_networkx_for_parity(
             "simple_cycles", G, length_bound=length_bound
         )

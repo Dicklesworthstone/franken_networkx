@@ -745,9 +745,23 @@ class TestSimpleCycles:
         cycles = fnx.simple_cycles(D)
         assert len(cycles) == 2
 
-    def test_undirected_raises(self, triangle):
-        with pytest.raises(fnx.NetworkXError):
-            fnx.simple_cycles(triangle)
+    def test_undirected_matches_networkx(self, nx):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge(0, 1)
+            graph.add_edge(1, 2)
+            graph.add_edge(2, 0)
+
+        MG_fnx = fnx.MultiGraph()
+        MG_nx = nx.MultiGraph()
+        for graph in (MG_fnx, MG_nx):
+            graph.add_edge("a", "b")
+            graph.add_edge("b", "c")
+            graph.add_edge("c", "a")
+
+        assert list(fnx.simple_cycles(G_fnx)) == list(nx.simple_cycles(G_nx))
+        assert list(fnx.simple_cycles(MG_fnx)) == list(nx.simple_cycles(MG_nx))
 
 
 # ---------------------------------------------------------------------------
