@@ -2222,3 +2222,52 @@ def test_reverse_view_exposes_edge_and_degree_apis_like_networkx_without_fallbac
     assert result.degree("b", weight="weight") == expected_result.degree(
         "b", weight="weight"
     )
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_reverse_view_supports_subgraph_and_copy_like_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx.reverse_view(expected)
+
+    _block_networkx_utilities(monkeypatch, "reverse_view")
+
+    result = fnx.reverse_view(graph)
+    result_subgraph = result.subgraph(["a", "b", "z"])
+    expected_subgraph = expected_result.subgraph(["a", "b", "z"])
+
+    assert result_subgraph.is_directed() == expected_subgraph.is_directed()
+    assert result_subgraph.is_multigraph() == expected_subgraph.is_multigraph()
+    assert _graph_snapshot(result_subgraph) == _graph_snapshot(expected_subgraph)
+
+    if graph.is_multigraph():
+        graph.add_edge("b", "a", key=7, weight=5)
+        expected.add_edge("b", "a", key=7, weight=5)
+    else:
+        graph.add_edge("b", "a", weight=5)
+        expected.add_edge("b", "a", weight=5)
+
+    assert _graph_snapshot(result_subgraph) == _graph_snapshot(expected_subgraph)
+
+    result_copy = result.copy()
+    expected_copy = expected_result.copy()
+
+    assert type(result_copy).__name__ == type(expected_copy).__name__
+    assert result_copy.is_directed() == expected_copy.is_directed()
+    assert result_copy.is_multigraph() == expected_copy.is_multigraph()
+    assert _graph_snapshot(result_copy) == _graph_snapshot(expected_copy)
+
+    result_subgraph_copy = result_subgraph.copy()
+    expected_subgraph_copy = expected_subgraph.copy()
+
+    assert type(result_subgraph_copy).__name__ == type(expected_subgraph_copy).__name__
+    assert result_subgraph_copy.is_directed() == expected_subgraph_copy.is_directed()
+    assert result_subgraph_copy.is_multigraph() == expected_subgraph_copy.is_multigraph()
+    assert _graph_snapshot(result_subgraph_copy) == _graph_snapshot(expected_subgraph_copy)

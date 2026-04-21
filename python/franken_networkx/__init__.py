@@ -13299,6 +13299,28 @@ class _ReverseDirectedView:
         nodes = self._nbunch(nbunch)
         return ((node, node_degree(node)) for node in nodes)
 
+    def subgraph(self, nodes):
+        visible_nodes = set(self._nbunch(nodes))
+        return _FilteredGraphView(
+            self,
+            filter_node=lambda node: node in visible_nodes,
+        )
+
+    def copy(self, as_view=False):
+        if as_view:
+            return _FilteredGraphView(self)
+
+        result = self._graph.__class__()
+        result.graph.update(dict(self.graph))
+        result.add_nodes_from((node, dict(attrs)) for node, attrs in self.nodes(data=True))
+        if self._graph.is_multigraph():
+            for u, v, key, attrs in self.edges(keys=True, data=True):
+                result.add_edge(u, v, key=key, **dict(attrs))
+        else:
+            for u, v, attrs in self.edges(data=True):
+                result.add_edge(u, v, **dict(attrs))
+        return result
+
     def number_of_edges(self):
         return self._graph.number_of_edges()
 
@@ -13502,7 +13524,15 @@ class _FilteredGraphView:
 
     def nodes(self, data=False):
         if data:
-            return [(node, self._graph.nodes[node]) for node in self]
+            graph_nodes = self._graph.nodes
+            if callable(graph_nodes):
+                visible = set(self)
+                return [
+                    (node, attrs)
+                    for node, attrs in graph_nodes(data=True)
+                    if node in visible
+                ]
+            return [(node, graph_nodes[node]) for node in self]
         return list(self)
 
     def edges(self, nbunch=None, data=False, keys=False):
@@ -13585,8 +13615,13 @@ class _FilteredGraphView:
     def number_of_edges(self):
         return len(self.edges(keys=True)) if self.is_multigraph() else len(self.edges())
 
+    def _copy_type(self):
+        if self.is_directed():
+            return MultiDiGraph if self.is_multigraph() else DiGraph
+        return MultiGraph if self.is_multigraph() else Graph
+
     def copy(self):
-        result = self._graph.__class__()
+        result = self._copy_type()()
         result.graph.update(dict(self.graph))
         result.add_nodes_from((node, dict(attrs)) for node, attrs in self.nodes(data=True))
         if self.is_multigraph():
