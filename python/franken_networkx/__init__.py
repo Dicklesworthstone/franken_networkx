@@ -13319,6 +13319,9 @@ class _ReverseDirectedView:
             filter_node=lambda node: node in visible_nodes,
         )
 
+    def edge_subgraph(self, edges):
+        return edge_subgraph(self, edges)
+
     def copy(self, as_view=False):
         if as_view:
             return _FilteredGraphView(self)

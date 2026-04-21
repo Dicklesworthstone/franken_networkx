@@ -2670,3 +2670,28 @@ def test_reverse_view_supports_subgraph_and_copy_like_networkx_without_fallback(
     assert result_subgraph_copy.is_directed() == expected_subgraph_copy.is_directed()
     assert result_subgraph_copy.is_multigraph() == expected_subgraph_copy.is_multigraph()
     assert _graph_snapshot(result_subgraph_copy) == _graph_snapshot(expected_subgraph_copy)
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_reverse_view_supports_edge_subgraph_without_fallback(monkeypatch, fnx_cls, nx_cls):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    if graph.is_multigraph():
+        selected_edges = [("b", "a", 1)]
+    else:
+        selected_edges = [("b", "a")]
+    expected_result = nx.reverse_view(expected).edge_subgraph(selected_edges)
+
+    _block_networkx_utilities(monkeypatch, "reverse_view", "edge_subgraph")
+
+    result = fnx.reverse_view(graph).edge_subgraph(selected_edges)
+
+    assert result.is_directed() == expected_result.is_directed()
+    assert result.is_multigraph() == expected_result.is_multigraph()
+    assert result.frozen == expected_result.frozen
+    assert _graph_snapshot(result) == _graph_snapshot(expected_result)
