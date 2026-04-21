@@ -13965,6 +13965,12 @@ class _DirectedGraphConversionView(_ConversionGraphViewBase):
     def has_edge(self, u, v, key=None):
         return self._graph.has_edge(u, v)
 
+    def has_successor(self, u, v):
+        return u in self._graph and v in self.succ[u]
+
+    def has_predecessor(self, u, v):
+        return u in self._graph and v in self.pred[u]
+
 
 class _DirectedMultiGraphConversionView(_ConversionGraphViewBase):
     _directed = True
@@ -13988,6 +13994,12 @@ class _DirectedMultiGraphConversionView(_ConversionGraphViewBase):
 
     def has_edge(self, u, v, key=None):
         return self._graph.has_edge(u, v, key)
+
+    def has_successor(self, u, v):
+        return u in self._graph and v in self.succ[u]
+
+    def has_predecessor(self, u, v):
+        return u in self._graph and v in self.pred[u]
 
 
 class _UndirectedGraphConversionView(_ConversionGraphViewBase):

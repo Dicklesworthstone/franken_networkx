@@ -1582,6 +1582,41 @@ def test_to_directed_tracks_mutations_like_networkx_without_fallback(
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],
 )
+def test_to_directed_exposes_predecessor_and_successor_queries_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx.to_directed(expected)
+
+    _block_networkx_utilities(monkeypatch, "to_directed")
+
+    result = fnx.to_directed(graph)
+
+    assert result.has_successor("a", "b") == expected_result.has_successor("a", "b")
+    assert result.has_predecessor("b", "a") == expected_result.has_predecessor("b", "a")
+    assert result.has_successor("a", "missing") == expected_result.has_successor(
+        "a", "missing"
+    )
+    assert result.has_successor("missing", "a") == expected_result.has_successor(
+        "missing", "a"
+    )
+    assert result.has_predecessor("a", "missing") == expected_result.has_predecessor(
+        "a", "missing"
+    )
+    assert result.has_predecessor("missing", "a") == expected_result.has_predecessor(
+        "missing", "a"
+    )
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
 def test_to_undirected_matches_networkx_without_fallback(monkeypatch, fnx_cls, nx_cls):
     graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
     expected_result = nx.to_undirected(expected)
