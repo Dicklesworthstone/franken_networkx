@@ -3369,6 +3369,61 @@ impl DiDegreeView {
     fn __bool__(&self, py: Python<'_>) -> bool {
         self.graph.borrow(py).inner.node_count() > 0
     }
+
+    /// Make DiDegreeView callable like NetworkX: G.degree() returns self,
+    /// G.degree(node) returns int, G.degree([nodes]) returns filtered list.
+    #[pyo3(signature = (nbunch=None, weight=None))]
+    fn __call__(
+        slf: Py<Self>,
+        py: Python<'_>,
+        nbunch: Option<&Bound<'_, PyAny>>,
+        weight: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<PyObject> {
+        // weight parameter is accepted for API compat but ignored (unweighted view)
+        let _ = weight;
+
+        let Some(nb) = nbunch else {
+            // No args: return self
+            return Ok(slf.into_any());
+        };
+
+        let view = slf.borrow(py);
+        let g = view.graph.borrow(py);
+
+        // Try as single node first
+        if let Ok(canonical) = node_key_to_string(py, nb)
+            && g.inner.has_node(&canonical)
+        {
+            let deg = view.node_degree(&g, &canonical);
+            return Ok(deg.into_pyobject(py)?.into_any().unbind());
+        }
+
+        // Try as iterable of nodes
+        if let Ok(iter) = PyIterator::from_object(nb) {
+            let mut items: Vec<PyObject> = Vec::new();
+            for item in iter {
+                let item = item?;
+                let canonical = node_key_to_string(py, &item)?;
+                if !g.inner.has_node(&canonical) {
+                    return Err(NodeNotFound::new_err(format!(
+                        "The node {} is not in the graph.",
+                        item.repr()?
+                    )));
+                }
+                let deg = view.node_degree(&g, &canonical);
+                let py_key = g.py_node_key(py, &canonical);
+                let py_degree = deg.into_pyobject(py)?.into_any().unbind();
+                items.push(tuple_object(py, &[py_key, py_degree])?);
+            }
+            return Ok(items.into_pyobject(py)?.into_any().unbind());
+        }
+
+        // Neither a node nor iterable - error
+        Err(NodeNotFound::new_err(format!(
+            "The node {} is not in the graph.",
+            nb.repr()?
+        )))
+    }
 }
 
 // ---------------------------------------------------------------------------
