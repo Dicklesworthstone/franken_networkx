@@ -267,7 +267,12 @@ def _should_delegate_astar_to_networkx(weight, cutoff=None):
 
 
 def _should_delegate_negative_edge_cycle_to_networkx(G, weight, heuristic):
-    return G.is_directed() or callable(weight) or heuristic != True
+    return (
+        G.is_directed()
+        or callable(weight)
+        or not isinstance(heuristic, bool)
+        or not heuristic
+    )
 
 
 def _raise_translated_networkx_exception(exc):
