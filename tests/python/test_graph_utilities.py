@@ -2441,6 +2441,34 @@ def test_reverse_view_exposes_succ_and_pred_like_networkx_without_fallback(
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],
 )
+def test_reverse_view_exposes_class_factories_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx.reverse_view(expected)
+    expected_directed_class = fnx.MultiDiGraph if graph.is_multigraph() else fnx.DiGraph
+    expected_undirected_class = fnx.MultiGraph if graph.is_multigraph() else fnx.Graph
+
+    _block_networkx_utilities(monkeypatch, "reverse_view")
+
+    result = fnx.reverse_view(graph)
+
+    assert result.to_directed_class() is expected_directed_class
+    assert result.to_undirected_class() is expected_undirected_class
+    assert result.to_directed_class().__name__ == expected_result.to_directed_class().__name__
+    assert (
+        result.to_undirected_class().__name__
+        == expected_result.to_undirected_class().__name__
+    )
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
 def test_reverse_view_exposes_edge_and_degree_apis_like_networkx_without_fallback(
     monkeypatch, fnx_cls, nx_cls
 ):

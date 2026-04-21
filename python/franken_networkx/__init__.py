@@ -13170,6 +13170,12 @@ class _ReverseDirectedView:
     def is_multigraph(self):
         return self._graph.is_multigraph()
 
+    def to_directed_class(self):
+        return MultiDiGraph if self.is_multigraph() else DiGraph
+
+    def to_undirected_class(self):
+        return MultiGraph if self.is_multigraph() else Graph
+
     def nodes(self, data=False):
         return self._graph.nodes(data=data)
 
@@ -13311,7 +13317,7 @@ class _ReverseDirectedView:
             return _FilteredGraphView(self)
 
         copy_factory = getattr(self._graph, "_copy_type", None)
-        result_type = copy_factory() if callable(copy_factory) else self._graph.__class__()
+        result_type = copy_factory() if callable(copy_factory) else self._graph.__class__
         result = result_type()
         result.graph.update(dict(self.graph))
         result.add_nodes_from((node, dict(attrs)) for node, attrs in self.nodes(data=True))
