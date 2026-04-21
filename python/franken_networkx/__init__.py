@@ -493,7 +493,7 @@ from franken_networkx._fnx import (
     closeness_vitality as _rust_closeness_vitality,
     degree_assortativity_coefficient,
     degree_centrality,
-    edge_betweenness_centrality,
+    edge_betweenness_centrality as _raw_edge_betweenness_centrality,
     edge_betweenness_centrality_subset_rust as _edge_betweenness_centrality_subset_rust,
     eigenvector_centrality,
     harmonic_centrality,
@@ -4028,6 +4028,41 @@ def closeness_centrality(G, u=None, distance=None, wf_improved=True):
         )
     # Use fast Rust implementation for standard case
     return _raw_closeness_centrality(G)
+
+
+def edge_betweenness_centrality(G, k=None, normalized=True, weight=None, seed=None):
+    """Compute edge betweenness centrality for edges.
+
+    Parameters
+    ----------
+    G : graph
+        A NetworkX graph.
+    k : int, optional
+        Number of nodes to sample for approximation.
+    normalized : bool, optional (default=True)
+        If True, normalize by 2/(n(n-1)) for undirected or 1/(n(n-1)) for directed.
+    weight : edge attribute key, optional
+        Use the specified edge attribute as edge weight.
+    seed : random state, optional
+        Random seed for sampling when k is specified.
+
+    Returns
+    -------
+    dict
+        Dictionary of edges with betweenness centrality as value.
+    """
+    # Delegate to NetworkX for unsupported parameters
+    if k is not None or not normalized or weight is not None or seed is not None:
+        return _call_networkx_for_parity(
+            "edge_betweenness_centrality",
+            G,
+            k=k,
+            normalized=normalized,
+            weight=weight,
+            seed=seed,
+        )
+    # Use fast Rust implementation for standard case
+    return _raw_edge_betweenness_centrality(G)
 
 
 def _make_power_iteration_failed_convergence(max_iter):
