@@ -2206,9 +2206,29 @@ from franken_networkx._fnx import (
 
 # Algorithm functions — dominating set
 from franken_networkx._fnx import (
-    dominating_set,
+    dominating_set as _raw_dominating_set,
     is_dominating_set,
 )
+
+
+def dominating_set(G, start_with=None):
+    """Return a dominating set of G.
+
+    Parameters
+    ----------
+    G : graph
+        An undirected graph.
+    start_with : node, optional
+        Node to add to the dominating set first.
+
+    Returns
+    -------
+    set
+        A dominating set of G.
+    """
+    if start_with is not None:
+        return _call_networkx_for_parity("dominating_set", G, start_with=start_with)
+    return _raw_dominating_set(G)
 
 # Algorithm functions — community detection
 from franken_networkx._fnx import (
@@ -3078,6 +3098,42 @@ def score_sequence(G):
     else:
         degree_items = out_degree_view
     return sorted(degree for _node, degree in degree_items)
+
+
+def hamiltonian_path(G):
+    """Return a Hamiltonian path in the tournament graph G.
+
+    Parameters
+    ----------
+    G : DiGraph
+        A tournament graph.
+
+    Returns
+    -------
+    list
+        A list of nodes forming a Hamiltonian path.
+    """
+    from networkx.algorithms.tournament import hamiltonian_path as _nx_hamiltonian_path
+    return _nx_hamiltonian_path(_networkx_graph_for_parity(G))
+
+
+def random_tournament(n, seed=None):
+    """Return a random tournament graph on n nodes.
+
+    Parameters
+    ----------
+    n : int
+        Number of nodes.
+    seed : int or None, optional
+        Random seed.
+
+    Returns
+    -------
+    DiGraph
+        A random tournament graph.
+    """
+    from networkx.algorithms.tournament import random_tournament as _nx_random_tournament
+    return _nx_random_tournament(n, seed=seed)
 
 
 def is_regular(G):
@@ -22629,6 +22685,8 @@ __all__ = [
     "is_k_regular",
     "is_tournament",
     "score_sequence",
+    "hamiltonian_path",
+    "random_tournament",
     "is_weighted",
     "is_negatively_weighted",
     "is_path",
