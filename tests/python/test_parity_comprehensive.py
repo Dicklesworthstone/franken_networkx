@@ -1022,6 +1022,33 @@ class TestSimilarity:
         s = fnx.simrank_similarity(G, 0, 0)
         assert s == pytest.approx(1.0)
 
+    @needs_nx
+    def test_simrank_source_returns_single_source_row(self):
+        actual_graph = fnx.path_graph(4)
+        expected_graph = nx.path_graph(4)
+
+        actual = fnx.simrank_similarity(actual_graph, source=0)
+        expected = nx.simrank_similarity(expected_graph, source=0)
+
+        assert actual == pytest.approx(expected)
+
+    @needs_nx
+    def test_simrank_validates_missing_source_and_target(self):
+        actual_graph = fnx.path_graph(4)
+        expected_graph = nx.path_graph(4)
+
+        with pytest.raises(nx.NodeNotFound) as expected_source:
+            nx.simrank_similarity(expected_graph, source=99)
+        with pytest.raises(fnx.NodeNotFound) as actual_source:
+            fnx.simrank_similarity(actual_graph, source=99)
+        assert str(actual_source.value) == str(expected_source.value)
+
+        with pytest.raises(nx.NodeNotFound) as expected_target:
+            nx.simrank_similarity(expected_graph, target=99)
+        with pytest.raises(fnx.NodeNotFound) as actual_target:
+            fnx.simrank_similarity(actual_graph, target=99)
+        assert str(actual_target.value) == str(expected_target.value)
+
     def test_panther(self):
         G = fnx.path_graph(5)
         p = fnx.panther_similarity(G, 0, seed=42)

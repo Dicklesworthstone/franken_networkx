@@ -15485,7 +15485,7 @@ def random_k_out_graph(n, k, alpha=1, self_loops=True, seed=None):
 
 
 # Similarity (br-poy)
-def simrank_similarity(  # DELEGATED_TO_NETWORKX
+def simrank_similarity(
     G,
     source=None,
     target=None,
@@ -15494,9 +15494,19 @@ def simrank_similarity(  # DELEGATED_TO_NETWORKX
     tolerance=1e-4,
 ):
     """SimRank similarity between nodes."""
-    return _fnx.simrank_similarity_rust(
+    if source is not None and source not in G:
+        raise NodeNotFound(f"Source node {source} not in G")
+    if target is not None and target not in G:
+        raise NodeNotFound(f"Target node {target} not in G")
+
+    result = _fnx.simrank_similarity_rust(
         G, source, target, importance_factor, max_iterations, tolerance
     )
+    if source is not None and target is None and isinstance(result, dict):
+        row = result.get(source)
+        if isinstance(row, dict):
+            return row
+    return result
 
 
 def _numpy_random_state(seed):
