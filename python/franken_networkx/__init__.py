@@ -7367,6 +7367,11 @@ def all_simple_edge_paths(G, source, target, cutoff=None):
     ------
     list of (u, v) tuples
     """
+    if G.is_multigraph():
+        yield from _call_networkx_for_parity(
+            "all_simple_edge_paths", G, source, target, cutoff=cutoff
+        )
+        return
     for path in all_simple_paths(G, source, target, cutoff=cutoff):
         edges = [(path[i], path[i + 1]) for i in range(len(path) - 1)]
         yield edges

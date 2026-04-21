@@ -37,6 +37,22 @@ class TestPathsCycles:
             nx.all_simple_paths(G_nx, "a", "c", cutoff=2)
         )
 
+    def test_all_simple_edge_paths_preserve_multigraph_keys(self, fnx, nx):
+        for graph_type in ("MultiGraph", "MultiDiGraph"):
+            G_fnx = getattr(fnx, graph_type)()
+            G_nx = getattr(nx, graph_type)()
+            for graph in (G_fnx, G_nx):
+                graph.add_edge("a", "b", key="k1")
+                graph.add_edge("a", "b", key="k2")
+                graph.add_edge("b", "c", key="k3")
+
+            assert list(fnx.all_simple_edge_paths(G_fnx, "a", "c")) == list(
+                nx.all_simple_edge_paths(G_nx, "a", "c")
+            )
+            assert list(fnx.all_simple_edge_paths(G_fnx, "a", "c", cutoff=2)) == list(
+                nx.all_simple_edge_paths(G_nx, "a", "c", cutoff=2)
+            )
+
     def test_cycle_basis_count(self, fnx, nx, cycle_graph):
         G_fnx, G_nx = cycle_graph
         fnx_cycles = fnx.cycle_basis(G_fnx)
