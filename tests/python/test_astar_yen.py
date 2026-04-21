@@ -262,6 +262,23 @@ class TestShortestSimplePaths:
         assert paths[0] == [0, 1, 2]
         assert paths[1] == [0, 2]
 
+    def test_callable_weight_matches_networkx(self):
+        def weight(u, v, data):
+            return data["cost"]
+
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", weight=1.0, cost=5.0)
+            graph.add_edge("b", "d", weight=1.0, cost=5.0)
+            graph.add_edge("a", "c", weight=1.0, cost=1.0)
+            graph.add_edge("c", "d", weight=1.0, cost=1.0)
+            graph.add_edge("a", "d", weight=10.0, cost=20.0)
+
+        assert list(fnx.shortest_simple_paths(G_fnx, "a", "d", weight=weight)) == list(
+            nx.shortest_simple_paths(G_nx, "a", "d", weight=weight)
+        )
+
     def test_diamond(self, diamond):
         paths = fnx.shortest_simple_paths(diamond, 0, 3, weight="weight")
         assert len(paths) == 2

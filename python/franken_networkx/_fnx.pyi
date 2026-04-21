@@ -941,7 +941,7 @@ def shortest_simple_paths(
     g: Graph,
     source: Any,
     target: Any,
-    weight: Optional[str] = None,
+    weight: Optional[Any] = None,
 ) -> list[list[Any]]: ...
 
 # ---------------------------------------------------------------------------

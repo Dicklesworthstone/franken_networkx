@@ -2741,7 +2741,7 @@ from franken_networkx._fnx import barycenter
 from franken_networkx._fnx import (
     astar_path as _raw_astar_path,
     astar_path_length as _raw_astar_path_length,
-    shortest_simple_paths,
+    shortest_simple_paths as _raw_shortest_simple_paths,
 )
 
 
@@ -2777,6 +2777,14 @@ def astar_path_length(
     return _raw_astar_path_length(
         G, source, target, heuristic=heuristic, weight=weight
     )
+
+
+def shortest_simple_paths(G, source, target, weight=None):
+    if callable(weight):
+        return _call_networkx_for_parity(
+            "shortest_simple_paths", G, source, target, weight=weight
+        )
+    return _raw_shortest_simple_paths(G, source, target, weight=weight)
 
 # Algorithm functions — approximation
 from franken_networkx._fnx import (
