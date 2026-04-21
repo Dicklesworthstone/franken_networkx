@@ -2469,6 +2469,40 @@ def test_reverse_view_exposes_class_factories_without_fallback(
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],
 )
+def test_reverse_view_exposes_dict_factories_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx.reverse_view(expected)
+
+    _block_networkx_utilities(monkeypatch, "reverse_view")
+
+    result = fnx.reverse_view(graph)
+
+    factory_names = [
+        "adjlist_inner_dict_factory",
+        "adjlist_outer_dict_factory",
+        "edge_attr_dict_factory",
+        "graph_attr_dict_factory",
+        "node_attr_dict_factory",
+        "node_dict_factory",
+    ]
+
+    for name in factory_names:
+        factory = getattr(result, name)
+        expected_factory = getattr(expected_result, name)
+        assert factory is dict
+        assert factory().__class__ is dict
+        assert factory.__name__ == expected_factory.__name__
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
 def test_reverse_view_exposes_edge_and_degree_apis_like_networkx_without_fallback(
     monkeypatch, fnx_cls, nx_cls
 ):

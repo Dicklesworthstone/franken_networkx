@@ -13148,6 +13148,13 @@ def to_directed(G):
 
 
 class _ReverseDirectedView:
+    adjlist_inner_dict_factory = dict
+    adjlist_outer_dict_factory = dict
+    edge_attr_dict_factory = dict
+    graph_attr_dict_factory = dict
+    node_attr_dict_factory = dict
+    node_dict_factory = dict
+
     def __init__(self, graph):
         self._graph = graph
         self.graph = graph.graph
