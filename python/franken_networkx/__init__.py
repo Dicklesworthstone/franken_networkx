@@ -2085,8 +2085,42 @@ from franken_networkx._fnx import (
 from franken_networkx._fnx import (
     louvain_communities,
     modularity,
-    greedy_modularity_communities,
+    greedy_modularity_communities as _raw_greedy_modularity_communities,
 )
+
+
+def greedy_modularity_communities(G, weight=None, resolution=1, cutoff=1, best_n=None):
+    """Find communities greedily maximizing modularity.
+
+    Parameters
+    ----------
+    G : graph
+        An undirected graph.
+    weight : str, optional
+        Edge attribute name to use for weights. Default is None.
+    resolution : float, optional
+        Resolution parameter for modularity. Default is 1.
+    cutoff : int, optional
+        Minimum community size. Default is 1.
+    best_n : int, optional
+        Maximum number of communities to return. Default is None.
+
+    Returns
+    -------
+    list
+        A list of sets of nodes, one for each community.
+    """
+    if cutoff != 1 or best_n is not None:
+        from networkx.algorithms.community import greedy_modularity_communities as _nx_gmc
+        return list(_nx_gmc(
+            _networkx_graph_for_parity(G),
+            weight=weight,
+            resolution=resolution,
+            cutoff=cutoff,
+            best_n=best_n,
+        ))
+    w = weight if weight is not None else "weight"
+    return _raw_greedy_modularity_communities(G, resolution=float(resolution), weight=w)
 
 # Algorithm functions — graph operators
 from franken_networkx._fnx import (
