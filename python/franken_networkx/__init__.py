@@ -13310,7 +13310,9 @@ class _ReverseDirectedView:
         if as_view:
             return _FilteredGraphView(self)
 
-        result = self._graph.__class__()
+        copy_factory = getattr(self._graph, "_copy_type", None)
+        result_type = copy_factory() if callable(copy_factory) else self._graph.__class__()
+        result = result_type()
         result.graph.update(dict(self.graph))
         result.add_nodes_from((node, dict(attrs)) for node, attrs in self.nodes(data=True))
         if self._graph.is_multigraph():
@@ -13976,6 +13978,14 @@ class _ConversionGraphViewBase:
         if self.is_directed():
             return MultiDiGraph if self.is_multigraph() else DiGraph
         return MultiGraph if self.is_multigraph() else Graph
+
+    def reverse(self, copy=True):
+        if not self.is_directed():
+            raise NetworkXError("Cannot reverse an undirected graph.")
+        reversed_view = _ReverseDirectedView(self)
+        if copy:
+            return reversed_view.copy()
+        return reversed_view
 
 
 class _DirectedGraphConversionView(_ConversionGraphViewBase):

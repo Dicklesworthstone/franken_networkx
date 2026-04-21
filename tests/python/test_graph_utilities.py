@@ -1659,6 +1659,53 @@ def test_to_directed_exposes_callable_in_and_out_degree_without_fallback(
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],
 )
+def test_to_directed_reverse_copy_contract_matches_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx.to_directed(expected)
+
+    _block_networkx_utilities(monkeypatch, "to_directed")
+
+    result = fnx.to_directed(graph)
+
+    reverse_view = result.reverse(copy=False)
+    reverse_copy = result.reverse(copy=True)
+    expected_reverse_view = expected_result.reverse(copy=False)
+    expected_reverse_copy = expected_result.reverse(copy=True)
+    expected_reverse_copy_snapshot = _graph_snapshot(expected_reverse_copy)
+
+    assert reverse_view.is_directed() == expected_reverse_view.is_directed()
+    assert reverse_view.is_multigraph() == expected_reverse_view.is_multigraph()
+    assert fnx.is_frozen(reverse_view) == nx.is_frozen(expected_reverse_view)
+    assert _graph_snapshot(reverse_view) == _graph_snapshot(expected_reverse_view)
+
+    assert type(reverse_copy).__name__ == type(expected_reverse_copy).__name__
+    assert reverse_copy.is_directed() == expected_reverse_copy.is_directed()
+    assert reverse_copy.is_multigraph() == expected_reverse_copy.is_multigraph()
+    assert fnx.is_frozen(reverse_copy) == nx.is_frozen(expected_reverse_copy)
+    assert _graph_snapshot(reverse_copy) == expected_reverse_copy_snapshot
+
+    if graph.is_multigraph():
+        graph.add_edge("c", "a", key="late", weight=11)
+        expected.add_edge("c", "a", key="late", weight=11)
+    else:
+        graph.add_edge("c", "a", weight=11)
+        expected.add_edge("c", "a", weight=11)
+
+    assert _graph_snapshot(reverse_view) == _graph_snapshot(expected_reverse_view)
+    assert _graph_snapshot(reverse_copy) == expected_reverse_copy_snapshot
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
 def test_to_undirected_matches_networkx_without_fallback(monkeypatch, fnx_cls, nx_cls):
     graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
     expected_result = nx.to_undirected(expected)
