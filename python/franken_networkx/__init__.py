@@ -2349,14 +2349,71 @@ from franken_networkx._fnx import (
 # Algorithm functions — DAG
 from franken_networkx._fnx import (
     ancestors,
-    dag_longest_path,
-    dag_longest_path_length,
+    dag_longest_path as _raw_dag_longest_path,
+    dag_longest_path_length as _raw_dag_longest_path_length,
     descendants,
     is_directed_acyclic_graph,
     lexicographic_topological_sort,
     topological_sort,
     topological_generations,
 )
+
+
+def dag_longest_path(G, weight="weight", default_weight=1, topo_order=None):
+    """Return the longest path in a DAG.
+
+    Parameters
+    ----------
+    G : DiGraph
+        A directed acyclic graph (DAG).
+    weight : str, optional
+        Edge attribute name to use for weights. Default is 'weight'.
+    default_weight : int, optional
+        Default weight for edges without the weight attribute. Default is 1.
+    topo_order : iterable, optional
+        Precomputed topological order of the nodes.
+
+    Returns
+    -------
+    list
+        The longest path as a list of nodes.
+    """
+    if weight != "weight" or default_weight != 1 or topo_order is not None:
+        return _call_networkx_for_parity(
+            "dag_longest_path",
+            G,
+            weight=weight,
+            default_weight=default_weight,
+            topo_order=topo_order,
+        )
+    return _raw_dag_longest_path(G)
+
+
+def dag_longest_path_length(G, weight="weight", default_weight=1):
+    """Return the length of the longest path in a DAG.
+
+    Parameters
+    ----------
+    G : DiGraph
+        A directed acyclic graph (DAG).
+    weight : str, optional
+        Edge attribute name to use for weights. Default is 'weight'.
+    default_weight : int, optional
+        Default weight for edges without the weight attribute. Default is 1.
+
+    Returns
+    -------
+    int
+        The length of the longest path.
+    """
+    if weight != "weight" or default_weight != 1:
+        return _call_networkx_for_parity(
+            "dag_longest_path_length",
+            G,
+            weight=weight,
+            default_weight=default_weight,
+        )
+    return _raw_dag_longest_path_length(G)
 
 # Algorithm functions — graph isomorphism
 from franken_networkx._fnx import (
