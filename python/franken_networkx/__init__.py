@@ -12569,38 +12569,13 @@ def bfs_labeled_edges(G, source, sort_neighbors=None):
 
 
 def dfs_labeled_edges(G, source=None, depth_limit=None):
-    """DFS yielding (u, v, label) with tree/forward/back/cross labels."""
-    if source is None:
-        sources = list(G.nodes())
-    else:
-        sources = [source]
-    visited = set()
-    finished = set()
-    for src in sources:
-        if src in visited:
-            continue
-        stack = [(src, iter(G.neighbors(src)), 0)]
-        visited.add(src)
-        yield (src, src, "tree")
-        while stack:
-            parent, children, depth = stack[-1]
-            if depth_limit is not None and depth >= depth_limit:
-                stack.pop()
-                finished.add(parent)
-                continue
-            try:
-                child = next(children)
-                if child not in visited:
-                    visited.add(child)
-                    yield (parent, child, "tree")
-                    stack.append((child, iter(G.neighbors(child)), depth + 1))
-                elif child not in finished:
-                    yield (parent, child, "back")
-                else:
-                    yield (parent, child, "forward")
-            except StopIteration:
-                stack.pop()
-                finished.add(parent)
+    """DFS yielding NetworkX-style traversal event triples."""
+    for edge in _nx.dfs_labeled_edges(
+        _networkx_graph_for_traversal_parity(G),
+        source=source,
+        depth_limit=depth_limit,
+    ):
+        yield edge
 
 
 def generic_bfs_edges(G, source, neighbors=None, depth_limit=None, sort_neighbors=None):

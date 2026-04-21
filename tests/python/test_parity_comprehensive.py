@@ -486,11 +486,13 @@ class TestTraversalExtras:
         edges = list(fnx.bfs_beam_edges(G, 0, value=lambda n: n))
         assert len(edges) >= 1
 
+    @needs_nx
     def test_dfs_labeled_edges(self):
-        G = fnx.path_graph(4)
-        labels = list(fnx.dfs_labeled_edges(G, 0))
-        tree_count = sum(1 for _, _, label in labels if label == 'tree')
-        assert tree_count >= 3
+        G_fnx = fnx.path_graph(4)
+        G_nx = nx.path_graph(4)
+        assert list(fnx.dfs_labeled_edges(G_fnx, 0)) == list(
+            nx.dfs_labeled_edges(G_nx, 0)
+        )
 
 
 # ---------------------------------------------------------------------------

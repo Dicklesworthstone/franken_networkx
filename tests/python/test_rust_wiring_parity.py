@@ -421,6 +421,32 @@ class TestTraversalParity:
             nx.bfs_labeled_edges(D_nx, "a")
         )
 
+    @needs_nx
+    def test_dfs_labeled_edges_matches_networkx(self):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for G in (G_fnx, G_nx):
+            G.add_edge(0, 1)
+            G.add_edge(0, 2)
+            G.add_edge(1, 3)
+            G.add_edge(2, 3)
+        assert list(fnx.dfs_labeled_edges(G_fnx, 0)) == list(
+            nx.dfs_labeled_edges(G_nx, 0)
+        )
+
+    @needs_nx
+    def test_dfs_labeled_edges_digraph_matches_networkx(self):
+        D_fnx = fnx.DiGraph()
+        D_nx = nx.DiGraph()
+        for D in (D_fnx, D_nx):
+            D.add_edge("a", "b")
+            D.add_edge("a", "c")
+            D.add_edge("b", "d")
+            D.add_edge("c", "d")
+        assert list(fnx.dfs_labeled_edges(D_fnx, "a")) == list(
+            nx.dfs_labeled_edges(D_nx, "a")
+        )
+
     def test_global_parameters_petersen(self):
         G = fnx.petersen_graph()
         params = fnx.global_parameters(G)
