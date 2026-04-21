@@ -787,6 +787,17 @@ def edmonds_karp(
     return residual
 
 
+def _call_networkx_flow_for_parity(name, G, /, *args, **kwargs):
+    import networkx as nx
+
+    try:
+        return getattr(nx.algorithms.flow, name)(
+            _networkx_graph_for_parity(G), *args, **kwargs
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
 def shortest_augmenting_path(
     G,
     s,
@@ -798,7 +809,7 @@ def shortest_augmenting_path(
     cutoff=None,
 ):
     """Find a maximum single-commodity flow using the shortest augmenting path algorithm."""
-    return _call_networkx_for_parity(
+    return _call_networkx_flow_for_parity(
         "shortest_augmenting_path",
         G,
         s,
@@ -821,7 +832,7 @@ def preflow_push(
     value_only=False,
 ):
     """Find a maximum single-commodity flow using the highest-label preflow-push algorithm."""
-    return _call_networkx_for_parity(
+    return _call_networkx_flow_for_parity(
         "preflow_push",
         G,
         s,
@@ -843,7 +854,7 @@ def dinitz(
     cutoff=None,
 ):
     """Find a maximum single-commodity flow using Dinitz' algorithm."""
-    return _call_networkx_for_parity(
+    return _call_networkx_flow_for_parity(
         "dinitz",
         G,
         s,
@@ -865,7 +876,7 @@ def boykov_kolmogorov(
     cutoff=None,
 ):
     """Find a maximum single-commodity flow using Boykov-Kolmogorov algorithm."""
-    return _call_networkx_for_parity(
+    return _call_networkx_flow_for_parity(
         "boykov_kolmogorov",
         G,
         s,
