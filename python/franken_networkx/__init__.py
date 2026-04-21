@@ -12725,6 +12725,8 @@ def number_of_walks(G, walk_length):
 
 def recursive_simple_cycles(G):
     """Find all simple cycles using recursive DFS."""
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
     return list(simple_cycles(G))
 
 

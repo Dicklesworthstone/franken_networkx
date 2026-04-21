@@ -197,6 +197,31 @@ class TestCyclesCoverage:
         cycles = list(fnx.recursive_simple_cycles(D))
         assert len(cycles) > 0
 
+    @needs_nx
+    def test_recursive_simple_cycles_undirected_error_matches_networkx(self):
+        for graph_type in ("Graph", "MultiGraph"):
+            G_fnx = getattr(fnx, graph_type)()
+            G_nx = getattr(nx, graph_type)()
+            for graph in (G_fnx, G_nx):
+                graph.add_edge(0, 1)
+                graph.add_edge(1, 2)
+                graph.add_edge(2, 0)
+
+            with pytest.raises(fnx.NetworkXNotImplemented, match="not implemented for undirected type"):
+                fnx.recursive_simple_cycles(G_fnx)
+            with pytest.raises(nx.NetworkXNotImplemented, match="not implemented for undirected type"):
+                nx.recursive_simple_cycles(G_nx)
+
+    @needs_nx
+    def test_recursive_simple_cycles_multidigraph_matches_networkx(self):
+        D_fnx = fnx.MultiDiGraph()
+        D_nx = nx.MultiDiGraph()
+        for graph in (D_fnx, D_nx):
+            graph.add_edge(1, 2, key="k1")
+            graph.add_edge(2, 1, key="k2")
+
+        assert fnx.recursive_simple_cycles(D_fnx) == nx.recursive_simple_cycles(D_nx)
+
 
 # ---------------------------------------------------------------------------
 # Graph operations
