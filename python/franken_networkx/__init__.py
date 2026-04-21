@@ -346,7 +346,14 @@ def dijkstra_path(G, source, target, weight="weight"):
         return _call_networkx_for_parity(
             "dijkstra_path", G, source, target, weight=weight
         )
-    return _raw_dijkstra_path(G, source, target, weight=weight)
+    if source not in G:
+        raise NodeNotFound(f"Node {source} not found in graph")
+    if target not in G:
+        raise NetworkXNoPath(f"No path to {target}.")
+    try:
+        return _raw_dijkstra_path(G, source, target, weight=weight)
+    except NetworkXNoPath as exc:
+        raise NetworkXNoPath(f"No path to {target}.") from exc
 
 
 def bellman_ford_path(G, source, target, weight="weight"):
@@ -3397,7 +3404,14 @@ def dijkstra_path_length(G, source, target, weight="weight"):
         return _call_networkx_for_parity(
             "dijkstra_path_length", G, source, target, weight=weight
         )
-    return _raw_dijkstra_path_length(G, source, target, weight=weight)
+    if source not in G:
+        raise NodeNotFound(f"Node {source} not found in graph")
+    if target not in G:
+        raise NetworkXNoPath(f"Node {target} not reachable from {source}")
+    try:
+        return _raw_dijkstra_path_length(G, source, target, weight=weight)
+    except NetworkXNoPath as exc:
+        raise NetworkXNoPath(f"Node {target} not reachable from {source}") from exc
 
 
 def bellman_ford_path_length(G, source, target, weight="weight"):

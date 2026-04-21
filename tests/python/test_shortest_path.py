@@ -257,6 +257,39 @@ class TestShortestPath:
         G_fnx, G_nx = weighted_graph
         assert fnx.dijkstra_path(G_fnx, "a", "d") == nx.dijkstra_path(G_nx, "a", "d")
 
+    def test_dijkstra_path_wrappers_preserve_missing_node_and_target_contracts(self, fnx, nx):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        G_fnx.add_edge("a", "b", weight=1.0)
+        G_nx.add_edge("a", "b", weight=1.0)
+        G_fnx.add_node("z")
+        G_nx.add_node("z")
+
+        _assert_same_result_or_exception(
+            lambda: fnx.dijkstra_path(G_fnx, "missing", "b", weight="weight"),
+            lambda: nx.dijkstra_path(G_nx, "missing", "b", weight="weight"),
+        )
+        _assert_same_result_or_exception(
+            lambda: fnx.dijkstra_path_length(G_fnx, "missing", "b", weight="weight"),
+            lambda: nx.dijkstra_path_length(G_nx, "missing", "b", weight="weight"),
+        )
+        _assert_same_result_or_exception(
+            lambda: fnx.dijkstra_path(G_fnx, "a", "not-there", weight="weight"),
+            lambda: nx.dijkstra_path(G_nx, "a", "not-there", weight="weight"),
+        )
+        _assert_same_result_or_exception(
+            lambda: fnx.dijkstra_path_length(G_fnx, "a", "not-there", weight="weight"),
+            lambda: nx.dijkstra_path_length(G_nx, "a", "not-there", weight="weight"),
+        )
+        _assert_same_result_or_exception(
+            lambda: fnx.dijkstra_path(G_fnx, "a", "z", weight="weight"),
+            lambda: nx.dijkstra_path(G_nx, "a", "z", weight="weight"),
+        )
+        _assert_same_result_or_exception(
+            lambda: fnx.dijkstra_path_length(G_fnx, "a", "z", weight="weight"),
+            lambda: nx.dijkstra_path_length(G_nx, "a", "z", weight="weight"),
+        )
+
     def test_bellman_ford_path(self, fnx, nx, weighted_graph):
         G_fnx, G_nx = weighted_graph
         assert fnx.bellman_ford_path(G_fnx, "a", "d") == nx.bellman_ford_path(G_nx, "a", "d")
