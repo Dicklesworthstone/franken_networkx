@@ -489,7 +489,7 @@ from franken_networkx._fnx import (
     average_neighbor_degree,
     betweenness_centrality,
     betweenness_centrality_subset_rust as _betweenness_centrality_subset_rust,
-    closeness_centrality,
+    closeness_centrality as _raw_closeness_centrality,
     closeness_vitality as _rust_closeness_vitality,
     degree_assortativity_coefficient,
     degree_centrality,
@@ -3995,6 +3995,39 @@ def pagerank(
             return current
 
     raise PowerIterationFailedConvergence(max_iter)
+
+
+def closeness_centrality(G, u=None, distance=None, wf_improved=True):
+    """Compute closeness centrality for nodes.
+
+    Parameters
+    ----------
+    G : graph
+        A NetworkX graph.
+    u : node, optional
+        Return only the value for node u.
+    distance : edge attribute key, optional
+        Use the specified edge attribute as the edge distance.
+    wf_improved : bool, optional (default=True)
+        If True, use Wasserman-Faust improved formula for disconnected graphs.
+
+    Returns
+    -------
+    dict or float
+        Dictionary of nodes with closeness centrality as value, or a single
+        float if u is specified.
+    """
+    # Delegate to NetworkX for unsupported parameters
+    if u is not None or distance is not None or not wf_improved:
+        return _call_networkx_for_parity(
+            "closeness_centrality",
+            G,
+            u=u,
+            distance=distance,
+            wf_improved=wf_improved,
+        )
+    # Use fast Rust implementation for standard case
+    return _raw_closeness_centrality(G)
 
 
 def _make_power_iteration_failed_convergence(max_iter):
