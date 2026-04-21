@@ -1643,6 +1643,40 @@ def test_directed_graph_classes_expose_predecessor_and_successor_queries(
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],
 )
+def test_graph_classes_expose_nbunch_iter_like_networkx(fnx_cls, nx_cls):
+    graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+
+    assert list(graph.nbunch_iter()) == list(expected.nbunch_iter())
+    assert list(graph.nbunch_iter("a")) == list(expected.nbunch_iter("a"))
+    assert list(graph.nbunch_iter("missing")) == list(expected.nbunch_iter("missing"))
+    assert list(graph.nbunch_iter(["a", "missing"])) == list(
+        expected.nbunch_iter(["a", "missing"])
+    )
+
+    with pytest.raises(Exception) as fnx_exc:
+        list(graph.nbunch_iter(9))
+    with pytest.raises(Exception) as nx_exc:
+        list(expected.nbunch_iter(9))
+    assert type(fnx_exc.value).__name__ == type(nx_exc.value).__name__
+    assert str(fnx_exc.value) == str(nx_exc.value)
+
+    with pytest.raises(Exception) as fnx_exc:
+        list(graph.nbunch_iter([[]]))
+    with pytest.raises(Exception) as nx_exc:
+        list(expected.nbunch_iter([[]]))
+    assert type(fnx_exc.value).__name__ == type(nx_exc.value).__name__
+    assert str(fnx_exc.value) == str(nx_exc.value)
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
 def test_to_directed_exposes_callable_in_and_out_degree_without_fallback(
     monkeypatch, fnx_cls, nx_cls
 ):

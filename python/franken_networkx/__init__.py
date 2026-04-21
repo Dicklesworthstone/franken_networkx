@@ -54,6 +54,38 @@ def _directed_graph_has_predecessor(self, u, v):
     return u in self and v in self.pred[u]
 
 
+def _graph_nbunch_iter(self, nbunch=None):
+    adjacency = self.adj
+    if nbunch is None:
+        return iter(adjacency)
+    if nbunch in self:
+        return iter([nbunch])
+
+    def bunch_iter(nlist, adj):
+        try:
+            for n in nlist:
+                hash(n)
+                if n in adj:
+                    yield n
+        except TypeError as err:
+            exc, message = err, err.args[0]
+            if "iter" in message:
+                exc = NetworkXError("nbunch is not a node or a sequence of nodes.")
+            if "object is not iterable" in message:
+                exc = NetworkXError(f"Node {nbunch} is not in the graph.")
+            if "hashable" in message:
+                exc = NetworkXError(f"Node {n} in sequence nbunch is not a valid node.")
+            raise exc
+
+    return bunch_iter(nbunch, adjacency)
+
+
+Graph.nbunch_iter = _graph_nbunch_iter
+DiGraph.nbunch_iter = _graph_nbunch_iter
+MultiGraph.nbunch_iter = _graph_nbunch_iter
+MultiDiGraph.nbunch_iter = _graph_nbunch_iter
+
+
 DiGraph.has_successor = _directed_graph_has_successor
 DiGraph.has_predecessor = _directed_graph_has_predecessor
 MultiDiGraph.has_successor = _directed_graph_has_successor
