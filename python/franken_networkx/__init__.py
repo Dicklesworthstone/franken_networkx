@@ -787,7 +787,7 @@ def eccentricity(G, v=None, sp=None, weight=None):
 from franken_networkx._fnx import (
     bipartite_sets,
     core_number,
-    greedy_color,
+    greedy_color as _raw_greedy_color,
     is_bipartite,
     is_forest,
     is_tree,
@@ -1459,6 +1459,35 @@ def maximum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
             ignore_nan=ignore_nan,
         )
     return _raw_maximum_spanning_tree(G, weight=weight)
+
+
+def greedy_color(G, strategy="largest_first", interchange=False):
+    """Color a graph using various greedy strategies.
+
+    Parameters
+    ----------
+    G : graph
+        A NetworkX graph.
+    strategy : str or function, optional (default='largest_first')
+        Greedy strategy to use. Options include 'largest_first',
+        'smallest_last', 'independent_set', 'connected_sequential_bfs',
+        'connected_sequential_dfs', 'saturation_largest_first', or a function.
+    interchange : bool, optional (default=False)
+        Use interchange optimization (only valid with 'saturation_largest_first').
+
+    Returns
+    -------
+    dict
+        Dictionary mapping nodes to colors (integers starting at 0).
+    """
+    if interchange:
+        return _call_networkx_for_parity(
+            "greedy_color",
+            G,
+            strategy=strategy,
+            interchange=interchange,
+        )
+    return _raw_greedy_color(G, strategy=strategy)
 
 
 # Algorithm functions — condensation (wrapped to match NetworkX API)
