@@ -1250,6 +1250,30 @@ class TestShortestPath:
             lambda: dict(nx.all_pairs_bellman_ford_path_length(D_nx, weight="weight")),
         )
 
+    def test_undirected_all_shortest_paths_bellman_ford_parity(self, fnx, nx):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", weight=1.0)
+            graph.add_edge("b", "c", weight=1.0)
+            graph.add_edge("a", "d", weight=1.0)
+            graph.add_edge("d", "c", weight=1.0)
+            graph.add_edge("c", "e", weight=1.0)
+            graph.add_edge("b", "e", weight=2.0)
+
+        _assert_same_result_or_exception(
+            lambda: list(
+                fnx.all_shortest_paths(
+                    G_fnx, "a", "e", weight="weight", method="bellman-ford"
+                )
+            ),
+            lambda: list(
+                nx.all_shortest_paths(
+                    G_nx, "a", "e", weight="weight", method="bellman-ford"
+                )
+            ),
+        )
+
     def test_directed_target_only_bellman_ford_shortest_path_length_parity(self, fnx, nx):
         D_fnx = fnx.DiGraph()
         D_nx = nx.DiGraph()

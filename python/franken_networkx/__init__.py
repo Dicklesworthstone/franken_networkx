@@ -1237,6 +1237,14 @@ def all_shortest_paths(G, source, target, weight=None, method="dijkstra"):
         if method is not None:
             kwargs["method"] = method
         return _call_networkx_for_parity("all_shortest_paths", G, source, target, **kwargs)
+    if weight is not None and method == "bellman-ford":
+        if not G.is_directed() or _should_delegate_bellman_ford_to_networkx(weight):
+            kwargs = {"weight": weight}
+            if method is not None:
+                kwargs["method"] = method
+            return _call_networkx_for_parity(
+                "all_shortest_paths", G, source, target, **kwargs
+            )
     return _raw_all_shortest_paths(G, source, target, weight=weight, method=method)
 
 
