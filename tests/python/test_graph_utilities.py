@@ -1767,6 +1767,41 @@ def test_common_live_views_size_preserve_networkx_return_types(
 
 
 @pytest.mark.parametrize(
+    ("builder_name", "fnx_builder", "nx_builder", "fnx_cls", "nx_cls"),
+    [
+        ("to_directed", fnx.to_directed, nx.to_directed, fnx.Graph, nx.Graph),
+        ("to_directed", fnx.to_directed, nx.to_directed, fnx.MultiGraph, nx.MultiGraph),
+        ("to_undirected", fnx.to_undirected, nx.to_undirected, fnx.DiGraph, nx.DiGraph),
+        (
+            "to_undirected",
+            fnx.to_undirected,
+            nx.to_undirected,
+            fnx.MultiDiGraph,
+            nx.MultiDiGraph,
+        ),
+    ],
+)
+def test_conversion_live_views_reject_update_while_frozen_without_fallback(
+    monkeypatch, builder_name, fnx_builder, nx_builder, fnx_cls, nx_cls
+):
+    graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+
+    _block_networkx_utilities(monkeypatch, "to_directed", "to_undirected")
+
+    result = fnx_builder(graph)
+    expected_result = nx_builder(expected)
+
+    with pytest.raises(Exception) as fnx_exc:
+        result.update([])
+    with pytest.raises(Exception) as nx_exc:
+        expected_result.update([])
+
+    assert builder_name in {"to_directed", "to_undirected"}
+    assert type(fnx_exc.value).__name__ == type(nx_exc.value).__name__
+    assert str(fnx_exc.value) == str(nx_exc.value)
+
+
+@pytest.mark.parametrize(
     ("fnx_cls", "nx_cls"),
     [
         (fnx.Graph, nx.Graph),

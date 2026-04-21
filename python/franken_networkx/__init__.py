@@ -13525,6 +13525,7 @@ _FILTERED_VIEW_MUTATORS = (
     "remove_edges_from",
     "clear",
     "clear_edges",
+    "update",
 )
 
 
