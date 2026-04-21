@@ -1611,6 +1611,32 @@ def test_to_directed_exposes_predecessor_and_successor_queries_without_fallback(
 @pytest.mark.parametrize(
     ("fnx_cls", "nx_cls"),
     [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_directed_graph_classes_expose_predecessor_and_successor_queries(
+    fnx_cls, nx_cls
+):
+    graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+
+    assert graph.has_successor("a", "b") == expected.has_successor("a", "b")
+    assert graph.has_successor("b", "a") == expected.has_successor("b", "a")
+    assert graph.has_successor("a", "missing") == expected.has_successor("a", "missing")
+    assert graph.has_successor("missing", "a") == expected.has_successor("missing", "a")
+    assert graph.has_predecessor("b", "a") == expected.has_predecessor("b", "a")
+    assert graph.has_predecessor("a", "b") == expected.has_predecessor("a", "b")
+    assert graph.has_predecessor("a", "missing") == expected.has_predecessor(
+        "a", "missing"
+    )
+    assert graph.has_predecessor("missing", "a") == expected.has_predecessor(
+        "missing", "a"
+    )
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
         (fnx.Graph, nx.Graph),
         (fnx.DiGraph, nx.DiGraph),
         (fnx.MultiGraph, nx.MultiGraph),

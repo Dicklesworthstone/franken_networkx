@@ -46,6 +46,20 @@ class EdgePartition(Enum):
     EXCLUDED = 2
 
 
+def _directed_graph_has_successor(self, u, v):
+    return u in self and v in self.succ[u]
+
+
+def _directed_graph_has_predecessor(self, u, v):
+    return u in self and v in self.pred[u]
+
+
+DiGraph.has_successor = _directed_graph_has_successor
+DiGraph.has_predecessor = _directed_graph_has_predecessor
+MultiDiGraph.has_successor = _directed_graph_has_successor
+MultiDiGraph.has_predecessor = _directed_graph_has_predecessor
+
+
 def _nan_filtered_graph(G, weight, ignore_nan):
     H = G.__class__()
     H.graph.update(dict(G.graph))
