@@ -2780,6 +2780,8 @@ def astar_path_length(
 
 
 def shortest_simple_paths(G, source, target, weight=None):
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
     if callable(weight):
         return _call_networkx_for_parity(
             "shortest_simple_paths", G, source, target, weight=weight

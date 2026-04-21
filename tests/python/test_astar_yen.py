@@ -279,6 +279,30 @@ class TestShortestSimplePaths:
             nx.shortest_simple_paths(G_nx, "a", "d", weight=weight)
         )
 
+    def test_rejects_multigraphs_matches_networkx(self):
+        def weight(u, v, data):
+            return data["weight"]
+
+        for nx_graph_type, fnx_graph_type in (
+            (nx.MultiGraph, fnx.MultiGraph),
+            (nx.MultiDiGraph, fnx.MultiDiGraph),
+        ):
+            G_nx = nx_graph_type()
+            G_fnx = fnx_graph_type()
+            for graph in (G_nx, G_fnx):
+                graph.add_edge(0, 1, weight=1.0)
+                graph.add_edge(1, 2, weight=1.0)
+                graph.add_edge(0, 2, weight=3.0)
+
+            for weight_arg in (None, "weight", weight):
+                with pytest.raises(nx.NetworkXNotImplemented) as expected:
+                    list(nx.shortest_simple_paths(G_nx, 0, 2, weight=weight_arg))
+
+                with pytest.raises(
+                    fnx.NetworkXNotImplemented, match=re.escape(str(expected.value))
+                ):
+                    list(fnx.shortest_simple_paths(G_fnx, 0, 2, weight=weight_arg))
+
     def test_diamond(self, diamond):
         paths = fnx.shortest_simple_paths(diamond, 0, 3, weight="weight")
         assert len(paths) == 2
