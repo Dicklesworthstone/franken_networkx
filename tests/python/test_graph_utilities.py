@@ -2503,6 +2503,41 @@ def test_reverse_view_exposes_dict_factories_without_fallback(
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],
 )
+def test_reverse_view_exposes_query_helpers_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx.reverse_view(expected)
+
+    _block_networkx_utilities(monkeypatch, "reverse_view")
+
+    result = fnx.reverse_view(graph)
+
+    assert result.has_node("a") == expected_result.has_node("a")
+    assert result.has_node("z") == expected_result.has_node("z")
+    assert result.get_edge_data("b", "a") == expected_result.get_edge_data("b", "a")
+    assert result.get_edge_data("a", "b") == expected_result.get_edge_data("a", "b")
+
+    if graph.is_multigraph():
+        assert result.get_edge_data("b", "a", key=1) == expected_result.get_edge_data(
+            "b", "a", key=1
+        )
+        assert result.get_edge_data("a", "b", key=99, default="missing") == (
+            expected_result.get_edge_data("a", "b", key=99, default="missing")
+        )
+    else:
+        assert result.get_edge_data("a", "b", default="missing") == expected_result.get_edge_data(
+            "a", "b", default="missing"
+        )
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
 def test_reverse_view_exposes_edge_and_degree_apis_like_networkx_without_fallback(
     monkeypatch, fnx_cls, nx_cls
 ):

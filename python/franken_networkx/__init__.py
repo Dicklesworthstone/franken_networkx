@@ -13339,10 +13339,44 @@ class _ReverseDirectedView:
     def number_of_edges(self):
         return self._graph.number_of_edges()
 
+    def has_node(self, node):
+        return node in self._graph
+
     def has_edge(self, u, v, key=None):
         if self._graph.is_multigraph():
             return self._graph.has_edge(v, u, key)
         return self._graph.has_edge(v, u)
+
+    def get_edge_data(self, u, v, *args, **kwargs):
+        if self._graph.is_multigraph():
+            key = kwargs.pop("key", None)
+            default = kwargs.pop("default", None)
+            if kwargs:
+                unexpected = next(iter(kwargs))
+                raise TypeError(f"get_edge_data() got an unexpected keyword argument '{unexpected}'")
+            if len(args) > 2:
+                raise TypeError(
+                    f"get_edge_data() takes from 3 to 5 positional arguments but {len(args) + 3} were given"
+                )
+            if len(args) >= 1:
+                key = args[0]
+            if len(args) == 2:
+                default = args[1]
+            return self._graph.get_edge_data(v, u, key, default)
+
+        if "key" in kwargs:
+            raise TypeError("get_edge_data() got an unexpected keyword argument 'key'")
+        default = kwargs.pop("default", None)
+        if kwargs:
+            unexpected = next(iter(kwargs))
+            raise TypeError(f"get_edge_data() got an unexpected keyword argument '{unexpected}'")
+        if len(args) > 1:
+            raise TypeError(
+                f"get_edge_data() takes from 3 to 4 positional arguments but {len(args) + 3} were given"
+            )
+        if args:
+            default = args[0]
+        return self._graph.get_edge_data(v, u, default)
 
     def neighbors(self, node):
         return self._graph.predecessors(node)
