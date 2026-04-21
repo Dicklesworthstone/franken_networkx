@@ -2907,7 +2907,13 @@ class _ApproximationNamespace:
         return _treewidth_min_degree(G)
 
     def __getattr__(self, name):
-        return getattr(_nx.approximation, name)
+        nx_func = getattr(_nx.approximation, name)
+        def wrapper(G, *args, **kwargs):
+            nx_G = _networkx_graph_for_parity(G)
+            return nx_func(nx_G, *args, **kwargs)
+        wrapper.__name__ = name
+        wrapper.__doc__ = nx_func.__doc__
+        return wrapper
 
     def __dir__(self):
         return sorted(set(dir(_nx.approximation)) | {"treewidth_min_degree"})
