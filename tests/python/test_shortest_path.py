@@ -826,6 +826,25 @@ class TestShortestPath:
         for name, run in cases:
             assert run(fnx, G_fnx) == run(nx, G_nx), name
 
+    @pytest.mark.parametrize(
+        "nodelist",
+        [
+            ["a", "b", "b"],
+            ["a", "b"],
+            ["a", "b", "c", "x"],
+        ],
+    )
+    def test_floyd_warshall_numpy_nodelist_contract_matches_networkx(
+        self, fnx, nx, nodelist
+    ):
+        G_fnx = fnx.path_graph(["a", "b", "c"])
+        G_nx = nx.path_graph(["a", "b", "c"])
+
+        _assert_same_result_or_exception(
+            lambda: fnx.floyd_warshall_numpy(G_fnx, nodelist=nodelist),
+            lambda: nx.floyd_warshall_numpy(G_nx, nodelist=nodelist),
+        )
+
     def test_single_source_bellman_ford_target_matches_networkx(self, fnx, nx):
         G_fnx = fnx.Graph()
         G_nx = nx.Graph()

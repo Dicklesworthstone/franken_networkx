@@ -12617,7 +12617,13 @@ def floyd_warshall_numpy(G, nodelist=None, weight="weight"):
     """Floyd-Warshall via numpy matrix operations."""
     import numpy as np
 
-    if nodelist is None:
+    if nodelist is not None:
+        if not (len(nodelist) == len(G) == len(set(nodelist))):
+            raise NetworkXError(
+                "nodelist must contain every node in G with no repeats."
+                "If you wanted a subgraph of G use G.subgraph(nodelist)"
+            )
+    else:
         nodelist = list(G.nodes())
     n = len(nodelist)
     A = to_numpy_array(G, nodelist=nodelist, weight=weight)
