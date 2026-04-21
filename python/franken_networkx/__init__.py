@@ -10557,6 +10557,153 @@ def connected_double_edge_swap(G, nswap=1, _window_threshold=3, seed=None):
 # ---------------------------------------------------------------------------
 
 
+def _current_flow_pseudo_peripheral_node(G):
+    """Return a pseudo-peripheral node for reverse Cuthill-McKee ordering."""
+    node = next(iter(G))
+    longest_path = 0
+    peripheral = node
+    while True:
+        path_lengths = shortest_path_length(G, peripheral)
+        eccentricity = max(path_lengths.values())
+        if eccentricity <= longest_path:
+            break
+        longest_path = eccentricity
+        farthest_nodes = (
+            candidate
+            for candidate, distance in path_lengths.items()
+            if distance == eccentricity
+        )
+        peripheral = min(farthest_nodes, key=lambda candidate: G.degree[candidate])
+    return peripheral
+
+
+def _connected_cuthill_mckee_ordering(G, heuristic=None):
+    """Yield the Cuthill-McKee ordering for a connected graph."""
+    start = heuristic(G) if heuristic is not None else _current_flow_pseudo_peripheral_node(G)
+    visited = {start}
+    queue = deque([start])
+    while queue:
+        parent = queue.popleft()
+        yield parent
+        children = sorted(
+            set(G[parent]) - visited,
+            key=lambda candidate: G.degree[candidate],
+        )
+        visited.update(children)
+        queue.extend(children)
+
+
+def _reverse_cuthill_mckee_ordering(G, heuristic=None):
+    """Yield the reverse Cuthill-McKee ordering for an undirected graph."""
+    ordering = []
+    for component in connected_components(G):
+        subgraph = G.subgraph(component)
+        ordering.extend(_connected_cuthill_mckee_ordering(subgraph, heuristic=heuristic))
+    return reversed(ordering)
+
+
+class _InverseLaplacian:
+    def __init__(self, L, width=None, dtype=None):
+        import numpy as np
+
+        (n, _) = L.shape
+        self.dtype = dtype
+        self.n = n
+        self.w = self.width(L) if width is None else width
+        self.C = np.zeros((self.w, n), dtype=dtype)
+        self.L1 = L[1:, 1:]
+        self.init_solver(L)
+
+    def init_solver(self, L):
+        pass
+
+    def solve(self, rhs):
+        raise NetworkXError("Implement solver")
+
+    def solve_inverse(self, row_index):
+        raise NetworkXError("Implement solver")
+
+    def get_rows(self, row_start, row_end):
+        for row_index in range(row_start, row_end + 1):
+            self.C[row_index % self.w, 1:] = self.solve_inverse(row_index)
+        return self.C
+
+    def get_row(self, row_index):
+        self.C[row_index % self.w, 1:] = self.solve_inverse(row_index)
+        return self.C[row_index % self.w]
+
+    def width(self, L):
+        import numpy as np
+
+        max_width = 0
+        for row_index, row in enumerate(L):
+            offsets = np.nonzero(row)[-1]
+            if len(offsets) == 0:
+                continue
+            span = offsets - row_index
+            max_width = max(max_width, span.max() - span.min() + 1)
+        return max_width
+
+
+class _FullInverseLaplacian(_InverseLaplacian):
+    def init_solver(self, L):
+        import numpy as np
+
+        self.IL = np.zeros(L.shape, dtype=self.dtype)
+        self.IL[1:, 1:] = np.linalg.inv(self.L1.todense())
+
+    def solve(self, rhs):
+        return self.IL @ rhs
+
+    def solve_inverse(self, row_index):
+        return self.IL[row_index, 1:]
+
+
+class _SuperLUInverseLaplacian(_InverseLaplacian):
+    def init_solver(self, L):
+        import scipy as sp
+
+        self.lusolve = sp.sparse.linalg.factorized(self.L1.tocsc())
+
+    def solve_inverse(self, row_index):
+        import numpy as np
+
+        rhs = np.zeros(self.n, dtype=self.dtype)
+        rhs[row_index] = 1
+        return self.lusolve(rhs[1:])
+
+    def solve(self, rhs):
+        import numpy as np
+
+        solution = np.zeros(rhs.shape, dtype=self.dtype)
+        solution[1:] = self.lusolve(rhs[1:])
+        return solution
+
+
+class _CGInverseLaplacian(_InverseLaplacian):
+    def init_solver(self, L):
+        import scipy as sp
+
+        n = self.n - 1
+        ilu = sp.sparse.linalg.spilu(self.L1.tocsc())
+        self.M = sp.sparse.linalg.LinearOperator(shape=(n, n), matvec=ilu.solve)
+        self._sp = sp
+
+    def solve(self, rhs):
+        import numpy as np
+
+        solution = np.zeros(rhs.shape, dtype=self.dtype)
+        solution[1:] = self._sp.sparse.linalg.cg(self.L1, rhs[1:], M=self.M, atol=0)[0]
+        return solution
+
+    def solve_inverse(self, row_index):
+        import numpy as np
+
+        rhs = np.zeros(self.n, dtype=self.dtype)
+        rhs[row_index] = 1
+        return self._sp.sparse.linalg.cg(self.L1, rhs[1:], M=self.M, atol=0)[0]
+
+
 def current_flow_betweenness_centrality(G, normalized=True, weight=None, solver="full"):
     """Current-flow betweenness centrality based on electrical current flow."""
     return _fnx.current_flow_betweenness_centrality_rust(
@@ -10612,36 +10759,24 @@ def approximate_current_flow_betweenness_centrality(
 
 def current_flow_closeness_centrality(G, weight=None, dtype=float, solver="lu"):
     """Closeness centrality based on effective resistance (information centrality)."""
-    import networkx as nx
-
-    from networkx.algorithms.centrality.flow_matrix import (
-        CGInverseLaplacian,
-        FullInverseLaplacian,
-        SuperLUInverseLaplacian,
-    )
-    from networkx.utils import reverse_cuthill_mckee_ordering
-
-    from franken_networkx.backend import _fnx_to_nx
-
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
 
     solvername = {
-        "full": FullInverseLaplacian,
-        "lu": SuperLUInverseLaplacian,
-        "cg": CGInverseLaplacian,
+        "full": _FullInverseLaplacian,
+        "lu": _SuperLUInverseLaplacian,
+        "cg": _CGInverseLaplacian,
     }
 
-    source_graph = _fnx_to_nx(G)
-    if not nx.is_connected(source_graph):
+    if not is_connected(G):
         raise NetworkXError("Graph not connected.")
 
-    node_count = source_graph.number_of_nodes()
-    ordering = list(reverse_cuthill_mckee_ordering(source_graph))
-    relabeled = nx.relabel_nodes(source_graph, dict(zip(ordering, range(node_count))))
+    node_count = G.number_of_nodes()
+    ordering = list(_reverse_cuthill_mckee_ordering(G))
+    relabeled = relabel_nodes(G, dict(zip(ordering, range(node_count))))
     centrality = dict.fromkeys(relabeled, 0.0)
 
-    laplacian = nx.laplacian_matrix(
+    laplacian = laplacian_matrix(
         relabeled,
         nodelist=range(node_count),
         weight=weight,
