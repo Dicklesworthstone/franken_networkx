@@ -16097,6 +16097,48 @@ def vf2pp_all_isomorphisms(G1, G2, node_label=None, default_label=None):
     )
 
 
+def tree_isomorphism(t1, t2):
+    """Return all isomorphism mappings between two trees.
+
+    Parameters
+    ----------
+    t1 : Graph
+        An undirected tree.
+    t2 : Graph
+        An undirected tree.
+
+    Returns
+    -------
+    list
+        A list of dictionaries, each mapping nodes of t1 to nodes of t2.
+    """
+    from networkx.algorithms.isomorphism import tree_isomorphism as _nx_tree_iso
+    return _nx_tree_iso(_networkx_graph_for_parity(t1), _networkx_graph_for_parity(t2))
+
+
+def rooted_tree_isomorphism(t1, root1, t2, root2):
+    """Return all isomorphism mappings between two rooted trees.
+
+    Parameters
+    ----------
+    t1 : Graph
+        An undirected tree.
+    root1 : node
+        The root node of t1.
+    t2 : Graph
+        An undirected tree.
+    root2 : node
+        The root node of t2.
+
+    Returns
+    -------
+    list
+        A list of dictionaries, each mapping nodes of t1 to nodes of t2.
+    """
+    from networkx.algorithms.isomorphism import rooted_tree_isomorphism as _nx_rooted_iso
+    return _nx_rooted_iso(_networkx_graph_for_parity(t1), root1, _networkx_graph_for_parity(t2), root2)
+
+
 # Tree/Forest Utilities (br-xkr)
 def junction_tree(G):
     """Junction tree of a chordal graph."""
@@ -16442,7 +16484,7 @@ def simrank_similarity(
     source=None,
     target=None,
     importance_factor=0.9,
-    max_iterations=100,
+    max_iterations=1000,
     tolerance=1e-4,
 ):
     """SimRank similarity between nodes."""
@@ -22185,6 +22227,8 @@ __all__ = [
     "vf2pp_is_isomorphic",
     "vf2pp_isomorphism",
     "vf2pp_all_isomorphisms",
+    "tree_isomorphism",
+    "rooted_tree_isomorphism",
     # Tree/forest utilities
     "junction_tree",
     "join_trees",
