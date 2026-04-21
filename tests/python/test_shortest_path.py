@@ -797,6 +797,77 @@ class TestShortestPath:
         for name, run in cases:
             assert run(fnx, G_fnx) == run(nx, G_nx), name
 
+    def test_negative_edge_cycle_heuristic_and_directed_match_networkx(self, fnx, nx):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", weight=-2.0)
+            graph.add_edge("b", "c", weight=-3.0)
+            graph.add_edge("c", "a", weight=-1.0)
+
+        D_fnx = fnx.DiGraph()
+        D_nx = nx.DiGraph()
+        for graph in (D_fnx, D_nx):
+            graph.add_edge("a", "b", weight=1.0)
+            graph.add_edge("b", "c", weight=-3.0)
+            graph.add_edge("c", "a", weight=1.0)
+
+        D_acyclic_fnx = fnx.DiGraph()
+        D_acyclic_nx = nx.DiGraph()
+        for graph in (D_acyclic_fnx, D_acyclic_nx):
+            graph.add_edge("a", "b", weight=1.0)
+            graph.add_edge("b", "c", weight=2.0)
+
+        def weight_fn(u, v, data):
+            return data.get("weight", 1.0)
+
+        cases = [
+            (
+                "undirected_heuristic_false",
+                lambda mod, graph: mod.negative_edge_cycle(
+                    graph, weight="weight", heuristic=False
+                ),
+                G_fnx,
+                G_nx,
+            ),
+            (
+                "directed_default",
+                lambda mod, graph: mod.negative_edge_cycle(graph, weight="weight"),
+                D_fnx,
+                D_nx,
+            ),
+            (
+                "directed_heuristic_false",
+                lambda mod, graph: mod.negative_edge_cycle(
+                    graph, weight="weight", heuristic=False
+                ),
+                D_fnx,
+                D_nx,
+            ),
+            (
+                "directed_no_cycle_heuristic_false",
+                lambda mod, graph: mod.negative_edge_cycle(
+                    graph, weight="weight", heuristic=False
+                ),
+                D_acyclic_fnx,
+                D_acyclic_nx,
+            ),
+            (
+                "callable_weight_heuristic_false",
+                lambda mod, graph: mod.negative_edge_cycle(
+                    graph, weight=weight_fn, heuristic=False
+                ),
+                G_fnx,
+                G_nx,
+            ),
+        ]
+
+        for name, run, fnx_graph, nx_graph in cases:
+            _assert_same_result_or_exception(
+                lambda run=run, fnx_graph=fnx_graph: run(fnx, fnx_graph),
+                lambda run=run, nx_graph=nx_graph: run(nx, nx_graph),
+            )
+
     def test_multi_source_dijkstra_target_cutoff_matches_legacy_networkx_34(self, fnx):
         legacy_nx = _legacy_networkx()
         G_fnx = fnx.Graph()

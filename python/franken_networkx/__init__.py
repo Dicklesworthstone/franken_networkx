@@ -266,6 +266,10 @@ def _should_delegate_astar_to_networkx(weight, cutoff=None):
     return callable(weight) or cutoff is not None
 
 
+def _should_delegate_negative_edge_cycle_to_networkx(G, weight, heuristic):
+    return G.is_directed() or callable(weight) or heuristic != True
+
+
 def _raise_translated_networkx_exception(exc):
     import networkx as nx
 
@@ -2523,7 +2527,7 @@ from franken_networkx._fnx import (
     floyd_warshall as _raw_floyd_warshall,
     floyd_warshall_predecessor_and_distance as _raw_floyd_warshall_predecessor_and_distance,
     bidirectional_shortest_path,
-    negative_edge_cycle,
+    negative_edge_cycle as _raw_negative_edge_cycle,
     predecessor,
     path_weight,
 )
@@ -2571,6 +2575,14 @@ def bellman_ford_path_length(G, source, target, weight="weight"):
             "bellman_ford_path_length", G, source, target, weight=weight
         )
     return _raw_bellman_ford_path_length(G, source, target, weight=weight)
+
+
+def negative_edge_cycle(G, weight="weight", heuristic=True):
+    if _should_delegate_negative_edge_cycle_to_networkx(G, weight, heuristic):
+        return _call_networkx_for_parity(
+            "negative_edge_cycle", G, weight=weight, heuristic=heuristic
+        )
+    return _raw_negative_edge_cycle(G, weight=weight)
 
 
 def _single_source_dijkstra_cutoff_view(source, dists, paths, cutoff):
