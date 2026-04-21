@@ -138,6 +138,17 @@ def _to_undirected_class(self):
     return MultiGraph if self.is_multigraph() else Graph
 
 
+def _multigraph_new_edge_key(self, u, v):
+    try:
+        keydict = self.adj[u][v]
+    except KeyError:
+        return 0
+    key = len(keydict)
+    while key in keydict:
+        key += 1
+    return key
+
+
 def _simple_graph_adjacency(self):
     return [(node, self.adj[node]) for node in self]
 
@@ -155,6 +166,34 @@ Graph.size = _size_with_unweighted_int(Graph.size)
 DiGraph.size = _size_with_unweighted_int(DiGraph.size)
 MultiGraph.size = _size_with_unweighted_int(MultiGraph.size)
 MultiDiGraph.size = _size_with_unweighted_int(MultiDiGraph.size)
+Graph.adjlist_inner_dict_factory = dict
+Graph.adjlist_outer_dict_factory = dict
+Graph.edge_attr_dict_factory = dict
+Graph.graph_attr_dict_factory = dict
+Graph.node_attr_dict_factory = dict
+Graph.node_dict_factory = dict
+DiGraph.adjlist_inner_dict_factory = dict
+DiGraph.adjlist_outer_dict_factory = dict
+DiGraph.edge_attr_dict_factory = dict
+DiGraph.graph_attr_dict_factory = dict
+DiGraph.node_attr_dict_factory = dict
+DiGraph.node_dict_factory = dict
+MultiGraph.adjlist_inner_dict_factory = dict
+MultiGraph.adjlist_outer_dict_factory = dict
+MultiGraph.edge_attr_dict_factory = dict
+MultiGraph.graph_attr_dict_factory = dict
+MultiGraph.node_attr_dict_factory = dict
+MultiGraph.node_dict_factory = dict
+MultiGraph.edge_key_dict_factory = dict
+MultiGraph.new_edge_key = _multigraph_new_edge_key
+MultiDiGraph.adjlist_inner_dict_factory = dict
+MultiDiGraph.adjlist_outer_dict_factory = dict
+MultiDiGraph.edge_attr_dict_factory = dict
+MultiDiGraph.graph_attr_dict_factory = dict
+MultiDiGraph.node_attr_dict_factory = dict
+MultiDiGraph.node_dict_factory = dict
+MultiDiGraph.edge_key_dict_factory = dict
+MultiDiGraph.new_edge_key = _multigraph_new_edge_key
 Graph.to_directed_class = _to_directed_class
 Graph.to_undirected_class = _to_undirected_class
 DiGraph.to_directed_class = _to_directed_class

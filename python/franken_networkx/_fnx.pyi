@@ -114,6 +114,12 @@ class DiAdjacencyView:
 
 class Graph:
     graph: dict[str, Any]
+    adjlist_inner_dict_factory: type[dict[Any, Any]]
+    adjlist_outer_dict_factory: type[dict[Any, Any]]
+    edge_attr_dict_factory: type[dict[Any, Any]]
+    graph_attr_dict_factory: type[dict[Any, Any]]
+    node_attr_dict_factory: type[dict[Any, Any]]
+    node_dict_factory: type[dict[Any, Any]]
     nodes: NodeView
     edges: EdgeView
     degree: DegreeView
@@ -169,6 +175,12 @@ class Graph:
 
 class DiGraph:
     graph: dict[str, Any]
+    adjlist_inner_dict_factory: type[dict[Any, Any]]
+    adjlist_outer_dict_factory: type[dict[Any, Any]]
+    edge_attr_dict_factory: type[dict[Any, Any]]
+    graph_attr_dict_factory: type[dict[Any, Any]]
+    node_attr_dict_factory: type[dict[Any, Any]]
+    node_dict_factory: type[dict[Any, Any]]
     nodes: DiNodeView
     edges: DiEdgeView
     degree: DiDegreeView
@@ -239,6 +251,13 @@ class DiGraph:
 
 class MultiGraph:
     graph: dict[str, Any]
+    adjlist_inner_dict_factory: type[dict[Any, Any]]
+    adjlist_outer_dict_factory: type[dict[Any, Any]]
+    edge_attr_dict_factory: type[dict[Any, Any]]
+    graph_attr_dict_factory: type[dict[Any, Any]]
+    node_attr_dict_factory: type[dict[Any, Any]]
+    node_dict_factory: type[dict[Any, Any]]
+    edge_key_dict_factory: type[dict[Any, Any]]
     nodes: Any
     edges: Any
     degree: Any
@@ -272,6 +291,7 @@ class MultiGraph:
     def neighbors(self, n: Any) -> list[Any]: ...
     def nbunch_iter(self, nbunch: Any = None) -> Iterator[Any]: ...
     def adjacency(self) -> list[tuple[Any, dict[Any, dict[Any, dict[str, Any]]]]]: ...
+    def new_edge_key(self, u: Any, v: Any) -> int: ...
     def to_directed_class(self) -> type["MultiDiGraph"]: ...
     def to_undirected_class(self) -> type["MultiGraph"]: ...
     def copy(self) -> "MultiGraph": ...
@@ -290,6 +310,13 @@ class MultiGraph:
 
 class MultiDiGraph:
     graph: dict[str, Any]
+    adjlist_inner_dict_factory: type[dict[Any, Any]]
+    adjlist_outer_dict_factory: type[dict[Any, Any]]
+    edge_attr_dict_factory: type[dict[Any, Any]]
+    graph_attr_dict_factory: type[dict[Any, Any]]
+    node_attr_dict_factory: type[dict[Any, Any]]
+    node_dict_factory: type[dict[Any, Any]]
+    edge_key_dict_factory: type[dict[Any, Any]]
     nodes: Any
     edges: Any
     degree: Any
@@ -343,6 +370,7 @@ class MultiDiGraph:
     def nbunch_iter(self, nbunch: Any = None) -> Iterator[Any]: ...
     def neighbors(self, n: Any) -> list[Any]: ...
     def adjacency(self) -> list[tuple[Any, dict[Any, dict[Any, dict[str, Any]]]]]: ...
+    def new_edge_key(self, u: Any, v: Any) -> int: ...
     def to_directed_class(self) -> type["MultiDiGraph"]: ...
     def to_undirected_class(self) -> type[MultiGraph]: ...
     def reverse(self) -> "MultiDiGraph": ...

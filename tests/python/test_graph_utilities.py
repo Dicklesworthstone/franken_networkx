@@ -1739,6 +1739,58 @@ def test_graph_classes_expose_class_factories_like_networkx(fnx_cls, nx_cls):
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],
 )
+def test_graph_classes_expose_dict_factories_and_multigraph_key_helpers_like_networkx(
+    fnx_cls, nx_cls
+):
+    graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+
+    factory_names = [
+        "adjlist_inner_dict_factory",
+        "adjlist_outer_dict_factory",
+        "edge_attr_dict_factory",
+        "graph_attr_dict_factory",
+        "node_attr_dict_factory",
+        "node_dict_factory",
+    ]
+
+    for name in factory_names:
+        factory = getattr(graph, name)
+        expected_factory = getattr(expected, name)
+        assert factory is dict
+        assert factory().__class__ is dict
+        assert factory.__name__ == expected_factory.__name__
+
+    if graph.is_multigraph():
+        assert graph.edge_key_dict_factory is dict
+        assert graph.edge_key_dict_factory().__class__ is dict
+        assert (
+            graph.edge_key_dict_factory.__name__
+            == expected.edge_key_dict_factory.__name__
+        )
+        helper_graph = fnx_cls()
+        helper_expected = nx_cls()
+        assert helper_graph.new_edge_key("missing", "pair") == helper_expected.new_edge_key(
+            "missing", "pair"
+        )
+
+        helper_graph.add_edge("a", "b", key="k1")
+        helper_expected.add_edge("a", "b", key="k1")
+        assert helper_graph.new_edge_key("a", "b") == helper_expected.new_edge_key("a", "b") == 1
+
+        helper_graph.add_edge("a", "b", key=1)
+        helper_expected.add_edge("a", "b", key=1)
+        assert helper_graph.new_edge_key("a", "b") == helper_expected.new_edge_key("a", "b")
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
 def test_to_directed_exposes_callable_in_and_out_degree_without_fallback(
     monkeypatch, fnx_cls, nx_cls
 ):
