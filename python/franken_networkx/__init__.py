@@ -8689,26 +8689,29 @@ def single_source_all_shortest_paths(G, source, weight=None):
             yield path
 
 
-def all_pairs_all_shortest_paths(G, weight=None):
+def all_pairs_all_shortest_paths(G, weight=None, method="dijkstra"):
     """Yield all shortest paths between all pairs.
 
     Parameters
     ----------
     G : Graph
     weight : str or None, optional
+    method : str, optional
 
     Yields
     ------
     (source, paths_dict)
-        Where paths_dict maps target -> path.
+        Where paths_dict maps target -> list of shortest paths.
     """
     if weight is not None:
-        for source in G.nodes():
-            paths = single_source_dijkstra_path(G, source, weight=weight)
-            yield (source, paths)
+        yield from _call_networkx_for_parity(
+            "all_pairs_all_shortest_paths", G, weight=weight, method=method
+        )
         return
     result = _fnx.all_pairs_all_shortest_paths_rust(G)
-    for source, paths_dict in result.items():
+    for source in G.nodes():
+        paths_dict = {source: [[source]]}
+        paths_dict.update(result.get(source, {}))
         yield (source, paths_dict)
 
 
