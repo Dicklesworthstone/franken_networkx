@@ -1023,6 +1023,43 @@ class TestShortestPath:
             lambda: dict(nx.all_pairs_all_shortest_paths(G_nx, weight=weight_fn)),
         )
 
+    def test_dijkstra_predecessor_and_distance_matches_networkx(self, fnx, nx):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", weight=1.0, cost=1.0)
+            graph.add_edge("a", "c", weight=1.0, cost=1.0)
+            graph.add_edge("b", "d", weight=1.0, cost=1.0)
+            graph.add_edge("c", "d", weight=1.0, cost=1.0)
+            graph.add_edge("d", "e", weight=2.0, cost=2.0)
+
+        weight_fn = lambda u, v, data: data["cost"]
+
+        _assert_same_result_or_exception(
+            lambda: fnx.dijkstra_predecessor_and_distance(G_fnx, "a", weight="weight"),
+            lambda: nx.dijkstra_predecessor_and_distance(G_nx, "a", weight="weight"),
+        )
+        _assert_same_result_or_exception(
+            lambda: fnx.dijkstra_predecessor_and_distance(
+                G_fnx, "a", cutoff=1.5, weight="weight"
+            ),
+            lambda: nx.dijkstra_predecessor_and_distance(
+                G_nx, "a", cutoff=1.5, weight="weight"
+            ),
+        )
+        _assert_same_result_or_exception(
+            lambda: fnx.dijkstra_predecessor_and_distance(G_fnx, "a", weight=weight_fn),
+            lambda: nx.dijkstra_predecessor_and_distance(G_nx, "a", weight=weight_fn),
+        )
+        _assert_same_result_or_exception(
+            lambda: fnx.dijkstra_predecessor_and_distance(
+                G_fnx, "missing", weight="weight"
+            ),
+            lambda: nx.dijkstra_predecessor_and_distance(
+                G_nx, "missing", weight="weight"
+            ),
+        )
+
     def test_negative_weight_dijkstra_directed_api_parity(self, fnx, nx):
         D_fnx, D_nx = _negative_weight_graph_pair(fnx, nx, directed=True)
 

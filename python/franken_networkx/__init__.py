@@ -8586,22 +8586,23 @@ def dijkstra_predecessor_and_distance(G, source, cutoff=None, weight="weight"):
     -------
     (pred, dist) : tuple of dicts
     """
-    dist = single_source_dijkstra_path_length(G, source, weight=weight)
-    paths = single_source_dijkstra_path(G, source, weight=weight)
+    if _should_delegate_dijkstra_to_networkx(G, weight):
+        return _call_networkx_for_parity(
+            "dijkstra_predecessor_and_distance",
+            G,
+            source,
+            cutoff=cutoff,
+            weight=weight,
+        )
+    if source not in G:
+        raise NodeNotFound(f"Node {source} is not found in the graph")
 
-    if cutoff is not None:
-        dist = {k: v for k, v in dist.items() if v <= cutoff}
-
-    pred = {}
-    for node, path in paths.items():
-        if cutoff is not None and node not in dist:
-            continue
-        if len(path) >= 2:
-            pred[node] = [path[-2]]
-        else:
-            pred[node] = []
-
-    return pred, dist
+    _, predecessors, _, distances = _single_source_dijkstra_path_basic_local(
+        G, source, weight, cutoff=cutoff
+    )
+    pred = {node: predecessors[node] for node in distances}
+    pred[source] = []
+    return pred, distances
 
 
 def multi_source_dijkstra(G, sources, target=None, cutoff=None, weight="weight"):
