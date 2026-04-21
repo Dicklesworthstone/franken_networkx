@@ -498,7 +498,7 @@ from franken_networkx._fnx import (
     eigenvector_centrality,
     harmonic_centrality,
     hits,
-    katz_centrality,
+    katz_centrality as _raw_katz_centrality,
     pagerank as _raw_pagerank,
     voterank,
 )
@@ -4063,6 +4063,60 @@ def edge_betweenness_centrality(G, k=None, normalized=True, weight=None, seed=No
         )
     # Use fast Rust implementation for standard case
     return _raw_edge_betweenness_centrality(G)
+
+
+def katz_centrality(
+    G, alpha=0.1, beta=1.0, max_iter=1000, tol=1.0e-6, nstart=None, normalized=True, weight=None
+):
+    """Compute Katz centrality for nodes.
+
+    Parameters
+    ----------
+    G : graph
+        A NetworkX graph.
+    alpha : float, optional (default=0.1)
+        Attenuation factor.
+    beta : float or dict, optional (default=1.0)
+        Weight attributed to immediate neighborhood.
+    max_iter : int, optional (default=1000)
+        Maximum iterations for power iteration.
+    tol : float, optional (default=1e-6)
+        Convergence tolerance.
+    nstart : dict, optional
+        Starting value of centrality for each node.
+    normalized : bool, optional (default=True)
+        If True, normalize values.
+    weight : edge attribute key, optional
+        Use the specified edge attribute as edge weight.
+
+    Returns
+    -------
+    dict
+        Dictionary of nodes with Katz centrality as value.
+    """
+    # Delegate to NetworkX when non-default parameters are used
+    if (
+        alpha != 0.1
+        or beta != 1.0
+        or max_iter != 1000
+        or tol != 1.0e-6
+        or nstart is not None
+        or not normalized
+        or weight is not None
+    ):
+        return _call_networkx_for_parity(
+            "katz_centrality",
+            G,
+            alpha=alpha,
+            beta=beta,
+            max_iter=max_iter,
+            tol=tol,
+            nstart=nstart,
+            normalized=normalized,
+            weight=weight,
+        )
+    # Use fast Rust implementation for standard case
+    return _raw_katz_centrality(G)
 
 
 def _make_power_iteration_failed_convergence(max_iter):
