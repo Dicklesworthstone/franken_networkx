@@ -8607,6 +8607,8 @@ def dijkstra_predecessor_and_distance(G, source, cutoff=None, weight="weight"):
 
 def multi_source_dijkstra(G, sources, target=None, cutoff=None, weight="weight"):
     """Return shortest path lengths and paths from any source in *sources*."""
+    if not sources:
+        raise ValueError("sources must not be empty")
     if callable(weight) or _should_delegate_dijkstra_to_networkx(G, weight):
         return _call_networkx_for_parity(
             "multi_source_dijkstra",

@@ -424,6 +424,35 @@ class TestShortestPath:
             ),
         )
 
+    def test_multi_source_dijkstra_empty_sources_match_networkx(self, fnx, nx):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", weight=1.0)
+
+        _assert_same_result_or_exception(
+            lambda: fnx.multi_source_dijkstra(G_fnx, set(), weight="weight"),
+            lambda: nx.multi_source_dijkstra(G_nx, set(), weight="weight"),
+        )
+        _assert_same_result_or_exception(
+            lambda: fnx.multi_source_dijkstra(
+                G_fnx, set(), target="a", weight="weight"
+            ),
+            lambda: nx.multi_source_dijkstra(
+                G_nx, set(), target="a", weight="weight"
+            ),
+        )
+        _assert_same_result_or_exception(
+            lambda: fnx.multi_source_dijkstra_path(G_fnx, set(), weight="weight"),
+            lambda: nx.multi_source_dijkstra_path(G_nx, set(), weight="weight"),
+        )
+        _assert_same_result_or_exception(
+            lambda: fnx.multi_source_dijkstra_path_length(
+                G_fnx, set(), weight="weight"
+            ),
+            lambda: nx.multi_source_dijkstra_path_length(G_nx, set(), weight="weight"),
+        )
+
     def test_single_source_dijkstra_target_and_cutoff_match_networkx(self, fnx, nx):
         G_fnx = fnx.Graph()
         G_nx = nx.Graph()
