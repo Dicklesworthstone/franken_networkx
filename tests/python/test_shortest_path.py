@@ -166,6 +166,56 @@ class TestShortestPath:
         G_fnx, G_nx = disconnected_graph
         assert fnx.has_path(G_fnx, "a", "d") == nx.has_path(G_nx, "a", "d")
 
+    def test_path_query_wrappers_match_node_not_found_message_text(self, fnx, nx):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        G_fnx.add_edge("a", "b")
+        G_nx.add_edge("a", "b")
+
+        for fnx_call, nx_call in (
+            (
+                lambda: fnx.has_path(G_fnx, "z", "b"),
+                lambda: nx.has_path(G_nx, "z", "b"),
+            ),
+            (
+                lambda: fnx.has_path(G_fnx, "a", "z"),
+                lambda: nx.has_path(G_nx, "a", "z"),
+            ),
+            (
+                lambda: fnx.shortest_path(G_fnx, "z", "b"),
+                lambda: nx.shortest_path(G_nx, "z", "b"),
+            ),
+            (
+                lambda: fnx.shortest_path(G_fnx, "a", "z"),
+                lambda: nx.shortest_path(G_nx, "a", "z"),
+            ),
+            (
+                lambda: fnx.shortest_path(G_fnx, source="z"),
+                lambda: nx.shortest_path(G_nx, source="z"),
+            ),
+            (
+                lambda: fnx.shortest_path(G_fnx, target="z"),
+                lambda: nx.shortest_path(G_nx, target="z"),
+            ),
+            (
+                lambda: fnx.shortest_path_length(G_fnx, "z", "b"),
+                lambda: nx.shortest_path_length(G_nx, "z", "b"),
+            ),
+            (
+                lambda: fnx.shortest_path_length(G_fnx, "a", "z"),
+                lambda: nx.shortest_path_length(G_nx, "a", "z"),
+            ),
+            (
+                lambda: fnx.shortest_path_length(G_fnx, source="z"),
+                lambda: nx.shortest_path_length(G_nx, source="z"),
+            ),
+            (
+                lambda: fnx.shortest_path_length(G_fnx, target="z"),
+                lambda: nx.shortest_path_length(G_nx, target="z"),
+            ),
+        ):
+            _assert_same_result_or_exception(fnx_call, nx_call)
+
     def test_average_shortest_path_length(self, fnx, nx, path_graph):
         G_fnx, G_nx = path_graph
         fnx_val = fnx.average_shortest_path_length(G_fnx)

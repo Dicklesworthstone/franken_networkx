@@ -215,7 +215,7 @@ from franken_networkx._fnx import (
     average_shortest_path_length as _raw_average_shortest_path_length,
     bellman_ford_path as _raw_bellman_ford_path,
     dijkstra_path as _raw_dijkstra_path,
-    has_path,
+    has_path as _raw_has_path,
     multi_source_dijkstra as _raw_multi_source_dijkstra,
     shortest_path as _raw_shortest_path,
     shortest_path_length as _shortest_path_length_raw,
@@ -228,6 +228,12 @@ def _networkx_graph_for_parity(G):
 
         return _fnx_to_nx(G)
     return G
+
+
+def _path_query_has_missing_nodes(G, source=None, target=None):
+    return (source is not None and source not in G) or (
+        target is not None and target not in G
+    )
 
 
 def _has_negative_edge_weight_for_dijkstra(G, weight):
@@ -376,6 +382,15 @@ def bellman_ford_path(G, source, target, weight="weight"):
 def shortest_path(G, source=None, target=None, weight=None, method="dijkstra"):
     if method not in ("dijkstra", "bellman-ford"):
         raise ValueError(f"method not supported: {method}")
+    if _path_query_has_missing_nodes(G, source=source, target=target):
+        return _call_networkx_for_parity(
+            "shortest_path",
+            G,
+            source=source,
+            target=target,
+            weight=weight,
+            method=method,
+        )
     if weight is not None:
         if method == "dijkstra" and _should_delegate_dijkstra_to_networkx(G, weight):
             return _call_networkx_for_parity(
@@ -409,6 +424,15 @@ def shortest_path_length(G, source=None, target=None, weight=None, method="dijks
     """
     if method not in ("dijkstra", "bellman-ford"):
         raise ValueError(f"method not supported: {method}")
+    if _path_query_has_missing_nodes(G, source=source, target=target):
+        return _call_networkx_for_parity(
+            "shortest_path_length",
+            G,
+            source=source,
+            target=target,
+            weight=weight,
+            method=method,
+        )
 
     if weight is not None:
         if method == "dijkstra" and _should_delegate_dijkstra_to_networkx(G, weight):
@@ -467,6 +491,12 @@ def shortest_path_length(G, source=None, target=None, weight=None, method="dijks
     else:
         all_pairs = all_pairs_shortest_path_length(G)
     return ((node, all_pairs[node]) for node in G.nodes())
+
+
+def has_path(graph, source, target):
+    if _path_query_has_missing_nodes(graph, source=source, target=target):
+        return _call_networkx_for_parity("has_path", graph, source, target)
+    return _raw_has_path(graph, source, target)
 
 
 # Algorithm functions — connectivity
