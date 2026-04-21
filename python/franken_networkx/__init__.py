@@ -12537,7 +12537,7 @@ def bfs_beam_edges(G, source, value, width=None):
 
 
 def bfs_labeled_edges(G, source, sort_neighbors=None):
-    """BFS yielding (u, v, label) with tree/forward/reverse/cross labels."""
+    """BFS yielding NetworkX-style ``(u, v, label)`` triples."""
     if sort_neighbors is not None:
         # Fall back to Python when custom sort is needed
         visited = {source}
@@ -12561,7 +12561,10 @@ def bfs_labeled_edges(G, source, sort_neighbors=None):
                         yield (node, nbr, "reverse")
             queue = next_queue
         return
-    for edge in _fnx.bfs_labeled_edges_rust(G, source):
+    for edge in _nx.bfs_labeled_edges(
+        _networkx_graph_for_traversal_parity(G),
+        source,
+    ):
         yield edge
 
 
