@@ -2002,7 +2002,11 @@ from franken_networkx._fnx import (
     global_node_connectivity,
 )
 
-def all_pairs_dijkstra(G, weight="weight"):
+def all_pairs_dijkstra(G, cutoff=None, weight="weight"):
+    if cutoff is not None:
+        for node in G:
+            yield (node, single_source_dijkstra(G, node, cutoff=cutoff, weight=weight))
+        return
     if _should_delegate_dijkstra_to_networkx(G, weight):
         yield from _call_networkx_for_parity("all_pairs_dijkstra", G, weight=weight)
         return
@@ -2678,7 +2682,14 @@ def single_source_bellman_ford_path_length(G, source, weight="weight"):
     return _raw_single_source_bellman_ford_path_length(G, source, weight=weight)
 
 
-def all_pairs_dijkstra_path(G, weight="weight"):
+def all_pairs_dijkstra_path(G, cutoff=None, weight="weight"):
+    if cutoff is not None:
+        for node in G:
+            yield (
+                node,
+                single_source_dijkstra_path(G, node, cutoff=cutoff, weight=weight),
+            )
+        return
     if _should_delegate_dijkstra_to_networkx(G, weight):
         yield from _call_networkx_for_parity(
             "all_pairs_dijkstra_path", G, weight=weight
@@ -2688,7 +2699,16 @@ def all_pairs_dijkstra_path(G, weight="weight"):
         yield (k, v)
 
 
-def all_pairs_dijkstra_path_length(G, weight="weight"):
+def all_pairs_dijkstra_path_length(G, cutoff=None, weight="weight"):
+    if cutoff is not None:
+        for node in G:
+            yield (
+                node,
+                single_source_dijkstra_path_length(
+                    G, node, cutoff=cutoff, weight=weight
+                ),
+            )
+        return
     if _should_delegate_dijkstra_to_networkx(G, weight):
         yield from _call_networkx_for_parity(
             "all_pairs_dijkstra_path_length", G, weight=weight

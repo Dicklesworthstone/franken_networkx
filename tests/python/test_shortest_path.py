@@ -1013,6 +1013,68 @@ class TestShortestPath:
             ),
         )
 
+    def test_all_pairs_dijkstra_cutoff_matches_networkx(self, fnx, nx):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", weight=1.0, cost=1.0)
+            graph.add_edge("a", "c", weight=4.0, cost=1.0)
+            graph.add_edge("b", "c", weight=1.0, cost=1.0)
+            graph.add_edge("c", "d", weight=1.0, cost=2.0)
+            graph.add_edge("d", "e", weight=2.0, cost=1.0)
+            graph.add_node("isolated")
+
+        weight_fn = lambda u, v, data: data["cost"]
+
+        cases = [
+            (
+                "all_pairs_dijkstra_cutoff",
+                lambda mod, graph: dict(
+                    mod.all_pairs_dijkstra(graph, cutoff=2.5, weight="weight")
+                ),
+            ),
+            (
+                "all_pairs_dijkstra_path_cutoff",
+                lambda mod, graph: dict(
+                    mod.all_pairs_dijkstra_path(graph, cutoff=2.5, weight="weight")
+                ),
+            ),
+            (
+                "all_pairs_dijkstra_path_length_cutoff",
+                lambda mod, graph: dict(
+                    mod.all_pairs_dijkstra_path_length(
+                        graph, cutoff=2.5, weight="weight"
+                    )
+                ),
+            ),
+            (
+                "all_pairs_dijkstra_callable_cutoff",
+                lambda mod, graph: dict(
+                    mod.all_pairs_dijkstra(graph, cutoff=2.5, weight=weight_fn)
+                ),
+            ),
+            (
+                "all_pairs_dijkstra_path_callable_cutoff",
+                lambda mod, graph: dict(
+                    mod.all_pairs_dijkstra_path(graph, cutoff=2.5, weight=weight_fn)
+                ),
+            ),
+            (
+                "all_pairs_dijkstra_path_length_callable_cutoff",
+                lambda mod, graph: dict(
+                    mod.all_pairs_dijkstra_path_length(
+                        graph, cutoff=2.5, weight=weight_fn
+                    )
+                ),
+            ),
+        ]
+
+        for _, run in cases:
+            _assert_same_result_or_exception(
+                lambda run=run: run(fnx, G_fnx),
+                lambda run=run: run(nx, G_nx),
+            )
+
     def test_all_pairs_all_shortest_paths_matches_networkx(self, fnx, nx):
         G_fnx = fnx.Graph()
         G_nx = nx.Graph()
