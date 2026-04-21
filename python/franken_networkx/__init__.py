@@ -2253,13 +2253,38 @@ def greedy_modularity_communities(G, weight=None, resolution=1, cutoff=1, best_n
 
 # Algorithm functions — graph operators
 from franken_networkx._fnx import (
-    union,
+    union as _raw_union,
     intersection,
     compose,
     difference,
     symmetric_difference,
     degree_histogram as _raw_degree_histogram,
 )
+
+
+def union(G, H, rename=()):
+    """Return the union of graphs G and H.
+
+    Parameters
+    ----------
+    G : graph
+        A graph.
+    H : graph
+        A graph.
+    rename : tuple, optional
+        A 2-tuple of names to prepend to node names in G and H respectively.
+        Default is ().
+
+    Returns
+    -------
+    Graph
+        A new graph with the nodes and edges from both G and H.
+    """
+    if rename:
+        nx_G = _networkx_graph_for_parity(G)
+        nx_H = _networkx_graph_for_parity(H)
+        return _nx.union(nx_G, nx_H, rename=rename)
+    return _raw_union(G, H)
 
 # Algorithm functions — transitive closure/reduction
 from franken_networkx._fnx import (
