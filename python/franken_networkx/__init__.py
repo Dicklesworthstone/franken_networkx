@@ -517,9 +517,35 @@ from franken_networkx._fnx import (
 from franken_networkx._fnx import (
     max_weight_matching,
     maximal_matching,
-    min_edge_cover,
+    min_edge_cover as _raw_min_edge_cover,
     min_weight_matching,
 )
+
+
+def min_edge_cover(G, matching_algorithm=None):
+    """Return a minimum edge cover of the graph.
+
+    Parameters
+    ----------
+    G : graph
+        An undirected bipartite graph.
+    matching_algorithm : function, optional
+        A function that computes a maximum cardinality matching.
+        If None, uses the default max_weight_matching.
+
+    Returns
+    -------
+    set
+        Set of edges forming a minimum edge cover.
+    """
+    if matching_algorithm is not None:
+        return _call_networkx_for_parity(
+            "min_edge_cover",
+            G,
+            matching_algorithm=matching_algorithm,
+        )
+    return _raw_min_edge_cover(G)
+
 
 # Algorithm functions — flow
 from franken_networkx._fnx import (
@@ -696,6 +722,96 @@ def edmonds_karp(
     residual.graph["flow_value"] = _edmonds_karp_core(residual, source, sink, cutoff)
     residual.graph["algorithm"] = "edmonds_karp"
     return residual
+
+
+def shortest_augmenting_path(
+    G,
+    s,
+    t,
+    capacity="capacity",
+    residual=None,
+    value_only=False,
+    two_phase=False,
+    cutoff=None,
+):
+    """Find a maximum single-commodity flow using the shortest augmenting path algorithm."""
+    return _call_networkx_for_parity(
+        "shortest_augmenting_path",
+        G,
+        s,
+        t,
+        capacity=capacity,
+        residual=residual,
+        value_only=value_only,
+        two_phase=two_phase,
+        cutoff=cutoff,
+    )
+
+
+def preflow_push(
+    G,
+    s,
+    t,
+    capacity="capacity",
+    residual=None,
+    global_relabel_freq=1,
+    value_only=False,
+):
+    """Find a maximum single-commodity flow using the highest-label preflow-push algorithm."""
+    return _call_networkx_for_parity(
+        "preflow_push",
+        G,
+        s,
+        t,
+        capacity=capacity,
+        residual=residual,
+        global_relabel_freq=global_relabel_freq,
+        value_only=value_only,
+    )
+
+
+def dinitz(
+    G,
+    s,
+    t,
+    capacity="capacity",
+    residual=None,
+    value_only=False,
+    cutoff=None,
+):
+    """Find a maximum single-commodity flow using Dinitz' algorithm."""
+    return _call_networkx_for_parity(
+        "dinitz",
+        G,
+        s,
+        t,
+        capacity=capacity,
+        residual=residual,
+        value_only=value_only,
+        cutoff=cutoff,
+    )
+
+
+def boykov_kolmogorov(
+    G,
+    s,
+    t,
+    capacity="capacity",
+    residual=None,
+    value_only=False,
+    cutoff=None,
+):
+    """Find a maximum single-commodity flow using Boykov-Kolmogorov algorithm."""
+    return _call_networkx_for_parity(
+        "boykov_kolmogorov",
+        G,
+        s,
+        t,
+        capacity=capacity,
+        residual=residual,
+        value_only=value_only,
+        cutoff=cutoff,
+    )
 
 
 def minimum_cut(G, source, sink, capacity="capacity", flow_func=None):
@@ -21510,10 +21626,14 @@ __all__ = [
     "min_edge_cover",
     "min_weight_matching",
     # Algorithms — flow
+    "boykov_kolmogorov",
+    "dinitz",
     "edmonds_karp",
     "maximum_flow",
     "maximum_flow_value",
     "minimum_cut",
+    "preflow_push",
+    "shortest_augmenting_path",
     "minimum_cut_value",
     # Algorithms — distance measures
     "center",
