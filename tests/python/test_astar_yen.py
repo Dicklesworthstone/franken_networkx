@@ -98,6 +98,28 @@ class TestAstarPath:
         with pytest.raises(type(expected.value), match=re.escape(str(expected.value))):
             fnx.astar_path(G_fnx, 0, 2, heuristic=heuristic)
 
+    def test_callable_weight_matches_networkx(self):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", length=2, penalty=0)
+            graph.add_edge("a", "c", length=5, penalty=0)
+            graph.add_edge("b", "c", length=1, penalty=0)
+            graph.add_edge("b", "d", length=5, penalty=0)
+            graph.add_edge("c", "d", length=1, penalty=0)
+
+        def heuristic(u, v):
+            return 0
+
+        def weight_fn(u, v, data):
+            return data["length"] + data.get("penalty", 0)
+
+        assert fnx.astar_path(
+            G_fnx, "a", "d", heuristic=heuristic, weight=weight_fn
+        ) == nx.astar_path(
+            G_nx, "a", "d", heuristic=heuristic, weight=weight_fn
+        )
+
 
 # ---------------------------------------------------------------------------
 # astar_path_length
@@ -142,6 +164,28 @@ class TestAstarPathLength:
 
         with pytest.raises(type(expected.value), match=re.escape(str(expected.value))):
             fnx.astar_path_length(G_fnx, 0, 2, heuristic=heuristic)
+
+    def test_callable_weight_matches_networkx(self):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", length=2, penalty=0)
+            graph.add_edge("a", "c", length=5, penalty=0)
+            graph.add_edge("b", "c", length=1, penalty=0)
+            graph.add_edge("b", "d", length=5, penalty=0)
+            graph.add_edge("c", "d", length=1, penalty=0)
+
+        def heuristic(u, v):
+            return 0
+
+        def weight_fn(u, v, data):
+            return data["length"] + data.get("penalty", 0)
+
+        assert fnx.astar_path_length(
+            G_fnx, "a", "d", heuristic=heuristic, weight=weight_fn
+        ) == nx.astar_path_length(
+            G_nx, "a", "d", heuristic=heuristic, weight=weight_fn
+        )
 
 
 # ---------------------------------------------------------------------------

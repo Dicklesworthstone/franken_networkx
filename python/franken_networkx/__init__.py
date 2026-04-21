@@ -262,6 +262,10 @@ def _should_delegate_floyd_warshall_to_networkx(weight):
     return callable(weight)
 
 
+def _should_delegate_astar_to_networkx(weight):
+    return callable(weight)
+
+
 def _raise_translated_networkx_exception(exc):
     import networkx as nx
 
@@ -2050,10 +2054,30 @@ from franken_networkx._fnx import barycenter
 
 # Algorithm functions — A* shortest path
 from franken_networkx._fnx import (
-    astar_path,
-    astar_path_length,
+    astar_path as _raw_astar_path,
+    astar_path_length as _raw_astar_path_length,
     shortest_simple_paths,
 )
+
+
+def astar_path(G, source, target, heuristic=None, weight="weight"):
+    if _should_delegate_astar_to_networkx(weight):
+        return _call_networkx_for_parity(
+            "astar_path", G, source, target, heuristic=heuristic, weight=weight
+        )
+    return _raw_astar_path(
+        G, source, target, heuristic=heuristic, weight=weight
+    )
+
+
+def astar_path_length(G, source, target, heuristic=None, weight="weight"):
+    if _should_delegate_astar_to_networkx(weight):
+        return _call_networkx_for_parity(
+            "astar_path_length", G, source, target, heuristic=heuristic, weight=weight
+        )
+    return _raw_astar_path_length(
+        G, source, target, heuristic=heuristic, weight=weight
+    )
 
 # Algorithm functions — approximation
 from franken_networkx._fnx import (
