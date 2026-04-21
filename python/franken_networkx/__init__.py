@@ -13732,6 +13732,12 @@ class _ConversionAdjacencyView(Mapping):
 class _ConversionGraphViewBase:
     _directed = False
     _multigraph = False
+    adjlist_inner_dict_factory = dict
+    adjlist_outer_dict_factory = dict
+    edge_attr_dict_factory = dict
+    graph_attr_dict_factory = dict
+    node_attr_dict_factory = dict
+    node_dict_factory = dict
 
     def __init__(self, graph):
         self._graph = graph

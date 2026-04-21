@@ -1706,6 +1706,49 @@ def test_conversion_live_views_expose_class_factories_without_fallback(
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],
 )
+def test_conversion_live_views_expose_dict_factories_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+    directed_expected = nx.to_directed(expected)
+    undirected_expected = nx.to_undirected(expected)
+
+    _block_networkx_utilities(monkeypatch, "to_directed", "to_undirected")
+
+    directed_result = fnx.to_directed(graph)
+    undirected_result = fnx.to_undirected(graph)
+
+    factory_names = [
+        "adjlist_inner_dict_factory",
+        "adjlist_outer_dict_factory",
+        "edge_attr_dict_factory",
+        "graph_attr_dict_factory",
+        "node_attr_dict_factory",
+        "node_dict_factory",
+    ]
+
+    for name in factory_names:
+        directed_factory = getattr(directed_result, name)
+        undirected_factory = getattr(undirected_result, name)
+
+        assert directed_factory is dict
+        assert undirected_factory is dict
+        assert directed_factory().__class__ is dict
+        assert undirected_factory().__class__ is dict
+
+        assert directed_factory.__name__ == getattr(directed_expected, name).__name__
+        assert undirected_factory.__name__ == getattr(undirected_expected, name).__name__
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
 def test_to_directed_reverse_copy_contract_matches_networkx_without_fallback(
     monkeypatch, fnx_cls, nx_cls
 ):
