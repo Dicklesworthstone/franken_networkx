@@ -249,6 +249,8 @@ def _has_negative_edge_weight_for_dijkstra(G, weight):
 
 
 def _should_delegate_dijkstra_to_networkx(G, weight):
+    if callable(weight):
+        return True
     return _has_negative_edge_weight_for_dijkstra(G, weight)
 
 

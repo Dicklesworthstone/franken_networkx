@@ -424,6 +424,122 @@ class TestShortestPath:
             ),
         )
 
+    def test_callable_weight_dijkstra_wrapper_family_matches_networkx(self, fnx, nx):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", length=2, penalty=0)
+            graph.add_edge("a", "c", length=1, penalty=5)
+            graph.add_edge("b", "c", length=1, penalty=0)
+            graph.add_edge("b", "d", length=5, penalty=0)
+            graph.add_edge("c", "d", length=2, penalty=0)
+
+        def weight_fn(u, v, data):
+            return data["length"] + data.get("penalty", 0)
+
+        cases = [
+            ("dijkstra_path", lambda mod, graph: mod.dijkstra_path(graph, "a", "d", weight=weight_fn)),
+            (
+                "dijkstra_path_length",
+                lambda mod, graph: mod.dijkstra_path_length(graph, "a", "d", weight=weight_fn),
+            ),
+            (
+                "shortest_path_source_target",
+                lambda mod, graph: mod.shortest_path(
+                    graph, "a", "d", weight=weight_fn, method="dijkstra"
+                ),
+            ),
+            (
+                "shortest_path_length_source_target",
+                lambda mod, graph: mod.shortest_path_length(
+                    graph, "a", "d", weight=weight_fn, method="dijkstra"
+                ),
+            ),
+            (
+                "shortest_path_source",
+                lambda mod, graph: mod.shortest_path(
+                    graph, source="a", weight=weight_fn, method="dijkstra"
+                ),
+            ),
+            (
+                "shortest_path_target",
+                lambda mod, graph: mod.shortest_path(
+                    graph, target="d", weight=weight_fn, method="dijkstra"
+                ),
+            ),
+            (
+                "shortest_path_all_pairs",
+                lambda mod, graph: dict(
+                    mod.shortest_path(graph, weight=weight_fn, method="dijkstra")
+                ),
+            ),
+            (
+                "shortest_path_length_source",
+                lambda mod, graph: mod.shortest_path_length(
+                    graph, source="a", weight=weight_fn, method="dijkstra"
+                ),
+            ),
+            (
+                "shortest_path_length_target",
+                lambda mod, graph: mod.shortest_path_length(
+                    graph, target="d", weight=weight_fn, method="dijkstra"
+                ),
+            ),
+            (
+                "shortest_path_length_all_pairs",
+                lambda mod, graph: dict(
+                    mod.shortest_path_length(graph, weight=weight_fn, method="dijkstra")
+                ),
+            ),
+            (
+                "single_source_dijkstra",
+                lambda mod, graph: mod.single_source_dijkstra(graph, "a", weight=weight_fn),
+            ),
+            (
+                "single_source_dijkstra_path",
+                lambda mod, graph: mod.single_source_dijkstra_path(
+                    graph, "a", weight=weight_fn
+                ),
+            ),
+            (
+                "single_source_dijkstra_path_length",
+                lambda mod, graph: mod.single_source_dijkstra_path_length(
+                    graph, "a", weight=weight_fn
+                ),
+            ),
+            (
+                "multi_source_dijkstra",
+                lambda mod, graph: mod.multi_source_dijkstra(
+                    graph, {"a", "c"}, weight=weight_fn
+                ),
+            ),
+            (
+                "multi_source_dijkstra_path",
+                lambda mod, graph: mod.multi_source_dijkstra_path(
+                    graph, {"a", "c"}, weight=weight_fn
+                ),
+            ),
+            (
+                "multi_source_dijkstra_path_length",
+                lambda mod, graph: mod.multi_source_dijkstra_path_length(
+                    graph, {"a", "c"}, weight=weight_fn
+                ),
+            ),
+            (
+                "all_pairs_dijkstra_path",
+                lambda mod, graph: dict(mod.all_pairs_dijkstra_path(graph, weight=weight_fn)),
+            ),
+            (
+                "all_pairs_dijkstra_path_length",
+                lambda mod, graph: dict(
+                    mod.all_pairs_dijkstra_path_length(graph, weight=weight_fn)
+                ),
+            ),
+        ]
+
+        for name, run in cases:
+            assert run(fnx, G_fnx) == run(nx, G_nx), name
+
     def test_multi_source_dijkstra_target_cutoff_matches_legacy_networkx_34(self, fnx):
         legacy_nx = _legacy_networkx()
         G_fnx = fnx.Graph()
