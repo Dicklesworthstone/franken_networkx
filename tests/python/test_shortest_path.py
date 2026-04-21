@@ -424,6 +424,66 @@ class TestShortestPath:
             ),
         )
 
+    def test_single_source_dijkstra_target_and_cutoff_match_networkx(self, fnx, nx):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", weight=1)
+            graph.add_edge("b", "c", weight=1)
+            graph.add_edge("c", "d", weight=1)
+            graph.add_edge("a", "d", weight=5)
+
+        cases = [
+            (
+                "target_reachable",
+                lambda mod, graph: mod.single_source_dijkstra(
+                    graph, "a", target="d", weight="weight"
+                ),
+            ),
+            (
+                "target_cutoff_reachable",
+                lambda mod, graph: mod.single_source_dijkstra(
+                    graph, "a", target="c", cutoff=2, weight="weight"
+                ),
+            ),
+            (
+                "target_cutoff_unreachable",
+                lambda mod, graph: mod.single_source_dijkstra(
+                    graph, "a", target="d", cutoff=2, weight="weight"
+                ),
+            ),
+            (
+                "target_missing",
+                lambda mod, graph: mod.single_source_dijkstra(
+                    graph, "a", target="missing", weight="weight"
+                ),
+            ),
+            (
+                "cutoff_filtered_dicts",
+                lambda mod, graph: mod.single_source_dijkstra(
+                    graph, "a", cutoff=1, weight="weight"
+                ),
+            ),
+            (
+                "negative_cutoff_keeps_source",
+                lambda mod, graph: mod.single_source_dijkstra(
+                    graph, "a", cutoff=-1, weight="weight"
+                ),
+            ),
+            (
+                "negative_cutoff_target_source",
+                lambda mod, graph: mod.single_source_dijkstra(
+                    graph, "a", target="a", cutoff=-1, weight="weight"
+                ),
+            ),
+        ]
+
+        for name, run in cases:
+            _assert_same_result_or_exception(
+                lambda run=run: run(fnx, G_fnx),
+                lambda run=run: run(nx, G_nx),
+            )
+
     def test_callable_weight_dijkstra_wrapper_family_matches_networkx(self, fnx, nx):
         G_fnx = fnx.Graph()
         G_nx = nx.Graph()

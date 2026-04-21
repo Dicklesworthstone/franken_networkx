@@ -2573,12 +2573,42 @@ def bellman_ford_path_length(G, source, target, weight="weight"):
     return _raw_bellman_ford_path_length(G, source, target, weight=weight)
 
 
-def single_source_dijkstra(G, source, weight="weight"):
+def _single_source_dijkstra_cutoff_view(source, dists, paths, cutoff):
+    if cutoff is None:
+        return dists, paths
+
+    filtered_dists = {}
+    filtered_paths = {}
+    if source in dists:
+        filtered_dists[source] = dists[source]
+        filtered_paths[source] = paths[source]
+
+    for node, distance in dists.items():
+        if node == source:
+            continue
+        if distance <= cutoff:
+            filtered_dists[node] = distance
+            filtered_paths[node] = paths[node]
+    return filtered_dists, filtered_paths
+
+
+def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight"):
     if _should_delegate_dijkstra_to_networkx(G, weight):
         return _call_networkx_for_parity(
-            "single_source_dijkstra", G, source, weight=weight
+            "single_source_dijkstra",
+            G,
+            source,
+            target=target,
+            cutoff=cutoff,
+            weight=weight,
         )
-    return _raw_single_source_dijkstra(G, source, weight=weight)
+    dists, paths = _raw_single_source_dijkstra(G, source, weight=weight)
+    dists, paths = _single_source_dijkstra_cutoff_view(source, dists, paths, cutoff)
+    if target is not None:
+        if target not in dists:
+            raise NetworkXNoPath(f"No path to {target}.")
+        return dists[target], paths[target]
+    return dists, paths
 
 
 def single_source_dijkstra_path(G, source, weight="weight"):
