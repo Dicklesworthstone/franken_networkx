@@ -18,6 +18,17 @@ needs_nx = pytest.mark.skipif(not HAS_NX, reason="networkx required")
 
 @needs_nx
 class TestEulerize:
+    def test_eulerize_null_graph_error_matches_networkx(self):
+        fnx_graph = fnx.Graph()
+        nx_graph = nx.Graph()
+
+        with pytest.raises(fnx.NetworkXPointlessConcept, match=r"^Cannot Eulerize null graph$") as fnx_exc:
+            fnx.eulerize(fnx_graph)
+        with pytest.raises(nx.NetworkXPointlessConcept, match=r"^Cannot Eulerize null graph$") as nx_exc:
+            nx.eulerize(nx_graph)
+
+        assert str(fnx_exc.value) == str(nx_exc.value)
+
     def test_eulerize_makes_graph_eulerian(self):
         G = fnx.Graph()
         G.add_edges_from([(0, 1), (1, 2), (2, 3)])

@@ -12823,6 +12823,8 @@ def eulerize(G):
     """
     from itertools import combinations
 
+    if len(G) == 0:
+        raise NetworkXPointlessConcept("Cannot Eulerize null graph")
     if not is_connected(G):
         raise NetworkXError("G is not connected")
 
