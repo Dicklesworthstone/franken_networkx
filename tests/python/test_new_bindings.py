@@ -745,6 +745,17 @@ class TestSimpleCycles:
         cycles = fnx.simple_cycles(D)
         assert len(cycles) == 2
 
+    def test_order_matches_networkx(self, nx):
+        D_fnx = fnx.DiGraph()
+        D_nx = nx.DiGraph()
+        for graph in (D_fnx, D_nx):
+            graph.add_edge(0, 3)
+            graph.add_edge(3, 0)
+            graph.add_edge(1, 2)
+            graph.add_edge(2, 1)
+
+        assert fnx.simple_cycles(D_fnx) == list(nx.simple_cycles(D_nx))
+
     def test_undirected_matches_networkx(self, nx):
         G_fnx = fnx.Graph()
         G_nx = nx.Graph()
