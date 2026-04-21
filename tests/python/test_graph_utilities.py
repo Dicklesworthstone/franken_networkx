@@ -1617,6 +1617,48 @@ def test_to_directed_exposes_predecessor_and_successor_queries_without_fallback(
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],
 )
+def test_to_directed_exposes_callable_in_and_out_degree_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx.to_directed(expected)
+
+    _block_networkx_utilities(monkeypatch, "to_directed")
+
+    result = fnx.to_directed(graph)
+
+    assert list(result.in_degree()) == list(expected_result.in_degree())
+    assert result.in_degree("b") == expected_result.in_degree("b")
+    assert result.in_degree("b", weight="weight") == expected_result.in_degree(
+        "b", weight="weight"
+    )
+    assert list(result.in_degree(["b", "missing"])) == list(
+        expected_result.in_degree(["b", "missing"])
+    )
+    assert list(result.in_degree("missing")) == list(expected_result.in_degree("missing"))
+
+    assert list(result.out_degree()) == list(expected_result.out_degree())
+    assert result.out_degree("a") == expected_result.out_degree("a")
+    assert result.out_degree("a", weight="weight") == expected_result.out_degree(
+        "a", weight="weight"
+    )
+    assert list(result.out_degree(["a", "missing"])) == list(
+        expected_result.out_degree(["a", "missing"])
+    )
+    assert list(result.out_degree("missing")) == list(
+        expected_result.out_degree("missing")
+    )
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
 def test_to_undirected_matches_networkx_without_fallback(monkeypatch, fnx_cls, nx_cls):
     graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
     expected_result = nx.to_undirected(expected)

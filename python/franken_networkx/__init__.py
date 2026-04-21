@@ -13925,6 +13925,41 @@ class _ConversionGraphViewBase:
         nodes = self._nbunch(nbunch)
         return ((node, node_degree(node)) for node in nodes)
 
+    def _directed_degree(self, adjacency, nbunch=None, weight=None):
+        def edge_weight(attrs):
+            return attrs.get(weight, 1)
+
+        def node_degree(node):
+            if self.is_multigraph():
+                if weight is None:
+                    return sum(len(keydict) for keydict in adjacency[node].values())
+
+                total = 0
+                for keydict in adjacency[node].values():
+                    for attrs in keydict.values():
+                        total += edge_weight(attrs)
+                return total
+
+            if weight is None:
+                return len(adjacency[node])
+
+            total = 0
+            for attrs in adjacency[node].values():
+                total += edge_weight(attrs)
+            return total
+
+        if nbunch is None:
+            return ((node, node_degree(node)) for node in self)
+
+        try:
+            if nbunch in self._graph:
+                return node_degree(nbunch)
+        except TypeError:
+            pass
+
+        nodes = self._nbunch(nbunch)
+        return ((node, node_degree(node)) for node in nodes)
+
     def copy(self):
         result = self._copy_type()()
         result.graph.update(dict(self.graph))
@@ -13971,6 +14006,12 @@ class _DirectedGraphConversionView(_ConversionGraphViewBase):
     def has_predecessor(self, u, v):
         return u in self._graph and v in self.pred[u]
 
+    def in_degree(self, nbunch=None, weight=None):
+        return self._directed_degree(self.pred, nbunch, weight)
+
+    def out_degree(self, nbunch=None, weight=None):
+        return self._directed_degree(self.succ, nbunch, weight)
+
 
 class _DirectedMultiGraphConversionView(_ConversionGraphViewBase):
     _directed = True
@@ -14000,6 +14041,12 @@ class _DirectedMultiGraphConversionView(_ConversionGraphViewBase):
 
     def has_predecessor(self, u, v):
         return u in self._graph and v in self.pred[u]
+
+    def in_degree(self, nbunch=None, weight=None):
+        return self._directed_degree(self.pred, nbunch, weight)
+
+    def out_degree(self, nbunch=None, weight=None):
+        return self._directed_degree(self.succ, nbunch, weight)
 
 
 class _UndirectedGraphConversionView(_ConversionGraphViewBase):
