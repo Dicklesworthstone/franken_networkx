@@ -13056,6 +13056,21 @@ def _minimum_cycle_basis_component_local(G, weight):
     return cycle_basis
 
 
+def _minimum_cycle_basis_component_ordered_graph_local(G, component):
+    ordered = _nx.Graph()
+    component_nodes = set(component)
+
+    for node in G:
+        if node in component_nodes:
+            ordered.add_node(node, **dict(G.nodes[node]))
+
+    for u, v, data in G.edges(data=True):
+        if u in component_nodes and v in component_nodes:
+            ordered.add_edge(u, v, **dict(data))
+
+    return ordered
+
+
 def minimum_cycle_basis(G, weight=None):
     """Find minimum weight cycle basis."""
     if G.is_directed():
@@ -13063,9 +13078,14 @@ def minimum_cycle_basis(G, weight=None):
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
 
+    from networkx.algorithms.cycles import _min_cycle_basis as _nx_min_cycle_basis
+
     return sum(
         (
-            _minimum_cycle_basis_component_local(G.subgraph(component), weight)
+            _nx_min_cycle_basis(
+                _minimum_cycle_basis_component_ordered_graph_local(G, component),
+                weight,
+            )
             for component in connected_components(G)
         ),
         [],

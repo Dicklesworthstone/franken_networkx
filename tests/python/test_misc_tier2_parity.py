@@ -61,6 +61,26 @@ def test_minimum_cycle_basis_native_avoids_networkx(monkeypatch):
     assert normalize_cycles(fnx.minimum_cycle_basis(graph)) == expected_cycles
 
 
+def test_minimum_cycle_basis_weighted_order_matches_networkx():
+    graph = fnx.Graph()
+    expected = nx.Graph()
+
+    for u, v, weight in [
+        ("a", "b", 1),
+        ("b", "c", 1),
+        ("c", "d", 1),
+        ("d", "a", 1),
+        ("a", "c", 2),
+    ]:
+        graph.add_edge(u, v, weight=weight)
+        expected.add_edge(u, v, weight=weight)
+
+    assert fnx.minimum_cycle_basis(graph, weight="weight") == nx.minimum_cycle_basis(
+        expected,
+        weight="weight",
+    )
+
+
 def test_equitable_color_matches_networkx_on_cycle():
     graph = fnx.cycle_graph(4)
     expected = nx.cycle_graph(4)
