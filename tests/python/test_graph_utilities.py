@@ -1800,6 +1800,38 @@ def test_multigraph_classes_adjacency_preserve_networkx_mapping_contract(
         ),
     ],
 )
+def test_conversion_live_views_preserve_adjacency_mapping_contract_without_fallback(
+    monkeypatch, builder_name, fnx_builder, nx_builder, fnx_cls, nx_cls
+):
+    graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+
+    _block_networkx_utilities(monkeypatch, "to_directed", "to_undirected")
+
+    result = fnx_builder(graph)
+    expected_result = nx_builder(expected)
+
+    assert [
+        (node, _mapping_snapshot(neighbors)) for node, neighbors in result.adjacency()
+    ] == [
+        (node, _mapping_snapshot(neighbors)) for node, neighbors in expected_result.adjacency()
+    ], builder_name
+
+
+@pytest.mark.parametrize(
+    ("builder_name", "fnx_builder", "nx_builder", "fnx_cls", "nx_cls"),
+    [
+        ("to_directed", fnx.to_directed, nx.to_directed, fnx.Graph, nx.Graph),
+        ("to_directed", fnx.to_directed, nx.to_directed, fnx.MultiGraph, nx.MultiGraph),
+        ("to_undirected", fnx.to_undirected, nx.to_undirected, fnx.DiGraph, nx.DiGraph),
+        (
+            "to_undirected",
+            fnx.to_undirected,
+            nx.to_undirected,
+            fnx.MultiDiGraph,
+            nx.MultiDiGraph,
+        ),
+    ],
+)
 def test_conversion_live_views_reject_update_while_frozen_without_fallback(
     monkeypatch, builder_name, fnx_builder, nx_builder, fnx_cls, nx_cls
 ):

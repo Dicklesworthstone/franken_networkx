@@ -14011,6 +14011,9 @@ class _ConversionGraphViewBase:
             return len(self.edges(keys=True))
         return len(self.edges())
 
+    def adjacency(self):
+        return ((node, self.adj[node]) for node in self)
+
     def degree(self, nbunch=None, weight=None):
         def edge_weight(attrs):
             return attrs.get(weight, 1)
