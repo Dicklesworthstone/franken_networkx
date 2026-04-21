@@ -3360,11 +3360,7 @@ fn edge_betweenness_centrality_subset_generic<G: GraphView>(
 
     let mut scores = edge_scores
         .into_iter()
-        .map(|((left, right), score)| EdgeCentralityScore {
-            left,
-            right,
-            score,
-        })
+        .map(|((left, right), score)| EdgeCentralityScore { left, right, score })
         .collect::<Vec<EdgeCentralityScore>>();
     scores.sort_unstable_by(|left, right| {
         left.left

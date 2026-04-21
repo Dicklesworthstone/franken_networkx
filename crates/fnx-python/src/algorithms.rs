@@ -2526,10 +2526,7 @@ pub fn betweenness_centrality_subset_rust(
             let inner = &pg.inner;
             py.allow_threads(|| {
                 fnx_algorithms::betweenness_centrality_subset(
-                    inner,
-                    &src_refs,
-                    &tgt_refs,
-                    normalized,
+                    inner, &src_refs, &tgt_refs, normalized,
                 )
             })
         }
@@ -2537,10 +2534,7 @@ pub fn betweenness_centrality_subset_rust(
             let inner = &dg.inner;
             py.allow_threads(|| {
                 fnx_algorithms::betweenness_centrality_subset_directed(
-                    inner,
-                    &src_refs,
-                    &tgt_refs,
-                    normalized,
+                    inner, &src_refs, &tgt_refs, normalized,
                 )
             })
         }
@@ -2549,20 +2543,14 @@ pub fn betweenness_centrality_subset_rust(
                 let inner = gr.digraph().expect("is_directed checked above");
                 py.allow_threads(|| {
                     fnx_algorithms::betweenness_centrality_subset_directed(
-                        inner,
-                        &src_refs,
-                        &tgt_refs,
-                        normalized,
+                        inner, &src_refs, &tgt_refs, normalized,
                     )
                 })
             } else {
                 let inner = gr.undirected();
                 py.allow_threads(|| {
                     fnx_algorithms::betweenness_centrality_subset(
-                        inner,
-                        &src_refs,
-                        &tgt_refs,
-                        normalized,
+                        inner, &src_refs, &tgt_refs, normalized,
                     )
                 })
             }
@@ -2597,10 +2585,7 @@ pub fn edge_betweenness_centrality_subset_rust(
             let inner = &pg.inner;
             py.allow_threads(|| {
                 fnx_algorithms::edge_betweenness_centrality_subset(
-                    inner,
-                    &src_refs,
-                    &tgt_refs,
-                    normalized,
+                    inner, &src_refs, &tgt_refs, normalized,
                 )
             })
         }
@@ -2608,10 +2593,7 @@ pub fn edge_betweenness_centrality_subset_rust(
             let inner = &dg.inner;
             py.allow_threads(|| {
                 fnx_algorithms::edge_betweenness_centrality_subset_directed(
-                    inner,
-                    &src_refs,
-                    &tgt_refs,
-                    normalized,
+                    inner, &src_refs, &tgt_refs, normalized,
                 )
             })
         }
@@ -2620,20 +2602,14 @@ pub fn edge_betweenness_centrality_subset_rust(
                 let inner = gr.digraph().expect("is_directed checked above");
                 py.allow_threads(|| {
                     fnx_algorithms::edge_betweenness_centrality_subset_directed(
-                        inner,
-                        &src_refs,
-                        &tgt_refs,
-                        normalized,
+                        inner, &src_refs, &tgt_refs, normalized,
                     )
                 })
             } else {
                 let inner = gr.undirected();
                 py.allow_threads(|| {
                     fnx_algorithms::edge_betweenness_centrality_subset(
-                        inner,
-                        &src_refs,
-                        &tgt_refs,
-                        normalized,
+                        inner, &src_refs, &tgt_refs, normalized,
                     )
                 })
             }
@@ -12908,7 +12884,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(betweenness_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(edge_betweenness_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(betweenness_centrality_subset_rust, m)?)?;
-    m.add_function(wrap_pyfunction!(edge_betweenness_centrality_subset_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        edge_betweenness_centrality_subset_rust,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(load_centrality, m)?)?;
     m.add_function(wrap_pyfunction!(closeness_vitality, m)?)?;
     m.add_function(wrap_pyfunction!(eigenvector_centrality, m)?)?;
