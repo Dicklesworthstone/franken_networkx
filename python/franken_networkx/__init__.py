@@ -558,13 +558,65 @@ from franken_networkx._fnx import (
     degree_centrality,
     edge_betweenness_centrality as _raw_edge_betweenness_centrality,
     edge_betweenness_centrality_subset_rust as _edge_betweenness_centrality_subset_rust,
-    eigenvector_centrality,
-    harmonic_centrality,
+    eigenvector_centrality as _raw_eigenvector_centrality,
+    harmonic_centrality as _raw_harmonic_centrality,
     hits,
     katz_centrality as _raw_katz_centrality,
     pagerank as _raw_pagerank,
     voterank,
 )
+
+
+def eigenvector_centrality(G, max_iter=100, tol=1e-06, nstart=None, weight=None):
+    """Compute eigenvector centrality for nodes.
+
+    Parameters
+    ----------
+    G : graph
+        A graph.
+    max_iter : int, optional
+        Maximum iterations. Default is 100.
+    tol : float, optional
+        Convergence tolerance. Default is 1e-6.
+    nstart : dict, optional
+        Starting values for iteration.
+    weight : str, optional
+        Edge attribute to use as weight. Default is None.
+
+    Returns
+    -------
+    dict
+        Dictionary of nodes with eigenvector centrality as value.
+    """
+    w = weight if weight is not None else "weight"
+    return _raw_eigenvector_centrality(G, max_iter=max_iter, tol=tol, nstart=nstart, weight=w)
+
+
+def harmonic_centrality(G, nbunch=None, distance=None, sources=None):
+    """Compute harmonic centrality for nodes.
+
+    Parameters
+    ----------
+    G : graph
+        A graph.
+    nbunch : container, optional
+        Nodes for which to compute centrality. Default is all nodes.
+    distance : str, optional
+        Edge attribute to use as distance. Default is None.
+    sources : container, optional
+        Source nodes for computing centrality.
+
+    Returns
+    -------
+    dict
+        Dictionary of nodes with harmonic centrality as value.
+    """
+    if nbunch is not None or distance is not None or sources is not None:
+        return _call_networkx_for_parity(
+            "harmonic_centrality", G, nbunch=nbunch, distance=distance, sources=sources
+        )
+    return _raw_harmonic_centrality(G)
+
 
 # Algorithm functions — clustering
 from franken_networkx._fnx import (
@@ -6930,7 +6982,7 @@ def complete_multipartite_graph(*subset_sizes):
     return graph
 
 
-def gnm_random_graph(n, m, seed=None):
+def gnm_random_graph(n, m, seed=None, directed=False, create_using=None):
     """Return a G(n,m) random graph with exactly *m* edges.
 
     Parameters
@@ -6940,11 +6992,19 @@ def gnm_random_graph(n, m, seed=None):
     m : int
         Number of edges.
     seed : int or None, optional
+    directed : bool, optional
+        If True, return a directed graph. Default is False.
+    create_using : graph, optional
+        Graph instance to use for creating the graph.
 
     Returns
     -------
     Graph
     """
+    if directed or create_using is not None:
+        return _call_networkx_for_parity(
+            "gnm_random_graph", n, m, seed=seed, directed=directed, create_using=create_using
+        )
     import random as _random
 
     rng = _random.Random(seed)
