@@ -3035,7 +3035,7 @@ class _ApproximationNamespace:
 
 # Algorithm functions — cycles
 from franken_networkx._fnx import (
-    simple_cycles,
+    simple_cycles as _raw_simple_cycles,
     find_cycle as _raw_find_cycle,
     girth,
     find_negative_cycle,
@@ -3052,6 +3052,14 @@ from franken_networkx._fnx import (
     is_negatively_weighted,
     is_distance_regular as _raw_is_distance_regular,
 )
+
+
+def simple_cycles(G, length_bound=None):
+    if length_bound is not None:
+        return _call_networkx_for_parity(
+            "simple_cycles", G, length_bound=length_bound
+        )
+    return _raw_simple_cycles(G)
 
 
 def find_cycle(G, source=None, orientation=None):

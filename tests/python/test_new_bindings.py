@@ -706,6 +706,23 @@ class TestSimpleCycles:
         assert len(cycles) == 1
         assert set(cycles[0]) == {0, 1, 2}
 
+    def test_length_bound_matches_networkx(self, nx):
+        D_fnx = fnx.DiGraph()
+        D_nx = nx.DiGraph()
+        for graph in (D_fnx, D_nx):
+            graph.add_edge(1, 2)
+            graph.add_edge(2, 3)
+            graph.add_edge(3, 1)
+            graph.add_edge(2, 4)
+            graph.add_edge(4, 2)
+
+        assert list(fnx.simple_cycles(D_fnx, length_bound=2)) == list(
+            nx.simple_cycles(D_nx, length_bound=2)
+        )
+        assert list(fnx.simple_cycles(D_fnx, length_bound=3)) == list(
+            nx.simple_cycles(D_nx, length_bound=3)
+        )
+
     def test_no_cycles(self):
         D = fnx.DiGraph()
         D.add_edge(0, 1)

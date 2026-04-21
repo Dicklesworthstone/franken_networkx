@@ -1073,7 +1073,10 @@ def is_perfect_matching(g: Graph, matching: list[tuple[Any, Any]]) -> bool: ...
 # Cycle detection
 # ---------------------------------------------------------------------------
 
-def simple_cycles(g: DiGraph) -> list[list[Any]]: ...
+def simple_cycles(
+    g: DiGraph,
+    length_bound: Optional[int] = ...,
+) -> Iterable[list[Any]]: ...
 def find_cycle(
     g: Union[Graph, DiGraph],
     source: Any = ...,
