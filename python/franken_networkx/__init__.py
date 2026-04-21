@@ -13342,6 +13342,9 @@ class _ReverseDirectedView:
     def order(self):
         return self.number_of_nodes()
 
+    def adjacency(self):
+        return ((node, _ReverseNeighborMap(self, node)) for node in self._graph)
+
     def number_of_edges(self):
         return self._graph.number_of_edges()
 

@@ -2565,6 +2565,31 @@ def test_reverse_view_exposes_size_helpers_without_fallback(
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],
 )
+def test_reverse_view_exposes_adjacency_iteration_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx.reverse_view(expected)
+
+    _block_networkx_utilities(monkeypatch, "reverse_view")
+
+    result = fnx.reverse_view(graph)
+
+    assert [
+        (node, _mapping_snapshot(neighbors)) for node, neighbors in result.adjacency()
+    ] == [
+        (node, _mapping_snapshot(neighbors))
+        for node, neighbors in expected_result.adjacency()
+    ]
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
 def test_reverse_view_exposes_edge_and_degree_apis_like_networkx_without_fallback(
     monkeypatch, fnx_cls, nx_cls
 ):
