@@ -77,3 +77,12 @@
 - `cargo clippy --workspace --all-targets -- -D warnings`: Passed
 - `cargo fmt --check`: Passed
 - `cargo test --workspace`: All tests passed (0 failures)
+
+---
+
+**Date:** 2026-04-21
+
+### asupersync: 0.2.0 -> 0.3.0
+- **Scope:** fnx-runtime (optional dep)
+- **Breaking:** None
+- **Tests:** cargo check passed
