@@ -262,8 +262,8 @@ def _should_delegate_floyd_warshall_to_networkx(weight):
     return callable(weight)
 
 
-def _should_delegate_astar_to_networkx(weight):
-    return callable(weight)
+def _should_delegate_astar_to_networkx(weight, cutoff=None):
+    return callable(weight) or cutoff is not None
 
 
 def _raise_translated_networkx_exception(exc):
@@ -2060,20 +2060,34 @@ from franken_networkx._fnx import (
 )
 
 
-def astar_path(G, source, target, heuristic=None, weight="weight"):
-    if _should_delegate_astar_to_networkx(weight):
+def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=None):
+    if _should_delegate_astar_to_networkx(weight, cutoff):
         return _call_networkx_for_parity(
-            "astar_path", G, source, target, heuristic=heuristic, weight=weight
+            "astar_path",
+            G,
+            source,
+            target,
+            heuristic=heuristic,
+            weight=weight,
+            cutoff=cutoff,
         )
     return _raw_astar_path(
         G, source, target, heuristic=heuristic, weight=weight
     )
 
 
-def astar_path_length(G, source, target, heuristic=None, weight="weight"):
-    if _should_delegate_astar_to_networkx(weight):
+def astar_path_length(
+    G, source, target, heuristic=None, weight="weight", *, cutoff=None
+):
+    if _should_delegate_astar_to_networkx(weight, cutoff):
         return _call_networkx_for_parity(
-            "astar_path_length", G, source, target, heuristic=heuristic, weight=weight
+            "astar_path_length",
+            G,
+            source,
+            target,
+            heuristic=heuristic,
+            weight=weight,
+            cutoff=cutoff,
         )
     return _raw_astar_path_length(
         G, source, target, heuristic=heuristic, weight=weight

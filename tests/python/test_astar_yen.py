@@ -120,6 +120,33 @@ class TestAstarPath:
             G_nx, "a", "d", heuristic=heuristic, weight=weight_fn
         )
 
+    def test_cutoff_matches_networkx(self):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", weight=1.0)
+            graph.add_edge("b", "c", weight=1.0)
+            graph.add_edge("c", "d", weight=1.0)
+            graph.add_edge("a", "d", weight=10.0)
+
+        heuristic = lambda u, v: 0
+
+        assert fnx.astar_path(
+            G_fnx, "a", "d", heuristic=heuristic, weight="weight", cutoff=3
+        ) == nx.astar_path(
+            G_nx, "a", "d", heuristic=heuristic, weight="weight", cutoff=3
+        )
+
+        with pytest.raises(nx.NetworkXNoPath) as expected:
+            nx.astar_path(
+                G_nx, "a", "d", heuristic=heuristic, weight="weight", cutoff=2
+            )
+
+        with pytest.raises(fnx.NetworkXNoPath, match=re.escape(str(expected.value))):
+            fnx.astar_path(
+                G_fnx, "a", "d", heuristic=heuristic, weight="weight", cutoff=2
+            )
+
 
 # ---------------------------------------------------------------------------
 # astar_path_length
@@ -186,6 +213,33 @@ class TestAstarPathLength:
         ) == nx.astar_path_length(
             G_nx, "a", "d", heuristic=heuristic, weight=weight_fn
         )
+
+    def test_cutoff_matches_networkx(self):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", weight=1.0)
+            graph.add_edge("b", "c", weight=1.0)
+            graph.add_edge("c", "d", weight=1.0)
+            graph.add_edge("a", "d", weight=10.0)
+
+        heuristic = lambda u, v: 0
+
+        assert fnx.astar_path_length(
+            G_fnx, "a", "d", heuristic=heuristic, weight="weight", cutoff=3
+        ) == nx.astar_path_length(
+            G_nx, "a", "d", heuristic=heuristic, weight="weight", cutoff=3
+        )
+
+        with pytest.raises(nx.NetworkXNoPath) as expected:
+            nx.astar_path_length(
+                G_nx, "a", "d", heuristic=heuristic, weight="weight", cutoff=2
+            )
+
+        with pytest.raises(fnx.NetworkXNoPath, match=re.escape(str(expected.value))):
+            fnx.astar_path_length(
+                G_fnx, "a", "d", heuristic=heuristic, weight="weight", cutoff=2
+            )
 
 
 # ---------------------------------------------------------------------------
