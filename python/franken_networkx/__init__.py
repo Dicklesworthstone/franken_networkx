@@ -3284,6 +3284,66 @@ def is_aperiodic(G):
     return gcd_cycle == 1
 
 
+def _single_target_shortest_path_neighbors(G, node):
+    if G.is_directed():
+        return G.predecessors(node)
+    return G.neighbors(node)
+
+
+def single_target_shortest_path_length(G, target, cutoff=None):
+    if target not in G:
+        raise NodeNotFound(f"Target {target} is not in G")
+    if cutoff is None:
+        cutoff = float("inf")
+
+    seen = {target}
+    nextlevel = [target]
+    level = 0
+    lengths = {target: level}
+    node_count = len(G)
+
+    while nextlevel and cutoff > level:
+        level += 1
+        thislevel = nextlevel
+        nextlevel = []
+        for node in thislevel:
+            for neighbor in _single_target_shortest_path_neighbors(G, node):
+                if neighbor not in seen:
+                    seen.add(neighbor)
+                    nextlevel.append(neighbor)
+                    lengths[neighbor] = level
+            if len(seen) == node_count:
+                return lengths
+
+    return lengths
+
+
+def single_target_shortest_path(G, target, cutoff=None):
+    if target not in G:
+        raise NodeNotFound(f"Target {target} not in G")
+    if cutoff is None:
+        cutoff = float("inf")
+
+    nextlevel = [target]
+    paths = {target: [target]}
+    level = 0
+    node_count = len(G)
+
+    while nextlevel and cutoff > level:
+        thislevel = nextlevel
+        nextlevel = []
+        for node in thislevel:
+            for neighbor in _single_target_shortest_path_neighbors(G, node):
+                if neighbor not in paths:
+                    paths[neighbor] = [neighbor] + paths[node]
+                    nextlevel.append(neighbor)
+            if len(paths) == node_count:
+                return paths
+        level += 1
+
+    return paths
+
+
 def dijkstra_path_length(G, source, target, weight="weight"):
     if _should_delegate_dijkstra_to_networkx(G, weight):
         return _call_networkx_for_parity(

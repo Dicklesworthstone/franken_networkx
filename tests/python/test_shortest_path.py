@@ -1314,6 +1314,31 @@ class TestShortestPath:
             ),
         )
 
+    def test_single_target_shortest_path_wrappers_preserve_networkx_order(self, fnx, nx):
+        D_fnx = fnx.DiGraph()
+        D_nx = nx.DiGraph()
+        for graph in (D_fnx, D_nx):
+            graph.add_edge("a", "d")
+            graph.add_edge("b", "d")
+            graph.add_edge("c", "b")
+            graph.add_edge("e", "c")
+            graph.add_edge("f", "e")
+
+        for cutoff in (None, 2):
+            fnx_paths = fnx.single_target_shortest_path(D_fnx, "d", cutoff=cutoff)
+            nx_paths = nx.single_target_shortest_path(D_nx, "d", cutoff=cutoff)
+            assert fnx_paths == nx_paths
+            assert list(fnx_paths) == list(nx_paths)
+
+            fnx_lengths = fnx.single_target_shortest_path_length(
+                D_fnx, "d", cutoff=cutoff
+            )
+            nx_lengths = nx.single_target_shortest_path_length(
+                D_nx, "d", cutoff=cutoff
+            )
+            assert fnx_lengths == nx_lengths
+            assert list(fnx_lengths) == list(nx_lengths)
+
     def test_shortest_path_no_path_raises(self, fnx, disconnected_graph):
         G_fnx, _ = disconnected_graph
         with pytest.raises(fnx.NetworkXNoPath):
