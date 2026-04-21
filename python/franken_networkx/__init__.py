@@ -230,6 +230,46 @@ def _networkx_graph_for_parity(G):
     return G
 
 
+def _networkx_graph_for_traversal_parity(G):
+    if not isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
+        return G
+
+    if G.is_multigraph():
+        graph = _nx.MultiDiGraph() if G.is_directed() else _nx.MultiGraph()
+    else:
+        graph = _nx.DiGraph() if G.is_directed() else _nx.Graph()
+
+    graph.graph.update(dict(G.graph))
+    node_view = getattr(G, "nodes", None)
+    for node in G:
+        if node_view is not None:
+            graph.add_node(node, **dict(node_view[node]))
+        else:
+            graph.add_node(node)
+
+    seen = set()
+    for u in G:
+        if G.is_multigraph():
+            for v, keyed_attrs in G.adj[u].items():
+                if not G.is_directed():
+                    edge_id = frozenset((u, v))
+                    if edge_id in seen:
+                        continue
+                    seen.add(edge_id)
+                for key, attrs in keyed_attrs.items():
+                    graph.add_edge(u, v, key=key, **dict(attrs))
+        else:
+            for v, attrs in G.adj[u].items():
+                if not G.is_directed():
+                    edge_id = frozenset((u, v))
+                    if edge_id in seen:
+                        continue
+                    seen.add(edge_id)
+                graph.add_edge(u, v, **dict(attrs))
+
+    return graph
+
+
 def _path_query_has_missing_nodes(G, source=None, target=None):
     return (source is not None and source not in G) or (
         target is not None and target not in G
@@ -1682,13 +1722,13 @@ def bfs_successors(G, source, depth_limit=None, sort_neighbors=None):
 
 def bfs_tree(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
     """Return BFS tree rooted at source."""
-    if sort_neighbors is not None:
-        T = DiGraph()
-        T.add_node(source)
-        for u, v in _py_bfs_edges(G, source, depth_limit, sort_neighbors, reverse=reverse):
-            T.add_edge(u, v)
-        return T
-    return _bfs_tree_raw(G, source, reverse=reverse, depth_limit=depth_limit)
+    return _nx.bfs_tree(
+        _networkx_graph_for_traversal_parity(G),
+        source,
+        reverse=reverse,
+        depth_limit=depth_limit,
+        sort_neighbors=sort_neighbors,
+    )
 
 
 def dfs_predecessors(G, source=None, depth_limit=None, sort_neighbors=None):

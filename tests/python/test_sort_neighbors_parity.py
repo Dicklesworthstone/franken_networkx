@@ -70,7 +70,23 @@ class TestBFSSortNeighbors:
     def test_bfs_tree_sorted(self, tree_graph, nx_tree_graph):
         bt = fnx.bfs_tree(tree_graph, 0, sort_neighbors=sorted)
         nbt = nx.bfs_tree(nx_tree_graph, 0, sort_neighbors=sorted)
-        assert sorted(bt.edges()) == sorted(nbt.edges())
+        assert list(bt.edges()) == list(nbt.edges())
+
+    def test_bfs_tree_unsorted_preserves_edge_order(self, tree_graph, nx_tree_graph):
+        bt = fnx.bfs_tree(tree_graph, 0)
+        nbt = nx.bfs_tree(nx_tree_graph, 0)
+        assert list(bt.edges()) == list(nbt.edges())
+
+    def test_bfs_tree_reverse_preserves_edge_order(self):
+        graph = fnx.DiGraph()
+        nx_graph = nx.DiGraph()
+        for G in (graph, nx_graph):
+            G.add_edge(0, 1)
+            G.add_edge(2, 1)
+            G.add_edge(1, 3)
+        bt = fnx.bfs_tree(graph, 3, reverse=True)
+        nbt = nx.bfs_tree(nx_graph, 3, reverse=True)
+        assert list(bt.edges()) == list(nbt.edges())
 
 
 class TestDFSSortNeighbors:
