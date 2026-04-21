@@ -1170,6 +1170,17 @@ class TestShortestPath:
             ),
         )
 
+    def test_predecessor_preserves_networkx_order(self, fnx, nx):
+        G_fnx = fnx.path_graph(["a", "b", "c", "d"])
+        G_nx = nx.path_graph(["a", "b", "c", "d"])
+
+        assert list(fnx.predecessor(G_fnx, "a").items()) == list(
+            nx.predecessor(G_nx, "a").items()
+        )
+        assert list(fnx.predecessor(G_fnx, "a", cutoff=2).items()) == list(
+            nx.predecessor(G_nx, "a", cutoff=2).items()
+        )
+
     def test_negative_weight_dijkstra_directed_api_parity(self, fnx, nx):
         D_fnx, D_nx = _negative_weight_graph_pair(fnx, nx, directed=True)
 

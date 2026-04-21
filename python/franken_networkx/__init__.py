@@ -3251,7 +3251,7 @@ from franken_networkx._fnx import (
     floyd_warshall_predecessor_and_distance as _raw_floyd_warshall_predecessor_and_distance,
     bidirectional_shortest_path,
     negative_edge_cycle as _raw_negative_edge_cycle,
-    predecessor,
+    predecessor as _raw_predecessor,
     path_weight,
 )
 
@@ -3342,6 +3342,30 @@ def single_target_shortest_path(G, target, cutoff=None):
         level += 1
 
     return paths
+
+
+def _ordered_predecessor_nodes(G, source, predecessor_map):
+    ordered_nodes = [source]
+    seen = {source}
+    nextlevel = [source]
+
+    while nextlevel and len(ordered_nodes) < len(predecessor_map):
+        thislevel = nextlevel
+        nextlevel = []
+        for node in thislevel:
+            for neighbor in G[node]:
+                if neighbor in predecessor_map and neighbor not in seen:
+                    seen.add(neighbor)
+                    nextlevel.append(neighbor)
+                    ordered_nodes.append(neighbor)
+
+    return ordered_nodes
+
+
+def predecessor(G, source, cutoff=None):
+    predecessor_map = _raw_predecessor(G, source, cutoff=cutoff)
+    ordered_nodes = _ordered_predecessor_nodes(G, source, predecessor_map)
+    return {node: predecessor_map[node] for node in ordered_nodes}
 
 
 def dijkstra_path_length(G, source, target, weight="weight"):
