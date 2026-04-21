@@ -1098,12 +1098,78 @@ from franken_networkx._fnx import (
 
 # Algorithm functions — Euler
 from franken_networkx._fnx import (
-    eulerian_circuit,
-    eulerian_path,
-    has_eulerian_path,
+    eulerian_circuit as _raw_eulerian_circuit,
+    eulerian_path as _raw_eulerian_path,
+    has_eulerian_path as _raw_has_eulerian_path,
     is_eulerian,
     is_semieulerian,
 )
+
+
+def eulerian_circuit(G, source=None, keys=False):
+    """Return edges of an Eulerian circuit in G.
+
+    Parameters
+    ----------
+    G : graph
+        A graph with an Eulerian circuit.
+    source : node, optional
+        Starting node for circuit.
+    keys : bool, optional
+        If True, return edge keys for multigraphs. Default is False.
+
+    Yields
+    ------
+    edge
+        Edges in the Eulerian circuit.
+    """
+    if keys:
+        yield from _call_networkx_for_parity("eulerian_circuit", G, source=source, keys=keys)
+        return
+    yield from _raw_eulerian_circuit(G, source=source)
+
+
+def eulerian_path(G, source=None, keys=False):
+    """Return edges of an Eulerian path in G.
+
+    Parameters
+    ----------
+    G : graph
+        A graph with an Eulerian path.
+    source : node, optional
+        Starting node for path.
+    keys : bool, optional
+        If True, return edge keys for multigraphs. Default is False.
+
+    Yields
+    ------
+    edge
+        Edges in the Eulerian path.
+    """
+    if keys:
+        yield from _call_networkx_for_parity("eulerian_path", G, source=source, keys=keys)
+        return
+    yield from _raw_eulerian_path(G, source=source)
+
+
+def has_eulerian_path(G, source=None):
+    """Return True if G has an Eulerian path.
+
+    Parameters
+    ----------
+    G : graph
+        A graph.
+    source : node, optional
+        Starting node for path.
+
+    Returns
+    -------
+    bool
+        True if G has an Eulerian path.
+    """
+    if source is not None:
+        return _call_networkx_for_parity("has_eulerian_path", G, source=source)
+    return _raw_has_eulerian_path(G)
 
 # Algorithm functions — paths and cycles
 from franken_networkx._fnx import (
@@ -4312,8 +4378,12 @@ def local_bridges(G, with_span=True, weight=None):
     return _generate()
 
 
-def minimum_edge_cut(G, s=None, t=None):
+def minimum_edge_cut(G, s=None, t=None, flow_func=None):
     """Return a minimum edge cut of *G*."""
+    if flow_func is not None:
+        return _call_networkx_for_parity(
+            "minimum_edge_cut", G, s=s, t=t, flow_func=flow_func
+        )
 
     def cut_edges_for_partition(source_partition, sink_partition):
         source_set = set(source_partition)
