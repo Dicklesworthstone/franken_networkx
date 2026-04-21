@@ -18,6 +18,24 @@ def test_chordless_cycles_returns_iterator_and_matches_networkx():
     assert normalize_cycles(cycles) == normalize_cycles(nx.chordless_cycles(expected))
 
 
+def test_chordless_cycles_preserve_networkx_order():
+    graph = fnx.Graph()
+    expected = nx.Graph()
+
+    edges = [
+        ("d", "a"),
+        ("a", "c"),
+        ("c", "d"),
+        ("a", "b"),
+        ("b", "c"),
+        ("c", "a"),
+    ]
+    graph.add_edges_from(edges)
+    expected.add_edges_from(edges)
+
+    assert list(fnx.chordless_cycles(graph)) == list(nx.chordless_cycles(expected))
+
+
 def test_chromatic_polynomial_matches_networkx_expression():
     graph = fnx.complete_graph(4)
     expected = nx.complete_graph(4)

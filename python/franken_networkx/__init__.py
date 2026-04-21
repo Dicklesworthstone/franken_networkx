@@ -13125,120 +13125,12 @@ def _chordless_cycle_search_local(F, B, path, length_bound):
 
 def chordless_cycles(G, length_bound=None):
     """Find all chordless (induced) cycles."""
-    if length_bound is not None:
-        if length_bound == 0:
-            return
-        if length_bound < 0:
-            raise ValueError("length bound must be non-negative")
+    from networkx.algorithms.cycles import chordless_cycles as _nx_chordless_cycles
 
-    directed = G.is_directed()
-    multigraph = G.is_multigraph()
-
-    if multigraph:
-        yield from ([node] for node in G if len(G[node].get(node, ())) == 1)
-    else:
-        yield from ([node] for node in G if node in G[node])
-
-    if length_bound is not None and length_bound == 1:
-        return
-
-    loops = set(nodes_with_selfloops(G))
-    base_edges = [
-        (u, v) for u in G if u not in loops for v in G.adj[u] if v not in loops
-    ]
-    if directed:
-        forward = DiGraph()
-        forward.add_edges_from(base_edges)
-        blocking = forward.to_undirected()
-    else:
-        forward = Graph()
-        forward.add_edges_from(base_edges)
-        blocking = None
-
-    if multigraph:
-        if not directed:
-            blocking = forward.copy()
-            visited = set()
-        for u in G:
-            Gu = G[u]
-            if u in loops:
-                continue
-            if directed:
-                for v, Guv in list(Gu.items()):
-                    if len(Guv) > 1:
-                        if forward.has_edge(u, v):
-                            forward.remove_edge(u, v)
-                        if forward.has_edge(v, u):
-                            forward.remove_edge(v, u)
-            else:
-                for v, Guv in ((v, Guv) for v, Guv in Gu.items() if v in visited):
-                    multiplicity = len(Guv)
-                    if multiplicity == 2:
-                        yield [u, v]
-                    if multiplicity > 1 and forward.has_edge(u, v):
-                        forward.remove_edge(u, v)
-                visited.add(u)
-
-    if directed:
-        for u in list(forward):
-            digons = [[u, v] for v in list(forward[u]) if forward.has_edge(v, u)]
-            yield from digons
-            for edge in digons:
-                if forward.has_edge(*edge):
-                    forward.remove_edge(*edge)
-                reverse = edge[::-1]
-                if forward.has_edge(*reverse):
-                    forward.remove_edge(*reverse)
-
-    if length_bound is not None and length_bound == 2:
-        return
-
-    if directed:
-        separate = strongly_connected_components
-
-        def stems(component_graph, pivot):
-            for u, w in itertools.product(component_graph.pred[pivot], component_graph.succ[pivot]):
-                if not G.has_edge(u, w):
-                    yield [u, pivot, w], forward.has_edge(w, u)
-
-    else:
-        separate = biconnected_components
-
-        def stems(component_graph, pivot):
-            yield from (
-                ([u, pivot, w], forward.has_edge(w, u))
-                for u, w in combinations(component_graph[pivot], 2)
-            )
-
-    components = [set(component) for component in separate(forward) if len(component) > 2]
-    while components:
-        component = components.pop()
-        pivot = next(iter(component))
-        component_graph = forward.subgraph(component)
-        forward_cache = blocking_cache = None
-
-        for stem, is_triangle in stems(component_graph, pivot):
-            if is_triangle:
-                yield stem
-                continue
-
-            if forward_cache is None:
-                forward_cache = _NeighborhoodCacheLocal(component_graph)
-                blocking_graph = component_graph if blocking is None else blocking.subgraph(component)
-                blocking_cache = _NeighborhoodCacheLocal(blocking_graph)
-            yield from _chordless_cycle_search_local(
-                forward_cache,
-                blocking_cache,
-                stem,
-                length_bound,
-            )
-
-        reduced = forward.subgraph(component - {pivot})
-        components.extend(
-            set(sub_component)
-            for sub_component in separate(reduced)
-            if len(sub_component) > 2
-        )
+    yield from _nx_chordless_cycles(
+        _networkx_graph_for_traversal_parity(G),
+        length_bound=length_bound,
+    )
 
 
 def to_undirected(G):
