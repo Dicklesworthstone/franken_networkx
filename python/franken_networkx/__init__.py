@@ -7050,6 +7050,7 @@ def all_pairs_node_connectivity(G, nbunch=None, flow_func=None):
     dict of dicts
         ``result[u][v]`` is the node connectivity between u and v.
     """
+    _validate_flow_func_selector(flow_func)
     # flow_func parameter is accepted for API compatibility but ignored;
     # the native implementation always uses the default max-flow algorithm.
     flat = _fnx.all_pairs_node_connectivity_rust(G)

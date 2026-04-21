@@ -116,3 +116,15 @@ def test_all_pairs_node_connectivity_matches_nx():
         expected,
         nbunch=[0, 2],
     )
+
+
+def test_all_pairs_node_connectivity_validates_flow_func():
+    graph = fnx.path_graph(4)
+    expected = nx.path_graph(4)
+
+    with pytest.raises(nx.NetworkXError) as expected_error:
+        nx.all_pairs_node_connectivity(expected, flow_func=1)
+    with pytest.raises(fnx.NetworkXError) as actual_error:
+        fnx.all_pairs_node_connectivity(graph, flow_func=1)
+
+    assert str(actual_error.value) == str(expected_error.value)
