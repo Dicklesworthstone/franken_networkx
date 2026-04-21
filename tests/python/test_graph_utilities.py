@@ -2182,3 +2182,43 @@ def test_reverse_view_exposes_succ_and_pred_like_networkx_without_fallback(
 
     assert _mapping_snapshot(result.succ) == _mapping_snapshot(expected_result.succ)
     assert _mapping_snapshot(result.pred) == _mapping_snapshot(expected_result.pred)
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_reverse_view_exposes_edge_and_degree_apis_like_networkx_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx.reverse_view(expected)
+
+    _block_networkx_utilities(monkeypatch, "reverse_view")
+
+    result = fnx.reverse_view(graph)
+
+    assert list(result.out_edges()) == list(expected_result.out_edges())
+    assert list(result.out_edges(["b"], data=True)) == list(
+        expected_result.out_edges(["b"], data=True)
+    )
+    assert list(result.in_edges(data=True)) == list(expected_result.in_edges(data=True))
+    assert list(result.in_edges(["b"], data=True)) == list(
+        expected_result.in_edges(["b"], data=True)
+    )
+    if graph.is_multigraph():
+        assert list(result.out_edges(keys=True, data=True)) == list(
+            expected_result.out_edges(keys=True, data=True)
+        )
+        assert list(result.in_edges(keys=True, data=True)) == list(
+            expected_result.in_edges(keys=True, data=True)
+        )
+
+    assert list(result.degree()) == list(expected_result.degree())
+    assert result.degree("b") == expected_result.degree("b")
+    assert result.degree("b", weight="weight") == expected_result.degree(
+        "b", weight="weight"
+    )

@@ -13207,6 +13207,98 @@ class _ReverseDirectedView:
                         result.append((source, target))
         return result
 
+    def out_edges(self, nbunch=None, data=False, keys=False):
+        nodes = self._nbunch(nbunch)
+        result = []
+        adjacency = self.succ
+        if self._graph.is_multigraph():
+            for source in nodes:
+                for target, keyed_attrs in adjacency[source].items():
+                    for key, attrs in keyed_attrs.items():
+                        if data and keys:
+                            result.append((source, target, key, attrs))
+                        elif data:
+                            result.append((source, target, attrs))
+                        elif keys:
+                            result.append((source, target, key))
+                        else:
+                            result.append((source, target))
+        else:
+            for source in nodes:
+                for target, attrs in adjacency[source].items():
+                    if data:
+                        result.append((source, target, attrs))
+                    else:
+                        result.append((source, target))
+        return result
+
+    def in_edges(self, nbunch=None, data=False, keys=False):
+        nodes = self._nbunch(nbunch)
+        result = []
+        adjacency = self.pred
+        if self._graph.is_multigraph():
+            for target in nodes:
+                for source, keyed_attrs in adjacency[target].items():
+                    for key, attrs in keyed_attrs.items():
+                        if data and keys:
+                            result.append((source, target, key, attrs))
+                        elif data:
+                            result.append((source, target, attrs))
+                        elif keys:
+                            result.append((source, target, key))
+                        else:
+                            result.append((source, target))
+        else:
+            for target in nodes:
+                for source, attrs in adjacency[target].items():
+                    if data:
+                        result.append((source, target, attrs))
+                    else:
+                        result.append((source, target))
+        return result
+
+    def degree(self, nbunch=None, weight=None):
+        def edge_weight(attrs):
+            return attrs.get(weight, 1)
+
+        def node_degree(node):
+            if self._graph.is_multigraph():
+                if weight is None:
+                    total = sum(len(keydict) for keydict in self.succ[node].values())
+                    total += sum(len(keydict) for keydict in self.pred[node].values())
+                    return total
+
+                total = 0
+                for keydict in self.succ[node].values():
+                    for attrs in keydict.values():
+                        total += edge_weight(attrs)
+                for keydict in self.pred[node].values():
+                    for attrs in keydict.values():
+                        total += edge_weight(attrs)
+                return total
+
+            if weight is None:
+                return len(self.succ[node]) + len(self.pred[node])
+
+            total = 0
+            for attrs in self.succ[node].values():
+                total += edge_weight(attrs)
+            for attrs in self.pred[node].values():
+                total += edge_weight(attrs)
+            return total
+
+        if nbunch is None:
+            return ((node, node_degree(node)) for node in self._graph)
+
+        try:
+            if nbunch in self._graph:
+                return node_degree(nbunch)
+        except TypeError:
+            pass
+
+        nodes = self._nbunch(nbunch)
+        return ((node, node_degree(node)) for node in nodes)
+
     def number_of_edges(self):
         return self._graph.number_of_edges()
 
