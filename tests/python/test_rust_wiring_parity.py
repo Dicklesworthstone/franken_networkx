@@ -396,6 +396,31 @@ class TestTraversalParity:
         assert max(reached) <= 2
 
     @needs_nx
+    def test_generic_bfs_edges_rejects_sort_neighbors_matches_networkx(self):
+        G_fnx = fnx.path_graph(4)
+        G_nx = nx.path_graph(4)
+
+        for call_f, call_n in (
+            (
+                lambda: fnx.generic_bfs_edges(G_fnx, 0, sort_neighbors=sorted),
+                lambda: nx.generic_bfs_edges(G_nx, 0, sort_neighbors=sorted),
+            ),
+            (
+                lambda: fnx.generic_bfs_edges(
+                    G_fnx, 0, neighbors=G_fnx.neighbors, sort_neighbors=sorted
+                ),
+                lambda: nx.generic_bfs_edges(
+                    G_nx, 0, neighbors=G_nx.neighbors, sort_neighbors=sorted
+                ),
+            ),
+        ):
+            with pytest.raises(TypeError) as fnx_exc:
+                list(call_f())
+            with pytest.raises(TypeError) as nx_exc:
+                list(call_n())
+            assert str(fnx_exc.value) == str(nx_exc.value)
+
+    @needs_nx
     def test_bfs_labeled_edges_matches_networkx(self):
         G_fnx = fnx.Graph()
         G_nx = nx.Graph()

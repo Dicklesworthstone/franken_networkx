@@ -12578,9 +12578,9 @@ def dfs_labeled_edges(G, source=None, depth_limit=None):
         yield edge
 
 
-def generic_bfs_edges(G, source, neighbors=None, depth_limit=None, sort_neighbors=None):
+def generic_bfs_edges(G, source, neighbors=None, depth_limit=None):
     """BFS with customizable neighbor function."""
-    if neighbors is not None or sort_neighbors is not None:
+    if neighbors is not None:
         if neighbors is None:
             neighbors = G.neighbors
         visited = {source}
@@ -12591,8 +12591,6 @@ def generic_bfs_edges(G, source, neighbors=None, depth_limit=None, sort_neighbor
                 if depth_limit is not None and depth >= depth_limit:
                     continue
                 nbrs = list(neighbors(node))
-                if sort_neighbors:
-                    nbrs = sort_neighbors(nbrs)
                 for nbr in nbrs:
                     if nbr not in visited:
                         visited.add(nbr)
