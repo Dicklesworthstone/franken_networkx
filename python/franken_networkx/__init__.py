@@ -213,7 +213,7 @@ class NetworkXTreewidthBoundExceeded(NetworkXError):
 # Algorithm functions — shortest path
 from franken_networkx._fnx import (
     average_shortest_path_length as _raw_average_shortest_path_length,
-    bellman_ford_path,
+    bellman_ford_path as _raw_bellman_ford_path,
     dijkstra_path as _raw_dijkstra_path,
     has_path,
     multi_source_dijkstra as _raw_multi_source_dijkstra,
@@ -252,6 +252,10 @@ def _should_delegate_dijkstra_to_networkx(G, weight):
     if callable(weight):
         return True
     return _has_negative_edge_weight_for_dijkstra(G, weight)
+
+
+def _should_delegate_bellman_ford_to_networkx(weight):
+    return callable(weight)
 
 
 def _raise_translated_networkx_exception(exc):
@@ -328,18 +332,36 @@ def dijkstra_path(G, source, target, weight="weight"):
     return _raw_dijkstra_path(G, source, target, weight=weight)
 
 
+def bellman_ford_path(G, source, target, weight="weight"):
+    if _should_delegate_bellman_ford_to_networkx(weight):
+        return _call_networkx_for_parity(
+            "bellman_ford_path", G, source, target, weight=weight
+        )
+    return _raw_bellman_ford_path(G, source, target, weight=weight)
+
+
 def shortest_path(G, source=None, target=None, weight=None, method="dijkstra"):
     if method not in ("dijkstra", "bellman-ford"):
         raise ValueError(f"method not supported: {method}")
-    if weight is not None and method == "dijkstra" and _should_delegate_dijkstra_to_networkx(G, weight):
-        return _call_networkx_for_parity(
-            "shortest_path",
-            G,
-            source=source,
-            target=target,
-            weight=weight,
-            method=method,
-        )
+    if weight is not None:
+        if method == "dijkstra" and _should_delegate_dijkstra_to_networkx(G, weight):
+            return _call_networkx_for_parity(
+                "shortest_path",
+                G,
+                source=source,
+                target=target,
+                weight=weight,
+                method=method,
+            )
+        if method == "bellman-ford" and _should_delegate_bellman_ford_to_networkx(weight):
+            return _call_networkx_for_parity(
+                "shortest_path",
+                G,
+                source=source,
+                target=target,
+                weight=weight,
+                method=method,
+            )
     return _raw_shortest_path(G, source=source, target=target, weight=weight, method=method)
 
 
@@ -355,15 +377,25 @@ def shortest_path_length(G, source=None, target=None, weight=None, method="dijks
     if method not in ("dijkstra", "bellman-ford"):
         raise ValueError(f"method not supported: {method}")
 
-    if weight is not None and method == "dijkstra" and _should_delegate_dijkstra_to_networkx(G, weight):
-        return _call_networkx_for_parity(
-            "shortest_path_length",
-            G,
-            source=source,
-            target=target,
-            weight=weight,
-            method=method,
-        )
+    if weight is not None:
+        if method == "dijkstra" and _should_delegate_dijkstra_to_networkx(G, weight):
+            return _call_networkx_for_parity(
+                "shortest_path_length",
+                G,
+                source=source,
+                target=target,
+                weight=weight,
+                method=method,
+            )
+        if method == "bellman-ford" and _should_delegate_bellman_ford_to_networkx(weight):
+            return _call_networkx_for_parity(
+                "shortest_path_length",
+                G,
+                source=source,
+                target=target,
+                weight=weight,
+                method=method,
+            )
 
     if source is not None and target is not None:
         if weight is not None and method == "bellman-ford":
@@ -2433,13 +2465,13 @@ from franken_networkx._fnx import (
 # Algorithm functions — additional shortest path
 from franken_networkx._fnx import (
     dijkstra_path_length as _raw_dijkstra_path_length,
-    bellman_ford_path_length,
+    bellman_ford_path_length as _raw_bellman_ford_path_length,
     single_source_dijkstra as _raw_single_source_dijkstra,
     single_source_dijkstra_path as _raw_single_source_dijkstra_path,
     single_source_dijkstra_path_length as _raw_single_source_dijkstra_path_length,
-    single_source_bellman_ford,
-    single_source_bellman_ford_path,
-    single_source_bellman_ford_path_length,
+    single_source_bellman_ford as _raw_single_source_bellman_ford,
+    single_source_bellman_ford_path as _raw_single_source_bellman_ford_path,
+    single_source_bellman_ford_path_length as _raw_single_source_bellman_ford_path_length,
     single_target_shortest_path,
     single_target_shortest_path_length,
     all_pairs_dijkstra_path as _raw_all_pairs_dijkstra_path,
@@ -2491,6 +2523,14 @@ def dijkstra_path_length(G, source, target, weight="weight"):
     return _raw_dijkstra_path_length(G, source, target, weight=weight)
 
 
+def bellman_ford_path_length(G, source, target, weight="weight"):
+    if _should_delegate_bellman_ford_to_networkx(weight):
+        return _call_networkx_for_parity(
+            "bellman_ford_path_length", G, source, target, weight=weight
+        )
+    return _raw_bellman_ford_path_length(G, source, target, weight=weight)
+
+
 def single_source_dijkstra(G, source, weight="weight"):
     if _should_delegate_dijkstra_to_networkx(G, weight):
         return _call_networkx_for_parity(
@@ -2515,6 +2555,30 @@ def single_source_dijkstra_path_length(G, source, weight="weight"):
     return _raw_single_source_dijkstra_path_length(G, source, weight=weight)
 
 
+def single_source_bellman_ford(G, source, weight="weight"):
+    if _should_delegate_bellman_ford_to_networkx(weight):
+        return _call_networkx_for_parity(
+            "single_source_bellman_ford", G, source, weight=weight
+        )
+    return _raw_single_source_bellman_ford(G, source, weight=weight)
+
+
+def single_source_bellman_ford_path(G, source, weight="weight"):
+    if _should_delegate_bellman_ford_to_networkx(weight):
+        return _call_networkx_for_parity(
+            "single_source_bellman_ford_path", G, source, weight=weight
+        )
+    return _raw_single_source_bellman_ford_path(G, source, weight=weight)
+
+
+def single_source_bellman_ford_path_length(G, source, weight="weight"):
+    if _should_delegate_bellman_ford_to_networkx(weight):
+        return _call_networkx_for_parity(
+            "single_source_bellman_ford_path_length", G, source, weight=weight
+        )
+    return _raw_single_source_bellman_ford_path_length(G, source, weight=weight)
+
+
 def all_pairs_dijkstra_path(G, weight="weight"):
     if _should_delegate_dijkstra_to_networkx(G, weight):
         yield from _call_networkx_for_parity(
@@ -2534,11 +2598,23 @@ def all_pairs_dijkstra_path_length(G, weight="weight"):
     for k, v in _raw_all_pairs_dijkstra_path_length(G, weight=weight).items():
         yield (k, v)
 
+
 def all_pairs_bellman_ford_path(G, weight="weight"):
+    if _should_delegate_bellman_ford_to_networkx(weight):
+        yield from _call_networkx_for_parity(
+            "all_pairs_bellman_ford_path", G, weight=weight
+        )
+        return
     for k, v in _raw_all_pairs_bellman_ford_path(G, weight=weight).items():
         yield (k, v)
 
+
 def all_pairs_bellman_ford_path_length(G, weight="weight"):
+    if _should_delegate_bellman_ford_to_networkx(weight):
+        yield from _call_networkx_for_parity(
+            "all_pairs_bellman_ford_path_length", G, weight=weight
+        )
+        return
     for k, v in _raw_all_pairs_bellman_ford_path_length(G, weight=weight).items():
         yield (k, v)
 
