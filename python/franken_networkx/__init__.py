@@ -13979,6 +13979,12 @@ class _ConversionGraphViewBase:
             return MultiDiGraph if self.is_multigraph() else DiGraph
         return MultiGraph if self.is_multigraph() else Graph
 
+    def to_directed_class(self):
+        return MultiDiGraph if self.is_multigraph() else DiGraph
+
+    def to_undirected_class(self):
+        return MultiGraph if self.is_multigraph() else Graph
+
     def reverse(self, copy=True):
         if not self.is_directed():
             raise NetworkXError("Cannot reverse an undirected graph.")

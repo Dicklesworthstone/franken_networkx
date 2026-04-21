@@ -1659,6 +1659,53 @@ def test_to_directed_exposes_callable_in_and_out_degree_without_fallback(
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],
 )
+def test_conversion_live_views_expose_class_factories_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+    directed_expected = nx.to_directed(expected)
+    undirected_expected = nx.to_undirected(expected)
+
+    _block_networkx_utilities(monkeypatch, "to_directed", "to_undirected")
+
+    directed_result = fnx.to_directed(graph)
+    undirected_result = fnx.to_undirected(graph)
+
+    expected_directed_class = fnx.MultiDiGraph if graph.is_multigraph() else fnx.DiGraph
+    expected_undirected_class = fnx.MultiGraph if graph.is_multigraph() else fnx.Graph
+
+    assert directed_result.to_directed_class() is expected_directed_class
+    assert directed_result.to_undirected_class() is expected_undirected_class
+    assert undirected_result.to_directed_class() is expected_directed_class
+    assert undirected_result.to_undirected_class() is expected_undirected_class
+
+    assert (
+        directed_result.to_directed_class().__name__
+        == directed_expected.to_directed_class().__name__
+    )
+    assert (
+        directed_result.to_undirected_class().__name__
+        == directed_expected.to_undirected_class().__name__
+    )
+    assert (
+        undirected_result.to_directed_class().__name__
+        == undirected_expected.to_directed_class().__name__
+    )
+    assert (
+        undirected_result.to_undirected_class().__name__
+        == undirected_expected.to_undirected_class().__name__
+    )
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
 def test_to_directed_reverse_copy_contract_matches_networkx_without_fallback(
     monkeypatch, fnx_cls, nx_cls
 ):
