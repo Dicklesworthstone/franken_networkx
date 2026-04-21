@@ -711,12 +711,12 @@ def minimum_cut_value(G, source, sink, capacity="capacity", flow_func=None):
 
 # Algorithm functions — distance measures
 from franken_networkx._fnx import (
-    center,
+    center as _raw_center,
     density,
-    diameter,
+    diameter as _raw_diameter,
     eccentricity as _raw_eccentricity,
-    periphery,
-    radius,
+    periphery as _raw_periphery,
+    radius as _raw_radius,
 )
 
 
@@ -730,6 +730,110 @@ def density(G):
     if not G.is_directed():
         result *= 2
     return result
+
+
+def diameter(G, e=None, usebounds=False, weight=None):
+    """Returns the diameter of the graph G.
+
+    Parameters
+    ----------
+    G : graph
+        A NetworkX graph.
+    e : dict, optional
+        Precomputed eccentricity dict {node: eccentricity}.
+    usebounds : bool, optional (default=False)
+        Use bounds to speed up eccentricity computation.
+    weight : edge attribute key, optional
+        Use the specified edge attribute as edge weight.
+
+    Returns
+    -------
+    int or float
+        Diameter of the graph.
+    """
+    if e is not None or usebounds or weight is not None:
+        return _call_networkx_for_parity(
+            "diameter", G, e=e, usebounds=usebounds, weight=weight
+        )
+    return _raw_diameter(G)
+
+
+def radius(G, e=None, usebounds=False, weight=None):
+    """Returns the radius of the graph G.
+
+    Parameters
+    ----------
+    G : graph
+        A NetworkX graph.
+    e : dict, optional
+        Precomputed eccentricity dict {node: eccentricity}.
+    usebounds : bool, optional (default=False)
+        Use bounds to speed up eccentricity computation.
+    weight : edge attribute key, optional
+        Use the specified edge attribute as edge weight.
+
+    Returns
+    -------
+    int or float
+        Radius of the graph.
+    """
+    if e is not None or usebounds or weight is not None:
+        return _call_networkx_for_parity(
+            "radius", G, e=e, usebounds=usebounds, weight=weight
+        )
+    return _raw_radius(G)
+
+
+def center(G, e=None, usebounds=False, weight=None):
+    """Returns the center of the graph G.
+
+    Parameters
+    ----------
+    G : graph
+        A NetworkX graph.
+    e : dict, optional
+        Precomputed eccentricity dict {node: eccentricity}.
+    usebounds : bool, optional (default=False)
+        Use bounds to speed up eccentricity computation.
+    weight : edge attribute key, optional
+        Use the specified edge attribute as edge weight.
+
+    Returns
+    -------
+    list
+        List of nodes in the center.
+    """
+    if e is not None or usebounds or weight is not None:
+        return _call_networkx_for_parity(
+            "center", G, e=e, usebounds=usebounds, weight=weight
+        )
+    return _raw_center(G)
+
+
+def periphery(G, e=None, usebounds=False, weight=None):
+    """Returns the periphery of the graph G.
+
+    Parameters
+    ----------
+    G : graph
+        A NetworkX graph.
+    e : dict, optional
+        Precomputed eccentricity dict {node: eccentricity}.
+    usebounds : bool, optional (default=False)
+        Use bounds to speed up eccentricity computation.
+    weight : edge attribute key, optional
+        Use the specified edge attribute as edge weight.
+
+    Returns
+    -------
+    list
+        List of nodes in the periphery.
+    """
+    if e is not None or usebounds or weight is not None:
+        return _call_networkx_for_parity(
+            "periphery", G, e=e, usebounds=usebounds, weight=weight
+        )
+    return _raw_periphery(G)
 
 
 def eccentricity(G, v=None, sp=None, weight=None):
