@@ -63,7 +63,7 @@ class TestBFSSortNeighbors:
         assert list(bp) == list(nbp)
 
     def test_bfs_successors_sorted(self, tree_graph, nx_tree_graph):
-        bs = fnx.bfs_successors(tree_graph, 0, sort_neighbors=sorted)
+        bs = dict(fnx.bfs_successors(tree_graph, 0, sort_neighbors=sorted))
         nbs = dict(nx.bfs_successors(nx_tree_graph, 0, sort_neighbors=sorted))
         assert bs == nbs
 

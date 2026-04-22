@@ -2712,15 +2712,33 @@ def bfs_predecessors(G, source, depth_limit=None, sort_neighbors=None):
 
 
 def bfs_successors(G, source, depth_limit=None, sort_neighbors=None):
-    """Return (node, [successors]) pairs from BFS."""
-    if sort_neighbors is not None:
-        from collections import defaultdict
+    """Iterate (node, [successors]) pairs in BFS discovery order.
 
-        succs = defaultdict(list)
-        for u, v in _py_bfs_edges(G, source, depth_limit, sort_neighbors):
-            succs[u].append(v)
-        return dict(succs)
-    return _bfs_successors_raw(G, source, depth_limit=depth_limit)
+    Matches NetworkX's generator-of-pairs contract, with the source
+    appearing first and subsequent parent nodes appearing in the order
+    they were discovered by the BFS. Honours the ``sort_neighbors``
+    callable when provided.
+    """
+    if sort_neighbors is not None:
+        edge_source = _py_bfs_edges(G, source, depth_limit, sort_neighbors)
+    else:
+        # Build edge stream from bfs_edges which already emits in BFS
+        # discovery order (matching upstream on both graph and digraph
+        # inputs with the same neighbour-iteration order).
+        edge_source = bfs_edges(G, source, depth_limit=depth_limit)
+
+    current_parent = None
+    current_children = None
+    for parent, child in edge_source:
+        if parent != current_parent:
+            if current_parent is not None:
+                yield current_parent, current_children
+            current_parent = parent
+            current_children = [child]
+        else:
+            current_children.append(child)
+    if current_parent is not None:
+        yield current_parent, current_children
 
 
 def bfs_tree(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
