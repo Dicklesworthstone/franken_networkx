@@ -2509,6 +2509,28 @@ def test_edge_subgraph_matches_networkx_without_fallback(monkeypatch, fnx_cls, n
 @pytest.mark.parametrize(
     ("fnx_cls", "nx_cls"),
     [
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_multigraph_edge_subgraph_requires_keyed_edge_tuples(fnx_cls, nx_cls):
+    graph = fnx_cls()
+    expected = nx_cls()
+    graph.add_edge("a", "b", key="k1", weight=1)
+    expected.add_edge("a", "b", key="k1", weight=1)
+
+    with pytest.raises(Exception) as fnx_exc:
+        graph.edge_subgraph([("a", "b")])
+    with pytest.raises(Exception) as nx_exc:
+        expected.edge_subgraph([("a", "b")])
+
+    assert type(fnx_exc.value).__name__ == type(nx_exc.value).__name__
+    assert str(fnx_exc.value) == str(nx_exc.value)
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
         (fnx.Graph, nx.Graph),
         (fnx.DiGraph, nx.DiGraph),
         (fnx.MultiGraph, nx.MultiGraph),
