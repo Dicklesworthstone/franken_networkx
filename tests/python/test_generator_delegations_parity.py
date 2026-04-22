@@ -1,3 +1,4 @@
+import inspect
 import random
 
 import networkx as nx
@@ -452,6 +453,20 @@ def test_erdos_renyi_graph_random_object_seed_matches_networkx_without_fallback(
 
     assert isinstance(actual, fnx.Graph)
     assert _graph_data_signature(_to_nx(actual)) == _graph_data_signature(expected)
+
+
+@pytest.mark.parametrize("function_name", ["gnp_random_graph", "erdos_renyi_graph", "fast_gnp_random_graph"])
+def test_gnp_random_graph_family_backend_keyword_surface_matches_networkx(function_name):
+    fnx_function = getattr(fnx, function_name)
+    nx_function = getattr(nx, function_name)
+
+    assert inspect.signature(fnx_function) == inspect.signature(nx_function)
+
+    with pytest.raises(ImportError, match=r"'parallel' backend is not installed"):
+        fnx_function(8, 0.2, seed=42, backend="parallel")
+
+    with pytest.raises(TypeError, match=r"unexpected keyword argument 'backend_kwargs'"):
+        fnx_function(8, 0.2, seed=42, backend_kwargs={"x": 1})
 
 
 def test_binomial_graph_create_using_matches_networkx_without_fallback(monkeypatch):
