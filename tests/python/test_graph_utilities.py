@@ -1791,6 +1791,35 @@ def test_multigraph_node_views_support_attribute_name_data_retrieval(fnx_cls, nx
 
 
 @pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls", "missing_node"),
+    [
+        (fnx.Graph, nx.Graph, "missing"),
+        (fnx.Graph, nx.Graph, 9),
+        (fnx.MultiGraph, nx.MultiGraph, "missing"),
+        (fnx.MultiGraph, nx.MultiGraph, 9),
+    ],
+)
+def test_undirected_graph_classes_neighbors_preserve_missing_node_errors(
+    fnx_cls, nx_cls, missing_node
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+
+    try:
+        expected.neighbors(missing_node)
+    except Exception as exc:
+        expected_type = type(exc).__name__
+        expected_message = str(exc)
+    else:
+        raise AssertionError("expected NetworkX neighbors() to fail for a missing node")
+
+    with pytest.raises(Exception) as fnx_exc:
+        graph.neighbors(missing_node)
+
+    assert type(fnx_exc.value).__name__ == expected_type
+    assert str(fnx_exc.value) == expected_message
+
+
+@pytest.mark.parametrize(
     ("fnx_cls", "nx_cls"),
     [
         (fnx.Graph, nx.Graph),
