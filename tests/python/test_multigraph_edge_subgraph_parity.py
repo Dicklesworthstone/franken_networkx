@@ -88,6 +88,43 @@ def test_multigraph_edge_subgraph_adjacency_item_access_is_readonly(
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],
 )
+def test_multigraph_edge_subgraph_adj_mapping_helpers_deep_match(fnx_ctor, nx_ctor):
+    fg = fnx_ctor()
+    fg.add_edge("a", "b", key="k1", weight=3)
+    fg.add_edge("b", "c")
+    ng = nx_ctor()
+    ng.add_edge("a", "b", key="k1", weight=3)
+    ng.add_edge("b", "c")
+
+    fh = fg.edge_subgraph([("a", "b", "k1")])
+    nh = ng.edge_subgraph([("a", "b", "k1")])
+
+    for attr in ("items", "keys", "values", "get"):
+        assert hasattr(fh.adj, attr)
+
+    def three_level(it):
+        return [
+            (
+                k,
+                {
+                    kk: {kkk: dict(vvv) for kkk, vvv in dict(vv).items()}
+                    for kk, vv in dict(v).items()
+                },
+            )
+            for k, v in it
+        ]
+
+    assert three_level(fh.adj.items()) == three_level(nh.adj.items())
+    assert list(fh.adj.keys()) == list(nh.adj.keys())
+
+
+@pytest.mark.parametrize(
+    ("fnx_ctor", "nx_ctor"),
+    [
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
 def test_multigraph_edge_subgraph_multi_key_adjacency_preserves_mapping(
     fnx_ctor, nx_ctor
 ):
