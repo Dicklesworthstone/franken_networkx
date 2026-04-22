@@ -10565,31 +10565,30 @@ def multi_source_dijkstra_path_length(G, sources, cutoff=None, weight="weight"):
     return dists
 
 
-def single_source_all_shortest_paths(G, source, weight=None):
+def single_source_all_shortest_paths(G, source, weight=None, method="dijkstra"):
     """Yield all shortest paths from source to every reachable target.
-
-    For unweighted graphs, uses BFS to find all shortest paths.
 
     Parameters
     ----------
     G : Graph
     source : node
-    weight : str or None, optional
+    weight : str or callable or None, optional
+    method : str, optional
 
     Yields
     ------
-    list
-        Each yield is a shortest path from source to some target.
+    (target, paths)
+        ``paths`` is the list of all shortest paths from source to target.
     """
-    if weight is None:
-        # BFS for unweighted
-        paths = single_source_shortest_path(G, source)
-        for target, path in paths.items():
-            yield path
-    else:
-        paths = single_source_dijkstra_path(G, source, weight=weight)
-        for target, path in paths.items():
-            yield path
+    try:
+        yield from _nx.single_source_all_shortest_paths(
+            _networkx_graph_for_traversal_parity(G),
+            source,
+            weight=weight,
+            method=method,
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
 
 
 def all_pairs_all_shortest_paths(G, weight=None, method="dijkstra"):

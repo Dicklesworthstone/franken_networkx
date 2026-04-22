@@ -1259,6 +1259,49 @@ class TestShortestPath:
             lambda: dict(nx.all_pairs_all_shortest_paths(G_nx, weight=weight_fn)),
         )
 
+    def test_single_source_all_shortest_paths_matches_networkx(self, fnx, nx):
+        G_fnx = fnx.DiGraph()
+        G_nx = nx.DiGraph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", weight=1.0, cost=1.0)
+            graph.add_edge("a", "c", weight=1.0, cost=1.0)
+            graph.add_edge("b", "d", weight=1.0, cost=1.0)
+            graph.add_edge("c", "d", weight=1.0, cost=1.0)
+            graph.add_edge("b", "e", weight=2.0, cost=2.0)
+            graph.add_edge("d", "e", weight=1.0, cost=1.0)
+            graph.add_node("isolated")
+
+        weight_fn = lambda u, v, data: data["cost"]
+
+        _assert_same_result_or_exception(
+            lambda: dict(fnx.single_source_all_shortest_paths(G_fnx, "a")),
+            lambda: dict(nx.single_source_all_shortest_paths(G_nx, "a")),
+        )
+        _assert_same_result_or_exception(
+            lambda: dict(
+                fnx.single_source_all_shortest_paths(G_fnx, "a", weight="weight")
+            ),
+            lambda: dict(
+                nx.single_source_all_shortest_paths(G_nx, "a", weight="weight")
+            ),
+        )
+        _assert_same_result_or_exception(
+            lambda: dict(
+                fnx.single_source_all_shortest_paths(
+                    G_fnx, "a", weight="weight", method="bellman-ford"
+                )
+            ),
+            lambda: dict(
+                nx.single_source_all_shortest_paths(
+                    G_nx, "a", weight="weight", method="bellman-ford"
+                )
+            ),
+        )
+        _assert_same_result_or_exception(
+            lambda: dict(fnx.single_source_all_shortest_paths(G_fnx, "a", weight=weight_fn)),
+            lambda: dict(nx.single_source_all_shortest_paths(G_nx, "a", weight=weight_fn)),
+        )
+
     def test_johnson_matches_networkx_path_contract(self, fnx, nx):
         G_fnx = fnx.DiGraph()
         G_nx = nx.DiGraph()
