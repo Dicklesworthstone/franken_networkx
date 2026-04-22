@@ -7,7 +7,8 @@
 use crate::digraph::{PyDiGraph, PyMultiDiGraph};
 use crate::{
     NetworkXError, NetworkXNoCycle, NetworkXNoPath, NetworkXNotImplemented, NetworkXUnfeasible,
-    NodeNotFound, PyGraph, PyMultiGraph, PyObject, PythonAllowThreadsExt, node_key_to_string,
+    NodeNotFound, NotAPartition, PyGraph, PyMultiGraph, PyObject, PythonAllowThreadsExt,
+    node_key_to_string,
 };
 use fnx_classes::AttrMap;
 use pyo3::exceptions::{PyIndexError, PyValueError, PyZeroDivisionError};
@@ -145,6 +146,20 @@ impl<'py> GraphRef<'py> {
             GraphRef::MultiUndirected { mg, .. } => mg.inner.edge_count(),
             GraphRef::MultiDirected { mdg, .. } => mdg.inner.edge_count(),
         }
+    }
+
+    fn graph_description(&self) -> String {
+        let prefix = match self {
+            GraphRef::Undirected(_) => "Graph",
+            GraphRef::Directed { .. } => "DiGraph",
+            GraphRef::MultiUndirected { .. } => "MultiGraph",
+            GraphRef::MultiDirected { .. } => "MultiDiGraph",
+        };
+        format!(
+            "{prefix} with {} nodes and {} edges",
+            self.node_count_original(),
+            self.edge_count_original()
+        )
     }
 
     fn total_degree_sequence(&self) -> Vec<usize> {
@@ -7813,22 +7828,38 @@ fn modularity(
     weight: &str,
 ) -> PyResult<f64> {
     let gr = extract_graph(g)?;
+    let normalized_communities = PyList::empty(py);
 
     let mut comms_strs = Vec::new();
     for comm in communities.try_iter()? {
         let comm = comm?;
+        normalized_communities.append(&comm)?;
         let mut comm_strs = Vec::new();
         for node in comm.try_iter()? {
             let node = node?;
             let s = node_key_to_string(py, &node)?;
-            validate_node(&gr, &s, &node, "Source")?;
             comm_strs.push(s);
         }
         comms_strs.push(comm_strs);
     }
 
     let inner = gr.undirected();
-    Ok(py.allow_threads(|| fnx_algorithms::modularity(inner, &comms_strs, resolution, weight)))
+    if !fnx_algorithms::community_partition_is_valid(inner, &comms_strs) {
+        return Err(NotAPartition::new_err(format!(
+            "{} is not a valid partition of the graph {}",
+            normalized_communities.str()?,
+            gr.graph_description()
+        )));
+    }
+
+    py.allow_threads(|| fnx_algorithms::modularity(inner, &comms_strs, resolution, weight))
+        .map_err(|_| {
+            NotAPartition::new_err(format!(
+                "{} is not a valid partition of the graph {}",
+                normalized_communities.str().expect("repr should succeed"),
+                gr.graph_description()
+            ))
+        })
 }
 
 #[pyfunction]

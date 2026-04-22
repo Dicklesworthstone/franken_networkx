@@ -239,28 +239,24 @@ def test_modularity_matches_networkx_on_trivial_partition():
     assert math.isclose(f_mod, n_mod, rel_tol=1e-5, abs_tol=1e-7)
 
 
-def test_modularity_networkx_rejects_incomplete_partition():
-    """Upstream nx raises NotAPartition on an incomplete partition.
-    Lock that contract for upstream; fnx currently returns a value on
-    the same input (known divergence tracked separately).
-    """
-    _, ng = _barbell()
-    bad = [set(range(0, 4))]
-    with pytest.raises(nx.NetworkXError):
+@pytest.mark.parametrize(
+    "bad",
+    [
+        pytest.param([set(range(0, 4))], id="incomplete"),
+        pytest.param([set(range(0, 4)), set(range(3, 10))], id="overlap"),
+        pytest.param([set(range(0, 10)), {999}], id="missing-node"),
+    ],
+)
+def test_modularity_rejects_invalid_partitions_with_notapartition(bad):
+    fg, ng = _barbell()
+
+    with pytest.raises(nx.community.quality.NotAPartition) as nx_exc:
         nx.community.modularity(ng, bad)
 
+    with pytest.raises(fnx.NotAPartition) as fnx_exc:
+        fnx.modularity(fg, bad)
 
-def test_modularity_fnx_incomplete_partition_divergence_is_visible():
-    """Document the current divergence: fnx.modularity returns a float on
-    an incomplete partition instead of raising NotAPartition like nx.
-    When fnx tightens this validation, flip this gate to assert the raise.
-    """
-    fg, _ = _barbell()
-    bad = [set(range(0, 4))]
-    # No exception expected today; confirm fnx returns a numeric result so
-    # the gap is detectable if nx ever changes behaviour.
-    f_mod = fnx.modularity(fg, bad)
-    assert isinstance(f_mod, float)
+    assert str(fnx_exc.value) == str(nx_exc.value)
 
 
 # ---------------------------------------------------------------------------

@@ -831,6 +831,29 @@ impl fmt::Display for FlowError {
 
 impl std::error::Error for FlowError {}
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ModularityError {
+    NotAPartition {
+        graph: String,
+        communities: Vec<Vec<String>>,
+    },
+}
+
+impl fmt::Display for ModularityError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotAPartition { graph, communities } => {
+                write!(
+                    f,
+                    "{communities:?} is not a valid partition of the graph {graph}"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for ModularityError {}
+
 #[derive(Debug, Clone)]
 struct FlowComputation {
     value: f64,
@@ -14770,12 +14793,39 @@ pub fn louvain_communities(
 /// `communities` is a list of sets of nodes. Returns the modularity Q value.
 /// Matches `networkx.community.modularity(G, communities, resolution=..., weight=...)`.
 #[must_use]
+pub fn community_partition_is_valid(graph: &Graph, communities: &[Vec<String>]) -> bool {
+    let mut seen = HashSet::with_capacity(graph.node_count());
+    for comm in communities {
+        for node in comm {
+            if !graph.has_node(node) || !seen.insert(node.clone()) {
+                return false;
+            }
+        }
+    }
+    seen.len() == graph.node_count()
+}
+
+fn graph_summary(graph: &Graph) -> String {
+    format!(
+        "Graph with {} nodes and {} edges",
+        graph.node_count(),
+        graph.edge_count()
+    )
+}
+
 pub fn modularity(
     graph: &Graph,
     communities: &[Vec<String>],
     resolution: f64,
     weight_attr: &str,
-) -> f64 {
+) -> Result<f64, ModularityError> {
+    if !community_partition_is_valid(graph, communities) {
+        return Err(ModularityError::NotAPartition {
+            graph: graph_summary(graph),
+            communities: communities.to_vec(),
+        });
+    }
+
     let m2: f64 = graph
         .nodes_ordered()
         .iter()
@@ -14790,7 +14840,7 @@ pub fn modularity(
         .sum::<f64>();
 
     if m2 == 0.0 {
-        return 0.0;
+        return Ok(0.0);
     }
 
     let node_to_idx: HashMap<&str, usize> = graph
@@ -14831,7 +14881,7 @@ pub fn modularity(
             }
         }
     }
-    q / m2
+    Ok(q / m2)
 }
 
 // ===========================================================================
@@ -31043,6 +31093,7 @@ mod tests {
         FlowError,
         GraphMLWriterConfig,
         MaximalIndependentSetError,
+        ModularityError,
         SpannerError,
         adamic_adar_index,
         all_pairs_all_shortest_paths,
@@ -37760,7 +37811,7 @@ mod tests {
             vec!["a".to_owned(), "b".to_owned()],
             vec!["c".to_owned(), "d".to_owned()],
         ];
-        let q = modularity(&g, &comms, 1.0, "weight");
+        let q = modularity(&g, &comms, 1.0, "weight").expect("partition should be valid");
         assert!(
             q > 0.0,
             "Modularity should be positive for perfect partition: {q}"
@@ -37771,11 +37822,25 @@ mod tests {
             vec!["a".to_owned(), "c".to_owned()],
             vec!["b".to_owned(), "d".to_owned()],
         ];
-        let q_bad = modularity(&g, &bad_comms, 1.0, "weight");
+        let q_bad = modularity(&g, &bad_comms, 1.0, "weight").expect("partition should be valid");
         assert!(
             q > q_bad,
             "Good partition should have higher modularity than bad: {q} vs {q_bad}"
         );
+    }
+
+    #[test]
+    fn modularity_rejects_overlapping_partition() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+
+        let bad = vec![
+            vec!["a".to_owned(), "b".to_owned()],
+            vec!["b".to_owned(), "c".to_owned()],
+        ];
+        let err = modularity(&g, &bad, 1.0, "weight").unwrap_err();
+        assert!(matches!(err, ModularityError::NotAPartition { .. }));
     }
 
     #[test]
