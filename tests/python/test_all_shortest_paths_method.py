@@ -127,3 +127,38 @@ class TestAllShortestPathsMethod:
                     nx.all_shortest_paths(D_nx, "a", "c", **kwargs)
                 ),
             )
+
+
+def test_weighted_diamond_preserves_path_emission_order_matching_networkx():
+    """Bead franken_networkx-q6qc: on a weighted diamond with equal-cost
+    routes from a to e, the path list must appear in the same order as
+    upstream NetworkX — not just contain the same paths.
+    """
+    edges = [
+        ("a", "b", 1),
+        ("a", "c", 1),
+        ("b", "d", 1),
+        ("c", "d", 1),
+        ("d", "e", 1),
+        ("b", "e", 2),
+    ]
+    fg = fnx.Graph()
+    ng = nx.Graph()
+    for u, v, w in edges:
+        fg.add_edge(u, v, weight=w)
+        ng.add_edge(u, v, weight=w)
+
+    fnx_paths = list(fnx.all_shortest_paths(fg, "a", "e", weight="weight"))
+    nx_paths = list(nx.all_shortest_paths(ng, "a", "e", weight="weight"))
+    assert fnx_paths == nx_paths, (
+        f"all_shortest_paths order diverged: fnx={fnx_paths} nx={nx_paths}"
+    )
+
+    # method="dijkstra" path on the same fixture.
+    fnx_paths_dj = list(
+        fnx.all_shortest_paths(fg, "a", "e", weight="weight", method="dijkstra")
+    )
+    nx_paths_dj = list(
+        nx.all_shortest_paths(ng, "a", "e", weight="weight", method="dijkstra")
+    )
+    assert fnx_paths_dj == nx_paths_dj
