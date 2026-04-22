@@ -73,6 +73,42 @@ def test_to_undirected_reciprocal_keeps_only_bidirectional_edges(fnx_ctor, nx_ct
 
 
 @pytest.mark.parametrize(
+    ("direction", "fnx_ctor", "nx_ctor"),
+    [
+        ("to_directed", fnx.Graph, nx.Graph),
+        ("to_undirected", fnx.DiGraph, nx.DiGraph),
+    ],
+)
+def test_conversion_live_view_exposes_dict_factory_attributes(direction, fnx_ctor, nx_ctor):
+    """Bead franken_networkx-i4b8: top-level to_undirected / to_directed
+    conversion live views must expose NetworkX's dict-factory attribute
+    surface — each materialising an empty dict by default.
+    """
+    fg = fnx_ctor()
+    fg.add_edge(0, 1)
+    ng = nx_ctor()
+    ng.add_edge(0, 1)
+
+    fv = getattr(fg, direction)(as_view=True)
+    nv = getattr(ng, direction)(as_view=True)
+
+    factories = (
+        "adjlist_inner_dict_factory",
+        "adjlist_outer_dict_factory",
+        "edge_attr_dict_factory",
+        "graph_attr_dict_factory",
+        "node_attr_dict_factory",
+        "node_dict_factory",
+    )
+    for attr in factories:
+        assert hasattr(fv, attr), f"fnx view missing {attr}"
+        assert hasattr(nv, attr), f"nx view missing {attr}"
+        f_factory = getattr(fv, attr)
+        assert callable(f_factory)
+        assert f_factory() == {}
+
+
+@pytest.mark.parametrize(
     ("fnx_ctor", "nx_ctor"),
     [
         (fnx.DiGraph, nx.DiGraph),
