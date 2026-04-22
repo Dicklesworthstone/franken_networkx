@@ -14474,6 +14474,56 @@ class _ReverseDirectedView:
     def to_undirected_class(self):
         return MultiGraph if self.is_multigraph() else Graph
 
+    def to_directed(self, as_view=False):
+        """Materialise the reverse view as a concrete directed graph.
+
+        Matches upstream NetworkX: returns a DiGraph / MultiDiGraph
+        whose edges are the reversed edges of the underlying graph.
+        `as_view` is accepted for API compatibility but behaves the
+        same as False (already a reversed adjacency).
+        """
+        cls = self.to_directed_class()
+        out = cls()
+        out.graph.update(deepcopy(self.graph))
+        out.add_nodes_from((n, self._graph.nodes[n]) for n in self._graph)
+        if self.is_multigraph():
+            for u, v, key, attrs in self._edges(data=True, keys=True):
+                out.add_edge(u, v, key=key, **deepcopy(attrs))
+        else:
+            for u, v, attrs in self._edges(data=True):
+                out.add_edge(u, v, **deepcopy(attrs))
+        return out
+
+    def to_undirected(self, as_view=False):
+        """Materialise the reverse view as a concrete undirected graph.
+
+        Matches upstream NetworkX: collapses both directions of the
+        reversed edges into an undirected Graph / MultiGraph.
+        """
+        cls = self.to_undirected_class()
+        out = cls()
+        out.graph.update(deepcopy(self.graph))
+        out.add_nodes_from((n, self._graph.nodes[n]) for n in self._graph)
+        if self.is_multigraph():
+            for u, v, key, attrs in self._edges(data=True, keys=True):
+                out.add_edge(u, v, key=key, **deepcopy(attrs))
+        else:
+            for u, v, attrs in self._edges(data=True):
+                out.add_edge(u, v, **deepcopy(attrs))
+        return out
+
+    def reverse(self, copy=True):
+        """Return the underlying (un-reversed) directed graph.
+
+        The reverse of a reverse-view is the original orientation.
+        Matches upstream: copy=True returns a fresh DiGraph copy,
+        copy=False returns the live underlying graph (no wrapper).
+        """
+        if copy:
+            # Return a detached copy of the underlying directed graph.
+            return self._graph.copy()
+        return self._graph
+
     def nodes(self, data=False):
         return self._graph.nodes(data=data)
 
