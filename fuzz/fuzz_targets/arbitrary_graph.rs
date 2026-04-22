@@ -5,8 +5,8 @@
 //! cannot reach.
 
 use arbitrary::{Arbitrary, Unstructured};
-use fnx_classes::digraph::DiGraph;
-use fnx_classes::Graph;
+use fnx_classes::digraph::{DiGraph, MultiDiGraph};
+use fnx_classes::{Graph, MultiGraph};
 use fnx_runtime::CompatibilityMode;
 use std::collections::BTreeMap;
 
@@ -65,6 +65,29 @@ pub struct ArbitraryFlowNetwork {
     pub source: String,
     pub sink: String,
     pub capacity_attr: String,
+}
+
+/// An undirected multigraph generated via `Arbitrary`.
+///
+/// Unlike `ArbitraryGraph`, edges may be added multiple times between
+/// the same endpoints. Keys are assigned by the underlying `MultiGraph`
+/// via the fnx auto-key policy (matches networkx semantics).
+#[derive(Debug, Clone)]
+pub struct ArbitraryMultiGraph {
+    pub graph: MultiGraph,
+    /// Node names for algorithm source/target selection.
+    pub nodes: Vec<String>,
+}
+
+/// A directed multigraph generated via `Arbitrary`.
+///
+/// Edges may be added multiple times between the same endpoints in a
+/// given direction; the underlying `MultiDiGraph` assigns keys.
+#[derive(Debug, Clone)]
+pub struct ArbitraryMultiDiGraph {
+    pub graph: MultiDiGraph,
+    /// Node names for algorithm source/target selection.
+    pub nodes: Vec<String>,
 }
 
 impl<'a> Arbitrary<'a> for ArbitraryGraph {
@@ -389,6 +412,110 @@ impl<'a> Arbitrary<'a> for ArbitraryFlowNetworkUndirected {
             sink,
             capacity_attr,
         })
+    }
+}
+
+impl<'a> Arbitrary<'a> for ArbitraryMultiGraph {
+    fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
+        let mode = if u.arbitrary()? {
+            CompatibilityMode::Strict
+        } else {
+            CompatibilityMode::Hardened
+        };
+
+        let mut graph = MultiGraph::new(mode);
+        let node_count: usize = u.int_in_range(0..=MAX_NODES)?;
+        let mut nodes = Vec::with_capacity(node_count);
+
+        for i in 0..node_count {
+            let name = format!("n{i}");
+            graph.add_node(&name);
+            nodes.push(name);
+        }
+
+        if node_count > 0 {
+            // Density and parallel-edge frequency are driven independently,
+            // so single-edge, sparse-multi, and dense-multi topologies are
+            // all reachable.
+            let edge_density: u8 = u.arbitrary()?;
+            let parallel_bias: u8 = u.arbitrary()?;
+            let target_edges = (node_count * (edge_density as usize % MAX_EDGES_PER_NODE)) / 2;
+
+            for _ in 0..target_edges {
+                if u.is_empty() {
+                    break;
+                }
+                let src_idx: usize = u.int_in_range(0..=node_count - 1)?;
+                let dst_idx: usize = u.int_in_range(0..=node_count - 1)?;
+                if src_idx == dst_idx {
+                    continue;
+                }
+                // Add the edge once; with `parallel_bias` probability add
+                // one or two additional parallel edges to exercise the
+                // keyed-multiplicity code paths.
+                let _ = graph.add_edge(&nodes[src_idx], &nodes[dst_idx]);
+                if parallel_bias % 4 != 0 {
+                    let _ = graph.add_edge(&nodes[src_idx], &nodes[dst_idx]);
+                }
+                if parallel_bias % 8 == 0 {
+                    let _ = graph.add_edge(&nodes[src_idx], &nodes[dst_idx]);
+                }
+            }
+        }
+
+        Ok(Self { graph, nodes })
+    }
+}
+
+impl<'a> Arbitrary<'a> for ArbitraryMultiDiGraph {
+    fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
+        let mode = if u.arbitrary()? {
+            CompatibilityMode::Strict
+        } else {
+            CompatibilityMode::Hardened
+        };
+
+        let mut graph = MultiDiGraph::new(mode);
+        let node_count: usize = u.int_in_range(0..=MAX_NODES)?;
+        let mut nodes = Vec::with_capacity(node_count);
+
+        for i in 0..node_count {
+            let name = format!("n{i}");
+            graph.add_node(&name);
+            nodes.push(name);
+        }
+
+        if node_count > 0 {
+            let edge_density: u8 = u.arbitrary()?;
+            let parallel_bias: u8 = u.arbitrary()?;
+            let target_edges = (node_count * (edge_density as usize % MAX_EDGES_PER_NODE)) / 2;
+
+            for _ in 0..target_edges {
+                if u.is_empty() {
+                    break;
+                }
+                let src_idx: usize = u.int_in_range(0..=node_count - 1)?;
+                let dst_idx: usize = u.int_in_range(0..=node_count - 1)?;
+                if src_idx == dst_idx {
+                    continue;
+                }
+                let _ = graph.add_edge(&nodes[src_idx], &nodes[dst_idx]);
+                // Occasionally add the reverse direction to get (u, v) *and*
+                // (v, u) pairs — the directed-multi code paths handle these
+                // distinctly from parallel same-direction edges.
+                if parallel_bias % 3 == 0 {
+                    let _ = graph.add_edge(&nodes[dst_idx], &nodes[src_idx]);
+                }
+                if parallel_bias % 4 != 0 {
+                    let _ = graph.add_edge(&nodes[src_idx], &nodes[dst_idx]);
+                }
+                if parallel_bias % 8 == 0 {
+                    let _ = graph.add_edge(&nodes[src_idx], &nodes[dst_idx]);
+                }
+            }
+        }
+
+        Ok(Self { graph, nodes })
     }
 }
 

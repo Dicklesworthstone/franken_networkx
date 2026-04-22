@@ -114,3 +114,8 @@ doc = false
 name = "fuzz_community"
 path = "fuzz_targets/fuzz_community.rs"
 doc = false
+
+[[bin]]
+name = "fuzz_multigraph"
+path = "fuzz_targets/fuzz_multigraph.rs"
+doc = false
