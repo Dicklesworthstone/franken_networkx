@@ -1841,7 +1841,7 @@ def local_edge_connectivity(
 # Algorithm functions — centrality
 from franken_networkx._fnx import (
     average_neighbor_degree as _raw_average_neighbor_degree,
-    betweenness_centrality,
+    betweenness_centrality as _raw_betweenness_centrality,
     betweenness_centrality_subset_rust as _betweenness_centrality_subset_rust,
     closeness_centrality as _raw_closeness_centrality,
     closeness_vitality as _rust_closeness_vitality,
@@ -2020,6 +2020,41 @@ def degree_centrality(G, *, backend=None, **backend_kwargs):
     """Compute degree centrality for nodes."""
     _validate_backend_dispatch_keywords("degree_centrality", backend, backend_kwargs)
     return _raw_degree_centrality(G)
+
+
+def betweenness_centrality(
+    G,
+    k=None,
+    normalized=True,
+    weight=None,
+    endpoints=False,
+    seed=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    """Compute betweenness centrality for nodes."""
+    _validate_backend_dispatch_keywords("betweenness_centrality", backend, backend_kwargs)
+
+    if k is not None or weight is not None or seed is not None:
+        return _call_networkx_for_parity(
+            "betweenness_centrality",
+            G,
+            k=k,
+            normalized=normalized,
+            weight=weight,
+            endpoints=endpoints,
+            seed=seed,
+        )
+
+    return _raw_betweenness_centrality(
+        G,
+        k=k,
+        normalized=normalized,
+        weight=weight,
+        endpoints=endpoints,
+        seed=seed,
+    )
 
 
 def voterank(G, number_of_nodes=None, *, backend=None, **backend_kwargs):

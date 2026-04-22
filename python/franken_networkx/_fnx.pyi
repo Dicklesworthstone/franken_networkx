@@ -456,6 +456,9 @@ def betweenness_centrality(
     weight: Optional[str] = None,
     endpoints: bool = False,
     seed: Optional[Any] = None,
+    *,
+    backend: Optional[str] = None,
+    **backend_kwargs: Any,
 ) -> dict[Any, float]: ...
 def edge_betweenness_centrality(g: Graph) -> dict[tuple[Any, Any], float]: ...
 def eigenvector_centrality(

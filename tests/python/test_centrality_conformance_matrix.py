@@ -509,6 +509,7 @@ def test_public_centrality_wrappers_backend_keyword_surface_matches_networkx(nam
 @pytest.mark.parametrize(
     ("name", "args"),
     [
+        pytest.param("betweenness_centrality", (), id="betweenness_centrality"),
         pytest.param("harmonic_centrality", (), id="harmonic_centrality"),
         pytest.param("closeness_centrality", (), id="closeness_centrality"),
         pytest.param("edge_betweenness_centrality", (), id="edge_betweenness_centrality"),
@@ -537,6 +538,7 @@ def _assert_backend_wrapper_result_matches_networkx(name, actual, expected):
         return
 
     if name in {
+        "betweenness_centrality",
         "degree_centrality",
         "harmonic_centrality",
         "closeness_centrality",
@@ -564,6 +566,7 @@ def _assert_backend_wrapper_result_matches_networkx(name, actual, expected):
 @pytest.mark.parametrize(
     ("name", "args"),
     [
+        pytest.param("betweenness_centrality", (), id="betweenness_centrality"),
         pytest.param("harmonic_centrality", (), id="harmonic_centrality"),
         pytest.param("closeness_centrality", (), id="closeness_centrality"),
         pytest.param("edge_betweenness_centrality", (), id="edge_betweenness_centrality"),
