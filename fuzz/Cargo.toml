@@ -94,3 +94,13 @@ doc = false
 name = "fuzz_pajek"
 path = "fuzz_targets/fuzz_pajek.rs"
 doc = false
+
+[[bin]]
+name = "fuzz_dag"
+path = "fuzz_targets/fuzz_dag.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_bipartite"
+path = "fuzz_targets/fuzz_bipartite.rs"
+doc = false
