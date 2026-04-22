@@ -273,3 +273,30 @@ class TestConnectivity:
         fnx_br = set(tuple(sorted((str(u), str(v)))) for u, v in fnx.bridges(G_fnx))
         nx_br = set(tuple(sorted((str(u), str(v)))) for u, v in nx.bridges(G_nx))
         assert fnx_br == nx_br
+
+    def test_bridges_with_root(self, fnx, nx):
+        """bridges(root=...) should only yield bridges in that component."""
+        # Create two disconnected path components
+        G_fnx = fnx.Graph()
+        G_fnx.add_edges_from([(0, 1), (1, 2)])  # Component 1
+        G_fnx.add_edges_from([(10, 11), (11, 12)])  # Component 2
+        G_nx = nx.Graph()
+        G_nx.add_edges_from([(0, 1), (1, 2)])
+        G_nx.add_edges_from([(10, 11), (11, 12)])
+
+        # Without root: all bridges from both components
+        fnx_all = set(tuple(sorted((u, v))) for u, v in fnx.bridges(G_fnx))
+        nx_all = set(tuple(sorted((u, v))) for u, v in nx.bridges(G_nx))
+        assert fnx_all == nx_all
+
+        # With root=0: only bridges from component 1
+        fnx_c1 = set(tuple(sorted((u, v))) for u, v in fnx.bridges(G_fnx, root=0))
+        nx_c1 = set(tuple(sorted((u, v))) for u, v in nx.bridges(G_nx, root=0))
+        assert fnx_c1 == nx_c1
+        assert (10, 11) not in fnx_c1  # Should not include component 2
+
+        # With root=10: only bridges from component 2
+        fnx_c2 = set(tuple(sorted((u, v))) for u, v in fnx.bridges(G_fnx, root=10))
+        nx_c2 = set(tuple(sorted((u, v))) for u, v in nx.bridges(G_nx, root=10))
+        assert fnx_c2 == nx_c2
+        assert (0, 1) not in fnx_c2  # Should not include component 1
