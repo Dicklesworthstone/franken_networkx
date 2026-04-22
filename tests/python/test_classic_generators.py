@@ -3,6 +3,8 @@
 Tests cover node/edge counts for all named and parametric generators.
 """
 
+import pytest
+
 import franken_networkx as fnx
 
 
@@ -403,3 +405,39 @@ class TestGeometricEdgesParity:
         assert sorted(fnx.geometric_edges(square, radius=1.1, p=p)) == sorted(
             nx.geometric_edges(G_nx, radius=1.1, p=p)
         )
+
+
+# ---------------------------------------------------------------------------
+# Watts-Strogatz backend keyword surface (franken_networkx-h1bp)
+# ---------------------------------------------------------------------------
+
+
+class TestWattsStrogatzBackendKeyword:
+    """watts_strogatz_graph and newman_watts_strogatz_graph must accept
+    NetworkX's backend dispatch keyword surface (backend, **backend_kwargs)
+    and raise ImportError on unknown backends matching upstream behaviour.
+    """
+
+    def test_default_backend_runs_in_tree(self):
+        g = fnx.watts_strogatz_graph(10, 4, 0.1)
+        assert g.number_of_nodes() == 10
+        g = fnx.newman_watts_strogatz_graph(10, 4, 0.1)
+        assert g.number_of_nodes() == 10
+
+    @pytest.mark.parametrize("backend", [None, "networkx"])
+    def test_explicit_supported_backend_runs_in_tree(self, backend):
+        g = fnx.watts_strogatz_graph(10, 4, 0.1, backend=backend)
+        assert g.number_of_nodes() == 10
+        g = fnx.newman_watts_strogatz_graph(10, 4, 0.1, backend=backend)
+        assert g.number_of_nodes() == 10
+
+    def test_unknown_backend_raises_import_error(self):
+        with pytest.raises(ImportError):
+            fnx.watts_strogatz_graph(10, 4, 0.1, backend="nonexistent")
+        with pytest.raises(ImportError):
+            fnx.newman_watts_strogatz_graph(10, 4, 0.1, backend="nonexistent")
+
+    def test_arbitrary_backend_kwargs_accepted(self):
+        # **backend_kwargs must absorb trailing kwargs without TypeError.
+        fnx.watts_strogatz_graph(10, 4, 0.1, foo="bar", spam=1)
+        fnx.newman_watts_strogatz_graph(10, 4, 0.1, foo="bar", spam=1)

@@ -7612,9 +7612,11 @@ def erdos_renyi_graph(n, p, seed=None, directed=False, *, create_using=None, bac
     )
 
 
-def watts_strogatz_graph(n, k, p, seed=None, create_using=None, *, backend=None, backend_kwargs=None):
+def watts_strogatz_graph(n, k, p, seed=None, create_using=None, *, backend=None, **backend_kwargs):
     """Return a Watts-Strogatz small-world graph."""
-    del backend, backend_kwargs  # NetworkX backend dispatch compatibility
+    if backend is not None and backend != "networkx":
+        raise ImportError(f"'{backend}' backend is not installed.")
+    del backend_kwargs  # in-tree implementation ignores backend kwargs
     graph = _rust_watts_strogatz_graph(n, k, p, seed=_native_random_seed(seed))
     if create_using is None:
         return graph
@@ -23801,9 +23803,11 @@ def fast_gnp_random_graph(n, p, seed=None, directed=False, *, create_using=None,
     return graph
 
 
-def newman_watts_strogatz_graph(n, k, p, seed=None, create_using=None, *, backend=None, backend_kwargs=None):
+def newman_watts_strogatz_graph(n, k, p, seed=None, create_using=None, *, backend=None, **backend_kwargs):
     """Return a Newman-Watts-Strogatz small-world graph."""
-    del backend, backend_kwargs  # NetworkX backend dispatch compatibility
+    if backend is not None and backend != "networkx":
+        raise ImportError(f"'{backend}' backend is not installed.")
+    del backend_kwargs  # in-tree implementation ignores backend kwargs
     graph = _rust_newman_watts_strogatz_graph(
         n, k, p, seed=_native_random_seed(seed)
     )
