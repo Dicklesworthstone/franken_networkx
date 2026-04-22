@@ -14571,7 +14571,19 @@ class _FilteredAdjacencyView(Mapping):
     def __getitem__(self, node):
         if not self._view._node_visible(node):
             raise KeyError(f"Key {node} not found")
-        return _FilteredNeighborMap(self._view, node, reverse=self._reverse)
+        atlas_getter = lambda: _FilteredNeighborMap(
+            self._view, node, reverse=self._reverse
+        )
+        if self._view.is_multigraph():
+            return AdjacencyView(atlas_getter)
+        return AtlasView(atlas_getter)
+
+
+def _filtered_public_adjacency_view(view, *, reverse=False):
+    atlas_getter = lambda: _FilteredAdjacencyView(view, reverse=reverse)
+    if view.is_multigraph():
+        return MultiAdjacencyView(atlas_getter)
+    return AdjacencyView(atlas_getter)
 
 
 def _node_attrs_for_view_graph(graph, node):
@@ -14676,10 +14688,10 @@ class _FilteredGraphView:
         self._filter_edge = filter_edge or (lambda *args: True)
         self.frozen = True
         self.nodes = NodeView(self)
-        self.adj = _FilteredAdjacencyView(self)
+        self.adj = _filtered_public_adjacency_view(self)
         if graph.is_directed():
-            self.succ = _FilteredAdjacencyView(self)
-            self.pred = _FilteredAdjacencyView(self, reverse=True)
+            self.succ = _filtered_public_adjacency_view(self)
+            self.pred = _filtered_public_adjacency_view(self, reverse=True)
 
     def __iter__(self):
         for node in self._graph:

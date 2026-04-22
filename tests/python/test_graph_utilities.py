@@ -3642,6 +3642,58 @@ def test_edge_subgraph_tracks_mutations_like_networkx_without_fallback(
 @pytest.mark.parametrize(
     ("fnx_cls", "nx_cls"),
     [
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_multigraph_edge_subgraph_adjacency_mapping_helpers_preserve_view_values(
+    fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    selected_edges = [("a", "b", 1), ("b", "c", 1)]
+
+    result = graph.edge_subgraph(selected_edges)
+    expected_result = expected.edge_subgraph(selected_edges)
+
+    assert type(result.adj).__name__ == type(expected_result.adj).__name__
+    assert list(result.adj.keys()) == list(expected_result.adj.keys())
+    assert [
+        (node, type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for node, neighbors in result.adj.items()
+    ] == [
+        (node, type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for node, neighbors in expected_result.adj.items()
+    ]
+    assert [
+        (type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for neighbors in result.adj.values()
+    ] == [
+        (type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for neighbors in expected_result.adj.values()
+    ]
+
+    graph["a"]["b"][1]["weight"] = 9
+    expected["a"]["b"][1]["weight"] = 9
+
+    assert [
+        (node, type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for node, neighbors in result.adj.items()
+    ] == [
+        (node, type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for node, neighbors in expected_result.adj.items()
+    ]
+    assert [
+        (type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for neighbors in result.adj.values()
+    ] == [
+        (type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for neighbors in expected_result.adj.values()
+    ]
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
         (fnx.Graph, nx.Graph),
         (fnx.DiGraph, nx.DiGraph),
         (fnx.MultiGraph, nx.MultiGraph),
