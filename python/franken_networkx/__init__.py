@@ -1840,7 +1840,7 @@ def local_edge_connectivity(
 
 # Algorithm functions — centrality
 from franken_networkx._fnx import (
-    average_neighbor_degree,
+    average_neighbor_degree as _raw_average_neighbor_degree,
     betweenness_centrality,
     betweenness_centrality_subset_rust as _betweenness_centrality_subset_rust,
     closeness_centrality as _raw_closeness_centrality,
@@ -1856,6 +1856,87 @@ from franken_networkx._fnx import (
     pagerank as _raw_pagerank,
     voterank as _raw_voterank,
 )
+
+
+def average_neighbor_degree(
+    G,
+    source="out",
+    target="out",
+    nodes=None,
+    weight=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    """Returns the average degree of the neighborhood of each node."""
+    _validate_backend_dispatch_keywords("average_neighbor_degree", backend, backend_kwargs)
+
+    if not G.is_directed() and source == "out" and target == "out" and nodes is None and weight is None:
+        return _raw_average_neighbor_degree(G)
+
+    if G.is_directed():
+        if source == "in":
+            source_degree = G.in_degree
+        elif source == "out":
+            source_degree = G.out_degree
+        elif source == "in+out":
+            source_degree = G.degree
+        else:
+            raise NetworkXError(
+                f"source argument {source} must be 'in', 'out' or 'in+out'"
+            )
+
+        if target == "in":
+            target_degree = G.in_degree
+        elif target == "out":
+            target_degree = G.out_degree
+        elif target == "in+out":
+            target_degree = G.degree
+        else:
+            raise NetworkXError(
+                f"target argument {target} must be 'in', 'out' or 'in+out'"
+            )
+    else:
+        if source != "out" or target != "out":
+            raise NetworkXError(
+                "source and target arguments are only supported for directed graphs"
+            )
+        source_degree = target_degree = G.degree
+
+    target_degrees = dict(target_degree())
+
+    pred_neighbors = succ_neighbors = {n: {} for n in G}
+    if G.is_directed():
+        if "in" in source:
+            pred_neighbors = G.pred
+        if "out" in source:
+            succ_neighbors = G.succ
+    else:
+        succ_neighbors = G.adj
+
+    avg = {}
+    for node, degree in source_degree(nodes, weight=weight):
+        if degree == 0:
+            avg[node] = 0.0
+            continue
+
+        if weight is None:
+            avg[node] = (
+                sum(target_degrees[neighbor] for neighbor in succ_neighbors[node])
+                + sum(target_degrees[neighbor] for neighbor in pred_neighbors[node])
+            ) / degree
+        else:
+            avg[node] = (
+                sum(
+                    edge_data.get(weight, 1) * target_degrees[neighbor]
+                    for neighbor, edge_data in succ_neighbors[node].items()
+                )
+                + sum(
+                    edge_data.get(weight, 1) * target_degrees[neighbor]
+                    for neighbor, edge_data in pred_neighbors[node].items()
+                )
+            ) / degree
+    return avg
 
 
 def eigenvector_centrality(
