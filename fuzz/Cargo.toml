@@ -104,3 +104,8 @@ doc = false
 name = "fuzz_bipartite"
 path = "fuzz_targets/fuzz_bipartite.rs"
 doc = false
+
+[[bin]]
+name = "fuzz_clique"
+path = "fuzz_targets/fuzz_clique.rs"
+doc = false
