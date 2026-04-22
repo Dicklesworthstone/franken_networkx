@@ -519,3 +519,47 @@ class TestTreeShellRandomGeneratorsKeywordSurface:
         with pytest.raises(ImportError):
             fnx.random_powerlaw_tree(10, seed=42, tries=1000, backend="nonexistent")
         fnx.random_powerlaw_tree(10, seed=42, tries=1000, foo="bar")
+
+
+# ---------------------------------------------------------------------------
+# random_kernel_graph signature parity (franken_networkx-g77j)
+# ---------------------------------------------------------------------------
+
+
+class TestRandomKernelGraphSignatureParity:
+    """random_kernel_graph must match upstream's public signature
+    (n, kernel_integral, kernel_root=None, seed=None, *, create_using,
+    backend, **backend_kwargs) and forward backend dispatch to networkx.
+    """
+
+    @staticmethod
+    def _kernel_integral(u, v, w):
+        return (v - u) * w
+
+    def test_keyword_kernel_integral_accepted(self):
+        g = fnx.random_kernel_graph(6, kernel_integral=self._kernel_integral, seed=42)
+        assert g.number_of_nodes() == 6
+
+    def test_kernel_root_keyword_accepted(self):
+        g = fnx.random_kernel_graph(
+            6, kernel_integral=self._kernel_integral, kernel_root=None, seed=42
+        )
+        assert g.number_of_nodes() == 6
+
+    def test_unknown_backend_raises_import_error(self):
+        with pytest.raises(ImportError):
+            fnx.random_kernel_graph(
+                6, kernel_integral=self._kernel_integral, backend="nonexistent"
+            )
+
+    def test_create_using_keyword_accepted(self):
+        # Upstream nx expects an *instance* (or None) rather than a class
+        # for create_using in this generator; pass an instance to mirror
+        # their convention.
+        g = fnx.random_kernel_graph(
+            6,
+            kernel_integral=self._kernel_integral,
+            seed=42,
+            create_using=fnx.Graph(),
+        )
+        assert isinstance(g, fnx.Graph)

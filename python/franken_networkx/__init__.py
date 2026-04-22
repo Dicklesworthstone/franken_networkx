@@ -21612,10 +21612,19 @@ def random_kernel_graph(n, kernel_integral, kernel_root=None, seed=None, *, crea
     backend : str, optional
         Backend dispatch (ignored, for compatibility).
     """
-    del backend, backend_kwargs  # NetworkX backend dispatch compatibility
     import networkx as _nx
     from franken_networkx.readwrite import _from_nx_graph
-    g = _nx.random_kernel_graph(n, kernel_integral, kernel_root=kernel_root, seed=seed, create_using=create_using)
+    # Forward backend / **backend_kwargs to networkx so an unavailable backend
+    # raises the same ImportError as upstream instead of silently no-oping.
+    g = _nx.random_kernel_graph(
+        n,
+        kernel_integral,
+        kernel_root=kernel_root,
+        seed=seed,
+        create_using=create_using,
+        backend=backend,
+        **backend_kwargs,
+    )
     return _from_nx_graph(g)
 
 
