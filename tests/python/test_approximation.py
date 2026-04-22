@@ -577,6 +577,22 @@ class TestTravelingSalesmanProblem:
         assert set(f_route) == set(fg.nodes)
         assert set(n_route) == set(ng.nodes)
 
+    def test_christofides_path_graph_raises_complete_graph_error(self):
+        """christofides on a non-complete fnx.Graph must raise the same
+        NetworkXError(G must be a complete graph.) as upstream — not
+        AttributeError on G._adj before validation runs.
+        """
+        fg = fnx.path_graph(4)
+        ng = nx.path_graph(4)
+        # Both flavors raise a NetworkXError (fnx wraps nx's, types are
+        # distinct classes). Match by either-type and the canonical message.
+        with pytest.raises(
+            (fnx.NetworkXError, nx.NetworkXError), match="must be a complete graph"
+        ):
+            fnx.approximation.christofides(fg)
+        with pytest.raises(nx.NetworkXError, match="must be a complete graph"):
+            nx.approximation.christofides(ng)
+
     def test_path_graph_returns_walk(self):
         fg = fnx.path_graph(4)
         for u, v in fg.edges:
