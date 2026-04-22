@@ -284,6 +284,32 @@ class TestColoring:
         nx_colors = len(set(nx.greedy_color(G_nx).values()))
         assert fnx_colors == nx_colors
 
+    def test_equitable_color_accepts_fnx_graph(self, fnx, nx):
+        """Bead franken_networkx-tp6j: equitable_color must match upstream
+        both on the success path (complete_graph(3), k=3) and the
+        insufficient-colors path (complete_graph(3), k=2) instead of
+        raising AttributeError on G._node.
+        """
+        fg = fnx.complete_graph(3)
+        ng = nx.complete_graph(3)
+        # Success: every neighbor pair differs.
+        f_col = fnx.equitable_color(fg, 3)
+        for u, v in fg.edges:
+            assert f_col[u] != f_col[v]
+        # Error parity — fnx and nx each raise their own flavor of
+        # NetworkXAlgorithmError (different classes despite same name).
+        err_types = []
+        if hasattr(fnx, "NetworkXAlgorithmError"):
+            err_types.append(fnx.NetworkXAlgorithmError)
+        if hasattr(nx, "NetworkXAlgorithmError"):
+            err_types.append(nx.NetworkXAlgorithmError)
+        err_types.extend([fnx.NetworkXError, nx.NetworkXError])
+        err_tuple = tuple(err_types)
+        with pytest.raises(err_tuple, match="needs 3"):
+            fnx.equitable_color(fg, 2)
+        with pytest.raises(err_tuple, match="needs 3"):
+            nx.equitable_color(ng, 2)
+
     @pytest.mark.parametrize(
         "strategy",
         [
