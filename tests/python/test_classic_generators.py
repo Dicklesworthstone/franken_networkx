@@ -471,3 +471,51 @@ class TestAttachmentGeneratorBackendKeyword:
     def test_arbitrary_backend_kwargs_accepted(self):
         fnx.barabasi_albert_graph(10, 2, foo="bar", spam=1)
         fnx.powerlaw_cluster_graph(10, 2, 0.3, foo="bar", spam=1)
+
+
+# ---------------------------------------------------------------------------
+# Tree / shell random generator keyword surface (franken_networkx-p2rq)
+# ---------------------------------------------------------------------------
+
+
+class TestTreeShellRandomGeneratorsKeywordSurface:
+    """random_lobster, random_shell_graph, and random_powerlaw_tree must
+    expose NetworkX's full public keyword surface: create_using +
+    backend / **backend_kwargs. random_lobster previously lacked
+    create_using entirely; all three were missing the backend dispatch.
+    """
+
+    def test_random_lobster_accepts_create_using(self):
+        g = fnx.random_lobster(10, 0.3, 0.3, seed=42)
+        assert isinstance(g, fnx.Graph)
+        # Same constructor returns the requested class.
+        g = fnx.random_lobster(10, 0.3, 0.3, seed=42, create_using=fnx.Graph)
+        assert isinstance(g, fnx.Graph)
+        # Directed / multi rejected with NetworkXError just like upstream.
+        with pytest.raises(fnx.NetworkXError):
+            fnx.random_lobster(10, 0.3, 0.3, seed=42, create_using=fnx.DiGraph)
+        with pytest.raises(fnx.NetworkXError):
+            fnx.random_lobster(10, 0.3, 0.3, seed=42, create_using=fnx.MultiGraph)
+
+    def test_random_lobster_backend_dispatch(self):
+        fnx.random_lobster(10, 0.3, 0.3, seed=42, backend=None)
+        fnx.random_lobster(10, 0.3, 0.3, seed=42, backend="networkx")
+        with pytest.raises(ImportError):
+            fnx.random_lobster(10, 0.3, 0.3, seed=42, backend="nonexistent")
+        # Arbitrary trailing kwargs absorbed by **backend_kwargs.
+        fnx.random_lobster(10, 0.3, 0.3, seed=42, foo="bar", spam=1)
+
+    def test_random_shell_graph_backend_dispatch(self):
+        constructor = [(2, 4, 0.4), (3, 8, 0.5)]
+        fnx.random_shell_graph(constructor, seed=42, backend=None)
+        fnx.random_shell_graph(constructor, seed=42, backend="networkx")
+        with pytest.raises(ImportError):
+            fnx.random_shell_graph(constructor, seed=42, backend="nonexistent")
+        fnx.random_shell_graph(constructor, seed=42, foo="bar")
+
+    def test_random_powerlaw_tree_backend_dispatch(self):
+        fnx.random_powerlaw_tree(10, seed=42, tries=1000, backend=None)
+        fnx.random_powerlaw_tree(10, seed=42, tries=1000, backend="networkx")
+        with pytest.raises(ImportError):
+            fnx.random_powerlaw_tree(10, seed=42, tries=1000, backend="nonexistent")
+        fnx.random_powerlaw_tree(10, seed=42, tries=1000, foo="bar")

@@ -20555,8 +20555,11 @@ def number_of_nonisomorphic_trees(order):
     return sum(1 for _ in nonisomorphic_trees(order))
 
 
-def random_lobster(n, p1, p2, seed=None):
+def random_lobster(n, p1, p2, seed=None, *, create_using=None, backend=None, **backend_kwargs):
     """Random lobster graph."""
+    if backend is not None and backend != "networkx":
+        raise ImportError(f"'{backend}' backend is not installed.")
+    del backend_kwargs  # in-tree implementation ignores backend kwargs
     rng = _generator_random_state(seed)
     p1, p2 = abs(p1), abs(p2)
     if any(p >= 1 for p in [p1, p2]):
@@ -20573,7 +20576,17 @@ def random_lobster(n, p1, p2, seed=None):
             while rng.random() < p2:
                 current_node += 1
                 graph.add_edge(caterpillar_node, current_node)
-    return graph
+    if create_using is None:
+        return graph
+    return _copy_graph_into(
+        graph,
+        _checked_create_using(
+            create_using,
+            directed=False,
+            multigraph=False,
+            default=Graph,
+        ),
+    )
 
 
 def random_lobster_graph(n, p1, p2, seed=None, create_using=None, *, backend=None, backend_kwargs=None):
@@ -20593,9 +20606,11 @@ def random_lobster_graph(n, p1, p2, seed=None, create_using=None, *, backend=Non
     )
 
 
-def random_shell_graph(constructor, seed=None, create_using=None, *, backend=None, backend_kwargs=None):
+def random_shell_graph(constructor, seed=None, create_using=None, *, backend=None, **backend_kwargs):
     """Multi-shell random graph."""
-    del backend, backend_kwargs  # NetworkX backend dispatch compatibility
+    if backend is not None and backend != "networkx":
+        raise ImportError(f"'{backend}' backend is not installed.")
+    del backend_kwargs  # in-tree implementation ignores backend kwargs
     rng = _generator_random_state(seed)
     graph = _checked_create_using(
         create_using,
@@ -23148,9 +23163,11 @@ def scale_free_graph(
     )
 
 
-def random_powerlaw_tree(n, gamma=3, seed=None, tries=100, create_using=None, *, backend=None, backend_kwargs=None):
+def random_powerlaw_tree(n, gamma=3, seed=None, tries=100, create_using=None, *, backend=None, **backend_kwargs):
     """Return a random tree with a power-law degree distribution."""
-    del backend, backend_kwargs  # NetworkX backend dispatch compatibility
+    if backend is not None and backend != "networkx":
+        raise ImportError(f"'{backend}' backend is not installed.")
+    del backend_kwargs  # in-tree implementation ignores backend kwargs
     graph = _checked_create_using(
         create_using,
         directed=False,
