@@ -8,8 +8,8 @@ edition = "2024"
 cargo-fuzz = true
 
 [dependencies]
-libfuzzer-sys = "0.4"
-arbitrary = { version = "1.4", features = ["derive"] }
+libfuzzer-sys = "0.4.12"
+arbitrary = { version = "1.4.2", features = ["derive"] }
 fnx-readwrite = { path = "../crates/fnx-readwrite" }
 fnx-classes = { path = "../crates/fnx-classes" }
 fnx-algorithms = { path = "../crates/fnx-algorithms" }

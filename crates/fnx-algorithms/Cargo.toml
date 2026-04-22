@@ -18,13 +18,13 @@ fnx-runtime = { version = "0.1.0", path = "../fnx-runtime" }
 mwmatching = "0.1.1"
 mt19937 = "3.3.0"
 serde = { version = "1.0.228", features = ["derive"] }
-dhat = { version = "0.3", optional = true }
+dhat = { version = "0.3.3", optional = true }
 rand_core = "0.10.1"
 
 [dev-dependencies]
 fnx-runtime = { path = "../fnx-runtime" }
 proptest = "1.11.0"
-criterion = { version = "0.8", features = ["html_reports"] }
+criterion = { version = "0.8.2", features = ["html_reports"] }
 
 [[bench]]
 name = "algorithm_benchmarks"
