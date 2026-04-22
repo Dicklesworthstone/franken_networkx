@@ -15109,6 +15109,19 @@ class _ConversionEdgeView:
     def __call__(self, nbunch=None, data=False, keys=False):
         return self._view._edges(nbunch=nbunch, data=data, keys=keys)
 
+    def data(self, data=True, default=None, nbunch=None, keys=False):
+        if isinstance(data, str):
+            base = self._view._edges(nbunch=nbunch, data=True, keys=keys)
+            if keys:
+                return [
+                    (u, v, k, attrs.get(data, default))
+                    for u, v, k, attrs in base
+                ]
+            return [
+                (u, v, attrs.get(data, default)) for u, v, attrs in base
+            ]
+        return self._view._edges(nbunch=nbunch, data=data, keys=keys)
+
     get = _adjacency_view_get
     keys = _adjacency_view_keys
     items = _adjacency_view_items

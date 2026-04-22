@@ -157,6 +157,37 @@ def test_conversion_live_view_edges_satisfies_mapping_protocol(
     assert (("x", "y") in fv.edges) is (("x", "y") in nv.edges)
 
 
+@pytest.mark.parametrize(
+    ("direction", "fnx_ctor", "nx_ctor"),
+    [
+        ("to_directed", fnx.Graph, nx.Graph),
+        ("to_undirected", fnx.DiGraph, nx.DiGraph),
+    ],
+)
+def test_conversion_live_view_edges_data_helper_matches_upstream(
+    direction, fnx_ctor, nx_ctor
+):
+    fg = fnx_ctor()
+    fg.add_edge("a", "b", weight=3)
+    fg.add_edge("b", "c", weight=5)
+    ng = nx_ctor()
+    ng.add_edge("a", "b", weight=3)
+    ng.add_edge("b", "c", weight=5)
+
+    fv = getattr(fg, direction)(as_view=True)
+    nv = getattr(ng, direction)(as_view=True)
+
+    assert hasattr(fv.edges, "data")
+    # Default: 3-tuples (u, v, attrs)
+    assert list(fv.edges.data()) == list(nv.edges.data())
+    # Named attribute projection
+    assert list(fv.edges.data("weight")) == list(nv.edges.data("weight"))
+    # Named attribute with default for missing
+    assert list(fv.edges.data("missing", default="NA")) == list(
+        nv.edges.data("missing", default="NA")
+    )
+
+
 def test_reverse_view_edges_exposes_edge_view_object():
     fg = fnx.DiGraph()
     fg.add_edges_from([(1, 2, {"w": 3}), (2, 3, {"w": 5})])
