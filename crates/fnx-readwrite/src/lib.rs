@@ -1646,7 +1646,7 @@ impl EdgeListEngine {
                 Ok(Event::Text(ref e))
                     if current_data_key.is_some() && !current_data_has_children =>
                 {
-                    match e.unescape() {
+                    match e.xml10_content() {
                         Ok(text) => current_data_text.push_str(&text),
                         Err(err) => {
                             let warning = format!("graphml data text unescape error: {err}");
@@ -1674,7 +1674,7 @@ impl EdgeListEngine {
                         }
                     }
                 }
-                Ok(Event::Text(ref e)) if current_key_default_key.is_some() => match e.unescape() {
+                Ok(Event::Text(ref e)) if current_key_default_key.is_some() => match e.xml10_content() {
                     Ok(text) => current_key_default_text.push_str(&text),
                     Err(err) => {
                         let warning = format!("graphml default text unescape error: {err}");
