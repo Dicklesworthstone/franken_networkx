@@ -7639,10 +7639,12 @@ def barabasi_albert_graph(
     create_using=None,
     *,
     backend=None,
-    backend_kwargs=None,
+    **backend_kwargs,
 ):
     """Return a Barabasi-Albert preferential attachment graph."""
-    del backend, backend_kwargs  # NetworkX backend dispatch compatibility
+    if backend is not None and backend != "networkx":
+        raise ImportError(f"'{backend}' backend is not installed.")
+    del backend_kwargs  # in-tree implementation ignores backend kwargs
     import random as _random
     import networkx as nx
     from franken_networkx.readwrite import _from_nx_graph
@@ -23914,9 +23916,11 @@ def random_regular_graph(d, n, seed=None, create_using=None):
     return graph
 
 
-def powerlaw_cluster_graph(n, m, p, seed=None, create_using=None, *, backend=None, backend_kwargs=None):
+def powerlaw_cluster_graph(n, m, p, seed=None, create_using=None, *, backend=None, **backend_kwargs):
     """Return a powerlaw-cluster graph."""
-    del backend, backend_kwargs  # NetworkX backend dispatch compatibility
+    if backend is not None and backend != "networkx":
+        raise ImportError(f"'{backend}' backend is not installed.")
+    del backend_kwargs  # in-tree implementation ignores backend kwargs
     graph = _rust_powerlaw_cluster_graph(n, m, p, seed=_native_random_seed(seed))
     if create_using is None:
         return graph

@@ -441,3 +441,33 @@ class TestWattsStrogatzBackendKeyword:
         # **backend_kwargs must absorb trailing kwargs without TypeError.
         fnx.watts_strogatz_graph(10, 4, 0.1, foo="bar", spam=1)
         fnx.newman_watts_strogatz_graph(10, 4, 0.1, foo="bar", spam=1)
+
+
+# ---------------------------------------------------------------------------
+# Attachment generator backend keyword surface (franken_networkx-k4mg)
+# ---------------------------------------------------------------------------
+
+
+class TestAttachmentGeneratorBackendKeyword:
+    """barabasi_albert_graph and powerlaw_cluster_graph must match the
+    NetworkX backend keyword contract just like the Watts-Strogatz family.
+    """
+
+    def test_default_backend_runs_in_tree(self):
+        assert fnx.barabasi_albert_graph(10, 2).number_of_nodes() == 10
+        assert fnx.powerlaw_cluster_graph(10, 2, 0.3).number_of_nodes() == 10
+
+    @pytest.mark.parametrize("backend", [None, "networkx"])
+    def test_explicit_supported_backend(self, backend):
+        fnx.barabasi_albert_graph(10, 2, backend=backend)
+        fnx.powerlaw_cluster_graph(10, 2, 0.3, backend=backend)
+
+    def test_unknown_backend_raises_import_error(self):
+        with pytest.raises(ImportError):
+            fnx.barabasi_albert_graph(10, 2, backend="nonexistent")
+        with pytest.raises(ImportError):
+            fnx.powerlaw_cluster_graph(10, 2, 0.3, backend="nonexistent")
+
+    def test_arbitrary_backend_kwargs_accepted(self):
+        fnx.barabasi_albert_graph(10, 2, foo="bar", spam=1)
+        fnx.powerlaw_cluster_graph(10, 2, 0.3, foo="bar", spam=1)
