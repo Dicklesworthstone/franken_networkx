@@ -2489,6 +2489,54 @@ def test_multigraph_classes_adjacency_item_access_returns_read_only_views(
 @pytest.mark.parametrize(
     ("fnx_cls", "nx_cls"),
     [
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_multigraph_classes_adjacency_mapping_helpers_preserve_view_values(
+    fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+
+    assert type(graph.adj).__name__ == type(expected.adj).__name__
+    assert list(graph.adj.keys()) == list(expected.adj.keys())
+    assert [
+        (node, type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for node, neighbors in graph.adj.items()
+    ] == [
+        (node, type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for node, neighbors in expected.adj.items()
+    ]
+    assert [
+        (type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for neighbors in graph.adj.values()
+    ] == [
+        (type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for neighbors in expected.adj.values()
+    ]
+
+    graph.add_edge("a", "b", key="new", weight=9)
+    expected.add_edge("a", "b", key="new", weight=9)
+
+    assert [
+        (node, type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for node, neighbors in graph.adj.items()
+    ] == [
+        (node, type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for node, neighbors in expected.adj.items()
+    ]
+    assert [
+        (type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for neighbors in graph.adj.values()
+    ] == [
+        (type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for neighbors in expected.adj.values()
+    ]
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
         (fnx.DiGraph, nx.DiGraph),
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],
