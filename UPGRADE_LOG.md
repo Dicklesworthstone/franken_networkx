@@ -86,3 +86,59 @@
 - **Scope:** fnx-runtime (optional dep)
 - **Breaking:** None
 - **Tests:** cargo check passed
+
+---
+
+## Session 2026-04-21 (Clawdstein-libupdater-franken_networkx)
+
+### Scope of this session
+
+Focused bump of `asupersync` to 0.3.1 (fresh on crates.io) followed by a full
+library-updater sweep.
+
+### Already At Latest (skipped this session)
+
+| Crate | Pinned at | Notes |
+|---|---|---|
+| mwmatching | 0.1.1 | at latest |
+| mt19937 | 3.3.0 | at latest |
+| serde | 1.0.228 | at latest |
+| serde_json | 1.0.149 | at latest |
+| thiserror | 2.0.18 | at latest |
+| base64 | 0.22.1 | at latest |
+| hex | 0.4 | semver range covers latest 0.4.3 |
+| dhat | 0.3 | semver range covers latest 0.3.3 |
+| log | 0.4 | semver range covers latest 0.4.29 |
+
+### Target list
+
+| Crate | From | To | Notes |
+|---|---|---|---|
+| asupersync | 0.3.0 | 0.3.1 | separate commit (feature-gated) |
+| indexmap | 2.13.0 | 2.14.0 | patch/minor |
+| proptest | 1.10.0 | 1.11.0 | dev-dep |
+| criterion | 0.5 | 0.8.2 | major jump (dev-bench) |
+| rand_core | 0.10.0 | 0.10.1 | patch |
+| blake3 | 1.8.3 | 1.8.4 | patch |
+| raptorq | 2.0.0 | 2.0.1 | patch |
+| rand | 0.10.0 | 0.10.1 | patch |
+| tempfile | 3.25.0 | 3.27.0 | minor (dev) |
+| quick-xml | 0.37.5 | 0.39.2 | minor; known breaking-minor |
+| pyo3 | 0.23 | 0.28.3 | major; heavy audit required |
+| pyo3-log | 0.12 | 0.13.3 | follows pyo3 major bump |
+
+### Updates
+
+#### asupersync: 0.3.0 -> 0.3.1
+- **Scope:** crates/fnx-runtime/Cargo.toml (feature `asupersync-integration`)
+- **Breaking:** None (patch); sibling crates franken-kernel/evidence/decision
+  also moved 0.3.0 -> 0.3.1 via Cargo.lock.
+- **Verification:** `rch exec -- cargo check -p fnx-runtime --features asupersync-integration` green.
+- **Commit:** 828b6b3
+
+#### indexmap: 2.13.0 -> 2.14.0
+- **Scope:** crates/fnx-classes/Cargo.toml
+- **Breaking:** None (minor bump; semver-compatible). Release notes (github.com/indexmap-rs/indexmap) describe new `IndexMap::into_boxed_slice` and misc perf tweaks.
+- **Verification:** `rch exec -- cargo check --workspace --all-targets` green; `rch exec -- cargo test -p fnx-classes` green (52 passed).
+
+
