@@ -738,6 +738,40 @@ def test_conversion_live_view_simple_edges_supports_set_algebra(direction, fnx_c
     assert other | fv.edges == other | nv.edges
 
 
+@pytest.mark.parametrize(
+    ("direction", "fnx_ctor", "nx_ctor"),
+    [
+        ("to_directed", fnx.MultiGraph, nx.MultiGraph),
+        ("to_undirected", fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_conversion_live_view_keyed_edge_query_returns_view(direction, fnx_ctor, nx_ctor):
+    fg = fnx_ctor()
+    fg.add_edge("a", "b", key="k1", weight=3)
+    fg.add_edge("a", "b", key="k2")
+    ng = nx_ctor()
+    ng.add_edge("a", "b", key="k1", weight=3)
+    ng.add_edge("a", "b", key="k2")
+
+    fv = getattr(fg, direction)(as_view=True)
+    nv = getattr(ng, direction)(as_view=True)
+
+    fkv = fv.edges(keys=True)
+    nkv = nv.edges(keys=True)
+
+    # Not a plain list — view-backed object with iter/len/contains/set algebra.
+    assert not isinstance(fkv, list)
+    # Set-equality (order may differ for to_undirected merging two parallel edges).
+    assert set(fkv) == set(nkv)
+    assert len(fkv) == len(nkv)
+    assert (("a", "b", "k1") in fkv) is (("a", "b", "k1") in nkv)
+    other = {("a", "b", "k1"), ("z", "z", "z")}
+    assert (fkv & other) == (nkv & other)
+    assert (fkv | other) == (nkv | other)
+    assert (fkv - other) == (nkv - other)
+    assert (fkv ^ other) == (nkv ^ other)
+
+
 def test_digraph_edge_subgraph_preserves_node_iteration_order():
     fg = fnx.DiGraph()
     fg.add_edge("a", "b")

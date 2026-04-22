@@ -15274,6 +15274,88 @@ class _ConversionNodeView(Mapping):
         return set(other) ^ set(self)
 
 
+class _ConversionMultiEdgeQuery:
+    """View-backed edge-query result for multigraph conversion views.
+
+    Returned by ``view.edges(...)`` on multigraph conversion live views so
+    callers see a lazy, set-like, view-backed object rather than a plain
+    list (matches upstream OutMultiEdgeView / MultiEdgeView surface for
+    keyed multiedge queries).
+    """
+
+    def __init__(self, view, *, nbunch=None, data=False, keys=False, default=None):
+        self._view = view
+        self._nbunch = nbunch
+        self._data = data
+        self._keys = keys
+        self._default = default
+
+    def _materialise(self):
+        return self._view._edges(
+            nbunch=self._nbunch,
+            data=self._data,
+            keys=self._keys,
+        )
+
+    def __iter__(self):
+        return iter(self._materialise())
+
+    def __len__(self):
+        return len(self._materialise())
+
+    def __contains__(self, item):
+        return item in self._materialise()
+
+    def __eq__(self, other):
+        if isinstance(other, _ConversionMultiEdgeQuery):
+            other = other._materialise()
+        if isinstance(other, set):
+            return set(self._materialise()) == other
+        try:
+            return list(self._materialise()) == list(other)
+        except TypeError:
+            return NotImplemented
+
+    def __ne__(self, other):
+        result = self.__eq__(other)
+        if result is NotImplemented:
+            return result
+        return not result
+
+    def __hash__(self):
+        return None  # Mutable view, intentionally unhashable.
+
+    def __repr__(self):
+        return repr(self._materialise())
+
+    def __getitem__(self, idx):
+        return self._materialise()[idx]
+
+    def __and__(self, other):
+        return set(self._materialise()) & set(other)
+
+    def __rand__(self, other):
+        return set(other) & set(self._materialise())
+
+    def __or__(self, other):
+        return set(self._materialise()) | set(other)
+
+    def __ror__(self, other):
+        return set(other) | set(self._materialise())
+
+    def __sub__(self, other):
+        return set(self._materialise()) - set(other)
+
+    def __rsub__(self, other):
+        return set(other) - set(self._materialise())
+
+    def __xor__(self, other):
+        return set(self._materialise()) ^ set(other)
+
+    def __rxor__(self, other):
+        return set(other) ^ set(self._materialise())
+
+
 class _ConversionEdgeView:
     def __init__(self, view):
         self._view = view
@@ -15300,6 +15382,10 @@ class _ConversionEdgeView:
         return self._view.adj[u][v]
 
     def __call__(self, nbunch=None, data=False, keys=False):
+        if self._view.is_multigraph():
+            return _ConversionMultiEdgeQuery(
+                self._view, nbunch=nbunch, data=data, keys=keys
+            )
         return self._view._edges(nbunch=nbunch, data=data, keys=keys)
 
     def data(self, data=True, default=None, nbunch=None, keys=False):
