@@ -14493,10 +14493,18 @@ class _ConversionNodeView(Mapping):
     def __getitem__(self, node):
         return self._view._graph.nodes[node]
 
-    def __call__(self, data=False):
-        if data:
+    def _data_rows(self, data=False, default=None):
+        if data is False:
+            return list(self)
+        if data is True:
             return [(node, self[node]) for node in self]
-        return list(self)
+        return [(node, self[node].get(data, default)) for node in self]
+
+    def __call__(self, data=False, default=None):
+        return self._data_rows(data=data, default=default)
+
+    def data(self, data=True, default=None):
+        return self._data_rows(data=data, default=default)
 
 
 class _ConversionEdgeView:

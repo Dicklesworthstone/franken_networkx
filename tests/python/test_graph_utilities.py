@@ -2751,6 +2751,42 @@ def test_conversion_live_views_expose_callable_degree_without_fallback(
     assert list(result.degree("missing")) == list(expected_result.degree("missing"))
 
 
+@pytest.mark.parametrize(
+    ("view_fnx", "view_nx", "fnx_cls", "nx_cls", "networkx_name"),
+    [
+        (fnx.to_directed, nx.to_directed, fnx.Graph, nx.Graph, "to_directed"),
+        (fnx.to_directed, nx.to_directed, fnx.MultiGraph, nx.MultiGraph, "to_directed"),
+        (fnx.to_undirected, nx.to_undirected, fnx.DiGraph, nx.DiGraph, "to_undirected"),
+        (
+            fnx.to_undirected,
+            nx.to_undirected,
+            fnx.MultiDiGraph,
+            nx.MultiDiGraph,
+            "to_undirected",
+        ),
+    ],
+)
+def test_conversion_live_views_expose_node_data_helper_without_fallback(
+    monkeypatch, view_fnx, view_nx, fnx_cls, nx_cls, networkx_name
+):
+    graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+    graph.nodes["c"].pop("color")
+    expected.nodes["c"].pop("color")
+    expected_result = view_nx(expected)
+
+    _block_networkx_utilities(monkeypatch, networkx_name)
+
+    result = view_fnx(graph)
+
+    assert list(result.nodes.data()) == list(expected_result.nodes.data())
+    assert list(result.nodes.data("color", default="missing")) == list(
+        expected_result.nodes.data("color", default="missing")
+    )
+    assert list(result.nodes(data="color", default="missing")) == list(
+        expected_result.nodes(data="color", default="missing")
+    )
+
+
 def test_reverse_helper_matches_networkx():
     digraph = fnx.MultiDiGraph()
     digraph.graph["kind"] = "digraph"
