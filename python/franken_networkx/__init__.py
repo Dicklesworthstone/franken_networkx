@@ -7313,17 +7313,23 @@ def rescale_layout(pos, scale=1.0):
 
     Parameters
     ----------
-    pos : dict
-        ``{node: (x, y)}`` positions.
+    pos : numpy array or dict
+        Positions as numpy array (each row is a position) or dict.
     scale : float, optional
 
     Returns
     -------
-    dict
-        Rescaled positions.
+    numpy array or dict
+        Rescaled positions (same type as input).
     """
     import numpy as np
 
+    # Handle numpy array input (NetworkX interface)
+    if isinstance(pos, np.ndarray):
+        from franken_networkx.drawing.layout import rescale_layout as _rescale_array
+        return _rescale_array(pos, scale=scale)
+
+    # Handle dict input
     if not pos:
         return pos
 
