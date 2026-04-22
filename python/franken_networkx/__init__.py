@@ -1899,7 +1899,15 @@ def eigenvector_centrality(
     )
 
 
-def harmonic_centrality(G, nbunch=None, distance=None, sources=None):
+def harmonic_centrality(
+    G,
+    nbunch=None,
+    distance=None,
+    sources=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
     """Compute harmonic centrality for nodes.
 
     Parameters
@@ -1918,6 +1926,8 @@ def harmonic_centrality(G, nbunch=None, distance=None, sources=None):
     dict
         Dictionary of nodes with harmonic centrality as value.
     """
+    _validate_backend_dispatch_keywords("harmonic_centrality", backend, backend_kwargs)
+
     if nbunch is not None or distance is not None or sources is not None:
         return _call_networkx_for_parity(
             "harmonic_centrality", G, nbunch=nbunch, distance=distance, sources=sources
@@ -6398,7 +6408,15 @@ def pagerank(
     raise PowerIterationFailedConvergence(max_iter)
 
 
-def closeness_centrality(G, u=None, distance=None, wf_improved=True):
+def closeness_centrality(
+    G,
+    u=None,
+    distance=None,
+    wf_improved=True,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
     """Compute closeness centrality for nodes.
 
     Parameters
@@ -6418,6 +6436,8 @@ def closeness_centrality(G, u=None, distance=None, wf_improved=True):
         Dictionary of nodes with closeness centrality as value, or a single
         float if u is specified.
     """
+    _validate_backend_dispatch_keywords("closeness_centrality", backend, backend_kwargs)
+
     # Delegate to NetworkX for unsupported parameters
     if u is not None or distance is not None or not wf_improved:
         return _call_networkx_for_parity(
@@ -6431,7 +6451,16 @@ def closeness_centrality(G, u=None, distance=None, wf_improved=True):
     return _raw_closeness_centrality(G)
 
 
-def edge_betweenness_centrality(G, k=None, normalized=True, weight=None, seed=None):
+def edge_betweenness_centrality(
+    G,
+    k=None,
+    normalized=True,
+    weight=None,
+    seed=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
     """Compute edge betweenness centrality for edges.
 
     Parameters
@@ -6452,6 +6481,10 @@ def edge_betweenness_centrality(G, k=None, normalized=True, weight=None, seed=No
     dict
         Dictionary of edges with betweenness centrality as value.
     """
+    _validate_backend_dispatch_keywords(
+        "edge_betweenness_centrality", backend, backend_kwargs
+    )
+
     # Delegate to NetworkX for unsupported parameters
     if k is not None or not normalized or weight is not None or seed is not None:
         return _call_networkx_for_parity(
@@ -6467,7 +6500,17 @@ def edge_betweenness_centrality(G, k=None, normalized=True, weight=None, seed=No
 
 
 def katz_centrality(
-    G, alpha=0.1, beta=1.0, max_iter=1000, tol=1.0e-6, nstart=None, normalized=True, weight=None
+    G,
+    alpha=0.1,
+    beta=1.0,
+    max_iter=1000,
+    tol=1.0e-6,
+    nstart=None,
+    normalized=True,
+    weight=None,
+    *,
+    backend=None,
+    **backend_kwargs,
 ):
     """Compute Katz centrality for nodes.
 
@@ -6495,6 +6538,8 @@ def katz_centrality(
     dict
         Dictionary of nodes with Katz centrality as value.
     """
+    _validate_backend_dispatch_keywords("katz_centrality", backend, backend_kwargs)
+
     # Delegate to NetworkX when non-default parameters are used
     if (
         alpha != 0.1
@@ -9719,7 +9764,16 @@ def _group_preprocessing_local(G, group_nodes, weight):
     return path_betweenness, sigma, distances
 
 
-def load_centrality(G, v=None, cutoff=None, normalized=True, weight=None):
+def load_centrality(
+    G,
+    v=None,
+    cutoff=None,
+    normalized=True,
+    weight=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
     """Return the load centrality for each node.
 
     Load centrality is similar to betweenness centrality but counts the
@@ -9728,6 +9782,10 @@ def load_centrality(G, v=None, cutoff=None, normalized=True, weight=None):
 
     For unweighted graphs, this is equivalent to betweenness centrality.
     """
+    _validate_backend_dispatch_keywords(
+        "newman_betweenness_centrality", backend, backend_kwargs
+    )
+
     if cutoff is None and weight is None:
         result = betweenness_centrality(G, normalized=normalized)
         return result if v is None else result[v]
@@ -13731,8 +13789,13 @@ def edge_betweenness_centrality_subset(
     return betweenness
 
 
-def edge_load_centrality(G, cutoff=None):
+def edge_load_centrality(G, cutoff=False, *, backend=None, **backend_kwargs):
     """Load centrality for edges."""
+    _validate_backend_dispatch_keywords("edge_load_centrality", backend, backend_kwargs)
+
+    if cutoff is False:
+        cutoff = None
+
     betweenness = {}
     for u, v in G.edges():
         betweenness[(u, v)] = 0.0
@@ -13920,8 +13983,21 @@ def trophic_incoherence_parameter(G, weight=None):
     return float(np.std(values))
 
 
-def group_betweenness_centrality(G, C, normalized=True, weight=None, endpoints=False):
+def group_betweenness_centrality(
+    G,
+    C,
+    normalized=True,
+    weight=None,
+    endpoints=False,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
     """Betweenness centrality for a group of nodes C."""
+    _validate_backend_dispatch_keywords(
+        "group_betweenness_centrality", backend, backend_kwargs
+    )
+
     if not G.is_directed() and weight is None and not endpoints:
         value = _fnx.group_betweenness_centrality_rust(G, list(C))
         if normalized:
@@ -14028,9 +14104,13 @@ def group_betweenness_centrality(G, C, normalized=True, weight=None, endpoints=F
     return group_betweenness[0]
 
 
-def group_closeness_centrality(G, S, weight=None, H=None):
+def group_closeness_centrality(G, S, weight=None, *, backend=None, **backend_kwargs):
     """Closeness centrality for a group of nodes S."""
-    if not G.is_directed() and weight is None and H is None:
+    _validate_backend_dispatch_keywords(
+        "group_closeness_centrality", backend, backend_kwargs
+    )
+
+    if not G.is_directed() and weight is None:
         return _fnx.group_closeness_centrality_rust(G, list(S))
 
     if G.is_directed():

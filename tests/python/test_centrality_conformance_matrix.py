@@ -506,6 +506,91 @@ def test_public_centrality_wrappers_backend_keyword_surface_matches_networkx(nam
         nx_fn(ng, backend_kwargs={"x": 1})
 
 
+@pytest.mark.parametrize(
+    ("name", "args"),
+    [
+        pytest.param("harmonic_centrality", (), id="harmonic_centrality"),
+        pytest.param("closeness_centrality", (), id="closeness_centrality"),
+        pytest.param("edge_betweenness_centrality", (), id="edge_betweenness_centrality"),
+        pytest.param("katz_centrality", (), id="katz_centrality"),
+        pytest.param("load_centrality", (), id="load_centrality"),
+        pytest.param("edge_load_centrality", (), id="edge_load_centrality"),
+        pytest.param("group_betweenness_centrality", ([1, 2],), id="group_betweenness_centrality"),
+        pytest.param("group_closeness_centrality", ([1, 2],), id="group_closeness_centrality"),
+    ],
+)
+def test_additional_public_centrality_wrappers_expose_backend_signature_matches_networkx(
+    name, args
+):
+    del args
+    assert str(inspect.signature(getattr(fnx, name))) == str(inspect.signature(getattr(nx, name)))
+
+
+def _assert_backend_wrapper_result_matches_networkx(name, actual, expected):
+    if name in {
+        "harmonic_centrality",
+        "closeness_centrality",
+        "edge_betweenness_centrality",
+        "katz_centrality",
+        "load_centrality",
+        "edge_load_centrality",
+    }:
+        _assert_centrality_close(actual, expected, rel=1e-6, abs_=1e-9)
+        return
+
+    assert math.isclose(actual, expected, rel_tol=1e-6, abs_tol=1e-9)
+
+
+@pytest.mark.parametrize(
+    ("name", "args"),
+    [
+        pytest.param("harmonic_centrality", (), id="harmonic_centrality"),
+        pytest.param("closeness_centrality", (), id="closeness_centrality"),
+        pytest.param("edge_betweenness_centrality", (), id="edge_betweenness_centrality"),
+        pytest.param("katz_centrality", (), id="katz_centrality"),
+        pytest.param("load_centrality", (), id="load_centrality"),
+        pytest.param("edge_load_centrality", (), id="edge_load_centrality"),
+        pytest.param("group_betweenness_centrality", ([1, 2],), id="group_betweenness_centrality"),
+        pytest.param("group_closeness_centrality", ([1, 2],), id="group_closeness_centrality"),
+    ],
+)
+def test_additional_public_centrality_wrappers_backend_keyword_surface_matches_networkx(
+    name, args
+):
+    fg = fnx.path_graph(5)
+    ng = nx.path_graph(5)
+    fnx_fn = getattr(fnx, name)
+    nx_fn = getattr(nx, name)
+
+    for backend in (None, "networkx"):
+        _assert_backend_wrapper_result_matches_networkx(
+            name,
+            fnx_fn(fg, *args, backend=backend),
+            nx_fn(ng, *args, backend=backend),
+        )
+
+    with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+        fnx_fn(fg, *args, backend="parallel")
+    with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+        nx_fn(ng, *args, backend="parallel")
+
+    with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+        fnx_fn(fg, *args, backend_kwargs={"x": 1})
+    with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+        nx_fn(ng, *args, backend_kwargs={"x": 1})
+
+
+def test_edge_load_centrality_cutoff_false_matches_networkx():
+    fg = fnx.path_graph(4)
+    ng = nx.path_graph(4)
+    _assert_centrality_close(
+        fnx.edge_load_centrality(fg, cutoff=False),
+        nx.edge_load_centrality(ng, cutoff=False),
+        rel=1e-9,
+        abs_=1e-9,
+    )
+
+
 def test_pagerank_alpha_knob_matches_networkx():
     fg = fnx.cycle_graph(8)
     ng = nx.cycle_graph(8)
