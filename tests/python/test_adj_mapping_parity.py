@@ -515,6 +515,33 @@ def test_digraph_succ_and_pred_expose_mapping_helpers(attr_name):
     assert dict(fa.get(1)) == dict(na.get(1))
 
 
+@pytest.mark.parametrize(
+    ("fnx_ctor", "nx_ctor"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+    ],
+)
+def test_edge_subgraph_adj_exposes_mapping_helpers(fnx_ctor, nx_ctor):
+    fg = fnx_ctor()
+    fg.add_edges_from([(1, 2), (2, 3), (3, 4)])
+    ng = nx_ctor()
+    ng.add_edges_from([(1, 2), (2, 3), (3, 4)])
+
+    fh = fg.edge_subgraph([(1, 2), (2, 3)])
+    nh = ng.edge_subgraph([(1, 2), (2, 3)])
+
+    for attr in ("items", "keys", "values", "get"):
+        assert hasattr(fh.adj, attr)
+
+    assert list(fh.adj.keys()) == list(nh.adj.keys())
+    fdeep = [(k, {kk: dict(vv) for kk, vv in dict(v).items()}) for k, v in fh.adj.items()]
+    ndeep = [(k, {kk: dict(vv) for kk, vv in dict(v).items()}) for k, v in nh.adj.items()]
+    assert fdeep == ndeep
+    assert fh.adj.get(99) is nh.adj.get(99) is None
+    assert dict(fh.adj.get(1)) == dict(nh.adj.get(1))
+
+
 def test_digraph_edge_subgraph_preserves_node_iteration_order():
     fg = fnx.DiGraph()
     fg.add_edge("a", "b")
