@@ -311,6 +311,7 @@ class AdjacencyView(Mapping):
         return iter(self._atlas())
 
     def __getitem__(self, node):
+        self._atlas()[node]
         return AtlasView(lambda: self._atlas()[node])
 
 
@@ -328,6 +329,7 @@ class MultiAdjacencyView(Mapping):
         return iter(self._atlas())
 
     def __getitem__(self, node):
+        self._atlas()[node]
         return AdjacencyView(lambda: self._atlas()[node])
 
 
@@ -338,6 +340,16 @@ def _multigraph_adj_view(self):
 def _multidigraph_adj_view(self):
     return MultiAdjacencyView(
         lambda: _MULTIDIGRAPH_ADJ_DESCRIPTOR.__get__(self, MultiDiGraph)
+    )
+
+
+def _digraph_succ_view(self):
+    return AdjacencyView(lambda: _DIGRAPH_SUCC_DESCRIPTOR.__get__(self, DiGraph))
+
+
+def _multidigraph_succ_view(self):
+    return MultiAdjacencyView(
+        lambda: _MULTIDIGRAPH_SUCC_DESCRIPTOR.__get__(self, MultiDiGraph)
     )
 
 
@@ -515,6 +527,7 @@ _GRAPH_NEIGHBORS = Graph.neighbors
 _DIGRAPH_NEIGHBORS = DiGraph.neighbors
 _DIGRAPH_SUCCESSORS = DiGraph.successors
 _DIGRAPH_PREDECESSORS = DiGraph.predecessors
+_DIGRAPH_SUCC_DESCRIPTOR = DiGraph.succ
 _MULTIGRAPH_REMOVE_NODE = MultiGraph.remove_node
 _MULTIGRAPH_REMOVE_EDGE = MultiGraph.remove_edge
 _MULTIGRAPH_NEIGHBORS = MultiGraph.neighbors
@@ -523,6 +536,7 @@ _MULTIDIGRAPH_REMOVE_EDGE = MultiDiGraph.remove_edge
 _MULTIDIGRAPH_NEIGHBORS = MultiDiGraph.neighbors
 _MULTIDIGRAPH_SUCCESSORS = MultiDiGraph.successors
 _MULTIDIGRAPH_PREDECESSORS = MultiDiGraph.predecessors
+_MULTIDIGRAPH_SUCC_DESCRIPTOR = MultiDiGraph.succ
 _EDGE_VIEW_TYPE = type(Graph().edges)
 _DIEDGE_VIEW_TYPE = type(DiGraph().edges)
 _EDGE_VIEW_CALL = _EDGE_VIEW_TYPE.__call__
@@ -793,6 +807,7 @@ DiGraph.edge_attr_dict_factory = dict
 DiGraph.graph_attr_dict_factory = dict
 DiGraph.node_attr_dict_factory = dict
 DiGraph.node_dict_factory = dict
+DiGraph.succ = property(_digraph_succ_view)
 MultiGraph.adjlist_inner_dict_factory = dict
 MultiGraph.adjlist_outer_dict_factory = dict
 MultiGraph.edge_attr_dict_factory = dict
@@ -818,6 +833,7 @@ MultiDiGraph.node_dict_factory = dict
 MultiDiGraph.edge_key_dict_factory = dict
 MultiDiGraph.new_edge_key = _multigraph_new_edge_key
 MultiDiGraph.edge_subgraph = _multigraph_edge_subgraph
+MultiDiGraph.succ = property(_multidigraph_succ_view)
 MultiDiGraph.adj = property(_multidigraph_adj_view)
 MultiDiGraph.__getitem__ = _graph_getitem_from_adj
 MultiDiGraph.degree = property(MultiDiGraphDegreeView)
