@@ -860,8 +860,11 @@ def forceatlas2_layout(
     seed=None,
     dim=2,
     store_pos_as=None,
+    backend=None,
+    backend_kwargs=None,
 ):
     """Position nodes using the ForceAtlas2 layout algorithm."""
+    del backend, backend_kwargs  # NetworkX backend dispatch compatibility
     import franken_networkx as fnx
 
     nodes = list(G)
