@@ -149,6 +149,10 @@ def _multigraph_new_edge_key(self, u, v):
     return key
 
 
+def _multigraph_edge_subgraph(self, edges):
+    return edge_subgraph(self, edges)
+
+
 def _simple_graph_adjacency(self):
     return [(node, self.adj[node]) for node in self]
 
@@ -186,6 +190,7 @@ MultiGraph.node_attr_dict_factory = dict
 MultiGraph.node_dict_factory = dict
 MultiGraph.edge_key_dict_factory = dict
 MultiGraph.new_edge_key = _multigraph_new_edge_key
+MultiGraph.edge_subgraph = _multigraph_edge_subgraph
 MultiDiGraph.adjlist_inner_dict_factory = dict
 MultiDiGraph.adjlist_outer_dict_factory = dict
 MultiDiGraph.edge_attr_dict_factory = dict
@@ -194,6 +199,7 @@ MultiDiGraph.node_attr_dict_factory = dict
 MultiDiGraph.node_dict_factory = dict
 MultiDiGraph.edge_key_dict_factory = dict
 MultiDiGraph.new_edge_key = _multigraph_new_edge_key
+MultiDiGraph.edge_subgraph = _multigraph_edge_subgraph
 Graph.to_directed_class = _to_directed_class
 Graph.to_undirected_class = _to_undirected_class
 DiGraph.to_directed_class = _to_directed_class
