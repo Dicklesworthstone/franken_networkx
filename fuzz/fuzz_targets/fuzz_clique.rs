@@ -64,13 +64,13 @@ impl<'a> Arbitrary<'a> for ArbitrarySmallGraph {
 enum CliqueInput {
     /// Enumerate all cliques (small graph to avoid exponential blowup).
     EnumerateAllCliques(ArbitrarySmallGraph),
-    /// Find maximum clique.
+    /// Find maximum clique approximation.
     MaxClique(ArbitraryGraph),
     /// Find max weight clique.
     MaxWeightClique(ArbitraryGraph),
     /// Get graph clique number.
     GraphCliqueNumber(ArbitraryGraph),
-    /// Get large clique size.
+    /// Get large clique size approximation.
     LargeCliqueSize(ArbitraryGraph),
     /// Clique removal.
     CliqueRemoval(ArbitraryGraph),
@@ -88,16 +88,16 @@ fuzz_target!(|input: CliqueInput| {
             }
         }
         CliqueInput::MaxClique(ag) => {
-            let _ = fnx_algorithms::max_clique(&ag.graph);
+            let _ = fnx_algorithms::max_clique_approx(&ag.graph);
         }
         CliqueInput::MaxWeightClique(ag) => {
-            let _ = fnx_algorithms::max_weight_clique(&ag.graph, None);
+            let _ = fnx_algorithms::max_weight_clique(&ag.graph, "weight");
         }
         CliqueInput::GraphCliqueNumber(ag) => {
             let _ = fnx_algorithms::graph_clique_number(&ag.graph);
         }
         CliqueInput::LargeCliqueSize(ag) => {
-            let _ = fnx_algorithms::large_clique_size(&ag.graph);
+            let _ = fnx_algorithms::max_clique_approx(&ag.graph).len();
         }
         CliqueInput::CliqueRemoval(ag) => {
             let _ = fnx_algorithms::clique_removal(&ag.graph);
