@@ -76,6 +76,38 @@ def test_to_undirected_reciprocal_keeps_only_bidirectional_edges(fnx_ctor, nx_ct
     ("direction", "fnx_ctor", "nx_ctor"),
     [
         ("to_directed", fnx.Graph, nx.Graph),
+        ("to_directed", fnx.MultiGraph, nx.MultiGraph),
+        ("to_undirected", fnx.DiGraph, nx.DiGraph),
+        ("to_undirected", fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_conversion_live_view_exposes_nbunch_iter(direction, fnx_ctor, nx_ctor):
+    """Bead franken_networkx-veds: conversion live views expose
+    nbunch_iter(bunch) that filters to nodes present in the view,
+    matching upstream.
+    """
+    fg = fnx_ctor()
+    fg.add_edges_from([(0, 1), (1, 2)])
+    ng = nx_ctor()
+    ng.add_edges_from([(0, 1), (1, 2)])
+
+    fv = getattr(fg, direction)(as_view=True)
+    nv = getattr(ng, direction)(as_view=True)
+
+    assert hasattr(fv, "nbunch_iter")
+
+    # Subset + unknown node — only present nodes returned.
+    assert list(fv.nbunch_iter([0, 99])) == list(nv.nbunch_iter([0, 99]))
+    # None argument returns all nodes.
+    assert sorted(fv.nbunch_iter(None)) == sorted(nv.nbunch_iter(None))
+    # Single node.
+    assert list(fv.nbunch_iter(1)) == list(nv.nbunch_iter(1))
+
+
+@pytest.mark.parametrize(
+    ("direction", "fnx_ctor", "nx_ctor"),
+    [
+        ("to_directed", fnx.Graph, nx.Graph),
         ("to_undirected", fnx.DiGraph, nx.DiGraph),
     ],
 )
