@@ -14025,8 +14025,23 @@ def current_flow_closeness_centrality(
     return {ordering[node]: 1 / value for node, value in centrality.items()}
 
 
-def betweenness_centrality_subset(G, sources, targets, normalized=False, weight=None):
+def betweenness_centrality_subset(
+    G,
+    sources,
+    targets,
+    normalized=False,
+    weight=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
     """Betweenness centrality restricted to source/target subsets."""
+    _validate_backend_dispatch_keywords(
+        "betweenness_centrality_subset",
+        backend,
+        backend_kwargs,
+    )
+
     if weight is None and not G.is_multigraph():
         scores = _betweenness_centrality_subset_rust(
             G, list(sources), list(targets), normalized
@@ -14055,9 +14070,22 @@ def betweenness_centrality_subset(G, sources, targets, normalized=False, weight=
 
 
 def edge_betweenness_centrality_subset(
-    G, sources, targets, normalized=False, weight=None
+    G,
+    sources,
+    targets,
+    normalized=False,
+    weight=None,
+    *,
+    backend=None,
+    **backend_kwargs,
 ):
     """Edge betweenness restricted to source/target subsets."""
+    _validate_backend_dispatch_keywords(
+        "edge_betweenness_centrality_subset",
+        backend,
+        backend_kwargs,
+    )
+
     if weight is None and not G.is_multigraph():
         rust_scores = _edge_betweenness_centrality_subset_rust(
             G, list(sources), list(targets), normalized

@@ -422,6 +422,51 @@ def test_betweenness_centrality_subset_native_matches_networkx_and_avoids_delega
     _assert_mapping_close(actual, expected)
 
 
+def test_betweenness_centrality_subset_backend_keyword_surface_matches_networkx():
+    graph = fnx.path_graph(5)
+    expected_graph = nx.path_graph(5)
+
+    for backend in (None, "networkx"):
+        actual = fnx.betweenness_centrality_subset(
+            graph,
+            [0],
+            [4],
+            backend=backend,
+        )
+        expected = nx.betweenness_centrality_subset(
+            expected_graph,
+            [0],
+            [4],
+            backend=backend,
+        )
+        _assert_mapping_close(actual, expected)
+
+    with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+        fnx.betweenness_centrality_subset(graph, [0], [4], backend="parallel")
+    with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+        nx.betweenness_centrality_subset(
+            expected_graph,
+            [0],
+            [4],
+            backend="parallel",
+        )
+
+    with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+        fnx.betweenness_centrality_subset(
+            graph,
+            [0],
+            [4],
+            backend_kwargs={"x": 1},
+        )
+    with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+        nx.betweenness_centrality_subset(
+            expected_graph,
+            [0],
+            [4],
+            backend_kwargs={"x": 1},
+        )
+
+
 def test_edge_betweenness_centrality_subset_native_matches_networkx_and_avoids_delegation(
     monkeypatch,
 ):
@@ -447,6 +492,51 @@ def test_edge_betweenness_centrality_subset_native_matches_networkx_and_avoids_d
         normalized=True,
     )
     _assert_mapping_close(actual, expected)
+
+
+def test_edge_betweenness_centrality_subset_backend_keyword_surface_matches_networkx():
+    graph = fnx.path_graph(5)
+    expected_graph = nx.path_graph(5)
+
+    for backend in (None, "networkx"):
+        actual = fnx.edge_betweenness_centrality_subset(
+            graph,
+            [0],
+            [4],
+            backend=backend,
+        )
+        expected = nx.edge_betweenness_centrality_subset(
+            expected_graph,
+            [0],
+            [4],
+            backend=backend,
+        )
+        _assert_mapping_close(actual, expected)
+
+    with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+        fnx.edge_betweenness_centrality_subset(graph, [0], [4], backend="parallel")
+    with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+        nx.edge_betweenness_centrality_subset(
+            expected_graph,
+            [0],
+            [4],
+            backend="parallel",
+        )
+
+    with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+        fnx.edge_betweenness_centrality_subset(
+            graph,
+            [0],
+            [4],
+            backend_kwargs={"x": 1},
+        )
+    with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+        nx.edge_betweenness_centrality_subset(
+            expected_graph,
+            [0],
+            [4],
+            backend_kwargs={"x": 1},
+        )
 
 
 def test_communicability_betweenness_centrality_matches_networkx():
