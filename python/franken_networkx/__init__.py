@@ -303,6 +303,40 @@ def _multigraph_edge_subgraph(self, edges):
     return edge_subgraph(self, edges)
 
 
+class _DiGraphEdgeView:
+    def __init__(self, graph):
+        self._graph = graph
+
+    def __iter__(self):
+        return iter(self())
+
+    def __len__(self):
+        return self._graph.number_of_edges()
+
+    def __contains__(self, edge):
+        try:
+            u, v = edge[:2]
+        except (TypeError, ValueError):
+            return False
+        return self._graph.has_edge(u, v)
+
+    def __call__(self, nbunch=None, data=False, default=None):
+        result = []
+        for source in self._graph.nbunch_iter(nbunch):
+            for target, attrs in self._graph.succ[source].items():
+                if data is True:
+                    result.append((source, target, attrs))
+                elif data is False:
+                    result.append((source, target))
+                else:
+                    result.append((source, target, attrs.get(data, default)))
+        return result
+
+
+def _digraph_edges(self):
+    return _DiGraphEdgeView(self)
+
+
 class _MultiGraphEdgeView:
     def __init__(self, graph):
         self._graph = graph
@@ -651,6 +685,7 @@ MultiGraph.new_edge_key = _multigraph_new_edge_key
 MultiGraph.edge_subgraph = _multigraph_edge_subgraph
 MultiGraph.edges = property(_multigraph_edges)
 MultiGraph.degree = property(MultiGraphDegreeView)
+DiGraph.edges = property(_digraph_edges)
 DiGraph.in_degree = property(lambda self: _DirectedDegreeView(self, "pred"))
 DiGraph.out_degree = property(lambda self: _DirectedDegreeView(self, "succ"))
 MultiDiGraph.adjlist_inner_dict_factory = dict

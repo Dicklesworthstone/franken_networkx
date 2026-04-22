@@ -1693,6 +1693,43 @@ def test_digraph_pred_satisfies_mapping_protocol():
     assert dict(graph.pred) == dict(expected.pred)
 
 
+def test_digraph_mutation_methods_preserve_networkx_edge_insertion_order():
+    def edge_snapshots(graph):
+        return list(graph.edges()), [(u, v, dict(data)) for u, v, data in graph.edges(data=True)]
+
+    graph = fnx.DiGraph()
+    expected = nx.DiGraph()
+    for current in (graph, expected):
+        current.add_edge("a", "b")
+        current.add_edge("b", "a")
+        current.add_edge("b", "c")
+    assert edge_snapshots(graph) == edge_snapshots(expected)
+
+    graph.add_edge("c", "d", color="x")
+    expected.add_edge("c", "d", color="x")
+    assert edge_snapshots(graph) == edge_snapshots(expected)
+
+    graph = fnx.DiGraph()
+    expected = nx.DiGraph()
+    for current in (graph, expected):
+        current.add_edge("a", "b")
+        current.add_edge("b", "a")
+        current.add_edge("b", "c")
+    graph.update(edges=[("c", "d", {"color": "x"})])
+    expected.update(edges=[("c", "d", {"color": "x"})])
+    assert edge_snapshots(graph) == edge_snapshots(expected)
+
+    graph = fnx.DiGraph()
+    expected = nx.DiGraph()
+    for current in (graph, expected):
+        current.add_edge("a", "b")
+        current.add_edge("b", "a")
+        current.add_edge("b", "c")
+    graph.remove_edge("b", "a")
+    expected.remove_edge("b", "a")
+    assert edge_snapshots(graph) == edge_snapshots(expected)
+
+
 @pytest.mark.parametrize(
     ("fnx_cls", "nx_cls"),
     [
