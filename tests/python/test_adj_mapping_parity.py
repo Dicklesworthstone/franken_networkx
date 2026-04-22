@@ -583,6 +583,10 @@ def test_edge_subgraph_adj_exposes_mapping_helpers(fnx_ctor, nx_ctor):
     assert fdeep == ndeep
     assert fh.adj.get(99) is nh.adj.get(99) is None
     assert dict(fh.adj.get(1)) == dict(nh.adj.get(1))
+    # dict() conversion must produce {node: filtered-adj}, not raise ValueError.
+    fdeep_dict = {k: {kk: dict(vv) for kk, vv in dict(v).items()} for k, v in dict(fh.adj).items()}
+    ndeep_dict = {k: {kk: dict(vv) for kk, vv in dict(v).items()} for k, v in dict(nh.adj).items()}
+    assert fdeep_dict == ndeep_dict
 
 
 @pytest.mark.parametrize(
