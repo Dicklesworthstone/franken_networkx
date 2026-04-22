@@ -122,6 +122,23 @@ class TestMinWeightedVertexCover:
         for u, v in [(0, 1), (1, 2), (2, 3)]:
             assert u in cover or v in cover
 
+    @needs_nx
+    def test_unweighted_path_graph_matches_networkx_size(self):
+        """Public approximation.min_weighted_vertex_cover must accept
+        plain fnx.Graph inputs without raising
+        TypeError("cannot convert dictionary update sequence ...").
+        """
+        fg = fnx.path_graph(4)
+        ng = nx.path_graph(4)
+        f_cover = fnx.approximation.min_weighted_vertex_cover(fg)
+        n_cover = nx.approximation.min_weighted_vertex_cover(ng)
+        assert isinstance(f_cover, set)
+        assert isinstance(n_cover, set)
+        # 2-approx may differ in exact set but size matches and covers all edges.
+        assert len(f_cover) == len(n_cover)
+        for u, v in fg.edges:
+            assert u in f_cover or v in f_cover
+
 
 # ---------------------------------------------------------------------------
 # maximum_independent_set
