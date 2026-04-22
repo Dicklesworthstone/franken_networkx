@@ -3323,9 +3323,30 @@ from franken_networkx._fnx import (
 
 # Algorithm functions — single-source shortest paths
 from franken_networkx._fnx import (
-    single_source_shortest_path,
-    single_source_shortest_path_length,
+    single_source_shortest_path as _raw_single_source_shortest_path,
+    single_source_shortest_path_length as _raw_single_source_shortest_path_length,
 )
+
+
+def single_source_shortest_path(G, source, cutoff=None):
+    """Return a dict of shortest paths from ``source`` to every reachable
+    node. Matches NetworkX: raises NodeNotFound('Source {src} not in G')
+    when the source isn't in the graph, instead of returning ``{}``.
+    """
+    if source not in G:
+        raise NodeNotFound(f"Source {source} not in G")
+    return _raw_single_source_shortest_path(G, source, cutoff)
+
+
+def single_source_shortest_path_length(G, source, cutoff=None):
+    """Return a dict of shortest path lengths from ``source`` to every
+    reachable node. Matches NetworkX: raises
+    NodeNotFound('Source {src} is not in G') when the source isn't in
+    the graph.
+    """
+    if source not in G:
+        raise NodeNotFound(f"Source {source} is not in G")
+    return _raw_single_source_shortest_path_length(G, source, cutoff)
 
 # Algorithm functions — dominating set
 from franken_networkx._fnx import (
