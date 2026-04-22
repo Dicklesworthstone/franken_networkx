@@ -1,5 +1,6 @@
 """Tests for drawing layout delegation helpers."""
 
+import warnings
 from unittest import mock
 
 import networkx as nx
@@ -1292,6 +1293,21 @@ def test_multipartite_layout_error_paths_match_networkx_without_delegation():
             fnx.multipartite_layout(fnx.Graph(), align="diagonal")
 
 
+def test_rescale_layout_preserves_integer_array_dtype_error_contract():
+    """Integer-array input must reach the same UFuncTypeError as upstream.
+
+    Regression: rescale_layout previously failed too early on integer
+    coordinate arrays with an ambiguous truthiness ValueError, instead of
+    matching upstream's dtype-sensitive UFuncTypeError raised inside the
+    in-place subtract.
+    """
+    arr = np.array([[0, 2], [2, 0]])
+    with pytest.raises(np._core._exceptions._UFuncOutputCastingError):
+        nx.rescale_layout(arr)
+    with pytest.raises(np._core._exceptions._UFuncOutputCastingError):
+        fnx.rescale_layout(arr)
+
+
 def test_rescale_layout_dict_matches_networkx():
     pos = {"a": np.array([0.0, 0.0]), "b": np.array([2.0, 4.0]), "c": np.array([4.0, 8.0])}
     expected = _as_tuples(nx.rescale_layout_dict(pos, scale=3))
@@ -1303,6 +1319,35 @@ def test_rescale_layout_dict_matches_networkx():
         actual = _as_tuples(fnx.rescale_layout_dict(pos, scale=3))
 
     _assert_positions_close(actual, expected)
+
+
+@pytest.mark.parametrize(
+    "pos",
+    [
+        np.array([]),
+        np.empty((0, 2)),
+        np.empty((0, 3), dtype=np.float32),
+    ],
+)
+def test_rescale_layout_empty_arrays_preserve_networkx_error_contract_without_delegation(
+    pos,
+):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        with pytest.raises(Exception) as expected_exc:
+            nx.rescale_layout(pos.copy())
+
+    with mock.patch(
+        "networkx.rescale_layout",
+        side_effect=AssertionError("NetworkX rescale_layout should not be used"),
+    ):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            with pytest.raises(Exception) as actual_exc:
+                fnx.rescale_layout(pos.copy())
+
+    assert type(actual_exc.value).__name__ == type(expected_exc.value).__name__
+    assert str(actual_exc.value) == str(expected_exc.value)
 
 
 def test_rescale_layout_dict_tuple_keys_match_networkx_without_delegation():
