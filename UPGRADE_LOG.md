@@ -161,5 +161,23 @@ library-updater sweep.
     the stable 2.0 series. `tempfile 3.27.0` pulls in refreshed `rustix`
     / `linux-raw-sys` transients.
 - **Verification:** `rch exec -- cargo check --workspace --all-targets` green; `rch exec -- cargo test -p fnx-durability` green (3 passed).
+- **Commit:** 18ff286
+
+#### criterion: 0.5 -> 0.8 (fnx-algorithms bench)
+- **Scope:** `[dev-dependencies]` of fnx-algorithms (used by the
+  `algorithm_benchmarks` bench only; no production code path).
+- **Breaking:** None reached us in practice. Between 0.5 and 0.7 criterion
+  dropped the `real_blackbox` feature and deprecated `criterion::black_box`
+  in favour of `std::hint::black_box`, but `algorithm_benchmarks.rs` does not
+  use `black_box` at all. The `Criterion`, `BenchmarkId`, `criterion_group!`,
+  and `criterion_main!` surface is unchanged.
+- **Transitive side-effect:** the 0.8 jump pulled in a fresh `cc` build-dep
+  via `page_size`; the `cc-1.2.56` already in the lock file was incompatible
+  with the newer `rustc` (missing `from_rustc_target` / `apple_sdk_name` on
+  `TargetInfo`). Ran `cargo update -p cc` to bump cc 1.2.56 -> 1.2.60 and the
+  workspace then compiled clean.
+- **Verification:** `rch exec -- cargo check --workspace --all-targets` green;
+  `rch exec -- cargo test -p fnx-algorithms` green (lib tests + bench harness
+  compile).
 
 
