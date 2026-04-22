@@ -527,14 +527,23 @@ def test_additional_public_centrality_wrappers_expose_backend_signature_matches_
 
 
 def _assert_backend_wrapper_result_matches_networkx(name, actual, expected):
+    if name in {"edge_betweenness_centrality", "edge_current_flow_betweenness_centrality"}:
+        _assert_centrality_close(
+            {frozenset(k): v for k, v in actual.items()},
+            {frozenset(k): v for k, v in expected.items()},
+            rel=1e-6,
+            abs_=1e-9,
+        )
+        return
+
     if name in {
         "degree_centrality",
         "harmonic_centrality",
         "closeness_centrality",
         "communicability_betweenness_centrality",
-        "edge_betweenness_centrality",
         "information_centrality",
         "current_flow_closeness_centrality",
+        "current_flow_betweenness_centrality",
         "katz_centrality",
         "in_degree_centrality",
         "out_degree_centrality",
@@ -669,6 +678,12 @@ def test_degree_family_wrappers_backend_keyword_surface_matches_networkx(name, a
         pytest.param("communicability_betweenness_centrality", _path, id="communicability_betweenness_centrality"),
         pytest.param("information_centrality", _path, id="information_centrality"),
         pytest.param("current_flow_closeness_centrality", _path, id="current_flow_closeness_centrality"),
+        pytest.param("current_flow_betweenness_centrality", _path, id="current_flow_betweenness_centrality"),
+        pytest.param(
+            "edge_current_flow_betweenness_centrality",
+            _path,
+            id="edge_current_flow_betweenness_centrality",
+        ),
         pytest.param("percolation_centrality", _path, id="percolation_centrality"),
     ],
 )
@@ -683,6 +698,12 @@ def test_current_flow_family_wrappers_expose_backend_signature_matches_networkx(
         pytest.param("communicability_betweenness_centrality", _path, id="communicability_betweenness_centrality"),
         pytest.param("information_centrality", _path, id="information_centrality"),
         pytest.param("current_flow_closeness_centrality", _path, id="current_flow_closeness_centrality"),
+        pytest.param("current_flow_betweenness_centrality", _path, id="current_flow_betweenness_centrality"),
+        pytest.param(
+            "edge_current_flow_betweenness_centrality",
+            _path,
+            id="edge_current_flow_betweenness_centrality",
+        ),
         pytest.param("percolation_centrality", _path, id="percolation_centrality"),
     ],
 )

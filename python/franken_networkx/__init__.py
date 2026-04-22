@@ -13683,17 +13683,40 @@ def _flow_matrix_row(G, weight=None, dtype=float, solver="lu"):
         yield row, (u, v)
 
 
-def current_flow_betweenness_centrality(G, normalized=True, weight=None, solver="full"):
+def current_flow_betweenness_centrality(
+    G,
+    normalized=True,
+    weight=None,
+    dtype=float,
+    solver="full",
+    *,
+    backend=None,
+    **backend_kwargs,
+):
     """Current-flow betweenness centrality based on electrical current flow."""
+    del dtype, solver
+    _validate_backend_dispatch_keywords(
+        "current_flow_betweenness_centrality", backend, backend_kwargs
+    )
     return _fnx.current_flow_betweenness_centrality_rust(
         G, normalized, weight or "weight"
     )
 
 
 def edge_current_flow_betweenness_centrality(
-    G, normalized=True, weight=None, dtype=float, solver="full"
+    G,
+    normalized=True,
+    weight=None,
+    dtype=float,
+    solver="full",
+    *,
+    backend=None,
+    **backend_kwargs,
 ):
     """Edge variant of current-flow betweenness centrality."""
+    _validate_backend_dispatch_keywords(
+        "edge_current_flow_betweenness_centrality", backend, backend_kwargs
+    )
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     if not is_connected(G):
