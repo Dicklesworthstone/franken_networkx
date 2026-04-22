@@ -432,6 +432,99 @@ impl EdgeView {
             Ok(view.into_any())
         }
     }
+
+    /// Union: self | other
+    fn __or__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        let g = self.graph.borrow(py);
+        let self_edges: Vec<PyObject> = g
+            .inner
+            .edges_ordered()
+            .into_iter()
+            .map(|edge| {
+                let py_u = g.py_node_key(py, &edge.left);
+                let py_v = g.py_node_key(py, &edge.right);
+                tuple_object(py, &[py_u, py_v])
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        let self_set = pyo3::types::PySet::new(py, self_edges.iter())?;
+        for item in PyIterator::from_object(other)? {
+            self_set.add(item?)?;
+        }
+        Ok(self_set.into_any().unbind())
+    }
+
+    /// Intersection: self & other
+    fn __and__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        let g = self.graph.borrow(py);
+        let other_vec: Vec<PyObject> = PyIterator::from_object(other)?
+            .map(|r| r.map(|o| o.unbind()))
+            .collect::<PyResult<Vec<_>>>()?;
+        let other_set = pyo3::types::PySet::new(py, other_vec.iter())?;
+        let mut result = Vec::new();
+        for edge in g.inner.edges_ordered() {
+            let py_u = g.py_node_key(py, &edge.left);
+            let py_v = g.py_node_key(py, &edge.right);
+            let py_edge = tuple_object(py, &[py_u, py_v])?;
+            if other_set.contains(&py_edge)? {
+                result.push(py_edge);
+            }
+        }
+        let set = pyo3::types::PySet::new(py, result.iter())?;
+        Ok(set.into_any().unbind())
+    }
+
+    /// Difference: self - other
+    fn __sub__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        let g = self.graph.borrow(py);
+        let other_vec: Vec<PyObject> = PyIterator::from_object(other)?
+            .map(|r| r.map(|o| o.unbind()))
+            .collect::<PyResult<Vec<_>>>()?;
+        let other_set = pyo3::types::PySet::new(py, other_vec.iter())?;
+        let mut result = Vec::new();
+        for edge in g.inner.edges_ordered() {
+            let py_u = g.py_node_key(py, &edge.left);
+            let py_v = g.py_node_key(py, &edge.right);
+            let py_edge = tuple_object(py, &[py_u, py_v])?;
+            if !other_set.contains(&py_edge)? {
+                result.push(py_edge);
+            }
+        }
+        let set = pyo3::types::PySet::new(py, result.iter())?;
+        Ok(set.into_any().unbind())
+    }
+
+    /// Symmetric difference: self ^ other
+    fn __xor__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        let g = self.graph.borrow(py);
+        let self_edges: Vec<PyObject> = g
+            .inner
+            .edges_ordered()
+            .into_iter()
+            .map(|edge| {
+                let py_u = g.py_node_key(py, &edge.left);
+                let py_v = g.py_node_key(py, &edge.right);
+                tuple_object(py, &[py_u, py_v])
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        let self_set = pyo3::types::PySet::new(py, self_edges.iter())?;
+        let other_vec: Vec<PyObject> = PyIterator::from_object(other)?
+            .map(|r| r.map(|o| o.unbind()))
+            .collect::<PyResult<Vec<_>>>()?;
+        let other_set = pyo3::types::PySet::new(py, other_vec.iter())?;
+        let mut result = Vec::new();
+        for py_edge in &self_edges {
+            if !other_set.contains(py_edge)? {
+                result.push(py_edge.clone_ref(py));
+            }
+        }
+        for py_edge in &other_vec {
+            if !self_set.contains(py_edge)? {
+                result.push(py_edge.clone_ref(py));
+            }
+        }
+        let set = pyo3::types::PySet::new(py, result.iter())?;
+        Ok(set.into_any().unbind())
+    }
 }
 
 // ---------------------------------------------------------------------------

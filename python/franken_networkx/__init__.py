@@ -338,6 +338,18 @@ class _DiGraphEdgeView:
                     result.append((source, target, attrs.get(data, default)))
         return result
 
+    def __or__(self, other):
+        return set(self()) | set(other)
+
+    def __and__(self, other):
+        return set(self()) & set(other)
+
+    def __sub__(self, other):
+        return set(self()) - set(other)
+
+    def __xor__(self, other):
+        return set(self()) ^ set(other)
+
 
 def _digraph_edges(self):
     return _DiGraphEdgeView(self)
