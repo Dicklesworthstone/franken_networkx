@@ -1582,6 +1582,56 @@ def test_to_directed_tracks_mutations_like_networkx_without_fallback(
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],
 )
+def test_graph_classes_support_to_directed_as_view_like_networkx(fnx_cls, nx_cls):
+    graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+
+    result = graph.to_directed(as_view=True)
+    expected_result = expected.to_directed(as_view=True)
+
+    assert type(result).__name__ == type(expected_result).__name__
+    assert result.is_directed() == expected_result.is_directed()
+    assert result.is_multigraph() == expected_result.is_multigraph()
+    assert result.graph is graph.graph
+    assert _graph_snapshot(result) == _graph_snapshot(expected_result)
+
+    graph.graph["phase"] = "live"
+    expected.graph["phase"] = "live"
+    graph.nodes["a"]["shade"] = "scarlet"
+    expected.nodes["a"]["shade"] = "scarlet"
+    if graph.is_multigraph():
+        graph.add_edge("c", "a", key="late", weight=11)
+        expected.add_edge("c", "a", key="late", weight=11)
+    else:
+        graph.add_edge("c", "a", weight=11)
+        expected.add_edge("c", "a", weight=11)
+
+    assert dict(result.graph) == dict(expected_result.graph)
+    assert _graph_snapshot(result) == _graph_snapshot(expected_result)
+    assert fnx.is_frozen(result) == nx.is_frozen(expected_result)
+
+    with pytest.raises(Exception) as fnx_exc:
+        result.add_edge("x", "y")
+    with pytest.raises(Exception) as nx_exc:
+        expected_result.add_edge("x", "y")
+    assert type(fnx_exc.value).__name__ == type(nx_exc.value).__name__
+    assert str(fnx_exc.value) == str(nx_exc.value)
+
+    result_explicit_copy = graph.to_directed(as_view=False)
+    expected_explicit_copy = expected.to_directed(as_view=False)
+
+    assert type(result_explicit_copy).__name__ == type(expected_explicit_copy).__name__
+    assert _graph_snapshot(result_explicit_copy) == _graph_snapshot(expected_explicit_copy)
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
 def test_to_directed_exposes_predecessor_and_successor_queries_without_fallback(
     monkeypatch, fnx_cls, nx_cls
 ):

@@ -165,6 +165,10 @@ _GRAPH_COPY = Graph.copy
 _DIGRAPH_COPY = DiGraph.copy
 _MULTIGRAPH_COPY = MultiGraph.copy
 _MULTIDIGRAPH_COPY = MultiDiGraph.copy
+_GRAPH_TO_DIRECTED = Graph.to_directed
+_DIGRAPH_TO_DIRECTED = DiGraph.to_directed
+_MULTIGRAPH_TO_DIRECTED = MultiGraph.to_directed
+_MULTIDIGRAPH_TO_DIRECTED = MultiDiGraph.to_directed
 
 
 Graph.nbunch_iter = _graph_nbunch_iter
@@ -13326,9 +13330,7 @@ def to_undirected(G):
 
 def to_directed(G):
     """Return a frozen live directed view of G."""
-    if G.is_multigraph():
-        return _DirectedMultiGraphConversionView(G)
-    return _DirectedGraphConversionView(G)
+    return _generic_directed_graph_view(G)
 
 
 class _ReverseDirectedView:
@@ -13983,10 +13985,23 @@ def _copy_with_view(copy_impl):
     return copy
 
 
+def _to_directed_with_view(to_directed_impl):
+    def to_directed(self, as_view=False):
+        if as_view is True:
+            return _generic_directed_graph_view(self)
+        return to_directed_impl(self)
+
+    return to_directed
+
+
 Graph.copy = _copy_with_view(_GRAPH_COPY)
 DiGraph.copy = _copy_with_view(_DIGRAPH_COPY)
 MultiGraph.copy = _copy_with_view(_MULTIGRAPH_COPY)
 MultiDiGraph.copy = _copy_with_view(_MULTIDIGRAPH_COPY)
+Graph.to_directed = _to_directed_with_view(_GRAPH_TO_DIRECTED)
+DiGraph.to_directed = _to_directed_with_view(_DIGRAPH_TO_DIRECTED)
+MultiGraph.to_directed = _to_directed_with_view(_MULTIGRAPH_TO_DIRECTED)
+MultiDiGraph.to_directed = _to_directed_with_view(_MULTIDIGRAPH_TO_DIRECTED)
 
 
 class _ConversionNodeView(Mapping):
@@ -14426,6 +14441,17 @@ class _DirectedMultiGraphConversionView(_ConversionGraphViewBase):
 
     def out_degree(self, nbunch=None, weight=None):
         return self._directed_degree(self.succ, nbunch, weight)
+
+
+_DIRECTED_CONVERSION_VIEW_TYPES = {
+    False: type("DiGraph", (_DirectedGraphConversionView,), {}),
+    True: type("MultiDiGraph", (_DirectedMultiGraphConversionView,), {}),
+}
+
+
+def _generic_directed_graph_view(graph):
+    view_type = _DIRECTED_CONVERSION_VIEW_TYPES[graph.is_multigraph()]
+    return view_type(graph)
 
 
 class _UndirectedGraphConversionView(_ConversionGraphViewBase):
