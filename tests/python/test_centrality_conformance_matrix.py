@@ -358,6 +358,28 @@ def test_percolation_centrality_matches_networkx():
     )
 
 
+def test_current_flow_closeness_centrality_is_native_not_nx_delegate():
+    """Bead franken_networkx-p3ap: confirm current_flow_closeness_centrality
+    runs through the fnx-native implementation rather than delegating into
+    networkx. Mock nx.current_flow_closeness_centrality to assert it is
+    never called, and verify the fnx result still matches the upstream
+    value.
+    """
+    from unittest import mock
+
+    fg = fnx.path_graph(5)
+    ng = nx.path_graph(5)
+    expected = nx.current_flow_closeness_centrality(ng)
+
+    with mock.patch(
+        "networkx.current_flow_closeness_centrality",
+        side_effect=AssertionError("fnx must not delegate to networkx"),
+    ):
+        actual = fnx.current_flow_closeness_centrality(fg)
+
+    _assert_centrality_close(actual, expected, rel=1e-5, abs_=1e-7)
+
+
 # ---------------------------------------------------------------------------
 # Error contract parity
 # ---------------------------------------------------------------------------
