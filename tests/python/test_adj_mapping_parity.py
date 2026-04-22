@@ -576,6 +576,33 @@ def test_multigraph_edges_satisfies_keyed_mapping_protocol(fnx_ctor, nx_ctor):
     )
 
 
+@pytest.mark.parametrize(
+    ("fnx_ctor", "nx_ctor"),
+    [
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_multigraph_nodes_satisfies_mapping_protocol(fnx_ctor, nx_ctor):
+    fg = fnx_ctor()
+    fg.add_node("a", color="red")
+    fg.add_node("b")
+    ng = nx_ctor()
+    ng.add_node("a", color="red")
+    ng.add_node("b")
+
+    for attr in ("items", "keys", "values", "get"):
+        assert hasattr(fg.nodes, attr)
+
+    # dict() must produce {node: attrs}, not raise ValueError.
+    assert dict(fg.nodes) == dict(ng.nodes)
+    assert list(fg.nodes.keys()) == list(ng.nodes.keys())
+    assert list(fg.nodes.items()) == list(ng.nodes.items())
+    assert list(fg.nodes.values()) == list(ng.nodes.values())
+    assert fg.nodes.get("a") == ng.nodes.get("a")
+    assert fg.nodes.get("missing") is ng.nodes.get("missing") is None
+
+
 def test_digraph_edge_subgraph_preserves_node_iteration_order():
     fg = fnx.DiGraph()
     fg.add_edge("a", "b")
