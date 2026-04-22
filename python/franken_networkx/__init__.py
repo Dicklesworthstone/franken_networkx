@@ -522,7 +522,7 @@ class _MultiGraphEdgeView:
         return False
 
     def __call__(self, nbunch=None, data=False, keys=False, default=None):
-        result = []
+        result = _EdgeListWithSetAlgebra()
         seen = set()
         for source in self._graph.nbunch_iter(nbunch):
             for target, keyed_attrs in self._graph.adj[source].items():
@@ -544,6 +544,40 @@ class _MultiGraphEdgeView:
                     else:
                         result.append((source, target, attrs.get(data, default)))
         return result
+
+
+class _EdgeListWithSetAlgebra(list):
+    """List subclass that supports set-algebra operators.
+
+    Returned by MultiGraph.edges(keys=...) / MultiDiGraph.edges(keys=...)
+    so the result matches upstream NetworkX's set-like behaviour
+    (expressions like edges | {...}, edges & {...}) without breaking
+    existing callers that iterate the value as a list.
+    """
+
+    def __and__(self, other):
+        return set(self) & set(other)
+
+    def __rand__(self, other):
+        return set(other) & set(self)
+
+    def __or__(self, other):
+        return set(self) | set(other)
+
+    def __ror__(self, other):
+        return set(other) | set(self)
+
+    def __sub__(self, other):
+        return set(self) - set(other)
+
+    def __rsub__(self, other):
+        return set(other) - set(self)
+
+    def __xor__(self, other):
+        return set(self) ^ set(other)
+
+    def __rxor__(self, other):
+        return set(other) ^ set(self)
 
 
 def _multigraph_edges(self):
@@ -582,7 +616,7 @@ class _MultiDiGraphEdgeView:
         raise KeyError(edge)
 
     def __call__(self, nbunch=None, data=False, keys=False, default=None):
-        result = []
+        result = _EdgeListWithSetAlgebra()
         for source in self._graph.nbunch_iter(nbunch):
             for target, keyed_attrs in self._graph.succ[source].items():
                 for key, attrs in keyed_attrs.items():
