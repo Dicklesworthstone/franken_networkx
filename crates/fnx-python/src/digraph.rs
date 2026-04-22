@@ -1579,6 +1579,39 @@ impl MultiDiGraphNodeView {
         ))
     }
 
+    /// Return a list of node keys (like dict.keys()).
+    fn keys(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        let g = self.graph.borrow(py);
+        Ok(g.inner.nodes_ordered().into_iter().map(|n| g.py_node_key(py, n)).collect())
+    }
+
+    /// Return a list of (node, attrs) pairs (like dict.items()).
+    fn items(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        let g = self.graph.borrow(py);
+        let mut result = Vec::new();
+        for node in g.inner.nodes_ordered() {
+            let py_key = g.py_node_key(py, node);
+            let attrs = g.node_py_attrs.get(node).map_or_else(
+                || PyDict::new(py).into_any().unbind(),
+                |d| d.clone_ref(py).into_any(),
+            );
+            let pair = PyTuple::new(py, &[py_key, attrs])?;
+            result.push(pair.into_any().unbind());
+        }
+        Ok(result)
+    }
+
+    /// Return a list of attr dicts (like dict.values()).
+    fn values(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        let g = self.graph.borrow(py);
+        Ok(g.inner.nodes_ordered().into_iter().map(|n| {
+            g.node_py_attrs.get(n).map_or_else(
+                || PyDict::new(py).into_any().unbind(),
+                |d| d.clone_ref(py).into_any(),
+            )
+        }).collect())
+    }
+
     /// Return a view iterating over (node, data) pairs.
     #[pyo3(signature = (data=None, default=None))]
     fn data(&self, py: Python<'_>, data: Option<&Bound<'_, PyAny>>, default: Option<PyObject>) -> PyResult<Vec<PyObject>> {
@@ -3248,6 +3281,36 @@ impl DiNodeView {
                 data: view_data,
             },
         )
+    }
+
+    /// Return a list of node keys (like dict.keys()).
+    fn keys(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        let g = self.graph.borrow(py);
+        Ok(g.inner.nodes_ordered().iter().map(|n| g.py_node_key(py, n)).collect())
+    }
+
+    /// Return a list of (node, attrs) pairs (like dict.items()).
+    fn items(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        let g = self.graph.borrow(py);
+        g.inner.nodes_ordered().iter().map(|n| {
+            let py_key = g.py_node_key(py, n);
+            let attrs = g.node_py_attrs.get(*n).map_or_else(
+                || PyDict::new(py).into_any().unbind(),
+                |d| d.clone_ref(py).into_any(),
+            );
+            tuple_object(py, &[py_key, attrs])
+        }).collect()
+    }
+
+    /// Return a list of attr dicts (like dict.values()).
+    fn values(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
+        let g = self.graph.borrow(py);
+        Ok(g.inner.nodes_ordered().iter().map(|n| {
+            g.node_py_attrs.get(*n).map_or_else(
+                || PyDict::new(py).into_any().unbind(),
+                |d| d.clone_ref(py).into_any(),
+            )
+        }).collect())
     }
 
     /// Return a NodeDataView for iterating over (node, data) pairs.
