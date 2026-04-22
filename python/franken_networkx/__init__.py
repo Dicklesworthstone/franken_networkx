@@ -475,6 +475,68 @@ class MultiDiGraphDegreeView:
         return type(self)(self._graph, nodes=nodes, weight=weight)
 
 
+class _DirectedDegreeView:
+    def __init__(self, graph, adjacency_attr, *, nodes=None, weight=None):
+        self._graph = graph
+        self._adjacency_attr = adjacency_attr
+        self._nodes = nodes
+        self._weight = weight
+
+    @property
+    def _adjacency(self):
+        return getattr(self._graph, self._adjacency_attr)
+
+    def _iter_nodes(self):
+        if self._nodes is None:
+            return iter(self._graph)
+        return iter(self._nodes)
+
+    def _node_degree(self, node, weight):
+        adjacency = self._adjacency[node]
+        if self._graph.is_multigraph():
+            if weight is None:
+                return sum(len(keydict) for keydict in adjacency.values())
+            total = 0
+            for keydict in adjacency.values():
+                for attrs in keydict.values():
+                    total += attrs.get(weight, 1)
+            return total
+
+        if weight is None:
+            return len(adjacency)
+        return sum(attrs.get(weight, 1) for attrs in adjacency.values())
+
+    def __len__(self):
+        if self._nodes is None:
+            return len(self._graph)
+        return len(self._nodes)
+
+    def __iter__(self):
+        for node in self._iter_nodes():
+            yield (node, self[node])
+
+    def __getitem__(self, node):
+        return self._node_degree(node, self._weight)
+
+    def __bool__(self):
+        return bool(len(self))
+
+    def __call__(self, nbunch=None, weight=None):
+        if weight is None:
+            weight = self._weight
+        if nbunch is None and weight == self._weight:
+            return self
+        if nbunch is None:
+            return type(self)(self._graph, self._adjacency_attr, weight=weight)
+        try:
+            if nbunch in self._graph:
+                return self._node_degree(nbunch, weight)
+        except TypeError:
+            pass
+        nodes = list(self._graph.nbunch_iter(nbunch))
+        return type(self)(self._graph, self._adjacency_attr, nodes=nodes, weight=weight)
+
+
 Graph.nbunch_iter = _graph_nbunch_iter
 DiGraph.nbunch_iter = _graph_nbunch_iter
 MultiGraph.nbunch_iter = _graph_nbunch_iter
@@ -565,6 +627,7 @@ MultiGraph.new_edge_key = _multigraph_new_edge_key
 MultiGraph.edge_subgraph = _multigraph_edge_subgraph
 MultiGraph.edges = property(_multigraph_edges)
 MultiGraph.degree = property(MultiGraphDegreeView)
+DiGraph.in_degree = property(lambda self: _DirectedDegreeView(self, "pred"))
 MultiDiGraph.adjlist_inner_dict_factory = dict
 MultiDiGraph.adjlist_outer_dict_factory = dict
 MultiDiGraph.edge_attr_dict_factory = dict
@@ -575,6 +638,7 @@ MultiDiGraph.edge_key_dict_factory = dict
 MultiDiGraph.new_edge_key = _multigraph_new_edge_key
 MultiDiGraph.edge_subgraph = _multigraph_edge_subgraph
 MultiDiGraph.degree = property(MultiDiGraphDegreeView)
+MultiDiGraph.in_degree = property(lambda self: _DirectedDegreeView(self, "pred"))
 Graph.to_directed_class = _to_directed_class
 Graph.to_undirected_class = _to_undirected_class
 DiGraph.to_directed_class = _to_directed_class

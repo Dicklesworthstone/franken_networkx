@@ -1727,6 +1727,27 @@ def test_directed_graph_classes_expose_in_and_out_edges(fnx_cls, nx_cls):
 @pytest.mark.parametrize(
     ("fnx_cls", "nx_cls"),
     [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_directed_graph_classes_expose_callable_in_degree(fnx_cls, nx_cls):
+    graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+
+    assert list(graph.in_degree()) == list(expected.in_degree())
+    assert graph.in_degree("b") == expected.in_degree("b")
+    assert graph.in_degree("b", weight="weight") == expected.in_degree(
+        "b", weight="weight"
+    )
+    assert list(graph.in_degree(["b", "missing"])) == list(
+        expected.in_degree(["b", "missing"])
+    )
+    assert list(graph.in_degree("missing")) == list(expected.in_degree("missing"))
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
         (fnx.Graph, nx.Graph),
         (fnx.DiGraph, nx.DiGraph),
         (fnx.MultiGraph, nx.MultiGraph),
