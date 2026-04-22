@@ -382,6 +382,43 @@ def test_edge_subgraph_returns_frozen_view_with_atlas_like_adj(fnx_ctor, nx_ctor
     assert list(fh.edges) == list(nh.edges)
 
 
+@pytest.mark.parametrize(
+    ("fnx_ctor", "nx_ctor"),
+    [
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_multigraph_adj_mapping_helpers_preserve_adjacency_view_layers(fnx_ctor, nx_ctor):
+    from collections.abc import Mapping
+
+    fg = fnx_ctor()
+    fg.add_edge("a", "b", weight=3)
+    fg.add_edge("b", "c", weight=5)
+    ng = nx_ctor()
+    ng.add_edge("a", "b", weight=3)
+    ng.add_edge("b", "c", weight=5)
+
+    # Outer values are Mapping (AdjacencyView/MultiAdjacencyView), not raw dicts.
+    for (fk, fv), (nk, nv) in zip(fg.adj.items(), ng.adj.items()):
+        assert fk == nk
+        assert isinstance(fv, Mapping)
+        assert isinstance(nv, Mapping)
+        with pytest.raises(TypeError):
+            fv["x"] = {}
+        with pytest.raises(TypeError):
+            nv["x"] = {}
+    for fv, nv in zip(fg.adj.values(), ng.adj.values()):
+        assert isinstance(fv, Mapping)
+        with pytest.raises(TypeError):
+            fv["x"] = {}
+
+    # Deep content matches upstream.
+    fdeep = {k: {kk: dict(vv) for kk, vv in dict(v).items()} for k, v in fg.adj.items()}
+    ndeep = {k: {kk: dict(vv) for kk, vv in dict(v).items()} for k, v in ng.adj.items()}
+    assert fdeep == ndeep
+
+
 def test_digraph_edge_subgraph_preserves_node_iteration_order():
     fg = fnx.DiGraph()
     fg.add_edge("a", "b")
