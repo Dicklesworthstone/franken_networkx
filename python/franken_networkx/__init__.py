@@ -320,6 +320,12 @@ class _DiGraphEdgeView:
             return False
         return self._graph.has_edge(u, v)
 
+    def __getitem__(self, edge):
+        u, v = edge
+        if not self._graph.has_edge(u, v):
+            raise KeyError(edge)
+        return self._graph.succ[u][v]
+
     def __call__(self, nbunch=None, data=False, default=None):
         result = []
         for source in self._graph.nbunch_iter(nbunch):
@@ -19484,6 +19490,8 @@ def goldberg_radzik(G, source, weight="weight"):
     shortest path from source, and dist[v] is the distance.
     Uses Bellman-Ford internally (same correctness guarantees for negative weights).
     """
+    if callable(weight):
+        return _call_networkx_for_parity("goldberg_radzik", G, source, weight=weight)
     if G.is_directed():
         # Pure Python Bellman-Ford for directed graphs.
         dist = {source: 0}
