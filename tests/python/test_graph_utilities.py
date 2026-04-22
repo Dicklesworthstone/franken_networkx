@@ -1957,6 +1957,34 @@ def test_multigraph_node_views_support_attribute_name_data_retrieval(fnx_cls, nx
 
 
 @pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+    ],
+)
+def test_simple_graph_node_views_satisfy_mapping_protocol(fnx_cls, nx_cls):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+
+    assert list(graph.nodes.keys()) == list(expected.nodes.keys())
+    assert [
+        (node, _mapping_snapshot(attrs)) for node, attrs in graph.nodes.items()
+    ] == [
+        (node, _mapping_snapshot(attrs)) for node, attrs in expected.nodes.items()
+    ]
+    assert [_mapping_snapshot(attrs) for attrs in graph.nodes.values()] == [
+        _mapping_snapshot(attrs) for attrs in expected.nodes.values()
+    ]
+    assert _mapping_snapshot(graph.nodes.get("a")) == _mapping_snapshot(
+        expected.nodes.get("a")
+    )
+    assert graph.nodes.get("missing") == expected.nodes.get("missing")
+    assert dict(graph.nodes) == dict(expected.nodes)
+    assert "a" in graph.nodes
+    assert "missing" not in graph.nodes
+
+
+@pytest.mark.parametrize(
     ("fnx_cls", "nx_cls", "missing_node"),
     [
         (fnx.Graph, nx.Graph, "missing"),
