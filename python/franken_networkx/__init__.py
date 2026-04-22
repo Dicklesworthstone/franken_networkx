@@ -174,6 +174,10 @@ _GRAPH_TO_UNDIRECTED = Graph.to_undirected
 _DIGRAPH_TO_UNDIRECTED = DiGraph.to_undirected
 _MULTIGRAPH_TO_UNDIRECTED = MultiGraph.to_undirected
 _MULTIDIGRAPH_TO_UNDIRECTED = MultiDiGraph.to_undirected
+_GRAPH_SUBGRAPH = Graph.subgraph
+_DIGRAPH_SUBGRAPH = DiGraph.subgraph
+_MULTIGRAPH_SUBGRAPH = MultiGraph.subgraph
+_MULTIDIGRAPH_SUBGRAPH = MultiDiGraph.subgraph
 
 
 Graph.nbunch_iter = _graph_nbunch_iter
@@ -13503,7 +13507,7 @@ class _ReverseDirectedView:
 
     def subgraph(self, nodes):
         visible_nodes = set(self._nbunch(nodes))
-        return _FilteredGraphView(
+        return _generic_filtered_graph_view(
             self,
             filter_node=lambda node: node in visible_nodes,
         )
@@ -13513,7 +13517,7 @@ class _ReverseDirectedView:
 
     def copy(self, as_view=False):
         if as_view:
-            return _FilteredGraphView(self)
+            return _generic_filtered_graph_view(self)
 
         copy_factory = getattr(self._graph, "_copy_type", None)
         result_type = copy_factory() if callable(copy_factory) else self._graph.__class__
@@ -13974,9 +13978,9 @@ _FILTERED_GRAPH_VIEW_TYPES = {
 }
 
 
-def _generic_filtered_graph_view(graph):
+def _generic_filtered_graph_view(graph, *, filter_node=None, filter_edge=None):
     view_type = _FILTERED_GRAPH_VIEW_TYPES[(graph.is_directed(), graph.is_multigraph())]
-    return view_type(graph)
+    return view_type(graph, filter_node=filter_node, filter_edge=filter_edge)
 
 
 def _copy_with_view(copy_impl):
@@ -13986,6 +13990,17 @@ def _copy_with_view(copy_impl):
         return copy_impl(self)
 
     return copy
+
+
+def _subgraph_with_view(subgraph_impl):
+    @wraps(subgraph_impl)
+    def subgraph(self, nodes):
+        return _generic_filtered_graph_view(
+            self,
+            filter_node=_subgraph_filter_from_nbunch(self, nodes),
+        )
+
+    return subgraph
 
 
 def _to_directed_with_view(to_directed_impl):
@@ -14056,6 +14071,10 @@ Graph.copy = _copy_with_view(_GRAPH_COPY)
 DiGraph.copy = _copy_with_view(_DIGRAPH_COPY)
 MultiGraph.copy = _copy_with_view(_MULTIGRAPH_COPY)
 MultiDiGraph.copy = _copy_with_view(_MULTIDIGRAPH_COPY)
+Graph.subgraph = _subgraph_with_view(_GRAPH_SUBGRAPH)
+DiGraph.subgraph = _subgraph_with_view(_DIGRAPH_SUBGRAPH)
+MultiGraph.subgraph = _subgraph_with_view(_MULTIGRAPH_SUBGRAPH)
+MultiDiGraph.subgraph = _subgraph_with_view(_MULTIDIGRAPH_SUBGRAPH)
 Graph.to_directed = _to_directed_with_view(_GRAPH_TO_DIRECTED)
 DiGraph.to_directed = _to_directed_with_view(_DIGRAPH_TO_DIRECTED)
 MultiGraph.to_directed = _to_directed_with_view(_MULTIGRAPH_TO_DIRECTED)
@@ -18234,7 +18253,7 @@ def edge_subgraph(G, edges):
 
 def subgraph_view(G, filter_node=None, filter_edge=None):
     """Filtered live view of graph."""
-    return _FilteredGraphView(
+    return _generic_filtered_graph_view(
         G,
         filter_node=filter_node,
         filter_edge=filter_edge,

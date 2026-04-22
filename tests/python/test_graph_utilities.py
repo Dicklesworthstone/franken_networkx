@@ -2678,6 +2678,38 @@ def test_induced_subgraph_helpers_track_mutations_like_networkx_without_fallback
     assert _graph_snapshot(result) == _graph_snapshot(expected_result)
 
 
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_graph_classes_subgraph_tracks_graph_attr_mutations_like_networkx(fnx_cls, nx_cls):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    graph.graph["mode"] = "orig"
+    expected.graph["mode"] = "orig"
+
+    result = graph.subgraph(["a", "b", "c"])
+    expected_result = expected.subgraph(["a", "b", "c"])
+
+    assert type(result).__name__ == type(expected_result).__name__
+    assert dict(result.graph) == dict(expected_result.graph)
+    assert result.graph is graph.graph
+
+    graph.graph["mode"] = "updated"
+    expected.graph["mode"] = "updated"
+
+    assert dict(result.graph) == dict(expected_result.graph)
+    assert result.graph["mode"] == "updated"
+    assert result.is_directed() == expected_result.is_directed()
+    assert result.is_multigraph() == expected_result.is_multigraph()
+    assert fnx.is_frozen(result) == nx.is_frozen(expected_result)
+    assert _graph_snapshot(result) == _graph_snapshot(expected_result)
+
+
 @pytest.mark.parametrize("utility_name", ["subgraph", "induced_subgraph"])
 def test_induced_subgraph_helpers_missing_node_error_match_networkx_without_fallback(
     monkeypatch, utility_name
