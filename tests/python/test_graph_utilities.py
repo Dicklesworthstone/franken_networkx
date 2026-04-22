@@ -2741,6 +2741,38 @@ def test_graph_classes_subgraph_tracks_node_attr_mutations_like_networkx(fnx_cls
     assert _graph_snapshot(result) == _graph_snapshot(expected_result)
 
 
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_graph_classes_subgraph_tracks_edge_mutations_like_networkx(fnx_cls, nx_cls):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+
+    result = graph.subgraph(["a", "b", "c"])
+    expected_result = expected.subgraph(["a", "b", "c"])
+
+    if graph.is_multigraph():
+        graph["a"]["b"][1]["weight"] = 9
+        expected["a"]["b"][1]["weight"] = 9
+        graph.add_edge("a", "c", key=7, weight=11)
+        expected.add_edge("a", "c", key=7, weight=11)
+    else:
+        graph["a"]["b"]["weight"] = 9
+        expected["a"]["b"]["weight"] = 9
+        graph.add_edge("a", "c", weight=11)
+        expected.add_edge("a", "c", weight=11)
+
+    assert result.is_directed() == expected_result.is_directed()
+    assert result.is_multigraph() == expected_result.is_multigraph()
+    assert fnx.is_frozen(result) == nx.is_frozen(expected_result)
+    assert _graph_snapshot(result) == _graph_snapshot(expected_result)
+
+
 @pytest.mark.parametrize("utility_name", ["subgraph", "induced_subgraph"])
 def test_induced_subgraph_helpers_missing_node_error_match_networkx_without_fallback(
     monkeypatch, utility_name
