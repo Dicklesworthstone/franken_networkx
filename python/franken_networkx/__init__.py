@@ -872,6 +872,28 @@ DiGraph.add_weighted_edges_from = _add_weighted_edges_from_with_attr(DiGraph)
 MultiGraph.add_weighted_edges_from = _add_weighted_edges_from_with_attr(MultiGraph)
 MultiDiGraph.add_weighted_edges_from = _add_weighted_edges_from_with_attr(MultiDiGraph)
 
+
+def _directed_reverse_with_copy_kwarg(cls):
+    raw = cls.reverse
+
+    def reverse(self, copy=True):
+        """Return the reverse of a directed graph.
+
+        copy=True (default) materialises a fresh directed graph whose
+        edges are flipped. copy=False returns a frozen live reverse_view
+        (matches upstream nx).
+        """
+        if copy:
+            return raw(self)
+        # Live reversed view — matches nx.DiGraph.reverse(copy=False).
+        return reverse_view(self)
+
+    return reverse
+
+
+DiGraph.reverse = _directed_reverse_with_copy_kwarg(DiGraph)
+MultiDiGraph.reverse = _directed_reverse_with_copy_kwarg(MultiDiGraph)
+
 Graph.size = _size_with_unweighted_int(Graph.size)
 DiGraph.size = _size_with_unweighted_int(DiGraph.size)
 MultiGraph.size = _size_with_unweighted_int(MultiGraph.size)
