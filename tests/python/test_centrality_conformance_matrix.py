@@ -14,6 +14,7 @@ multi-dict results) against the per-key value vectors.
 
 from __future__ import annotations
 
+import inspect
 import math
 
 import networkx as nx
@@ -185,8 +186,6 @@ def _eigenvector_values_close(a, b, rel=1e-4, abs_=1e-5):
 @pytest.mark.parametrize("make, n", UNDIRECTED_FAMILIES)
 def test_eigenvector_centrality_matches_networkx(make, n):
     fg, ng = make(n)
-    # fnx.eigenvector_centrality currently accepts only defaults; call
-    # upstream with the same defaults so we're comparing the same thing.
     _eigenvector_values_close(
         fnx.eigenvector_centrality(fg),
         nx.eigenvector_centrality(ng),
@@ -468,6 +467,43 @@ def test_current_flow_closeness_rejects_disconnected_matching_networkx():
 # ---------------------------------------------------------------------------
 # Solver-selection knobs (pagerank, eigenvector, etc.)
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", ["pagerank", "eigenvector_centrality", "hits"])
+def test_public_centrality_wrappers_expose_backend_signature_matches_networkx(name):
+    assert str(inspect.signature(getattr(fnx, name))) == str(inspect.signature(getattr(nx, name)))
+
+
+def _assert_centrality_result_shape_matches_graph(name, result, graph):
+    nodes = set(graph)
+    if name == "hits":
+        hubs, authorities = result
+        assert set(hubs) == nodes
+        assert set(authorities) == nodes
+        return
+    assert set(result) == nodes
+
+
+@pytest.mark.parametrize("name", ["pagerank", "eigenvector_centrality", "hits"])
+def test_public_centrality_wrappers_backend_keyword_surface_matches_networkx(name):
+    fg = fnx.path_graph(4)
+    ng = nx.path_graph(4)
+    fnx_fn = getattr(fnx, name)
+    nx_fn = getattr(nx, name)
+
+    for backend in (None, "networkx"):
+        _assert_centrality_result_shape_matches_graph(name, fnx_fn(fg, backend=backend), fg)
+        _assert_centrality_result_shape_matches_graph(name, nx_fn(ng, backend=backend), ng)
+
+    with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+        fnx_fn(fg, backend="parallel")
+    with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+        nx_fn(ng, backend="parallel")
+
+    with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+        fnx_fn(fg, backend_kwargs={"x": 1})
+    with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+        nx_fn(ng, backend_kwargs={"x": 1})
 
 
 def test_pagerank_alpha_knob_matches_networkx():

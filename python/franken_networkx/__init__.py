@@ -1858,7 +1858,16 @@ from franken_networkx._fnx import (
 )
 
 
-def eigenvector_centrality(G, max_iter=100, tol=1e-06, nstart=None, weight=None):
+def eigenvector_centrality(
+    G,
+    max_iter=100,
+    tol=1e-06,
+    nstart=None,
+    weight=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
     """Compute eigenvector centrality for nodes.
 
     Parameters
@@ -1879,6 +1888,8 @@ def eigenvector_centrality(G, max_iter=100, tol=1e-06, nstart=None, weight=None)
     dict
         Dictionary of nodes with eigenvector centrality as value.
     """
+    _validate_backend_dispatch_keywords("eigenvector_centrality", backend, backend_kwargs)
+
     return _raw_eigenvector_centrality(
         G,
         max_iter=max_iter,
@@ -6306,8 +6317,13 @@ def pagerank(
     nstart=None,
     weight="weight",
     dangling=None,
+    *,
+    backend=None,
+    **backend_kwargs,
 ):
     """Return the PageRank of the nodes in graph ``G``."""
+    _validate_backend_dispatch_keywords("pagerank", backend, backend_kwargs)
+
     if personalization is None and nstart is None and dangling is None and weight == "weight":
         return _raw_pagerank(
             G,
@@ -6514,8 +6530,19 @@ def _make_power_iteration_failed_convergence(max_iter):
     return error
 
 
-def hits(G, max_iter=100, tol=1.0e-8, nstart=None, normalized=True):
+def hits(
+    G,
+    max_iter=100,
+    tol=1.0e-8,
+    nstart=None,
+    normalized=True,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
     """Return HITS hubs and authorities values for nodes."""
+    _validate_backend_dispatch_keywords("hits", backend, backend_kwargs)
+
     import numpy as np
     import scipy as sp
 
