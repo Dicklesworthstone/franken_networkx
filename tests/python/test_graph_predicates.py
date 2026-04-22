@@ -487,6 +487,53 @@ class TestTournamentScoreSequence:
             assert fnx.score_sequence(graph) == expected_result
 
 
+class TestTournamentIsReachable:
+    """Tests for is_reachable tournament algorithm."""
+
+    def test_direct_edge_reachable(self):
+        """Direct edge should be reachable."""
+        g = fnx.DiGraph()
+        g.add_edge("a", "b")
+        g.add_edge("b", "c")
+        g.add_edge("a", "c")
+        assert fnx.is_reachable(g, "a", "b") is True
+        assert fnx.is_reachable(g, "a", "c") is True
+
+    def test_transitive_reachable(self):
+        """Transitive path should be reachable."""
+        g = fnx.DiGraph()
+        g.add_edge("a", "b")
+        g.add_edge("b", "c")
+        g.add_edge("a", "c")
+        assert fnx.is_reachable(g, "a", "c") is True
+
+    def test_not_reachable(self):
+        """Reverse direction should not be reachable in tournament."""
+        g = fnx.DiGraph()
+        g.add_edge("a", "b")
+        g.add_edge("b", "c")
+        g.add_edge("a", "c")
+        assert fnx.is_reachable(g, "c", "a") is False
+        assert fnx.is_reachable(g, "b", "a") is False
+
+    def test_parity_with_networkx(self):
+        """is_reachable should match NetworkX behavior."""
+        # Build a complete tournament (all edges go one direction)
+        g_fnx = fnx.DiGraph()
+        g_nx = nx.DiGraph()
+        for g in [g_fnx, g_nx]:
+            g.add_edge(0, 1)
+            g.add_edge(0, 2)
+            g.add_edge(1, 2)
+
+        from networkx.algorithms.tournament import is_reachable as nx_is_reachable
+
+        for s, t in [(0, 1), (0, 2), (1, 2), (1, 0), (2, 0), (2, 1)]:
+            fnx_result = fnx.is_reachable(g_fnx, s, t)
+            nx_result = nx_is_reachable(g_nx, s, t)
+            assert fnx_result == nx_result, f"Mismatch for ({s}, {t})"
+
+
 # ---------------------------------------------------------------------------
 # Directed component predicates
 # ---------------------------------------------------------------------------
