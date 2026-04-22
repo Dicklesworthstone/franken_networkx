@@ -254,6 +254,25 @@ class TestMaxClique:
         G = fnx.Graph()
         assert len(fnx.max_clique(G)) == 0
 
+    @needs_nx
+    def test_approximation_max_clique_accepts_fnx_path_graph(self):
+        """Public approximation.max_clique must accept fnx.Graph input
+        without AttributeError on G._adj.
+        """
+        fg = fnx.path_graph(4)
+        ng = nx.path_graph(4)
+        f_clique = fnx.approximation.max_clique(fg)
+        n_clique = nx.approximation.max_clique(ng)
+        assert isinstance(f_clique, set)
+        assert isinstance(n_clique, set)
+        # Path graph's max clique is any edge endpoint pair (size 2).
+        assert len(f_clique) == len(n_clique) == 2
+        # The returned set must induce a clique in the graph.
+        clique_list = list(f_clique)
+        for i in range(len(clique_list)):
+            for j in range(i + 1, len(clique_list)):
+                assert fg.has_edge(clique_list[i], clique_list[j])
+
     def test_single_node(self):
         G = fnx.Graph()
         G.add_node(42)
