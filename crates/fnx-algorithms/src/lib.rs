@@ -13275,23 +13275,37 @@ fn build_all_paths_from_preds(
     source: &str,
     target: &str,
 ) -> Vec<Vec<String>> {
-    let mut result = Vec::new();
-    let mut stack: Vec<(Vec<String>, &str)> = vec![(vec![target.to_owned()], target)];
+    if !preds.contains_key(target) {
+        return Vec::new();
+    }
 
-    while let Some((path, current)) = stack.pop() {
+    let mut result = Vec::new();
+    let mut seen: HashSet<&str> = HashSet::from([target]);
+    let mut stack: Vec<(&str, usize)> = vec![(target, 0)];
+
+    while let Some((current, pred_index)) = stack.last().copied() {
         if current == source {
-            let mut full_path = path;
-            full_path.reverse();
-            result.push(full_path);
+            result.push(
+                stack
+                    .iter()
+                    .rev()
+                    .map(|(node, _)| (*node).to_owned())
+                    .collect(),
+            );
+        }
+
+        let pred_list = preds.get(current).map_or(&[][..], Vec::as_slice);
+        if pred_index < pred_list.len() {
+            stack.last_mut().expect("stack not empty").1 += 1;
+            let next = pred_list[pred_index];
+            if seen.insert(next) {
+                stack.push((next, 0));
+            }
             continue;
         }
-        if let Some(pred_list) = preds.get(current) {
-            for &pred in pred_list {
-                let mut new_path = path.clone();
-                new_path.push(pred.to_owned());
-                stack.push((new_path, pred));
-            }
-        }
+
+        seen.remove(current);
+        stack.pop();
     }
 
     result
@@ -36314,6 +36328,42 @@ mod tests {
         assert_eq!(paths.len(), 2);
         assert!(paths.contains(&vec!["0".to_owned(), "1".to_owned(), "3".to_owned()]));
         assert!(paths.contains(&vec!["0".to_owned(), "2".to_owned(), "3".to_owned()]));
+    }
+
+    #[test]
+    fn all_shortest_paths_weighted_preserves_networkx_path_order() {
+        let mut g = Graph::strict();
+        let mut w1 = BTreeMap::new();
+        w1.insert("weight".to_owned(), "1.0".into());
+        let mut w2 = BTreeMap::new();
+        w2.insert("weight".to_owned(), "2.0".into());
+
+        g.add_edge_with_attrs("a", "b", w1.clone()).unwrap();
+        g.add_edge_with_attrs("b", "e", w2).unwrap();
+        g.add_edge_with_attrs("a", "c", w1.clone()).unwrap();
+        g.add_edge_with_attrs("c", "d", w1.clone()).unwrap();
+        g.add_edge_with_attrs("d", "e", w1.clone()).unwrap();
+        g.add_edge_with_attrs("b", "d", w1).unwrap();
+
+        let paths = all_shortest_paths_weighted(&g, "a", "e", "weight");
+        assert_eq!(
+            paths,
+            vec![
+                vec!["a".to_owned(), "b".to_owned(), "e".to_owned()],
+                vec![
+                    "a".to_owned(),
+                    "b".to_owned(),
+                    "d".to_owned(),
+                    "e".to_owned(),
+                ],
+                vec![
+                    "a".to_owned(),
+                    "c".to_owned(),
+                    "d".to_owned(),
+                    "e".to_owned(),
+                ],
+            ]
+        );
     }
 
     #[test]

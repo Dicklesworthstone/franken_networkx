@@ -1556,6 +1556,31 @@ class TestShortestPath:
             ),
         )
 
+    @pytest.mark.parametrize("kwargs", [{"weight": "weight"}, {"weight": "weight", "method": "dijkstra"}])
+    def test_weighted_all_shortest_paths_preserves_networkx_path_order(
+        self, fnx, nx, monkeypatch, kwargs
+    ):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", weight=1.0)
+            graph.add_edge("b", "e", weight=2.0)
+            graph.add_edge("a", "c", weight=1.0)
+            graph.add_edge("c", "d", weight=1.0)
+            graph.add_edge("d", "e", weight=1.0)
+            graph.add_edge("b", "d", weight=1.0)
+
+        expected = list(nx.all_shortest_paths(G_nx, "a", "e", **kwargs))
+        monkeypatch.setattr(
+            nx,
+            "all_shortest_paths",
+            lambda *args, **inner_kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX all_shortest_paths should not be used")
+            ),
+        )
+
+        assert list(fnx.all_shortest_paths(G_fnx, "a", "e", **kwargs)) == expected
+
     @pytest.mark.parametrize("method", ["SPAM", "bogus", None])
     def test_all_shortest_paths_rejects_unsupported_weighted_method(self, fnx, nx, method):
         G_fnx = fnx.path_graph(["a", "b"])
