@@ -21645,6 +21645,7 @@ def random_kernel_graph(n, kernel_integral, kernel_root=None, seed=None, *, crea
 
 
 # Drawing — thin delegation to NetworkX/matplotlib (lazy import)
+from franken_networkx import bipartite as bipartite  # noqa: F401 — native overrides
 from franken_networkx.drawing import (
     arf_layout,
     bfs_layout,

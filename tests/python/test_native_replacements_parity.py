@@ -87,6 +87,34 @@ class TestProjectedGraph:
         assert isinstance(P_fnx, fnx.MultiGraph)
         assert sorted(P_fnx.edges(keys=True)) == sorted(P_nx.edges(keys=True))
 
+    def test_collaboration_weighted_projected_graph_is_native_not_nx_delegate(self):
+        """Bead franken_networkx-f2e8: fnx.bipartite.collaboration_weighted_projected_graph
+        must run the fnx-native implementation (not a delegate into
+        networkx.bipartite). Also verify parity with upstream on the
+        canonical Newman docstring example.
+        """
+        from unittest import mock
+
+        B_fnx = fnx.path_graph(5)
+        B_fnx.add_edge(1, 5)
+        B_nx = nx.path_graph(5)
+        B_nx.add_edge(1, 5)
+        expected = nx.bipartite.collaboration_weighted_projected_graph(
+            B_nx, [0, 2, 4, 5]
+        )
+
+        with mock.patch(
+            "networkx.bipartite.collaboration_weighted_projected_graph",
+            side_effect=AssertionError("fnx must not delegate to networkx"),
+        ):
+            actual = fnx.bipartite.collaboration_weighted_projected_graph(
+                B_fnx, [0, 2, 4, 5]
+            )
+
+        assert isinstance(actual, fnx.Graph)
+        # Edge set + weights match upstream exactly.
+        assert sorted(actual.edges(data=True)) == sorted(expected.edges(data=True))
+
     def test_projected_graph_is_native_not_nx_delegate(self):
         """Bead franken_networkx-y76g: confirm fnx.projected_graph runs
         the fnx-native implementation rather than delegating into nx.
