@@ -25,7 +25,7 @@ use fnx_runtime::{
 };
 use quick_xml::encoding::Decoder;
 use quick_xml::events::attributes::Attribute;
-use quick_xml::events::{BytesDecl, BytesEnd, BytesStart, BytesText, Event};
+use quick_xml::events::{BytesDecl, BytesEnd, BytesRef, BytesStart, BytesText, Event};
 use quick_xml::{Reader, Writer};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -1646,7 +1646,7 @@ impl EdgeListEngine {
                 Ok(Event::Text(ref e))
                     if current_data_key.is_some() && !current_data_has_children =>
                 {
-                    match e.xml10_content() {
+                    match decode_graphml_text_content(e) {
                         Ok(text) => current_data_text.push_str(&text),
                         Err(err) => {
                             let warning = format!("graphml data text unescape error: {err}");
@@ -1674,7 +1674,38 @@ impl EdgeListEngine {
                         }
                     }
                 }
-                Ok(Event::Text(ref e)) if current_key_default_key.is_some() => match e.xml10_content() {
+                Ok(Event::GeneralRef(ref e))
+                    if current_data_key.is_some() && !current_data_has_children =>
+                {
+                    match decode_graphml_entity_ref(e) {
+                        Ok(text) => current_data_text.push_str(&text),
+                        Err(err) => {
+                            let warning = format!("graphml data text unescape error: {err}");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_graphml",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_graphml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record(
+                                "read_graphml",
+                                DecisionAction::FullValidate,
+                                &warning,
+                                0.8,
+                            );
+                            current_data_text.clear();
+                            current_data_key = None;
+                        }
+                    }
+                }
+                Ok(Event::Text(ref e)) if current_key_default_key.is_some() => match decode_graphml_text_content(e) {
                     Ok(text) => current_key_default_text.push_str(&text),
                     Err(err) => {
                         let warning = format!("graphml default text unescape error: {err}");
@@ -1691,6 +1722,35 @@ impl EdgeListEngine {
                         current_key_default_key = None;
                     }
                 },
+                Ok(Event::GeneralRef(ref e)) if current_key_default_key.is_some() => {
+                    match decode_graphml_entity_ref(e) {
+                        Ok(text) => current_key_default_text.push_str(&text),
+                        Err(err) => {
+                            let warning = format!("graphml default text unescape error: {err}");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_graphml",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_graphml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record(
+                                "read_graphml",
+                                DecisionAction::FullValidate,
+                                &warning,
+                                0.8,
+                            );
+                            current_key_default_text.clear();
+                            current_key_default_key = None;
+                        }
+                    }
+                }
                 Ok(Event::End(ref e)) => {
                     self.handle_graphml_end_element(
                         xml_local_name(e.name().as_ref()),
@@ -4517,6 +4577,24 @@ fn xml_attr_value(attr: &Attribute<'_>, decoder: Decoder) -> Result<String, Read
             operation: "read_gexf",
             reason: format!("xml attribute decode error: {err}"),
         })
+}
+
+fn decode_graphml_text_content(event: &BytesText<'_>) -> Result<String, String> {
+    let decoded = event.xml10_content().map_err(|err| err.to_string())?;
+    quick_xml::escape::unescape(&decoded)
+        .map(|value| value.into_owned())
+        .map_err(|err| err.to_string())
+}
+
+fn decode_graphml_entity_ref(event: &BytesRef<'_>) -> Result<String, String> {
+    if let Some(ch) = event.resolve_char_ref().map_err(|err| err.to_string())? {
+        return Ok(ch.to_string());
+    }
+
+    let name = event.xml10_content().map_err(|err| err.to_string())?;
+    quick_xml::escape::resolve_xml_entity(&name)
+        .map(str::to_owned)
+        .ok_or_else(|| format!("unrecognized entity `{name}`"))
 }
 
 fn set<const N: usize>(values: [&str; N]) -> BTreeSet<String> {
