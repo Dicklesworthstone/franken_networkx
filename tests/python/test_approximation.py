@@ -527,3 +527,47 @@ class TestSpanner:
     def test_invalid_stretch_raises(self):
         with pytest.raises(ValueError, match="stretch must be at least 1"):
             fnx.spanner(fnx.Graph(), 0)
+
+
+# ---------------------------------------------------------------------------
+# Traveling Salesman Problem (franken_networkx-oe3t)
+# ---------------------------------------------------------------------------
+
+
+@needs_nx
+class TestTravelingSalesmanProblem:
+    """Public approximation.traveling_salesman_problem must accept
+    FrankenNetworkX graph inputs, not raise AttributeError on missing
+    private adjacency attributes.
+    """
+
+    def _weighted_complete(self, ctor, n=4):
+        g = ctor()
+        for u in range(n):
+            for v in range(u + 1, n):
+                g.add_edge(u, v, weight=1)
+        return g
+
+    def test_complete_graph_returns_valid_cycle(self):
+        fg = self._weighted_complete(fnx.Graph)
+        ng = self._weighted_complete(nx.Graph)
+        f_route = fnx.approximation.traveling_salesman_problem(fg)
+        n_route = nx.approximation.traveling_salesman_problem(ng)
+        # Same total weight / cycle structure.
+        assert f_route[0] == f_route[-1]
+        assert n_route[0] == n_route[-1]
+        # Visits every node at least once.
+        assert set(f_route) == set(fg.nodes)
+        assert set(n_route) == set(ng.nodes)
+
+    def test_path_graph_returns_walk(self):
+        fg = fnx.path_graph(4)
+        for u, v in fg.edges:
+            fg[u][v]["weight"] = 1
+        ng = nx.path_graph(4)
+        for u, v in ng.edges:
+            ng[u][v]["weight"] = 1
+        f_route = fnx.approximation.traveling_salesman_problem(fg, cycle=False)
+        n_route = nx.approximation.traveling_salesman_problem(ng, cycle=False)
+        assert set(f_route) == set(fg.nodes)
+        assert set(n_route) == set(ng.nodes)
