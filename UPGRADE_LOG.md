@@ -152,5 +152,14 @@ library-updater sweep.
 - **Scope:** `rand` in fnx-generators, `rand_core` in fnx-algorithms.
 - **Breaking:** None (patch bumps).
 - **Verification:** `rch exec -- cargo check --workspace --all-targets` green; `rch exec -- cargo test -p fnx-generators -p fnx-algorithms` green (37 passed in fnx-generators suite).
+- **Commit:** 0db80a3
+
+#### blake3 1.8.3 -> 1.8.4, raptorq 2.0.0 -> 2.0.1, tempfile 3.25.0 -> 3.27.0
+- **Scope:** crates/fnx-durability/Cargo.toml (blake3/raptorq normal deps; tempfile dev-dep).
+- **Breaking:** None — all three are patch/minor semver-compatible bumps.
+  - `blake3 1.8.4` is a hotfix release. `raptorq 2.0.1` is a patch release in
+    the stable 2.0 series. `tempfile 3.27.0` pulls in refreshed `rustix`
+    / `linux-raw-sys` transients.
+- **Verification:** `rch exec -- cargo check --workspace --all-targets` green; `rch exec -- cargo test -p fnx-durability` green (3 passed).
 
 
