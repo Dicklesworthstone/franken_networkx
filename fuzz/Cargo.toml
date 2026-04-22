@@ -109,3 +109,8 @@ doc = false
 name = "fuzz_clique"
 path = "fuzz_targets/fuzz_clique.rs"
 doc = false
+
+[[bin]]
+name = "fuzz_community"
+path = "fuzz_targets/fuzz_community.rs"
+doc = false
