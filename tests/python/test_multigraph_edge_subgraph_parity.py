@@ -1,0 +1,72 @@
+"""Parity coverage for MultiGraph/MultiDiGraph edge_subgraph(...).adjacency().
+
+Upstream NetworkX yields (node, filtered multigraph adjacency mapping) pairs
+from the edge_subgraph's .adjacency(), preserving edge keys and attributes.
+FrankenNetworkX must produce the same content in the same node order.
+"""
+
+from collections.abc import Mapping
+
+import networkx as nx
+import pytest
+
+import franken_networkx as fnx
+
+
+def _deep_adjacency(it):
+    return [
+        (node, {k: dict(inner) for k, inner in dict(nbrs).items()})
+        for node, nbrs in it
+    ]
+
+
+@pytest.mark.parametrize(
+    ("fnx_ctor", "nx_ctor"),
+    [
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_multigraph_edge_subgraph_adjacency_preserves_mapping_contract(
+    fnx_ctor, nx_ctor
+):
+    fg = fnx_ctor()
+    fg.add_edge("a", "b", key="k1", weight=3)
+    fg.add_edge("c", "d", key="k2")
+    ng = nx_ctor()
+    ng.add_edge("a", "b", key="k1", weight=3)
+    ng.add_edge("c", "d", key="k2")
+
+    fh = fg.edge_subgraph([("a", "b", "k1")])
+    nh = ng.edge_subgraph([("a", "b", "k1")])
+
+    # Each neighbor payload is a Mapping, not a bare list or node key.
+    for _, payload in fh.adjacency():
+        assert isinstance(payload, Mapping)
+
+    # Deep content and node ordering match upstream.
+    assert _deep_adjacency(fh.adjacency()) == _deep_adjacency(nh.adjacency())
+
+
+@pytest.mark.parametrize(
+    ("fnx_ctor", "nx_ctor"),
+    [
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_multigraph_edge_subgraph_multi_key_adjacency_preserves_mapping(
+    fnx_ctor, nx_ctor
+):
+    # Same endpoints, two keys — the subgraph must keep only the selected key.
+    fg = fnx_ctor()
+    fg.add_edge("a", "b", key="k1", weight=3)
+    fg.add_edge("a", "b", key="k2", weight=7)
+    ng = nx_ctor()
+    ng.add_edge("a", "b", key="k1", weight=3)
+    ng.add_edge("a", "b", key="k2", weight=7)
+
+    fh = fg.edge_subgraph([("a", "b", "k2")])
+    nh = ng.edge_subgraph([("a", "b", "k2")])
+
+    assert _deep_adjacency(fh.adjacency()) == _deep_adjacency(nh.adjacency())
