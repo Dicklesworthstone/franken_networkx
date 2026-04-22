@@ -13730,6 +13730,42 @@ class _FilteredAdjacencyView(Mapping):
         return _FilteredNeighborMap(self._view, node, reverse=self._reverse)
 
 
+def _node_attrs_for_view_graph(graph, node):
+    graph_nodes = graph.nodes
+    try:
+        return graph_nodes[node]
+    except TypeError:
+        pass
+    except KeyError:
+        raise
+    if callable(graph_nodes):
+        for current_node, attrs in graph_nodes(data=True):
+            if current_node == node:
+                return attrs
+    raise KeyError(f"Key {node} not found")
+
+
+class NodeView(Mapping):
+    def __init__(self, view):
+        self._view = view
+
+    def __iter__(self):
+        return iter(self._view)
+
+    def __len__(self):
+        return len(self._view)
+
+    def __getitem__(self, node):
+        if not self._view._node_visible(node):
+            raise KeyError(f"Key {node} not found")
+        return _node_attrs_for_view_graph(self._view._graph, node)
+
+    def __call__(self, data=False):
+        if data:
+            return [(node, self[node]) for node in self]
+        return list(self)
+
+
 class _FilteredGraphView:
     adjlist_inner_dict_factory = dict
     adjlist_outer_dict_factory = dict
@@ -13744,6 +13780,7 @@ class _FilteredGraphView:
         self._filter_node = filter_node or (lambda node: True)
         self._filter_edge = filter_edge or (lambda *args: True)
         self.frozen = True
+        self.nodes = NodeView(self)
         self.adj = _FilteredAdjacencyView(self)
         if graph.is_directed():
             self.succ = _FilteredAdjacencyView(self)
