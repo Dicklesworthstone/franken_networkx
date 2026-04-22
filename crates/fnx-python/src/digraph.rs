@@ -1579,6 +1579,39 @@ impl MultiDiGraphNodeView {
         ))
     }
 
+    /// Return a view iterating over (node, data) pairs.
+    #[pyo3(signature = (data=None, default=None))]
+    fn data(&self, py: Python<'_>, data: Option<&Bound<'_, PyAny>>, default: Option<PyObject>) -> PyResult<Vec<PyObject>> {
+        let g = self.graph.borrow(py);
+        let mut result = Vec::new();
+        for node in g.inner.nodes_ordered() {
+            let py_node = g.py_node_key(py, node);
+            let val = if let Some(d) = data {
+                if let Ok(attr_name) = d.extract::<String>() {
+                    g.node_py_attrs.get(node)
+                        .and_then(|dict| dict.bind(py).get_item(attr_name.as_str()).ok().flatten())
+                        .map_or_else(
+                            || default.as_ref().map_or(py.None(), |d| d.clone_ref(py)),
+                            |v| v.unbind(),
+                        )
+                } else {
+                    g.node_py_attrs.get(node).map_or_else(
+                        || PyDict::new(py).into_any().unbind(),
+                        |d| d.clone_ref(py).into_any(),
+                    )
+                }
+            } else {
+                g.node_py_attrs.get(node).map_or_else(
+                    || PyDict::new(py).into_any().unbind(),
+                    |d| d.clone_ref(py).into_any(),
+                )
+            };
+            let pair = PyTuple::new(py, &[py_node, val])?;
+            result.push(pair.into_any().unbind());
+        }
+        Ok(result)
+    }
+
     /// Union: self | other
     fn __or__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
         let g = self.graph.borrow(py);
