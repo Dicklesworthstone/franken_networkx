@@ -382,6 +382,22 @@ def test_edge_subgraph_returns_frozen_view_with_atlas_like_adj(fnx_ctor, nx_ctor
     assert list(fh.edges) == list(nh.edges)
 
 
+def test_digraph_edge_subgraph_preserves_node_iteration_order():
+    fg = fnx.DiGraph()
+    fg.add_edge("a", "b")
+    fg.add_edge("b", "c")
+    ng = nx.DiGraph()
+    ng.add_edge("a", "b")
+    ng.add_edge("b", "c")
+
+    # Each selected edge produces the same node ordering as upstream.
+    assert list(fg.edge_subgraph([("a", "b")])) == list(ng.edge_subgraph([("a", "b")]))
+    assert list(fg.edge_subgraph([("b", "c")])) == list(ng.edge_subgraph([("b", "c")]))
+    assert list(fg.edge_subgraph([("a", "b"), ("b", "c")])) == list(
+        ng.edge_subgraph([("a", "b"), ("b", "c")])
+    )
+
+
 def test_restricted_view_with_filter_preserves_edge_view_parity():
     fg = fnx.Graph()
     fg.add_edges_from([(1, 2), (2, 3), (3, 4)])
