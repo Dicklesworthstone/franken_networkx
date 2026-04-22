@@ -2778,6 +2778,36 @@ def test_graph_classes_subgraph_tracks_node_attr_mutations_like_networkx(fnx_cls
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],
 )
+def test_graph_classes_subgraph_tracks_parent_node_removals_like_networkx(fnx_cls, nx_cls):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+
+    result = graph.subgraph(["a", "b", "c"])
+    expected_result = expected.subgraph(["a", "b", "c"])
+
+    graph.remove_node("a")
+    expected.remove_node("a")
+
+    assert "a" not in result
+    assert "a" not in expected_result
+    assert result.has_node("a") == expected_result.has_node("a")
+    assert list(result.nodes(data=True)) == list(expected_result.nodes(data=True))
+    assert result.number_of_nodes() == expected_result.number_of_nodes()
+    assert result.number_of_edges() == expected_result.number_of_edges()
+    assert result.is_directed() == expected_result.is_directed()
+    assert result.is_multigraph() == expected_result.is_multigraph()
+    assert fnx.is_frozen(result) == nx.is_frozen(expected_result)
+    assert _graph_snapshot(result) == _graph_snapshot(expected_result)
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
 def test_graph_classes_subgraph_tracks_edge_mutations_like_networkx(fnx_cls, nx_cls):
     graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
 
