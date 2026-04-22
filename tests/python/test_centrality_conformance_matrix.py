@@ -528,14 +528,21 @@ def test_additional_public_centrality_wrappers_expose_backend_signature_matches_
 
 def _assert_backend_wrapper_result_matches_networkx(name, actual, expected):
     if name in {
+        "degree_centrality",
         "harmonic_centrality",
         "closeness_centrality",
         "edge_betweenness_centrality",
         "katz_centrality",
+        "in_degree_centrality",
+        "out_degree_centrality",
         "load_centrality",
         "edge_load_centrality",
     }:
         _assert_centrality_close(actual, expected, rel=1e-6, abs_=1e-9)
+        return
+
+    if name == "voterank":
+        assert actual == expected
         return
 
     assert math.isclose(actual, expected, rel_tol=1e-6, abs_tol=1e-9)
@@ -559,6 +566,78 @@ def test_additional_public_centrality_wrappers_backend_keyword_surface_matches_n
 ):
     fg = fnx.path_graph(5)
     ng = nx.path_graph(5)
+    fnx_fn = getattr(fnx, name)
+    nx_fn = getattr(nx, name)
+
+    for backend in (None, "networkx"):
+        _assert_backend_wrapper_result_matches_networkx(
+            name,
+            fnx_fn(fg, *args, backend=backend),
+            nx_fn(ng, *args, backend=backend),
+        )
+
+    with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+        fnx_fn(fg, *args, backend="parallel")
+    with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+        nx_fn(ng, *args, backend="parallel")
+
+    with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+        fnx_fn(fg, *args, backend_kwargs={"x": 1})
+    with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+        nx_fn(ng, *args, backend_kwargs={"x": 1})
+
+
+@pytest.mark.parametrize(
+    ("name", "args", "make"),
+    [
+        pytest.param("degree_centrality", (), _path, id="degree_centrality"),
+        pytest.param("voterank", (), _path, id="voterank"),
+        pytest.param("in_degree_centrality", (), _digraph_chain, id="in_degree_centrality"),
+        pytest.param("out_degree_centrality", (), _digraph_chain, id="out_degree_centrality"),
+        pytest.param("group_degree_centrality", ([1, 2],), _path, id="group_degree_centrality"),
+        pytest.param(
+            "group_in_degree_centrality",
+            ([1, 2],),
+            _digraph_chain,
+            id="group_in_degree_centrality",
+        ),
+        pytest.param(
+            "group_out_degree_centrality",
+            ([1, 2],),
+            _digraph_chain,
+            id="group_out_degree_centrality",
+        ),
+    ],
+)
+def test_degree_family_wrappers_expose_backend_signature_matches_networkx(name, args, make):
+    del args, make
+    assert str(inspect.signature(getattr(fnx, name))) == str(inspect.signature(getattr(nx, name)))
+
+
+@pytest.mark.parametrize(
+    ("name", "args", "make"),
+    [
+        pytest.param("degree_centrality", (), _path, id="degree_centrality"),
+        pytest.param("voterank", (), _path, id="voterank"),
+        pytest.param("in_degree_centrality", (), _digraph_chain, id="in_degree_centrality"),
+        pytest.param("out_degree_centrality", (), _digraph_chain, id="out_degree_centrality"),
+        pytest.param("group_degree_centrality", ([1, 2],), _path, id="group_degree_centrality"),
+        pytest.param(
+            "group_in_degree_centrality",
+            ([1, 2],),
+            _digraph_chain,
+            id="group_in_degree_centrality",
+        ),
+        pytest.param(
+            "group_out_degree_centrality",
+            ([1, 2],),
+            _digraph_chain,
+            id="group_out_degree_centrality",
+        ),
+    ],
+)
+def test_degree_family_wrappers_backend_keyword_surface_matches_networkx(name, args, make):
+    fg, ng = make(5)
     fnx_fn = getattr(fnx, name)
     nx_fn = getattr(nx, name)
 

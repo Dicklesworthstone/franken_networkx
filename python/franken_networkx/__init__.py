@@ -1846,7 +1846,7 @@ from franken_networkx._fnx import (
     closeness_centrality as _raw_closeness_centrality,
     closeness_vitality as _rust_closeness_vitality,
     degree_assortativity_coefficient,
-    degree_centrality,
+    degree_centrality as _raw_degree_centrality,
     edge_betweenness_centrality as _raw_edge_betweenness_centrality,
     edge_betweenness_centrality_subset_rust as _edge_betweenness_centrality_subset_rust,
     eigenvector_centrality as _raw_eigenvector_centrality,
@@ -1854,7 +1854,7 @@ from franken_networkx._fnx import (
     hits,
     katz_centrality as _raw_katz_centrality,
     pagerank as _raw_pagerank,
-    voterank,
+    voterank as _raw_voterank,
 )
 
 
@@ -1933,6 +1933,18 @@ def harmonic_centrality(
             "harmonic_centrality", G, nbunch=nbunch, distance=distance, sources=sources
         )
     return _raw_harmonic_centrality(G)
+
+
+def degree_centrality(G, *, backend=None, **backend_kwargs):
+    """Compute degree centrality for nodes."""
+    _validate_backend_dispatch_keywords("degree_centrality", backend, backend_kwargs)
+    return _raw_degree_centrality(G)
+
+
+def voterank(G, number_of_nodes=None, *, backend=None, **backend_kwargs):
+    """Select influential spreaders using VoteRank."""
+    _validate_backend_dispatch_keywords("voterank", backend, backend_kwargs)
+    return _raw_voterank(G, number_of_nodes=number_of_nodes)
 
 
 # Algorithm functions — clustering
@@ -5114,14 +5126,48 @@ def floyd_warshall_predecessor_and_distance(G, weight="weight"):
 
 # Additional centrality algorithms
 from franken_networkx._fnx import (
-    in_degree_centrality,
-    out_degree_centrality,
+    in_degree_centrality as _raw_in_degree_centrality,
+    out_degree_centrality as _raw_out_degree_centrality,
     local_reaching_centrality,
     global_reaching_centrality,
-    group_degree_centrality,
-    group_in_degree_centrality,
-    group_out_degree_centrality,
+    group_degree_centrality as _raw_group_degree_centrality,
+    group_in_degree_centrality as _raw_group_in_degree_centrality,
+    group_out_degree_centrality as _raw_group_out_degree_centrality,
 )
+
+
+def in_degree_centrality(G, *, backend=None, **backend_kwargs):
+    """Compute in-degree centrality for nodes in a directed graph."""
+    _validate_backend_dispatch_keywords("in_degree_centrality", backend, backend_kwargs)
+    return _raw_in_degree_centrality(G)
+
+
+def out_degree_centrality(G, *, backend=None, **backend_kwargs):
+    """Compute out-degree centrality for nodes in a directed graph."""
+    _validate_backend_dispatch_keywords("out_degree_centrality", backend, backend_kwargs)
+    return _raw_out_degree_centrality(G)
+
+
+def group_degree_centrality(G, S, *, backend=None, **backend_kwargs):
+    """Compute group degree centrality for a node set."""
+    _validate_backend_dispatch_keywords("group_degree_centrality", backend, backend_kwargs)
+    return _raw_group_degree_centrality(G, S)
+
+
+def group_in_degree_centrality(G, S, *, backend=None, **backend_kwargs):
+    """Compute group in-degree centrality for a node set."""
+    _validate_backend_dispatch_keywords(
+        "group_in_degree_centrality", backend, backend_kwargs
+    )
+    return _raw_group_in_degree_centrality(G, S)
+
+
+def group_out_degree_centrality(G, S, *, backend=None, **backend_kwargs):
+    """Compute group out-degree centrality for a node set."""
+    _validate_backend_dispatch_keywords(
+        "group_out_degree_centrality", backend, backend_kwargs
+    )
+    return _raw_group_out_degree_centrality(G, S)
 
 # Component algorithms
 from franken_networkx._fnx import (
