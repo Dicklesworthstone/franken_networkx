@@ -4,6 +4,8 @@ Cross-validates every function against NetworkX where possible.
 Tests basic functionality, edge cases, and return type correctness.
 """
 
+import inspect
+
 import pytest
 import franken_networkx as fnx
 
@@ -470,6 +472,24 @@ class TestConnectivityExtras:
         G = fnx.star_graph(5)
         ds = fnx.connected_dominating_set(G)
         assert fnx.is_connected_dominating_set(G, ds)
+
+    def test_connected_dominating_set_accepts_fnx_inputs_and_matches_networkx_contract(self):
+        fg = fnx.path_graph(5)
+        ng = nx.path_graph(5)
+        assert inspect.signature(fnx.connected_dominating_set) == inspect.signature(nx.connected_dominating_set)
+        assert fnx.connected_dominating_set(fg) == nx.connected_dominating_set(ng)
+
+        fg_disconnected = fnx.disjoint_union(fnx.path_graph(2), fnx.path_graph(2))
+        ng_disconnected = nx.disjoint_union(nx.path_graph(2), nx.path_graph(2))
+        with pytest.raises(fnx.NetworkXError, match="G must be a connected graph"):
+            fnx.connected_dominating_set(fg_disconnected)
+        with pytest.raises(nx.NetworkXError, match="G must be a connected graph"):
+            nx.connected_dominating_set(ng_disconnected)
+
+        with pytest.raises(fnx.NetworkXNotImplemented, match="not implemented for directed type"):
+            fnx.connected_dominating_set(fnx.DiGraph([(0, 1)]))
+        with pytest.raises(nx.NetworkXNotImplemented, match="not implemented for directed type"):
+            nx.connected_dominating_set(nx.DiGraph([(0, 1)]))
 
     def test_is_connected_dominating_set_accepts_fnx_path_graph(self):
         """Bead franken_networkx-r8qe: must match upstream contract on

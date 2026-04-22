@@ -12873,8 +12873,15 @@ def all_node_cuts(G, k=None, flow_func=None):
             auxiliary.add_edge(f"{mapping[target]}B", f"{mapping[source]}A", capacity=1)
 
 
-def connected_dominating_set(G, start_with=None):
+def connected_dominating_set(G, *, backend=None, **backend_kwargs):
     """Find a connected dominating set via greedy spanning-tree approach."""
+    _validate_backend_dispatch_keywords("connected_dominating_set", backend, backend_kwargs)
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if len(G) == 0:
+        return set()
+    if not is_connected(G):
+        raise NetworkXError("G must be a connected graph")
     return set(_fnx.connected_dominating_set_rust(G))
 
 
