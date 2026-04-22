@@ -161,6 +161,12 @@ def _multigraph_adjacency(self):
     return [(node, self.adj[node]) for node in self]
 
 
+_GRAPH_COPY = Graph.copy
+_DIGRAPH_COPY = DiGraph.copy
+_MULTIGRAPH_COPY = MultiGraph.copy
+_MULTIDIGRAPH_COPY = MultiDiGraph.copy
+
+
 Graph.nbunch_iter = _graph_nbunch_iter
 DiGraph.nbunch_iter = _graph_nbunch_iter
 MultiGraph.nbunch_iter = _graph_nbunch_iter
@@ -13716,6 +13722,13 @@ class _FilteredAdjacencyView(Mapping):
 
 
 class _FilteredGraphView:
+    adjlist_inner_dict_factory = dict
+    adjlist_outer_dict_factory = dict
+    edge_attr_dict_factory = dict
+    graph_attr_dict_factory = dict
+    node_attr_dict_factory = dict
+    node_dict_factory = dict
+
     def __init__(self, graph, *, filter_node=None, filter_edge=None):
         self._graph = graph
         self.graph = graph.graph
@@ -13870,7 +13883,16 @@ class _FilteredGraphView:
             return MultiDiGraph if self.is_multigraph() else DiGraph
         return MultiGraph if self.is_multigraph() else Graph
 
-    def copy(self):
+    def to_directed_class(self):
+        return MultiDiGraph if self.is_multigraph() else DiGraph
+
+    def to_undirected_class(self):
+        return MultiGraph if self.is_multigraph() else Graph
+
+    def copy(self, as_view=False):
+        if as_view is True:
+            return _generic_filtered_graph_view(self)
+
         result = self._copy_type()()
         result.graph.update(dict(self.graph))
         result.add_nodes_from((node, dict(attrs)) for node, attrs in self.nodes(data=True))
@@ -13881,6 +13903,90 @@ class _FilteredGraphView:
             for u, v, attrs in self.edges(data=True):
                 result.add_edge(u, v, **dict(attrs))
         return result
+
+
+_FILTERED_GRAPH_VIEW_TYPES = {
+    (False, False): type(
+        "Graph",
+        (_FilteredGraphView,),
+        {
+            "adjlist_inner_dict_factory": dict,
+            "adjlist_outer_dict_factory": dict,
+            "edge_attr_dict_factory": dict,
+            "graph_attr_dict_factory": dict,
+            "node_attr_dict_factory": dict,
+            "node_dict_factory": dict,
+            "to_directed_class": _to_directed_class,
+            "to_undirected_class": _to_undirected_class,
+        },
+    ),
+    (True, False): type(
+        "DiGraph",
+        (_FilteredGraphView,),
+        {
+            "adjlist_inner_dict_factory": dict,
+            "adjlist_outer_dict_factory": dict,
+            "edge_attr_dict_factory": dict,
+            "graph_attr_dict_factory": dict,
+            "node_attr_dict_factory": dict,
+            "node_dict_factory": dict,
+            "to_directed_class": _to_directed_class,
+            "to_undirected_class": _to_undirected_class,
+        },
+    ),
+    (False, True): type(
+        "MultiGraph",
+        (_FilteredGraphView,),
+        {
+            "adjlist_inner_dict_factory": dict,
+            "adjlist_outer_dict_factory": dict,
+            "edge_attr_dict_factory": dict,
+            "graph_attr_dict_factory": dict,
+            "node_attr_dict_factory": dict,
+            "node_dict_factory": dict,
+            "edge_key_dict_factory": dict,
+            "new_edge_key": _multigraph_new_edge_key,
+            "to_directed_class": _to_directed_class,
+            "to_undirected_class": _to_undirected_class,
+        },
+    ),
+    (True, True): type(
+        "MultiDiGraph",
+        (_FilteredGraphView,),
+        {
+            "adjlist_inner_dict_factory": dict,
+            "adjlist_outer_dict_factory": dict,
+            "edge_attr_dict_factory": dict,
+            "graph_attr_dict_factory": dict,
+            "node_attr_dict_factory": dict,
+            "node_dict_factory": dict,
+            "edge_key_dict_factory": dict,
+            "new_edge_key": _multigraph_new_edge_key,
+            "to_directed_class": _to_directed_class,
+            "to_undirected_class": _to_undirected_class,
+        },
+    ),
+}
+
+
+def _generic_filtered_graph_view(graph):
+    view_type = _FILTERED_GRAPH_VIEW_TYPES[(graph.is_directed(), graph.is_multigraph())]
+    return view_type(graph)
+
+
+def _copy_with_view(copy_impl):
+    def copy(self, as_view=False):
+        if as_view is True:
+            return _generic_filtered_graph_view(self)
+        return copy_impl(self)
+
+    return copy
+
+
+Graph.copy = _copy_with_view(_GRAPH_COPY)
+DiGraph.copy = _copy_with_view(_DIGRAPH_COPY)
+MultiGraph.copy = _copy_with_view(_MULTIGRAPH_COPY)
+MultiDiGraph.copy = _copy_with_view(_MULTIDIGRAPH_COPY)
 
 
 class _ConversionNodeView(Mapping):
