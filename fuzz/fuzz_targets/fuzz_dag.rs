@@ -101,8 +101,8 @@ fuzz_target!(|input: DagInput| {
         }
         DagInput::AllTopologicalSorts(dag) => {
             // Limit iteration to avoid combinatorial explosion
-            let iter = fnx_algorithms::all_topological_sorts(&dag.graph);
-            for (i, _sort) in iter.enumerate() {
+            let sorts = fnx_algorithms::all_topological_sorts(&dag.graph);
+            for (i, _sort) in sorts.into_iter().enumerate() {
                 if i >= 100 {
                     break;
                 }
