@@ -21075,22 +21075,31 @@ def greedy_branching(G, attr="weight", default=1, kind="max", seed=None):
     return B
 
 
-def random_kernel_graph(n, kernel=None, seed=None):
-    """Random graph from kernel function kernel(x_i, x_j) giving edge probability."""
-    import random as _random
+def random_kernel_graph(n, kernel_integral, kernel_root=None, seed=None, *, create_using=None, backend=None, **backend_kwargs):
+    """Return a random graph based on the specified kernel.
 
-    rng = _random.Random(seed)
-    G = Graph()
-    positions = [rng.random() for _ in range(n)]
-    for i in range(n):
-        G.add_node(i)
-    if kernel is None:
-        kernel = lambda x, y: x * y
-    for i in range(n):
-        for j in range(i + 1, n):
-            if rng.random() < kernel(positions[i], positions[j]):
-                G.add_edge(i, j)
-    return G
+    Delegates to NetworkX's random_kernel_graph implementation.
+
+    Parameters
+    ----------
+    n : int
+        The number of nodes
+    kernel_integral : function
+        Function that returns the definite integral of the kernel.
+    kernel_root : function, optional
+        Function that returns the root of the integral equation.
+    seed : int or random state, optional
+        Random number generation state.
+    create_using : Graph constructor, optional
+        Graph type to create.
+    backend : str, optional
+        Backend dispatch (ignored, for compatibility).
+    """
+    del backend, backend_kwargs  # NetworkX backend dispatch compatibility
+    import networkx as _nx
+    from franken_networkx.readwrite import _from_nx_graph
+    g = _nx.random_kernel_graph(n, kernel_integral, kernel_root=kernel_root, seed=seed, create_using=create_using)
+    return _from_nx_graph(g)
 
 
 # Drawing — thin delegation to NetworkX/matplotlib (lazy import)
