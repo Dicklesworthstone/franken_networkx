@@ -2,7 +2,7 @@
   "schema_version": "1.0.0",
   "artifact_id": "asupersync-capability-matrix-v1",
   "generated_at_utc": "2026-02-15T19:23:00+00:00",
-  "baseline_comparator": "legacy_networkx/main@python3.12 + asupersync@0.2.0",
+  "baseline_comparator": "legacy_networkx/main@python3.12 + asupersync@0.3.1",
   "capability_summary": {
     "operation_count": 5,
     "artifact_class_count": 5,

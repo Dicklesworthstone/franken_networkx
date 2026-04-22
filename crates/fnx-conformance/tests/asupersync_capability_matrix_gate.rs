@@ -3,6 +3,8 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+const EXPECTED_ASUPERSYNC_VERSION: &str = "0.3.1";
+
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
@@ -92,9 +94,17 @@ fn asupersync_capability_matrix_contract_is_complete_and_fail_closed() {
         runtime_cargo.contains("asupersync-integration"),
         "fnx-runtime Cargo.toml should expose asupersync-integration feature"
     );
+    let expected_pin = format!("asupersync = {{ version = \"{EXPECTED_ASUPERSYNC_VERSION}\"");
     assert!(
-        runtime_cargo.contains("asupersync = { version = \"0.2.0\""),
-        "fnx-runtime Cargo.toml should pin asupersync 0.2.0 dependency"
+        runtime_cargo.contains(&expected_pin),
+        "fnx-runtime Cargo.toml should pin asupersync {EXPECTED_ASUPERSYNC_VERSION} dependency"
+    );
+    let baseline_comparator = artifact["baseline_comparator"]
+        .as_str()
+        .expect("baseline_comparator should be string");
+    assert!(
+        baseline_comparator.contains(&format!("asupersync@{EXPECTED_ASUPERSYNC_VERSION}")),
+        "capability matrix baseline comparator should reference asupersync {EXPECTED_ASUPERSYNC_VERSION}"
     );
 
     let required_forbidden = required_string_array(&schema, "required_forbidden_algorithm_crates")
