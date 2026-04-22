@@ -55,6 +55,39 @@ def test_multigraph_edge_subgraph_adjacency_preserves_mapping_contract(
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],
 )
+def test_multigraph_edge_subgraph_adjacency_item_access_is_readonly(
+    fnx_ctor, nx_ctor
+):
+    fg = fnx_ctor()
+    fg.add_edge("a", "b", key="k1", weight=3)
+    ng = nx_ctor()
+    ng.add_edge("a", "b", key="k1", weight=3)
+
+    fh = fg.edge_subgraph([("a", "b", "k1")])
+    nh = ng.edge_subgraph([("a", "b", "k1")])
+
+    # Both H[n] and H.adj[n] must be Mappings that reject __setitem__.
+    for accessor in (lambda g, n: g[n], lambda g, n: g.adj[n]):
+        fnbrs = accessor(fh, "a")
+        nnbrs = accessor(nh, "a")
+        assert isinstance(fnbrs, Mapping)
+        with pytest.raises(TypeError):
+            fnbrs["x"] = {}
+        with pytest.raises(TypeError):
+            nnbrs["x"] = {}
+        # Deep content match: {'b': {'k1': {'weight': 3}}}
+        fdeep = {k: dict(v) for k, v in fnbrs.items()}
+        ndeep = {k: dict(v) for k, v in nnbrs.items()}
+        assert fdeep == ndeep
+
+
+@pytest.mark.parametrize(
+    ("fnx_ctor", "nx_ctor"),
+    [
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
 def test_multigraph_edge_subgraph_multi_key_adjacency_preserves_mapping(
     fnx_ctor, nx_ctor
 ):
