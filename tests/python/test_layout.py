@@ -1293,6 +1293,27 @@ def test_multipartite_layout_error_paths_match_networkx_without_delegation():
             fnx.multipartite_layout(fnx.Graph(), align="diagonal")
 
 
+def test_rescale_layout_accepts_numpy_array_input():
+    """Public rescale_layout helper must accept ndarray and return upstream values.
+
+    Regression: previously the wrapper evaluated array truthiness before
+    delegating, raising "The truth value of an array with more than one
+    element is ambiguous", instead of running the actual rescaling logic.
+    """
+    arr = np.array([[3.0, 4.0]])
+    fnx_out = fnx.rescale_layout(arr)
+    nx_out = nx.rescale_layout(arr)
+    np.testing.assert_allclose(fnx_out, nx_out)
+    # Two-row case used in the bead description
+    arr2 = np.array([[0.0, 2.0], [2.0, 0.0]])
+    np.testing.assert_allclose(fnx.rescale_layout(arr2), nx.rescale_layout(arr2))
+    # scale kwarg parity
+    np.testing.assert_allclose(
+        fnx.rescale_layout(arr2, scale=5),
+        nx.rescale_layout(arr2, scale=5),
+    )
+
+
 def test_rescale_layout_preserves_integer_array_dtype_error_contract():
     """Integer-array input must reach the same UFuncTypeError as upstream.
 
