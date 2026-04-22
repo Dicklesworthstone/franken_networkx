@@ -535,6 +535,21 @@ class TestTournamentIsReachable:
             nx_result = nx_is_reachable(g_nx, s, t)
             assert fnx_result == nx_result, f"Mismatch for ({s}, {t})"
 
+    def test_fnx_tuple_labeled_tournament_matches_networkx(self):
+        """FrankenNetworkX DiGraph inputs should preserve parity for non-int labels."""
+        mapping = {node: ("tour", node) for node in range(4)}
+        base_edges = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)]
+        g_fnx = fnx.relabel_nodes(fnx.DiGraph(base_edges), mapping)
+        g_nx = nx.relabel_nodes(nx.DiGraph(base_edges), mapping)
+
+        from networkx.algorithms.tournament import is_reachable as nx_is_reachable
+
+        for source in mapping.values():
+            for target in mapping.values():
+                fnx_result = fnx.is_reachable(g_fnx, source, target)
+                nx_result = nx_is_reachable(g_nx, source, target)
+                assert fnx_result == nx_result, f"Mismatch for ({source!r}, {target!r})"
+
 
 @pytest.mark.skipif(
     not importlib.util.find_spec("numpy"), reason="numpy required for tournament_matrix"
