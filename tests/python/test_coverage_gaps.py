@@ -693,13 +693,15 @@ class TestGraphPredicates:
 class TestShortestPathVariants:
     def test_all_pairs_shortest_path(self):
         G = fnx.path_graph(4)
-        result = fnx.all_pairs_shortest_path(G)
+        # Matches upstream: generator of (source, paths-dict) pairs.
+        result = dict(fnx.all_pairs_shortest_path(G))
         assert len(result) == 4
         assert result[0][3] == [0, 1, 2, 3]
 
     def test_all_pairs_shortest_path_length(self):
         G = fnx.path_graph(4)
-        result = fnx.all_pairs_shortest_path_length(G)
+        # Matches upstream: generator of (source, lengths-dict) pairs.
+        result = dict(fnx.all_pairs_shortest_path_length(G))
         assert len(result) == 4
         assert result[0][3] == 3
 

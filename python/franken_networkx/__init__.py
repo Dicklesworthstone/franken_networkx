@@ -1491,7 +1491,9 @@ def shortest_path_length(G, source=None, target=None, weight=None, method="dijks
         else:  # dijkstra
             all_pairs = dict(all_pairs_dijkstra_path_length(G, weight=weight))
     else:
-        all_pairs = all_pairs_shortest_path_length(G)
+        # all_pairs_shortest_path_length now returns a generator of pairs;
+        # materialise once to support repeated source-key lookups below.
+        all_pairs = dict(all_pairs_shortest_path_length(G))
     return ((node, all_pairs[node]) for node in G.nodes())
 
 
@@ -3049,9 +3051,41 @@ def condensation(G, scc=None):
 
 # Algorithm functions — all-pairs shortest paths
 from franken_networkx._fnx import (
-    all_pairs_shortest_path,
-    all_pairs_shortest_path_length,
+    all_pairs_shortest_path as _raw_all_pairs_shortest_path,
+    all_pairs_shortest_path_length as _raw_all_pairs_shortest_path_length,
 )
+
+
+def all_pairs_shortest_path(G, cutoff=None, *, backend=None, **backend_kwargs):
+    """Return an iterator of (source, shortest-paths-dict) pairs.
+
+    Matches NetworkX's public contract: the underlying Rust
+    implementation returns a dict; wrap it as a generator of pairs in
+    source-insertion order so callers can consume it like nx's.
+    """
+    _validate_backend_dispatch_keywords(
+        "all_pairs_shortest_path", backend, backend_kwargs
+    )
+    paths = _raw_all_pairs_shortest_path(G, cutoff)
+    # Preserve graph node insertion order for the source axis.
+    for source in G:
+        if source in paths:
+            yield source, paths[source]
+
+
+def all_pairs_shortest_path_length(G, cutoff=None, *, backend=None, **backend_kwargs):
+    """Return an iterator of (source, shortest-path-length-dict) pairs.
+
+    Matches NetworkX's public contract — wraps the dict-returning
+    Rust implementation as a generator of pairs.
+    """
+    _validate_backend_dispatch_keywords(
+        "all_pairs_shortest_path_length", backend, backend_kwargs
+    )
+    lengths = _raw_all_pairs_shortest_path_length(G, cutoff)
+    for source in G:
+        if source in lengths:
+            yield source, lengths[source]
 
 # Algorithm functions — graph predicates & utilities
 from franken_networkx._fnx import (
