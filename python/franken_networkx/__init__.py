@@ -14724,8 +14724,16 @@ class _ReverseDirectedView:
             return self._graph.copy()
         return self._graph
 
-    def nodes(self, data=False):
-        return self._graph.nodes(data=data)
+    @property
+    def nodes(self):
+        """Expose the underlying graph's NodeView.
+
+        reverse_view doesn't change node identity or attributes, only
+        edge direction — so the NodeView is shared with the original
+        graph. Matches upstream's callable NodeView surface (e.g.
+        view.nodes.data(), view.nodes(data=True)).
+        """
+        return self._graph.nodes
 
     def nbunch_iter(self, nbunch=None):
         return self._graph.nbunch_iter(nbunch)
