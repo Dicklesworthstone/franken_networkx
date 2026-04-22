@@ -7636,8 +7636,8 @@ def barabasi_albert_graph(
     m,
     seed=None,
     initial_graph=None,
-    create_using=None,
     *,
+    create_using=None,
     backend=None,
     **backend_kwargs,
 ):
@@ -20653,7 +20653,7 @@ def random_lobster_graph(n, p1, p2, seed=None, create_using=None, *, backend=Non
     )
 
 
-def random_shell_graph(constructor, seed=None, create_using=None, *, backend=None, **backend_kwargs):
+def random_shell_graph(constructor, seed=None, *, create_using=None, backend=None, **backend_kwargs):
     """Multi-shell random graph."""
     if backend is not None and backend != "networkx":
         raise ImportError(f"'{backend}' backend is not installed.")
@@ -23948,8 +23948,11 @@ def connected_watts_strogatz_graph(n, k, p, tries=100, seed=None, create_using=N
     )
 
 
-def random_regular_graph(d, n, seed=None, create_using=None):
+def random_regular_graph(d, n, seed=None, *, create_using=None, backend=None, **backend_kwargs):
     """Return a random d-regular graph."""
+    if backend is not None and backend != "networkx":
+        raise ImportError(f"'{backend}' backend is not installed.")
+    del backend_kwargs  # in-tree implementation ignores backend kwargs
     if create_using is None:
         return _rust_random_regular_graph(d, n, seed=_native_random_seed(seed))
 

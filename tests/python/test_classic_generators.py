@@ -615,8 +615,12 @@ class TestGeneratorSignatureParityWithNetworkX:
         "newman_watts_strogatz_graph",
         "fast_gnp_random_graph",
         "powerlaw_cluster_graph",
+        "barabasi_albert_graph",
         "dual_barabasi_albert_graph",
         "extended_barabasi_albert_graph",
+        "random_regular_graph",
+        "random_shell_graph",
+        "random_kernel_graph",
     ]
 
     @pytest.mark.parametrize("fn_name", SIGNATURE_TARGETS)
