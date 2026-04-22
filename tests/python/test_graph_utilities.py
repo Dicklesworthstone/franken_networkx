@@ -1939,6 +1939,40 @@ def test_multigraph_edges_support_attribute_name_data_retrieval():
 @pytest.mark.parametrize(
     ("fnx_cls", "nx_cls"),
     [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+    ],
+)
+def test_simple_graph_classes_adjacency_item_access_returns_read_only_atlas_views(
+    fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+
+    neighbors = graph.adj["a"]
+    expected_neighbors = expected.adj["a"]
+
+    assert type(graph.adj).__name__ == type(expected.adj).__name__
+    assert type(neighbors).__name__ == type(expected_neighbors).__name__
+    assert type(graph["a"]).__name__ == type(expected["a"]).__name__
+    assert _mapping_snapshot(neighbors) == _mapping_snapshot(expected_neighbors)
+    assert _mapping_snapshot(graph["a"]) == _mapping_snapshot(expected["a"])
+
+    with pytest.raises(TypeError) as fnx_exc:
+        neighbors["x"] = {}
+    with pytest.raises(TypeError) as nx_exc:
+        expected_neighbors["x"] = {}
+    assert str(fnx_exc.value) == str(nx_exc.value)
+
+    graph.add_edge("a", "c", weight=9)
+    expected.add_edge("a", "c", weight=9)
+
+    assert _mapping_snapshot(neighbors) == _mapping_snapshot(expected_neighbors)
+    assert _mapping_snapshot(graph["a"]) == _mapping_snapshot(expected["a"])
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
         (fnx.MultiGraph, nx.MultiGraph),
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],

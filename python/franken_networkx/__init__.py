@@ -337,6 +337,14 @@ def _multigraph_adj_view(self):
     return MultiAdjacencyView(lambda: _MULTIGRAPH_ADJ_DESCRIPTOR.__get__(self, MultiGraph))
 
 
+def _graph_adj_view(self):
+    return AdjacencyView(lambda: _GRAPH_ADJ_DESCRIPTOR.__get__(self, Graph))
+
+
+def _digraph_adj_view(self):
+    return AdjacencyView(lambda: _DIGRAPH_ADJ_DESCRIPTOR.__get__(self, DiGraph))
+
+
 def _multidigraph_adj_view(self):
     return MultiAdjacencyView(
         lambda: _MULTIDIGRAPH_ADJ_DESCRIPTOR.__get__(self, MultiDiGraph)
@@ -636,6 +644,8 @@ _GRAPH_NEIGHBORS = Graph.neighbors
 _DIGRAPH_NEIGHBORS = DiGraph.neighbors
 _DIGRAPH_SUCCESSORS = DiGraph.successors
 _DIGRAPH_PREDECESSORS = DiGraph.predecessors
+_GRAPH_ADJ_DESCRIPTOR = Graph.adj
+_DIGRAPH_ADJ_DESCRIPTOR = DiGraph.adj
 _DIGRAPH_SUCC_DESCRIPTOR = DiGraph.succ
 _DIGRAPH_PRED_DESCRIPTOR = DiGraph.pred
 _MULTIGRAPH_REMOVE_NODE = MultiGraph.remove_node
@@ -925,12 +935,16 @@ Graph.edge_attr_dict_factory = dict
 Graph.graph_attr_dict_factory = dict
 Graph.node_attr_dict_factory = dict
 Graph.node_dict_factory = dict
+Graph.adj = property(_graph_adj_view)
+Graph.__getitem__ = _graph_getitem_from_adj
 DiGraph.adjlist_inner_dict_factory = dict
 DiGraph.adjlist_outer_dict_factory = dict
 DiGraph.edge_attr_dict_factory = dict
 DiGraph.graph_attr_dict_factory = dict
 DiGraph.node_attr_dict_factory = dict
 DiGraph.node_dict_factory = dict
+DiGraph.adj = property(_digraph_adj_view)
+DiGraph.__getitem__ = _graph_getitem_from_adj
 DiGraph.succ = property(_digraph_succ_view)
 DiGraph.pred = property(_digraph_pred_view)
 MultiGraph.adjlist_inner_dict_factory = dict
