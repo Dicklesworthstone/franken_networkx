@@ -2304,8 +2304,20 @@ def has_eulerian_path(G, source=None):
 from franken_networkx._fnx import (
     all_shortest_paths as _raw_all_shortest_paths,
     all_simple_paths as _rust_all_simple_paths,
-    cycle_basis,
+    cycle_basis as _raw_cycle_basis,
 )
+
+
+def cycle_basis(G, root=None):
+    """Return a minimum cycle basis of the graph.
+
+    Matches upstream NetworkX: raises NetworkXNotImplemented on
+    multigraph inputs before the basis computation runs, rather than
+    silently returning ``[]``.
+    """
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    return _raw_cycle_basis(G, root) if root is not None else _raw_cycle_basis(G)
 
 
 def all_shortest_paths(G, source, target, weight=None, method="dijkstra"):
