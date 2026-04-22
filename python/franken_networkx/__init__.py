@@ -14602,10 +14602,15 @@ class NodeView(Mapping):
             raise KeyError(f"Key {node} not found")
         return _node_attrs_for_view_graph(self._view._graph, node)
 
-    def __call__(self, data=False):
+    def __call__(self, data=False, default=None):
+        if isinstance(data, str):
+            return [(node, self[node].get(data, default)) for node in self]
         if data:
             return [(node, self[node]) for node in self]
         return list(self)
+
+    def data(self, data=True, default=None):
+        return self(data=data, default=default)
 
 
 class _FilteredEdgeView:

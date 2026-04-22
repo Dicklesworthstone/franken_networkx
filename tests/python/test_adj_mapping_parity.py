@@ -265,6 +265,34 @@ def test_filtered_graph_view_edges_expose_edge_view_object(builder):
     assert ((9, 9) in fv.edges) is ((9, 9) in nv.edges)
 
 
+@pytest.mark.parametrize(
+    "builder_name",
+    ["restricted_view", "subgraph_view"],
+)
+def test_filtered_graph_view_nodes_expose_data_helper(builder_name):
+    fg = fnx.Graph()
+    fg.add_node("a", color="red")
+    fg.add_node("b", color="blue")
+    fg.add_edge("a", "c")
+    ng = nx.Graph()
+    ng.add_node("a", color="red")
+    ng.add_node("b", color="blue")
+    ng.add_edge("a", "c")
+    if builder_name == "restricted_view":
+        fv = fnx.restricted_view(fg, [], [])
+        nv = nx.restricted_view(ng, [], [])
+    else:
+        fv = fnx.subgraph_view(fg)
+        nv = nx.subgraph_view(ng)
+
+    assert hasattr(fv.nodes, "data")
+    assert list(fv.nodes.data()) == list(nv.nodes.data())
+    assert list(fv.nodes.data("color")) == list(nv.nodes.data("color"))
+    assert list(fv.nodes.data("missing", default="X")) == list(
+        nv.nodes.data("missing", default="X")
+    )
+
+
 def test_restricted_view_with_filter_preserves_edge_view_parity():
     fg = fnx.Graph()
     fg.add_edges_from([(1, 2), (2, 3), (3, 4)])
