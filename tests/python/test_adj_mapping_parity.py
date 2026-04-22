@@ -486,6 +486,37 @@ def test_conversion_live_view_adj_mapping_helpers_deep_match(direction, fnx_ctor
 
 
 @pytest.mark.parametrize("builder_name", ["restricted_view", "subgraph_view"])
+def test_filtered_graph_view_adj_satisfies_mapping_protocol(builder_name):
+    from collections.abc import Mapping
+
+    fg = fnx.Graph()
+    fg.add_edges_from([(1, 2), (2, 3), (3, 4)])
+    ng = nx.Graph()
+    ng.add_edges_from([(1, 2), (2, 3), (3, 4)])
+    if builder_name == "restricted_view":
+        fv = fnx.restricted_view(fg, [], [])
+        nv = nx.restricted_view(ng, [], [])
+    else:
+        fv = fnx.subgraph_view(fg)
+        nv = nx.subgraph_view(ng)
+
+    assert hasattr(fv.adj, "get")
+    # dict() must produce {node: filtered-adj}, not raise ValueError.
+    fdeep = {k: {kk: dict(vv) for kk, vv in dict(v).items()} for k, v in dict(fv.adj).items()}
+    ndeep = {k: {kk: dict(vv) for kk, vv in dict(v).items()} for k, v in dict(nv.adj).items()}
+    assert fdeep == ndeep
+    # get() returns Mapping on hit, None on miss.
+    fnbrs = fv.adj.get(1)
+    nnbrs = nv.adj.get(1)
+    assert isinstance(fnbrs, Mapping)
+    assert {k: dict(v) for k, v in dict(fnbrs).items()} == {
+        k: dict(v) for k, v in dict(nnbrs).items()
+    }
+    assert fv.adj.get(99) is nv.adj.get(99) is None
+    assert fv.adj.get(99, "sentinel") == nv.adj.get(99, "sentinel")
+
+
+@pytest.mark.parametrize("builder_name", ["restricted_view", "subgraph_view"])
 def test_filtered_graph_view_adj_mapping_helpers_deep_match(builder_name):
     fg = fnx.Graph()
     fg.add_edges_from([(1, 2), (2, 3)])
