@@ -3248,6 +3248,129 @@ def test_filtered_graph_views_expose_node_data_helper_without_fallback(
     ), builder_name
 
 
+@pytest.mark.parametrize(
+    ("builder_name", "fnx_builder", "nx_builder", "fnx_cls", "nx_cls"),
+    [
+        (
+            "subgraph_view",
+            lambda graph: fnx.subgraph_view(graph, filter_node=lambda node: node != "d"),
+            lambda graph: nx.subgraph_view(graph, filter_node=lambda node: node != "d"),
+            fnx.Graph,
+            nx.Graph,
+        ),
+        (
+            "subgraph_view",
+            lambda graph: fnx.subgraph_view(graph, filter_node=lambda node: node != "d"),
+            lambda graph: nx.subgraph_view(graph, filter_node=lambda node: node != "d"),
+            fnx.DiGraph,
+            nx.DiGraph,
+        ),
+        (
+            "subgraph_view",
+            lambda graph: fnx.subgraph_view(graph, filter_node=lambda node: node != "d"),
+            lambda graph: nx.subgraph_view(graph, filter_node=lambda node: node != "d"),
+            fnx.MultiGraph,
+            nx.MultiGraph,
+        ),
+        (
+            "subgraph_view",
+            lambda graph: fnx.subgraph_view(graph, filter_node=lambda node: node != "d"),
+            lambda graph: nx.subgraph_view(graph, filter_node=lambda node: node != "d"),
+            fnx.MultiDiGraph,
+            nx.MultiDiGraph,
+        ),
+        (
+            "restricted_view",
+            lambda graph: fnx.restricted_view(graph, ["d"], []),
+            lambda graph: nx.restricted_view(graph, ["d"], []),
+            fnx.Graph,
+            nx.Graph,
+        ),
+        (
+            "restricted_view",
+            lambda graph: fnx.restricted_view(graph, ["d"], []),
+            lambda graph: nx.restricted_view(graph, ["d"], []),
+            fnx.DiGraph,
+            nx.DiGraph,
+        ),
+        (
+            "restricted_view",
+            lambda graph: fnx.restricted_view(graph, ["d"], []),
+            lambda graph: nx.restricted_view(graph, ["d"], []),
+            fnx.MultiGraph,
+            nx.MultiGraph,
+        ),
+        (
+            "restricted_view",
+            lambda graph: fnx.restricted_view(graph, ["d"], []),
+            lambda graph: nx.restricted_view(graph, ["d"], []),
+            fnx.MultiDiGraph,
+            nx.MultiDiGraph,
+        ),
+    ],
+)
+def test_filtered_graph_views_adjacency_satisfy_mapping_protocol_without_fallback(
+    monkeypatch, builder_name, fnx_builder, nx_builder, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx_builder(expected)
+
+    _block_networkx_utilities(monkeypatch, builder_name)
+
+    result = fnx_builder(graph)
+
+    assert type(result.adj).__name__ == type(expected_result.adj).__name__, builder_name
+    assert list(result.adj.keys()) == list(expected_result.adj.keys()), builder_name
+    assert [
+        (node, type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for node, neighbors in result.adj.items()
+    ] == [
+        (node, type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for node, neighbors in expected_result.adj.items()
+    ], builder_name
+    assert [
+        (type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for neighbors in result.adj.values()
+    ] == [
+        (type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for neighbors in expected_result.adj.values()
+    ], builder_name
+    assert type(result.adj.get("a")).__name__ == type(expected_result.adj.get("a")).__name__, builder_name
+    assert _mapping_snapshot(result.adj.get("a")) == _mapping_snapshot(
+        expected_result.adj.get("a")
+    ), builder_name
+    assert result.adj.get("missing") == expected_result.adj.get("missing"), builder_name
+    assert [
+        (node, type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for node, neighbors in dict(result.adj).items()
+    ] == [
+        (node, type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for node, neighbors in dict(expected_result.adj).items()
+    ], builder_name
+
+    if graph.is_multigraph():
+        graph.add_edge("a", "c", key=7, weight=9)
+        expected.add_edge("a", "c", key=7, weight=9)
+    else:
+        graph.add_edge("a", "c", weight=9)
+        expected.add_edge("a", "c", weight=9)
+
+    assert [
+        (node, type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for node, neighbors in result.adj.items()
+    ] == [
+        (node, type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for node, neighbors in expected_result.adj.items()
+    ], builder_name
+    assert [
+        (type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for neighbors in result.adj.values()
+    ] == [
+        (type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for neighbors in expected_result.adj.values()
+    ], builder_name
+
+
 def test_reverse_helper_matches_networkx():
     digraph = fnx.MultiDiGraph()
     digraph.graph["kind"] = "digraph"
