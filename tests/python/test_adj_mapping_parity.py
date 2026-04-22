@@ -583,6 +583,41 @@ def test_multigraph_edges_satisfies_keyed_mapping_protocol(fnx_ctor, nx_ctor):
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],
 )
+def test_multigraph_adj_satisfies_mapping_protocol(fnx_ctor, nx_ctor):
+    from collections.abc import Mapping
+
+    fg = fnx_ctor()
+    fg.add_edge("a", "b", weight=3)
+    fg.add_edge("b", "c")
+    ng = nx_ctor()
+    ng.add_edge("a", "b", weight=3)
+    ng.add_edge("b", "c")
+
+    for attr in ("items", "keys", "values", "get"):
+        assert hasattr(fg.adj, attr)
+
+    # dict() must produce {node: adjacency-view-like}, not unpack 2-tuples.
+    fdeep = {k: {kk: dict(vv) for kk, vv in dict(v).items()} for k, v in fg.adj.items()}
+    ndeep = {k: {kk: dict(vv) for kk, vv in dict(v).items()} for k, v in ng.adj.items()}
+    assert fdeep == ndeep
+
+    # get() returns Mapping on hit, None on miss.
+    fv = fg.adj.get("a")
+    nv = ng.adj.get("a")
+    assert isinstance(fv, Mapping)
+    assert {k: dict(v) for k, v in dict(fv).items()} == {
+        k: dict(v) for k, v in dict(nv).items()
+    }
+    assert fg.adj.get("missing") is ng.adj.get("missing") is None
+
+
+@pytest.mark.parametrize(
+    ("fnx_ctor", "nx_ctor"),
+    [
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
 def test_multigraph_nodes_satisfies_mapping_protocol(fnx_ctor, nx_ctor):
     fg = fnx_ctor()
     fg.add_node("a", color="red")
