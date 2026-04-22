@@ -2444,6 +2444,49 @@ def test_multigraph_classes_adjacency_preserve_networkx_mapping_contract(
 
 
 @pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_multigraph_classes_adjacency_item_access_returns_read_only_views(
+    fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+
+    neighbors = graph.adj["a"]
+    expected_neighbors = expected.adj["a"]
+    keyed = neighbors["b"]
+    expected_keyed = expected_neighbors["b"]
+
+    assert type(graph.adj).__name__ == type(expected.adj).__name__
+    assert type(neighbors).__name__ == type(expected_neighbors).__name__
+    assert type(keyed).__name__ == type(expected_keyed).__name__
+    assert _mapping_snapshot(neighbors) == _mapping_snapshot(expected_neighbors)
+    assert _mapping_snapshot(graph["a"]) == _mapping_snapshot(expected["a"])
+    assert _mapping_snapshot(keyed) == _mapping_snapshot(expected_keyed)
+
+    with pytest.raises(TypeError) as fnx_outer_exc:
+        neighbors["x"] = {}
+    with pytest.raises(TypeError) as nx_outer_exc:
+        expected_neighbors["x"] = {}
+    assert str(fnx_outer_exc.value) == str(nx_outer_exc.value)
+
+    with pytest.raises(TypeError) as fnx_inner_exc:
+        keyed["new"] = {}
+    with pytest.raises(TypeError) as nx_inner_exc:
+        expected_keyed["new"] = {}
+    assert str(fnx_inner_exc.value) == str(nx_inner_exc.value)
+
+    graph.add_edge("a", "b", key="new", weight=9)
+    expected.add_edge("a", "b", key="new", weight=9)
+
+    assert _mapping_snapshot(neighbors) == _mapping_snapshot(expected_neighbors)
+    assert _mapping_snapshot(keyed) == _mapping_snapshot(expected_keyed)
+
+
+@pytest.mark.parametrize(
     ("builder_name", "fnx_builder", "nx_builder", "fnx_cls", "nx_cls"),
     [
         ("to_directed", fnx.to_directed, nx.to_directed, fnx.Graph, nx.Graph),

@@ -280,6 +280,71 @@ def _adjacency_view_values(self):
     return (self[node] for node in self)
 
 
+class AtlasView(Mapping):
+    def __init__(self, atlas_getter):
+        self._atlas_getter = atlas_getter
+
+    def _atlas(self):
+        return self._atlas_getter()
+
+    def __len__(self):
+        return len(self._atlas())
+
+    def __iter__(self):
+        return iter(self._atlas())
+
+    def __getitem__(self, node):
+        return self._atlas()[node]
+
+
+class AdjacencyView(Mapping):
+    def __init__(self, atlas_getter):
+        self._atlas_getter = atlas_getter
+
+    def _atlas(self):
+        return self._atlas_getter()
+
+    def __len__(self):
+        return len(self._atlas())
+
+    def __iter__(self):
+        return iter(self._atlas())
+
+    def __getitem__(self, node):
+        return AtlasView(lambda: self._atlas()[node])
+
+
+class MultiAdjacencyView(Mapping):
+    def __init__(self, atlas_getter):
+        self._atlas_getter = atlas_getter
+
+    def _atlas(self):
+        return self._atlas_getter()
+
+    def __len__(self):
+        return len(self._atlas())
+
+    def __iter__(self):
+        return iter(self._atlas())
+
+    def __getitem__(self, node):
+        return AdjacencyView(lambda: self._atlas()[node])
+
+
+def _multigraph_adj_view(self):
+    return MultiAdjacencyView(lambda: _MULTIGRAPH_ADJ_DESCRIPTOR.__get__(self, MultiGraph))
+
+
+def _multidigraph_adj_view(self):
+    return MultiAdjacencyView(
+        lambda: _MULTIDIGRAPH_ADJ_DESCRIPTOR.__get__(self, MultiDiGraph)
+    )
+
+
+def _graph_getitem_from_adj(self, node):
+    return self.adj[node]
+
+
 def _to_directed_class(self):
     return MultiDiGraph if self.is_multigraph() else DiGraph
 
@@ -465,6 +530,8 @@ _DIEDGE_VIEW_CALL = _DIEDGE_VIEW_TYPE.__call__
 _DIGRAPH_ADJACENCY_VIEW_TYPE = type(DiGraph().pred)
 _MULTIGRAPH_DEGREE_DESCRIPTOR = MultiGraph.degree
 _MULTIDIGRAPH_DEGREE_DESCRIPTOR = MultiDiGraph.degree
+_MULTIGRAPH_ADJ_DESCRIPTOR = MultiGraph.adj
+_MULTIDIGRAPH_ADJ_DESCRIPTOR = MultiDiGraph.adj
 _MULTIGRAPH_NODE_VIEW_TYPE = type(MultiGraph().nodes)
 _MULTIDIGRAPH_NODE_VIEW_TYPE = type(MultiDiGraph().nodes)
 _MULTIGRAPH_NODE_VIEW_CALL = _MULTIGRAPH_NODE_VIEW_TYPE.__call__
@@ -702,6 +769,18 @@ _DIGRAPH_ADJACENCY_VIEW_TYPE.get = _adjacency_view_get
 _DIGRAPH_ADJACENCY_VIEW_TYPE.keys = _adjacency_view_keys
 _DIGRAPH_ADJACENCY_VIEW_TYPE.items = _adjacency_view_items
 _DIGRAPH_ADJACENCY_VIEW_TYPE.values = _adjacency_view_values
+MultiAdjacencyView.get = _adjacency_view_get
+MultiAdjacencyView.keys = _adjacency_view_keys
+MultiAdjacencyView.items = _adjacency_view_items
+MultiAdjacencyView.values = _adjacency_view_values
+AdjacencyView.get = _adjacency_view_get
+AdjacencyView.keys = _adjacency_view_keys
+AdjacencyView.items = _adjacency_view_items
+AdjacencyView.values = _adjacency_view_values
+AtlasView.get = _adjacency_view_get
+AtlasView.keys = _adjacency_view_keys
+AtlasView.items = _adjacency_view_items
+AtlasView.values = _adjacency_view_values
 Graph.adjlist_inner_dict_factory = dict
 Graph.adjlist_outer_dict_factory = dict
 Graph.edge_attr_dict_factory = dict
@@ -723,6 +802,8 @@ MultiGraph.node_dict_factory = dict
 MultiGraph.edge_key_dict_factory = dict
 MultiGraph.new_edge_key = _multigraph_new_edge_key
 MultiGraph.edge_subgraph = _multigraph_edge_subgraph
+MultiGraph.adj = property(_multigraph_adj_view)
+MultiGraph.__getitem__ = _graph_getitem_from_adj
 MultiGraph.edges = property(_multigraph_edges)
 MultiGraph.degree = property(MultiGraphDegreeView)
 DiGraph.edges = property(_digraph_edges)
@@ -737,6 +818,8 @@ MultiDiGraph.node_dict_factory = dict
 MultiDiGraph.edge_key_dict_factory = dict
 MultiDiGraph.new_edge_key = _multigraph_new_edge_key
 MultiDiGraph.edge_subgraph = _multigraph_edge_subgraph
+MultiDiGraph.adj = property(_multidigraph_adj_view)
+MultiDiGraph.__getitem__ = _graph_getitem_from_adj
 MultiDiGraph.degree = property(MultiDiGraphDegreeView)
 MultiDiGraph.in_degree = property(lambda self: _DirectedDegreeView(self, "pred"))
 MultiDiGraph.out_degree = property(lambda self: _DirectedDegreeView(self, "succ"))
