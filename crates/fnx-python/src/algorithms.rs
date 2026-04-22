@@ -7,7 +7,7 @@
 use crate::digraph::{PyDiGraph, PyMultiDiGraph};
 use crate::{
     NetworkXError, NetworkXNoCycle, NetworkXNoPath, NetworkXNotImplemented, NetworkXUnfeasible,
-    NodeNotFound, PyGraph, PyMultiGraph, node_key_to_string,
+    NodeNotFound, PyGraph, PyMultiGraph, PyObject, PythonAllowThreadsExt, node_key_to_string,
 };
 use fnx_classes::AttrMap;
 use pyo3::exceptions::{PyIndexError, PyValueError, PyZeroDivisionError};
@@ -13397,7 +13397,7 @@ mod tests {
     use fnx_runtime::CompatibilityMode;
 
     fn ensure_python() {
-        pyo3::prepare_freethreaded_python();
+        Python::initialize();
     }
 
     #[test]
@@ -13441,7 +13441,7 @@ mod tests {
     #[test]
     fn spanning_helpers_preserve_mode() {
         ensure_python();
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let mut graph = PyGraph::new_empty(py).expect("graph should initialize");
             graph.inner = fnx_classes::Graph::new(CompatibilityMode::Hardened);
             let mut attrs = AttrMap::new();
@@ -13478,7 +13478,7 @@ mod tests {
     #[test]
     fn python_algorithm_wrappers_preserve_mode() {
         ensure_python();
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let mut multigraph = PyMultiGraph {
                 inner: MultiGraph::new(CompatibilityMode::Hardened),
                 node_key_map: HashMap::new(),

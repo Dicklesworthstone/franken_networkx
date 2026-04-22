@@ -8,7 +8,7 @@
 use crate::{
     NetworkXError, NodeNotFound, PyGraph, compatibility_mode_from_py, compatibility_mode_name,
     edge_key_lookup_string, node_key_to_string, py_dict_to_attr_map, runtime_policy_from_state,
-    runtime_policy_json, unwrap_infallible,
+    runtime_policy_json, unwrap_infallible, PyObject,
 };
 use fnx_classes::AttrMap;
 use fnx_classes::digraph::{DiGraph, MultiDiGraph};
@@ -743,7 +743,7 @@ impl PyMultiDiGraph {
 
     fn clear_edges(&mut self) {
         self.inner = MultiDiGraph::with_runtime_policy(self.inner.runtime_policy().clone());
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             for canonical in self.node_key_map.keys() {
                 let rust_attrs = self
                     .node_py_attrs
@@ -3106,7 +3106,7 @@ impl Clone for ViewData {
             Self::AllData => Self::AllData,
             Self::Attr(s) => Self::Attr(s.clone()),
             Self::AttrWithDefault(s, obj) => {
-                Python::with_gil(|py| Self::AttrWithDefault(s.clone(), obj.clone_ref(py)))
+                Python::attach(|py| Self::AttrWithDefault(s.clone(), obj.clone_ref(py)))
             }
         }
     }
@@ -3870,7 +3870,7 @@ mod tests {
     use fnx_runtime::{CompatibilityMode, RuntimePolicy};
 
     fn ensure_python() {
-        pyo3::prepare_freethreaded_python();
+        Python::initialize();
     }
 
     fn seeded_digraph_policy() -> RuntimePolicy {
@@ -3888,7 +3888,7 @@ mod tests {
     #[test]
     fn digraph_new_empty_with_policy_preserves_runtime_policy_state() {
         ensure_python();
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let expected_policy = seeded_digraph_policy();
             let graph = PyDiGraph::new_empty_with_policy(py, expected_policy.clone())
                 .expect("digraph should initialize");
@@ -3899,7 +3899,7 @@ mod tests {
     #[test]
     fn digraph_clear_preserves_runtime_policy_state() {
         ensure_python();
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let expected_policy = seeded_digraph_policy();
             let mut graph = PyDiGraph::new_empty_with_policy(py, expected_policy.clone())
                 .expect("digraph should initialize");
@@ -3913,7 +3913,7 @@ mod tests {
     #[test]
     fn multidigraph_clear_edges_preserves_runtime_policy_state() {
         ensure_python();
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let expected_policy = seeded_multidigraph_policy();
             let mut graph = PyMultiDiGraph::new_empty_with_policy(py, expected_policy.clone())
                 .expect("multidigraph should initialize");
@@ -3927,7 +3927,7 @@ mod tests {
     #[test]
     fn digraph_pickle_state_roundtrips_runtime_policy_state() {
         ensure_python();
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let expected_policy = seeded_digraph_policy();
             let graph = PyDiGraph::new_empty_with_policy(py, expected_policy.clone())
                 .expect("digraph should initialize");
@@ -3965,7 +3965,7 @@ mod tests {
     #[test]
     fn digraph_constructor_copy_preserves_runtime_policy_state() {
         ensure_python();
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let expected_policy = seeded_digraph_policy();
             let source = Py::new(
                 py,
@@ -3984,7 +3984,7 @@ mod tests {
     #[test]
     fn multidigraph_reverse_preserves_runtime_policy_state() {
         ensure_python();
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let expected_policy = seeded_multidigraph_policy();
             let graph = PyMultiDiGraph::new_empty_with_policy(py, expected_policy.clone())
                 .expect("multidigraph should initialize");
@@ -3998,7 +3998,7 @@ mod tests {
     #[test]
     fn multidigraph_pickle_state_roundtrips_runtime_policy_state() {
         ensure_python();
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let expected_policy = seeded_multidigraph_policy();
             let graph = PyMultiDiGraph::new_empty_with_policy(py, expected_policy.clone())
                 .expect("multidigraph should initialize");

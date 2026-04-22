@@ -18,10 +18,10 @@ fnx-readwrite = { path = "../fnx-readwrite" }
 fnx-convert = { path = "../fnx-convert" }
 fnx-views = { path = "../fnx-views" }
 fnx-runtime = { path = "../fnx-runtime" }
-hex = "0.4"
-pyo3 = { version = "0.23", features = ["abi3-py310", "multiple-pymethods"] }
-pyo3-log = "0.12"
-log = "0.4"
+hex = "0.4.3"
+pyo3 = { version = "0.28.3", features = ["abi3-py310", "multiple-pymethods"] }
+pyo3-log = "0.13.3"
+log = "0.4.29"
 serde_json = "1.0.149"
 
 [features]

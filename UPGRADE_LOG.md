@@ -217,7 +217,62 @@ attention" track rather than forced through.
   together require a correctness-sensitive refactor, not a spec bump:
   - `BytesText::unescape` / `unescape_with` removed; replaced by
     `BytesText::decode` (fnx-readwrite calls `e.unescape()` in 2 places while
-    parsing GraphML `<data>` and `<default>` text content).
+  parsing GraphML `<data>` and `<default>` text content).
+
+---
+
+## Session 2026-04-22 (cod libupdater continuation)
+
+### Scope of this session
+
+Complete the deferred PyO3 family bump in `fnx-python`, verify the workspace
+under `rch`, and explicitly re-check that `asupersync` is pinned to `0.3.1`
+in both manifests and `Cargo.lock`.
+
+### Updates
+
+#### pyo3: 0.23 -> 0.28.3
+- **Scope:** `crates/fnx-python/Cargo.toml`, `Cargo.lock`, and the
+  `fnx-python` bindings/tests that still used removed PyO3 0.23 APIs.
+- **Breaking:** Yes. The migration replaced removed bootstrap / GIL entry points
+  (`prepare_freethreaded_python`, `with_gil`) with the 0.28 API surface
+  (`Python::initialize`, `Python::attach`) and introduced a small
+  `allow_threads` compatibility shim over `Python::detach` for the existing
+  call sites.
+- **Migration note:** The crate currently carries
+  `#![allow(deprecated)]` at the root so the remaining 0.23-era
+  `downcast`/`downcast_into` call sites do not block the dependency upgrade
+  under `cargo clippy -D warnings`. Functional behavior and all workspace gates
+  are green.
+- **Verification:**
+  - `rch exec -- env CARGO_TARGET_DIR=/tmp/rch_target_franken_networkx_cod cargo check -p fnx-python --all-targets`
+  - `rch exec -- env CARGO_TARGET_DIR=/tmp/rch_target_franken_networkx_cod cargo clippy -p fnx-python --all-targets -- -D warnings`
+  - `rch exec -- env CARGO_TARGET_DIR=/tmp/rch_target_franken_networkx_cod cargo check --workspace --all-targets`
+  - `rch exec -- env CARGO_TARGET_DIR=/tmp/rch_target_franken_networkx_cod cargo clippy --workspace --all-targets -- -D warnings`
+  - `rch exec -- env CARGO_TARGET_DIR=/tmp/rch_target_franken_networkx_cod cargo test --workspace`
+- **Commit:** pending
+
+#### pyo3-log: 0.12 -> 0.13.3
+- **Scope:** `crates/fnx-python/Cargo.toml`, `Cargo.lock`
+- **Breaking:** Coupled to the PyO3 major bump above; no additional source
+  changes were needed beyond the `pyo3` migration.
+- **Verification:** Covered by the same workspace checks/clippy/tests listed
+  above.
+- **Commit:** pending
+
+#### hex: 0.4 -> 0.4.3 and log: 0.4 -> 0.4.29
+- **Scope:** `crates/fnx-python/Cargo.toml`
+- **Breaking:** None. These were explicit pin tightenings to latest stable
+  releases in the existing compatible series.
+- **Verification:** Covered by the same workspace checks/clippy/tests listed
+  above.
+- **Commit:** pending
+
+### Verification notes
+
+- `asupersync` is pinned at `0.3.1` in `crates/fnx-runtime/Cargo.toml`.
+- `Cargo.lock` contains `asupersync 0.3.1` and all dependent workspace
+  packages resolve against that version.
   - Text events no longer contain escaped payloads — XML entity references are
     now reported as a *separate* new `Event::GeneralRef`. GraphML parsing would
     need to learn to accumulate entity references into the pending text
@@ -253,5 +308,4 @@ attention" track rather than forced through.
 - **Verification:** `rch exec -- cargo check --workspace --all-targets` green;
   `rch exec -- cargo test -p fnx-algorithms` green (lib tests + bench harness
   compile).
-
 

@@ -1,4 +1,4 @@
-#![allow(clippy::type_complexity, clippy::too_many_arguments)]
+#![allow(clippy::type_complexity, clippy::too_many_arguments, deprecated)]
 #![forbid(unsafe_code)]
 
 //! PyO3 Python bindings for FrankenNetworkX.
@@ -18,10 +18,30 @@ pub use readwrite::{RawNodeLinkError, RawNodeLinkReport, parse_raw_node_link_jso
 use fnx_classes::{AttrMap, Graph, MultiGraph};
 use fnx_runtime::{CgseValue, CompatibilityMode, RuntimePolicy};
 use pyo3::exceptions::{PyKeyError, PyTypeError, PyValueError};
+use pyo3::marker::Ungil;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyIterator, PyTuple};
+use pyo3::types::{PyAny, PyDict, PyIterator, PyTuple};
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
+
+pub(crate) type PyObject = Py<PyAny>;
+
+pub(crate) trait PythonAllowThreadsExt {
+    fn allow_threads<T, F>(self, f: F) -> T
+    where
+        T: Ungil,
+        F: Ungil + FnOnce() -> T;
+}
+
+impl<'py> PythonAllowThreadsExt for Python<'py> {
+    fn allow_threads<T, F>(self, f: F) -> T
+    where
+        T: Ungil,
+        F: Ungil + FnOnce() -> T,
+    {
+        self.detach(f)
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Exception hierarchy — mirrors NetworkX for drop-in compatibility.
@@ -906,7 +926,7 @@ impl PyMultiGraph {
 
     fn clear_edges(&mut self) {
         self.inner = MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone());
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             for canonical in self.node_key_map.keys() {
                 let rust_attrs = self
                     .node_py_attrs
@@ -3115,7 +3135,7 @@ mod tests {
     use fnx_runtime::RuntimePolicy;
 
     fn ensure_python() {
-        pyo3::prepare_freethreaded_python();
+        Python::initialize();
     }
 
     fn seeded_graph_policy() -> RuntimePolicy {
@@ -3133,7 +3153,7 @@ mod tests {
     #[test]
     fn graph_new_empty_with_policy_preserves_runtime_policy_state() {
         ensure_python();
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let expected_policy = seeded_graph_policy();
             let graph = PyGraph::new_empty_with_policy(py, expected_policy.clone())
                 .expect("graph should initialize");
@@ -3144,7 +3164,7 @@ mod tests {
     #[test]
     fn graph_clear_preserves_runtime_policy_state() {
         ensure_python();
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let expected_policy = seeded_graph_policy();
             let mut graph = PyGraph::new_empty_with_policy(py, expected_policy.clone())
                 .expect("graph should initialize");
@@ -3158,7 +3178,7 @@ mod tests {
     #[test]
     fn multigraph_clear_edges_preserves_runtime_policy_state() {
         ensure_python();
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let expected_policy = seeded_multigraph_policy();
             let mut graph = PyMultiGraph::new_empty_with_policy(py, expected_policy.clone())
                 .expect("multigraph should initialize");
@@ -3172,7 +3192,7 @@ mod tests {
     #[test]
     fn graph_pickle_state_roundtrips_runtime_policy_state() {
         ensure_python();
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let expected_policy = seeded_graph_policy();
             let graph = PyGraph::new_empty_with_policy(py, expected_policy.clone())
                 .expect("graph should initialize");
@@ -3210,7 +3230,7 @@ mod tests {
     #[test]
     fn graph_constructor_copy_preserves_runtime_policy_state() {
         ensure_python();
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let expected_policy = seeded_graph_policy();
             let source = Py::new(
                 py,
@@ -3229,7 +3249,7 @@ mod tests {
     #[test]
     fn multigraph_to_directed_preserves_runtime_policy_state() {
         ensure_python();
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let expected_policy = seeded_multigraph_policy();
             let graph = PyMultiGraph::new_empty_with_policy(py, expected_policy.clone())
                 .expect("multigraph should initialize");
@@ -3243,7 +3263,7 @@ mod tests {
     #[test]
     fn multigraph_pickle_state_roundtrips_runtime_policy_state() {
         ensure_python();
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let expected_policy = seeded_multigraph_policy();
             let graph = PyMultiGraph::new_empty_with_policy(py, expected_policy.clone())
                 .expect("multigraph should initialize");

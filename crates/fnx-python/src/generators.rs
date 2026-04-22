@@ -4,7 +4,7 @@
 //! Node labels are Python integers (0, 1, 2, ...) matching NetworkX convention.
 
 use crate::digraph::{PyDiGraph, PyMultiDiGraph};
-use crate::{PyGraph, unwrap_infallible};
+use crate::{PyGraph, PyObject, unwrap_infallible};
 use fnx_algorithms::stochastic_block_model as rust_stochastic_block_model;
 use fnx_generators::GraphGenerator;
 use pyo3::exceptions::PyValueError;

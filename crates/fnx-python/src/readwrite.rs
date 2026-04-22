@@ -6,7 +6,7 @@
 
 use crate::algorithms::{GraphRef, extract_graph};
 use crate::digraph::PyDiGraph;
-use crate::{PyGraph, py_dict_to_attr_map};
+use crate::{PyGraph, PyObject, PythonAllowThreadsExt, py_dict_to_attr_map};
 use fnx_readwrite::{DiReadWriteReport, EdgeListEngine, ReadWriteError, ReadWriteReport};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;

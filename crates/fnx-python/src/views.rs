@@ -3,7 +3,7 @@
 //! These views provide dict-like read access to graph data and reflect
 //! the current state of the graph (they are "live" views backed by Py<PyGraph>).
 
-use crate::{NodeIterator, PyGraph, node_key_to_string};
+use crate::{NodeIterator, PyGraph, PyObject, node_key_to_string};
 use pyo3::exceptions::PyKeyError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyIterator, PyTuple};
@@ -36,7 +36,7 @@ impl Clone for NodeViewData {
             Self::AllData => Self::AllData,
             Self::Attr(s) => Self::Attr(s.clone()),
             Self::AttrWithDefault(s, obj) => {
-                Python::with_gil(|py| Self::AttrWithDefault(s.clone(), obj.clone_ref(py)))
+                Python::attach(|py| Self::AttrWithDefault(s.clone(), obj.clone_ref(py)))
             }
         }
     }
