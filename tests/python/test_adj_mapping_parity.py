@@ -685,6 +685,33 @@ def test_multigraph_nodes_satisfies_mapping_protocol(fnx_ctor, nx_ctor):
     assert fg.nodes.get("missing") is ng.nodes.get("missing") is None
 
 
+@pytest.mark.parametrize(
+    ("direction", "fnx_ctor", "nx_ctor"),
+    [
+        ("to_directed", fnx.Graph, nx.Graph),
+        ("to_undirected", fnx.DiGraph, nx.DiGraph),
+        ("to_directed", fnx.MultiGraph, nx.MultiGraph),
+        ("to_undirected", fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_conversion_live_view_node_view_supports_set_algebra(direction, fnx_ctor, nx_ctor):
+    fg = fnx_ctor()
+    fg.add_edges_from([(1, 2), (2, 3), (3, 4)])
+    ng = nx_ctor()
+    ng.add_edges_from([(1, 2), (2, 3), (3, 4)])
+
+    fv = getattr(fg, direction)(as_view=True)
+    nv = getattr(ng, direction)(as_view=True)
+
+    other = {1, 5}
+    assert fv.nodes & other == nv.nodes & other
+    assert other & fv.nodes == other & nv.nodes
+    assert fv.nodes | other == nv.nodes | other
+    assert fv.nodes - other == nv.nodes - other
+    assert other - fv.nodes == other - nv.nodes
+    assert fv.nodes ^ other == nv.nodes ^ other
+
+
 def test_digraph_edge_subgraph_preserves_node_iteration_order():
     fg = fnx.DiGraph()
     fg.add_edge("a", "b")

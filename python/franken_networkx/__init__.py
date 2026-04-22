@@ -15249,6 +15249,30 @@ class _ConversionNodeView(Mapping):
     def data(self, data=True, default=None):
         return self._data_rows(data=data, default=default)
 
+    def __and__(self, other):
+        return set(self) & set(other)
+
+    def __rand__(self, other):
+        return set(other) & set(self)
+
+    def __or__(self, other):
+        return set(self) | set(other)
+
+    def __ror__(self, other):
+        return set(other) | set(self)
+
+    def __sub__(self, other):
+        return set(self) - set(other)
+
+    def __rsub__(self, other):
+        return set(other) - set(self)
+
+    def __xor__(self, other):
+        return set(self) ^ set(other)
+
+    def __rxor__(self, other):
+        return set(other) ^ set(self)
+
 
 class _ConversionEdgeView:
     def __init__(self, view):
