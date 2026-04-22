@@ -146,12 +146,12 @@ def _number_of_edges_with_endpoints(number_of_edges_impl):
     return number_of_edges
 
 
-def _neighbors_with_networkx_missing_node_error(neighbors_impl):
+def _neighbors_with_networkx_missing_node_error(neighbors_impl, *, graph_kind="graph"):
     def neighbors(self, node):
         try:
             return neighbors_impl(self, node)
         except NodeNotFound as exc:
-            raise NetworkXError(f"The node {node} is not in the graph.") from exc
+            raise NetworkXError(f"The node {node} is not in the {graph_kind}.") from exc
 
     return neighbors
 
@@ -318,7 +318,13 @@ _MULTIDIGRAPH_SUBGRAPH = MultiDiGraph.subgraph
 _GRAPH_NUMBER_OF_EDGES = Graph.number_of_edges
 _DIGRAPH_NUMBER_OF_EDGES = DiGraph.number_of_edges
 _GRAPH_NEIGHBORS = Graph.neighbors
+_DIGRAPH_NEIGHBORS = DiGraph.neighbors
+_DIGRAPH_SUCCESSORS = DiGraph.successors
+_DIGRAPH_PREDECESSORS = DiGraph.predecessors
 _MULTIGRAPH_NEIGHBORS = MultiGraph.neighbors
+_MULTIDIGRAPH_NEIGHBORS = MultiDiGraph.neighbors
+_MULTIDIGRAPH_SUCCESSORS = MultiDiGraph.successors
+_MULTIDIGRAPH_PREDECESSORS = MultiDiGraph.predecessors
 _EDGE_VIEW_TYPE = type(Graph().edges)
 _DIEDGE_VIEW_TYPE = type(DiGraph().edges)
 _EDGE_VIEW_CALL = _EDGE_VIEW_TYPE.__call__
@@ -341,7 +347,25 @@ MultiDiGraph.size = _size_with_unweighted_int(MultiDiGraph.size)
 Graph.number_of_edges = _number_of_edges_with_endpoints(_GRAPH_NUMBER_OF_EDGES)
 DiGraph.number_of_edges = _number_of_edges_with_endpoints(_DIGRAPH_NUMBER_OF_EDGES)
 Graph.neighbors = _neighbors_with_networkx_missing_node_error(_GRAPH_NEIGHBORS)
+DiGraph.neighbors = _neighbors_with_networkx_missing_node_error(
+    _DIGRAPH_NEIGHBORS, graph_kind="digraph"
+)
+DiGraph.successors = _neighbors_with_networkx_missing_node_error(
+    _DIGRAPH_SUCCESSORS, graph_kind="digraph"
+)
+DiGraph.predecessors = _neighbors_with_networkx_missing_node_error(
+    _DIGRAPH_PREDECESSORS, graph_kind="digraph"
+)
 MultiGraph.neighbors = _neighbors_with_networkx_missing_node_error(_MULTIGRAPH_NEIGHBORS)
+MultiDiGraph.neighbors = _neighbors_with_networkx_missing_node_error(
+    _MULTIDIGRAPH_NEIGHBORS, graph_kind="digraph"
+)
+MultiDiGraph.successors = _neighbors_with_networkx_missing_node_error(
+    _MULTIDIGRAPH_SUCCESSORS, graph_kind="digraph"
+)
+MultiDiGraph.predecessors = _neighbors_with_networkx_missing_node_error(
+    _MULTIDIGRAPH_PREDECESSORS, graph_kind="digraph"
+)
 _EDGE_VIEW_TYPE.__call__ = _edge_view_call_with_nbunch_first(_EDGE_VIEW_CALL)
 _DIEDGE_VIEW_TYPE.__call__ = _edge_view_call_with_nbunch_first(_DIEDGE_VIEW_CALL)
 _MULTIGRAPH_NODE_VIEW_TYPE.__call__ = _node_view_call_with_attr_support(

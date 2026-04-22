@@ -1820,6 +1820,43 @@ def test_undirected_graph_classes_neighbors_preserve_missing_node_errors(
 
 
 @pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls", "method_name", "missing_node"),
+    [
+        (fnx.DiGraph, nx.DiGraph, "neighbors", "missing"),
+        (fnx.DiGraph, nx.DiGraph, "neighbors", 9),
+        (fnx.DiGraph, nx.DiGraph, "successors", "missing"),
+        (fnx.DiGraph, nx.DiGraph, "successors", 9),
+        (fnx.DiGraph, nx.DiGraph, "predecessors", "missing"),
+        (fnx.DiGraph, nx.DiGraph, "predecessors", 9),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, "neighbors", "missing"),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, "neighbors", 9),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, "successors", "missing"),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, "successors", 9),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, "predecessors", "missing"),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, "predecessors", 9),
+    ],
+)
+def test_directed_graph_classes_neighbors_preserve_missing_node_errors(
+    fnx_cls, nx_cls, method_name, missing_node
+):
+    graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+
+    try:
+        getattr(expected, method_name)(missing_node)
+    except Exception as exc:
+        expected_type = type(exc).__name__
+        expected_message = str(exc)
+    else:
+        raise AssertionError(f"expected NetworkX {method_name}() to fail for a missing node")
+
+    with pytest.raises(Exception) as fnx_exc:
+        getattr(graph, method_name)(missing_node)
+
+    assert type(fnx_exc.value).__name__ == expected_type
+    assert str(fnx_exc.value) == expected_message
+
+
+@pytest.mark.parametrize(
     ("fnx_cls", "nx_cls"),
     [
         (fnx.Graph, nx.Graph),
