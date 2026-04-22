@@ -34,6 +34,12 @@ const PAGERANK_DEFAULT_MAX_ITERATIONS: usize = 100;
 /// Tighter values improve accuracy but increase iteration count.
 const PAGERANK_DEFAULT_TOLERANCE: f64 = 1.0e-6;
 
+/// Eigenvector centrality max iteration cap. NetworkX default: 100.
+const EIGENVECTOR_DEFAULT_MAX_ITERATIONS: usize = 100;
+
+/// L1-norm convergence tolerance for eigenvector centrality. NetworkX default: 1e-6.
+const EIGENVECTOR_DEFAULT_TOLERANCE: f64 = 1.0e-6;
+
 /// Katz centrality attenuation factor. NX default: 0.1.
 /// Must be less than 1/spectral_radius(A) for convergence.
 const KATZ_DEFAULT_ALPHA: f64 = 0.1;
@@ -2731,43 +2737,81 @@ pub fn pagerank_with_params<G: GraphView>(
 
 #[must_use]
 pub fn eigenvector_centrality(graph: &Graph) -> EigenvectorCentralityResult {
-    eigenvector_centrality_generic(graph)
+    eigenvector_centrality_with_params(
+        graph,
+        EIGENVECTOR_DEFAULT_MAX_ITERATIONS,
+        EIGENVECTOR_DEFAULT_TOLERANCE,
+    )
+    .0
 }
 
 #[must_use]
 pub fn eigenvector_centrality_directed(graph: &DiGraph) -> EigenvectorCentralityResult {
-    eigenvector_centrality_generic(graph)
+    eigenvector_centrality_directed_with_params(
+        graph,
+        EIGENVECTOR_DEFAULT_MAX_ITERATIONS,
+        EIGENVECTOR_DEFAULT_TOLERANCE,
+    )
+    .0
 }
 
-fn eigenvector_centrality_generic<G: GraphView>(graph: &G) -> EigenvectorCentralityResult {
+#[must_use]
+pub fn eigenvector_centrality_with_params(
+    graph: &Graph,
+    max_iter: usize,
+    tol: f64,
+) -> (EigenvectorCentralityResult, bool) {
+    eigenvector_centrality_generic(graph, max_iter, tol)
+}
+
+#[must_use]
+pub fn eigenvector_centrality_directed_with_params(
+    graph: &DiGraph,
+    max_iter: usize,
+    tol: f64,
+) -> (EigenvectorCentralityResult, bool) {
+    eigenvector_centrality_generic(graph, max_iter, tol)
+}
+
+fn eigenvector_centrality_generic<G: GraphView>(
+    graph: &G,
+    max_iter: usize,
+    tol: f64,
+) -> (EigenvectorCentralityResult, bool) {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     if n == 0 {
-        return EigenvectorCentralityResult {
-            scores: Vec::new(),
-            witness: ComplexityWitness {
-                algorithm: "eigenvector_centrality_power_iteration".to_owned(),
-                complexity_claim: "O(k * (|V| + |E|))".to_owned(),
-                nodes_touched: 0,
-                edges_scanned: 0,
-                queue_peak: 0,
+        return (
+            EigenvectorCentralityResult {
+                scores: Vec::new(),
+                witness: ComplexityWitness {
+                    algorithm: "eigenvector_centrality_power_iteration".to_owned(),
+                    complexity_claim: "O(k * (|V| + |E|))".to_owned(),
+                    nodes_touched: 0,
+                    edges_scanned: 0,
+                    queue_peak: 0,
+                },
             },
-        };
+            true,
+        );
     }
     if n == 1 {
-        return EigenvectorCentralityResult {
-            scores: vec![CentralityScore {
-                node: nodes[0].to_owned(),
-                score: 1.0,
-            }],
-            witness: ComplexityWitness {
-                algorithm: "eigenvector_centrality_power_iteration".to_owned(),
-                complexity_claim: "O(k * (|V| + |E|))".to_owned(),
-                nodes_touched: 1,
-                edges_scanned: 0,
-                queue_peak: 0,
+        return (
+            EigenvectorCentralityResult {
+                scores: vec![CentralityScore {
+                    node: nodes[0].to_owned(),
+                    score: 1.0,
+                }],
+                witness: ComplexityWitness {
+                    algorithm: "eigenvector_centrality_power_iteration".to_owned(),
+                    complexity_claim: "O(k * (|V| + |E|))".to_owned(),
+                    nodes_touched: 1,
+                    edges_scanned: 0,
+                    queue_peak: 0,
+                },
             },
-        };
+            true,
+        );
     }
 
     let mut canonical_nodes = nodes.clone();
@@ -2783,7 +2827,8 @@ fn eigenvector_centrality_generic<G: GraphView>(graph: &G) -> EigenvectorCentral
     let mut iterations = 0usize;
     let mut edges_scanned = 0usize;
 
-    for _ in 0..PAGERANK_DEFAULT_MAX_ITERATIONS {
+    let mut converged = false;
+    for _ in 0..max_iter {
         iterations += 1;
         // Initialize next_scores with current scores, then ADD neighbor
         // contributions. This computes (I+A)*x per iteration, which has the
@@ -2822,7 +2867,8 @@ fn eigenvector_centrality_generic<G: GraphView>(graph: &G) -> EigenvectorCentral
             .map(|(left, right)| (left - right).abs())
             .sum::<f64>();
         scores.copy_from_slice(&next_scores);
-        if delta < n as f64 * PAGERANK_DEFAULT_TOLERANCE {
+        if delta < n as f64 * tol {
+            converged = true;
             break;
         }
     }
@@ -2837,16 +2883,19 @@ fn eigenvector_centrality_generic<G: GraphView>(graph: &G) -> EigenvectorCentral
         })
         .collect::<Vec<CentralityScore>>();
 
-    EigenvectorCentralityResult {
-        scores: ordered_scores,
-        witness: ComplexityWitness {
-            algorithm: "eigenvector_centrality_power_iteration".to_owned(),
-            complexity_claim: "O(k * (|V| + |E|))".to_owned(),
-            nodes_touched: n.saturating_mul(iterations),
-            edges_scanned,
-            queue_peak: 0,
+    (
+        EigenvectorCentralityResult {
+            scores: ordered_scores,
+            witness: ComplexityWitness {
+                algorithm: "eigenvector_centrality_power_iteration".to_owned(),
+                complexity_claim: "O(k * (|V| + |E|))".to_owned(),
+                nodes_touched: n.saturating_mul(iterations),
+                edges_scanned,
+                queue_peak: 0,
+            },
         },
-    }
+        converged,
+    )
 }
 
 #[must_use]

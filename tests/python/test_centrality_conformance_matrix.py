@@ -464,16 +464,21 @@ def test_pagerank_alpha_knob_matches_networkx():
         )
 
 
-def test_eigenvector_centrality_rejects_non_default_params():
-    """fnx.eigenvector_centrality currently only accepts defaults and
-    raises NetworkXNotImplemented for explicit max_iter / tol. Lock this
-    contract as a visible gap (paired with a TODO in the harness).
-    """
-    fg = fnx.cycle_graph(8)
-    err_types = []
-    for cls_name in ("NetworkXNotImplemented", "NetworkXError"):
-        cls = getattr(fnx, cls_name, None)
-        if cls is not None:
-            err_types.append(cls)
-    with pytest.raises(tuple(err_types)):
-        fnx.eigenvector_centrality(fg, max_iter=500, tol=1e-6)
+def test_eigenvector_centrality_max_iter_and_tol_match_networkx():
+    fg = fnx.path_graph(8)
+    ng = nx.path_graph(8)
+    _eigenvector_values_close(
+        fnx.eigenvector_centrality(fg, max_iter=500, tol=1e-9),
+        nx.eigenvector_centrality(ng, max_iter=500, tol=1e-9),
+        rel=1e-5,
+        abs_=1e-7,
+    )
+
+
+def test_eigenvector_centrality_nonconvergence_matches_networkx():
+    fg = fnx.path_graph(8)
+    ng = nx.path_graph(8)
+    with pytest.raises(nx.PowerIterationFailedConvergence):
+        nx.eigenvector_centrality(ng, max_iter=1, tol=1e-12)
+    with pytest.raises(fnx.PowerIterationFailedConvergence):
+        fnx.eigenvector_centrality(fg, max_iter=1, tol=1e-12)

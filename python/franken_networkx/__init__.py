@@ -1658,8 +1658,13 @@ def eigenvector_centrality(G, max_iter=100, tol=1e-06, nstart=None, weight=None)
     dict
         Dictionary of nodes with eigenvector centrality as value.
     """
-    w = weight if weight is not None else "weight"
-    return _raw_eigenvector_centrality(G, max_iter=max_iter, tol=tol, nstart=nstart, weight=w)
+    return _raw_eigenvector_centrality(
+        G,
+        max_iter=max_iter,
+        tol=tol,
+        nstart=nstart,
+        weight=weight,
+    )
 
 
 def harmonic_centrality(G, nbunch=None, distance=None, sources=None):

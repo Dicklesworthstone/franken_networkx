@@ -7,8 +7,8 @@
 use crate::digraph::{PyDiGraph, PyMultiDiGraph};
 use crate::{
     NetworkXError, NetworkXNoCycle, NetworkXNoPath, NetworkXNotImplemented, NetworkXUnfeasible,
-    NodeNotFound, NotAPartition, PyGraph, PyMultiGraph, PyObject, PythonAllowThreadsExt,
-    node_key_to_string,
+    NodeNotFound, NotAPartition, PowerIterationFailedConvergence, PyGraph, PyMultiGraph, PyObject,
+    PythonAllowThreadsExt, node_key_to_string,
 };
 use fnx_classes::AttrMap;
 use pyo3::exceptions::{PyIndexError, PyValueError, PyZeroDivisionError};
@@ -2743,7 +2743,7 @@ pub fn closeness_vitality(
 
 /// Return the eigenvector centrality for all nodes.
 #[pyfunction]
-#[pyo3(signature = (g, max_iter=100, tol=1.0e-6, nstart=None, weight="weight"))]
+#[pyo3(signature = (g, max_iter=100, tol=1.0e-6, nstart=None, weight=None))]
 pub fn eigenvector_centrality(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
@@ -2752,35 +2752,44 @@ pub fn eigenvector_centrality(
     nstart: Option<Bound<'_, PyAny>>,
     weight: Option<&str>,
 ) -> PyResult<Py<PyDict>> {
-    if max_iter != 100
-        || (tol - 1.0e-6).abs() > f64::EPSILON
-        || nstart.is_some()
-        || weight.is_some_and(|w| w != "weight")
-    {
+    if nstart.is_some() || weight.is_some() {
         return Err(crate::NetworkXNotImplemented::new_err(
-            "franken_networkx currently only supports default parameters for eigenvector_centrality",
+            "franken_networkx currently only supports nstart=None and weight=None for eigenvector_centrality",
         ));
     }
     let gr = extract_graph(g)?;
-    let result = match &gr {
+    let (result, converged) = match &gr {
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
-            py.allow_threads(|| fnx_algorithms::eigenvector_centrality(inner))
+            py.allow_threads(|| {
+                fnx_algorithms::eigenvector_centrality_with_params(inner, max_iter, tol)
+            })
         }
         GraphRef::Directed { dg, .. } => {
             let inner = &dg.inner;
-            py.allow_threads(|| fnx_algorithms::eigenvector_centrality_directed(inner))
+            py.allow_threads(|| {
+                fnx_algorithms::eigenvector_centrality_directed_with_params(inner, max_iter, tol)
+            })
         }
         _ => {
             if gr.is_directed() {
                 let inner = gr.digraph().expect("is_directed checked above");
-                py.allow_threads(|| fnx_algorithms::eigenvector_centrality_directed(inner))
+                py.allow_threads(|| {
+                    fnx_algorithms::eigenvector_centrality_directed_with_params(
+                        inner, max_iter, tol,
+                    )
+                })
             } else {
                 let inner = gr.undirected();
-                py.allow_threads(|| fnx_algorithms::eigenvector_centrality(inner))
+                py.allow_threads(|| {
+                    fnx_algorithms::eigenvector_centrality_with_params(inner, max_iter, tol)
+                })
             }
         }
     };
+    if !converged {
+        return Err(PowerIterationFailedConvergence::new_err(max_iter));
+    }
     centrality_to_dict(py, &gr, &result.scores)
 }
 
