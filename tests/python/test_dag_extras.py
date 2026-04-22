@@ -173,3 +173,56 @@ class TestTopologicalGenerations:
         D.add_edge(1, 0)
         with pytest.raises(fnx.HasACycle):
             list(fnx.topological_generations(D))
+
+
+# ---------------------------------------------------------------------------
+# antichains
+# ---------------------------------------------------------------------------
+
+
+class TestAntichains:
+    def test_diamond_antichains(self, diamond_dag):
+        """Diamond DAG should have antichains: [], [0], [1], [2], [3], [1, 2]."""
+        antichains = list(fnx.antichains(diamond_dag))
+        # Convert to frozensets for comparison (order doesn't matter)
+        ac_sets = {frozenset(ac) for ac in antichains}
+        expected = {
+            frozenset(),
+            frozenset([0]),
+            frozenset([1]),
+            frozenset([2]),
+            frozenset([3]),
+            frozenset([1, 2]),
+        }
+        assert ac_sets == expected
+
+    def test_antichains_with_topo_order(self, diamond_dag):
+        """antichains(topo_order=...) should match NetworkX behavior."""
+        import networkx as nx
+
+        # Get a topological order
+        topo = list(fnx.topological_sort(diamond_dag))
+
+        # Build equivalent NetworkX graph
+        G_nx = nx.DiGraph()
+        G_nx.add_edges_from(diamond_dag.edges)
+
+        # Compare antichains with explicit topo_order
+        fnx_ac = {frozenset(ac) for ac in fnx.antichains(diamond_dag, topo_order=topo)}
+        nx_ac = {frozenset(ac) for ac in nx.antichains(G_nx, topo_order=topo)}
+        assert fnx_ac == nx_ac
+
+    def test_antichains_topo_order_affects_output_order(self):
+        """Different topo_orders may produce antichains in different orders."""
+        D = fnx.DiGraph()
+        D.add_edge(0, 2)
+        D.add_edge(1, 2)
+        # Two valid topological orders: [0, 1, 2] or [1, 0, 2]
+        topo1 = [0, 1, 2]
+        topo2 = [1, 0, 2]
+
+        ac1 = list(fnx.antichains(D, topo_order=topo1))
+        ac2 = list(fnx.antichains(D, topo_order=topo2))
+
+        # Same antichains, but possibly different order
+        assert {frozenset(ac) for ac in ac1} == {frozenset(ac) for ac in ac2}
