@@ -145,6 +145,26 @@ class TestCommonNeighborCentrality:
         assert type(fnx_exc.value).__name__ == expected_type
         assert str(fnx_exc.value) == expected_message
 
+    def test_backend_keyword_surface_matches_networkx(self):
+        graph = fnx.path_graph(4)
+        expected = nx.path_graph(4)
+        ebunch = [(0, 3)]
+
+        for backend in (None, "networkx"):
+            assert list(
+                fnx.common_neighbor_centrality(graph, ebunch, backend=backend)
+            ) == list(nx.common_neighbor_centrality(expected, ebunch, backend=backend))
+
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            list(fnx.common_neighbor_centrality(graph, ebunch, backend="parallel"))
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            list(nx.common_neighbor_centrality(expected, ebunch, backend="parallel"))
+
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            list(fnx.common_neighbor_centrality(graph, ebunch, backend_kwargs={"x": 1}))
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            list(nx.common_neighbor_centrality(expected, ebunch, backend_kwargs={"x": 1}))
+
 
 # ---------------------------------------------------------------------------
 # jaccard_coefficient

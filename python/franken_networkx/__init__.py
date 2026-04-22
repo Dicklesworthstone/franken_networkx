@@ -11215,8 +11215,21 @@ def degree_sequence_tree(deg_sequence, create_using=None):
     return graph
 
 
-def common_neighbor_centrality(G, ebunch=None, alpha=0.8):
+def common_neighbor_centrality(
+    G,
+    ebunch=None,
+    alpha=0.8,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
     """Return the CCPA score for each pair of nodes."""
+    _validate_backend_dispatch_keywords(
+        "common_neighbor_centrality",
+        backend,
+        backend_kwargs,
+    )
+
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
