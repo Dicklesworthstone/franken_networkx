@@ -5209,8 +5209,6 @@ def floyd_warshall_predecessor_and_distance(G, weight="weight"):
 from franken_networkx._fnx import (
     in_degree_centrality as _raw_in_degree_centrality,
     out_degree_centrality as _raw_out_degree_centrality,
-    local_reaching_centrality,
-    global_reaching_centrality,
     group_degree_centrality as _raw_group_degree_centrality,
     group_in_degree_centrality as _raw_group_in_degree_centrality,
     group_out_degree_centrality as _raw_group_out_degree_centrality,
@@ -5227,6 +5225,108 @@ def out_degree_centrality(G, *, backend=None, **backend_kwargs):
     """Compute out-degree centrality for nodes in a directed graph."""
     _validate_backend_dispatch_keywords("out_degree_centrality", backend, backend_kwargs)
     return _raw_out_degree_centrality(G)
+
+
+def _average_path_weight(G, path, weight=None):
+    path_length = len(path) - 1
+    if path_length <= 0:
+        return 0
+    if weight is None:
+        return 1 / path_length
+    total_weight = sum(G.edges[u, v][weight] for u, v in itertools.pairwise(path))
+    return total_weight / path_length
+
+
+def local_reaching_centrality(
+    G,
+    v,
+    paths=None,
+    weight=None,
+    normalized=True,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    """Returns the local reaching centrality of a node."""
+    _validate_backend_dispatch_keywords(
+        "local_reaching_centrality", backend, backend_kwargs
+    )
+
+    total_weight = G.size(weight=weight)
+    if total_weight > 0 and len(G) == 1:
+        raise NetworkXError(
+            "local_reaching_centrality of a single node with self-loop not well-defined"
+        )
+
+    if paths is None:
+        if is_negatively_weighted(G, weight=weight):
+            raise NetworkXError("edge weights must be positive")
+        if total_weight <= 0:
+            raise NetworkXError("Size of G must be positive")
+        if weight is not None:
+
+            def as_distance(u, v_, d):
+                return total_weight / d.get(weight, 1)
+
+            paths = shortest_path(G, source=v, weight=as_distance)
+        else:
+            paths = shortest_path(G, source=v)
+
+    if weight is None and G.is_directed():
+        return (len(paths) - 1) / (len(G) - 1)
+
+    if normalized and weight is not None:
+        norm = G.size(weight=weight) / G.size()
+    else:
+        norm = 1
+
+    sum_avg_weight = sum(
+        _average_path_weight(G, path, weight=weight) for path in paths.values()
+    ) / norm
+    return sum_avg_weight / (len(G) - 1)
+
+
+def global_reaching_centrality(
+    G,
+    weight=None,
+    normalized=True,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    """Returns the global reaching centrality of a graph."""
+    _validate_backend_dispatch_keywords(
+        "global_reaching_centrality", backend, backend_kwargs
+    )
+
+    if is_negatively_weighted(G, weight=weight):
+        raise NetworkXError("edge weights must be positive")
+
+    total_weight = G.size(weight=weight)
+    if total_weight <= 0:
+        raise NetworkXError("Size of G must be positive")
+
+    if weight is not None:
+
+        def as_distance(u, v, d):
+            return total_weight / d.get(weight, 1)
+
+        shortest_paths = dict(shortest_path(G, weight=as_distance))
+    else:
+        shortest_paths = dict(shortest_path(G))
+
+    lrc = [
+        local_reaching_centrality(
+            G,
+            node,
+            paths=paths,
+            weight=weight,
+            normalized=normalized,
+        )
+        for node, paths in shortest_paths.items()
+    ]
+    max_lrc = max(lrc)
+    return sum(max_lrc - centrality for centrality in lrc) / (len(G) - 1)
 
 
 def group_degree_centrality(G, S, *, backend=None, **backend_kwargs):

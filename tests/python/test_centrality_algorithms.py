@@ -10,6 +10,9 @@ Tests cover:
 - group_out_degree_centrality
 """
 
+import inspect
+
+import networkx as nx
 import pytest
 import franken_networkx as fnx
 
@@ -92,6 +95,11 @@ class TestOutDegreeCentrality:
 # ---------------------------------------------------------------------------
 
 class TestLocalReachingCentrality:
+    def test_signature_matches_networkx(self):
+        assert str(inspect.signature(fnx.local_reaching_centrality)) == str(
+            inspect.signature(nx.local_reaching_centrality)
+        )
+
     def test_connected_undirected(self, triangle):
         assert fnx.local_reaching_centrality(triangle, "a") == pytest.approx(1.0)
 
@@ -108,12 +116,56 @@ class TestLocalReachingCentrality:
     def test_directed_middle(self, directed_chain):
         assert fnx.local_reaching_centrality(directed_chain, "b") == pytest.approx(0.5)
 
+    def test_path_graph_matches_networkx(self):
+        fg = fnx.path_graph(5)
+        ng = nx.path_graph(5)
+        for node in fg:
+            assert fnx.local_reaching_centrality(fg, node) == pytest.approx(
+                nx.local_reaching_centrality(ng, node)
+            )
+
+    def test_weighted_path_matches_networkx(self):
+        fg = fnx.path_graph(5)
+        ng = nx.path_graph(5)
+        for i, (u, v) in enumerate(fg.edges()):
+            fg[u][v]["weight"] = i + 1
+        for i, (u, v) in enumerate(ng.edges()):
+            ng[u][v]["weight"] = i + 1
+        for node in fg:
+            assert fnx.local_reaching_centrality(
+                fg, node, weight="weight"
+            ) == pytest.approx(nx.local_reaching_centrality(ng, node, weight="weight"))
+
+    def test_backend_keyword_surface_matches_networkx(self):
+        fg = fnx.path_graph(4)
+        ng = nx.path_graph(4)
+
+        for backend in (None, "networkx"):
+            assert fnx.local_reaching_centrality(fg, 0, backend=backend) == pytest.approx(
+                nx.local_reaching_centrality(ng, 0, backend=backend)
+            )
+
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            fnx.local_reaching_centrality(fg, 0, backend="parallel")
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            nx.local_reaching_centrality(ng, 0, backend="parallel")
+
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            fnx.local_reaching_centrality(fg, 0, backend_kwargs={"x": 1})
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            nx.local_reaching_centrality(ng, 0, backend_kwargs={"x": 1})
+
 
 # ---------------------------------------------------------------------------
 # global_reaching_centrality
 # ---------------------------------------------------------------------------
 
 class TestGlobalReachingCentrality:
+    def test_signature_matches_networkx(self):
+        assert str(inspect.signature(fnx.global_reaching_centrality)) == str(
+            inspect.signature(nx.global_reaching_centrality)
+        )
+
     def test_connected_undirected(self, triangle):
         # All nodes reach all others: GRC = 0
         assert fnx.global_reaching_centrality(triangle) == pytest.approx(0.0)
@@ -122,6 +174,43 @@ class TestGlobalReachingCentrality:
         # local reaching = [1.0, 0.5, 0.0], max=1.0
         # GRC = ((0) + (0.5) + (1.0)) / 2 = 0.75
         assert fnx.global_reaching_centrality(directed_chain) == pytest.approx(0.75)
+
+    def test_path_graph_matches_networkx(self):
+        fg = fnx.path_graph(5)
+        ng = nx.path_graph(5)
+        assert fnx.global_reaching_centrality(fg) == pytest.approx(
+            nx.global_reaching_centrality(ng)
+        )
+
+    def test_weighted_path_matches_networkx(self):
+        fg = fnx.path_graph(5)
+        ng = nx.path_graph(5)
+        for i, (u, v) in enumerate(fg.edges()):
+            fg[u][v]["weight"] = i + 1
+        for i, (u, v) in enumerate(ng.edges()):
+            ng[u][v]["weight"] = i + 1
+        assert fnx.global_reaching_centrality(fg, weight="weight") == pytest.approx(
+            nx.global_reaching_centrality(ng, weight="weight")
+        )
+
+    def test_backend_keyword_surface_matches_networkx(self):
+        fg = fnx.path_graph(4)
+        ng = nx.path_graph(4)
+
+        for backend in (None, "networkx"):
+            assert fnx.global_reaching_centrality(fg, backend=backend) == pytest.approx(
+                nx.global_reaching_centrality(ng, backend=backend)
+            )
+
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            fnx.global_reaching_centrality(fg, backend="parallel")
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            nx.global_reaching_centrality(ng, backend="parallel")
+
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            fnx.global_reaching_centrality(fg, backend_kwargs={"x": 1})
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            nx.global_reaching_centrality(ng, backend_kwargs={"x": 1})
 
 
 # ---------------------------------------------------------------------------
