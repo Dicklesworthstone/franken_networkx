@@ -284,6 +284,30 @@ class TestColoring:
         nx_colors = len(set(nx.greedy_color(G_nx).values()))
         assert fnx_colors == nx_colors
 
+    @pytest.mark.parametrize(
+        "strategy",
+        [
+            "connected_sequential",
+            "connected_sequential_dfs",
+            "connected_sequential_bfs",
+        ],
+    )
+    def test_greedy_color_connected_sequential_accepts_fnx_graph(
+        self, fnx, nx, strategy
+    ):
+        """Connected-sequential strategies must accept fnx.Graph inputs
+        without AttributeError on G._adj — bead franken_networkx-c8nd.
+        """
+        fg = fnx.cycle_graph(5)
+        ng = nx.cycle_graph(5)
+        f_coloring = fnx.greedy_color(fg, strategy=strategy)
+        n_coloring = nx.greedy_color(ng, strategy=strategy)
+        # Same number of colors used.
+        assert len(set(f_coloring.values())) == len(set(n_coloring.values()))
+        # Proper coloring invariant.
+        for u, v in fg.edges:
+            assert f_coloring[u] != f_coloring[v]
+
 
 @pytest.mark.conformance
 class TestCore:
