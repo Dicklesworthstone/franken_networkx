@@ -156,6 +156,29 @@ def _neighbors_with_networkx_missing_node_error(neighbors_impl, *, graph_kind="g
     return neighbors
 
 
+def _remove_edge_with_networkx_missing_edge_error(
+    remove_edge_impl, *, missing_edge_message, supports_key=False
+):
+    if supports_key:
+
+        def remove_edge(self, u, v, key=None):
+            if key is None:
+                if not self.has_edge(u, v):
+                    raise NetworkXError(missing_edge_message.format(u=u, v=v))
+            elif not self.has_edge(u, v, key):
+                raise NetworkXError(f"The edge {u}-{v} with key {key} is not in the graph.")
+            return remove_edge_impl(self, u, v, key)
+
+    else:
+
+        def remove_edge(self, u, v):
+            if not self.has_edge(u, v):
+                raise NetworkXError(missing_edge_message.format(u=u, v=v))
+            return remove_edge_impl(self, u, v)
+
+    return remove_edge
+
+
 def _edge_view_call_with_nbunch_first(edge_view_call):
     _unset = object()
 
@@ -317,11 +340,15 @@ _MULTIGRAPH_SUBGRAPH = MultiGraph.subgraph
 _MULTIDIGRAPH_SUBGRAPH = MultiDiGraph.subgraph
 _GRAPH_NUMBER_OF_EDGES = Graph.number_of_edges
 _DIGRAPH_NUMBER_OF_EDGES = DiGraph.number_of_edges
+_GRAPH_REMOVE_EDGE = Graph.remove_edge
+_DIGRAPH_REMOVE_EDGE = DiGraph.remove_edge
 _GRAPH_NEIGHBORS = Graph.neighbors
 _DIGRAPH_NEIGHBORS = DiGraph.neighbors
 _DIGRAPH_SUCCESSORS = DiGraph.successors
 _DIGRAPH_PREDECESSORS = DiGraph.predecessors
+_MULTIGRAPH_REMOVE_EDGE = MultiGraph.remove_edge
 _MULTIGRAPH_NEIGHBORS = MultiGraph.neighbors
+_MULTIDIGRAPH_REMOVE_EDGE = MultiDiGraph.remove_edge
 _MULTIDIGRAPH_NEIGHBORS = MultiDiGraph.neighbors
 _MULTIDIGRAPH_SUCCESSORS = MultiDiGraph.successors
 _MULTIDIGRAPH_PREDECESSORS = MultiDiGraph.predecessors
@@ -344,6 +371,22 @@ Graph.size = _size_with_unweighted_int(Graph.size)
 DiGraph.size = _size_with_unweighted_int(DiGraph.size)
 MultiGraph.size = _size_with_unweighted_int(MultiGraph.size)
 MultiDiGraph.size = _size_with_unweighted_int(MultiDiGraph.size)
+Graph.remove_edge = _remove_edge_with_networkx_missing_edge_error(
+    _GRAPH_REMOVE_EDGE, missing_edge_message="The edge {u}-{v} is not in the graph"
+)
+DiGraph.remove_edge = _remove_edge_with_networkx_missing_edge_error(
+    _DIGRAPH_REMOVE_EDGE, missing_edge_message="The edge {u}-{v} not in graph."
+)
+MultiGraph.remove_edge = _remove_edge_with_networkx_missing_edge_error(
+    _MULTIGRAPH_REMOVE_EDGE,
+    missing_edge_message="The edge {u}-{v} is not in the graph.",
+    supports_key=True,
+)
+MultiDiGraph.remove_edge = _remove_edge_with_networkx_missing_edge_error(
+    _MULTIDIGRAPH_REMOVE_EDGE,
+    missing_edge_message="The edge {u}-{v} is not in the graph.",
+    supports_key=True,
+)
 Graph.number_of_edges = _number_of_edges_with_endpoints(_GRAPH_NUMBER_OF_EDGES)
 DiGraph.number_of_edges = _number_of_edges_with_endpoints(_DIGRAPH_NUMBER_OF_EDGES)
 Graph.neighbors = _neighbors_with_networkx_missing_node_error(_GRAPH_NEIGHBORS)
