@@ -1220,7 +1220,7 @@ def has_path(graph, source, target):
 # Algorithm functions — connectivity
 from franken_networkx._fnx import (
     articulation_points,
-    bridges,
+    bridges as _raw_bridges,
     connected_components,
     edge_connectivity as _raw_edge_connectivity,
     is_connected,
@@ -1228,6 +1228,28 @@ from franken_networkx._fnx import (
     node_connectivity as _raw_node_connectivity,
     number_connected_components,
 )
+
+
+def bridges(G, root=None):
+    """Generate all bridges in a graph.
+
+    Parameters
+    ----------
+    G : graph
+        An undirected graph.
+    root : node, optional
+        A node in the graph. If specified, only the bridges in the
+        connected component containing root are yielded.
+
+    Yields
+    ------
+    edge
+        Bridges in the graph.
+    """
+    if root is not None:
+        yield from _call_networkx_for_parity("bridges", G, root=root)
+        return
+    yield from _raw_bridges(G)
 
 
 def node_connectivity(G, s=None, t=None, flow_func=None):
@@ -5355,9 +5377,25 @@ def adjacency_matrix(G, nodelist=None, dtype=None, weight="weight"):
     return to_scipy_sparse_array(G, nodelist=nodelist, dtype=dtype, weight=weight)
 
 
-def has_bridges(G):
-    """Return True if graph *G* has at least one bridge."""
-    return len(bridges(G)) > 0
+def has_bridges(G, root=None):
+    """Return True if graph *G* has at least one bridge.
+
+    Parameters
+    ----------
+    G : graph
+        An undirected graph.
+    root : node, optional
+        A node in the graph. If specified, only check the connected
+        component containing root.
+
+    Returns
+    -------
+    bool
+        True if G has at least one bridge.
+    """
+    for _ in bridges(G, root=root):
+        return True
+    return False
 
 
 def local_bridges(G, with_span=True, weight=None):
