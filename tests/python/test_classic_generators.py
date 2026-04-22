@@ -473,6 +473,45 @@ class TestAttachmentGeneratorBackendKeyword:
         fnx.powerlaw_cluster_graph(10, 2, 0.3, foo="bar", spam=1)
 
 
+class TestGnpFamilyBackendKeyword:
+    """Bead franken_networkx-g8w2: every member of the G(n,p) family
+    (gnp_random_graph, fast_gnp_random_graph, erdos_renyi_graph,
+    binomial_graph) accepts the backend keyword surface and routes
+    unknown-backend / unknown-kwargs errors the same way upstream does.
+    """
+
+    FAMILY = [
+        "gnp_random_graph",
+        "fast_gnp_random_graph",
+        "erdos_renyi_graph",
+        "binomial_graph",
+    ]
+
+    @pytest.mark.parametrize("name", FAMILY)
+    def test_default_and_explicit_supported_backend(self, name):
+        fn = getattr(fnx, name)
+        assert fn(8, 0.3, seed=42).number_of_nodes() == 8
+        assert fn(8, 0.3, seed=42, backend=None).number_of_nodes() == 8
+        assert fn(8, 0.3, seed=42, backend="networkx").number_of_nodes() == 8
+
+    @pytest.mark.parametrize("name", FAMILY)
+    def test_unknown_backend_raises_import_error(self, name):
+        fn = getattr(fnx, name)
+        with pytest.raises(ImportError):
+            fn(8, 0.3, seed=42, backend="nonexistent")
+
+    @pytest.mark.parametrize("name", FAMILY)
+    def test_unknown_kwargs_rejected_matching_networkx(self, name):
+        import networkx as nx
+
+        fn = getattr(fnx, name)
+        nxfn = getattr(nx, name)
+        with pytest.raises(TypeError, match="unexpected keyword argument 'foo'"):
+            fn(8, 0.3, seed=42, foo="bar")
+        with pytest.raises(TypeError, match="unexpected keyword argument 'foo'"):
+            nxfn(8, 0.3, seed=42, foo="bar")
+
+
 # ---------------------------------------------------------------------------
 # Tree / shell random generator keyword surface (franken_networkx-p2rq)
 # ---------------------------------------------------------------------------
@@ -736,6 +775,8 @@ class TestGeneratorSignatureParityWithNetworkX:
         "random_regular_graph",
         "random_shell_graph",
         "random_kernel_graph",
+        "erdos_renyi_graph",
+        "binomial_graph",
     ]
 
     @pytest.mark.parametrize("fn_name", SIGNATURE_TARGETS)

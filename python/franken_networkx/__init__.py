@@ -7581,8 +7581,11 @@ def _validate_backend_dispatch_keywords(function_name, backend, backend_kwargs):
         raise TypeError(f"{function_name}() got an unexpected keyword argument '{unexpected}'")
 
 
-def binomial_graph(n, p, seed=None, directed=False, create_using=None):
+def binomial_graph(
+    n, p, seed=None, directed=False, *, create_using=None, backend=None, **backend_kwargs
+):
     """Return a G(n,p) random graph (alias for ``gnp_random_graph``)."""
+    _validate_backend_dispatch_keywords("binomial_graph", backend, backend_kwargs)
     return gnp_random_graph(
         n,
         p,
