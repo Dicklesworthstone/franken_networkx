@@ -172,6 +172,40 @@ impl NodeView {
         )
     }
 
+    /// Return a NodeDataView for iterating over (node, data) pairs.
+    #[pyo3(signature = (data=None, default=None))]
+    fn data(
+        &self,
+        py: Python<'_>,
+        data: Option<&Bound<'_, PyAny>>,
+        default: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Py<NodeView>> {
+        let view_data = if let Some(d) = data {
+            if d.is_truthy()? {
+                if let Ok(s) = d.extract::<String>() {
+                    if let Some(def) = default {
+                        NodeViewData::AttrWithDefault(s, def.clone().unbind())
+                    } else {
+                        NodeViewData::Attr(s)
+                    }
+                } else {
+                    NodeViewData::AllData
+                }
+            } else {
+                NodeViewData::AllData
+            }
+        } else {
+            NodeViewData::AllData
+        };
+        Py::new(
+            py,
+            NodeView {
+                graph: self.graph.clone_ref(py),
+                data: view_data,
+            },
+        )
+    }
+
     /// Union: self | other
     fn __or__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
         let g = self.graph.borrow(py);
