@@ -358,6 +358,29 @@ def test_percolation_centrality_matches_networkx():
     )
 
 
+def test_edge_current_flow_betweenness_centrality_is_native_not_nx_delegate():
+    """Bead franken_networkx-dqfl: confirm edge_current_flow_betweenness_centrality
+    runs through the fnx-native implementation (in-tree RCM ordering +
+    _flow_matrix_row) rather than delegating to networkx.
+    """
+    from unittest import mock
+
+    fg = fnx.path_graph(5)
+    ng = nx.path_graph(5)
+    expected = nx.edge_current_flow_betweenness_centrality(ng)
+
+    with mock.patch(
+        "networkx.edge_current_flow_betweenness_centrality",
+        side_effect=AssertionError("fnx must not delegate to networkx"),
+    ):
+        actual = fnx.edge_current_flow_betweenness_centrality(fg)
+
+    # Normalize by frozenset key for undirected parity.
+    a = {frozenset(k): v for k, v in actual.items()}
+    e = {frozenset(k): v for k, v in expected.items()}
+    _assert_centrality_close(a, e, rel=1e-5, abs_=1e-7)
+
+
 def test_current_flow_closeness_centrality_is_native_not_nx_delegate():
     """Bead franken_networkx-p3ap: confirm current_flow_closeness_centrality
     runs through the fnx-native implementation rather than delegating into
