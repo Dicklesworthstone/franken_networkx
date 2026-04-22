@@ -7452,10 +7452,10 @@ def rescale_layout(pos, scale=1.0):
         Rescaled positions (same type as input).
     """
     import numpy as np
+    from franken_networkx.drawing.layout import rescale_layout as _rescale_array
 
-    # Handle numpy array input (NetworkX interface)
-    if isinstance(pos, np.ndarray):
-        from franken_networkx.drawing.layout import rescale_layout as _rescale_array
+    # Match NetworkX's public surface for any non-dict array-like input.
+    if isinstance(pos, np.ndarray) or not isinstance(pos, dict):
         return _rescale_array(pos, scale=scale)
 
     # Handle dict input
