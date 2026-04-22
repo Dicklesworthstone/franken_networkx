@@ -473,9 +473,13 @@ class TestTraversalParity:
         )
 
     def test_global_parameters_petersen(self):
+        """global_parameters now takes (b, c) matching upstream.
+        Drive it with the Petersen intersection array and compare
+        against upstream on the same arrays.
+        """
         G = fnx.petersen_graph()
-        params = fnx.global_parameters(G)
-        assert params is not None  # Petersen graph is distance-regular
+        b, c = fnx.intersection_array(G)
+        assert list(fnx.global_parameters(b, c)) == list(nx.global_parameters(b, c))
 
     def test_intersection_array_matches_networkx(self):
         for fnx_graph, nx_graph in [

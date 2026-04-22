@@ -14069,14 +14069,29 @@ def harmonic_diameter(G, sp=None):
     return _fnx.harmonic_diameter_rust(G)
 
 
-def global_parameters(G):
-    """Return global graph parameters as a tuple (intersection_array if distance-regular)."""
+def _global_parameters_from_graph(G):
+    """Private helper: return raw (b, c) arrays from the Rust distance-
+    regular solver, or ``None`` when the graph is not distance-regular.
+    """
     return _fnx.global_parameters_rust(G)
+
+
+def global_parameters(b, c):
+    """Iterate (c_i, a_i, b_i) global-parameter triples for an
+    intersection array (b, c).
+
+    Matches NetworkX's public signature:
+    ``global_parameters(b: list, c: list) -> Iterable[tuple[int, int, int]]``.
+    For a distance-regular graph with diameter d, the intersection array
+    is ``[b_0, ..., b_{d-1}]`` and ``[c_1, ..., c_d]``; the yielded
+    triples are ``(c_i, a_i, b_i)`` where ``a_i = b_0 - b_i - c_i``.
+    """
+    return ((y, b[0] - x - y, x) for x, y in zip(list(b) + [0], [0] + list(c)))
 
 
 def intersection_array(G):
     """Return the intersection array of a distance-regular graph."""
-    params = global_parameters(G)
+    params = _global_parameters_from_graph(G)
     if params is None:
         raise NetworkXError("Graph is not distance regular.")
     b, c = params
