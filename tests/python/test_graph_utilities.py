@@ -1534,6 +1534,27 @@ def test_graph_to_directed_preserves_networkx_directed_edge_order(monkeypatch):
     assert list(result.edges(data=True)) == list(expected_result.edges(data=True))
 
 
+def test_multigraph_to_directed_preserves_networkx_multiedge_order(monkeypatch):
+    graph = fnx.MultiGraph()
+    expected = nx.MultiGraph()
+    for current in (graph, expected):
+        current.add_edge("a", "b", key="k1", weight=1)
+        current.add_edge("a", "b", key="k2", weight=2)
+        current.add_edge("b", "c", key="k3", weight=3)
+        current.add_edge("d", "a", key="k4", weight=4)
+
+    expected_result = expected.to_directed()
+
+    _block_networkx_utilities(monkeypatch, "to_directed")
+
+    result = graph.to_directed()
+
+    assert list(result.edges(keys=True)) == list(expected_result.edges(keys=True))
+    assert list(result.edges(keys=True, data=True)) == list(
+        expected_result.edges(keys=True, data=True)
+    )
+
+
 @pytest.mark.parametrize(
     ("fnx_cls", "nx_cls"),
     [
