@@ -20,42 +20,62 @@ pub struct ArbitraryDag {
     pub nodes: Vec<String>,
 }
 
+/// A small DAG for combinatorial algorithms (all_topological_sorts, antichains).
+/// Limited to 8 nodes to avoid factorial explosion.
+#[derive(Debug, Clone)]
+pub struct ArbitrarySmallDag {
+    pub graph: fnx_classes::digraph::DiGraph,
+    pub nodes: Vec<String>,
+}
+
+fn build_dag(u: &mut arbitrary::Unstructured<'_>, max_nodes: usize) -> arbitrary::Result<(fnx_classes::digraph::DiGraph, Vec<String>)> {
+    use fnx_runtime::CompatibilityMode;
+
+    let mode = if u.arbitrary()? {
+        CompatibilityMode::Strict
+    } else {
+        CompatibilityMode::Hardened
+    };
+
+    let mut graph = fnx_classes::digraph::DiGraph::new(mode);
+    let node_count: usize = u.int_in_range(0..=max_nodes)?;
+    let mut nodes = Vec::with_capacity(node_count);
+
+    // Generate nodes with numeric names for topological ordering
+    for i in 0..node_count {
+        let name = format!("n{i}");
+        graph.add_node(&name);
+        nodes.push(name);
+    }
+
+    // Generate edges only from lower to higher index (ensures DAG)
+    if node_count > 1 {
+        let edge_density: u8 = u.arbitrary()?;
+        let target_edges = (node_count * (edge_density as usize % 4)) / 2;
+
+        for _ in 0..target_edges {
+            if u.is_empty() {
+                break;
+            }
+            let src_idx: usize = u.int_in_range(0..=node_count - 2)?;
+            let dst_idx: usize = u.int_in_range(src_idx + 1..=node_count - 1)?;
+            let _ = graph.add_edge(&nodes[src_idx], &nodes[dst_idx]);
+        }
+    }
+
+    Ok((graph, nodes))
+}
+
 impl<'a> Arbitrary<'a> for ArbitraryDag {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
-        use fnx_runtime::CompatibilityMode;
+        let (graph, nodes) = build_dag(u, 32)?;
+        Ok(Self { graph, nodes })
+    }
+}
 
-        let mode = if u.arbitrary()? {
-            CompatibilityMode::Strict
-        } else {
-            CompatibilityMode::Hardened
-        };
-
-        let mut graph = fnx_classes::digraph::DiGraph::new(mode);
-        let node_count: usize = u.int_in_range(0..=32)?;
-        let mut nodes = Vec::with_capacity(node_count);
-
-        // Generate nodes with numeric names for topological ordering
-        for i in 0..node_count {
-            let name = format!("n{i}");
-            graph.add_node(&name);
-            nodes.push(name);
-        }
-
-        // Generate edges only from lower to higher index (ensures DAG)
-        if node_count > 1 {
-            let edge_density: u8 = u.arbitrary()?;
-            let target_edges = (node_count * (edge_density as usize % 4)) / 2;
-
-            for _ in 0..target_edges {
-                if u.is_empty() {
-                    break;
-                }
-                let src_idx: usize = u.int_in_range(0..=node_count - 2)?;
-                let dst_idx: usize = u.int_in_range(src_idx + 1..=node_count - 1)?;
-                let _ = graph.add_edge(&nodes[src_idx], &nodes[dst_idx]);
-            }
-        }
-
+impl<'a> Arbitrary<'a> for ArbitrarySmallDag {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        let (graph, nodes) = build_dag(u, 8)?;
         Ok(Self { graph, nodes })
     }
 }
@@ -68,8 +88,8 @@ enum DagInput {
     LexicographicTopologicalSort(ArbitraryDag),
     /// Topological generations.
     TopologicalGenerations(ArbitraryDag),
-    /// All topological sorts.
-    AllTopologicalSorts(ArbitraryDag),
+    /// All topological sorts (small DAG to avoid factorial explosion).
+    AllTopologicalSorts(ArbitrarySmallDag),
     /// Ancestors of a node.
     Ancestors(ArbitraryDag),
     /// Descendants of a node.
@@ -80,8 +100,8 @@ enum DagInput {
     DagLongestPath(ArbitraryDag),
     /// DAG longest path length.
     DagLongestPathLength(ArbitraryDag),
-    /// Antichains.
-    Antichains(ArbitraryDag),
+    /// Antichains (small DAG to avoid exponential explosion).
+    Antichains(ArbitrarySmallDag),
     /// Transitive closure.
     TransitiveClosure(ArbitraryDag),
     /// Transitive reduction.
