@@ -1516,6 +1516,24 @@ def test_to_directed_matches_networkx_without_fallback(monkeypatch, fnx_cls, nx_
     assert _graph_snapshot(result) == expected_snapshot
 
 
+def test_graph_to_directed_preserves_networkx_directed_edge_order(monkeypatch):
+    graph = fnx.Graph()
+    expected = nx.Graph()
+    for current in (graph, expected):
+        current.add_edge("a", "b")
+        current.add_edge("b", "c")
+        current.add_edge("d", "a")
+
+    expected_result = expected.to_directed()
+
+    _block_networkx_utilities(monkeypatch, "to_directed")
+
+    result = graph.to_directed()
+
+    assert list(result.edges()) == list(expected_result.edges())
+    assert list(result.edges(data=True)) == list(expected_result.edges(data=True))
+
+
 @pytest.mark.parametrize(
     ("fnx_cls", "nx_cls"),
     [

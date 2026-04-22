@@ -14521,6 +14521,26 @@ def _subgraph_with_view(subgraph_impl):
     return subgraph
 
 
+def _graph_to_directed_copy(self):
+    result = self.to_directed_class()()
+    result.graph.update(deepcopy(self.graph))
+    result.add_nodes_from((node, deepcopy(attrs)) for node, attrs in self.nodes(data=True))
+    for source in self:
+        for target, attrs in self[source].items():
+            result.add_edge(source, target, **deepcopy(attrs))
+    return result
+
+
+def _graph_to_directed_with_view(to_directed_impl):
+    @wraps(to_directed_impl)
+    def to_directed(self, as_view=False):
+        if as_view is True:
+            return _generic_directed_graph_view(self)
+        return _graph_to_directed_copy(self)
+
+    return to_directed
+
+
 def _to_directed_with_view(to_directed_impl):
     @wraps(to_directed_impl)
     def to_directed(self, as_view=False):
@@ -14593,7 +14613,7 @@ Graph.subgraph = _subgraph_with_view(_GRAPH_SUBGRAPH)
 DiGraph.subgraph = _subgraph_with_view(_DIGRAPH_SUBGRAPH)
 MultiGraph.subgraph = _subgraph_with_view(_MULTIGRAPH_SUBGRAPH)
 MultiDiGraph.subgraph = _subgraph_with_view(_MULTIDIGRAPH_SUBGRAPH)
-Graph.to_directed = _to_directed_with_view(_GRAPH_TO_DIRECTED)
+Graph.to_directed = _graph_to_directed_with_view(_GRAPH_TO_DIRECTED)
 DiGraph.to_directed = _to_directed_with_view(_DIGRAPH_TO_DIRECTED)
 MultiGraph.to_directed = _to_directed_with_view(_MULTIGRAPH_TO_DIRECTED)
 MultiDiGraph.to_directed = _to_directed_with_view(_MULTIDIGRAPH_TO_DIRECTED)
