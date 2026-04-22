@@ -1684,6 +1684,15 @@ def test_directed_graph_classes_expose_predecessor_and_successor_queries(
     )
 
 
+def test_digraph_pred_satisfies_mapping_protocol():
+    graph, expected = _direction_utility_graph_pair(fnx.DiGraph, nx.DiGraph)
+
+    assert graph.pred.get("b") == expected.pred.get("b")
+    assert graph.pred.get("missing") == expected.pred.get("missing")
+    assert list(graph.pred.items()) == list(expected.pred.items())
+    assert dict(graph.pred) == dict(expected.pred)
+
+
 @pytest.mark.parametrize(
     ("fnx_cls", "nx_cls"),
     [

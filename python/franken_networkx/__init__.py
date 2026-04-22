@@ -261,6 +261,25 @@ def _node_view_call_with_attr_support(node_view_call):
     return wrapped
 
 
+def _adjacency_view_get(self, node, default=None):
+    try:
+        return self[node]
+    except KeyError:
+        return default
+
+
+def _adjacency_view_keys(self):
+    return iter(self)
+
+
+def _adjacency_view_items(self):
+    return ((node, self[node]) for node in self)
+
+
+def _adjacency_view_values(self):
+    return (self[node] for node in self)
+
+
 def _to_directed_class(self):
     return MultiDiGraph if self.is_multigraph() else DiGraph
 
@@ -369,6 +388,7 @@ _EDGE_VIEW_TYPE = type(Graph().edges)
 _DIEDGE_VIEW_TYPE = type(DiGraph().edges)
 _EDGE_VIEW_CALL = _EDGE_VIEW_TYPE.__call__
 _DIEDGE_VIEW_CALL = _DIEDGE_VIEW_TYPE.__call__
+_DIGRAPH_ADJACENCY_VIEW_TYPE = type(DiGraph().pred)
 _MULTIGRAPH_DEGREE_DESCRIPTOR = MultiGraph.degree
 _MULTIDIGRAPH_DEGREE_DESCRIPTOR = MultiDiGraph.degree
 _MULTIGRAPH_NODE_VIEW_TYPE = type(MultiGraph().nodes)
@@ -604,6 +624,10 @@ _MULTIGRAPH_NODE_VIEW_TYPE.__call__ = _node_view_call_with_attr_support(
 _MULTIDIGRAPH_NODE_VIEW_TYPE.__call__ = _node_view_call_with_attr_support(
     _MULTIDIGRAPH_NODE_VIEW_CALL
 )
+_DIGRAPH_ADJACENCY_VIEW_TYPE.get = _adjacency_view_get
+_DIGRAPH_ADJACENCY_VIEW_TYPE.keys = _adjacency_view_keys
+_DIGRAPH_ADJACENCY_VIEW_TYPE.items = _adjacency_view_items
+_DIGRAPH_ADJACENCY_VIEW_TYPE.values = _adjacency_view_values
 Graph.adjlist_inner_dict_factory = dict
 Graph.adjlist_outer_dict_factory = dict
 Graph.edge_attr_dict_factory = dict
