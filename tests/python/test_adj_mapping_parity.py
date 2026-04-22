@@ -114,6 +114,49 @@ def test_conversion_live_view_adj_satisfies_mapping_protocol(direction, fnx_ctor
     assert fv.adj.get(99, "sentinel") == nv.adj.get(99, "sentinel")
 
 
+@pytest.mark.parametrize(
+    ("direction", "fnx_ctor", "nx_ctor"),
+    [
+        ("to_directed", fnx.Graph, nx.Graph),
+        ("to_undirected", fnx.DiGraph, nx.DiGraph),
+    ],
+)
+def test_conversion_live_view_edges_satisfies_mapping_protocol(
+    direction, fnx_ctor, nx_ctor
+):
+    fg = fnx_ctor()
+    fg.add_edge("a", "b", weight=3)
+    fg.add_edge("b", "c", weight=5)
+    ng = nx_ctor()
+    ng.add_edge("a", "b", weight=3)
+    ng.add_edge("b", "c", weight=5)
+
+    fv = getattr(fg, direction)(as_view=True)
+    nv = getattr(ng, direction)(as_view=True)
+
+    for attr in ("items", "keys", "values", "get"):
+        assert hasattr(fv.edges, attr)
+
+    # dict() conversion must produce {(u, v): attrs}, not {u: v}.
+    assert dict(fv.edges) == dict(nv.edges)
+    assert list(fv.edges.keys()) == list(nv.edges.keys())
+    assert list(fv.edges.items()) == list(nv.edges.items())
+    assert list(fv.edges.values()) == list(nv.edges.values())
+
+    # get() tuple-key lookup matches upstream on hit and miss.
+    assert fv.edges.get(("a", "b")) == nv.edges.get(("a", "b"))
+    assert fv.edges.get(("b", "a")) == nv.edges.get(("b", "a"))
+    assert fv.edges.get(("x", "y")) is nv.edges.get(("x", "y")) is None
+    assert fv.edges.get(("x", "y"), "sentinel") == nv.edges.get(
+        ("x", "y"), "sentinel"
+    )
+
+    # __contains__ matches upstream.
+    assert (("a", "b") in fv.edges) is (("a", "b") in nv.edges)
+    assert (("b", "a") in fv.edges) is (("b", "a") in nv.edges)
+    assert (("x", "y") in fv.edges) is (("x", "y") in nv.edges)
+
+
 def test_reverse_view_adj_exposes_mapping_helpers():
     fg = fnx.DiGraph()
     fg.add_edges_from([(1, 2), (2, 3), (3, 4)])

@@ -347,9 +347,19 @@ def _digraph_succ_view(self):
     return AdjacencyView(lambda: _DIGRAPH_SUCC_DESCRIPTOR.__get__(self, DiGraph))
 
 
+def _digraph_pred_view(self):
+    return AdjacencyView(lambda: _DIGRAPH_PRED_DESCRIPTOR.__get__(self, DiGraph))
+
+
 def _multidigraph_succ_view(self):
     return MultiAdjacencyView(
         lambda: _MULTIDIGRAPH_SUCC_DESCRIPTOR.__get__(self, MultiDiGraph)
+    )
+
+
+def _multidigraph_pred_view(self):
+    return MultiAdjacencyView(
+        lambda: _MULTIDIGRAPH_PRED_DESCRIPTOR.__get__(self, MultiDiGraph)
     )
 
 
@@ -528,6 +538,7 @@ _DIGRAPH_NEIGHBORS = DiGraph.neighbors
 _DIGRAPH_SUCCESSORS = DiGraph.successors
 _DIGRAPH_PREDECESSORS = DiGraph.predecessors
 _DIGRAPH_SUCC_DESCRIPTOR = DiGraph.succ
+_DIGRAPH_PRED_DESCRIPTOR = DiGraph.pred
 _MULTIGRAPH_REMOVE_NODE = MultiGraph.remove_node
 _MULTIGRAPH_REMOVE_EDGE = MultiGraph.remove_edge
 _MULTIGRAPH_NEIGHBORS = MultiGraph.neighbors
@@ -537,6 +548,7 @@ _MULTIDIGRAPH_NEIGHBORS = MultiDiGraph.neighbors
 _MULTIDIGRAPH_SUCCESSORS = MultiDiGraph.successors
 _MULTIDIGRAPH_PREDECESSORS = MultiDiGraph.predecessors
 _MULTIDIGRAPH_SUCC_DESCRIPTOR = MultiDiGraph.succ
+_MULTIDIGRAPH_PRED_DESCRIPTOR = MultiDiGraph.pred
 _EDGE_VIEW_TYPE = type(Graph().edges)
 _DIEDGE_VIEW_TYPE = type(DiGraph().edges)
 _EDGE_VIEW_CALL = _EDGE_VIEW_TYPE.__call__
@@ -821,6 +833,7 @@ DiGraph.graph_attr_dict_factory = dict
 DiGraph.node_attr_dict_factory = dict
 DiGraph.node_dict_factory = dict
 DiGraph.succ = property(_digraph_succ_view)
+DiGraph.pred = property(_digraph_pred_view)
 MultiGraph.adjlist_inner_dict_factory = dict
 MultiGraph.adjlist_outer_dict_factory = dict
 MultiGraph.edge_attr_dict_factory = dict
@@ -847,6 +860,7 @@ MultiDiGraph.edge_key_dict_factory = dict
 MultiDiGraph.new_edge_key = _multigraph_new_edge_key
 MultiDiGraph.edge_subgraph = _multigraph_edge_subgraph
 MultiDiGraph.succ = property(_multidigraph_succ_view)
+MultiDiGraph.pred = property(_multidigraph_pred_view)
 MultiDiGraph.adj = property(_multidigraph_adj_view)
 MultiDiGraph.__getitem__ = _graph_getitem_from_adj
 MultiDiGraph.degree = property(MultiDiGraphDegreeView)
@@ -15021,8 +15035,28 @@ class _ConversionEdgeView:
     def __len__(self):
         return len(self())
 
+    def __contains__(self, edge):
+        try:
+            u, v = edge[:2]
+        except (TypeError, ValueError):
+            return False
+        if u not in self._view._graph:
+            return False
+        return v in self._view.adj[u]
+
+    def __getitem__(self, edge):
+        u, v = edge
+        if u not in self._view._graph or v not in self._view.adj[u]:
+            raise KeyError(edge)
+        return self._view.adj[u][v]
+
     def __call__(self, nbunch=None, data=False, keys=False):
         return self._view._edges(nbunch=nbunch, data=data, keys=keys)
+
+    get = _adjacency_view_get
+    keys = _adjacency_view_keys
+    items = _adjacency_view_items
+    values = _adjacency_view_values
 
 
 class _UnionKeyAtlas(Mapping):
