@@ -268,7 +268,7 @@ class TestShortestPathExtras:
     def test_johnson(self):
         G = fnx.path_graph(4)
         J = fnx.johnson(G)
-        assert J[0][3] == 3
+        assert J[0][3] == [0, 1, 2, 3]
 
     def test_bidirectional_dijkstra(self):
         G = fnx.path_graph(5)

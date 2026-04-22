@@ -1259,6 +1259,33 @@ class TestShortestPath:
             lambda: dict(nx.all_pairs_all_shortest_paths(G_nx, weight=weight_fn)),
         )
 
+    def test_johnson_matches_networkx_path_contract(self, fnx, nx):
+        G_fnx = fnx.DiGraph()
+        G_nx = nx.DiGraph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", weight=2.0, cost=2.0)
+            graph.add_edge("a", "c", weight=1.0, cost=1.0)
+            graph.add_edge("c", "b", weight=1.0, cost=1.0)
+            graph.add_edge("b", "d", weight=-1.0, cost=-1.0)
+            graph.add_edge("c", "d", weight=3.0, cost=3.0)
+            graph.add_edge("d", "e", weight=2.0, cost=2.0)
+            graph.add_node("isolated")
+
+        weight_fn = lambda u, v, data: data["cost"]
+
+        _assert_same_result_or_exception(
+            lambda: fnx.johnson(G_fnx, weight="weight"),
+            lambda: nx.johnson(G_nx, weight="weight"),
+        )
+        _assert_same_result_or_exception(
+            lambda: fnx.johnson(G_fnx, weight=weight_fn),
+            lambda: nx.johnson(G_nx, weight=weight_fn),
+        )
+
+        actual = fnx.johnson(G_fnx, weight="weight")
+        assert actual["a"]["d"] == ["a", "b", "d"]
+        assert actual["a"]["e"] == ["a", "b", "d", "e"]
+
     def test_dijkstra_predecessor_and_distance_matches_networkx(self, fnx, nx):
         G_fnx = fnx.Graph()
         G_nx = nx.Graph()

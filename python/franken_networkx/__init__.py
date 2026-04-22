@@ -10702,11 +10702,14 @@ def johnson(G, weight="weight"):
     Returns
     -------
     dict of dicts
-        ``result[u][v]`` is the shortest path length from u to v.
+        ``result[u][v]`` is the shortest path from u to v.
     """
-    # For graphs without negative edges, just use all-pairs Dijkstra
-    # Convert generator to dict for NetworkX API compatibility
-    return dict(all_pairs_dijkstra_path_length(G, weight=weight))
+    if callable(weight):
+        try:
+            return _nx.johnson(_networkx_graph_for_traversal_parity(G), weight=weight)
+        except Exception as exc:
+            _raise_translated_networkx_exception(exc)
+    return dict(all_pairs_bellman_ford_path(G, weight=weight))
 
 
 # ---------------------------------------------------------------------------
