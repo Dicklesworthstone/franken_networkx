@@ -3964,6 +3964,44 @@ def random_tournament(n, seed=None):
     return _nx_random_tournament(n, seed=seed)
 
 
+def is_reachable(G, s, t):
+    """Return True if there is a path from s to t in tournament G.
+
+    Parameters
+    ----------
+    G : DiGraph
+        A tournament graph.
+    s : node
+        Source node.
+    t : node
+        Target node.
+
+    Returns
+    -------
+    bool
+        True if t is reachable from s.
+    """
+    from networkx.algorithms.tournament import is_reachable as _nx_is_reachable
+    return _nx_is_reachable(_networkx_graph_for_parity(G), s, t)
+
+
+def tournament_matrix(G):
+    """Return the tournament matrix for G.
+
+    Parameters
+    ----------
+    G : DiGraph
+        A tournament graph.
+
+    Returns
+    -------
+    numpy.ndarray
+        A matrix where entry (i,j) is 1 if there is an edge from i to j.
+    """
+    from networkx.algorithms.tournament import tournament_matrix as _nx_tournament_matrix
+    return _nx_tournament_matrix(_networkx_graph_for_parity(G))
+
+
 def is_regular(G):
     """Determines whether a graph is regular."""
     if len(G) == 0:
@@ -4044,10 +4082,31 @@ from franken_networkx._fnx import (
 # Algorithm functions — DAG additional
 from franken_networkx._fnx import (
     is_aperiodic as _raw_is_aperiodic,
-    antichains,
+    antichains as _raw_antichains,
     immediate_dominators,
     dominance_frontiers,
 )
+
+
+def antichains(G, topo_order=None):
+    """Generate all antichains in a DAG.
+
+    Parameters
+    ----------
+    G : DiGraph
+        A directed acyclic graph.
+    topo_order : iterable, optional
+        A topological order of the nodes. If None, computed automatically.
+
+    Yields
+    ------
+    set
+        An antichain (set of nodes with no path between any pair).
+    """
+    if topo_order is not None:
+        yield from _call_networkx_for_parity("antichains", G, topo_order=topo_order)
+        return
+    yield from _raw_antichains(G)
 
 # Algorithm functions — additional shortest path
 from franken_networkx._fnx import (
@@ -24198,6 +24257,8 @@ __all__ = [
     "score_sequence",
     "hamiltonian_path",
     "random_tournament",
+    "is_reachable",
+    "tournament_matrix",
     "is_weighted",
     "is_negatively_weighted",
     "is_path",
