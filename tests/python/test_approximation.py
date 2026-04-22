@@ -577,6 +577,22 @@ class TestTravelingSalesmanProblem:
         assert set(f_route) == set(fg.nodes)
         assert set(n_route) == set(ng.nodes)
 
+    def test_asadpour_atsp_incomplete_digraph_raises_networkx_error(self):
+        """asadpour_atsp on an incomplete fnx.DiGraph must raise the same
+        NetworkXError("G is not a complete DiGraph") as upstream — not the
+        backend-mutation RuntimeError previously surfaced.
+        """
+        fdg = fnx.DiGraph()
+        fdg.add_edge(0, 1, weight=1)
+        ndg = nx.DiGraph()
+        ndg.add_edge(0, 1, weight=1)
+        with pytest.raises(
+            (fnx.NetworkXError, nx.NetworkXError), match="not a complete DiGraph"
+        ):
+            fnx.approximation.asadpour_atsp(fdg)
+        with pytest.raises(nx.NetworkXError, match="not a complete DiGraph"):
+            nx.approximation.asadpour_atsp(ndg)
+
     def test_christofides_path_graph_raises_complete_graph_error(self):
         """christofides on a non-complete fnx.Graph must raise the same
         NetworkXError(G must be a complete graph.) as upstream — not
