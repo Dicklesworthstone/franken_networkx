@@ -894,6 +894,93 @@ def _directed_reverse_with_copy_kwarg(cls):
 DiGraph.reverse = _directed_reverse_with_copy_kwarg(DiGraph)
 MultiDiGraph.reverse = _directed_reverse_with_copy_kwarg(MultiDiGraph)
 
+
+class _WeightAwareDegreeView:
+    """Python wrapper that adds weight-kwarg support to the Rust
+    DegreeView on Graph / DiGraph.
+
+    Unweighted calls delegate to the raw Rust DegreeView. Weighted
+    calls compute the degree by summing edge attributes, matching
+    upstream NetworkX's semantics.
+    """
+
+    def __init__(self, graph, raw_view, *, direction=None):
+        self._graph = graph
+        self._raw = raw_view
+        self._direction = direction  # None | "in" | "out"
+
+    def __iter__(self):
+        return iter(self._raw)
+
+    def __len__(self):
+        return len(self._raw)
+
+    def __getitem__(self, node):
+        return self._raw[node]
+
+    def __repr__(self):
+        return repr(self._raw)
+
+    def _weighted_value(self, node, weight):
+        total = 0
+        if self._direction == "in":
+            neighbor_dicts = [self._graph.pred[node]]
+        elif self._direction == "out":
+            neighbor_dicts = [self._graph.succ[node]]
+        elif self._graph.is_directed():
+            # Total degree on a directed graph is in + out weight sum.
+            neighbor_dicts = [self._graph.succ[node], self._graph.pred[node]]
+        else:
+            neighbor_dicts = [self._graph.adj[node]]
+        for neighbors in neighbor_dicts:
+            for nbr, edge_attrs in dict(neighbors).items():
+                if isinstance(edge_attrs, dict) and weight in edge_attrs:
+                    total += edge_attrs[weight]
+                else:
+                    total += 1
+        return total
+
+    def __call__(self, nbunch=None, weight=None):
+        if weight is None:
+            if nbunch is None:
+                return self._raw
+            return self._raw(nbunch) if callable(self._raw) else self._raw[nbunch]
+        # Weighted path
+        if nbunch is None:
+            return ((n, self._weighted_value(n, weight)) for n in self._graph)
+        if nbunch in self._graph:
+            return self._weighted_value(nbunch, weight)
+        return ((n, self._weighted_value(n, weight)) for n in nbunch if n in self._graph)
+
+
+def _wrapped_degree(direction=None):
+    def _degree_property(self):
+        if direction == "in":
+            raw = type(self).in_degree.fget.__wrapped__(self) if hasattr(type(self).in_degree, "fget") else None
+            raw = None  # computed per-call below
+        raw = object.__getattribute__(self, "_raw_degree_view_" + (direction or "total"))
+        return _WeightAwareDegreeView(self, raw, direction=direction)
+
+    return _degree_property
+
+
+# Capture the raw Rust descriptors before overriding so our wrapper can
+# delegate to them.
+_GRAPH_RAW_DEGREE = Graph.degree
+_DIGRAPH_RAW_DEGREE = DiGraph.degree
+
+
+def _graph_degree(self):
+    return _WeightAwareDegreeView(self, _GRAPH_RAW_DEGREE.__get__(self, type(self)))
+
+
+def _digraph_degree(self):
+    return _WeightAwareDegreeView(self, _DIGRAPH_RAW_DEGREE.__get__(self, type(self)))
+
+
+Graph.degree = property(_graph_degree)
+DiGraph.degree = property(_digraph_degree)
+
 Graph.size = _size_with_unweighted_int(Graph.size)
 DiGraph.size = _size_with_unweighted_int(DiGraph.size)
 MultiGraph.size = _size_with_unweighted_int(MultiGraph.size)
