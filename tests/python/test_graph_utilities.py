@@ -2225,6 +2225,23 @@ def test_common_live_views_size_preserve_networkx_return_types(
 @pytest.mark.parametrize(
     ("fnx_cls", "nx_cls"),
     [
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_multigraph_classes_expose_callable_degree_like_networkx(fnx_cls, nx_cls):
+    graph, expected = _weighted_degree_graph_pair(fnx_cls, nx_cls)
+
+    assert list(graph.degree()) == list(expected.degree())
+    assert graph.degree("a") == expected.degree("a")
+    assert graph.degree("a", weight="weight") == expected.degree("a", weight="weight")
+    assert list(graph.degree(["a", "missing"])) == list(expected.degree(["a", "missing"]))
+    assert list(graph.degree("missing")) == list(expected.degree("missing"))
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
         (fnx.Graph, nx.Graph),
         (fnx.DiGraph, nx.DiGraph),
     ],

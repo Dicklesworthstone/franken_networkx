@@ -369,10 +369,110 @@ _EDGE_VIEW_TYPE = type(Graph().edges)
 _DIEDGE_VIEW_TYPE = type(DiGraph().edges)
 _EDGE_VIEW_CALL = _EDGE_VIEW_TYPE.__call__
 _DIEDGE_VIEW_CALL = _DIEDGE_VIEW_TYPE.__call__
+_MULTIGRAPH_DEGREE_DESCRIPTOR = MultiGraph.degree
+_MULTIDIGRAPH_DEGREE_DESCRIPTOR = MultiDiGraph.degree
 _MULTIGRAPH_NODE_VIEW_TYPE = type(MultiGraph().nodes)
 _MULTIDIGRAPH_NODE_VIEW_TYPE = type(MultiDiGraph().nodes)
 _MULTIGRAPH_NODE_VIEW_CALL = _MULTIGRAPH_NODE_VIEW_TYPE.__call__
 _MULTIDIGRAPH_NODE_VIEW_CALL = _MULTIDIGRAPH_NODE_VIEW_TYPE.__call__
+
+
+class MultiGraphDegreeView:
+    def __init__(self, graph, *, nodes=None, weight=None):
+        self._graph = graph
+        self._nodes = nodes
+        self._weight = weight
+
+    def _base_view(self):
+        return _MULTIGRAPH_DEGREE_DESCRIPTOR.__get__(self._graph, type(self._graph))
+
+    def _iter_nodes(self):
+        if self._nodes is None:
+            return iter(self._graph)
+        return iter(self._nodes)
+
+    def __len__(self):
+        if self._nodes is None:
+            return len(self._graph)
+        return len(self._nodes)
+
+    def __iter__(self):
+        for node in self._iter_nodes():
+            yield (node, self[node])
+
+    def __getitem__(self, node):
+        if self._weight is None:
+            return self._base_view()[node]
+        return degree(self._graph, node, weight=self._weight)
+
+    def __bool__(self):
+        return bool(len(self))
+
+    def __call__(self, nbunch=None, weight=None):
+        if weight is None:
+            weight = self._weight
+        if nbunch is None and weight == self._weight:
+            return self
+        if nbunch is None:
+            return type(self)(self._graph, weight=weight)
+        try:
+            if nbunch in self._graph:
+                if weight is None:
+                    return self._base_view()[nbunch]
+                return degree(self._graph, nbunch, weight=weight)
+        except TypeError:
+            pass
+        nodes = list(self._graph.nbunch_iter(nbunch))
+        return type(self)(self._graph, nodes=nodes, weight=weight)
+
+
+class MultiDiGraphDegreeView:
+    def __init__(self, graph, *, nodes=None, weight=None):
+        self._graph = graph
+        self._nodes = nodes
+        self._weight = weight
+
+    def _base_view(self):
+        return _MULTIDIGRAPH_DEGREE_DESCRIPTOR.__get__(self._graph, type(self._graph))
+
+    def _iter_nodes(self):
+        if self._nodes is None:
+            return iter(self._graph)
+        return iter(self._nodes)
+
+    def __len__(self):
+        if self._nodes is None:
+            return len(self._graph)
+        return len(self._nodes)
+
+    def __iter__(self):
+        for node in self._iter_nodes():
+            yield (node, self[node])
+
+    def __getitem__(self, node):
+        if self._weight is None:
+            return self._base_view()[node]
+        return degree(self._graph, node, weight=self._weight)
+
+    def __bool__(self):
+        return bool(len(self))
+
+    def __call__(self, nbunch=None, weight=None):
+        if weight is None:
+            weight = self._weight
+        if nbunch is None and weight == self._weight:
+            return self
+        if nbunch is None:
+            return type(self)(self._graph, weight=weight)
+        try:
+            if nbunch in self._graph:
+                if weight is None:
+                    return self._base_view()[nbunch]
+                return degree(self._graph, nbunch, weight=weight)
+        except TypeError:
+            pass
+        nodes = list(self._graph.nbunch_iter(nbunch))
+        return type(self)(self._graph, nodes=nodes, weight=weight)
 
 
 Graph.nbunch_iter = _graph_nbunch_iter
@@ -464,6 +564,7 @@ MultiGraph.edge_key_dict_factory = dict
 MultiGraph.new_edge_key = _multigraph_new_edge_key
 MultiGraph.edge_subgraph = _multigraph_edge_subgraph
 MultiGraph.edges = property(_multigraph_edges)
+MultiGraph.degree = property(MultiGraphDegreeView)
 MultiDiGraph.adjlist_inner_dict_factory = dict
 MultiDiGraph.adjlist_outer_dict_factory = dict
 MultiDiGraph.edge_attr_dict_factory = dict
@@ -473,6 +574,7 @@ MultiDiGraph.node_dict_factory = dict
 MultiDiGraph.edge_key_dict_factory = dict
 MultiDiGraph.new_edge_key = _multigraph_new_edge_key
 MultiDiGraph.edge_subgraph = _multigraph_edge_subgraph
+MultiDiGraph.degree = property(MultiDiGraphDegreeView)
 Graph.to_directed_class = _to_directed_class
 Graph.to_undirected_class = _to_undirected_class
 DiGraph.to_directed_class = _to_directed_class
