@@ -1773,6 +1773,26 @@ def test_multigraph_edges_support_attribute_name_data_retrieval():
 @pytest.mark.parametrize(
     ("fnx_cls", "nx_cls"),
     [
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_multigraph_node_views_support_attribute_name_data_retrieval(fnx_cls, nx_cls):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+
+    assert list(graph.nodes(data="color")) == list(expected.nodes(data="color"))
+    assert list(graph.nodes(data="color", default="gray")) == list(
+        expected.nodes(data="color", default="gray")
+    )
+    assert list(graph.nodes("color", "gray")) == list(expected.nodes("color", "gray"))
+    assert list(graph.nodes(data="missing", default="NA")) == list(
+        expected.nodes(data="missing", default="NA")
+    )
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
         (fnx.Graph, nx.Graph),
         (fnx.DiGraph, nx.DiGraph),
         (fnx.MultiGraph, nx.MultiGraph),

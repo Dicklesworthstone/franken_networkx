@@ -185,6 +185,40 @@ def _edge_view_call_with_nbunch_first(edge_view_call):
     return wrapped
 
 
+def _node_view_call_with_attr_support(node_view_call):
+    _unset = object()
+
+    def wrapped(self, *args, **kwargs):
+        data = kwargs.pop("data", _unset)
+        default = kwargs.pop("default", _unset)
+        if kwargs:
+            unexpected = next(iter(kwargs))
+            raise TypeError(f"__call__() got an unexpected keyword argument '{unexpected}'")
+
+        if len(args) > 2:
+            raise TypeError(
+                f"__call__() takes from 1 to 3 positional arguments but {len(args) + 1} were given"
+            )
+        if len(args) >= 1:
+            if data is not _unset:
+                raise TypeError("__call__() got multiple values for argument 'data'")
+            data = args[0]
+        if len(args) == 2:
+            if default is not _unset:
+                raise TypeError("__call__() got multiple values for argument 'default'")
+            default = args[1]
+
+        if data is _unset:
+            data = False
+        if default is _unset:
+            default = None
+        if isinstance(data, bool):
+            return node_view_call(self, data, default)
+        return [(node, self[node].get(data, default)) for node in self]
+
+    return wrapped
+
+
 def _to_directed_class(self):
     return MultiDiGraph if self.is_multigraph() else DiGraph
 
@@ -277,6 +311,10 @@ _EDGE_VIEW_TYPE = type(Graph().edges)
 _DIEDGE_VIEW_TYPE = type(DiGraph().edges)
 _EDGE_VIEW_CALL = _EDGE_VIEW_TYPE.__call__
 _DIEDGE_VIEW_CALL = _DIEDGE_VIEW_TYPE.__call__
+_MULTIGRAPH_NODE_VIEW_TYPE = type(MultiGraph().nodes)
+_MULTIDIGRAPH_NODE_VIEW_TYPE = type(MultiDiGraph().nodes)
+_MULTIGRAPH_NODE_VIEW_CALL = _MULTIGRAPH_NODE_VIEW_TYPE.__call__
+_MULTIDIGRAPH_NODE_VIEW_CALL = _MULTIDIGRAPH_NODE_VIEW_TYPE.__call__
 
 
 Graph.nbunch_iter = _graph_nbunch_iter
@@ -292,6 +330,12 @@ Graph.number_of_edges = _number_of_edges_with_endpoints(_GRAPH_NUMBER_OF_EDGES)
 DiGraph.number_of_edges = _number_of_edges_with_endpoints(_DIGRAPH_NUMBER_OF_EDGES)
 _EDGE_VIEW_TYPE.__call__ = _edge_view_call_with_nbunch_first(_EDGE_VIEW_CALL)
 _DIEDGE_VIEW_TYPE.__call__ = _edge_view_call_with_nbunch_first(_DIEDGE_VIEW_CALL)
+_MULTIGRAPH_NODE_VIEW_TYPE.__call__ = _node_view_call_with_attr_support(
+    _MULTIGRAPH_NODE_VIEW_CALL
+)
+_MULTIDIGRAPH_NODE_VIEW_TYPE.__call__ = _node_view_call_with_attr_support(
+    _MULTIDIGRAPH_NODE_VIEW_CALL
+)
 Graph.adjlist_inner_dict_factory = dict
 Graph.adjlist_outer_dict_factory = dict
 Graph.edge_attr_dict_factory = dict
