@@ -144,6 +144,56 @@ def test_subgraph_centrality_normalized_and_error_contract_match_networkx(monkey
     assert str(actual_multigraph_error.value) == str(expected_multigraph_error.value)
 
 
+def test_subgraph_centrality_backend_keyword_surface_matches_networkx():
+    actual_graph = fnx.path_graph(3)
+    expected_graph = nx.path_graph(3)
+
+    for backend in (None, "networkx"):
+        actual = fnx.subgraph_centrality(actual_graph, backend=backend)
+        expected = nx.subgraph_centrality(expected_graph, backend=backend)
+        _assert_mapping_close(actual, expected)
+
+    with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+        fnx.subgraph_centrality(actual_graph, backend="parallel")
+    with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+        nx.subgraph_centrality(expected_graph, backend="parallel")
+
+    with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+        fnx.subgraph_centrality(actual_graph, backend_kwargs={"x": 1})
+    with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+        nx.subgraph_centrality(expected_graph, backend_kwargs={"x": 1})
+
+
+def test_subgraph_centrality_exp_parity_matches_networkx():
+    actual_graph = fnx.path_graph(3)
+    expected_graph = nx.path_graph(3)
+
+    _assert_mapping_close(
+        fnx.subgraph_centrality_exp(actual_graph),
+        nx.subgraph_centrality_exp(expected_graph),
+    )
+
+    for backend in (None, "networkx"):
+        actual = fnx.subgraph_centrality_exp(actual_graph, backend=backend)
+        expected = nx.subgraph_centrality_exp(expected_graph, backend=backend)
+        _assert_mapping_close(actual, expected)
+
+    with pytest.raises(AttributeError) as expected_normalized_error:
+        nx.subgraph_centrality_exp(expected_graph, normalized=True)
+    with pytest.raises(AttributeError) as actual_normalized_error:
+        fnx.subgraph_centrality_exp(actual_graph, normalized=True)
+    assert str(actual_normalized_error.value) == str(expected_normalized_error.value)
+
+    with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+        fnx.subgraph_centrality_exp(actual_graph, backend="parallel")
+    with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+        nx.subgraph_centrality_exp(expected_graph, backend="parallel")
+
+    with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+        fnx.subgraph_centrality_exp(actual_graph, backend_kwargs={"x": 1})
+    with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+        nx.subgraph_centrality_exp(expected_graph, backend_kwargs={"x": 1})
+
 def test_katz_centrality_numpy_matches_networkx_without_fallback(monkeypatch):
     graph = fnx.DiGraph()
     graph.add_edge("a", "b", weight=2.0)

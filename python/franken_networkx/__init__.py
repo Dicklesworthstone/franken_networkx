@@ -7891,7 +7891,7 @@ def communicability(G):
     return result
 
 
-def subgraph_centrality(G, *, normalized=False):
+def subgraph_centrality(G, *, normalized=False, backend=None, **backend_kwargs):
     """Return the subgraph centrality for each node.
 
     The subgraph centrality is the diagonal of the matrix exponential
@@ -7902,6 +7902,12 @@ def subgraph_centrality(G, *, normalized=False):
     dict
         ``{node: centrality}``
     """
+    _validate_backend_dispatch_keywords(
+        "subgraph_centrality",
+        backend,
+        backend_kwargs,
+    )
+
     import numpy as np
 
     if G.is_directed():
@@ -14243,9 +14249,25 @@ def second_order_centrality(G):
     )
 
 
-def subgraph_centrality_exp(G):
+def subgraph_centrality_exp(
+    G,
+    *,
+    normalized=False,
+    backend=None,
+    **backend_kwargs,
+):
     """Subgraph centrality via explicit scipy.linalg.expm."""
-    return subgraph_centrality(G)
+    _validate_backend_dispatch_keywords(
+        "subgraph_centrality_exp",
+        backend,
+        backend_kwargs,
+    )
+
+    centrality = subgraph_centrality(G)
+    if normalized:
+        values = map(float, centrality.values())
+        values.max()
+    return centrality
 
 
 def communicability_betweenness_centrality(G, *, backend=None, **backend_kwargs):
