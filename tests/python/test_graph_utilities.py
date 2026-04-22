@@ -2534,6 +2534,53 @@ def test_directed_graph_classes_succ_returns_read_only_views(fnx_cls, nx_cls):
 
 
 @pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_directed_graph_classes_pred_returns_read_only_views(fnx_cls, nx_cls):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+
+    pred = graph.pred
+    expected_pred = expected.pred
+    neighbors = pred["b"]
+    expected_neighbors = expected_pred["b"]
+
+    assert type(pred).__name__ == type(expected_pred).__name__
+    assert type(neighbors).__name__ == type(expected_neighbors).__name__
+    assert _mapping_snapshot(neighbors) == _mapping_snapshot(expected_neighbors)
+
+    with pytest.raises(TypeError) as fnx_outer_exc:
+        neighbors["x"] = {}
+    with pytest.raises(TypeError) as nx_outer_exc:
+        expected_neighbors["x"] = {}
+    assert str(fnx_outer_exc.value) == str(nx_outer_exc.value)
+
+    if graph.is_multigraph():
+        keyed = neighbors["a"]
+        expected_keyed = expected_neighbors["a"]
+        assert type(keyed).__name__ == type(expected_keyed).__name__
+        assert _mapping_snapshot(keyed) == _mapping_snapshot(expected_keyed)
+
+        with pytest.raises(TypeError) as fnx_inner_exc:
+            keyed["new"] = {}
+        with pytest.raises(TypeError) as nx_inner_exc:
+            expected_keyed["new"] = {}
+        assert str(fnx_inner_exc.value) == str(nx_inner_exc.value)
+
+        graph.add_edge("a", "b", key="new", weight=9)
+        expected.add_edge("a", "b", key="new", weight=9)
+        assert _mapping_snapshot(neighbors) == _mapping_snapshot(expected_neighbors)
+        assert _mapping_snapshot(keyed) == _mapping_snapshot(expected_keyed)
+    else:
+        graph.add_edge("a", "x", weight=9)
+        expected.add_edge("a", "x", weight=9)
+        assert _mapping_snapshot(neighbors) == _mapping_snapshot(expected_neighbors)
+
+
+@pytest.mark.parametrize(
     ("builder_name", "fnx_builder", "nx_builder", "fnx_cls", "nx_cls"),
     [
         ("to_directed", fnx.to_directed, nx.to_directed, fnx.Graph, nx.Graph),
