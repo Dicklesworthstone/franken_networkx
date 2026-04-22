@@ -13727,8 +13727,20 @@ def approximate_current_flow_betweenness_centrality(
     return current_flow_betweenness_centrality(G, normalized=normalized, weight=weight)
 
 
-def current_flow_closeness_centrality(G, weight=None, dtype=float, solver="lu"):
+def current_flow_closeness_centrality(
+    G,
+    weight=None,
+    dtype=float,
+    solver="lu",
+    *,
+    backend=None,
+    **backend_kwargs,
+):
     """Closeness centrality based on effective resistance (information centrality)."""
+    _validate_backend_dispatch_keywords(
+        "current_flow_closeness_centrality", backend, backend_kwargs
+    )
+
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
 
@@ -13875,8 +13887,20 @@ def laplacian_centrality(G, normalized=True, nodelist=None, weight="weight"):
     return lc
 
 
-def percolation_centrality(G, attribute="percolation", states=None, weight=None):
+def percolation_centrality(
+    G,
+    attribute="percolation",
+    states=None,
+    weight=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
     """Percolation centrality based on percolation states."""
+    _validate_backend_dispatch_keywords(
+        "percolation_centrality", backend, backend_kwargs
+    )
+
     percolation = dict.fromkeys(G, 0.0)
     if states is None:
         states = {
@@ -13903,8 +13927,20 @@ def percolation_centrality(G, attribute="percolation", states=None, weight=None)
     return percolation
 
 
-def information_centrality(G, weight=None, dtype=float, solver="lu"):
+def information_centrality(
+    G,
+    weight=None,
+    dtype=float,
+    solver="lu",
+    *,
+    backend=None,
+    **backend_kwargs,
+):
     """Information centrality (same as current-flow closeness)."""
+    _validate_backend_dispatch_keywords(
+        "current_flow_closeness_centrality", backend, backend_kwargs
+    )
+
     return current_flow_closeness_centrality(
         G,
         weight=weight,
@@ -13979,9 +14015,13 @@ def subgraph_centrality_exp(G):
     return subgraph_centrality(G)
 
 
-def communicability_betweenness_centrality(G, normalized=True):
+def communicability_betweenness_centrality(G, *, backend=None, **backend_kwargs):
     """Betweenness centrality based on communicability."""
-    return _fnx.communicability_betweenness_centrality_rust(G, normalized)
+    _validate_backend_dispatch_keywords(
+        "communicability_betweenness_centrality", backend, backend_kwargs
+    )
+
+    return _fnx.communicability_betweenness_centrality_rust(G, True)
 
 
 def trophic_levels(G, weight=None):

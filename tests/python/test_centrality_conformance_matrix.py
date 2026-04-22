@@ -531,10 +531,14 @@ def _assert_backend_wrapper_result_matches_networkx(name, actual, expected):
         "degree_centrality",
         "harmonic_centrality",
         "closeness_centrality",
+        "communicability_betweenness_centrality",
         "edge_betweenness_centrality",
+        "information_centrality",
+        "current_flow_closeness_centrality",
         "katz_centrality",
         "in_degree_centrality",
         "out_degree_centrality",
+        "percolation_centrality",
         "load_centrality",
         "edge_load_centrality",
     }:
@@ -657,6 +661,52 @@ def test_degree_family_wrappers_backend_keyword_surface_matches_networkx(name, a
         fnx_fn(fg, *args, backend_kwargs={"x": 1})
     with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
         nx_fn(ng, *args, backend_kwargs={"x": 1})
+
+
+@pytest.mark.parametrize(
+    ("name", "make"),
+    [
+        pytest.param("communicability_betweenness_centrality", _path, id="communicability_betweenness_centrality"),
+        pytest.param("information_centrality", _path, id="information_centrality"),
+        pytest.param("current_flow_closeness_centrality", _path, id="current_flow_closeness_centrality"),
+        pytest.param("percolation_centrality", _path, id="percolation_centrality"),
+    ],
+)
+def test_current_flow_family_wrappers_expose_backend_signature_matches_networkx(name, make):
+    del make
+    assert str(inspect.signature(getattr(fnx, name))) == str(inspect.signature(getattr(nx, name)))
+
+
+@pytest.mark.parametrize(
+    ("name", "make"),
+    [
+        pytest.param("communicability_betweenness_centrality", _path, id="communicability_betweenness_centrality"),
+        pytest.param("information_centrality", _path, id="information_centrality"),
+        pytest.param("current_flow_closeness_centrality", _path, id="current_flow_closeness_centrality"),
+        pytest.param("percolation_centrality", _path, id="percolation_centrality"),
+    ],
+)
+def test_current_flow_family_wrappers_backend_keyword_surface_matches_networkx(name, make):
+    fg, ng = make(5)
+    fnx_fn = getattr(fnx, name)
+    nx_fn = getattr(nx, name)
+
+    for backend in (None, "networkx"):
+        _assert_backend_wrapper_result_matches_networkx(
+            name,
+            fnx_fn(fg, backend=backend),
+            nx_fn(ng, backend=backend),
+        )
+
+    with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+        fnx_fn(fg, backend="parallel")
+    with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+        nx_fn(ng, backend="parallel")
+
+    with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+        fnx_fn(fg, backend_kwargs={"x": 1})
+    with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+        nx_fn(ng, backend_kwargs={"x": 1})
 
 
 def test_edge_load_centrality_cutoff_false_matches_networkx():
