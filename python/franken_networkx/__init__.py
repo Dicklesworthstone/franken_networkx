@@ -20038,8 +20038,9 @@ def random_lobster(n, p1, p2, seed=None):
     return graph
 
 
-def random_lobster_graph(n, p1, p2, seed=None, create_using=None):
+def random_lobster_graph(n, p1, p2, seed=None, create_using=None, *, backend=None, backend_kwargs=None):
     """Return a random lobster graph."""
+    del backend, backend_kwargs  # NetworkX backend dispatch compatibility
     graph = random_lobster(n, p1, p2, seed=seed)
     if create_using is None:
         return graph
@@ -20054,8 +20055,9 @@ def random_lobster_graph(n, p1, p2, seed=None, create_using=None):
     )
 
 
-def random_shell_graph(constructor, seed=None, create_using=None):
+def random_shell_graph(constructor, seed=None, create_using=None, *, backend=None, backend_kwargs=None):
     """Multi-shell random graph."""
+    del backend, backend_kwargs  # NetworkX backend dispatch compatibility
     rng = _generator_random_state(seed)
     graph = _checked_create_using(
         create_using,
@@ -22599,8 +22601,9 @@ def scale_free_graph(
     )
 
 
-def random_powerlaw_tree(n, gamma=3, seed=None, tries=100, create_using=None):
+def random_powerlaw_tree(n, gamma=3, seed=None, tries=100, create_using=None, *, backend=None, backend_kwargs=None):
     """Return a random tree with a power-law degree distribution."""
+    del backend, backend_kwargs  # NetworkX backend dispatch compatibility
     graph = _checked_create_using(
         create_using,
         directed=False,
