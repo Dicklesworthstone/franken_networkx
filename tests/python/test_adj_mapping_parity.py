@@ -157,6 +157,42 @@ def test_conversion_live_view_edges_satisfies_mapping_protocol(
     assert (("x", "y") in fv.edges) is (("x", "y") in nv.edges)
 
 
+def test_reverse_view_edges_exposes_edge_view_object():
+    fg = fnx.DiGraph()
+    fg.add_edges_from([(1, 2, {"w": 3}), (2, 3, {"w": 5})])
+    ng = nx.DiGraph()
+    ng.add_edges_from([(1, 2, {"w": 3}), (2, 3, {"w": 5})])
+
+    frv = fnx.reverse_view(fg)
+    nrv = nx.reverse_view(ng)
+
+    # Must be an object, not a bound method.
+    assert type(frv.edges).__name__ != "method"
+    # Callable like upstream's OutEdgeView.
+    assert callable(frv.edges)
+    # Full mapping / edge-view surface.
+    for attr in ("data", "items", "keys", "values", "get"):
+        assert hasattr(frv.edges, attr)
+
+    # Parity against networkx.
+    assert list(frv.edges) == list(nrv.edges)
+    assert list(frv.edges.data()) == list(nrv.edges.data())
+    assert list(frv.edges.data("w")) == list(nrv.edges.data("w"))
+    assert list(frv.edges.data("missing", default=0)) == list(
+        nrv.edges.data("missing", default=0)
+    )
+    assert list(frv.edges(data=True)) == list(nrv.edges(data=True))
+    assert dict(frv.edges) == dict(nrv.edges)
+    assert len(frv.edges) == len(nrv.edges)
+
+    # Mapping protocol.
+    assert frv.edges.get((2, 1)) == nrv.edges.get((2, 1))
+    assert frv.edges.get((99, 99)) is nrv.edges.get((99, 99)) is None
+    assert (((2, 1) in frv.edges) is ((2, 1) in nrv.edges))
+    assert (((1, 2) in frv.edges) is ((1, 2) in nrv.edges))
+    assert (((99, 99) in frv.edges) is ((99, 99) in nrv.edges))
+
+
 def test_reverse_view_adj_exposes_mapping_helpers():
     fg = fnx.DiGraph()
     fg.add_edges_from([(1, 2), (2, 3), (3, 4)])

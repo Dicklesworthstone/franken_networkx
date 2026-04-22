@@ -14175,14 +14175,20 @@ class _ReverseDirectedView:
         except TypeError:
             return []
 
-    def edges(self, nbunch=None, data=False, keys=False):
+    def _edges(self, nbunch=None, data=False, keys=False, default=None):
         nodes = self._nbunch(nbunch)
         result = []
         if self._graph.is_multigraph():
             for source in nodes:
                 for target, keyed_attrs in self._graph.pred[source].items():
                     for key, attrs in keyed_attrs.items():
-                        if data and keys:
+                        if isinstance(data, str):
+                            result.append(
+                                (source, target, key, attrs.get(data, default))
+                                if keys
+                                else (source, target, attrs.get(data, default))
+                            )
+                        elif data and keys:
                             result.append((source, target, key, attrs))
                         elif data:
                             result.append((source, target, attrs))
@@ -14193,11 +14199,17 @@ class _ReverseDirectedView:
         else:
             for source in nodes:
                 for target, attrs in self._graph.pred[source].items():
-                    if data:
+                    if isinstance(data, str):
+                        result.append((source, target, attrs.get(data, default)))
+                    elif data:
                         result.append((source, target, attrs))
                     else:
                         result.append((source, target))
         return result
+
+    @property
+    def edges(self):
+        return _ReverseEdgeView(self)
 
     def out_edges(self, nbunch=None, data=False, keys=False):
         nodes = self._nbunch(nbunch)
@@ -14430,6 +14442,50 @@ class _ReverseAdjacencyView(Mapping):
         if node not in self._view._graph:
             raise KeyError(f"Key {node} not found")
         return _ReverseNeighborMap(self._view, node, reverse=self._reverse)
+
+
+class _ReverseEdgeView:
+    def __init__(self, view):
+        self._view = view
+
+    def __call__(self, nbunch=None, data=False, keys=False, default=None):
+        return self._view._edges(nbunch=nbunch, data=data, keys=keys, default=default)
+
+    def __iter__(self):
+        return iter(self())
+
+    def __len__(self):
+        return self._view._graph.number_of_edges()
+
+    def __contains__(self, edge):
+        try:
+            u, v = edge[:2]
+        except (TypeError, ValueError):
+            return False
+        if u not in self._view._graph:
+            return False
+        # reverse_view iterates (u, v) where v is in the original graph's pred[u]
+        # (original edge v -> u becomes reversed edge u -> v).
+        return v in self._view._graph.pred[u]
+
+    def __getitem__(self, edge):
+        u, v = edge
+        if u not in self._view._graph:
+            raise KeyError(edge)
+        pred_u = self._view._graph.pred[u]
+        if v not in pred_u:
+            raise KeyError(edge)
+        return pred_u[v]
+
+    def data(self, data=True, default=None, nbunch=None, keys=False):
+        return self._view._edges(
+            nbunch=nbunch, data=data, keys=keys, default=default
+        )
+
+    get = _adjacency_view_get
+    keys = _adjacency_view_keys
+    items = _adjacency_view_items
+    values = _adjacency_view_values
 
 
 _FILTERED_VIEW_MUTATORS = (
