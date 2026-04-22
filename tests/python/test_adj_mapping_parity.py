@@ -293,6 +293,56 @@ def test_filtered_graph_view_nodes_expose_data_helper(builder_name):
     )
 
 
+@pytest.mark.parametrize("builder_name", ["restricted_view", "subgraph_view"])
+def test_filtered_graph_view_edges_data_helper_matches_upstream(builder_name):
+    fg = fnx.Graph()
+    fg.add_edges_from([(1, 2, {"w": 3}), (2, 3, {"w": 5}), (3, 4)])
+    ng = nx.Graph()
+    ng.add_edges_from([(1, 2, {"w": 3}), (2, 3, {"w": 5}), (3, 4)])
+    if builder_name == "restricted_view":
+        fv = fnx.restricted_view(fg, [], [])
+        nv = nx.restricted_view(ng, [], [])
+    else:
+        fv = fnx.subgraph_view(fg)
+        nv = nx.subgraph_view(ng)
+
+    assert hasattr(fv.edges, "data")
+    assert list(fv.edges.data()) == list(nv.edges.data())
+    assert list(fv.edges.data("w")) == list(nv.edges.data("w"))
+    assert list(fv.edges.data("missing", default=0)) == list(
+        nv.edges.data("missing", default=0)
+    )
+
+
+@pytest.mark.parametrize("builder_name", ["restricted_view", "subgraph_view"])
+def test_filtered_graph_view_adjacency_preserves_mapping_contract(builder_name):
+    from collections.abc import Mapping
+
+    fg = fnx.Graph()
+    fg.add_nodes_from(["a", "b", "c"])
+    fg.add_edge("a", "c")
+    ng = nx.Graph()
+    ng.add_nodes_from(["a", "b", "c"])
+    ng.add_edge("a", "c")
+    if builder_name == "restricted_view":
+        fv = fnx.restricted_view(fg, [], [])
+        nv = nx.restricted_view(ng, [], [])
+    else:
+        fv = fnx.subgraph_view(fg)
+        nv = nx.subgraph_view(ng)
+
+    fnx_adj = list(fv.adjacency())
+    nx_adj = list(nv.adjacency())
+
+    # Same node order and count.
+    assert [n for n, _ in fnx_adj] == [n for n, _ in nx_adj]
+    # Each neighbor bundle is a Mapping (upstream returns FilterAtlas; we return dict).
+    # Both must satisfy the Mapping contract and compare equal on content.
+    for (fn, fv_), (nn, nv_) in zip(fnx_adj, nx_adj):
+        assert isinstance(fv_, Mapping)
+        assert dict(fv_) == dict(nv_)
+
+
 def test_restricted_view_with_filter_preserves_edge_view_parity():
     fg = fnx.Graph()
     fg.add_edges_from([(1, 2), (2, 3), (3, 4)])
