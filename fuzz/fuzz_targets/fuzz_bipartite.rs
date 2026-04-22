@@ -84,10 +84,6 @@ enum BipartiteInput {
     BipartiteSetsArbitrary(ArbitraryGraph),
     /// Get bipartite sets from known-bipartite graph.
     BipartiteSetsKnown(ArbitraryBipartiteGraph),
-    /// Color arbitrary graph (may fail for non-bipartite).
-    ColorArbitrary(ArbitraryGraph),
-    /// Color known-bipartite graph.
-    ColorKnown(ArbitraryBipartiteGraph),
 }
 
 fuzz_target!(|input: BipartiteInput| {
@@ -98,7 +94,7 @@ fuzz_target!(|input: BipartiteInput| {
         BipartiteInput::IsBipartiteKnown(bg) => {
             // Known bipartite graph should always return true
             let result = fnx_algorithms::is_bipartite(&bg.graph);
-            debug_assert!(result, "Known bipartite graph should be bipartite");
+            debug_assert!(result.is_bipartite, "Known bipartite graph should be bipartite");
         }
         BipartiteInput::BipartiteSetsArbitrary(ag) => {
             let _ = fnx_algorithms::bipartite_sets(&ag.graph);
@@ -106,14 +102,6 @@ fuzz_target!(|input: BipartiteInput| {
         BipartiteInput::BipartiteSetsKnown(bg) => {
             // Known bipartite graph should successfully return sets
             let _ = fnx_algorithms::bipartite_sets(&bg.graph);
-        }
-        BipartiteInput::ColorArbitrary(ag) => {
-            // May return error for non-bipartite graphs
-            let _ = fnx_algorithms::bipartite_color(&ag.graph);
-        }
-        BipartiteInput::ColorKnown(bg) => {
-            // Known bipartite graph should successfully color
-            let _ = fnx_algorithms::bipartite_color(&bg.graph);
         }
     }
 });

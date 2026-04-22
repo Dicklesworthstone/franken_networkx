@@ -134,15 +134,15 @@ fuzz_target!(|input: DagInput| {
         }
         DagInput::Antichains(dag) => {
             // Limit iteration to avoid combinatorial explosion
-            let iter = fnx_algorithms::antichains(&dag.graph);
-            for (i, _antichain) in iter.enumerate() {
+            let antichains = fnx_algorithms::antichains(&dag.graph);
+            for (i, _antichain) in antichains.into_iter().enumerate() {
                 if i >= 100 {
                     break;
                 }
             }
         }
         DagInput::TransitiveClosure(dag) => {
-            let _ = fnx_algorithms::transitive_closure(&dag.graph);
+            let _ = fnx_algorithms::transitive_closure(&dag.graph, None);
         }
         DagInput::TransitiveReduction(dag) => {
             let _ = fnx_algorithms::transitive_reduction(&dag.graph);
