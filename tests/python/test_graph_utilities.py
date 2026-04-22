@@ -3090,6 +3090,88 @@ def test_conversion_live_views_expose_node_data_helper_without_fallback(
     )
 
 
+@pytest.mark.parametrize(
+    ("builder_name", "fnx_builder", "nx_builder", "fnx_cls", "nx_cls"),
+    [
+        (
+            "subgraph_view",
+            lambda graph: fnx.subgraph_view(graph, filter_node=lambda node: node != "d"),
+            lambda graph: nx.subgraph_view(graph, filter_node=lambda node: node != "d"),
+            fnx.Graph,
+            nx.Graph,
+        ),
+        (
+            "subgraph_view",
+            lambda graph: fnx.subgraph_view(graph, filter_node=lambda node: node != "d"),
+            lambda graph: nx.subgraph_view(graph, filter_node=lambda node: node != "d"),
+            fnx.DiGraph,
+            nx.DiGraph,
+        ),
+        (
+            "subgraph_view",
+            lambda graph: fnx.subgraph_view(graph, filter_node=lambda node: node != "d"),
+            lambda graph: nx.subgraph_view(graph, filter_node=lambda node: node != "d"),
+            fnx.MultiGraph,
+            nx.MultiGraph,
+        ),
+        (
+            "subgraph_view",
+            lambda graph: fnx.subgraph_view(graph, filter_node=lambda node: node != "d"),
+            lambda graph: nx.subgraph_view(graph, filter_node=lambda node: node != "d"),
+            fnx.MultiDiGraph,
+            nx.MultiDiGraph,
+        ),
+        (
+            "restricted_view",
+            lambda graph: fnx.restricted_view(graph, ["d"], []),
+            lambda graph: nx.restricted_view(graph, ["d"], []),
+            fnx.Graph,
+            nx.Graph,
+        ),
+        (
+            "restricted_view",
+            lambda graph: fnx.restricted_view(graph, ["d"], []),
+            lambda graph: nx.restricted_view(graph, ["d"], []),
+            fnx.DiGraph,
+            nx.DiGraph,
+        ),
+        (
+            "restricted_view",
+            lambda graph: fnx.restricted_view(graph, ["d"], []),
+            lambda graph: nx.restricted_view(graph, ["d"], []),
+            fnx.MultiGraph,
+            nx.MultiGraph,
+        ),
+        (
+            "restricted_view",
+            lambda graph: fnx.restricted_view(graph, ["d"], []),
+            lambda graph: nx.restricted_view(graph, ["d"], []),
+            fnx.MultiDiGraph,
+            nx.MultiDiGraph,
+        ),
+    ],
+)
+def test_filtered_graph_views_expose_node_data_helper_without_fallback(
+    monkeypatch, builder_name, fnx_builder, nx_builder, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    graph.nodes["c"].pop("color")
+    expected.nodes["c"].pop("color")
+    expected_result = nx_builder(expected)
+
+    _block_networkx_utilities(monkeypatch, builder_name)
+
+    result = fnx_builder(graph)
+
+    assert list(result.nodes.data()) == list(expected_result.nodes.data()), builder_name
+    assert list(result.nodes.data("color", default="missing")) == list(
+        expected_result.nodes.data("color", default="missing")
+    ), builder_name
+    assert list(result.nodes(data="color", default="missing")) == list(
+        expected_result.nodes(data="color", default="missing")
+    ), builder_name
+
+
 def test_reverse_helper_matches_networkx():
     digraph = fnx.MultiDiGraph()
     digraph.graph["kind"] = "digraph"
