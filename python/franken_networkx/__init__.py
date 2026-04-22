@@ -131,6 +131,21 @@ def _size_with_unweighted_int(size_impl):
     return size
 
 
+def _number_of_edges_with_endpoints(number_of_edges_impl):
+    def number_of_edges(self, u=None, v=None):
+        if u is None and v is None:
+            return number_of_edges_impl(self)
+        if v is None:
+            if u not in self:
+                raise KeyError(u)
+            return 0
+        if u is None:
+            raise TypeError("number_of_edges() missing 1 required positional argument: 'u'")
+        return 1 if self.has_edge(u, v) else 0
+
+    return number_of_edges
+
+
 def _to_directed_class(self):
     return MultiDiGraph if self.is_multigraph() else DiGraph
 
@@ -178,6 +193,8 @@ _GRAPH_SUBGRAPH = Graph.subgraph
 _DIGRAPH_SUBGRAPH = DiGraph.subgraph
 _MULTIGRAPH_SUBGRAPH = MultiGraph.subgraph
 _MULTIDIGRAPH_SUBGRAPH = MultiDiGraph.subgraph
+_GRAPH_NUMBER_OF_EDGES = Graph.number_of_edges
+_DIGRAPH_NUMBER_OF_EDGES = DiGraph.number_of_edges
 
 
 Graph.nbunch_iter = _graph_nbunch_iter
@@ -189,6 +206,8 @@ Graph.size = _size_with_unweighted_int(Graph.size)
 DiGraph.size = _size_with_unweighted_int(DiGraph.size)
 MultiGraph.size = _size_with_unweighted_int(MultiGraph.size)
 MultiDiGraph.size = _size_with_unweighted_int(MultiDiGraph.size)
+Graph.number_of_edges = _number_of_edges_with_endpoints(_GRAPH_NUMBER_OF_EDGES)
+DiGraph.number_of_edges = _number_of_edges_with_endpoints(_DIGRAPH_NUMBER_OF_EDGES)
 Graph.adjlist_inner_dict_factory = dict
 Graph.adjlist_outer_dict_factory = dict
 Graph.edge_attr_dict_factory = dict

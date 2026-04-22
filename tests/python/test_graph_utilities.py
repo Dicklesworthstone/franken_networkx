@@ -1763,6 +1763,34 @@ def test_graph_classes_expose_nbunch_iter_like_networkx(fnx_cls, nx_cls):
     [
         (fnx.Graph, nx.Graph),
         (fnx.DiGraph, nx.DiGraph),
+    ],
+)
+def test_simple_graph_classes_support_number_of_edges_endpoint_queries(fnx_cls, nx_cls):
+    graph = fnx_cls()
+    expected = nx_cls()
+
+    for target in (graph, expected):
+        target.add_edge("a", "b")
+        target.add_edge("b", "c")
+
+    assert graph.number_of_edges() == expected.number_of_edges()
+    assert graph.number_of_edges("a") == expected.number_of_edges("a")
+    assert graph.number_of_edges("a", "b") == expected.number_of_edges("a", "b")
+    assert graph.number_of_edges("a", "missing") == expected.number_of_edges("a", "missing")
+
+    with pytest.raises(Exception) as fnx_exc:
+        graph.number_of_edges("missing")
+    with pytest.raises(Exception) as nx_exc:
+        expected.number_of_edges("missing")
+    assert type(fnx_exc.value).__name__ == type(nx_exc.value).__name__
+    assert str(fnx_exc.value) == str(nx_exc.value)
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
         (fnx.MultiGraph, nx.MultiGraph),
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],
