@@ -15315,6 +15315,30 @@ class _ConversionEdgeView:
             ]
         return self._view._edges(nbunch=nbunch, data=data, keys=keys)
 
+    def __and__(self, other):
+        return set(self) & set(other)
+
+    def __rand__(self, other):
+        return set(other) & set(self)
+
+    def __or__(self, other):
+        return set(self) | set(other)
+
+    def __ror__(self, other):
+        return set(other) | set(self)
+
+    def __sub__(self, other):
+        return set(self) - set(other)
+
+    def __rsub__(self, other):
+        return set(other) - set(self)
+
+    def __xor__(self, other):
+        return set(self) ^ set(other)
+
+    def __rxor__(self, other):
+        return set(other) ^ set(self)
+
     get = _adjacency_view_get
     keys = _adjacency_view_keys
     items = _adjacency_view_items

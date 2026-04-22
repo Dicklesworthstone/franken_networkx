@@ -712,6 +712,32 @@ def test_conversion_live_view_node_view_supports_set_algebra(direction, fnx_ctor
     assert fv.nodes ^ other == nv.nodes ^ other
 
 
+@pytest.mark.parametrize(
+    ("direction", "fnx_ctor", "nx_ctor"),
+    [
+        ("to_directed", fnx.Graph, nx.Graph),
+        ("to_undirected", fnx.DiGraph, nx.DiGraph),
+    ],
+)
+def test_conversion_live_view_simple_edges_supports_set_algebra(direction, fnx_ctor, nx_ctor):
+    fg = fnx_ctor()
+    fg.add_edges_from([(1, 2), (2, 3)])
+    ng = nx_ctor()
+    ng.add_edges_from([(1, 2), (2, 3)])
+
+    fv = getattr(fg, direction)(as_view=True)
+    nv = getattr(ng, direction)(as_view=True)
+
+    other = {(1, 2), (9, 9)}
+    assert fv.edges & other == nv.edges & other
+    assert fv.edges | other == nv.edges | other
+    assert fv.edges - other == nv.edges - other
+    assert fv.edges ^ other == nv.edges ^ other
+    # Reflected
+    assert other & fv.edges == other & nv.edges
+    assert other | fv.edges == other | nv.edges
+
+
 def test_digraph_edge_subgraph_preserves_node_iteration_order():
     fg = fnx.DiGraph()
     fg.add_edge("a", "b")
