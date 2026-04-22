@@ -419,6 +419,25 @@ def test_multigraph_adj_mapping_helpers_preserve_adjacency_view_layers(fnx_ctor,
     assert fdeep == ndeep
 
 
+def test_digraph_succ_exposes_mapping_helpers():
+    fg = fnx.DiGraph()
+    fg.add_edges_from([(1, 2), (2, 3), (3, 4)])
+    ng = nx.DiGraph()
+    ng.add_edges_from([(1, 2), (2, 3), (3, 4)])
+
+    for attr in ("items", "keys", "values", "get"):
+        assert hasattr(fg.succ, attr)
+
+    assert list(fg.succ.keys()) == list(ng.succ.keys())
+    assert [(k, dict(v)) for k, v in fg.succ.items()] == [
+        (k, dict(v)) for k, v in ng.succ.items()
+    ]
+    assert [dict(v) for v in fg.succ.values()] == [dict(v) for v in ng.succ.values()]
+    assert fg.succ.get(99) is ng.succ.get(99) is None
+    assert fg.succ.get(99, "sentinel") == ng.succ.get(99, "sentinel")
+    assert dict(fg.succ.get(1)) == dict(ng.succ.get(1))
+
+
 def test_digraph_edge_subgraph_preserves_node_iteration_order():
     fg = fnx.DiGraph()
     fg.add_edge("a", "b")
