@@ -1374,6 +1374,20 @@ def test_rescale_layout_accepts_numpy_array_input():
     )
 
 
+def test_rescale_layout_empty_array_matches_upstream_error_contract():
+    """Bead franken_networkx-bcgo: empty ndarray input must raise the
+    same ValueError('zero-size array to reduction operation maximum...')
+    as upstream NetworkX — not the earlier ambiguous-truthiness
+    ValueError that fnx previously surfaced before entering the scaling
+    loop.
+    """
+    arr = np.empty((0, 2))
+    with pytest.raises(ValueError, match="zero-size array"):
+        nx.rescale_layout(arr)
+    with pytest.raises(ValueError, match="zero-size array"):
+        fnx.rescale_layout(arr)
+
+
 def test_rescale_layout_preserves_integer_array_dtype_error_contract():
     """Integer-array input must reach the same UFuncTypeError as upstream.
 
