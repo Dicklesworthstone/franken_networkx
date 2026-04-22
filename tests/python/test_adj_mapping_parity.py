@@ -450,6 +450,15 @@ def test_multidigraph_succ_and_pred_preserve_adjacency_view_helpers(attr_name):
     ndeep = {k: {kk: dict(vv) for kk, vv in dict(v).items()} for k, v in na.items()}
     assert fdeep == ndeep
 
+    # dict() conversion must produce a node-keyed mapping with Mapping
+    # values (not raise ValueError or unpack neighbor tuples).
+    assert hasattr(fa, "get")
+    assert dict(fa.get(1)) == dict(na.get(1)) if 1 in fa else True
+    assert fa.get(99) is na.get(99) is None
+    fdeep_dict = {k: {kk: dict(vv) for kk, vv in dict(v).items()} for k, v in dict(fa).items()}
+    ndeep_dict = {k: {kk: dict(vv) for kk, vv in dict(v).items()} for k, v in dict(na).items()}
+    assert fdeep_dict == ndeep_dict
+
 
 @pytest.mark.parametrize(
     ("direction", "fnx_ctor", "nx_ctor"),
