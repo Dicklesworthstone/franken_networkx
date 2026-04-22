@@ -1973,6 +1973,42 @@ def test_simple_graph_classes_adjacency_item_access_returns_read_only_atlas_view
 @pytest.mark.parametrize(
     ("fnx_cls", "nx_cls"),
     [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+    ],
+)
+def test_simple_graph_edge_subgraph_adjacency_preserves_filtered_view_values(
+    fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    selected_edges = [("a", "b"), ("b", "c")]
+
+    result = graph.edge_subgraph(selected_edges)
+    expected_result = expected.edge_subgraph(selected_edges)
+
+    assert [
+        (node, type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for node, neighbors in result.adjacency()
+    ] == [
+        (node, type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for node, neighbors in expected_result.adjacency()
+    ]
+
+    graph["a"]["b"]["weight"] = 9
+    expected["a"]["b"]["weight"] = 9
+
+    assert [
+        (node, type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for node, neighbors in result.adjacency()
+    ] == [
+        (node, type(neighbors).__name__, _mapping_snapshot(neighbors))
+        for node, neighbors in expected_result.adjacency()
+    ]
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
         (fnx.MultiGraph, nx.MultiGraph),
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],

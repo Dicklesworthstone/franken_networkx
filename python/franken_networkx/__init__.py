@@ -611,6 +611,8 @@ def _multidigraph_edges(self):
 
 
 def _simple_graph_adjacency(self):
+    if isinstance(self, _FilteredGraphView):
+        return ((node, FilterAtlas(self, node)) for node in self)
     return [(node, self.adj[node]) for node in self]
 
 
@@ -14734,6 +14736,20 @@ class _FilteredNeighborMap(Mapping):
         raise KeyError(f"Key {neighbor} not found")
 
 
+class FilterAtlas(Mapping):
+    def __init__(self, view, node, *, reverse=False):
+        self._neighbors = _FilteredNeighborMap(view, node, reverse=reverse)
+
+    def __iter__(self):
+        return iter(self._neighbors)
+
+    def __len__(self):
+        return len(self._neighbors)
+
+    def __getitem__(self, key):
+        return self._neighbors[key]
+
+
 class _FilteredAdjacencyView(Mapping):
     def __init__(self, view, *, reverse=False):
         self._view = view
@@ -14927,6 +14943,11 @@ class _FilteredGraphView:
                 ]
             return [(node, graph_nodes[node]) for node in self]
         return list(self)
+
+    def adjacency(self):
+        if self.is_multigraph():
+            return ((node, self.adj[node]) for node in self)
+        return ((node, FilterAtlas(self, node)) for node in self)
 
     def _edges(self, nbunch=None, data=False, keys=False):
         nodes = self._nbunch(nbunch)
