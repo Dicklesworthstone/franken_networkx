@@ -2312,6 +2312,120 @@ def test_to_undirected_tracks_mutations_like_networkx_without_fallback(
 @pytest.mark.parametrize(
     ("fnx_cls", "nx_cls"),
     [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_graph_classes_support_to_undirected_as_view_like_networkx(fnx_cls, nx_cls):
+    graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+
+    result = graph.to_undirected(as_view=True)
+    expected_result = expected.to_undirected(as_view=True)
+
+    assert type(result).__name__ == type(expected_result).__name__
+    assert result.is_directed() == expected_result.is_directed()
+    assert result.is_multigraph() == expected_result.is_multigraph()
+    assert result.graph is graph.graph
+    assert _graph_snapshot(result) == _graph_snapshot(expected_result)
+
+    graph.graph["phase"] = "live"
+    expected.graph["phase"] = "live"
+    graph.nodes["a"]["shade"] = "scarlet"
+    expected.nodes["a"]["shade"] = "scarlet"
+    if graph.is_multigraph():
+        graph.add_edge("c", "a", key="late", weight=11)
+        expected.add_edge("c", "a", key="late", weight=11)
+    else:
+        graph.add_edge("c", "a", weight=11)
+        expected.add_edge("c", "a", weight=11)
+
+    assert dict(result.graph) == dict(expected_result.graph)
+    assert _graph_snapshot(result) == _graph_snapshot(expected_result)
+    assert fnx.is_frozen(result) == nx.is_frozen(expected_result)
+
+    with pytest.raises(Exception) as fnx_exc:
+        result.add_edge("x", "y")
+    with pytest.raises(Exception) as nx_exc:
+        expected_result.add_edge("x", "y")
+    assert type(fnx_exc.value).__name__ == type(nx_exc.value).__name__
+    assert str(fnx_exc.value) == str(nx_exc.value)
+
+    result_explicit_copy = graph.to_undirected(as_view=False)
+    expected_explicit_copy = expected.to_undirected(as_view=False)
+
+    assert type(result_explicit_copy).__name__ == type(expected_explicit_copy).__name__
+    assert _graph_snapshot(result_explicit_copy) == _graph_snapshot(expected_explicit_copy)
+
+    if not graph.is_directed():
+        with pytest.raises(Exception) as fnx_reciprocal_exc:
+            graph.to_undirected(reciprocal=False)
+        with pytest.raises(Exception) as nx_reciprocal_exc:
+            expected.to_undirected(reciprocal=False)
+        assert type(fnx_reciprocal_exc.value).__name__ == type(
+            nx_reciprocal_exc.value
+        ).__name__
+        assert str(fnx_reciprocal_exc.value) == str(nx_reciprocal_exc.value)
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_directed_graph_classes_support_to_undirected_reciprocal_keyword_like_networkx(
+    fnx_cls, nx_cls
+):
+    graph = fnx_cls()
+    expected = nx_cls()
+    graph.graph["name"] = "reciprocal"
+    expected.graph["name"] = "reciprocal"
+    for node, color in [("a", "red"), ("b", "blue"), ("c", "green")]:
+        graph.add_node(node, color=color)
+        expected.add_node(node, color=color)
+
+    if graph.is_multigraph():
+        graph.add_edge("a", "b", key="shared", weight="ab")
+        graph.add_edge("b", "a", key="shared", weight="ba")
+        graph.add_edge("a", "b", key="solo", weight="solo")
+        graph.add_edge("b", "c", key="tail", weight="tail")
+        expected.add_edge("a", "b", key="shared", weight="ab")
+        expected.add_edge("b", "a", key="shared", weight="ba")
+        expected.add_edge("a", "b", key="solo", weight="solo")
+        expected.add_edge("b", "c", key="tail", weight="tail")
+    else:
+        graph.add_edge("a", "b", weight="ab")
+        graph.add_edge("b", "a", weight="ba")
+        graph.add_edge("b", "c", weight="tail")
+        expected.add_edge("a", "b", weight="ab")
+        expected.add_edge("b", "a", weight="ba")
+        expected.add_edge("b", "c", weight="tail")
+
+    result_default = graph.to_undirected(reciprocal=False)
+    expected_default = expected.to_undirected(reciprocal=False)
+    assert type(result_default).__name__ == type(expected_default).__name__
+    assert _graph_snapshot(result_default) == _graph_snapshot(expected_default)
+
+    result_reciprocal = graph.to_undirected(reciprocal=True)
+    expected_reciprocal = expected.to_undirected(reciprocal=True)
+    assert type(result_reciprocal).__name__ == type(expected_reciprocal).__name__
+    assert _graph_snapshot(result_reciprocal) == _graph_snapshot(expected_reciprocal)
+
+    result_view = graph.to_undirected(reciprocal=True, as_view=True)
+    expected_view = expected.to_undirected(reciprocal=True, as_view=True)
+    assert type(result_view).__name__ == type(expected_view).__name__
+    assert result_view.graph is graph.graph
+    assert _graph_snapshot(result_view) == _graph_snapshot(expected_view)
+    assert fnx.is_frozen(result_view) == nx.is_frozen(expected_view)
+    assert _graph_snapshot(result_view) != _graph_snapshot(result_reciprocal)
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
         (fnx.DiGraph, nx.DiGraph),
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],

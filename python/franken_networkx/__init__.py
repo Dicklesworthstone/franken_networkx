@@ -21,6 +21,7 @@ from collections import Counter, defaultdict, deque
 from collections.abc import Collection, Generator, Iterable, Iterator, Mapping, Set
 from copy import deepcopy
 from enum import Enum
+from functools import wraps
 import gzip
 from heapq import heappop, heappush
 import io
@@ -169,6 +170,10 @@ _GRAPH_TO_DIRECTED = Graph.to_directed
 _DIGRAPH_TO_DIRECTED = DiGraph.to_directed
 _MULTIGRAPH_TO_DIRECTED = MultiGraph.to_directed
 _MULTIDIGRAPH_TO_DIRECTED = MultiDiGraph.to_directed
+_GRAPH_TO_UNDIRECTED = Graph.to_undirected
+_DIGRAPH_TO_UNDIRECTED = DiGraph.to_undirected
+_MULTIGRAPH_TO_UNDIRECTED = MultiGraph.to_undirected
+_MULTIDIGRAPH_TO_UNDIRECTED = MultiDiGraph.to_undirected
 
 
 Graph.nbunch_iter = _graph_nbunch_iter
@@ -13323,9 +13328,7 @@ def chordless_cycles(G, length_bound=None):
 
 def to_undirected(G):
     """Return a frozen live undirected view of G."""
-    if G.is_multigraph():
-        return _UndirectedMultiGraphConversionView(G)
-    return _UndirectedGraphConversionView(G)
+    return _generic_undirected_graph_view(G)
 
 
 def to_directed(G):
@@ -13986,12 +13989,67 @@ def _copy_with_view(copy_impl):
 
 
 def _to_directed_with_view(to_directed_impl):
+    @wraps(to_directed_impl)
     def to_directed(self, as_view=False):
         if as_view is True:
             return _generic_directed_graph_view(self)
         return to_directed_impl(self)
 
     return to_directed
+
+
+def _to_undirected_with_view(to_undirected_impl):
+    @wraps(to_undirected_impl)
+    def to_undirected(self, as_view=False):
+        if as_view is True:
+            return _generic_undirected_graph_view(self)
+        return to_undirected_impl(self)
+
+    return to_undirected
+
+
+def _directed_to_undirected_with_view(to_undirected_impl):
+    @wraps(to_undirected_impl)
+    def to_undirected(self, reciprocal=False, as_view=False):
+        if as_view is True:
+            return _generic_undirected_graph_view(self)
+        if reciprocal is False:
+            if self.is_multigraph():
+                return to_undirected_impl(self)
+
+            result = self.to_undirected_class()()
+            result.graph.update(deepcopy(self.graph))
+            result.add_nodes_from(
+                (node, deepcopy(attrs)) for node, attrs in self.nodes(data=True)
+            )
+            result.add_edges_from(
+                (u, v, deepcopy(attrs))
+                for u in self
+                for v, attrs in self.adj[u].items()
+            )
+            return result
+
+        result = self.to_undirected_class()()
+        result.graph.update(deepcopy(self.graph))
+        result.add_nodes_from((node, deepcopy(attrs)) for node, attrs in self.nodes(data=True))
+        if self.is_multigraph():
+            result.add_edges_from(
+                (u, v, key, deepcopy(attrs))
+                for u in self
+                for v, keyed_attrs in self.adj[u].items()
+                for key, attrs in keyed_attrs.items()
+                if v in self.pred[u] and key in self.pred[u][v]
+            )
+        else:
+            result.add_edges_from(
+                (u, v, deepcopy(attrs))
+                for u in self
+                for v, attrs in self.adj[u].items()
+                if v in self.pred[u]
+            )
+        return result
+
+    return to_undirected
 
 
 Graph.copy = _copy_with_view(_GRAPH_COPY)
@@ -14002,6 +14060,12 @@ Graph.to_directed = _to_directed_with_view(_GRAPH_TO_DIRECTED)
 DiGraph.to_directed = _to_directed_with_view(_DIGRAPH_TO_DIRECTED)
 MultiGraph.to_directed = _to_directed_with_view(_MULTIGRAPH_TO_DIRECTED)
 MultiDiGraph.to_directed = _to_directed_with_view(_MULTIDIGRAPH_TO_DIRECTED)
+Graph.to_undirected = _to_undirected_with_view(_GRAPH_TO_UNDIRECTED)
+DiGraph.to_undirected = _directed_to_undirected_with_view(_DIGRAPH_TO_UNDIRECTED)
+MultiGraph.to_undirected = _to_undirected_with_view(_MULTIGRAPH_TO_UNDIRECTED)
+MultiDiGraph.to_undirected = _directed_to_undirected_with_view(
+    _MULTIDIGRAPH_TO_UNDIRECTED
+)
 
 
 class _ConversionNodeView(Mapping):
@@ -14519,6 +14583,17 @@ class _UndirectedMultiGraphConversionView(_ConversionGraphViewBase):
         if not self._graph.is_directed():
             return self._graph.has_edge(u, v, key)
         return self._graph.has_edge(u, v, key) or self._graph.has_edge(v, u, key)
+
+
+_UNDIRECTED_CONVERSION_VIEW_TYPES = {
+    False: type("Graph", (_UndirectedGraphConversionView,), {}),
+    True: type("MultiGraph", (_UndirectedMultiGraphConversionView,), {}),
+}
+
+
+def _generic_undirected_graph_view(graph):
+    view_type = _UNDIRECTED_CONVERSION_VIEW_TYPES[graph.is_multigraph()]
+    return view_type(graph)
 
 
 def reverse(G, copy=True):
