@@ -67,3 +67,20 @@ def test_reverse_view_missing_node_raises():
     frv = fnx.reverse_view(fg)
     with pytest.raises((KeyError, fnx.NodeNotFound, nx.NodeNotFound)):
         _ = frv[99]
+
+
+def test_reverse_view_exposes_nbunch_iter():
+    """Bead franken_networkx-9c3f: reverse_view exposes nbunch_iter
+    matching upstream for subset+unknown, None, and single-node inputs.
+    """
+    fg = fnx.DiGraph()
+    fg.add_edges_from([(1, 2), (2, 3)])
+    ng = nx.DiGraph()
+    ng.add_edges_from([(1, 2), (2, 3)])
+    frv = fnx.reverse_view(fg)
+    nrv = nx.reverse_view(ng)
+
+    assert hasattr(frv, "nbunch_iter")
+    assert list(frv.nbunch_iter([1, 99])) == list(nrv.nbunch_iter([1, 99]))
+    assert sorted(frv.nbunch_iter(None)) == sorted(nrv.nbunch_iter(None))
+    assert list(frv.nbunch_iter(2)) == list(nrv.nbunch_iter(2))
