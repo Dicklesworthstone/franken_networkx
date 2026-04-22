@@ -7329,8 +7329,9 @@ def binomial_graph(n, p, seed=None, directed=False, create_using=None):
     )
 
 
-def gnp_random_graph(n, p, seed=None, directed=False, create_using=None):
+def gnp_random_graph(n, p, seed=None, directed=False, create_using=None, *, backend=None, backend_kwargs=None):
     """Return a G(n,p) random graph."""
+    del backend, backend_kwargs  # NetworkX backend dispatch compatibility
     if not directed and create_using is None and (seed is None or isinstance(seed, int)):
         return _rust_gnp_random_graph(n, p, seed=_native_random_seed(seed))
 
@@ -7356,8 +7357,9 @@ def gnp_random_graph(n, p, seed=None, directed=False, create_using=None):
     return graph
 
 
-def erdos_renyi_graph(n, p, seed=None, directed=False, create_using=None):
+def erdos_renyi_graph(n, p, seed=None, directed=False, create_using=None, *, backend=None, backend_kwargs=None):
     """Return a G(n,p) random graph (alias for ``gnp_random_graph``)."""
+    del backend, backend_kwargs  # NetworkX backend dispatch compatibility
     return gnp_random_graph(
         n,
         p,
@@ -23190,8 +23192,9 @@ def sudoku_graph(n=3):
     return _rust_sudoku_graph(n)
 
 
-def fast_gnp_random_graph(n, p, seed=None, directed=False, create_using=None):
+def fast_gnp_random_graph(n, p, seed=None, directed=False, create_using=None, *, backend=None, backend_kwargs=None):
     """Return a fast G(n,p) random graph (Batagelj-Brandes O(n+m) algorithm)."""
+    del backend, backend_kwargs  # NetworkX backend dispatch compatibility
     from franken_networkx._fnx import fast_gnp_random_graph as _rust_fast_gnp
 
     if create_using is None:
