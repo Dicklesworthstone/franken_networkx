@@ -14069,26 +14069,28 @@ def edge_load_centrality(G, cutoff=False, *, backend=None, **backend_kwargs):
     return betweenness
 
 
-def laplacian_centrality(G, normalized=True, nodelist=None, weight="weight"):
+def laplacian_centrality(
+    G,
+    normalized=True,
+    nodelist=None,
+    weight="weight",
+    walk_type=None,
+    alpha=0.95,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
     """Laplacian centrality: drop in Laplacian energy when node is removed."""
-    import numpy as np
-
-    if nodelist is None:
-        nodelist = list(G.nodes())
-    L = laplacian_matrix(G, weight=weight).toarray()
-    total_energy = float(np.sum(L**2))
-    lc = {}
-    for node in nodelist:
-        remaining = [n for n in G.nodes() if n != node]
-        if not remaining:
-            lc[node] = 0.0
-            continue
-        L_sub = laplacian_matrix(G.subgraph(remaining), weight=weight).toarray()
-        sub_energy = float(np.sum(L_sub**2))
-        lc[node] = (
-            (total_energy - sub_energy) / total_energy if total_energy > 0 else 0.0
-        )
-    return lc
+    _validate_backend_dispatch_keywords("laplacian_centrality", backend, backend_kwargs)
+    return _call_networkx_for_parity(
+        "laplacian_centrality",
+        G,
+        normalized=normalized,
+        nodelist=nodelist,
+        weight=weight,
+        walk_type=walk_type,
+        alpha=alpha,
+    )
 
 
 def percolation_centrality(

@@ -214,6 +214,87 @@ class TestGlobalReachingCentrality:
 
 
 # ---------------------------------------------------------------------------
+# laplacian_centrality
+# ---------------------------------------------------------------------------
+
+class TestLaplacianCentrality:
+    def test_signature_matches_networkx(self):
+        assert str(inspect.signature(fnx.laplacian_centrality)) == str(
+            inspect.signature(nx.laplacian_centrality)
+        )
+
+    def test_path_graph_matches_networkx(self):
+        fg = fnx.path_graph(5)
+        ng = nx.path_graph(5)
+        assert fnx.laplacian_centrality(fg) == pytest.approx(
+            nx.laplacian_centrality(ng)
+        )
+
+    def test_directed_graph_matches_networkx(self):
+        fg = fnx.DiGraph()
+        fg.add_edges_from([(0, 1), (1, 2), (0, 2), (2, 3)])
+        ng = nx.DiGraph()
+        ng.add_edges_from([(0, 1), (1, 2), (0, 2), (2, 3)])
+        assert fnx.laplacian_centrality(fg) == pytest.approx(
+            nx.laplacian_centrality(ng)
+        )
+
+    def test_directed_walk_type_and_alpha_match_networkx(self):
+        fg = fnx.DiGraph()
+        fg.add_edges_from([(0, 1), (1, 2), (0, 2), (2, 3)])
+        ng = nx.DiGraph()
+        ng.add_edges_from([(0, 1), (1, 2), (0, 2), (2, 3)])
+        assert fnx.laplacian_centrality(
+            fg, walk_type="pagerank", alpha=0.85
+        ) == pytest.approx(
+            nx.laplacian_centrality(ng, walk_type="pagerank", alpha=0.85)
+        )
+
+    def test_backend_keyword_surface_matches_networkx(self):
+        fg = fnx.path_graph(4)
+        ng = nx.path_graph(4)
+
+        for backend in (None, "networkx"):
+            assert fnx.laplacian_centrality(fg, backend=backend) == pytest.approx(
+                nx.laplacian_centrality(ng, backend=backend)
+            )
+
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            fnx.laplacian_centrality(fg, backend="parallel")
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            nx.laplacian_centrality(ng, backend="parallel")
+
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            fnx.laplacian_centrality(fg, backend_kwargs={"x": 1})
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            nx.laplacian_centrality(ng, backend_kwargs={"x": 1})
+
+    def test_null_graph_error_matches_networkx(self):
+        fg = fnx.Graph()
+        ng = nx.Graph()
+
+        with pytest.raises(fnx.NetworkXPointlessConcept, match="null graph has no centrality defined"):
+            fnx.laplacian_centrality(fg)
+        with pytest.raises(nx.NetworkXPointlessConcept, match="null graph has no centrality defined"):
+            nx.laplacian_centrality(ng)
+
+    def test_edgeless_graph_contract_matches_networkx(self):
+        fg = fnx.Graph()
+        fg.add_nodes_from([1, 2, 3])
+        ng = nx.Graph()
+        ng.add_nodes_from([1, 2, 3])
+
+        with pytest.raises(ZeroDivisionError, match="graph with no edges has zero full energy"):
+            fnx.laplacian_centrality(fg)
+        with pytest.raises(ZeroDivisionError, match="graph with no edges has zero full energy"):
+            nx.laplacian_centrality(ng)
+
+        assert fnx.laplacian_centrality(fg, normalized=False) == pytest.approx(
+            nx.laplacian_centrality(ng, normalized=False)
+        )
+
+
+# ---------------------------------------------------------------------------
 # group_degree_centrality
 # ---------------------------------------------------------------------------
 
