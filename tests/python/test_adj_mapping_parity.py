@@ -420,6 +420,81 @@ def test_multigraph_adj_mapping_helpers_preserve_adjacency_view_layers(fnx_ctor,
 
 
 @pytest.mark.parametrize("attr_name", ["succ", "pred"])
+def test_multidigraph_succ_and_pred_preserve_adjacency_view_helpers(attr_name):
+    from collections.abc import Mapping
+
+    fg = fnx.MultiDiGraph()
+    fg.add_edge(1, 2, weight=3)
+    fg.add_edge(2, 3)
+    ng = nx.MultiDiGraph()
+    ng.add_edge(1, 2, weight=3)
+    ng.add_edge(2, 3)
+
+    fa = getattr(fg, attr_name)
+    na = getattr(ng, attr_name)
+
+    for attr in ("items", "keys", "values", "get"):
+        assert hasattr(fa, attr)
+
+    # Outer values should be AdjacencyView-style Mappings that reject mutation.
+    for (fk, fv), (nk, nv) in zip(fa.items(), na.items()):
+        assert fk == nk
+        assert isinstance(fv, Mapping)
+        with pytest.raises(TypeError):
+            fv["x"] = {}
+        with pytest.raises(TypeError):
+            nv["x"] = {}
+
+    # Deep content matches upstream through the full three-layer stack.
+    fdeep = {k: {kk: dict(vv) for kk, vv in dict(v).items()} for k, v in fa.items()}
+    ndeep = {k: {kk: dict(vv) for kk, vv in dict(v).items()} for k, v in na.items()}
+    assert fdeep == ndeep
+
+
+@pytest.mark.parametrize(
+    ("direction", "fnx_ctor", "nx_ctor"),
+    [
+        ("to_directed", fnx.Graph, nx.Graph),
+        ("to_undirected", fnx.DiGraph, nx.DiGraph),
+    ],
+)
+def test_conversion_live_view_adj_mapping_helpers_deep_match(direction, fnx_ctor, nx_ctor):
+    fg = fnx_ctor()
+    fg.add_edges_from([(1, 2), (2, 3)])
+    ng = nx_ctor()
+    ng.add_edges_from([(1, 2), (2, 3)])
+
+    fv = getattr(fg, direction)(as_view=True)
+    nv = getattr(ng, direction)(as_view=True)
+
+    fdeep_items = [(k, {kk: dict(vv) for kk, vv in dict(v).items()}) for k, v in fv.adj.items()]
+    ndeep_items = [(k, {kk: dict(vv) for kk, vv in dict(v).items()}) for k, v in nv.adj.items()]
+    assert fdeep_items == ndeep_items
+
+    fdeep_values = [{kk: dict(vv) for kk, vv in dict(v).items()} for v in fv.adj.values()]
+    ndeep_values = [{kk: dict(vv) for kk, vv in dict(v).items()} for v in nv.adj.values()]
+    assert fdeep_values == ndeep_values
+
+
+@pytest.mark.parametrize("builder_name", ["restricted_view", "subgraph_view"])
+def test_filtered_graph_view_adj_mapping_helpers_deep_match(builder_name):
+    fg = fnx.Graph()
+    fg.add_edges_from([(1, 2), (2, 3)])
+    ng = nx.Graph()
+    ng.add_edges_from([(1, 2), (2, 3)])
+    if builder_name == "restricted_view":
+        fv = fnx.restricted_view(fg, [], [])
+        nv = nx.restricted_view(ng, [], [])
+    else:
+        fv = fnx.subgraph_view(fg)
+        nv = nx.subgraph_view(ng)
+
+    fdeep = [(k, {kk: dict(vv) for kk, vv in dict(v).items()}) for k, v in fv.adj.items()]
+    ndeep = [(k, {kk: dict(vv) for kk, vv in dict(v).items()}) for k, v in nv.adj.items()]
+    assert fdeep == ndeep
+
+
+@pytest.mark.parametrize("attr_name", ["succ", "pred"])
 def test_digraph_succ_and_pred_expose_mapping_helpers(attr_name):
     fg = fnx.DiGraph()
     fg.add_edges_from([(1, 2), (2, 3), (3, 4)])
