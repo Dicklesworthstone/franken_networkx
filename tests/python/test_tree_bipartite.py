@@ -60,6 +60,27 @@ class TestBipartite:
         with pytest.raises(fnx.NetworkXError):
             fnx.bipartite_sets(G_fnx)
 
+    def test_bipartite_color_path(self, fnx, nx, path_graph):
+        """bipartite.color should return a valid 2-coloring for a path graph."""
+        G_fnx, G_nx = path_graph
+        from networkx.algorithms import bipartite as nx_bip
+        fnx_coloring = fnx.color(G_fnx)
+        nx_coloring = nx_bip.color(G_nx)
+        # Both should assign 0 or 1 to each node
+        assert set(fnx_coloring.values()) <= {0, 1}
+        assert set(nx_coloring.values()) <= {0, 1}
+        # Both should color all nodes
+        assert len(fnx_coloring) == len(G_fnx)
+        # Verify it's a proper 2-coloring: adjacent nodes have different colors
+        for u, v in G_fnx.edges:
+            assert fnx_coloring[u] != fnx_coloring[v]
+
+    def test_bipartite_color_non_bipartite_raises(self, fnx, triangle_graph):
+        """bipartite.color should raise on non-bipartite graph."""
+        G_fnx, _ = triangle_graph
+        with pytest.raises(fnx.NetworkXError):
+            fnx.color(G_fnx)
+
 
 @pytest.mark.conformance
 @pytest.mark.skipif(not HAS_SCIPY, reason="scipy required for biadjacency_matrix")

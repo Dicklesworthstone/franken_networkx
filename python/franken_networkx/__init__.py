@@ -4745,8 +4745,12 @@ def color(G):
     NetworkXError
         If the graph is not bipartite.
     """
+    import networkx as _nx
     from networkx.algorithms.bipartite import color as _nx_color
-    return _nx_color(_networkx_graph_for_parity(G))
+    try:
+        return _nx_color(_networkx_graph_for_parity(G))
+    except _nx.NetworkXError as e:
+        raise NetworkXError(str(e)) from None
 
 
 def biadjacency_matrix(
