@@ -300,3 +300,26 @@ class TestConnectivity:
         nx_c2 = set(tuple(sorted((u, v))) for u, v in nx.bridges(G_nx, root=10))
         assert fnx_c2 == nx_c2
         assert (0, 1) not in fnx_c2  # Should not include component 1
+
+    def test_has_bridges_with_root(self, fnx, nx):
+        """has_bridges(root=...) should only check the specified component."""
+        # Component 1: path with bridges (0-1-2)
+        # Component 2: cycle with no bridges (10-11-12-10)
+        G_fnx = fnx.Graph()
+        G_fnx.add_edges_from([(0, 1), (1, 2)])  # Path - has bridges
+        G_fnx.add_edges_from([(10, 11), (11, 12), (12, 10)])  # Cycle - no bridges
+        G_nx = nx.Graph()
+        G_nx.add_edges_from([(0, 1), (1, 2)])
+        G_nx.add_edges_from([(10, 11), (11, 12), (12, 10)])
+
+        # Without root: should find bridges (from path component)
+        assert fnx.has_bridges(G_fnx) == nx.has_bridges(G_nx)
+        assert fnx.has_bridges(G_fnx) is True
+
+        # With root=0: check only path component (has bridges)
+        assert fnx.has_bridges(G_fnx, root=0) == nx.has_bridges(G_nx, root=0)
+        assert fnx.has_bridges(G_fnx, root=0) is True
+
+        # With root=10: check only cycle component (no bridges)
+        assert fnx.has_bridges(G_fnx, root=10) == nx.has_bridges(G_nx, root=10)
+        assert fnx.has_bridges(G_fnx, root=10) is False
