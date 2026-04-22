@@ -6,11 +6,11 @@ license-file = "../../LICENSE"
 
 [dependencies]
 base64 = "0.22.1"
-blake3 = "1.8.3"
-raptorq = "2.0.0"
+blake3 = "1.8.4"
+raptorq = "2.0.1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 thiserror = "2.0.18"
 
 [dev-dependencies]
-tempfile = "3.25.0"
+tempfile = "3.27.0"
