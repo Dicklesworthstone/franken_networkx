@@ -564,6 +564,37 @@ class TestRandomKernelGraphSignatureParity:
         )
         assert isinstance(g, fnx.Graph)
 
+    def test_create_using_accepts_fnx_class(self):
+        """Bead franken_networkx-clre: passing the fnx.Graph *class* as
+        create_using must work without leaking descriptor TypeError from
+        nx's internals (which call G.is_directed(None) on class inputs).
+        """
+        g = fnx.random_kernel_graph(
+            6, kernel_integral=self._kernel_integral, seed=42, create_using=fnx.Graph
+        )
+        assert isinstance(g, fnx.Graph)
+
+    def test_create_using_directed_rejected_matching_networkx(self):
+        """Passing a directed class routes through the same
+        'create_using must not be directed' NetworkXError as upstream.
+        """
+        import networkx as nx
+
+        with pytest.raises((fnx.NetworkXError, nx.NetworkXError), match="directed"):
+            fnx.random_kernel_graph(
+                6,
+                kernel_integral=self._kernel_integral,
+                seed=42,
+                create_using=fnx.DiGraph,
+            )
+        with pytest.raises(nx.NetworkXError, match="directed"):
+            nx.random_kernel_graph(
+                6,
+                kernel_integral=self._kernel_integral,
+                seed=42,
+                create_using=nx.DiGraph,
+            )
+
 
 # ---------------------------------------------------------------------------
 # Signature conformance audit (franken_networkx-vrx8)

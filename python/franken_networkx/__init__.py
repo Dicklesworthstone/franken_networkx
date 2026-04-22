@@ -21614,6 +21614,22 @@ def random_kernel_graph(n, kernel_integral, kernel_root=None, seed=None, *, crea
     """
     import networkx as _nx
     from franken_networkx.readwrite import _from_nx_graph
+    # Normalise fnx graph classes/instances to their upstream nx equivalents
+    # before delegating. nx.random_kernel_graph introspects is_directed
+    # through an unbound-method path for class inputs (G.is_directed(None)),
+    # which crashes with a descriptor error on fnx's Rust-bound classes.
+    _FNX_TO_NX_CLASS = {
+        Graph: _nx.Graph,
+        DiGraph: _nx.DiGraph,
+        MultiGraph: _nx.MultiGraph,
+        MultiDiGraph: _nx.MultiDiGraph,
+    }
+    if isinstance(create_using, type) and create_using in _FNX_TO_NX_CLASS:
+        create_using = _FNX_TO_NX_CLASS[create_using]
+    elif isinstance(create_using, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
+        nx_cls = _FNX_TO_NX_CLASS.get(type(create_using))
+        if nx_cls is not None:
+            create_using = nx_cls()
     # Forward backend / **backend_kwargs to networkx so an unavailable backend
     # raises the same ImportError as upstream instead of silently no-oping.
     g = _nx.random_kernel_graph(
