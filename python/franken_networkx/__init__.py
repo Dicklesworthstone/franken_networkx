@@ -1369,6 +1369,25 @@ from franken_networkx._fnx import (
 )
 
 
+class NotAPartition(NetworkXError):
+    """Raised when a set of sets is not a partition of a graph's node set.
+
+    Python-side subclass of NetworkXError matching the upstream NetworkX
+    exception shape (see ``networkx.algorithms.community.quality.NotAPartition``).
+    The Rust binding does not currently expose this type, so define it
+    here so community-quality wrappers can raise a proper NetworkXError
+    subclass that is also ``isinstance``-compatible with the nx class.
+    """
+
+    def __init__(self, graph=None, communities=None):
+        if graph is None and communities is None:
+            super().__init__()
+        else:
+            super().__init__(f"{communities} is not a valid partition of the graph {graph}")
+        self.graph = graph
+        self.communities = communities
+
+
 class NetworkXTreewidthBoundExceeded(NetworkXError):
     """Raised when a chordal search exceeds the requested treewidth bound."""
 
@@ -3607,9 +3626,32 @@ def dominating_set(G, start_with=None):
 # Algorithm functions — community detection
 from franken_networkx._fnx import (
     louvain_communities,
-    modularity,
+    modularity as _raw_modularity,
     greedy_modularity_communities as _raw_greedy_modularity_communities,
 )
+
+
+def modularity(G, communities, weight="weight", resolution=1):
+    """Compute the modularity of a partition of ``G``.
+
+    Matches upstream NetworkX: raises ``NotAPartition`` when the
+    community sets do not form a valid partition of ``G.nodes`` —
+    either because nodes are missing or because a node appears in
+    more than one community.
+    """
+    # Coerce to concrete Python sets for the partition check; keep the
+    # original sequence (order preserved) for the Rust call.
+    community_list = list(communities)
+    node_set = set(G.nodes())
+    seen: set = set()
+    for community in community_list:
+        for node in community:
+            if node in seen or node not in node_set:
+                raise NotAPartition(G, community_list)
+            seen.add(node)
+    if seen != node_set:
+        raise NotAPartition(G, community_list)
+    return _raw_modularity(G, community_list, weight=weight, resolution=resolution)
 
 
 def greedy_modularity_communities(G, weight=None, resolution=1, cutoff=1, best_n=None):
@@ -24843,6 +24885,7 @@ __all__ = [
     "NetworkXTreewidthBoundExceeded",
     "NetworkXUnbounded",
     "NetworkXUnfeasible",
+    "NotAPartition",
     "NotATree",
     "NodeNotFound",
     "PowerIterationFailedConvergence",
