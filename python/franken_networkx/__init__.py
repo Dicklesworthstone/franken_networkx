@@ -4121,8 +4121,28 @@ class _ApproximationNamespace:
 from franken_networkx._fnx import (
     find_cycle as _raw_find_cycle,
     girth,
-    find_negative_cycle,
+    find_negative_cycle as _raw_find_negative_cycle,
 )
+
+
+def find_negative_cycle(G, source, weight="weight"):
+    """Return a negative cycle reachable from ``source`` using Bellman-Ford.
+
+    The Rust implementation currently rejects directed graphs with
+    NetworkXNotImplemented. Match upstream NetworkX — which supports
+    both directed and undirected negative-cycle discovery — by routing
+    directed inputs through networkx's implementation while keeping
+    undirected inputs on the native path.
+    """
+    if G.is_directed():
+        import networkx as _nx
+        from franken_networkx.backend import _fnx_to_nx
+
+        # Convert to an nx-compatible graph, delegate, and return the
+        # raw node list — nx.find_negative_cycle returns a plain list
+        # which already matches upstream's public contract.
+        return _nx.find_negative_cycle(_fnx_to_nx(G), source, weight=weight)
+    return _raw_find_negative_cycle(G, source, weight)
 
 # Algorithm functions — graph predicates
 from franken_networkx._fnx import (
