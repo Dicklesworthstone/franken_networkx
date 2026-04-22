@@ -343,6 +343,45 @@ def test_filtered_graph_view_adjacency_preserves_mapping_contract(builder_name):
         assert dict(fv_) == dict(nv_)
 
 
+@pytest.mark.parametrize(
+    ("fnx_ctor", "nx_ctor"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+    ],
+)
+def test_edge_subgraph_returns_frozen_view_with_atlas_like_adj(fnx_ctor, nx_ctor):
+    from collections.abc import Mapping
+
+    fg = fnx_ctor()
+    fg.add_edge("a", "b", weight=3)
+    fg.add_edge("b", "c", weight=5)
+    ng = nx_ctor()
+    ng.add_edge("a", "b", weight=3)
+    ng.add_edge("b", "c", weight=5)
+
+    fh = fg.edge_subgraph([("a", "b")])
+    nh = ng.edge_subgraph([("a", "b")])
+
+    # Both should be frozen.
+    assert fnx.is_frozen(fh) == nx.is_frozen(nh) is True
+
+    # H['a'] and H.adj['a'] return Mapping objects (AtlasView upstream,
+    # _FilteredNeighborMap here) that reject __setitem__.
+    for accessor in (lambda g, n: g[n], lambda g, n: g.adj[n]):
+        fnbrs = accessor(fh, "a")
+        nnbrs = accessor(nh, "a")
+        assert isinstance(fnbrs, Mapping)
+        with pytest.raises(TypeError):
+            fnbrs["x"] = {}
+        with pytest.raises(TypeError):
+            nnbrs["x"] = {}
+        assert dict(fnbrs) == dict(nnbrs)
+
+    # Edge set matches upstream.
+    assert list(fh.edges) == list(nh.edges)
+
+
 def test_restricted_view_with_filter_preserves_edge_view_parity():
     fg = fnx.Graph()
     fg.add_edges_from([(1, 2), (2, 3), (3, 4)])
