@@ -1335,6 +1335,24 @@ def test_forceatlas2_layout_accepts_backend_keyword_surface():
     fnx.forceatlas2_layout(G, foo="bar")
 
 
+@pytest.mark.parametrize(
+    "bad_input",
+    [
+        pytest.param([[1.0, 2.0], [3.0, 4.0]], id="list-of-lists"),
+        pytest.param(((1.0, 2.0), (3.0, 4.0)), id="tuple-of-tuples"),
+    ],
+)
+def test_rescale_layout_non_dict_sequence_matches_upstream_error(bad_input):
+    """Bead franken_networkx-4dzn: list/tuple inputs must raise the
+    same AttributeError as networkx (previously fnx raised AttributeError
+    about 'values' because non-dict inputs fell into the dict-path).
+    """
+    with pytest.raises(AttributeError, match="has no attribute 'mean'"):
+        fnx.rescale_layout(bad_input)
+    with pytest.raises(AttributeError, match="has no attribute 'mean'"):
+        nx.rescale_layout(bad_input)
+
+
 def test_rescale_layout_accepts_numpy_array_input():
     """Public rescale_layout helper must accept ndarray and return upstream values.
 
@@ -1408,6 +1426,32 @@ def test_rescale_layout_empty_arrays_preserve_networkx_error_contract_without_de
             warnings.simplefilter("ignore", RuntimeWarning)
             with pytest.raises(Exception) as actual_exc:
                 fnx.rescale_layout(pos.copy())
+
+    assert type(actual_exc.value).__name__ == type(expected_exc.value).__name__
+    assert str(actual_exc.value) == str(expected_exc.value)
+
+
+@pytest.mark.parametrize(
+    "pos",
+    [
+        [],
+        [0, 1],
+        [[1.0, 2.0], [3.0, 4.0]],
+        ((0, 1), (2, 3)),
+    ],
+)
+def test_rescale_layout_invalid_sequence_inputs_preserve_networkx_error_contract_without_delegation(
+    pos,
+):
+    with pytest.raises(Exception) as expected_exc:
+        nx.rescale_layout(pos)
+
+    with mock.patch(
+        "networkx.rescale_layout",
+        side_effect=AssertionError("NetworkX rescale_layout should not be used"),
+    ):
+        with pytest.raises(Exception) as actual_exc:
+            fnx.rescale_layout(pos)
 
     assert type(actual_exc.value).__name__ == type(expected_exc.value).__name__
     assert str(actual_exc.value) == str(expected_exc.value)
