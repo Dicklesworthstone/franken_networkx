@@ -8,7 +8,7 @@ license-file = "../../LICENSE"
 fnx-classes = { path = "../fnx-classes" }
 fnx-runtime = { path = "../fnx-runtime" }
 mt19937 = "3.3.0"
-rand = { version = "0.10.0", default-features = false, features = ["std", "std_rng"] }
+rand = { version = "0.10.1", default-features = false, features = ["std", "std_rng"] }
 
 [dev-dependencies]
 proptest = "1.11.0"

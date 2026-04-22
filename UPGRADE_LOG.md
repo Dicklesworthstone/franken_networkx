@@ -146,5 +146,11 @@ library-updater sweep.
 - **Scope:** dev-dependencies of fnx-classes, fnx-convert, fnx-algorithms, fnx-generators, fnx-readwrite, fnx-conformance, fnx-python
 - **Breaking:** None (minor bump; semver-compatible).
 - **Verification:** `rch exec -- cargo check --workspace --all-targets` green; `rch exec -- cargo test -p fnx-classes -p fnx-algorithms` green.
+- **Commit:** 77d22a4
+
+#### rand + rand_core: 0.10.0 -> 0.10.1
+- **Scope:** `rand` in fnx-generators, `rand_core` in fnx-algorithms.
+- **Breaking:** None (patch bumps).
+- **Verification:** `rch exec -- cargo check --workspace --all-targets` green; `rch exec -- cargo test -p fnx-generators -p fnx-algorithms` green (37 passed in fnx-generators suite).
 
 
