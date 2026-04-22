@@ -442,6 +442,27 @@ def _digraph_edges(self):
     return _DiGraphEdgeView(self)
 
 
+def _multi_edge_keys(self):
+    # Upstream MultiEdgeView yields (u, v, k) keys for the Mapping contract.
+    return iter(self(keys=True))
+
+
+def _multi_edge_items(self):
+    # Each (u, v, k) key maps to the corresponding edge attrs dict.
+    return ((key, self[key]) for key in self.keys())
+
+
+def _multi_edge_values(self):
+    return (self[key] for key in self.keys())
+
+
+def _multi_edge_get(self, key, default=None):
+    try:
+        return self[key]
+    except KeyError:
+        return default
+
+
 class _MultiGraphEdgeView:
     def __init__(self, graph):
         self._graph = graph
@@ -451,6 +472,24 @@ class _MultiGraphEdgeView:
 
     def __len__(self):
         return self._graph.number_of_edges()
+
+    def __getitem__(self, edge):
+        # Accept (u, v, k) 3-tuples like upstream MultiEdgeView.
+        if not isinstance(edge, tuple) or len(edge) != 3:
+            raise KeyError(edge)
+        u, v, key = edge
+        adj = self._graph.adj
+        if u in adj and v in adj[u] and key in adj[u][v]:
+            return adj[u][v][key]
+        # Undirected fallback: accept reversed orientation.
+        if v in adj and u in adj[v] and key in adj[v][u]:
+            return adj[v][u][key]
+        raise KeyError(edge)
+
+    keys = _multi_edge_keys
+    items = _multi_edge_items
+    values = _multi_edge_values
+    get = _multi_edge_get
 
     def __contains__(self, edge):
         if not isinstance(edge, tuple) or len(edge) < 2:
@@ -501,6 +540,66 @@ class _MultiGraphEdgeView:
 
 def _multigraph_edges(self):
     return _MultiGraphEdgeView(self)
+
+
+class _MultiDiGraphEdgeView:
+    def __init__(self, graph):
+        self._graph = graph
+
+    def __iter__(self):
+        return iter(self())
+
+    def __len__(self):
+        return self._graph.number_of_edges()
+
+    def __contains__(self, edge):
+        if not isinstance(edge, tuple) or len(edge) < 2:
+            return False
+        u, v = edge[0], edge[1]
+        succ = self._graph.succ
+        if u not in succ or v not in succ[u]:
+            return False
+        if len(edge) == 2:
+            return True
+        key = edge[2]
+        return key in succ[u][v]
+
+    def __getitem__(self, edge):
+        if not isinstance(edge, tuple) or len(edge) != 3:
+            raise KeyError(edge)
+        u, v, key = edge
+        succ = self._graph.succ
+        if u in succ and v in succ[u] and key in succ[u][v]:
+            return succ[u][v][key]
+        raise KeyError(edge)
+
+    def __call__(self, nbunch=None, data=False, keys=False, default=None):
+        result = []
+        for source in self._graph.nbunch_iter(nbunch):
+            for target, keyed_attrs in self._graph.succ[source].items():
+                for key, attrs in keyed_attrs.items():
+                    if data is True and keys:
+                        result.append((source, target, key, attrs))
+                    elif data is True:
+                        result.append((source, target, attrs))
+                    elif data is False and keys:
+                        result.append((source, target, key))
+                    elif data is False:
+                        result.append((source, target))
+                    elif keys:
+                        result.append((source, target, key, attrs.get(data, default)))
+                    else:
+                        result.append((source, target, attrs.get(data, default)))
+        return result
+
+    keys = _multi_edge_keys
+    items = _multi_edge_items
+    values = _multi_edge_values
+    get = _multi_edge_get
+
+
+def _multidigraph_edges(self):
+    return _MultiDiGraphEdgeView(self)
 
 
 def _simple_graph_adjacency(self):
@@ -848,6 +947,7 @@ MultiGraph.edge_subgraph = _multigraph_edge_subgraph
 MultiGraph.adj = property(_multigraph_adj_view)
 MultiGraph.__getitem__ = _graph_getitem_from_adj
 MultiGraph.edges = property(_multigraph_edges)
+MultiDiGraph.edges = property(_multidigraph_edges)
 MultiGraph.degree = property(MultiGraphDegreeView)
 DiGraph.edges = property(_digraph_edges)
 DiGraph.in_degree = property(lambda self: _DirectedDegreeView(self, "pred"))

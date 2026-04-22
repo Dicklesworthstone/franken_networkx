@@ -542,6 +542,40 @@ def test_edge_subgraph_adj_exposes_mapping_helpers(fnx_ctor, nx_ctor):
     assert dict(fh.adj.get(1)) == dict(nh.adj.get(1))
 
 
+@pytest.mark.parametrize(
+    ("fnx_ctor", "nx_ctor"),
+    [
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_multigraph_edges_satisfies_keyed_mapping_protocol(fnx_ctor, nx_ctor):
+    fg = fnx_ctor()
+    fg.add_edge("a", "b", key="k1", weight=3)
+    fg.add_edge("b", "c", key="k2", weight=5)
+    ng = nx_ctor()
+    ng.add_edge("a", "b", key="k1", weight=3)
+    ng.add_edge("b", "c", key="k2", weight=5)
+
+    for attr in ("items", "keys", "values", "get"):
+        assert hasattr(fg.edges, attr)
+
+    # dict() must produce {(u, v, k): attrs}, not {u: v}.
+    assert dict(fg.edges) == dict(ng.edges)
+    assert list(fg.edges.keys()) == list(ng.edges.keys())
+    assert list(fg.edges.items()) == list(ng.edges.items())
+    assert list(fg.edges.values()) == list(ng.edges.values())
+
+    # __getitem__ with keyed 3-tuple returns edge attrs.
+    assert fg.edges[("a", "b", "k1")] == ng.edges[("a", "b", "k1")]
+    # get() matches upstream on hit / miss / sentinel.
+    assert fg.edges.get(("a", "b", "k1")) == ng.edges.get(("a", "b", "k1"))
+    assert fg.edges.get(("x", "y", "z")) is ng.edges.get(("x", "y", "z")) is None
+    assert fg.edges.get(("x", "y", "z"), "sentinel") == ng.edges.get(
+        ("x", "y", "z"), "sentinel"
+    )
+
+
 def test_digraph_edge_subgraph_preserves_node_iteration_order():
     fg = fnx.DiGraph()
     fg.add_edge("a", "b")
