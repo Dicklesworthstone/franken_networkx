@@ -596,6 +596,121 @@ class TestRandomKernelGraphSignatureParity:
             )
 
 
+class TestRandomKernelGraphDifferentialConformance:
+    """Table-driven differential conformance for random_kernel_graph
+    against upstream NetworkX: covers create_using None/constructor/instance
+    in both nx and fnx flavours, and exception parity for the error paths.
+
+    Bead franken_networkx-2v9o.
+    """
+
+    @staticmethod
+    def _kernel_integral(u, v, w):
+        return (v - u) * w
+
+    @staticmethod
+    def _graph_signature(g):
+        # Canonical structure snapshot — node set, edge set, and class name.
+        return (
+            type(g).__name__,
+            sorted(g.nodes()),
+            sorted(sorted(edge) for edge in g.edges()),
+        )
+
+    def test_create_using_none_matches_networkx_signature(self):
+        import networkx as nx
+
+        fg = fnx.random_kernel_graph(6, kernel_integral=self._kernel_integral, seed=42)
+        ng = nx.random_kernel_graph(6, kernel_integral=self._kernel_integral, seed=42)
+        # Same node set and edge set; class name equal after the nx→fnx rehydrate.
+        assert sorted(fg.nodes()) == sorted(ng.nodes())
+        assert sorted(sorted(e) for e in fg.edges()) == sorted(
+            sorted(e) for e in ng.edges()
+        )
+
+    @pytest.mark.parametrize(
+        "fnx_input, nx_input",
+        [
+            pytest.param(None, None, id="None"),
+            pytest.param(lambda: fnx.Graph, lambda: __import__("networkx").Graph, id="class-fnx-vs-nx"),
+            pytest.param(lambda: fnx.Graph(), lambda: __import__("networkx").Graph(), id="instance-fnx-vs-nx"),
+        ],
+    )
+    def test_create_using_variants_succeed(self, fnx_input, nx_input):
+        """All three create_using shapes (None, class, instance) must
+        produce a fnx.Graph with the same edge set as upstream.
+        """
+        import networkx as nx
+
+        fnx_cu = fnx_input() if callable(fnx_input) else fnx_input
+        nx_cu = nx_input() if callable(nx_input) else nx_input
+        fg = fnx.random_kernel_graph(
+            6, kernel_integral=self._kernel_integral, seed=42, create_using=fnx_cu
+        )
+        ng = nx.random_kernel_graph(
+            6, kernel_integral=self._kernel_integral, seed=42, create_using=nx_cu
+        )
+        assert isinstance(fg, fnx.Graph)
+        assert sorted(sorted(e) for e in fg.edges()) == sorted(
+            sorted(e) for e in ng.edges()
+        )
+
+    def test_directed_create_using_raises_networkx_error(self):
+        import networkx as nx
+
+        for fnx_cu, nx_cu in [(fnx.DiGraph, nx.DiGraph), (fnx.DiGraph(), nx.DiGraph())]:
+            with pytest.raises(
+                (fnx.NetworkXError, nx.NetworkXError), match="directed"
+            ):
+                fnx.random_kernel_graph(
+                    6,
+                    kernel_integral=self._kernel_integral,
+                    seed=42,
+                    create_using=fnx_cu,
+                )
+            with pytest.raises(nx.NetworkXError, match="directed"):
+                nx.random_kernel_graph(
+                    6,
+                    kernel_integral=self._kernel_integral,
+                    seed=42,
+                    create_using=nx_cu,
+                )
+
+    def test_kernel_root_custom_function_accepted(self):
+        """A custom kernel_root callable matching the upstream signature
+        runs through the wrapper and produces a fnx.Graph.
+        """
+        import networkx as nx
+
+        def kernel_root(y, a, r):
+            # Inverse of (v - a) * 1 = r when w=1; matches _kernel_integral.
+            return r + a
+
+        fg = fnx.random_kernel_graph(
+            5, kernel_integral=self._kernel_integral, kernel_root=kernel_root, seed=42
+        )
+        ng = nx.random_kernel_graph(
+            5, kernel_integral=self._kernel_integral, kernel_root=kernel_root, seed=42
+        )
+        assert sorted(fg.nodes()) == sorted(ng.nodes())
+        assert sorted(sorted(e) for e in fg.edges()) == sorted(
+            sorted(e) for e in ng.edges()
+        )
+
+    def test_bad_kernel_integral_signature_surfaces_type_error(self):
+        """A kernel_integral with the wrong arity must surface TypeError
+        on both sides — matches upstream argmap+dispatch behaviour.
+        """
+        import networkx as nx
+
+        def bad_integral(u, v):  # wrong arity (needs u, v, w)
+            return v - u
+
+        for probe in (fnx, nx):
+            with pytest.raises(TypeError):
+                probe.random_kernel_graph(5, kernel_integral=bad_integral, seed=42)
+
+
 # ---------------------------------------------------------------------------
 # Signature conformance audit (franken_networkx-vrx8)
 # ---------------------------------------------------------------------------
