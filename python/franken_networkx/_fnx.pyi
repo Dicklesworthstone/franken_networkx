@@ -44,8 +44,8 @@ class EdgeView:
     def __bool__(self) -> bool: ...
     def __call__(
         self,
-        data: Union[bool, str, None] = None,
         nbunch: Any = None,
+        data: Union[bool, str, None] = False,
         default: Any = None,
     ) -> Any: ...
 
@@ -87,8 +87,8 @@ class DiEdgeView:
     def __bool__(self) -> bool: ...
     def __call__(
         self,
-        data: Union[bool, str, None] = None,
         nbunch: Any = None,
+        data: Union[bool, str, None] = False,
         default: Any = None,
     ) -> Any: ...
 

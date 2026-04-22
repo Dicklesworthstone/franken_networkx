@@ -1730,6 +1730,34 @@ def test_directed_graph_classes_expose_in_and_out_edges(fnx_cls, nx_cls):
         (fnx.Graph, nx.Graph),
         (fnx.DiGraph, nx.DiGraph),
         (fnx.MultiGraph, nx.MultiGraph),
+    ],
+)
+def test_graph_classes_edges_accept_nbunch_data_and_default_keywords(fnx_cls, nx_cls):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+
+    assert list(graph.edges(["a"], data=True)) == list(expected.edges(["a"], data=True))
+    assert list(graph.edges(nbunch=["a"], data="weight", default="NA")) == list(
+        expected.edges(nbunch=["a"], data="weight", default="NA")
+    )
+    assert list(graph.edges(["a"], data="missing", default="NA")) == list(
+        expected.edges(["a"], data="missing", default="NA")
+    )
+
+    if graph.is_multigraph():
+        assert list(graph.edges(["a"], keys=True, data=True)) == list(
+            expected.edges(["a"], keys=True, data=True)
+        )
+        assert list(graph.edges(nbunch=["a"], keys=True, data="weight", default="NA")) == list(
+            expected.edges(nbunch=["a"], keys=True, data="weight", default="NA")
+        )
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],
 )

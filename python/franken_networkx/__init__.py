@@ -146,6 +146,45 @@ def _number_of_edges_with_endpoints(number_of_edges_impl):
     return number_of_edges
 
 
+def _edge_view_call_with_nbunch_first(edge_view_call):
+    _unset = object()
+
+    def wrapped(self, *args, **kwargs):
+        nbunch = kwargs.pop("nbunch", _unset)
+        data = kwargs.pop("data", _unset)
+        default = kwargs.pop("default", _unset)
+        if kwargs:
+            unexpected = next(iter(kwargs))
+            raise TypeError(f"__call__() got an unexpected keyword argument '{unexpected}'")
+
+        if len(args) > 3:
+            raise TypeError(
+                f"__call__() takes from 1 to 4 positional arguments but {len(args) + 1} were given"
+            )
+        if len(args) >= 1:
+            if nbunch is not _unset:
+                raise TypeError("__call__() got multiple values for argument 'nbunch'")
+            nbunch = args[0]
+        if len(args) >= 2:
+            if data is not _unset:
+                raise TypeError("__call__() got multiple values for argument 'data'")
+            data = args[1]
+        if len(args) == 3:
+            if default is not _unset:
+                raise TypeError("__call__() got multiple values for argument 'default'")
+            default = args[2]
+
+        if nbunch is _unset:
+            nbunch = None
+        if data is _unset:
+            data = False
+        if default is _unset:
+            default = None
+        return edge_view_call(self, data=data, nbunch=nbunch, default=default)
+
+    return wrapped
+
+
 def _to_directed_class(self):
     return MultiDiGraph if self.is_multigraph() else DiGraph
 
@@ -167,6 +206,45 @@ def _multigraph_new_edge_key(self, u, v):
 
 def _multigraph_edge_subgraph(self, edges):
     return edge_subgraph(self, edges)
+
+
+class _MultiGraphEdgeView:
+    def __init__(self, graph):
+        self._graph = graph
+
+    def __iter__(self):
+        return iter(self())
+
+    def __len__(self):
+        return self._graph.number_of_edges()
+
+    def __call__(self, nbunch=None, data=False, keys=False, default=None):
+        result = []
+        seen = set()
+        for source in self._graph.nbunch_iter(nbunch):
+            for target, keyed_attrs in self._graph.adj[source].items():
+                for key, attrs in keyed_attrs.items():
+                    marker = (frozenset((source, target)), key)
+                    if marker in seen:
+                        continue
+                    seen.add(marker)
+                    if data is True and keys:
+                        result.append((source, target, key, attrs))
+                    elif data is True:
+                        result.append((source, target, attrs))
+                    elif data is False and keys:
+                        result.append((source, target, key))
+                    elif data is False:
+                        result.append((source, target))
+                    elif keys:
+                        result.append((source, target, key, attrs.get(data, default)))
+                    else:
+                        result.append((source, target, attrs.get(data, default)))
+        return result
+
+
+def _multigraph_edges(self):
+    return _MultiGraphEdgeView(self)
 
 
 def _simple_graph_adjacency(self):
@@ -195,6 +273,10 @@ _MULTIGRAPH_SUBGRAPH = MultiGraph.subgraph
 _MULTIDIGRAPH_SUBGRAPH = MultiDiGraph.subgraph
 _GRAPH_NUMBER_OF_EDGES = Graph.number_of_edges
 _DIGRAPH_NUMBER_OF_EDGES = DiGraph.number_of_edges
+_EDGE_VIEW_TYPE = type(Graph().edges)
+_DIEDGE_VIEW_TYPE = type(DiGraph().edges)
+_EDGE_VIEW_CALL = _EDGE_VIEW_TYPE.__call__
+_DIEDGE_VIEW_CALL = _DIEDGE_VIEW_TYPE.__call__
 
 
 Graph.nbunch_iter = _graph_nbunch_iter
@@ -208,6 +290,8 @@ MultiGraph.size = _size_with_unweighted_int(MultiGraph.size)
 MultiDiGraph.size = _size_with_unweighted_int(MultiDiGraph.size)
 Graph.number_of_edges = _number_of_edges_with_endpoints(_GRAPH_NUMBER_OF_EDGES)
 DiGraph.number_of_edges = _number_of_edges_with_endpoints(_DIGRAPH_NUMBER_OF_EDGES)
+_EDGE_VIEW_TYPE.__call__ = _edge_view_call_with_nbunch_first(_EDGE_VIEW_CALL)
+_DIEDGE_VIEW_TYPE.__call__ = _edge_view_call_with_nbunch_first(_DIEDGE_VIEW_CALL)
 Graph.adjlist_inner_dict_factory = dict
 Graph.adjlist_outer_dict_factory = dict
 Graph.edge_attr_dict_factory = dict
@@ -229,6 +313,7 @@ MultiGraph.node_dict_factory = dict
 MultiGraph.edge_key_dict_factory = dict
 MultiGraph.new_edge_key = _multigraph_new_edge_key
 MultiGraph.edge_subgraph = _multigraph_edge_subgraph
+MultiGraph.edges = property(_multigraph_edges)
 MultiDiGraph.adjlist_inner_dict_factory = dict
 MultiDiGraph.adjlist_outer_dict_factory = dict
 MultiDiGraph.edge_attr_dict_factory = dict
