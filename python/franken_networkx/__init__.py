@@ -18414,9 +18414,23 @@ def relaxed_caveman_graph(l, k, p, seed=None):
 
 
 # Centrality Extras (br-eup)
-def eigenvector_centrality_numpy(G, weight="weight", max_iter=50, tol=0):
+def eigenvector_centrality_numpy(
+    G,
+    weight=None,
+    max_iter=50,
+    tol=0,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
     """Eigenvector centrality via numpy eigensolver."""
     import numpy as np
+
+    _validate_backend_dispatch_keywords(
+        "eigenvector_centrality_numpy",
+        backend,
+        backend_kwargs,
+    )
 
     nodelist = list(G.nodes())
     n = len(nodelist)

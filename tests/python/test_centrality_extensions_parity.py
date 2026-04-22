@@ -274,6 +274,46 @@ def test_katz_centrality_numpy_backend_keyword_surface_matches_networkx():
         nx.katz_centrality_numpy(expected_graph, backend_kwargs={"x": 1})
 
 
+def test_eigenvector_centrality_numpy_weight_contract_matches_networkx():
+    actual_graph = fnx.Graph()
+    actual_graph.add_edge(0, 1, weight=10.0)
+    actual_graph.add_edge(1, 2, weight=1.0)
+
+    expected_graph = nx.Graph()
+    expected_graph.add_edge(0, 1, weight=10.0)
+    expected_graph.add_edge(1, 2, weight=1.0)
+
+    _assert_mapping_close(
+        fnx.eigenvector_centrality_numpy(actual_graph),
+        nx.eigenvector_centrality_numpy(expected_graph),
+    )
+    _assert_mapping_close(
+        fnx.eigenvector_centrality_numpy(actual_graph, weight="weight"),
+        nx.eigenvector_centrality_numpy(expected_graph, weight="weight"),
+    )
+
+
+def test_eigenvector_centrality_numpy_backend_keyword_surface_matches_networkx():
+    actual_graph = fnx.path_graph(3)
+    expected_graph = nx.path_graph(3)
+
+    for backend in (None, "networkx"):
+        _assert_mapping_close(
+            fnx.eigenvector_centrality_numpy(actual_graph, backend=backend),
+            nx.eigenvector_centrality_numpy(expected_graph, backend=backend),
+        )
+
+    with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+        fnx.eigenvector_centrality_numpy(actual_graph, backend="parallel")
+    with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+        nx.eigenvector_centrality_numpy(expected_graph, backend="parallel")
+
+    with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+        fnx.eigenvector_centrality_numpy(actual_graph, backend_kwargs={"x": 1})
+    with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+        nx.eigenvector_centrality_numpy(expected_graph, backend_kwargs={"x": 1})
+
+
 def test_hits_matches_networkx_without_fallback(monkeypatch):
     graph = fnx.path_graph(4)
     expected_graph = nx.path_graph(4)
