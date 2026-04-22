@@ -513,6 +513,9 @@ def test_digraph_succ_and_pred_expose_mapping_helpers(attr_name):
     assert fa.get(99) is na.get(99) is None
     assert fa.get(99, "sentinel") == na.get(99, "sentinel")
     assert dict(fa.get(1)) == dict(na.get(1))
+    # dict() conversion must produce a node-keyed mapping, not raise ValueError
+    # or unpack neighbor tuples as (k, v) pairs.
+    assert dict(fa) == dict(na)
 
 
 @pytest.mark.parametrize(
