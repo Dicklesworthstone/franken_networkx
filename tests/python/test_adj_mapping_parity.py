@@ -46,6 +46,35 @@ def test_adj_get_matches_upstream_defaults(fnx_ctor):
     assert dict(fg.adj.get(1)) == {2: {}}
 
 
+@pytest.mark.parametrize(
+    ("fnx_ctor", "nx_ctor"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+    ],
+)
+def test_edges_satisfies_mapping_protocol(fnx_ctor, nx_ctor):
+    fg = fnx_ctor()
+    fg.add_edge("a", "b", weight=3)
+    fg.add_edge("b", "c", weight=5)
+    ng = nx_ctor()
+    ng.add_edge("a", "b", weight=3)
+    ng.add_edge("b", "c", weight=5)
+
+    for attr in ("items", "keys", "values", "get"):
+        assert hasattr(fg.edges, attr), f"{fnx_ctor.__name__}.edges is missing {attr}"
+
+    assert dict(fg.edges) == dict(ng.edges)
+    assert list(fg.edges.keys()) == list(ng.edges.keys())
+    assert list(fg.edges.items()) == list(ng.edges.items())
+    assert list(fg.edges.values()) == list(ng.edges.values())
+    assert fg.edges.get(("a", "b")) == ng.edges.get(("a", "b"))
+    assert fg.edges.get(("x", "y")) is ng.edges.get(("x", "y")) is None
+    assert fg.edges.get(("x", "y"), "sentinel") == ng.edges.get(
+        ("x", "y"), "sentinel"
+    )
+
+
 def test_reverse_view_adj_exposes_mapping_helpers():
     fg = fnx.DiGraph()
     fg.add_edges_from([(1, 2), (2, 3), (3, 4)])

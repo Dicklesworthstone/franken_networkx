@@ -774,6 +774,14 @@ MultiDiGraph.predecessors = _neighbors_with_networkx_missing_node_error(
 )
 _EDGE_VIEW_TYPE.__call__ = _edge_view_call_with_nbunch_first(_EDGE_VIEW_CALL)
 _DIEDGE_VIEW_TYPE.__call__ = _edge_view_call_with_nbunch_first(_DIEDGE_VIEW_CALL)
+_EDGE_VIEW_TYPE.get = _adjacency_view_get
+_EDGE_VIEW_TYPE.keys = _adjacency_view_keys
+_EDGE_VIEW_TYPE.items = _adjacency_view_items
+_EDGE_VIEW_TYPE.values = _adjacency_view_values
+_DiGraphEdgeView.get = _adjacency_view_get
+_DiGraphEdgeView.keys = _adjacency_view_keys
+_DiGraphEdgeView.items = _adjacency_view_items
+_DiGraphEdgeView.values = _adjacency_view_values
 _MULTIGRAPH_NODE_VIEW_TYPE.__call__ = _node_view_call_with_attr_support(
     _MULTIGRAPH_NODE_VIEW_CALL
 )
