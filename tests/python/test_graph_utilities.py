@@ -1752,6 +1752,24 @@ def test_graph_classes_edges_accept_nbunch_data_and_default_keywords(fnx_cls, nx
         )
 
 
+def test_multigraph_edges_support_attribute_name_data_retrieval():
+    graph, expected = _view_utility_graph_pair(fnx.MultiGraph, nx.MultiGraph)
+
+    assert list(graph.edges(data="weight")) == list(expected.edges(data="weight"))
+    assert list(graph.edges(data="weight", default="NA")) == list(
+        expected.edges(data="weight", default="NA")
+    )
+    assert list(graph.edges(["a"], data="weight", default="NA")) == list(
+        expected.edges(["a"], data="weight", default="NA")
+    )
+    assert list(graph.edges(keys=True, data="weight", default="NA")) == list(
+        expected.edges(keys=True, data="weight", default="NA")
+    )
+    assert list(graph.edges(["a"], keys=True, data="weight", default="NA")) == list(
+        expected.edges(["a"], keys=True, data="weight", default="NA")
+    )
+
+
 @pytest.mark.parametrize(
     ("fnx_cls", "nx_cls"),
     [
