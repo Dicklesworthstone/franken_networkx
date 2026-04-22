@@ -9,6 +9,8 @@ Tests cover:
 - is_distance_regular
 """
 
+import importlib.util
+
 import networkx as nx
 import pytest
 import franken_networkx as fnx
@@ -532,6 +534,57 @@ class TestTournamentIsReachable:
             fnx_result = fnx.is_reachable(g_fnx, s, t)
             nx_result = nx_is_reachable(g_nx, s, t)
             assert fnx_result == nx_result, f"Mismatch for ({s}, {t})"
+
+
+@pytest.mark.skipif(
+    not importlib.util.find_spec("numpy"), reason="numpy required for tournament_matrix"
+)
+@pytest.mark.skipif(
+    not importlib.util.find_spec("scipy"), reason="scipy required for tournament_matrix"
+)
+class TestTournamentMatrix:
+    """Tests for tournament_matrix algorithm."""
+
+    def test_complete_tournament_matrix(self):
+        """Complete tournament should produce proper sparse matrix."""
+        import scipy.sparse as sp
+
+        g = fnx.DiGraph()
+        g.add_edge(0, 1)
+        g.add_edge(0, 2)
+        g.add_edge(1, 2)
+
+        mat = fnx.tournament_matrix(g)
+        assert sp.issparse(mat)
+        assert mat.shape == (3, 3)
+        # Convert to dense for easier assertions
+        dense = mat.toarray()
+        # Row 0: edges to 1 and 2
+        assert dense[0, 1] == 1
+        assert dense[0, 2] == 1
+        # Row 1: edge to 2
+        assert dense[1, 2] == 1
+        # No self-loops
+        assert dense[0, 0] == 0
+        assert dense[1, 1] == 0
+        assert dense[2, 2] == 0
+
+    def test_parity_with_networkx(self):
+        """tournament_matrix should match NetworkX."""
+        import numpy as np
+        from networkx.algorithms.tournament import tournament_matrix as nx_tournament_matrix
+
+        g_fnx = fnx.DiGraph()
+        g_nx = nx.DiGraph()
+        for g in [g_fnx, g_nx]:
+            g.add_edge(0, 1)
+            g.add_edge(0, 2)
+            g.add_edge(1, 2)
+
+        fnx_mat = fnx.tournament_matrix(g_fnx)
+        nx_mat = nx_tournament_matrix(g_nx)
+        # Compare as dense arrays
+        np.testing.assert_array_equal(fnx_mat.toarray(), nx_mat.toarray())
 
 
 # ---------------------------------------------------------------------------
