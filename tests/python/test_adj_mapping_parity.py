@@ -78,6 +78,42 @@ def test_edges_satisfies_mapping_protocol(fnx_ctor, nx_ctor):
     )
 
 
+@pytest.mark.parametrize(
+    ("direction", "fnx_ctor", "nx_ctor"),
+    [
+        ("to_directed", fnx.Graph, nx.Graph),
+        ("to_undirected", fnx.DiGraph, nx.DiGraph),
+    ],
+)
+def test_conversion_live_view_adj_satisfies_mapping_protocol(direction, fnx_ctor, nx_ctor):
+    from collections.abc import Mapping
+
+    fg = fnx_ctor()
+    fg.add_edges_from([(1, 2), (2, 3)])
+    ng = nx_ctor()
+    ng.add_edges_from([(1, 2), (2, 3)])
+
+    fv = getattr(fg, direction)(as_view=True)
+    nv = getattr(ng, direction)(as_view=True)
+
+    # Contract: the adj view and its inner neighbor maps must be Mappings
+    # (so keys/items/values/get and dict() conversion are all well-defined).
+    assert isinstance(fv.adj, Mapping)
+    for attr in ("items", "keys", "values", "get"):
+        assert hasattr(fv.adj, attr)
+
+    fv_deep = {k: dict(v) for k, v in fv.adj.items()}
+    nv_deep = {k: dict(v) for k, v in nv.adj.items()}
+    assert fv_deep == nv_deep
+
+    # get() on a hit returns a Mapping whose content matches upstream.
+    assert isinstance(fv.adj.get(1), Mapping)
+    assert dict(fv.adj.get(1)) == dict(nv.adj.get(1))
+    # Default on miss matches upstream.
+    assert fv.adj.get(99) is nv.adj.get(99) is None
+    assert fv.adj.get(99, "sentinel") == nv.adj.get(99, "sentinel")
+
+
 def test_reverse_view_adj_exposes_mapping_helpers():
     fg = fnx.DiGraph()
     fg.add_edges_from([(1, 2), (2, 3), (3, 4)])
