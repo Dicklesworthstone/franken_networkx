@@ -661,6 +661,37 @@ def test_multigraph_adj_satisfies_mapping_protocol(fnx_ctor, nx_ctor):
 @pytest.mark.parametrize(
     ("fnx_ctor", "nx_ctor"),
     [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+    ],
+)
+def test_simple_graph_nodes_satisfies_mapping_protocol(fnx_ctor, nx_ctor):
+    """Bead franken_networkx-yxpi: Graph.nodes / DiGraph.nodes must
+    satisfy the ordinary NodeView mapping contract — dict(G.nodes) must
+    yield {node: attrs}, not raise ValueError("dictionary update
+    sequence element #0 has length 1; 2 is required").
+    """
+    fg = fnx_ctor()
+    fg.add_node("a", color="red")
+    fg.add_node("b")
+    ng = nx_ctor()
+    ng.add_node("a", color="red")
+    ng.add_node("b")
+
+    for attr in ("items", "keys", "values", "get"):
+        assert hasattr(fg.nodes, attr)
+
+    assert dict(fg.nodes) == dict(ng.nodes)
+    assert list(fg.nodes.keys()) == list(ng.nodes.keys())
+    assert list(fg.nodes.items()) == list(ng.nodes.items())
+    assert list(fg.nodes.values()) == list(ng.nodes.values())
+    assert fg.nodes.get("a") == ng.nodes.get("a")
+    assert fg.nodes.get("missing") is ng.nodes.get("missing") is None
+
+
+@pytest.mark.parametrize(
+    ("fnx_ctor", "nx_ctor"),
+    [
         (fnx.MultiGraph, nx.MultiGraph),
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],
