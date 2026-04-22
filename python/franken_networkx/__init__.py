@@ -13925,10 +13925,37 @@ def edge_current_flow_betweenness_centrality(
 
 
 def approximate_current_flow_betweenness_centrality(
-    G, normalized=True, weight=None, epsilon=0.5, kmax=10000, seed=None
+    G,
+    normalized=True,
+    weight=None,
+    dtype=float,
+    solver="full",
+    epsilon=0.5,
+    kmax=10000,
+    seed=None,
+    *,
+    sample_weight=1,
+    backend=None,
+    **backend_kwargs,
 ):
     """Approximate current-flow betweenness via random source-target sampling."""
-    return current_flow_betweenness_centrality(G, normalized=normalized, weight=weight)
+    _validate_backend_dispatch_keywords(
+        "approximate_current_flow_betweenness_centrality",
+        backend,
+        backend_kwargs,
+    )
+    return _call_networkx_for_parity(
+        "approximate_current_flow_betweenness_centrality",
+        G,
+        normalized=normalized,
+        weight=weight,
+        dtype=dtype,
+        solver=solver,
+        epsilon=epsilon,
+        kmax=kmax,
+        seed=seed,
+        sample_weight=sample_weight,
+    )
 
 
 def current_flow_closeness_centrality(

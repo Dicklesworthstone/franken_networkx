@@ -295,6 +295,109 @@ class TestLaplacianCentrality:
 
 
 # ---------------------------------------------------------------------------
+# approximate_current_flow_betweenness_centrality
+# ---------------------------------------------------------------------------
+
+class TestApproximateCurrentFlowBetweennessCentrality:
+    def test_signature_matches_networkx(self):
+        assert str(
+            inspect.signature(fnx.approximate_current_flow_betweenness_centrality)
+        ) == str(inspect.signature(nx.approximate_current_flow_betweenness_centrality))
+
+    def test_fixed_seed_matches_networkx(self):
+        fg = fnx.path_graph(4)
+        ng = nx.path_graph(4)
+        assert fnx.approximate_current_flow_betweenness_centrality(
+            fg, seed=1
+        ) == pytest.approx(
+            nx.approximate_current_flow_betweenness_centrality(ng, seed=1)
+        )
+
+    def test_extended_parameters_match_networkx(self):
+        fg = fnx.path_graph(4)
+        ng = nx.path_graph(4)
+        kwargs = {
+            "seed": 1,
+            "normalized": False,
+            "epsilon": 1.0,
+            "solver": "lu",
+            "dtype": float,
+            "sample_weight": 1,
+        }
+        assert fnx.approximate_current_flow_betweenness_centrality(
+            fg, **kwargs
+        ) == pytest.approx(
+            nx.approximate_current_flow_betweenness_centrality(ng, **kwargs)
+        )
+
+    def test_backend_keyword_surface_matches_networkx(self):
+        fg = fnx.path_graph(4)
+        ng = nx.path_graph(4)
+
+        for backend in (None, "networkx"):
+            assert fnx.approximate_current_flow_betweenness_centrality(
+                fg, seed=1, backend=backend
+            ) == pytest.approx(
+                nx.approximate_current_flow_betweenness_centrality(
+                    ng, seed=1, backend=backend
+                )
+            )
+
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            fnx.approximate_current_flow_betweenness_centrality(
+                fg, seed=1, backend="parallel"
+            )
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            nx.approximate_current_flow_betweenness_centrality(
+                ng, seed=1, backend="parallel"
+            )
+
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            fnx.approximate_current_flow_betweenness_centrality(
+                fg, seed=1, backend_kwargs={"x": 1}
+            )
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            nx.approximate_current_flow_betweenness_centrality(
+                ng, seed=1, backend_kwargs={"x": 1}
+            )
+
+    def test_directed_error_matches_networkx(self):
+        fg = fnx.DiGraph()
+        fg.add_edge(0, 1)
+        ng = nx.DiGraph()
+        ng.add_edge(0, 1)
+
+        with pytest.raises(fnx.NetworkXNotImplemented, match="not implemented for directed type"):
+            fnx.approximate_current_flow_betweenness_centrality(fg, seed=1)
+        with pytest.raises(nx.NetworkXNotImplemented, match="not implemented for directed type"):
+            nx.approximate_current_flow_betweenness_centrality(ng, seed=1)
+
+    def test_disconnected_error_matches_networkx(self):
+        fg = fnx.Graph()
+        fg.add_edges_from([(0, 1), (2, 3)])
+        ng = nx.Graph()
+        ng.add_edges_from([(0, 1), (2, 3)])
+
+        with pytest.raises(fnx.NetworkXError, match="Graph not connected\\."):
+            fnx.approximate_current_flow_betweenness_centrality(fg, seed=1)
+        with pytest.raises(nx.NetworkXError, match="Graph not connected\\."):
+            nx.approximate_current_flow_betweenness_centrality(ng, seed=1)
+
+    def test_invalid_solver_matches_networkx(self):
+        fg = fnx.path_graph(4)
+        ng = nx.path_graph(4)
+
+        with pytest.raises(KeyError, match="bogus"):
+            fnx.approximate_current_flow_betweenness_centrality(
+                fg, seed=1, solver="bogus"
+            )
+        with pytest.raises(KeyError, match="bogus"):
+            nx.approximate_current_flow_betweenness_centrality(
+                ng, seed=1, solver="bogus"
+            )
+
+
+# ---------------------------------------------------------------------------
 # group_degree_centrality
 # ---------------------------------------------------------------------------
 
