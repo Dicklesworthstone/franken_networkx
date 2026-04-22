@@ -14456,6 +14456,12 @@ class _ReverseDirectedView:
     def __contains__(self, node):
         return node in self._graph
 
+    def __getitem__(self, node):
+        # Match NetworkX: view[node] returns the reversed adjacency
+        # mapping (i.e. self.succ[node] under the swapped-direction
+        # semantics already baked into _ReverseAdjacencyView).
+        return self.adj[node]
+
     def is_directed(self):
         return True
 
