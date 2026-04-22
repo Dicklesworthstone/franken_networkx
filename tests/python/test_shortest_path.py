@@ -1599,6 +1599,39 @@ class TestShortestPath:
             ),
         )
 
+    @pytest.mark.parametrize("cutoff", [None, 1])
+    def test_all_pairs_shortest_path_wrappers_match_networkx_iterator_contract(
+        self, fnx, nx, monkeypatch, cutoff
+    ):
+        G_fnx = fnx.path_graph(["a", "b", "c", "d"])
+        G_nx = nx.path_graph(["a", "b", "c", "d"])
+
+        expected_paths = list(nx.all_pairs_shortest_path(G_nx, cutoff=cutoff))
+        expected_lengths = list(nx.all_pairs_shortest_path_length(G_nx, cutoff=cutoff))
+
+        monkeypatch.setattr(
+            nx,
+            "all_pairs_shortest_path",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX all_pairs_shortest_path should not be used")
+            ),
+        )
+        monkeypatch.setattr(
+            nx,
+            "all_pairs_shortest_path_length",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("NetworkX all_pairs_shortest_path_length should not be used")
+            ),
+        )
+
+        actual_paths = fnx.all_pairs_shortest_path(G_fnx, cutoff=cutoff)
+        actual_lengths = fnx.all_pairs_shortest_path_length(G_fnx, cutoff=cutoff)
+
+        assert isinstance(actual_paths, Iterator)
+        assert isinstance(actual_lengths, Iterator)
+        assert list(actual_paths) == expected_paths
+        assert list(actual_lengths) == expected_lengths
+
     def test_directed_target_only_bellman_ford_shortest_path_length_parity(self, fnx, nx):
         D_fnx = fnx.DiGraph()
         D_nx = nx.DiGraph()
