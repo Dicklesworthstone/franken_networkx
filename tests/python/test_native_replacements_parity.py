@@ -87,6 +87,25 @@ class TestProjectedGraph:
         assert isinstance(P_fnx, fnx.MultiGraph)
         assert sorted(P_fnx.edges(keys=True)) == sorted(P_nx.edges(keys=True))
 
+    def test_projected_graph_is_native_not_nx_delegate(self):
+        """Bead franken_networkx-y76g: confirm fnx.projected_graph runs
+        the fnx-native implementation rather than delegating into nx.
+        """
+        from unittest import mock
+
+        B_fnx = fnx.complete_bipartite_graph(2, 3)
+        B_nx = nx.complete_bipartite_graph(2, 3)
+        expected = nx.projected_graph(B_nx, [0, 1])
+
+        with mock.patch(
+            "networkx.projected_graph",
+            side_effect=AssertionError("fnx must not delegate to networkx"),
+        ):
+            actual = fnx.projected_graph(B_fnx, [0, 1])
+
+        assert isinstance(actual, fnx.Graph)
+        assert sorted(actual.edges) == sorted(expected.edges)
+
 
 @needs_nx
 class TestMycielskian:
