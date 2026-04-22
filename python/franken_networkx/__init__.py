@@ -12624,6 +12624,43 @@ def label_propagation_communities(G):
     return {index: set(community) for index, community in enumerate(communities)}.values()
 
 
+def asyn_lpa_communities(G, weight=None, seed=None):
+    """Returns communities in ``G`` as detected by asynchronous label propagation."""
+    rng = _generator_random_state(seed)
+    labels = {node: index for index, node in enumerate(G)}
+    should_continue = True
+
+    while should_continue:
+        should_continue = False
+        nodes = list(G)
+        rng.shuffle(nodes)
+
+        for node in nodes:
+            if not G[node]:
+                continue
+
+            if weight is None:
+                label_freq = Counter(map(labels.get, G[node]))
+            else:
+                label_freq = defaultdict(float)
+                for _, neighbor, edge_weight in G.edges(node, data=weight, default=1):
+                    label_freq[labels[neighbor]] += edge_weight
+
+            max_freq = max(label_freq.values())
+            best_labels = [
+                label for label, frequency in label_freq.items() if frequency == max_freq
+            ]
+
+            if labels[node] not in best_labels:
+                labels[node] = rng.choice(best_labels)
+                should_continue = True
+
+    grouped = defaultdict(set)
+    for node, label in labels.items():
+        grouped[label].add(node)
+    yield from grouped.values()
+
+
 def is_distance_regular(G):
     """Returns True if the graph is distance regular, False otherwise."""
     if G.is_multigraph():
@@ -24524,6 +24561,7 @@ __all__ = [
     "louvain_communities",
     "modularity",
     "label_propagation_communities",
+    "asyn_lpa_communities",
     "greedy_modularity_communities",
     "girvan_newman",
     "k_clique_communities",

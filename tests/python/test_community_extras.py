@@ -5,6 +5,7 @@ import networkx as nx
 import numpy as np
 import pytest
 from networkx.algorithms.community import (
+    asyn_lpa_communities as nx_asyn_lpa_communities,
     asyn_fluidc as nx_asyn_fluidc,
     kernighan_lin_bisection as nx_kernighan_lin_bisection,
     label_propagation_communities as nx_label_propagation_communities,
@@ -132,6 +133,56 @@ def test_label_propagation_communities_multigraph_matches_networkx():
     expected = nx_label_propagation_communities(nx_graph)
 
     assert _community_frozensets(result) == _community_frozensets(expected)
+
+
+def test_asyn_lpa_communities_matches_networkx_without_fallback(monkeypatch):
+    graph = fnx.Graph()
+    graph.add_edges_from(
+        [("a", "b"), ("a", "c"), ("b", "c"), ("d", "e"), ("d", "f"), ("e", "f")]
+    )
+    expected_graph = nx.Graph()
+    expected_graph.add_edges_from(
+        [("a", "b"), ("a", "c"), ("b", "c"), ("d", "e"), ("d", "f"), ("e", "f")]
+    )
+
+    expected = list(nx_asyn_lpa_communities(expected_graph, seed=1))
+    monkeypatch.setattr(
+        nx.community,
+        "asyn_lpa_communities",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("delegated")),
+    )
+
+    actual = list(fnx.asyn_lpa_communities(graph, seed=1))
+    assert _community_frozensets(actual) == _community_frozensets(expected)
+
+
+def test_asyn_lpa_communities_weighted_directed_matches_networkx():
+    graph = fnx.DiGraph()
+    graph.add_weighted_edges_from(
+        [
+            ("a", "b", 3),
+            ("a", "c", 3),
+            ("b", "a", 1),
+            ("c", "a", 1),
+            ("d", "e", 4),
+            ("e", "d", 4),
+        ]
+    )
+    expected_graph = nx.DiGraph()
+    expected_graph.add_weighted_edges_from(
+        [
+            ("a", "b", 3),
+            ("a", "c", 3),
+            ("b", "a", 1),
+            ("c", "a", 1),
+            ("d", "e", 4),
+            ("e", "d", 4),
+        ]
+    )
+
+    actual = list(fnx.asyn_lpa_communities(graph, weight="weight", seed=7))
+    expected = list(nx_asyn_lpa_communities(expected_graph, weight="weight", seed=7))
+    assert _community_frozensets(actual) == _community_frozensets(expected)
 
 
 def test_girvan_newman_directed_matches_networkx_without_fallback(monkeypatch):

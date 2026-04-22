@@ -262,6 +262,7 @@ _SUPPORTED_ALGORITHMS = {
     "louvain_communities": fnx.louvain_communities,
     "modularity": fnx.modularity,
     "label_propagation_communities": fnx.label_propagation_communities,
+    "asyn_lpa_communities": fnx.asyn_lpa_communities,
     "greedy_modularity_communities": fnx.greedy_modularity_communities,
     # Graph operators
     "union": fnx.union,
