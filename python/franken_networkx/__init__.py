@@ -7369,8 +7369,9 @@ def erdos_renyi_graph(n, p, seed=None, directed=False, create_using=None, *, bac
     )
 
 
-def watts_strogatz_graph(n, k, p, seed=None, create_using=None):
+def watts_strogatz_graph(n, k, p, seed=None, create_using=None, *, backend=None, backend_kwargs=None):
     """Return a Watts-Strogatz small-world graph."""
+    del backend, backend_kwargs  # NetworkX backend dispatch compatibility
     graph = _rust_watts_strogatz_graph(n, k, p, seed=_native_random_seed(seed))
     if create_using is None:
         return graph
@@ -7391,8 +7392,12 @@ def barabasi_albert_graph(
     seed=None,
     initial_graph=None,
     create_using=None,
+    *,
+    backend=None,
+    backend_kwargs=None,
 ):
     """Return a Barabasi-Albert preferential attachment graph."""
+    del backend, backend_kwargs  # NetworkX backend dispatch compatibility
     import random as _random
     import networkx as nx
     from franken_networkx.readwrite import _from_nx_graph
@@ -23250,8 +23255,9 @@ def fast_gnp_random_graph(n, p, seed=None, directed=False, create_using=None, *,
     return graph
 
 
-def newman_watts_strogatz_graph(n, k, p, seed=None, create_using=None):
+def newman_watts_strogatz_graph(n, k, p, seed=None, create_using=None, *, backend=None, backend_kwargs=None):
     """Return a Newman-Watts-Strogatz small-world graph."""
+    del backend, backend_kwargs  # NetworkX backend dispatch compatibility
     graph = _rust_newman_watts_strogatz_graph(
         n, k, p, seed=_native_random_seed(seed)
     )
@@ -23358,8 +23364,9 @@ def random_regular_graph(d, n, seed=None, create_using=None):
     return graph
 
 
-def powerlaw_cluster_graph(n, m, p, seed=None, create_using=None):
+def powerlaw_cluster_graph(n, m, p, seed=None, create_using=None, *, backend=None, backend_kwargs=None):
     """Return a powerlaw-cluster graph."""
+    del backend, backend_kwargs  # NetworkX backend dispatch compatibility
     graph = _rust_powerlaw_cluster_graph(n, m, p, seed=_native_random_seed(seed))
     if create_using is None:
         return graph
