@@ -11,4 +11,4 @@ fnx-runtime = { path = "../fnx-runtime" }
 serde = { version = "1.0.228", features = ["derive"] }
 
 [dev-dependencies]
-proptest = "1.10.0"
+proptest = "1.11.0"

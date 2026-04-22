@@ -140,5 +140,11 @@ library-updater sweep.
 - **Scope:** crates/fnx-classes/Cargo.toml
 - **Breaking:** None (minor bump; semver-compatible). Release notes (github.com/indexmap-rs/indexmap) describe new `IndexMap::into_boxed_slice` and misc perf tweaks.
 - **Verification:** `rch exec -- cargo check --workspace --all-targets` green; `rch exec -- cargo test -p fnx-classes` green (52 passed).
+- **Commit:** 60ca816
+
+#### proptest: 1.10.0 -> 1.11.0
+- **Scope:** dev-dependencies of fnx-classes, fnx-convert, fnx-algorithms, fnx-generators, fnx-readwrite, fnx-conformance, fnx-python
+- **Breaking:** None (minor bump; semver-compatible).
+- **Verification:** `rch exec -- cargo check --workspace --all-targets` green; `rch exec -- cargo test -p fnx-classes -p fnx-algorithms` green.
 
 
