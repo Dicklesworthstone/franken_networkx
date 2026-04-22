@@ -31,6 +31,9 @@ def test_adj_exposes_mapping_helpers(fnx_ctor, nx_ctor):
         (k, dict(v)) for k, v in ng.adj.items()
     ]
     assert [dict(v) for v in fg.adj.values()] == [dict(v) for v in ng.adj.values()]
+    # Mapping protocol: dict() conversion must produce a node-keyed mapping,
+    # not raise ValueError or unpack neighbor tuples as (k, v) pairs.
+    assert dict(fg.adj) == dict(ng.adj)
 
 
 @pytest.mark.parametrize(
