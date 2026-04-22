@@ -4687,6 +4687,28 @@ def is_bipartite_node_set(G, nodes):
     return node_set == set(top) or node_set == set(bottom)
 
 
+def color(G):
+    """Return a two-coloring of a bipartite graph.
+
+    Parameters
+    ----------
+    G : Graph
+        A bipartite graph.
+
+    Returns
+    -------
+    dict
+        A dictionary mapping nodes to 0 or 1.
+
+    Raises
+    ------
+    NetworkXError
+        If the graph is not bipartite.
+    """
+    from networkx.algorithms.bipartite import color as _nx_color
+    return _nx_color(_networkx_graph_for_parity(G))
+
+
 def biadjacency_matrix(
     G, row_order, column_order=None, dtype=None, weight="weight", format="csr"
 ):
@@ -23674,6 +23696,7 @@ __all__ = [
     "ArborescenceIterator",
     "greedy_color",
     "is_bipartite",
+    "color",
     "is_forest",
     "is_tree",
     "greedy_branching",
