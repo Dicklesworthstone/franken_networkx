@@ -12886,7 +12886,10 @@ def is_connected_dominating_set(G, S):
             return False
     if len(S) <= 1:
         return True
-    return is_connected(G.subgraph(S))
+    # is_connected expects a concrete fnx graph class; G.subgraph() returns a
+    # filtered view which the Rust dispatch rejects. Materialise the induced
+    # subgraph via copy() before checking connectedness.
+    return is_connected(G.subgraph(S).copy())
 
 
 def is_kl_connected(G, k, l, low_memory=False):

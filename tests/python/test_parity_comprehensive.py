@@ -471,6 +471,26 @@ class TestConnectivityExtras:
         ds = fnx.connected_dominating_set(G)
         assert fnx.is_connected_dominating_set(G, ds)
 
+    def test_is_connected_dominating_set_accepts_fnx_path_graph(self):
+        """Bead franken_networkx-r8qe: must match upstream contract on
+        fnx graph inputs instead of raising AttributeError on G._adj.
+        """
+        import networkx as nx
+
+        fg = fnx.path_graph(5)
+        ng = nx.path_graph(5)
+        assert fnx.is_connected_dominating_set(fg, {1, 2, 3}) == nx.is_connected_dominating_set(
+            ng, {1, 2, 3}
+        )
+        # Disconnected induced subgraph → False on both sides.
+        fg2 = fnx.Graph()
+        fg2.add_edges_from([(0, 1), (2, 3)])
+        ng2 = nx.Graph()
+        ng2.add_edges_from([(0, 1), (2, 3)])
+        assert fnx.is_connected_dominating_set(fg2, {0, 2}) == nx.is_connected_dominating_set(
+            ng2, {0, 2}
+        )
+
     def test_is_kl_connected(self):
         G = fnx.complete_graph(5)
         assert fnx.is_kl_connected(G, 2, 1)
