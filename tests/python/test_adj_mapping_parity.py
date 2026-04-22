@@ -224,6 +224,60 @@ def test_reverse_view_edges_exposes_edge_view_object():
     assert (((99, 99) in frv.edges) is ((99, 99) in nrv.edges))
 
 
+@pytest.mark.parametrize(
+    "builder",
+    [
+        lambda fg: fnx.restricted_view(fg, [], []),
+        lambda fg: fnx.subgraph_view(fg),
+    ],
+    ids=["restricted_view", "subgraph_view"],
+)
+def test_filtered_graph_view_edges_expose_edge_view_object(builder):
+    fg = fnx.Graph()
+    fg.add_edges_from([(1, 2, {"w": 3}), (2, 3, {"w": 5}), (3, 4)])
+    ng = nx.Graph()
+    ng.add_edges_from([(1, 2, {"w": 3}), (2, 3, {"w": 5}), (3, 4)])
+    # Matching upstream builders.
+    upstream = {
+        "restricted_view": lambda g: nx.restricted_view(g, [], []),
+        "subgraph_view": lambda g: nx.subgraph_view(g),
+    }
+    # Pick the upstream builder using the fnx builder's identity.
+    # The parametrize ids carry this through.
+    fv = builder(fg)
+    # Hack: read the test id from the caller's frame to pick the matching nx builder.
+    # Simpler: always use restricted_view([], []) for both since they're behaviourally
+    # identical on this graph when no filters are applied.
+    nv = nx.restricted_view(ng, [], [])
+
+    # Must be an object, not a bound method.
+    assert type(fv.edges).__name__ != "method"
+    assert callable(fv.edges)
+    for attr in ("data", "items", "keys", "values", "get"):
+        assert hasattr(fv.edges, attr)
+
+    assert list(fv.edges) == list(nv.edges)
+    assert list(fv.edges.data()) == list(nv.edges.data())
+    assert list(fv.edges.data("w")) == list(nv.edges.data("w"))
+    assert dict(fv.edges) == dict(nv.edges)
+    assert len(fv.edges) == len(nv.edges)
+    assert ((1, 2) in fv.edges) is ((1, 2) in nv.edges)
+    assert ((9, 9) in fv.edges) is ((9, 9) in nv.edges)
+
+
+def test_restricted_view_with_filter_preserves_edge_view_parity():
+    fg = fnx.Graph()
+    fg.add_edges_from([(1, 2), (2, 3), (3, 4)])
+    ng = nx.Graph()
+    ng.add_edges_from([(1, 2), (2, 3), (3, 4)])
+
+    fv = fnx.restricted_view(fg, [3], [])
+    nv = nx.restricted_view(ng, [3], [])
+
+    assert list(fv.edges) == list(nv.edges)
+    assert list(fv.edges.data()) == list(nv.edges.data())
+
+
 def test_reverse_view_adj_exposes_mapping_helpers():
     fg = fnx.DiGraph()
     fg.add_edges_from([(1, 2), (2, 3), (3, 4)])

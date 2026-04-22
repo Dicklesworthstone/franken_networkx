@@ -14608,6 +14608,52 @@ class NodeView(Mapping):
         return list(self)
 
 
+class _FilteredEdgeView:
+    def __init__(self, view):
+        self._view = view
+
+    def __call__(self, nbunch=None, data=False, keys=False, default=None):
+        if isinstance(data, str):
+            base = self._view._edges(nbunch=nbunch, data=True, keys=keys)
+            if keys:
+                return [
+                    (u, v, k, attrs.get(data, default)) for u, v, k, attrs in base
+                ]
+            return [
+                (u, v, attrs.get(data, default)) for u, v, attrs in base
+            ]
+        return self._view._edges(nbunch=nbunch, data=data, keys=keys)
+
+    def __iter__(self):
+        return iter(self())
+
+    def __len__(self):
+        return len(self())
+
+    def __contains__(self, edge):
+        try:
+            u, v = edge[:2]
+        except (TypeError, ValueError):
+            return False
+        if not self._view.has_edge(u, v):
+            return False
+        return True
+
+    def __getitem__(self, edge):
+        u, v = edge
+        if not self._view.has_edge(u, v):
+            raise KeyError(edge)
+        return self._view.adj[u][v]
+
+    def data(self, data=True, default=None, nbunch=None, keys=False):
+        return self(nbunch=nbunch, data=data, keys=keys, default=default)
+
+    get = _adjacency_view_get
+    keys = _adjacency_view_keys
+    items = _adjacency_view_items
+    values = _adjacency_view_values
+
+
 class _FilteredGraphView:
     adjlist_inner_dict_factory = dict
     adjlist_outer_dict_factory = dict
@@ -14686,7 +14732,7 @@ class _FilteredGraphView:
             return [(node, graph_nodes[node]) for node in self]
         return list(self)
 
-    def edges(self, nbunch=None, data=False, keys=False):
+    def _edges(self, nbunch=None, data=False, keys=False):
         nodes = self._nbunch(nbunch)
         result = []
         if self.is_directed():
@@ -14733,6 +14779,10 @@ class _FilteredGraphView:
                         result.append((source, target))
             seen.add(source)
         return result
+
+    @property
+    def edges(self):
+        return _FilteredEdgeView(self)
 
     def neighbors(self, node):
         if not self._node_visible(node):
