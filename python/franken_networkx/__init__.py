@@ -841,6 +841,37 @@ DiGraph.nbunch_iter = _graph_nbunch_iter
 MultiGraph.nbunch_iter = _graph_nbunch_iter
 MultiDiGraph.nbunch_iter = _graph_nbunch_iter
 
+
+def _add_weighted_edges_from_with_attr(cls):
+    raw = cls.add_weighted_edges_from
+
+    def add_weighted_edges_from(self, ebunch, weight="weight", **attr):
+        """Accept extra **attr that apply to every inserted edge (matches nx).
+
+        Upstream NetworkX's add_weighted_edges_from(ebunch, weight=...,
+        **attr) applies ``attr`` to every edge in addition to the weight.
+        The fnx Rust method only takes (ebunch, weight), so fall back to
+        per-edge add_edge when any trailing attrs are present.
+        """
+        if not attr:
+            return raw(self, ebunch, weight=weight)
+        for edge in ebunch:
+            if len(edge) == 3:
+                u, v, w = edge
+                self.add_edge(u, v, **{weight: w}, **attr)
+            else:
+                raise ValueError(
+                    f"Edge tuple {edge!r} must be a 3-tuple (u, v, weight)"
+                )
+
+    return add_weighted_edges_from
+
+
+Graph.add_weighted_edges_from = _add_weighted_edges_from_with_attr(Graph)
+DiGraph.add_weighted_edges_from = _add_weighted_edges_from_with_attr(DiGraph)
+MultiGraph.add_weighted_edges_from = _add_weighted_edges_from_with_attr(MultiGraph)
+MultiDiGraph.add_weighted_edges_from = _add_weighted_edges_from_with_attr(MultiDiGraph)
+
 Graph.size = _size_with_unweighted_int(Graph.size)
 DiGraph.size = _size_with_unweighted_int(DiGraph.size)
 MultiGraph.size = _size_with_unweighted_int(MultiGraph.size)
