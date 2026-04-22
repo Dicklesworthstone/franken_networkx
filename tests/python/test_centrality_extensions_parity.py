@@ -204,6 +204,26 @@ def test_katz_centrality_numpy_error_contract_matches_networkx():
     assert str(actual_multigraph_error.value) == str(expected_multigraph_error.value)
 
 
+def test_katz_centrality_numpy_backend_keyword_surface_matches_networkx():
+    actual_graph = fnx.path_graph(4)
+    expected_graph = nx.path_graph(4)
+
+    for backend in (None, "networkx"):
+        actual = fnx.katz_centrality_numpy(actual_graph, backend=backend)
+        expected = nx.katz_centrality_numpy(expected_graph, backend=backend)
+        _assert_mapping_close(actual, expected)
+
+    with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+        fnx.katz_centrality_numpy(actual_graph, backend="parallel")
+    with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+        nx.katz_centrality_numpy(expected_graph, backend="parallel")
+
+    with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+        fnx.katz_centrality_numpy(actual_graph, backend_kwargs={"x": 1})
+    with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+        nx.katz_centrality_numpy(expected_graph, backend_kwargs={"x": 1})
+
+
 def test_hits_matches_networkx_without_fallback(monkeypatch):
     graph = fnx.path_graph(4)
     expected_graph = nx.path_graph(4)

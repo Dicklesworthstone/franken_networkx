@@ -18369,9 +18369,24 @@ def eigenvector_centrality_numpy(G, weight="weight", max_iter=50, tol=0):
     return {nodelist[i]: float(ev[i]) for i in range(n)}
 
 
-def katz_centrality_numpy(G, alpha=0.1, beta=1.0, normalized=True, weight=None):
+def katz_centrality_numpy(
+    G,
+    alpha=0.1,
+    beta=1.0,
+    normalized=True,
+    weight=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
     """Katz centrality via the upstream NumPy linear-solver contract."""
     import numpy as np
+
+    _validate_backend_dispatch_keywords(
+        "katz_centrality_numpy",
+        backend,
+        backend_kwargs,
+    )
 
     if len(G) == 0:
         return {}
