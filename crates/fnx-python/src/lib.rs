@@ -1847,6 +1847,43 @@ impl MultiGraphEdgeView {
         self.graph.borrow(py).inner.edge_count()
     }
 
+    fn __contains__(&self, py: Python<'_>, edge: &Bound<'_, PyAny>) -> PyResult<bool> {
+        let tuple = edge.downcast::<PyTuple>()
+            .map_err(|_| pyo3::exceptions::PyTypeError::new_err("edge must be a tuple"))?;
+        let len = tuple.len();
+        if len < 2 {
+            return Ok(false);
+        }
+        let u = node_key_to_string(py, &tuple.get_item(0)?)?;
+        let v = node_key_to_string(py, &tuple.get_item(1)?)?;
+        let g = self.graph.borrow(py);
+        // Undirected graph: check both orientations
+        let has = g.inner.has_edge(&u, &v) || g.inner.has_edge(&v, &u);
+        if !has {
+            return Ok(false);
+        }
+        if len == 2 {
+            // 2-tuple: just check if edge exists
+            return Ok(true);
+        }
+        // 3-tuple: check if specific key exists
+        let key_obj = tuple.get_item(2)?;
+        let key: usize = key_obj.extract().unwrap_or(usize::MAX);
+        // Check if this key exists by looking at all edges
+        for edge in g.inner.edges_ordered() {
+            let el = edge.left.as_str();
+            let er = edge.right.as_str();
+            let u_str = u.as_str();
+            let v_str = v.as_str();
+            if (el == u_str && er == v_str && edge.key == key)
+                || (el == v_str && er == u_str && edge.key == key)
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<NodeIterator>> {
         self.__call__(py, false, false, None)
     }

@@ -1738,6 +1738,35 @@ impl MultiDiGraphEdgeView {
         self.graph.borrow(py).inner.edge_count()
     }
 
+    fn __contains__(&self, py: Python<'_>, edge: &Bound<'_, PyAny>) -> PyResult<bool> {
+        let tuple = edge.downcast::<PyTuple>()
+            .map_err(|_| pyo3::exceptions::PyTypeError::new_err("edge must be a tuple"))?;
+        let len = tuple.len();
+        if len < 2 {
+            return Ok(false);
+        }
+        let u = node_key_to_string(py, &tuple.get_item(0)?)?;
+        let v = node_key_to_string(py, &tuple.get_item(1)?)?;
+        let g = self.graph.borrow(py);
+        if !g.inner.has_edge(&u, &v) {
+            return Ok(false);
+        }
+        if len == 2 {
+            // 2-tuple: just check if edge exists
+            return Ok(true);
+        }
+        // 3-tuple: check if specific key exists
+        let key_obj = tuple.get_item(2)?;
+        let key: usize = key_obj.extract().unwrap_or(usize::MAX);
+        // Check if this key exists by looking at all edges
+        for edge in g.inner.edges_ordered() {
+            if edge.source.as_str() == u && edge.target.as_str() == v && edge.key == key {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<crate::NodeIterator>> {
         self.__call__(py, None, None, false, None)
     }

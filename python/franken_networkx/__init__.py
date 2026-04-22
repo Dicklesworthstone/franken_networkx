@@ -365,6 +365,28 @@ class _MultiGraphEdgeView:
     def __len__(self):
         return self._graph.number_of_edges()
 
+    def __contains__(self, edge):
+        if not isinstance(edge, tuple) or len(edge) < 2:
+            return False
+        u, v = edge[0], edge[1]
+        # Undirected: check both orientations
+        adj = self._graph.adj
+        if u not in adj and v not in adj:
+            return False
+        # Check u->v or v->u
+        has_edge = (u in adj and v in adj[u]) or (v in adj and u in adj[v])
+        if not has_edge:
+            return False
+        if len(edge) == 2:
+            return True
+        # 3-tuple: check specific key
+        key = edge[2]
+        if u in adj and v in adj[u] and key in adj[u][v]:
+            return True
+        if v in adj and u in adj[v] and key in adj[v][u]:
+            return True
+        return False
+
     def __call__(self, nbunch=None, data=False, keys=False, default=None):
         result = []
         seen = set()
