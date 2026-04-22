@@ -1686,6 +1686,87 @@ impl MultiGraphNodeView {
             |d| d.clone_ref(py).into_any(),
         ))
     }
+
+    /// Union: self | other
+    fn __or__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        let g = self.graph.borrow(py);
+        let self_nodes: Vec<PyObject> = g
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(|n| g.py_node_key(py, n))
+            .collect();
+        let self_set = pyo3::types::PySet::new(py, self_nodes.iter())?;
+        for item in pyo3::types::PyIterator::from_object(other)? {
+            self_set.add(item?)?;
+        }
+        Ok(self_set.into_any().unbind())
+    }
+
+    /// Intersection: self & other
+    fn __and__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        let g = self.graph.borrow(py);
+        let other_vec: Vec<PyObject> = pyo3::types::PyIterator::from_object(other)?
+            .map(|r| r.map(|o| o.unbind()))
+            .collect::<PyResult<Vec<_>>>()?;
+        let other_set = pyo3::types::PySet::new(py, other_vec.iter())?;
+        let mut result = Vec::new();
+        for node in g.inner.nodes_ordered() {
+            let py_key = g.py_node_key(py, node);
+            if other_set.contains(&py_key)? {
+                result.push(py_key);
+            }
+        }
+        let set = pyo3::types::PySet::new(py, result.iter())?;
+        Ok(set.into_any().unbind())
+    }
+
+    /// Difference: self - other
+    fn __sub__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        let g = self.graph.borrow(py);
+        let other_vec: Vec<PyObject> = pyo3::types::PyIterator::from_object(other)?
+            .map(|r| r.map(|o| o.unbind()))
+            .collect::<PyResult<Vec<_>>>()?;
+        let other_set = pyo3::types::PySet::new(py, other_vec.iter())?;
+        let mut result = Vec::new();
+        for node in g.inner.nodes_ordered() {
+            let py_key = g.py_node_key(py, node);
+            if !other_set.contains(&py_key)? {
+                result.push(py_key);
+            }
+        }
+        let set = pyo3::types::PySet::new(py, result.iter())?;
+        Ok(set.into_any().unbind())
+    }
+
+    /// Symmetric difference: self ^ other
+    fn __xor__(&self, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+        let g = self.graph.borrow(py);
+        let self_nodes: Vec<PyObject> = g
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(|n| g.py_node_key(py, n))
+            .collect();
+        let self_set = pyo3::types::PySet::new(py, self_nodes.iter())?;
+        let other_vec: Vec<PyObject> = pyo3::types::PyIterator::from_object(other)?
+            .map(|r| r.map(|o| o.unbind()))
+            .collect::<PyResult<Vec<_>>>()?;
+        let other_set = pyo3::types::PySet::new(py, other_vec.iter())?;
+        let mut result = Vec::new();
+        for py_key in &self_nodes {
+            if !other_set.contains(py_key)? {
+                result.push(py_key.clone_ref(py));
+            }
+        }
+        for py_key in &other_vec {
+            if !self_set.contains(py_key)? {
+                result.push(py_key.clone_ref(py));
+            }
+        }
+        let set = pyo3::types::PySet::new(py, result.iter())?;
+        Ok(set.into_any().unbind())
+    }
 }
 
 /// EdgeView for MultiGraph — supports ``len``, iteration, and ``G.edges(data=True, keys=True)``.
