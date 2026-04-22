@@ -1293,6 +1293,28 @@ def test_multipartite_layout_error_paths_match_networkx_without_delegation():
             fnx.multipartite_layout(fnx.Graph(), align="diagonal")
 
 
+def test_forceatlas2_layout_accepts_backend_keyword_surface():
+    """Public forceatlas2_layout must accept backend / backend_kwargs.
+
+    Upstream NetworkX accepts both kwargs and raises ImportError when
+    a non-installed backend is requested. fnx must match the public
+    keyword contract instead of TypeError'ing on backend/backend_kwargs.
+    """
+    G = fnx.path_graph(4)
+    # Default + explicit "networkx" both run the in-tree implementation.
+    fnx.forceatlas2_layout(G)
+    fnx.forceatlas2_layout(G, backend="networkx")
+    fnx.forceatlas2_layout(G, backend=None)
+    # Unknown backend → ImportError (matches nx dispatch path).
+    nG = nx.path_graph(4)
+    with pytest.raises(ImportError):
+        fnx.forceatlas2_layout(G, backend="nonexistent")
+    with pytest.raises(ImportError):
+        nx.forceatlas2_layout(nG, backend="nonexistent")
+    # **backend_kwargs accepts arbitrary trailing kwargs without TypeError.
+    fnx.forceatlas2_layout(G, foo="bar")
+
+
 def test_rescale_layout_accepts_numpy_array_input():
     """Public rescale_layout helper must accept ndarray and return upstream values.
 
