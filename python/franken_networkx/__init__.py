@@ -14327,6 +14327,9 @@ class _ReverseDirectedView:
     def nodes(self, data=False):
         return self._graph.nodes(data=data)
 
+    def nbunch_iter(self, nbunch=None):
+        return self._graph.nbunch_iter(nbunch)
+
     def _nbunch(self, nbunch):
         if nbunch is None:
             return list(self._graph.nodes())

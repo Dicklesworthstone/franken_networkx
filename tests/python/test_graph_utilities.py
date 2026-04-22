@@ -4165,6 +4165,45 @@ def test_reverse_view_exposes_query_helpers_without_fallback(
         (fnx.MultiDiGraph, nx.MultiDiGraph),
     ],
 )
+def test_reverse_view_exposes_nbunch_iter_without_fallback(
+    monkeypatch, fnx_cls, nx_cls
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    expected_result = nx.reverse_view(expected)
+
+    _block_networkx_utilities(monkeypatch, "reverse_view")
+
+    result = fnx.reverse_view(graph)
+
+    assert list(result.nbunch_iter()) == list(expected_result.nbunch_iter())
+    assert list(result.nbunch_iter("a")) == list(expected_result.nbunch_iter("a"))
+    assert list(result.nbunch_iter("missing")) == list(expected_result.nbunch_iter("missing"))
+    assert list(result.nbunch_iter(["a", "missing"])) == list(
+        expected_result.nbunch_iter(["a", "missing"])
+    )
+
+    with pytest.raises(Exception) as expected_exc:
+        list(expected_result.nbunch_iter(9))
+    with pytest.raises(Exception) as actual_exc:
+        list(result.nbunch_iter(9))
+    assert type(actual_exc.value).__name__ == type(expected_exc.value).__name__
+    assert str(actual_exc.value) == str(expected_exc.value)
+
+    with pytest.raises(Exception) as expected_exc:
+        list(expected_result.nbunch_iter([[]]))
+    with pytest.raises(Exception) as actual_exc:
+        list(result.nbunch_iter([[]]))
+    assert type(actual_exc.value).__name__ == type(expected_exc.value).__name__
+    assert str(actual_exc.value) == str(expected_exc.value)
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
 def test_reverse_view_exposes_size_helpers_without_fallback(
     monkeypatch, fnx_cls, nx_cls
 ):
