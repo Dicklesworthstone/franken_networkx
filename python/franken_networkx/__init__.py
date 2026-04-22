@@ -18403,18 +18403,62 @@ def incremental_closeness_centrality(G, u, prev_cc=None, insertion=True, wt_attr
 
 
 def current_flow_betweenness_centrality_subset(
-    G, sources, targets, normalized=True, weight=None, dtype=float, solver="full"
+    G,
+    sources,
+    targets,
+    normalized=True,
+    weight=None,
+    dtype=float,
+    solver="lu",
+    *,
+    backend=None,
+    **backend_kwargs,
 ):
     """Current-flow betweenness restricted to subsets."""
-    return current_flow_betweenness_centrality(G, normalized=normalized, weight=weight)
+    _validate_backend_dispatch_keywords(
+        "current_flow_betweenness_centrality_subset",
+        backend,
+        backend_kwargs,
+    )
+    return _call_networkx_for_parity(
+        "current_flow_betweenness_centrality_subset",
+        G,
+        sources=sources,
+        targets=targets,
+        normalized=normalized,
+        weight=weight,
+        dtype=dtype,
+        solver=solver,
+    )
 
 
 def edge_current_flow_betweenness_centrality_subset(
-    G, sources, targets, normalized=True, weight=None
+    G,
+    sources,
+    targets,
+    normalized=True,
+    weight=None,
+    dtype=float,
+    solver="lu",
+    *,
+    backend=None,
+    **backend_kwargs,
 ):
     """Edge current-flow betweenness restricted to subsets."""
-    return edge_current_flow_betweenness_centrality(
-        G, normalized=normalized, weight=weight
+    _validate_backend_dispatch_keywords(
+        "edge_current_flow_betweenness_centrality_subset",
+        backend,
+        backend_kwargs,
+    )
+    return _call_networkx_for_parity(
+        "edge_current_flow_betweenness_centrality_subset",
+        G,
+        sources=sources,
+        targets=targets,
+        normalized=normalized,
+        weight=weight,
+        dtype=dtype,
+        solver=solver,
     )
 
 

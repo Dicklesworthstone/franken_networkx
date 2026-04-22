@@ -398,6 +398,208 @@ class TestApproximateCurrentFlowBetweennessCentrality:
 
 
 # ---------------------------------------------------------------------------
+# current_flow_betweenness_centrality_subset
+# ---------------------------------------------------------------------------
+
+class TestCurrentFlowBetweennessCentralitySubset:
+    def test_signature_matches_networkx(self):
+        assert str(
+            inspect.signature(fnx.current_flow_betweenness_centrality_subset)
+        ) == str(inspect.signature(nx.current_flow_betweenness_centrality_subset))
+
+    def test_value_matches_networkx(self):
+        fg = fnx.path_graph(4)
+        ng = nx.path_graph(4)
+        assert fnx.current_flow_betweenness_centrality_subset(
+            fg, [0], [3]
+        ) == pytest.approx(
+            nx.current_flow_betweenness_centrality_subset(ng, [0], [3])
+        )
+
+    def test_extended_parameters_match_networkx(self):
+        fg = fnx.path_graph(4)
+        ng = nx.path_graph(4)
+        kwargs = {
+            "normalized": False,
+            "weight": None,
+            "dtype": float,
+            "solver": "lu",
+        }
+        assert fnx.current_flow_betweenness_centrality_subset(
+            fg, [0, 1], [2, 3], **kwargs
+        ) == pytest.approx(
+            nx.current_flow_betweenness_centrality_subset(
+                ng, [0, 1], [2, 3], **kwargs
+            )
+        )
+
+    def test_backend_keyword_surface_matches_networkx(self):
+        fg = fnx.path_graph(4)
+        ng = nx.path_graph(4)
+
+        for backend in (None, "networkx"):
+            assert fnx.current_flow_betweenness_centrality_subset(
+                fg, [0], [3], backend=backend
+            ) == pytest.approx(
+                nx.current_flow_betweenness_centrality_subset(
+                    ng, [0], [3], backend=backend
+                )
+            )
+
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            fnx.current_flow_betweenness_centrality_subset(
+                fg, [0], [3], backend="parallel"
+            )
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            nx.current_flow_betweenness_centrality_subset(
+                ng, [0], [3], backend="parallel"
+            )
+
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            fnx.current_flow_betweenness_centrality_subset(
+                fg, [0], [3], backend_kwargs={"x": 1}
+            )
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            nx.current_flow_betweenness_centrality_subset(
+                ng, [0], [3], backend_kwargs={"x": 1}
+            )
+
+    def test_error_contracts_match_networkx(self):
+        fd = fnx.DiGraph()
+        fd.add_edge(0, 1)
+        nd = nx.DiGraph()
+        nd.add_edge(0, 1)
+
+        with pytest.raises(fnx.NetworkXNotImplemented, match="not implemented for directed type"):
+            fnx.current_flow_betweenness_centrality_subset(fd, [0], [1])
+        with pytest.raises(nx.NetworkXNotImplemented, match="not implemented for directed type"):
+            nx.current_flow_betweenness_centrality_subset(nd, [0], [1])
+
+        fg = fnx.Graph()
+        fg.add_edges_from([(0, 1), (2, 3)])
+        ng = nx.Graph()
+        ng.add_edges_from([(0, 1), (2, 3)])
+
+        with pytest.raises(fnx.NetworkXError, match="Graph not connected\\."):
+            fnx.current_flow_betweenness_centrality_subset(fg, [0], [3])
+        with pytest.raises(nx.NetworkXError, match="Graph not connected\\."):
+            nx.current_flow_betweenness_centrality_subset(ng, [0], [3])
+
+        fp = fnx.path_graph(4)
+        npg = nx.path_graph(4)
+        with pytest.raises(KeyError, match="bogus"):
+            fnx.current_flow_betweenness_centrality_subset(
+                fp, [0], [3], solver="bogus"
+            )
+        with pytest.raises(KeyError, match="bogus"):
+            nx.current_flow_betweenness_centrality_subset(
+                npg, [0], [3], solver="bogus"
+            )
+
+
+# ---------------------------------------------------------------------------
+# edge_current_flow_betweenness_centrality_subset
+# ---------------------------------------------------------------------------
+
+class TestEdgeCurrentFlowBetweennessCentralitySubset:
+    def test_signature_matches_networkx(self):
+        assert str(
+            inspect.signature(fnx.edge_current_flow_betweenness_centrality_subset)
+        ) == str(
+            inspect.signature(nx.edge_current_flow_betweenness_centrality_subset)
+        )
+
+    def test_value_matches_networkx(self):
+        fg = fnx.path_graph(4)
+        ng = nx.path_graph(4)
+        assert fnx.edge_current_flow_betweenness_centrality_subset(
+            fg, [0], [3]
+        ) == pytest.approx(
+            nx.edge_current_flow_betweenness_centrality_subset(ng, [0], [3])
+        )
+
+    def test_extended_parameters_match_networkx(self):
+        fg = fnx.path_graph(4)
+        ng = nx.path_graph(4)
+        kwargs = {
+            "normalized": False,
+            "weight": None,
+            "dtype": float,
+            "solver": "lu",
+        }
+        assert fnx.edge_current_flow_betweenness_centrality_subset(
+            fg, [0, 1], [2, 3], **kwargs
+        ) == pytest.approx(
+            nx.edge_current_flow_betweenness_centrality_subset(
+                ng, [0, 1], [2, 3], **kwargs
+            )
+        )
+
+    def test_backend_keyword_surface_matches_networkx(self):
+        fg = fnx.path_graph(4)
+        ng = nx.path_graph(4)
+
+        for backend in (None, "networkx"):
+            assert fnx.edge_current_flow_betweenness_centrality_subset(
+                fg, [0], [3], backend=backend
+            ) == pytest.approx(
+                nx.edge_current_flow_betweenness_centrality_subset(
+                    ng, [0], [3], backend=backend
+                )
+            )
+
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            fnx.edge_current_flow_betweenness_centrality_subset(
+                fg, [0], [3], backend="parallel"
+            )
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            nx.edge_current_flow_betweenness_centrality_subset(
+                ng, [0], [3], backend="parallel"
+            )
+
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            fnx.edge_current_flow_betweenness_centrality_subset(
+                fg, [0], [3], backend_kwargs={"x": 1}
+            )
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            nx.edge_current_flow_betweenness_centrality_subset(
+                ng, [0], [3], backend_kwargs={"x": 1}
+            )
+
+    def test_error_contracts_match_networkx(self):
+        fd = fnx.DiGraph()
+        fd.add_edge(0, 1)
+        nd = nx.DiGraph()
+        nd.add_edge(0, 1)
+
+        with pytest.raises(fnx.NetworkXNotImplemented, match="not implemented for directed type"):
+            fnx.edge_current_flow_betweenness_centrality_subset(fd, [0], [1])
+        with pytest.raises(nx.NetworkXNotImplemented, match="not implemented for directed type"):
+            nx.edge_current_flow_betweenness_centrality_subset(nd, [0], [1])
+
+        fg = fnx.Graph()
+        fg.add_edges_from([(0, 1), (2, 3)])
+        ng = nx.Graph()
+        ng.add_edges_from([(0, 1), (2, 3)])
+
+        with pytest.raises(fnx.NetworkXError, match="Graph not connected\\."):
+            fnx.edge_current_flow_betweenness_centrality_subset(fg, [0], [3])
+        with pytest.raises(nx.NetworkXError, match="Graph not connected\\."):
+            nx.edge_current_flow_betweenness_centrality_subset(ng, [0], [3])
+
+        fp = fnx.path_graph(4)
+        npg = nx.path_graph(4)
+        with pytest.raises(KeyError, match="bogus"):
+            fnx.edge_current_flow_betweenness_centrality_subset(
+                fp, [0], [3], solver="bogus"
+            )
+        with pytest.raises(KeyError, match="bogus"):
+            nx.edge_current_flow_betweenness_centrality_subset(
+                npg, [0], [3], solver="bogus"
+            )
+
+
+# ---------------------------------------------------------------------------
 # group_degree_centrality
 # ---------------------------------------------------------------------------
 
