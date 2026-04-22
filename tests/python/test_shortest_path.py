@@ -923,6 +923,21 @@ class TestShortestPath:
         for name, run in cases:
             assert run(fnx, G_fnx) == run(nx, G_nx), name
 
+    def test_goldberg_radzik_callable_weight_matches_networkx(self, fnx, nx):
+        D_fnx = fnx.DiGraph()
+        D_nx = nx.DiGraph()
+        for graph in (D_fnx, D_nx):
+            graph.add_edge("a", "b", length=2)
+            graph.add_edge("b", "c", length=1)
+            graph.add_edge("a", "c", length=5)
+
+        weight_fn = lambda u, v, data: data["length"]
+
+        _assert_same_result_or_exception(
+            lambda: fnx.goldberg_radzik(D_fnx, "a", weight=weight_fn),
+            lambda: nx.goldberg_radzik(D_nx, "a", weight=weight_fn),
+        )
+
     def test_callable_weight_floyd_warshall_wrappers_match_networkx(self, fnx, nx):
         G_fnx = fnx.Graph()
         G_nx = nx.Graph()
