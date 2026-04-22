@@ -44,3 +44,24 @@ def test_adj_get_matches_upstream_defaults(fnx_ctor):
     assert fg.adj.get(99) is None
     assert fg.adj.get(99, "sentinel") == "sentinel"
     assert dict(fg.adj.get(1)) == {2: {}}
+
+
+def test_reverse_view_adj_exposes_mapping_helpers():
+    fg = fnx.DiGraph()
+    fg.add_edges_from([(1, 2), (2, 3), (3, 4)])
+    ng = nx.DiGraph()
+    ng.add_edges_from([(1, 2), (2, 3), (3, 4)])
+
+    frv = fnx.reverse_view(fg)
+    nrv = nx.reverse_view(ng)
+
+    for attr in ("items", "keys", "values", "get"):
+        assert hasattr(frv.adj, attr), f"reverse_view.adj is missing {attr}"
+
+    assert list(frv.adj.keys()) == list(nrv.adj.keys())
+    assert [(k, dict(v)) for k, v in frv.adj.items()] == [
+        (k, dict(v)) for k, v in nrv.adj.items()
+    ]
+    assert [dict(v) for v in frv.adj.values()] == [dict(v) for v in nrv.adj.values()]
+    assert frv.adj.get(99) is None
+    assert frv.adj.get(99, "sentinel") == "sentinel"

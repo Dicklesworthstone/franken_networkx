@@ -14117,6 +14117,7 @@ class _ReverseDirectedView:
         self.frozen = True
         self.succ = _ReverseAdjacencyView(self)
         self.pred = _ReverseAdjacencyView(self, reverse=True)
+        self.adj = self.succ
 
     def __iter__(self):
         return iter(self._graph)
