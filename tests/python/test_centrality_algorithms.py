@@ -214,6 +214,93 @@ class TestGlobalReachingCentrality:
 
 
 # ---------------------------------------------------------------------------
+# incremental_closeness_centrality
+# ---------------------------------------------------------------------------
+
+class TestIncrementalClosenessCentrality:
+    def test_signature_matches_networkx(self):
+        assert str(inspect.signature(fnx.incremental_closeness_centrality)) == str(
+            inspect.signature(nx.incremental_closeness_centrality)
+        )
+
+    def test_insertion_matches_networkx(self):
+        fg = fnx.path_graph(4)
+        ng = nx.path_graph(4)
+        prev = nx.closeness_centrality(nx.path_graph(4), wf_improved=True)
+
+        assert fnx.incremental_closeness_centrality(
+            fg, (0, 3), prev_cc=prev
+        ) == pytest.approx(
+            nx.incremental_closeness_centrality(ng, (0, 3), prev_cc=prev)
+        )
+
+    def test_deletion_matches_networkx(self):
+        fg = fnx.cycle_graph(4)
+        ng = nx.cycle_graph(4)
+        prev = nx.closeness_centrality(nx.cycle_graph(4), wf_improved=True)
+
+        assert fnx.incremental_closeness_centrality(
+            fg, (0, 1), prev_cc=prev, insertion=False
+        ) == pytest.approx(
+            nx.incremental_closeness_centrality(
+                ng, (0, 1), prev_cc=prev, insertion=False
+            )
+        )
+
+    def test_backend_keyword_surface_matches_networkx(self):
+        fg = fnx.path_graph(4)
+        ng = nx.path_graph(4)
+        prev = nx.closeness_centrality(nx.path_graph(4), wf_improved=True)
+
+        for backend in (None, "networkx"):
+            assert fnx.incremental_closeness_centrality(
+                fg, (0, 3), prev_cc=prev, backend=backend
+            ) == pytest.approx(
+                nx.incremental_closeness_centrality(
+                    ng, (0, 3), prev_cc=prev, backend=backend
+                )
+            )
+
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            fnx.incremental_closeness_centrality(
+                fg, (0, 3), prev_cc=prev, backend="parallel"
+            )
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            nx.incremental_closeness_centrality(
+                ng, (0, 3), prev_cc=prev, backend="parallel"
+            )
+
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            fnx.incremental_closeness_centrality(
+                fg, (0, 3), prev_cc=prev, backend_kwargs={"x": 1}
+            )
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            nx.incremental_closeness_centrality(
+                ng, (0, 3), prev_cc=prev, backend_kwargs={"x": 1}
+            )
+
+    def test_error_contracts_match_networkx(self):
+        fg = fnx.Graph()
+        ng = nx.Graph()
+        with pytest.raises(fnx.NodeNotFound, match="Source 0 is not in G"):
+            fnx.incremental_closeness_centrality(fg, (0, 1))
+        with pytest.raises(nx.NodeNotFound, match="Source 0 is not in G"):
+            nx.incremental_closeness_centrality(ng, (0, 1))
+
+        fg = fnx.path_graph(3)
+        ng = nx.path_graph(3)
+        with pytest.raises(fnx.NetworkXError, match="The edge 0-2 is not in the graph"):
+            fnx.incremental_closeness_centrality(fg, (0, 2), insertion=False)
+        with pytest.raises(nx.NetworkXError, match="The edge 0-2 is not in the graph"):
+            nx.incremental_closeness_centrality(ng, (0, 2), insertion=False)
+
+        with pytest.raises(fnx.NetworkXError, match="prev_cc and G do not have the same nodes"):
+            fnx.incremental_closeness_centrality(fg, (0, 2), prev_cc={0: 1.0})
+        with pytest.raises(nx.NetworkXError, match="prev_cc and G do not have the same nodes"):
+            nx.incremental_closeness_centrality(ng, (0, 2), prev_cc={0: 1.0})
+
+
+# ---------------------------------------------------------------------------
 # laplacian_centrality
 # ---------------------------------------------------------------------------
 

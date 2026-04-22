@@ -18397,9 +18397,30 @@ def katz_centrality_numpy(G, alpha=0.1, beta=1.0, normalized=True, weight=None):
     return dict(zip(nodelist, (centrality / norm).tolist()))
 
 
-def incremental_closeness_centrality(G, u, prev_cc=None, insertion=True, wt_attr=None):
-    """Update closeness centrality after edge change (delegates to full recompute)."""
-    return closeness_centrality(G)
+def incremental_closeness_centrality(
+    G,
+    edge,
+    prev_cc=None,
+    insertion=True,
+    wf_improved=True,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
+    """Incremental closeness centrality after an edge insertion or deletion."""
+    _validate_backend_dispatch_keywords(
+        "incremental_closeness_centrality",
+        backend,
+        backend_kwargs,
+    )
+    return _call_networkx_for_parity(
+        "incremental_closeness_centrality",
+        G,
+        edge=edge,
+        prev_cc=prev_cc,
+        insertion=insertion,
+        wf_improved=wf_improved,
+    )
 
 
 def current_flow_betweenness_centrality_subset(
