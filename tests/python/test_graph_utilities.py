@@ -1896,6 +1896,42 @@ def test_graph_classes_remove_edge_preserve_missing_edge_errors(
 
 
 @pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls", "missing_node"),
+    [
+        (fnx.Graph, nx.Graph, "missing"),
+        (fnx.Graph, nx.Graph, 9),
+        (fnx.DiGraph, nx.DiGraph, "missing"),
+        (fnx.DiGraph, nx.DiGraph, 9),
+        (fnx.MultiGraph, nx.MultiGraph, "missing"),
+        (fnx.MultiGraph, nx.MultiGraph, 9),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, "missing"),
+        (fnx.MultiDiGraph, nx.MultiDiGraph, 9),
+    ],
+)
+def test_graph_classes_remove_node_preserve_missing_node_errors(
+    fnx_cls, nx_cls, missing_node
+):
+    if fnx_cls in (fnx.DiGraph, fnx.MultiDiGraph):
+        graph, expected = _direction_utility_graph_pair(fnx_cls, nx_cls)
+    else:
+        graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+
+    try:
+        expected.remove_node(missing_node)
+    except Exception as exc:
+        expected_type = type(exc).__name__
+        expected_message = str(exc)
+    else:
+        raise AssertionError("expected NetworkX remove_node() to fail for a missing node")
+
+    with pytest.raises(Exception) as fnx_exc:
+        graph.remove_node(missing_node)
+
+    assert type(fnx_exc.value).__name__ == expected_type
+    assert str(fnx_exc.value) == expected_message
+
+
+@pytest.mark.parametrize(
     ("fnx_cls", "nx_cls"),
     [
         (fnx.Graph, nx.Graph),
