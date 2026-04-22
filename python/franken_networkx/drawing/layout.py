@@ -191,6 +191,13 @@ def bfs_layout(
     import franken_networkx as fnx
 
     nodes, center = _process_params(G, center, 2)
+    # Match upstream NetworkX bfs_layers contract: a scalar start that's a
+    # node in G is auto-wrapped into [start]; a scalar start that isn't in
+    # G falls through to the iter() path and raises TypeError. fnx.bfs_layers
+    # is more permissive (always wraps then raises NodeNotFound), so emulate
+    # the upstream gate here for parity.
+    if start not in G:
+        iter(start)
     layers = dict(enumerate(fnx.bfs_layers(G, start)))
 
     if len(nodes) != sum(len(layer_nodes) for layer_nodes in layers.values()):

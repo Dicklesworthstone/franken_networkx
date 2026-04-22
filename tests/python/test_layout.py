@@ -1293,6 +1293,26 @@ def test_multipartite_layout_error_paths_match_networkx_without_delegation():
             fnx.multipartite_layout(fnx.Graph(), align="diagonal")
 
 
+def test_bfs_layout_invalid_scalar_start_raises_type_error_like_networkx():
+    """Invalid scalar start must raise the same TypeError as upstream.
+
+    Upstream nx.bfs_layers does `if sources in G: sources = [sources]` and
+    then `set(sources)`, so an invalid scalar like 99 raises TypeError on
+    the set() conversion. fnx.bfs_layers wraps scalars eagerly and would
+    surface NodeNotFound; the bfs_layout wrapper now mirrors the upstream
+    gate so callers see the same TypeError.
+    """
+    G = fnx.path_graph(3)
+    nG = nx.path_graph(3)
+    with pytest.raises(TypeError, match="not iterable"):
+        fnx.bfs_layout(G, start=99)
+    with pytest.raises(TypeError, match="not iterable"):
+        nx.bfs_layout(nG, start=99)
+    # Sanity: valid scalar and iterable forms still work.
+    assert len(fnx.bfs_layout(G, start=0)) == 3
+    assert len(fnx.bfs_layout(G, start=[0])) == 3
+
+
 def test_forceatlas2_layout_accepts_backend_keyword_surface():
     """Public forceatlas2_layout must accept backend / backend_kwargs.
 
