@@ -2900,15 +2900,37 @@ fn eigenvector_centrality_generic<G: GraphView>(
 
 #[must_use]
 pub fn betweenness_centrality(graph: &Graph) -> BetweennessCentralityResult {
-    betweenness_centrality_generic(graph)
+    betweenness_centrality_with_params(graph, true, false)
 }
 
 #[must_use]
 pub fn betweenness_centrality_directed(graph: &DiGraph) -> BetweennessCentralityResult {
-    betweenness_centrality_generic(graph)
+    betweenness_centrality_directed_with_params(graph, true, false)
 }
 
-fn betweenness_centrality_generic<G: GraphView>(graph: &G) -> BetweennessCentralityResult {
+#[must_use]
+pub fn betweenness_centrality_with_params(
+    graph: &Graph,
+    normalized: bool,
+    endpoints: bool,
+) -> BetweennessCentralityResult {
+    betweenness_centrality_generic(graph, normalized, endpoints)
+}
+
+#[must_use]
+pub fn betweenness_centrality_directed_with_params(
+    graph: &DiGraph,
+    normalized: bool,
+    endpoints: bool,
+) -> BetweennessCentralityResult {
+    betweenness_centrality_generic(graph, normalized, endpoints)
+}
+
+fn betweenness_centrality_generic<G: GraphView>(
+    graph: &G,
+    normalized: bool,
+    endpoints: bool,
+) -> BetweennessCentralityResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     if n == 0 {
@@ -2964,6 +2986,9 @@ fn betweenness_centrality_generic<G: GraphView>(graph: &G) -> BetweennessCentral
         }
         total_nodes_touched += stack.len();
 
+        if endpoints {
+            centrality[s] += stack.len().saturating_sub(1) as f64;
+        }
         let mut dependency = vec![0.0; n];
         while let Some(w) = stack.pop() {
             let sigma_w = sigma[w];
@@ -2974,15 +2999,20 @@ fn betweenness_centrality_generic<G: GraphView>(graph: &G) -> BetweennessCentral
                 }
             }
             if w != s {
-                centrality[w] += delta_w;
+                centrality[w] += if endpoints { delta_w + 1.0 } else { delta_w };
             }
         }
     }
 
-    let scale = if n > 2 {
-        1.0 / ((n - 1) * (n - 2)) as f64
-    } else {
+    let pair_base = if endpoints { n } else { n.saturating_sub(1) };
+    let scale = if pair_base < 2 {
         1.0
+    } else if normalized {
+        1.0 / ((pair_base * (pair_base - 1)) as f64)
+    } else if graph.is_directed() {
+        1.0
+    } else {
+        0.5
     };
 
     let ordered_scores = nodes
@@ -31181,6 +31211,8 @@ mod tests {
         bellman_ford_path_length,
         bellman_ford_shortest_paths,
         betweenness_centrality,
+        betweenness_centrality_directed_with_params,
+        betweenness_centrality_with_params,
         bfs_beam_edges,
         bfs_edges,
         bfs_edges_directed,
@@ -33928,6 +33960,72 @@ mod tests {
         }
         assert_eq!(result.witness.algorithm, "brandes_betweenness_centrality");
         assert_eq!(result.witness.complexity_claim, "O(|V| * |E|)");
+    }
+
+    #[test]
+    fn betweenness_centrality_path_graph_supports_endpoints_and_raw_scaling() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+
+        let raw = betweenness_centrality_with_params(&graph, false, false);
+        let raw_expected = [
+            ("a", 0.0_f64),
+            ("b", 2.0_f64),
+            ("c", 2.0_f64),
+            ("d", 0.0_f64),
+        ];
+        for (actual, (exp_node, exp_score)) in raw.scores.iter().zip(raw_expected) {
+            assert_eq!(actual.node, exp_node);
+            assert!((actual.score - exp_score).abs() <= TEST_TOLERANCE);
+        }
+
+        let endpoints = betweenness_centrality_with_params(&graph, true, true);
+        let endpoints_expected = [
+            ("a", 0.5_f64),
+            ("b", 5.0 / 6.0),
+            ("c", 5.0 / 6.0),
+            ("d", 0.5_f64),
+        ];
+        for (actual, (exp_node, exp_score)) in endpoints.scores.iter().zip(endpoints_expected) {
+            assert_eq!(actual.node, exp_node);
+            assert!((actual.score - exp_score).abs() <= TEST_TOLERANCE);
+        }
+    }
+
+    #[test]
+    fn betweenness_centrality_directed_path_graph_scales_like_networkx() {
+        let mut graph = DiGraph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        graph.add_edge("c", "d").expect("edge add should succeed");
+
+        let raw_endpoints = betweenness_centrality_directed_with_params(&graph, false, true);
+        let raw_expected = [
+            ("a", 3.0_f64),
+            ("b", 5.0_f64),
+            ("c", 5.0_f64),
+            ("d", 3.0_f64),
+        ];
+        for (actual, (exp_node, exp_score)) in raw_endpoints.scores.iter().zip(raw_expected) {
+            assert_eq!(actual.node, exp_node);
+            assert!((actual.score - exp_score).abs() <= TEST_TOLERANCE);
+        }
+
+        let normalized_endpoints = betweenness_centrality_directed_with_params(&graph, true, true);
+        let normalized_expected = [
+            ("a", 0.25_f64),
+            ("b", 5.0 / 12.0),
+            ("c", 5.0 / 12.0),
+            ("d", 0.25_f64),
+        ];
+        for (actual, (exp_node, exp_score)) in
+            normalized_endpoints.scores.iter().zip(normalized_expected)
+        {
+            assert_eq!(actual.node, exp_node);
+            assert!((actual.score - exp_score).abs() <= TEST_TOLERANCE);
+        }
     }
 
     #[test]

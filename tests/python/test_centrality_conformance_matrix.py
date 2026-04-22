@@ -133,6 +133,24 @@ def test_betweenness_centrality_matches_networkx(make, n):
     _assert_centrality_close(fnx.betweenness_centrality(fg), nx.betweenness_centrality(ng))
 
 
+def test_betweenness_centrality_normalized_and_endpoints_match_networkx():
+    for fg, ng in (
+        (fnx.path_graph(4), nx.path_graph(4)),
+        (fnx.path_graph(4, create_using=fnx.DiGraph), nx.path_graph(4, create_using=nx.DiGraph)),
+    ):
+        for kwargs in (
+            {"normalized": False},
+            {"endpoints": True},
+            {"normalized": False, "endpoints": True},
+        ):
+            _assert_centrality_close(
+                fnx.betweenness_centrality(fg, **kwargs),
+                nx.betweenness_centrality(ng, **kwargs),
+                rel=1e-6,
+                abs_=1e-9,
+            )
+
+
 @pytest.mark.parametrize("make, n", GRAPH_FAMILIES)
 def test_edge_betweenness_centrality_matches_networkx(make, n):
     fg, ng = make(n)
