@@ -7612,7 +7612,7 @@ def erdos_renyi_graph(n, p, seed=None, directed=False, *, create_using=None, bac
     )
 
 
-def watts_strogatz_graph(n, k, p, seed=None, create_using=None, *, backend=None, **backend_kwargs):
+def watts_strogatz_graph(n, k, p, seed=None, *, create_using=None, backend=None, **backend_kwargs):
     """Return a Watts-Strogatz small-world graph."""
     if backend is not None and backend != "networkx":
         raise ImportError(f"'{backend}' backend is not installed.")
@@ -23015,9 +23015,15 @@ def dual_barabasi_albert_graph(
     p,
     seed=None,
     initial_graph=None,
+    *,
     create_using=None,
+    backend=None,
+    **backend_kwargs,
 ):
     """Return a dual Barabasi-Albert preferential attachment graph."""
+    if backend is not None and backend != "networkx":
+        raise ImportError(f"'{backend}' backend is not installed.")
+    del backend_kwargs  # in-tree implementation ignores backend kwargs
     import random as _random
 
     target = _empty_graph_from_create_using(create_using, default=Graph)
@@ -23097,8 +23103,13 @@ def dual_barabasi_albert_graph(
     return target
 
 
-def extended_barabasi_albert_graph(n, m, p, q, seed=None, create_using=None):
+def extended_barabasi_albert_graph(
+    n, m, p, q, seed=None, *, create_using=None, backend=None, **backend_kwargs
+):
     """Return an extended Barabasi-Albert graph."""
+    if backend is not None and backend != "networkx":
+        raise ImportError(f"'{backend}' backend is not installed.")
+    del backend_kwargs  # in-tree implementation ignores backend kwargs
     graph = _checked_create_using(create_using, directed=False, multigraph=False, default=Graph)
     if m < 1 or m >= n:
         raise NetworkXError(
@@ -23878,7 +23889,7 @@ def fast_gnp_random_graph(n, p, seed=None, directed=False, *, create_using=None,
     return graph
 
 
-def newman_watts_strogatz_graph(n, k, p, seed=None, create_using=None, *, backend=None, **backend_kwargs):
+def newman_watts_strogatz_graph(n, k, p, seed=None, *, create_using=None, backend=None, **backend_kwargs):
     """Return a Newman-Watts-Strogatz small-world graph."""
     if backend is not None and backend != "networkx":
         raise ImportError(f"'{backend}' backend is not installed.")
@@ -23989,7 +24000,7 @@ def random_regular_graph(d, n, seed=None, create_using=None):
     return graph
 
 
-def powerlaw_cluster_graph(n, m, p, seed=None, create_using=None, *, backend=None, **backend_kwargs):
+def powerlaw_cluster_graph(n, m, p, seed=None, *, create_using=None, backend=None, **backend_kwargs):
     """Return a powerlaw-cluster graph."""
     if backend is not None and backend != "networkx":
         raise ImportError(f"'{backend}' backend is not installed.")

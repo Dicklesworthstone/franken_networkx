@@ -563,3 +563,40 @@ class TestRandomKernelGraphSignatureParity:
             create_using=fnx.Graph(),
         )
         assert isinstance(g, fnx.Graph)
+
+
+# ---------------------------------------------------------------------------
+# Signature conformance audit (franken_networkx-vrx8)
+# ---------------------------------------------------------------------------
+
+
+class TestGeneratorSignatureParityWithNetworkX:
+    """After the backend-keyword rollout, verify the touched public
+    generators expose byte-identical signatures to upstream NetworkX.
+    Catches regressions like literal backend_kwargs=None parameters
+    instead of **backend_kwargs, and keyword-only create_using drift.
+    """
+
+    SIGNATURE_TARGETS = [
+        "forceatlas2_layout",
+        "gnp_random_graph",
+        "watts_strogatz_graph",
+        "newman_watts_strogatz_graph",
+        "fast_gnp_random_graph",
+        "powerlaw_cluster_graph",
+        "dual_barabasi_albert_graph",
+        "extended_barabasi_albert_graph",
+    ]
+
+    @pytest.mark.parametrize("fn_name", SIGNATURE_TARGETS)
+    def test_signature_matches_networkx(self, fn_name):
+        import inspect
+
+        import networkx as nx
+
+        fnx_fn = getattr(fnx, fn_name)
+        nx_fn = getattr(nx, fn_name)
+        assert str(inspect.signature(fnx_fn)) == str(inspect.signature(nx_fn)), (
+            f"{fn_name} signature drifted from upstream "
+            f"(fnx={inspect.signature(fnx_fn)!r}, nx={inspect.signature(nx_fn)!r})"
+        )
