@@ -1079,6 +1079,32 @@ _DiGraphEdgeView.get = _adjacency_view_get
 _DiGraphEdgeView.keys = _adjacency_view_keys
 _DiGraphEdgeView.items = _adjacency_view_items
 _DiGraphEdgeView.values = _adjacency_view_values
+
+
+def _edge_view_data(self, data=True, default=None, nbunch=None):
+    """Return an iterable of edges with data, matching upstream
+    EdgeView.data(). Delegates to the view's __call__(data=...) path
+    which already handles `data=True` (attrs dict), `data='attr'`
+    (single attribute with default), and `nbunch` filtering.
+    """
+    if nbunch is None:
+        return self(data=data, default=default)
+    return self(nbunch=nbunch, data=data, default=default)
+
+
+def _multi_edge_view_data(self, data=True, default=None, keys=False, nbunch=None):
+    """Multigraph variant of EdgeView.data() that also accepts the
+    `keys` kwarg, matching upstream's MultiEdgeView.data().
+    """
+    if nbunch is None:
+        return self(data=data, default=default, keys=keys)
+    return self(nbunch=nbunch, data=data, default=default, keys=keys)
+
+
+_EDGE_VIEW_TYPE.data = _edge_view_data
+_DiGraphEdgeView.data = _edge_view_data
+_MultiGraphEdgeView.data = _multi_edge_view_data
+_MultiDiGraphEdgeView.data = _multi_edge_view_data
 _MULTIGRAPH_NODE_VIEW_TYPE.__call__ = _node_view_call_with_attr_support(
     _MULTIGRAPH_NODE_VIEW_CALL
 )
