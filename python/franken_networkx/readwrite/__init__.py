@@ -86,17 +86,28 @@ def _from_nx_graph(graph, create_using=None):
         result.add_node(node, **attrs)
 
     if graph.is_multigraph():
+        # 4-tuple (u, v, key, attrs) form avoids the ``key=key, **attrs``
+        # collision when an edge attribute is literally named "key"
+        # (franken_networkx-9x7r0). Franken multigraph bindings only
+        # accept integer keys; when the nx key is non-integer, fall back
+        # to the 3-tuple ``(u, v, attrs)`` form so the binding assigns a
+        # fresh integer key while preserving attrs.
+        int_keyed = []
+        non_int_keyed = []
         for left, right, key, attrs in graph.edges(keys=True, data=True):
             if isinstance(key, int) and not isinstance(key, bool):
-                result.add_edge(left, right, key=key, **attrs)
+                int_keyed.append((left, right, key, dict(attrs)))
             else:
-                # Franken multigraph bindings currently only accept integer keys.
-                # Preserve the edge payload and deterministic iteration order even
-                # when NetworkX produced a richer key type.
-                result.add_edge(left, right, **attrs)
+                non_int_keyed.append((left, right, dict(attrs)))
+        if int_keyed:
+            result.add_edges_from(int_keyed)
+        if non_int_keyed:
+            result.add_edges_from(non_int_keyed)
     else:
-        for left, right, attrs in graph.edges(data=True):
-            result.add_edge(left, right, **attrs)
+        result.add_edges_from(
+            (left, right, dict(attrs))
+            for left, right, attrs in graph.edges(data=True)
+        )
 
     return result
 

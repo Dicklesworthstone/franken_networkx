@@ -15285,11 +15285,17 @@ class _ReverseDirectedView:
         result.graph.update(dict(self.graph))
         result.add_nodes_from((node, dict(attrs)) for node, attrs in self.nodes(data=True))
         if self._graph.is_multigraph():
-            for u, v, key, attrs in self.edges(keys=True, data=True):
-                result.add_edge(u, v, key=key, **dict(attrs))
+            # Use 4-tuple (u, v, key, attrs_dict) so an edge attribute literally
+            # named "key" doesn't collide with add_edge's positional ``key=``
+            # parameter (see franken_networkx-9x7r0).
+            result.add_edges_from(
+                (u, v, key, dict(attrs))
+                for u, v, key, attrs in self.edges(keys=True, data=True)
+            )
         else:
-            for u, v, attrs in self.edges(data=True):
-                result.add_edge(u, v, **dict(attrs))
+            result.add_edges_from(
+                (u, v, dict(attrs)) for u, v, attrs in self.edges(data=True)
+            )
         return result
 
     def number_of_nodes(self):
@@ -15847,11 +15853,16 @@ class _FilteredGraphView:
         result.graph.update(dict(self.graph))
         result.add_nodes_from((node, dict(attrs)) for node, attrs in self.nodes(data=True))
         if self.is_multigraph():
-            for u, v, key, attrs in self.edges(keys=True, data=True):
-                result.add_edge(u, v, key=key, **dict(attrs))
+            # 4-tuple shape avoids the ``key=key, **attrs`` collision when an
+            # edge attribute is literally named "key" (franken_networkx-9x7r0).
+            result.add_edges_from(
+                (u, v, key, dict(attrs))
+                for u, v, key, attrs in self.edges(keys=True, data=True)
+            )
         else:
-            for u, v, attrs in self.edges(data=True):
-                result.add_edge(u, v, **dict(attrs))
+            result.add_edges_from(
+                (u, v, dict(attrs)) for u, v, attrs in self.edges(data=True)
+            )
         return result
 
 
@@ -15953,9 +15964,14 @@ def _copy_preserving_insertion_order(self, as_view=False):
     )
     # ``self.edges(keys=True, data=True)`` already yields edges in
     # original insertion order on fnx, so re-using it keeps the (u, v)
-    # orientation aligned with upstream nx.
-    for u, v, key, attrs in self.edges(keys=True, data=True):
-        result.add_edge(u, v, key=key, **deepcopy(attrs))
+    # orientation aligned with upstream nx. Use ``add_edges_from`` with
+    # 4-tuples so an edge attribute literally named "key" doesn't
+    # collide with the positional ``key=`` parameter
+    # (franken_networkx-9x7r0).
+    result.add_edges_from(
+        (u, v, key, deepcopy(attrs))
+        for u, v, key, attrs in self.edges(keys=True, data=True)
+    )
     return result
 
 
@@ -16082,8 +16098,13 @@ def _to_undirected_with_view(to_undirected_impl):
             result.add_nodes_from(
                 (node, deepcopy(attrs)) for node, attrs in self.nodes(data=True)
             )
-            for u, v, key, attrs in self.edges(keys=True, data=True):
-                result.add_edge(u, v, key=key, **deepcopy(attrs))
+            # Use 4-tuple form so an edge attribute named "key" doesn't
+            # collide with the positional ``key=`` parameter
+            # (franken_networkx-9x7r0).
+            result.add_edges_from(
+                (u, v, key, deepcopy(attrs))
+                for u, v, key, attrs in self.edges(keys=True, data=True)
+            )
             return result
         return to_undirected_impl(self)
 
@@ -16686,11 +16707,17 @@ class _ConversionGraphViewBase:
         result.graph.update(dict(self.graph))
         result.add_nodes_from((node, dict(attrs)) for node, attrs in self.nodes(data=True))
         if self.is_multigraph():
-            for u, v, key, attrs in self.edges(keys=True, data=True):
-                result.add_edge(u, v, key=key, **dict(attrs))
+            # 4-tuple shape avoids the ``key=key, **attrs`` collision when
+            # an edge attribute is literally named "key"
+            # (franken_networkx-9x7r0).
+            result.add_edges_from(
+                (u, v, key, dict(attrs))
+                for u, v, key, attrs in self.edges(keys=True, data=True)
+            )
         else:
-            for u, v, attrs in self.edges(data=True):
-                result.add_edge(u, v, **dict(attrs))
+            result.add_edges_from(
+                (u, v, dict(attrs)) for u, v, attrs in self.edges(data=True)
+            )
         return result
 
     def _copy_type(self):

@@ -265,3 +265,41 @@ def test_matches_networkx_on_mixed_attribute_workflow():
         "weight",
         default=0,
     )
+
+
+@pytest.mark.parametrize(
+    "fnx_cls",
+    [fnx.MultiGraph, fnx.MultiDiGraph],
+)
+def test_multigraph_copy_preserves_edge_attribute_named_key(fnx_cls):
+    """Regression guard for franken_networkx-9x7r0.
+
+    MultiGraph / MultiDiGraph copy used to call
+    ``add_edge(u, v, key=key, **attrs)`` which collides with
+    ``TypeError: got multiple values for keyword argument 'key'`` when
+    an edge attribute is literally named ``'key'``. Same pattern for
+    to_undirected on MultiGraph and for the view-class copies.
+    """
+    g = fnx_cls()
+    g.add_edge("a", "b", weight=10)
+    # Attribute literally named "key"
+    g["a"]["b"][0]["key"] = "stored_value"
+
+    copy = g.copy()
+    edges = list(copy.edges(keys=True, data=True))
+    assert edges == [("a", "b", 0, {"weight": 10, "key": "stored_value"})]
+
+
+def test_multigraph_to_undirected_preserves_edge_attribute_named_key():
+    """Regression guard for franken_networkx-9x7r0 on the
+    ``MultiGraph.to_undirected`` path (not ``MultiDiGraph``, which goes
+    through ``_directed_to_undirected_with_view``'s already-correct
+    ``add_edges_from`` form).
+    """
+    g = fnx.MultiGraph()
+    g.add_edge("a", "b", weight=5)
+    g["a"]["b"][0]["key"] = "stored"
+
+    u = g.to_undirected()
+    edges = list(u.edges(keys=True, data=True))
+    assert edges == [("a", "b", 0, {"weight": 5, "key": "stored"})]
