@@ -1048,6 +1048,27 @@ def _build_omega_case(graph, case_name):
 
 
 class TestOmegaParity:
+    def test_backend_keyword_surface_matches_networkx(self):
+        graph = fnx.complete_graph(4)
+        expected = nx.complete_graph(4)
+
+        assert str(inspect.signature(fnx.omega)) == str(inspect.signature(nx.omega))
+
+        for backend in (None, "networkx"):
+            assert fnx.omega(graph, niter=2, nrand=2, seed=123, backend=backend) == nx.omega(
+                expected, niter=2, nrand=2, seed=123, backend=backend
+            )
+
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            fnx.omega(graph, niter=2, nrand=2, seed=123, backend="parallel")
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            nx.omega(expected, niter=2, nrand=2, seed=123, backend="parallel")
+
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            fnx.omega(graph, niter=2, nrand=2, seed=123, backend_kwargs={"x": 1})
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            nx.omega(expected, niter=2, nrand=2, seed=123, backend_kwargs={"x": 1})
+
     @pytest.mark.parametrize(
         ("fnx_cls", "nx_cls", "case_name"),
         [

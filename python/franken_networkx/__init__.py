@@ -13487,7 +13487,7 @@ def sigma(G, niter=100, nrand=10, seed=None):
     return float((C / Cr) / (L / Lr))
 
 
-def omega(G, niter=5, nrand=5, seed=None):
+def omega(G, niter=5, nrand=10, seed=None, *, backend=None, **backend_kwargs):
     """Return the small-world omega coefficient.
 
     omega = L_rand/L - C/C_lattice.
@@ -13495,6 +13495,7 @@ def omega(G, niter=5, nrand=5, seed=None):
     """
     import numpy as np
 
+    _validate_backend_dispatch_keywords("omega", backend, backend_kwargs)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
