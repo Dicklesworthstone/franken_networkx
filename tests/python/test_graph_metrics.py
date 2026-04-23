@@ -119,6 +119,55 @@ def _build_reciprocity_case(graph, case_name):
 
 
 class TestReciprocityParity:
+    def test_overall_reciprocity_backend_keyword_surface_matches_networkx(self):
+        graph = fnx.DiGraph([(0, 1), (1, 0), (1, 2)])
+        expected = nx.DiGraph([(0, 1), (1, 0), (1, 2)])
+
+        assert str(inspect.signature(fnx.overall_reciprocity)) == str(
+            inspect.signature(nx.overall_reciprocity)
+        )
+
+        for backend in (None, "networkx"):
+            assert fnx.overall_reciprocity(graph, backend=backend) == nx.overall_reciprocity(
+                expected, backend=backend
+            )
+
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            fnx.overall_reciprocity(graph, backend="parallel")
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            nx.overall_reciprocity(expected, backend="parallel")
+
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            fnx.overall_reciprocity(graph, backend_kwargs={"x": 1})
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            nx.overall_reciprocity(expected, backend_kwargs={"x": 1})
+
+    def test_reciprocity_backend_keyword_surface_matches_networkx(self):
+        graph = fnx.DiGraph([(0, 1), (1, 0), (1, 2), (2, 1)])
+        expected = nx.DiGraph([(0, 1), (1, 0), (1, 2), (2, 1)])
+
+        assert str(inspect.signature(fnx.reciprocity)) == str(
+            inspect.signature(nx.reciprocity)
+        )
+
+        for backend in (None, "networkx"):
+            assert fnx.reciprocity(graph, backend=backend) == nx.reciprocity(
+                expected, backend=backend
+            )
+            assert fnx.reciprocity(graph, [0, 1, 2], backend=backend) == nx.reciprocity(
+                expected, [0, 1, 2], backend=backend
+            )
+
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            fnx.reciprocity(graph, backend="parallel")
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            nx.reciprocity(expected, backend="parallel")
+
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            fnx.reciprocity(graph, backend_kwargs={"x": 1})
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            nx.reciprocity(expected, backend_kwargs={"x": 1})
+
     @pytest.mark.parametrize(
         ("function_name", "fnx_cls", "nx_cls", "case_name", "args"),
         [

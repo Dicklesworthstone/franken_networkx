@@ -3181,8 +3181,11 @@ def dfs_tree(G, source=None, depth_limit=None, sort_neighbors=None):
 
 
 # Algorithm functions — reciprocity (wrapped to match NetworkX API)
-def overall_reciprocity(G):
+def overall_reciprocity(G, *, backend=None, **backend_kwargs):
     """Compute the reciprocity for the whole graph."""
+    _validate_backend_dispatch_keywords(
+        "overall_reciprocity", backend, backend_kwargs
+    )
     if G.is_multigraph() and not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected multigraph type")
 
@@ -3204,7 +3207,7 @@ def _reciprocity_value_for_node(G, node):
     return 2 * len(overlap) / n_total
 
 
-def reciprocity(G, nodes=None):
+def reciprocity(G, nodes=None, *, backend=None, **backend_kwargs):
     """Compute reciprocity for a directed graph.
 
     If *nodes* is None, return the overall reciprocity of the graph (float).
@@ -3212,6 +3215,7 @@ def reciprocity(G, nodes=None):
     If *nodes* is an iterable of nodes, return a dict mapping each node to
     its reciprocity.  Matches ``networkx.reciprocity``.
     """
+    _validate_backend_dispatch_keywords("reciprocity", backend, backend_kwargs)
     if nodes is None:
         return overall_reciprocity(G)
 
