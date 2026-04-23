@@ -9130,8 +9130,14 @@ def bull_graph(create_using=None):
 
 
 def circular_ladder_graph(n, create_using=None):
-    """Return the circular ladder graph."""
-    if create_using is None:
+    """Return the circular ladder graph.
+
+    Degenerate cases (``n < 3``) use the pure-Python fallback path
+    — the rust primitive rejects those with ``n must be >= 3``,
+    but upstream nx returns degenerate-but-valid graphs for
+    n ∈ {0, 1, 2} (franken_networkx-uwa6w).
+    """
+    if create_using is None and n >= 3:
         return _rust_circular_ladder_graph(n)
 
     G = ladder_graph(n, create_using)
@@ -9141,8 +9147,13 @@ def circular_ladder_graph(n, create_using=None):
 
 
 def ladder_graph(n, create_using=None):
-    """Return the ladder graph."""
-    if create_using is None:
+    """Return the ladder graph.
+
+    Degenerate case ``n == 0`` is an empty graph (matches upstream
+    nx). The rust primitive raises on n=0, so special-case it
+    (franken_networkx-uwa6w).
+    """
+    if create_using is None and n > 0:
         return _rust_ladder_graph(n)
 
     G = empty_graph(2 * n, create_using)

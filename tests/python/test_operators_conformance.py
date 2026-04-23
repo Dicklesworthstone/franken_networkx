@@ -151,3 +151,28 @@ def test_binary_operator_matches_nx_on_mixed_attrs(op_name):
     r_fnx = getattr(fnx, op_name)(build(fnx), build_h(fnx))
     r_nx = getattr(nx, op_name)(build(nx), build_h(nx))
     assert norm(r_fnx) == norm(r_nx)
+
+
+# ---------------------------------------------------------------------------
+# franken_networkx-uwa6w: ladder_graph / circular_ladder_graph edge cases
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("n", [0, 1, 2, 3, 5])
+def test_ladder_graph_matches_networkx_for_small_n(n):
+    fg = fnx.ladder_graph(n)
+    ng = nx.ladder_graph(n)
+    assert set(fg.nodes()) == set(ng.nodes())
+    assert set(frozenset(e) for e in fg.edges()) == set(
+        frozenset(e) for e in ng.edges()
+    )
+
+
+@pytest.mark.parametrize("n", [0, 1, 2, 3, 5])
+def test_circular_ladder_graph_matches_networkx_for_small_n(n):
+    fg = fnx.circular_ladder_graph(n)
+    ng = nx.circular_ladder_graph(n)
+    assert set(fg.nodes()) == set(ng.nodes())
+    assert set(frozenset(e) for e in fg.edges()) == set(
+        frozenset(e) for e in ng.edges()
+    )
