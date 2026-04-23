@@ -798,7 +798,9 @@ class TestNoNetworkxRuntimeDependency:
     """
 
     def test_is_graphical_bad_method_raises(self):
-        with pytest.raises(fnx.NetworkXError):
+        # Upstream nx raises NetworkXException (base class, not
+        # NetworkXError) for unknown method; fnx matches.
+        with pytest.raises(fnx.NetworkXException):
             fnx.is_graphical([2, 2, 2], method="not-a-method")
 
     def test_is_graphical_happy_path_matches_nx(self):
@@ -828,9 +830,11 @@ class TestNoNetworkxRuntimeDependency:
         assert nrr_f == pytest.approx(nrr_n, rel=1e-9, abs=1e-9)
 
     def test_non_randomness_rejects_disconnected(self):
+        # Upstream nx raises the base NetworkXException (not
+        # NetworkXError) for the "Non connected graph." branch.
         G = fnx.Graph()
         G.add_edges_from([(0, 1), (2, 3)])
-        with pytest.raises(fnx.NetworkXError):
+        with pytest.raises(fnx.NetworkXException):
             fnx.non_randomness(G, k=2)
 
 

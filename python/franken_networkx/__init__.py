@@ -1369,17 +1369,19 @@ from franken_networkx._fnx import (
 )
 
 
-class NetworkXException(Exception):
-    """Base class for all NetworkX-compatible exceptions raised by fnx.
+def _nx_exception_cls():
+    """Lazy accessor for networkx's base ``NetworkXException`` class.
 
-    Upstream networkx exposes ``NetworkXException`` as the common
-    ancestor of ``NetworkXError`` and friends. The Rust binding does
-    not currently expose the base class, so a few wrapper sites that
-    need to match the upstream contract (e.g. ``is_graphical`` method
-    guard, ``non_randomness`` preconditions) raise this Python-side
-    shim instead. The class name matches upstream, which is what the
-    oracle tests compare on.
+    A few wrapper sites (e.g. ``is_graphical`` method guard,
+    ``non_randomness`` precondition checks) need to raise the exact
+    upstream base class so that both fnx's parity tests and code that
+    catches ``nx.NetworkXException`` work. The Rust binding does not
+    expose this base class — fall back to importing it from nx on
+    demand.
     """
+    import networkx as _nx  # lazy to avoid import-time cost
+
+    return _nx.NetworkXException
 
 
 class NotAPartition(NetworkXError):
@@ -4671,8 +4673,10 @@ def is_graphical(sequence, method="eg"):
     if method == "hh":
         return is_valid_degree_sequence_havel_hakimi(deg_sequence)
     # Upstream nx raises the base NetworkXException here (not
-    # NetworkXError). Match it exactly.
-    raise NetworkXException("`method` must be 'eg' or 'hh'")
+    # NetworkXError). Match it exactly — fetch the class lazily so we
+    # don't create a parallel hierarchy that breaks
+    # ``except nx.NetworkXException``.
+    raise _nx_exception_cls()("`method` must be 'eg' or 'hh'")
 
 
 def is_digraphical(in_sequence, out_sequence):
@@ -13180,11 +13184,12 @@ def non_randomness(G, k=None, weight="weight"):
         raise NetworkXNotImplemented("not implemented for directed type")
     # Upstream uses mixed exception classes here: empty/self-loops
     # raise NetworkXError, but the "not connected" branch raises the
-    # *base* NetworkXException. Match that exactly.
+    # *base* NetworkXException. Pick the base class up lazily from nx
+    # so ``except nx.NetworkXException`` keeps working.
     if G.number_of_edges() == 0:
         raise NetworkXError("non_randomness not applicable to empty graphs")
     if not is_connected(G):
-        raise NetworkXException("Non connected graph.")
+        raise _nx_exception_cls()("Non connected graph.")
     if len(list(selfloop_edges(G))) > 0:
         raise NetworkXError("Graph must not contain self-loops")
 
