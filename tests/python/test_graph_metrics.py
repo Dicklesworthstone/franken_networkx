@@ -772,6 +772,30 @@ def _build_graph_index_case(graph, case_name):
 
 
 class TestGraphIndexParity:
+    @pytest.mark.parametrize("function_name", ["schultz_index", "gutman_index"])
+    def test_backend_keyword_surface_matches_networkx(self, function_name):
+        graph = fnx.path_graph(3)
+        expected = nx.path_graph(3)
+
+        assert str(inspect.signature(getattr(fnx, function_name))) == str(
+            inspect.signature(getattr(nx, function_name))
+        )
+
+        for backend in (None, "networkx"):
+            assert getattr(fnx, function_name)(graph, backend=backend) == getattr(
+                nx, function_name
+            )(expected, backend=backend)
+
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            getattr(fnx, function_name)(graph, backend="parallel")
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            getattr(nx, function_name)(expected, backend="parallel")
+
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            getattr(fnx, function_name)(graph, backend_kwargs={"x": 1})
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            getattr(nx, function_name)(expected, backend_kwargs={"x": 1})
+
     @pytest.mark.parametrize(
         ("function_name", "fnx_cls", "nx_cls", "case_name", "kwargs"),
         [

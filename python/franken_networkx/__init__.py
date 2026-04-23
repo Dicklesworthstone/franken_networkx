@@ -13006,11 +13006,12 @@ def _simple_graph_weighted_shortest_path_lengths(G, source, weight):
     return distances
 
 
-def gutman_index(G, weight=None):
+def gutman_index(G, weight=None, *, backend=None, **backend_kwargs):
     """Return the Gutman index (degree-distance) of *G*.
 
     Sum over all pairs of deg(u)*deg(v)*dist(u,v).
     """
+    _validate_backend_dispatch_keywords("gutman_index", backend, backend_kwargs)
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
@@ -13036,11 +13037,12 @@ def gutman_index(G, weight=None):
     ) / 2
 
 
-def schultz_index(G, weight=None):
+def schultz_index(G, weight=None, *, backend=None, **backend_kwargs):
     """Return the Schultz index of *G*.
 
     Sum over all pairs of (deg(u)+deg(v))*dist(u,v).
     """
+    _validate_backend_dispatch_keywords("schultz_index", backend, backend_kwargs)
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
