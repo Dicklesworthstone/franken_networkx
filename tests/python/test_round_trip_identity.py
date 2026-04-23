@@ -392,3 +392,31 @@ def test_round_trip_behavior_matches_networkx(graph_type, fmt):
 
     assert original_signature == reference_signature
     assert round_trip_signature == reference_round_trip_signature
+
+
+# ---------------------------------------------------------------------------
+# franken_networkx-rrh32: GEXF MultiGraph round-trip.
+# ---------------------------------------------------------------------------
+
+import pytest
+
+
+@pytest.mark.parametrize("fnx_cls", [fnx.MultiGraph, fnx.MultiDiGraph])
+def test_gexf_multigraph_round_trip(fnx_cls):
+    """MultiGraph and MultiDiGraph must survive a GEXF write + read
+    round-trip including parallel-edge keys.
+    """
+    g = fnx_cls()
+    g.add_edge(0, 1, key=0, weight=1.0)
+    g.add_edge(0, 1, key=1, weight=2.0)
+    g.add_edge(1, 2, key=0, weight=3.0)
+
+    gexf_str = "\n".join(fnx.generate_gexf(g))
+    parsed = fnx.parse_gexf(gexf_str)
+
+    assert isinstance(parsed, fnx_cls)
+    # Parallel edges preserved (keys and weights round-trip)
+    edges = sorted(parsed.edges(keys=True, data=True))
+    weights = sorted(d["weight"] for _, _, _, d in edges)
+    assert weights == [1.0, 2.0, 3.0]
+    assert parsed.number_of_edges() == 3
