@@ -379,3 +379,40 @@ def test_tensor_product_preserves_edge_attribute_named_key():
     # tensor_product should not raise with 'key' attr present
     product = fnx.tensor_product(a, b)
     assert isinstance(product, (fnx.MultiGraph, fnx.Graph))
+
+
+# ---------------------------------------------------------------------------
+# franken_networkx-yr7kf: _fnx_to_nx must handle attr names that collide
+# with nx's add_node / add_edge positional parameters.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("attr_name", ["node_for_adding", "u_of_edge", "v_of_edge"])
+def test_fnx_to_nx_handles_collision_node_attr(attr_name):
+    from franken_networkx.backend import _fnx_to_nx
+
+    fg = fnx.Graph()
+    fg.add_node("a")
+    fg.nodes["a"][attr_name] = "sentinel"
+    result = _fnx_to_nx(fg)
+    assert dict(result.nodes["a"]) == {attr_name: "sentinel"}
+
+
+@pytest.mark.parametrize("attr_name", ["node_for_adding", "u_of_edge", "v_of_edge"])
+def test_fnx_to_nx_handles_collision_edge_attr(attr_name):
+    from franken_networkx.backend import _fnx_to_nx
+
+    fg = fnx.Graph()
+    fg.add_edge("a", "b", **{attr_name: "sentinel"})
+    result = _fnx_to_nx(fg)
+    assert dict(result["a"]["b"]) == {attr_name: "sentinel"}
+
+
+def test_fnx_to_nx_handles_collision_on_multigraph_edge_attrs():
+    from franken_networkx.backend import _fnx_to_nx
+
+    fg = fnx.MultiGraph()
+    fg.add_edge("a", "b", u_of_edge="x", v_of_edge="y")
+    result = _fnx_to_nx(fg)
+    edges = list(result.edges(keys=True, data=True))
+    assert edges == [("a", "b", 0, {"u_of_edge": "x", "v_of_edge": "y"})]

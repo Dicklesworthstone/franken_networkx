@@ -380,7 +380,15 @@ def _nx_to_fnx(G):
 
 
 def _fnx_to_nx(fg):
-    """Convert a FrankenNetworkX graph to the matching NetworkX graph type."""
+    """Convert a FrankenNetworkX graph to the matching NetworkX graph type.
+
+    Uses ``add_nodes_from`` / ``add_edges_from`` with attrs passed
+    positionally in the tuple so attr names that collide with nx's
+    positional parameters (``node_for_adding`` on nodes;
+    ``u_of_edge`` / ``v_of_edge`` on edges) don't raise the
+    ``multiple values for argument`` TypeError
+    (franken_networkx-yr7kf, same class as -uphdr / -9x7r0).
+    """
     import networkx as nx
 
     if fg.is_multigraph():
@@ -393,11 +401,10 @@ def _fnx_to_nx(fg):
     else:
         G = nx.Graph()
     node_view = getattr(fg, "nodes", None)
-    for node in fg:
-        if node_view is not None:
-            G.add_node(node, **node_view[node])
-        else:
-            G.add_node(node)
+    if node_view is not None:
+        G.add_nodes_from((node, dict(node_view[node])) for node in fg)
+    else:
+        G.add_nodes_from(fg)
     if fg.is_multigraph():
         seen = set()
         for u in fg:
@@ -407,11 +414,14 @@ def _fnx_to_nx(fg):
                     if edge_id in seen:
                         continue
                     seen.add(edge_id)
-                for key, attrs in keyed_attrs.items():
-                    G.add_edges_from([(u, v, key, dict(attrs))])
+                G.add_edges_from(
+                    (u, v, key, dict(attrs))
+                    for key, attrs in keyed_attrs.items()
+                )
     else:
-        for u, v in fg.edges:
-            G.add_edge(u, v, **fg.edges[u, v])
+        G.add_edges_from(
+            (u, v, dict(fg.edges[u, v])) for u, v in fg.edges
+        )
     G.graph.update(dict(fg.graph))
     return G
 
