@@ -751,6 +751,87 @@ def _multi_add_edges_from(self, ebunch_to_add, **attr):
 
 MultiGraph.add_edges_from = _multi_add_edges_from
 MultiDiGraph.add_edges_from = _multi_add_edges_from
+
+
+# ---------------------------------------------------------------------------
+# Constructor: absorb dict-of-dicts input (franken_networkx-lc3em).
+#
+# The Rust ``__init__`` accepts iterables of 2- or 3-tuples as edge lists,
+# but silently drops edges when the caller passes a nx-style dict-of-dicts
+# (e.g. ``{u: {v: attrs_dict}}``). Upstream nx's ``to_networkx_graph``
+# converter decodes that shape. Mirror it at the Python layer so the four
+# graph classes accept every input format the nx constructor does.
+# ---------------------------------------------------------------------------
+
+_GRAPH_INIT = Graph.__init__
+_DIGRAPH_INIT = DiGraph.__init__
+_MULTIGRAPH_INIT = MultiGraph.__init__
+_MULTIDIGRAPH_INIT = MultiDiGraph.__init__
+
+
+def _decode_dict_of_dicts_into(self, data, is_multigraph):
+    """Populate ``self`` from an nx-style dict-of-dicts payload.
+
+    Shape:
+    - simple graph: ``{u: {v: attrs_dict, ...}, ...}``
+    - multigraph:   ``{u: {v: {key: attrs_dict, ...}, ...}, ...}``
+
+    Mirrors ``nx.convert.from_dict_of_dicts`` semantics: a multigraph
+    payload that has an empty inner ``{}`` does NOT add v as a node
+    (add_edge is the only path that adds v); a simple-graph empty
+    inner does add v (via add_edge).
+    """
+    for u, nbrs in data.items():
+        self.add_node(u)
+        if not isinstance(nbrs, dict):
+            continue
+        for v, inner in nbrs.items():
+            if is_multigraph:
+                # Multigraph: inner is {key: attrs_dict}; only add v
+                # (and the edge) when at least one key is present.
+                if isinstance(inner, dict) and inner:
+                    for key, attrs in inner.items():
+                        self.add_edge(u, v, key=key)
+                        # Apply attrs without splatting (avoids 'key' collision).
+                        self[u][v][key].update(dict(attrs) if isinstance(attrs, dict) else {})
+                # else: empty inner — do NOT add v (matches nx)
+            else:
+                # Simple graph: inner is the edge-attr dict.
+                self.add_edge(u, v)
+                if isinstance(inner, dict):
+                    self[u][v].update(dict(inner))
+
+
+def _init_absorbing_dict_of_dicts(raw_init, is_multigraph):
+    """Factory: wrap ``__init__`` so dict-of-dicts / dict-of-dict-of-dicts
+    payloads are decoded — the Rust ``__new__`` already handles
+    edge-list iterables and Graph instances, but silently drops dict
+    inputs other than as a node-only iteration.
+    """
+
+    def __init__(self, incoming_graph_data=None, **attr):
+        # ``raw_init(self, incoming_graph_data)`` is a no-op on pyo3
+        # classes where ``__new__`` consumed the data; call it with
+        # no extra args just to exercise any future init logic.
+        raw_init(self)
+        if attr:
+            self.graph.update(attr)
+        if incoming_graph_data is None:
+            return
+        # Only dict-of-dicts needs explicit Python decoding; __new__
+        # has already absorbed edge-list and Graph-instance inputs.
+        if isinstance(incoming_graph_data, dict):
+            _decode_dict_of_dicts_into(self, incoming_graph_data, is_multigraph)
+
+    return __init__
+
+
+Graph.__init__ = _init_absorbing_dict_of_dicts(_GRAPH_INIT, is_multigraph=False)
+DiGraph.__init__ = _init_absorbing_dict_of_dicts(_DIGRAPH_INIT, is_multigraph=False)
+MultiGraph.__init__ = _init_absorbing_dict_of_dicts(_MULTIGRAPH_INIT, is_multigraph=True)
+MultiDiGraph.__init__ = _init_absorbing_dict_of_dicts(_MULTIDIGRAPH_INIT, is_multigraph=True)
+
+
 _GRAPH_TO_DIRECTED = Graph.to_directed
 _DIGRAPH_TO_DIRECTED = DiGraph.to_directed
 _MULTIGRAPH_TO_DIRECTED = MultiGraph.to_directed

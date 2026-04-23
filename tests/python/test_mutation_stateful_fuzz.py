@@ -269,6 +269,51 @@ class _GraphFuzzBase(RuleBasedStateMachine):
             if n in self.nx_g:
                 self.nx_g.remove_node(n)
 
+    @rule(
+        edges=st.lists(
+            st.tuples(
+                st.sampled_from(NODE_DOMAIN),
+                st.sampled_from(NODE_DOMAIN),
+            ),
+            min_size=0,
+            max_size=3,
+        )
+    )
+    def remove_edges_from_list(self, edges):
+        # silent-ignore missing edges to match nx.remove_edges_from
+        for u, v in edges:
+            if self.fnx_g.has_edge(u, v):
+                self.fnx_g.remove_edge(u, v)
+            if self.nx_g.has_edge(u, v):
+                self.nx_g.remove_edge(u, v)
+
+    @rule()
+    def add_edge_no_key_sequence(self):
+        """Add several bare (no-key) edges on the same (u, v) to
+        exercise the auto-key allocator deterministically."""
+        if self.fnx_g.is_multigraph():
+            for _ in range(3):
+                self.fnx_g.add_edge(0, 1)
+                self.nx_g.add_edge(0, 1)
+
+    @rule()
+    def to_directed_and_back(self):
+        """Flip undirected -> directed -> undirected and assert equivalence."""
+        if self.fnx_g.is_directed():
+            return
+        f_dir = self.fnx_g.to_directed()
+        n_dir = self.nx_g.to_directed()
+        # flip back
+        f_undir = f_dir.to_undirected()
+        n_undir = n_dir.to_undirected()
+        # The round-trip may add canonicalisation; we only assert the
+        # intermediate directed version matches nx.
+        # (Direct equality on snapshots requires the snapshot normalizer
+        # to canonicalize directed-undirected the same way.)
+        assert _snapshot(f_dir) == _snapshot(n_dir), (
+            f"to_directed divergence: {_snapshot(f_dir)!r} vs {_snapshot(n_dir)!r}"
+        )
+
     # ------------------------------------------------------------------
     # Invariant: state must match upstream nx after every rule.
     # ------------------------------------------------------------------
@@ -328,8 +373,8 @@ class MultiDiGraphFuzz(_MultiGraphFuzzBase):
 # ---------------------------------------------------------------------------
 
 _machine_settings = settings(
-    max_examples=200,
-    stateful_step_count=40,
+    max_examples=400,
+    stateful_step_count=60,
     deadline=None,
     suppress_health_check=[HealthCheck.too_slow, HealthCheck.data_too_large],
 )
@@ -341,3 +386,121 @@ TestGraphFuzz = GraphFuzz.TestCase
 TestDiGraphFuzz = DiGraphFuzz.TestCase
 TestMultiGraphFuzz = MultiGraphFuzz.TestCase
 TestMultiDiGraphFuzz = MultiDiGraphFuzz.TestCase
+
+
+# ---------------------------------------------------------------------------
+# Constructor-variant differential tests.
+# ---------------------------------------------------------------------------
+
+from hypothesis import given
+
+
+@given(
+    data=st.one_of(
+        # Edge-list input
+        st.lists(
+            st.tuples(
+                st.sampled_from(NODE_DOMAIN),
+                st.sampled_from(NODE_DOMAIN),
+            ),
+            min_size=0,
+            max_size=6,
+        ),
+        # Dict-of-dicts input
+        st.dictionaries(
+            st.sampled_from(NODE_DOMAIN),
+            st.dictionaries(
+                st.sampled_from(NODE_DOMAIN),
+                st.just({}),
+                min_size=0,
+                max_size=3,
+            ),
+            min_size=0,
+            max_size=3,
+        ),
+    ),
+    cls_index=st.integers(min_value=0, max_value=3),
+)
+@settings(max_examples=150, deadline=None)
+def test_constructor_from_data_matches_nx(data, cls_index):
+    """Graph(data) must initialize from edge-list / dict-of-dicts
+    identically to upstream nx."""
+    classes = [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ]
+    fnx_cls, nx_cls = classes[cls_index]
+
+    # Some input shapes aren't valid for all classes — guard by letting
+    # both sides fail identically.
+    try:
+        fg = fnx_cls(data)
+    except Exception as fe:
+        try:
+            ng = nx_cls(data)
+        except Exception as ne:
+            # Both raise — acceptable
+            assert type(fe).__name__ == type(ne).__name__, (
+                f"raise type divergence: fnx={type(fe).__name__}  nx={type(ne).__name__}"
+            )
+            return
+        else:
+            raise AssertionError(
+                f"fnx raised {type(fe).__name__} but nx succeeded: data={data!r}"
+            )
+    ng = nx_cls(data)
+    assert _snapshot(fg) == _snapshot(ng), (
+        f"constructor divergence for {fnx_cls.__name__}: data={data!r}"
+    )
+
+
+@given(
+    attrs=st.dictionaries(
+        st.sampled_from(["name", "phase", "mode"]),
+        st.sampled_from(["alpha", "beta", "gamma"]),
+        min_size=0,
+        max_size=3,
+    ),
+    cls_index=st.integers(min_value=0, max_value=3),
+)
+@settings(max_examples=80, deadline=None)
+def test_constructor_graph_attrs_matches_nx(attrs, cls_index):
+    """Graph(**attrs) must seed graph.graph dict identically to nx."""
+    classes = [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ]
+    fnx_cls, nx_cls = classes[cls_index]
+    fg = fnx_cls(**attrs)
+    ng = nx_cls(**attrs)
+    assert dict(fg.graph) == dict(ng.graph)
+
+
+@given(
+    cls_index=st.integers(min_value=0, max_value=3),
+)
+@settings(max_examples=20, deadline=None)
+def test_constructor_from_graph_matches_nx(cls_index):
+    """Graph(otherGraph) must copy from another graph instance."""
+    classes = [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ]
+    fnx_cls, nx_cls = classes[cls_index]
+    # Build identical source graphs
+    src_fnx = fnx_cls()
+    src_nx = nx_cls()
+    src_fnx.add_edge(0, 1, weight=3.0)
+    src_nx.add_edge(0, 1, weight=3.0)
+    src_fnx.add_node(2, color="red")
+    src_nx.add_node(2, color="red")
+    # Construct a fresh instance from each
+    fg = fnx_cls(src_fnx)
+    ng = nx_cls(src_nx)
+    assert _snapshot(fg) == _snapshot(ng)
