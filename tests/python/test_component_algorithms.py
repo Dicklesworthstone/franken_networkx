@@ -215,25 +215,28 @@ class TestKosarajuSCC:
 
 class TestAttractingComponents:
     def test_cycle(self, directed_cycle):
-        att = fnx.attracting_components(directed_cycle)
+        # attracting_components returns a generator — materialise to
+        # a list of sets to allow indexing / length checks.
+        att = [set(c) for c in fnx.attracting_components(directed_cycle)]
         assert len(att) == 1
-        assert sorted(att[0]) == ["a", "b", "c"]
+        assert att[0] == {"a", "b", "c"}
 
     def test_chain(self, directed_chain):
-        att = fnx.attracting_components(directed_chain)
+        att = [set(c) for c in fnx.attracting_components(directed_chain)]
         assert len(att) == 1
-        assert att[0] == ["c"]  # only sink node
+        assert att[0] == {"c"}  # only sink node
 
     def test_two_sinks(self):
         g = fnx.DiGraph()
         g.add_edge("a", "b")
         g.add_edge("a", "c")
-        att = fnx.attracting_components(g)
+        att = [set(c) for c in fnx.attracting_components(g)]
         assert len(att) == 2
 
     def test_raises_on_undirected(self, triangle):
+        # NetworkXNotImplemented fires on first next() of the generator.
         with pytest.raises(fnx.NetworkXNotImplemented):
-            fnx.attracting_components(triangle)
+            list(fnx.attracting_components(triangle))
 
 
 # ---------------------------------------------------------------------------
@@ -256,31 +259,39 @@ class TestNumberAttractingComponents:
 # ---------------------------------------------------------------------------
 
 class TestIsAttractingComponent:
+    """Upstream nx.is_attracting_component(G) takes *only* the graph and
+    returns True iff G consists of a single attracting component that
+    spans all nodes (one sink SCC in the condensation, with no other
+    SCCs). fnx matches this contract — these tests cross-check it.
+    """
+
     def test_yes(self):
+        # Directed cycle a->b->c->a: whole graph is one attracting SCC.
         g = fnx.DiGraph()
         g.add_edge("a", "b")
         g.add_edge("b", "c")
-        g.add_edge("c", "b")
-        # {b, c} is attracting
-        assert fnx.is_attracting_component(g, ["b", "c"]) is True
+        g.add_edge("c", "a")
+        assert fnx.is_attracting_component(g) is True
 
     def test_no_outgoing(self):
+        # {a,b} strongly connected, {a,c} is not — condensation has
+        # two sinks ({b,a}? wait a<->b, a->c so sink is {c}), so the
+        # attracting component is {c} not the whole graph → False.
         g = fnx.DiGraph()
         g.add_edge("a", "b")
         g.add_edge("b", "a")
         g.add_edge("a", "c")
-        # {a, b} has outgoing edge a->c
-        assert fnx.is_attracting_component(g, ["a", "b"]) is False
+        assert fnx.is_attracting_component(g) is False
 
     def test_not_strongly_connected(self):
+        # a->b has attracting component {b}, not the full graph.
         g = fnx.DiGraph()
         g.add_edge("a", "b")
-        # {a, b} not strongly connected
-        assert fnx.is_attracting_component(g, ["a", "b"]) is False
+        assert fnx.is_attracting_component(g) is False
 
     def test_raises_on_undirected(self, triangle):
         with pytest.raises(fnx.NetworkXNotImplemented):
-            fnx.is_attracting_component(triangle, ["a", "b"])
+            fnx.is_attracting_component(triangle)
 
 
 # ---------------------------------------------------------------------------
