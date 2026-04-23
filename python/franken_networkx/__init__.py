@@ -4755,8 +4755,20 @@ from franken_networkx._fnx import (
 )
 
 # Planarity
-from franken_networkx._fnx import is_planar
+from franken_networkx._fnx import is_planar as _raw_is_planar
 from franken_networkx._fnx import is_chordal
+
+
+def is_planar(G, *, backend=None, **backend_kwargs):
+    """Return True if ``G`` is planar.
+
+    Matches upstream ``nx.is_planar(G, *, backend=None, **backend_kwargs)``
+    signature so keyword calls like ``is_planar(G=g)`` work
+    (franken_networkx-sl3mn); the raw Rust binding used ``g`` as the
+    parameter name which broke kwarg parity.
+    """
+    _validate_backend_dispatch_keywords("is_planar", backend, backend_kwargs)
+    return _raw_is_planar(G)
 
 # Barycenter
 from franken_networkx._fnx import barycenter

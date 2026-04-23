@@ -191,6 +191,18 @@ class TestPlanarity:
         G = fnx.complete_graph(5)
         assert not fnx.is_planar(G)
 
+    def test_is_planar_accepts_G_kwarg(self):
+        """Regression guard for franken_networkx-sl3mn — the parameter
+        must be named ``G`` (matching upstream nx) so callers can use
+        keyword-argument form."""
+        G = fnx.complete_graph(4)
+        assert fnx.is_planar(G=G) is True
+
+    def test_is_planar_rejects_invalid_backend_kwargs(self):
+        G = fnx.complete_graph(4)
+        with pytest.raises(TypeError):
+            fnx.is_planar(G, bogus_kwarg="x")
+
     def test_is_planar_transformed_graphs_match_networkx(self):
         planar_self_loop = fnx.cycle_graph(4)
         expected_planar_self_loop = nx.cycle_graph(4)

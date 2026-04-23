@@ -6,8 +6,8 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 108 | 13% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 670 | 83% | Python-defined exports with no runtime NetworkX dependency detected |
+| RUST_NATIVE | 107 | 13% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 671 | 83% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 21 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
@@ -19,8 +19,8 @@ All declared public exports are classified. `--check` fails if this generated re
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 608 |
-| `franken_networkx._fnx` | 108 |
+| `franken_networkx` | 609 |
+| `franken_networkx._fnx` | 107 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
@@ -28,7 +28,7 @@ All declared public exports are classified. `--check` fails if this generated re
 | `builtins` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (108)
+## RUST_NATIVE exports (107)
 
 - `adamic_adar_index`
 - `ancestors`
@@ -75,7 +75,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `is_matching`
 - `is_maximal_matching`
 - `is_perfect_matching`
-- `is_planar`
 - `is_semieulerian`
 - `is_simple_path`
 - `is_strongly_connected`
@@ -139,7 +138,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_gml`
 - `write_graphml`
 
-## PY_WRAPPER exports (670)
+## PY_WRAPPER exports (671)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -490,6 +489,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `is_negatively_weighted`
 - `is_path`
 - `is_perfect_graph`
+- `is_planar`
 - `is_pseudographical`
 - `is_reachable`
 - `is_regular`
