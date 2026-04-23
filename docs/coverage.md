@@ -6,8 +6,8 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 112 | 13% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 666 | 83% | Python-defined exports with no runtime NetworkX dependency detected |
+| RUST_NATIVE | 108 | 13% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 670 | 83% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 21 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
@@ -19,8 +19,8 @@ All declared public exports are classified. `--check` fails if this generated re
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 604 |
-| `franken_networkx._fnx` | 112 |
+| `franken_networkx` | 608 |
+| `franken_networkx._fnx` | 108 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
@@ -28,7 +28,7 @@ All declared public exports are classified. `--check` fails if this generated re
 | `builtins` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (112)
+## RUST_NATIVE exports (108)
 
 - `adamic_adar_index`
 - `ancestors`
@@ -40,13 +40,11 @@ All declared public exports are classified. `--check` fails if this generated re
 - `chordal_graph_cliques`
 - `clique_removal`
 - `complement`
-- `compose`
 - `core_number`
 - `cut_size`
 - `degree_assortativity_coefficient`
 - `descendants`
 - `descendants_at_distance`
-- `difference`
 - `dominance_frontiers`
 - `edge_boundary`
 - `efficiency`
@@ -59,7 +57,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `graph_clique_number`
 - `hoffman_singleton_graph`
 - `hypercube_graph`
-- `intersection`
 - `is_arborescence`
 - `is_biconnected`
 - `is_bipartite`
@@ -130,7 +127,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `ring_of_cliques`
 - `sedgewick_maze_graph`
 - `spanner`
-- `symmetric_difference`
 - `topological_generations`
 - `topological_sort`
 - `transitive_closure`
@@ -143,7 +139,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_gml`
 - `write_graphml`
 
-## PY_WRAPPER exports (666)
+## PY_WRAPPER exports (670)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -253,6 +249,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `complete_graph`
 - `complete_multipartite_graph`
 - `complete_to_chordal_graph`
+- `compose`
 - `compose_all`
 - `condensation`
 - `conductance`
@@ -303,6 +300,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `dfs_tree`
 - `diameter`
 - `diamond_graph`
+- `difference`
 - `dijkstra_path`
 - `dijkstra_path_length`
 - `dijkstra_predecessor_and_distance`
@@ -469,6 +467,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `induced_subgraph`
 - `info`
 - `information_centrality`
+- `intersection`
 - `intersection_all`
 - `intersection_array`
 - `interval_graph`
@@ -741,6 +740,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `subgraph_centrality_exp`
 - `subgraph_view`
 - `sudoku_graph`
+- `symmetric_difference`
 - `tadpole_graph`
 - `tensor_product`
 - `tetrahedral_graph`

@@ -3930,12 +3930,100 @@ def greedy_modularity_communities(G, weight=None, resolution=1, cutoff=1, best_n
 # Algorithm functions — graph operators
 from franken_networkx._fnx import (
     union as _raw_union,
-    intersection,
-    compose,
-    difference,
-    symmetric_difference,
+    intersection as _raw_intersection,
+    compose as _raw_compose,
+    difference as _raw_difference,
+    symmetric_difference as _raw_symmetric_difference,
     degree_histogram as _raw_degree_histogram,
 )
+
+
+def _operator_output_class(G, H=None):
+    """Pick the fnx output class for a binary/unary graph operator.
+
+    Upstream nx raises on type mismatch; we mirror that by requiring
+    ``type(G) == type(H)`` for binary operators.
+    """
+    if H is not None and type(G) is not type(H):
+        raise NetworkXError(
+            "operator works only on graphs of the same type: "
+            f"{type(G).__name__} vs {type(H).__name__}"
+        )
+    return type(G)
+
+
+def _rebuild_operator_output(output, cls):
+    """Rebuild a generic fnx Graph (what the Rust operator returns) as
+    an instance of ``cls`` (the caller's graph class).
+
+    The Rust binding always returns an undirected ``Graph`` regardless
+    of input class (franken_networkx-47bag). Copy nodes + edges across
+    into a freshly-minted ``cls()`` so callers see the expected class.
+    Data dicts are preserved.
+    """
+    if type(output) is cls:
+        return output
+    rebuilt = cls()
+    rebuilt.graph.update(dict(output.graph))
+    rebuilt.add_nodes_from((n, dict(d)) for n, d in output.nodes(data=True))
+    if rebuilt.is_multigraph():
+        # When the Rust output is simple and we're rebuilding into a
+        # Multi*, assign integer keys to each edge.
+        if output.is_multigraph():
+            rebuilt.add_edges_from(
+                (u, v, k, dict(d))
+                for u, v, k, d in output.edges(keys=True, data=True)
+            )
+        else:
+            rebuilt.add_edges_from(
+                (u, v, dict(d)) for u, v, d in output.edges(data=True)
+            )
+    else:
+        rebuilt.add_edges_from(
+            (u, v, dict(d)) for u, v, d in output.edges(data=True)
+        )
+    return rebuilt
+
+
+def _copy_attrs_into(rebuilt, G, H=None):
+    """Merge node + edge attributes from G (and H, if given) into
+    ``rebuilt``. H's attrs win on overlap (nx.compose semantics).
+    """
+    for node, attrs in G.nodes(data=True):
+        if node in rebuilt:
+            rebuilt.nodes[node].update(dict(attrs))
+    if rebuilt.is_multigraph():
+        if G.is_multigraph():
+            for u, v, key, attrs in G.edges(keys=True, data=True):
+                if rebuilt.has_edge(u, v, key):
+                    rebuilt[u][v][key].update(dict(attrs))
+        else:
+            for u, v, attrs in G.edges(data=True):
+                if rebuilt.has_edge(u, v):
+                    rebuilt[u][v][0].update(dict(attrs))
+    else:
+        for u, v, attrs in G.edges(data=True):
+            if rebuilt.has_edge(u, v):
+                rebuilt[u][v].update(dict(attrs))
+    if H is not None:
+        # H attrs win on overlap
+        for node, attrs in H.nodes(data=True):
+            if node in rebuilt:
+                rebuilt.nodes[node].update(dict(attrs))
+        if rebuilt.is_multigraph():
+            if H.is_multigraph():
+                for u, v, key, attrs in H.edges(keys=True, data=True):
+                    if rebuilt.has_edge(u, v, key):
+                        rebuilt[u][v][key].update(dict(attrs))
+            else:
+                for u, v, attrs in H.edges(data=True):
+                    if rebuilt.has_edge(u, v):
+                        rebuilt[u][v][0].update(dict(attrs))
+        else:
+            for u, v, attrs in H.edges(data=True):
+                if rebuilt.has_edge(u, v):
+                    rebuilt[u][v].update(dict(attrs))
+    return rebuilt
 
 
 def union(G, H, rename=()):
@@ -3958,7 +4046,66 @@ def union(G, H, rename=()):
     """
     if rename:
         return _union_with_rename_via_parity(G, H, rename)
-    return _raw_union(G, H)
+    cls = _operator_output_class(G, H)
+    raw = _raw_union(G, H)
+    rebuilt = _rebuild_operator_output(raw, cls)
+    # Raw Rust union drops node/edge attrs; copy them back from inputs.
+    _copy_attrs_into(rebuilt, G, H)
+    return rebuilt
+
+
+def compose(G, H):
+    """Return the composition of G and H — G ∪ H with H's attrs winning on overlap."""
+    cls = _operator_output_class(G, H)
+    if G.is_multigraph():
+        # Rust compose on multigraphs crashes with an unrelated
+        # "unexpected 'keys'" TypeError in the edge-view wrapper
+        # (franken_networkx-47bag). Build directly in Python for
+        # multigraphs to sidestep it.
+        out = cls()
+        out.graph.update(dict(G.graph))
+        out.graph.update(dict(H.graph))
+        for node, attrs in G.nodes(data=True):
+            out.add_node(node, **dict(attrs))
+        for node, attrs in H.nodes(data=True):
+            if node in out:
+                out.nodes[node].update(dict(attrs))
+            else:
+                out.add_node(node, **dict(attrs))
+        out.add_edges_from(
+            (u, v, key, dict(d))
+            for u, v, key, d in G.edges(keys=True, data=True)
+        )
+        out.add_edges_from(
+            (u, v, key, dict(d))
+            for u, v, key, d in H.edges(keys=True, data=True)
+        )
+        return out
+    raw = _raw_compose(G, H)
+    rebuilt = _rebuild_operator_output(raw, cls)
+    _copy_attrs_into(rebuilt, G, H)
+    return rebuilt
+
+
+def intersection(G, H):
+    """Return a graph with the edges present in both G and H (same node set)."""
+    cls = _operator_output_class(G, H)
+    raw = _raw_intersection(G, H)
+    return _rebuild_operator_output(raw, cls)
+
+
+def difference(G, H):
+    """Return a graph with edges in G but not in H (same node set)."""
+    cls = _operator_output_class(G, H)
+    raw = _raw_difference(G, H)
+    return _rebuild_operator_output(raw, cls)
+
+
+def symmetric_difference(G, H):
+    """Return a graph with edges in exactly one of G, H (same node set)."""
+    cls = _operator_output_class(G, H)
+    raw = _raw_symmetric_difference(G, H)
+    return _rebuild_operator_output(raw, cls)
 
 
 def _union_with_rename_via_parity(G, H, rename):
