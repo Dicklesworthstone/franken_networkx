@@ -987,17 +987,6 @@ class _WeightAwareDegreeView:
         return ((n, self._weighted_value(n, weight)) for n in nbunch if n in self._graph)
 
 
-def _wrapped_degree(direction=None):
-    def _degree_property(self):
-        if direction == "in":
-            raw = type(self).in_degree.fget.__wrapped__(self) if hasattr(type(self).in_degree, "fget") else None
-            raw = None  # computed per-call below
-        raw = object.__getattribute__(self, "_raw_degree_view_" + (direction or "total"))
-        return _WeightAwareDegreeView(self, raw, direction=direction)
-
-    return _degree_property
-
-
 # Capture the raw Rust descriptors before overriding so our wrapper can
 # delegate to them.
 _GRAPH_RAW_DEGREE = Graph.degree
@@ -12439,137 +12428,6 @@ _TRIAD_TYPES = [
 ]
 
 
-def _classify_triad(G, u, v, w):
-    """Classify a 3-node subgraph into one of 16 triad types.
-
-    Uses a canonical 6-bit encoding of the directed edges and a lookup
-    table to correctly distinguish all 16 MAN types including subtypes.
-    """
-    # Encode the 6 possible directed edges as a 6-bit integer:
-    # bit 0: u→v, bit 1: v→u, bit 2: u→w, bit 3: w→u, bit 4: v→w, bit 5: w→v
-    code = 0
-    if G.has_edge(u, v):
-        code |= 1
-    if G.has_edge(v, u):
-        code |= 2
-    if G.has_edge(u, w):
-        code |= 4
-    if G.has_edge(w, u):
-        code |= 8
-    if G.has_edge(v, w):
-        code |= 16
-    if G.has_edge(w, v):
-        code |= 32
-
-    # To classify correctly, we need isomorphism-invariant encoding.
-    # Since node ordering is arbitrary, compute the canonical type by
-    # trying all 6 permutations and using the MAN dyad counts + subtype.
-    # Dyads: (u,v), (u,w), (v,w) — check mutual/asymmetric/null for each.
-    uv_m = bool(code & 1) and bool(code & 2)
-    uv_a = bool(code & 1) != bool(code & 2)
-    uw_m = bool(code & 4) and bool(code & 8)
-    uw_a = bool(code & 4) != bool(code & 8)
-    vw_m = bool(code & 16) and bool(code & 32)
-    vw_a = bool(code & 16) != bool(code & 32)
-
-    m = sum([uv_m, uw_m, vw_m])
-    a = sum([uv_a, uw_a, vw_a])
-    n = 3 - m - a
-
-    if m == 0 and a == 0:
-        return "003"
-    if m == 0 and a == 1:
-        return "012"
-    if m == 1 and a == 0:
-        return "102"
-    if m == 0 and a == 2:
-        # 021D, 021U, 021C — check if both asymmetric edges share an endpoint
-        # Get the directed edges
-        asym_edges = []
-        if uv_a:
-            asym_edges.append((u, v) if (code & 1) else (v, u))
-        if uw_a:
-            asym_edges.append((u, w) if (code & 4) else (w, u))
-        if vw_a:
-            asym_edges.append((v, w) if (code & 16) else (w, v))
-        if len(asym_edges) == 2:
-            s0, t0 = asym_edges[0]
-            s1, t1 = asym_edges[1]
-            if t0 == t1:
-                return "021U"  # both point TO same node (NX: "Up")
-            elif s0 == s1:
-                return "021D"  # both point FROM same node (NX: "Down")
-            else:
-                return "021C"  # chain: one's target is the other's source
-        return "021C"
-    if m == 1 and a == 1:
-        # 111D vs 111U — NX convention: D = edge FROM mutual pair outward,
-        # U = edge TO mutual pair from outside
-        if uv_m:
-            mutual_nodes = {u, v}
-        elif uw_m:
-            mutual_nodes = {u, w}
-        else:
-            mutual_nodes = {v, w}
-
-        if uv_a:
-            asym_src = u if (code & 1) else v
-        elif uw_a:
-            asym_src = u if (code & 4) else w
-        else:
-            asym_src = v if (code & 16) else w
-
-        if asym_src in mutual_nodes:
-            return "111U"  # asymmetric edge goes FROM mutual pair outward
-        else:
-            return "111D"  # asymmetric edge goes TO mutual pair from outside
-    if m == 0 and a == 3:
-        # 030T vs 030C — check if all 3 asymmetric edges form a directed cycle
-        # 030C: u→v→w→u or u→w→v→u
-        is_cycle = ((code & 1) and (code & 16) and (code & 8)) or (
-            (code & 4) and (code & 32) and (code & 2)
-        )
-        return "030C" if is_cycle else "030T"
-    if m == 2 and a == 0:
-        return "201"
-    if m == 1 and a == 2:
-        # 120D, 120U, 120C
-        # NX convention: 120U = both asym edges go OUT from mutual pair
-        #                120D = both asym edges come IN to mutual pair
-        if uv_m:
-            uw_dir = u if (code & 4) else w
-            vw_dir = v if (code & 16) else w
-            if uw_dir == u and vw_dir == v:
-                return "120U"  # both go OUT from mutual pair
-            elif uw_dir == w and vw_dir == w:
-                return "120D"  # both come IN to mutual pair
-            else:
-                return "120C"
-        elif uw_m:
-            uv_dir = u if (code & 1) else v
-            vw_dir = v if (code & 16) else w
-            if uv_dir == u and vw_dir == w:
-                return "120U"
-            elif uv_dir == v and vw_dir == v:
-                return "120D"
-            else:
-                return "120C"
-        else:  # vw_m
-            uv_dir = u if (code & 1) else v
-            uw_dir = u if (code & 4) else w
-            if uv_dir == v and uw_dir == w:
-                return "120U"
-            elif uv_dir == u and uw_dir == u:
-                return "120D"
-            else:
-                return "120C"
-    if m == 2 and a == 1:
-        return "210"
-    if m == 3:
-        return "300"
-    return f"{m}{a}{n}"
-
-
 def triadic_census(G):
     """Count the frequency of each of the 16 triad types.
 
@@ -12858,23 +12716,6 @@ def is_at_free(G):
     exists a path avoiding the neighborhood of the third.
     """
     return _fnx.is_at_free_rust(G)
-
-
-def _path_avoiding(G, source, target, avoid):
-    """BFS check: is there a path from source to target avoiding 'avoid' nodes?"""
-    if source in avoid or target in avoid:
-        return source == target
-    visited = {source}
-    queue = [source]
-    while queue:
-        node = queue.pop(0)
-        if node == target:
-            return True
-        for nbr in G.neighbors(node):
-            if nbr not in visited and nbr not in avoid:
-                visited.add(nbr)
-                queue.append(nbr)
-    return False
 
 
 def is_d_separator(G, x, y, z):
@@ -15209,44 +15050,6 @@ def _minimum_cycle_local(G, orth, weight):
     return result
 
 
-def _minimum_cycle_basis_component_local(G, weight):
-    cycle_basis = []
-    tree_edges = {
-        _canonical_undirected_edge_local(u, v)
-        for u, v in _mcb_spanning_tree_edges_local(G)
-    }
-    chords = [
-        edge
-        for edge in (_canonical_undirected_edge_local(u, v) for u, v in G.edges())
-        if edge not in tree_edges
-    ]
-
-    orthogonal_sets = [{edge} for edge in chords]
-    while orthogonal_sets:
-        base = orthogonal_sets.pop()
-        cycle_edges = _minimum_cycle_local(G, base, weight)
-        cycle_basis.append([v for _, v in cycle_edges])
-        orthogonal_sets = [
-            (
-                {
-                    edge
-                    for edge in orth
-                    if edge not in base and edge[::-1] not in base
-                }
-                | {
-                    edge
-                    for edge in base
-                    if edge not in orth and edge[::-1] not in orth
-                }
-            )
-            if sum((edge in orth or edge[::-1] in orth) for edge in cycle_edges) % 2
-            else orth
-            for orth in orthogonal_sets
-        ]
-
-    return cycle_basis
-
-
 def _minimum_cycle_basis_component_ordered_graph_local(G, component):
     ordered = _nx.Graph()
     component_nodes = set(component)
@@ -15292,37 +15095,6 @@ def _minimum_cycle_basis_via_parity(G, weight):
         ),
         [],
     )
-
-
-def _chordless_cycle_search_local(F, B, path, length_bound):
-    blocked = defaultdict(int)
-    target = path[0]
-    blocked[path[1]] = 1
-    for node in path[1:]:
-        for neighbor in B[node]:
-            blocked[neighbor] += 1
-
-    stack = [iter(F[path[2]])]
-    while stack:
-        neighbors = stack[-1]
-        for node in neighbors:
-            if blocked[node] == 1 and (length_bound is None or len(path) < length_bound):
-                Fw = F[node]
-                if target in Fw:
-                    yield path + [node]
-                else:
-                    Bw = B[node]
-                    if target in Bw:
-                        continue
-                    for neighbor in Bw:
-                        blocked[neighbor] += 1
-                    path.append(node)
-                    stack.append(iter(Fw))
-                    break
-        else:
-            stack.pop()
-            for neighbor in B[path.pop()]:
-                blocked[neighbor] -= 1
 
 
 def chordless_cycles(G, length_bound=None):
