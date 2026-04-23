@@ -1,3 +1,4 @@
+import inspect
 import math
 
 import numpy as np
@@ -12,6 +13,18 @@ def _assert_mapping_close(actual, expected, tol=1e-12):
     assert set(actual) == set(expected)
     for node in expected:
         assert math.isclose(actual[node], expected[node], rel_tol=tol, abs_tol=tol)
+
+
+def _assert_nested_result_close(actual, expected, tol=1e-12):
+    if isinstance(expected, dict):
+        assert set(actual) == set(expected)
+        for key in expected:
+            _assert_nested_result_close(actual[key], expected[key], tol=tol)
+        return
+    if isinstance(expected, float) and math.isnan(expected):
+        assert math.isnan(actual)
+        return
+    assert math.isclose(actual, expected, rel_tol=tol, abs_tol=tol)
 
 
 def test_load_centrality_native_unweighted_matches_networkx():
@@ -101,6 +114,46 @@ def test_second_order_centrality_weighted_fallback_avoids_delegation(monkeypatch
 
     actual = fnx.second_order_centrality(graph)
     _assert_mapping_close(actual, expected)
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["constraint", "effective_size", "local_constraint", "dispersion"],
+)
+def test_structural_holes_wrappers_expose_backend_signature_matches_networkx(name):
+    assert str(inspect.signature(getattr(fnx, name))) == str(inspect.signature(getattr(nx, name)))
+
+
+@pytest.mark.parametrize(
+    ("name", "args"),
+    [
+        pytest.param("constraint", (), id="constraint"),
+        pytest.param("effective_size", (), id="effective_size"),
+        pytest.param("local_constraint", (0, 1), id="local_constraint"),
+        pytest.param("dispersion", (), id="dispersion"),
+    ],
+)
+def test_structural_holes_wrappers_backend_keyword_surface_matches_networkx(name, args):
+    actual_graph = fnx.Graph([(0, 1), (0, 2), (1, 2), (2, 3)])
+    expected_graph = nx.Graph([(0, 1), (0, 2), (1, 2), (2, 3)])
+    fnx_fn = getattr(fnx, name)
+    nx_fn = getattr(nx, name)
+
+    for backend in (None, "networkx"):
+        _assert_nested_result_close(
+            fnx_fn(actual_graph, *args, backend=backend),
+            nx_fn(expected_graph, *args, backend=backend),
+        )
+
+    with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+        fnx_fn(actual_graph, *args, backend="parallel")
+    with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+        nx_fn(expected_graph, *args, backend="parallel")
+
+    with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+        fnx_fn(actual_graph, *args, backend_kwargs={"x": 1})
+    with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+        nx_fn(expected_graph, *args, backend_kwargs={"x": 1})
 
 
 def test_subgraph_centrality_normalized_and_error_contract_match_networkx(monkeypatch):

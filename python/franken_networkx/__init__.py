@@ -7626,8 +7626,9 @@ def random_tree(n, seed=None):
 # ---------------------------------------------------------------------------
 
 
-def constraint(G, nodes=None, weight=None):
+def constraint(G, nodes=None, weight=None, *, backend=None, **backend_kwargs):
     """Return Burt's constraint for nodes in *G*."""
+    _validate_backend_dispatch_keywords("constraint", backend, backend_kwargs)
     from franken_networkx._fnx import constraint_rust as _rust_constraint
 
     if len(G) == 0:
@@ -7651,7 +7652,7 @@ def constraint(G, nodes=None, weight=None):
     return constrained
 
 
-def effective_size(G, nodes=None, weight=None):
+def effective_size(G, nodes=None, weight=None, *, backend=None, **backend_kwargs):
     """Return the effective size of each node's ego network.
 
     Effective size is the number of alters minus the average degree of
@@ -7668,6 +7669,7 @@ def effective_size(G, nodes=None, weight=None):
     dict
         ``{node: effective_size}``
     """
+    _validate_backend_dispatch_keywords("effective_size", backend, backend_kwargs)
     if len(G) == 0:
         raise NetworkXError("Graph has no nodes or edges")
 
@@ -7691,7 +7693,18 @@ def effective_size(G, nodes=None, weight=None):
     return effective
 
 
-def dispersion(G, u=None, v=None, normalized=True, alpha=1.0, b=0.0, c=0.0):
+def dispersion(
+    G,
+    u=None,
+    v=None,
+    normalized=True,
+    alpha=1.0,
+    b=0.0,
+    c=0.0,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
     """Return the dispersion between node pairs in *G*.
 
     Dispersion measures tie strength: high dispersion means u's and v's
@@ -7710,6 +7723,7 @@ def dispersion(G, u=None, v=None, normalized=True, alpha=1.0, b=0.0, c=0.0):
     -------
     float or dict
     """
+    _validate_backend_dispatch_keywords("dispersion", backend, backend_kwargs)
     if u is not None and v is not None:
         return _dispersion_pair(G, u, v, normalized, alpha, b, c)
 
@@ -20898,8 +20912,9 @@ def _normalized_mutual_weight(G, u, v, weight=None, norm=sum):
     return 0 if scale == 0 else _mutual_weight(G, u, v, weight) / scale
 
 
-def local_constraint(G, u, v, weight=None):
+def local_constraint(G, u, v, weight=None, *, backend=None, **backend_kwargs):
     """Burt's local constraint for edge ``(u, v)``."""
+    _validate_backend_dispatch_keywords("local_constraint", backend, backend_kwargs)
     if u not in G:
         raise NetworkXError(f"The node {u} is not in the graph.")
     if v not in G:
