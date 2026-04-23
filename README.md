@@ -86,7 +86,11 @@ nx.shortest_path(G, 0, 99)
 ## Graph Types
 
 - `Graph` -- undirected graph
-- `DiGraph` -- directed graph (algorithms automatically convert to undirected where needed)
+- `DiGraph` -- directed graph
+- `MultiGraph` -- undirected multigraph (parallel edges keyed by integer)
+- `MultiDiGraph` -- directed multigraph
+
+All four types share the same method surface (add/remove/subgraph/copy/to_directed/to_undirected) and the same algorithm dispatch; multigraph variants collapse parallel edges when a simple-graph algorithm is invoked.
 
 ## Examples
 
@@ -138,18 +142,23 @@ This project uses four pervasive disciplines:
 3. RaptorQ-everywhere for self-healing durability of long-lived artifacts and state.
 4. frankenlibc/frankenfs compatibility-security thinking: strict vs hardened mode separation, fail-closed compatibility gates, and explicit drift ledgers.
 
-## Current State (as of 2026-04-13)
+## Current State
 
-- **Rust core:** 12 workspace crates including `fnx-cgse` (CGSE engine). `fnx-algorithms` is 40,181 LOC covering 280+ algorithms across shortest path, connectivity, centrality, clustering, matching, flow, trees, Euler, DAG, traversal, community, isomorphism, and more.
-- **Python bindings:** 12,154 LOC in `crates/fnx-python/src/algorithms.rs` with 551 GIL-releasing `py.allow_threads(...)` call sites and zero callbacks into upstream NetworkX.
-- **Python package:** 446 public exports — 41 Rust-native, 306 Python wrappers, 89 NX-delegated (see [`docs/coverage.md`](docs/coverage.md) for the machine-checked breakdown). The NX-delegated functions are exotic algorithms (graph edit distance) and formats (Pajek/LEDA) outside V1 scope.
-- **Test suite:** 1,394 Python parity tests pass against upstream NetworkX (54 skipped) in ~20s. 8 Rust CGSE unit tests. 7 parser fuzz targets with committed seed corpora, PR smoke coverage, and nightly soak coverage. 1 nightly Hypothesis property suite.
-- **NetworkX backend mode:** entry points registered; ~80 functions dispatch to Rust via `backend.py:_SUPPORTED_ALGORITHMS`.
+The canonical, machine-checked counts for the public surface and parity test suite live outside this README so they don't rot:
+
+- **Public API inventory:** see [`docs/coverage.md`](docs/coverage.md), generated from `franken_networkx.__all__` by `scripts/generate_coverage_matrix.py`. It reports per-export classification as `RUST_NATIVE` / `PY_WRAPPER` / `NX_DELEGATED` / `CLASS` / `CONSTANT`.
+- **Parity suite:** `pytest tests/python/` is the canonical source of truth; run it and read the summary line.
+- **Bead backlog:** `bv --robot-triage` for the current open/in-progress count.
+
+Structural headlines that change less often:
+
+- **Rust core:** 12 workspace crates including `fnx-cgse` (CGSE engine). `fnx-algorithms` covers 280+ algorithms across shortest path, connectivity, centrality, clustering, matching, flow, trees, Euler, DAG, traversal, community, isomorphism, and more.
+- **Python bindings:** `crates/fnx-python/src/algorithms.rs` releases the GIL via `py.allow_threads(...)` at hundreds of call sites and avoids callbacks into upstream NetworkX.
+- **NetworkX backend mode:** entry points registered in the package metadata; a curated set of algorithms in `backend.py:_SUPPORTED_ALGORITHMS` dispatch into Rust when `backend="franken_networkx"` is selected.
 - **CI:** G1-G8 fail-closed gate topology in `.github/workflows/ci.yml` (fmt → clippy → rust tests → python tests → e2e → docs → conformance → performance → UBS → fuzz smoke → RaptorQ scrub).
-- **CGSE (Canonical Graph Semantics Engine):** `fnx-cgse` crate landed with 12-variant `TieBreakPolicy` sum type, `ComplexityWitness` with length-prefixed Merkle decision-path hash, `WitnessSink`, `WitnessLedger`, and V1 policy registry mapping 12 reference algorithms to their canonical policies.
-- **Strict/Hardened modes:** `CgsePolicyEngine` in `fnx-runtime` implements mode-aware decision-theoretic action selection with evidence terms, structured `DecisionRecord`s, and fail-closed defaults. The project has explicitly chosen to keep and complete this mode split rather than retract it; parser/runtime wiring and fixture proof remain the next steps.
+- **CGSE (Canonical Graph Semantics Engine):** `fnx-cgse` crate ships a 12-variant `TieBreakPolicy` sum type, `ComplexityWitness` with length-prefixed Merkle decision-path hash, `WitnessSink`, `WitnessLedger`, and a V1 policy registry mapping reference algorithms to their canonical policies; wired into `fnx-algorithms` at hundreds of call sites.
+- **Strict/Hardened modes:** `CgsePolicyEngine` in `fnx-runtime` implements mode-aware decision-theoretic action selection with evidence terms, structured `DecisionRecord`s, and fail-closed defaults.
 - **Durability:** `fnx-durability` generates RaptorQ sidecars, runs scrub verification, and emits decode proofs. Used in CI G8 gate.
-- **Beads tracker:** 299 closed + 82 open issues tracking the bridge plan from the 2026-04-08 reality check.
 
 ## V1 Scope
 
@@ -178,13 +187,12 @@ Maintain deterministic graph semantics, tie-break policies, and serialization ro
 
 ## Next Steps
 
-See [`REALITY_CHECK_BRIDGE_PLAN_2026-04-08.md`](REALITY_CHECK_BRIDGE_PLAN_2026-04-08.md) for the full 82-bead bridge plan. Top priorities:
+See [`REALITY_CHECK_BRIDGE_PLAN_2026-04-08.md`](REALITY_CHECK_BRIDGE_PLAN_2026-04-08.md) for the full bridge-plan bead set, and `bv --robot-triage` for the current top-of-backlog. Durable priorities:
 
-1. **Wire CGSE into algorithms (C4):** connect 12 reference algorithms to the new `fnx-cgse` policy + witness infrastructure so the "crown jewel" is runtime-active, not just type-level.
-2. **Wire strict/hardened modes into parsers (D2-D4):** the D1 decision is resolved in favor of implementation, so the remaining work is connecting runtime policy state to `fnx-readwrite` entry points and proving strict/hardened behavior with 24+ strict and 24+ hardened fixtures.
-3. **Conformance regeneration (B2-B4):** refresh the stale `artifacts/conformance/latest/` reports and add a CI freshness gate.
-4. **Eliminate remaining NX delegations:** 89 functions still delegate to NX; each is either exotic (graph edit distance, Pajek I/O) or a conversion helper — prioritize native impls for the highest-value ones.
-5. **Performance proof artifacts (E3):** run the profile-and-prove optimization loop for each SLO row to earn the SPEC §17 budgets.
+1. **Wire strict/hardened modes into parsers (D2-D4):** the D1 decision is resolved in favor of implementation; remaining work is connecting runtime policy state to `fnx-readwrite` entry points and proving strict/hardened behavior with ≥24 strict and ≥24 hardened fixtures.
+2. **Conformance regeneration (B2-B4):** refresh `artifacts/conformance/latest/` reports and add a CI freshness gate.
+3. **Performance proof artifacts (E3):** run the profile-and-prove optimization loop for each SLO row to earn the SPEC §17 budgets.
+4. **Algorithm surface quality:** track remaining nx-parity gaps (e.g. multigraph serialization, backend dispatch tail) via beads; see `bv --robot-triage` for the current set.
 
 ## Porting Artifact Set
 

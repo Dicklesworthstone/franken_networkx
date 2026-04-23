@@ -32,19 +32,12 @@ ambiguities with variable-length labels (2026-04 update).
 ## Machine-Checked Public Surface
 
 The public API inventory is tracked by [`docs/coverage.md`](docs/coverage.md),
-which is generated from `franken_networkx.__all__` rather than maintained by
-hand.
+which is generated from `franken_networkx.__all__` by
+`scripts/generate_coverage_matrix.py` rather than maintained by hand. Read
+that file (or run the script) for the current classification counts
+(`RUST_NATIVE` / `PY_WRAPPER` / `NX_DELEGATED` / `CLASS` / `CONSTANT`).
 
-Current generated snapshot:
-
-- 779 unique public exports total
-- 239 `RUST_NATIVE`
-- 519 `PY_WRAPPER`
-- 0 `NX_DELEGATED`
-- 19 public classes
-- 2 public constants
-
-This document should describe family-level status and caveats. The exact public
+This document describes family-level status and caveats. The exact public
 surface counts live in the generated coverage matrix, not in prose here.
 
 ## Mode Decision
