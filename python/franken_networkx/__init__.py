@@ -16337,6 +16337,18 @@ def _to_undirected_with_view(to_undirected_impl):
     def to_undirected(self, as_view=False):
         if as_view is True:
             return _generic_undirected_graph_view(self)
+        if self.is_multigraph():
+            # Rust MultiGraph.to_undirected canonicalises endpoints and
+            # re-hashes nodes, which flips (u, v) orientation vs upstream
+            # nx. For parity, rebuild in original iteration order.
+            result = self.to_undirected_class()()
+            result.graph.update(deepcopy(self.graph))
+            result.add_nodes_from(
+                (node, deepcopy(attrs)) for node, attrs in self.nodes(data=True)
+            )
+            for u, v, key, attrs in self.edges(keys=True, data=True):
+                result.add_edge(u, v, key=key, **deepcopy(attrs))
+            return result
         return to_undirected_impl(self)
 
     return to_undirected
