@@ -1131,7 +1131,15 @@ def test_global_non_edges_matches_networkx_without_fallback(
 
     _block_networkx_utilities(monkeypatch, "non_edges")
 
-    assert list(fnx.non_edges(graph)) == expected_result
+    actual_result = list(fnx.non_edges(graph))
+    # non_edges is specified as returning an iterator of edges; the
+    # ordering is set-iteration-order, which depends on the hash state
+    # of the process and can diverge between nx and fnx even when both
+    # yield the same set of pairs (observed when thread_safety tests
+    # precede this one). Compare by set to stay robust — the "no nx
+    # fallback" contract is already enforced by the monkeypatch.
+    assert set(actual_result) == set(expected_result)
+    assert len(actual_result) == len(expected_result)
 
 
 @pytest.mark.parametrize(
