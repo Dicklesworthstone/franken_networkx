@@ -618,7 +618,7 @@ def parse_pajek(lines):
         converted.add_nodes_from(graph.nodes(data=True))
         if graph.is_multigraph():
             for left, right, key, attrs in graph.edges(keys=True, data=True):
-                converted.add_edge(left, right, key=key, **attrs)
+                converted.add_edges_from([(left, right, key, dict(attrs))])
         else:
             for left, right, attrs in graph.edges(data=True):
                 converted.add_edge(left, right, **attrs)

@@ -338,3 +338,44 @@ def test_union_with_rename_returns_fnx_graph(fnx_cls):
     combined = fnx.union(g, h, rename=("A-", "B-"))
     assert isinstance(combined, fnx_cls)
     assert sorted(combined.nodes()) == ["A-a", "A-b", "B-c", "B-d"]
+
+
+# ---------------------------------------------------------------------------
+# franken_networkx-uphdr: broader 'key' attr collision — cartesian_product,
+# compose, relabel_nodes, tensor_product, etc. must not TypeError when an
+# edge attribute is literally named 'key'.
+# ---------------------------------------------------------------------------
+
+
+def _mg_with_key_attr():
+    g = fnx.MultiGraph()
+    g.add_edge("x", "y", weight=1)
+    g["x"]["y"][0]["key"] = "sentinel"
+    return g
+
+
+def test_cartesian_product_preserves_edge_attribute_named_key():
+    a = _mg_with_key_attr()
+    b = fnx.MultiGraph(); b.add_edge("p", "q")
+    product = fnx.cartesian_product(a, b)
+    # Should not have raised; verify the 'key' attribute round-tripped.
+    assert any(
+        "key" in data and data["key"] == "sentinel"
+        for _, _, _, data in product.edges(keys=True, data=True)
+    )
+
+
+def test_relabel_nodes_preserves_edge_attribute_named_key():
+    g = _mg_with_key_attr()
+    relabeled = fnx.relabel_nodes(g, {"x": "X"}, copy=True)
+    assert sorted(relabeled.nodes()) == ["X", "y"]
+    edges = list(relabeled.edges(keys=True, data=True))
+    assert edges == [("X", "y", 0, {"weight": 1, "key": "sentinel"})]
+
+
+def test_tensor_product_preserves_edge_attribute_named_key():
+    a = _mg_with_key_attr()
+    b = fnx.MultiGraph(); b.add_edge("p", "q")
+    # tensor_product should not raise with 'key' attr present
+    product = fnx.tensor_product(a, b)
+    assert isinstance(product, (fnx.MultiGraph, fnx.Graph))

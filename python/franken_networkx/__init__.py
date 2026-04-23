@@ -1211,7 +1211,7 @@ def _nan_filtered_graph(G, weight, ignore_nan):
                 raise ValueError(
                     f"NaN found as an edge weight. Edge {(u, v, dict(attrs))}"
                 )
-            H.add_edge(u, v, key=key, **dict(attrs))
+            H.add_edges_from([(u, v, key, dict(attrs))])
     else:
         for u, v, attrs in G.edges(data=True):
             edge_weight = attrs.get(weight, 1)
@@ -1442,7 +1442,7 @@ def _networkx_graph_for_traversal_parity(G):
                         continue
                     seen.add(edge_id)
                 for key, attrs in keyed_attrs.items():
-                    graph.add_edge(u, v, key=key, **dict(attrs))
+                    graph.add_edges_from([(u, v, key, dict(attrs))])
         else:
             for v, attrs in G.adj[u].items():
                 if not G.is_directed():
@@ -6453,7 +6453,9 @@ def cartesian_product(G, H):
     if G.is_multigraph():
         for u, v, key, attrs in G.edges(keys=True, data=True):
             for h in H.nodes():
-                P.add_edge((u, h), (v, h), key=key, **dict(attrs))
+                # 4-tuple form avoids `key=key, **attrs` collision when attrs
+                # contains a 'key' entry (franken_networkx-uphdr).
+                P.add_edges_from([((u, h), (v, h), key, dict(attrs))])
     else:
         for u, v, attrs in G.edges(data=True):
             for h in H.nodes():
@@ -6462,7 +6464,7 @@ def cartesian_product(G, H):
     if H.is_multigraph():
         for u, v, key, attrs in H.edges(keys=True, data=True):
             for g in G.nodes():
-                P.add_edge((g, u), (g, v), key=key, **dict(attrs))
+                P.add_edges_from([((g, u), (g, v), key, dict(attrs))])
     else:
         for u, v, attrs in H.edges(data=True):
             for g in G.nodes():
@@ -6498,9 +6500,12 @@ def tensor_product(G, H):
             edge_attrs = _paired_edge_attrs(dict(g_attrs), dict(h_attrs))
             if P.is_multigraph():
                 edge_key = _cross_product_edge_key(G.is_multigraph(), H.is_multigraph(), gk, hk)
-                P.add_edge((gu, hu), (gv, hv), key=edge_key, **edge_attrs)
+                # 4-tuple form avoids `key=edge_key, **edge_attrs`
+                # collision when edge_attrs contains a 'key' entry
+                # (franken_networkx-uphdr).
+                P.add_edges_from([((gu, hu), (gv, hv), edge_key, dict(edge_attrs))])
                 if not G.is_directed():
-                    P.add_edge((gu, hv), (gv, hu), key=edge_key, **edge_attrs)
+                    P.add_edges_from([((gu, hv), (gv, hu), edge_key, dict(edge_attrs))])
             else:
                 P.add_edge((gu, hu), (gv, hv), **edge_attrs)
                 if not G.is_directed():
@@ -6531,9 +6536,12 @@ def strong_product(G, H):
             edge_attrs = _paired_edge_attrs(dict(g_attrs), dict(h_attrs))
             if P.is_multigraph():
                 edge_key = _cross_product_edge_key(G.is_multigraph(), H.is_multigraph(), gk, hk)
-                P.add_edge((gu, hu), (gv, hv), key=edge_key, **edge_attrs)
+                # 4-tuple form avoids `key=edge_key, **edge_attrs`
+                # collision when edge_attrs contains a 'key' entry
+                # (franken_networkx-uphdr).
+                P.add_edges_from([((gu, hu), (gv, hv), edge_key, dict(edge_attrs))])
                 if not G.is_directed():
-                    P.add_edge((gu, hv), (gv, hu), key=edge_key, **edge_attrs)
+                    P.add_edges_from([((gu, hv), (gv, hu), edge_key, dict(edge_attrs))])
             else:
                 P.add_edge((gu, hu), (gv, hv), **edge_attrs)
                 if not G.is_directed():
@@ -7115,7 +7123,7 @@ def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
         for raw_u, raw_v, key in raw_graph.edges(keys=True):
             u = canonical_to_node.get(raw_u, raw_u)
             v = canonical_to_node.get(raw_v, raw_v)
-            graph.add_edge(u, v, key=key, **dict(G[u][v][key]))
+            graph.add_edges_from([(u, v, key, dict(G[u][v][key]))])
     else:
         for raw_u, raw_v in raw_graph.edges():
             u = canonical_to_node.get(raw_u, raw_u)
@@ -7325,7 +7333,7 @@ def compose_all(graphs):
             R.add_node(n, **H.nodes[n])
         if R.is_multigraph():
             for u, v, key, d in H.edges(keys=True, data=True):
-                R.add_edge(u, v, key=key, **d)
+                R.add_edges_from([(u, v, key, dict(d))])
         else:
             for u, v, d in H.edges(data=True):
                 R.add_edge(u, v, **d)
@@ -7367,7 +7375,7 @@ def union_all(graphs, rename=()):
             R.add_node(new_n, **G.nodes[n])
         if R.is_multigraph():
             for u, v, key, d in G.edges(keys=True, data=True):
-                R.add_edge(_rename(u), _rename(v), key=key, **d)
+                R.add_edges_from([(_rename(u), _rename(v), key, dict(d))])
         else:
             for u, v, d in G.edges(data=True):
                 R.add_edge(_rename(u), _rename(v), **d)
@@ -12951,7 +12959,9 @@ def lexicographic_product(G, H):
         for u, v, key, attrs in G.edges(keys=True, data=True):
             for hu in H.nodes():
                 for hv in H.nodes():
-                    P.add_edge((u, hu), (v, hv), key=key, **dict(attrs))
+                    # 4-tuple form avoids `key=key, **attrs` collision
+                    # (franken_networkx-uphdr).
+                    P.add_edges_from([((u, hu), (v, hv), key, dict(attrs))])
     else:
         for u, v, attrs in G.edges(data=True):
             for hu in H.nodes():
@@ -12961,7 +12971,7 @@ def lexicographic_product(G, H):
     if H.is_multigraph():
         for u, v, key, attrs in H.edges(keys=True, data=True):
             for g in G.nodes():
-                P.add_edge((g, u), (g, v), key=key, **dict(attrs))
+                P.add_edges_from([((g, u), (g, v), key, dict(attrs))])
     else:
         for u, v, attrs in H.edges(data=True):
             for g in G.nodes():
@@ -15156,7 +15166,7 @@ class _ReverseDirectedView:
         out.add_nodes_from((n, self._graph.nodes[n]) for n in self._graph)
         if self.is_multigraph():
             for u, v, key, attrs in self._edges(data=True, keys=True):
-                out.add_edge(u, v, key=key, **deepcopy(attrs))
+                out.add_edges_from([(u, v, key, deepcopy(attrs))])
         else:
             for u, v, attrs in self._edges(data=True):
                 out.add_edge(u, v, **deepcopy(attrs))
@@ -15174,7 +15184,7 @@ class _ReverseDirectedView:
         out.add_nodes_from((n, self._graph.nodes[n]) for n in self._graph)
         if self.is_multigraph():
             for u, v, key, attrs in self._edges(data=True, keys=True):
-                out.add_edge(u, v, key=key, **deepcopy(attrs))
+                out.add_edges_from([(u, v, key, deepcopy(attrs))])
         else:
             for u, v, attrs in self._edges(data=True):
                 out.add_edge(u, v, **deepcopy(attrs))
@@ -20201,7 +20211,7 @@ def _panther_induced_ordered_copy(G, nodes):
     if G.is_multigraph():
         for u, v, key, attrs in G.edges(keys=True, data=True):
             if u in node_set and v in node_set:
-                graph.add_edge(u, v, key=key, **dict(attrs))
+                graph.add_edges_from([(u, v, key, dict(attrs))])
     else:
         for u, v, attrs in G.edges(data=True):
             if u in node_set and v in node_set:
@@ -21368,8 +21378,12 @@ def parse_graphml(
         converted.graph.update(dict(graph.graph))
         for node, attrs in graph.nodes(data=True):
             converted.add_node(node, **dict(attrs))
-        for u, v, key, attrs in graph.edges(keys=True, data=True):
-            converted.add_edge(u, v, key=edge_key_type(key), **dict(attrs))
+        # 4-tuple form avoids `key=..., **attrs` collision when attrs
+        # contains a 'key' entry (franken_networkx-uphdr).
+        converted.add_edges_from(
+            (u, v, edge_key_type(key), dict(attrs))
+            for u, v, key, attrs in graph.edges(keys=True, data=True)
+        )
         graph = converted
 
     return graph
@@ -22847,8 +22861,12 @@ def relabel_nodes(G, mapping, copy=True):
             new_n = _map.get(n, n)
             H.add_node(new_n, **G.nodes[n])
         if G.is_multigraph():
-            for u, v, key, d in G.edges(keys=True, data=True):
-                H.add_edge(_map.get(u, u), _map.get(v, v), key=key, **d)
+            # 4-tuple form avoids `key=key, **d` collision when d contains
+            # a 'key' attribute (franken_networkx-uphdr).
+            H.add_edges_from(
+                (_map.get(u, u), _map.get(v, v), key, dict(d))
+                for u, v, key, d in G.edges(keys=True, data=True)
+            )
         else:
             for u, v, d in G.edges(data=True):
                 H.add_edge(_map.get(u, u), _map.get(v, v), **d)
@@ -23035,7 +23053,7 @@ def _copy_graph_into(source, target):
 
     if source.is_multigraph():
         for u, v, key, attrs in source.edges(keys=True, data=True):
-            target.add_edge(u, v, key=key, **dict(attrs))
+            target.add_edges_from([(u, v, key, dict(attrs))])
     else:
         for u, v, attrs in source.edges(data=True):
             target.add_edge(u, v, **dict(attrs))
@@ -23156,7 +23174,7 @@ def _copy_graph_shallow(G):
         H.add_node(node, **dict(attrs))
     if G.is_multigraph():
         for u, v, key, attrs in G.edges(keys=True, data=True):
-            H.add_edge(u, v, key=key, **dict(attrs))
+            H.add_edges_from([(u, v, key, dict(attrs))])
     else:
         for u, v, attrs in G.edges(data=True):
             H.add_edge(u, v, **dict(attrs))

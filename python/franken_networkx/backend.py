@@ -408,7 +408,7 @@ def _fnx_to_nx(fg):
                         continue
                     seen.add(edge_id)
                 for key, attrs in keyed_attrs.items():
-                    G.add_edge(u, v, key=key, **attrs)
+                    G.add_edges_from([(u, v, key, dict(attrs))])
     else:
         for u, v in fg.edges:
             G.add_edge(u, v, **fg.edges[u, v])
