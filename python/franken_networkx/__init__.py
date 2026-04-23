@@ -658,6 +658,99 @@ _GRAPH_COPY = Graph.copy
 _DIGRAPH_COPY = DiGraph.copy
 _MULTIGRAPH_COPY = MultiGraph.copy
 _MULTIDIGRAPH_COPY = MultiDiGraph.copy
+_MULTIGRAPH_ADD_EDGE = MultiGraph.add_edge
+_MULTIDIGRAPH_ADD_EDGE = MultiDiGraph.add_edge
+
+
+def _multi_add_edge_auto_key(raw_add_edge):
+    """Wrap the Rust ``add_edge`` so that when ``key=None`` is passed
+    on a Multi*Graph and an edge already exists at ``(u, v)``, a fresh
+    integer key is allocated before dispatch. The Rust binding silently
+    no-ops in this case, losing the write (franken_networkx-wymzp).
+
+    Matches upstream ``nx.MultiGraph.new_edge_key`` semantics: start
+    search at ``len(existing_keys)`` and bump until an unused integer
+    is found (so a graph with keys {2} gets the next no-key edge at
+    key=1, not max+1=3).
+    """
+
+    def add_edge(self, u, v, key=None, **attr):
+        if key is None and self.has_edge(u, v):
+            existing = self[u][v]
+            # nx.MultiGraph.new_edge_key contract:
+            #   key = len(keydict); while key in keydict: key += 1
+            candidate = len(existing)
+            while candidate in existing:
+                candidate += 1
+            key = candidate
+        return raw_add_edge(self, u, v, key=key, **attr)
+
+    return add_edge
+
+
+MultiGraph.add_edge = _multi_add_edge_auto_key(_MULTIGRAPH_ADD_EDGE)
+MultiDiGraph.add_edge = _multi_add_edge_auto_key(_MULTIDIGRAPH_ADD_EDGE)
+
+
+def _multi_add_edges_from(self, ebunch_to_add, **attr):
+    """Re-dispatch Multi*Graph.add_edges_from so 2-tuple entries
+    ``(u, v)`` auto-allocate a fresh key when an edge already exists
+    at ``(u, v)`` (franken_networkx-wymzp). Matches nx contract.
+
+    Accepted tuple shapes (from nx.MultiGraph.add_edges_from):
+        (u, v)
+        (u, v, data_dict)
+        (u, v, key)      -- 3-tuple with non-dict key
+        (u, v, key, data_dict)
+
+    Uses add-then-mutate rather than ``add_edge(u, v, key=key, **datadict)``
+    so a ``'key'`` attribute in datadict doesn't collide with the
+    positional ``key`` parameter (franken_networkx-uphdr pattern).
+    """
+    for e in ebunch_to_add:
+        ne = len(e)
+        if ne == 4:
+            u, v, key, dd = e
+        elif ne == 3:
+            u, v, third = e
+            if isinstance(third, dict):
+                key, dd = None, third
+            else:
+                key, dd = third, {}
+        elif ne == 2:
+            u, v = e
+            key, dd = None, {}
+        else:
+            raise NetworkXError(
+                f"Edge tuple {e} must be a 2-tuple, 3-tuple or 4-tuple."
+            )
+        # Auto-assign key if missing + edge already present
+        actual_key = key
+        if actual_key is None and self.has_edge(u, v):
+            existing = self[u][v]
+            candidate = len(existing)
+            while candidate in existing:
+                candidate += 1
+            actual_key = candidate
+        # Add the edge (no attrs) then mutate — attrs splat would
+        # collide with ``key`` if datadict has a 'key' entry.
+        if actual_key is None:
+            actual_key = _MULTIGRAPH_ADD_EDGE.__get__(self)(u, v, key=None) \
+                if isinstance(self, MultiGraph) and not self.is_directed() \
+                else _MULTIDIGRAPH_ADD_EDGE.__get__(self)(u, v, key=None)
+        else:
+            if isinstance(self, MultiGraph) and not self.is_directed():
+                _MULTIGRAPH_ADD_EDGE.__get__(self)(u, v, key=actual_key)
+            else:
+                _MULTIDIGRAPH_ADD_EDGE.__get__(self)(u, v, key=actual_key)
+        merged = dict(attr)
+        merged.update(dd)
+        if merged:
+            self[u][v][actual_key].update(merged)
+
+
+MultiGraph.add_edges_from = _multi_add_edges_from
+MultiDiGraph.add_edges_from = _multi_add_edges_from
 _GRAPH_TO_DIRECTED = Graph.to_directed
 _DIGRAPH_TO_DIRECTED = DiGraph.to_directed
 _MULTIGRAPH_TO_DIRECTED = MultiGraph.to_directed
