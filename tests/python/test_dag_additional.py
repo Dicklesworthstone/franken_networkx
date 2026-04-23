@@ -149,13 +149,14 @@ class TestIsAperiodic:
 
 class TestAntichains:
     def test_chain(self, chain):
-        acs = fnx.antichains(chain)
+        # antichains returns a generator; materialise before counting.
+        acs = list(fnx.antichains(chain))
         # Chain a->b->c: antichains are {}, {a}, {b}, {c}
         assert len(acs) == 4
         assert [] in acs
 
     def test_diamond(self, diamond):
-        acs = fnx.antichains(diamond)
+        acs = list(fnx.antichains(diamond))
         # b and c are incomparable
         has_bc = any(
             set(ac) == {"b", "c"} for ac in acs
@@ -164,14 +165,16 @@ class TestAntichains:
 
     def test_empty(self):
         g = fnx.DiGraph()
-        acs = fnx.antichains(g)
+        acs = list(fnx.antichains(g))
         assert acs == [[]]
 
     def test_raises_on_undirected(self):
         g = fnx.Graph()
         g.add_edge("a", "b")
+        # antichains returns a generator; the NetworkXNotImplemented only
+        # fires on first next() — materialise via list() to trigger.
         with pytest.raises(fnx.NetworkXNotImplemented):
-            fnx.antichains(g)
+            list(fnx.antichains(g))
 
 
 # ---------------------------------------------------------------------------

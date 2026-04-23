@@ -96,7 +96,8 @@ class TestMultiGraphConnectivity:
         assert fnx.number_connected_components(G) == 2
 
     def test_bridges(self, mg_path):
-        b = fnx.bridges(mg_path)
+        # bridges returns a generator; materialise before counting.
+        b = list(fnx.bridges(mg_path))
         # After collapsing parallel edges, this is a simple path 0-1-2-3
         # All edges are bridges in a path graph
         assert len(b) == 3
