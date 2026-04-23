@@ -13589,7 +13589,9 @@ def all_node_cuts(G, k=None, flow_func=None):
     def is_separating_set(cut):
         if len(cut) == len(G) - 1:
             return True
-        return not is_connected(restricted_view(G, cut, []))
+        # fnx's native is_connected rejects filtered views; materialise
+        # the restricted view to a concrete Graph before dispatching.
+        return not is_connected(restricted_view(G, cut, []).copy())
 
     def build_auxiliary_node_connectivity_graph(graph):
         auxiliary = DiGraph()
@@ -16316,7 +16318,23 @@ def _directed_to_undirected_with_view(to_undirected_impl):
             return _generic_undirected_graph_view(self)
         if reciprocal is False:
             if self.is_multigraph():
-                return to_undirected_impl(self)
+                # Iterate in original-direction order so the undirected
+                # edge orientation matches upstream nx, which preserves
+                # (u, v) as added (the rust to_undirected_impl
+                # canonicalises endpoints and diverges from nx on
+                # MultiDiGraph where an edge was added one-way).
+                result = self.to_undirected_class()()
+                result.graph.update(deepcopy(self.graph))
+                result.add_nodes_from(
+                    (node, deepcopy(attrs)) for node, attrs in self.nodes(data=True)
+                )
+                result.add_edges_from(
+                    (u, v, key, deepcopy(attrs))
+                    for u in self
+                    for v, keyed_attrs in self.adj[u].items()
+                    for key, attrs in keyed_attrs.items()
+                )
+                return result
 
             result = self.to_undirected_class()()
             result.graph.update(deepcopy(self.graph))
