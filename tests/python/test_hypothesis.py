@@ -144,7 +144,7 @@ class TestConnectivityInvariants:
     def test_single_connected_component(self, data):
         """A connected graph has exactly one connected component."""
         G_fnx, G_nx, n = data
-        comps = fnx.connected_components(G_fnx)
+        comps = list(fnx.connected_components(G_fnx))
         assert len(comps) == 1
         assert len(comps[0]) == n
 

@@ -116,9 +116,9 @@ class TestIsBiconnected:
 
 class TestBiconnectedComponents:
     def test_triangle(self, triangle):
-        comps = fnx.biconnected_components(triangle)
+        comps = [sorted(c) for c in fnx.biconnected_components(triangle)]
         assert len(comps) == 1
-        assert sorted(comps[0]) == ["a", "b", "c"]
+        assert comps[0] == ["a", "b", "c"]
 
     def test_bridge_graph(self):
         """Two triangles connected by a bridge."""
@@ -130,12 +130,12 @@ class TestBiconnectedComponents:
         g.add_edge("d", "e")
         g.add_edge("e", "f")
         g.add_edge("f", "d")
-        comps = fnx.biconnected_components(g)
+        comps = list(fnx.biconnected_components(g))
         assert len(comps) == 3  # two triangles + bridge
 
     def test_empty(self):
         g = fnx.Graph()
-        assert fnx.biconnected_components(g) == []
+        assert list(fnx.biconnected_components(g)) == []
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +198,7 @@ class TestKosarajuSCC:
 
     def test_matches_tarjan(self, directed_cycle):
         """Kosaraju and Tarjan should give the same result."""
-        tarjan = fnx.strongly_connected_components(directed_cycle)
+        tarjan = list(fnx.strongly_connected_components(directed_cycle))
         kosaraju = fnx.kosaraju_strongly_connected_components(directed_cycle)
         tarjan_sorted = sorted([sorted(c) for c in tarjan])
         kosaraju_sorted = sorted([sorted(c) for c in kosaraju])

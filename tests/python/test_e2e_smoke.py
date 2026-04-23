@@ -490,8 +490,8 @@ def test_connectivity(fnx, G):
     log.info("--- test_connectivity ---")
     check("is_connected", fnx.is_connected(G))
 
-    comps = fnx.connected_components(G)
-    check("connected_components returns list", isinstance(comps, list))
+    comps = list(fnx.connected_components(G))
+    check("connected_components materialises to list", isinstance(comps, list))
     check("1 connected component", len(comps) == 1)
 
     check("number_connected_components == 1", fnx.number_connected_components(G) == 1)
@@ -499,8 +499,8 @@ def test_connectivity(fnx, G):
     nc = fnx.node_connectivity(G)
     check("node_connectivity is int", isinstance(nc, int))
 
-    ap = fnx.articulation_points(G)
-    check("articulation_points returns list", isinstance(ap, list))
+    ap = list(fnx.articulation_points(G))
+    check("articulation_points materialises to list", isinstance(ap, list))
 
     br = fnx.bridges(G)
     check("bridges returns list", isinstance(br, list))

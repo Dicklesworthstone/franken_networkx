@@ -1756,15 +1756,34 @@ def has_path(graph, source, target):
 
 # Algorithm functions — connectivity
 from franken_networkx._fnx import (
-    articulation_points,
+    articulation_points as _raw_articulation_points,
     bridges as _raw_bridges,
-    connected_components,
+    connected_components as _raw_connected_components,
     edge_connectivity as _raw_edge_connectivity,
     is_connected,
     minimum_node_cut,
     node_connectivity as _raw_node_connectivity,
     number_connected_components,
 )
+
+
+def connected_components(G):
+    """Generate connected components.
+
+    Yields sets of nodes, one set per component. Matches the upstream
+    ``networkx.connected_components`` contract (generator of sets), not
+    the Rust-native list-of-list shape (franken_networkx-v1nwd).
+    """
+    for component in _raw_connected_components(G):
+        yield set(component)
+
+
+def articulation_points(G):
+    """Yield articulation points of ``G``.
+
+    Matches upstream's generator contract (franken_networkx-v1nwd).
+    """
+    yield from _raw_articulation_points(G)
 
 
 def bridges(G, root=None):
@@ -4271,17 +4290,36 @@ def all_pairs_dijkstra(G, cutoff=None, weight="weight"):
 
 # Algorithm functions — strongly connected components
 from franken_networkx._fnx import (
-    strongly_connected_components,
+    strongly_connected_components as _raw_strongly_connected_components,
     number_strongly_connected_components,
     is_strongly_connected,
 )
 
+
+def strongly_connected_components(G):
+    """Generate strongly connected components as sets of nodes.
+
+    Matches upstream's ``generator[set]`` contract (franken_networkx-v1nwd).
+    """
+    for component in _raw_strongly_connected_components(G):
+        yield set(component)
+
+
 # Algorithm functions — weakly connected components
 from franken_networkx._fnx import (
-    weakly_connected_components,
+    weakly_connected_components as _raw_weakly_connected_components,
     number_weakly_connected_components,
     is_weakly_connected,
 )
+
+
+def weakly_connected_components(G):
+    """Generate weakly connected components as sets of nodes.
+
+    Matches upstream's ``generator[set]`` contract (franken_networkx-v1nwd).
+    """
+    for component in _raw_weakly_connected_components(G):
+        yield set(component)
 
 # Algorithm functions — link prediction
 from franken_networkx._fnx import (
@@ -4664,11 +4702,18 @@ from franken_networkx._fnx import (
 
 
 def simple_cycles(G, length_bound=None):
+    """Yield simple cycles as lists of nodes.
+
+    Matches upstream's generator contract (franken_networkx-v1nwd) — the
+    previous directed-no-length-bound branch materialised via
+    ``list(...)``, breaking drop-in parity with ``nx.simple_cycles``.
+    """
     if length_bound is not None or not G.is_directed():
-        return _call_networkx_for_parity(
+        yield from _call_networkx_for_parity(
             "simple_cycles", G, length_bound=length_bound
         )
-    return list(_call_networkx_for_parity("simple_cycles", G))
+        return
+    yield from _call_networkx_for_parity("simple_cycles", G)
 
 
 def find_cycle(G, source=None, orientation=None):
@@ -5495,7 +5540,7 @@ def group_out_degree_centrality(G, S, *, backend=None, **backend_kwargs):
 from franken_networkx._fnx import (
     node_connected_component,
     is_biconnected,
-    biconnected_components,
+    biconnected_components as _raw_biconnected_components,
     biconnected_component_edges,
     is_semiconnected as _raw_is_semiconnected,
     kosaraju_strongly_connected_components,
@@ -5503,6 +5548,16 @@ from franken_networkx._fnx import (
     number_attracting_components as _raw_number_attracting_components,
     is_attracting_component as _raw_is_attracting_component,
 )
+
+
+def biconnected_components(G):
+    """Generate biconnected components as sets of nodes.
+
+    Matches upstream's ``generator[set]`` contract (franken_networkx-v1nwd).
+    """
+    for component in _raw_biconnected_components(G):
+        yield set(component)
+
 
 # Graph generators — classic
 from franken_networkx._fnx import (

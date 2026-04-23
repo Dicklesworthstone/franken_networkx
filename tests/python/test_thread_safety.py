@@ -261,7 +261,7 @@ class TestConcurrentConnectivity:
             try:
                 barrier.wait(timeout=5)
                 for _ in range(ITERATIONS):
-                    comps = fnx.connected_components(connected_graph)
+                    comps = list(fnx.connected_components(connected_graph))
                     assert len(comps) == 1
                     assert len(comps[0]) == 50
             except Exception as e:

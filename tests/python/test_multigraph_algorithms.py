@@ -82,7 +82,7 @@ class TestMultiGraphConnectivity:
         assert fnx.is_connected(mg_triangle)
 
     def test_connected_components(self, mg_triangle):
-        comps = fnx.connected_components(mg_triangle)
+        comps = list(fnx.connected_components(mg_triangle))
         assert len(comps) == 1
 
     def test_number_connected_components(self, mg_path):
@@ -262,7 +262,7 @@ class TestMultiDiGraphAlgorithms:
         assert path[-1] == "c"
 
     def test_strongly_connected_components(self, mdg_cycle):
-        sccs = fnx.strongly_connected_components(mdg_cycle)
+        sccs = list(fnx.strongly_connected_components(mdg_cycle))
         assert len(sccs) == 1  # full cycle -> 1 SCC
 
     def test_is_strongly_connected(self, mdg_cycle):

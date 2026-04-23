@@ -21,13 +21,13 @@ class TestConnectivity:
 
     def test_connected_components_count(self, fnx, nx, disconnected_graph):
         G_fnx, G_nx = disconnected_graph
-        fnx_comps = fnx.connected_components(G_fnx)
+        fnx_comps = list(fnx.connected_components(G_fnx))
         nx_comps = list(nx.connected_components(G_nx))
         assert len(fnx_comps) == len(nx_comps)
 
     def test_connected_components_content(self, fnx, nx, path_graph):
         G_fnx, G_nx = path_graph
-        fnx_comps = fnx.connected_components(G_fnx)
+        fnx_comps = list(fnx.connected_components(G_fnx))
         nx_comps = list(nx.connected_components(G_nx))
         # Both should have one component with all nodes
         assert len(fnx_comps) == 1

@@ -220,7 +220,7 @@ class TestNetworkXNotImplemented:
             fnx.NetworkXNotImplemented,
             match=r"not implemented for directed type",
         ):
-            fnx.connected_components(DG)
+            list(fnx.connected_components(DG))
 
     def test_bridges_digraph(self):
         DG = fnx.DiGraph()

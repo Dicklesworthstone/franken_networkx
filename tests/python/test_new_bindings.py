@@ -714,7 +714,7 @@ class TestMatchingValidators:
 
 class TestSimpleCycles:
     def test_triangle_cycle(self, directed_cycle):
-        cycles = fnx.simple_cycles(directed_cycle)
+        cycles = list(fnx.simple_cycles(directed_cycle))
         assert len(cycles) == 1
         assert set(cycles[0]) == {0, 1, 2}
 
@@ -739,13 +739,13 @@ class TestSimpleCycles:
         D = fnx.DiGraph()
         D.add_edge(0, 1)
         D.add_edge(1, 2)
-        cycles = fnx.simple_cycles(D)
+        cycles = list(fnx.simple_cycles(D))
         assert len(cycles) == 0
 
     def test_self_loop(self):
         D = fnx.DiGraph()
         D.add_edge(0, 0)
-        cycles = fnx.simple_cycles(D)
+        cycles = list(fnx.simple_cycles(D))
         assert len(cycles) == 1
 
     def test_two_cycles(self):
@@ -754,7 +754,7 @@ class TestSimpleCycles:
         D.add_edge(1, 0)
         D.add_edge(1, 2)
         D.add_edge(2, 1)
-        cycles = fnx.simple_cycles(D)
+        cycles = list(fnx.simple_cycles(D))
         assert len(cycles) == 2
 
     def test_order_matches_networkx(self, nx):
@@ -766,7 +766,7 @@ class TestSimpleCycles:
             graph.add_edge(1, 2)
             graph.add_edge(2, 1)
 
-        assert fnx.simple_cycles(D_fnx) == list(nx.simple_cycles(D_nx))
+        assert list(fnx.simple_cycles(D_fnx)) == list(nx.simple_cycles(D_nx))
 
     def test_undirected_matches_networkx(self, nx):
         G_fnx = fnx.Graph()

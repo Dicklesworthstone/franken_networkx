@@ -797,7 +797,7 @@ class TestDirectedComponentCounts:
         D = fnx.DiGraph()
         D.add_edge(0, 1)
         D.add_node(2)
-        wcc = fnx.weakly_connected_components(D)
+        wcc = list(fnx.weakly_connected_components(D))
         assert len(wcc) == 2
 
     def test_is_strongly_connected_empty_raises(self):

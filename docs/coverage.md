@@ -6,8 +6,8 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 118 | 14% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 660 | 82% | Python-defined exports with no runtime NetworkX dependency detected |
+| RUST_NATIVE | 113 | 14% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 665 | 83% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 21 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
@@ -19,8 +19,8 @@ All declared public exports are classified. `--check` fails if this generated re
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 598 |
-| `franken_networkx._fnx` | 118 |
+| `franken_networkx` | 603 |
+| `franken_networkx._fnx` | 113 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
@@ -28,22 +28,19 @@ All declared public exports are classified. `--check` fails if this generated re
 | `builtins` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (118)
+## RUST_NATIVE exports (113)
 
 - `adamic_adar_index`
 - `ancestors`
-- `articulation_points`
 - `barycenter`
 - `bfs_layers`
 - `biconnected_component_edges`
-- `biconnected_components`
 - `bidirectional_shortest_path`
 - `bipartite_sets`
 - `chordal_graph_cliques`
 - `clique_removal`
 - `complement`
 - `compose`
-- `connected_components`
 - `core_number`
 - `cut_size`
 - `degree_assortativity_coefficient`
@@ -134,7 +131,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `ring_of_cliques`
 - `sedgewick_maze_graph`
 - `spanner`
-- `strongly_connected_components`
 - `symmetric_difference`
 - `topological_generations`
 - `topological_sort`
@@ -143,13 +139,12 @@ All declared public exports are classified. `--check` fails if this generated re
 - `tree_broadcast_center`
 - `tree_broadcast_time`
 - `turan_graph`
-- `weakly_connected_components`
 - `write_adjlist`
 - `write_edgelist`
 - `write_gml`
 - `write_graphml`
 
-## PY_WRAPPER exports (660)
+## PY_WRAPPER exports (665)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -183,6 +178,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `apply_matplotlib_colors`
 - `approximate_current_flow_betweenness_centrality`
 - `arf_layout`
+- `articulation_points`
 - `astar_path`
 - `astar_path_length`
 - `asyn_fluidc`
@@ -217,6 +213,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `bfs_successors`
 - `bfs_tree`
 - `biadjacency_matrix`
+- `biconnected_components`
 - `bidirectional_dijkstra`
 - `binomial_graph`
 - `binomial_tree`
@@ -262,6 +259,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `conductance`
 - `configuration_model`
 - `connected_caveman_graph`
+- `connected_components`
 - `connected_dominating_set`
 - `connected_double_edge_swap`
 - `connected_watts_strogatz_graph`
@@ -737,6 +735,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `stochastic_graph`
 - `stoer_wagner`
 - `strong_product`
+- `strongly_connected_components`
 - `subgraph`
 - `subgraph_centrality`
 - `subgraph_centrality_exp`
@@ -795,6 +794,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `voterank`
 - `watts_strogatz_graph`
 - `waxman_graph`
+- `weakly_connected_components`
 - `weisfeiler_lehman_graph_hash`
 - `weisfeiler_lehman_subgraph_hashes`
 - `wheel_graph`
