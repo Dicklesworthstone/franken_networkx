@@ -1868,6 +1868,30 @@ def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None):
             flow_func=flow_func,
             cutoff=cutoff,
         )
+    # edge_connectivity is a structural graph property — it counts edges,
+    # not flow capacity. The Rust dispatcher incorrectly honours any
+    # ``capacity`` edge attribute and returns the weighted max-flow
+    # value instead (franken_networkx-8ud1m). Strip any capacity attrs
+    # into a scrubbed copy so the underlying max-flow reduces to unit
+    # capacities and the returned integer is the edge cardinality.
+    has_capacity = any(
+        "capacity" in d for _, _, d in G.edges(data=True)
+    )
+    if has_capacity:
+        scrubbed = type(G)()
+        scrubbed.graph.update(dict(G.graph))
+        scrubbed.add_nodes_from((n, dict(d)) for n, d in G.nodes(data=True))
+        if G.is_multigraph():
+            scrubbed.add_edges_from(
+                (u, v, key, {k: val for k, val in d.items() if k != "capacity"})
+                for u, v, key, d in G.edges(keys=True, data=True)
+            )
+        else:
+            scrubbed.add_edges_from(
+                (u, v, {k: val for k, val in d.items() if k != "capacity"})
+                for u, v, d in G.edges(data=True)
+            )
+        G = scrubbed
     return _raw_edge_connectivity(G, s=s, t=t, cutoff=cutoff)
 
 
@@ -5019,9 +5043,22 @@ from franken_networkx._fnx import (
 from franken_networkx._fnx import (
     is_aperiodic as _raw_is_aperiodic,
     antichains as _raw_antichains,
-    immediate_dominators,
+    immediate_dominators as _raw_immediate_dominators,
     dominance_frontiers,
 )
+
+
+def immediate_dominators(G, start):
+    """Immediate dominators of every node reachable from ``start``.
+
+    Matches upstream ``nx.immediate_dominators`` contract: the returned
+    dict does **not** include ``start`` itself (franken_networkx-y87ra).
+    """
+    idom = _raw_immediate_dominators(G, start)
+    # Rust binding returns a dict that includes {start: start}; drop the
+    # self-dominator entry to match nx's documented shape.
+    idom.pop(start, None)
+    return idom
 
 
 def antichains(G, topo_order=None):

@@ -183,17 +183,24 @@ class TestAntichains:
 
 class TestImmediateDominators:
     def test_chain(self, chain):
+        # Upstream nx.immediate_dominators excludes the start node from
+        # the returned dict (franken_networkx-y87ra).
         idom = fnx.immediate_dominators(chain, "a")
-        assert idom["a"] == "a"
+        assert "a" not in idom
         assert idom["b"] == "a"
         assert idom["c"] == "b"
 
     def test_diamond(self, diamond):
         idom = fnx.immediate_dominators(diamond, "a")
-        assert idom["a"] == "a"
+        assert "a" not in idom
         assert idom["b"] == "a"
         assert idom["c"] == "a"
         assert idom["d"] == "a"
+
+    def test_matches_networkx(self, chain):
+        import networkx as nx
+        nxg = nx.DiGraph(); nxg.add_edges_from([("a","b"),("b","c")])
+        assert fnx.immediate_dominators(chain, "a") == nx.immediate_dominators(nxg, "a")
 
     def test_raises_on_undirected(self):
         g = fnx.Graph()

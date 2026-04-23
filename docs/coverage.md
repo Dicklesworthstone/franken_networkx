@@ -6,8 +6,8 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 113 | 14% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 665 | 83% | Python-defined exports with no runtime NetworkX dependency detected |
+| RUST_NATIVE | 112 | 13% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 666 | 83% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 21 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
@@ -19,8 +19,8 @@ All declared public exports are classified. `--check` fails if this generated re
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 603 |
-| `franken_networkx._fnx` | 113 |
+| `franken_networkx` | 604 |
+| `franken_networkx._fnx` | 112 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
@@ -28,7 +28,7 @@ All declared public exports are classified. `--check` fails if this generated re
 | `builtins` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (113)
+## RUST_NATIVE exports (112)
 
 - `adamic_adar_index`
 - `ancestors`
@@ -59,7 +59,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `graph_clique_number`
 - `hoffman_singleton_graph`
 - `hypercube_graph`
-- `immediate_dominators`
 - `intersection`
 - `is_arborescence`
 - `is_biconnected`
@@ -144,7 +143,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_gml`
 - `write_graphml`
 
-## PY_WRAPPER exports (665)
+## PY_WRAPPER exports (666)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -463,6 +462,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `hyper_wiener_index`
 - `icosahedral_graph`
 - `identified_nodes`
+- `immediate_dominators`
 - `in_degree_centrality`
 - `incidence_matrix`
 - `incremental_closeness_centrality`

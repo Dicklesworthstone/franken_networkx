@@ -323,3 +323,41 @@ class TestConnectivity:
         # With root=10: check only cycle component (no bridges)
         assert fnx.has_bridges(G_fnx, root=10) == nx.has_bridges(G_nx, root=10)
         assert fnx.has_bridges(G_fnx, root=10) is False
+
+
+@pytest.mark.conformance
+class TestEdgeConnectivityWeightedCardinality:
+    """Regression for franken_networkx-8ud1m — edge_connectivity must
+    return edge cardinality, not capacity-weighted max flow, even when
+    the graph has a ``capacity`` edge attribute.
+    """
+
+    def test_weighted_capacity_attr_returns_cardinality(self, fnx, nx):
+        g_fnx = fnx.DiGraph()
+        g_fnx.add_edges_from([
+            ('s', 'a', {'capacity': 10}),
+            ('s', 'b', {'capacity': 5}),
+            ('a', 't', {'capacity': 10}),
+            ('b', 't', {'capacity': 10}),
+            ('a', 'b', {'capacity': 2}),
+        ])
+        g_nx = nx.DiGraph()
+        g_nx.add_edges_from([
+            ('s', 'a', {'capacity': 10}),
+            ('s', 'b', {'capacity': 5}),
+            ('a', 't', {'capacity': 10}),
+            ('b', 't', {'capacity': 10}),
+            ('a', 'b', {'capacity': 2}),
+        ])
+        assert int(fnx.edge_connectivity(g_fnx, 's', 't')) == 2
+        assert int(fnx.edge_connectivity(g_fnx, 's', 't')) == nx.edge_connectivity(
+            g_nx, 's', 't'
+        )
+
+    def test_weighted_capacity_attr_does_not_mutate_input(self, fnx):
+        g = fnx.DiGraph()
+        g.add_edge('s', 'a', capacity=10)
+        g.add_edge('a', 't', capacity=10)
+        _ = fnx.edge_connectivity(g, 's', 't')
+        assert g['s']['a']['capacity'] == 10
+        assert g['a']['t']['capacity'] == 10
