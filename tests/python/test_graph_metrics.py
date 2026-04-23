@@ -261,6 +261,9 @@ class TestReciprocityParity:
 def _build_kemeny_case(graph, case_name):
     if case_name == "empty":
         return
+    if case_name == "disconnected":
+        graph.add_nodes_from([0, 1])
+        return
     if case_name == "path4":
         graph.add_edges_from([(0, 1), (1, 2), (2, 3)])
         return
@@ -274,22 +277,50 @@ def _build_kemeny_case(graph, case_name):
 
 
 class TestKemenyConstantParity:
+    def test_backend_keyword_surface_matches_networkx(self):
+        graph = fnx.path_graph(4)
+        expected = nx.path_graph(4)
+
+        assert str(inspect.signature(fnx.kemeny_constant)) == str(
+            inspect.signature(nx.kemeny_constant)
+        )
+
+        for backend in (None, "networkx"):
+            assert fnx.kemeny_constant(graph, backend=backend) == pytest.approx(
+                nx.kemeny_constant(expected, backend=backend)
+            )
+
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            fnx.kemeny_constant(graph, backend="parallel")
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            nx.kemeny_constant(expected, backend="parallel")
+
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            fnx.kemeny_constant(graph, backend_kwargs={"x": 1})
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            nx.kemeny_constant(expected, backend_kwargs={"x": 1})
+
     @pytest.mark.parametrize(
-        ("fnx_cls", "nx_cls", "case_name"),
+        ("fnx_cls", "nx_cls", "case_name", "weight"),
         [
-            (fnx.Graph, nx.Graph, "path4"),
-            (fnx.MultiGraph, nx.MultiGraph, "multigraph_edge"),
+            (fnx.Graph, nx.Graph, "path4", None),
+            (fnx.MultiGraph, nx.MultiGraph, "multigraph_edge", None),
+            (fnx.Graph, nx.Graph, "path4", "w"),
         ],
     )
     def test_matches_networkx_without_fallback(
-        self, monkeypatch, fnx_cls, nx_cls, case_name
+        self, monkeypatch, fnx_cls, nx_cls, case_name, weight
     ):
         graph = fnx_cls()
         expected = nx_cls()
         _build_kemeny_case(graph, case_name)
         _build_kemeny_case(expected, case_name)
+        if weight == "w":
+            for u, v, value in [(0, 1, 10.0), (1, 2, 1.0), (2, 3, 1.0)]:
+                graph[u][v]["w"] = value
+                expected[u][v]["w"] = value
 
-        expected_result = nx.kemeny_constant(expected)
+        expected_result = nx.kemeny_constant(expected, weight=weight)
 
         monkeypatch.setattr(
             nx,
@@ -301,26 +332,32 @@ class TestKemenyConstantParity:
             ),
         )
 
-        actual_result = fnx.kemeny_constant(graph)
+        actual_result = fnx.kemeny_constant(graph, weight=weight)
         assert actual_result == pytest.approx(expected_result)
 
     @pytest.mark.parametrize(
-        ("fnx_cls", "nx_cls", "case_name"),
+        ("fnx_cls", "nx_cls", "case_name", "weight"),
         [
-            (fnx.Graph, nx.Graph, "empty"),
-            (fnx.DiGraph, nx.DiGraph, "digraph_edge"),
+            (fnx.Graph, nx.Graph, "empty", None),
+            (fnx.DiGraph, nx.DiGraph, "digraph_edge", None),
+            (fnx.Graph, nx.Graph, "path4", "w"),
+            (fnx.Graph, nx.Graph, "disconnected", None),
         ],
     )
     def test_error_contract_matches_networkx_without_fallback(
-        self, monkeypatch, fnx_cls, nx_cls, case_name
+        self, monkeypatch, fnx_cls, nx_cls, case_name, weight
     ):
         graph = fnx_cls()
         expected = nx_cls()
         _build_kemeny_case(graph, case_name)
         _build_kemeny_case(expected, case_name)
+        if case_name == "path4" and weight == "w":
+            for u, v, value in [(0, 1, -1.0), (1, 2, 1.0), (2, 3, 1.0)]:
+                graph[u][v]["w"] = value
+                expected[u][v]["w"] = value
 
         try:
-            nx.kemeny_constant(expected)
+            nx.kemeny_constant(expected, weight=weight)
         except Exception as exc:
             expected_type = type(exc).__name__
             expected_message = str(exc)
@@ -336,7 +373,7 @@ class TestKemenyConstantParity:
         )
 
         with pytest.raises(Exception) as fnx_exc:
-            fnx.kemeny_constant(graph)
+            fnx.kemeny_constant(graph, weight=weight)
 
         assert type(fnx_exc.value).__name__ == expected_type
         assert str(fnx_exc.value) == expected_message

@@ -13119,34 +13119,36 @@ def resistance_distance(G, nodeA=None, nodeB=None, weight=None, invert_weight=Tr
     return result
 
 
-def kemeny_constant(G):
+def kemeny_constant(G, *, weight=None, backend=None, **backend_kwargs):
     """Return the Kemeny constant of *G*.
 
     Sum of 1/(1-lambda_i) for non-zero eigenvalues of the transition matrix.
     """
     import numpy as np
+    import scipy as sp
 
+    _validate_backend_dispatch_keywords("kemeny_constant", backend, backend_kwargs)
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
 
-    nodelist = list(G.nodes())
-    n = len(nodelist)
-    if n == 0:
+    if len(G) == 0:
         raise NetworkXError("Graph G must contain at least one node.")
+    if not is_connected(G):
+        raise NetworkXError("Graph G must be connected.")
+    if is_negatively_weighted(G, weight=weight):
+        raise NetworkXError("The weights of graph G must be nonnegative.")
 
-    A = to_numpy_array(G, nodelist=nodelist, weight=None)
-    d = A.sum(axis=1)
-    d[d == 0] = 1
-    P = A / d[:, np.newaxis]
+    adjacency = adjacency_matrix(G, weight=weight)
+    n, m = adjacency.shape
+    degrees = np.asarray(adjacency.sum(axis=1)).flatten()
+    with np.errstate(divide="ignore"):
+        degree_scale = 1.0 / np.sqrt(degrees)
+    degree_scale[np.isinf(degree_scale)] = 0
+    diagonal = sp.sparse.dia_array((degree_scale, 0), shape=(m, n)).tocsr()
+    normalized = diagonal @ (adjacency @ diagonal)
 
-    eigenvalues = np.sort(np.linalg.eigvals(P))[::-1]
-    # Skip the eigenvalue at 1 (largest)
-    total = 0.0
-    for lam in eigenvalues[1:]:
-        lam_real = np.real(lam)
-        if abs(1 - lam_real) > 1e-10:
-            total += 1.0 / (1.0 - lam_real)
-    return float(total)
+    eigenvalues = np.sort(sp.linalg.eigvalsh(normalized.todense()))
+    return float(np.sum(1 / (1 - eigenvalues[:-1])))
 
 
 def non_randomness(G, k=None, weight="weight"):
