@@ -700,8 +700,11 @@ def test_euler(fnx):
     check("K3 is_eulerian", fnx.is_eulerian(E))
     check("K3 has_eulerian_path", fnx.has_eulerian_path(E))
 
-    circuit = fnx.eulerian_circuit(E)
-    check("eulerian_circuit returns list", isinstance(circuit, list))
+    # eulerian_circuit/path match the nx contract: they return a
+    # generator of (u, v) pairs, not a list. Materialise before size
+    # checks.
+    circuit = list(fnx.eulerian_circuit(E))
+    check("eulerian_circuit materialises to list of pairs", isinstance(circuit, list))
     check("circuit has 3 edges", len(circuit) == 3)
 
     # Semi-Eulerian (path graph has exactly 2 odd-degree vertices)
@@ -710,8 +713,8 @@ def test_euler(fnx):
     P.add_edge("b", "c")
     check("path is semi-Eulerian", fnx.is_semieulerian(P))
 
-    ep = fnx.eulerian_path(P)
-    check("eulerian_path returns list", isinstance(ep, list))
+    ep = list(fnx.eulerian_path(P))
+    check("eulerian_path materialises to list of pairs", isinstance(ep, list))
     check("path has 2 edges", len(ep) == 2)
 
 

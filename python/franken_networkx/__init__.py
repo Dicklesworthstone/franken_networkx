@@ -16048,8 +16048,22 @@ class _FilteredGraphView:
     def number_of_nodes(self):
         return len(self)
 
-    def number_of_edges(self):
-        return len(self.edges(keys=True)) if self.is_multigraph() else len(self.edges())
+    def number_of_edges(self, u=None, v=None):
+        if u is None and v is None:
+            return len(self.edges(keys=True)) if self.is_multigraph() else len(self.edges())
+        if v is None:
+            if u not in self:
+                raise KeyError(u)
+            return 0
+        if self.is_multigraph():
+            if not self._graph.has_edge(u, v):
+                return 0
+            return sum(
+                1
+                for edge_key in self._graph[u][v]
+                if self._edge_visible(u, v, edge_key)
+            )
+        return 1 if self.has_edge(u, v) else 0
 
     def _copy_type(self):
         if self.is_directed():
