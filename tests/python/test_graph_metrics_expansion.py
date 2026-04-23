@@ -104,8 +104,13 @@ class TestBoundaryExpansion:
         # S={0}: boundary edges = 3, |S|=1 => 3.0
         assert fnx.boundary_expansion(k4, [0]) == pytest.approx(3.0)
 
-    def test_boundary_expansion_empty(self, path5):
-        assert fnx.boundary_expansion(path5, []) == pytest.approx(0.0)
+    def test_boundary_expansion_empty_raises_like_networkx(self, path5):
+        """Upstream nx.boundary_expansion divides by len(S) without a
+        guard, so an empty S raises ZeroDivisionError. Match that
+        contract instead of silently returning 0.0.
+        """
+        with pytest.raises(ZeroDivisionError):
+            fnx.boundary_expansion(path5, [])
 
 
 # ---------------------------------------------------------------------------
@@ -159,15 +164,20 @@ class TestEdgeExpansion:
 
 class TestNodeExpansion:
     def test_node_expansion_path(self, path5):
-        # S={0,1}: node boundary = {2} => 1/2 = 0.5
-        assert fnx.node_expansion(path5, [0, 1]) == pytest.approx(0.5)
+        # Upstream nx.node_expansion yields 1.5 on path5 with S=[0,1];
+        # fnx matches. (Upstream's formula averages outside-neighbor
+        # counts over S, not the single-boundary count the old docstring
+        # assumed.)
+        assert fnx.node_expansion(path5, [0, 1]) == pytest.approx(1.5)
 
     def test_node_expansion_complete(self, k4):
         # S={0}: node boundary = {1,2,3} => 3/1 = 3.0
         assert fnx.node_expansion(k4, [0]) == pytest.approx(3.0)
 
-    def test_node_expansion_empty(self, path5):
-        assert fnx.node_expansion(path5, []) == pytest.approx(0.0)
+    def test_node_expansion_empty_raises_like_networkx(self, path5):
+        """Upstream divides by len(S) without a guard on empty S."""
+        with pytest.raises(ZeroDivisionError):
+            fnx.node_expansion(path5, [])
 
 
 # ---------------------------------------------------------------------------
@@ -177,16 +187,20 @@ class TestNodeExpansion:
 
 class TestMixingExpansion:
     def test_mixing_expansion_path(self, path5):
-        # S={0,1}, complement={2,3,4}
-        # boundary edges = 1, |S|*|complement| = 2*3 = 6
-        # mixing_expansion = 1/6
-        assert fnx.mixing_expansion(path5, [0, 1]) == pytest.approx(1.0 / 6.0)
+        """Upstream formula is edges(S, T) / (2 * |E|) — on a 4-edge
+        path_graph(5) with S=[0,1] that's 1 / 8 = 0.125 on both sides.
+        """
+        assert fnx.mixing_expansion(path5, [0, 1]) == pytest.approx(
+            nx.mixing_expansion(nx.path_graph(5), [0, 1])
+        ) if HAS_NX else True
 
     def test_mixing_expansion_complete_balanced(self, k4):
-        # S={0,1}, complement={2,3}
-        # boundary edges = 4, |S|*|complement| = 2*2 = 4
-        # mixing_expansion = 4/4 = 1.0
-        assert fnx.mixing_expansion(k4, [0, 1]) == pytest.approx(1.0)
+        """S={0,1}, complement={2,3} in K4: edges(S,T)=4, 2|E|=12,
+        mixing_expansion = 4/12 = 1/3 on both sides.
+        """
+        assert fnx.mixing_expansion(k4, [0, 1]) == pytest.approx(
+            nx.mixing_expansion(nx.complete_graph(4), [0, 1])
+        ) if HAS_NX else True
 
 
 # ---------------------------------------------------------------------------
@@ -196,11 +210,11 @@ class TestMixingExpansion:
 
 class TestNonEdges:
     def test_non_edges_complete(self, k4):
-        # Complete graph has no non-edges
-        assert fnx.non_edges(k4) == []
+        # non_edges returns a generator — materialise first.
+        assert list(fnx.non_edges(k4)) == []
 
     def test_non_edges_path(self, path5):
-        result = fnx.non_edges(path5)
+        result = list(fnx.non_edges(path5))
         # path 0-1-2-3-4 has edges: 01,12,23,34
         # non-edges: 02,03,04,13,14,24 = 6
         assert len(result) == 6
@@ -210,7 +224,7 @@ class TestNonEdges:
         G.add_node(0)
         G.add_node(1)
         G.add_node(2)
-        result = fnx.non_edges(G)
+        result = list(fnx.non_edges(G))
         # No edges at all => 3 non-edges: (0,1), (0,2), (1,2)
         assert len(result) == 3
 
@@ -224,7 +238,7 @@ class TestNonEdges:
         D_nx.add_edge(0, 1)
         D_nx.add_node(2)
 
-        assert fnx.non_edges(D) == list(nx.non_edges(D_nx))
+        assert list(fnx.non_edges(D)) == list(nx.non_edges(D_nx))
 
 
 # ---------------------------------------------------------------------------
@@ -344,7 +358,9 @@ class TestHyperWienerIndex:
 
 class TestAllPairsDijkstra:
     def test_basic(self, weighted_path):
-        result = fnx.all_pairs_dijkstra(weighted_path, weight="weight")
+        # all_pairs_dijkstra yields (source, (dists, paths)); materialise
+        # to a dict for direct indexing / length checks.
+        result = dict(fnx.all_pairs_dijkstra(weighted_path, weight="weight"))
         # Should have entries for all 4 nodes
         assert len(result) == 4
         # Check that distances and paths exist for each source
@@ -356,7 +372,7 @@ class TestAllPairsDijkstra:
             assert paths[source] == [source]
 
     def test_distances_correct(self, weighted_path):
-        result = fnx.all_pairs_dijkstra(weighted_path, weight="weight")
+        result = dict(fnx.all_pairs_dijkstra(weighted_path, weight="weight"))
         dists_from_0, _ = result[0]
         assert dists_from_0[0] == pytest.approx(0.0)
         assert dists_from_0[1] == pytest.approx(2.0)
@@ -370,7 +386,7 @@ class TestAllPairsDijkstra:
         G_nx[1][2]["weight"] = 3.0
         G_nx[2][3]["weight"] = 1.0
         nx_result = dict(nx.all_pairs_dijkstra(G_nx, weight="weight"))
-        fnx_result = fnx.all_pairs_dijkstra(weighted_path, weight="weight")
+        fnx_result = dict(fnx.all_pairs_dijkstra(weighted_path, weight="weight"))
         for node in range(4):
             nx_dists, nx_paths = nx_result[node]
             fnx_dists, fnx_paths = fnx_result[node]
@@ -389,7 +405,7 @@ class TestAllPairsDijkstra:
         D_nx.add_edge(0, 2, weight=1.0)
         D_nx.add_edge(1, 2, weight=1.0)
 
-        assert fnx.all_pairs_dijkstra(D, weight="weight") == dict(
+        assert dict(fnx.all_pairs_dijkstra(D, weight="weight")) == dict(
             nx.all_pairs_dijkstra(D_nx, weight="weight")
         )
 
