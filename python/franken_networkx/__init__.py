@@ -5528,8 +5528,9 @@ def is_attracting_component(G):
     return False
 
 
-def complete_graph(n, create_using=None):
+def complete_graph(n, create_using=None, *, backend=None, **backend_kwargs):
     """Return the complete graph K_n."""
+    _validate_backend_dispatch_keywords("complete_graph", backend, backend_kwargs)
     n, nodes = _nodes_or_number_local(n)
     if create_using is None and isinstance(n, numbers.Integral):
         return _rust_complete_graph(int(n))
@@ -5570,8 +5571,9 @@ def empty_graph(n=0, create_using=None, default=Graph):
     return graph
 
 
-def path_graph(n, create_using=None):
+def path_graph(n, create_using=None, *, backend=None, **backend_kwargs):
     """Return the path graph P_n."""
+    _validate_backend_dispatch_keywords("path_graph", backend, backend_kwargs)
     n, nodes = _nodes_or_number_local(n)
     if create_using is None and isinstance(n, numbers.Integral):
         return _rust_path_graph(int(n))

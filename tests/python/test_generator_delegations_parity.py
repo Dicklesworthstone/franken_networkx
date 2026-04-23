@@ -549,6 +549,37 @@ def test_complete_graph_iterable_multigraph_matches_networkx_without_fallback(mo
     assert _graph_signature(_to_nx(actual)) == _graph_signature(expected)
 
 
+@pytest.mark.parametrize(
+    ("function_name", "args", "kwargs"),
+    [
+        ("complete_graph", (4,), {}),
+        ("path_graph", (4,), {}),
+    ],
+)
+def test_classic_generators_backend_keyword_surface_matches_networkx(
+    function_name, args, kwargs
+):
+    fnx_fn = getattr(fnx, function_name)
+    nx_fn = getattr(nx, function_name)
+
+    assert str(inspect.signature(fnx_fn)) == str(inspect.signature(nx_fn))
+
+    for backend in (None, "networkx"):
+        actual = _graph_signature(_to_nx(fnx_fn(*args, backend=backend, **kwargs)))
+        expected = _graph_signature(nx_fn(*args, backend=backend, **kwargs))
+        assert actual == expected
+
+    with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+        fnx_fn(*args, backend="parallel", **kwargs)
+    with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+        nx_fn(*args, backend="parallel", **kwargs)
+
+    with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+        fnx_fn(*args, backend_kwargs={"x": 1}, **kwargs)
+    with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+        nx_fn(*args, backend_kwargs={"x": 1}, **kwargs)
+
+
 def test_cycle_graph_iterable_digraph_matches_networkx_without_fallback(monkeypatch):
     expected = nx.cycle_graph("abcb", create_using=nx.DiGraph())
 
