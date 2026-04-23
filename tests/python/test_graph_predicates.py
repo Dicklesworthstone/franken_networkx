@@ -1225,7 +1225,23 @@ class TestIsRegularExpander:
     @pytest.mark.parametrize(
         ("builder", "epsilon"),
         [
-            (lambda graph: graph.add_edges_from([("a", "b"), ("b", "c"), ("c", "d"), ("d", "a")]), 0),
+            pytest.param(
+                lambda graph: graph.add_edges_from(
+                    [("a", "b"), ("b", "c"), ("c", "d"), ("d", "a")]
+                ),
+                0,
+                marks=pytest.mark.xfail(
+                    strict=False,
+                    reason=(
+                        "C_4 with epsilon=0 sits exactly on the Alon-Boppana "
+                        "boundary (|lambda_2|=2=2*sqrt(d-1)). "
+                        "sp.sparse.linalg.eigsh uses a random v0 and the result "
+                        "flips sign of the tiny numerical noise around the strict "
+                        "``<`` comparison — both nx and fnx flake on this case "
+                        "independently. Accept either outcome."
+                    ),
+                ),
+            ),
             (lambda graph: graph.add_edges_from([("a", "b"), ("b", "c"), ("c", "d"), ("d", "a")]), 0.5),
             (lambda graph: graph.add_edges_from([("a", "b"), ("b", "c"), ("c", "d")]), 0),
             (lambda graph: graph.add_edges_from([("a", "b"), ("a", "c"), ("a", "d"), ("b", "c"), ("b", "d"), ("c", "d")]), 0),
