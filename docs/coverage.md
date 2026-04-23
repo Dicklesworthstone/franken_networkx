@@ -6,12 +6,12 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 179 | 22% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 584 | 74% | Python-defined exports with no runtime NetworkX dependency detected |
-| NX_DELEGATED | 2 | 0% | Python-defined exports that import or call NetworkX at runtime |
-| CLASS | 20 | 2% | public classes, exceptions, iterators |
+| RUST_NATIVE | 118 | 14% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 641 | 80% | Python-defined exports with no runtime NetworkX dependency detected |
+| NX_DELEGATED | 19 | 2% | Python-defined exports that import or call NetworkX at runtime |
+| CLASS | 21 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
-| **Total public exports** | **787** | | unique names from `franken_networkx.__all__` |
+| **Total public exports** | **801** | | unique names from `franken_networkx.__all__` |
 
 All declared public exports are classified. `--check` fails if this generated report drifts from the live module surface.
 
@@ -19,8 +19,8 @@ All declared public exports are classified. `--check` fails if this generated re
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 523 |
-| `franken_networkx._fnx` | 179 |
+| `franken_networkx` | 598 |
+| `franken_networkx._fnx` | 118 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
@@ -28,79 +28,41 @@ All declared public exports are classified. `--check` fails if this generated re
 | `builtins` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (179)
+## RUST_NATIVE exports (118)
 
 - `adamic_adar_index`
-- `all_pairs_shortest_path`
-- `all_pairs_shortest_path_length`
 - `ancestors`
-- `antichains`
 - `articulation_points`
-- `astar_path`
-- `astar_path_length`
-- `average_neighbor_degree`
-- `average_node_connectivity`
 - `barycenter`
-- `bellman_ford_path`
-- `bellman_ford_path_length`
-- `betweenness_centrality`
 - `bfs_layers`
 - `biconnected_component_edges`
 - `biconnected_components`
 - `bidirectional_shortest_path`
 - `bipartite_sets`
-- `bridges`
-- `center`
 - `chordal_graph_cliques`
 - `clique_removal`
-- `closeness_centrality`
 - `complement`
 - `compose`
 - `connected_components`
 - `core_number`
 - `cut_size`
-- `cycle_basis`
-- `dag_longest_path`
-- `dag_longest_path_length`
 - `degree_assortativity_coefficient`
-- `degree_centrality`
 - `descendants`
 - `descendants_at_distance`
-- `diameter`
 - `difference`
 - `dominance_frontiers`
-- `dominating_set`
-- `edge_betweenness_centrality`
 - `edge_boundary`
-- `edge_connectivity`
 - `efficiency`
-- `eigenvector_centrality`
 - `enumerate_all_cliques`
-- `eulerian_circuit`
-- `eulerian_path`
 - `fast_could_be_isomorphic`
 - `faster_could_be_isomorphic`
-- `find_cycle`
-- `find_negative_cycle`
-- `floyd_warshall`
-- `floyd_warshall_predecessor_and_distance`
 - `girth`
 - `global_efficiency`
 - `global_node_connectivity`
-- `global_reaching_centrality`
 - `graph_clique_number`
-- `greedy_color`
-- `greedy_modularity_communities`
-- `group_degree_centrality`
-- `group_in_degree_centrality`
-- `group_out_degree_centrality`
-- `harmonic_centrality`
-- `has_eulerian_path`
-- `has_path`
 - `hoffman_singleton_graph`
 - `hypercube_graph`
 - `immediate_dominators`
-- `in_degree_centrality`
 - `intersection`
 - `is_arborescence`
 - `is_biconnected`
@@ -128,13 +90,11 @@ All declared public exports are classified. `--check` fails if this generated re
 - `is_weakly_connected`
 - `isolates`
 - `jaccard_coefficient`
-- `katz_centrality`
 - `kneser_graph`
 - `kosaraju_strongly_connected_components`
 - `large_clique_size`
 - `lexicographic_topological_sort`
 - `local_efficiency`
-- `local_reaching_centrality`
 - `louvain_communities`
 - `max_clique`
 - `max_weight_clique`
@@ -147,20 +107,14 @@ All declared public exports are classified. `--check` fails if this generated re
 - `maximum_independent_set`
 - `maximum_spanning_arborescence`
 - `maximum_spanning_edges`
-- `maximum_spanning_tree`
-- `min_edge_cover`
 - `min_weight_matching`
 - `min_weighted_vertex_cover`
 - `minimum_branching`
 - `minimum_node_cut`
 - `minimum_spanning_arborescence`
 - `minimum_spanning_edges`
-- `minimum_spanning_tree`
-- `modularity`
-- `negative_edge_cycle`
 - `node_boundary`
 - `node_connected_component`
-- `node_connectivity`
 - `normalized_cut_size`
 - `number_connected_components`
 - `number_of_isolates`
@@ -168,13 +122,9 @@ All declared public exports are classified. `--check` fails if this generated re
 - `number_of_spanning_trees`
 - `number_strongly_connected_components`
 - `number_weakly_connected_components`
-- `out_degree_centrality`
 - `pappus_graph`
 - `partition_spanning_tree`
-- `periphery`
-- `predecessor`
 - `preferential_attachment`
-- `radius`
 - `random_spanning_tree`
 - `read_adjlist`
 - `read_edgelist`
@@ -183,15 +133,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `resource_allocation_index`
 - `ring_of_cliques`
 - `sedgewick_maze_graph`
-- `shortest_simple_paths`
-- `simple_cycles`
-- `single_source_bellman_ford`
-- `single_source_bellman_ford_path`
-- `single_source_bellman_ford_path_length`
-- `single_source_shortest_path`
-- `single_source_shortest_path_length`
-- `single_target_shortest_path`
-- `single_target_shortest_path_length`
 - `spanner`
 - `strongly_connected_components`
 - `symmetric_difference`
@@ -202,15 +143,13 @@ All declared public exports are classified. `--check` fails if this generated re
 - `tree_broadcast_center`
 - `tree_broadcast_time`
 - `turan_graph`
-- `union`
-- `voterank`
 - `weakly_connected_components`
 - `write_adjlist`
 - `write_edgelist`
 - `write_gml`
 - `write_graphml`
 
-## PY_WRAPPER exports (584)
+## PY_WRAPPER exports (641)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -232,16 +171,22 @@ All declared public exports are classified. `--check` fails if this generated re
 - `all_pairs_dijkstra_path_length`
 - `all_pairs_lowest_common_ancestor`
 - `all_pairs_node_connectivity`
+- `all_pairs_shortest_path`
+- `all_pairs_shortest_path_length`
 - `all_shortest_paths`
 - `all_simple_edge_paths`
 - `all_simple_paths`
 - `all_topological_sorts`
 - `all_triads`
 - `all_triangles`
+- `antichains`
 - `apply_matplotlib_colors`
 - `approximate_current_flow_betweenness_centrality`
 - `arf_layout`
+- `astar_path`
+- `astar_path_length`
 - `asyn_fluidc`
+- `asyn_lpa_communities`
 - `attr_matrix`
 - `attr_sparse_matrix`
 - `attracting_components`
@@ -251,21 +196,24 @@ All declared public exports are classified. `--check` fails if this generated re
 - `average_clustering`
 - `average_degree`
 - `average_degree_connectivity`
+- `average_neighbor_degree`
+- `average_node_connectivity`
 - `average_shortest_path_length`
 - `balanced_tree`
 - `barabasi_albert_graph`
 - `barbell_graph`
+- `bellman_ford_path`
+- `bellman_ford_path_length`
 - `bellman_ford_predecessor_and_distance`
 - `bethe_hessian_matrix`
 - `bethe_hessian_spectrum`
+- `betweenness_centrality`
 - `betweenness_centrality_subset`
 - `bfs_beam_edges`
 - `bfs_edges`
-- `bfs_labeled_edges`
 - `bfs_layout`
 - `bfs_predecessors`
 - `bfs_successors`
-- `bfs_tree`
 - `biadjacency_matrix`
 - `bidirectional_dijkstra`
 - `binomial_graph`
@@ -273,22 +221,25 @@ All declared public exports are classified. `--check` fails if this generated re
 - `bipartite_density`
 - `bipartite_layout`
 - `boundary_expansion`
+- `boykov_kolmogorov`
+- `bridges`
 - `bull_graph`
 - `capacity_scaling`
 - `cartesian_product`
 - `caveman_graph`
 - `cd_index`
+- `center`
 - `chain_decomposition`
 - `check_planarity`
 - `check_planarity_recursive`
 - `chordal_cycle_graph`
 - `chordal_graph_treewidth`
-- `chordless_cycles`
 - `chromatic_polynomial`
 - `chvatal_graph`
 - `circulant_graph`
 - `circular_ladder_graph`
 - `circular_layout`
+- `closeness_centrality`
 - `closeness_vitality`
 - `clustering`
 - `cn_soundarajan_hopcroft`
@@ -321,13 +272,18 @@ All declared public exports are classified. `--check` fails if this generated re
 - `cubical_graph`
 - `current_flow_betweenness_centrality`
 - `current_flow_betweenness_centrality_subset`
+- `current_flow_closeness_centrality`
+- `cycle_basis`
 - `cycle_graph`
 - `cytoscape_data`
 - `cytoscape_graph`
+- `dag_longest_path`
+- `dag_longest_path_length`
 - `dag_to_branching`
 - `davis_southern_women_graph`
 - `dedensify`
 - `degree`
+- `degree_centrality`
 - `degree_histogram`
 - `degree_mixing_dict`
 - `degree_mixing_matrix`
@@ -338,16 +294,17 @@ All declared public exports are classified. `--check` fails if this generated re
 - `desargues_graph`
 - `describe`
 - `dfs_edges`
-- `dfs_labeled_edges`
 - `dfs_postorder_nodes`
 - `dfs_predecessors`
 - `dfs_preorder_nodes`
 - `dfs_successors`
 - `dfs_tree`
+- `diameter`
 - `diamond_graph`
 - `dijkstra_path`
 - `dijkstra_path_length`
 - `dijkstra_predecessor_and_distance`
+- `dinitz`
 - `directed_combinatorial_laplacian_matrix`
 - `directed_configuration_model`
 - `directed_edge_swap`
@@ -360,6 +317,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `dispersion`
 - `display`
 - `dodecahedral_graph`
+- `dominating_set`
 - `dorogovtsev_goltsev_mendes_graph`
 - `double_edge_swap`
 - `draw`
@@ -380,8 +338,11 @@ All declared public exports are classified. `--check` fails if this generated re
 - `dual_barabasi_albert_graph`
 - `duplication_divergence_graph`
 - `eccentricity`
+- `edge_betweenness_centrality`
 - `edge_betweenness_centrality_subset`
 - `edge_bfs`
+- `edge_connectivity`
+- `edge_current_flow_betweenness_centrality`
 - `edge_current_flow_betweenness_centrality_subset`
 - `edge_dfs`
 - `edge_disjoint_paths`
@@ -389,15 +350,19 @@ All declared public exports are classified. `--check` fails if this generated re
 - `edge_load_centrality`
 - `edge_subgraph`
 - `edges`
+- `edmonds_karp`
 - `effective_graph_resistance`
 - `effective_size`
 - `ego_graph`
+- `eigenvector_centrality`
 - `eigenvector_centrality_numpy`
 - `empty_graph`
 - `equitable_color`
 - `equivalence_classes`
 - `erdos_renyi_graph`
 - `estrada_index`
+- `eulerian_circuit`
+- `eulerian_path`
 - `eulerize`
 - `expected_degree_graph`
 - `extended_barabasi_albert_graph`
@@ -406,11 +371,14 @@ All declared public exports are classified. `--check` fails if this generated re
 - `find_asteroidal_triple`
 - `find_cliques`
 - `find_cliques_recursive`
+- `find_cycle`
 - `find_induced_nodes`
 - `find_minimal_d_separator`
 - `florentine_families_graph`
 - `flow_hierarchy`
+- `floyd_warshall`
 - `floyd_warshall_numpy`
+- `floyd_warshall_predecessor_and_distance`
 - `forceatlas2_layout`
 - `freeze`
 - `from_biadjacency_matrix`
@@ -450,25 +418,32 @@ All declared public exports are classified. `--check` fails if this generated re
 - `get_node_attributes`
 - `girvan_newman`
 - `global_parameters`
+- `global_reaching_centrality`
 - `gn_graph`
 - `gnc_graph`
 - `gnm_random_graph`
 - `gnp_random_graph`
 - `gnr_graph`
-- `goldberg_radzik`
 - `gomory_hu_tree`
 - `google_matrix`
 - `graph_atlas`
 - `graph_atlas_g`
 - `graph_edit_distance`
 - `greedy_branching`
+- `greedy_color`
 - `grid_2d_graph`
 - `grid_graph`
 - `group_betweenness_centrality`
 - `group_closeness_centrality`
+- `group_degree_centrality`
+- `group_in_degree_centrality`
+- `group_out_degree_centrality`
 - `gutman_index`
+- `harmonic_centrality`
 - `harmonic_diameter`
 - `has_bridges`
+- `has_eulerian_path`
+- `has_path`
 - `havel_hakimi_graph`
 - `heawood_graph`
 - `hexagonal_lattice_graph`
@@ -481,6 +456,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `hyper_wiener_index`
 - `icosahedral_graph`
 - `identified_nodes`
+- `in_degree_centrality`
 - `incidence_matrix`
 - `incremental_closeness_centrality`
 - `induced_subgraph`
@@ -520,7 +496,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `is_valid_directed_joint_degree`
 - `is_valid_joint_degree`
 - `is_weighted`
-- `johnson`
 - `join_trees`
 - `joint_degree_graph`
 - `junction_tree`
@@ -538,6 +513,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `k_truss`
 - `kamada_kawai_layout`
 - `karate_club_graph`
+- `katz_centrality`
 - `katz_centrality_numpy`
 - `kemeny_constant`
 - `kernighan_lin_bisection`
@@ -556,24 +532,28 @@ All declared public exports are classified. `--check` fails if this generated re
 - `load_centrality`
 - `local_bridges`
 - `local_constraint`
+- `local_reaching_centrality`
 - `lollipop_graph`
 - `lowest_common_ancestor`
 - `make_clique_bipartite`
 - `make_max_clique_graph`
 - `margulis_gabber_galil_graph`
 - `max_flow_min_cost`
+- `maximum_spanning_tree`
 - `maybe_regular_expander`
 - `maybe_regular_expander_graph`
 - `min_cost_flow`
 - `min_cost_flow_cost`
+- `min_edge_cover`
 - `minimum_cut`
 - `minimum_cut_value`
-- `minimum_cycle_basis`
 - `minimum_edge_cut`
+- `minimum_spanning_tree`
 - `minimum_st_node_cut`
 - `mixing_dict`
 - `mixing_expansion`
 - `modular_product`
+- `modularity`
 - `modularity_matrix`
 - `modularity_spectrum`
 - `moebius_kantor_graph`
@@ -585,11 +565,13 @@ All declared public exports are classified. `--check` fails if this generated re
 - `mycielski_graph`
 - `mycielskian`
 - `navigable_small_world_graph`
+- `negative_edge_cycle`
 - `neighbors`
 - `network_simplex`
 - `newman_watts_strogatz_graph`
 - `node_attribute_xy`
 - `node_clique_number`
+- `node_connectivity`
 - `node_degree_xy`
 - `node_disjoint_paths`
 - `node_expansion`
@@ -618,6 +600,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `optimal_edit_paths`
 - `optimize_edit_paths`
 - `optimize_graph_edit_distance`
+- `out_degree_centrality`
 - `overall_reciprocity`
 - `pagerank`
 - `paley_graph`
@@ -637,24 +620,27 @@ All declared public exports are classified. `--check` fails if this generated re
 - `path_graph`
 - `path_weight`
 - `percolation_centrality`
+- `periphery`
 - `petersen_graph`
 - `planar_layout`
 - `planted_partition_graph`
 - `power`
 - `powerlaw_cluster_graph`
+- `predecessor`
 - `prefix_tree`
 - `prefix_tree_recursive`
+- `preflow_push`
 - `projected_graph`
 - `prominent_group`
 - `quotient_graph`
 - `ra_index_soundarajan_hopcroft`
+- `radius`
 - `random_clustered_graph`
 - `random_cograph`
 - `random_degree_sequence_graph`
 - `random_geometric_graph`
 - `random_internet_as_graph`
 - `random_k_out_graph`
-- `random_kernel_graph`
 - `random_labeled_rooted_forest`
 - `random_labeled_rooted_tree`
 - `random_labeled_tree`
@@ -704,14 +690,23 @@ All declared public exports are classified. `--check` fails if this generated re
 - `set_edge_attributes`
 - `set_node_attributes`
 - `shell_layout`
+- `shortest_augmenting_path`
 - `shortest_path`
 - `shortest_path_length`
+- `shortest_simple_paths`
 - `sigma`
+- `simple_cycles`
 - `simrank_similarity`
-- `single_source_all_shortest_paths`
+- `single_source_bellman_ford`
+- `single_source_bellman_ford_path`
+- `single_source_bellman_ford_path_length`
 - `single_source_dijkstra`
 - `single_source_dijkstra_path`
 - `single_source_dijkstra_path_length`
+- `single_source_shortest_path`
+- `single_source_shortest_path_length`
+- `single_target_shortest_path`
+- `single_target_shortest_path_length`
 - `snap_aggregation`
 - `soft_random_geometric_graph`
 - `spectral_bisection`
@@ -778,6 +773,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `visibility_graph`
 - `volume`
 - `voronoi_cells`
+- `voterank`
 - `watts_strogatz_graph`
 - `waxman_graph`
 - `weisfeiler_lehman_graph_hash`
@@ -797,12 +793,29 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_sparse6`
 - `write_weighted_edgelist`
 
-## NX_DELEGATED exports (2)
+## NX_DELEGATED exports (19)
 
-- `current_flow_closeness_centrality`
-- `edge_current_flow_betweenness_centrality`
+- `bfs_labeled_edges`
+- `bfs_tree`
+- `chordless_cycles`
+- `color`
+- `dfs_labeled_edges`
+- `find_negative_cycle`
+- `goldberg_radzik`
+- `greedy_modularity_communities`
+- `hamiltonian_path`
+- `is_reachable`
+- `johnson`
+- `minimum_cycle_basis`
+- `random_kernel_graph`
+- `random_tournament`
+- `rooted_tree_isomorphism`
+- `single_source_all_shortest_paths`
+- `tournament_matrix`
+- `tree_isomorphism`
+- `union`
 
-## CLASS exports (20)
+## CLASS exports (21)
 
 - `ArborescenceIterator`
 - `DiGraph`
@@ -821,6 +834,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `NetworkXUnbounded`
 - `NetworkXUnfeasible`
 - `NodeNotFound`
+- `NotAPartition`
 - `NotATree`
 - `PowerIterationFailedConvergence`
 - `SpanningTreeIterator`

@@ -20050,7 +20050,9 @@ def complete_to_chordal_graph(G):
                 lower_nodes = [
                     node for node in unnumbered_nodes if weight[node] < y_weight
                 ]
-                if has_path(H.subgraph(lower_nodes + [z, y]), y, z):
+                # fnx's native has_path rejects filtered-view types —
+                # materialise the induced subgraph to a concrete Graph.
+                if has_path(H.subgraph(lower_nodes + [z, y]).copy(), y, z):
                     update_nodes.append(y)
                     chords.add((z, y))
         for node in update_nodes:

@@ -460,11 +460,18 @@ class BackendInterface:
         if fn is None:
             return False
         try:
-            inspect.signature(fn).bind(*args, **kwargs)
+            bound = inspect.signature(fn).bind(*args, **kwargs)
         except TypeError:
             return False
         if name == "average_shortest_path_length" and kwargs.get("method") is not None:
             return False
+        # Reject custom flow-function callables — fnx's native
+        # connectivity/flow implementations don't honour them, so the nx
+        # dispatcher needs to fall back to the upstream pure-Python path.
+        if name in {"node_connectivity", "edge_connectivity", "minimum_node_cut", "minimum_edge_cut"}:
+            bound.apply_defaults()
+            if bound.arguments.get("flow_func") is not None:
+                return False
         return True
 
     @staticmethod
