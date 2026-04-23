@@ -1145,6 +1145,29 @@ def _build_average_degree_connectivity_case(graph, case_name):
 
 
 class TestAverageDegreeConnectivityParity:
+    def test_backend_keyword_surface_matches_networkx(self):
+        graph = fnx.path_graph(4)
+        expected = nx.path_graph(4)
+
+        assert str(inspect.signature(fnx.average_degree_connectivity)) == str(
+            inspect.signature(nx.average_degree_connectivity)
+        )
+
+        for backend in (None, "networkx"):
+            assert fnx.average_degree_connectivity(graph, backend=backend) == (
+                nx.average_degree_connectivity(expected, backend=backend)
+            )
+
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            fnx.average_degree_connectivity(graph, backend="parallel")
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            nx.average_degree_connectivity(expected, backend="parallel")
+
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            fnx.average_degree_connectivity(graph, backend_kwargs={"x": 1})
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            nx.average_degree_connectivity(expected, backend_kwargs={"x": 1})
+
     @pytest.mark.parametrize(
         ("fnx_cls", "nx_cls", "case_name", "kwargs"),
         [

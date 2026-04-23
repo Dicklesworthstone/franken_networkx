@@ -3929,9 +3929,19 @@ def _adc_weighted_degree(G, node, *, incoming=False, outgoing=False, weight=None
 
 
 def average_degree_connectivity(
-    G, source="in+out", target="in+out", nodes=None, weight=None
+    G,
+    source="in+out",
+    target="in+out",
+    nodes=None,
+    weight=None,
+    *,
+    backend=None,
+    **backend_kwargs,
 ):
     """Compute the average degree connectivity of graph."""
+    _validate_backend_dispatch_keywords(
+        "average_degree_connectivity", backend, backend_kwargs
+    )
     if G.is_directed():
         if source not in ("in", "out", "in+out"):
             raise NetworkXError('source must be one of "in", "out", or "in+out"')
