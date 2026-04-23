@@ -12,6 +12,7 @@ use arbitrary_graph::{ArbitraryGraph, ArbitraryWeightedGraph};
 use libfuzzer_sys::fuzz_target;
 
 #[derive(Debug, Arbitrary)]
+#[allow(clippy::enum_variant_names)]
 enum MatchingInput {
     /// Maximal matching on unweighted graph.
     MaximalMatching(ArbitraryGraph),

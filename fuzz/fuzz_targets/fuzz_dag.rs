@@ -8,7 +8,6 @@
 mod arbitrary_graph;
 
 use arbitrary::Arbitrary;
-use arbitrary_graph::ArbitraryDiGraph;
 use libfuzzer_sys::fuzz_target;
 
 /// A directed acyclic graph generated via `Arbitrary`.

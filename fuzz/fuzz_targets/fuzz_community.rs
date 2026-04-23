@@ -71,7 +71,7 @@ fn arbitrary_partition_ids(node_count: usize, seed: u64) -> Vec<Vec<String>> {
     if node_count == 0 {
         return Vec::new();
     }
-    let k = (node_count.min(4)).max(1);
+    let k = node_count.clamp(1, 4);
     let mut buckets: Vec<Vec<String>> = (0..k).map(|_| Vec::new()).collect();
     for i in 0..node_count {
         let bucket_id = ((seed >> (i * 2)) as usize) % k;

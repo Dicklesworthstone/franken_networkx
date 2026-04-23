@@ -3,6 +3,12 @@
 //! Provides `Arbitrary` implementations that generate valid-but-pathological
 //! graph structures to exercise algorithm code paths that parser fuzzers
 //! cannot reach.
+//!
+//! This module is included by ~14 fuzz-target binaries, each of which uses
+//! only a subset of the generators. Suppress per-target dead-code warnings
+//! that would otherwise fire on the generators the binary happens not to
+//! use.
+#![allow(dead_code)]
 
 use arbitrary::{Arbitrary, Unstructured};
 use fnx_classes::digraph::{DiGraph, MultiDiGraph};
@@ -454,10 +460,10 @@ impl<'a> Arbitrary<'a> for ArbitraryMultiGraph {
                 // one or two additional parallel edges to exercise the
                 // keyed-multiplicity code paths.
                 let _ = graph.add_edge(&nodes[src_idx], &nodes[dst_idx]);
-                if parallel_bias % 4 != 0 {
+                if !parallel_bias.is_multiple_of(4) {
                     let _ = graph.add_edge(&nodes[src_idx], &nodes[dst_idx]);
                 }
-                if parallel_bias % 8 == 0 {
+                if parallel_bias.is_multiple_of(8) {
                     let _ = graph.add_edge(&nodes[src_idx], &nodes[dst_idx]);
                 }
             }
@@ -503,13 +509,13 @@ impl<'a> Arbitrary<'a> for ArbitraryMultiDiGraph {
                 // Occasionally add the reverse direction to get (u, v) *and*
                 // (v, u) pairs — the directed-multi code paths handle these
                 // distinctly from parallel same-direction edges.
-                if parallel_bias % 3 == 0 {
+                if parallel_bias.is_multiple_of(3) {
                     let _ = graph.add_edge(&nodes[dst_idx], &nodes[src_idx]);
                 }
-                if parallel_bias % 4 != 0 {
+                if !parallel_bias.is_multiple_of(4) {
                     let _ = graph.add_edge(&nodes[src_idx], &nodes[dst_idx]);
                 }
-                if parallel_bias % 8 == 0 {
+                if parallel_bias.is_multiple_of(8) {
                     let _ = graph.add_edge(&nodes[src_idx], &nodes[dst_idx]);
                 }
             }
