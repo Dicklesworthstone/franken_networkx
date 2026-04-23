@@ -160,15 +160,16 @@ class TestMultiGraphCentrality:
 
 class TestMultiGraphClustering:
     def test_clustering(self, mg_triangle):
-        cl = fnx.clustering(mg_triangle)
-        assert len(cl) == 3
-        # Triangle has clustering coefficient 1.0 for all nodes
-        for v in cl.values():
-            assert v == pytest.approx(1.0)
+        # Upstream nx.clustering raises NetworkXNotImplemented for
+        # multigraphs; fnx matches.
+        with pytest.raises(fnx.NetworkXNotImplemented):
+            fnx.clustering(mg_triangle)
 
     def test_transitivity(self, mg_triangle):
-        t = fnx.transitivity(mg_triangle)
-        assert t == pytest.approx(1.0)
+        # Upstream nx.transitivity raises NetworkXNotImplemented for
+        # multigraphs; fnx matches.
+        with pytest.raises(fnx.NetworkXNotImplemented):
+            fnx.transitivity(mg_triangle)
 
     def test_triangles(self, mg_triangle):
         tri = fnx.triangles(mg_triangle)
@@ -412,19 +413,21 @@ class TestMultiGraphNxParity:
         assert fnx_multi_dists == nx_multi_dists
         assert fnx_multi_paths == nx_multi_paths
 
-        assert fnx.all_pairs_dijkstra_path_length(
-            G, weight="cost"
-        ) == dict(nx.all_pairs_dijkstra_path_length(N, weight="cost"))
-        assert fnx.all_pairs_dijkstra_path(G, weight="cost") == dict(
+        # all_pairs_* now match the nx generator contract — materialise
+        # both sides for equality.
+        assert dict(fnx.all_pairs_dijkstra_path_length(G, weight="cost")) == dict(
+            nx.all_pairs_dijkstra_path_length(N, weight="cost")
+        )
+        assert dict(fnx.all_pairs_dijkstra_path(G, weight="cost")) == dict(
             nx.all_pairs_dijkstra_path(N, weight="cost")
         )
-        assert fnx.all_pairs_dijkstra(G, weight="cost") == dict(
+        assert dict(fnx.all_pairs_dijkstra(G, weight="cost")) == dict(
             nx.all_pairs_dijkstra(N, weight="cost")
         )
-        assert fnx.all_pairs_bellman_ford_path_length(
-            G, weight="cost"
-        ) == dict(nx.all_pairs_bellman_ford_path_length(N, weight="cost"))
-        assert fnx.all_pairs_bellman_ford_path(G, weight="cost") == dict(
+        assert dict(fnx.all_pairs_bellman_ford_path_length(G, weight="cost")) == dict(
+            nx.all_pairs_bellman_ford_path_length(N, weight="cost")
+        )
+        assert dict(fnx.all_pairs_bellman_ford_path(G, weight="cost")) == dict(
             nx.all_pairs_bellman_ford_path(N, weight="cost")
         )
         assert fnx.floyd_warshall(G, weight="cost") == dict(nx.floyd_warshall(N, weight="cost"))
@@ -474,12 +477,12 @@ class TestMultiGraphNxParity:
         assert fnx_dists == nx_dists
         assert fnx_paths == nx_paths
 
-        assert fnx.all_pairs_dijkstra_path_length(
-            D, weight="weight"
-        ) == dict(nx.all_pairs_dijkstra_path_length(N, weight="weight"))
-        assert fnx.all_pairs_dijkstra_path(D, weight="weight") == dict(
+        assert dict(fnx.all_pairs_dijkstra_path_length(D, weight="weight")) == dict(
+            nx.all_pairs_dijkstra_path_length(N, weight="weight")
+        )
+        assert dict(fnx.all_pairs_dijkstra_path(D, weight="weight")) == dict(
             nx.all_pairs_dijkstra_path(N, weight="weight")
         )
-        assert fnx.all_pairs_dijkstra(D, weight="weight") == dict(
+        assert dict(fnx.all_pairs_dijkstra(D, weight="weight")) == dict(
             nx.all_pairs_dijkstra(N, weight="weight")
         )
