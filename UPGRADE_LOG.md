@@ -309,3 +309,65 @@ in both manifests and `Cargo.lock`.
   `rch exec -- cargo test -p fnx-algorithms` green (lib tests + bench harness
   compile).
 
+---
+
+## Session 2026-04-23 (cc-networkx libupdater sweep)
+
+### Scope of this session
+
+Re-sweep of the main workspace (`Cargo.toml` + `crates/fnx-*/Cargo.toml`) to
+confirm every direct dependency is at its latest stable. The separate
+`fuzz/Cargo.toml` workspace was explicitly out of scope. `asupersync` must
+remain pinned at `0.3.1` in `Cargo.lock`.
+
+### Result
+
+**No bumps available.** All 21 external direct dependencies resolve to the
+current latest stable on crates.io. `cargo update --workspace --recursive
+--dry-run` reported `Locking 0 packages to latest compatible versions`, so no
+transitive bumps are available within the existing semver ranges either.
+
+### Verified Versions (latest stable, 2026-04-23)
+
+| Crate | Pinned | crates.io latest | Status |
+|---|---|---|---|
+| asupersync | 0.3.1 | 0.3.1 | pinned, matches Cargo.lock |
+| base64 | 0.22.1 | 0.22.1 | latest |
+| blake3 | 1.8.4 | 1.8.4 | latest |
+| criterion | 0.8.2 | 0.8.2 | latest |
+| dhat | 0.3.3 | 0.3.3 | latest |
+| hex | 0.4.3 | 0.4.3 | latest |
+| indexmap | 2.14.0 | 2.14.0 | latest |
+| log | 0.4.29 | 0.4.29 | latest |
+| mt19937 | 3.3.0 | 3.3.0 | latest |
+| mwmatching | 0.1.1 | 0.1.1 | latest |
+| proptest | 1.11.0 | 1.11.0 | latest |
+| pyo3 | 0.28.3 | 0.28.3 | latest |
+| pyo3-log | 0.13.3 | 0.13.3 | latest |
+| quick-xml | 0.39.2 | 0.39.2 | latest |
+| rand | 0.10.1 | 0.10.1 | latest |
+| rand_core | 0.10.1 | 0.10.1 | latest |
+| raptorq | 2.0.1 | 2.0.1 | latest |
+| serde | 1.0.228 | 1.0.228 | latest |
+| serde_json | 1.0.149 | 1.0.149 | latest |
+| tempfile | 3.27.0 | 3.27.0 | latest |
+| thiserror | 2.0.18 | 2.0.18 | latest |
+
+Additionally `ftui` is a local path dep (`/dp/frankentui/crates/ftui`,
+optional) and is not a crates.io source.
+
+### Verification
+
+- `cargo info <crate>` cross-checked each direct dep against the crates.io
+  index.
+- Sampled versions re-confirmed via direct `index.crates.io` HTTP GETs
+  (serde, pyo3, quick-xml, tempfile, criterion — all matched).
+- `rch exec -- env CARGO_TARGET_DIR=/tmp/rch_target_franken_networkx_cc cargo
+  check --workspace --all-targets` → green.
+- `asupersync 0.3.1` confirmed in `Cargo.lock` (line 98) with checksum
+  `eba4173c...8b70a`.
+
+### Circuit breakers / budget
+
+None tripped; 0 updates attempted.
+
