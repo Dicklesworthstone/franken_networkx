@@ -14278,9 +14278,15 @@ def information_centrality(
     )
 
 
-def second_order_centrality(G):
+def second_order_centrality(G, weight="weight", *, backend=None, **backend_kwargs):
     """Second-order centrality based on random walk standard deviation."""
-    if not G.is_directed() and not _graph_has_edge_attribute(G, "weight"):
+    _validate_backend_dispatch_keywords("second_order_centrality", backend, backend_kwargs)
+
+    if (
+        not G.is_directed()
+        and weight == "weight"
+        and not _graph_has_edge_attribute(G, "weight")
+    ):
         return _fnx.second_order_centrality_rust(G)
 
     if G.is_directed():
@@ -14297,24 +14303,19 @@ def second_order_centrality(G):
         return {nodelist[0]: 0.0}
     if not is_connected(G):
         raise NetworkXError("Non connected graph.")
-    if any(data.get("weight", 0) < 0 for _, _, data in G.edges(data=True)):
+    if any(data.get(weight, 0) < 0 for _, _, data in G.edges(data=True)):
         raise NetworkXError("Graph has negative edge weights.")
 
-    transition = to_numpy_array(G, nodelist=nodelist, weight="weight")
-    in_degree = transition.sum(axis=0)
-    max_in_degree = float(in_degree.max())
+    directed = DiGraph(G)
+    in_degree = dict(directed.in_degree(weight=weight))
+    max_in_degree = max(in_degree.values())
 
-    for idx, degree in enumerate(in_degree):
+    for node, degree in in_degree.items():
         if degree < max_in_degree:
-            transition[idx, idx] += max_in_degree - degree
+            directed.add_edge(node, node, weight=max_in_degree - degree)
 
-    row_sums = transition.sum(axis=1)[:, np.newaxis]
-    transition = np.divide(
-        transition,
-        row_sums,
-        out=np.zeros_like(transition, dtype=float),
-        where=row_sums != 0,
-    )
+    transition = to_numpy_array(directed, nodelist=nodelist)
+    transition /= transition.sum(axis=1)[:, np.newaxis]
 
     def _q_j_local(probabilities, column):
         restricted = probabilities.copy()

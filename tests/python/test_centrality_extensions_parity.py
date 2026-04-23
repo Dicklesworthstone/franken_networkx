@@ -116,6 +116,52 @@ def test_second_order_centrality_weighted_fallback_avoids_delegation(monkeypatch
     _assert_mapping_close(actual, expected)
 
 
+def test_second_order_centrality_signature_matches_networkx():
+    assert str(inspect.signature(fnx.second_order_centrality)) == str(
+        inspect.signature(nx.second_order_centrality)
+    )
+
+
+def test_second_order_centrality_weight_knobs_match_networkx():
+    actual_graph = fnx.path_graph(4)
+    actual_graph[0][1]["weight"] = 2.0
+    actual_graph[0][1]["alt"] = 3.0
+
+    expected_graph = nx.path_graph(4)
+    expected_graph[0][1]["weight"] = 2.0
+    expected_graph[0][1]["alt"] = 3.0
+
+    _assert_mapping_close(
+        fnx.second_order_centrality(actual_graph, weight=None),
+        nx.second_order_centrality(expected_graph, weight=None),
+    )
+    _assert_mapping_close(
+        fnx.second_order_centrality(actual_graph, weight="alt"),
+        nx.second_order_centrality(expected_graph, weight="alt"),
+    )
+
+
+def test_second_order_centrality_backend_keyword_surface_matches_networkx():
+    actual_graph = fnx.path_graph(4)
+    expected_graph = nx.path_graph(4)
+
+    for backend in (None, "networkx"):
+        _assert_mapping_close(
+            fnx.second_order_centrality(actual_graph, backend=backend),
+            nx.second_order_centrality(expected_graph, backend=backend),
+        )
+
+    with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+        fnx.second_order_centrality(actual_graph, backend="parallel")
+    with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+        nx.second_order_centrality(expected_graph, backend="parallel")
+
+    with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+        fnx.second_order_centrality(actual_graph, backend_kwargs={"x": 1})
+    with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+        nx.second_order_centrality(expected_graph, backend_kwargs={"x": 1})
+
+
 @pytest.mark.parametrize(
     "name",
     ["constraint", "effective_size", "local_constraint", "dispersion"],
