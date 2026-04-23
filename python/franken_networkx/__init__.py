@@ -4108,8 +4108,13 @@ def _rich_club_double_edge_swap(G, nswap=1, max_tries=100, seed=None):
     return G
 
 
-def rich_club_coefficient(G, normalized=True, Q=100, seed=None):
+def rich_club_coefficient(
+    G, normalized=True, Q=100, seed=None, *, backend=None, **backend_kwargs
+):
     """Return the rich-club coefficient of the graph."""
+    _validate_backend_dispatch_keywords(
+        "rich_club_coefficient", backend, backend_kwargs
+    )
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():

@@ -1420,6 +1420,33 @@ def _build_rich_club_case(graph, case_name):
 
 
 class TestRichClubCoefficientParity:
+    def test_backend_keyword_surface_matches_networkx(self):
+        graph = fnx.path_graph(4)
+        expected = nx.path_graph(4)
+
+        assert str(inspect.signature(fnx.rich_club_coefficient)) == str(
+            inspect.signature(nx.rich_club_coefficient)
+        )
+
+        for backend in (None, "networkx"):
+            assert fnx.rich_club_coefficient(
+                graph, normalized=False, backend=backend
+            ) == nx.rich_club_coefficient(expected, normalized=False, backend=backend)
+
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            fnx.rich_club_coefficient(graph, normalized=False, backend="parallel")
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            nx.rich_club_coefficient(expected, normalized=False, backend="parallel")
+
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            fnx.rich_club_coefficient(
+                graph, normalized=False, backend_kwargs={"x": 1}
+            )
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            nx.rich_club_coefficient(
+                expected, normalized=False, backend_kwargs={"x": 1}
+            )
+
     @pytest.mark.parametrize(
         ("fnx_cls", "nx_cls", "case_name", "kwargs"),
         [
