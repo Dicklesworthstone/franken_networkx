@@ -303,3 +303,38 @@ def test_multigraph_to_undirected_preserves_edge_attribute_named_key():
     u = g.to_undirected()
     edges = list(u.edges(keys=True, data=True))
     assert edges == [("a", "b", 0, {"weight": 5, "key": "stored"})]
+
+
+# ---------------------------------------------------------------------------
+# franken_networkx-3ehfp: graph-returning delegated exports must return fnx
+# graphs, not nx graphs (round-trip through readwrite._from_nx_graph).
+# ---------------------------------------------------------------------------
+
+
+def test_bfs_tree_returns_fnx_digraph():
+    g = fnx.Graph()
+    g.add_edges_from([(0, 1), (1, 2), (2, 3)])
+    tree = fnx.bfs_tree(g, 0)
+    assert isinstance(tree, fnx.DiGraph)
+    assert sorted(tree.edges()) == [(0, 1), (1, 2), (2, 3)]
+
+
+def test_random_tournament_returns_fnx_digraph():
+    tournament = fnx.random_tournament(5, seed=42)
+    assert isinstance(tournament, fnx.DiGraph)
+    assert tournament.number_of_nodes() == 5
+
+
+@pytest.mark.parametrize(
+    "fnx_cls",
+    [fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph],
+)
+def test_union_with_rename_returns_fnx_graph(fnx_cls):
+    g = fnx_cls()
+    h = fnx_cls()
+    g.add_edge("a", "b")
+    h.add_edge("c", "d")
+
+    combined = fnx.union(g, h, rename=("A-", "B-"))
+    assert isinstance(combined, fnx_cls)
+    assert sorted(combined.nodes()) == ["A-a", "A-b", "B-c", "B-d"]

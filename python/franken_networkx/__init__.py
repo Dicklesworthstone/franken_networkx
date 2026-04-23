@@ -3143,7 +3143,11 @@ def bfs_successors(G, source, depth_limit=None, sort_neighbors=None):
 
 def bfs_tree(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
     """Return BFS tree rooted at source."""
-    return _call_networkx_for_parity(
+    # Upstream returns an nx.DiGraph; round-trip through the fnx readwrite
+    # converter so callers see an fnx.DiGraph (franken_networkx-3ehfp).
+    from franken_networkx.readwrite import _from_nx_graph
+
+    nx_result = _call_networkx_for_parity(
         "bfs_tree",
         G,
         source,
@@ -3151,6 +3155,7 @@ def bfs_tree(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
         depth_limit=depth_limit,
         sort_neighbors=sort_neighbors,
     )
+    return _from_nx_graph(nx_result)
 
 
 def dfs_predecessors(G, source=None, depth_limit=None, sort_neighbors=None):
@@ -3914,14 +3919,27 @@ def union(G, H, rename=()):
 
 
 def _union_with_rename_via_parity(G, H, rename):
-    """Helper — keeps ``union`` classified as PY_WRAPPER."""
-    import networkx as _nx_mod
+    """Helper — keeps ``union`` classified as PY_WRAPPER.
 
-    return _nx_mod.union(
+    Wraps upstream nx.union (needed for ``rename`` support) and then
+    rehydrates the nx.Graph result back into the fnx Python surface
+    via ``_from_nx_graph`` — callers always receive an fnx graph, not
+    an nx graph (franken_networkx-3ehfp).
+    """
+    import networkx as _nx_mod
+    from franken_networkx.readwrite import _from_nx_graph
+
+    nx_result = _nx_mod.union(
         _networkx_graph_for_parity(G),
         _networkx_graph_for_parity(H),
         rename=rename,
     )
+    # Pick the fnx target class from G (nx.union preserves G's class).
+    if isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
+        create_using = type(G)()
+    else:
+        create_using = None
+    return _from_nx_graph(nx_result, create_using=create_using)
 
 # Algorithm functions — transitive closure/reduction
 from franken_networkx._fnx import (
@@ -4821,12 +4839,18 @@ def random_tournament(n, seed=None):
 
 
 def _random_tournament_via_parity(n, *, seed=None):
-    """Indirection helper — keeps ``random_tournament`` out of NX_DELEGATED."""
+    """Indirection helper — keeps ``random_tournament`` out of NX_DELEGATED.
+
+    Round-trips the upstream nx.DiGraph result back to fnx.DiGraph so
+    callers always receive an fnx graph (franken_networkx-3ehfp).
+    """
     from networkx.algorithms.tournament import (
         random_tournament as _upstream_random_tournament,
     )
+    from franken_networkx.readwrite import _from_nx_graph
 
-    return _upstream_random_tournament(n, seed=seed)
+    nx_result = _upstream_random_tournament(n, seed=seed)
+    return _from_nx_graph(nx_result, create_using=DiGraph())
 
 
 def is_reachable(G, s, t):
