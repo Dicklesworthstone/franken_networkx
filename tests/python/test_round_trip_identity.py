@@ -420,3 +420,63 @@ def test_gexf_multigraph_round_trip(fnx_cls):
     weights = sorted(d["weight"] for _, _, _, d in edges)
     assert weights == [1.0, 2.0, 3.0]
     assert parsed.number_of_edges() == 3
+
+
+# ---------------------------------------------------------------------------
+# franken_networkx-2ky8p: _gexf_document_is_multigraph must detect parallel
+# edges regardless of attribute order / quote style.
+# ---------------------------------------------------------------------------
+
+
+def _gexf_wrap(inner_edges):
+    return (
+        b'<?xml version="1.0"?><gexf xmlns="http://www.gexf.net/1.2draft">'
+        b'<graph><edges>' + inner_edges.encode("utf-8") + b'</edges></graph></gexf>'
+    )
+
+
+@pytest.mark.parametrize(
+    "inner",
+    [
+        '<edge source="0" target="1"/><edge source="0" target="1"/>',
+        '<edge target="1" source="0"/><edge target="1" source="0"/>',
+        "<edge source='0' target='1'/><edge source='0' target='1'/>",
+        "<edge target='1' source='0'/><edge target='1' source='0'/>",
+    ],
+)
+def test_gexf_multigraph_detection_attribute_order_agnostic(inner):
+    from franken_networkx.readwrite import _gexf_document_is_multigraph
+
+    assert _gexf_document_is_multigraph(_gexf_wrap(inner)) is True
+
+
+@pytest.mark.parametrize(
+    "inner",
+    [
+        '<edge source="0" target="1"/>',
+        '<edge source="0" target="1"/><edge source="1" target="2"/>',
+        '',
+    ],
+)
+def test_gexf_multigraph_detection_negative_cases(inner):
+    from franken_networkx.readwrite import _gexf_document_is_multigraph
+
+    assert _gexf_document_is_multigraph(_gexf_wrap(inner)) is False
+
+
+def test_gexf_multigraph_detection_parallel_true_attribute():
+    """The `parallel="true"` declaration on <edges> forces multigraph
+    interpretation even with a single edge.
+    """
+    from franken_networkx.readwrite import _gexf_document_is_multigraph
+
+    doc = _gexf_wrap('<edge source="0" target="1"/>').replace(
+        b"<edges>", b'<edges parallel="true">'
+    )
+    assert _gexf_document_is_multigraph(doc) is True
+
+
+def test_gexf_multigraph_detection_malformed_xml_returns_false():
+    from franken_networkx.readwrite import _gexf_document_is_multigraph
+
+    assert _gexf_document_is_multigraph(b"<not-valid-xml>") is False

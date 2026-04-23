@@ -1254,23 +1254,40 @@ def _generate_gexf_via_nx(G, *, encoding, prettyprint, version):
 
 def _gexf_document_is_multigraph(raw_bytes):
     """Inexpensive peek: does this GEXF document declare parallel
-    edges or contain repeated (source, target) pairs?
+    edges or contain repeated ``(source, target)`` pairs?
+
+    Pulls ``source`` / ``target`` attributes off every ``<edge>``
+    element with ``xml.etree.ElementTree.iterparse`` so attribute
+    order and quote style don't matter (franken_networkx-2ky8p). The
+    ``parallel="true"`` declaration on ``<edges>`` is also honoured.
     """
-    # GEXF spec: parallel edges are signalled by repeated source/target
-    # pairs on <edge> elements or by the optional ``parallel="true"``
-    # attribute on <edges>. A fast substring check catches both without
-    # a full XML parse.
     try:
         text = raw_bytes.decode("utf-8", errors="ignore")
     except Exception:
         return False
-    if 'parallel="true"' in text:
+    if 'parallel="true"' in text or "parallel='true'" in text:
         return True
-    # Count <edge ...> occurrences and compare against unique
-    # (source, target) pairs: cheap but accurate.
-    import re
 
-    pairs = re.findall(r'<edge\b[^>]*\bsource="([^"]+)"[^>]*\btarget="([^"]+)"', text)
+    import xml.etree.ElementTree as ET
+    from io import BytesIO
+
+    pairs = []
+    try:
+        for _event, elem in ET.iterparse(BytesIO(raw_bytes), events=("end",)):
+            # Tag names in GEXF carry a namespace prefix like
+            # "{http://www.gexf.net/1.2draft}edge"; strip it before
+            # comparing so any GEXF version matches.
+            tag = elem.tag.rsplit("}", 1)[-1] if "}" in elem.tag else elem.tag
+            if tag == "edge":
+                source = elem.attrib.get("source")
+                target = elem.attrib.get("target")
+                if source is not None and target is not None:
+                    pairs.append((source, target))
+            # Free memory — we only need attribute values, not the tree.
+            elem.clear()
+    except ET.ParseError:
+        return False
+
     if not pairs:
         return False
     return len(pairs) != len(set(pairs))
