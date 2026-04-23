@@ -907,7 +907,9 @@ class TestExpansionMetrics:
     def test_non_edges_count(self, data):
         """Non-edges + edges = total possible edges for simple graph."""
         G_fnx, _, n = data
-        ne = len(fnx.non_edges(G_fnx))
+        # non_edges is a generator now; count without materialising
+        # the full list.
+        ne = sum(1 for _ in fnx.non_edges(G_fnx))
         total_possible = n * (n - 1) // 2
         assert ne + G_fnx.number_of_edges() == total_possible
 

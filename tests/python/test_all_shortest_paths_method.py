@@ -60,14 +60,25 @@ class TestAllShortestPathsMethod:
         )
         assert paths == [[0, 1, 2]]
 
-    def test_bellman_ford_undirected_raises(self, weighted_graph):
-        """method='bellman-ford' on undirected graph should raise (negative cycle risk)."""
-        with pytest.raises(NotImplementedError):
-            list(
-                fnx.all_shortest_paths(
-                    weighted_graph, 0, 2, weight="weight", method="bellman-ford"
-                )
+    def test_bellman_ford_undirected_matches_nx(
+        self, weighted_graph, nx_weighted_graph
+    ):
+        """method='bellman-ford' on an undirected graph is supported by
+        upstream nx (bellman-ford handles negative weights; undirected is
+        fine when there are no negative cycles). fnx matches — verify
+        both sides agree rather than asserting a spurious raise.
+        """
+        fnx_paths = list(
+            fnx.all_shortest_paths(
+                weighted_graph, 0, 2, weight="weight", method="bellman-ford"
             )
+        )
+        nx_paths = list(
+            nx.all_shortest_paths(
+                nx_weighted_graph, 0, 2, weight="weight", method="bellman-ford"
+            )
+        )
+        assert fnx_paths == nx_paths
 
     def test_unweighted_method_explicit(self, weighted_graph, nx_weighted_graph):
         """method='unweighted' ignores edge weights."""

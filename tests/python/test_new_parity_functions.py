@@ -39,10 +39,15 @@ class TestGirvanNewman:
         assert sizes == [3, 3]
 
     def test_single_node(self):
+        """Upstream nx.community.girvan_newman on a single-node graph
+        yields one partition with one community — the node itself.
+        fnx matches the contract (community shape is ``list`` on fnx,
+        ``set`` on nx; compare by frozenset to stay stable).
+        """
         G = fnx.Graph()
         G.add_node(0)
         partitions = list(fnx.girvan_newman(G))
-        assert partitions == []
+        assert [[frozenset(c) for c in p] for p in partitions] == [[frozenset({0})]]
 
     def test_empty_graph(self):
         G = fnx.Graph()
