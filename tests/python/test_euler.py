@@ -23,9 +23,10 @@ class TestEuler:
 
     def test_eulerian_circuit_k3(self, fnx, nx, triangle_graph):
         G_fnx, G_nx = triangle_graph
-        fnx_circuit = fnx.eulerian_circuit(G_fnx)
+        # eulerian_circuit returns a generator on both sides; materialise
+        # once before introspecting length / adjacency chaining.
+        fnx_circuit = list(fnx.eulerian_circuit(G_fnx))
         nx_circuit = list(nx.eulerian_circuit(G_nx))
-        # Same number of edges in circuit
         assert len(fnx_circuit) == len(nx_circuit)
         # Verify it actually forms a valid circuit
         for i in range(len(fnx_circuit) - 1):
@@ -33,14 +34,16 @@ class TestEuler:
 
     def test_eulerian_path_simple(self, fnx, nx, path_graph):
         G_fnx, G_nx = path_graph
-        fnx_path = fnx.eulerian_path(G_fnx)
+        fnx_path = list(fnx.eulerian_path(G_fnx))
         nx_path = list(nx.eulerian_path(G_nx))
         assert len(fnx_path) == len(nx_path)
 
     def test_non_eulerian_raises(self, fnx, star_graph):
         G_fnx, _ = star_graph
+        # Generator-based exceptions only fire on iteration; materialise
+        # via list() to trigger the NetworkXError upstream raises.
         with pytest.raises(fnx.NetworkXError):
-            fnx.eulerian_circuit(G_fnx)
+            list(fnx.eulerian_circuit(G_fnx))
 
     def test_isolated_node_blocks_eulerian(self, fnx, nx, triangle_graph):
         G_fnx, G_nx = triangle_graph
@@ -54,4 +57,4 @@ class TestEuler:
         with pytest.raises(nx.NetworkXError):
             list(nx.eulerian_path(G_nx, source="c"))
         with pytest.raises(fnx.NetworkXError):
-            fnx.eulerian_path(G_fnx, source="c")
+            list(fnx.eulerian_path(G_fnx, source="c"))

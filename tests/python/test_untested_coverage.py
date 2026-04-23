@@ -53,7 +53,10 @@ class TestConnectivityCoverage:
 
     def test_all_neighbors_directed(self):
         D = _digraph()
-        nbrs = fnx.all_neighbors(D, 0)
+        # all_neighbors returns an itertools.chain iterator. Materialise
+        # once so both successor and predecessor membership checks run
+        # against the same contents.
+        nbrs = set(fnx.all_neighbors(D, 0))
         assert 1 in nbrs  # successor
         assert 3 in nbrs  # predecessor
 

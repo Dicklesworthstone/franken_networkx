@@ -84,12 +84,22 @@ class TestNetworkXNoPath:
 
     def test_dijkstra_path_no_path(self):
         G = _make_disconnected()
-        with pytest.raises(fnx.NetworkXNoPath, match=r"No path between.*and"):
+        # Upstream nx.dijkstra_path raises NetworkXNoPath with the message
+        # "No path to <target>." — not the "between ... and" wording used
+        # by shortest_path. Accept either wording for parity.
+        with pytest.raises(
+            fnx.NetworkXNoPath, match=r"No path (between.*and|to)"
+        ):
             fnx.dijkstra_path(G, "a", "c")
 
     def test_bellman_ford_path_no_path(self):
         G = _make_disconnected()
-        with pytest.raises(fnx.NetworkXNoPath, match=r"No path between.*and"):
+        # bellman_ford raises NetworkXNoPath with a different wording
+        # than dijkstra: "Target {t} cannot be reached from given sources".
+        with pytest.raises(
+            fnx.NetworkXNoPath,
+            match=r"(No path (between.*and|to)|cannot be reached)",
+        ):
             fnx.bellman_ford_path(G, "a", "c")
 
     def test_has_path_returns_false(self):
@@ -215,11 +225,13 @@ class TestNetworkXNotImplemented:
     def test_bridges_digraph(self):
         DG = fnx.DiGraph()
         DG.add_edge("a", "b")
+        # bridges returns a generator; NetworkXNotImplemented only fires
+        # on iteration.
         with pytest.raises(
             fnx.NetworkXNotImplemented,
             match=r"not implemented for directed type",
         ):
-            fnx.bridges(DG)
+            list(fnx.bridges(DG))
 
     def test_is_arborescence_undirected(self):
         G = fnx.Graph()
@@ -247,8 +259,10 @@ class TestEulerErrors:
 
     def test_eulerian_circuit_not_eulerian(self):
         G = _make_path()  # a-b-c is not Eulerian
+        # eulerian_circuit returns a generator; the NetworkXError is
+        # raised on iteration, not at call time.
         with pytest.raises(fnx.NetworkXError, match=r"G is not Eulerian"):
-            fnx.eulerian_circuit(G)
+            list(fnx.eulerian_circuit(G))
 
     def test_eulerian_path_not_semi_eulerian(self):
         """Graph with 4 odd-degree nodes has no Eulerian path."""
@@ -259,7 +273,7 @@ class TestEulerErrors:
             fnx.NetworkXError,
             match=r"Graph has no Eulerian paths\.",
         ):
-            fnx.eulerian_path(G)
+            list(fnx.eulerian_path(G))
 
 
 # ---------------------------------------------------------------------------
@@ -283,7 +297,7 @@ class TestPointlessConceptNullGraph:
             fnx.NetworkXPointlessConcept,
             match=r"Connectivity is undefined for the null graph",
         ):
-            fnx.eulerian_circuit(G)
+            list(fnx.eulerian_circuit(G))
 
     def test_eulerian_path_empty_graph(self):
         G = fnx.Graph()
@@ -291,7 +305,7 @@ class TestPointlessConceptNullGraph:
             fnx.NetworkXPointlessConcept,
             match=r"Connectivity is undefined for the null graph",
         ):
-            fnx.eulerian_path(G)
+            list(fnx.eulerian_path(G))
 
     def test_has_eulerian_path_empty_digraph(self):
         DG = fnx.DiGraph()

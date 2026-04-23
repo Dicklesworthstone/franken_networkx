@@ -62,12 +62,18 @@ class TestIsArborescence:
     def test_cycle_not_arborescence(self, directed_cycle):
         assert fnx.is_arborescence(directed_cycle) is False
 
-    def test_undirected_returns_false(self, triangle):
-        assert fnx.is_arborescence(triangle) is False
+    def test_undirected_raises_not_implemented(self, triangle):
+        """Matches upstream: is_arborescence is decorated with
+        @not_implemented_for('undirected')."""
+        with pytest.raises(fnx.NetworkXNotImplemented, match="not implemented"):
+            fnx.is_arborescence(triangle)
 
-    def test_empty_digraph(self):
+    def test_empty_digraph_raises_pointless_concept(self):
+        """Matches upstream: is_arborescence raises NetworkXPointlessConcept
+        on an empty graph (no nodes)."""
         D = fnx.DiGraph()
-        assert fnx.is_arborescence(D) is False
+        with pytest.raises(fnx.NetworkXPointlessConcept, match="no nodes"):
+            fnx.is_arborescence(D)
 
     def test_single_node(self):
         D = fnx.DiGraph()
@@ -100,12 +106,18 @@ class TestIsBranching:
     def test_cycle_not_branching(self, directed_cycle):
         assert fnx.is_branching(directed_cycle) is False
 
-    def test_undirected_returns_false(self, triangle):
-        assert fnx.is_branching(triangle) is False
+    def test_undirected_raises_not_implemented(self, triangle):
+        """Matches upstream: is_branching is decorated with
+        @not_implemented_for('undirected')."""
+        with pytest.raises(fnx.NetworkXNotImplemented, match="not implemented"):
+            fnx.is_branching(triangle)
 
-    def test_empty_digraph(self):
+    def test_empty_digraph_raises_pointless_concept(self):
+        """Matches upstream: is_branching raises NetworkXPointlessConcept
+        on an empty graph (no nodes)."""
         D = fnx.DiGraph()
-        assert fnx.is_branching(D) is True
+        with pytest.raises(fnx.NetworkXPointlessConcept, match="no nodes"):
+            fnx.is_branching(D)
 
 
 # ---------------------------------------------------------------------------

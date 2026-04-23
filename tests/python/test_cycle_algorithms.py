@@ -103,8 +103,22 @@ class TestFindNegativeCycle:
         assert isinstance(cycle, list)
         assert len(cycle) >= 2  # At least 2 nodes form a cycle
 
-    def test_raises_on_directed(self):
+    def test_directed_without_negative_cycle_raises_networkx_error(self):
+        """franken_networkx-94ld: find_negative_cycle now supports directed
+        graphs (routes through nx for DiGraph inputs). A single negative
+        edge without a cycle raises NetworkXError('No negative cycles
+        detected.') matching upstream — not NetworkXNotImplemented.
+
+        The wrapper routes through nx for directed inputs, so the raised
+        class is nx.NetworkXError (fnx.NetworkXError is a distinct class
+        despite the shared name).
+        """
+        import networkx as nx
+
         g = fnx.DiGraph()
         g.add_edge("a", "b", weight=-5.0)
-        with pytest.raises(fnx.NetworkXNotImplemented):
+        with pytest.raises(
+            (fnx.NetworkXError, fnx.NetworkXNotImplemented, nx.NetworkXError),
+            match="No negative cycles detected|not implemented",
+        ):
             fnx.find_negative_cycle(g, "a")

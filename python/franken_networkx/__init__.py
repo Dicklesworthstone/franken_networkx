@@ -13735,7 +13735,12 @@ def is_kl_connected(G, k, l, low_memory=False):
         return True
     for removed in combinations(nodes, k - 1):
         remaining = [n for n in nodes if n not in set(removed)]
-        if remaining and number_connected_components(G.subgraph(remaining)) > l:
+        # number_connected_components dispatches on Rust graph types and
+        # rejects filtered subgraph views — materialise via .copy() so
+        # the induced subgraph is a concrete fnx.Graph.
+        if remaining and number_connected_components(
+            G.subgraph(remaining).copy()
+        ) > l:
             return False
     return True
 
