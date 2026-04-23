@@ -1100,6 +1100,29 @@ def _build_number_of_walks_case(graph, case_name):
 
 
 class TestNumberOfWalksParity:
+    def test_backend_keyword_surface_matches_networkx(self):
+        graph = fnx.path_graph(3)
+        expected = nx.path_graph(3)
+
+        assert str(inspect.signature(fnx.number_of_walks)) == str(
+            inspect.signature(nx.number_of_walks)
+        )
+
+        for backend in (None, "networkx"):
+            assert fnx.number_of_walks(graph, 2, backend=backend) == nx.number_of_walks(
+                expected, 2, backend=backend
+            )
+
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            fnx.number_of_walks(graph, 2, backend="parallel")
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            nx.number_of_walks(expected, 2, backend="parallel")
+
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            fnx.number_of_walks(graph, 2, backend_kwargs={"x": 1})
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            nx.number_of_walks(expected, 2, backend_kwargs={"x": 1})
+
     @pytest.mark.parametrize(
         ("fnx_cls", "nx_cls", "case_name", "walk_length"),
         [

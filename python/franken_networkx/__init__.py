@@ -14804,10 +14804,11 @@ def node_degree_xy(G, x="out", y="in", weight=None, nodes=None):
                 yield (deg[u], deg[v])
 
 
-def number_of_walks(G, walk_length):
+def number_of_walks(G, walk_length, *, backend=None, **backend_kwargs):
     """Count walks of given length via adjacency matrix power."""
     import numpy as np
 
+    _validate_backend_dispatch_keywords("number_of_walks", backend, backend_kwargs)
     if len(G) == 0:
         raise NetworkXError("Graph has no nodes or edges")
     if walk_length < 0:
