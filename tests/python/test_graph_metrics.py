@@ -943,6 +943,32 @@ def _build_sigma_case(graph, case_name):
 
 
 class TestSigmaParity:
+    def test_backend_keyword_surface_matches_networkx(self):
+        graph = fnx.complete_graph(4)
+        expected = nx.complete_graph(4)
+
+        assert str(inspect.signature(fnx.sigma)) == str(inspect.signature(nx.sigma))
+
+        for backend in (None, "networkx"):
+            actual = fnx.sigma(graph, niter=2, nrand=2, seed=123, backend=backend)
+            expected_result = nx.sigma(
+                expected, niter=2, nrand=2, seed=123, backend=backend
+            )
+            if math.isnan(expected_result):
+                assert math.isnan(actual)
+            else:
+                assert actual == expected_result
+
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            fnx.sigma(graph, niter=2, nrand=2, seed=123, backend="parallel")
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            nx.sigma(expected, niter=2, nrand=2, seed=123, backend="parallel")
+
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            fnx.sigma(graph, niter=2, nrand=2, seed=123, backend_kwargs={"x": 1})
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            nx.sigma(expected, niter=2, nrand=2, seed=123, backend_kwargs={"x": 1})
+
     @pytest.mark.parametrize(
         ("fnx_cls", "nx_cls", "case_name"),
         [

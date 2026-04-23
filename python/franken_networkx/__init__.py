@@ -13456,7 +13456,7 @@ def is_distance_regular(G):
     return _raw_is_distance_regular(G)
 
 
-def sigma(G, niter=100, nrand=10, seed=None):
+def sigma(G, niter=100, nrand=10, seed=None, *, backend=None, **backend_kwargs):
     """Return the small-world sigma coefficient.
 
     sigma = (C/C_rand) / (L/L_rand) where C is clustering, L is avg path.
@@ -13465,6 +13465,7 @@ def sigma(G, niter=100, nrand=10, seed=None):
     import numpy as np
     import random as _random
 
+    _validate_backend_dispatch_keywords("sigma", backend, backend_kwargs)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
