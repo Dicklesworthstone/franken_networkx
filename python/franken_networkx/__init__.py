@@ -14938,17 +14938,6 @@ def equivalence_classes(iterable, relation):
     return classes
 
 
-class _NeighborhoodCacheLocal(dict):
-    """Cache graph neighborhoods as concrete lists."""
-
-    def __init__(self, graph):
-        self.graph = graph
-
-    def __missing__(self, node):
-        neighbors = self[node] = list(self.graph[node])
-        return neighbors
-
-
 def _node_order_key_local(node):
     return (type(node).__module__, type(node).__qualname__, repr(node))
 
