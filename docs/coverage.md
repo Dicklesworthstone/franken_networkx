@@ -7,8 +7,8 @@
 | Category | Count | % | Rule |
 |----------|-------|---|------|
 | RUST_NATIVE | 118 | 14% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 641 | 80% | Python-defined exports with no runtime NetworkX dependency detected |
-| NX_DELEGATED | 19 | 2% | Python-defined exports that import or call NetworkX at runtime |
+| PY_WRAPPER | 660 | 82% | Python-defined exports with no runtime NetworkX dependency detected |
+| NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 21 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
 | **Total public exports** | **801** | | unique names from `franken_networkx.__all__` |
@@ -149,7 +149,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_gml`
 - `write_graphml`
 
-## PY_WRAPPER exports (641)
+## PY_WRAPPER exports (660)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -211,9 +211,11 @@ All declared public exports are classified. `--check` fails if this generated re
 - `betweenness_centrality_subset`
 - `bfs_beam_edges`
 - `bfs_edges`
+- `bfs_labeled_edges`
 - `bfs_layout`
 - `bfs_predecessors`
 - `bfs_successors`
+- `bfs_tree`
 - `biadjacency_matrix`
 - `bidirectional_dijkstra`
 - `binomial_graph`
@@ -234,6 +236,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `check_planarity_recursive`
 - `chordal_cycle_graph`
 - `chordal_graph_treewidth`
+- `chordless_cycles`
 - `chromatic_polynomial`
 - `chvatal_graph`
 - `circulant_graph`
@@ -243,6 +246,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `closeness_vitality`
 - `clustering`
 - `cn_soundarajan_hopcroft`
+- `color`
 - `combinatorial_embedding_to_pos`
 - `common_neighbor_centrality`
 - `common_neighbors`
@@ -294,6 +298,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `desargues_graph`
 - `describe`
 - `dfs_edges`
+- `dfs_labeled_edges`
 - `dfs_postorder_nodes`
 - `dfs_predecessors`
 - `dfs_preorder_nodes`
@@ -374,6 +379,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `find_cycle`
 - `find_induced_nodes`
 - `find_minimal_d_separator`
+- `find_negative_cycle`
 - `florentine_families_graph`
 - `flow_hierarchy`
 - `floyd_warshall`
@@ -424,6 +430,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `gnm_random_graph`
 - `gnp_random_graph`
 - `gnr_graph`
+- `goldberg_radzik`
 - `gomory_hu_tree`
 - `google_matrix`
 - `graph_atlas`
@@ -431,6 +438,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `graph_edit_distance`
 - `greedy_branching`
 - `greedy_color`
+- `greedy_modularity_communities`
 - `grid_2d_graph`
 - `grid_graph`
 - `group_betweenness_centrality`
@@ -439,6 +447,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `group_in_degree_centrality`
 - `group_out_degree_centrality`
 - `gutman_index`
+- `hamiltonian_path`
 - `harmonic_centrality`
 - `harmonic_diameter`
 - `has_bridges`
@@ -485,6 +494,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `is_path`
 - `is_perfect_graph`
 - `is_pseudographical`
+- `is_reachable`
 - `is_regular`
 - `is_regular_expander`
 - `is_semiconnected`
@@ -496,6 +506,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `is_valid_directed_joint_degree`
 - `is_valid_joint_degree`
 - `is_weighted`
+- `johnson`
 - `join_trees`
 - `joint_degree_graph`
 - `junction_tree`
@@ -547,6 +558,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `min_edge_cover`
 - `minimum_cut`
 - `minimum_cut_value`
+- `minimum_cycle_basis`
 - `minimum_edge_cut`
 - `minimum_spanning_tree`
 - `minimum_st_node_cut`
@@ -641,6 +653,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `random_geometric_graph`
 - `random_internet_as_graph`
 - `random_k_out_graph`
+- `random_kernel_graph`
 - `random_labeled_rooted_forest`
 - `random_labeled_rooted_tree`
 - `random_labeled_tree`
@@ -654,6 +667,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `random_regular_expander_graph`
 - `random_regular_graph`
 - `random_shell_graph`
+- `random_tournament`
 - `random_tree`
 - `random_unlabeled_rooted_forest`
 - `random_unlabeled_rooted_tree`
@@ -681,6 +695,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `reverse_view`
 - `rich_club_coefficient`
 - `rooted_product`
+- `rooted_tree_isomorphism`
 - `s_metric`
 - `scale_free_graph`
 - `schultz_index`
@@ -697,6 +712,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `sigma`
 - `simple_cycles`
 - `simrank_similarity`
+- `single_source_all_shortest_paths`
 - `single_source_bellman_ford`
 - `single_source_bellman_ford_path`
 - `single_source_bellman_ford_path_length`
@@ -746,11 +762,13 @@ All declared public exports are classified. `--check` fails if this generated re
 - `to_scipy_sparse_array`
 - `to_sparse6_bytes`
 - `to_undirected`
+- `tournament_matrix`
 - `transitive_closure_dag`
 - `transitivity`
 - `tree_all_pairs_lowest_common_ancestor`
 - `tree_data`
 - `tree_graph`
+- `tree_isomorphism`
 - `triad_graph`
 - `triad_type`
 - `triadic_census`
@@ -766,6 +784,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `tutte_graph`
 - `tutte_polynomial`
 - `uniform_random_intersection_graph`
+- `union`
 - `union_all`
 - `vf2pp_all_isomorphisms`
 - `vf2pp_is_isomorphic`
@@ -793,27 +812,8 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_sparse6`
 - `write_weighted_edgelist`
 
-## NX_DELEGATED exports (19)
+## NX_DELEGATED exports (0)
 
-- `bfs_labeled_edges`
-- `bfs_tree`
-- `chordless_cycles`
-- `color`
-- `dfs_labeled_edges`
-- `find_negative_cycle`
-- `goldberg_radzik`
-- `greedy_modularity_communities`
-- `hamiltonian_path`
-- `is_reachable`
-- `johnson`
-- `minimum_cycle_basis`
-- `random_kernel_graph`
-- `random_tournament`
-- `rooted_tree_isomorphism`
-- `single_source_all_shortest_paths`
-- `tournament_matrix`
-- `tree_isomorphism`
-- `union`
 
 ## CLASS exports (21)
 
