@@ -2,6 +2,7 @@
 average_degree_connectivity, rich_club_coefficient, and s_metric."""
 
 import math
+import inspect
 import networkx as nx
 import pytest
 
@@ -344,6 +345,27 @@ def _build_wiener_case(graph, case_name):
 
 
 class TestWienerIndexParity:
+    def test_backend_keyword_surface_matches_networkx(self):
+        graph = fnx.path_graph(3)
+        expected = nx.path_graph(3)
+
+        assert str(inspect.signature(fnx.wiener_index)) == str(inspect.signature(nx.wiener_index))
+
+        for backend in (None, "networkx"):
+            assert fnx.wiener_index(graph, backend=backend) == nx.wiener_index(
+                expected, backend=backend
+            )
+
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            fnx.wiener_index(graph, backend="parallel")
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            nx.wiener_index(expected, backend="parallel")
+
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            fnx.wiener_index(graph, backend_kwargs={"x": 1})
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            nx.wiener_index(expected, backend_kwargs={"x": 1})
+
     @pytest.mark.parametrize(
         ("fnx_cls", "nx_cls", "case_name"),
         [
@@ -462,6 +484,29 @@ def _build_closeness_vitality_case(graph, case_name):
 
 
 class TestClosenessVitalityParity:
+    def test_backend_keyword_surface_matches_networkx(self):
+        graph = fnx.path_graph(3)
+        expected = nx.path_graph(3)
+
+        assert str(inspect.signature(fnx.closeness_vitality)) == str(
+            inspect.signature(nx.closeness_vitality)
+        )
+
+        for backend in (None, "networkx"):
+            assert fnx.closeness_vitality(graph, backend=backend) == nx.closeness_vitality(
+                expected, backend=backend
+            )
+
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            fnx.closeness_vitality(graph, backend="parallel")
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            nx.closeness_vitality(expected, backend="parallel")
+
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            fnx.closeness_vitality(graph, backend_kwargs={"x": 1})
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            nx.closeness_vitality(expected, backend_kwargs={"x": 1})
+
     @pytest.mark.parametrize(
         ("fnx_cls", "nx_cls", "case_name", "kwargs"),
         [
@@ -1478,6 +1523,25 @@ def _build_s_metric_case(graph, case_name):
 
 
 class TestSMetricParity:
+    def test_backend_keyword_surface_matches_networkx(self):
+        graph = fnx.path_graph(3)
+        expected = nx.path_graph(3)
+
+        assert str(inspect.signature(fnx.s_metric)) == str(inspect.signature(nx.s_metric))
+
+        for backend in (None, "networkx"):
+            assert fnx.s_metric(graph, backend=backend) == nx.s_metric(expected, backend=backend)
+
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            fnx.s_metric(graph, backend="parallel")
+        with pytest.raises(ImportError, match="'parallel' backend is not installed"):
+            nx.s_metric(expected, backend="parallel")
+
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            fnx.s_metric(graph, backend_kwargs={"x": 1})
+        with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
+            nx.s_metric(expected, backend_kwargs={"x": 1})
+
     @pytest.mark.parametrize(
         ("fnx_cls", "nx_cls", "case_name"),
         [

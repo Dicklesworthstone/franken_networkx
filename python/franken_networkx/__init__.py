@@ -3243,8 +3243,9 @@ def reciprocity(G, nodes=None):
 
 
 # Algorithm functions — Wiener index
-def wiener_index(G, weight=None):
+def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
     """Returns the Wiener index of the given graph."""
+    _validate_backend_dispatch_keywords("wiener_index", backend, backend_kwargs)
     connected = is_strongly_connected(G) if G.is_directed() else is_connected(G)
     if not connected:
         return float("inf")
@@ -4123,8 +4124,9 @@ def rich_club_coefficient(G, normalized=True, Q=100, seed=None):
     return rc
 
 
-def s_metric(G):
+def s_metric(G, *, backend=None, **backend_kwargs):
     """Return the s-metric of the graph."""
+    _validate_backend_dispatch_keywords("s_metric", backend, backend_kwargs)
     degree_view = G.degree
     if callable(degree_view):
         degree_of = degree_view
@@ -7765,7 +7767,15 @@ def _dispersion_pair(G, u, v, normalized, alpha, b, c):
     return disp
 
 
-def closeness_vitality(G, node=None, weight=None, wiener_index=None):
+def closeness_vitality(
+    G,
+    node=None,
+    weight=None,
+    wiener_index=None,
+    *,
+    backend=None,
+    **backend_kwargs,
+):
     """Return the closeness vitality of nodes.
 
     Closeness vitality of a node is the change in the Wiener index
@@ -7784,13 +7794,15 @@ def closeness_vitality(G, node=None, weight=None, wiener_index=None):
     -------
     float or dict
     """
+    _validate_backend_dispatch_keywords("closeness_vitality", backend, backend_kwargs)
     wi = (
         wiener_index
         if wiener_index is not None
         else globals()["wiener_index"](G, weight=weight)
     )
     if node is not None:
-        after = globals()["wiener_index"](G.subgraph(set(G) - {node}), weight=weight)
+        after_graph = G.subgraph(set(G) - {node}).copy()
+        after = globals()["wiener_index"](after_graph, weight=weight)
         return wi - after
     return {
         v: closeness_vitality(G, node=v, weight=weight, wiener_index=wi) for v in G
