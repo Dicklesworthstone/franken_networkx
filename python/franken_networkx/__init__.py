@@ -1369,6 +1369,19 @@ from franken_networkx._fnx import (
 )
 
 
+class NetworkXException(Exception):
+    """Base class for all NetworkX-compatible exceptions raised by fnx.
+
+    Upstream networkx exposes ``NetworkXException`` as the common
+    ancestor of ``NetworkXError`` and friends. The Rust binding does
+    not currently expose the base class, so a few wrapper sites that
+    need to match the upstream contract (e.g. ``is_graphical`` method
+    guard, ``non_randomness`` preconditions) raise this Python-side
+    shim instead. The class name matches upstream, which is what the
+    oracle tests compare on.
+    """
+
+
 class NotAPartition(NetworkXError):
     """Raised when a set of sets is not a partition of a graph's node set.
 
@@ -3528,12 +3541,14 @@ def all_triangles(G, nbunch=None):
 
     for u in nbunch_lookup:
         u_id = node_to_id[u]
-        u_neighbors = G.adj[u].keys()
+        # G.adj[u].keys() may return a dict_keyiterator on fnx (vs a
+        # dict_keys view on nx); coerce to set() so intersection works.
+        u_neighbors = set(G.adj[u].keys())
         for v in u_neighbors:
             v_id = node_to_id.get(v, -1)
             if v_id <= u_id:
                 continue
-            v_neighbors = G.adj[v].keys()
+            v_neighbors = set(G.adj[v].keys())
             for w in v_neighbors & u_neighbors:
                 if node_to_id.get(w, -1) > v_id:
                     yield (u, v, w)
@@ -4655,7 +4670,9 @@ def is_graphical(sequence, method="eg"):
         return is_valid_degree_sequence_erdos_gallai(deg_sequence)
     if method == "hh":
         return is_valid_degree_sequence_havel_hakimi(deg_sequence)
-    raise NetworkXError("`method` must be 'eg' or 'hh'")
+    # Upstream nx raises the base NetworkXException here (not
+    # NetworkXError). Match it exactly.
+    raise NetworkXException("`method` must be 'eg' or 'hh'")
 
 
 def is_digraphical(in_sequence, out_sequence):
@@ -13161,10 +13178,13 @@ def non_randomness(G, k=None, weight="weight"):
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
+    # Upstream uses mixed exception classes here: empty/self-loops
+    # raise NetworkXError, but the "not connected" branch raises the
+    # *base* NetworkXException. Match that exactly.
     if G.number_of_edges() == 0:
         raise NetworkXError("non_randomness not applicable to empty graphs")
     if not is_connected(G):
-        raise NetworkXError("Non connected graph.")
+        raise NetworkXException("Non connected graph.")
     if len(list(selfloop_edges(G))) > 0:
         raise NetworkXError("Graph must not contain self-loops")
 
