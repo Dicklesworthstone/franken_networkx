@@ -16197,6 +16197,32 @@ def _copy_with_view(copy_impl):
     return copy
 
 
+def _copy_preserving_insertion_order(self, as_view=False):
+    """Insertion-order-preserving copy for MultiGraph / MultiDiGraph.
+
+    The Rust ``MultiGraph.copy`` / ``MultiDiGraph.copy`` re-hash nodes
+    during the bulk rebuild, which loses the original node insertion
+    order. Upstream NetworkX preserves it. Parity tests that iterate
+    ``edges(keys=True, data=True)`` on the copy compare tuples like
+    ``(u, v, key, data)`` positionally, so the (u, v) orientation must
+    match. Implement a pure-Python re-add in original node order.
+    """
+    if as_view is True:
+        return _generic_filtered_graph_view(self)
+
+    result = type(self)()
+    result.graph.update(deepcopy(self.graph))
+    result.add_nodes_from(
+        (node, deepcopy(attrs)) for node, attrs in self.nodes(data=True)
+    )
+    # ``self.edges(keys=True, data=True)`` already yields edges in
+    # original insertion order on fnx, so re-using it keeps the (u, v)
+    # orientation aligned with upstream nx.
+    for u, v, key, attrs in self.edges(keys=True, data=True):
+        result.add_edge(u, v, key=key, **deepcopy(attrs))
+    return result
+
+
 def _subgraph_with_view(subgraph_impl):
     @wraps(subgraph_impl)
     def subgraph(self, nodes):
@@ -16378,8 +16404,8 @@ def _directed_to_undirected_with_view(to_undirected_impl):
 
 Graph.copy = _copy_with_view(_GRAPH_COPY)
 DiGraph.copy = _copy_with_view(_DIGRAPH_COPY)
-MultiGraph.copy = _copy_with_view(_MULTIGRAPH_COPY)
-MultiDiGraph.copy = _copy_with_view(_MULTIDIGRAPH_COPY)
+MultiGraph.copy = _copy_preserving_insertion_order
+MultiDiGraph.copy = _copy_preserving_insertion_order
 Graph.subgraph = _subgraph_with_view(_GRAPH_SUBGRAPH)
 DiGraph.subgraph = _subgraph_with_view(_DIGRAPH_SUBGRAPH)
 MultiGraph.subgraph = _subgraph_with_view(_MULTIGRAPH_SUBGRAPH)
