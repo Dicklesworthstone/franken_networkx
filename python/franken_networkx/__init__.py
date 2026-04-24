@@ -8463,7 +8463,18 @@ def pagerank(
     """Return the PageRank of the nodes in graph ``G``."""
     _validate_backend_dispatch_keywords("pagerank", backend, backend_kwargs)
 
-    if personalization is None and nstart is None and dangling is None and weight == "weight":
+    # br-prwgt: the Rust pagerank silently ignores the weight parameter —
+    # ``_raw_pagerank(G, weight="weight")`` always computes the unweighted
+    # PageRank. Only route to the Rust fast-path when the caller asked for
+    # unweighted (weight is None); any other case (including the default
+    # ``weight="weight"``) must go through the pure-Python path below,
+    # which honours the attribute correctly.
+    if (
+        personalization is None
+        and nstart is None
+        and dangling is None
+        and weight is None
+    ):
         return _raw_pagerank(
             G,
             alpha=alpha,
@@ -8471,7 +8482,7 @@ def pagerank(
             max_iter=max_iter,
             tol=tol,
             nstart=None,
-            weight="weight",
+            weight=None,
             dangling=None,
         )
 

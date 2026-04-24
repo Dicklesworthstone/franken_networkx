@@ -784,6 +784,53 @@ def test_pagerank_alpha_knob_matches_networkx():
         )
 
 
+def test_pagerank_default_weight_attribute_honours_weights():
+    """br-prwgt: fnx.pagerank's default ``weight='weight'`` used to short-
+    circuit into the Rust implementation which silently ignored the weight
+    parameter — the default call produced the unweighted PageRank on a
+    weighted graph. This pins the weighted-vs-unweighted difference so a
+    future short-circuit regression can't sneak past."""
+    fg = fnx.Graph()
+    fg.add_edge(0, 1, weight=100.0)
+    fg.add_edge(0, 2, weight=1.0)
+    ng = nx.Graph()
+    ng.add_edge(0, 1, weight=100.0)
+    ng.add_edge(0, 2, weight=1.0)
+
+    weighted = fnx.pagerank(fg)  # default weight='weight'
+    unweighted = fnx.pagerank(fg, weight=None)
+
+    # The weighted PageRank must differ from unweighted on this graph.
+    assert weighted != unweighted
+
+    # And match upstream numerically.
+    _assert_centrality_close(
+        weighted,
+        nx.pagerank(ng),
+        rel=1e-9,
+        abs_=1e-12,
+    )
+
+
+def test_pagerank_custom_weight_key_honours_weights():
+    """br-prwgt: explicit non-default weight attribute name."""
+    fg = fnx.DiGraph()
+    fg.add_edge(0, 1, capacity=10.0)
+    fg.add_edge(1, 2, capacity=0.1)
+    fg.add_edge(2, 0, capacity=5.0)
+    ng = nx.DiGraph()
+    ng.add_edge(0, 1, capacity=10.0)
+    ng.add_edge(1, 2, capacity=0.1)
+    ng.add_edge(2, 0, capacity=5.0)
+
+    _assert_centrality_close(
+        fnx.pagerank(fg, weight="capacity"),
+        nx.pagerank(ng, weight="capacity"),
+        rel=1e-9,
+        abs_=1e-12,
+    )
+
+
 def test_eigenvector_centrality_max_iter_and_tol_match_networkx():
     fg = fnx.path_graph(8)
     ng = nx.path_graph(8)
