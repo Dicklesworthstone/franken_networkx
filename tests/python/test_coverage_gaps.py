@@ -5,6 +5,7 @@ planarity, transitive operations, and remaining shortest path variants.
 """
 
 from datetime import datetime, timedelta
+import inspect
 import math
 from pathlib import Path
 from runpy import run_path
@@ -325,6 +326,75 @@ class TestPlanarity:
         assert {
             frozenset(edge) for edge in counterexample.edges()
         } == {frozenset(edge) for edge in expected_counterexample.edges()}
+
+    def test_get_counterexample_signature_matches_networkx(self):
+        assert str(inspect.signature(fnx.get_counterexample)) == str(
+            inspect.signature(nx.algorithms.planarity.get_counterexample)
+        )
+        assert str(inspect.signature(fnx.get_counterexample_recursive)) == str(
+            inspect.signature(nx.algorithms.planarity.get_counterexample_recursive)
+        )
+
+    @pytest.mark.parametrize(
+        ("actual_func", "expected_func"),
+        [
+            (fnx.get_counterexample, nx.algorithms.planarity.get_counterexample),
+            (
+                fnx.get_counterexample_recursive,
+                nx.algorithms.planarity.get_counterexample_recursive,
+            ),
+        ],
+    )
+    def test_get_counterexample_contract_matches_networkx(
+        self,
+        actual_func,
+        expected_func,
+    ):
+        actual = actual_func(fnx.complete_graph(5))
+        expected = expected_func(nx.complete_graph(5))
+
+        assert set(actual.nodes()) == set(expected.nodes())
+        assert {frozenset(edge) for edge in actual.edges()} == {
+            frozenset(edge) for edge in expected.edges()
+        }
+
+    @pytest.mark.parametrize(
+        ("actual_func", "expected_func"),
+        [
+            (fnx.get_counterexample, nx.algorithms.planarity.get_counterexample),
+            (
+                fnx.get_counterexample_recursive,
+                nx.algorithms.planarity.get_counterexample_recursive,
+            ),
+        ],
+    )
+    def test_get_counterexample_planar_error_matches_networkx(
+        self,
+        actual_func,
+        expected_func,
+    ):
+        expected_graph = nx.cycle_graph(4)
+        actual_graph = fnx.cycle_graph(4)
+
+        with pytest.raises(nx.NetworkXException) as expected_error:
+            expected_func(expected_graph)
+        with pytest.raises(nx.NetworkXException) as actual_error:
+            actual_func(actual_graph)
+
+        assert str(actual_error.value) == str(expected_error.value)
+
+    def test_get_counterexample_backend_keyword_contract(self):
+        expected = nx.algorithms.planarity.get_counterexample(nx.complete_graph(5))
+        actual = fnx.get_counterexample(fnx.complete_graph(5), backend="networkx")
+
+        assert set(actual.nodes()) == set(expected.nodes())
+        assert {frozenset(edge) for edge in actual.edges()} == {
+            frozenset(edge) for edge in expected.edges()
+        }
+        with pytest.raises(ImportError):
+            fnx.get_counterexample(fnx.complete_graph(5), backend="missing")
+        with pytest.raises(TypeError):
+            fnx.get_counterexample(fnx.complete_graph(5), unexpected=True)
 
     @pytest.mark.parametrize(
         ("actual_graph", "expected_graph"),

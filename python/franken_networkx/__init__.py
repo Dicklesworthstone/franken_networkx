@@ -12793,19 +12793,23 @@ def check_planarity_recursive(G, counterexample=False):
     )
 
 
-def get_counterexample(G):
+def get_counterexample(G, *, backend=None, **backend_kwargs):
     """Return a Kuratowski subgraph certifying that *G* is not planar."""
+    _validate_backend_dispatch_keywords("get_counterexample", backend, backend_kwargs)
     is_p, certificate = check_planarity(G, counterexample=True)
     if is_p:
-        raise NetworkXException("G is planar - no counterexample.")
+        raise NetworkXException("G is planar - no counter example.")
     return certificate
 
 
-def get_counterexample_recursive(G):
+def get_counterexample_recursive(G, *, backend=None, **backend_kwargs):
     """Return a Kuratowski subgraph using the recursive LR planarity routine."""
+    _validate_backend_dispatch_keywords(
+        "get_counterexample_recursive", backend, backend_kwargs
+    )
     is_p, certificate = check_planarity_recursive(G, counterexample=True)
     if is_p:
-        raise NetworkXException("G is planar - no counterexample.")
+        raise NetworkXException("G is planar - no counter example.")
     return certificate
 
 
