@@ -25432,10 +25432,18 @@ def graph_atlas_g():
 
 
 def find_asteroidal_triple(G):
-    """Find an asteroidal triple (if exists)."""
+    """Find an asteroidal triple (if exists).
+
+    br-astertype: nx returns a list [u, v, w]; fnx's Rust binding
+    returned a tuple. Coerce to list so isinstance / equality checks
+    against nx's contract pass.
+    """
     from franken_networkx import _fnx
 
-    return _fnx.find_asteroidal_triple_rust(G)
+    result = _fnx.find_asteroidal_triple_rust(G)
+    if result is None:
+        return None
+    return list(result)
 
 
 def is_perfect_graph(G):
