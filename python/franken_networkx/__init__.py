@@ -1837,7 +1837,13 @@ def shortest_path(G, source=None, target=None, weight=None, method="dijkstra"):
                 weight=weight,
                 method=method,
             )
-    return _raw_shortest_path(G, source=source, target=target, weight=weight, method=method)
+    result = _raw_shortest_path(G, source=source, target=target, weight=weight, method=method)
+    if source is None and target is None and isinstance(result, dict):
+        # networkx returns a generator of (source, paths_dict) pairs when both
+        # endpoints are omitted (dispatches to all_pairs_*). The Rust native
+        # path materializes the full dict-of-dicts; convert to match contract.
+        return ((src, paths) for src, paths in result.items())
+    return result
 
 
 def shortest_path_length(G, source=None, target=None, weight=None, method="dijkstra"):

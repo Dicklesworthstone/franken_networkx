@@ -729,6 +729,25 @@ class TestShortestPathVariants:
         assert lengths[0] == 0
         assert lengths[3] == 3
 
+    def test_shortest_path_argless_returns_generator(self):
+        """Regression (br-1uoos): shortest_path(G) with no source/target
+        must return a generator of (source, paths_dict) pairs to match
+        networkx's all_pairs contract, not a materialized dict-of-dicts.
+        """
+        import types
+        G = fnx.path_graph(4)
+        result = fnx.shortest_path(G)
+        assert isinstance(result, types.GeneratorType), (
+            f"expected generator, got {type(result).__name__}"
+        )
+        materialized = dict(result)
+        assert sorted(materialized) == [0, 1, 2, 3]
+        assert materialized[0][3] == [0, 1, 2, 3]
+        # Calling next() on it should work like networkx
+        result2 = fnx.shortest_path(G)
+        first = next(result2)
+        assert isinstance(first, tuple) and len(first) == 2
+
     def test_multi_source_dijkstra(self):
         G = fnx.path_graph(5)
         G.add_edge(0, 1, weight=1.0)
