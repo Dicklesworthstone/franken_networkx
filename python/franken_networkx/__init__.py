@@ -1520,6 +1520,10 @@ for _node_view_type in (
     _node_view_type.__getitem__ = _make_keystr_preserving_getitem(
         _node_view_type.__getitem__
     )
+
+
+# NodeView update support lives on _PrivateNodeFacade (below) rather
+# than the view types, since NodeView has no parent-graph attribute.
 _DIGRAPH_ADJACENCY_VIEW_TYPE.get = _adjacency_view_get
 _DIGRAPH_ADJACENCY_VIEW_TYPE.keys = _adjacency_view_keys
 _DIGRAPH_ADJACENCY_VIEW_TYPE.items = _adjacency_view_items
@@ -1600,16 +1604,81 @@ MultiDiGraph.out_degree = property(lambda self: _DirectedDegreeView(self, "succ"
 # views so nx's internal read paths work on fnx graphs; writes through
 # these aliases fall back to the AdjacencyView which already forwards to
 # the Rust storage.
+class _PrivateNodeFacade:
+    """br-nvupdt: nx internals (relabel._relabel_copy) do
+    ``H._node.update((node, attrs_dict) for ...)`` — a dict-style bulk
+    insert. The NodeView has no way to reach the parent graph, so the
+    public ``_node`` alias returns this thin facade that wraps the
+    NodeView for reads and forwards bulk writes back through
+    ``graph.add_node``.
+    """
+
+    __slots__ = ("_graph",)
+
+    def __init__(self, graph):
+        self._graph = graph
+
+    def __iter__(self):
+        return iter(self._graph.nodes)
+
+    def __len__(self):
+        return len(self._graph.nodes)
+
+    def __contains__(self, node):
+        return node in self._graph.nodes
+
+    def __getitem__(self, node):
+        return self._graph.nodes[node]
+
+    def __setitem__(self, node, attrs):
+        if node in self._graph:
+            existing = self._graph.nodes[node]
+            existing.clear()
+            if attrs:
+                existing.update(attrs)
+        else:
+            self._graph.add_node(node, **(dict(attrs) if attrs else {}))
+
+    def __delitem__(self, node):
+        self._graph.remove_node(node)
+
+    def update(self, other=None, **kwargs):
+        if other is not None:
+            if hasattr(other, "items"):
+                iterable = other.items()
+            else:
+                iterable = other
+            for node, attrs in iterable:
+                self[node] = attrs
+        if kwargs:
+            for node, attrs in kwargs.items():
+                self[node] = attrs
+
+    def get(self, node, default=None):
+        if node in self._graph:
+            return self._graph.nodes[node]
+        return default
+
+    def keys(self):
+        return list(iter(self))
+
+    def items(self):
+        return [(n, self._graph.nodes[n]) for n in self]
+
+    def values(self):
+        return [self._graph.nodes[n] for n in self]
+
+
 Graph._adj = property(_graph_adj_view)
-Graph._node = property(lambda self: self.nodes)
+Graph._node = property(lambda self: _PrivateNodeFacade(self))
 DiGraph._adj = property(_digraph_adj_view)
-DiGraph._node = property(lambda self: self.nodes)
+DiGraph._node = property(lambda self: _PrivateNodeFacade(self))
 DiGraph._succ = property(_digraph_succ_view)
 DiGraph._pred = property(_digraph_pred_view)
 MultiGraph._adj = property(_multigraph_adj_view)
-MultiGraph._node = property(lambda self: self.nodes)
+MultiGraph._node = property(lambda self: _PrivateNodeFacade(self))
 MultiDiGraph._adj = property(_multidigraph_adj_view)
-MultiDiGraph._node = property(lambda self: self.nodes)
+MultiDiGraph._node = property(lambda self: _PrivateNodeFacade(self))
 MultiDiGraph._succ = property(_multidigraph_succ_view)
 MultiDiGraph._pred = property(_multidigraph_pred_view)
 

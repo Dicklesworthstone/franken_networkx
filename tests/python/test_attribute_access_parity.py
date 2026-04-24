@@ -827,3 +827,50 @@ class TestEdgeViewSetEquality:
         G = fnx.path_graph(3)
         with pytest.raises(TypeError):
             hash(G.edges)
+
+
+# ---------------------------------------------------------------------------
+# Regression: franken_networkx-nvupdt — G._node supports dict-style update
+# ---------------------------------------------------------------------------
+
+
+class TestPrivateNodeFacadeUpdate:
+    """nx internals (relabel._relabel_copy) do
+    ``H._node.update((node, attrs) for ...)``. fnx's _node alias used
+    to return the read-only NodeView, which crashed that path with
+    AttributeError. The _PrivateNodeFacade wrapper exposes dict-style
+    read + bulk write semantics.
+    """
+
+    def test_nx_convert_node_labels_works_on_fnx(self):
+        import networkx as nx
+
+        r = nx.convert_node_labels_to_integers(fnx.path_graph(3))
+        assert sorted(r.nodes) == [0, 1, 2]
+        assert sorted(r.edges) == [(0, 1), (1, 2)]
+
+    def test_nx_relabel_nodes_works_on_fnx(self):
+        import networkx as nx
+
+        r = nx.relabel_nodes(fnx.path_graph(3), {0: "a", 1: "b", 2: "c"})
+        assert sorted(r.nodes, key=str) == ["a", "b", "c"]
+
+    def test_private_node_facade_update_iterable(self):
+        G = fnx.Graph()
+        G._node.update(((n, {"tag": n}) for n in range(3)))
+        assert sorted(G.nodes) == [0, 1, 2]
+        assert G.nodes[0] == {"tag": 0}
+        assert G.nodes[2] == {"tag": 2}
+
+    def test_private_node_facade_supports_setitem(self):
+        G = fnx.Graph()
+        G.add_node(0)
+        G._node[0] = {"color": "red"}
+        assert G.nodes[0] == {"color": "red"}
+
+    def test_private_node_facade_items_roundtrip(self):
+        G = fnx.path_graph(3)
+        G.nodes[1]["x"] = 1
+        items = list(G._node.items())
+        assert len(items) == 3
+        assert dict(items[1][1]) == {"x": 1}
