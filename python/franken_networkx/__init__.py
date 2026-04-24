@@ -4221,7 +4221,7 @@ def eccentricity(G, v=None, sp=None, weight=None):
 # Algorithm functions — tree, forest, bipartite, coloring, core
 from franken_networkx._fnx import (
     bipartite_sets,
-    core_number,
+    core_number as _raw_core_number,
     greedy_color as _raw_greedy_color,
     is_bipartite,
     is_forest as _raw_is_forest,
@@ -9964,21 +9964,28 @@ def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
     return graph
 
 
+def core_number(G):
+    """Return the core number for each node of ``G``.
+
+    br-coremg: nx.core_number is @not_implemented_for('multigraph',
+    'directed_multigraph') and raises NetworkXNotImplemented for any
+    multigraph input (and has a self-loop guard). The Rust Rust
+    core_number accepted MultiGraph input silently. Gate upfront.
+    """
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    return _raw_core_number(G)
+
+
 def k_core(G, k=None, core_number=None):
     """Return the k-core of *G* (maximal subgraph with minimum degree >= k).
 
-    Parameters
-    ----------
-    G : Graph
-    k : int, optional
-        Core number. Default is the maximum core number.
-    core_number : dict, optional
-        Precomputed core numbers. If None, computed automatically.
+    br-coremg: same MG-rejection as core_number.
     """
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
     if core_number is None:
-        from franken_networkx._fnx import core_number as compute_core_number
-
-        core_number = compute_core_number(G)
+        core_number = _raw_core_number(G)
     if k is None:
         k = max(core_number.values()) if core_number else 0
     nodes = [n for n, c in core_number.items() if c >= k]
@@ -9987,10 +9994,10 @@ def k_core(G, k=None, core_number=None):
 
 def k_shell(G, k=None, core_number=None):
     """Return the k-shell of *G* (nodes with core number exactly k)."""
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
     if core_number is None:
-        from franken_networkx._fnx import core_number as compute_core_number
-
-        core_number = compute_core_number(G)
+        core_number = _raw_core_number(G)
     if k is None:
         k = max(core_number.values()) if core_number else 0
     nodes = [n for n, c in core_number.items() if c == k]
@@ -9999,10 +10006,10 @@ def k_shell(G, k=None, core_number=None):
 
 def k_crust(G, k=None, core_number=None):
     """Return the k-crust of *G* (nodes with core number <= k)."""
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
     if core_number is None:
-        from franken_networkx._fnx import core_number as compute_core_number
-
-        core_number = compute_core_number(G)
+        core_number = _raw_core_number(G)
     if k is None:
         k = max(core_number.values()) if core_number else 0
     nodes = [n for n, c in core_number.items() if c <= k]
@@ -10011,10 +10018,10 @@ def k_crust(G, k=None, core_number=None):
 
 def k_corona(G, k, core_number=None):
     """Return the k-corona of *G* (k-core nodes with exactly k neighbors in k-core)."""
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
     if core_number is None:
-        from franken_networkx._fnx import core_number as compute_core_number
-
-        core_number = compute_core_number(G)
+        core_number = _raw_core_number(G)
     core_nodes = {n for n, c in core_number.items() if c >= k}
     corona_nodes = []
     for n in core_nodes:
@@ -21998,7 +22005,15 @@ def lexicographical_topological_sort(G, key=None):
 
 # Structural decomposition (br-3r3, br-6t7)
 def k_truss(G, k):
-    """Return k-truss subgraph (all edges in >= k-2 triangles)."""
+    """Return k-truss subgraph (all edges in >= k-2 triangles).
+
+    br-coremg: nx rejects multigraph / directed multigraph for
+    k_truss; fnx's Rust path silently accepted and returned. Guard.
+    """
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     result = _fnx.k_truss_rust(G, k)
     H = Graph()
     for n in result["nodes"]:
