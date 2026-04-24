@@ -589,6 +589,23 @@ def test_filtered_graph_view_adj_mapping_helpers_deep_match(builder_name):
     assert fdeep == ndeep
 
 
+def _view_snapshot(graph):
+    if graph.is_multigraph():
+        edges = list(graph.edges(keys=True, data=True))
+    else:
+        edges = list(graph.edges(data=True))
+    return {
+        "nodes": list(graph),
+        "node_data": list(graph.nodes(data=True)),
+        "edges": edges,
+        "degree": dict(graph.degree()),
+        "adj": {
+            node: sorted(graph.adj[node])
+            for node in graph
+        },
+    }
+
+
 def test_upstream_networkx_subgraph_view_filters_fnx_graph_private_storage():
     fg = fnx.Graph()
     fg.add_edges_from([(0, 1, {"weight": 2}), (1, 2, {"weight": 3}), (2, 3)])
@@ -629,6 +646,46 @@ def test_upstream_networkx_subgraph_view_filters_fnx_digraph_succ_pred():
     assert dict(fv.degree()) == dict(nv.degree())
     assert fv.has_edge("a", "b") is nv.has_edge("a", "b")
     assert fv.has_edge("b", "c") is nv.has_edge("b", "c")
+
+
+@pytest.mark.parametrize(
+    ("fnx_ctor", "nx_ctor"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+@pytest.mark.parametrize("utility_name", ["induced_subgraph", "restricted_view"])
+def test_upstream_networkx_view_helpers_accept_fnx_graphs(fnx_ctor, nx_ctor, utility_name):
+    fg = fnx_ctor()
+    ng = nx_ctor()
+    for graph in (fg, ng):
+        graph.add_node("a", color="red")
+        graph.add_node("d", color="hidden")
+        if graph.is_multigraph():
+            graph.add_edge("a", "b", key="keep", weight=1)
+            graph.add_edge("b", "c", key="drop", weight=2)
+            graph.add_edge("c", "d", key="hidden", weight=3)
+        else:
+            graph.add_edge("a", "b", weight=1)
+            graph.add_edge("b", "c", weight=2)
+            graph.add_edge("c", "d", weight=3)
+
+    if utility_name == "induced_subgraph":
+        fv = nx.induced_subgraph(fg, ["a", "b", "c"])
+        nv = nx.induced_subgraph(ng, ["a", "b", "c"])
+    elif fg.is_multigraph():
+        fv = nx.restricted_view(fg, ["d"], [("b", "c", "drop")])
+        nv = nx.restricted_view(ng, ["d"], [("b", "c", "drop")])
+    else:
+        fv = nx.restricted_view(fg, ["d"], [("b", "c")])
+        nv = nx.restricted_view(ng, ["d"], [("b", "c")])
+
+    assert fv.is_directed() is nv.is_directed()
+    assert fv.is_multigraph() is nv.is_multigraph()
+    assert _view_snapshot(fv) == _view_snapshot(nv)
 
 
 @pytest.mark.parametrize("attr_name", ["succ", "pred"])
