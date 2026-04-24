@@ -12550,6 +12550,43 @@ pub fn all_pairs_lca_rust(
         .collect())
 }
 
+/// Find tree LCA results for all pairs or a requested pair set.
+#[pyfunction]
+#[pyo3(signature = (g, root, pairs=None))]
+pub fn tree_all_pairs_lca_rust(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    root: &Bound<'_, PyAny>,
+    pairs: Option<Vec<(Bound<'_, PyAny>, Bound<'_, PyAny>)>>,
+) -> PyResult<Vec<((PyObject, PyObject), PyObject)>> {
+    let gr = extract_graph(g)?;
+    let dg = gr
+        .digraph()
+        .ok_or_else(|| crate::NetworkXError::new_err("Tree LCA requires DiGraph"))?;
+    let root_key = node_key_to_string(py, root)?;
+    let pair_keys = pairs
+        .as_ref()
+        .map(|pairs| {
+            pairs
+                .iter()
+                .map(|(u, v)| Ok((node_key_to_string(py, u)?, node_key_to_string(py, v)?)))
+                .collect::<PyResult<Vec<_>>>()
+        })
+        .transpose()?;
+    let result = py.allow_threads(|| {
+        fnx_algorithms::tree_all_pairs_lowest_common_ancestor(dg, &root_key, pair_keys.as_deref())
+    });
+    Ok(result
+        .into_iter()
+        .map(|((u, v), lca)| {
+            (
+                (gr.py_node_key(py, &u), gr.py_node_key(py, &v)),
+                gr.py_node_key(py, &lca),
+            )
+        })
+        .collect())
+}
+
 // ---------------------------------------------------------------------------
 // Generate edgelist
 // ---------------------------------------------------------------------------
@@ -13737,6 +13774,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(graph_info_rust, m)?)?;
     // LCA
     m.add_function(wrap_pyfunction!(all_pairs_lca_rust, m)?)?;
+    m.add_function(wrap_pyfunction!(tree_all_pairs_lca_rust, m)?)?;
     // Generate edgelist
     m.add_function(wrap_pyfunction!(generate_edgelist_rust, m)?)?;
     // Group betweenness

@@ -191,6 +191,13 @@ class TestDAGAlgorithms:
                 )
             ),
         )
+        monkeypatch.setattr(
+            fnx,
+            "_tree_lca_dfs_postorder_nodes",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("Python tree LCA fallback should not be used")
+            ),
+        )
 
         result = list(fnx.tree_all_pairs_lowest_common_ancestor(graph))
         assert result == expected_result
@@ -238,6 +245,13 @@ class TestDAGAlgorithms:
                 AssertionError(
                     "NetworkX tree_all_pairs_lowest_common_ancestor fallback should not be used"
                 )
+            ),
+        )
+        monkeypatch.setattr(
+            fnx,
+            "_tree_lca_dfs_postorder_nodes",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("Python tree LCA fallback should not be used")
             ),
         )
 

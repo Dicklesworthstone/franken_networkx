@@ -578,6 +578,15 @@ def number_of_spanning_trees(
     root: Any = None,
     weight: Optional[str] = None,
 ) -> float: ...
+def all_pairs_lca_rust(
+    g: DiGraph,
+    pairs: Iterable[tuple[Any, Any]],
+) -> list[tuple[tuple[Any, Any], Any]]: ...
+def tree_all_pairs_lca_rust(
+    g: DiGraph,
+    root: Any,
+    pairs: Optional[Iterable[tuple[Any, Any]]] = None,
+) -> list[tuple[tuple[Any, Any], Any]]: ...
 def partition_spanning_tree(
     g: Graph,
     minimum: bool = True,
