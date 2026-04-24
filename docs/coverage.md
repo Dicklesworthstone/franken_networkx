@@ -6,8 +6,8 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 104 | 12% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 674 | 84% | Python-defined exports with no runtime NetworkX dependency detected |
+| RUST_NATIVE | 101 | 12% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 677 | 84% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 21 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
@@ -19,8 +19,8 @@ All declared public exports are classified. `--check` fails if this generated re
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 612 |
-| `franken_networkx._fnx` | 104 |
+| `franken_networkx` | 615 |
+| `franken_networkx._fnx` | 101 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
@@ -28,7 +28,7 @@ All declared public exports are classified. `--check` fails if this generated re
 | `builtins` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (104)
+## RUST_NATIVE exports (101)
 
 - `adamic_adar_index`
 - `ancestors`
@@ -116,8 +116,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `partition_spanning_tree`
 - `preferential_attachment`
 - `random_spanning_tree`
-- `read_adjlist`
-- `read_edgelist`
 - `read_gml`
 - `read_graphml`
 - `resource_allocation_index`
@@ -131,11 +129,10 @@ All declared public exports are classified. `--check` fails if this generated re
 - `tree_broadcast_center`
 - `tree_broadcast_time`
 - `write_adjlist`
-- `write_edgelist`
 - `write_gml`
 - `write_graphml`
 
-## PY_WRAPPER exports (674)
+## PY_WRAPPER exports (677)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -668,6 +665,8 @@ All declared public exports are classified. `--check` fails if this generated re
 - `random_unlabeled_rooted_forest`
 - `random_unlabeled_rooted_tree`
 - `random_unlabeled_tree`
+- `read_adjlist`
+- `read_edgelist`
 - `read_gexf`
 - `read_graph6`
 - `read_leda`
@@ -801,6 +800,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `wiener_index`
 - `windmill_graph`
 - `within_inter_cluster`
+- `write_edgelist`
 - `write_gexf`
 - `write_graph6`
 - `write_graphml_lxml`

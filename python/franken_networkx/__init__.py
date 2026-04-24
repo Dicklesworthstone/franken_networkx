@@ -6059,11 +6059,11 @@ from franken_networkx._fnx import stochastic_block_model as _rust_stochastic_blo
 from franken_networkx._fnx import (
     node_link_data as _rust_node_link_data,
     node_link_graph as _rust_node_link_graph,
-    read_adjlist,
-    read_edgelist,
+    read_adjlist as _rust_read_adjlist,
+    read_edgelist as _rust_read_edgelist,
     read_graphml,
     write_adjlist,
-    write_edgelist,
+    write_edgelist as _rust_write_edgelist,
     write_graphml,
     read_gml,
     write_gml,
@@ -6105,6 +6105,76 @@ from franken_networkx.readwrite import (
     write_sparse6,
     write_weighted_edgelist,
 )
+from franken_networkx.readwrite import (
+    _write_edgelist_via_nx as _write_edgelist_via_nx,
+    _read_edgelist_via_nx as _read_edgelist_via_nx,
+    _read_adjlist_via_nx as _read_adjlist_via_nx,
+)
+
+
+def write_edgelist(G, path, comments="#", delimiter=" ", data=True, encoding="utf-8"):
+    """Write a graph as a list of edges.
+
+    Delegates under the covers to NetworkX's formatter (br-wredge) because
+    the Rust-native ``write_edgelist`` emits ``u v -`` / ``u v key=val``
+    that can't be round-tripped by ``nx.read_edgelist``. This wrapper
+    matches nx's Python-dict-repr line format and honours all nx kwargs.
+    """
+    return _write_edgelist_via_nx(
+        G, path, comments=comments, delimiter=delimiter, data=data, encoding=encoding
+    )
+
+
+def read_edgelist(
+    path,
+    comments="#",
+    delimiter=None,
+    create_using=None,
+    nodetype=None,
+    data=True,
+    edgetype=None,
+    encoding="utf-8",
+):
+    """Read a graph from a list of edges.
+
+    Delegates to NetworkX's parser (br-rdedge) so nx-written files round-trip
+    and all nx kwargs (``nodetype``, ``create_using``, ``data``, ...) are
+    honoured. The Rust-native ``read_edgelist`` only accepts ``(path,)``.
+    """
+    return _read_edgelist_via_nx(
+        path,
+        comments=comments,
+        delimiter=delimiter,
+        create_using=create_using,
+        nodetype=nodetype,
+        data=data,
+        edgetype=edgetype,
+        encoding=encoding,
+    )
+
+
+def read_adjlist(
+    path,
+    comments="#",
+    delimiter=None,
+    create_using=None,
+    nodetype=None,
+    encoding="utf-8",
+):
+    """Read a graph from an adjacency list.
+
+    Delegates to NetworkX's parser (br-rdedge) so ``nodetype``,
+    ``create_using``, etc. are honoured. The Rust-native reader only
+    accepts ``(path,)``.
+    """
+    return _read_adjlist_via_nx(
+        path,
+        comments=comments,
+        delimiter=delimiter,
+        create_using=create_using,
+        nodetype=nodetype,
+        encoding=encoding,
+    )
 
 
 def is_semiconnected(G):

@@ -266,3 +266,85 @@ class TestGraphMLIO:
         H = fnx.read_graphml(buffer)
         assert H.number_of_nodes() == 3
         assert H.number_of_edges() == 3
+
+
+# ---------------------------------------------------------------------------
+# Regression: write_edgelist / read_edgelist cross-compatibility with nx
+# (franken_networkx-wredge, -rdedge)
+# ---------------------------------------------------------------------------
+
+
+class TestEdgelistNxCrossCompat:
+    """The Rust-native write_edgelist emitted `u v -` for empty attrs and
+    `u v key=val` for attr edges, neither of which round-tripped through
+    networkx.read_edgelist. read_edgelist silently dropped most of the
+    nx kwargs (nodetype, create_using, data, delimiter, ...). Both paths
+    now go through Python wrappers that delegate the format to nx.
+    """
+
+    def test_empty_attr_round_trips_through_networkx(self):
+        import networkx as nx
+
+        G = fnx.Graph()
+        G.add_edges_from([(0, 1), (1, 2)])
+        buf = io.BytesIO()
+        fnx.write_edgelist(G, buf)
+        # Must be nx-readable: this used to raise
+        # TypeError: Failed to convert edge data (['-']) to dictionary.
+        nx_graph = nx.read_edgelist(io.BytesIO(buf.getvalue()))
+        assert sorted(map(tuple, map(sorted, nx_graph.edges()))) == [("0", "1"), ("1", "2")]
+
+    def test_attr_round_trips_as_python_dict_repr(self):
+        import networkx as nx
+
+        G = fnx.Graph()
+        G.add_edge(0, 1, weight=2.5)
+        buf = io.BytesIO()
+        fnx.write_edgelist(G, buf)
+        # Output uses Python-dict repr rather than the legacy `key=val`.
+        assert b"{'weight': 2.5}" in buf.getvalue()
+        nx_graph = nx.read_edgelist(io.BytesIO(buf.getvalue()))
+        data = nx_graph.get_edge_data("0", "1")
+        assert data == {"weight": 2.5}
+
+    def test_read_edgelist_honours_nodetype_int(self):
+        import networkx as nx
+
+        G_nx = nx.Graph()
+        G_nx.add_edges_from([(0, 1), (1, 2)])
+        nx_bytes_buf = io.BytesIO()
+        nx.write_edgelist(G_nx, nx_bytes_buf, data=False)
+
+        G = fnx.read_edgelist(io.BytesIO(nx_bytes_buf.getvalue()), nodetype=int)
+        assert sorted(G.nodes()) == [0, 1, 2]
+        assert all(isinstance(n, int) for n in G.nodes())
+
+    def test_read_edgelist_honours_create_using_digraph(self):
+        import networkx as nx
+
+        buf = io.BytesIO(b"0 1\n1 2\n")
+        G = fnx.read_edgelist(buf, create_using=fnx.DiGraph)
+        assert G.is_directed()
+        assert sorted(G.edges()) == [("0", "1"), ("1", "2")]
+
+    def test_read_adjlist_honours_nodetype(self):
+        G = fnx.read_adjlist(io.BytesIO(b"0 1\n1 2\n"), nodetype=int)
+        assert sorted(G.nodes()) == [0, 1, 2]
+        assert all(isinstance(n, int) for n in G.nodes())
+
+    def test_write_edgelist_data_false(self):
+        G = fnx.Graph()
+        G.add_edge(0, 1, weight=2.5)
+        buf = io.BytesIO()
+        fnx.write_edgelist(G, buf, data=False)
+        assert buf.getvalue() == b"0 1\n"
+
+    def test_write_edgelist_delimiter_override(self):
+        G = fnx.Graph()
+        G.add_edges_from([(0, 1), (1, 2)])
+        buf = io.BytesIO()
+        fnx.write_edgelist(G, buf, delimiter="|")
+        text = buf.getvalue().decode()
+        for line in text.splitlines():
+            parts = line.split("|")
+            assert len(parts) == 3
