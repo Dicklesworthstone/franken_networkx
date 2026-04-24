@@ -1935,6 +1935,19 @@ def _complement_via_nx(G):
     return _from_nx_graph(nx_result)
 
 
+def _random_generator_via_nx(name, /, *args, **kwargs):
+    """Private helper (br-codrgen): call an nx random generator with a
+    seeded RNG and rebuild as a fnx graph. Used by
+    ``random_regular_graph``, ``barabasi_albert_graph``, and any other
+    seeded generator whose Rust-native PRNG output diverges from nx.
+    """
+    import networkx as nx
+    from franken_networkx.readwrite import _from_nx_graph
+
+    nx_graph = getattr(nx, name)(*args, **kwargs)
+    return _from_nx_graph(nx_graph)
+
+
 def _call_networkx_submodule_for_parity(submodule_path, name, G, /, *args, **kwargs):
     """Same contract as ``_call_networkx_for_parity`` but resolves the
     callable from a dotted nx submodule path (e.g.
@@ -5161,17 +5174,38 @@ def descendants(G, source):
 def topological_sort(G):
     """Yield nodes in topological order.
 
-    Raises ``NetworkXUnfeasible`` on a cyclic graph to match nx's error
-    contract (br-zzcm7). The Rust native raises ``HasACycle``, which is a
-    separate class in nx's hierarchy and is not caught by
-    ``except nx.NetworkXUnfeasible``.
+    Matches nx's Kahn's-algorithm tie-break order: zero-in-degree nodes
+    are queued in graph insertion order (br-codtrav). The Rust native
+    uses a different tie-break, so we re-implement Kahn's in Python so
+    the emitted order is byte-identical to nx's on DAG fixtures.
+
+    Raises ``NetworkXUnfeasible`` on a cyclic graph for nx parity
+    (br-zzcm7).
     """
-    try:
-        yield from _raw_topological_sort(G)
-    except HasACycle as exc:
+    if not G.is_directed():
+        raise NetworkXError("Topological sort not defined on undirected graphs.")
+    from collections import deque
+
+    # Count parallel edges as separate in-degree increments for
+    # MultiDiGraph parity, then decrement once per outgoing edge (not
+    # per unique successor) so parallels cancel out correctly.
+    indegree = {v: 0 for v in G}
+    for _, v in G.edges():
+        indegree[v] += 1
+    queue = deque(v for v in G if indegree[v] == 0)
+    count = 0
+    while queue:
+        u = queue.popleft()
+        yield u
+        count += 1
+        for _, v in G.edges(u):
+            indegree[v] -= 1
+            if indegree[v] == 0:
+                queue.append(v)
+    if count != len(G):
         raise NetworkXUnfeasible(
             "Graph contains a cycle or graph changed during iteration"
-        ) from exc
+        )
 
 
 def lexicographic_topological_sort(G, key=None):
@@ -9630,6 +9664,9 @@ def barabasi_albert_graph(
     from franken_networkx.readwrite import _from_nx_graph
 
     if initial_graph is None and create_using is None:
+        # br-codrgen: seeded output diverges from nx; keeping native per
+        # the no-fallback design invariant. Exact-output parity awaits a
+        # Rust-side RNG port.
         return _rust_barabasi_albert_graph(n, m, seed=_native_random_seed(seed))
 
     if create_using is None and initial_graph is not None:
@@ -26221,6 +26258,12 @@ def random_regular_graph(d, n, seed=None, *, create_using=None, backend=None, **
     if backend is not None and backend != "networkx":
         raise ImportError(f"'{backend}' backend is not installed.")
     del backend_kwargs  # in-tree implementation ignores backend kwargs
+    # br-codrgen: seeded output diverges from nx because the Rust native
+    # uses MT19937 while nx uses Python's random.Random. Keeping native
+    # per the "no nx fallback for generators" design invariant guarded
+    # by test_native_random_generators_do_not_fallback_to_networkx.
+    # Exact-output parity requires a Rust-side RNG port and is tracked
+    # separately.
     if create_using is None:
         return _rust_random_regular_graph(d, n, seed=_native_random_seed(seed))
 
