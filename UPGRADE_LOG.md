@@ -371,3 +371,47 @@ optional) and is not a crates.io source.
 
 None tripped; 0 updates attempted.
 
+---
+
+## Session 2026-04-24 (cc-networkx libupdater re-sweep)
+
+### Scope of this session
+
+Same scope as 2026-04-23: re-check every direct dep in the main workspace
+(`Cargo.toml` + `crates/fnx-*/Cargo.toml`) against crates.io for a full day
+of new releases. `fuzz/Cargo.toml` remains out of scope. `asupersync` must
+remain pinned at `0.3.1` in `Cargo.lock`.
+
+### Result
+
+**Direct deps: no bumps available.** All 21 external direct dependencies
+resolve exactly to crates.io `max_stable_version`. Diffed the versions in
+`UPGRADE_LOG.md`'s 2026-04-23 table against a fresh crates.io lookup today;
+nothing moved in 24h.
+
+**Transitive: 1 patch bump applied.** `cargo update --workspace --recursive
+--dry-run --verbose` surfaced `libc v0.2.185 (available: v0.2.186)`.
+Applied via `cargo update -p libc`.
+
+### Updates
+
+#### libc: 0.2.185 -> 0.2.186 (transitive)
+- **Scope:** `Cargo.lock` only (no direct `libc` dep in any fnx crate).
+- **Breaking:** None (patch bump in the rust-lang/libc stable 0.2 line).
+- **Verification:** `rch exec -- env CARGO_TARGET_DIR=/tmp/rch_target_franken_networkx_cc cargo check --workspace --all-targets` → green (14.61s).
+- **Commit:** a495b6d
+
+### Verification
+
+- All 21 direct deps re-matched against crates.io `max_stable_version` via
+  the `/api/v1/crates/<name>` endpoint.
+- `asupersync 0.3.1` still pinned in `Cargo.lock` (line 98); checksum
+  unchanged.
+- `cargo update --workspace --recursive --dry-run` post-bump:
+  `Locking 0 packages to latest compatible versions`.
+- Workspace `cargo check --all-targets` green under rch.
+
+### Circuit breakers / budget
+
+None tripped. 1 transitive bump applied, 0 rollbacks, 0 failures.
+
