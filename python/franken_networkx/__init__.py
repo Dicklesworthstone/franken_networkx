@@ -29537,6 +29537,50 @@ def _bulk_rename_first_param_to_G():
 _bulk_rename_first_param_to_G()
 
 
+def _bulk_promote_to_generator():
+    """br-bulkgen: nx returns generators for these functions; fnx's
+    bindings returned materialised lists. Wrap each so the contract
+    matches (lazy, exhausts after iteration, user code calling
+    ``next(it)`` works).
+    """
+    import functools as _ft
+
+    targets = [
+        "find_cliques",
+        "find_cliques_recursive",
+        "enumerate_all_cliques",
+        "all_simple_paths",
+        "all_shortest_paths",
+        "bfs_edges",
+        "dfs_edges",
+        "bfs_layers",
+        "isolates",
+        "minimum_spanning_edges",
+        "maximum_spanning_edges",
+    ]
+
+    ns = globals()
+    for name in targets:
+        raw = ns.get(name)
+        if raw is None:
+            continue
+
+        def _make_wrapper(raw_fn):
+            @_ft.wraps(raw_fn)
+            def wrapper(*args, **kwargs):
+                result = raw_fn(*args, **kwargs)
+                if hasattr(result, "__next__"):
+                    return result
+                return iter(result)
+
+            return wrapper
+
+        ns[name] = _make_wrapper(raw)
+
+
+_bulk_promote_to_generator()
+
+
 def __getattr__(name):
     """Fallback to the NetworkX top-level namespace for missing public attrs."""
     import networkx as nx

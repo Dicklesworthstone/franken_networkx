@@ -725,8 +725,9 @@ def test_euler(fnx):
 @timed
 def test_paths_cycles_efficiency(fnx, G):
     log.info("--- test_paths_cycles_efficiency ---")
-    paths = fnx.all_simple_paths(G, "a", "c")
-    check("all_simple_paths returns list", isinstance(paths, list))
+    # br-bulkgen: fnx.all_simple_paths now returns a generator matching nx.
+    paths = list(fnx.all_simple_paths(G, "a", "c"))
+    check("all_simple_paths returns list (after materialize)", isinstance(paths, list))
     check("at least 1 simple path", len(paths) >= 1)
 
     cycles = fnx.cycle_basis(G)

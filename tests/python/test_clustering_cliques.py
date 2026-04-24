@@ -438,8 +438,10 @@ class TestNodeCliqueNumber:
 # ---------------------------------------------------------------------------
 
 class TestEnumerateAllCliques:
+    # br-bulkgen: nx.enumerate_all_cliques returns a generator; fnx
+    # matches. Tests list()-materialize before asserting list semantics.
     def test_triangle(self, triangle):
-        cliques = fnx.enumerate_all_cliques(triangle)
+        cliques = list(fnx.enumerate_all_cliques(triangle))
         # 3 single-node cliques + 3 edge cliques + 1 triangle = 7
         assert len(cliques) == 7
         sizes = [len(c) for c in cliques]
@@ -448,23 +450,23 @@ class TestEnumerateAllCliques:
         assert sizes.count(3) == 1
 
     def test_path(self, path3):
-        cliques = fnx.enumerate_all_cliques(path3)
+        cliques = list(fnx.enumerate_all_cliques(path3))
         # 3 single nodes + 2 edges = 5
         assert len(cliques) == 5
 
     def test_k4(self, k4):
-        cliques = fnx.enumerate_all_cliques(k4)
+        cliques = list(fnx.enumerate_all_cliques(k4))
         # C(4,1) + C(4,2) + C(4,3) + C(4,4) = 4 + 6 + 4 + 1 = 15
         assert len(cliques) == 15
 
     def test_empty_graph(self):
         g = fnx.Graph()
-        assert fnx.enumerate_all_cliques(g) == []
+        assert list(fnx.enumerate_all_cliques(g)) == []
 
     def test_single_node(self):
         g = fnx.Graph()
         g.add_node("x")
-        cliques = fnx.enumerate_all_cliques(g)
+        cliques = list(fnx.enumerate_all_cliques(g))
         assert len(cliques) == 1
         assert cliques[0] == ["x"]
 
@@ -585,30 +587,32 @@ class TestFindCliquesParity:
 # ---------------------------------------------------------------------------
 
 class TestFindCliquesRecursive:
+    # br-bulkgen: list()-materialize before len()/indexing since nx
+    # returns a generator from find_cliques_recursive.
     def test_triangle(self, triangle):
-        cliques = fnx.find_cliques_recursive(triangle)
+        cliques = list(fnx.find_cliques_recursive(triangle))
         assert len(cliques) == 1
         assert set(cliques[0]) == {"a", "b", "c"}
 
     def test_k4(self, k4):
-        cliques = fnx.find_cliques_recursive(k4)
+        cliques = list(fnx.find_cliques_recursive(k4))
         assert len(cliques) == 1
         assert set(cliques[0]) == {"a", "b", "c", "d"}
 
     def test_matches_find_cliques(self, diamond):
-        rec = fnx.find_cliques_recursive(diamond)
-        iterative = fnx.find_cliques(diamond)
+        rec = list(fnx.find_cliques_recursive(diamond))
+        iterative = list(fnx.find_cliques(diamond))
         # Both should return same cliques (sorted)
         assert sorted([sorted(c) for c in rec]) == sorted([sorted(c) for c in iterative])
 
     def test_path(self, path3):
-        cliques = fnx.find_cliques_recursive(path3)
+        cliques = list(fnx.find_cliques_recursive(path3))
         # Two maximal cliques: {a,b} and {b,c}
         assert len(cliques) == 2
 
     def test_empty_graph(self):
         g = fnx.Graph()
-        assert fnx.find_cliques_recursive(g) == []
+        assert list(fnx.find_cliques_recursive(g)) == []
 
 
 class TestFindCliquesRecursiveParity:

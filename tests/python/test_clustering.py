@@ -33,7 +33,8 @@ class TestClustering:
 
     def test_find_cliques(self, fnx, nx, complete_graph):
         G_fnx, G_nx = complete_graph
-        fnx_cliques = fnx.find_cliques(G_fnx)
+        # br-bulkgen: fnx.find_cliques now returns a generator matching nx.
+        fnx_cliques = list(fnx.find_cliques(G_fnx))
         nx_cliques = list(nx.find_cliques(G_nx))
         # K5 should have exactly one maximal clique of size 5
         assert len(fnx_cliques) == len(nx_cliques)
