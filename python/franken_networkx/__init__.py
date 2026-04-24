@@ -26426,8 +26426,30 @@ def spectral_graph_forge(G, alpha=0.8, seed=None):
     return H
 
 
-def tutte_polynomial(G, x, y):
-    """Evaluate Tutte polynomial T(G; x, y) via deletion-contraction."""
+def tutte_polynomial(G, x=None, y=None):
+    """Compute the Tutte polynomial of ``G``.
+
+    br-tuttesig: nx.tutte_polynomial takes only ``(G, *, backend=,
+    **backend_kwargs)`` and returns a *symbolic* sympy polynomial in
+    the variables x, y. Calling ``fnx.tutte_polynomial(G)`` with the
+    nx contract used to raise ``TypeError: missing 2 required
+    positional arguments: 'x' and 'y'`` because fnx's Rust-era wrapper
+    required numeric arguments to evaluate the polynomial.
+
+    To preserve both: keep the numeric evaluation path as a
+    fnx-specific extension (when both ``x`` and ``y`` are supplied),
+    and delegate to nx's sympy-backed reference when no evaluation
+    point is requested. This keeps drop-in code like
+    ``nx.tutte_polynomial(G)`` working and retains fnx's
+    sympy-free numeric evaluation for callers who pass x, y.
+    """
+    if x is None and y is None:
+        return _call_networkx_for_parity("tutte_polynomial", G)
+    if x is None or y is None:
+        raise TypeError(
+            "tutte_polynomial requires either both x and y (numeric "
+            "evaluation) or neither (symbolic polynomial via nx)"
+        )
     if G.number_of_edges() == 0:
         return 1
     edges = list(G.edges())
