@@ -5955,19 +5955,25 @@ def transitive_closure(G, reflexive=False):
     Delegate for multigraphs and for graphs known to contain cycles
     (where the self-loop distinction matters).
     """
+    # br-tcreflnone: nx treats ``reflexive=None`` as the historical
+    # default — it maps to False semantically but was kept as a
+    # tri-value flag (None / False / True). The Rust binding is
+    # strictly typed and raised TypeError on None. Normalize None to
+    # False before the fast-path branch; nx still receives the original
+    # value when delegating.
     # Delegate for: multigraphs (class preservation), undirected
     # (Rust binding doesn't accept them), cyclic directed (cycle
-    # self-loops), and reflexive=True (uncommon).
+    # self-loops), and reflexive in {True, None} (non-default).
     if (
         G.is_multigraph()
         or not G.is_directed()
-        or reflexive
+        or reflexive is not False
         or (G.is_directed() and not is_directed_acyclic_graph(G))
     ):
         return _call_networkx_for_parity(
             "transitive_closure", G, reflexive=reflexive
         )
-    return _raw_transitive_closure(G, reflexive=reflexive)
+    return _raw_transitive_closure(G, reflexive=False)
 
 
 def transitive_reduction(G):
@@ -6570,6 +6576,22 @@ def dag_longest_path(G, weight="weight", default_weight=1, topo_order=None):
     list
         The longest path as a list of nodes.
     """
+    # br-daglongweight: the Rust _raw_dag_longest_path did not honour
+    # the ``weight`` edge attribute — it always returned the longest
+    # *edge-count* path. nx correctly uses weighted sums (default
+    # weight attr is ``"weight"`` with default_weight=1), so on a graph
+    # with edges (0→1, w=2), (1→2, w=3), (0→2, w=10) fnx returned
+    # [0, 1, 2] (5 unweighted-hop-sum) while nx returned [0, 2]
+    # (weight 10). Delegate the default case too — the existing non-
+    # default branches already delegated.
+    if _dag_has_weight_edge_attr(G, weight):
+        return _call_networkx_for_parity(
+            "dag_longest_path",
+            G,
+            weight=weight,
+            default_weight=default_weight,
+            topo_order=topo_order,
+        )
     if weight != "weight" or default_weight != 1 or topo_order is not None:
         return _call_networkx_for_parity(
             "dag_longest_path",
@@ -6582,7 +6604,8 @@ def dag_longest_path(G, weight="weight", default_weight=1, topo_order=None):
     # maxima, nx picks the longest path in insertion-order first
     # component; the Rust fast-path can pick a later-inserted component.
     # Delegate for disconnected DAGs to match nx's tie-break exactly;
-    # keep the Rust fast-path for the common (connected) case.
+    # keep the Rust fast-path for the common (connected, unweighted)
+    # case.
     if not is_weakly_connected(G):
         return _call_networkx_for_parity(
             "dag_longest_path",
@@ -6592,6 +6615,20 @@ def dag_longest_path(G, weight="weight", default_weight=1, topo_order=None):
             topo_order=topo_order,
         )
     return _raw_dag_longest_path(G)
+
+
+def _dag_has_weight_edge_attr(G, weight):
+    """Return True if any edge in ``G`` has the ``weight`` attribute
+    set — used by dag_longest_path / dag_longest_path_length to decide
+    whether to delegate to nx for correct weighted-path selection
+    (the Rust fast path ignores edge weights).
+    """
+    if not isinstance(weight, str):
+        return False
+    for _, _, attrs in G.edges(data=True):
+        if isinstance(attrs, dict) and weight in attrs:
+            return True
+    return False
 
 
 def dag_longest_path_length(G, weight="weight", default_weight=1):
@@ -6619,6 +6656,15 @@ def dag_longest_path_length(G, weight="weight", default_weight=1):
     """
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
+    # br-daglongweight: same as dag_longest_path — the Rust path
+    # ignored weights. Delegate when any edge carries the weight attr.
+    if _dag_has_weight_edge_attr(G, weight):
+        return _call_networkx_for_parity(
+            "dag_longest_path_length",
+            G,
+            weight=weight,
+            default_weight=default_weight,
+        )
     if weight != "weight" or default_weight != 1:
         return _call_networkx_for_parity(
             "dag_longest_path_length",
