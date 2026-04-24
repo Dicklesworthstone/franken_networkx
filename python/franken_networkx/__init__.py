@@ -7512,10 +7512,7 @@ def antichains(G, topo_order=None):
     set
         An antichain (set of nodes with no path between any pair).
     """
-    if topo_order is not None:
-        yield from _call_networkx_for_parity("antichains", G, topo_order=topo_order)
-        return
-    yield from _raw_antichains(G)
+    yield from _call_networkx_for_parity("antichains", G, topo_order=topo_order)
 
 # Algorithm functions — additional shortest path
 from franken_networkx._fnx import (
@@ -14566,10 +14563,7 @@ def all_topological_sorts(G):
     list
         Each yield is a valid topological ordering.
     """
-    if not is_directed_acyclic_graph(G):
-        raise NetworkXUnfeasible("Graph contains a cycle, not a DAG")
-    for ordering in _fnx.all_topological_sorts_rust(G):
-        yield ordering
+    yield from _call_networkx_for_parity("all_topological_sorts", G)
 
 
 def lowest_common_ancestor(G, node1, node2, default=None):
