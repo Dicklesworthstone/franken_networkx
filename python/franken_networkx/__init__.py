@@ -4200,14 +4200,45 @@ from franken_networkx._fnx import (
 
 
 def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, data=True, ignore_nan=False):
-    """br-isokw: ``G`` matches nx; Rust binding used ``g``."""
-    return _raw_minimum_spanning_edges(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan)
+    """br-isokw: ``G`` matches nx; Rust binding used ``g``.
+
+    br-spanalgos: nx supports ``kruskal`` / ``prim`` / ``boruvka`` for
+    the ``algorithm`` kwarg. The Rust binding only implemented
+    ``kruskal`` and raised ``ValueError`` on the other two — a real
+    contract gap when users explicitly request a non-default
+    algorithm. Delegate the non-kruskal cases to nx.
+    """
+    if algorithm == "kruskal":
+        return _raw_minimum_spanning_edges(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan)
+    return _call_networkx_for_parity(
+        "minimum_spanning_edges",
+        G,
+        algorithm=algorithm,
+        weight=weight,
+        keys=keys,
+        data=data,
+        ignore_nan=ignore_nan,
+    )
 
 
 def maximum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, data=True, ignore_nan=False):
-    """br-isokw: ``G`` matches nx."""
+    """br-isokw: ``G`` matches nx.
+
+    br-spanalgos: see minimum_spanning_edges — delegate non-kruskal
+    algorithms to nx.
+    """
     from franken_networkx._fnx import maximum_spanning_edges as _raw_mse
-    return _raw_mse(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan)
+    if algorithm == "kruskal":
+        return _raw_mse(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan)
+    return _call_networkx_for_parity(
+        "maximum_spanning_edges",
+        G,
+        algorithm=algorithm,
+        weight=weight,
+        keys=keys,
+        data=data,
+        ignore_nan=ignore_nan,
+    )
 
 
 def minimum_branching(G, attr="weight", default=1, preserve_attrs=False, partition=None):
@@ -15792,8 +15823,20 @@ def is_strongly_regular(G):
     A graph is strongly regular srg(v,k,λ,μ) if it is k-regular and
     every pair of adjacent vertices has exactly λ common neighbors,
     and every pair of non-adjacent vertices has exactly μ common neighbors.
+
+    br-srgdiam: nx.is_strongly_regular uses ``is_distance_regular(G)
+    and diameter(G) == 2`` — the diameter-2 requirement excludes
+    complete graphs (K_n has diameter 1) and C_3 (=K_3). The Rust
+    _fnx.is_strongly_regular_rust implementation missed this
+    requirement and classified every K_n (n>=3) as strongly regular,
+    plus C_3 as True where nx returns False. Also enforce nx's
+    directed/multigraph rejection explicitly.
     """
-    return _fnx.is_strongly_regular_rust(G)
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    return is_distance_regular(G) and diameter(G) == 2
 
 
 def is_at_free(G):
