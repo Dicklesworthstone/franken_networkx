@@ -1015,3 +1015,48 @@ class TestEdgeViewDataNone:
         G = fnx.path_graph(3)
         edges = list(G.edges(data=False))
         assert all(len(e) == 2 for e in edges)
+
+
+# ---------------------------------------------------------------------------
+# Regression: franken_networkx-addedgesgen — add_edges_from(gen reading self)
+# ---------------------------------------------------------------------------
+
+
+class TestAddEdgesFromReadsSelf:
+    """nx internals frequently call
+    ``G.add_edges_from(gen_that_reads_G)`` (e.g. transitive_closure does
+    ``TC.add_edges_from((v, e[1]) for e in ... if e[1] not in TC[v])``).
+    The Rust add_edges_from mutably borrows self while iterating the
+    ebunch, and the generator's read of ``TC[v]`` then tries to acquire
+    an immutable borrow on the same RefCell, raising
+    ``RuntimeError: Already mutably borrowed``. Python wrapper
+    materializes the ebunch into a list first.
+    """
+
+    def test_add_edges_from_generator_reading_self(self):
+        G = fnx.DiGraph()
+        G.add_node(0)
+        G.add_node(1)
+        G.add_node(2)
+        gen = ((0, v) for v in [1, 2] if v not in G[0])
+        G.add_edges_from(gen)  # must not raise
+        assert sorted(G.edges) == [(0, 1), (0, 2)]
+
+    def test_nx_transitive_closure_works_on_fnx(self):
+        import networkx as nx
+
+        D = fnx.DiGraph([(0, 1), (1, 2), (2, 0), (0, 3)])
+        r = nx.transitive_closure(D)
+        assert r.number_of_edges() == 12
+        assert sorted(r.edges) == sorted(
+            nx.transitive_closure(nx.DiGraph([(0, 1), (1, 2), (2, 0), (0, 3)])).edges
+        )
+
+    def test_graph_add_edges_from_with_self_reading_gen(self):
+        """Same pattern on simple Graph."""
+        G = fnx.Graph([(0, 1), (1, 2), (2, 3)])
+        # Read G.adj (safe dict access) while add_edges_from is mutating.
+        gen = ((u, v) for u, v in [(0, 3), (2, 0)] if v not in G.adj.get(u, {}))
+        G.add_edges_from(gen)  # must not raise due to borrow conflict
+        assert G.has_edge(0, 3)
+        assert G.has_edge(2, 0)

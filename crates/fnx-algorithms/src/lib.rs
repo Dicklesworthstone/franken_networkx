@@ -754,6 +754,13 @@ pub struct CycleBasisResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MinimumCycleBasisCoreResult {
+    /// Each inner Vec is a minimum-basis cycle represented by node indices.
+    pub cycles: Vec<Vec<usize>>,
+    pub witness: ComplexityWitness,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GlobalEfficiencyResult {
     pub efficiency: f64,
     pub witness: ComplexityWitness,
@@ -10631,6 +10638,443 @@ pub fn global_minimum_node_cut_directed(digraph: &DiGraph) -> MinimumNodeCutResu
 
 fn should_replace_minimum_node_cut(current: &[String], candidate: &[String]) -> bool {
     candidate.len() < current.len() || (candidate.len() == current.len() && candidate < current)
+}
+
+// ---------------------------------------------------------------------------
+// minimum_cycle_basis_core — de Pina cycle basis kernel for indexed graphs
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug)]
+struct MinimumCycleBasisEdge {
+    left: usize,
+    right: usize,
+    weight: f64,
+}
+
+#[derive(Clone, Debug)]
+struct MinimumCycleBasisCandidate {
+    nodes: Vec<usize>,
+    edge_indices: Vec<usize>,
+}
+
+#[derive(Default)]
+struct MinimumCycleBasisStats {
+    edges_scanned: usize,
+    queue_peak: usize,
+}
+
+/// Compute a minimum weight cycle basis for an undirected indexed graph.
+///
+/// This is the pure algorithm kernel used by the Python-facing port. The graph
+/// is supplied as `(left, right, weight)` edge triples over node indices
+/// `0..node_count`; later wiring is responsible for extracting these triples
+/// from FrankenNetworkX graph classes and edge attributes.
+#[must_use]
+pub fn minimum_cycle_basis_core(
+    node_count: usize,
+    edges: &[(usize, usize, f64)],
+) -> MinimumCycleBasisCoreResult {
+    if node_count == 0 || edges.is_empty() {
+        return MinimumCycleBasisCoreResult {
+            cycles: Vec::new(),
+            witness: ComplexityWitness {
+                algorithm: "minimum_cycle_basis_core".to_owned(),
+                complexity_claim: "O(|E|^2 * |V| log |V|)".to_owned(),
+                nodes_touched: node_count,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    let normalized_edges: Vec<MinimumCycleBasisEdge> = edges
+        .iter()
+        .filter_map(|&(left, right, weight)| {
+            if left >= node_count || right >= node_count {
+                return None;
+            }
+            let (left, right) = if left <= right {
+                (left, right)
+            } else {
+                (right, left)
+            };
+            Some(MinimumCycleBasisEdge {
+                left,
+                right,
+                weight: if weight.is_finite() { weight } else { 1.0 },
+            })
+        })
+        .collect();
+
+    if normalized_edges.is_empty() {
+        return MinimumCycleBasisCoreResult {
+            cycles: Vec::new(),
+            witness: ComplexityWitness {
+                algorithm: "minimum_cycle_basis_core".to_owned(),
+                complexity_claim: "O(|E|^2 * |V| log |V|)".to_owned(),
+                nodes_touched: node_count,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
+
+    let components = minimum_cycle_basis_components(node_count, &normalized_edges);
+    let mut cycles = Vec::new();
+    let mut stats = MinimumCycleBasisStats::default();
+
+    for component_nodes in components {
+        let node_to_local: HashMap<usize, usize> = component_nodes
+            .iter()
+            .enumerate()
+            .map(|(local, &node)| (node, local))
+            .collect();
+
+        let mut component_edges = Vec::new();
+        for edge in &normalized_edges {
+            let Some(&left) = node_to_local.get(&edge.left) else {
+                continue;
+            };
+            let Some(&right) = node_to_local.get(&edge.right) else {
+                continue;
+            };
+            component_edges.push(MinimumCycleBasisEdge {
+                left,
+                right,
+                weight: edge.weight,
+            });
+        }
+
+        for cycle in
+            minimum_cycle_basis_component_core(component_nodes.len(), &component_edges, &mut stats)
+        {
+            cycles.push(
+                cycle
+                    .into_iter()
+                    .map(|local| component_nodes[local])
+                    .collect(),
+            );
+        }
+    }
+
+    MinimumCycleBasisCoreResult {
+        cycles,
+        witness: ComplexityWitness {
+            algorithm: "minimum_cycle_basis_core".to_owned(),
+            complexity_claim: "O(|E|^2 * |V| log |V|)".to_owned(),
+            nodes_touched: node_count,
+            edges_scanned: stats.edges_scanned,
+            queue_peak: stats.queue_peak,
+        },
+    }
+}
+
+fn minimum_cycle_basis_components(
+    node_count: usize,
+    edges: &[MinimumCycleBasisEdge],
+) -> Vec<Vec<usize>> {
+    let mut adjacency = vec![Vec::<usize>::new(); node_count];
+    for edge in edges {
+        if edge.left == edge.right {
+            continue;
+        }
+        adjacency[edge.left].push(edge.right);
+        adjacency[edge.right].push(edge.left);
+    }
+
+    let mut components = Vec::new();
+    let mut seen = vec![false; node_count];
+    for start in 0..node_count {
+        if seen[start] {
+            continue;
+        }
+        let mut component = Vec::new();
+        let mut stack = vec![start];
+        seen[start] = true;
+        while let Some(node) = stack.pop() {
+            component.push(node);
+            for &neighbor in &adjacency[node] {
+                if !seen[neighbor] {
+                    seen[neighbor] = true;
+                    stack.push(neighbor);
+                }
+            }
+        }
+        component.sort_unstable();
+        components.push(component);
+    }
+
+    components
+}
+
+fn minimum_cycle_basis_component_core(
+    node_count: usize,
+    edges: &[MinimumCycleBasisEdge],
+    stats: &mut MinimumCycleBasisStats,
+) -> Vec<Vec<usize>> {
+    if node_count == 0 || edges.is_empty() {
+        return Vec::new();
+    }
+
+    let tree_edges = minimum_cycle_basis_spanning_forest_edges(node_count, edges);
+    let chords: Vec<usize> = (0..edges.len())
+        .filter(|edge_idx| !tree_edges.contains(edge_idx))
+        .collect();
+    if chords.is_empty() {
+        return Vec::new();
+    }
+
+    let mut orthogonal_sets: Vec<Vec<bool>> = chords
+        .into_iter()
+        .map(|edge_idx| {
+            let mut basis = vec![false; edges.len()];
+            basis[edge_idx] = true;
+            basis
+        })
+        .collect();
+
+    let mut cycles = Vec::new();
+    while let Some(base) = orthogonal_sets.pop() {
+        let Some(candidate) =
+            minimum_cycle_basis_shortest_orthogonal_cycle(node_count, edges, &base, stats)
+        else {
+            continue;
+        };
+
+        for orthogonal in &mut orthogonal_sets {
+            let parity = candidate
+                .edge_indices
+                .iter()
+                .filter(|&&edge_idx| orthogonal[edge_idx])
+                .count()
+                % 2;
+            if parity == 1 {
+                for edge_idx in 0..orthogonal.len() {
+                    orthogonal[edge_idx] ^= base[edge_idx];
+                }
+            }
+        }
+
+        cycles.push(candidate.nodes);
+    }
+
+    cycles
+}
+
+fn minimum_cycle_basis_spanning_forest_edges(
+    node_count: usize,
+    edges: &[MinimumCycleBasisEdge],
+) -> HashSet<usize> {
+    let mut parent: Vec<usize> = (0..node_count).collect();
+    let mut tree_edges = HashSet::new();
+
+    for (edge_idx, edge) in edges.iter().enumerate() {
+        if edge.left == edge.right {
+            continue;
+        }
+        if minimum_cycle_basis_union(&mut parent, edge.left, edge.right) {
+            tree_edges.insert(edge_idx);
+        }
+    }
+
+    tree_edges
+}
+
+fn minimum_cycle_basis_find(parent: &mut [usize], node: usize) -> usize {
+    if parent[node] != node {
+        parent[node] = minimum_cycle_basis_find(parent, parent[node]);
+    }
+    parent[node]
+}
+
+fn minimum_cycle_basis_union(parent: &mut [usize], left: usize, right: usize) -> bool {
+    let left_root = minimum_cycle_basis_find(parent, left);
+    let right_root = minimum_cycle_basis_find(parent, right);
+    if left_root == right_root {
+        return false;
+    }
+    if left_root < right_root {
+        parent[right_root] = left_root;
+    } else {
+        parent[left_root] = right_root;
+    }
+    true
+}
+
+fn minimum_cycle_basis_shortest_orthogonal_cycle(
+    node_count: usize,
+    edges: &[MinimumCycleBasisEdge],
+    orthogonal: &[bool],
+    stats: &mut MinimumCycleBasisStats,
+) -> Option<MinimumCycleBasisCandidate> {
+    let lifted_count = node_count.saturating_mul(2);
+    let mut adjacency = vec![Vec::<(usize, usize, f64)>::new(); lifted_count];
+
+    for (edge_idx, edge) in edges.iter().enumerate() {
+        let left = edge.left;
+        let right = edge.right;
+        let left_lifted = left + node_count;
+        let right_lifted = right + node_count;
+        if orthogonal[edge_idx] {
+            minimum_cycle_basis_add_lifted_edge(
+                &mut adjacency,
+                left,
+                right_lifted,
+                edge_idx,
+                edge.weight,
+            );
+            minimum_cycle_basis_add_lifted_edge(
+                &mut adjacency,
+                left_lifted,
+                right,
+                edge_idx,
+                edge.weight,
+            );
+        } else {
+            minimum_cycle_basis_add_lifted_edge(&mut adjacency, left, right, edge_idx, edge.weight);
+            minimum_cycle_basis_add_lifted_edge(
+                &mut adjacency,
+                left_lifted,
+                right_lifted,
+                edge_idx,
+                edge.weight,
+            );
+        }
+    }
+
+    let mut best_path = None;
+    let mut best_distance = f64::INFINITY;
+    for start in 0..node_count {
+        let target = start + node_count;
+        let Some((distance, path)) =
+            minimum_cycle_basis_lifted_shortest_path(&adjacency, start, target, stats)
+        else {
+            continue;
+        };
+        if distance + DISTANCE_COMPARISON_EPSILON < best_distance {
+            best_distance = distance;
+            best_path = Some(path);
+        }
+    }
+
+    let path = best_path?;
+    minimum_cycle_basis_path_to_candidate(node_count, edges, &path)
+}
+
+fn minimum_cycle_basis_add_lifted_edge(
+    adjacency: &mut [Vec<(usize, usize, f64)>],
+    left: usize,
+    right: usize,
+    edge_idx: usize,
+    weight: f64,
+) {
+    adjacency[left].push((right, edge_idx, weight));
+    if left != right {
+        adjacency[right].push((left, edge_idx, weight));
+    }
+}
+
+fn minimum_cycle_basis_lifted_shortest_path(
+    adjacency: &[Vec<(usize, usize, f64)>],
+    source: usize,
+    target: usize,
+    stats: &mut MinimumCycleBasisStats,
+) -> Option<(f64, Vec<usize>)> {
+    let mut distances = vec![f64::INFINITY; adjacency.len()];
+    let mut predecessors = vec![None::<usize>; adjacency.len()];
+    let mut heap = BinaryHeap::new();
+    let mut sequence = 0u64;
+
+    distances[source] = 0.0;
+    heap.push(DijkstraState {
+        dist: 0.0,
+        seq: sequence,
+        node: source,
+    });
+
+    while let Some(DijkstraState { dist, node, .. }) = heap.pop() {
+        if dist > distances[node] + DISTANCE_COMPARISON_EPSILON {
+            continue;
+        }
+        if node == target {
+            break;
+        }
+        stats.queue_peak = stats.queue_peak.max(heap.len() + 1);
+        for &(neighbor, _edge_idx, weight) in &adjacency[node] {
+            stats.edges_scanned += 1;
+            let next_distance = dist + weight;
+            if next_distance + DISTANCE_COMPARISON_EPSILON < distances[neighbor] {
+                distances[neighbor] = next_distance;
+                predecessors[neighbor] = Some(node);
+                sequence = sequence.saturating_add(1);
+                heap.push(DijkstraState {
+                    dist: next_distance,
+                    seq: sequence,
+                    node: neighbor,
+                });
+            }
+        }
+    }
+
+    if !distances[target].is_finite() {
+        return None;
+    }
+
+    let mut path = vec![target];
+    let mut cursor = target;
+    while cursor != source {
+        let predecessor = predecessors[cursor]?;
+        path.push(predecessor);
+        cursor = predecessor;
+    }
+    path.reverse();
+
+    Some((distances[target], path))
+}
+
+fn minimum_cycle_basis_path_to_candidate(
+    node_count: usize,
+    edges: &[MinimumCycleBasisEdge],
+    lifted_path: &[usize],
+) -> Option<MinimumCycleBasisCandidate> {
+    let edge_lookup: HashMap<(usize, usize), usize> = edges
+        .iter()
+        .enumerate()
+        .map(|(idx, edge)| ((edge.left, edge.right), idx))
+        .collect();
+
+    let original_path: Vec<usize> = lifted_path.iter().map(|node| node % node_count).collect();
+    let mut path_edges = Vec::<(usize, usize, usize)>::new();
+    let mut remaining = HashSet::<usize>::new();
+
+    for pair in original_path.windows(2) {
+        let left = pair[0];
+        let right = pair[1];
+        let key = if left <= right {
+            (left, right)
+        } else {
+            (right, left)
+        };
+        let &edge_idx = edge_lookup.get(&key)?;
+        path_edges.push((left, right, edge_idx));
+        if !remaining.insert(edge_idx) {
+            remaining.remove(&edge_idx);
+        }
+    }
+
+    let mut edge_indices = Vec::new();
+    let mut nodes = Vec::new();
+    for (_left, right, edge_idx) in path_edges {
+        if remaining.remove(&edge_idx) {
+            edge_indices.push(edge_idx);
+            nodes.push(right);
+        }
+    }
+
+    (!edge_indices.is_empty()).then_some(MinimumCycleBasisCandidate {
+        nodes,
+        edge_indices,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -35522,6 +35966,76 @@ mod tests {
             result.cycles.len(),
             2,
             "two disconnected triangles should have 2 cycles"
+        );
+    }
+
+    fn sorted_index_cycles(mut cycles: Vec<Vec<usize>>) -> Vec<Vec<usize>> {
+        for cycle in &mut cycles {
+            cycle.sort_unstable();
+        }
+        cycles.sort();
+        cycles
+    }
+
+    #[test]
+    fn minimum_cycle_basis_core_empty_and_tree_have_no_cycles() {
+        let empty = super::minimum_cycle_basis_core(0, &[]);
+        assert!(empty.cycles.is_empty());
+
+        let tree = super::minimum_cycle_basis_core(4, &[(0, 1, 1.0), (1, 2, 1.0), (2, 3, 1.0)]);
+        assert!(tree.cycles.is_empty());
+    }
+
+    #[test]
+    fn minimum_cycle_basis_core_triangle_returns_single_cycle() {
+        let result = super::minimum_cycle_basis_core(3, &[(0, 1, 1.0), (1, 2, 1.0), (2, 0, 1.0)]);
+
+        assert_eq!(sorted_index_cycles(result.cycles), vec![vec![0, 1, 2]]);
+    }
+
+    #[test]
+    fn minimum_cycle_basis_core_weighted_square_with_diagonal() {
+        let result = super::minimum_cycle_basis_core(
+            4,
+            &[
+                (0, 1, 1.0),
+                (1, 2, 1.0),
+                (2, 3, 1.0),
+                (3, 0, 1.0),
+                (0, 2, 2.0),
+            ],
+        );
+
+        assert_eq!(
+            sorted_index_cycles(result.cycles),
+            vec![vec![0, 1, 2], vec![0, 1, 2, 3]]
+        );
+    }
+
+    #[test]
+    fn minimum_cycle_basis_core_preserves_self_loop_cycle() {
+        let result = super::minimum_cycle_basis_core(1, &[(0, 0, 1.0)]);
+
+        assert_eq!(result.cycles, vec![vec![0]]);
+    }
+
+    #[test]
+    fn minimum_cycle_basis_core_handles_disconnected_components() {
+        let result = super::minimum_cycle_basis_core(
+            7,
+            &[
+                (0, 1, 1.0),
+                (1, 2, 1.0),
+                (2, 0, 1.0),
+                (3, 4, 1.0),
+                (4, 5, 1.0),
+                (5, 3, 1.0),
+            ],
+        );
+
+        assert_eq!(
+            sorted_index_cycles(result.cycles),
+            vec![vec![0, 1, 2], vec![3, 4, 5]]
         );
     }
 

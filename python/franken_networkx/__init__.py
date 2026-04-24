@@ -909,6 +909,31 @@ MultiGraph.add_edges_from = _multi_add_edges_from
 MultiDiGraph.add_edges_from = _multi_add_edges_from
 
 
+# br-addedgesgen: nx internals frequently call
+# ``G.add_edges_from(generator_that_reads_G)`` (e.g. nx.transitive_closure
+# does `TC.add_edges_from((v, e[1]) for e in ... if e[1] not in TC[v])`).
+# The Rust add_edges_from mutably borrows self while iterating the ebunch,
+# and the generator's inside-the-loop read of ``TC[v]`` then tries to
+# acquire an immutable borrow on the same RefCell, raising
+# "Already mutably borrowed". Fix: materialize the ebunch into a list at
+# the Python layer before handing it to the Rust call, so the generator
+# fully evaluates (reading self) before any mutable borrow starts.
+_GRAPH_RAW_ADD_EDGES_FROM = Graph.add_edges_from
+_DIGRAPH_RAW_ADD_EDGES_FROM = DiGraph.add_edges_from
+
+
+def _add_edges_from_materialized(raw):
+    def add_edges_from(self, ebunch_to_add, **attr):
+        materialized = list(ebunch_to_add)
+        return raw(self, materialized, **attr)
+
+    return add_edges_from
+
+
+Graph.add_edges_from = _add_edges_from_materialized(_GRAPH_RAW_ADD_EDGES_FROM)
+DiGraph.add_edges_from = _add_edges_from_materialized(_DIGRAPH_RAW_ADD_EDGES_FROM)
+
+
 # ---------------------------------------------------------------------------
 # Constructor: absorb dict-of-dicts input (franken_networkx-lc3em).
 #
