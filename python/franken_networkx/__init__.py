@@ -10824,10 +10824,13 @@ def circulant_graph(n, offsets, create_using=None):
 
 
 def paley_graph(p, create_using=None):
-    """Return the Paley graph or digraph of order p."""
-    if create_using is None:
-        return _rust_paley_graph(p)
+    """Return the Paley graph or digraph of order p.
 
+    br-paleydir: nx.paley_graph's default return class is DiGraph (the
+    fnx Rust fast path incorrectly defaulted to an undirected Graph).
+    Route through the Python path so the default class + edge set match
+    nx.
+    """
     graph = empty_graph(0, create_using=create_using, default=DiGraph)
     if graph.is_multigraph():
         raise NetworkXError("`create_using` cannot be a multigraph.")
@@ -10841,10 +10844,13 @@ def paley_graph(p, create_using=None):
 
 
 def chordal_cycle_graph(p, create_using=None):
-    """Return the chordal cycle graph on p nodes."""
-    if create_using is None:
-        return _rust_chordal_cycle_graph(p)
+    """Return the chordal cycle graph on p nodes.
 
+    br-chordalmg: nx.chordal_cycle_graph default return class is
+    MultiGraph (self-loops + parallel edges from the (left, right, chord)
+    additions). fnx's Rust fast path returned a simple Graph, dropping
+    parallels. Route through the Python path always.
+    """
     graph = empty_graph(0, create_using=create_using, default=MultiGraph)
     if graph.is_directed() or not graph.is_multigraph():
         raise NetworkXError("`create_using` must be an undirected multigraph.")

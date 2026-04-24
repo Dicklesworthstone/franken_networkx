@@ -230,14 +230,22 @@ class TestParametricGenerators:
         assert g.number_of_edges() == 15
 
     def test_paley_graph(self):
+        # br-paleydir: paley_graph default return type is DiGraph (per nx).
+        # For p=5 (≡1 mod 4): each node has 2 out-neighbors via {1, 4},
+        # giving 10 directed edges total.
         g = fnx.paley_graph(5)
+        assert g.is_directed()
         assert g.number_of_nodes() == 5
-        assert g.number_of_edges() == 5
+        assert g.number_of_edges() == 10
 
     def test_chordal_cycle_graph(self):
+        # br-chordalmg: chordal_cycle_graph default return type is
+        # MultiGraph (per nx). 6 nodes × 3 edges per node (left, right,
+        # chord) = 18 total edge additions.
         g = fnx.chordal_cycle_graph(6)
+        assert g.is_multigraph()
         assert g.number_of_nodes() == 6
-        assert g.number_of_edges() == 12
+        assert g.number_of_edges() == 18
 
     def test_petersen_is_connected(self):
         g = fnx.petersen_graph()
