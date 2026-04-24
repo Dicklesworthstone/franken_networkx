@@ -9323,26 +9323,20 @@ def connected_caveman_graph(l, k):
     """Return a connected caveman graph.
 
     Like ``caveman_graph`` but with one edge rewired per clique to
-    connect adjacent cliques in a ring.
-
-    Parameters
-    ----------
-    l : int
-        Number of cliques.
-    k : int
-        Size of each clique.
-
-    Returns
-    -------
-    Graph
+    connect adjacent cliques in a ring. br-caveman: matches nx's
+    ``G.remove_edge(start, start+1); G.add_edge(start, start-1 mod lk)``
+    rewiring — previously only added the bridge without removing the
+    within-clique edge, producing 3 extra edges per (l, k).
     """
+    if k < 2:
+        raise NetworkXError(
+            "The size of cliques in a connected caveman graph must be at least 2."
+        )
+
     G = caveman_graph(l, k)
-    for i in range(l):
-        # Remove one internal edge and add a bridge to the next clique
-        base = i * k
-        next_base = ((i + 1) % l) * k
-        # Connect the last node of this clique to the first of the next
-        G.add_edge(base + k - 1, next_base)
+    for start in range(0, l * k, k):
+        G.remove_edge(start, start + 1)
+        G.add_edge(start, (start - 1) % (l * k))
     return G
 
 
@@ -20414,41 +20408,44 @@ def thresholded_random_geometric_graph(n, radius, theta, dim=2, pos=None, seed=N
 
 
 def navigable_small_world_graph(n, p=1, q=1, r=2, dim=2, seed=None):
-    """Navigable small-world graph (Kleinberg model)."""
-    import random as _random
-    import math
+    """Navigable small-world graph (Kleinberg model).
 
-    rng = _random.Random(seed)
+    br-navsw: fnx's prior Python implementation used a bounding-box local
+    loop (``range(-p, p+1)``) without Manhattan filtering, overcounting
+    local edges. nx's semantics are Manhattan-distance ``d <= p`` + long-
+    range draws from a CDF over ``d**-r``. Matches nx exactly now.
+    """
+    if p < 1:
+        raise NetworkXException("p must be >= 1")
+    if q < 0:
+        raise NetworkXException("q must be >= 0")
+    if r < 0:
+        raise NetworkXException("r must be >= 0")
+
+    from itertools import product, accumulate
+    from bisect import bisect_left
+    import random as _random
+
+    if isinstance(seed, _random.Random):
+        rng = seed
+    else:
+        rng = _random.Random(seed)
+
     G = DiGraph()
-    nodes = [(i, j) for i in range(n) for j in range(n)] if dim == 2 else list(range(n))
-    for node in nodes:
-        G.add_node(node)
-    for node in nodes:
-        if dim == 2:
-            i, j = node
-            for di in range(-p, p + 1):
-                for dj in range(-p, p + 1):
-                    if di == 0 and dj == 0:
-                        continue
-                    ni, nj = (i + di) % n, (j + dj) % n
-                    G.add_edge(node, (ni, nj))
-            for _ in range(q):
-                probs = []
-                for other in nodes:
-                    if other == node:
-                        probs.append(0)
-                        continue
-                    d = abs(other[0] - i) + abs(other[1] - j)
-                    probs.append(d ** (-r) if d > 0 else 0)
-                total = sum(probs)
-                if total > 0:
-                    r_val = rng.random() * total
-                    cum = 0
-                    for k, pr in enumerate(probs):
-                        cum += pr
-                        if cum >= r_val:
-                            G.add_edge(node, nodes[k])
-                            break
+    nodes = list(product(range(n), repeat=dim))
+    for p1 in nodes:
+        probs = [0]
+        for p2 in nodes:
+            if p1 == p2:
+                continue
+            d = sum(abs(b - a) for a, b in zip(p1, p2))
+            if d <= p:
+                G.add_edge(p1, p2)
+            probs.append(d ** -r)
+        cdf = list(accumulate(probs))
+        for _ in range(q):
+            target = nodes[bisect_left(cdf, rng.uniform(0, cdf[-1]))]
+            G.add_edge(p1, target)
     return G
 
 
