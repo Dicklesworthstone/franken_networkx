@@ -369,11 +369,58 @@ def _adjacency_view_keys(self):
 
 
 def _adjacency_view_items(self):
-    return ((node, self[node]) for node in self)
+    """br-viewitems: return a re-iterable view matching nx's ItemsView
+    contract rather than a one-shot generator. User code that iterates
+    ``G.edges.items()`` twice (e.g. compute + re-render flow) previously
+    saw the second pass empty.
+    """
+    from collections.abc import ItemsView
+
+    view = self
+
+    class _AdjItemsView(ItemsView):
+        def __init__(self):
+            pass
+
+        def __iter__(self):
+            return ((node, view[node]) for node in view)
+
+        def __contains__(self, item):
+            try:
+                key, val = item
+            except (TypeError, ValueError):
+                return False
+            return key in view and view[key] == val
+
+        def __len__(self):
+            return len(view)
+
+    return _AdjItemsView()
 
 
 def _adjacency_view_values(self):
-    return (self[node] for node in self)
+    """br-viewitems: re-iterable ValuesView matching nx."""
+    from collections.abc import ValuesView
+
+    view = self
+
+    class _AdjValuesView(ValuesView):
+        def __init__(self):
+            pass
+
+        def __iter__(self):
+            return (view[node] for node in view)
+
+        def __contains__(self, value):
+            for node in view:
+                if view[node] == value:
+                    return True
+            return False
+
+        def __len__(self):
+            return len(view)
+
+    return _AdjValuesView()
 
 
 class AtlasView(Mapping):
