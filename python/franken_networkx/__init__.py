@@ -12793,6 +12793,22 @@ def check_planarity_recursive(G, counterexample=False):
     )
 
 
+def get_counterexample(G):
+    """Return a Kuratowski subgraph certifying that *G* is not planar."""
+    is_p, certificate = check_planarity(G, counterexample=True)
+    if is_p:
+        raise NetworkXException("G is planar - no counterexample.")
+    return certificate
+
+
+def get_counterexample_recursive(G):
+    """Return a Kuratowski subgraph using the recursive LR planarity routine."""
+    is_p, certificate = check_planarity_recursive(G, counterexample=True)
+    if is_p:
+        raise NetworkXException("G is planar - no counterexample.")
+    return certificate
+
+
 def all_simple_edge_paths(G, source, target, cutoff=None):
     """Yield all simple paths from source to target as edge lists.
 
@@ -30760,6 +30776,8 @@ __all__ = [
     "gnm_random_graph",
     "check_planarity",
     "check_planarity_recursive",
+    "get_counterexample",
+    "get_counterexample_recursive",
     "all_simple_edge_paths",
     "chain_decomposition",
     "bidirectional_dijkstra",
