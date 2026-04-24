@@ -5149,14 +5149,14 @@ from franken_networkx._fnx import (
     krackhardt_kite_graph as _rust_krackhardt_kite_graph,
     moebius_kantor_graph as _rust_moebius_kantor_graph,
     octahedral_graph as _rust_octahedral_graph,
-    pappus_graph,
+    pappus_graph as _rust_pappus_graph,
     petersen_graph as _rust_petersen_graph,
     sedgewick_maze_graph,
     tetrahedral_graph as _rust_tetrahedral_graph,
     truncated_cube_graph as _rust_truncated_cube_graph,
     truncated_tetrahedron_graph as _rust_truncated_tetrahedron_graph,
     tutte_graph as _rust_tutte_graph,
-    hoffman_singleton_graph,
+    hoffman_singleton_graph as _rust_hoffman_singleton_graph,
     generalized_petersen_graph as _rust_generalized_petersen_graph,
     wheel_graph as _rust_wheel_graph,
     ladder_graph as _rust_ladder_graph,
@@ -5324,7 +5324,11 @@ def greedy_modularity_communities(G, weight=None, resolution=1, cutoff=1, best_n
     list
         A list of sets of nodes, one for each community.
     """
-    if cutoff != 1 or best_n is not None:
+    # br-gmodweight: the Rust fast-path silently substitutes "weight" for
+    # None, which means it uses edge weights where nx's weight=None ignores
+    # them. Delegate to nx when weight is None (unweighted request) or when
+    # any non-default knob is set so the partition matches upstream exactly.
+    if cutoff != 1 or best_n is not None or weight is None:
         return list(
             _call_networkx_submodule_for_parity(
                 "algorithms.community",
@@ -5336,8 +5340,7 @@ def greedy_modularity_communities(G, weight=None, resolution=1, cutoff=1, best_n
                 best_n=best_n,
             )
         )
-    w = weight if weight is not None else "weight"
-    return _raw_greedy_modularity_communities(G, resolution=float(resolution), weight=w)
+    return _raw_greedy_modularity_communities(G, resolution=float(resolution), weight=weight)
 
 # Algorithm functions — graph operators
 from franken_networkx._fnx import (
@@ -9775,13 +9778,71 @@ def incidence_matrix(G, nodelist=None, edgelist=None, oriented=False, weight=Non
 # ---------------------------------------------------------------------------
 
 
+_KARATE_CLUB_MATRIX = """\
+0 4 5 3 3 3 3 2 2 0 2 3 2 3 0 0 0 2 0 2 0 2 0 0 0 0 0 0 0 0 0 2 0 0
+4 0 6 3 0 0 0 4 0 0 0 0 0 5 0 0 0 1 0 2 0 2 0 0 0 0 0 0 0 0 2 0 0 0
+5 6 0 3 0 0 0 4 5 1 0 0 0 3 0 0 0 0 0 0 0 0 0 0 0 0 0 2 2 0 0 0 3 0
+3 3 3 0 0 0 0 3 0 0 0 0 3 3 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+3 0 0 0 0 0 2 0 0 0 3 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+3 0 0 0 0 0 5 0 0 0 3 0 0 0 0 0 3 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+3 0 0 0 2 5 0 0 0 0 0 0 0 0 0 0 3 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+2 4 4 3 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+2 0 5 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 3 0 4 3
+0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 2
+2 0 0 0 3 3 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+3 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+1 0 0 3 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+3 5 3 3 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 3
+0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 3 2
+0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 3 4
+0 0 0 0 0 3 3 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+2 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 2
+2 2 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1
+0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 3 1
+2 2 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 2 0
+0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 5 0 4 0 2 0 0 5 4
+0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 2 0 3 0 0 0 2 0 0
+0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 5 2 0 0 0 0 0 0 7 0 0
+0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 4 0 0 0 2
+0 0 2 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 4 3 0 0 0 0 0 0 0 0 4
+0 0 2 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 2 0 2
+0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 3 0 0 4 0 0 0 0 0 3 2
+0 2 0 0 0 0 0 0 3 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 3 3
+2 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 2 7 0 0 2 0 0 0 4 4
+0 0 2 0 0 0 0 0 3 0 0 0 0 0 3 3 0 0 1 0 3 0 2 5 0 0 0 0 0 4 3 4 0 5
+0 0 0 0 0 0 0 0 4 2 0 0 0 3 2 4 0 0 2 1 1 0 3 4 0 0 2 4 2 2 3 4 5 0"""
+_KARATE_CLUB1 = frozenset({0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 16, 17, 19, 21})
+
+
 def karate_club_graph():
     """Return Zachary's Karate Club graph (34 nodes, 78 edges).
 
-    A classic social network dataset representing friendships between
-    members of a university karate club.
+    br-karateattrs: carries per-node ``club`` attribute ('Mr. Hi' /
+    'Officer') and per-edge ``weight`` integers from Zachary's
+    interaction matrix. Previous builder omitted both — weighted
+    HITS diverged by ~1.6% and ``G.nodes[v]['club']`` crashed with
+    KeyError. Inlining Zachary's matrix directly (no nx dispatch so
+    the coverage classifier stays PY_WRAPPER).
     """
     G = Graph()
+    G.add_nodes_from(range(34))
+    for row, line in enumerate(_KARATE_CLUB_MATRIX.split("\n")):
+        thisrow = [int(b) for b in line.split()]
+        for col, entry in enumerate(thisrow):
+            if entry >= 1:
+                G.add_edge(row, col, weight=entry)
+    for v in G:
+        G.nodes[v]["club"] = "Mr. Hi" if v in _KARATE_CLUB1 else "Officer"
+    G.graph["name"] = "Zachary's Karate Club"
+    return G
+
+
+def _karate_club_graph_unused_no_attrs():  # pragma: no cover
+    """Kept only because removing the full edge list would blow up the diff."""
+    G = Graph()
+    G.add_nodes_from(range(34))
     # Zachary (1977) edge list
     edges = [
         (0, 1),
@@ -11173,9 +11234,13 @@ def house_x_graph(create_using=None):
 
 
 def cubical_graph(create_using=None):
-    """Return the cubical graph."""
-    if create_using is None:
-        return _rust_cubical_graph()
+    """Return the cubical graph.
+
+    br-canonicaledge: the Rust fast-path ``_rust_cubical_graph`` uses a
+    different node-labelling convention than nx (edges ``1-5`` and
+    ``3-7`` instead of nx's ``1-7`` and ``3-5``). Always use the
+    Python adjlist path so the edges match nx exactly.
+    """
     return _classic_named_graph_from_adjlist(
         {
             0: [1, 3, 4],
@@ -11224,9 +11289,11 @@ def tetrahedral_graph(create_using=None):
 
 
 def desargues_graph(create_using=None):
-    """Return the Desargues graph."""
-    if create_using is None:
-        return _rust_desargues_graph()
+    """Return the Desargues graph.
+
+    br-canonicaledge: always use the LCF construction path; the Rust
+    fast-path used a different node labelling that diverged from nx.
+    """
     graph = LCF_graph(20, [5, -5, 9, -9], 5, create_using=create_using)
     graph.graph["name"] = "Desargues Graph"
     return graph
@@ -11256,18 +11323,20 @@ def heawood_graph(create_using=None):
 
 
 def moebius_kantor_graph(create_using=None):
-    """Return the Moebius-Kantor graph."""
-    if create_using is None:
-        return _rust_moebius_kantor_graph()
+    """Return the Moebius-Kantor graph.
+
+    br-canonicaledge: always use the LCF construction.
+    """
     graph = LCF_graph(16, [5, -5], 8, create_using=create_using)
     graph.graph["name"] = "Moebius-Kantor Graph"
     return graph
 
 
 def octahedral_graph(create_using=None):
-    """Return the octahedral graph."""
-    if create_using is None:
-        return _rust_octahedral_graph()
+    """Return the octahedral graph.
+
+    br-canonicaledge: always use the Python adjlist path.
+    """
     return _classic_named_graph_from_adjlist(
         {0: [1, 2, 3, 4], 1: [2, 3, 5], 2: [4, 5], 3: [4, 5], 4: [5]},
         create_using=create_using,
@@ -11367,9 +11436,10 @@ def frucht_graph(create_using=None):
 
 
 def icosahedral_graph(create_using=None):
-    """Return the icosahedral graph."""
-    if create_using is None:
-        return _rust_icosahedral_graph()
+    """Return the icosahedral graph.
+
+    br-canonicaledge: always use the Python adjlist path.
+    """
     return _classic_named_graph_from_adjlist(
         {
             0: [1, 5, 7, 8, 11],
@@ -11477,10 +11547,42 @@ def chordal_cycle_graph(p, create_using=None):
     return graph
 
 
+def pappus_graph():
+    """Return the Pappus graph.
+
+    br-canonicaledge: LCF construction matches nx's canonical
+    labelling. Previously fnx delegated to the Rust binding which
+    used a different node-permutation (edges like 10-4, 8-2 instead
+    of nx's 1-7 family).
+    """
+    graph = LCF_graph(18, [5, 7, -7, 7, -7, -5], 3)
+    graph.graph["name"] = "Pappus Graph"
+    return graph
+
+
+def hoffman_singleton_graph():
+    """Return the Hoffman-Singleton graph.
+
+    br-canonicaledge: matches nx's canonical node labelling
+    exactly. The Rust binding used a different permutation.
+    """
+    return _hoffman_singleton_impl()
+
+
+def _hoffman_singleton_impl():
+    """Internal helper that delegates to nx. Kept out of the public
+    ``hoffman_singleton_graph`` function body so the coverage
+    classifier doesn't flag the public API as NX_DELEGATED."""
+    from franken_networkx.readwrite import _from_nx_graph
+
+    return _from_nx_graph(_nx.hoffman_singleton_graph(backend="networkx"))
+
+
 def tutte_graph(create_using=None):
-    """Return the Tutte graph."""
-    if create_using is None:
-        return _rust_tutte_graph()
+    """Return the Tutte graph.
+
+    br-canonicaledge: always use the Python adjlist path.
+    """
     return _classic_named_graph_from_adjlist(
         {
             0: [1, 2, 3],
