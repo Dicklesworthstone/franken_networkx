@@ -7763,6 +7763,33 @@ def _single_source_dijkstra_cutoff_view(source, dists, paths, cutoff):
     return filtered_dists, filtered_paths
 
 
+def _sp_edge_weights_all_int(G, weight):
+    """Return True iff ``weight`` is a str attr and every edge carries
+    an integer value at that attr (including missing → default 1).
+
+    br-ssintfloat: used by single_source_dijkstra / bellman_ford to
+    coerce float distances back to int when nx would have preserved
+    integer types (nx's weighted shortest-path preserves int when
+    every input is int).
+    """
+    if not isinstance(weight, str):
+        return False
+    import numbers as _numbers
+    for _, _, attrs in G.edges(data=True):
+        if not isinstance(attrs, dict):
+            continue
+        w = attrs.get(weight, 1)
+        if not isinstance(w, _numbers.Integral) or isinstance(w, bool):
+            return False
+    return True
+
+
+def _sp_coerce_dist_to_int(dists):
+    """Coerce integer-valued floats in a distance dict back to int."""
+    return {k: (int(v) if isinstance(v, float) and v.is_integer() else v)
+            for k, v in dists.items()}
+
+
 def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight"):
     if _should_delegate_dijkstra_to_networkx(G, weight):
         return _call_networkx_for_parity(
@@ -7775,6 +7802,10 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
         )
     dists, paths = _raw_single_source_dijkstra(G, source, weight=weight)
     dists, paths = _single_source_dijkstra_cutoff_view(source, dists, paths, cutoff)
+    # br-ssintfloat: preserve nx's int/float parity — if every edge
+    # weight is int, distances are ints.
+    if _sp_edge_weights_all_int(G, weight):
+        dists = _sp_coerce_dist_to_int(dists)
     if target is not None:
         if target not in dists:
             raise NetworkXNoPath(f"No path to {target}.")
@@ -7829,7 +7860,11 @@ def single_source_bellman_ford_path_length(G, source, weight="weight"):
         return _call_networkx_for_parity(
             "single_source_bellman_ford_path_length", G, source, weight=weight
         )
-    return _raw_single_source_bellman_ford_path_length(G, source, weight=weight)
+    result = _raw_single_source_bellman_ford_path_length(G, source, weight=weight)
+    # br-ssintfloat: preserve int distances when all edge weights are int.
+    if _sp_edge_weights_all_int(G, weight):
+        return _sp_coerce_dist_to_int(dict(result))
+    return result
 
 
 def all_pairs_dijkstra_path(G, cutoff=None, weight="weight"):
