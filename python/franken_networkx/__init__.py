@@ -10940,11 +10940,16 @@ def binomial_tree(n, create_using=None):
     br-btneg: nx.binomial_tree(-1) returns a 1-node graph (the seed of
     the iterative doubling). fnx's Rust binding raised OverflowError
     on negative n. Short-circuit to match nx.
+
+    br-binomlabels: the Rust path produced a tree that is isomorphic to
+    nx's but with different node labels (edges like (1,3) where nx
+    yields (2,3)). nx's recursive clone-and-shift produces a specific
+    canonical labelling; downstream code that depends on fnx matching
+    nx edge-by-edge broke. Always take the Python path so the labels
+    match exactly.
     """
     if n < 0:
         return empty_graph(1, create_using=create_using)
-    if create_using is None:
-        return _rust_binomial_tree(n)
 
     G = empty_graph(1, create_using)
 
@@ -11041,8 +11046,18 @@ def kneser_graph(n, k):
     range(n); two nodes are adjacent when the subsets are disjoint. The Rust
     fast path (br-kneser) emits string node labels like "0,1" which breaks
     drop-in parity.
+
+    br-knesvalid: nx rejects n<=0 and k<=0 or k>=n with specific messages;
+    fnx silently accepted n=0 (returning a 1-node graph with "()" label)
+    or k=0 (returning degenerate graphs with empty-tuple nodes). Add
+    nx-compatible validation so invalid inputs fail fast.
     """
     from itertools import combinations
+
+    if n <= 0:
+        raise NetworkXError("n should be greater than zero")
+    if k <= 0 or k > n:
+        raise NetworkXError("k should be greater than zero and smaller than n")
 
     G = empty_graph(0)
     nodes = [tuple(sorted(c)) for c in combinations(range(n), k)]
@@ -11180,7 +11195,13 @@ def lollipop_graph(m, n, create_using=None):
 
 
 def tadpole_graph(m, n, create_using=None):
-    """Return the tadpole graph."""
+    """Return the tadpole graph.
+
+    br-tadm2: nx.tadpole_graph accepts m=2 (degenerate cycle = single
+    edge). The Rust binding requires m>=3 and raised NetworkXError.
+    Route m<3 cases through the Python path so the m=2 degenerate case
+    (plus any tail) produces the same output as nx.
+    """
     m_value, m_nodes = _nodes_or_number_local(m)
     M = len(m_nodes)
     if M < 2:
@@ -11191,6 +11212,7 @@ def tadpole_graph(m, n, create_using=None):
         create_using is None
         and isinstance(m_value, numbers.Integral)
         and isinstance(n_value, numbers.Integral)
+        and m_value >= 3
     ):
         return _rust_tadpole_graph(m_value, n_value)
 
@@ -11518,13 +11540,22 @@ def trivial_graph(create_using=None):
 
 
 def circulant_graph(n, offsets, create_using=None):
-    """Return the circulant graph on n nodes with the given offsets."""
-    if create_using is None:
-        return _rust_circulant_graph(n, offsets)
+    """Return the circulant graph on n nodes with the given offsets.
+
+    br-circself: nx allows n=0 (empty graph) and produces self-loops
+    when an offset is divisible by n (e.g. n=1 with offset=1, or n=2
+    with offset=2). The Rust binding rejected n=0 entirely and silently
+    dropped self-loops, breaking parity with nx. Route those cases
+    through the Python path; the Rust fast path only handles the
+    strictly non-self-loop case (n>=2 and no offset divisible by n).
+    """
+    offsets_list = list(offsets)
+    if create_using is None and n >= 2 and all(j % n != 0 for j in offsets_list):
+        return _rust_circulant_graph(n, offsets_list)
 
     G = empty_graph(n, create_using)
-    G.add_edges_from((i, (i - j) % n) for i in range(n) for j in offsets)
-    G.add_edges_from((i, (i + j) % n) for i in range(n) for j in offsets)
+    G.add_edges_from((i, (i - j) % n) for i in range(n) for j in offsets_list)
+    G.add_edges_from((i, (i + j) % n) for i in range(n) for j in offsets_list)
     return G
 
 
@@ -11675,7 +11706,18 @@ def generalized_petersen_graph(n, k, create_using=None):
 
 
 def windmill_graph(n, k):
-    """Generate a windmill graph with n cliques of size k sharing one node."""
+    """Generate a windmill graph with n cliques of size k sharing one node.
+
+    br-windvalid: nx raises NetworkXError on n<2 or k<2 with specific
+    messages. The Rust binding either accepted n in {0,1} (producing a
+    malformed graph) or rejected with the wrong message. Match nx's
+    validation exactly so invalid inputs fail with the right wording
+    instead of silently producing a non-windmill graph.
+    """
+    if n < 2:
+        raise NetworkXError("A windmill graph must have at least two cliques")
+    if k < 2:
+        raise NetworkXError("The cliques must have at least two nodes")
     return _rust_windmill_graph(k, n)
 
 
