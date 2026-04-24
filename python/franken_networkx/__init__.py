@@ -4600,16 +4600,40 @@ def all_shortest_paths(G, source, target, weight=None, method="dijkstra"):
 def all_simple_paths(
     G, source, target, cutoff=None, *, backend=None, **backend_kwargs
 ):
-    """Return all simple paths from source to target.
+    """Return all simple paths from *source* to *target*.
 
-    Delegates to the Rust implementation.
+    ``target`` may be a single node OR an iterable of target nodes (list
+    / set / etc.) - networkx yields paths whose endpoint is *any* node
+    in the iterable, in DFS order over a single traversal. The Rust binding
+    only handles a scalar target, so iterable-target inputs delegate to
+    NetworkX to preserve the exact emission order.
     """
     _validate_backend_dispatch_keywords("all_simple_paths", backend, backend_kwargs)
     if G.is_multigraph():
         return _call_networkx_for_parity(
             "all_simple_paths", G, source, target, cutoff=cutoff
         )
-    # Trivial case: source is target
+
+    if source not in G:
+        raise NodeNotFound(f"source node {source} not in graph")
+
+    try:
+        target_is_node = target in G
+    except TypeError:
+        target_is_node = False
+
+    if not target_is_node:
+        try:
+            iter(target)
+        except TypeError:
+            pass
+        else:
+            return _call_networkx_for_parity(
+                "all_simple_paths", G, source, target, cutoff=cutoff
+            )
+        raise NodeNotFound(f"target node {target} not in graph")
+
+    # Scalar target — Rust fast path.
     if source == target:
         return [[source]]
     return _rust_all_simple_paths(G, source, target, cutoff=cutoff)
@@ -12843,6 +12867,24 @@ def all_simple_edge_paths(
             "all_simple_edge_paths", G, source, target, cutoff=cutoff
         )
         return
+    if source not in G:
+        raise NodeNotFound(f"source node {source} not in graph")
+
+    try:
+        target_is_node = target in G
+    except TypeError:
+        target_is_node = False
+    if not target_is_node:
+        try:
+            iter(target)
+        except TypeError:
+            pass
+        else:
+            yield from _call_networkx_for_parity(
+                "all_simple_edge_paths", G, source, target, cutoff=cutoff
+            )
+            return
+        raise NodeNotFound(f"target node {target} not in graph")
     for path in all_simple_paths(G, source, target, cutoff=cutoff):
         edges = [(path[i], path[i + 1]) for i in range(len(path) - 1)]
         yield edges

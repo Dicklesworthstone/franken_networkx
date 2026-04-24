@@ -55,6 +55,26 @@ class TestPathsCycles:
         with pytest.raises(TypeError):
             list(fnx.all_simple_paths(G_fnx, "a", "e", unexpected=True))
 
+    def test_all_simple_paths_iterable_targets_match_networkx(self, fnx, nx):
+        G_fnx = fnx.complete_graph(4)
+        G_nx = nx.complete_graph(4)
+
+        assert list(fnx.all_simple_paths(G_fnx, 0, [3, 2])) == list(
+            nx.all_simple_paths(G_nx, 0, [3, 2])
+        )
+        assert list(fnx.all_simple_paths(G_fnx, 0, [0, 1, 2])) == list(
+            nx.all_simple_paths(G_nx, 0, [0, 1, 2])
+        )
+        assert list(fnx.all_simple_paths(G_fnx, 0, "x")) == list(
+            nx.all_simple_paths(G_nx, 0, "x")
+        )
+        with pytest.raises(Exception) as expected_error:
+            list(nx.all_simple_paths(G_nx, 0, 9))
+        with pytest.raises(Exception) as actual_error:
+            list(fnx.all_simple_paths(G_fnx, 0, 9))
+        assert type(actual_error.value).__name__ == type(expected_error.value).__name__
+        assert str(actual_error.value) == str(expected_error.value)
+
     def test_all_simple_edge_paths_preserve_multigraph_keys(self, fnx, nx):
         for graph_type in ("MultiGraph", "MultiDiGraph"):
             G_fnx = getattr(fnx, graph_type)()
@@ -86,6 +106,23 @@ class TestPathsCycles:
             list(fnx.all_simple_edge_paths(G_fnx, "a", "e", backend="missing"))
         with pytest.raises(TypeError):
             list(fnx.all_simple_edge_paths(G_fnx, "a", "e", unexpected=True))
+
+    def test_all_simple_edge_paths_iterable_targets_match_networkx(self, fnx, nx):
+        G_fnx = fnx.complete_graph(4)
+        G_nx = nx.complete_graph(4)
+
+        assert list(fnx.all_simple_edge_paths(G_fnx, 0, [3, 2])) == list(
+            nx.all_simple_edge_paths(G_nx, 0, [3, 2])
+        )
+        assert list(fnx.all_simple_edge_paths(G_fnx, 0, ("x", "y"))) == list(
+            nx.all_simple_edge_paths(G_nx, 0, ("x", "y"))
+        )
+        with pytest.raises(Exception) as expected_error:
+            list(nx.all_simple_edge_paths(G_nx, 0, 9))
+        with pytest.raises(Exception) as actual_error:
+            list(fnx.all_simple_edge_paths(G_fnx, 0, 9))
+        assert type(actual_error.value).__name__ == type(expected_error.value).__name__
+        assert str(actual_error.value) == str(expected_error.value)
 
     def test_cycle_basis_count(self, fnx, nx, cycle_graph):
         G_fnx, G_nx = cycle_graph
