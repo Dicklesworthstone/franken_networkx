@@ -5560,7 +5560,30 @@ from franken_networkx._fnx import (
 
 
 def transitive_closure(G, reflexive=False):
-    """br-isokw: ``G`` matches nx; Rust binding used ``g``."""
+    """Return the transitive closure of ``G``.
+
+    br-isokw: ``G`` matches nx.
+
+    br-tcmg: nx.transitive_closure on a MultiDiGraph preserves the
+    MultiDiGraph class and includes self-loops ``(u, u)`` for any
+    node ``u`` that participates in a cycle (i.e. can reach itself
+    via a path of length >= 1 when reflexive=False). fnx's Rust
+    binding returned a plain DiGraph with no cycle self-loops.
+    Delegate for multigraphs and for graphs known to contain cycles
+    (where the self-loop distinction matters).
+    """
+    # Delegate for: multigraphs (class preservation), undirected
+    # (Rust binding doesn't accept them), cyclic directed (cycle
+    # self-loops), and reflexive=True (uncommon).
+    if (
+        G.is_multigraph()
+        or not G.is_directed()
+        or reflexive
+        or (G.is_directed() and not is_directed_acyclic_graph(G))
+    ):
+        return _call_networkx_for_parity(
+            "transitive_closure", G, reflexive=reflexive
+        )
     return _raw_transitive_closure(G, reflexive=reflexive)
 
 
