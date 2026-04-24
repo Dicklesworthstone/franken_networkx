@@ -801,13 +801,18 @@ def _multidigraph_edges(self):
 
 
 def _simple_graph_adjacency(self):
+    # br-adjiter: nx.Graph.adjacency() returns a dict_itemiterator — an
+    # iterator, not a materialised list. User code calling
+    # ``next(G.adjacency())`` TypeErrored on fnx previously. Yield
+    # lazily so the contract matches.
     if isinstance(self, _FilteredGraphView):
         return ((node, FilterAtlas(self, node)) for node in self)
-    return [(node, self.adj[node]) for node in self]
+    return ((node, self.adj[node]) for node in self)
 
 
 def _multigraph_adjacency(self):
-    return [(node, self.adj[node]) for node in self]
+    """br-adjiter: return a generator matching nx.MultiGraph.adjacency."""
+    return ((node, self.adj[node]) for node in self)
 
 
 _GRAPH_COPY = Graph.copy
@@ -20976,7 +20981,15 @@ def k_edge_components(G, k):
     For k=1, returns connected components.
     For k=2, returns 2-edge-connected components (bridge-free blocks).
     For k>=3, uses repeated edge connectivity checks.
+
+    br-kedgegen: nx returns a generator of components; wrap the list
+    in iter() so drop-in callers that do ``next(k_edge_components(...))``
+    work.
     """
+    return iter(_k_edge_components_list(G, k))
+
+
+def _k_edge_components_list(G, k):
     if k < 1:
         raise NetworkXError("k must be positive")
 
@@ -21058,7 +21071,7 @@ def k_edge_components(G, k):
 
 def k_edge_subgraphs(G, k):
     """Yield k-edge-connected component subgraphs."""
-    for comp in k_edge_components(G, k):
+    for comp in _k_edge_components_list(G, k):
         yield G.subgraph(comp)
 
 

@@ -281,7 +281,8 @@ class TestKEdgeComponents:
     def test_k1_matches_connected_components(self):
         G = fnx.Graph()
         G.add_edges_from([(1, 2), (3, 4)])
-        comps = fnx.k_edge_components(G, 1)
+        # br-kedgegen: fnx.k_edge_components returns a generator matching nx.
+        comps = list(fnx.k_edge_components(G, 1))
         assert len(comps) == 2
 
     def test_k2_matches_nx(self):

@@ -574,7 +574,8 @@ class TestStructuralDecomposition:
 
     def test_k_edge_components(self):
         G = fnx.path_graph(5)
-        comps = fnx.k_edge_components(G, 1)
+        # br-kedgegen: fnx.k_edge_components is a generator matching nx.
+        comps = list(fnx.k_edge_components(G, 1))
         assert len(comps) == 1
 
 
