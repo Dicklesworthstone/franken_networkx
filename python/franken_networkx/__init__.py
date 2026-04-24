@@ -3440,6 +3440,22 @@ def eigenvector_centrality(
     """
     _validate_backend_dispatch_keywords("eigenvector_centrality", backend, backend_kwargs)
 
+    # br-eignstart: the Rust _raw_eigenvector_centrality raised
+    # ``TypeError('franken_networkx currently only supports
+    # nstart=None and weight=None...')`` when either kwarg was
+    # supplied. nx accepts both — weight for weighted adjacency and
+    # nstart for custom power-iteration start vector. Delegate to
+    # nx whenever either non-default is supplied; keep the Rust
+    # fast path for the common default case.
+    if nstart is not None or weight is not None:
+        return _call_networkx_for_parity(
+            "eigenvector_centrality",
+            G,
+            max_iter=max_iter,
+            tol=tol,
+            nstart=nstart,
+            weight=weight,
+        )
     return _raw_eigenvector_centrality(
         G,
         max_iter=max_iter,
@@ -14958,7 +14974,15 @@ def johnson(G, weight="weight"):
 
 
 def bethe_hessian_matrix(G, r=None, nodelist=None):
-    """Return the Bethe Hessian matrix: H(r) = (r^2-1)*I - r*A + D."""
+    """Return the Bethe Hessian matrix: H(r) = (r^2-1)*I - r*A + D.
+
+    br-bethedef: nx's default regularizer is
+    ``r = sum(d_i^2)/sum(d_i) - 1`` (Le & Levina 2015). fnx used
+    ``max(sqrt(mean(degree)), 1.0)`` which produced a different matrix
+    whenever the default was requested — on path(5) fnx's r was
+    ~1.265 (giving diag entry 2.6) vs nx's r=0.75 (giving diag 1.5625).
+    Match nx's formula exactly.
+    """
     import numpy as np
     import scipy.sparse
 
@@ -14967,7 +14991,10 @@ def bethe_hessian_matrix(G, r=None, nodelist=None):
     d = np.asarray(A.sum(axis=1)).flatten()
     D = scipy.sparse.diags(d, dtype=float)
     if r is None:
-        r = max(np.sqrt(d.mean()), 1.0) if n > 0 else 1.0
+        if n > 0 and d.sum() > 0:
+            r = float((d ** 2).sum() / d.sum() - 1)
+        else:
+            r = 1.0
     I = scipy.sparse.eye(n)
     return (r**2 - 1) * I - r * A + D
 
