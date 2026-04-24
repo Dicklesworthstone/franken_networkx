@@ -3681,23 +3681,52 @@ def min_edge_cover(G, matching_algorithm=None):
     Parameters
     ----------
     G : graph
-        An undirected bipartite graph.
+        An undirected graph (raises for directed/multigraph).
     matching_algorithm : function, optional
-        A function that computes a maximum cardinality matching.
-        If None, uses the default max_weight_matching.
+        A function taking ``G`` and returning either a set of 2-tuples
+        (matching edges) or a dict mapping each matched node to its
+        mate. Defaults to :func:`max_weight_matching` with
+        ``maxcardinality=True``.
 
     Returns
     -------
     set
-        Set of edges forming a minimum edge cover.
+        Set of edges forming a minimum edge cover. Bipartite matching
+        algorithms (dict-returning) produce both ``(u, v)`` and
+        ``(v, u)`` directions per edge, matching nx's contract.
     """
-    if matching_algorithm is not None:
-        return _call_networkx_for_parity(
-            "min_edge_cover",
-            G,
-            matching_algorithm=matching_algorithm,
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if not G.edges() and G.number_of_nodes() > 0:
+        raise NetworkXException(
+            "Graph has a node with no edge incident on it, "
+            "so no edge cover exists."
         )
-    return _raw_min_edge_cover(G)
+
+    if matching_algorithm is None:
+        matching = max_weight_matching(G, maxcardinality=True)
+    else:
+        matching = matching_algorithm(G)
+
+    try:
+        # bipartite algos return dict — convert
+        min_cover = set(matching.items())
+        bipartite_cover = True
+    except AttributeError:
+        min_cover = set(matching)
+        bipartite_cover = False
+
+    covered = {u for e in min_cover for u in e}
+    uncovered = set(G.nodes()) - covered
+    for v in uncovered:
+        nbrs = iter(G.neighbors(v))
+        u = next(nbrs)
+        min_cover.add((u, v))
+        if bipartite_cover:
+            min_cover.add((v, u))
+    return min_cover
 
 
 # Algorithm functions — flow
@@ -4414,9 +4443,46 @@ from franken_networkx._fnx import (
     eulerian_circuit as _raw_eulerian_circuit,
     eulerian_path as _raw_eulerian_path,
     has_eulerian_path as _raw_has_eulerian_path,
-    is_eulerian,
+    is_eulerian as _raw_is_eulerian,
     is_semieulerian,
 )
+
+
+def is_eulerian(G):
+    """Return True iff *G* is Eulerian (connected + all even degrees).
+
+    The Rust helper returned False for a graph consisting only of a
+    self-loop — it either excluded self-loops from its degree count or
+    special-cased 1-node graphs. nx includes the self-loop's +2 degree
+    contribution and correctly reports True for e.g. Graph([(0,0)]).
+    Delegate the 0- and 1-node branches to a Python check and keep the
+    fast path for ``G`` with >= 2 distinct nodes.
+    """
+    if G.number_of_nodes() <= 1:
+        if G.is_directed():
+            # For <=1 nodes the helper is the right answer (nx is_eulerian
+            # requires is_strongly_connected on directed input; empty/single
+            # cases match).
+            if G.number_of_nodes() == 0:
+                raise NetworkXPointlessConcept(
+                    "Connectivity is undefined for the null graph."
+                )
+            # Single node with only self-loops: check every degree (including
+            # self-loop's +2) is even.
+            for node in G.nodes():
+                if G.in_degree(node) != G.out_degree(node):
+                    return False
+            return True
+        # Undirected
+        if G.number_of_nodes() == 0:
+            raise NetworkXPointlessConcept(
+                "Connectivity is undefined for the null graph."
+            )
+        for _, deg in G.degree():
+            if deg % 2 != 0:
+                return False
+        return True
+    return _raw_is_eulerian(G)
 
 
 def eulerian_circuit(G, source=None, keys=False):
