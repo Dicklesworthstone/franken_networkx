@@ -6,8 +6,8 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 60 | 7% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 718 | 89% | Python-defined exports with no runtime NetworkX dependency detected |
+| RUST_NATIVE | 53 | 6% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 725 | 90% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 22 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
@@ -25,8 +25,8 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 655 |
-| `franken_networkx._fnx` | 60 |
+| `franken_networkx` | 662 |
+| `franken_networkx._fnx` | 53 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
@@ -36,29 +36,24 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 | `networkx.algorithms.tree.coding` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (60)
+## RUST_NATIVE exports (53)
 
 - `barycenter`
 - `bfs_layers`
 - `biconnected_component_edges`
 - `bidirectional_shortest_path`
 - `bipartite_sets`
-- `chordal_graph_cliques`
 - `clique_removal`
 - `core_number`
-- `cut_size`
 - `descendants_at_distance`
 - `dominance_frontiers`
-- `edge_boundary`
 - `enumerate_all_cliques`
 - `global_node_connectivity`
 - `graph_clique_number`
 - `hoffman_singleton_graph`
 - `is_arborescence`
-- `is_biconnected`
 - `is_bipartite`
 - `is_branching`
-- `is_chordal`
 - `is_connected`
 - `is_dominating_set`
 - `is_edge_cover`
@@ -84,9 +79,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `maximum_independent_set`
 - `min_weight_matching`
 - `min_weighted_vertex_cover`
-- `node_boundary`
 - `node_connected_component`
-- `normalized_cut_size`
 - `number_connected_components`
 - `number_of_isolates`
 - `number_of_spanning_arborescences`
@@ -99,7 +92,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `tree_broadcast_center`
 - `tree_broadcast_time`
 
-## PY_WRAPPER exports (718)
+## PY_WRAPPER exports (725)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -189,6 +182,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `check_planarity`
 - `check_planarity_recursive`
 - `chordal_cycle_graph`
+- `chordal_graph_cliques`
 - `chordal_graph_treewidth`
 - `chordless_cycles`
 - `chromatic_polynomial`
@@ -234,6 +228,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `current_flow_betweenness_centrality`
 - `current_flow_betweenness_centrality_subset`
 - `current_flow_closeness_centrality`
+- `cut_size`
 - `cycle_basis`
 - `cycle_graph`
 - `cytoscape_data`
@@ -306,6 +301,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `edge_betweenness_centrality`
 - `edge_betweenness_centrality_subset`
 - `edge_bfs`
+- `edge_boundary`
 - `edge_connectivity`
 - `edge_current_flow_betweenness_centrality`
 - `edge_current_flow_betweenness_centrality_subset`
@@ -446,7 +442,9 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `is_aperiodic`
 - `is_at_free`
 - `is_attracting_component`
+- `is_biconnected`
 - `is_bipartite_node_set`
+- `is_chordal`
 - `is_connected_dominating_set`
 - `is_d_separator`
 - `is_digraphical`
@@ -569,6 +567,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `network_simplex`
 - `newman_watts_strogatz_graph`
 - `node_attribute_xy`
+- `node_boundary`
 - `node_clique_number`
 - `node_connectivity`
 - `node_degree_xy`
@@ -582,6 +581,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `non_neighbors`
 - `non_randomness`
 - `nonisomorphic_trees`
+- `normalized_cut_size`
 - `normalized_laplacian_matrix`
 - `normalized_laplacian_spectrum`
 - `null_graph`

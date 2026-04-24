@@ -4837,11 +4837,16 @@ from franken_networkx._fnx import (
     all_triangles as _rust_all_triangles,
     enumerate_all_cliques,
     find_cliques_recursive as _raw_find_cliques_recursive,
-    chordal_graph_cliques,
+    chordal_graph_cliques as _raw_chordal_graph_cliques,
     chordal_graph_treewidth as _rust_chordal_graph_treewidth,
     make_max_clique_graph as _rust_make_max_clique_graph,
     ring_of_cliques,
 )
+
+
+def chordal_graph_cliques(G):
+    """br-isokw: ``G`` matches nx; Rust binding used ``g``."""
+    return _raw_chordal_graph_cliques(G)
 
 
 def all_triangles(G, nbunch=None):
@@ -6107,7 +6112,12 @@ def faster_could_be_isomorphic(G1, G2):
 
 # Planarity
 from franken_networkx._fnx import is_planar as _raw_is_planar
-from franken_networkx._fnx import is_chordal
+from franken_networkx._fnx import is_chordal as _raw_is_chordal
+
+
+def is_chordal(G):
+    """br-isokw: ``G`` matches nx; Rust binding used ``g``."""
+    return _raw_is_chordal(G)
 
 
 def is_planar(G, *, backend=None, **backend_kwargs):
@@ -6207,11 +6217,48 @@ from franken_networkx._fnx import (
 
 # Algorithm functions — boundary
 from franken_networkx._fnx import (
-    cut_size,
-    edge_boundary,
-    node_boundary,
-    normalized_cut_size,
+    cut_size as _raw_cut_size,
+    edge_boundary as _raw_edge_boundary,
+    node_boundary as _raw_node_boundary,
+    normalized_cut_size as _raw_normalized_cut_size,
 )
+
+
+def cut_size(G, S, T=None, weight=None):
+    """br-boundkw: ``G, S, T`` match nx; Rust binding used ``g, nbunch1, nbunch2``."""
+    return _raw_cut_size(G, S, T, weight=weight)
+
+
+def normalized_cut_size(G, S, T=None, weight=None):
+    """br-boundkw: ``G, S, T`` match nx."""
+    return _raw_normalized_cut_size(G, S, T, weight=weight)
+
+
+def node_boundary(G, nbunch1, nbunch2=None):
+    """br-boundkw: ``G`` matches nx; Rust binding used ``g``."""
+    return _raw_node_boundary(G, nbunch1, nbunch2)
+
+
+def edge_boundary(G, nbunch1, nbunch2=None, data=False, keys=False, default=None):
+    """Return edges with at least one endpoint in ``nbunch1``.
+
+    br-edgebounddata: nx.edge_boundary supports ``data``, ``keys``, and
+    ``default`` kwargs to annotate each emitted edge with attribute
+    data — fnx previously only accepted (nbunch1, nbunch2). Delegate
+    to nx when any of the data/keys/default switches are non-default
+    so the emitted tuples match exactly.
+    """
+    if data is False and not keys and default is None:
+        return _raw_edge_boundary(G, nbunch1, nbunch2)
+    return _call_networkx_for_parity(
+        "edge_boundary",
+        G,
+        nbunch1,
+        nbunch2,
+        data=data,
+        keys=keys,
+        default=default,
+    )
 
 
 def volume(G, S, weight=None):
@@ -6232,7 +6279,7 @@ def edge_expansion(G, S, T=None, weight=None):
     """Return the edge expansion between two node sets."""
     if T is None:
         T = list(set(G) - set(S))
-    num_cut_edges = cut_size(G, S, nbunch2=T, weight=weight)
+    num_cut_edges = cut_size(G, S, T=T, weight=weight)
     denominator = min(len(S), len(T))
     if denominator == 0:
         raise ZeroDivisionError("division by zero")
@@ -6241,7 +6288,7 @@ def edge_expansion(G, S, T=None, weight=None):
 
 def mixing_expansion(G, S, T=None, weight=None):
     """Return the mixing expansion between two node sets."""
-    num_cut_edges = cut_size(G, S, nbunch2=T, weight=weight)
+    num_cut_edges = cut_size(G, S, T=T, weight=weight)
     num_total_edges = G.number_of_edges()
     return num_cut_edges / (2 * num_total_edges)
 
@@ -7285,7 +7332,7 @@ def group_out_degree_centrality(G, S, *, backend=None, **backend_kwargs):
 # Component algorithms
 from franken_networkx._fnx import (
     node_connected_component,
-    is_biconnected,
+    is_biconnected as _raw_is_biconnected,
     biconnected_components as _raw_biconnected_components,
     biconnected_component_edges,
     is_semiconnected as _raw_is_semiconnected,
@@ -7294,6 +7341,11 @@ from franken_networkx._fnx import (
     number_attracting_components as _raw_number_attracting_components,
     is_attracting_component as _raw_is_attracting_component,
 )
+
+
+def is_biconnected(G):
+    """br-isokw: ``G`` matches nx; Rust binding used ``g``."""
+    return _raw_is_biconnected(G)
 
 
 def biconnected_components(G):
