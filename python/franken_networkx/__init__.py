@@ -814,8 +814,67 @@ _GRAPH_COPY = Graph.copy
 _DIGRAPH_COPY = DiGraph.copy
 _MULTIGRAPH_COPY = MultiGraph.copy
 _MULTIDIGRAPH_COPY = MultiDiGraph.copy
+
+
+def _make_none_rejecting_add_edge(raw_add_edge, is_multigraph=False):
+    """br-nonenode: reject None endpoints to match nx's contract."""
+
+    if is_multigraph:
+        def add_edge(self, u, v, key=None, **attr):
+            if u is None or v is None:
+                raise ValueError("None cannot be a node")
+            return raw_add_edge(self, u, v, key=key, **attr)
+    else:
+        def add_edge(self, u, v, **attr):
+            if u is None or v is None:
+                raise ValueError("None cannot be a node")
+            return raw_add_edge(self, u, v, **attr)
+
+    return add_edge
+
+
+_GRAPH_ADD_EDGE_RAW = Graph.add_edge
+_DIGRAPH_ADD_EDGE_RAW = DiGraph.add_edge
+_MULTIGRAPH_ADD_EDGE_RAW = MultiGraph.add_edge
+_MULTIDIGRAPH_ADD_EDGE_RAW = MultiDiGraph.add_edge
+
+Graph.add_edge = _make_none_rejecting_add_edge(_GRAPH_ADD_EDGE_RAW)
+DiGraph.add_edge = _make_none_rejecting_add_edge(_DIGRAPH_ADD_EDGE_RAW)
+MultiGraph.add_edge = _make_none_rejecting_add_edge(_MULTIGRAPH_ADD_EDGE_RAW, is_multigraph=True)
+MultiDiGraph.add_edge = _make_none_rejecting_add_edge(_MULTIDIGRAPH_ADD_EDGE_RAW, is_multigraph=True)
+
 _MULTIGRAPH_ADD_EDGE = MultiGraph.add_edge
 _MULTIDIGRAPH_ADD_EDGE = MultiDiGraph.add_edge
+_GRAPH_ADD_NODE_RAW = Graph.add_node
+_DIGRAPH_ADD_NODE_RAW = DiGraph.add_node
+_MULTIGRAPH_ADD_NODE_RAW = MultiGraph.add_node
+_MULTIDIGRAPH_ADD_NODE_RAW = MultiDiGraph.add_node
+
+
+def _make_none_rejecting_add_node(raw_add_node):
+    """Wrap ``add_node`` to reject ``None`` matching nx's contract.
+
+    br-nonenode: nx.Graph.add_node(None) raises
+    ``ValueError("None cannot be a node")``. fnx's Rust binding
+    silently accepted None (and also had confused has_node(None)
+    vs has_node('None') behavior). Guarding at the Python edge
+    preserves drop-in semantics.
+    """
+
+    def add_node(self, n, **attr):
+        if n is None:
+            raise ValueError("None cannot be a node")
+        return raw_add_node(self, n, **attr)
+
+    return add_node
+
+
+Graph.add_node = _make_none_rejecting_add_node(_GRAPH_ADD_NODE_RAW)
+DiGraph.add_node = _make_none_rejecting_add_node(_DIGRAPH_ADD_NODE_RAW)
+MultiGraph.add_node = _make_none_rejecting_add_node(_MULTIGRAPH_ADD_NODE_RAW)
+MultiDiGraph.add_node = _make_none_rejecting_add_node(_MULTIDIGRAPH_ADD_NODE_RAW)
+
+
 _GRAPH_ADD_NODE = Graph.add_node
 _DIGRAPH_ADD_NODE = DiGraph.add_node
 _MULTIGRAPH_ADD_NODE = MultiGraph.add_node
@@ -6054,6 +6113,19 @@ def dag_longest_path(G, weight="weight", default_weight=1, topo_order=None):
         The longest path as a list of nodes.
     """
     if weight != "weight" or default_weight != 1 or topo_order is not None:
+        return _call_networkx_for_parity(
+            "dag_longest_path",
+            G,
+            weight=weight,
+            default_weight=default_weight,
+            topo_order=topo_order,
+        )
+    # br-dagltie: on disconnected DAGs with multiple equal-length
+    # maxima, nx picks the longest path in insertion-order first
+    # component; the Rust fast-path can pick a later-inserted component.
+    # Delegate for disconnected DAGs to match nx's tie-break exactly;
+    # keep the Rust fast-path for the common (connected) case.
+    if not is_weakly_connected(G):
         return _call_networkx_for_parity(
             "dag_longest_path",
             G,
