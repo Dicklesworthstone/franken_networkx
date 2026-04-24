@@ -6,8 +6,8 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 101 | 12% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 677 | 84% | Python-defined exports with no runtime NetworkX dependency detected |
+| RUST_NATIVE | 94 | 11% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 684 | 85% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 21 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
@@ -19,8 +19,8 @@ All declared public exports are classified. `--check` fails if this generated re
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 615 |
-| `franken_networkx._fnx` | 101 |
+| `franken_networkx` | 622 |
+| `franken_networkx._fnx` | 94 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
@@ -28,9 +28,8 @@ All declared public exports are classified. `--check` fails if this generated re
 | `builtins` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (101)
+## RUST_NATIVE exports (94)
 
-- `adamic_adar_index`
 - `ancestors`
 - `barycenter`
 - `bfs_layers`
@@ -39,7 +38,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `bipartite_sets`
 - `chordal_graph_cliques`
 - `clique_removal`
-- `complement`
 - `core_number`
 - `cut_size`
 - `degree_assortativity_coefficient`
@@ -67,7 +65,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `is_edge_cover`
 - `is_empty`
 - `is_eulerian`
-- `is_forest`
 - `is_isolate`
 - `is_k_edge_connected`
 - `is_k_regular`
@@ -77,10 +74,8 @@ All declared public exports are classified. `--check` fails if this generated re
 - `is_semieulerian`
 - `is_simple_path`
 - `is_strongly_connected`
-- `is_tree`
 - `is_weakly_connected`
 - `isolates`
-- `jaccard_coefficient`
 - `kosaraju_strongly_connected_components`
 - `large_clique_size`
 - `lexicographic_topological_sort`
@@ -114,11 +109,9 @@ All declared public exports are classified. `--check` fails if this generated re
 - `number_weakly_connected_components`
 - `pappus_graph`
 - `partition_spanning_tree`
-- `preferential_attachment`
 - `random_spanning_tree`
 - `read_gml`
 - `read_graphml`
-- `resource_allocation_index`
 - `ring_of_cliques`
 - `sedgewick_maze_graph`
 - `spanner`
@@ -132,10 +125,11 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_gml`
 - `write_graphml`
 
-## PY_WRAPPER exports (677)
+## PY_WRAPPER exports (684)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
+- `adamic_adar_index`
 - `add_cycle`
 - `add_path`
 - `add_star`
@@ -238,6 +232,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `communicability`
 - `communicability_betweenness_centrality`
 - `communicability_exp`
+- `complement`
 - `complete_bipartite_graph`
 - `complete_graph`
 - `complete_multipartite_graph`
@@ -475,6 +470,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `is_digraphical`
 - `is_directed`
 - `is_distance_regular`
+- `is_forest`
 - `is_frozen`
 - `is_graphical`
 - `is_isomorphic`
@@ -492,12 +488,14 @@ All declared public exports are classified. `--check` fails if this generated re
 - `is_semiconnected`
 - `is_strongly_regular`
 - `is_tournament`
+- `is_tree`
 - `is_triad`
 - `is_valid_degree_sequence_erdos_gallai`
 - `is_valid_degree_sequence_havel_hakimi`
 - `is_valid_directed_joint_degree`
 - `is_valid_joint_degree`
 - `is_weighted`
+- `jaccard_coefficient`
 - `johnson`
 - `join_trees`
 - `joint_degree_graph`
@@ -632,6 +630,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `power`
 - `powerlaw_cluster_graph`
 - `predecessor`
+- `preferential_attachment`
 - `prefix_tree`
 - `prefix_tree_recursive`
 - `preflow_push`
@@ -685,6 +684,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `rescale_layout`
 - `rescale_layout_dict`
 - `resistance_distance`
+- `resource_allocation_index`
 - `restricted_view`
 - `reverse`
 - `reverse_view`

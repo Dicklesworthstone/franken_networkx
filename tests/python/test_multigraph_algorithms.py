@@ -96,11 +96,11 @@ class TestMultiGraphConnectivity:
         assert fnx.number_connected_components(G) == 2
 
     def test_bridges(self, mg_path):
-        # bridges returns a generator; materialise before counting.
-        b = list(fnx.bridges(mg_path))
-        # After collapsing parallel edges, this is a simple path 0-1-2-3
-        # All edges are bridges in a path graph
-        assert len(b) == 3
+        # br-zzcm9: parallel edges are not bridges (removing one leaves
+        # the other intact). mg_path has parallel (0, 1) + simple (1, 2),
+        # (2, 3). Only the two simple edges are bridges, matching nx.
+        b = sorted(fnx.bridges(mg_path))
+        assert b == [(1, 2), (2, 3)]
 
 
 # ---------------------------------------------------------------------------
@@ -134,10 +134,19 @@ class TestMultiGraphShortestPath:
 
 class TestMultiGraphCentrality:
     def test_degree_centrality(self, mg_triangle):
-        dc = fnx.degree_centrality(mg_triangle)
-        assert len(dc) == 3
-        for v in dc.values():
-            assert 0.0 <= v <= 1.0
+        # br-zzcm9: degree_centrality on MultiGraph counts parallel
+        # edges in the degree (matches nx). mg_triangle has parallel
+        # (0, 1) so nodes 0 and 1 have degree 3 in a 3-node graph and
+        # their centrality is 3 / (3-1) = 1.5 — legitimately >1.0 for
+        # multigraphs. Compare directly against nx.
+        import networkx as nx
+
+        MGn = nx.MultiGraph()
+        MGn.add_edge(0, 1, weight=1.0)
+        MGn.add_edge(0, 1, weight=5.0)
+        MGn.add_edge(1, 2, weight=2.0)
+        MGn.add_edge(0, 2, weight=3.0)
+        assert fnx.degree_centrality(mg_triangle) == nx.degree_centrality(MGn)
 
     def test_betweenness_centrality(self, mg_triangle):
         bc = fnx.betweenness_centrality(mg_triangle)
@@ -229,8 +238,9 @@ class TestMultiGraphMatching:
 
 class TestMultiGraphTree:
     def test_is_tree_path(self, mg_path):
-        # After collapsing parallel edges, still a path -> tree
-        assert fnx.is_tree(mg_path)
+        # br-zzcm9: mg_path has a parallel edge on (0, 1), which
+        # creates a cycle — so it is NOT a tree. This matches nx.
+        assert not fnx.is_tree(mg_path)
 
     def test_minimum_spanning_tree(self, mg_triangle):
         mst = fnx.minimum_spanning_tree(mg_triangle)
@@ -486,3 +496,67 @@ class TestMultiGraphNxParity:
         assert dict(fnx.all_pairs_dijkstra(D, weight="weight")) == dict(
             nx.all_pairs_dijkstra(N, weight="weight")
         )
+
+
+# ---------------------------------------------------------------------------
+# Regression: franken_networkx-zzcm9 — MultiGraph structural algorithm parity
+# ---------------------------------------------------------------------------
+
+
+class TestMultiGraphStructuralParity:
+    """The Rust native bridges / is_tree / is_forest / degree_centrality /
+    complement routines treat MultiGraph inputs as their simple projection,
+    which under-counts parallels or rejects the input outright. These
+    wrappers restore the nx observable contract.
+    """
+
+    def test_is_tree_multigraph_with_parallel_edges_is_false(self):
+        import networkx as nx
+
+        MG = fnx.MultiGraph()
+        MG.add_edges_from([(0, 1), (0, 1)])
+        MGn = nx.MultiGraph()
+        MGn.add_edges_from([(0, 1), (0, 1)])
+        assert fnx.is_tree(MG) is False
+        assert nx.is_tree(MGn) is False
+
+    def test_is_forest_multigraph_with_parallel_edges_is_false(self):
+        import networkx as nx
+
+        MG = fnx.MultiGraph()
+        MG.add_edges_from([(0, 1), (0, 1)])
+        MGn = nx.MultiGraph()
+        MGn.add_edges_from([(0, 1), (0, 1)])
+        assert fnx.is_forest(MG) is False
+        assert nx.is_forest(MGn) is False
+
+    def test_is_tree_multigraph_valid_tree_is_true(self):
+        MG = fnx.MultiGraph()
+        MG.add_edges_from([(0, 1), (1, 2), (2, 3)])
+        assert fnx.is_tree(MG) is True
+        assert fnx.is_forest(MG) is True
+
+    def test_bridges_multigraph_excludes_parallel_edges(self):
+        MG = fnx.MultiGraph()
+        MG.add_edges_from([(0, 1), (0, 1), (1, 2)])
+        # (0, 1) is not a bridge because removing one parallel leaves the
+        # other. (1, 2) is a bridge.
+        assert sorted(fnx.bridges(MG)) == [(1, 2)]
+
+    def test_degree_centrality_multigraph_counts_parallels(self):
+        import networkx as nx
+
+        MG = fnx.MultiGraph()
+        MG.add_edges_from([(0, 1), (0, 1), (1, 2)])
+        MGn = nx.MultiGraph()
+        MGn.add_edges_from([(0, 1), (0, 1), (1, 2)])
+        assert fnx.degree_centrality(MG) == nx.degree_centrality(MGn)
+
+    def test_complement_multigraph_returns_multigraph(self):
+        MG = fnx.MultiGraph()
+        MG.add_edges_from([(0, 1), (1, 2)])
+        C = fnx.complement(MG)
+        assert isinstance(C, fnx.MultiGraph)
+        # Complement of path 0-1-2 is the single non-edge (0, 2).
+        assert sorted((u, v) for u, v in C.edges()) == [(0, 2), (0, 2)] or \
+            sorted((u, v) for u, v in C.edges()) == [(0, 2)]
