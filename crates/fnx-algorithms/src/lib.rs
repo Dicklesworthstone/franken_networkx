@@ -10674,6 +10674,7 @@ fn should_replace_minimum_node_cut(current: &[String], candidate: &[String]) -> 
 
 #[derive(Clone, Debug)]
 struct MinimumCycleBasisEdge {
+    input_idx: usize,
     left: usize,
     right: usize,
     weight: f64,
@@ -10702,6 +10703,28 @@ pub fn minimum_cycle_basis_core(
     node_count: usize,
     edges: &[(usize, usize, f64)],
 ) -> MinimumCycleBasisCoreResult {
+    minimum_cycle_basis_core_ordered(node_count, edges, None)
+}
+
+/// Compute a minimum weight cycle basis with an explicit initial chord order.
+///
+/// The Python-facing binding uses this to mirror NetworkX's observable
+/// ``set`` iteration order for the initial orthogonal vectors while keeping
+/// the algorithm itself in Rust.
+#[must_use]
+pub fn minimum_cycle_basis_core_with_chord_order(
+    node_count: usize,
+    edges: &[(usize, usize, f64)],
+    chord_order: &[usize],
+) -> MinimumCycleBasisCoreResult {
+    minimum_cycle_basis_core_ordered(node_count, edges, Some(chord_order))
+}
+
+fn minimum_cycle_basis_core_ordered(
+    node_count: usize,
+    edges: &[(usize, usize, f64)],
+    chord_order: Option<&[usize]>,
+) -> MinimumCycleBasisCoreResult {
     if node_count == 0 || edges.is_empty() {
         return MinimumCycleBasisCoreResult {
             cycles: Vec::new(),
@@ -10717,7 +10740,8 @@ pub fn minimum_cycle_basis_core(
 
     let normalized_edges: Vec<MinimumCycleBasisEdge> = edges
         .iter()
-        .filter_map(|&(left, right, weight)| {
+        .enumerate()
+        .filter_map(|(input_idx, &(left, right, weight))| {
             if left >= node_count || right >= node_count {
                 return None;
             }
@@ -10727,6 +10751,7 @@ pub fn minimum_cycle_basis_core(
                 (right, left)
             };
             Some(MinimumCycleBasisEdge {
+                input_idx,
                 left,
                 right,
                 weight: if weight.is_finite() { weight } else { 1.0 },
@@ -10767,15 +10792,19 @@ pub fn minimum_cycle_basis_core(
                 continue;
             };
             component_edges.push(MinimumCycleBasisEdge {
+                input_idx: edge.input_idx,
                 left,
                 right,
                 weight: edge.weight,
             });
         }
 
-        for cycle in
-            minimum_cycle_basis_component_core(component_nodes.len(), &component_edges, &mut stats)
-        {
+        for cycle in minimum_cycle_basis_component_core(
+            component_nodes.len(),
+            &component_edges,
+            chord_order,
+            &mut stats,
+        ) {
             cycles.push(
                 cycle
                     .into_iter()
@@ -10838,6 +10867,7 @@ fn minimum_cycle_basis_components(
 fn minimum_cycle_basis_component_core(
     node_count: usize,
     edges: &[MinimumCycleBasisEdge],
+    chord_order: Option<&[usize]>,
     stats: &mut MinimumCycleBasisStats,
 ) -> Vec<Vec<usize>> {
     if node_count == 0 || edges.is_empty() {
@@ -10845,9 +10875,7 @@ fn minimum_cycle_basis_component_core(
     }
 
     let tree_edges = minimum_cycle_basis_spanning_forest_edges(node_count, edges);
-    let chords: Vec<usize> = (0..edges.len())
-        .filter(|edge_idx| !tree_edges.contains(edge_idx))
-        .collect();
+    let chords = minimum_cycle_basis_chords(edges, &tree_edges, chord_order);
     if chords.is_empty() {
         return Vec::new();
     }
@@ -10887,6 +10915,42 @@ fn minimum_cycle_basis_component_core(
     }
 
     cycles
+}
+
+fn minimum_cycle_basis_chords(
+    edges: &[MinimumCycleBasisEdge],
+    tree_edges: &HashSet<usize>,
+    chord_order: Option<&[usize]>,
+) -> Vec<usize> {
+    let Some(chord_order) = chord_order else {
+        return (0..edges.len())
+            .filter(|edge_idx| !tree_edges.contains(edge_idx))
+            .collect();
+    };
+
+    let input_to_local: HashMap<usize, usize> = edges
+        .iter()
+        .enumerate()
+        .map(|(local_idx, edge)| (edge.input_idx, local_idx))
+        .collect();
+    let mut seen = HashSet::new();
+    let mut chords = Vec::new();
+    for &input_idx in chord_order {
+        let Some(&local_idx) = input_to_local.get(&input_idx) else {
+            continue;
+        };
+        if tree_edges.contains(&local_idx) || !seen.insert(local_idx) {
+            continue;
+        }
+        chords.push(local_idx);
+    }
+    for local_idx in 0..edges.len() {
+        if tree_edges.contains(&local_idx) || !seen.insert(local_idx) {
+            continue;
+        }
+        chords.push(local_idx);
+    }
+    chords
 }
 
 fn minimum_cycle_basis_spanning_forest_edges(
@@ -10970,46 +11034,35 @@ fn minimum_cycle_basis_shortest_orthogonal_cycle(
         }
     }
 
-    let mut best_path = None;
+    let mut best_start = None;
     let mut best_distance = f64::INFINITY;
     for start in 0..node_count {
         let target = start + node_count;
-        let Some((distance, path)) =
-            minimum_cycle_basis_lifted_shortest_path(&adjacency, start, target, stats)
+        let Some(distance) =
+            minimum_cycle_basis_lifted_shortest_path_length(&adjacency, start, target, stats)
         else {
             continue;
         };
         if distance + DISTANCE_COMPARISON_EPSILON < best_distance {
             best_distance = distance;
-            best_path = Some(path);
+            best_start = Some(start);
         }
     }
 
-    let path = best_path?;
+    let start = best_start?;
+    let target = start + node_count;
+    let path =
+        minimum_cycle_basis_lifted_bidirectional_shortest_path(&adjacency, start, target, stats)?;
     minimum_cycle_basis_path_to_candidate(node_count, edges, &path)
 }
 
-fn minimum_cycle_basis_add_lifted_edge(
-    adjacency: &mut [Vec<(usize, usize, f64)>],
-    left: usize,
-    right: usize,
-    edge_idx: usize,
-    weight: f64,
-) {
-    adjacency[left].push((right, edge_idx, weight));
-    if left != right {
-        adjacency[right].push((left, edge_idx, weight));
-    }
-}
-
-fn minimum_cycle_basis_lifted_shortest_path(
+fn minimum_cycle_basis_lifted_shortest_path_length(
     adjacency: &[Vec<(usize, usize, f64)>],
     source: usize,
     target: usize,
     stats: &mut MinimumCycleBasisStats,
-) -> Option<(f64, Vec<usize>)> {
+) -> Option<f64> {
     let mut distances = vec![f64::INFINITY; adjacency.len()];
-    let mut predecessors = vec![None::<usize>; adjacency.len()];
     let mut heap = BinaryHeap::new();
     let mut sequence = 0u64;
 
@@ -11025,7 +11078,7 @@ fn minimum_cycle_basis_lifted_shortest_path(
             continue;
         }
         if node == target {
-            break;
+            return Some(dist);
         }
         stats.queue_peak = stats.queue_peak.max(heap.len() + 1);
         for &(neighbor, _edge_idx, weight) in &adjacency[node] {
@@ -11033,7 +11086,6 @@ fn minimum_cycle_basis_lifted_shortest_path(
             let next_distance = dist + weight;
             if next_distance + DISTANCE_COMPARISON_EPSILON < distances[neighbor] {
                 distances[neighbor] = next_distance;
-                predecessors[neighbor] = Some(node);
                 sequence = sequence.saturating_add(1);
                 heap.push(DijkstraState {
                     dist: next_distance,
@@ -11044,20 +11096,134 @@ fn minimum_cycle_basis_lifted_shortest_path(
         }
     }
 
-    if !distances[target].is_finite() {
-        return None;
+    None
+}
+
+fn minimum_cycle_basis_lifted_bidirectional_shortest_path(
+    adjacency: &[Vec<(usize, usize, f64)>],
+    source: usize,
+    target: usize,
+    stats: &mut MinimumCycleBasisStats,
+) -> Option<Vec<usize>> {
+    if source == target {
+        return Some(vec![source]);
     }
 
-    let mut path = vec![target];
-    let mut cursor = target;
-    while cursor != source {
-        let predecessor = predecessors[cursor]?;
-        path.push(predecessor);
-        cursor = predecessor;
-    }
-    path.reverse();
+    let node_count = adjacency.len();
+    let mut dists = [
+        vec![f64::INFINITY; node_count],
+        vec![f64::INFINITY; node_count],
+    ];
+    let mut finalized = [vec![false; node_count], vec![false; node_count]];
+    let mut preds = [
+        vec![None::<usize>; node_count],
+        vec![None::<usize>; node_count],
+    ];
+    let mut seen = [
+        vec![f64::INFINITY; node_count],
+        vec![f64::INFINITY; node_count],
+    ];
+    let mut seen_node = [vec![false; node_count], vec![false; node_count]];
+    let mut fringes = [BinaryHeap::new(), BinaryHeap::new()];
+    let mut sequence = 0u64;
 
-    Some((distances[target], path))
+    seen[0][source] = 0.0;
+    seen_node[0][source] = true;
+    fringes[0].push(DijkstraState {
+        dist: 0.0,
+        seq: sequence,
+        node: source,
+    });
+    sequence = sequence.saturating_add(1);
+    seen[1][target] = 0.0;
+    seen_node[1][target] = true;
+    fringes[1].push(DijkstraState {
+        dist: 0.0,
+        seq: sequence,
+        node: target,
+    });
+
+    let mut final_distance = None::<f64>;
+    let mut meet_node = None::<usize>;
+    let mut direction = 1usize;
+
+    while !fringes[0].is_empty() && !fringes[1].is_empty() {
+        direction = 1 - direction;
+        let DijkstraState { dist, node, .. } = fringes[direction].pop()?;
+        if finalized[direction][node] {
+            continue;
+        }
+        finalized[direction][node] = true;
+        dists[direction][node] = dist;
+        if finalized[1 - direction][node] {
+            let meet = meet_node?;
+            let _ = final_distance?;
+            let mut forward_path = minimum_cycle_basis_bidirectional_path(&preds[0], meet, true);
+            let backward_start = preds[1][meet];
+            if let Some(start) = backward_start {
+                forward_path.extend(minimum_cycle_basis_bidirectional_path(
+                    &preds[1], start, false,
+                ));
+            }
+            return Some(forward_path);
+        }
+
+        stats.queue_peak = stats.queue_peak.max(
+            fringes[0]
+                .len()
+                .saturating_add(fringes[1].len())
+                .saturating_add(1),
+        );
+        for &(neighbor, _edge_idx, weight) in &adjacency[node] {
+            stats.edges_scanned += 1;
+            let next_distance = dist + weight;
+            if finalized[direction][neighbor] {
+                if next_distance + DISTANCE_COMPARISON_EPSILON < dists[direction][neighbor] {
+                    return None;
+                }
+            } else if !seen_node[direction][neighbor]
+                || next_distance + DISTANCE_COMPARISON_EPSILON < seen[direction][neighbor]
+            {
+                seen[direction][neighbor] = next_distance;
+                seen_node[direction][neighbor] = true;
+                sequence = sequence.saturating_add(1);
+                fringes[direction].push(DijkstraState {
+                    dist: next_distance,
+                    seq: sequence,
+                    node: neighbor,
+                });
+                preds[direction][neighbor] = Some(node);
+                if seen_node[1 - direction][neighbor] {
+                    let candidate = next_distance + seen[1 - direction][neighbor];
+                    if final_distance
+                        .is_none_or(|distance| distance > candidate + DISTANCE_COMPARISON_EPSILON)
+                    {
+                        final_distance = Some(candidate);
+                        meet_node = Some(neighbor);
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+fn minimum_cycle_basis_bidirectional_path(
+    predecessors: &[Option<usize>],
+    start: usize,
+    reverse: bool,
+) -> Vec<usize> {
+    let mut path = Vec::new();
+    let mut cursor = Some(start);
+    while let Some(node) = cursor {
+        path.push(node);
+        cursor = predecessors[node];
+    }
+    if reverse {
+        path.reverse();
+    }
+    path
 }
 
 fn minimum_cycle_basis_path_to_candidate(
@@ -11105,6 +11271,19 @@ fn minimum_cycle_basis_path_to_candidate(
     })
 }
 
+fn minimum_cycle_basis_add_lifted_edge(
+    adjacency: &mut [Vec<(usize, usize, f64)>],
+    left: usize,
+    right: usize,
+    edge_idx: usize,
+    weight: f64,
+) {
+    adjacency[left].push((right, edge_idx, weight));
+    if left != right {
+        adjacency[right].push((left, edge_idx, weight));
+    }
+}
+
 /// Compute a minimum weight cycle basis for a FrankenNetworkX undirected graph.
 ///
 /// This wrapper performs graph-specific wiring: it preserves node insertion
@@ -11120,6 +11299,25 @@ fn minimum_cycle_basis_path_to_candidate(
 pub fn minimum_cycle_basis(
     graph: &Graph,
     weight_attr: Option<&str>,
+) -> Result<CycleBasisResult, MinimumCycleBasisError> {
+    minimum_cycle_basis_with_chord_order(graph, weight_attr, None)
+}
+
+/// Compute a minimum weight cycle basis with an explicit NetworkX-compatible
+/// initial chord order.
+///
+/// `chord_order`, when provided, contains indices into `graph.edges_ordered()`.
+/// This exists for Python bindings because NetworkX exposes Python `set`
+/// iteration order through this algorithm's result ordering.
+///
+/// # Errors
+///
+/// Returns `MinimumCycleBasisError::NegativeWeight` when an extracted edge
+/// weight is negative.
+pub fn minimum_cycle_basis_with_chord_order(
+    graph: &Graph,
+    weight_attr: Option<&str>,
+    chord_order: Option<&[usize]>,
 ) -> Result<CycleBasisResult, MinimumCycleBasisError> {
     let node_names = graph.nodes_ordered();
     let node_to_idx: HashMap<&str, usize> = node_names
@@ -11152,7 +11350,11 @@ pub fn minimum_cycle_basis(
     let MinimumCycleBasisCoreResult {
         cycles: index_cycles,
         witness,
-    } = minimum_cycle_basis_core(node_names.len(), &indexed_edges);
+    } = if let Some(chord_order) = chord_order {
+        minimum_cycle_basis_core_with_chord_order(node_names.len(), &indexed_edges, chord_order)
+    } else {
+        minimum_cycle_basis_core(node_names.len(), &indexed_edges)
+    };
 
     let cycles = index_cycles
         .into_iter()

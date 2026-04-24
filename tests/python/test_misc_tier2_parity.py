@@ -50,21 +50,18 @@ MINIMUM_CYCLE_BASIS_PORT_CASES = [
     pytest.param(
         {
             "edges": [(0, 1), (1, 2), (2, 3), (3, 0), (0, 2), (1, 3)],
-            "comparison": "cycle-set",
         },
         id="complete-graph-k4",
     ),
     pytest.param(
         {
             "edges": [("a", "b"), ("b", "c"), ("c", "a"), ("c", "d"), ("d", "e"), ("e", "c")],
-            "comparison": "cycle-set",
         },
         id="two-triangles-sharing-node",
     ),
     pytest.param(
         {
             "edges": [(0, 1), (1, 2), (2, 3), (3, 0), (1, 4), (4, 5), (5, 2)],
-            "comparison": "cycle-set",
         },
         id="two-squares-sharing-path",
     ),
@@ -78,7 +75,6 @@ MINIMUM_CYCLE_BASIS_PORT_CASES = [
                 ("a", "c", {"weight": 2}),
             ],
             "weight": "weight",
-            "comparison": "cycle-set",
         },
         id="weighted-square-diagonal",
     ),
@@ -111,7 +107,6 @@ MINIMUM_CYCLE_BASIS_PORT_CASES = [
                 ("e", "c", {"cost": 1.0}),
             ],
             "weight": "cost",
-            "comparison": "cycle-set",
         },
         id="weighted-float-cost-attribute",
     ),
@@ -246,10 +241,7 @@ def test_minimum_cycle_basis_port_fixture_matrix_matches_networkx(case):
     actual_basis = fnx.minimum_cycle_basis(graph, weight=weight)
     expected_basis = nx.minimum_cycle_basis(expected, weight=weight)
 
-    if case.get("comparison") == "cycle-set":
-        assert normalize_cycles(actual_basis) == normalize_cycles(expected_basis)
-    else:
-        assert actual_basis == expected_basis
+    assert actual_basis == expected_basis
 
 
 def test_minimum_cycle_basis_graph_family_rejections_match_networkx():

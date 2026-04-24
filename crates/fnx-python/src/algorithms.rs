@@ -4668,9 +4668,20 @@ pub fn minimum_cycle_basis(
     let gr = extract_graph(g)?;
     require_undirected(&gr, "minimum_cycle_basis")?;
     require_not_multigraph(&gr)?;
+    let chord_order = if let GraphRef::Undirected(pg) = &gr {
+        Some(minimum_cycle_basis_python_chord_order(py, pg)?)
+    } else {
+        None
+    };
     let inner = gr.undirected();
     let result = py
-        .allow_threads(|| fnx_algorithms::minimum_cycle_basis(inner, weight))
+        .allow_threads(|| {
+            fnx_algorithms::minimum_cycle_basis_with_chord_order(
+                inner,
+                weight,
+                chord_order.as_deref(),
+            )
+        })
         .map_err(|err| match err {
             fnx_algorithms::MinimumCycleBasisError::NegativeWeight { .. } => {
                 PyValueError::new_err(("Contradictory paths found:", "negative weights?"))
@@ -4681,6 +4692,147 @@ pub fn minimum_cycle_basis(
         .iter()
         .map(|cycle| cycle.iter().map(|n| gr.py_node_key(py, n)).collect())
         .collect())
+}
+
+fn minimum_cycle_basis_python_chord_order(py: Python<'_>, graph: &PyGraph) -> PyResult<Vec<usize>> {
+    let node_names = graph.inner.nodes_ordered();
+    let node_to_idx: HashMap<&str, usize> = node_names
+        .iter()
+        .enumerate()
+        .map(|(idx, &node)| (node, idx))
+        .collect();
+    let edges = graph.inner.edges_ordered_borrowed();
+    let mut edge_key_to_idx = HashMap::with_capacity(edges.len());
+    for (edge_idx, (left, right, _attrs)) in edges.iter().enumerate() {
+        edge_key_to_idx.insert(PyGraph::edge_key(left, right), edge_idx);
+    }
+
+    let tree_edges = minimum_cycle_basis_python_tree_edges(node_names.len(), &edges, &node_to_idx);
+    let components = minimum_cycle_basis_python_components(node_names.len(), &edges, &node_to_idx);
+    let mut chord_order = Vec::new();
+
+    for component in components {
+        let component_nodes: HashSet<usize> = component.into_iter().collect();
+        let chords = pyo3::types::PySet::empty(py)?;
+        for (edge_idx, (left, right, _attrs)) in edges.iter().enumerate() {
+            let Some(&left_idx) = node_to_idx.get(*left) else {
+                continue;
+            };
+            let Some(&right_idx) = node_to_idx.get(*right) else {
+                continue;
+            };
+            if tree_edges.contains(&edge_idx)
+                || !component_nodes.contains(&left_idx)
+                || !component_nodes.contains(&right_idx)
+            {
+                continue;
+            }
+            let py_left = graph.py_node_key(py, left);
+            let py_right = graph.py_node_key(py, right);
+            let tuple = PyTuple::new(py, &[py_left, py_right])?;
+            chords.add(tuple)?;
+        }
+
+        for item in chords.iter() {
+            let tuple = item.downcast::<PyTuple>()?;
+            let left = node_key_to_string(py, &tuple.get_item(0)?)?;
+            let right = node_key_to_string(py, &tuple.get_item(1)?)?;
+            if let Some(&edge_idx) = edge_key_to_idx.get(&PyGraph::edge_key(&left, &right)) {
+                chord_order.push(edge_idx);
+            }
+        }
+    }
+
+    Ok(chord_order)
+}
+
+fn minimum_cycle_basis_python_tree_edges(
+    node_count: usize,
+    edges: &[(&str, &str, &AttrMap)],
+    node_to_idx: &HashMap<&str, usize>,
+) -> HashSet<usize> {
+    let mut parent: Vec<usize> = (0..node_count).collect();
+    let mut tree_edges = HashSet::new();
+    for (edge_idx, (left, right, _attrs)) in edges.iter().enumerate() {
+        let Some(&left_idx) = node_to_idx.get(*left) else {
+            continue;
+        };
+        let Some(&right_idx) = node_to_idx.get(*right) else {
+            continue;
+        };
+        if left_idx == right_idx {
+            continue;
+        }
+        if minimum_cycle_basis_python_union(&mut parent, left_idx, right_idx) {
+            tree_edges.insert(edge_idx);
+        }
+    }
+    tree_edges
+}
+
+fn minimum_cycle_basis_python_components(
+    node_count: usize,
+    edges: &[(&str, &str, &AttrMap)],
+    node_to_idx: &HashMap<&str, usize>,
+) -> Vec<Vec<usize>> {
+    let mut adjacency = vec![Vec::<usize>::new(); node_count];
+    for (left, right, _attrs) in edges {
+        let Some(&left_idx) = node_to_idx.get(*left) else {
+            continue;
+        };
+        let Some(&right_idx) = node_to_idx.get(*right) else {
+            continue;
+        };
+        if left_idx == right_idx {
+            continue;
+        }
+        adjacency[left_idx].push(right_idx);
+        adjacency[right_idx].push(left_idx);
+    }
+
+    let mut components = Vec::new();
+    let mut seen = vec![false; node_count];
+    for start in 0..node_count {
+        if seen[start] {
+            continue;
+        }
+        let mut component = Vec::new();
+        let mut stack = vec![start];
+        seen[start] = true;
+        while let Some(node) = stack.pop() {
+            component.push(node);
+            for &neighbor in &adjacency[node] {
+                if !seen[neighbor] {
+                    seen[neighbor] = true;
+                    stack.push(neighbor);
+                }
+            }
+        }
+        component.sort_unstable();
+        components.push(component);
+    }
+    components
+}
+
+fn minimum_cycle_basis_python_find(parent: &mut [usize], node: usize) -> usize {
+    if parent[node] != node {
+        parent[node] = minimum_cycle_basis_python_find(parent, parent[node]);
+    }
+    parent[node]
+}
+
+fn minimum_cycle_basis_python_union(parent: &mut [usize], left: usize, right: usize) -> bool {
+    let left_root = minimum_cycle_basis_python_find(parent, left);
+    let right_root = minimum_cycle_basis_python_find(parent, right);
+    if left_root == right_root {
+        return false;
+    }
+    if left_root < right_root {
+        parent[right_root] = left_root;
+    } else {
+        parent[left_root] = right_root;
+    }
+    true
 }
 
 // ===========================================================================
