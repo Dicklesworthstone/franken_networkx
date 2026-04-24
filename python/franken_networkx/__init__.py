@@ -962,6 +962,14 @@ MultiDiGraph.add_edges_from = _multi_add_edges_from
 # fully evaluates (reading self) before any mutable borrow starts.
 _GRAPH_RAW_ADD_EDGES_FROM = Graph.add_edges_from
 _DIGRAPH_RAW_ADD_EDGES_FROM = DiGraph.add_edges_from
+_GRAPH_RAW_REMOVE_EDGES_FROM = Graph.remove_edges_from
+_DIGRAPH_RAW_REMOVE_EDGES_FROM = DiGraph.remove_edges_from
+_MULTIGRAPH_RAW_REMOVE_EDGES_FROM = MultiGraph.remove_edges_from
+_MULTIDIGRAPH_RAW_REMOVE_EDGES_FROM = MultiDiGraph.remove_edges_from
+_GRAPH_RAW_REMOVE_NODES_FROM = Graph.remove_nodes_from
+_DIGRAPH_RAW_REMOVE_NODES_FROM = DiGraph.remove_nodes_from
+_MULTIGRAPH_RAW_REMOVE_NODES_FROM = MultiGraph.remove_nodes_from
+_MULTIDIGRAPH_RAW_REMOVE_NODES_FROM = MultiDiGraph.remove_nodes_from
 
 
 def _add_edges_from_materialized(raw):
@@ -972,8 +980,31 @@ def _add_edges_from_materialized(raw):
     return add_edges_from
 
 
+def _remove_bunch_materialized(raw):
+    """br-rmvbunch: nx internals call
+    ``g.remove_edges_from(nx.selfloop_edges(g))`` and
+    ``g.remove_nodes_from(iterator_reading_g)``. The generator reads
+    self._adj while the remove_*_from call holds a mutable borrow —
+    Rust raises 'Already mutably borrowed'. Materialize the iterable
+    before the Rust call.
+    """
+    def remove_bunch(self, bunch):
+        materialized = list(bunch)
+        return raw(self, materialized)
+
+    return remove_bunch
+
+
 Graph.add_edges_from = _add_edges_from_materialized(_GRAPH_RAW_ADD_EDGES_FROM)
 DiGraph.add_edges_from = _add_edges_from_materialized(_DIGRAPH_RAW_ADD_EDGES_FROM)
+Graph.remove_edges_from = _remove_bunch_materialized(_GRAPH_RAW_REMOVE_EDGES_FROM)
+DiGraph.remove_edges_from = _remove_bunch_materialized(_DIGRAPH_RAW_REMOVE_EDGES_FROM)
+MultiGraph.remove_edges_from = _remove_bunch_materialized(_MULTIGRAPH_RAW_REMOVE_EDGES_FROM)
+MultiDiGraph.remove_edges_from = _remove_bunch_materialized(_MULTIDIGRAPH_RAW_REMOVE_EDGES_FROM)
+Graph.remove_nodes_from = _remove_bunch_materialized(_GRAPH_RAW_REMOVE_NODES_FROM)
+DiGraph.remove_nodes_from = _remove_bunch_materialized(_DIGRAPH_RAW_REMOVE_NODES_FROM)
+MultiGraph.remove_nodes_from = _remove_bunch_materialized(_MULTIGRAPH_RAW_REMOVE_NODES_FROM)
+MultiDiGraph.remove_nodes_from = _remove_bunch_materialized(_MULTIDIGRAPH_RAW_REMOVE_NODES_FROM)
 
 
 # ---------------------------------------------------------------------------
@@ -3710,6 +3741,7 @@ from franken_networkx._fnx import (
     all_shortest_paths as _raw_all_shortest_paths,
     all_simple_paths as _rust_all_simple_paths,
     cycle_basis as _raw_cycle_basis,
+    minimum_cycle_basis as _raw_minimum_cycle_basis,
 )
 
 
@@ -16673,7 +16705,7 @@ def minimum_cycle_basis(G, weight=None):
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
 
-    return _minimum_cycle_basis_via_parity(G, weight)
+    return _raw_minimum_cycle_basis(G, weight=weight)
 
 
 def _minimum_cycle_basis_via_parity(G, weight):

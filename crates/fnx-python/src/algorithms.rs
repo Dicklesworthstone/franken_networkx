@@ -4656,6 +4656,33 @@ pub fn cycle_basis(
         .collect())
 }
 
+/// Return a minimum weight cycle basis for an undirected simple graph.
+/// Raises ``NetworkXNotImplemented`` on DiGraph and MultiGraph inputs.
+#[pyfunction]
+#[pyo3(signature = (g, weight=None))]
+pub fn minimum_cycle_basis(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+    weight: Option<&str>,
+) -> PyResult<Vec<Vec<PyObject>>> {
+    let gr = extract_graph(g)?;
+    require_undirected(&gr, "minimum_cycle_basis")?;
+    require_not_multigraph(&gr)?;
+    let inner = gr.undirected();
+    let result = py
+        .allow_threads(|| fnx_algorithms::minimum_cycle_basis(inner, weight))
+        .map_err(|err| match err {
+            fnx_algorithms::MinimumCycleBasisError::NegativeWeight { .. } => {
+                PyValueError::new_err(("Contradictory paths found:", "negative weights?"))
+            }
+        })?;
+    Ok(result
+        .cycles
+        .iter()
+        .map(|cycle| cycle.iter().map(|n| gr.py_node_key(py, n)).collect())
+        .collect())
+}
+
 // ===========================================================================
 // Graph efficiency measures
 // ===========================================================================
@@ -13167,6 +13194,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Paths and cycles
     m.add_function(wrap_pyfunction!(all_simple_paths, m)?)?;
     m.add_function(wrap_pyfunction!(cycle_basis, m)?)?;
+    m.add_function(wrap_pyfunction!(minimum_cycle_basis, m)?)?;
     // Efficiency
     m.add_function(wrap_pyfunction!(efficiency, m)?)?;
     m.add_function(wrap_pyfunction!(global_efficiency, m)?)?;
@@ -13735,6 +13763,45 @@ mod tests {
                 .expect("dfs tree should succeed");
             assert_eq!(dfs.inner.mode(), CompatibilityMode::Hardened);
             assert_eq!(dfs.inner.runtime_policy(), &expected_graph_policy);
+        });
+    }
+
+    #[test]
+    fn minimum_cycle_basis_binding_returns_python_cycles() {
+        ensure_python();
+        Python::attach(|py| {
+            let mut graph = PyGraph::new_empty(py).expect("graph should initialize");
+            let weighted_edge = |weight: f64| {
+                let mut attrs = AttrMap::new();
+                attrs.insert("weight".to_owned(), weight.into());
+                attrs
+            };
+            graph
+                .inner
+                .add_edge_with_attrs("a".to_owned(), "b".to_owned(), weighted_edge(1.0))
+                .expect("edge should add");
+            graph
+                .inner
+                .add_edge_with_attrs("b".to_owned(), "c".to_owned(), weighted_edge(1.0))
+                .expect("edge should add");
+            graph
+                .inner
+                .add_edge_with_attrs("c".to_owned(), "a".to_owned(), weighted_edge(1.0))
+                .expect("edge should add");
+            let graph = Py::new(py, graph).expect("py graph should initialize");
+
+            let cycles = minimum_cycle_basis(py, graph.bind(py).as_any(), Some("weight"))
+                .expect("minimum cycle basis should succeed");
+            let mut cycle = cycles
+                .into_iter()
+                .next()
+                .expect("triangle should produce one cycle")
+                .into_iter()
+                .map(|node| node.extract::<String>(py).expect("string node"))
+                .collect::<Vec<_>>();
+            cycle.sort();
+
+            assert_eq!(cycle, vec!["a", "b", "c"]);
         });
     }
 

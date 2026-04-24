@@ -618,6 +618,9 @@ def all_simple_paths(
     g: Graph, source: Any, target: Any, cutoff: Optional[int] = None
 ) -> list[list[Any]]: ...
 def cycle_basis(g: Graph, root: Any = None) -> list[list[Any]]: ...
+def minimum_cycle_basis(
+    g: Graph, weight: Optional[str] = None
+) -> list[list[Any]]: ...
 
 # ---------------------------------------------------------------------------
 # Algorithm functions — graph operators

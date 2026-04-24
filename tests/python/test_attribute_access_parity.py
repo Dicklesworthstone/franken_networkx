@@ -1244,3 +1244,41 @@ class TestClassLevelPredicates:
 
         g = nx.gnp_random_graph(10, 0.3, seed=42, directed=True, create_using=fnx.DiGraph)
         assert isinstance(g, fnx.DiGraph)
+
+
+# ---------------------------------------------------------------------------
+# Regression: franken_networkx-rmvbunch — remove_*_from materialize ebunch
+# ---------------------------------------------------------------------------
+
+
+class TestRemoveBunchMaterialized:
+    """nx internals call ``g.remove_edges_from(nx.selfloop_edges(g))`` and
+    similar patterns where the iterable reads self. The Rust
+    remove_edges_from / remove_nodes_from mutably borrows self while
+    iterating the bunch; the generator's read raises
+    ``RuntimeError: Already mutably borrowed``. Same class as
+    br-addedgesgen — materialize before the Rust call.
+    """
+
+    def test_remove_edges_from_generator_reading_self(self):
+        import networkx as nx
+
+        G = fnx.Graph([(0, 1), (1, 2), (2, 0), (3, 3)])
+        G.remove_edges_from(nx.selfloop_edges(G))
+        assert sorted(G.edges) == [(0, 1), (0, 2), (1, 2)]
+
+    def test_remove_nodes_from_generator_reading_self(self):
+        G = fnx.path_graph(5)
+        G.remove_nodes_from(n for n in [1, 2] if n in G)
+        assert sorted(G.nodes) == [0, 3, 4]
+
+    def test_nx_girvan_newman_works_on_fnx(self):
+        """End-to-end: nx.community.girvan_newman calls
+        g.remove_edges_from(nx.selfloop_edges(g)) internally.
+        """
+        import networkx as nx
+
+        G = fnx.path_graph(5)
+        G.add_edge(0, 3)
+        first_split = next(nx.community.girvan_newman(G))
+        assert len(first_split) == 2  # partition into 2 communities
