@@ -2645,6 +2645,12 @@ def average_shortest_path_length(G, weight=None, method=None):
     """
     if method not in (None, "unweighted", "dijkstra", "bellman-ford"):
         raise ValueError(f"method not supported: {method}")
+    # br-asplint: nx returns literal int 0 for the single-node graph
+    # (no divisions happen on that code path); fnx's Rust-native path
+    # returns 0.0 float. Match nx's exact type so isinstance(..., int)
+    # checks downstream don't diverge.
+    if G.number_of_nodes() == 1:
+        return 0
     if weight is not None and method in (None, "dijkstra") and _should_delegate_dijkstra_to_networkx(G, weight):
         kwargs = {"weight": weight}
         if method is not None:
@@ -4146,12 +4152,29 @@ def efficiency(G, u, v):
 
 
 def global_efficiency(G):
-    """br-isokw: ``G`` matches nx."""
+    """br-isokw: ``G`` matches nx.
+
+    br-effdir: nx.global_efficiency is ``@not_implemented_for('directed')``;
+    the Rust-native binding silently returns a float for DiGraphs. Reject
+    directed input to restore parity. Also return literal int 0 for n<2
+    since nx's ``denom = n*(n-1)`` branch initializes ``g_eff = 0`` (int)
+    without ever dividing on that path.
+    """
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if G.number_of_nodes() < 2:
+        return 0
     return _raw_global_efficiency(G)
 
 
 def local_efficiency(G):
-    """br-isokw: ``G`` matches nx."""
+    """br-isokw: ``G`` matches nx.
+
+    br-effdir: nx.local_efficiency is ``@not_implemented_for('directed')``;
+    fnx silently returned a float for DiGraphs. Reject directed input.
+    """
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     return _raw_local_efficiency(G)
 
 # Algorithm functions — broadcasting
