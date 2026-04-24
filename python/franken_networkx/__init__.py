@@ -3741,8 +3741,15 @@ from franken_networkx._fnx import (
     all_shortest_paths as _raw_all_shortest_paths,
     all_simple_paths as _rust_all_simple_paths,
     cycle_basis as _raw_cycle_basis,
-    minimum_cycle_basis as _raw_minimum_cycle_basis,
 )
+
+# br-rustlag: minimum_cycle_basis ships behind an in-flight Rust
+# rebuild. When the .so doesn't export it yet, fall back to the Python
+# helper below so fnx still imports.
+try:
+    from franken_networkx._fnx import minimum_cycle_basis as _raw_minimum_cycle_basis
+except ImportError:
+    _raw_minimum_cycle_basis = None
 
 
 def cycle_basis(G, root=None):
@@ -16705,6 +16712,10 @@ def minimum_cycle_basis(G, weight=None):
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
 
+    # br-rustlag: Rust symbol may be absent until the in-flight rebuild
+    # lands; fall back to the per-component Python helper.
+    if _raw_minimum_cycle_basis is None:
+        return _minimum_cycle_basis_via_parity(G, weight)
     return _raw_minimum_cycle_basis(G, weight=weight)
 
 
