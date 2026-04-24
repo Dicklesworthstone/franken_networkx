@@ -2896,7 +2896,7 @@ from franken_networkx._fnx import (
     betweenness_centrality_subset_rust as _betweenness_centrality_subset_rust,
     closeness_centrality as _raw_closeness_centrality,
     closeness_vitality as _rust_closeness_vitality,
-    degree_assortativity_coefficient,
+    degree_assortativity_coefficient as _raw_degree_assortativity_coefficient,
     degree_centrality as _raw_degree_centrality,
     edge_betweenness_centrality as _raw_edge_betweenness_centrality,
     edge_betweenness_centrality_subset_rust as _edge_betweenness_centrality_subset_rust,
@@ -2907,6 +2907,26 @@ from franken_networkx._fnx import (
     pagerank as _raw_pagerank,
     voterank as _raw_voterank,
 )
+
+
+def degree_assortativity_coefficient(G, x="out", y="in", weight=None, nodes=None):
+    """Compute degree assortativity of graph.
+
+    br-assortkw: accepts nx's full parameter surface (``x``, ``y``,
+    ``weight``, ``nodes``). The Rust fast-path only honours the
+    default (unweighted, all-nodes, out-in for directed) — delegate
+    to nx whenever any kwarg is non-default.
+    """
+    if x == "out" and y == "in" and weight is None and nodes is None:
+        return _raw_degree_assortativity_coefficient(G)
+    return _call_networkx_for_parity(
+        "degree_assortativity_coefficient",
+        G,
+        x=x,
+        y=y,
+        weight=weight,
+        nodes=nodes,
+    )
 
 
 def average_neighbor_degree(
@@ -3903,10 +3923,25 @@ from franken_networkx._fnx import (
 
 # Algorithm functions — efficiency
 from franken_networkx._fnx import (
-    efficiency,
-    global_efficiency,
-    local_efficiency,
+    efficiency as _raw_efficiency,
+    global_efficiency as _raw_global_efficiency,
+    local_efficiency as _raw_local_efficiency,
 )
+
+
+def efficiency(G, u, v):
+    """br-isokw: ``G`` matches nx; Rust binding used ``g``."""
+    return _raw_efficiency(G, u, v)
+
+
+def global_efficiency(G):
+    """br-isokw: ``G`` matches nx."""
+    return _raw_global_efficiency(G)
+
+
+def local_efficiency(G):
+    """br-isokw: ``G`` matches nx."""
+    return _raw_local_efficiency(G)
 
 # Algorithm functions — broadcasting
 from franken_networkx._fnx import (

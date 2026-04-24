@@ -6,8 +6,8 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 75 | 9% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 703 | 87% | Python-defined exports with no runtime NetworkX dependency detected |
+| RUST_NATIVE | 71 | 8% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 707 | 88% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 22 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
@@ -25,8 +25,8 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 640 |
-| `franken_networkx._fnx` | 75 |
+| `franken_networkx` | 644 |
+| `franken_networkx._fnx` | 71 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
@@ -36,7 +36,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 | `networkx.algorithms.tree.coding` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (75)
+## RUST_NATIVE exports (71)
 
 - `barycenter`
 - `bfs_layers`
@@ -47,13 +47,10 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `clique_removal`
 - `core_number`
 - `cut_size`
-- `degree_assortativity_coefficient`
 - `descendants_at_distance`
 - `dominance_frontiers`
 - `edge_boundary`
-- `efficiency`
 - `enumerate_all_cliques`
-- `global_efficiency`
 - `global_node_connectivity`
 - `graph_clique_number`
 - `hoffman_singleton_graph`
@@ -80,7 +77,6 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `isolates`
 - `kosaraju_strongly_connected_components`
 - `large_clique_size`
-- `local_efficiency`
 - `max_clique`
 - `max_weight_clique`
 - `max_weight_matching`
@@ -114,7 +110,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `tree_broadcast_center`
 - `tree_broadcast_time`
 
-## PY_WRAPPER exports (703)
+## PY_WRAPPER exports (707)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -259,6 +255,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `davis_southern_women_graph`
 - `dedensify`
 - `degree`
+- `degree_assortativity_coefficient`
 - `degree_centrality`
 - `degree_histogram`
 - `degree_mixing_dict`
@@ -332,6 +329,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `edmonds_karp`
 - `effective_graph_resistance`
 - `effective_size`
+- `efficiency`
 - `ego_graph`
 - `eigenvector_centrality`
 - `eigenvector_centrality_numpy`
@@ -400,6 +398,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `get_node_attributes`
 - `girth`
 - `girvan_newman`
+- `global_efficiency`
 - `global_parameters`
 - `global_reaching_centrality`
 - `gn_graph`
@@ -530,6 +529,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `load_centrality`
 - `local_bridges`
 - `local_constraint`
+- `local_efficiency`
 - `local_reaching_centrality`
 - `lollipop_graph`
 - `louvain_communities`
