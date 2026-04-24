@@ -116,9 +116,10 @@ def test_graph_lifecycle(fnx):
     check("has_edge reverse", G.has_edge("b", "a"))
     check("has_edge negative", not G.has_edge("a", "z"))
 
-    # Neighbors
-    neighbors = G.neighbors("b")
-    check("neighbors returns list", isinstance(neighbors, list))
+    # Neighbors. br-nbriter: G.neighbors returns an iterator per nx
+    # contract (previously a list, which broke algorithms like
+    # nx.dfs_labeled_edges that rely on iterator state).
+    neighbors = list(G.neighbors("b"))
     check("b has 2 neighbors", len(neighbors) == 2)
 
     # Mutation

@@ -149,9 +149,22 @@ def _number_of_edges_with_endpoints(number_of_edges_impl):
 def _neighbors_with_networkx_missing_node_error(neighbors_impl, *, graph_kind="graph"):
     def neighbors(self, node):
         try:
-            return neighbors_impl(self, node)
+            result = neighbors_impl(self, node)
         except NodeNotFound as exc:
             raise NetworkXError(f"The node {node} is not in the {graph_kind}.") from exc
+        # br-nbriter: nx.Graph.neighbors returns a dict_keyiterator
+        # (iterator). fnx's Rust impl returns a list. Code like
+        # ``for x in G.neighbors(u): break`` + ``for x in same_list``
+        # accidentally restarts iteration because list iteration is not
+        # stateful across re-entries — e.g. nx.dfs_labeled_edges broke
+        # on fnx when it pushed ``(start, G.neighbors(start))`` onto a
+        # stack and the outer ``for child in children`` re-ran from the
+        # beginning after break, producing spurious nontree edges.
+        # Always return a proper iterator so algorithms that rely on
+        # iterator state work.
+        if isinstance(result, list):
+            return iter(result)
+        return result
 
     return neighbors
 
@@ -1724,6 +1737,42 @@ for _node_view_type in (
     _node_view_type.__getitem__ = _make_keystr_preserving_getitem(
         _node_view_type.__getitem__
     )
+
+
+# br-nvrsub: nx.NodeView inherits from collections.abc.Set so
+# ``some_set - G.nodes`` works (via Set.__rsub__). fnx's Rust-native
+# NodeView isn't a Set ABC subclass, so Python's set protocol falls
+# back to `set.__sub__(NodeView) -> NotImplemented` then attempts
+# `NodeView.__rsub__(set)` which doesn't exist — raising TypeError.
+# Broke nx.group_betweenness_centrality's `if set_v - G.nodes:` check.
+# Add the missing reflected set-operator methods that mirror a Set
+# protocol over iteration.
+def _nv_rsub(self, other):
+    return set(other) - set(self)
+
+
+def _nv_rand(self, other):
+    return set(other) & set(self)
+
+
+def _nv_ror(self, other):
+    return set(other) | set(self)
+
+
+def _nv_rxor(self, other):
+    return set(other) ^ set(self)
+
+
+for _node_view_type in (
+    type(Graph().nodes),
+    type(DiGraph().nodes),
+    _MULTIGRAPH_NODE_VIEW_TYPE,
+    _MULTIDIGRAPH_NODE_VIEW_TYPE,
+):
+    _node_view_type.__rsub__ = _nv_rsub
+    _node_view_type.__rand__ = _nv_rand
+    _node_view_type.__ror__ = _nv_ror
+    _node_view_type.__rxor__ = _nv_rxor
 
 
 # NodeView update support lives on _PrivateNodeFacade (below) rather
