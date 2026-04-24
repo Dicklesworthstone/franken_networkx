@@ -17438,6 +17438,13 @@ class _FilteredEdgeView:
             return [
                 (u, v, attrs.get(data, default)) for u, v, attrs in base
             ]
+        # br-edgesnone: `data=None, default=X` yields 3-tuples with the
+        # default as the third element for every edge (matches nx).
+        if data is None:
+            base = self._view._edges(nbunch=nbunch, data=False, keys=keys)
+            if keys:
+                return [(u, v, k, default) for u, v, k in base]
+            return [(u, v, default) for u, v in base]
         return self._view._edges(nbunch=nbunch, data=data, keys=keys)
 
     def __iter__(self):
@@ -17468,6 +17475,41 @@ class _FilteredEdgeView:
     keys = _adjacency_view_keys
     items = _adjacency_view_items
     values = _adjacency_view_values
+
+    # br-filtedgeop: nx.EdgeView inherits from Set, so `G.edges - some_iter`
+    # works via Set.__sub__. fnx's _FilteredEdgeView had no set-operator
+    # methods, breaking nx._min_cycle_basis which does
+    # `chords = G.edges - tree_edges - {(v, u) for u, v in tree_edges}`.
+    def __sub__(self, other):
+        return set(self) - set(other)
+
+    def __rsub__(self, other):
+        return set(other) - set(self)
+
+    def __or__(self, other):
+        return set(self) | set(other)
+
+    def __ror__(self, other):
+        return set(other) | set(self)
+
+    def __and__(self, other):
+        return set(self) & set(other)
+
+    def __rand__(self, other):
+        return set(other) & set(self)
+
+    def __xor__(self, other):
+        return set(self) ^ set(other)
+
+    def __rxor__(self, other):
+        return set(other) ^ set(self)
+
+    def __eq__(self, other):
+        if isinstance(other, (set, frozenset)):
+            return set(self) == other
+        return NotImplemented
+
+    __hash__ = None
 
 
 class _FilteredGraphView:
