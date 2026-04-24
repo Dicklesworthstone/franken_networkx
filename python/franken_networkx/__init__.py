@@ -1939,15 +1939,16 @@ MultiDiGraph._pred = property(_multidigraph_pred_view)
 # br-grattrset: nx internals (subgraph_view, restricted_view, and any
 # code that builds a new graph and does ``newG.graph = G.graph``) need
 # ``G.graph`` to be assignable. The Rust-native ``.graph`` is a
-# read-only ``getset_descriptor`` (only a getter), so the assignment
-# raised ``AttributeError: attribute 'graph' of 'franken_networkx.Graph'
-# objects is not writable``. Wrap with a descriptor that, on __set__,
-# clears the underlying dict and updates it from the new value.
+# read-only ``getset_descriptor`` (only a getter), so the assignment raised
+# ``AttributeError``. Upstream assignment aliases the new graph dict by
+# reference; keep that behavior through a Python-side override.
+_GRAPH_ATTR_OVERRIDE = "_fnx_graph_attr_override"
+_GRAPH_ATTR_MISSING = object()
+
+
 class _GraphAttrsDescriptor:
     """Descriptor that adds an assignment path to the Rust-native
-    read-only ``graph`` attribute. Reads fall through to the Rust
-    getter; writes clear-then-update the existing dict in place so
-    references held elsewhere remain valid."""
+    read-only ``graph`` attribute."""
 
     __slots__ = ("_raw",)
 
@@ -1957,17 +1958,17 @@ class _GraphAttrsDescriptor:
     def __get__(self, obj, objtype=None):
         if obj is None:
             return self
+        override = vars(obj).get(_GRAPH_ATTR_OVERRIDE, _GRAPH_ATTR_MISSING)
+        if override is not _GRAPH_ATTR_MISSING:
+            return override
         return self._raw.__get__(obj, objtype)
 
     def __set__(self, obj, value):
-        existing = self._raw.__get__(obj, type(obj))
-        existing.clear()
-        if value:
-            existing.update(value)
+        setattr(obj, _GRAPH_ATTR_OVERRIDE, value)
 
     def __delete__(self, obj):
-        existing = self._raw.__get__(obj, type(obj))
-        existing.clear()
+        vars(obj).pop(_GRAPH_ATTR_OVERRIDE, None)
+        self._raw.__get__(obj, type(obj)).clear()
 
 
 for _cls in (Graph, DiGraph, MultiGraph, MultiDiGraph):
@@ -18449,6 +18450,25 @@ MultiDiGraph._node = property(
     _private_node_mapping,
     lambda self, value: _set_private_override(self, _PRIVATE_NODE_OVERRIDE, value),
 )
+
+
+def _graph_shallowcopy(self):
+    result = type(self)()
+    setattr(result, _GRAPH_ATTR_OVERRIDE, self.graph)
+    result._node = self._node
+    if self.is_directed():
+        result._succ = self.succ
+        result._pred = self.pred
+        result._adj = self.adj
+    else:
+        result._adj = self.adj
+    return result
+
+
+Graph.__copy__ = _graph_shallowcopy
+DiGraph.__copy__ = _graph_shallowcopy
+MultiGraph.__copy__ = _graph_shallowcopy
+MultiDiGraph.__copy__ = _graph_shallowcopy
 
 
 _FILTERED_GRAPH_VIEW_TYPES = {

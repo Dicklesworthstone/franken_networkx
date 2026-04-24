@@ -4,6 +4,8 @@ Upstream NetworkX exposes `items()`, `keys()`, `values()`, and `get()` on every
 `<Graph>.adj` view. FrankenNetworkX must match that contract.
 """
 
+import copy
+
 import networkx as nx
 import pytest
 
@@ -47,6 +49,59 @@ def test_adj_get_matches_upstream_defaults(fnx_ctor):
     assert fg.adj.get(99) is None
     assert fg.adj.get(99, "sentinel") == "sentinel"
     assert dict(fg.adj.get(1)) == {2: {}}
+
+
+@pytest.mark.parametrize(
+    ("fnx_ctor", "nx_ctor"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_copy_copy_shares_graph_node_and_edge_attrs_like_networkx(fnx_ctor, nx_ctor):
+    fg = fnx_ctor()
+    ng = nx_ctor()
+    for graph in (fg, ng):
+        graph.graph["meta"] = {"count": 1}
+        graph.add_node("a", color={"name": "red"})
+        if graph.is_multigraph():
+            graph.add_edge("a", "b", key="k", payload={"weight": 2})
+        else:
+            graph.add_edge("a", "b", payload={"weight": 2})
+
+    fv = copy.copy(fg)
+    nv = copy.copy(ng)
+
+    assert fv.graph is fg.graph
+    assert nv.graph is ng.graph
+    fv.graph["added"] = True
+    nv.graph["added"] = True
+    assert fg.graph == ng.graph
+
+    assert fv.nodes["a"] is fg.nodes["a"]
+    assert nv.nodes["a"] is ng.nodes["a"]
+    fv.nodes["a"]["shared"] = True
+    nv.nodes["a"]["shared"] = True
+    assert fg.nodes["a"] == ng.nodes["a"]
+
+    if fg.is_multigraph():
+        assert fv.edges["a", "b", "k"] is fg.edges["a", "b", "k"]
+        assert nv.edges["a", "b", "k"] is ng.edges["a", "b", "k"]
+        fv.edges["a", "b", "k"]["shared"] = True
+        nv.edges["a", "b", "k"]["shared"] = True
+        assert fg.edges["a", "b", "k"] == ng.edges["a", "b", "k"]
+        assert list(fv.edges(keys=True, data=True)) == list(
+            nv.edges(keys=True, data=True)
+        )
+    else:
+        assert fv.edges["a", "b"] is fg.edges["a", "b"]
+        assert nv.edges["a", "b"] is ng.edges["a", "b"]
+        fv.edges["a", "b"]["shared"] = True
+        nv.edges["a", "b"]["shared"] = True
+        assert fg.edges["a", "b"] == ng.edges["a", "b"]
+        assert list(fv.edges(data=True)) == list(nv.edges(data=True))
 
 
 @pytest.mark.parametrize(
