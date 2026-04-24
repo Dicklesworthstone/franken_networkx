@@ -44,6 +44,22 @@ MINIMUM_CYCLE_BASIS_PORT_CASES = [
         id="triangle",
     ),
     pytest.param(
+        {"edges": [(2, 1), (1, 0), (0, 2)]},
+        id="reverse-insertion-triangle",
+    ),
+    pytest.param(
+        {"edges": [(0, 1), (1, 2), (2, 3), (3, 0), (0, 2), (1, 3)]},
+        id="complete-graph-k4",
+    ),
+    pytest.param(
+        {"edges": [("a", "b"), ("b", "c"), ("c", "a"), ("c", "d"), ("d", "e"), ("e", "c")]},
+        id="two-triangles-sharing-node",
+    ),
+    pytest.param(
+        {"edges": [(0, 1), (1, 2), (2, 3), (3, 0), (1, 4), (4, 5), (5, 2)]},
+        id="two-squares-sharing-path",
+    ),
+    pytest.param(
         {
             "edges": [
                 ("a", "b", {"weight": 1}),
@@ -73,6 +89,20 @@ MINIMUM_CYCLE_BASIS_PORT_CASES = [
             "weight": "weight",
         },
         id="missing-weight-defaults-to-one",
+    ),
+    pytest.param(
+        {
+            "edges": [
+                ("a", "b", {"cost": 1.5}),
+                ("b", "c", {"cost": 2.5}),
+                ("c", "a", {"cost": 0.5}),
+                ("c", "d", {"cost": 9.0}),
+                ("d", "e", {"cost": 1.0}),
+                ("e", "c", {"cost": 1.0}),
+            ],
+            "weight": "cost",
+        },
+        id="weighted-float-cost-attribute",
     ),
     pytest.param(
         {"edges": [("loop", "loop")]},
@@ -152,11 +182,17 @@ def test_minimum_cycle_basis_native_avoids_networkx(monkeypatch):
     graph = fnx.cycle_graph(4)
     expected = nx.cycle_graph(4)
     expected_cycles = normalize_cycles(nx.minimum_cycle_basis(expected))
+    import networkx.algorithms.cycles as nx_cycles
 
     monkeypatch.setattr(
         nx,
         "minimum_cycle_basis",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("delegated")),
+    )
+    monkeypatch.setattr(
+        nx_cycles,
+        "_min_cycle_basis",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("delegated-private")),
     )
 
     assert normalize_cycles(fnx.minimum_cycle_basis(graph)) == expected_cycles

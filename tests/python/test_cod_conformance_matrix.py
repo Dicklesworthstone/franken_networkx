@@ -190,8 +190,9 @@ TRAVERSAL_CASES = [
 
 @pytest.mark.parametrize(("fixture_name", "case_name", "call"), TRAVERSAL_CASES)
 def test_traversal_matches_networkx_matrix(fixture_name, case_name, call):
-    if case_name == "topological_sort":
-        pytest.xfail("franken_networkx-codtrav-review: topological_sort tie-break order")
+    # br-codtrav-review was closed (Python-level Kahn's algorithm matches
+    # nx's FIFO insertion-order tie-break). The stale pytest.xfail would
+    # hide regressions; let the real assertion run.
     fnx_graph, nx_graph = _traversal_fixtures()[fixture_name]
     _assert_same_outcome(lambda: call(fnx, fnx_graph), lambda: call(nx, nx_graph))
 
