@@ -5993,17 +5993,30 @@ pub fn ancestors(
     source: &Bound<'_, PyAny>,
 ) -> PyResult<pyo3::Py<pyo3::types::PyFrozenSet>> {
     let gr = extract_graph(g)?;
-    if !gr.is_directed() {
-        return Err(NetworkXError::new_err(
-            "ancestors() is not defined for undirected graphs.",
-        ));
-    }
     let source_key = node_key_to_string(py, source)?;
     if !gr.has_node(&source_key) {
-        return Err(NodeNotFound::new_err(format!(
-            "The node {} is not in the graph.",
-            source.repr()?
+        let graph_kind = if gr.is_directed() { "digraph" } else { "graph" };
+        return Err(NetworkXError::new_err(format!(
+            "The node {} is not in the {}.",
+            source.repr()?,
+            graph_kind
         )));
+    }
+
+    if !gr.is_directed() {
+        let inner = gr.undirected();
+        let edges = py.allow_threads(|| fnx_algorithms::bfs_edges(inner, &source_key, None));
+        let mut result: HashSet<String> = HashSet::new();
+        for (u, v) in edges {
+            if u != source_key {
+                result.insert(u);
+            }
+            if v != source_key {
+                result.insert(v);
+            }
+        }
+        let py_nodes: Vec<PyObject> = result.iter().map(|n| gr.py_node_key(py, n)).collect();
+        return pyo3::types::PyFrozenSet::new(py, &py_nodes).map(|s| s.unbind());
     }
 
     {
@@ -6022,17 +6035,30 @@ pub fn descendants(
     source: &Bound<'_, PyAny>,
 ) -> PyResult<pyo3::Py<pyo3::types::PyFrozenSet>> {
     let gr = extract_graph(g)?;
-    if !gr.is_directed() {
-        return Err(NetworkXError::new_err(
-            "descendants() is not defined for undirected graphs.",
-        ));
-    }
     let source_key = node_key_to_string(py, source)?;
     if !gr.has_node(&source_key) {
-        return Err(NodeNotFound::new_err(format!(
-            "The node {} is not in the graph.",
-            source.repr()?
+        let graph_kind = if gr.is_directed() { "digraph" } else { "graph" };
+        return Err(NetworkXError::new_err(format!(
+            "The node {} is not in the {}.",
+            source.repr()?,
+            graph_kind
         )));
+    }
+
+    if !gr.is_directed() {
+        let inner = gr.undirected();
+        let edges = py.allow_threads(|| fnx_algorithms::bfs_edges(inner, &source_key, None));
+        let mut result: HashSet<String> = HashSet::new();
+        for (u, v) in edges {
+            if u != source_key {
+                result.insert(u);
+            }
+            if v != source_key {
+                result.insert(v);
+            }
+        }
+        let py_nodes: Vec<PyObject> = result.iter().map(|n| gr.py_node_key(py, n)).collect();
+        return pyo3::types::PyFrozenSet::new(py, &py_nodes).map(|s| s.unbind());
     }
 
     {

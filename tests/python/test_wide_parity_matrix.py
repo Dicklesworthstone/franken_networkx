@@ -403,8 +403,6 @@ def _expected_divergence(case_name: str, fixture_name: str) -> str | None:
         "all_pairs_shortest_path_length",
     }
 
-    if case_name in {"ancestors", "descendants"} and not fixture_name.startswith("digraph"):
-        return "franken_networkx-zzcm4: ancestors/descendants undirected graph contract"
     if case_name == "pagerank" and fixture_name in {"weighted", "multigraph"}:
         return "franken_networkx-zzcm5: pagerank weighted/multigraph parity"
     if case_name in directed_shortest_path and fixture_name.startswith("digraph"):

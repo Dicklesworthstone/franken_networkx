@@ -1,6 +1,7 @@
 """Tests for BFS, DFS, DAG, all_shortest_paths, and complement."""
 
 import pytest
+import networkx as nx
 
 import franken_networkx as fnx
 
@@ -110,7 +111,7 @@ class TestBFS:
         assert set(tree.edges()) == {(3, 1), (3, 2), (1, 0)}
 
     def test_bfs_node_not_found(self, diamond):
-        with pytest.raises(fnx.NodeNotFound):
+        with pytest.raises(fnx.NetworkXError):
             list(fnx.bfs_edges(diamond, 99))
 
 
@@ -270,6 +271,29 @@ class TestDAG:
     def test_descendants_leaf(self, dag):
         desc = fnx.descendants(dag, 3)
         assert desc == frozenset()
+
+    def test_ancestors_descendants_undirected_contract_matches_networkx(self):
+        for fnx_graph, nx_graph in [
+            (fnx.path_graph(4), nx.path_graph(4)),
+            (fnx.MultiGraph([(0, 1), (1, 2), (2, 3)]), nx.MultiGraph([(0, 1), (1, 2), (2, 3)])),
+        ]:
+            assert fnx.ancestors(fnx_graph, 3) == nx.ancestors(nx_graph, 3)
+            assert fnx.descendants(fnx_graph, 0) == nx.descendants(nx_graph, 0)
+
+    def test_ancestors_descendants_missing_node_errors_match_networkx(self):
+        cases = [
+            (fnx.Graph([(1, 2)]), nx.Graph([(1, 2)]), "graph"),
+            (fnx.DiGraph([(1, 2)]), nx.DiGraph([(1, 2)]), "digraph"),
+        ]
+        for fnx_graph, nx_graph, graph_kind in cases:
+            for fnx_func, nx_func in [
+                (fnx.ancestors, nx.ancestors),
+                (fnx.descendants, nx.descendants),
+            ]:
+                with pytest.raises(fnx.NetworkXError, match=graph_kind):
+                    fnx_func(fnx_graph, 0)
+                with pytest.raises(nx.NetworkXError, match=graph_kind):
+                    nx_func(nx_graph, 0)
 
 
 # ---------------------------------------------------------------------------
