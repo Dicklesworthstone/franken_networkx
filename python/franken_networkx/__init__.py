@@ -1386,6 +1386,21 @@ _MULTIGRAPH_NODE_VIEW_TYPE.__call__ = _node_view_call_with_attr_support(
 _MULTIDIGRAPH_NODE_VIEW_TYPE.__call__ = _node_view_call_with_attr_support(
     _MULTIDIGRAPH_NODE_VIEW_CALL
 )
+# br-ndvlst: Graph / DiGraph NodeView.__call__ didn't support the string
+# ``data='attr'`` form — returning self unchanged. That broke the common
+# idiom ``dict(G.nodes(data='attr'))`` because dict() then used keys() +
+# __getitem__ (returning the full attrs dict) instead of iterating the
+# (node, value) pairs. Extend the same wrapper to Graph/DiGraph views.
+_SIMPLE_GRAPH_NODE_VIEW_TYPE = type(Graph().nodes)
+_SIMPLE_DIGRAPH_NODE_VIEW_TYPE = type(DiGraph().nodes)
+_SIMPLE_GRAPH_NODE_VIEW_CALL = _SIMPLE_GRAPH_NODE_VIEW_TYPE.__call__
+_SIMPLE_DIGRAPH_NODE_VIEW_CALL = _SIMPLE_DIGRAPH_NODE_VIEW_TYPE.__call__
+_SIMPLE_GRAPH_NODE_VIEW_TYPE.__call__ = _node_view_call_with_attr_support(
+    _SIMPLE_GRAPH_NODE_VIEW_CALL
+)
+_SIMPLE_DIGRAPH_NODE_VIEW_TYPE.__call__ = _node_view_call_with_attr_support(
+    _SIMPLE_DIGRAPH_NODE_VIEW_CALL
+)
 
 
 def _make_keystr_preserving_getitem(raw):

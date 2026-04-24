@@ -486,3 +486,51 @@ class TestKeyErrorPreservesKey:
         with pytest.raises(KeyError) as exc_info:
             MD.nodes[99]
         assert exc_info.value.args[0] == 99
+
+
+# ---------------------------------------------------------------------------
+# Regression: franken_networkx-ndvlst — dict(G.nodes(data="attr"))
+# ---------------------------------------------------------------------------
+
+
+class TestNodeViewDictProtocol:
+    """Before the fix, fnx.Graph.nodes(data='attr') returned the underlying
+    NodeView unchanged. list() iterated (node, value) tuples correctly,
+    but dict() used the view.keys()/getitem path and returned the full
+    attrs dict under each node key. nx's NodeDataView has no `keys()`, so
+    dict() iterates the tuples correctly.
+    """
+
+    @pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+    def test_nodes_data_attr_dict_coerce_matches_networkx(self, cls_name):
+        import networkx as nx
+
+        G = getattr(fnx, cls_name)()
+        G.add_edge(0, 1)
+        G.add_edge(1, 2)
+        G.nodes[0]["color"] = "red"
+        G.nodes[1]["color"] = "blue"
+
+        Gn = getattr(nx, cls_name)()
+        Gn.add_edge(0, 1)
+        Gn.add_edge(1, 2)
+        Gn.nodes[0]["color"] = "red"
+        Gn.nodes[1]["color"] = "blue"
+
+        assert dict(G.nodes(data="color")) == dict(Gn.nodes(data="color"))
+
+    def test_nodes_data_attr_default_honoured(self):
+        G = fnx.path_graph(3)
+        G.nodes[0]["tag"] = "a"
+        assert dict(G.nodes(data="tag", default="zz")) == {0: "a", 1: "zz", 2: "zz"}
+
+    def test_convert_node_labels_to_integers_label_attribute(self):
+        """convert_node_labels_to_integers(G, label_attribute='old') uses
+        dict(G.nodes(data='old')) internally (indirectly via nx's
+        attribute-coalescing code path). This exercises the ndvlst bug
+        through a common nx utility.
+        """
+        r = fnx.convert_node_labels_to_integers(
+            fnx.path_graph(3), label_attribute="old"
+        )
+        assert dict(r.nodes(data="old")) == {0: 0, 1: 1, 2: 2}
