@@ -6,8 +6,8 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 91 | 11% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 687 | 85% | Python-defined exports with no runtime NetworkX dependency detected |
+| RUST_NATIVE | 89 | 11% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 689 | 86% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 21 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
@@ -19,8 +19,8 @@ All declared public exports are classified. `--check` fails if this generated re
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 625 |
-| `franken_networkx._fnx` | 91 |
+| `franken_networkx` | 627 |
+| `franken_networkx._fnx` | 89 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
@@ -28,9 +28,8 @@ All declared public exports are classified. `--check` fails if this generated re
 | `builtins` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (91)
+## RUST_NATIVE exports (89)
 
-- `ancestors`
 - `barycenter`
 - `bfs_layers`
 - `biconnected_component_edges`
@@ -41,7 +40,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `core_number`
 - `cut_size`
 - `degree_assortativity_coefficient`
-- `descendants`
 - `descendants_at_distance`
 - `dominance_frontiers`
 - `edge_boundary`
@@ -122,7 +120,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_gml`
 - `write_graphml`
 
-## PY_WRAPPER exports (687)
+## PY_WRAPPER exports (689)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -153,6 +151,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `all_topological_sorts`
 - `all_triads`
 - `all_triangles`
+- `ancestors`
 - `antichains`
 - `apply_matplotlib_colors`
 - `approximate_current_flow_betweenness_centrality`
@@ -275,6 +274,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `dense_gnm_random_graph`
 - `density`
 - `desargues_graph`
+- `descendants`
 - `describe`
 - `dfs_edges`
 - `dfs_labeled_edges`

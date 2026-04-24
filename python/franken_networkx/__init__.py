@@ -4951,15 +4951,70 @@ def resource_allocation_index(G, ebunch=None):
 
 # Algorithm functions — DAG
 from franken_networkx._fnx import (
-    ancestors,
+    ancestors as _raw_ancestors,
     dag_longest_path as _raw_dag_longest_path,
     dag_longest_path_length as _raw_dag_longest_path_length,
-    descendants,
+    descendants as _raw_descendants,
     is_directed_acyclic_graph,
     lexicographic_topological_sort as _raw_lexicographic_topological_sort,
     topological_sort as _raw_topological_sort,
     topological_generations as _raw_topological_generations,
 )
+
+
+def _ancestors_descendants_missing_node_msg(G, source):
+    kind = "digraph" if G.is_directed() else "graph"
+    return f"The node {source} is not in the {kind}."
+
+
+def ancestors(G, source):
+    """Return all nodes having a path to ``source`` in ``G``.
+
+    Matches nx (br-7f0fn): accepts undirected and multigraph inputs as
+    well as DiGraph, returning all nodes in the connected / reachable
+    set (excluding ``source`` itself). Raises NetworkXError if source
+    isn't in G (message distinguishes graph vs digraph). Returns a
+    plain ``set`` (not ``frozenset``).
+    """
+    if source not in G:
+        raise NetworkXError(_ancestors_descendants_missing_node_msg(G, source))
+    if G.is_directed():
+        return set(_raw_ancestors(G, source))
+    from collections import deque
+    seen = {source}
+    q = deque([source])
+    while q:
+        n = q.popleft()
+        for nbr in G[n]:
+            if nbr not in seen:
+                seen.add(nbr)
+                q.append(nbr)
+    seen.discard(source)
+    return seen
+
+
+def descendants(G, source):
+    """Return all nodes reachable from ``source`` in ``G``.
+
+    Matches nx (br-7f0fn): on undirected / multigraph, returns the
+    reachable node set (symmetric with ``ancestors``). Returns a
+    plain ``set``.
+    """
+    if source not in G:
+        raise NetworkXError(_ancestors_descendants_missing_node_msg(G, source))
+    if G.is_directed():
+        return set(_raw_descendants(G, source))
+    from collections import deque
+    seen = {source}
+    q = deque([source])
+    while q:
+        n = q.popleft()
+        for nbr in G[n]:
+            if nbr not in seen:
+                seen.add(nbr)
+                q.append(nbr)
+    seen.discard(source)
+    return seen
 
 
 def topological_sort(G):
