@@ -874,3 +874,43 @@ class TestPrivateNodeFacadeUpdate:
         items = list(G._node.items())
         assert len(items) == 3
         assert dict(items[1][1]) == {"x": 1}
+
+
+# ---------------------------------------------------------------------------
+# Regression: franken_networkx-edgesnb — EdgeView accepts single-node nbunch
+# ---------------------------------------------------------------------------
+
+
+class TestEdgeViewSingleNodeNbunch:
+    """nx.EdgeView accepts a single node as nbunch, yielding edges
+    incident to that node. The Rust edge_view_call expected only
+    None or an iterable; a single node raised
+    TypeError: 'int' object is not iterable. That in turn broke
+    nx.line_graph() on fnx because its internal helper called
+    `G.edges(u)` with a single node u.
+    """
+
+    def test_edges_single_int_nbunch(self):
+        import networkx as nx
+
+        G = fnx.path_graph(4)
+        G.add_edge(0, 2)
+        assert set(G.edges(0)) == {(0, 1), (0, 2)}
+
+    def test_edges_single_str_nbunch(self):
+        G = fnx.Graph([("a", "b"), ("b", "c")])
+        assert set(G.edges("a")) == {("a", "b")}
+
+    def test_nx_line_graph_works_on_fnx(self):
+        import networkx as nx
+
+        G = fnx.path_graph(4)
+        G.add_edge(0, 2)
+        L = nx.line_graph(G)
+        assert sorted(L.nodes) == [(0, 1), (0, 2), (1, 2), (2, 3)]
+
+    def test_edges_iterable_nbunch_still_works(self):
+        G = fnx.path_graph(4)
+        # List + set nbunches remain iterable
+        assert sorted(tuple(sorted(e)) for e in G.edges([0, 1])) == [(0, 1), (1, 2)]
+        assert sorted(tuple(sorted(e)) for e in G.edges({1, 2})) == [(0, 1), (1, 2), (2, 3)]

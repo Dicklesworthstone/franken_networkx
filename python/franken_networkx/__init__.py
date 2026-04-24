@@ -222,6 +222,19 @@ def _edge_view_call_with_nbunch_first(edge_view_call):
             data = False
         if default is _unset:
             default = None
+        # br-edgesnb: nx.EdgeView accepts a single node as nbunch
+        # (yielding edges incident to that node). The Rust edge_view_call
+        # expects None or an iterable; a single node like `u = 0` raised
+        # TypeError: 'int' object is not iterable. Detect single-node
+        # nbunch by trying to iterate it; fall back to `[nbunch]`.
+        if nbunch is not None:
+            try:
+                iter(nbunch)
+                # Strings are iterable but are single nodes for nx.
+                if isinstance(nbunch, (str, bytes)):
+                    nbunch = [nbunch]
+            except TypeError:
+                nbunch = [nbunch]
         result = edge_view_call(self, data=data, nbunch=nbunch, default=default)
         # br-evdvlst: when data is non-False, the Rust EdgeView iter yields
         # 3-tuples but the view still has keys()/__getitem__ that return
