@@ -6,8 +6,8 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 107 | 13% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 671 | 83% | Python-defined exports with no runtime NetworkX dependency detected |
+| RUST_NATIVE | 104 | 12% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 674 | 84% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 21 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
@@ -19,8 +19,8 @@ All declared public exports are classified. `--check` fails if this generated re
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 609 |
-| `franken_networkx._fnx` | 107 |
+| `franken_networkx` | 612 |
+| `franken_networkx._fnx` | 104 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
@@ -28,7 +28,7 @@ All declared public exports are classified. `--check` fails if this generated re
 | `builtins` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (107)
+## RUST_NATIVE exports (104)
 
 - `adamic_adar_index`
 - `ancestors`
@@ -56,7 +56,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `global_node_connectivity`
 - `graph_clique_number`
 - `hoffman_singleton_graph`
-- `hypercube_graph`
 - `is_arborescence`
 - `is_biconnected`
 - `is_bipartite`
@@ -82,7 +81,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `is_weakly_connected`
 - `isolates`
 - `jaccard_coefficient`
-- `kneser_graph`
 - `kosaraju_strongly_connected_components`
 - `large_clique_size`
 - `lexicographic_topological_sort`
@@ -132,13 +130,12 @@ All declared public exports are classified. `--check` fails if this generated re
 - `transitive_reduction`
 - `tree_broadcast_center`
 - `tree_broadcast_time`
-- `turan_graph`
 - `write_adjlist`
 - `write_edgelist`
 - `write_gml`
 - `write_graphml`
 
-## PY_WRAPPER exports (671)
+## PY_WRAPPER exports (674)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -457,6 +454,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `house_graph`
 - `house_x_graph`
 - `hyper_wiener_index`
+- `hypercube_graph`
 - `icosahedral_graph`
 - `identified_nodes`
 - `immediate_dominators`
@@ -526,6 +524,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `kemeny_constant`
 - `kernighan_lin_bisection`
 - `kl_connected_subgraph`
+- `kneser_graph`
 - `krackhardt_kite_graph`
 - `label_propagation_communities`
 - `ladder_graph`
@@ -780,6 +779,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `trophic_levels`
 - `truncated_cube_graph`
 - `truncated_tetrahedron_graph`
+- `turan_graph`
 - `tutte_graph`
 - `tutte_polynomial`
 - `uniform_random_intersection_graph`
