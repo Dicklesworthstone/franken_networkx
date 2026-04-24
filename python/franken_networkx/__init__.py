@@ -14140,6 +14140,11 @@ def connected_dominating_set(G, *, backend=None, **backend_kwargs):
 
 def is_connected_dominating_set(G, S):
     """Check if S is a connected dominating set."""
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if len(G) == 0:
+        raise NetworkXPointlessConcept("Connectivity is undefined for the null graph.")
+
     S = set(S)
     for node in G.nodes():
         if node not in S and not any(nb in S for nb in G.neighbors(node)):

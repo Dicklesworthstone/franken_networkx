@@ -403,12 +403,6 @@ def _expected_divergence(case_name: str, fixture_name: str) -> str | None:
         "all_pairs_shortest_path_length",
     }
 
-    if case_name == "is_connected_dominating_set" and fixture_name in {
-        "empty",
-        "digraph-path",
-        "digraph-cycle",
-    }:
-        return "franken_networkx-zzcm3: connected dominating set graph-family contract"
     if case_name in {"ancestors", "descendants"} and not fixture_name.startswith("digraph"):
         return "franken_networkx-zzcm4: ancestors/descendants undirected graph contract"
     if case_name == "pagerank" and fixture_name in {"weighted", "multigraph"}:

@@ -511,6 +511,23 @@ class TestConnectivityExtras:
             ng2, {0, 2}
         )
 
+    def test_is_connected_dominating_set_graph_family_contract_matches_networkx(self):
+        empty_fnx = fnx.Graph()
+        empty_nx = nx.Graph()
+        with pytest.raises(fnx.NetworkXPointlessConcept, match="null graph"):
+            fnx.is_connected_dominating_set(empty_fnx, set())
+        with pytest.raises(nx.NetworkXPointlessConcept, match="null graph"):
+            nx.is_connected_dominating_set(empty_nx, set())
+
+        for fnx_graph, nx_graph in [
+            (fnx.DiGraph([(0, 1)]), nx.DiGraph([(0, 1)])),
+            (fnx.MultiDiGraph([(0, 1)]), nx.MultiDiGraph([(0, 1)])),
+        ]:
+            with pytest.raises(fnx.NetworkXNotImplemented, match="directed type"):
+                fnx.is_connected_dominating_set(fnx_graph, set(fnx_graph.nodes()))
+            with pytest.raises(nx.NetworkXNotImplemented, match="directed type"):
+                nx.is_connected_dominating_set(nx_graph, set(nx_graph.nodes()))
+
     def test_is_kl_connected(self):
         G = fnx.complete_graph(5)
         assert fnx.is_kl_connected(G, 2, 1)
