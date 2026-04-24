@@ -27494,13 +27494,17 @@ def tree_all_pairs_lowest_common_ancestor(
     if len(G) == 0:
         raise NetworkXPointlessConcept("LCA meaningless on null graphs.")
 
+    pair_dict = None
     if pairs is not None:
+        pair_dict = defaultdict(set)
         if not isinstance(pairs, Mapping | Set):
             pairs = set(pairs)
         for u, v in pairs:
             for node in (u, v):
                 if node not in G:
                     raise NodeNotFound(f"The node {node} is not in the digraph.")
+            pair_dict[u].add(v)
+            pair_dict[v].add(u)
 
     if root is None:
         for node, degree in G.in_degree:
@@ -27521,7 +27525,20 @@ def tree_all_pairs_lowest_common_ancestor(
 
     from franken_networkx._fnx import tree_all_pairs_lca_rust as _rust_tree_lca
 
-    yield from _rust_tree_lca(G, root, None if pairs is None else list(pairs))
+    if pairs is None:
+        yield from _rust_tree_lca(G, root, None)
+        return
+
+    rust_results = dict(_rust_tree_lca(G, root, list(pairs)))
+    colors = defaultdict(bool)
+    for node in _tree_lca_dfs_postorder_nodes(G, root):
+        colors[node] = True
+        for other in pair_dict[node]:
+            if colors[other]:
+                if (node, other) in pairs:
+                    yield (node, other), rust_results[(node, other)]
+                if (other, node) in pairs:
+                    yield (other, node), rust_results[(other, node)]
 
 
 def greedy_branching(G, attr="weight", default=1, kind="max", seed=None):

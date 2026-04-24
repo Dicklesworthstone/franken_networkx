@@ -249,9 +249,9 @@ class TestDAGAlgorithms:
         )
         monkeypatch.setattr(
             fnx,
-            "_tree_lca_dfs_postorder_nodes",
+            "_TarjanUnionFind",
             lambda *args, **kwargs: (_ for _ in ()).throw(
-                AssertionError("Python tree LCA fallback should not be used")
+                AssertionError("Python Tarjan tree LCA fallback should not be used")
             ),
         )
 
@@ -262,6 +262,42 @@ class TestDAGAlgorithms:
         assert (
             list(fnx.tree_all_pairs_lowest_common_ancestor(graph, root=2))
             == expected_subtree
+        )
+
+    @needs_nx
+    def test_tree_lca_large_batch_parity_matches_networkx_without_fallback(
+        self, monkeypatch
+    ):
+        edges = [((child - 1) // 2, child) for child in range(1, 128)]
+        graph = fnx.DiGraph(edges)
+        expected = nx.DiGraph(edges)
+        pairs = {(child, (child * 37) % 128) for child in range(1, 128, 3)}
+        pairs.update({(127, 127), (64, 31), (31, 64)})
+
+        expected_result = list(
+            nx.tree_all_pairs_lowest_common_ancestor(expected, pairs=pairs)
+        )
+
+        monkeypatch.setattr(
+            nx,
+            "tree_all_pairs_lowest_common_ancestor",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError(
+                    "NetworkX tree_all_pairs_lowest_common_ancestor fallback should not be used"
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            fnx,
+            "_TarjanUnionFind",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("Python Tarjan tree LCA fallback should not be used")
+            ),
+        )
+
+        assert (
+            list(fnx.tree_all_pairs_lowest_common_ancestor(graph, pairs=pairs))
+            == expected_result
         )
 
     @pytest.mark.parametrize(

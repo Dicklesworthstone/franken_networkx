@@ -1,0 +1,85 @@
+{
+  "artifact_id": "tarjan-lca-native-parity-perf-v1",
+  "bead_id": "franken_networkx-tarjanlca-parity",
+  "generated_at": "2026-04-24T22:30:00Z",
+  "repo_commit": "e69d364",
+  "python": "3.13.7",
+  "parity": {
+    "upstream_networkx_sparse_pairs": true,
+    "fnx_python_fallback_equivalence": true
+  },
+  "timing_method": {
+    "timer": "time.perf_counter_ns",
+    "warmup_rounds": 0,
+    "notes": [
+      "Timings were collected in the local Python harness after the PyO3 binding landed.",
+      "Before/after compares the previous FNX Python Tarjan union-find implementation with the native dispatch path on the same FNX DiGraph."
+    ]
+  },
+  "cases": [
+    {
+      "name": "balanced_binary_tree_all_pairs",
+      "node_count": 511,
+      "edge_count": 510,
+      "output_count": 130816,
+      "rounds": 5,
+      "native_dispatch_ms": [
+        182.082058,
+        194.271189,
+        189.079559,
+        187.934681,
+        200.918647
+      ],
+      "python_fallback_ms": [
+        229.882681,
+        243.527227,
+        209.94104,
+        227.841385,
+        234.588631
+      ],
+      "native_dispatch_median_ms": 189.079559,
+      "python_fallback_median_ms": 229.882681,
+      "median_speedup": 1.2157986945590453,
+      "parity": true
+    },
+    {
+      "name": "balanced_binary_tree_sparse_pairs",
+      "node_count": 1023,
+      "edge_count": 1022,
+      "pair_count": 214,
+      "rounds": 9,
+      "native_dispatch_ms": [
+        35.463742,
+        35.227295,
+        31.788722,
+        32.150318,
+        31.502381,
+        32.692805,
+        33.49803,
+        33.744767,
+        32.694137
+      ],
+      "python_fallback_ms": [
+        30.44609,
+        30.10802,
+        30.99502,
+        33.63562,
+        28.512048,
+        27.132216,
+        26.542269,
+        25.046466,
+        30.659585
+      ],
+      "native_dispatch_median_ms": 32.694137,
+      "python_fallback_median_ms": 30.10802,
+      "median_speedup": 0.9208996707880682,
+      "parity": true,
+      "note": "Sparse explicit-pair batches retain NetworkX candidate-set output order, so the Python ordering shim offsets the native core benefit."
+    }
+  ],
+  "validation_commands": [
+    "python3 -m pytest tests/python/test_parity_comprehensive.py -k \"tree_lca or lowest_common_ancestor\" -v --tb=long",
+    "rch exec -- env CARGO_TARGET_DIR=/data/projects/rch_target_franken_networkx_codex_gpt5_tarjanlca_pyo3 cargo test -p fnx-python --features pyo3/abi3-py310",
+    "rch exec -- env CARGO_TARGET_DIR=/data/projects/rch_target_franken_networkx_codex_gpt5_tarjanlca_pyo3 cargo clippy --workspace --all-targets -- -D warnings"
+  ]
+}
