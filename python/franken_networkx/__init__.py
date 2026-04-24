@@ -6321,11 +6321,24 @@ from franken_networkx._fnx import (
     mixing_expansion,
     non_edges as _raw_non_edges,
     average_node_connectivity as _raw_average_node_connectivity,
-    is_k_edge_connected,
+    is_k_edge_connected as _raw_is_k_edge_connected,
     all_pairs_dijkstra as _raw_all_pairs_dijkstra,
     number_of_spanning_arborescences,
     global_node_connectivity,
 )
+
+
+def is_k_edge_connected(G, k):
+    """Return True if *G* is k-edge-connected.
+
+    br-ikeck0: nx.is_k_edge_connected raises
+    ``ValueError('k must be positive, not {k}')`` for k<1. fnx's
+    Rust binding accepted k=0 and returned True (vacuously). Match
+    nx's validation.
+    """
+    if k < 1:
+        raise ValueError(f"k must be positive, not {k}")
+    return _raw_is_k_edge_connected(G, k)
 
 
 def average_node_connectivity(G, flow_func=None):

@@ -6,8 +6,8 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 47 | 5% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 731 | 91% | Python-defined exports with no runtime NetworkX dependency detected |
+| RUST_NATIVE | 46 | 5% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 732 | 91% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 22 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
@@ -25,8 +25,8 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 668 |
-| `franken_networkx._fnx` | 47 |
+| `franken_networkx` | 669 |
+| `franken_networkx._fnx` | 46 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
@@ -36,7 +36,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 | `networkx.algorithms.tree.coding` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (47)
+## RUST_NATIVE exports (46)
 
 - `bfs_layers`
 - `biconnected_component_edges`
@@ -58,7 +58,6 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `is_empty`
 - `is_eulerian`
 - `is_isolate`
-- `is_k_edge_connected`
 - `is_k_regular`
 - `is_matching`
 - `is_maximal_matching`
@@ -86,7 +85,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `tree_broadcast_center`
 - `tree_broadcast_time`
 
-## PY_WRAPPER exports (731)
+## PY_WRAPPER exports (732)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -451,6 +450,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `is_frozen`
 - `is_graphical`
 - `is_isomorphic`
+- `is_k_edge_connected`
 - `is_kl_connected`
 - `is_minimal_d_separator`
 - `is_multigraphical`
