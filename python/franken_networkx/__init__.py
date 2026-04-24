@@ -7472,8 +7472,24 @@ from franken_networkx._fnx import (
 # Algorithm functions — matching additional
 from franken_networkx._fnx import (
     is_edge_cover,
-    max_weight_clique,
+    max_weight_clique as _raw_max_weight_clique,
 )
+
+
+def max_weight_clique(G, weight="weight"):
+    """Find a maximum-weight clique.
+
+    br-mwclqnone: nx accepts ``weight=None`` which means "every node
+    has weight 1" (so the algorithm returns a max-cardinality clique
+    and the total is len(clique)). The Rust binding rejected None
+    with ``TypeError: argument weight: 'None' is not an instance of
+    'str'`` AND the Rust cache made in-place ``G.nodes[n]['weight']
+    = 1`` invisible to the Rust call. Delegate to nx for weight=None
+    so the cardinality semantics are correct.
+    """
+    if weight is None:
+        return _call_networkx_for_parity("max_weight_clique", G, weight=None)
+    return _raw_max_weight_clique(G, weight=weight)
 
 # Algorithm functions — DAG additional
 from franken_networkx._fnx import (
@@ -18257,11 +18273,25 @@ def _minimum_cycle_basis_component_ordered_graph_local(G, component):
 
 
 def minimum_cycle_basis(G, weight=None):
-    """Find minimum weight cycle basis."""
+    """Find minimum weight cycle basis.
+
+    br-mincyclewt: the Rust _raw_minimum_cycle_basis returned
+    SUBOPTIMAL (non-minimum-weight) cycle bases on weighted graphs.
+    On K4 with weights ``abs(u-v)+1`` fnx returned a basis of total
+    weight 25 where nx returned the correct weight-23 basis. The
+    Rust implementation seems to ignore or misuse the edge weights.
+    When a weight attribute is specified, delegate to nx's reference
+    per-component implementation to guarantee a true minimum.
+    Unweighted graphs (weight=None) still use the Rust fast path.
+    """
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
+
+    # br-mincyclewt: weighted inputs → delegate to nx for optimality.
+    if weight is not None:
+        return _minimum_cycle_basis_via_parity(G, weight)
 
     # br-rustlag: Rust symbol may be absent until the in-flight rebuild
     # lands; fall back to the per-component Python helper.
