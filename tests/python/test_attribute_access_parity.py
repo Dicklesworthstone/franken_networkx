@@ -963,3 +963,55 @@ class TestEdgeViewNbunchOrdering:
             nx.degree_assortativity_coefficient(G)
             - nx.degree_assortativity_coefficient(Gn)
         ) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Regression: franken_networkx-edgesnone — G.edges(data=None, default=X)
+# ---------------------------------------------------------------------------
+
+
+class TestEdgeViewDataNone:
+    """nx.Graph.edges(data=None, default=X) yields 3-tuples with the
+    default as the third element for every edge. The Rust EdgeView
+    treated data=None the same as data=False (2-tuples), breaking nx
+    internals like eigenvector_centrality_numpy / katz_centrality_numpy /
+    resistance_distance that internally call edges(data=weight, default=1)
+    with weight=None.
+    """
+
+    def test_edges_data_none_yields_default(self):
+        import networkx as nx
+
+        G = fnx.path_graph(4)
+        G.add_edge(0, 2)
+        Gn = nx.path_graph(4)
+        Gn.add_edge(0, 2)
+        assert list(G.edges(data=None, default=1)) == list(
+            Gn.edges(data=None, default=1)
+        )
+
+    def test_nx_eigenvector_centrality_numpy_on_fnx(self):
+        import networkx as nx
+
+        G = fnx.path_graph(4)
+        G.add_edge(0, 2)
+        r = nx.eigenvector_centrality_numpy(G)
+        Gn = nx.path_graph(4)
+        Gn.add_edge(0, 2)
+        rn = nx.eigenvector_centrality_numpy(Gn)
+        for k in r:
+            assert abs(r[k] - rn[k]) < 1e-6
+
+    def test_nx_resistance_distance_on_fnx(self):
+        import networkx as nx
+
+        G = fnx.path_graph(4)
+        G.add_edge(0, 2)
+        Gn = nx.path_graph(4)
+        Gn.add_edge(0, 2)
+        assert abs(nx.resistance_distance(G, 0, 3) - nx.resistance_distance(Gn, 0, 3)) < 1e-9
+
+    def test_edges_data_false_still_yields_2tuples(self):
+        G = fnx.path_graph(3)
+        edges = list(G.edges(data=False))
+        assert all(len(e) == 2 for e in edges)

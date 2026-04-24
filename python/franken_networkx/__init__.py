@@ -238,7 +238,16 @@ def _edge_view_call_with_nbunch_first(edge_view_call):
             # Materialize nbunch so we can both pass it to Rust and use
             # it to reorder the returned edge tuples below.
             nbunch_list = [n for n in nbunch]
-        result = edge_view_call(self, data=data, nbunch=nbunch_list if nbunch_list is not None else nbunch, default=default)
+        # br-edgesnone: nx.Graph.edges(data=None, default=X) yields 3-tuples
+        # where the third element is the default for every edge. The Rust
+        # EdgeView treats data=None the same as data=False (yields
+        # 2-tuples), which breaks nx internals like eigenvector_centrality_numpy
+        # that pass weight=None. Detect this case and append the default.
+        data_is_none = data is None
+        rust_data = False if data_is_none else data
+        result = edge_view_call(self, data=rust_data, nbunch=nbunch_list if nbunch_list is not None else nbunch, default=default)
+        if data_is_none:
+            result = [edge + (default,) for edge in result]
         # br-edgesu1: when a specific nbunch is given, nx yields edges
         # with the queried node first, i.e. `G.edges(3) -> [(3, 2)]`
         # not `[(2, 3)]`. The Rust EdgeView canonicalizes tuples to
