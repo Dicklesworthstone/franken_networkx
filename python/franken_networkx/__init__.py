@@ -16166,12 +16166,17 @@ def lexicographic_product(G, H):
 def estrada_index(G):
     """Return the Estrada index of *G*.
 
-    Sum of exp(eigenvalues) of the adjacency matrix.
+    br-estradaweighted: nx.estrada_index computes the index via
+    ``sum(subgraph_centrality(G).values())``, which uses the UNWEIGHTED
+    adjacency matrix (subgraph_centrality internally calls
+    ``to_numpy_array(G, weight=None)``). fnx previously computed it via
+    ``sum(exp(adjacency_spectrum(G)))`` — but ``adjacency_spectrum``
+    defaults to the WEIGHTED adjacency. On karate_club_graph (which
+    has weight attrs) this diverged massively: fnx=2.65e9 vs nx=1041.
+    Match nx's formulation by summing subgraph_centrality, which
+    mathematically equals sum(exp(eigenvalues of unweighted A)).
     """
-    import numpy as np
-
-    spec = adjacency_spectrum(G)
-    return float(np.sum(np.exp(spec)))
+    return float(sum(subgraph_centrality(G).values()))
 
 
 def _simple_graph_weighted_shortest_path_lengths(G, source, weight):
