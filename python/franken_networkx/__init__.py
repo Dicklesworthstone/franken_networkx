@@ -25940,13 +25940,20 @@ def gnc_graph(n, create_using=None, seed=None):
     """Return a growing network with copying (GNC) digraph."""
     from franken_networkx import _fnx
 
+    # br-gnrempty: nx.gnc_graph(0) returns a 1-node DiGraph {0} (the seed
+    # node before the growth loop); fnx's Rust-native path returned the
+    # empty graph for n=0. The create_using branch already handled this,
+    # but the default (fast-path) branch bypassed it.
+    if n == 0:
+        if create_using is None:
+            return empty_graph(1, create_using=DiGraph(), default=DiGraph)
+        graph = _checked_directed_create_using(create_using, default=DiGraph)
+        return empty_graph(1, create_using=graph, default=DiGraph)
+
     if create_using is None:
         return _fnx.gnc_graph(n, seed=seed, create_using=None)
 
     graph = _checked_directed_create_using(create_using, default=DiGraph)
-    if n == 0:
-        return empty_graph(1, create_using=graph, default=DiGraph)
-
     return _copy_graph_into(_fnx.gnc_graph(n, seed=seed, create_using=None), graph)
 
 
@@ -25954,13 +25961,17 @@ def gnr_graph(n, p, create_using=None, seed=None):
     """Return a growing network with redirection (GNR) digraph."""
     from franken_networkx import _fnx
 
+    # br-gnrempty: see gnc_graph above.
+    if n == 0:
+        if create_using is None:
+            return empty_graph(1, create_using=DiGraph(), default=DiGraph)
+        graph = _checked_directed_create_using(create_using, default=DiGraph)
+        return empty_graph(1, create_using=graph, default=DiGraph)
+
     if create_using is None:
         return _fnx.gnr_graph(n, p, seed=seed, create_using=None)
 
     graph = _checked_directed_create_using(create_using, default=DiGraph)
-    if n == 0:
-        return empty_graph(1, create_using=graph, default=DiGraph)
-
     return _copy_graph_into(_fnx.gnr_graph(n, p, seed=seed, create_using=None), graph)
 
 
@@ -26974,6 +26985,16 @@ def powerlaw_cluster_graph(n, m, p, seed=None, *, create_using=None, backend=Non
     if backend is not None and backend != "networkx":
         raise ImportError(f"'{backend}' backend is not installed.")
     del backend_kwargs  # in-tree implementation ignores backend kwargs
+    # br-powerlawexc: nx raises NetworkXError with its own wording; fnx used
+    # to surface the Rust 'ValueError(FailClosed{...})' on the default path.
+    # Normalize to nx's exact message so regex-matched pytest.raises keeps
+    # working on the drop-in surface.
+    if m < 1 or m >= n:
+        raise NetworkXError(
+            f"NetworkXError must have m>1 and m<n, m={m},n={n}"
+        )
+    if p > 1 or p < 0:
+        raise NetworkXError(f"NetworkXError p must be in [0,1], p={p}")
     graph = _rust_powerlaw_cluster_graph(n, m, p, seed=_native_random_seed(seed))
     if create_using is None:
         return graph

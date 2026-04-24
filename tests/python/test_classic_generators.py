@@ -863,3 +863,50 @@ class TestBarabasiAlbertErrorDiacritics:
             match=r"Extended Barabasi-Albert network needs m>=1",
         ):
             fnx.extended_barabasi_albert_graph(1, 1, 0.1, 0.1, seed=0)
+
+
+# br-gnrempty: gnc_graph(0) and gnr_graph(0) must match nx's "single seed
+# node" output instead of returning the empty digraph from the Rust
+# fast-path.
+class TestGrowingDigraphEmpty:
+    def test_gnc_graph_zero_returns_one_node_matching_nx(self):
+        import networkx as nx
+
+        fg = fnx.gnc_graph(0, seed=42)
+        ng = nx.gnc_graph(0, seed=42)
+        assert sorted(fg.nodes()) == sorted(ng.nodes()) == [0]
+        assert list(fg.edges()) == list(ng.edges()) == []
+
+    def test_gnr_graph_zero_returns_one_node_matching_nx(self):
+        import networkx as nx
+
+        fg = fnx.gnr_graph(0, 0.5, seed=42)
+        ng = nx.gnr_graph(0, 0.5, seed=42)
+        assert sorted(fg.nodes()) == sorted(ng.nodes()) == [0]
+        assert list(fg.edges()) == list(ng.edges()) == []
+
+
+# br-powerlawexc: powerlaw_cluster_graph invalid-arg errors must match
+# nx's (unusual) "NetworkXError must have..." wording exactly instead of
+# leaking the Rust ValueError(FailClosed{...}) surface.
+class TestPowerlawClusterInvalidArgs:
+    def test_m_out_of_range_uses_nx_wording(self):
+        with pytest.raises(
+            fnx.NetworkXError,
+            match=r"NetworkXError must have m>1 and m<n, m=0,n=0",
+        ):
+            fnx.powerlaw_cluster_graph(0, 0, 0.0, seed=0)
+
+    def test_p_out_of_range_uses_nx_wording_high(self):
+        with pytest.raises(
+            fnx.NetworkXError,
+            match=r"NetworkXError p must be in \[0,1\], p=1.5",
+        ):
+            fnx.powerlaw_cluster_graph(3, 1, 1.5, seed=0)
+
+    def test_p_out_of_range_uses_nx_wording_low(self):
+        with pytest.raises(
+            fnx.NetworkXError,
+            match=r"NetworkXError p must be in \[0,1\], p=-0.1",
+        ):
+            fnx.powerlaw_cluster_graph(3, 1, -0.1, seed=0)
