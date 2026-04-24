@@ -1144,3 +1144,44 @@ class TestGraphAttrsAssignable:
             G = cls()
             G.graph = {"role": "test"}
             assert dict(G.graph) == {"role": "test"}
+
+
+# ---------------------------------------------------------------------------
+# Regression: franken_networkx-adjcp — AdjacencyView.copy for MultiGraph
+# ---------------------------------------------------------------------------
+
+
+class TestAdjacencyViewCopy:
+    """Earlier br-atlascp added copy() to AtlasView. MultiGraph's inner
+    adjacency is an AdjacencyView (G.adj[u] -> dict-of-keyed-attrs); it
+    also lacked copy(), so nx.to_dict_of_dicts(fnx_multigraph) crashed
+    with 'AdjacencyView object has no attribute copy'.
+    """
+
+    def test_adj_view_copy_on_multigraph(self):
+        import networkx as nx
+
+        MG = fnx.MultiGraph()
+        MG.add_edge(0, 1, key="a", w=1)
+        MG.add_edge(0, 1, key="b", w=2)
+        MG.add_edge(1, 2, key=0, w=3)
+        MGn = nx.MultiGraph()
+        MGn.add_edge(0, 1, key="a", w=1)
+        MGn.add_edge(0, 1, key="b", w=2)
+        MGn.add_edge(1, 2, key=0, w=3)
+        assert nx.to_dict_of_dicts(MG) == nx.to_dict_of_dicts(MGn)
+
+    def test_adj_view_copy_directly(self):
+        MG = fnx.MultiGraph()
+        MG.add_edge(0, 1, key="a")
+        MG.add_edge(0, 1, key="b")
+        assert MG.adj[0].copy() == {1: {"a": {}, "b": {}}}
+
+    def test_multi_adj_view_copy_deep(self):
+        """MultiAdjacencyView.copy() should snapshot the full
+        dict-of-dicts-of-dicts structure.
+        """
+        MG = fnx.MultiGraph()
+        MG.add_edge(0, 1, key=0, w=5)
+        snapshot = MG.adj.copy()
+        assert snapshot == {0: {1: {0: {"w": 5}}}, 1: {0: {0: {"w": 5}}}}

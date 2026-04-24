@@ -410,6 +410,13 @@ class AdjacencyView(Mapping):
             raise KeyError(node) from exc
         return AtlasView(lambda: self._atlas()[node])
 
+    def copy(self):
+        """br-adjcp: nx.to_dict_of_dicts does ``nbrdict.copy()`` on the
+        adjacency value; AdjacencyView (used for MultiGraph inner) had
+        no copy() method. Return a plain dict-of-dicts snapshot.
+        """
+        return {k: dict(v) if hasattr(v, "items") else v for k, v in self._atlas().items()}
+
 
 class MultiAdjacencyView(Mapping):
     def __init__(self, atlas_getter):
@@ -430,6 +437,19 @@ class MultiAdjacencyView(Mapping):
         except KeyError as exc:
             raise KeyError(node) from exc
         return AdjacencyView(lambda: self._atlas()[node])
+
+    def copy(self):
+        """br-adjcp: snapshot the multigraph adjacency as a plain
+        dict-of-dicts-of-dicts, recursively.
+        """
+        out = {}
+        atlas = self._atlas()
+        for u, nbrs in atlas.items():
+            inner = {}
+            for v, keyed in nbrs.items():
+                inner[v] = dict(keyed) if hasattr(keyed, "items") else keyed
+            out[u] = inner
+        return out
 
 
 def _multigraph_adj_view(self):

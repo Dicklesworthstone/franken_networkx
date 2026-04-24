@@ -6,7 +6,7 @@ use fnx_cgse::{
     with_ledger as with_cgse_ledger, witness_collection_enabled as cgse_witness_collection_enabled,
 };
 use fnx_classes::digraph::DiGraph;
-use fnx_classes::{Graph, GraphError};
+use fnx_classes::{AttrMap, Graph, GraphError};
 use fnx_runtime::{CgseValue, RuntimePolicy};
 use mt19937::{MT19937, gen_res53};
 use mwmatching::{Matching as BlossomMatching, SENTINEL as BLOSSOM_SENTINEL};
@@ -759,6 +759,34 @@ pub struct MinimumCycleBasisCoreResult {
     pub cycles: Vec<Vec<usize>>,
     pub witness: ComplexityWitness,
 }
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum MinimumCycleBasisError {
+    NegativeWeight {
+        left: String,
+        right: String,
+        weight_attr: String,
+        weight: f64,
+    },
+}
+
+impl fmt::Display for MinimumCycleBasisError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NegativeWeight {
+                left,
+                right,
+                weight_attr,
+                weight,
+            } => write!(
+                f,
+                "negative edge weight {weight} for edge ({left}, {right}) via attribute {weight_attr}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for MinimumCycleBasisError {}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GlobalEfficiencyResult {
