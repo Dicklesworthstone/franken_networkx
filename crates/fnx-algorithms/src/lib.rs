@@ -11105,6 +11105,89 @@ fn minimum_cycle_basis_path_to_candidate(
     })
 }
 
+/// Compute a minimum weight cycle basis for a FrankenNetworkX undirected graph.
+///
+/// This wrapper performs graph-specific wiring: it preserves node insertion
+/// order as the stable index order, extracts optional edge weights with
+/// NetworkX's missing-weight default of `1.0`, and maps indexed core cycles
+/// back to node-name cycles.
+///
+/// # Errors
+///
+/// Returns `MinimumCycleBasisError::NegativeWeight` when an extracted edge
+/// weight is negative. The core uses Dijkstra over the lifted graph, matching
+/// NetworkX's non-negative weighted shortest-path requirement.
+pub fn minimum_cycle_basis(
+    graph: &Graph,
+    weight_attr: Option<&str>,
+) -> Result<CycleBasisResult, MinimumCycleBasisError> {
+    let node_names = graph.nodes_ordered();
+    let node_to_idx: HashMap<&str, usize> = node_names
+        .iter()
+        .enumerate()
+        .map(|(idx, &node)| (node, idx))
+        .collect();
+
+    let mut indexed_edges = Vec::with_capacity(graph.edge_count());
+    for (left, right, attrs) in graph.edges_ordered_borrowed() {
+        let weight = minimum_cycle_basis_edge_weight(attrs, weight_attr);
+        if weight < 0.0 {
+            return Err(MinimumCycleBasisError::NegativeWeight {
+                left: left.to_owned(),
+                right: right.to_owned(),
+                weight_attr: weight_attr.unwrap_or("weight").to_owned(),
+                weight,
+            });
+        }
+
+        let Some(&left_idx) = node_to_idx.get(left) else {
+            continue;
+        };
+        let Some(&right_idx) = node_to_idx.get(right) else {
+            continue;
+        };
+        indexed_edges.push((left_idx, right_idx, weight));
+    }
+
+    let MinimumCycleBasisCoreResult {
+        cycles: index_cycles,
+        witness,
+    } = minimum_cycle_basis_core(node_names.len(), &indexed_edges);
+
+    let cycles = index_cycles
+        .into_iter()
+        .map(|cycle| {
+            cycle
+                .into_iter()
+                .map(|idx| node_names[idx].to_owned())
+                .collect::<Vec<String>>()
+        })
+        .collect();
+
+    Ok(CycleBasisResult {
+        cycles,
+        witness: ComplexityWitness {
+            algorithm: "minimum_cycle_basis".to_owned(),
+            complexity_claim: witness.complexity_claim,
+            nodes_touched: witness.nodes_touched,
+            edges_scanned: witness.edges_scanned,
+            queue_peak: witness.queue_peak,
+        },
+    })
+}
+
+fn minimum_cycle_basis_edge_weight(attrs: &AttrMap, weight_attr: Option<&str>) -> f64 {
+    let Some(weight_attr) = weight_attr else {
+        return 1.0;
+    };
+
+    attrs
+        .get(weight_attr)
+        .and_then(CgseValue::as_f64)
+        .filter(|value| value.is_finite())
+        .unwrap_or(1.0)
+}
+
 // ---------------------------------------------------------------------------
 // cycle_basis — Paton's algorithm for fundamental cycle basis
 // ---------------------------------------------------------------------------
@@ -36005,6 +36088,14 @@ mod tests {
         cycles
     }
 
+    fn sorted_string_cycles(mut cycles: Vec<Vec<String>>) -> Vec<Vec<String>> {
+        for cycle in &mut cycles {
+            cycle.sort();
+        }
+        cycles.sort();
+        cycles
+    }
+
     #[test]
     fn minimum_cycle_basis_core_empty_and_tree_have_no_cycles() {
         let empty = super::minimum_cycle_basis_core(0, &[]);
@@ -36064,6 +36155,73 @@ mod tests {
         assert_eq!(
             sorted_index_cycles(result.cycles),
             vec![vec![0, 1, 2], vec![3, 4, 5]]
+        );
+    }
+
+    #[test]
+    fn minimum_cycle_basis_graph_wrapper_maps_names_and_weights() {
+        let mut graph = Graph::strict();
+        for (left, right, weight) in [
+            ("a", "b", "1.0"),
+            ("b", "c", "1.0"),
+            ("c", "d", "1.0"),
+            ("d", "a", "1.0"),
+            ("a", "c", "2.0"),
+        ] {
+            graph
+                .add_edge_with_attrs(left, right, single_attr("weight", weight))
+                .expect("edge add");
+        }
+
+        let result = super::minimum_cycle_basis(&graph, Some("weight")).expect("basis");
+
+        assert_eq!(
+            sorted_string_cycles(result.cycles),
+            vec![
+                vec!["a".to_owned(), "b".to_owned(), "c".to_owned()],
+                vec!["a".to_owned(), "c".to_owned(), "d".to_owned()]
+            ]
+        );
+    }
+
+    #[test]
+    fn minimum_cycle_basis_graph_wrapper_defaults_missing_weights() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("a", "b", single_attr("weight", "7.0"))
+            .expect("edge add");
+        graph.add_edge("b", "c").expect("edge add");
+        graph
+            .add_edge_with_attrs("c", "a", single_attr("weight", "2.0"))
+            .expect("edge add");
+
+        let result = super::minimum_cycle_basis(&graph, Some("weight")).expect("basis");
+
+        assert_eq!(
+            sorted_string_cycles(result.cycles),
+            vec![vec!["a".to_owned(), "b".to_owned(), "c".to_owned()]]
+        );
+    }
+
+    #[test]
+    fn minimum_cycle_basis_graph_wrapper_rejects_negative_weights() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("a", "b", single_attr("weight", "-1.0"))
+            .expect("edge add");
+        graph.add_edge("b", "c").expect("edge add");
+        graph.add_edge("c", "a").expect("edge add");
+
+        let error = super::minimum_cycle_basis(&graph, Some("weight")).expect_err("negative");
+
+        assert_eq!(
+            error,
+            super::MinimumCycleBasisError::NegativeWeight {
+                left: "a".to_owned(),
+                right: "b".to_owned(),
+                weight_attr: "weight".to_owned(),
+                weight: -1.0
+            }
         );
     }
 

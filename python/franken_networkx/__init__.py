@@ -1913,6 +1913,44 @@ MultiGraph.to_directed_class = _to_directed_class
 MultiGraph.to_undirected_class = _to_undirected_class
 MultiDiGraph.to_directed_class = _to_directed_class
 MultiDiGraph.to_undirected_class = _to_undirected_class
+
+
+# br-classpred: nx.utils.misc.check_create_using does
+# ``G.is_directed(None) if isinstance(G, type) else G.is_directed()``
+# when deciding whether a create_using CLASS matches expected
+# directedness. On nx classes, is_directed / is_multigraph are plain
+# methods that ignore self, so calling them with self=None works. fnx's
+# Rust descriptors require a real instance and raise TypeError, which
+# breaks ``nx.gnp_random_graph(..., create_using=fnx.Graph)`` and any
+# nx generator that passes a fnx class as create_using. Wrap the Rust
+# methods so they can be called on a class (returning the class-level
+# default) OR on an instance (delegating to the Rust descriptor).
+def _make_class_safe_predicate(raw, class_default):
+    def predicate(self, *args, **kwargs):
+        if self is None or isinstance(self, type):
+            return class_default
+        return raw(self, *args, **kwargs)
+
+    return predicate
+
+
+_GRAPH_RAW_IS_DIRECTED = Graph.is_directed
+_GRAPH_RAW_IS_MULTIGRAPH = Graph.is_multigraph
+_DIGRAPH_RAW_IS_DIRECTED = DiGraph.is_directed
+_DIGRAPH_RAW_IS_MULTIGRAPH = DiGraph.is_multigraph
+_MULTIGRAPH_RAW_IS_DIRECTED = MultiGraph.is_directed
+_MULTIGRAPH_RAW_IS_MULTIGRAPH = MultiGraph.is_multigraph
+_MULTIDIGRAPH_RAW_IS_DIRECTED = MultiDiGraph.is_directed
+_MULTIDIGRAPH_RAW_IS_MULTIGRAPH = MultiDiGraph.is_multigraph
+
+Graph.is_directed = _make_class_safe_predicate(_GRAPH_RAW_IS_DIRECTED, False)
+Graph.is_multigraph = _make_class_safe_predicate(_GRAPH_RAW_IS_MULTIGRAPH, False)
+DiGraph.is_directed = _make_class_safe_predicate(_DIGRAPH_RAW_IS_DIRECTED, True)
+DiGraph.is_multigraph = _make_class_safe_predicate(_DIGRAPH_RAW_IS_MULTIGRAPH, False)
+MultiGraph.is_directed = _make_class_safe_predicate(_MULTIGRAPH_RAW_IS_DIRECTED, False)
+MultiGraph.is_multigraph = _make_class_safe_predicate(_MULTIGRAPH_RAW_IS_MULTIGRAPH, True)
+MultiDiGraph.is_directed = _make_class_safe_predicate(_MULTIDIGRAPH_RAW_IS_DIRECTED, True)
+MultiDiGraph.is_multigraph = _make_class_safe_predicate(_MULTIDIGRAPH_RAW_IS_MULTIGRAPH, True)
 Graph.adjacency = _simple_graph_adjacency
 DiGraph.adjacency = _simple_graph_adjacency
 MultiGraph.adjacency = _multigraph_adjacency

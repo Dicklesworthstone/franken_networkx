@@ -1185,3 +1185,62 @@ class TestAdjacencyViewCopy:
         MG.add_edge(0, 1, key=0, w=5)
         snapshot = MG.adj.copy()
         assert snapshot == {0: {1: {0: {"w": 5}}}, 1: {0: {0: {"w": 5}}}}
+
+
+# ---------------------------------------------------------------------------
+# Regression: franken_networkx-classpred — is_directed/is_multigraph on class
+# ---------------------------------------------------------------------------
+
+
+class TestClassLevelPredicates:
+    """nx.utils.misc.check_create_using does
+    ``G.is_directed(None) if isinstance(G, type) else G.is_directed()``
+    when deciding whether a create_using CLASS matches expected
+    directedness. On nx, these are plain methods that ignore self, so
+    passing self=None works. fnx's Rust descriptors required a real
+    instance and raised TypeError. Wrapper makes is_directed /
+    is_multigraph callable on the class (returning the class-level
+    default) without breaking instance-level calls.
+    """
+
+    def test_class_level_is_directed(self):
+        assert fnx.Graph.is_directed(None) is False
+        assert fnx.DiGraph.is_directed(None) is True
+        assert fnx.MultiGraph.is_directed(None) is False
+        assert fnx.MultiDiGraph.is_directed(None) is True
+
+    def test_class_level_is_multigraph(self):
+        assert fnx.Graph.is_multigraph(None) is False
+        assert fnx.DiGraph.is_multigraph(None) is False
+        assert fnx.MultiGraph.is_multigraph(None) is True
+        assert fnx.MultiDiGraph.is_multigraph(None) is True
+
+    def test_instance_level_still_works(self):
+        G = fnx.Graph()
+        D = fnx.DiGraph()
+        MG = fnx.MultiGraph()
+        MD = fnx.MultiDiGraph()
+        assert G.is_directed() is False
+        assert D.is_directed() is True
+        assert MG.is_multigraph() is True
+        assert MD.is_multigraph() is True
+
+    def test_nx_gnp_random_graph_with_fnx_create_using(self):
+        import networkx as nx
+
+        g = nx.gnp_random_graph(10, 0.3, seed=42, create_using=fnx.Graph)
+        assert isinstance(g, fnx.Graph)
+        assert g.number_of_nodes() == 10
+
+    def test_nx_barabasi_albert_with_fnx_create_using(self):
+        import networkx as nx
+
+        g = nx.barabasi_albert_graph(10, 2, seed=42, create_using=fnx.Graph)
+        assert isinstance(g, fnx.Graph)
+        assert g.number_of_nodes() == 10
+
+    def test_nx_directed_gnp_with_fnx_digraph(self):
+        import networkx as nx
+
+        g = nx.gnp_random_graph(10, 0.3, seed=42, directed=True, create_using=fnx.DiGraph)
+        assert isinstance(g, fnx.DiGraph)
