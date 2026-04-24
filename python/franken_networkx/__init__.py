@@ -1274,6 +1274,22 @@ class _WeightAwareDegreeView:
         if weight is None:
             if nbunch is None:
                 return self._raw
+            # br-degnbn: nx's G.degree(nbunch) silently skips nodes not
+            # in G via nbunch_iter; the Rust raw path raised NodeNotFound
+            # on any missing node. Honour the nx contract: single-node
+            # lookups preserve KeyError-style errors, iterable nbunches
+            # filter to in-graph nodes only.
+            if isinstance(nbunch, (list, tuple, set, frozenset)) or hasattr(nbunch, "__iter__") and not isinstance(nbunch, (str, bytes)):
+                try:
+                    hash(nbunch)
+                    if nbunch in self._graph:
+                        return self._raw[nbunch]
+                except TypeError:
+                    pass
+                filtered = [n for n in nbunch if n in self._graph]
+                if callable(self._raw):
+                    return self._raw(filtered)
+                return ((n, self._raw[n]) for n in filtered)
             return self._raw(nbunch) if callable(self._raw) else self._raw[nbunch]
         # Weighted path
         if nbunch is None:

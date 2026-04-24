@@ -699,3 +699,48 @@ class TestDeepCopyIsolation:
         MH[0][1]["a"]["data"].append(99)
         assert MG[0][1]["a"]["data"] == [1, 2]
         assert MH[0][1]["a"]["data"] == [1, 2, 99]
+
+
+# ---------------------------------------------------------------------------
+# Regression: franken_networkx-degnbn — G.degree(nbunch) skips missing nodes
+# ---------------------------------------------------------------------------
+
+
+class TestDegreeNbunchFilter:
+    """G.degree(nbunch) with missing nodes in nbunch must silently skip
+    them per nx contract (nbunch_iter semantics). fnx previously raised
+    NodeNotFound on the first missing node.
+    """
+
+    def test_graph_degree_skips_missing_nodes(self):
+        import networkx as nx
+
+        G = fnx.path_graph(3)
+        Gn = nx.path_graph(3)
+        assert list(G.degree([0, 1, 99])) == list(Gn.degree([0, 1, 99]))
+
+    def test_graph_degree_all_missing_yields_empty(self):
+        G = fnx.path_graph(3)
+        assert list(G.degree([99, 100])) == []
+
+    def test_digraph_in_degree_skips_missing(self):
+        import networkx as nx
+
+        D = fnx.DiGraph([(0, 1), (1, 2)])
+        Dn = nx.DiGraph([(0, 1), (1, 2)])
+        assert list(D.in_degree([0, 1, 99])) == list(Dn.in_degree([0, 1, 99]))
+
+    def test_digraph_out_degree_skips_missing(self):
+        import networkx as nx
+
+        D = fnx.DiGraph([(0, 1), (1, 2)])
+        Dn = nx.DiGraph([(0, 1), (1, 2)])
+        assert list(D.out_degree([0, 1, 99])) == list(Dn.out_degree([0, 1, 99]))
+
+    def test_degree_single_node_still_raises_on_missing(self):
+        """Single-node lookup (non-iterable) should still error — only
+        iterable nbunches get the skip treatment.
+        """
+        G = fnx.path_graph(3)
+        with pytest.raises((fnx.NodeNotFound, KeyError)):
+            G.degree(99)
