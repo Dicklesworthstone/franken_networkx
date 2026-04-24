@@ -678,8 +678,8 @@ class _EdgeListWithSetAlgebra(list):
 
     Returned by MultiGraph.edges(keys=...) / MultiDiGraph.edges(keys=...)
     so the result matches upstream NetworkX's set-like behaviour
-    (expressions like edges | {...}, edges & {...}) without breaking
-    existing callers that iterate the value as a list.
+    (expressions like edges | {...}, edges & {...}, edges == set) without
+    breaking existing callers that iterate the value as a list.
     """
 
     def __and__(self, other):
@@ -705,6 +705,22 @@ class _EdgeListWithSetAlgebra(list):
 
     def __rxor__(self, other):
         return set(other) ^ set(self)
+
+    def __eq__(self, other):
+        # br-mgedgeeq: nx's MultiEdgeView inherits from Set, so
+        # `MG.edges(keys=True) == {...}` compares as sets. fnx's list
+        # subclass previously required another list for equality.
+        if isinstance(other, (set, frozenset)):
+            return set(self) == other
+        return list.__eq__(self, other)
+
+    def __ne__(self, other):
+        eq = self.__eq__(other)
+        if eq is NotImplemented:
+            return NotImplemented
+        return not eq
+
+    __hash__ = None
 
 
 def _multigraph_edges(self):
