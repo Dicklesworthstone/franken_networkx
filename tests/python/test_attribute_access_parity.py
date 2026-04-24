@@ -534,3 +534,64 @@ class TestNodeViewDictProtocol:
             fnx.path_graph(3), label_attribute="old"
         )
         assert dict(r.nodes(data="old")) == {0: 0, 1: 1, 2: 2}
+
+
+# ---------------------------------------------------------------------------
+# Regression: franken_networkx-evdvlst — EdgeView(data=...) materializes list
+# ---------------------------------------------------------------------------
+
+
+class TestEdgeViewDataProtocol:
+    """Before the fix, G.edges(data='attr') retained the raw EdgeView with
+    keys() / __getitem__ attached. dict() then used the keys path and
+    produced a garbage {(u, v, val): {attr: val}} mapping. nx's
+    EdgeDataView has no keys(), so dict() raises ValueError. Matching nx
+    (either both error or both yield identical content) is what parity
+    requires.
+    """
+
+    @pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+    def test_edges_data_str_dict_coerce_matches_networkx_error(self, cls_name):
+        import networkx as nx
+
+        G = getattr(fnx, cls_name)()
+        G.add_edge(0, 1, w=1.5)
+        G.add_edge(1, 2, w=2.5)
+        Gn = getattr(nx, cls_name)()
+        Gn.add_edge(0, 1, w=1.5)
+        Gn.add_edge(1, 2, w=2.5)
+
+        # dict(edge_view(data='w')) must either raise ValueError on both
+        # sides or yield the same mapping on both sides. Matching the
+        # error behavior is the drop-in contract.
+        fnx_err = None
+        nx_err = None
+        try:
+            dict(G.edges(data="w"))
+        except Exception as e:
+            fnx_err = type(e).__name__
+        try:
+            dict(Gn.edges(data="w"))
+        except Exception as e:
+            nx_err = type(e).__name__
+        assert fnx_err == nx_err, f"fnx raised {fnx_err}, nx raised {nx_err}"
+
+    def test_edges_data_str_list_iter_matches(self):
+        import networkx as nx
+
+        G = fnx.Graph()
+        G.add_edge(0, 1, w=1.5)
+        G.add_edge(1, 2, w=2.5)
+        Gn = nx.Graph()
+        Gn.add_edge(0, 1, w=1.5)
+        Gn.add_edge(1, 2, w=2.5)
+        assert list(G.edges(data="w")) == list(Gn.edges(data="w"))
+
+    def test_edges_data_true_list_iter_matches(self):
+        import networkx as nx
+
+        G = fnx.Graph()
+        G.add_edge(0, 1, w=1.5)
+        Gn = nx.Graph()
+        Gn.add_edge(0, 1, w=1.5)
+        assert list(G.edges(data=True)) == list(Gn.edges(data=True))

@@ -222,7 +222,17 @@ def _edge_view_call_with_nbunch_first(edge_view_call):
             data = False
         if default is _unset:
             default = None
-        return edge_view_call(self, data=data, nbunch=nbunch, default=default)
+        result = edge_view_call(self, data=data, nbunch=nbunch, default=default)
+        # br-evdvlst: when data is non-False, the Rust EdgeView iter yields
+        # 3-tuples but the view still has keys()/__getitem__ that return
+        # attrs dicts. That makes dict(G.edges(data='attr')) silently
+        # produce a bogus {(u, v, val): {attr: val}} mapping; nx errors
+        # out because its EdgeDataView has no keys(). Materialize the
+        # tuples into a plain list so dict() / sorted() / other protocol
+        # consumers see tuples-only, no keys() path.
+        if data is not False:
+            return list(result)
+        return result
 
     return wrapped
 
