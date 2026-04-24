@@ -914,3 +914,52 @@ class TestEdgeViewSingleNodeNbunch:
         # List + set nbunches remain iterable
         assert sorted(tuple(sorted(e)) for e in G.edges([0, 1])) == [(0, 1), (1, 2)]
         assert sorted(tuple(sorted(e)) for e in G.edges({1, 2})) == [(0, 1), (1, 2), (2, 3)]
+
+
+# ---------------------------------------------------------------------------
+# Regression: franken_networkx-edgesu1 — G.edges(u) yields (u, v) first
+# ---------------------------------------------------------------------------
+
+
+class TestEdgeViewNbunchOrdering:
+    """nx's `G.edges(u)` yields tuples with the queried node first:
+    `G.edges(3) -> [(3, 2)]`. fnx's EdgeView canonicalized to (min, max),
+    breaking nx internals like degree_assortativity_coefficient that do
+    `for _, nbr in G.edges(u)` assuming the first element is u.
+    """
+
+    def test_edges_single_queried_node_first(self):
+        import networkx as nx
+
+        G = fnx.path_graph(4)
+        G.add_edge(0, 2)
+        Gn = nx.path_graph(4)
+        Gn.add_edge(0, 2)
+        assert list(G.edges(3)) == list(Gn.edges(3))
+
+    def test_edges_list_nbunch_preserves_incident_ordering(self):
+        import networkx as nx
+
+        G = fnx.path_graph(4)
+        G.add_edge(0, 2)
+        Gn = nx.path_graph(4)
+        Gn.add_edge(0, 2)
+        # Each emitted edge should have a nbunch node first.
+        for e in G.edges([0, 3]):
+            assert e[0] in {0, 3}
+
+    def test_nx_degree_assortativity_on_fnx_matches_nx(self):
+        """br-edgesu1: nx.degree_assortativity_coefficient reads
+        `G.edges(u)` and assumes tuples are (u, nbr); fnx canonicalization
+        previously produced wrong correlation values.
+        """
+        import networkx as nx
+
+        G = fnx.path_graph(4)
+        G.add_edge(0, 2)
+        Gn = nx.path_graph(4)
+        Gn.add_edge(0, 2)
+        assert abs(
+            nx.degree_assortativity_coefficient(G)
+            - nx.degree_assortativity_coefficient(Gn)
+        ) < 1e-9

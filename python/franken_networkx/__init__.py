@@ -227,15 +227,44 @@ def _edge_view_call_with_nbunch_first(edge_view_call):
         # expects None or an iterable; a single node like `u = 0` raised
         # TypeError: 'int' object is not iterable. Detect single-node
         # nbunch by trying to iterate it; fall back to `[nbunch]`.
+        nbunch_list = None
         if nbunch is not None:
             try:
                 iter(nbunch)
-                # Strings are iterable but are single nodes for nx.
                 if isinstance(nbunch, (str, bytes)):
                     nbunch = [nbunch]
             except TypeError:
                 nbunch = [nbunch]
-        result = edge_view_call(self, data=data, nbunch=nbunch, default=default)
+            # Materialize nbunch so we can both pass it to Rust and use
+            # it to reorder the returned edge tuples below.
+            nbunch_list = [n for n in nbunch]
+        result = edge_view_call(self, data=data, nbunch=nbunch_list if nbunch_list is not None else nbunch, default=default)
+        # br-edgesu1: when a specific nbunch is given, nx yields edges
+        # with the queried node first, i.e. `G.edges(3) -> [(3, 2)]`
+        # not `[(2, 3)]`. The Rust EdgeView canonicalizes tuples to
+        # (min, max), which breaks nx internals that do
+        # `for _, nbr in G.edges(u)` (assuming the first element is u).
+        # Reorder tuples so the endpoint in nbunch comes first.
+        if nbunch_list is not None:
+            nbset = set(nbunch_list)
+
+            def _reorder(edge):
+                # edge may be (u, v), (u, v, k), (u, v, data), (u, v, k, data)
+                if not isinstance(edge, tuple) or len(edge) < 2:
+                    return edge
+                u, v = edge[0], edge[1]
+                rest = edge[2:]
+                if u in nbset:
+                    return edge
+                if v in nbset:
+                    return (v, u) + rest
+                return edge
+
+            result = [_reorder(e) for e in result]
+            return result if data is not False else list(result)
+        if data is not False:
+            return list(result)
+        return result
         # br-evdvlst: when data is non-False, the Rust EdgeView iter yields
         # 3-tuples but the view still has keys()/__getitem__ that return
         # attrs dicts. That makes dict(G.edges(data='attr')) silently
