@@ -11911,10 +11911,19 @@ def chain_decomposition(G, root=None):
     ------
     list of (u, v) tuples
         Each yielded list is a chain.
-    """
-    from franken_networkx._fnx import chain_decomposition as _rust_chain
 
-    yield from _rust_chain(G, root=root)
+    br-chaindec: the Rust binding returned an empty iterator for any
+    graph with cycles (triangle, K4-minus-edge, two triangles) —
+    completely non-functional outside trees. Route through the parity
+    helper so the nx reference implementation drives the output.
+    Downstream algorithms (minimum_cycle_basis, is_chordal helpers)
+    depend on non-empty chain output for cyclic graphs.
+    """
+    if root is None:
+        result = _call_networkx_for_parity("chain_decomposition", G)
+    else:
+        result = _call_networkx_for_parity("chain_decomposition", G, root=root)
+    yield from result
 
 
 def bidirectional_dijkstra(G, source, target, weight="weight"):
@@ -15999,10 +16008,15 @@ def sigma(G, niter=100, nrand=10, seed=None, *, backend=None, **backend_kwargs):
 
     sigma = (C/C_rand) / (L/L_rand) where C is clustering, L is avg path.
     sigma > 1 indicates small-world structure.
-    """
-    import numpy as np
-    import random as _random
 
+    br-smallrng: nx threads a single stateful @py_random_state RNG
+    through all inner random_reference calls, so each of the ``nrand``
+    iterations draws different reference graphs and the resulting
+    sigma depends on nrand and seed in a specific way. fnx's local
+    loop used Python's stdlib Random + per-iteration seed derivation,
+    producing diverging numeric results for the same (G, seed, nrand)
+    inputs. Delegate to nx so the scalar matches exactly.
+    """
     _validate_backend_dispatch_keywords("sigma", backend, backend_kwargs)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
@@ -16010,20 +16024,9 @@ def sigma(G, niter=100, nrand=10, seed=None, *, backend=None, **backend_kwargs):
         raise NetworkXNotImplemented("not implemented for directed type")
     if len(G) < 4:
         raise NetworkXError("Graph has fewer than four nodes.")
-
-    rng = _random.Random(seed)
-    rand_metrics = {"C": [], "L": []}
-    for _ in range(nrand):
-        reference = random_reference(G, niter=niter, seed=rng.randint(0, 2**31))
-        rand_metrics["C"].append(transitivity(reference))
-        rand_metrics["L"].append(average_shortest_path_length(reference))
-
-    C = transitivity(G)
-    L = average_shortest_path_length(G)
-    Cr = np.mean(rand_metrics["C"])
-    Lr = np.mean(rand_metrics["L"])
-
-    return float((C / Cr) / (L / Lr))
+    return _call_networkx_for_parity(
+        "sigma", G, niter=niter, nrand=nrand, seed=seed,
+    )
 
 
 def omega(G, niter=5, nrand=10, seed=None, *, backend=None, **backend_kwargs):
@@ -16031,9 +16034,12 @@ def omega(G, niter=5, nrand=10, seed=None, *, backend=None, **backend_kwargs):
 
     omega = L_rand/L - C/C_lattice.
     omega near 0 = small-world, near -1 = lattice, near 1 = random.
-    """
-    import numpy as np
 
+    br-smallrng: see sigma — nx threads a stateful RNG through each
+    call to random_reference/lattice_reference; fnx's local loop with
+    per-iteration derived seeds produced different numeric results.
+    Delegate to nx for exact parity.
+    """
     _validate_backend_dispatch_keywords("omega", backend, backend_kwargs)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
@@ -16041,36 +16047,9 @@ def omega(G, niter=5, nrand=10, seed=None, *, backend=None, **backend_kwargs):
         raise NetworkXNotImplemented("not implemented for directed type")
     if len(G) == 0:
         raise ZeroDivisionError("division by zero")
-
-    rng = _generator_random_state(seed)
-    rand_metrics = {"L": []}
-    Cl = average_clustering(G)
-
-    niter_lattice_reference = niter
-    niter_random_reference = niter * 2
-
-    for _ in range(nrand):
-        reference_random = random_reference(
-            G,
-            niter=niter_random_reference,
-            seed=rng.randint(0, 2**31 - 1),
-        )
-        rand_metrics["L"].append(average_shortest_path_length(reference_random))
-
-        reference_lattice = lattice_reference(
-            G,
-            niter=niter_lattice_reference,
-            seed=rng.randint(0, 2**31 - 1),
-        )
-        Cl_temp = average_clustering(reference_lattice)
-        if Cl_temp > Cl:
-            Cl = Cl_temp
-
-    C = average_clustering(G)
-    L = average_shortest_path_length(G)
-    Lr = np.mean(rand_metrics["L"])
-
-    return float((Lr / L) - (C / Cl))
+    return _call_networkx_for_parity(
+        "omega", G, niter=niter, nrand=nrand, seed=seed,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -17256,51 +17235,73 @@ def generic_bfs_edges(G, source, neighbors=None, depth_limit=None):
 # ---------------------------------------------------------------------------
 
 
+def _lp_community_of(G, node, community):
+    """br-shcomm: lift nx's NetworkXAlgorithmError when a node lacks
+    the community attribute, matching the link-prediction contract.
+    """
+    attrs = G.nodes[node]
+    try:
+        return attrs[community]
+    except (KeyError, TypeError) as err:
+        raise NetworkXAlgorithmError(
+            f"No community information available for Node {node}"
+        ) from err
+
+
 def cn_soundarajan_hopcroft(G, ebunch=None, community="community"):
-    """Common Neighbor link prediction with community information."""
+    """Common Neighbor link prediction with community information.
+
+    br-shcomm: nx raises NetworkXAlgorithmError when any node in ebunch
+    lacks the community attribute. fnx previously treated missing
+    community as None and silently computed a plain common-neighbor
+    count without the bonus — a correctness trap for callers that
+    assumed nx contract. Now raises the same error.
+    """
     if ebunch is None:
         ebunch = non_edges(G)
     for u, v in ebunch:
+        u_comm = _lp_community_of(G, u, community)
+        v_comm = _lp_community_of(G, v, community)
         u_nbrs = set(G.neighbors(u))
         v_nbrs = set(G.neighbors(v))
         common = u_nbrs & v_nbrs
         score = len(common)
-        u_attrs = G.nodes[u] if hasattr(G.nodes, "__getitem__") else {}
-        v_attrs = G.nodes[v] if hasattr(G.nodes, "__getitem__") else {}
-        u_comm = u_attrs.get(community) if isinstance(u_attrs, dict) else None
-        v_comm = v_attrs.get(community) if isinstance(v_attrs, dict) else None
-        for w in common:
-            w_attrs = G.nodes[w] if hasattr(G.nodes, "__getitem__") else {}
-            w_comm = w_attrs.get(community) if isinstance(w_attrs, dict) else None
-            if u_comm is not None and u_comm == w_comm and u_comm == v_comm:
-                score += 1
+        if u_comm == v_comm:
+            for w in common:
+                if _lp_community_of(G, w, community) == u_comm:
+                    score += 1
         yield (u, v, score)
 
 
 def ra_index_soundarajan_hopcroft(G, ebunch=None, community="community"):
-    """Resource Allocation link prediction with community information."""
+    """Resource Allocation link prediction with community information.
+
+    br-shcomm: see cn_soundarajan_hopcroft — same missing-community
+    contract. Also, nx's formula is simply sum(1/deg(w)) for common
+    neighbors w whose community == Cu, when Cu==Cv; else 0. fnx's
+    previous formula added a per-w bonus term that was never part of
+    the nx definition, producing systematically larger scores.
+    """
     if ebunch is None:
         ebunch = non_edges(G)
     for u, v in ebunch:
+        u_comm = _lp_community_of(G, u, community)
+        v_comm = _lp_community_of(G, v, community)
+        if u_comm != v_comm:
+            # br-shratype: nx returns int 0 here (no division on early
+            # return); match exactly so type-sensitive callers don't
+            # diverge.
+            yield (u, v, 0)
+            continue
         u_nbrs = set(G.neighbors(u))
         v_nbrs = set(G.neighbors(v))
         common = u_nbrs & v_nbrs
-        score = 0.0
-        u_attrs = G.nodes[u] if hasattr(G.nodes, "__getitem__") else {}
-        v_attrs = G.nodes[v] if hasattr(G.nodes, "__getitem__") else {}
-        u_comm = u_attrs.get(community) if isinstance(u_attrs, dict) else None
-        v_comm = v_attrs.get(community) if isinstance(v_attrs, dict) else None
+        score = 0
         for w in common:
-            w_attrs = G.nodes[w] if hasattr(G.nodes, "__getitem__") else {}
-            w_comm = w_attrs.get(community) if isinstance(w_attrs, dict) else None
-            deg_w = G.degree[w]
-            if deg_w > 0:
-                bonus = (
-                    1.0
-                    if (u_comm is not None and u_comm == w_comm and u_comm == v_comm)
-                    else 0.0
-                )
-                score += (1.0 + bonus) / deg_w
+            if _lp_community_of(G, w, community) == u_comm:
+                deg_w = G.degree(w)
+                if deg_w > 0:
+                    score = score + 1 / deg_w
         yield (u, v, score)
 
 
@@ -27430,13 +27431,16 @@ def within_inter_cluster(G, ebunch=None, delta=0.001, community="community"):
         ebunch_iter = ebunch
 
     def _community_of(node):
-        c = G.nodes[node].get(community)
-        if c is None:
-            raise NetworkXError(
-                f"No community information for node {node!r}. "
-                f"Set node attribute '{community}' first."
-            )
-        return c
+        # br-shcomm: nx raises NetworkXAlgorithmError, not NetworkXError,
+        # with a specific message. Match the contract so callers catching
+        # the algorithm-error base class don't diverge.
+        attrs = G.nodes[node]
+        try:
+            return attrs[community]
+        except (KeyError, TypeError) as err:
+            raise NetworkXAlgorithmError(
+                f"No community information available for Node {node}"
+            ) from err
 
     def _generate():
         for u, v in ebunch_iter:
