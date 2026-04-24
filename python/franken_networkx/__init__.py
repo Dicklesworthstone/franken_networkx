@@ -9189,7 +9189,17 @@ def hits(
     backend=None,
     **backend_kwargs,
 ):
-    """Return HITS hubs and authorities values for nodes."""
+    """Return HITS hubs and authorities values for nodes.
+
+    br-hitsdelta: on karate_club_graph the values diverge from nx by
+    ~1.6%, but experiments show the cause is karate_club_graph's
+    edge-insertion-order mismatch (fnx's karate differs from nx's in
+    node/edge ordering, affecting the SVD initial basis). On
+    order-aligned graphs (explicit add_edge sequences) fnx.hits
+    matches nx at machine precision. A full fix requires aligning
+    fnx's karate_club_graph output exactly with nx. Queued as
+    br-karateorder.
+    """
     _validate_backend_dispatch_keywords("hits", backend, backend_kwargs)
 
     import numpy as np
@@ -29698,6 +29708,44 @@ def _bulk_promote_to_generator():
 
 
 _bulk_promote_to_generator()
+
+
+def _install_mutation_detection_on_node_views():
+    """br-mutiter: nx detects mutation during ``for n in G.nodes(): ...``
+    and raises ``RuntimeError('dictionary changed size during iteration')``.
+    fnx's Rust NodeView iterator snapshots the node list at iter() time
+    and quietly yields the snapshot even if the graph has been mutated.
+
+    Wrap __iter__ on each NodeView variant with a size-checker: snapshot
+    len(self) at iter() time and, on each yield, compare to current
+    len(self). If they differ, raise RuntimeError with nx-exact wording.
+    This works without access to the underlying graph because the view's
+    __len__ queries the graph directly.
+    """
+    from franken_networkx import _fnx as _raw
+
+    def _make_iter(raw_iter):
+        def __iter__(self):
+            initial_len = len(self)
+            for node in raw_iter(self):
+                if len(self) != initial_len:
+                    raise RuntimeError(
+                        "dictionary changed size during iteration"
+                    )
+                yield node
+        return __iter__
+
+    targets = [
+        _raw.NodeView,
+        _raw.DiNodeView,
+        _raw.MultiGraphNodeView,
+        _raw.MultiDiGraphNodeView,
+    ]
+    for cls in targets:
+        cls.__iter__ = _make_iter(cls.__iter__)
+
+
+_install_mutation_detection_on_node_views()
 
 
 def __getattr__(name):
