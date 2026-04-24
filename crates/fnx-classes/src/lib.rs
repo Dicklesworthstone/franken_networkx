@@ -551,8 +551,8 @@ impl Graph {
                     }
                     if let Some(attrs) = self.edges.get(&key) {
                         ordered.push(EdgeSnapshot {
-                            left: key.left.clone(),
-                            right: key.right.clone(),
+                            left: node.clone(),
+                            right: neighbor.clone(),
                             attrs: attrs.clone(),
                         });
                     }
@@ -576,7 +576,7 @@ impl Graph {
                         continue;
                     }
                     if let Some(attrs) = self.edges.get(&key) {
-                        ordered.push((key.left, key.right, attrs));
+                        ordered.push((node.as_str(), neighbor.as_str(), attrs));
                     }
                 }
             }
@@ -1215,6 +1215,45 @@ mod tests {
                 ("b".to_owned(), "c".to_owned()),
             ]
         );
+    }
+
+    #[test]
+    fn edges_ordered_preserves_traversed_endpoint_orientation() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("2", "1", AttrMap::new())
+            .expect("edge add should succeed");
+
+        let pairs = graph
+            .edges_ordered()
+            .into_iter()
+            .map(|edge| (edge.left, edge.right))
+            .collect::<Vec<(String, String)>>();
+        assert_eq!(pairs, vec![("2".to_owned(), "1".to_owned())]);
+
+        let borrowed_pairs = graph
+            .edges_ordered_borrowed()
+            .into_iter()
+            .map(|(left, right, _)| (left.to_owned(), right.to_owned()))
+            .collect::<Vec<(String, String)>>();
+        assert_eq!(borrowed_pairs, vec![("2".to_owned(), "1".to_owned())]);
+    }
+
+    #[test]
+    fn edges_ordered_uses_node_order_for_preexisting_nodes() {
+        let mut graph = Graph::strict();
+        graph.add_node("1".to_owned());
+        graph.add_node("2".to_owned());
+        graph
+            .add_edge_with_attrs("2", "1", AttrMap::new())
+            .expect("edge add should succeed");
+
+        let pairs = graph
+            .edges_ordered()
+            .into_iter()
+            .map(|edge| (edge.left, edge.right))
+            .collect::<Vec<(String, String)>>();
+        assert_eq!(pairs, vec![("1".to_owned(), "2".to_owned())]);
     }
 
     fn assert_graph_core_invariants(graph: &Graph) {
