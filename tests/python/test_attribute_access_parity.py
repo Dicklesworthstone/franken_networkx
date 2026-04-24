@@ -1060,3 +1060,41 @@ class TestAddEdgesFromReadsSelf:
         G.add_edges_from(gen)  # must not raise due to borrow conflict
         assert G.has_edge(0, 3)
         assert G.has_edge(2, 0)
+
+
+# ---------------------------------------------------------------------------
+# Regression: franken_networkx-adjkset — AdjacencyView.keys() supports set ops
+# ---------------------------------------------------------------------------
+
+
+class TestAdjacencyViewKeysSetOps:
+    """nx.non_neighbors does ``graph._adj.keys() - graph._adj[node].keys() - {node}``
+    expecting dict_keys-like views that support set-difference. fnx's
+    AdjacencyView.keys() was a plain iterator, so the subtraction raised
+    TypeError. AtlasView inner keys() has the same issue. Fix: keys()
+    returns a KeysView subclass with full set-operation support.
+    """
+
+    def test_adj_keys_supports_set_difference(self):
+        G = fnx.complete_graph(5)
+        diff = G.adj.keys() - {1, 2}
+        assert diff == {0, 3, 4}
+
+    def test_adj_inner_keys_supports_intersection(self):
+        G = fnx.complete_graph(5)
+        common = G.adj[0].keys() & G.adj[1].keys()
+        assert common == {2, 3, 4}
+
+    def test_nx_non_neighbors_works_on_fnx(self):
+        import networkx as nx
+
+        G = fnx.path_graph(5)  # 0-1-2-3-4
+        assert sorted(nx.non_neighbors(G, 0)) == [2, 3, 4]
+
+    def test_nx_approximation_clique_removal_works_on_fnx(self):
+        import networkx as nx
+
+        G = fnx.complete_graph(5)
+        iset, cliques = nx.approximation.clique_removal(G)
+        assert len(cliques) == 1
+        assert {0, 1, 2, 3, 4} == cliques[0]

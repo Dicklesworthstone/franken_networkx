@@ -330,7 +330,29 @@ def _adjacency_view_get(self, node, default=None):
 
 
 def _adjacency_view_keys(self):
-    return iter(self)
+    # br-adjkset: nx internals (non_neighbors) do
+    # ``graph._adj.keys() - graph._adj[node].keys() - {node}`` expecting
+    # dict_keys-like views that support set-difference. A plain iterator
+    # fails with TypeError. Return a KeysView-like frozen set snapshot
+    # so - | & operators work.
+    from collections.abc import KeysView
+
+    class _AdjKeysView(KeysView):
+        __slots__ = ("_snapshot",)
+
+        def __init__(self, snapshot):
+            self._snapshot = snapshot
+
+        def __iter__(self):
+            return iter(self._snapshot)
+
+        def __contains__(self, item):
+            return item in self._snapshot
+
+        def __len__(self):
+            return len(self._snapshot)
+
+    return _AdjKeysView(list(self))
 
 
 def _adjacency_view_items(self):
