@@ -232,23 +232,16 @@ def _from_nx_graph(graph, create_using=None):
         result.add_node(node, **attrs)
 
     if graph.is_multigraph():
-        # 4-tuple (u, v, key, attrs) form avoids the ``key=key, **attrs``
+        # 4-tuple (u, v, key, attrs) avoids the ``key=key, **attrs``
         # collision when an edge attribute is literally named "key"
-        # (franken_networkx-9x7r0). Franken multigraph bindings only
-        # accept integer keys; when the nx key is non-integer, fall back
-        # to the 3-tuple ``(u, v, attrs)`` form so the binding assigns a
-        # fresh integer key while preserving attrs.
-        int_keyed = []
-        non_int_keyed = []
-        for left, right, key, attrs in graph.edges(keys=True, data=True):
-            if isinstance(key, int) and not isinstance(key, bool):
-                int_keyed.append((left, right, key, dict(attrs)))
-            else:
-                non_int_keyed.append((left, right, dict(attrs)))
-        if int_keyed:
-            result.add_edges_from(int_keyed)
-        if non_int_keyed:
-            result.add_edges_from(non_int_keyed)
+        # (franken_networkx-9x7r0). br-multikey-rt: the Rust multigraph
+        # binding now accepts arbitrary (string / tuple / None) keys
+        # natively, so preserve whatever key nx used rather than
+        # dropping to auto-int for non-integer keys.
+        result.add_edges_from(
+            (left, right, key, dict(attrs))
+            for left, right, key, attrs in graph.edges(keys=True, data=True)
+        )
     else:
         result.add_edges_from(
             (left, right, dict(attrs))
@@ -563,11 +556,17 @@ def parse_graph6(string):
     return from_graph6_bytes(data)
 
 
-def from_sparse6_bytes(bytes_in):
-    """Parse sparse6 bytes into a FrankenNetworkX graph."""
+def from_sparse6_bytes(string):
+    """Parse sparse6 bytes into a FrankenNetworkX graph.
+
+    br-sp6kw: nx uses parameter name ``string`` for from_sparse6_bytes
+    (while ``bytes_in`` for from_graph6_bytes — inconsistent but the
+    nx contract). Kwarg-style ``from_sparse6_bytes(string=...)`` now
+    works.
+    """
     import franken_networkx as fnx
 
-    data = bytes(bytes_in).rstrip(b"\n")
+    data = bytes(string).rstrip(b"\n")
     if data.startswith(b">>sparse6<<"):
         data = data[11:]
     if not data.startswith(b":"):

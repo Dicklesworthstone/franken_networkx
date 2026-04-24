@@ -11768,13 +11768,19 @@ def _json_graph_to_tuple(value):
 
 
 def _add_json_multiedge(graph, source, target, edge_key, edge_attrs):
-    """Add a multiedge while matching FNX's current non-integer-key contract."""
-    if isinstance(edge_key, int) and not isinstance(edge_key, bool):
-        graph.add_edge(source, target, key=edge_key)
-        graph[source][target][edge_key].update(edge_attrs)
-    else:
+    """Add a multiedge preserving the edge key from JSON payload.
+
+    br-multikey-jsonrt: the Rust MultiGraph binding now accepts string /
+    arbitrary keys directly (post-exception-hierarchy rebuild), so
+    preserve whatever key appears in the JSON rather than re-assigning
+    a fresh int. nx.node_link_graph preserves the key attribute as-is;
+    this restores round-trip parity for string-keyed multigraphs.
+    """
+    if edge_key is None:
         actual_key = graph.add_edge(source, target)
-        graph[source][target][actual_key].update(edge_attrs)
+    else:
+        actual_key = graph.add_edge(source, target, key=edge_key)
+    graph[source][target][actual_key].update(edge_attrs)
 
 
 def adjacency_data(G, attrs=None):
