@@ -28829,6 +28829,187 @@ pub fn all_pairs_lowest_common_ancestor(
     result
 }
 
+#[derive(Debug)]
+struct TreeLcaUnionFind {
+    parent: Vec<usize>,
+    weight: Vec<usize>,
+}
+
+impl TreeLcaUnionFind {
+    fn new(len: usize) -> Self {
+        Self {
+            parent: (0..len).collect(),
+            weight: vec![1; len],
+        }
+    }
+
+    fn find(&mut self, node: usize) -> usize {
+        let parent = self.parent[node];
+        if parent == node {
+            return node;
+        }
+        let root = self.find(parent);
+        self.parent[node] = root;
+        root
+    }
+
+    fn union(&mut self, left: usize, right: usize) -> usize {
+        let left_root = self.find(left);
+        let right_root = self.find(right);
+        if left_root == right_root {
+            return left_root;
+        }
+        if self.weight[left_root] < self.weight[right_root] {
+            self.parent[left_root] = right_root;
+            self.weight[right_root] += self.weight[left_root];
+            right_root
+        } else {
+            self.parent[right_root] = left_root;
+            self.weight[left_root] += self.weight[right_root];
+            left_root
+        }
+    }
+}
+
+fn tree_lca_postorder_indices(digraph: &DiGraph, root: usize, nodes: &[&str]) -> Vec<usize> {
+    let index_by_node: HashMap<&str, usize> = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, node)| (*node, i))
+        .collect();
+    let mut order = Vec::new();
+    let mut visited = HashSet::new();
+    visited.insert(root);
+    let mut stack = vec![(
+        root,
+        digraph
+            .successors(nodes[root])
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|child| index_by_node.get(child).copied())
+            .collect::<Vec<_>>()
+            .into_iter(),
+    )];
+
+    while let Some((node, children)) = stack.last_mut() {
+        if let Some(child) = children.find(|child| visited.insert(*child)) {
+            stack.push((
+                child,
+                digraph
+                    .successors(nodes[child])
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|grandchild| index_by_node.get(grandchild).copied())
+                    .collect::<Vec<_>>()
+                    .into_iter(),
+            ));
+        } else {
+            order.push(*node);
+            stack.pop();
+        }
+    }
+
+    order
+}
+
+/// Find lowest common ancestors for a rooted directed tree.
+///
+/// This is the native Tarjan offline LCA core for
+/// `tree_all_pairs_lowest_common_ancestor`. The caller is responsible for
+/// applying NetworkX-facing validation and error contracts before entering
+/// this fast path.
+pub fn tree_all_pairs_lowest_common_ancestor(
+    digraph: &DiGraph,
+    root: &str,
+    pairs: Option<&[(String, String)]>,
+) -> Vec<((String, String), String)> {
+    let nodes = digraph.nodes_ordered();
+    let Some(root_idx) = nodes.iter().position(|node| *node == root) else {
+        return Vec::new();
+    };
+    if nodes.is_empty() {
+        return Vec::new();
+    }
+
+    let index_by_node: HashMap<&str, usize> = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, node)| (*node, i))
+        .collect();
+    let mut uf = TreeLcaUnionFind::new(nodes.len());
+    let mut ancestors: Vec<usize> = (0..nodes.len()).collect();
+    let mut colored = vec![false; nodes.len()];
+    let postorder = tree_lca_postorder_indices(digraph, root_idx, &nodes);
+    let mut result = Vec::new();
+
+    let mut requested = HashSet::<(usize, usize)>::new();
+    let mut pair_candidates = vec![Vec::<usize>::new(); nodes.len()];
+    if let Some(pairs) = pairs {
+        for (u, v) in pairs {
+            let (Some(&ui), Some(&vi)) =
+                (index_by_node.get(u.as_str()), index_by_node.get(v.as_str()))
+            else {
+                continue;
+            };
+            if requested.insert((ui, vi)) {
+                if !pair_candidates[ui].contains(&vi) {
+                    pair_candidates[ui].push(vi);
+                }
+                if !pair_candidates[vi].contains(&ui) {
+                    pair_candidates[vi].push(ui);
+                }
+            }
+        }
+    }
+
+    for node in postorder {
+        colored[node] = true;
+        if pairs.is_some() {
+            for &other in &pair_candidates[node] {
+                if colored[other] {
+                    if requested.contains(&(node, other)) {
+                        let root = uf.find(other);
+                        result.push((
+                            (nodes[node].to_owned(), nodes[other].to_owned()),
+                            nodes[ancestors[root]].to_owned(),
+                        ));
+                    }
+                    if requested.contains(&(other, node)) {
+                        let root = uf.find(other);
+                        result.push((
+                            (nodes[other].to_owned(), nodes[node].to_owned()),
+                            nodes[ancestors[root]].to_owned(),
+                        ));
+                    }
+                }
+            }
+        } else {
+            for other in 0..nodes.len() {
+                if colored[other] {
+                    let root = uf.find(other);
+                    result.push((
+                        (nodes[other].to_owned(), nodes[node].to_owned()),
+                        nodes[ancestors[root]].to_owned(),
+                    ));
+                }
+            }
+        }
+
+        if node != root_idx
+            && let Some(parent) = digraph
+                .predecessors(nodes[node])
+                .unwrap_or_default()
+                .first()
+                .and_then(|parent| index_by_node.get(parent).copied())
+        {
+            let root = uf.union(parent, node);
+            ancestors[root] = parent;
+        }
+    }
+
+    result
+}
+
 // ---------------------------------------------------------------------------
 // Generate edgelist (to string lines)
 // ---------------------------------------------------------------------------
@@ -32370,6 +32551,7 @@ mod tests {
         topological_sort,
         transitive_closure,
         transitive_reduction,
+        tree_all_pairs_lowest_common_ancestor,
         tree_broadcast_center,
         tree_broadcast_time,
         tree_data,
@@ -43898,6 +44080,69 @@ mod tests {
         let results = all_pairs_lowest_common_ancestor(&d, &[("a".to_owned(), "b".to_owned())]);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].1, "r"); // LCA of a,b is r
+    }
+
+    #[test]
+    fn test_tree_all_pairs_lowest_common_ancestor_native_default_pairs() {
+        let mut d = DiGraph::strict();
+        d.add_edge("r", "a").unwrap();
+        d.add_edge("r", "b").unwrap();
+        d.add_edge("a", "c").unwrap();
+        d.add_edge("a", "d").unwrap();
+
+        let results = tree_all_pairs_lowest_common_ancestor(&d, "r", None);
+
+        assert_eq!(
+            results.first().unwrap(),
+            &(("c".to_owned(), "c".to_owned()), "c".to_owned())
+        );
+        assert!(results.contains(&(("c".to_owned(), "d".to_owned()), "a".to_owned())));
+        assert!(results.contains(&(("a".to_owned(), "b".to_owned()), "r".to_owned())));
+        assert!(results.contains(&(("r".to_owned(), "r".to_owned()), "r".to_owned())));
+    }
+
+    #[test]
+    fn test_tree_all_pairs_lowest_common_ancestor_preserves_requested_orientation() {
+        let mut d = DiGraph::strict();
+        d.add_edge("r", "a").unwrap();
+        d.add_edge("r", "b").unwrap();
+        d.add_edge("a", "c").unwrap();
+        d.add_edge("a", "d").unwrap();
+        let pairs = vec![
+            ("c".to_owned(), "d".to_owned()),
+            ("d".to_owned(), "c".to_owned()),
+            ("c".to_owned(), "c".to_owned()),
+            ("c".to_owned(), "b".to_owned()),
+            ("c".to_owned(), "d".to_owned()),
+        ];
+
+        let results = tree_all_pairs_lowest_common_ancestor(&d, "r", Some(&pairs));
+
+        assert_eq!(
+            results,
+            vec![
+                (("d".to_owned(), "c".to_owned()), "a".to_owned()),
+                (("c".to_owned(), "c".to_owned()), "c".to_owned()),
+                (("c".to_owned(), "c".to_owned()), "c".to_owned()),
+                (("c".to_owned(), "d".to_owned()), "a".to_owned()),
+                (("c".to_owned(), "b".to_owned()), "r".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_tree_all_pairs_lowest_common_ancestor_respects_explicit_root_subtree() {
+        let mut d = DiGraph::strict();
+        d.add_edge("r", "a").unwrap();
+        d.add_edge("r", "b").unwrap();
+        d.add_edge("a", "c").unwrap();
+        d.add_edge("a", "d").unwrap();
+
+        let results = tree_all_pairs_lowest_common_ancestor(&d, "a", None);
+
+        assert!(results.contains(&(("c".to_owned(), "d".to_owned()), "a".to_owned())));
+        assert!(!results.iter().any(|((u, v), _)| u == "b" || v == "b"));
+        assert!(!results.iter().any(|((u, v), _)| u == "r" || v == "r"));
     }
 
     #[test]
