@@ -1819,6 +1819,45 @@ MultiDiGraph._node = property(lambda self: _PrivateNodeFacade(self))
 MultiDiGraph._succ = property(_multidigraph_succ_view)
 MultiDiGraph._pred = property(_multidigraph_pred_view)
 
+
+# br-grattrset: nx internals (subgraph_view, restricted_view, and any
+# code that builds a new graph and does ``newG.graph = G.graph``) need
+# ``G.graph`` to be assignable. The Rust-native ``.graph`` is a
+# read-only ``getset_descriptor`` (only a getter), so the assignment
+# raised ``AttributeError: attribute 'graph' of 'franken_networkx.Graph'
+# objects is not writable``. Wrap with a descriptor that, on __set__,
+# clears the underlying dict and updates it from the new value.
+class _GraphAttrsDescriptor:
+    """Descriptor that adds an assignment path to the Rust-native
+    read-only ``graph`` attribute. Reads fall through to the Rust
+    getter; writes clear-then-update the existing dict in place so
+    references held elsewhere remain valid."""
+
+    __slots__ = ("_raw",)
+
+    def __init__(self, raw):
+        self._raw = raw
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self
+        return self._raw.__get__(obj, objtype)
+
+    def __set__(self, obj, value):
+        existing = self._raw.__get__(obj, type(obj))
+        existing.clear()
+        if value:
+            existing.update(value)
+
+    def __delete__(self, obj):
+        existing = self._raw.__get__(obj, type(obj))
+        existing.clear()
+
+
+for _cls in (Graph, DiGraph, MultiGraph, MultiDiGraph):
+    _cls.graph = _GraphAttrsDescriptor(_cls.__dict__["graph"])
+
+
 def _graph_deepcopy(self, memo=None):
     """br-dcpy: the Rust __deepcopy__ didn't traverse nested attribute
     values, so deepcopy(G).nodes[n]['x'].append(...) mutated the

@@ -1098,3 +1098,49 @@ class TestAdjacencyViewKeysSetOps:
         iset, cliques = nx.approximation.clique_removal(G)
         assert len(cliques) == 1
         assert {0, 1, 2, 3, 4} == cliques[0]
+
+
+# ---------------------------------------------------------------------------
+# Regression: franken_networkx-grattrset — G.graph = {...} assignment
+# ---------------------------------------------------------------------------
+
+
+class TestGraphAttrsAssignable:
+    """nx internals (subgraph_view, restricted_view, and any code that
+    builds a new graph and then does ``newG.graph = G.graph``) need
+    ``G.graph`` to be assignable. The Rust-native .graph is a
+    read-only getset_descriptor so the assignment raised
+    ``AttributeError: attribute 'graph' of 'franken_networkx.Graph'
+    objects is not writable``. The _GraphAttrsDescriptor wrapper
+    adds a __set__ that clears + updates the underlying dict in place.
+    """
+
+    def test_graph_attr_assignment_replaces_contents(self):
+        G = fnx.Graph()
+        G.graph["old_key"] = "old_value"
+        G.graph = {"name": "test", "tag": "x"}
+        assert dict(G.graph) == {"name": "test", "tag": "x"}
+
+    def test_graph_attr_assignment_preserves_identity(self):
+        """In-place clear+update: the same dict object is reused so
+        references held elsewhere (e.g. nx.subgraph_view newG.graph = G.graph)
+        continue to see the updated contents.
+        """
+        G = fnx.Graph()
+        before = G.graph
+        G.graph = {"foo": "bar"}
+        after = G.graph
+        assert before is after
+        assert dict(after) == {"foo": "bar"}
+
+    def test_graph_attr_delete_clears(self):
+        G = fnx.Graph(name="keep")
+        assert dict(G.graph) == {"name": "keep"}
+        del G.graph
+        assert dict(G.graph) == {}
+
+    def test_all_four_classes_support_graph_assign(self):
+        for cls in (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph):
+            G = cls()
+            G.graph = {"role": "test"}
+            assert dict(G.graph) == {"role": "test"}
