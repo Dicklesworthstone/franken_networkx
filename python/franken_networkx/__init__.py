@@ -1509,6 +1509,26 @@ MultiDiGraph.__getitem__ = _graph_getitem_from_adj
 MultiDiGraph.degree = property(MultiDiGraphDegreeView)
 MultiDiGraph.in_degree = property(lambda self: _DirectedDegreeView(self, "pred"))
 MultiDiGraph.out_degree = property(lambda self: _DirectedDegreeView(self, "succ"))
+
+# br-privadj: many nx internals reach into the private `G._adj`, `G._node`,
+# `G._succ`, `G._pred` dict storage (e.g. connected_components._plain_bfs,
+# bipartite.is_bipartite_node_set). Alias the private names to the public
+# views so nx's internal read paths work on fnx graphs; writes through
+# these aliases fall back to the AdjacencyView which already forwards to
+# the Rust storage.
+Graph._adj = property(_graph_adj_view)
+Graph._node = property(lambda self: self.nodes)
+DiGraph._adj = property(_digraph_adj_view)
+DiGraph._node = property(lambda self: self.nodes)
+DiGraph._succ = property(_digraph_succ_view)
+DiGraph._pred = property(_digraph_pred_view)
+MultiGraph._adj = property(_multigraph_adj_view)
+MultiGraph._node = property(lambda self: self.nodes)
+MultiDiGraph._adj = property(_multidigraph_adj_view)
+MultiDiGraph._node = property(lambda self: self.nodes)
+MultiDiGraph._succ = property(_multidigraph_succ_view)
+MultiDiGraph._pred = property(_multidigraph_pred_view)
+
 Graph.to_directed_class = _to_directed_class
 Graph.to_undirected_class = _to_undirected_class
 DiGraph.to_directed_class = _to_directed_class

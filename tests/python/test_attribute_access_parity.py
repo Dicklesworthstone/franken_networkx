@@ -595,3 +595,60 @@ class TestEdgeViewDataProtocol:
         Gn = nx.Graph()
         Gn.add_edge(0, 1, w=1.5)
         assert list(G.edges(data=True)) == list(Gn.edges(data=True))
+
+
+# ---------------------------------------------------------------------------
+# Regression: franken_networkx-privadj — private _adj/_node/_succ/_pred aliases
+# ---------------------------------------------------------------------------
+
+
+class TestPrivateAdjAliases:
+    """Many nx internals reach into G._adj / G._node / G._succ / G._pred
+    (e.g. nx.algorithms.bipartite.is_bipartite_node_set does
+    connected_components(G) which accesses G._adj directly). fnx graphs
+    must expose these private aliases so nx's internal read paths work
+    when fnx graphs are passed into nx helper routines.
+    """
+
+    def test_graph_has_private_adj_alias(self):
+        G = fnx.path_graph(3)
+        assert hasattr(G, "_adj")
+        assert list(G._adj[0]) == [1]
+
+    def test_graph_has_private_node_alias(self):
+        G = fnx.path_graph(3)
+        G.nodes[0]["color"] = "red"
+        assert hasattr(G, "_node")
+        assert G._node[0]["color"] == "red"
+
+    def test_digraph_has_succ_pred_aliases(self):
+        D = fnx.DiGraph()
+        D.add_edge(0, 1)
+        D.add_edge(1, 2)
+        assert list(D._succ[0]) == [1]
+        assert list(D._pred[2]) == [1]
+
+    def test_multidigraph_has_succ_pred_aliases(self):
+        MD = fnx.MultiDiGraph()
+        MD.add_edge(0, 1)
+        MD.add_edge(1, 2)
+        assert list(MD._succ[0]) == [1]
+        assert list(MD._pred[2]) == [1]
+
+    def test_nx_bipartite_works_on_fnx_graph(self):
+        """End-to-end: call an nx helper that reaches into G._adj on an
+        fnx graph. Previously crashed with AttributeError: 'franken_networkx.Graph'
+        object has no attribute '_adj'.
+        """
+        from networkx.algorithms import bipartite as nxb
+
+        G = fnx.complete_bipartite_graph(3, 4)
+        assert nxb.is_bipartite_node_set(G, [0, 1, 2]) is True
+
+    def test_nx_connected_components_on_fnx_graph(self):
+        """nx's connected_components reaches G._adj via _plain_bfs."""
+        import networkx as nx
+
+        G = fnx.Graph([(0, 1), (1, 2), (3, 4)])
+        comps = sorted(sorted(c) for c in nx.connected_components(G))
+        assert comps == [[0, 1, 2], [3, 4]]
