@@ -5256,7 +5256,12 @@ def dominating_set(G, start_with=None):
     """
     if start_with is not None:
         return _call_networkx_for_parity("dominating_set", G, start_with=start_with)
-    return _raw_dominating_set(G)
+    # br-domtype: nx.dominating_set returns a set; the Rust binding
+    # returned a list. The docstring already claims set, so users
+    # relying on set operations (union/intersection/issubset) silently
+    # broke. Coerce the Rust list-of-nodes to set.
+    result = _raw_dominating_set(G)
+    return set(result) if not isinstance(result, set) else result
 
 # Algorithm functions — community detection
 from franken_networkx._fnx import (
@@ -6253,7 +6258,15 @@ def dag_longest_path_length(G, weight="weight", default_weight=1):
     -------
     int
         The length of the longest path.
+
+    br-daglongundir: nx is @not_implemented_for('undirected') and
+    raises NetworkXNotImplemented('not implemented for undirected type').
+    The Rust binding raised NetworkXError with a different message —
+    callers catching NetworkXNotImplemented would miss the signal.
+    Gate on G.is_directed() so the exception class matches.
     """
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
     if weight != "weight" or default_weight != 1:
         return _call_networkx_for_parity(
             "dag_longest_path_length",
@@ -16952,48 +16965,39 @@ def communicability_betweenness_centrality(G, *, backend=None, **backend_kwargs)
 
 
 def trophic_levels(G, weight=None):
-    """Compute trophic levels in a directed graph (food web)."""
-    import numpy as np
+    """Compute trophic levels in a directed graph (food web).
 
-    nodelist = list(G.nodes())
-    n = len(nodelist)
-    if n == 0:
-        return {}
-    A = to_numpy_array(G, nodelist=nodelist, weight=weight)
-    in_strength = A.sum(axis=0)
-    # Solve: s_j = 1 + (1/k_j^in) * sum_i A_ij * s_i for all j
-    # Rearrange: (I - D^{-1} A^T) s = 1
-    D_inv = np.zeros(n)
-    for i in range(n):
-        D_inv[i] = 1.0 / in_strength[i] if in_strength[i] > 0 else 0
-    M = np.eye(n) - np.diag(D_inv) @ A.T
-    b = np.ones(n)
-    # For basal species (no incoming edges), trophic level = 1
-    try:
-        s = np.linalg.solve(M, b)
-    except np.linalg.LinAlgError:
-        s = np.linalg.lstsq(M, b, rcond=None)[0]
-    return {nodelist[i]: float(s[i]) for i in range(n)}
+    br-trophdir: nx.trophic_levels / trophic_differences /
+    trophic_incoherence_parameter are @not_implemented_for('undirected');
+    fnx silently computed garbage (all-nodes at ~4.8e16) on Graph input.
+    Reject undirected input with nx's exact exception type + message so
+    the contract matches upstream.
+    """
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
+    return _call_networkx_for_parity("trophic_levels", G, weight=weight)
 
 
 def trophic_differences(G, weight=None):
-    """Compute trophic differences across edges."""
-    levels = trophic_levels(G, weight=weight)
-    result = {}
-    for u, v in G.edges():
-        result[(u, v)] = levels.get(v, 1) - levels.get(u, 1)
-    return result
+    """Compute trophic differences across edges.
+
+    br-trophdir: see trophic_levels; reject undirected input.
+    """
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
+    return _call_networkx_for_parity("trophic_differences", G, weight=weight)
 
 
-def trophic_incoherence_parameter(G, weight=None):
-    """Compute the trophic incoherence parameter (std of trophic differences)."""
-    import numpy as np
+def trophic_incoherence_parameter(G, weight=None, cannibalism=False):
+    """Compute the trophic incoherence parameter (std of trophic differences).
 
-    diffs = trophic_differences(G, weight=weight)
-    if not diffs:
-        return 0.0
-    values = list(diffs.values())
-    return float(np.std(values))
+    br-trophdir: see trophic_levels; reject undirected input.
+    """
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
+    return _call_networkx_for_parity(
+        "trophic_incoherence_parameter", G, weight=weight, cannibalism=cannibalism,
+    )
 
 
 def group_betweenness_centrality(
@@ -21138,73 +21142,50 @@ def weisfeiler_lehman_graph_hash(
 ):
     """WL graph hash for isomorphism testing.
 
-    Iteratively refines node labels using sorted neighbor multisets,
-    then hashes the sorted final label multiset.
+    br-wlhash: fnx's local implementation seeded initial labels with
+    str(degree) and hashed with blake2b, while nx seeds from empty
+    labels (or node_attr) and uses a different multiset hashing scheme
+    (see nx.algorithms.graph_hashing). Hashes diverged for the same
+    graph, making the two libraries incompatible as drop-in
+    fingerprinters. Delegate to nx so hashes match exactly.
     """
-    import hashlib
-
-    subhashes = weisfeiler_lehman_subgraph_hashes(
+    return _call_networkx_for_parity(
+        "weisfeiler_lehman_graph_hash",
         G,
         edge_attr=edge_attr,
         node_attr=node_attr,
         iterations=iterations,
         digest_size=digest_size,
     )
-    # Collect final-iteration hashes for all nodes.
-    final_labels = []
-    for node, hash_list in subhashes.items():
-        if hash_list:
-            final_labels.append(hash_list[-1])
-    return hashlib.blake2b(
-        "".join(sorted(final_labels)).encode(), digest_size=digest_size
-    ).hexdigest()
 
 
 def weisfeiler_lehman_subgraph_hashes(
-    G, edge_attr=None, node_attr=None, iterations=3, digest_size=16
+    G,
+    edge_attr=None,
+    node_attr=None,
+    iterations=3,
+    digest_size=16,
+    include_initial_labels=False,
 ):
     """Per-node WL hashes at each iteration.
 
-    Returns dict mapping each node to a list of hash strings (one per iteration).
+    br-wlsubhash: fnx's local implementation unconditionally prepended
+    the initial label hash to each node's list (yielding iterations+1
+    hashes per node), always included degree as the seed when node_attr
+    was None, and used a different multiset scheme than nx. nx's newer
+    signature exposes ``include_initial_labels=False`` to control the
+    initial-label inclusion; fnx was missing that kwarg entirely. Match
+    nx by delegating.
     """
-    import hashlib
-
-    def _hash(s):
-        return hashlib.blake2b(s.encode(), digest_size=digest_size).hexdigest()
-
-    # Initialize labels.
-    if node_attr is not None:
-        labels = {n: str(G.nodes[n].get(node_attr, "")) for n in G.nodes()}
-    else:
-        labels = {n: str(G.degree[n]) for n in G.nodes()}
-
-    result = {n: [] for n in G.nodes()}
-    for n in G.nodes():
-        result[n].append(_hash(labels[n]))
-
-    for _ in range(iterations):
-        new_labels = {}
-        for n in G.nodes():
-            nbr_labels = []
-            for nbr in G.neighbors(n):
-                if edge_attr is not None:
-                    edge_data = G[n][nbr]
-                    if G.is_multigraph():
-                        # MultiGraph: G[n][nbr] is {key: {attrs}}, use first key.
-                        first_key = next(iter(edge_data))
-                        prefix = str(edge_data[first_key].get(edge_attr, ""))
-                    else:
-                        prefix = str(edge_data.get(edge_attr, ""))
-                    nbr_labels.append(prefix + labels[nbr])
-                else:
-                    nbr_labels.append(labels[nbr])
-            nbr_labels.sort()
-            new_labels[n] = labels[n] + "".join(nbr_labels)
-        labels = {n: _hash(new_labels[n]) for n in G.nodes()}
-        for n in G.nodes():
-            result[n].append(labels[n])
-
-    return result
+    return _call_networkx_for_parity(
+        "weisfeiler_lehman_subgraph_hashes",
+        G,
+        edge_attr=edge_attr,
+        node_attr=node_attr,
+        iterations=iterations,
+        digest_size=digest_size,
+        include_initial_labels=include_initial_labels,
+    )
 
 
 def lexicographical_topological_sort(G, key=None):
