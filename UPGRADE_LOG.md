@@ -415,3 +415,64 @@ Applied via `cargo update -p libc`.
 
 None tripped. 1 transitive bump applied, 0 rollbacks, 0 failures.
 
+---
+
+## Session 2026-04-24 (cc-networkx libupdater re-sweep, second pass)
+
+### Scope of this session
+
+Re-sweep of the main workspace (`Cargo.toml` + `crates/fnx-*/Cargo.toml`) AND
+the separate `fuzz/Cargo.toml` workspace against crates.io `max_stable_version`.
+`asupersync` must remain pinned at `0.3.1` in `Cargo.lock`.
+
+### Result
+
+**Direct deps: no bumps available.** All 21 main-workspace direct deps and the
+2 fuzz-workspace direct deps (`libfuzzer-sys 0.4.12`, `arbitrary 1.4.2`) match
+the current `max_stable_version` on crates.io. No direct-dep movement since the
+earlier 2026-04-24 sweep.
+
+**Transitive: 3 patch bumps applied.**
+
+| Workspace | Crate | From | To |
+|---|---|---|---|
+| main | cc | 1.2.60 | 1.2.61 |
+| fuzz | cc | 1.2.60 | 1.2.61 |
+| fuzz | libc | 0.2.185 | 0.2.186 |
+
+(Main-workspace `libc` was already at `0.2.186` from the morning sweep.)
+
+### Updates
+
+#### cc: 1.2.60 -> 1.2.61 (transitive, main + fuzz)
+- **Scope:** `Cargo.lock` and `fuzz/Cargo.lock` only (no direct `cc` dep in any
+  fnx crate; reached through build-script chains).
+- **Breaking:** None (patch bump in the rust-lang/cc stable 1.x line).
+- **Applied via:** `cargo update -p cc` (main) and `cargo update` (fuzz).
+- **Verification:** `rch exec -- cargo check --workspace --all-targets` green
+  (main, 11.65s); `rch exec -- cargo check --all-targets` green (fuzz, 14.01s).
+
+#### libc: 0.2.185 -> 0.2.186 (transitive, fuzz)
+- **Scope:** `fuzz/Cargo.lock` only (main was already at 0.2.186).
+- **Breaking:** None (patch bump).
+- **Verification:** covered by the fuzz `cargo check --all-targets` above.
+
+### Verification
+
+- All 21 main-workspace direct deps and 2 fuzz-workspace direct deps
+  re-matched against crates.io `max_stable_version` via the
+  `/api/v1/crates/<name>` endpoint.
+- `asupersync 0.3.1` still pinned in main `Cargo.lock` (line 98); pin
+  unchanged.
+- `cargo update --workspace --recursive --dry-run --verbose` post-bump (main):
+  `Locking 0 packages to latest compatible versions`.
+- `cargo update --recursive --dry-run --verbose` post-bump (fuzz):
+  `Locking 0 packages to latest Rust 1.97.0-nightly compatible versions`.
+- `rch exec` used for all compilation-related verification per project
+  convention (`CARGO_TARGET_DIR=/tmp/rch_target_franken_networkx_cc` for main,
+  `/tmp/rch_target_franken_networkx_cc_fuzz` for fuzz).
+
+### Circuit breakers / budget
+
+None tripped. 3 transitive bumps applied, 0 rollbacks, 0 failures.
+
