@@ -63,6 +63,21 @@ def test_all_pairs_shortest_path_cutoff_preserved():
         assert f[src] == n[src]
 
 
+def test_all_pairs_shortest_path_directed_matches_networkx():
+    fg = fnx.DiGraph()
+    ng = nx.DiGraph()
+    for graph in (fg, ng):
+        graph.add_edges_from([(0, 1), (1, 2), (2, 0), (2, 3), (4, 0)])
+
+    assert list(fnx.all_pairs_shortest_path(fg)) == list(nx.all_pairs_shortest_path(ng))
+    assert list(fnx.all_pairs_shortest_path_length(fg)) == list(
+        nx.all_pairs_shortest_path_length(ng)
+    )
+    assert list(fnx.all_pairs_shortest_path(fg, cutoff=1)) == list(
+        nx.all_pairs_shortest_path(ng, cutoff=1)
+    )
+
+
 def test_all_pairs_shortest_path_rejects_unknown_backend():
     fg = fnx.path_graph(3)
     with pytest.raises(ImportError):

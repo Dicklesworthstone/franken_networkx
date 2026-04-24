@@ -14022,6 +14022,23 @@ pub fn all_pairs_shortest_path(
     result
 }
 
+/// Return all shortest paths between all pairs of nodes in a directed graph.
+///
+/// Returns a nested map: source -> target -> path.
+/// `cutoff` limits the search depth from each source (None = no limit).
+#[must_use]
+pub fn all_pairs_shortest_path_directed(
+    digraph: &DiGraph,
+    cutoff: Option<usize>,
+) -> HashMap<String, HashMap<String, Vec<String>>> {
+    let mut result = HashMap::new();
+    for node in digraph.nodes_ordered() {
+        let paths = single_source_shortest_path_directed(digraph, node, cutoff);
+        result.insert(node.to_owned(), paths);
+    }
+    result
+}
+
 /// Return shortest path lengths between all pairs of nodes (unweighted BFS).
 ///
 /// Returns a nested map: source -> target -> length.
@@ -14035,6 +14052,23 @@ pub fn all_pairs_shortest_path_length(
     let mut result = HashMap::new();
     for node in graph.nodes_ordered() {
         let lengths = single_source_shortest_path_length(graph, node, cutoff);
+        result.insert(node.to_owned(), lengths);
+    }
+    result
+}
+
+/// Return shortest path lengths between all pairs of nodes in a directed graph.
+///
+/// Returns a nested map: source -> target -> length.
+/// `cutoff` limits the search depth from each source (None = no limit).
+#[must_use]
+pub fn all_pairs_shortest_path_length_directed(
+    digraph: &DiGraph,
+    cutoff: Option<usize>,
+) -> HashMap<String, HashMap<String, usize>> {
+    let mut result = HashMap::new();
+    for node in digraph.nodes_ordered() {
+        let lengths = single_source_shortest_path_length_directed(digraph, node, cutoff);
         result.insert(node.to_owned(), lengths);
     }
     result

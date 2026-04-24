@@ -396,15 +396,6 @@ CASES = [
 
 
 def _expected_divergence(case_name: str, fixture_name: str) -> str | None:
-    directed_shortest_path = {
-        "single_source_shortest_path",
-        "single_source_shortest_path_length",
-        "all_pairs_shortest_path",
-        "all_pairs_shortest_path_length",
-    }
-
-    if case_name in directed_shortest_path and fixture_name.startswith("digraph"):
-        return "franken_networkx-zzcm6: unweighted shortest-path directed graph contract"
     if (
         case_name in {"strongly_connected_components", "topological_sort"}
         and fixture_name.startswith("digraph")

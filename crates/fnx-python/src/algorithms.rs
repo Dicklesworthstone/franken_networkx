@@ -6378,9 +6378,13 @@ pub fn all_pairs_shortest_path(
     cutoff: Option<usize>,
 ) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
-    require_undirected(&gr, "all_pairs_shortest_path")?;
-    let inner = gr.undirected();
-    let result = py.allow_threads(|| fnx_algorithms::all_pairs_shortest_path(inner, cutoff));
+    let result = if gr.is_directed() {
+        let inner = gr.digraph().expect("is_directed checked above");
+        py.allow_threads(|| fnx_algorithms::all_pairs_shortest_path_directed(inner, cutoff))
+    } else {
+        let inner = gr.undirected();
+        py.allow_threads(|| fnx_algorithms::all_pairs_shortest_path(inner, cutoff))
+    };
     let outer_dict = pyo3::types::PyDict::new(py);
     for (source, targets) in &result {
         let inner_dict = pyo3::types::PyDict::new(py);
@@ -6402,9 +6406,13 @@ pub fn all_pairs_shortest_path_length(
     cutoff: Option<usize>,
 ) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
-    require_undirected(&gr, "all_pairs_shortest_path_length")?;
-    let inner = gr.undirected();
-    let result = py.allow_threads(|| fnx_algorithms::all_pairs_shortest_path_length(inner, cutoff));
+    let result = if gr.is_directed() {
+        let inner = gr.digraph().expect("is_directed checked above");
+        py.allow_threads(|| fnx_algorithms::all_pairs_shortest_path_length_directed(inner, cutoff))
+    } else {
+        let inner = gr.undirected();
+        py.allow_threads(|| fnx_algorithms::all_pairs_shortest_path_length(inner, cutoff))
+    };
     let outer_dict = pyo3::types::PyDict::new(py);
     for (source, targets) in &result {
         let inner_dict = pyo3::types::PyDict::new(py);
@@ -6972,11 +6980,16 @@ pub fn single_source_shortest_path(
     cutoff: Option<usize>,
 ) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
-    require_undirected(&gr, "single_source_shortest_path")?;
-    let inner = gr.undirected();
     let source_key = node_key_to_string(py, source)?;
-    let result = py
-        .allow_threads(|| fnx_algorithms::single_source_shortest_path(inner, &source_key, cutoff));
+    let result = if gr.is_directed() {
+        let inner = gr.digraph().expect("is_directed checked above");
+        py.allow_threads(|| {
+            fnx_algorithms::single_source_shortest_path_directed(inner, &source_key, cutoff)
+        })
+    } else {
+        let inner = gr.undirected();
+        py.allow_threads(|| fnx_algorithms::single_source_shortest_path(inner, &source_key, cutoff))
+    };
     let dict = pyo3::types::PyDict::new(py);
     for (node, path) in &result {
         let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
@@ -6995,12 +7008,18 @@ pub fn single_source_shortest_path_length(
     cutoff: Option<usize>,
 ) -> PyResult<PyObject> {
     let gr = extract_graph(g)?;
-    require_undirected(&gr, "single_source_shortest_path_length")?;
-    let inner = gr.undirected();
     let source_key = node_key_to_string(py, source)?;
-    let result = py.allow_threads(|| {
-        fnx_algorithms::single_source_shortest_path_length(inner, &source_key, cutoff)
-    });
+    let result = if gr.is_directed() {
+        let inner = gr.digraph().expect("is_directed checked above");
+        py.allow_threads(|| {
+            fnx_algorithms::single_source_shortest_path_length_directed(inner, &source_key, cutoff)
+        })
+    } else {
+        let inner = gr.undirected();
+        py.allow_threads(|| {
+            fnx_algorithms::single_source_shortest_path_length(inner, &source_key, cutoff)
+        })
+    };
     let dict = pyo3::types::PyDict::new(py);
     for (node, length) in &result {
         dict.set_item(gr.py_node_key(py, node), *length)?;
