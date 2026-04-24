@@ -4224,7 +4224,13 @@ def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
     contract gap when users explicitly request a non-default
     algorithm. Delegate the non-kruskal cases to nx.
     """
-    if algorithm == "kruskal":
+    # br-mstcallable / br-mstweightwrong: same suboptimal-MST issue
+    # as the tree functions; delegate anything weighted to nx.
+    if (
+        algorithm == "kruskal"
+        and isinstance(weight, str)
+        and not _mst_has_weight_edge_attr(G, weight)
+    ):
         return _raw_minimum_spanning_edges(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan)
     return _call_networkx_for_parity(
         "minimum_spanning_edges",
@@ -4244,7 +4250,12 @@ def maximum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
     algorithms to nx.
     """
     from franken_networkx._fnx import maximum_spanning_edges as _raw_mse
-    if algorithm == "kruskal":
+    # br-mstcallable / br-mstweightwrong: see minimum_spanning_edges.
+    if (
+        algorithm == "kruskal"
+        and isinstance(weight, str)
+        and not _mst_has_weight_edge_attr(G, weight)
+    ):
         return _raw_mse(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan)
     return _call_networkx_for_parity(
         "maximum_spanning_edges",
@@ -5090,7 +5101,18 @@ def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
     Graph
         A minimum spanning tree or forest.
     """
-    if algorithm != "kruskal" or ignore_nan:
+    # br-mstcallable: the Rust _raw_minimum_spanning_tree requires
+    # ``weight`` to be a str; nx accepts a callable
+    # ``weight(u, v, d) -> float`` (used to derive weights on the fly).
+    # Route non-str weight values through nx.
+    # br-mstweightwrong: the Rust MST implementation also returns
+    # suboptimal (non-minimum) spanning trees on weighted graphs in
+    # specific graph-construction patterns (e.g. cycle_graph(5) with
+    # weights set post-construction: fnx picks an edge with weight 5
+    # over an available weight-2 edge). Delegate any graph that
+    # carries the weight attr on at least one edge — unweighted
+    # graphs still hit the Rust fast path.
+    if algorithm != "kruskal" or ignore_nan or not isinstance(weight, str) or _mst_has_weight_edge_attr(G, weight):
         return _call_networkx_for_parity(
             "minimum_spanning_tree",
             G,
@@ -5099,6 +5121,21 @@ def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
             ignore_nan=ignore_nan,
         )
     return _raw_minimum_spanning_tree(G, weight=weight)
+
+
+def _mst_has_weight_edge_attr(G, weight):
+    """Return True if any edge in ``G`` has the named weight attribute.
+
+    br-mstweightwrong: used to detect weighted graphs so the Rust
+    Kruskal path (which returns suboptimal MSTs in some cases) is
+    bypassed in favour of nx's reference implementation.
+    """
+    if not isinstance(weight, str):
+        return False
+    for _, _, attrs in G.edges(data=True):
+        if isinstance(attrs, dict) and weight in attrs:
+            return True
+    return False
 
 
 def maximum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=False):
@@ -5120,7 +5157,10 @@ def maximum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
     Graph
         A maximum spanning tree or forest.
     """
-    if algorithm != "kruskal" or ignore_nan:
+    # br-mstcallable / br-mstweightwrong: same MST-quality issue as
+    # minimum_spanning_tree — the Rust path returns suboptimal trees
+    # on weighted inputs. Route any weighted graph through nx.
+    if algorithm != "kruskal" or ignore_nan or not isinstance(weight, str) or _mst_has_weight_edge_attr(G, weight):
         return _call_networkx_for_parity(
             "maximum_spanning_tree",
             G,
