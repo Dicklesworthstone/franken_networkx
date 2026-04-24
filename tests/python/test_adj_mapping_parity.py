@@ -534,6 +534,48 @@ def test_filtered_graph_view_adj_mapping_helpers_deep_match(builder_name):
     assert fdeep == ndeep
 
 
+def test_upstream_networkx_subgraph_view_filters_fnx_graph_private_storage():
+    fg = fnx.Graph()
+    fg.add_edges_from([(0, 1, {"weight": 2}), (1, 2, {"weight": 3}), (2, 3)])
+    ng = nx.Graph()
+    ng.add_edges_from([(0, 1, {"weight": 2}), (1, 2, {"weight": 3}), (2, 3)])
+
+    fv = nx.subgraph_view(fg, filter_node=lambda node: node != 2)
+    nv = nx.subgraph_view(ng, filter_node=lambda node: node != 2)
+
+    assert list(fv) == list(nv)
+    assert list(fv.nodes(data=True)) == list(nv.nodes(data=True))
+    assert list(fv.edges(data=True)) == list(nv.edges(data=True))
+    assert {node: sorted(fv.adj[node]) for node in fv} == {
+        node: sorted(nv.adj[node]) for node in nv
+    }
+    assert dict(fv.degree()) == dict(nv.degree())
+    assert fv.has_edge(0, 1) is nv.has_edge(0, 1)
+    assert fv.has_edge(1, 2) is nv.has_edge(1, 2)
+
+
+def test_upstream_networkx_subgraph_view_filters_fnx_digraph_succ_pred():
+    fg = fnx.DiGraph()
+    fg.add_edges_from([("a", "b", {"weight": 2}), ("b", "c"), ("c", "a")])
+    ng = nx.DiGraph()
+    ng.add_edges_from([("a", "b", {"weight": 2}), ("b", "c"), ("c", "a")])
+
+    fv = nx.subgraph_view(fg, filter_edge=lambda u, v: (u, v) != ("b", "c"))
+    nv = nx.subgraph_view(ng, filter_edge=lambda u, v: (u, v) != ("b", "c"))
+
+    assert list(fv) == list(nv)
+    assert list(fv.edges(data=True)) == list(nv.edges(data=True))
+    assert {node: sorted(fv.succ[node]) for node in fv} == {
+        node: sorted(nv.succ[node]) for node in nv
+    }
+    assert {node: sorted(fv.pred[node]) for node in fv} == {
+        node: sorted(nv.pred[node]) for node in nv
+    }
+    assert dict(fv.degree()) == dict(nv.degree())
+    assert fv.has_edge("a", "b") is nv.has_edge("a", "b")
+    assert fv.has_edge("b", "c") is nv.has_edge("b", "c")
+
+
 @pytest.mark.parametrize("attr_name", ["succ", "pred"])
 def test_digraph_succ_and_pred_expose_mapping_helpers(attr_name):
     fg = fnx.DiGraph()

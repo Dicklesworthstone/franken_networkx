@@ -17747,6 +17747,699 @@ class _FilteredGraphView:
         return result
 
 
+_PRIVATE_NODE_OVERRIDE = "_fnx_private_node_override"
+_PRIVATE_ADJ_OVERRIDE = "_fnx_private_adj_override"
+_PRIVATE_SUCC_OVERRIDE = "_fnx_private_succ_override"
+_PRIVATE_PRED_OVERRIDE = "_fnx_private_pred_override"
+_PRIVATE_MISSING = object()
+
+_GRAPH_PRIVATE_AWARE_ITER = Graph.__iter__
+_DIGRAPH_PRIVATE_AWARE_ITER = DiGraph.__iter__
+_MULTIGRAPH_PRIVATE_AWARE_ITER = MultiGraph.__iter__
+_MULTIDIGRAPH_PRIVATE_AWARE_ITER = MultiDiGraph.__iter__
+_GRAPH_PRIVATE_AWARE_LEN = Graph.__len__
+_DIGRAPH_PRIVATE_AWARE_LEN = DiGraph.__len__
+_MULTIGRAPH_PRIVATE_AWARE_LEN = MultiGraph.__len__
+_MULTIDIGRAPH_PRIVATE_AWARE_LEN = MultiDiGraph.__len__
+_GRAPH_PRIVATE_AWARE_CONTAINS = Graph.__contains__
+_DIGRAPH_PRIVATE_AWARE_CONTAINS = DiGraph.__contains__
+_MULTIGRAPH_PRIVATE_AWARE_CONTAINS = MultiGraph.__contains__
+_MULTIDIGRAPH_PRIVATE_AWARE_CONTAINS = MultiDiGraph.__contains__
+_GRAPH_PRIVATE_AWARE_NODES = Graph.nodes
+_DIGRAPH_PRIVATE_AWARE_NODES = DiGraph.nodes
+_MULTIGRAPH_PRIVATE_AWARE_NODES = MultiGraph.nodes
+_MULTIDIGRAPH_PRIVATE_AWARE_NODES = MultiDiGraph.nodes
+_GRAPH_PRIVATE_AWARE_EDGES = Graph.edges
+_DIGRAPH_PRIVATE_AWARE_EDGES = DiGraph.edges
+_MULTIGRAPH_PRIVATE_AWARE_EDGES = MultiGraph.edges
+_MULTIDIGRAPH_PRIVATE_AWARE_EDGES = MultiDiGraph.edges
+_GRAPH_PRIVATE_AWARE_DEGREE = Graph.degree
+_DIGRAPH_PRIVATE_AWARE_DEGREE = DiGraph.degree
+_MULTIGRAPH_PRIVATE_AWARE_DEGREE = MultiGraph.degree
+_MULTIDIGRAPH_PRIVATE_AWARE_DEGREE = MultiDiGraph.degree
+_GRAPH_PRIVATE_AWARE_HAS_NODE = Graph.has_node
+_DIGRAPH_PRIVATE_AWARE_HAS_NODE = DiGraph.has_node
+_MULTIGRAPH_PRIVATE_AWARE_HAS_NODE = MultiGraph.has_node
+_MULTIDIGRAPH_PRIVATE_AWARE_HAS_NODE = MultiDiGraph.has_node
+_GRAPH_PRIVATE_AWARE_HAS_EDGE = Graph.has_edge
+_DIGRAPH_PRIVATE_AWARE_HAS_EDGE = DiGraph.has_edge
+_MULTIGRAPH_PRIVATE_AWARE_HAS_EDGE = MultiGraph.has_edge
+_MULTIDIGRAPH_PRIVATE_AWARE_HAS_EDGE = MultiDiGraph.has_edge
+_GRAPH_PRIVATE_AWARE_GET_EDGE_DATA = Graph.get_edge_data
+_DIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA = DiGraph.get_edge_data
+_MULTIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA = MultiGraph.get_edge_data
+_MULTIDIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA = MultiDiGraph.get_edge_data
+_GRAPH_PRIVATE_AWARE_NUMBER_OF_NODES = Graph.number_of_nodes
+_DIGRAPH_PRIVATE_AWARE_NUMBER_OF_NODES = DiGraph.number_of_nodes
+_MULTIGRAPH_PRIVATE_AWARE_NUMBER_OF_NODES = MultiGraph.number_of_nodes
+_MULTIDIGRAPH_PRIVATE_AWARE_NUMBER_OF_NODES = MultiDiGraph.number_of_nodes
+_GRAPH_PRIVATE_AWARE_NUMBER_OF_EDGES = Graph.number_of_edges
+_DIGRAPH_PRIVATE_AWARE_NUMBER_OF_EDGES = DiGraph.number_of_edges
+_MULTIGRAPH_PRIVATE_AWARE_NUMBER_OF_EDGES = MultiGraph.number_of_edges
+_MULTIDIGRAPH_PRIVATE_AWARE_NUMBER_OF_EDGES = MultiDiGraph.number_of_edges
+_GRAPH_PRIVATE_AWARE_NEIGHBORS = Graph.neighbors
+_DIGRAPH_PRIVATE_AWARE_NEIGHBORS = DiGraph.neighbors
+_DIGRAPH_PRIVATE_AWARE_SUCCESSORS = DiGraph.successors
+_DIGRAPH_PRIVATE_AWARE_PREDECESSORS = DiGraph.predecessors
+_MULTIGRAPH_PRIVATE_AWARE_NEIGHBORS = MultiGraph.neighbors
+_MULTIDIGRAPH_PRIVATE_AWARE_NEIGHBORS = MultiDiGraph.neighbors
+_MULTIDIGRAPH_PRIVATE_AWARE_SUCCESSORS = MultiDiGraph.successors
+_MULTIDIGRAPH_PRIVATE_AWARE_PREDECESSORS = MultiDiGraph.predecessors
+
+
+def _private_override(self, attr_name):
+    return vars(self).get(attr_name, _PRIVATE_MISSING)
+
+
+def _set_private_override(self, attr_name, value):
+    setattr(self, attr_name, value)
+
+
+def _has_networkx_private_storage(self):
+    return (
+        _private_override(self, _PRIVATE_NODE_OVERRIDE) is not _PRIVATE_MISSING
+        or _private_override(self, _PRIVATE_ADJ_OVERRIDE) is not _PRIVATE_MISSING
+        or _private_override(self, _PRIVATE_SUCC_OVERRIDE) is not _PRIVATE_MISSING
+        or _private_override(self, _PRIVATE_PRED_OVERRIDE) is not _PRIVATE_MISSING
+    )
+
+
+def _private_node_mapping(self):
+    override = _private_override(self, _PRIVATE_NODE_OVERRIDE)
+    if override is not _PRIVATE_MISSING:
+        return override
+    return _PrivateNodeFacade(self)
+
+
+def _private_adj_mapping(self, fallback):
+    override = _private_override(self, _PRIVATE_ADJ_OVERRIDE)
+    if override is not _PRIVATE_MISSING:
+        return override
+    return fallback(self)
+
+
+def _private_directed_adj_mapping(self, fallback):
+    override = _private_override(self, _PRIVATE_ADJ_OVERRIDE)
+    if override is not _PRIVATE_MISSING:
+        return override
+    succ_override = _private_override(self, _PRIVATE_SUCC_OVERRIDE)
+    if succ_override is not _PRIVATE_MISSING:
+        return succ_override
+    return fallback(self)
+
+
+def _private_succ_mapping(self, fallback):
+    override = _private_override(self, _PRIVATE_SUCC_OVERRIDE)
+    if override is not _PRIVATE_MISSING:
+        return override
+    return fallback(self)
+
+
+def _private_pred_mapping(self, fallback):
+    override = _private_override(self, _PRIVATE_PRED_OVERRIDE)
+    if override is not _PRIVATE_MISSING:
+        return override
+    return fallback(self)
+
+
+class _AssignedPrivateNodeView(Mapping):
+    def __init__(self, graph):
+        self._graph = graph
+
+    @property
+    def _mapping(self):
+        return _private_node_mapping(self._graph)
+
+    def __iter__(self):
+        return iter(self._mapping)
+
+    def __len__(self):
+        return len(self._mapping)
+
+    def __contains__(self, node):
+        return node in self._mapping
+
+    def __getitem__(self, node):
+        return self._mapping[node]
+
+    def __call__(self, data=False, default=None):
+        if data is False:
+            return list(self)
+        if data is True:
+            return [(node, self[node]) for node in self]
+        return [(node, self[node].get(data, default)) for node in self]
+
+    def data(self, data=True, default=None):
+        return self(data=data, default=default)
+
+    def __and__(self, other):
+        return set(self) & set(other)
+
+    def __rand__(self, other):
+        return set(other) & set(self)
+
+    def __or__(self, other):
+        return set(self) | set(other)
+
+    def __ror__(self, other):
+        return set(other) | set(self)
+
+    def __sub__(self, other):
+        return set(self) - set(other)
+
+    def __rsub__(self, other):
+        return set(other) - set(self)
+
+    def __xor__(self, other):
+        return set(self) ^ set(other)
+
+    def __rxor__(self, other):
+        return set(other) ^ set(self)
+
+
+class _AssignedPrivateEdgeView:
+    def __init__(self, graph):
+        self._graph = graph
+
+    def _nbunch(self, nbunch):
+        if nbunch is None:
+            return list(self._graph)
+        try:
+            if nbunch in self._graph:
+                return [nbunch]
+        except TypeError:
+            pass
+        try:
+            return [node for node in nbunch if node in self._graph]
+        except TypeError:
+            return []
+
+    def _rows(self, nbunch=None, data=False, keys=False):
+        nodes = self._nbunch(nbunch)
+        result = []
+        adj = self._graph.adj
+
+        if self._graph.is_directed():
+            for source in nodes:
+                for target, edge_data in adj[source].items():
+                    if self._graph.is_multigraph():
+                        for key, attrs in edge_data.items():
+                            if keys and data:
+                                result.append((source, target, key, attrs))
+                            elif keys:
+                                result.append((source, target, key))
+                            elif data:
+                                result.append((source, target, attrs))
+                            else:
+                                result.append((source, target))
+                    elif data:
+                        result.append((source, target, edge_data))
+                    else:
+                        result.append((source, target))
+            return result
+
+        seen = set()
+        for source in nodes:
+            for target, edge_data in adj[source].items():
+                if target in seen:
+                    continue
+                if self._graph.is_multigraph():
+                    for key, attrs in edge_data.items():
+                        if keys and data:
+                            result.append((source, target, key, attrs))
+                        elif keys:
+                            result.append((source, target, key))
+                        elif data:
+                            result.append((source, target, attrs))
+                        else:
+                            result.append((source, target))
+                elif data:
+                    result.append((source, target, edge_data))
+                else:
+                    result.append((source, target))
+            seen.add(source)
+        return result
+
+    def __call__(self, nbunch=None, data=False, keys=False, default=None):
+        if isinstance(data, str):
+            rows = self._rows(nbunch=nbunch, data=True, keys=keys)
+            if keys:
+                return [
+                    (u, v, key, attrs.get(data, default))
+                    for u, v, key, attrs in rows
+                ]
+            return [(u, v, attrs.get(data, default)) for u, v, attrs in rows]
+        if data is None:
+            rows = self._rows(nbunch=nbunch, data=False, keys=keys)
+            if keys:
+                return [(u, v, key, default) for u, v, key in rows]
+            return [(u, v, default) for u, v in rows]
+        return self._rows(nbunch=nbunch, data=data, keys=keys)
+
+    def __iter__(self):
+        return iter(self())
+
+    def __len__(self):
+        return len(self())
+
+    def __contains__(self, edge):
+        try:
+            u, v = edge[:2]
+        except (TypeError, ValueError):
+            return False
+        if self._graph.is_multigraph() and len(edge) >= 3:
+            return self._graph.has_edge(u, v, edge[2])
+        return self._graph.has_edge(u, v)
+
+    def __getitem__(self, edge):
+        u, v = edge[:2]
+        if self._graph.is_multigraph() and len(edge) >= 3:
+            key = edge[2]
+            data = self._graph.get_edge_data(u, v, key=key)
+            if data is None:
+                raise KeyError(edge)
+            return data
+        data = self._graph.get_edge_data(u, v)
+        if data is None:
+            raise KeyError(edge)
+        return data
+
+    def data(self, data=True, default=None, nbunch=None, keys=False):
+        return self(nbunch=nbunch, data=data, keys=keys, default=default)
+
+    get = _adjacency_view_get
+    keys = _adjacency_view_keys
+    items = _adjacency_view_items
+    values = _adjacency_view_values
+
+    def __sub__(self, other):
+        return set(self) - set(other)
+
+    def __rsub__(self, other):
+        return set(other) - set(self)
+
+    def __or__(self, other):
+        return set(self) | set(other)
+
+    def __ror__(self, other):
+        return set(other) | set(self)
+
+    def __and__(self, other):
+        return set(self) & set(other)
+
+    def __rand__(self, other):
+        return set(other) & set(self)
+
+    def __xor__(self, other):
+        return set(self) ^ set(other)
+
+    def __rxor__(self, other):
+        return set(other) ^ set(self)
+
+    def __eq__(self, other):
+        if isinstance(other, (set, frozenset)):
+            return set(self) == other
+        return NotImplemented
+
+    __hash__ = None
+
+
+class _AssignedPrivateDegreeView:
+    def __init__(self, graph, *, nodes=None, weight=None):
+        self._graph = graph
+        self._nodes = nodes
+        self._weight = weight
+
+    def _iter_nodes(self):
+        if self._nodes is None:
+            return iter(self._graph)
+        return iter(self._nodes)
+
+    def _edge_weight(self, attrs):
+        if self._weight is None:
+            return 1
+        return attrs.get(self._weight, 1)
+
+    def _out_degree(self, node):
+        total = 0
+        for nbr, edge_data in self._graph.adj[node].items():
+            if self._graph.is_multigraph():
+                total += sum(self._edge_weight(attrs) for attrs in edge_data.values())
+            else:
+                total += self._edge_weight(edge_data)
+            if not self._graph.is_directed() and nbr == node:
+                if self._graph.is_multigraph():
+                    total += sum(self._edge_weight(attrs) for attrs in edge_data.values())
+                else:
+                    total += self._edge_weight(edge_data)
+        return total
+
+    def _in_degree(self, node):
+        if not self._graph.is_directed():
+            return 0
+        total = 0
+        for edge_data in self._graph.pred[node].values():
+            if self._graph.is_multigraph():
+                total += sum(self._edge_weight(attrs) for attrs in edge_data.values())
+            else:
+                total += self._edge_weight(edge_data)
+        return total
+
+    def _degree(self, node):
+        return self._out_degree(node) + self._in_degree(node)
+
+    def __iter__(self):
+        for node in self._iter_nodes():
+            yield (node, self._degree(node))
+
+    def __len__(self):
+        if self._nodes is None:
+            return len(self._graph)
+        return len(self._nodes)
+
+    def __getitem__(self, node):
+        return self._degree(node)
+
+    def __call__(self, nbunch=None, weight=None):
+        if weight is None:
+            weight = self._weight
+        if nbunch is None and weight == self._weight:
+            return self
+        if nbunch is None:
+            return type(self)(self._graph, weight=weight)
+        try:
+            if nbunch in self._graph:
+                return type(self)(self._graph, weight=weight)[nbunch]
+        except TypeError:
+            pass
+        nodes = [node for node in nbunch if node in self._graph]
+        return type(self)(self._graph, nodes=nodes, weight=weight)
+
+
+def _private_aware_iter(raw_iter):
+    def __iter__(self):
+        node_mapping = _private_override(self, _PRIVATE_NODE_OVERRIDE)
+        if node_mapping is not _PRIVATE_MISSING:
+            return iter(node_mapping)
+        return raw_iter(self)
+
+    return __iter__
+
+
+def _private_aware_len(raw_len):
+    def __len__(self):
+        node_mapping = _private_override(self, _PRIVATE_NODE_OVERRIDE)
+        if node_mapping is not _PRIVATE_MISSING:
+            return len(node_mapping)
+        return raw_len(self)
+
+    return __len__
+
+
+def _private_aware_contains(raw_contains):
+    def __contains__(self, node):
+        node_mapping = _private_override(self, _PRIVATE_NODE_OVERRIDE)
+        if node_mapping is not _PRIVATE_MISSING:
+            try:
+                return node in node_mapping
+            except TypeError:
+                return False
+        return raw_contains(self, node)
+
+    return __contains__
+
+
+def _private_aware_nodes(raw_nodes):
+    def nodes(self):
+        if _private_override(self, _PRIVATE_NODE_OVERRIDE) is not _PRIVATE_MISSING:
+            return _AssignedPrivateNodeView(self)
+        return raw_nodes.__get__(self, type(self))
+
+    return property(nodes)
+
+
+def _private_aware_edges(raw_edges):
+    def edges(self):
+        if _has_networkx_private_storage(self):
+            return _AssignedPrivateEdgeView(self)
+        return raw_edges.__get__(self, type(self))
+
+    return property(edges)
+
+
+def _private_aware_degree(raw_degree):
+    def degree(self):
+        if _has_networkx_private_storage(self):
+            return _AssignedPrivateDegreeView(self)
+        return raw_degree.__get__(self, type(self))
+
+    return property(degree)
+
+
+def _private_aware_has_node(raw_has_node):
+    def has_node(self, node):
+        if _private_override(self, _PRIVATE_NODE_OVERRIDE) is not _PRIVATE_MISSING:
+            return node in self
+        return raw_has_node(self, node)
+
+    return has_node
+
+
+def _private_aware_has_edge(raw_has_edge):
+    def has_edge(self, u, v, key=None):
+        if not _has_networkx_private_storage(self):
+            if key is None:
+                return raw_has_edge(self, u, v)
+            return raw_has_edge(self, u, v, key)
+        if u not in self:
+            return False
+        try:
+            neighbors = self.adj[u]
+        except KeyError:
+            return False
+        if v not in neighbors:
+            return False
+        if self.is_multigraph() and key is not None:
+            return key in neighbors[v]
+        return True
+
+    return has_edge
+
+
+def _private_aware_get_edge_data(raw_get_edge_data):
+    def get_edge_data(self, u, v, *args, **kwargs):
+        if not _has_networkx_private_storage(self):
+            return raw_get_edge_data(self, u, v, *args, **kwargs)
+        default = kwargs.pop("default", None)
+        key = kwargs.pop("key", None)
+        if kwargs:
+            unexpected = next(iter(kwargs))
+            raise TypeError(f"get_edge_data() got an unexpected keyword argument '{unexpected}'")
+        if self.is_multigraph():
+            if len(args) > 2:
+                raise TypeError(
+                    f"get_edge_data() takes from 3 to 5 positional arguments but {len(args) + 3} were given"
+                )
+            if len(args) >= 1:
+                key = args[0]
+            if len(args) == 2:
+                default = args[1]
+        else:
+            if len(args) > 1:
+                raise TypeError(
+                    f"get_edge_data() takes from 3 to 4 positional arguments but {len(args) + 3} were given"
+                )
+            if args:
+                default = args[0]
+        if not self.has_edge(u, v, key):
+            return default
+        edge_data = self.adj[u][v]
+        if self.is_multigraph() and key is not None:
+            return edge_data[key]
+        return edge_data
+
+    return get_edge_data
+
+
+def _private_aware_number_of_nodes(raw_number_of_nodes):
+    def number_of_nodes(self):
+        if _private_override(self, _PRIVATE_NODE_OVERRIDE) is not _PRIVATE_MISSING:
+            return len(self)
+        return raw_number_of_nodes(self)
+
+    return number_of_nodes
+
+
+def _private_aware_number_of_edges(raw_number_of_edges):
+    def number_of_edges(self, u=None, v=None):
+        if not _has_networkx_private_storage(self):
+            return raw_number_of_edges(self, u, v)
+        if u is None and v is None:
+            return len(self.edges(keys=True)) if self.is_multigraph() else len(self.edges)
+        if v is None:
+            raise TypeError("number_of_edges() missing 1 required positional argument: 'u'")
+        if not self.has_edge(u, v):
+            return 0
+        if self.is_multigraph():
+            return len(self.adj[u][v])
+        return 1
+
+    return number_of_edges
+
+
+def _private_aware_neighbors(raw_neighbors, *, attr_name="adj"):
+    def neighbors(self, node):
+        if _has_networkx_private_storage(self):
+            adjacency = getattr(self, attr_name)
+            if node not in self:
+                raise NetworkXError(f"The node {node} is not in the graph.")
+            return iter(adjacency[node])
+        return raw_neighbors(self, node)
+
+    return neighbors
+
+
+Graph.__iter__ = _private_aware_iter(_GRAPH_PRIVATE_AWARE_ITER)
+DiGraph.__iter__ = _private_aware_iter(_DIGRAPH_PRIVATE_AWARE_ITER)
+MultiGraph.__iter__ = _private_aware_iter(_MULTIGRAPH_PRIVATE_AWARE_ITER)
+MultiDiGraph.__iter__ = _private_aware_iter(_MULTIDIGRAPH_PRIVATE_AWARE_ITER)
+Graph.__len__ = _private_aware_len(_GRAPH_PRIVATE_AWARE_LEN)
+DiGraph.__len__ = _private_aware_len(_DIGRAPH_PRIVATE_AWARE_LEN)
+MultiGraph.__len__ = _private_aware_len(_MULTIGRAPH_PRIVATE_AWARE_LEN)
+MultiDiGraph.__len__ = _private_aware_len(_MULTIDIGRAPH_PRIVATE_AWARE_LEN)
+Graph.__contains__ = _private_aware_contains(_GRAPH_PRIVATE_AWARE_CONTAINS)
+DiGraph.__contains__ = _private_aware_contains(_DIGRAPH_PRIVATE_AWARE_CONTAINS)
+MultiGraph.__contains__ = _private_aware_contains(_MULTIGRAPH_PRIVATE_AWARE_CONTAINS)
+MultiDiGraph.__contains__ = _private_aware_contains(_MULTIDIGRAPH_PRIVATE_AWARE_CONTAINS)
+
+Graph.nodes = _private_aware_nodes(_GRAPH_PRIVATE_AWARE_NODES)
+DiGraph.nodes = _private_aware_nodes(_DIGRAPH_PRIVATE_AWARE_NODES)
+MultiGraph.nodes = _private_aware_nodes(_MULTIGRAPH_PRIVATE_AWARE_NODES)
+MultiDiGraph.nodes = _private_aware_nodes(_MULTIDIGRAPH_PRIVATE_AWARE_NODES)
+Graph.edges = _private_aware_edges(_GRAPH_PRIVATE_AWARE_EDGES)
+DiGraph.edges = _private_aware_edges(_DIGRAPH_PRIVATE_AWARE_EDGES)
+MultiGraph.edges = _private_aware_edges(_MULTIGRAPH_PRIVATE_AWARE_EDGES)
+MultiDiGraph.edges = _private_aware_edges(_MULTIDIGRAPH_PRIVATE_AWARE_EDGES)
+Graph.degree = _private_aware_degree(_GRAPH_PRIVATE_AWARE_DEGREE)
+DiGraph.degree = _private_aware_degree(_DIGRAPH_PRIVATE_AWARE_DEGREE)
+MultiGraph.degree = _private_aware_degree(_MULTIGRAPH_PRIVATE_AWARE_DEGREE)
+MultiDiGraph.degree = _private_aware_degree(_MULTIDIGRAPH_PRIVATE_AWARE_DEGREE)
+
+Graph.has_node = _private_aware_has_node(_GRAPH_PRIVATE_AWARE_HAS_NODE)
+DiGraph.has_node = _private_aware_has_node(_DIGRAPH_PRIVATE_AWARE_HAS_NODE)
+MultiGraph.has_node = _private_aware_has_node(_MULTIGRAPH_PRIVATE_AWARE_HAS_NODE)
+MultiDiGraph.has_node = _private_aware_has_node(_MULTIDIGRAPH_PRIVATE_AWARE_HAS_NODE)
+Graph.has_edge = _private_aware_has_edge(_GRAPH_PRIVATE_AWARE_HAS_EDGE)
+DiGraph.has_edge = _private_aware_has_edge(_DIGRAPH_PRIVATE_AWARE_HAS_EDGE)
+MultiGraph.has_edge = _private_aware_has_edge(_MULTIGRAPH_PRIVATE_AWARE_HAS_EDGE)
+MultiDiGraph.has_edge = _private_aware_has_edge(_MULTIDIGRAPH_PRIVATE_AWARE_HAS_EDGE)
+Graph.get_edge_data = _private_aware_get_edge_data(_GRAPH_PRIVATE_AWARE_GET_EDGE_DATA)
+DiGraph.get_edge_data = _private_aware_get_edge_data(_DIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA)
+MultiGraph.get_edge_data = _private_aware_get_edge_data(_MULTIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA)
+MultiDiGraph.get_edge_data = _private_aware_get_edge_data(_MULTIDIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA)
+Graph.number_of_nodes = _private_aware_number_of_nodes(_GRAPH_PRIVATE_AWARE_NUMBER_OF_NODES)
+DiGraph.number_of_nodes = _private_aware_number_of_nodes(_DIGRAPH_PRIVATE_AWARE_NUMBER_OF_NODES)
+MultiGraph.number_of_nodes = _private_aware_number_of_nodes(_MULTIGRAPH_PRIVATE_AWARE_NUMBER_OF_NODES)
+MultiDiGraph.number_of_nodes = _private_aware_number_of_nodes(_MULTIDIGRAPH_PRIVATE_AWARE_NUMBER_OF_NODES)
+Graph.order = Graph.number_of_nodes
+DiGraph.order = DiGraph.number_of_nodes
+MultiGraph.order = MultiGraph.number_of_nodes
+MultiDiGraph.order = MultiDiGraph.number_of_nodes
+Graph.number_of_edges = _private_aware_number_of_edges(_GRAPH_PRIVATE_AWARE_NUMBER_OF_EDGES)
+DiGraph.number_of_edges = _private_aware_number_of_edges(_DIGRAPH_PRIVATE_AWARE_NUMBER_OF_EDGES)
+MultiGraph.number_of_edges = _private_aware_number_of_edges(_MULTIGRAPH_PRIVATE_AWARE_NUMBER_OF_EDGES)
+MultiDiGraph.number_of_edges = _private_aware_number_of_edges(_MULTIDIGRAPH_PRIVATE_AWARE_NUMBER_OF_EDGES)
+Graph.neighbors = _private_aware_neighbors(_GRAPH_PRIVATE_AWARE_NEIGHBORS)
+DiGraph.neighbors = _private_aware_neighbors(_DIGRAPH_PRIVATE_AWARE_NEIGHBORS, attr_name="succ")
+DiGraph.successors = _private_aware_neighbors(_DIGRAPH_PRIVATE_AWARE_SUCCESSORS, attr_name="succ")
+DiGraph.predecessors = _private_aware_neighbors(_DIGRAPH_PRIVATE_AWARE_PREDECESSORS, attr_name="pred")
+MultiGraph.neighbors = _private_aware_neighbors(_MULTIGRAPH_PRIVATE_AWARE_NEIGHBORS)
+MultiDiGraph.neighbors = _private_aware_neighbors(_MULTIDIGRAPH_PRIVATE_AWARE_NEIGHBORS, attr_name="succ")
+MultiDiGraph.successors = _private_aware_neighbors(_MULTIDIGRAPH_PRIVATE_AWARE_SUCCESSORS, attr_name="succ")
+MultiDiGraph.predecessors = _private_aware_neighbors(_MULTIDIGRAPH_PRIVATE_AWARE_PREDECESSORS, attr_name="pred")
+
+Graph.adj = property(
+    lambda self: _private_adj_mapping(self, _graph_adj_view),
+    lambda self, value: _set_private_override(self, _PRIVATE_ADJ_OVERRIDE, value),
+)
+Graph._adj = property(
+    lambda self: _private_adj_mapping(self, _graph_adj_view),
+    lambda self, value: _set_private_override(self, _PRIVATE_ADJ_OVERRIDE, value),
+)
+Graph._node = property(
+    _private_node_mapping,
+    lambda self, value: _set_private_override(self, _PRIVATE_NODE_OVERRIDE, value),
+)
+DiGraph.adj = property(
+    lambda self: _private_directed_adj_mapping(self, _digraph_adj_view),
+    lambda self, value: _set_private_override(self, _PRIVATE_ADJ_OVERRIDE, value),
+)
+DiGraph._adj = property(
+    lambda self: _private_directed_adj_mapping(self, _digraph_adj_view),
+    lambda self, value: _set_private_override(self, _PRIVATE_ADJ_OVERRIDE, value),
+)
+DiGraph.succ = property(
+    lambda self: _private_succ_mapping(self, _digraph_succ_view),
+    lambda self, value: _set_private_override(self, _PRIVATE_SUCC_OVERRIDE, value),
+)
+DiGraph._succ = property(
+    lambda self: _private_succ_mapping(self, _digraph_succ_view),
+    lambda self, value: _set_private_override(self, _PRIVATE_SUCC_OVERRIDE, value),
+)
+DiGraph.pred = property(
+    lambda self: _private_pred_mapping(self, _digraph_pred_view),
+    lambda self, value: _set_private_override(self, _PRIVATE_PRED_OVERRIDE, value),
+)
+DiGraph._pred = property(
+    lambda self: _private_pred_mapping(self, _digraph_pred_view),
+    lambda self, value: _set_private_override(self, _PRIVATE_PRED_OVERRIDE, value),
+)
+DiGraph._node = property(
+    _private_node_mapping,
+    lambda self, value: _set_private_override(self, _PRIVATE_NODE_OVERRIDE, value),
+)
+MultiGraph.adj = property(
+    lambda self: _private_adj_mapping(self, _multigraph_adj_view),
+    lambda self, value: _set_private_override(self, _PRIVATE_ADJ_OVERRIDE, value),
+)
+MultiGraph._adj = property(
+    lambda self: _private_adj_mapping(self, _multigraph_adj_view),
+    lambda self, value: _set_private_override(self, _PRIVATE_ADJ_OVERRIDE, value),
+)
+MultiGraph._node = property(
+    _private_node_mapping,
+    lambda self, value: _set_private_override(self, _PRIVATE_NODE_OVERRIDE, value),
+)
+MultiDiGraph.adj = property(
+    lambda self: _private_directed_adj_mapping(self, _multidigraph_adj_view),
+    lambda self, value: _set_private_override(self, _PRIVATE_ADJ_OVERRIDE, value),
+)
+MultiDiGraph._adj = property(
+    lambda self: _private_directed_adj_mapping(self, _multidigraph_adj_view),
+    lambda self, value: _set_private_override(self, _PRIVATE_ADJ_OVERRIDE, value),
+)
+MultiDiGraph.succ = property(
+    lambda self: _private_succ_mapping(self, _multidigraph_succ_view),
+    lambda self, value: _set_private_override(self, _PRIVATE_SUCC_OVERRIDE, value),
+)
+MultiDiGraph._succ = property(
+    lambda self: _private_succ_mapping(self, _multidigraph_succ_view),
+    lambda self, value: _set_private_override(self, _PRIVATE_SUCC_OVERRIDE, value),
+)
+MultiDiGraph.pred = property(
+    lambda self: _private_pred_mapping(self, _multidigraph_pred_view),
+    lambda self, value: _set_private_override(self, _PRIVATE_PRED_OVERRIDE, value),
+)
+MultiDiGraph._pred = property(
+    lambda self: _private_pred_mapping(self, _multidigraph_pred_view),
+    lambda self, value: _set_private_override(self, _PRIVATE_PRED_OVERRIDE, value),
+)
+MultiDiGraph._node = property(
+    _private_node_mapping,
+    lambda self, value: _set_private_override(self, _PRIVATE_NODE_OVERRIDE, value),
+)
+
+
 _FILTERED_GRAPH_VIEW_TYPES = {
     (False, False): type(
         "Graph",
