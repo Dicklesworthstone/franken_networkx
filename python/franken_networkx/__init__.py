@@ -6960,10 +6960,19 @@ from franken_networkx._fnx import (
 
 # Algorithm functions — isolates
 from franken_networkx._fnx import (
-    is_isolate,
+    is_isolate as _raw_is_isolate,
     isolates,
     number_of_isolates,
 )
+
+
+def is_isolate(G, n):
+    """Return True iff ``n`` is an isolate (degree-0 node) of *G*.
+
+    Second parameter renamed from the Rust binding's ``node`` to match
+    networkx's public signature ``is_isolate(G, n)``.
+    """
+    return _raw_is_isolate(G, n)
 
 # Algorithm functions — boundary
 from franken_networkx._fnx import (
@@ -7086,7 +7095,17 @@ def conductance(G, S, T=None, weight=None):
     return num_cut_edges / denominator
 
 # Algorithm functions — path validation
-from franken_networkx._fnx import is_simple_path
+from franken_networkx._fnx import is_simple_path as _raw_is_simple_path
+
+
+def is_simple_path(G, nodes):
+    """Return True iff ``nodes`` is a simple path in *G*.
+
+    Second parameter renamed from the Rust binding's ``path`` to match
+    networkx's public signature ``is_simple_path(G, nodes)``.
+    """
+    return _raw_is_simple_path(G, nodes)
+
 
 # Algorithm functions — matching validators
 from franken_networkx._fnx import (
@@ -7556,9 +7575,18 @@ from franken_networkx._fnx import (
 
 # Algorithm functions — matching additional
 from franken_networkx._fnx import (
-    is_edge_cover,
+    is_edge_cover as _raw_is_edge_cover,
     max_weight_clique as _raw_max_weight_clique,
 )
+
+
+def is_edge_cover(G, cover):
+    """Return True iff ``cover`` is an edge cover of *G*.
+
+    Second parameter renamed from the Rust binding's ``edges`` to match
+    networkx's public signature ``is_edge_cover(G, cover)``.
+    """
+    return _raw_is_edge_cover(G, cover)
 
 
 def max_weight_clique(G, weight="weight"):
@@ -8199,11 +8227,34 @@ from franken_networkx._fnx import (
     biconnected_components as _raw_biconnected_components,
     biconnected_component_edges,
     is_semiconnected as _raw_is_semiconnected,
-    kosaraju_strongly_connected_components,
+    kosaraju_strongly_connected_components as _raw_kosaraju_strongly_connected_components,
     attracting_components as _raw_attracting_components,
     number_attracting_components as _raw_number_attracting_components,
     is_attracting_component as _raw_is_attracting_component,
 )
+
+
+def kosaraju_strongly_connected_components(G, source=None):
+    """Kosaraju-style strongly connected components.
+
+    Each component is returned as a ``set`` to match networkx; the Rust
+    helper yields lists. ``source`` is accepted for networkx signature
+    parity — when provided, the component containing ``source`` is
+    yielded first, followed by the remaining SCCs in the Rust emission
+    order.
+    """
+    sccs = [set(component) for component in _raw_kosaraju_strongly_connected_components(G)]
+    if source is None:
+        yield from sccs
+        return
+    for component in sccs:
+        if source in component:
+            yield component
+            break
+    for component in sccs:
+        if source in component:
+            continue
+        yield component
 
 
 def node_connected_component(G, n):
@@ -9166,15 +9217,16 @@ def nodes_with_selfloops(G):
     return (node for node in G.adj if node in G.adj[node])
 
 
-def all_neighbors(G, node):
-    """Return all neighbors of *node* in *G* (including predecessors for DiGraph).
+def all_neighbors(graph, node):
+    """Return all neighbors of *node* in *graph* (predecessors + successors on DiGraph).
 
-    For undirected graphs, equivalent to ``G.neighbors(node)``.
+    First parameter named ``graph`` to match networkx's public signature.
+    For undirected graphs, equivalent to ``graph.neighbors(node)``.
     For directed graphs, returns predecessors followed by successors.
     """
-    if G.is_directed():
-        return itertools.chain(G.predecessors(node), G.successors(node))
-    return G.neighbors(node)
+    if graph.is_directed():
+        return itertools.chain(graph.predecessors(node), graph.successors(node))
+    return graph.neighbors(node)
 
 
 def is_path(G, path):
@@ -15128,38 +15180,59 @@ def all_pairs_all_shortest_paths(G, weight=None, method="dijkstra"):
         yield (source, paths_dict)
 
 
-def reconstruct_path(sources, targets, pred):
-    """Reconstruct a path from predecessors dict.
+def reconstruct_path(source, target, predecessors):
+    """Reconstruct a path from *source* to *target*.
 
-    Parameters
-    ----------
-    sources : set of nodes
-    targets : set of nodes
-    pred : dict
-        Predecessor mapping.
-
-    Returns
-    -------
-    list
-        The reconstructed path.
+    Matches networkx's public signature
+    ``reconstruct_path(source, target, predecessors)`` where
+    ``predecessors`` is either the nested
+    ``floyd_warshall_predecessor_and_distance`` dict
+    (``predecessors[src][tgt] -> predecessor``) or a flat dict of
+    ``{node: predecessor_list}`` (dijkstra-style output).
     """
-    for target in targets:
+    # Float-warshall style: predecessors is {src: {tgt: pred}}
+    if (
+        isinstance(predecessors, dict)
+        and source in predecessors
+        and isinstance(predecessors.get(source), dict)
+    ):
+        table = predecessors[source]
+        if source == target:
+            return []
+        if target not in table:
+            return []
         path = [target]
         current = target
-        while current not in sources:
-            preds = pred.get(current, [])
-            if not preds:
-                break
-            current = preds[0]
+        while current != source:
+            current = table[current]
             path.append(current)
-        if current in sources:
-            path.reverse()
-            return path
-    return []
+        path.reverse()
+        return path
+
+    # Dijkstra-style: predecessors is {node: [pred1, ...]}
+    if source == target:
+        return [source]
+    path = [target]
+    current = target
+    while current != source:
+        preds = predecessors.get(current, [])
+        if not preds:
+            return []
+        current = preds[0] if isinstance(preds, (list, tuple)) else preds
+        path.append(current)
+    path.reverse()
+    return path
 
 
 def generate_random_paths(
-    G, sample_size, path_length=5, index_map=None, weight=None, seed=None
+    G,
+    sample_size,
+    path_length=5,
+    index_map=None,
+    weight=None,
+    seed=None,
+    *,
+    source=None,
 ):
     """Generate random paths by random walks.
 
@@ -15171,6 +15244,10 @@ def generate_random_paths(
     path_length : int, optional
         Maximum length of each path. Default 5.
     seed : int or None, optional
+    source : node or None, optional (keyword-only)
+        Fixed starting node for every sampled walk. When ``None``
+        (default), each walk starts from a uniformly random node, which
+        is the behaviour fnx shipped before this kwarg was added.
 
     Yields
     ------
@@ -15183,9 +15260,11 @@ def generate_random_paths(
     nodes = list(G.nodes())
     if not nodes:
         return
+    if source is not None and source not in G:
+        raise NodeNotFound(f"Source {source} is not in G")
 
     for _ in range(sample_size):
-        start = rng.choice(nodes)
+        start = source if source is not None else rng.choice(nodes)
         path = [start]
         current = start
         for _ in range(path_length - 1):
@@ -18238,9 +18317,17 @@ def ra_index_soundarajan_hopcroft(G, ebunch=None, community="community"):
         yield (u, v, score)
 
 
-def node_attribute_xy(G, attribute):
-    """Yield (x, y) pairs of attribute values for edges."""
+def node_attribute_xy(G, attribute, nodes=None):
+    """Yield (x, y) pairs of attribute values for edges.
+
+    ``nodes`` restricts the source side: when given, only edges whose
+    source is in ``nodes`` are emitted. Matches networkx's public
+    signature ``node_attribute_xy(G, attribute, nodes=None)``.
+    """
+    node_filter = None if nodes is None else set(nodes)
     for u, nbrsdict in G.adjacency():
+        if node_filter is not None and u not in node_filter:
+            continue
         u_attrs = G.nodes[u] if hasattr(G.nodes, "__getitem__") else {}
         x = u_attrs.get(attribute) if isinstance(u_attrs, dict) else None
         if G.is_multigraph():
@@ -18335,19 +18422,61 @@ def recursive_simple_cycles(G):
 # ---------------------------------------------------------------------------
 
 
-def remove_node_attributes(G, name):
-    """Remove attribute *name* from all nodes."""
-    for node in G.nodes():
+def remove_node_attributes(G, *attr_names, nbunch=None):
+    """Remove the given attribute names from nodes in *nbunch* (default all).
+
+    Matches networkx's public signature
+    ``remove_node_attributes(G, *attr_names, nbunch=None)``.
+    """
+    if not attr_names:
+        # Treat absence as no-op (matches nx silently doing nothing).
+        return
+    target_nodes = G.nodes() if nbunch is None else [n for n in nbunch if n in G]
+    for node in target_nodes:
         attrs = G.nodes[node] if hasattr(G.nodes, "__getitem__") else {}
-        if isinstance(attrs, dict) and name in attrs:
-            del attrs[name]
+        if not isinstance(attrs, dict):
+            continue
+        for name in attr_names:
+            if name in attrs:
+                del attrs[name]
 
 
-def remove_edge_attributes(G, name):
-    """Remove attribute *name* from all edges."""
-    for u, v, data in G.edges(data=True):
-        if isinstance(data, dict) and name in data:
-            del data[name]
+def remove_edge_attributes(G, *attr_names, ebunch=None):
+    """Remove the given attribute names from edges in *ebunch* (default all).
+
+    Matches networkx's public signature
+    ``remove_edge_attributes(G, *attr_names, ebunch=None)``.
+    """
+    if not attr_names:
+        return
+    if ebunch is None:
+        edge_iter = list(G.edges(keys=True) if G.is_multigraph() else G.edges())
+    else:
+        edge_iter = list(ebunch)
+    for edge in edge_iter:
+        if G.is_multigraph() and len(edge) == 3:
+            u, v, k = edge
+            if G.has_edge(u, v, k):
+                data = G[u][v][k]
+            else:
+                continue
+        else:
+            u, v = edge[0], edge[1]
+            if G.has_edge(u, v):
+                data = G[u][v]
+                if G.is_multigraph():
+                    # No key provided on MG — nx strips across all parallel edges.
+                    for k in list(data.keys()):
+                        d = data[k]
+                        if isinstance(d, dict):
+                            for name in attr_names:
+                                d.pop(name, None)
+                    continue
+            else:
+                continue
+        if isinstance(data, dict):
+            for name in attr_names:
+                data.pop(name, None)
 
 
 def floyd_warshall_numpy(G, nodelist=None, weight="weight"):
@@ -18604,14 +18733,22 @@ def _chordless_cycles_via_parity(G, *, length_bound=None):
     )
 
 
-def to_undirected(G):
-    """Return a frozen live undirected view of G."""
-    return _generic_undirected_graph_view(G)
+def to_undirected(graph):
+    """Return a frozen live undirected view of *graph*.
+
+    Parameter renamed from ``G`` to ``graph`` to match networkx's public
+    signature ``to_undirected(graph)``.
+    """
+    return _generic_undirected_graph_view(graph)
 
 
-def to_directed(G):
-    """Return a frozen live directed view of G."""
-    return _generic_directed_graph_view(G)
+def to_directed(graph):
+    """Return a frozen live directed view of *graph*.
+
+    Parameter renamed from ``G`` to ``graph`` to match networkx's public
+    signature ``to_directed(graph)``.
+    """
+    return _generic_directed_graph_view(graph)
 
 
 class _ReverseDirectedViewBase:
@@ -24442,17 +24579,21 @@ def gomory_hu_tree(G, capacity="capacity", flow_func=None):
     return result
 
 
-def visibility_graph(sequence):
-    """Visibility graph of a time series."""
+def visibility_graph(series):
+    """Visibility graph of a time *series*.
+
+    Parameter renamed from ``sequence`` to ``series`` to match networkx's
+    public signature ``visibility_graph(series)``.
+    """
     G = Graph()
-    n = len(sequence)
+    n = len(series)
     for i in range(n):
         G.add_node(i)
     for i in range(n):
         for j in range(i + 1, n):
             visible = True
             for k in range(i + 1, j):
-                if sequence[k] >= sequence[i] + (sequence[j] - sequence[i]) * (
+                if series[k] >= series[i] + (series[j] - series[i]) * (
                     k - i
                 ) / (j - i):
                     visible = False
@@ -25091,8 +25232,15 @@ def subgraph_view(G, filter_node=None, filter_edge=None):
     )
 
 
-def restricted_view(G, nodes_to_remove, edges_to_remove):
-    """View with specified nodes and edges removed."""
+def restricted_view(G, nodes, edges):
+    """View with specified nodes and edges removed.
+
+    Parameter names match networkx's public signature
+    ``restricted_view(G, nodes, edges)`` — earlier fnx used
+    ``nodes_to_remove``/``edges_to_remove`` which broke keyword calls.
+    """
+    nodes_to_remove = nodes
+    edges_to_remove = edges
     hidden_nodes = set(nodes_to_remove)
 
     def filter_node(node):
@@ -25886,13 +26034,22 @@ def generate_graphml(
 
 
 # Generators
-def mycielskian(G):
-    """Return the Mycielskian of G (increases chromatic number by 1).
+def mycielskian(G, iterations=1):
+    """Return the Mycielskian of G applied ``iterations`` times.
 
-    Given G with nodes {v1,...,vn}, M(G) adds mirror nodes u_i for each v_i,
-    an apex node w, mirror-to-original edges for each original edge, and
-    edges from each mirror to the apex.
+    Each application increases the chromatic number by 1. ``iterations``
+    matches networkx's public signature; default 1 preserves the
+    single-step behaviour fnx shipped previously.
     """
+    if iterations < 0:
+        raise ValueError("iterations must be non-negative")
+    M = G
+    for _ in range(iterations):
+        M = _mycielskian_step(M)
+    return M
+
+
+def _mycielskian_step(G):
     n = G.number_of_nodes()
     nodes = list(G.nodes())
     node_to_idx = {v: i for i, v in enumerate(nodes)}
@@ -26265,12 +26422,69 @@ def random_labeled_rooted_forest(n, q=None, seed=None):
     return random_unlabeled_rooted_forest(n, q=q, seed=seed)
 
 
-def partial_duplication_graph(n, p, seed=None):
-    """Partial duplication divergence graph."""
+def partial_duplication_graph(N, n, p, q, seed=None, *, create_using=None):
+    """Partial duplication graph (Chung–Lu).
+
+    Matches networkx's public signature
+    ``partial_duplication_graph(N, n, p, q, seed=None, *, create_using=None)``.
+
+    Starts from a clique of *n* vertices and grows to *N* vertices.
+    ``p`` is the probability of retaining an edge from the duplicated
+    vertex's neighbour to the new vertex; ``q`` is the probability of
+    adding a new edge from the new vertex to a random non-neighbour.
+    """
+    import random as _random
+
+    if p < 0 or p > 1:
+        raise NetworkXError("p must be in [0, 1]")
+    if q < 0 or q > 1:
+        raise NetworkXError("q must be in [0, 1]")
+    if n < 1:
+        raise NetworkXError("n must be >= 1")
+    if N < n:
+        raise NetworkXError("N must be >= n")
+
+    rng = _random.Random(seed)
+    if create_using is None:
+        G = Graph()
+    else:
+        G = create_using() if callable(create_using) else create_using
+        G.clear()
+    # Seed with clique of size n.
+    G.add_nodes_from(range(n))
+    for i in range(n):
+        for j in range(i + 1, n):
+            G.add_edge(i, j)
+    for new in range(n, N):
+        source = rng.randrange(new)
+        G.add_node(new)
+        for nb in list(G.neighbors(source)):
+            if rng.random() < p:
+                G.add_edge(new, nb)
+        for v in range(new):
+            if v != source and not G.has_edge(new, v):
+                if rng.random() < q:
+                    G.add_edge(new, v)
+    return G
+
+
+def duplication_divergence_graph(n, p, seed=None, create_using=None):
+    """Duplication-divergence graph.
+
+    ``create_using`` is accepted for networkx signature parity; networkx
+    treats it as a hint about the returned graph class. Internally this
+    runs the classic duplication-with-divergence random walk (the
+    simpler single-p variant), not the full Chung–Lu partial duplication
+    (N, n, p, q) model exposed via :func:`partial_duplication_graph`.
+    """
     import random as _random
 
     rng = _random.Random(seed)
-    G = Graph()
+    if create_using is None:
+        G = Graph()
+    else:
+        G = create_using() if callable(create_using) else create_using
+        G.clear()
     G.add_edge(0, 1)
     for new in range(2, n):
         target = rng.randint(0, new - 1)
@@ -26280,22 +26494,6 @@ def partial_duplication_graph(n, p, seed=None):
                 G.add_edge(new, nb)
         G.add_edge(new, target)
     return G
-
-
-def duplication_divergence_graph(n, p, seed=None, create_using=None):
-    """Duplication-divergence graph.
-
-    ``create_using`` is accepted for networkx signature parity; networkx
-    treats it as a hint about the returned graph class.
-    """
-    G = partial_duplication_graph(n, p, seed=seed)
-    if create_using is None:
-        return G
-    target = create_using() if callable(create_using) else create_using
-    target.clear()
-    target.add_nodes_from(G.nodes(data=True))
-    target.add_edges_from(G.edges(data=True))
-    return target
 
 
 def interval_graph(intervals):
@@ -26796,12 +26994,15 @@ def k_components(G, flow_func=None):
     return _call_networkx_for_parity("k_components", G, flow_func=flow_func)
 
 
-def k_factor(G, k):
+def k_factor(G, k, matching_weight="weight"):
     """Return a k-regular spanning subgraph of G (if exists).
 
     A k-factor is a spanning subgraph where every node has degree exactly k.
     Uses greedy edge removal: iteratively remove edges from nodes with degree > k,
     preferring edges to high-degree neighbors to preserve options.
+
+    ``matching_weight`` matches networkx's public signature and is
+    forwarded to the internal max-weight matching used for k=1.
     """
     if k < 0:
         raise NetworkXError("k must be non-negative")
@@ -26821,7 +27022,7 @@ def k_factor(G, k):
 
     # For k=1, find a maximum matching and verify it's perfect.
     if k == 1:
-        matching = max_weight_matching(G)
+        matching = max_weight_matching(G, weight=matching_weight)
         if len(matching) * 2 < G.number_of_nodes():
             raise NetworkXUnfeasible("No perfect matching exists for 1-factor")
         H = Graph()

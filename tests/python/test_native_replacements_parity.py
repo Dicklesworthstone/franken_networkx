@@ -164,7 +164,9 @@ class TestWLHash:
         sh = fnx.weisfeiler_lehman_subgraph_hashes(G, iterations=3)
         assert len(sh) == 5
         for v in sh.values():
-            assert len(v) == 4  # init + 3 iterations
+            # nx returns one hash per iteration (no init entry). The
+            # earlier assertion of 4 dated to a pre-3.5 contract.
+            assert len(v) == 3
 
 
 @needs_nx

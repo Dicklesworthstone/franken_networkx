@@ -188,25 +188,32 @@ class TestIsSemiconnected:
 
 class TestKosarajuSCC:
     def test_cycle(self, directed_cycle):
-        sccs = fnx.kosaraju_strongly_connected_components(directed_cycle)
+        # nx.kosaraju_strongly_connected_components returns a generator of
+        # sets; materialise before inspecting length/contents.
+        sccs = list(fnx.kosaraju_strongly_connected_components(directed_cycle))
         assert len(sccs) == 1
         assert sorted(sccs[0]) == ["a", "b", "c"]
 
     def test_chain(self, directed_chain):
-        sccs = fnx.kosaraju_strongly_connected_components(directed_chain)
+        sccs = list(fnx.kosaraju_strongly_connected_components(directed_chain))
         assert len(sccs) == 3  # all singletons
 
     def test_matches_tarjan(self, directed_cycle):
         """Kosaraju and Tarjan should give the same result."""
         tarjan = list(fnx.strongly_connected_components(directed_cycle))
-        kosaraju = fnx.kosaraju_strongly_connected_components(directed_cycle)
+        kosaraju = list(
+            fnx.kosaraju_strongly_connected_components(directed_cycle)
+        )
         tarjan_sorted = sorted([sorted(c) for c in tarjan])
         kosaraju_sorted = sorted([sorted(c) for c in kosaraju])
         assert tarjan_sorted == kosaraju_sorted
 
     def test_raises_on_undirected(self, triangle):
+        # kosaraju is now a generator function; the NetworkXNotImplemented
+        # is only raised once the generator is advanced. Wrap in list()
+        # (or next()) so the exception surfaces at the call site.
         with pytest.raises(fnx.NetworkXNotImplemented):
-            fnx.kosaraju_strongly_connected_components(triangle)
+            list(fnx.kosaraju_strongly_connected_components(triangle))
 
 
 # ---------------------------------------------------------------------------

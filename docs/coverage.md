@@ -6,8 +6,8 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 45 | 5% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 733 | 91% | Python-defined exports with no runtime NetworkX dependency detected |
+| RUST_NATIVE | 41 | 5% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 737 | 91% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 22 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
@@ -25,8 +25,8 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 670 |
-| `franken_networkx._fnx` | 45 |
+| `franken_networkx` | 674 |
+| `franken_networkx._fnx` | 41 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
@@ -36,7 +36,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 | `networkx.algorithms.tree.coding` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (45)
+## RUST_NATIVE exports (41)
 
 - `bfs_layers`
 - `biconnected_component_edges`
@@ -53,19 +53,15 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `is_branching`
 - `is_connected`
 - `is_dominating_set`
-- `is_edge_cover`
 - `is_empty`
 - `is_eulerian`
-- `is_isolate`
 - `is_k_regular`
 - `is_matching`
 - `is_maximal_matching`
 - `is_perfect_matching`
 - `is_semieulerian`
-- `is_simple_path`
 - `is_weakly_connected`
 - `isolates`
-- `kosaraju_strongly_connected_components`
 - `large_clique_size`
 - `max_clique`
 - `max_weight_matching`
@@ -84,7 +80,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `tree_broadcast_center`
 - `tree_broadcast_time`
 
-## PY_WRAPPER exports (733)
+## PY_WRAPPER exports (737)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -446,9 +442,11 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `is_directed`
 - `is_directed_acyclic_graph`
 - `is_distance_regular`
+- `is_edge_cover`
 - `is_forest`
 - `is_frozen`
 - `is_graphical`
+- `is_isolate`
 - `is_isomorphic`
 - `is_k_edge_connected`
 - `is_kl_connected`
@@ -463,6 +461,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `is_regular`
 - `is_regular_expander`
 - `is_semiconnected`
+- `is_simple_path`
 - `is_strongly_connected`
 - `is_strongly_regular`
 - `is_tournament`
@@ -498,6 +497,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `kernighan_lin_bisection`
 - `kl_connected_subgraph`
 - `kneser_graph`
+- `kosaraju_strongly_connected_components`
 - `krackhardt_kite_graph`
 - `label_propagation_communities`
 - `ladder_graph`
