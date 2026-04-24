@@ -3611,9 +3611,49 @@ def betweenness_centrality(
 
 
 def voterank(G, number_of_nodes=None, *, backend=None, **backend_kwargs):
-    """Select influential spreaders using VoteRank."""
+    """Select influential spreaders using VoteRank.
+
+    Matches networkx's tie-breaking rule — ``max(G.nodes, key=score)``
+    returns the first-iterated node with the maximum score, which on
+    e.g. karate_club_graph means the lowest-labelled node wins a tie.
+    The previous fnx path forwarded to the Rust helper whose internal
+    tie-break ordered ties by a different criterion, so elections
+    after the top few seeds diverged from networkx.
+    """
     _validate_backend_dispatch_keywords("voterank", backend, backend_kwargs)
-    return _raw_voterank(G, number_of_nodes=number_of_nodes)
+
+    influential_nodes = []
+    if len(G) == 0:
+        return influential_nodes
+    if number_of_nodes is None or number_of_nodes > len(G):
+        number_of_nodes = len(G)
+
+    if G.is_directed():
+        avg_degree = sum(deg for _, deg in G.out_degree()) / len(G)
+    else:
+        avg_degree = sum(deg for _, deg in G.degree()) / len(G)
+
+    vote_rank = {n: [0, 1] for n in G.nodes()}
+    for _ in range(number_of_nodes):
+        for n in G.nodes():
+            vote_rank[n][0] = 0
+        for u, v in G.edges():
+            vote_rank[u][0] += vote_rank[v][1]
+            if not G.is_directed():
+                vote_rank[v][0] += vote_rank[u][1]
+        for n in influential_nodes:
+            vote_rank[n][0] = 0
+        # Tie-break matches nx's max() over G.nodes iteration order.
+        winner = max(G.nodes(), key=lambda x: vote_rank[x][0])
+        if vote_rank[winner][0] == 0:
+            return influential_nodes
+        influential_nodes.append(winner)
+        vote_rank[winner] = [0, 0]
+        for _, nbr in G.edges(winner):
+            vote_rank[nbr][1] -= 1 / avg_degree
+            if vote_rank[nbr][1] < 0:
+                vote_rank[nbr][1] = 0
+    return influential_nodes
 
 
 # Algorithm functions — clustering
@@ -10971,29 +11011,30 @@ def dispersion(
 
 
 def _dispersion_pair(G, u, v, normalized, alpha, b, c):
+    # Match networkx's algorithm exactly (Backstrom & Kleinberg). Two
+    # earlier fnx bugs: (a) the "no shared connection" check restricted
+    # the shared neighbour to ``common``; nx only requires it be in u's
+    # neighbourhood, and (b) the normalisation raised ``alpha`` on the
+    # denominator rather than the numerator.
     u_nbrs = set(G.neighbors(u))
-    v_nbrs = set(G.neighbors(v))
-    common = (u_nbrs & v_nbrs) - {u, v}
+    common = {n for n in G.neighbors(v) if n in u_nbrs}
+    set_uv = {u, v}
 
-    if not common:
-        return 0.0
-
-    # Count pairs of common neighbors that are NOT connected
-    disp = 0.0
+    disp = 0
     common_list = list(common)
     for i in range(len(common_list)):
         for j in range(i + 1, len(common_list)):
             s, t = common_list[i], common_list[j]
-            if not G.has_edge(s, t):
-                s_nbrs = set(G.neighbors(s))
-                t_nbrs = set(G.neighbors(t))
-                # Check they don't share neighbors in common set
-                shared_in_common = (s_nbrs & t_nbrs) & common
-                if not shared_in_common:
-                    disp += 1.0
+            nbrs_s = u_nbrs & set(G.neighbors(s)) - set_uv
+            if t not in nbrs_s and nbrs_s.isdisjoint(G.neighbors(t)):
+                disp += 1
 
-    if normalized and len(common) > 0:
-        return (disp + b) / (len(common) + c) ** alpha if len(common) + c > 0 else 0.0
+    embeddedness = len(common)
+    if normalized:
+        val = (disp + b) ** alpha
+        if embeddedness + c != 0:
+            val = val / (embeddedness + c)
+        return val
     return disp
 
 
@@ -11544,7 +11585,7 @@ def _native_random_seed(seed):
 
 def _validate_backend_dispatch_keywords(function_name, backend, backend_kwargs):
     if backend is not None and backend != "networkx":
-        raise ImportError(f"'{backend}' backend is not installed.")
+        raise ImportError(f"'{backend}' backend is not installed")
     if backend_kwargs:
         unexpected = next(iter(backend_kwargs))
         raise TypeError(f"{function_name}() got an unexpected keyword argument '{unexpected}'")
@@ -13665,6 +13706,19 @@ def all_pairs_node_connectivity(G, nbunch=None, flow_func=None):
         ``result[u][v]`` is the node connectivity between u and v.
     """
     _validate_flow_func_selector(flow_func)
+    # Directed graphs: the Rust fast path over-reports connectivity (it
+    # silently treats some anti-parallel / alternate-direction paths as
+    # independent). Concrete reproducer: DiGraph on edges [(0,1),(1,2),
+    # (2,3),(3,0),(0,2)] — local_node_connectivity(3,0)=1 but the
+    # bulk Rust helper emitted 2 for that entry. Delegate directed
+    # inputs to networkx, where local_node_connectivity is correct.
+    if G.is_directed():
+        return _call_networkx_for_parity(
+            "all_pairs_node_connectivity",
+            G,
+            nbunch=nbunch,
+            flow_func=flow_func,
+        )
     # flow_func parameter is accepted for API compatibility but ignored;
     # the native implementation always uses the default max-flow algorithm.
     flat = _fnx.all_pairs_node_connectivity_rust(G)
@@ -14870,7 +14924,9 @@ def all_topological_sorts(G):
     yield from _call_networkx_for_parity("all_topological_sorts", G)
 
 
-def lowest_common_ancestor(G, node1, node2, default=None):
+def lowest_common_ancestor(
+    G, node1, node2, default=None, *, backend=None, **backend_kwargs
+):
     """Compute the lowest common ancestor of the given pair of nodes.
 
     Parameters
@@ -14887,13 +14943,16 @@ def lowest_common_ancestor(G, node1, node2, default=None):
     The lowest common ancestor of node1 and node2,
     or default if they have no common ancestors.
     """
+    _validate_backend_dispatch_keywords(
+        "lowest_common_ancestor", backend, backend_kwargs
+    )
     ans = list(all_pairs_lowest_common_ancestor(G, pairs=[(node1, node2)]))
     if ans:
         return ans[0][1]
     return default
 
 
-def all_pairs_lowest_common_ancestor(G, pairs=None):
+def all_pairs_lowest_common_ancestor(G, pairs=None, *, backend=None, **backend_kwargs):
     """Return the lowest common ancestor of all pairs or the provided pairs
 
     Parameters
@@ -14916,6 +14975,9 @@ def all_pairs_lowest_common_ancestor(G, pairs=None):
     NetworkXError
         If `G` is not a DAG.
     """
+    _validate_backend_dispatch_keywords(
+        "all_pairs_lowest_common_ancestor", backend, backend_kwargs
+    )
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
     if not is_directed_acyclic_graph(G):
@@ -27354,8 +27416,13 @@ class _TarjanUnionFind:
                 self._parent[root] = heaviest
 
 
-def tree_all_pairs_lowest_common_ancestor(G, root=None, pairs=None):
+def tree_all_pairs_lowest_common_ancestor(
+    G, root=None, pairs=None, *, backend=None, **backend_kwargs
+):
     """Yield the lowest common ancestor for sets of pairs in a tree."""
+    _validate_backend_dispatch_keywords(
+        "tree_all_pairs_lowest_common_ancestor", backend, backend_kwargs
+    )
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
     if len(G) == 0:
