@@ -2389,6 +2389,15 @@ def _raise_translated_networkx_exception(exc):
 def _call_networkx_for_parity(name, G, /, *args, **kwargs):
     import networkx as nx
 
+    # br-parityrec: if the user configured the nx dispatcher to route to
+    # franken_networkx (``nx.config.backend_priority = ["franken_networkx"]``),
+    # then calling `getattr(nx, name)(...)` re-enters the dispatcher and
+    # bounces right back into this helper — infinite recursion. Forcing
+    # ``backend="networkx"`` here bypasses dispatch so parity fallbacks
+    # always reach nx's pure-Python implementation. nx's `_dispatchable`
+    # decorator honours an explicit `backend` kwarg even when the function
+    # is already dispatched.
+    kwargs.setdefault("backend", "networkx")
     try:
         result = getattr(nx, name)(_networkx_graph_for_parity(G), *args, **kwargs)
     except Exception as exc:
@@ -2435,6 +2444,10 @@ def _call_networkx_submodule_for_parity(submodule_path, name, G, /, *args, **kwa
     import importlib
 
     submodule = importlib.import_module(f"networkx.{submodule_path}")
+    # br-parityrec: mirror the top-level helper's dispatch-bypass. Without
+    # this, `nx.config.backend_priority = ["franken_networkx"]` causes the
+    # submodule call to re-enter fnx → infinite recursion.
+    kwargs.setdefault("backend", "networkx")
     try:
         result = getattr(submodule, name)(
             _networkx_graph_for_parity(G), *args, **kwargs
