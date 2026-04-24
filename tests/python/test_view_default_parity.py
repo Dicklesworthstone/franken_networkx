@@ -1,6 +1,7 @@
 """Parity tests for view default parameter (bead kg11)."""
 import franken_networkx as fnx
 import networkx as nx
+import pytest
 
 
 class TestNodeViewDefault:
@@ -35,6 +36,32 @@ class TestNodeViewDefault:
         assert list(D.nodes(data="tag", default="X")) == list(
             nD.nodes(data="tag", default="X")
         )
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [(fnx.Graph, nx.Graph), (fnx.DiGraph, nx.DiGraph)],
+)
+def test_nodes_iteration_detects_node_set_mutation(fnx_cls, nx_cls):
+    graph = fnx_cls()
+    expected = nx_cls()
+    for candidate in (graph, expected):
+        candidate.add_nodes_from(["a", "b"])
+
+    fnx_iter = iter(graph.nodes())
+    nx_iter = iter(expected.nodes())
+
+    assert next(fnx_iter) == next(nx_iter) == "a"
+
+    graph.add_node("c")
+    expected.add_node("c")
+
+    with pytest.raises(RuntimeError) as fnx_exc:
+        next(fnx_iter)
+    with pytest.raises(RuntimeError) as nx_exc:
+        next(nx_iter)
+
+    assert str(fnx_exc.value) == str(nx_exc.value)
 
 
 class TestEdgeViewDefault:

@@ -4,7 +4,7 @@
 //! the current state of the graph (they are "live" views backed by Py<PyGraph>).
 
 use crate::{NodeIterator, PyGraph, PyObject, node_key_to_string};
-use pyo3::exceptions::PyKeyError;
+use pyo3::exceptions::{PyKeyError, PyRuntimeError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyIterator, PyTuple};
 
@@ -57,7 +57,12 @@ impl NodeView {
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<NodeViewIterator>> {
         let g = self.graph.borrow(py);
-        let nodes = g.inner.nodes_ordered();
+        let nodes: Vec<String> = g
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
         let items: Vec<PyObject> = match &self.data {
             NodeViewData::NoData => nodes.iter().map(|n| g.py_node_key(py, n)).collect(),
             NodeViewData::AllData => nodes
@@ -66,7 +71,7 @@ impl NodeView {
                     let py_key = g.py_node_key(py, n);
                     let attrs = g
                         .node_py_attrs
-                        .get(*n)
+                        .get(n)
                         .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
                     tuple_object(py, &[py_key, attrs.into_any()])
                 })
@@ -77,7 +82,7 @@ impl NodeView {
                     let py_key = g.py_node_key(py, n);
                     let val = g
                         .node_py_attrs
-                        .get(*n)
+                        .get(n)
                         .and_then(|dict| dict.bind(py).get_item(attr.as_str()).ok().flatten())
                         .map_or_else(|| py.None(), |v| v.unbind());
                     tuple_object(py, &[py_key, val])
@@ -89,7 +94,7 @@ impl NodeView {
                     let py_key = g.py_node_key(py, n);
                     let val = g
                         .node_py_attrs
-                        .get(*n)
+                        .get(n)
                         .and_then(|dict| dict.bind(py).get_item(attr.as_str()).ok().flatten())
                         .map_or_else(|| default.clone_ref(py), |v| v.unbind());
                     tuple_object(py, &[py_key, val])
@@ -100,6 +105,8 @@ impl NodeView {
             py,
             NodeViewIterator {
                 inner: items.into_iter(),
+                graph: Some(self.graph.clone_ref(py)),
+                expected_nodes: Some(nodes),
             },
         )
     }
@@ -175,31 +182,43 @@ impl NodeView {
     /// Return a list of node keys (like dict.keys()).
     fn keys(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
         let g = self.graph.borrow(py);
-        Ok(g.inner.nodes_ordered().iter().map(|n| g.py_node_key(py, n)).collect())
+        Ok(g.inner
+            .nodes_ordered()
+            .iter()
+            .map(|n| g.py_node_key(py, n))
+            .collect())
     }
 
     /// Return a list of (node, attrs) pairs (like dict.items()).
     fn items(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
         let g = self.graph.borrow(py);
-        g.inner.nodes_ordered().iter().map(|n| {
-            let py_key = g.py_node_key(py, n);
-            let attrs = g.node_py_attrs.get(*n).map_or_else(
-                || PyDict::new(py).into_any().unbind(),
-                |d| d.clone_ref(py).into_any(),
-            );
-            tuple_object(py, &[py_key, attrs])
-        }).collect()
+        g.inner
+            .nodes_ordered()
+            .iter()
+            .map(|n| {
+                let py_key = g.py_node_key(py, n);
+                let attrs = g.node_py_attrs.get(*n).map_or_else(
+                    || PyDict::new(py).into_any().unbind(),
+                    |d| d.clone_ref(py).into_any(),
+                );
+                tuple_object(py, &[py_key, attrs])
+            })
+            .collect()
     }
 
     /// Return a list of attr dicts (like dict.values()).
     fn values(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
         let g = self.graph.borrow(py);
-        Ok(g.inner.nodes_ordered().iter().map(|n| {
-            g.node_py_attrs.get(*n).map_or_else(
-                || PyDict::new(py).into_any().unbind(),
-                |d| d.clone_ref(py).into_any(),
-            )
-        }).collect())
+        Ok(g.inner
+            .nodes_ordered()
+            .iter()
+            .map(|n| {
+                g.node_py_attrs.get(*n).map_or_else(
+                    || PyDict::new(py).into_any().unbind(),
+                    |d| d.clone_ref(py).into_any(),
+                )
+            })
+            .collect())
     }
 
     /// Return a NodeDataView for iterating over (node, data) pairs.
@@ -389,6 +408,8 @@ impl EdgeView {
             py,
             NodeViewIterator {
                 inner: items.into_iter(),
+                graph: None,
+                expected_nodes: None,
             },
         )
     }
@@ -625,6 +646,8 @@ impl DegreeView {
             py,
             NodeViewIterator {
                 inner: items.into_iter(),
+                graph: None,
+                expected_nodes: None,
             },
         )
     }
@@ -790,6 +813,8 @@ impl AdjacencyView {
 #[pyclass]
 pub struct NodeViewIterator {
     inner: std::vec::IntoIter<PyObject>,
+    graph: Option<Py<PyGraph>>,
+    expected_nodes: Option<Vec<String>>,
 }
 
 #[pymethods]
@@ -797,8 +822,27 @@ impl NodeViewIterator {
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
     }
-    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<PyObject> {
-        slf.inner.next()
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> PyResult<Option<PyObject>> {
+        if let (Some(graph), Some(expected_nodes)) = (&slf.graph, &slf.expected_nodes) {
+            let py = slf.py();
+            let g = graph.borrow(py);
+            let current_nodes = g.inner.nodes_ordered();
+            if current_nodes.len() != expected_nodes.len() {
+                return Err(PyRuntimeError::new_err(
+                    "dictionary changed size during iteration",
+                ));
+            }
+            if current_nodes
+                .iter()
+                .zip(expected_nodes.iter())
+                .any(|(current, expected)| current != expected)
+            {
+                return Err(PyRuntimeError::new_err(
+                    "dictionary keys changed during iteration",
+                ));
+            }
+        }
+        Ok(slf.inner.next())
     }
 }
 

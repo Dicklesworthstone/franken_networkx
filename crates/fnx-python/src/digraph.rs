@@ -14,7 +14,7 @@ use fnx_classes::AttrMap;
 use fnx_classes::digraph::{DiGraph, MultiDiGraph};
 use fnx_runtime::{CompatibilityMode, RuntimePolicy};
 use pyo3::IntoPyObjectExt;
-use pyo3::exceptions::{PyKeyError, PyTypeError, PyValueError};
+use pyo3::exceptions::{PyKeyError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyIterator, PyTuple};
 use std::collections::{HashMap, HashSet};
@@ -999,12 +999,10 @@ impl PyMultiDiGraph {
                 None => PyDict::new(py).unbind(),
             };
             let rust_attrs = crate::py_dict_to_attr_map(py_attrs.bind(py))?;
-            let _ = new_graph.inner.add_edge_with_key_and_attrs(
-                u.clone(),
-                v.clone(),
-                key,
-                rust_attrs,
-            );
+            let _ =
+                new_graph
+                    .inner
+                    .add_edge_with_key_and_attrs(u.clone(), v.clone(), key, rust_attrs);
             new_graph
                 .edge_py_attrs
                 .insert((u.clone(), v.clone(), key), py_attrs);
@@ -3244,7 +3242,12 @@ impl DiNodeView {
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<DiViewIterator>> {
         let g = self.graph.borrow(py);
-        let nodes = g.inner.nodes_ordered();
+        let nodes: Vec<String> = g
+            .inner
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
         let items: Vec<PyObject> = match &self.data {
             ViewData::NoData => nodes.iter().map(|n| g.py_node_key(py, n)).collect(),
             ViewData::AllData => nodes
@@ -3253,7 +3256,7 @@ impl DiNodeView {
                     let py_key = g.py_node_key(py, n);
                     let attrs = g
                         .node_py_attrs
-                        .get(*n)
+                        .get(n)
                         .map_or_else(|| PyDict::new(py).unbind(), |d| d.clone_ref(py));
                     tuple_object(py, &[py_key, attrs.into_any()])
                 })
@@ -3264,7 +3267,7 @@ impl DiNodeView {
                     let py_key = g.py_node_key(py, n);
                     let val = g
                         .node_py_attrs
-                        .get(*n)
+                        .get(n)
                         .and_then(|dict| dict.bind(py).get_item(attr.as_str()).ok().flatten())
                         .map_or_else(|| py.None(), |v| v.unbind());
                     tuple_object(py, &[py_key, val])
@@ -3276,7 +3279,7 @@ impl DiNodeView {
                     let py_key = g.py_node_key(py, n);
                     let val = g
                         .node_py_attrs
-                        .get(*n)
+                        .get(n)
                         .and_then(|dict| dict.bind(py).get_item(attr.as_str()).ok().flatten())
                         .map_or_else(|| def_val.clone_ref(py), |v| v.unbind());
                     tuple_object(py, &[py_key, val])
@@ -3287,6 +3290,8 @@ impl DiNodeView {
             py,
             DiViewIterator {
                 inner: items.into_iter(),
+                graph: Some(self.graph.clone_ref(py)),
+                expected_nodes: Some(nodes),
             },
         )
     }
@@ -3569,6 +3574,8 @@ impl DiEdgeView {
             py,
             DiViewIterator {
                 inner: items.into_iter(),
+                graph: None,
+                expected_nodes: None,
             },
         )
     }
@@ -3715,6 +3722,8 @@ impl DiDegreeView {
             py,
             DiViewIterator {
                 inner: items.into_iter(),
+                graph: None,
+                expected_nodes: None,
             },
         )
     }
@@ -3873,6 +3882,8 @@ impl DiAdjacencyView {
 #[pyclass]
 pub struct DiViewIterator {
     inner: std::vec::IntoIter<PyObject>,
+    graph: Option<Py<PyDiGraph>>,
+    expected_nodes: Option<Vec<String>>,
 }
 
 #[pymethods]
@@ -3880,8 +3891,27 @@ impl DiViewIterator {
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
     }
-    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<PyObject> {
-        slf.inner.next()
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> PyResult<Option<PyObject>> {
+        if let (Some(graph), Some(expected_nodes)) = (&slf.graph, &slf.expected_nodes) {
+            let py = slf.py();
+            let g = graph.borrow(py);
+            let current_nodes = g.inner.nodes_ordered();
+            if current_nodes.len() != expected_nodes.len() {
+                return Err(PyRuntimeError::new_err(
+                    "dictionary changed size during iteration",
+                ));
+            }
+            if current_nodes
+                .iter()
+                .zip(expected_nodes.iter())
+                .any(|(current, expected)| current != expected)
+            {
+                return Err(PyRuntimeError::new_err(
+                    "dictionary keys changed during iteration",
+                ));
+            }
+        }
+        Ok(slf.inner.next())
     }
 }
 
