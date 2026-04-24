@@ -90,20 +90,27 @@ class TestGraphOperators:
         assert result.number_of_edges() == 2
 
     def test_difference(self):
+        # br-diffnodes: nx enforces equal node sets; seed both graphs
+        # with the same nodes so edge-set semantics can be exercised.
         G1 = fnx.Graph()
+        G1.add_nodes_from([0, 1, 2])
         G1.add_edge(0, 1)
         G1.add_edge(1, 2)
         G2 = fnx.Graph()
+        G2.add_nodes_from([0, 1, 2])
         G2.add_edge(0, 1)
         result = fnx.difference(G1, G2)
         assert not result.has_edge(0, 1)
         assert result.has_edge(1, 2)
 
     def test_symmetric_difference(self):
+        # br-diffnodes: nx enforces equal node sets.
         G1 = fnx.Graph()
+        G1.add_nodes_from([0, 1, 2, 3])
         G1.add_edge(0, 1)
         G1.add_edge(1, 2)
         G2 = fnx.Graph()
+        G2.add_nodes_from([0, 1, 2, 3])
         G2.add_edge(0, 1)
         G2.add_edge(2, 3)
         result = fnx.symmetric_difference(G1, G2)

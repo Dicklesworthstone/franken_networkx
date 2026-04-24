@@ -6,8 +6,8 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 81 | 10% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 697 | 87% | Python-defined exports with no runtime NetworkX dependency detected |
+| RUST_NATIVE | 80 | 9% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 698 | 87% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 21 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
@@ -19,8 +19,8 @@ All declared public exports are classified. `--check` fails if this generated re
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 635 |
-| `franken_networkx._fnx` | 81 |
+| `franken_networkx` | 636 |
+| `franken_networkx._fnx` | 80 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
@@ -28,7 +28,7 @@ All declared public exports are classified. `--check` fails if this generated re
 | `builtins` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (81)
+## RUST_NATIVE exports (80)
 
 - `barycenter`
 - `bfs_layers`
@@ -76,7 +76,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `kosaraju_strongly_connected_components`
 - `large_clique_size`
 - `local_efficiency`
-- `louvain_communities`
 - `max_clique`
 - `max_weight_clique`
 - `max_weight_matching`
@@ -112,7 +111,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `tree_broadcast_center`
 - `tree_broadcast_time`
 
-## PY_WRAPPER exports (697)
+## PY_WRAPPER exports (698)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -527,6 +526,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `local_constraint`
 - `local_reaching_centrality`
 - `lollipop_graph`
+- `louvain_communities`
 - `lowest_common_ancestor`
 - `make_clique_bipartite`
 - `make_max_clique_graph`

@@ -1964,7 +1964,19 @@ class _GraphAttrsDescriptor:
         return self._raw.__get__(obj, objtype)
 
     def __set__(self, obj, value):
-        setattr(obj, _GRAPH_ATTR_OVERRIDE, value)
+        # br-grattrident: the attribute's own test pins an in-place
+        # clear-then-update contract ("before = G.graph; G.graph = {...};
+        # assert before is G.graph"). A straight store breaks that
+        # identity. Mutate the existing dict object (Rust-native or
+        # previously-stored override) instead, so external references
+        # continue to see the updated contents.
+        current = self.__get__(obj, type(obj))
+        if isinstance(current, dict) and isinstance(value, dict):
+            current.clear()
+            current.update(value)
+            setattr(obj, _GRAPH_ATTR_OVERRIDE, current)
+        else:
+            setattr(obj, _GRAPH_ATTR_OVERRIDE, value)
 
     def __delete__(self, obj):
         vars(obj).pop(_GRAPH_ATTR_OVERRIDE, None)
@@ -13430,12 +13442,24 @@ def root_to_leaf_paths(G):
 def prefix_tree(paths):
     """Creates a directed prefix tree from a list of paths.
 
-    Each non-root node has a ``source`` attribute (used by ``dag_to_branching``)
-    and a ``label`` attribute (used by the public NetworkX API).
+    br-preftree: matches upstream nx.prefix_tree exactly: (a) the
+    synthetic NIL terminal node at integer ``-1`` with
+    ``source='NIL'`` is always present (even for empty input); (b)
+    every path ends with an edge from its last non-NIL node to the NIL
+    terminal, letting callers distinguish "this path ends here" from
+    "this is an intermediate prefix of a longer path"; (c) non-root
+    nodes carry only a ``source`` attribute (not an extra ``label``).
+
+    Previously the NIL terminal was absent and nodes carried a bogus
+    ``label`` attribute, so path-reconstruction code written against
+    upstream (e.g. ``for leaf in tree.predecessors(-1): ...``) found
+    no terminals and silently produced empty results.
     """
     tree = DiGraph()
     root = 0
-    tree.add_node(root, source=None, label=None)
+    tree.add_node(root, source=None)
+    NIL = -1
+    tree.add_node(NIL, source="NIL")
     nodes_count = 1
 
     for path in paths:
@@ -13443,17 +13467,23 @@ def prefix_tree(paths):
         for node in path:
             found = None
             for succ in tree.successors(parent):
+                if succ == NIL:
+                    continue
                 if tree.nodes[succ].get("source") == node:
                     found = succ
                     break
             if found is None:
                 new_node = nodes_count
                 nodes_count += 1
-                tree.add_node(new_node, source=node, label=node)
+                tree.add_node(new_node, source=node)
                 tree.add_edge(parent, new_node)
                 parent = new_node
             else:
                 parent = found
+        # Terminal edge to NIL marks path end. Same path added twice is
+        # idempotent (has_edge check avoids parallel edges in the DiGraph).
+        if not tree.has_edge(parent, NIL):
+            tree.add_edge(parent, NIL)
     return tree
 
 
@@ -13464,8 +13494,13 @@ def dag_to_branching(G):
 
     paths = root_to_leaf_paths(G)
     B = prefix_tree(paths)
-    # Remove the synthetic root (0)
+    # Remove the synthetic root (0) AND the NIL terminal (-1) added by
+    # prefix_tree so the returned branching matches nx's exactly
+    # (br-preftree: the NIL terminal is part of prefix_tree's public
+    # contract but not of dag_to_branching's).
     B.remove_node(0)
+    if B.has_node(-1):
+        B.remove_node(-1)
     return B
 
 
