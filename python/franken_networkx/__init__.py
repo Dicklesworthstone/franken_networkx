@@ -3406,6 +3406,27 @@ def _coerce_flow_dict(flow_dict, all_int):
     return out
 
 
+def _flow_has_infinite_capacity(flowG, capacity):
+    """br-flowinf: the Rust max-flow residual-network builder treated
+    missing / +inf edge capacities as effectively 1 (or 0), so any
+    graph with an uncapacitated edge had its max-flow value silently
+    undervalued (e.g. s->a(cap=5)->t(no cap) returned 1 instead of 5).
+    Detect that case up-front and route to nx for correctness.
+    """
+    import math as _math
+    for _, _, attrs in flowG.edges(data=True):
+        cap = attrs.get(capacity, float("inf"))
+        if cap is None:
+            return True
+        try:
+            cap_f = float(cap)
+        except (TypeError, ValueError):
+            return True
+        if _math.isinf(cap_f) or _math.isnan(cap_f):
+            return True
+    return False
+
+
 def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     """Compute the maximum flow and flow dict between ``_s`` and ``_t``.
 
@@ -3413,7 +3434,7 @@ def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     native always returns float. Coerce back to int when inputs are
     integer-typed so `isinstance(flow_value, int)` matches nx.
     """
-    if flow_func is not None or kwargs:
+    if flow_func is not None or kwargs or _flow_has_infinite_capacity(flowG, capacity):
         return _call_networkx_for_parity(
             "maximum_flow", flowG, _s, _t, capacity=capacity,
             flow_func=flow_func, **kwargs,
@@ -3425,7 +3446,7 @@ def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
 
 def maximum_flow_value(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     """Return just the max-flow value. nx-int parity when all caps int."""
-    if flow_func is not None or kwargs:
+    if flow_func is not None or kwargs or _flow_has_infinite_capacity(flowG, capacity):
         return _call_networkx_for_parity(
             "maximum_flow_value", flowG, _s, _t, capacity=capacity,
             flow_func=flow_func, **kwargs,
@@ -14703,17 +14724,61 @@ def cost_of_flow(G, flowDict, weight="weight"):
     float
         Total cost of the flow.
     """
-    total = 0.0
+    # br-costint: nx.cost_of_flow uses sum(G[u][v][weight]*flow[u][v])
+    # which preserves int when all factors are int. fnx initialized
+    # total=0.0 and cast weights via float(), always widening the
+    # result. Keep nx's int-preservation by initializing total=0 and
+    # using the raw weight value (with a 0 default) without float cast.
+    total = 0
     for u in flowDict:
         for v, flow in flowDict[u].items():
             if flow > 0:
                 data = G.get_edge_data(u, v)
                 if isinstance(data, dict):
-                    cost = float(data.get(weight, 0))
+                    cost = data.get(weight, 0)
                 else:
-                    cost = 0.0
-                total += flow * cost
+                    cost = 0
+                total = total + flow * cost
     return total
+
+
+def _mcf_inputs_all_integral(G, demand, capacity, weight):
+    """br-mcfint: nx.min_cost_flow and nx.network_simplex preserve int
+    flow values when every demand, capacity, and weight on the graph
+    is an integer. fnx's Python implementation widens via ``float(...)``
+    casts, so the flow dict comes back with float values. Detect the
+    all-int-input case so callers can coerce the flow dict back to
+    int for exact nx parity.
+    """
+    import numbers as _numbers
+    for node in G.nodes():
+        attrs = G.nodes[node] if hasattr(G.nodes, "__getitem__") else {}
+        if isinstance(attrs, dict):
+            d = attrs.get(demand, 0)
+            if not isinstance(d, _numbers.Integral) or isinstance(d, bool):
+                return False
+    for _, _, attrs in G.edges(data=True):
+        if not isinstance(attrs, dict):
+            continue
+        cap = attrs.get(capacity, 1)
+        if not isinstance(cap, _numbers.Integral) or isinstance(cap, bool):
+            # float('inf') is infinity; nx still produces int in that case
+            # when capacities are effectively unbounded integrals elsewhere.
+            # Treat +inf as non-integer only if it's not matched by other ints.
+            return False
+        w = attrs.get(weight, 0)
+        if not isinstance(w, _numbers.Integral) or isinstance(w, bool):
+            return False
+    return True
+
+
+def _coerce_flow_dict_to_int(flow_dict):
+    """Coerce a dict-of-dicts flow to int values (used when _mcf_inputs_all_integral)."""
+    out = {}
+    for u, inner in flow_dict.items():
+        out[u] = {v: (int(f) if isinstance(f, float) and f.is_integer() else f)
+                  for v, f in inner.items()}
+    return out
 
 
 def min_cost_flow(G, demand="demand", capacity="capacity", weight="weight"):
@@ -14908,6 +14973,10 @@ def min_cost_flow(G, demand="demand", capacity="capacity", weight="weight"):
         if remaining_demand.get(sink, 0) > 1e-10:
             raise NetworkXUnfeasible("no flow satisfies all node demands")
 
+    # br-mcfint: preserve int flow values when every input is int
+    # (nx contract).
+    if _mcf_inputs_all_integral(G, demand, capacity, weight):
+        flow = _coerce_flow_dict_to_int(flow)
     return flow
 
 
@@ -14944,14 +15013,22 @@ def max_flow_min_cost(G, s, t, capacity="capacity", weight="weight"):
     -------
     dict of dicts
         Flow dictionary.
+
+    br-mfmcsign: by nx convention, a negative demand means the node
+    *supplies* that much flow. A source thus has ``demand=-maxFlow``
+    and a sink has ``demand=+maxFlow``. The previous implementation
+    used the reversed signs (``{s: max_val, t: -max_val}``), which
+    inverted supply/demand — the solver then tried to push flow from
+    t to s and raised NetworkXUnfeasible on every valid input.
     """
     # Get max flow value
     max_val = maximum_flow_value(G, s, t, capacity=capacity)
 
-    # Set up demands: source supplies max_val, sink demands max_val
+    # Set up demands per nx convention: source supplies (negative),
+    # sink consumes (positive).
     H = G.copy()
-    set_node_attributes(H, {s: max_val, t: -max_val}, name="demand")
-    # Set demand=0 for all other nodes
+    set_node_attributes(H, {s: -max_val, t: max_val}, name="demand")
+    # Set demand=0 for all other nodes that don't already have one.
     for n in H.nodes():
         if n != s and n != t:
             attrs = H.nodes[n] if hasattr(H.nodes, "__getitem__") else {}
