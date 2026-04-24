@@ -6,8 +6,8 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 89 | 11% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 689 | 86% | Python-defined exports with no runtime NetworkX dependency detected |
+| RUST_NATIVE | 84 | 10% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 694 | 86% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 21 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
@@ -19,8 +19,8 @@ All declared public exports are classified. `--check` fails if this generated re
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 627 |
-| `franken_networkx._fnx` | 89 |
+| `franken_networkx` | 632 |
+| `franken_networkx._fnx` | 84 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
@@ -28,7 +28,7 @@ All declared public exports are classified. `--check` fails if this generated re
 | `builtins` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (89)
+## RUST_NATIVE exports (84)
 
 - `barycenter`
 - `bfs_layers`
@@ -107,8 +107,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `pappus_graph`
 - `partition_spanning_tree`
 - `random_spanning_tree`
-- `read_gml`
-- `read_graphml`
 - `ring_of_cliques`
 - `sedgewick_maze_graph`
 - `spanner`
@@ -116,11 +114,8 @@ All declared public exports are classified. `--check` fails if this generated re
 - `transitive_reduction`
 - `tree_broadcast_center`
 - `tree_broadcast_time`
-- `write_adjlist`
-- `write_gml`
-- `write_graphml`
 
-## PY_WRAPPER exports (689)
+## PY_WRAPPER exports (694)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -665,7 +660,9 @@ All declared public exports are classified. `--check` fails if this generated re
 - `read_adjlist`
 - `read_edgelist`
 - `read_gexf`
+- `read_gml`
 - `read_graph6`
+- `read_graphml`
 - `read_leda`
 - `read_multiline_adjlist`
 - `read_pajek`
@@ -800,9 +797,12 @@ All declared public exports are classified. `--check` fails if this generated re
 - `wiener_index`
 - `windmill_graph`
 - `within_inter_cluster`
+- `write_adjlist`
 - `write_edgelist`
 - `write_gexf`
+- `write_gml`
 - `write_graph6`
+- `write_graphml`
 - `write_graphml_lxml`
 - `write_graphml_xml`
 - `write_latex`

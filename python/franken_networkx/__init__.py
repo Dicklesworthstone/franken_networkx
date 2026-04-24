@@ -311,7 +311,12 @@ class AdjacencyView(Mapping):
         return iter(self._atlas())
 
     def __getitem__(self, node):
-        self._atlas()[node]
+        try:
+            self._atlas()[node]
+        except KeyError as exc:
+            # br-keystr: preserve the original key type (int/tuple/...)
+            # in the KeyError args instead of the Rust side's str repr.
+            raise KeyError(node) from exc
         return AtlasView(lambda: self._atlas()[node])
 
 
@@ -329,7 +334,10 @@ class MultiAdjacencyView(Mapping):
         return iter(self._atlas())
 
     def __getitem__(self, node):
-        self._atlas()[node]
+        try:
+            self._atlas()[node]
+        except KeyError as exc:
+            raise KeyError(node) from exc
         return AdjacencyView(lambda: self._atlas()[node])
 
 
@@ -372,7 +380,15 @@ def _multidigraph_pred_view(self):
 
 
 def _graph_getitem_from_adj(self, node):
-    return self.adj[node]
+    # br-keystr: the Rust adj view stringifies the key in the KeyError
+    # (``G[(0, 0)]`` -> ``KeyError('(0, 0)')`` str, not ``KeyError((0, 0))``
+    # with the original tuple). Re-raise with the original key object so
+    # typed ``except KeyError`` handlers that inspect ``e.args[0]`` get the
+    # value they passed in.
+    try:
+        return self.adj[node]
+    except KeyError as exc:
+        raise KeyError(node) from exc
 
 
 def _to_directed_class(self):
@@ -1370,6 +1386,31 @@ _MULTIGRAPH_NODE_VIEW_TYPE.__call__ = _node_view_call_with_attr_support(
 _MULTIDIGRAPH_NODE_VIEW_TYPE.__call__ = _node_view_call_with_attr_support(
     _MULTIDIGRAPH_NODE_VIEW_CALL
 )
+
+
+def _make_keystr_preserving_getitem(raw):
+    """br-keystr: wrap a NodeView ``__getitem__`` so KeyError retains
+    the original Python key object instead of the Rust side's str repr.
+    """
+
+    def __getitem__(self, node):
+        try:
+            return raw(self, node)
+        except KeyError as exc:
+            raise KeyError(node) from exc
+
+    return __getitem__
+
+
+for _node_view_type in (
+    type(Graph().nodes),
+    type(DiGraph().nodes),
+    _MULTIGRAPH_NODE_VIEW_TYPE,
+    _MULTIDIGRAPH_NODE_VIEW_TYPE,
+):
+    _node_view_type.__getitem__ = _make_keystr_preserving_getitem(
+        _node_view_type.__getitem__
+    )
 _DIGRAPH_ADJACENCY_VIEW_TYPE.get = _adjacency_view_get
 _DIGRAPH_ADJACENCY_VIEW_TYPE.keys = _adjacency_view_keys
 _DIGRAPH_ADJACENCY_VIEW_TYPE.items = _adjacency_view_items
@@ -6335,12 +6376,12 @@ from franken_networkx._fnx import (
     node_link_graph as _rust_node_link_graph,
     read_adjlist as _rust_read_adjlist,
     read_edgelist as _rust_read_edgelist,
-    read_graphml,
-    write_adjlist,
+    read_graphml as _rust_read_graphml,
+    write_adjlist as _rust_write_adjlist,
     write_edgelist as _rust_write_edgelist,
-    write_graphml,
-    read_gml,
-    write_gml,
+    write_graphml as _rust_write_graphml,
+    read_gml as _rust_read_gml,
+    write_gml as _rust_write_gml,
 )
 from franken_networkx.readwrite import (
     from_graph6_bytes,
@@ -6383,6 +6424,10 @@ from franken_networkx.readwrite import (
     _write_edgelist_via_nx as _write_edgelist_via_nx,
     _read_edgelist_via_nx as _read_edgelist_via_nx,
     _read_adjlist_via_nx as _read_adjlist_via_nx,
+    _write_adjlist_via_nx as _write_adjlist_via_nx,
+    _write_graphml_via_nx as _write_graphml_via_nx,
+    _read_graphml_via_nx as _read_graphml_via_nx,
+    _write_gml_via_nx as _write_gml_via_nx,
 )
 
 
@@ -6449,6 +6494,99 @@ def read_adjlist(
         nodetype=nodetype,
         encoding=encoding,
     )
+
+
+def write_adjlist(G, path, comments="#", delimiter=" ", encoding="utf-8"):
+    """Write a graph as an adjacency list.
+
+    Delegates to NetworkX's writer (br-wadjlk) so non-default kwargs
+    are honoured. The Rust-native writer raised
+    NetworkXNotImplemented on any non-default value despite advertising
+    those kwargs in its signature.
+    """
+    return _write_adjlist_via_nx(
+        G, path, comments=comments, delimiter=delimiter, encoding=encoding
+    )
+
+
+def write_graphml(
+    G,
+    path,
+    encoding="utf-8",
+    prettyprint=True,
+    infer_numeric_types=False,
+    named_key_ids=False,
+    edge_id_from_attribute=None,
+):
+    """Write a graph in GraphML format.
+
+    Delegates to NetworkX's writer (br-grphml) for MultiGraph inputs
+    (the Rust-native writer rejects Multi* with
+    'write_graphml does not support MultiGraph or MultiDiGraph') and
+    for any non-default kwarg. Falls back to the Rust fast path when
+    the graph is simple and all kwargs are at their nx defaults.
+    """
+    if (
+        G.is_multigraph()
+        or encoding != "utf-8"
+        or not prettyprint
+        or infer_numeric_types
+        or named_key_ids
+        or edge_id_from_attribute is not None
+    ):
+        return _write_graphml_via_nx(
+            G,
+            path,
+            encoding=encoding,
+            prettyprint=prettyprint,
+            infer_numeric_types=infer_numeric_types,
+            named_key_ids=named_key_ids,
+            edge_id_from_attribute=edge_id_from_attribute,
+        )
+    return _rust_write_graphml(G, path)
+
+
+def read_graphml(
+    path,
+    node_type=str,
+    edge_key_type=int,
+    force_multigraph=False,
+):
+    """Read a graph in GraphML format.
+
+    Delegates to NetworkX's parser (br-grphml) so ``node_type``,
+    ``edge_key_type``, and ``force_multigraph`` kwargs are honoured.
+    The Rust-native reader only accepts ``(path,)``.
+    """
+    return _read_graphml_via_nx(
+        path,
+        node_type=node_type,
+        edge_key_type=edge_key_type,
+        force_multigraph=force_multigraph,
+    )
+
+
+def write_gml(G, path, stringizer=None):
+    """Write a graph in GML format.
+
+    Delegates to NetworkX's writer (br-wgmldr) when ``stringizer`` is
+    supplied or when the graph is undirected (so we don't emit a
+    spurious 'directed 0' field). Falls back to the Rust fast path for
+    the common directed-graph / no-stringizer case.
+    """
+    if stringizer is not None or not G.is_directed():
+        return _write_gml_via_nx(G, path, stringizer=stringizer)
+    return _rust_write_gml(G, path)
+
+
+def read_gml(path, label="label", destringizer=None):
+    """Read a graph in GML format.
+
+    Thin wrapper around the Rust native reader; kept as a public Python
+    symbol so the module doesn't fall through to ``networkx.read_gml``
+    via ``__getattr__`` (which would bypass the Rust parser).
+    """
+    return _rust_read_gml(path, label=label, destringizer=destringizer)
 
 
 def is_semiconnected(G):

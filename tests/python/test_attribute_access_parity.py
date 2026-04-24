@@ -416,3 +416,73 @@ def test_fnx_to_nx_handles_collision_on_multigraph_edge_attrs():
     result = _fnx_to_nx(fg)
     edges = list(result.edges(keys=True, data=True))
     assert edges == [("a", "b", 0, {"u_of_edge": "x", "v_of_edge": "y"})]
+
+
+# ---------------------------------------------------------------------------
+# Regression: franken_networkx-keystr — KeyError arg preserves native key
+# ---------------------------------------------------------------------------
+
+
+class TestKeyErrorPreservesKey:
+    """The Rust view __getitem__ previously stringified the missing key in
+    the raised KeyError (G[99] -> KeyError('99') str; G[(0,0)] ->
+    KeyError('(0, 0)') str). Typed except-handlers that inspect
+    ``e.args[0]`` got the wrong type.
+    """
+
+    def test_graph_getitem_preserves_int_key(self):
+        G = fnx.path_graph(3)
+        with pytest.raises(KeyError) as exc_info:
+            G[99]
+        assert exc_info.value.args[0] == 99
+        assert isinstance(exc_info.value.args[0], int)
+
+    def test_adj_getitem_preserves_int_key(self):
+        G = fnx.path_graph(3)
+        with pytest.raises(KeyError) as exc_info:
+            G.adj[99]
+        assert exc_info.value.args[0] == 99
+        assert isinstance(exc_info.value.args[0], int)
+
+    def test_nodes_getitem_preserves_int_key(self):
+        G = fnx.path_graph(3)
+        with pytest.raises(KeyError) as exc_info:
+            G.nodes[99]
+        assert exc_info.value.args[0] == 99
+        assert isinstance(exc_info.value.args[0], int)
+
+    def test_graph_getitem_preserves_tuple_key(self):
+        G = fnx.grid_2d_graph(2, 2)
+        with pytest.raises(KeyError) as exc_info:
+            G[(99, 99)]
+        assert exc_info.value.args[0] == (99, 99)
+        assert isinstance(exc_info.value.args[0], tuple)
+
+    def test_graph_getitem_preserves_str_key(self):
+        G = fnx.Graph()
+        G.add_node("a")
+        with pytest.raises(KeyError) as exc_info:
+            G["missing"]
+        assert exc_info.value.args[0] == "missing"
+        assert isinstance(exc_info.value.args[0], str)
+
+    def test_digraph_nodes_preserves_int_key(self):
+        D = fnx.DiGraph()
+        D.add_edge(0, 1)
+        with pytest.raises(KeyError) as exc_info:
+            D.nodes[99]
+        assert exc_info.value.args[0] == 99
+
+    def test_multigraph_nodes_preserves_int_key(self):
+        MG = fnx.MultiGraph()
+        MG.add_edge(0, 1)
+        with pytest.raises(KeyError) as exc_info:
+            MG.nodes[99]
+        assert exc_info.value.args[0] == 99
+
+    def test_multidigraph_nodes_preserves_int_key(self):
+        MD = fnx.MultiDiGraph()
+        MD.add_edge(0, 1)
+        with pytest.raises(KeyError) as exc_info:
+            MD.nodes[99]
+        assert exc_info.value.args[0] == 99
