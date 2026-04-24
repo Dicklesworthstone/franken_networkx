@@ -1529,6 +1529,33 @@ MultiDiGraph._node = property(lambda self: self.nodes)
 MultiDiGraph._succ = property(_multidigraph_succ_view)
 MultiDiGraph._pred = property(_multidigraph_pred_view)
 
+def _graph_deepcopy(self, memo=None):
+    """br-dcpy: the Rust __deepcopy__ didn't traverse nested attribute
+    values, so deepcopy(G).nodes[n]['x'].append(...) mutated the
+    original graph's attrs too. Re-implement at Python level by
+    constructing a fresh graph and deep-copying every attrs dict.
+    """
+    from copy import deepcopy as _dc
+
+    cls = type(self)
+    out = cls()
+    out.graph.update(_dc(dict(self.graph), memo))
+    for node, attrs in self.nodes(data=True):
+        out.add_node(node, **_dc(dict(attrs), memo))
+    if self.is_multigraph():
+        for u, v, key, attrs in self.edges(keys=True, data=True):
+            out.add_edges_from([(u, v, key, _dc(dict(attrs), memo))])
+    else:
+        for u, v, attrs in self.edges(data=True):
+            out.add_edges_from([(u, v, _dc(dict(attrs), memo))])
+    return out
+
+
+Graph.__deepcopy__ = _graph_deepcopy
+DiGraph.__deepcopy__ = _graph_deepcopy
+MultiGraph.__deepcopy__ = _graph_deepcopy
+MultiDiGraph.__deepcopy__ = _graph_deepcopy
+
 Graph.to_directed_class = _to_directed_class
 Graph.to_undirected_class = _to_undirected_class
 DiGraph.to_directed_class = _to_directed_class

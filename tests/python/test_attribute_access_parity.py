@@ -652,3 +652,50 @@ class TestPrivateAdjAliases:
         G = fnx.Graph([(0, 1), (1, 2), (3, 4)])
         comps = sorted(sorted(c) for c in nx.connected_components(G))
         assert comps == [[0, 1, 2], [3, 4]]
+
+
+# ---------------------------------------------------------------------------
+# Regression: franken_networkx-dcpy — deepcopy isolates nested attr values
+# ---------------------------------------------------------------------------
+
+
+class TestDeepCopyIsolation:
+    """The Rust __deepcopy__ built-in did not deep-copy nested values
+    inside node/edge/graph attrs. Mutating a list inside
+    H.nodes[n]['x'] also mutated G.nodes[n]['x']. Python-level override
+    re-constructs the graph with deepcopy() on every attrs dict.
+    """
+
+    @pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+    def test_node_attr_nested_list_isolation(self, cls_name):
+        import copy
+
+        G = getattr(fnx, cls_name)()
+        G.add_edge(0, 1)
+        G.nodes[0]["x"] = [1, 2, 3]
+        H = copy.deepcopy(G)
+        H.nodes[0]["x"].append(99)
+        assert G.nodes[0]["x"] == [1, 2, 3]
+        assert H.nodes[0]["x"] == [1, 2, 3, 99]
+
+    @pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+    def test_graph_level_attr_isolation(self, cls_name):
+        import copy
+
+        G = getattr(fnx, cls_name)()
+        G.graph["names"] = ["a", "b"]
+        H = copy.deepcopy(G)
+        H.graph["names"].append("c")
+        assert G.graph["names"] == ["a", "b"]
+        assert H.graph["names"] == ["a", "b", "c"]
+
+    def test_multigraph_edge_attr_isolation(self):
+        import copy
+
+        MG = fnx.MultiGraph()
+        MG.add_edge(0, 1, key="a", data=[1, 2])
+        MG.add_edge(0, 1, key="b", data=[3, 4])
+        MH = copy.deepcopy(MG)
+        MH[0][1]["a"]["data"].append(99)
+        assert MG[0][1]["a"]["data"] == [1, 2]
+        assert MH[0][1]["a"]["data"] == [1, 2, 99]
