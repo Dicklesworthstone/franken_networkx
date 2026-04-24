@@ -3054,10 +3054,10 @@ def shortest_path_length(G, source=None, target=None, weight=None, method="dijks
     return ((node, all_pairs[node]) for node in G.nodes())
 
 
-def has_path(graph, source, target):
-    if _path_query_has_missing_nodes(graph, source=source, target=target):
-        return _call_networkx_for_parity("has_path", graph, source, target)
-    return _raw_has_path(graph, source, target)
+def has_path(G, source, target):
+    if _path_query_has_missing_nodes(G, source=source, target=target):
+        return _call_networkx_for_parity("has_path", G, source, target)
+    return _raw_has_path(G, source, target)
 
 
 # Algorithm functions — connectivity
@@ -10287,9 +10287,12 @@ def laplacian_matrix(G, nodelist=None, weight="weight"):
     import scipy.sparse
 
     A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight)
-    A.shape[0]
-    D = scipy.sparse.diags(np.asarray(A.sum(axis=1)).flatten(), dtype=float)
-    return D - A
+    # Use sparse *arrays* so the result preserves nx's csr_array return
+    # type; diags_array avoids the csr_matrix/csr_array legacy split.
+    D = scipy.sparse.diags_array(
+        np.asarray(A.sum(axis=1)).flatten(), dtype=float
+    )
+    return (D - A).tocsr()
 
 
 def normalized_laplacian_matrix(G, nodelist=None, weight="weight"):
@@ -10311,9 +10314,10 @@ def normalized_laplacian_matrix(G, nodelist=None, weight="weight"):
     d_inv_sqrt = np.zeros_like(d, dtype=float)
     nonzero = d > 0
     d_inv_sqrt[nonzero] = 1.0 / np.sqrt(d[nonzero])
-    D_inv_sqrt = scipy.sparse.diags(d_inv_sqrt)
-    I = scipy.sparse.eye(n)
-    return I - D_inv_sqrt @ A @ D_inv_sqrt
+    # Use sparse *arrays* so the result is a csr_array (matching nx).
+    D_inv_sqrt = scipy.sparse.diags_array(d_inv_sqrt)
+    I = scipy.sparse.eye_array(n)
+    return (I - D_inv_sqrt @ A @ D_inv_sqrt).tocsr()
 
 
 def laplacian_spectrum(G, weight="weight"):
@@ -10383,16 +10387,39 @@ def algebraic_connectivity(G, weight="weight", normalized=False, tol=1e-8, metho
     return float(spectrum[1])
 
 
-def fiedler_vector(G, weight="weight", normalized=False):
+def fiedler_vector(
+    G,
+    weight="weight",
+    normalized=False,
+    tol=1e-08,
+    method="tracemin_pcg",
+    seed=None,
+):
     """Return the Fiedler vector of *G*.
 
     The Fiedler vector is the eigenvector corresponding to the
     algebraic connectivity (second-smallest Laplacian eigenvalue).
 
+    Parameters
+    ----------
+    G : Graph
+    weight : str, optional
+    normalized : bool, optional
+    tol : float, optional
+        Tolerance — accepted for nx parity; unused by the dense solver.
+    method : str, optional
+        Accepted for nx parity; the dense ``numpy.linalg.eigh`` solver
+        ignores it.
+    seed : int or Random, optional
+        Accepted for nx parity; the dense solver is deterministic so
+        ``seed`` has no effect.
+
     Returns
     -------
     numpy.ndarray
     """
+    del tol, method, seed  # accepted for nx signature parity
+
     import numpy as np
 
     if normalized:
@@ -10408,7 +10435,9 @@ def fiedler_vector(G, weight="weight", normalized=False):
 # ---------------------------------------------------------------------------
 
 
-def incidence_matrix(G, nodelist=None, edgelist=None, oriented=False, weight=None):
+def incidence_matrix(
+    G, nodelist=None, edgelist=None, oriented=False, weight=None, *, dtype=None
+):
     """Return the incidence matrix of *G* as a SciPy sparse array.
 
     Parameters
@@ -10419,6 +10448,9 @@ def incidence_matrix(G, nodelist=None, edgelist=None, oriented=False, weight=Non
     oriented : bool, optional
         If True, use +1/-1 for edge endpoints. Default False (uses 1).
     weight : str or None, optional
+    dtype : numpy dtype, optional
+        The desired data-type for the array. Matches nx's keyword-only
+        ``dtype`` argument.
 
     Returns
     -------
@@ -10448,8 +10480,9 @@ def incidence_matrix(G, nodelist=None, edgelist=None, oriented=False, weight=Non
             col.append(j)
             data.append(1)
 
+    arr_dtype = float if dtype is None else dtype
     return scipy.sparse.coo_array(
-        (np.array(data, dtype=float), (np.array(row), np.array(col))),
+        (np.array(data, dtype=arr_dtype), (np.array(row), np.array(col))),
         shape=(n_nodes, n_edges),
     ).tocsc()
 
@@ -10932,13 +10965,28 @@ def closeness_vitality(
     }
 
 
-def spectral_ordering(G, normalized=False):
+def spectral_ordering(
+    G,
+    weight="weight",
+    normalized=False,
+    tol=1e-08,
+    method="tracemin_pcg",
+    seed=None,
+):
     """Return nodes ordered by the Fiedler vector (spectral bisection ordering).
 
     Parameters
     ----------
     G : Graph
+    weight : str, optional
     normalized : bool, optional
+    tol : float, optional
+        Accepted for nx signature parity; unused by the dense solver.
+    method : str, optional
+        Accepted for nx signature parity; the dense ``numpy.linalg.eigh``
+        solver ignores it.
+    seed : int or Random, optional
+        Accepted for nx signature parity; the dense solver is deterministic.
 
     Returns
     -------
@@ -10947,7 +10995,9 @@ def spectral_ordering(G, normalized=False):
     """
     import numpy as np
 
-    fv = fiedler_vector(G, normalized=normalized)
+    fv = fiedler_vector(
+        G, weight=weight, normalized=normalized, tol=tol, method=method, seed=seed
+    )
     nodelist = list(G.nodes())
     order = np.argsort(fv)
     return [nodelist[i] for i in order]
@@ -15187,17 +15237,27 @@ def bethe_hessian_matrix(G, r=None, nodelist=None):
     import numpy as np
     import scipy.sparse
 
-    A = to_scipy_sparse_array(G, nodelist=nodelist, weight=None)
+    # nx's bethe_hessian_matrix mixes weighted and unweighted quantities:
+    # A and D come from the weighted adjacency (weight='weight'), but the
+    # default regularizer r is computed from unweighted node degrees via
+    # nx.degree(G). Match that mix exactly.
+    if nodelist is None:
+        nodelist = list(G.nodes())
+    A = to_scipy_sparse_array(G, nodelist=nodelist, format="csr")
     n = A.shape[0]
     d = np.asarray(A.sum(axis=1)).flatten()
-    D = scipy.sparse.diags(d, dtype=float)
+    # Use sparse *arrays* throughout (not legacy matrices) so the final
+    # product preserves nx's csr_array return type.
+    D = scipy.sparse.diags_array(d, dtype=float)
     if r is None:
-        if n > 0 and d.sum() > 0:
-            r = float((d ** 2).sum() / d.sum() - 1)
+        unweighted_degs = [G.degree(v) for v in nodelist]
+        deg_sum = sum(unweighted_degs)
+        if deg_sum > 0:
+            r = sum(x * x for x in unweighted_degs) / deg_sum - 1
         else:
             r = 1.0
-    I = scipy.sparse.eye(n)
-    return (r**2 - 1) * I - r * A + D
+    I = scipy.sparse.eye_array(n)
+    return ((r**2 - 1) * I - r * A + D).tocsr()
 
 
 def bethe_hessian_spectrum(G, r=None):
@@ -15313,7 +15373,13 @@ def directed_combinatorial_laplacian_matrix(
 
 
 def attr_matrix(
-    G, edge_attr=None, node_attr=None, normalized=False, rc_order=None, dtype=None
+    G,
+    edge_attr=None,
+    node_attr=None,
+    normalized=False,
+    rc_order=None,
+    dtype=None,
+    order=None,
 ):
     """Construct a matrix from edge attributes.
 
@@ -15333,7 +15399,7 @@ def attr_matrix(
             labels = sorted(set(node_attrs.values()), key=str)
         label_idx = {lab: i for i, lab in enumerate(labels)}
         n = len(labels)
-        M = np.zeros((n, n), dtype=dtype or np.float64)
+        M = np.zeros((n, n), dtype=dtype or np.float64, order=order or "C")
         for u, v, data in G.edges(data=True):
             lu, lv = node_attrs.get(u), node_attrs.get(v)
             if lu in label_idx and lv in label_idx:
@@ -15349,12 +15415,14 @@ def attr_matrix(
             rs = M.sum(axis=1)
             rs[rs == 0] = 1
             M = M / rs[:, np.newaxis]
-        return M, labels
+        if rc_order is None:
+            return M, labels
+        return M
     else:
         nodelist = list(rc_order) if rc_order is not None else list(G.nodes())
         n = len(nodelist)
         idx = {node: i for i, node in enumerate(nodelist)}
-        M = np.zeros((n, n), dtype=dtype or np.float64)
+        M = np.zeros((n, n), dtype=dtype or np.float64, order=order or "C")
         for u, v, data in G.edges(data=True):
             if u in idx and v in idx:
                 val = (
@@ -15369,7 +15437,9 @@ def attr_matrix(
             rs = M.sum(axis=1)
             rs[rs == 0] = 1
             M = M / rs[:, np.newaxis]
-        return M, nodelist
+        if rc_order is None:
+            return M, nodelist
+        return M
 
 
 # ---------------------------------------------------------------------------
@@ -16428,11 +16498,17 @@ def schultz_index(G, weight=None, *, backend=None, **backend_kwargs):
     ) / 2
 
 
-def hyper_wiener_index(G):
+def hyper_wiener_index(G, weight=None):
     """Return the hyper-Wiener index of *G*.
 
     (W + sum(dist^2)) / 2 where W is the Wiener index.
+
+    ``weight`` is accepted for networkx signature parity. When set, the
+    calculation delegates to networkx so edge weights are honoured; the
+    native Rust path assumes unit-distance edges.
     """
+    if weight is not None:
+        return _call_networkx_for_parity("hyper_wiener_index", G, weight=weight)
     return _fnx.hyper_wiener_index_rust(G)
 
 
@@ -17061,14 +17137,14 @@ def connected_dominating_set(G, *, backend=None, **backend_kwargs):
     return set(_fnx.connected_dominating_set_rust(G))
 
 
-def is_connected_dominating_set(G, S):
-    """Check if S is a connected dominating set."""
+def is_connected_dominating_set(G, nbunch):
+    """Check if ``nbunch`` is a connected dominating set of *G*."""
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     if len(G) == 0:
         raise NetworkXPointlessConcept("Connectivity is undefined for the null graph.")
 
-    S = set(S)
+    S = set(nbunch)
     for node in G.nodes():
         if node not in S and not any(nb in S for nb in G.neighbors(node)):
             return False
@@ -18002,13 +18078,35 @@ def bfs_beam_edges(G, source, value, width=None):
         frontier = next_frontier
 
 
-def bfs_labeled_edges(G, source, sort_neighbors=None):
-    """BFS yielding NetworkX-style ``(u, v, label)`` triples."""
+def bfs_labeled_edges(G, sources=None, sort_neighbors=None, *, source=None):
+    """BFS yielding NetworkX-style ``(u, v, label)`` triples.
+
+    The second positional argument is ``sources`` (iterable of sources),
+    matching networkx's signature. The legacy keyword-only ``source``
+    accepts a single node for callers that relied on the old fnx name.
+    """
+    if sources is None and source is not None:
+        sources = source
+    if sources is None:
+        raise TypeError(
+            "bfs_labeled_edges() missing required argument 'sources'"
+        )
     if sort_neighbors is not None:
-        # Fall back to Python when custom sort is needed
-        visited = {source}
-        level = {source: 0}
-        queue = [source]
+        # Custom-sort path — only makes sense for a single source.
+        if isinstance(sources, (list, tuple, set, frozenset)):
+            try:
+                if len(sources) != 1:
+                    raise ValueError(
+                        "sort_neighbors is only supported with a single source"
+                    )
+            except TypeError:
+                pass
+            start = next(iter(sources))
+        else:
+            start = sources
+        visited = {start}
+        level = {start: 0}
+        queue = [start]
         while queue:
             next_queue = []
             for node in queue:
@@ -18027,13 +18125,17 @@ def bfs_labeled_edges(G, source, sort_neighbors=None):
                         yield (node, nbr, "reverse")
             queue = next_queue
         return
-    yield from _call_networkx_for_parity("bfs_labeled_edges", G, source)
+    yield from _call_networkx_for_parity("bfs_labeled_edges", G, sources)
 
 
-def dfs_labeled_edges(G, source=None, depth_limit=None):
+def dfs_labeled_edges(G, source=None, depth_limit=None, *, sort_neighbors=None):
     """DFS yielding NetworkX-style traversal event triples."""
     yield from _call_networkx_for_parity(
-        "dfs_labeled_edges", G, source=source, depth_limit=depth_limit
+        "dfs_labeled_edges",
+        G,
+        source=source,
+        depth_limit=depth_limit,
+        sort_neighbors=sort_neighbors,
     )
 
 
@@ -18261,20 +18363,29 @@ def floyd_warshall_numpy(G, nodelist=None, weight="weight"):
     else:
         nodelist = list(G.nodes())
     n = len(nodelist)
-    A = to_numpy_array(G, nodelist=nodelist, weight=weight)
-    dist = np.full((n, n), np.inf)
+    # Initialize missing edges as +inf via the nonedge sentinel so that
+    # weight-0 and negative-weight edges are handled correctly. The
+    # previous `if A[i,j] != 0` gate skipped any edge with weight 0
+    # (leaving dist[i,j] = inf) and silently dropped paths through them.
+    A = to_numpy_array(G, nodelist=nodelist, weight=weight, nonedge=np.inf)
+    dist = np.array(A, dtype=float)
     np.fill_diagonal(dist, 0)
-    for i in range(n):
-        for j in range(n):
-            if A[i, j] != 0:
-                dist[i, j] = A[i, j]
     for k in range(n):
         dist = np.minimum(dist, dist[:, k : k + 1] + dist[k : k + 1, :])
     return dist
 
 
-def harmonic_diameter(G, sp=None):
-    """Harmonic diameter: n*(n-1) / sum(1/d(u,v)) for all connected pairs."""
+def harmonic_diameter(G, sp=None, weight=None):
+    """Harmonic diameter: n*(n-1) / sum(1/d(u,v)) for all connected pairs.
+
+    ``weight`` is accepted for networkx signature parity. When set, the
+    calculation delegates to networkx so edge weights are honoured; the
+    native Rust path assumes unit-distance edges.
+    """
+    if weight is not None:
+        return _call_networkx_for_parity(
+            "harmonic_diameter", G, sp=sp, weight=weight
+        )
     return _fnx.harmonic_diameter_rust(G)
 
 
@@ -21678,7 +21789,30 @@ def from_prufer_sequence(sequence):
 
 
 def to_prufer_sequence(T):
-    """Extract Prüfer sequence from labeled tree."""
+    """Extract Prüfer sequence from labeled tree.
+
+    Raises
+    ------
+    NetworkXPointlessConcept
+        If the tree has fewer than two nodes.
+    NotATree
+        If *T* is not a tree.
+    KeyError
+        If the node set is not {0, …, n-1}.
+    """
+    if T.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    n = T.number_of_nodes()
+    if n < 2:
+        raise NetworkXPointlessConcept(
+            "Prüfer sequence undefined for trees with fewer than two nodes."
+        )
+    if not is_tree(T):
+        raise NotATree("provided graph is not a tree")
+    # The Rust helper indexes by integer position [0, n); validate labels
+    # like nx does before falling through — else we get a KeyError anyway.
+    if set(T.nodes()) != set(range(n)):
+        raise KeyError("Nodes must be labelled 0 to n-1")
     return _fnx.to_prufer_sequence_rust(T)
 
 
@@ -21724,7 +21858,17 @@ def attr_sparse_matrix(
     """Like attr_matrix but returns scipy sparse."""
     import scipy.sparse
 
-    M, nodelist = attr_matrix(
+    if rc_order is None:
+        M, nodelist = attr_matrix(
+            G,
+            edge_attr=edge_attr,
+            node_attr=node_attr,
+            normalized=normalized,
+            rc_order=rc_order,
+            dtype=dtype,
+        )
+        return scipy.sparse.csr_array(M), nodelist
+    M = attr_matrix(
         G,
         edge_attr=edge_attr,
         node_attr=node_attr,
@@ -21732,7 +21876,7 @@ def attr_sparse_matrix(
         rc_order=rc_order,
         dtype=dtype,
     )
-    return scipy.sparse.csr_array(M), nodelist
+    return scipy.sparse.csr_array(M)
 
 
 # ---------------------------------------------------------------------------
@@ -22321,9 +22465,25 @@ def _k_edge_greedy_augmentation(G, k, avail=None, weight=None, seed=0):
     return aug_edges
 
 
-def spectral_bisection(G, weight=None):
-    """Partition graph using Fiedler vector sign."""
-    fv = fiedler_vector(G)
+def spectral_bisection(
+    G,
+    weight="weight",
+    normalized=False,
+    tol=1e-08,
+    method="tracemin_pcg",
+    seed=None,
+):
+    """Partition graph using Fiedler vector sign.
+
+    Extra kwargs (``tol``, ``method``, ``seed``, ``normalized``) are
+    accepted for networkx signature parity. The dense
+    ``numpy.linalg.eigh`` solver is deterministic and does not consult
+    ``tol``/``method``/``seed``; ``normalized`` selects the normalised
+    Laplacian when set.
+    """
+    fv = fiedler_vector(
+        G, weight=weight, normalized=normalized, tol=tol, method=method, seed=seed
+    )
     nodelist = list(G.nodes())
     a = frozenset(nodelist[i] for i in range(len(nodelist)) if fv[i] >= 0)
     b = frozenset(nodelist[i] for i in range(len(nodelist)) if fv[i] < 0)
@@ -26122,9 +26282,20 @@ def partial_duplication_graph(n, p, seed=None):
     return G
 
 
-def duplication_divergence_graph(n, p, seed=None):
-    """Duplication-divergence graph."""
-    return partial_duplication_graph(n, p, seed=seed)
+def duplication_divergence_graph(n, p, seed=None, create_using=None):
+    """Duplication-divergence graph.
+
+    ``create_using`` is accepted for networkx signature parity; networkx
+    treats it as a hint about the returned graph class.
+    """
+    G = partial_duplication_graph(n, p, seed=seed)
+    if create_using is None:
+        return G
+    target = create_using() if callable(create_using) else create_using
+    target.clear()
+    target.add_nodes_from(G.nodes(data=True))
+    target.add_edges_from(G.edges(data=True))
+    return target
 
 
 def interval_graph(intervals):
