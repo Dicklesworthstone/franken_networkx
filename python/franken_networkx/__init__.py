@@ -4967,10 +4967,36 @@ def dominating_set(G, start_with=None):
 
 # Algorithm functions — community detection
 from franken_networkx._fnx import (
-    louvain_communities,
+    louvain_communities as _raw_louvain_communities,
     modularity as _raw_modularity,
     greedy_modularity_communities as _raw_greedy_modularity_communities,
 )
+
+
+def louvain_communities(
+    G,
+    weight="weight",
+    resolution=1,
+    threshold=1e-07,
+    max_level=None,
+    seed=None,
+):
+    """Find communities via the Louvain algorithm.
+
+    br-louvainG: wrap the Rust binding so the first parameter is ``G``
+    (matching nx.community.louvain_communities), not the lowercase
+    ``g`` the Rust-side exposes. Also normalizes the ``resolution``
+    default to ``1`` (int) to match nx so default-kwargs introspection
+    is identical.
+    """
+    return _raw_louvain_communities(
+        G,
+        weight=weight,
+        resolution=float(resolution),
+        threshold=threshold,
+        max_level=max_level,
+        seed=seed,
+    )
 
 
 def modularity(G, communities, weight="weight", resolution=1):
@@ -4993,6 +5019,13 @@ def modularity(G, communities, weight="weight", resolution=1):
             seen.add(node)
     if seen != node_set:
         raise NotAPartition(G, community_list)
+    # br-modzero: nx.community.modularity raises ZeroDivisionError on a
+    # graph with zero edges (the 2m divisor is 0). fnx used to silently
+    # return 0.0 from the Rust path — diverging from nx's runtime
+    # contract. Raise before delegating so drop-in callers who expected
+    # nx's error can `except ZeroDivisionError` as they always did.
+    if G.number_of_edges() == 0:
+        raise ZeroDivisionError("division by zero")
     return _raw_modularity(G, community_list, weight=weight, resolution=resolution)
 
 
