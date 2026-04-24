@@ -6,8 +6,8 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 53 | 6% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 725 | 90% | Python-defined exports with no runtime NetworkX dependency detected |
+| RUST_NATIVE | 52 | 6% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 726 | 90% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 22 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
@@ -25,8 +25,8 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 662 |
-| `franken_networkx._fnx` | 53 |
+| `franken_networkx` | 663 |
+| `franken_networkx._fnx` | 52 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
@@ -36,9 +36,8 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 | `networkx.algorithms.tree.coding` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (53)
+## RUST_NATIVE exports (52)
 
-- `barycenter`
 - `bfs_layers`
 - `biconnected_component_edges`
 - `bidirectional_shortest_path`
@@ -92,7 +91,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `tree_broadcast_center`
 - `tree_broadcast_time`
 
-## PY_WRAPPER exports (725)
+## PY_WRAPPER exports (726)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -148,6 +147,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `balanced_tree`
 - `barabasi_albert_graph`
 - `barbell_graph`
+- `barycenter`
 - `bellman_ford_path`
 - `bellman_ford_path_length`
 - `bellman_ford_predecessor_and_distance`

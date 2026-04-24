@@ -6132,7 +6132,22 @@ def is_planar(G, *, backend=None, **backend_kwargs):
     return _raw_is_planar(G)
 
 # Barycenter
-from franken_networkx._fnx import barycenter
+from franken_networkx._fnx import barycenter as _raw_barycenter
+
+
+def barycenter(G, weight=None, attr=None, sp=None):
+    """Return the barycenter of the graph or its node set.
+
+    br-barymissing: nx.barycenter accepts ``weight`` (edge-attr name
+    for weighted shortest paths), ``attr`` (store node-barycentricity
+    as a node attribute), and ``sp`` (precomputed shortest-path dict).
+    fnx's Rust binding only accepted (G). Delegate to nx when any
+    non-default kwarg is supplied; fast-path kept for the plain
+    (G,) form.
+    """
+    if weight is None and attr is None and sp is None:
+        return _raw_barycenter(G)
+    return _call_networkx_for_parity("barycenter", G, weight=weight, attr=attr, sp=sp)
 
 # Algorithm functions — A* shortest path
 from franken_networkx._fnx import (
@@ -9450,11 +9465,18 @@ def adjacency_spectrum(G, weight="weight"):
     return np.sort(np.linalg.eigvalsh(A))
 
 
-def algebraic_connectivity(G, weight="weight", normalized=False):
+def algebraic_connectivity(G, weight="weight", normalized=False, tol=1e-8, method="tracemin_pcg", seed=None):
     """Return the algebraic connectivity of *G*.
 
     The algebraic connectivity is the second-smallest eigenvalue of the
     Laplacian matrix (Fiedler value).
+
+    br-algconnkwargs: accept ``tol``, ``method``, ``seed`` kwargs for
+    nx signature parity. fnx's bespoke implementation uses a direct
+    eigenvalue solver (``np.linalg.eigvalsh`` on the dense
+    Laplacian), so these iterative-solver knobs are accepted for
+    API parity but don't alter the numerics. A native iterative
+    port is future work.
 
     Parameters
     ----------
@@ -9463,12 +9485,15 @@ def algebraic_connectivity(G, weight="weight", normalized=False):
     weight : str or None, optional
     normalized : bool, optional
         Use normalized Laplacian if True.
+    tol, method, seed : accepted for nx parity; unused here.
 
     Returns
     -------
     float
     """
     import numpy as np
+
+    del tol, method, seed  # accepted for nx parity but not used
 
     if normalized:
         spectrum = np.sort(
@@ -29354,6 +29379,90 @@ import networkx as _nx
 # helper function shape from this module.
 config = _nx.config
 approximation = _ApproximationNamespace()
+
+
+# br-Gsigbulk: bulk-rename the first parameter of Rust-bindings that
+# name the graph arg lowercase ``g`` to the nx-standard ``G`` so
+# kwarg-style drop-in calls like ``fnx.is_empty(G=g)`` work. The wrapper
+# forwards positionally so the Rust side still sees the graph as its
+# first positional argument. This mops up the long tail of
+# Rust-native-imports that Round 19 left behind.
+def _bulk_rename_first_param_to_G():
+    import functools as _ft
+    import inspect as _insp
+
+    targets = [
+        "bfs_layers",
+        "biconnected_component_edges",
+        "bidirectional_shortest_path",
+        "core_number",
+        "descendants_at_distance",
+        "dominance_frontiers",
+        "enumerate_all_cliques",
+        "is_arborescence",
+        "is_bipartite",
+        "is_branching",
+        "is_connected",
+        "is_dominating_set",
+        "is_edge_cover",
+        "is_empty",
+        "is_eulerian",
+        "is_isolate",
+        "is_k_edge_connected",
+        "is_k_regular",
+        "is_matching",
+        "is_maximal_matching",
+        "is_perfect_matching",
+        "is_semieulerian",
+        "is_simple_path",
+        "is_weakly_connected",
+        "isolates",
+        "kosaraju_strongly_connected_components",
+        "max_weight_clique",
+        "max_weight_matching",
+        "maximal_independent_set",
+        "maximal_matching",
+        "min_weight_matching",
+        "node_connected_component",
+        "number_connected_components",
+        "number_of_isolates",
+        "number_of_spanning_trees",
+        "number_strongly_connected_components",
+        "number_weakly_connected_components",
+        "tree_broadcast_center",
+        "tree_broadcast_time",
+    ]
+    ns = globals()
+    for name in targets:
+        raw = ns.get(name)
+        if raw is None:
+            continue
+        try:
+            raw_sig = _insp.signature(raw)
+        except (ValueError, TypeError):
+            continue
+        params = list(raw_sig.parameters.values())
+        if not params or params[0].name != "g":
+            continue
+
+        def _make_wrapper(raw_fn, raw_params):
+            # Build a new signature renaming first positional to 'G'.
+            new_first = raw_params[0].replace(name="G")
+            new_sig = _insp.Signature([new_first] + list(raw_params[1:]))
+
+            @_ft.wraps(raw_fn)
+            def wrapper(*args, **kwargs):
+                if "G" in kwargs and "g" not in kwargs:
+                    kwargs["g"] = kwargs.pop("G")
+                return raw_fn(*args, **kwargs)
+
+            wrapper.__signature__ = new_sig
+            return wrapper
+
+        ns[name] = _make_wrapper(raw, params)
+
+
+_bulk_rename_first_param_to_G()
 
 
 def __getattr__(name):
