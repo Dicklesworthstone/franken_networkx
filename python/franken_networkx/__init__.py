@@ -13728,8 +13728,20 @@ def bethe_hessian_spectrum(G, r=None):
     return np.sort(np.linalg.eigvalsh(H.toarray()))
 
 
-def google_matrix(G, alpha=0.85, personalization=None, nodelist=None, weight="weight"):
-    """Return the Google PageRank matrix: alpha*S + (1-alpha)*v*e^T."""
+def google_matrix(
+    G,
+    alpha=0.85,
+    personalization=None,
+    nodelist=None,
+    weight="weight",
+    dangling=None,
+):
+    """Return the Google PageRank matrix: alpha*S + (1-alpha)*v*e^T.
+
+    br-matsig: adds the ``dangling`` parameter nx exposes (weights used
+    to redistribute mass from dangling nodes instead of the uniform
+    teleport). Previously fnx rejected ``dangling=`` with a TypeError.
+    """
     import numpy as np
 
     if nodelist is None:
@@ -13739,16 +13751,28 @@ def google_matrix(G, alpha=0.85, personalization=None, nodelist=None, weight="we
         return np.array([[]])
     A = to_numpy_array(G, nodelist=nodelist, weight=weight)
     row_sums = A.sum(axis=1)
+
+    if dangling is None:
+        dangling_row = None
+    else:
+        dangling_row = np.array(
+            [dangling.get(node, 0) for node in nodelist], dtype=float
+        )
+        total = dangling_row.sum()
+        if total > 0:
+            dangling_row = dangling_row / total
+
     S = np.zeros_like(A)
     for i in range(n):
         if row_sums[i] > 0:
             S[i, :] = A[i, :] / row_sums[i]
+        elif dangling_row is not None:
+            S[i, :] = dangling_row
         else:
             S[i, :] = 1.0 / n
     if personalization is None:
         v = np.ones(n) / n
     else:
-        {node: i for i, node in enumerate(nodelist)}
         v = np.array([personalization.get(node, 0) for node in nodelist], dtype=float)
         s = v.sum()
         v = v / s if s > 0 else np.ones(n) / n
@@ -13763,49 +13787,49 @@ def normalized_laplacian_spectrum(G, weight="weight"):
     return np.sort(np.linalg.eigvalsh(NL.toarray()))
 
 
-def directed_laplacian_matrix(G, nodelist=None, weight="weight", alpha=0.95):
-    """Return the directed Laplacian using PageRank stationary distribution."""
-    import numpy as np
+def directed_laplacian_matrix(
+    G, nodelist=None, weight="weight", walk_type=None, alpha=0.95
+):
+    """Return the directed Laplacian matrix of G.
 
-    if nodelist is None:
-        nodelist = list(G.nodes())
-    n = len(nodelist)
-    if n == 0:
-        return np.array([[]])
-    A = to_numpy_array(G, nodelist=nodelist, weight=weight)
-    row_sums = A.sum(axis=1)
-    row_sums[row_sums == 0] = 1
-    P = A / row_sums[:, np.newaxis]
-    G_mat = alpha * P + (1 - alpha) / n * np.ones((n, n))
-    vals, vecs = np.linalg.eig(G_mat.T)
-    idx = np.argmin(np.abs(vals - 1.0))
-    pi = np.real(vecs[:, idx])
-    pi = np.maximum(pi / pi.sum(), 0)
-    Phi = np.diag(pi)
-    return Phi - (Phi @ P + P.T @ Phi) / 2.0
+    br-dirlap: delegates to nx for numerical correctness and signature
+    parity. The previous bespoke implementation (a) was missing the
+    ``walk_type`` kwarg entirely and (b) always used the pagerank walk
+    matrix regardless of the graph's strong connectivity, producing
+    outputs that diverged from nx by ~16% on simple strongly-connected
+    3-cycles. nx's implementation dispatches on ``walk_type`` —
+    ``random`` / ``lazy`` / ``pagerank`` — with the default chosen from
+    graph structure (random for strongly connected, pagerank otherwise).
+    Reproducing this table in pure Python without drift is brittle;
+    delegation is the right default.
+    """
+    return _call_networkx_for_parity(
+        "directed_laplacian_matrix",
+        G,
+        nodelist=nodelist,
+        weight=weight,
+        walk_type=walk_type,
+        alpha=alpha,
+    )
 
 
 def directed_combinatorial_laplacian_matrix(
-    G, nodelist=None, weight="weight", alpha=0.95
+    G, nodelist=None, weight="weight", walk_type=None, alpha=0.95
 ):
-    """Return the directed combinatorial Laplacian: Phi*(I - P)."""
-    import numpy as np
+    """Return the directed combinatorial Laplacian: Phi*(I - P).
 
-    if nodelist is None:
-        nodelist = list(G.nodes())
-    n = len(nodelist)
-    if n == 0:
-        return np.array([[]])
-    A = to_numpy_array(G, nodelist=nodelist, weight=weight)
-    row_sums = A.sum(axis=1)
-    row_sums[row_sums == 0] = 1
-    P = A / row_sums[:, np.newaxis]
-    G_mat = alpha * P + (1 - alpha) / n * np.ones((n, n))
-    vals, vecs = np.linalg.eig(G_mat.T)
-    idx = np.argmin(np.abs(vals - 1.0))
-    pi = np.real(vecs[:, idx])
-    pi = np.maximum(pi / pi.sum(), 0)
-    return np.diag(pi) @ (np.eye(n) - P)
+    br-dirlap: see ``directed_laplacian_matrix`` — same delegation
+    rationale (missing walk_type kwarg + wrong stationary distribution
+    on strongly-connected graphs).
+    """
+    return _call_networkx_for_parity(
+        "directed_combinatorial_laplacian_matrix",
+        G,
+        nodelist=nodelist,
+        weight=weight,
+        walk_type=walk_type,
+        alpha=alpha,
+    )
 
 
 def attr_matrix(
@@ -20115,13 +20139,18 @@ def modularity_matrix(G, nodelist=None, weight=None):
     return A - np.outer(k, k) / (2 * m)
 
 
-def directed_modularity_matrix(G, nodelist=None):
-    """Directed modularity matrix."""
+def directed_modularity_matrix(G, nodelist=None, weight=None):
+    """Directed modularity matrix.
+
+    br-matsig: nx accepts ``weight=None`` (default) or a string attribute
+    name; fnx was missing the ``weight`` parameter entirely so
+    ``directed_modularity_matrix(G, weight='weight')`` raised TypeError.
+    """
     import numpy as np
 
     if nodelist is None:
         nodelist = list(G.nodes())
-    A = to_numpy_array(G, nodelist=nodelist, weight=None)
+    A = to_numpy_array(G, nodelist=nodelist, weight=weight)
     k_out = A.sum(axis=1)
     k_in = A.sum(axis=0)
     m = A.sum()
