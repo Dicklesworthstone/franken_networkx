@@ -5931,21 +5931,21 @@ def union(G, H, rename=()):
 def compose(G, H):
     """Return the composition of G and H — G ∪ H with H's attrs winning on overlap."""
     cls = _operator_output_class(G, H)
-    if G.is_multigraph():
-        # Rust compose on multigraphs crashes with an unrelated
-        # "unexpected 'keys'" TypeError in the edge-view wrapper
-        # (franken_networkx-47bag). Build directly in Python for
-        # multigraphs to sidestep it.
-        out = cls()
-        out.graph.update(dict(G.graph))
-        out.graph.update(dict(H.graph))
-        for node, attrs in G.nodes(data=True):
+    # Build directly in Python so edge insertion/orientation follows
+    # nx.compose exactly: graph G first, then H with H attrs winning.
+    # This also keeps the multigraph path away from the Rust edge-view
+    # ``keys=True`` collision fixed under franken_networkx-47bag.
+    out = cls()
+    out.graph.update(dict(G.graph))
+    out.graph.update(dict(H.graph))
+    for node, attrs in G.nodes(data=True):
+        out.add_node(node, **dict(attrs))
+    for node, attrs in H.nodes(data=True):
+        if node in out:
+            out.nodes[node].update(dict(attrs))
+        else:
             out.add_node(node, **dict(attrs))
-        for node, attrs in H.nodes(data=True):
-            if node in out:
-                out.nodes[node].update(dict(attrs))
-            else:
-                out.add_node(node, **dict(attrs))
+    if G.is_multigraph():
         out.add_edges_from(
             (u, v, key, dict(d))
             for u, v, key, d in G.edges(keys=True, data=True)
@@ -5954,11 +5954,10 @@ def compose(G, H):
             (u, v, key, dict(d))
             for u, v, key, d in H.edges(keys=True, data=True)
         )
-        return out
-    raw = _raw_compose(G, H)
-    rebuilt = _rebuild_operator_output(raw, cls)
-    _copy_attrs_into(rebuilt, G, H)
-    return rebuilt
+    else:
+        out.add_edges_from((u, v, dict(d)) for u, v, d in G.edges(data=True))
+        out.add_edges_from((u, v, dict(d)) for u, v, d in H.edges(data=True))
+    return out
 
 
 def intersection(G, H):
@@ -6834,7 +6833,9 @@ def _translate_astar_no_path(exc, source, target):
 
 
 def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=None):
-    if _should_delegate_astar_to_networkx(weight, cutoff):
+    # br-astarignoreweight: the Rust _raw_astar_path uses hop-counts,
+    # not weighted distances. Delegate weighted inputs to nx.
+    if _should_delegate_astar_to_networkx(weight, cutoff) or _graph_has_nonunit_weight(G, weight):
         return _call_networkx_for_parity(
             "astar_path",
             G,
@@ -6858,7 +6859,8 @@ def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=Non
 def astar_path_length(
     G, source, target, heuristic=None, weight="weight", *, cutoff=None
 ):
-    if _should_delegate_astar_to_networkx(weight, cutoff):
+    # br-astarignoreweight: delegate weighted inputs.
+    if _should_delegate_astar_to_networkx(weight, cutoff) or _graph_has_nonunit_weight(G, weight):
         return _call_networkx_for_parity(
             "astar_path_length",
             G,
@@ -7859,7 +7861,14 @@ def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
 
 
 def single_source_bellman_ford(G, source, target=None, weight="weight"):
-    if target is not None or _should_delegate_bellman_ford_to_networkx(weight):
+    # br-bfignoreweight: same weight-ignoring bug as dijkstra — the
+    # Rust Bellman-Ford returns hop-count distances on weighted input.
+    # Delegate any weighted graph to nx.
+    if (
+        target is not None
+        or _should_delegate_bellman_ford_to_networkx(weight)
+        or _graph_has_nonunit_weight(G, weight)
+    ):
         return _call_networkx_for_parity(
             "single_source_bellman_ford",
             G,
@@ -7871,7 +7880,8 @@ def single_source_bellman_ford(G, source, target=None, weight="weight"):
 
 
 def single_source_bellman_ford_path(G, source, weight="weight"):
-    if _should_delegate_bellman_ford_to_networkx(weight):
+    # br-bfignoreweight: delegate weighted inputs.
+    if _should_delegate_bellman_ford_to_networkx(weight) or _graph_has_nonunit_weight(G, weight):
         return _call_networkx_for_parity(
             "single_source_bellman_ford_path", G, source, weight=weight
         )
@@ -7879,7 +7889,8 @@ def single_source_bellman_ford_path(G, source, weight="weight"):
 
 
 def single_source_bellman_ford_path_length(G, source, weight="weight"):
-    if _should_delegate_bellman_ford_to_networkx(weight):
+    # br-bfignoreweight: delegate weighted inputs.
+    if _should_delegate_bellman_ford_to_networkx(weight) or _graph_has_nonunit_weight(G, weight):
         return _call_networkx_for_parity(
             "single_source_bellman_ford_path_length", G, source, weight=weight
         )
@@ -7929,7 +7940,8 @@ def all_pairs_dijkstra_path_length(G, cutoff=None, weight="weight"):
 
 
 def all_pairs_bellman_ford_path(G, weight="weight"):
-    if _should_delegate_bellman_ford_to_networkx(weight):
+    # br-bfignoreweight: delegate weighted inputs to nx.
+    if _should_delegate_bellman_ford_to_networkx(weight) or _graph_has_nonunit_weight(G, weight):
         yield from _call_networkx_for_parity(
             "all_pairs_bellman_ford_path", G, weight=weight
         )
@@ -7939,7 +7951,8 @@ def all_pairs_bellman_ford_path(G, weight="weight"):
 
 
 def all_pairs_bellman_ford_path_length(G, weight="weight"):
-    if _should_delegate_bellman_ford_to_networkx(weight):
+    # br-bfignoreweight: delegate weighted inputs to nx.
+    if _should_delegate_bellman_ford_to_networkx(weight) or _graph_has_nonunit_weight(G, weight):
         yield from _call_networkx_for_parity(
             "all_pairs_bellman_ford_path_length", G, weight=weight
         )
@@ -7949,13 +7962,17 @@ def all_pairs_bellman_ford_path_length(G, weight="weight"):
 
 
 def floyd_warshall(G, weight="weight"):
-    if _should_delegate_floyd_warshall_to_networkx(weight):
+    # br-fwignoreweight: the Rust floyd_warshall also silently ignores
+    # non-unit edge weights (same class of bug as dijkstra / BF).
+    # Delegate weighted inputs to nx.
+    if _should_delegate_floyd_warshall_to_networkx(weight) or _graph_has_nonunit_weight(G, weight):
         return _call_networkx_for_parity("floyd_warshall", G, weight=weight)
     return _raw_floyd_warshall(G, weight=weight)
 
 
 def floyd_warshall_predecessor_and_distance(G, weight="weight"):
-    if _should_delegate_floyd_warshall_to_networkx(weight):
+    # br-fwignoreweight: delegate weighted inputs.
+    if _should_delegate_floyd_warshall_to_networkx(weight) or _graph_has_nonunit_weight(G, weight):
         return _call_networkx_for_parity(
             "floyd_warshall_predecessor_and_distance", G, weight=weight
         )
@@ -12537,8 +12554,13 @@ def bidirectional_dijkstra(G, source, target, weight="weight"):
     Returns
     -------
     (length, path) : tuple
+
+    br-dijkignoreweight: the local fallback calls dijkstra_path/_length
+    which now correctly delegate weighted inputs to nx. Only stays on
+    fnx's own dijkstra wrappers (which are weight-correct) for
+    unit-weight cases.
     """
-    if _should_delegate_dijkstra_to_networkx(G, weight):
+    if _should_delegate_dijkstra_to_networkx(G, weight) or _graph_has_nonunit_weight(G, weight):
         return _call_networkx_for_parity(
             "bidirectional_dijkstra", G, source, target, weight=weight
         )
