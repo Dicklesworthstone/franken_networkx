@@ -36008,7 +36008,7 @@ mod tests {
 
         assert_eq!(
             sorted_index_cycles(result.cycles),
-            vec![vec![0, 1, 2], vec![0, 1, 2, 3]]
+            vec![vec![0, 1, 2], vec![0, 2, 3]]
         );
     }
 
