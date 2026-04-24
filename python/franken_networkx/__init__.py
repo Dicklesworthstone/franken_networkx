@@ -26884,15 +26884,27 @@ def convert_node_labels_to_integers(
     H : Graph or DiGraph
         A new graph with integer node labels.
     """
+    # br-cnlti-tiebreak: nx breaks degree ties by node value (it sorts
+    # (degree, node) tuples); fnx's key=lambda n: G.degree[n] was a
+    # stable-by-degree sort that preserved the original iteration
+    # order on ties. That produced a different int mapping on graphs
+    # where nodes share the same degree (every graph except a
+    # strictly-heterogeneous-degree one). Match nx's tuple-sort so
+    # increasing/decreasing degree ordering yields the identical
+    # integer mapping.
     if ordering == "default":
         nodes = list(G.nodes())
     elif ordering == "sorted":
         nodes = sorted(G.nodes())
     elif ordering == "increasing degree":
-        nodes = sorted(G.nodes(), key=lambda n: G.degree[n])
+        dv_pairs = [(d, n) for (n, d) in G.degree()]
+        dv_pairs.sort()
+        nodes = [n for _, n in dv_pairs]
     elif ordering == "decreasing degree":
-        nodes = [node for node, _degree in sorted(G.degree, key=lambda item: item[1])]
-        nodes.reverse()
+        dv_pairs = [(d, n) for (n, d) in G.degree()]
+        dv_pairs.sort()
+        dv_pairs.reverse()
+        nodes = [n for _, n in dv_pairs]
     else:
         raise NetworkXError(f"Unknown node ordering: {ordering}")
 

@@ -1014,18 +1014,46 @@ def parse_multiline_adjlist(
         n_nbrs = int(parts[1]) if len(parts) > 1 else 0
         G.add_node(node)
         # Read the neighbor lines
+        # br-mladjreadattrs: the old parser split on whitespace and
+        # kept only parts[0] as the neighbor, silently dropping the
+        # edge attribute dict written on the same line (format:
+        # ``<nbr> {...}``). Parse the remainder of each neighbor line
+        # as a Python literal attr dict when present.
+        import ast as _ast
         for _ in range(n_nbrs):
             nbr_line = next(it)
             nbr_line = _strip_comment(nbr_line, comments)
             if not nbr_line:
                 continue
-            nbr_parts = nbr_line.split(delimiter)
+            # Split into (nbr_token, rest). rest holds the attr dict text.
+            nbr_parts = nbr_line.split(delimiter, 1) if delimiter is not None else nbr_line.split(None, 1)
             nbr = nbr_parts[0]
-            if edgetype is not None:
+            attrs = {}
+            if len(nbr_parts) > 1:
+                rest = nbr_parts[1].strip()
+                if rest:
+                    if edgetype is not None and not rest.startswith("{"):
+                        # Legacy bare-value form: "<nbr> <edge_value>"
+                        try:
+                            attrs = {"weight": edgetype(rest)}
+                        except Exception:
+                            attrs = {}
+                    else:
+                        try:
+                            parsed = _ast.literal_eval(rest)
+                        except (ValueError, SyntaxError):
+                            parsed = None
+                        if isinstance(parsed, dict):
+                            attrs = parsed
+                        elif parsed is not None and edgetype is not None:
+                            attrs = {"weight": edgetype(parsed)}
+            if edgetype is not None and not attrs:
+                # Preserve prior edgetype-coerced-neighbor behaviour when
+                # the file has no attr payload at all.
                 nbr = edgetype(nbr)
             elif nodetype is not None:
                 nbr = nodetype(nbr)
-            G.add_edge(node, nbr)
+            G.add_edge(node, nbr, **attrs)
     return G
 
 
@@ -1072,12 +1100,34 @@ def generate_multiline_adjlist(G, delimiter=" "):
         neighbor1<delimiter>{edge_data}
         neighbor2<delimiter>{edge_data}
         ...
+
+    br-mladjdata: G.adjacency() yields (node, AtlasView); the old code
+    tested ``isinstance(adj, dict)``, which was False for AtlasView, so
+    it fell into the list-comprehension branch that hardcoded ``{}`` as
+    the edge data — silently dropping every edge attribute from the
+    serialized output. Use ``adj.items()`` (AtlasView supports the
+    dict-like API) to preserve edge attributes.
     """
     directed = G.is_directed()
     seen = set()
+    if G.is_multigraph():
+        for node, adj in G.adjacency():
+            # For multigraph, adj is {nbr: {key: attrs}}. Expand each
+            # parallel edge as its own neighbor line.
+            nbr_items = []
+            for nbr, keyed_attrs in adj.items():
+                if not directed and nbr in seen:
+                    continue
+                for key, attrs in keyed_attrs.items():
+                    nbr_items.append((nbr, dict(attrs) if hasattr(attrs, "items") else attrs))
+            yield delimiter.join([str(node), str(len(nbr_items))])
+            for nbr, d in nbr_items:
+                yield delimiter.join([str(nbr), str(dict(d) if hasattr(d, "items") else d)])
+            seen.add(node)
+        return
     for node, adj in G.adjacency():
-        if isinstance(adj, dict):
-            nbr_items = list(adj.items())
+        if hasattr(adj, "items"):
+            nbr_items = [(nbr, dict(attrs) if hasattr(attrs, "items") else {}) for nbr, attrs in adj.items()]
         else:
             nbr_items = [(x[0] if isinstance(x, (list, tuple)) else x, {}) for x in adj]
         if not directed:
