@@ -198,8 +198,6 @@ PAGERANK_FAMILIES = [
     pytest.param(_cycle, 6, id="cycle-6"),
     pytest.param(_complete, 4, id="complete-4"),
     pytest.param(_digraph_chain, 5, id="digraph-chain-5"),
-    # weighted-path: known ranking-level divergence between fnx's
-    # pagerank weight handling and upstream's; tracked separately.
 ]
 
 
@@ -212,6 +210,36 @@ def test_pagerank_matches_networkx(make, n):
     assert math.isclose(sum(f.values()), 1.0, abs_tol=1e-5)
     assert math.isclose(sum(x.values()), 1.0, abs_tol=1e-5)
     _assert_centrality_close(f, x, rel=1e-3, abs_=1e-4)
+
+
+def test_pagerank_weighted_and_multigraph_contracts_match_networkx():
+    cases = []
+
+    fg = fnx.Graph()
+    fg.add_weighted_edges_from([(0, 1, 1.0), (1, 2, 2.0), (0, 2, 5.0)])
+    fg.add_edge(2, 3, weight=-0.25)
+    ng = nx.Graph()
+    ng.add_weighted_edges_from([(0, 1, 1.0), (1, 2, 2.0), (0, 2, 5.0)])
+    ng.add_edge(2, 3, weight=-0.25)
+    cases.append((fg, ng))
+
+    fg = fnx.MultiGraph()
+    fg.add_edge(0, 1, key=0, weight=2.0)
+    fg.add_edge(0, 1, key=1, weight=0.5)
+    fg.add_edge(1, 2, key=0, weight=1.0)
+    ng = nx.MultiGraph()
+    ng.add_edge(0, 1, key=0, weight=2.0)
+    ng.add_edge(0, 1, key=1, weight=0.5)
+    ng.add_edge(1, 2, key=0, weight=1.0)
+    cases.append((fg, ng))
+
+    for fg, ng in cases:
+        _assert_centrality_close(
+            fnx.pagerank(fg, alpha=0.85, max_iter=1000, tol=1e-6),
+            nx.pagerank(ng, alpha=0.85, max_iter=1000, tol=1e-6),
+            rel=1e-6,
+            abs_=1e-9,
+        )
 
 
 @pytest.mark.parametrize("make, n", UNDIRECTED_FAMILIES)

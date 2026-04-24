@@ -18,6 +18,7 @@ use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
 
 type SpanningEdgeSamples = (Vec<(String, String)>, Vec<f64>);
+const PAGERANK_WEIGHT_ATTR: &str = "__fnx_pagerank_weight__";
 
 // ---------------------------------------------------------------------------
 // GraphRef — unified graph access for algorithms accepting both Graph & DiGraph
@@ -393,6 +394,75 @@ fn projected_weight(attrs: &AttrMap, weight_attr: &str) -> f64 {
         .and_then(|raw| raw.as_f64())
         .filter(|weight| weight.is_finite())
         .unwrap_or(1.0)
+}
+
+fn pagerank_projected_weight(attrs: &AttrMap, weight_attr: Option<&str>) -> f64 {
+    let Some(weight_attr) = weight_attr else {
+        return 1.0;
+    };
+    attrs
+        .get(weight_attr)
+        .and_then(|raw| raw.as_f64())
+        .filter(|weight| weight.is_finite())
+        .unwrap_or(1.0)
+}
+
+fn pagerank_weight_attrs(weight: f64) -> AttrMap {
+    let mut attrs = AttrMap::new();
+    attrs.insert(PAGERANK_WEIGHT_ATTR.to_owned(), weight.into());
+    attrs
+}
+
+fn multigraph_to_pagerank_simple_graph(
+    mg: &fnx_classes::MultiGraph,
+    weight_attr: Option<&str>,
+) -> fnx_classes::Graph {
+    let runtime_policy = mg.runtime_policy().clone();
+    let mut g = fnx_classes::Graph::with_runtime_policy(runtime_policy.clone());
+    let mut weights = HashMap::<(String, String), f64>::new();
+
+    for node in mg.nodes_ordered() {
+        let attrs = mg.node_attrs(node).cloned().unwrap_or_default();
+        g.add_node_with_attrs(node.to_owned(), attrs);
+    }
+
+    for edge in mg.edges_ordered() {
+        let pair = (edge.left.clone(), edge.right.clone());
+        *weights.entry(pair).or_insert(0.0) += pagerank_projected_weight(&edge.attrs, weight_attr);
+    }
+
+    for ((left, right), weight) in weights {
+        let _ = g.add_edge_with_attrs(left, right, pagerank_weight_attrs(weight));
+    }
+
+    g.set_runtime_policy(runtime_policy);
+    g
+}
+
+fn multidigraph_to_pagerank_simple_digraph(
+    mdg: &fnx_classes::digraph::MultiDiGraph,
+    weight_attr: Option<&str>,
+) -> fnx_classes::digraph::DiGraph {
+    let runtime_policy = mdg.runtime_policy().clone();
+    let mut dg = fnx_classes::digraph::DiGraph::with_runtime_policy(runtime_policy.clone());
+    let mut weights = HashMap::<(String, String), f64>::new();
+
+    for node in mdg.nodes_ordered() {
+        let attrs = mdg.node_attrs(node).cloned().unwrap_or_default();
+        dg.add_node_with_attrs(node.to_owned(), attrs);
+    }
+
+    for edge in mdg.edges_ordered() {
+        let pair = (edge.source.clone(), edge.target.clone());
+        *weights.entry(pair).or_insert(0.0) += pagerank_projected_weight(&edge.attrs, weight_attr);
+    }
+
+    for ((source, target), weight) in weights {
+        let _ = dg.add_edge_with_attrs(source, target, pagerank_weight_attrs(weight));
+    }
+
+    dg.set_runtime_policy(runtime_policy);
+    dg
 }
 
 /// Convert a MultiGraph to a simple Graph by choosing the minimum-weight
@@ -2853,24 +2923,39 @@ pub fn pagerank(
     let result = match &gr {
         GraphRef::Undirected(pg) => {
             let inner = &pg.inner;
-            py.allow_threads(|| fnx_algorithms::pagerank_with_params(inner, alpha, max_iter, tol))
+            py.allow_threads(|| {
+                fnx_algorithms::pagerank_with_weight(inner, alpha, max_iter, tol, weight)
+            })
         }
         GraphRef::Directed { dg, .. } => {
             let inner = &dg.inner;
-            py.allow_threads(|| fnx_algorithms::pagerank_with_params(inner, alpha, max_iter, tol))
+            py.allow_threads(|| {
+                fnx_algorithms::pagerank_with_weight(inner, alpha, max_iter, tol, weight)
+            })
         }
-        _ => {
-            if gr.is_directed() {
-                let inner = gr.digraph().expect("is_directed checked above");
-                py.allow_threads(|| {
-                    fnx_algorithms::pagerank_with_params(inner, alpha, max_iter, tol)
-                })
-            } else {
-                let inner = gr.undirected();
-                py.allow_threads(|| {
-                    fnx_algorithms::pagerank_with_params(inner, alpha, max_iter, tol)
-                })
-            }
+        GraphRef::MultiUndirected { mg, .. } => {
+            let graph = multigraph_to_pagerank_simple_graph(&mg.inner, weight);
+            py.allow_threads(|| {
+                fnx_algorithms::pagerank_with_weight(
+                    &graph,
+                    alpha,
+                    max_iter,
+                    tol,
+                    Some(PAGERANK_WEIGHT_ATTR),
+                )
+            })
+        }
+        GraphRef::MultiDirected { mdg, .. } => {
+            let graph = multidigraph_to_pagerank_simple_digraph(&mdg.inner, weight);
+            py.allow_threads(|| {
+                fnx_algorithms::pagerank_with_weight(
+                    &graph,
+                    alpha,
+                    max_iter,
+                    tol,
+                    Some(PAGERANK_WEIGHT_ATTR),
+                )
+            })
         }
     };
     centrality_to_dict(py, &gr, &result.scores)

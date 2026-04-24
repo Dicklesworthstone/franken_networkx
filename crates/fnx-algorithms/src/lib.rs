@@ -145,6 +145,7 @@ pub trait GraphView {
     fn neighbors_iter(&self, node: &str) -> Option<Box<dyn Iterator<Item = &str> + '_>>;
     fn in_neighbors_iter(&self, node: &str) -> Option<Box<dyn Iterator<Item = &str> + '_>>;
     fn neighbor_count(&self, node: &str) -> usize;
+    fn edge_weight(&self, source: &str, target: &str, weight_attr: Option<&str>) -> f64;
     fn has_node(&self, node: &str) -> bool;
     fn has_edge(&self, u: &str, v: &str) -> bool;
     fn is_directed(&self) -> bool;
@@ -172,6 +173,16 @@ impl GraphView for Graph {
     }
     fn neighbor_count(&self, node: &str) -> usize {
         self.neighbor_count(node)
+    }
+    fn edge_weight(&self, source: &str, target: &str, weight_attr: Option<&str>) -> f64 {
+        let Some(weight_attr) = weight_attr else {
+            return 1.0;
+        };
+        self.edge_attrs(source, target)
+            .and_then(|attrs| attrs.get(weight_attr))
+            .and_then(|val| val.as_f64())
+            .filter(|value| value.is_finite())
+            .unwrap_or(1.0)
     }
     fn has_node(&self, node: &str) -> bool {
         self.has_node(node)
@@ -210,6 +221,16 @@ impl GraphView for DiGraph {
     }
     fn neighbor_count(&self, node: &str) -> usize {
         self.neighbor_count(node)
+    }
+    fn edge_weight(&self, source: &str, target: &str, weight_attr: Option<&str>) -> f64 {
+        let Some(weight_attr) = weight_attr else {
+            return 1.0;
+        };
+        self.edge_attrs(source, target)
+            .and_then(|attrs| attrs.get(weight_attr))
+            .and_then(|val| val.as_f64())
+            .filter(|value| value.is_finite())
+            .unwrap_or(1.0)
     }
     fn has_node(&self, node: &str) -> bool {
         self.has_node(node)
@@ -2603,6 +2624,17 @@ pub fn pagerank_with_params<G: GraphView>(
     max_iter: usize,
     tol: f64,
 ) -> PageRankResult {
+    pagerank_with_weight(graph, alpha, max_iter, tol, None)
+}
+
+/// PageRank with explicit parameters and optional edge-weight attribute.
+pub fn pagerank_with_weight<G: GraphView>(
+    graph: &G,
+    alpha: f64,
+    max_iter: usize,
+    tol: f64,
+    weight_attr: Option<&str>,
+) -> PageRankResult {
     let nodes = graph.nodes_ordered();
     let n = nodes.len();
     if n == 0 {
@@ -2633,7 +2665,6 @@ pub fn pagerank_with_params<G: GraphView>(
         };
     }
 
-    // Canonical compute order removes insertion-order drift while preserving output order.
     let mut canonical_nodes = nodes.clone();
     canonical_nodes.sort_unstable();
     let index_by_node = canonical_nodes
@@ -2642,12 +2673,11 @@ pub fn pagerank_with_params<G: GraphView>(
         .map(|(idx, node)| (*node, idx))
         .collect::<HashMap<&str, usize>>();
 
-    // Pre-calculate canonical in-neighbors for deterministic summation
-    let canonical_in_neighbors = canonical_nodes
+    let canonical_out_neighbors = canonical_nodes
         .iter()
-        .map(|&v| {
+        .map(|&u| {
             let mut nbrs: Vec<&str> = graph
-                .in_neighbors_iter(v)
+                .neighbors_iter(u)
                 .map(|iter| iter.collect())
                 .unwrap_or_default();
             nbrs.sort_unstable();
@@ -2655,10 +2685,16 @@ pub fn pagerank_with_params<G: GraphView>(
         })
         .collect::<Vec<Vec<&str>>>();
 
-    let out_degree = canonical_nodes
+    let out_weight = canonical_nodes
         .iter()
-        .map(|node| graph.neighbor_count(node))
-        .collect::<Vec<usize>>();
+        .zip(canonical_out_neighbors.iter())
+        .map(|(&node, neighbors)| {
+            neighbors
+                .iter()
+                .map(|&neighbor| graph.edge_weight(node, neighbor, weight_attr))
+                .sum::<f64>()
+        })
+        .collect::<Vec<f64>>();
 
     let n_f64 = n as f64;
     let base = (1.0 - alpha) / n_f64;
@@ -2672,33 +2708,24 @@ pub fn pagerank_with_params<G: GraphView>(
         let dangling_mass = ranks
             .iter()
             .enumerate()
-            .filter_map(|(idx, value)| (out_degree[idx] == 0).then_some(*value))
+            .filter_map(|(idx, value)| (out_weight[idx] == 0.0).then_some(*value))
             .sum::<f64>();
         let dangling_term = alpha * dangling_mass / n_f64;
 
-        for (v_idx, _v) in canonical_nodes.iter().enumerate() {
-            let in_neighbors = &canonical_in_neighbors[v_idx];
-            edges_scanned += in_neighbors.len();
+        next_ranks.fill(base + dangling_term);
+        for (u_idx, &u) in canonical_nodes.iter().enumerate() {
+            let weight_sum = out_weight[u_idx];
+            if weight_sum == 0.0 {
+                continue;
+            }
+            let out_neighbors = &canonical_out_neighbors[u_idx];
+            edges_scanned += out_neighbors.len();
 
-            let inbound = in_neighbors.iter().fold(0.0_f64, |acc, &neighbor| {
-                let Some(&u_idx) = index_by_node.get(neighbor) else {
-                    return acc;
-                };
-                let degree = out_degree[u_idx];
-                if degree == 0 {
-                    acc
-                } else {
-                    acc + (ranks[u_idx] / degree as f64)
+            for &v in out_neighbors {
+                if let Some(&v_idx) = index_by_node.get(v) {
+                    let weight = graph.edge_weight(u, v, weight_attr);
+                    next_ranks[v_idx] += alpha * ranks[u_idx] * (weight / weight_sum);
                 }
-            });
-
-            next_ranks[v_idx] = base + dangling_term + (alpha * inbound);
-        }
-
-        let total_mass = next_ranks.iter().sum::<f64>();
-        if total_mass > 0.0 {
-            for value in &mut next_ranks {
-                *value /= total_mass;
             }
         }
 
