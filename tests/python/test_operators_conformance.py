@@ -121,6 +121,54 @@ def test_operators_reject_mismatched_graph_classes():
         fnx.union(g, d)
 
 
+# br-diffnodes: nx.difference / nx.symmetric_difference enforce that the
+# two input graphs have identical node sets. fnx previously skipped this
+# check and silently computed an edge-set operation over whatever nodes
+# were present — diverging silently from nx on any misuse.
+def test_difference_enforces_equal_node_sets():
+    g = fnx.Graph()
+    g.add_edges_from([(0, 1), (1, 2)])
+    h = fnx.Graph()
+    h.add_edges_from([(0, 1), (2, 3)])
+
+    with pytest.raises(fnx.NetworkXError, match=r"Node sets of graphs not equal"):
+        fnx.difference(g, h)
+
+
+def test_symmetric_difference_enforces_equal_node_sets():
+    g = fnx.Graph()
+    g.add_edges_from([(0, 1), (1, 2)])
+    h = fnx.Graph()
+    h.add_edges_from([(0, 1), (2, 3)])
+
+    with pytest.raises(fnx.NetworkXError, match=r"Node sets of graphs not equal"):
+        fnx.symmetric_difference(g, h)
+
+
+def test_difference_matches_nx_on_equal_node_set():
+    """Sanity: the fix didn't break the happy path."""
+    g = fnx.Graph(); g.add_nodes_from([0, 1, 2, 3]); g.add_edges_from([(0, 1), (1, 2)])
+    h = fnx.Graph(); h.add_nodes_from([0, 1, 2, 3]); h.add_edges_from([(0, 1), (2, 3)])
+    gn = nx.Graph(); gn.add_nodes_from([0, 1, 2, 3]); gn.add_edges_from([(0, 1), (1, 2)])
+    hn = nx.Graph(); hn.add_nodes_from([0, 1, 2, 3]); hn.add_edges_from([(0, 1), (2, 3)])
+
+    r_fnx = fnx.difference(g, h)
+    r_nx = nx.difference(gn, hn)
+    assert sorted(r_fnx.edges()) == sorted(r_nx.edges())
+    assert sorted(r_fnx.nodes()) == sorted(r_nx.nodes())
+
+
+def test_symmetric_difference_matches_nx_on_equal_node_set():
+    g = fnx.Graph(); g.add_nodes_from([0, 1, 2, 3]); g.add_edges_from([(0, 1), (1, 2)])
+    h = fnx.Graph(); h.add_nodes_from([0, 1, 2, 3]); h.add_edges_from([(0, 1), (2, 3)])
+    gn = nx.Graph(); gn.add_nodes_from([0, 1, 2, 3]); gn.add_edges_from([(0, 1), (1, 2)])
+    hn = nx.Graph(); hn.add_nodes_from([0, 1, 2, 3]); hn.add_edges_from([(0, 1), (2, 3)])
+
+    r_fnx = fnx.symmetric_difference(g, h)
+    r_nx = nx.symmetric_difference(gn, hn)
+    assert sorted(r_fnx.edges()) == sorted(r_nx.edges())
+
+
 @pytest.mark.parametrize("op_name", ["compose", "union"])
 def test_binary_operator_matches_nx_on_mixed_attrs(op_name):
     """Differential: fnx output equals nx output for compose + union on

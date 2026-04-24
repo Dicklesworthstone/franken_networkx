@@ -5200,6 +5200,12 @@ def intersection(G, H):
 
 def difference(G, H):
     """Return a graph with edges in G but not in H (same node set)."""
+    # br-diffnodes: nx enforces that G and H have identical node sets and
+    # raises NetworkXError("Node sets of graphs not equal") otherwise. fnx
+    # silently computed an edge-set difference over whatever nodes were
+    # present, silently diverging on any real-world misuse.
+    if set(G.nodes()) != set(H.nodes()):
+        raise NetworkXError("Node sets of graphs not equal")
     cls = _operator_output_class(G, H)
     raw = _raw_difference(G, H)
     return _rebuild_operator_output(raw, cls)
@@ -5207,6 +5213,9 @@ def difference(G, H):
 
 def symmetric_difference(G, H):
     """Return a graph with edges in exactly one of G, H (same node set)."""
+    # br-diffnodes: same precondition as ``difference``.
+    if set(G.nodes()) != set(H.nodes()):
+        raise NetworkXError("Node sets of graphs not equal")
     cls = _operator_output_class(G, H)
     raw = _raw_symmetric_difference(G, H)
     return _rebuild_operator_output(raw, cls)
