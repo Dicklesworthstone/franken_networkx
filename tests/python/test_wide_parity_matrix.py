@@ -396,12 +396,6 @@ CASES = [
 
 
 def _expected_divergence(case_name: str, fixture_name: str) -> str | None:
-    link_prediction = {
-        "jaccard_coefficient",
-        "adamic_adar_index",
-        "resource_allocation_index",
-        "preferential_attachment",
-    }
     directed_shortest_path = {
         "single_source_shortest_path",
         "single_source_shortest_path_length",
@@ -409,8 +403,6 @@ def _expected_divergence(case_name: str, fixture_name: str) -> str | None:
         "all_pairs_shortest_path_length",
     }
 
-    if case_name in link_prediction and fixture_name in {"empty", "multigraph"}:
-        return "franken_networkx-zzcm2: link prediction missing-node/multigraph contract"
     if case_name == "is_connected_dominating_set" and fixture_name in {
         "empty",
         "digraph-path",

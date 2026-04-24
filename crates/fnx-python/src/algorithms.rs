@@ -512,6 +512,15 @@ fn require_undirected(gr: &GraphRef<'_>, _algo_name: &str) -> PyResult<()> {
     Ok(())
 }
 
+fn require_not_multigraph(gr: &GraphRef<'_>) -> PyResult<()> {
+    if gr.is_multigraph() {
+        return Err(crate::NetworkXNotImplemented::new_err(
+            "not implemented for multigraph type",
+        ));
+    }
+    Ok(())
+}
+
 fn require_directed(gr: &GraphRef<'_>, _algo_name: &str) -> PyResult<()> {
     if !gr.is_directed() {
         let msg = format!("{} is not defined for undirected graphs.", _algo_name);
@@ -7344,6 +7353,18 @@ fn extract_ebunch(
     }
 }
 
+fn validate_link_prediction_pairs(gr: &GraphRef<'_>, pairs: &[(String, String)]) -> PyResult<()> {
+    for (u, v) in pairs {
+        if !gr.has_node(u) {
+            return Err(NodeNotFound::new_err(format!("Node {u} not in G.")));
+        }
+        if !gr.has_node(v) {
+            return Err(NodeNotFound::new_err(format!("Node {v} not in G.")));
+        }
+    }
+    Ok(())
+}
+
 /// Compute the Jaccard coefficient for all node pairs in ebunch.
 ///
 /// Matches `networkx.jaccard_coefficient(G, ebunch)`.
@@ -7355,8 +7376,10 @@ pub fn jaccard_coefficient(
     ebunch: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Vec<(PyObject, PyObject, f64)>> {
     let gr = extract_graph(g)?;
+    require_not_multigraph(&gr)?;
     require_undirected(&gr, "jaccard_coefficient")?;
     let pairs = extract_ebunch(py, &gr, ebunch)?;
+    validate_link_prediction_pairs(&gr, &pairs)?;
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::jaccard_coefficient(inner, &pairs));
     Ok(result
@@ -7376,8 +7399,10 @@ pub fn adamic_adar_index(
     ebunch: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Vec<(PyObject, PyObject, f64)>> {
     let gr = extract_graph(g)?;
+    require_not_multigraph(&gr)?;
     require_undirected(&gr, "adamic_adar_index")?;
     let pairs = extract_ebunch(py, &gr, ebunch)?;
+    validate_link_prediction_pairs(&gr, &pairs)?;
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::adamic_adar_index(inner, &pairs));
     Ok(result
@@ -7397,8 +7422,10 @@ pub fn preferential_attachment(
     ebunch: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Vec<(PyObject, PyObject, f64)>> {
     let gr = extract_graph(g)?;
+    require_not_multigraph(&gr)?;
     require_undirected(&gr, "preferential_attachment")?;
     let pairs = extract_ebunch(py, &gr, ebunch)?;
+    validate_link_prediction_pairs(&gr, &pairs)?;
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::preferential_attachment(inner, &pairs));
     Ok(result
@@ -7418,8 +7445,10 @@ pub fn resource_allocation_index(
     ebunch: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Vec<(PyObject, PyObject, f64)>> {
     let gr = extract_graph(g)?;
+    require_not_multigraph(&gr)?;
     require_undirected(&gr, "resource_allocation_index")?;
     let pairs = extract_ebunch(py, &gr, ebunch)?;
+    validate_link_prediction_pairs(&gr, &pairs)?;
     let inner = gr.undirected();
     let result = py.allow_threads(|| fnx_algorithms::resource_allocation_index(inner, &pairs));
     Ok(result
