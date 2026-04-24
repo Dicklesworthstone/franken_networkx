@@ -1935,17 +1935,12 @@ def _complement_via_nx(G):
     return _from_nx_graph(nx_result)
 
 
-def _random_generator_via_nx(name, /, *args, **kwargs):
-    """Private helper (br-codrgen): call an nx random generator with a
-    seeded RNG and rebuild as a fnx graph. Used by
-    ``random_regular_graph``, ``barabasi_albert_graph``, and any other
-    seeded generator whose Rust-native PRNG output diverges from nx.
-    """
-    import networkx as nx
-    from franken_networkx.readwrite import _from_nx_graph
-
-    nx_graph = getattr(nx, name)(*args, **kwargs)
-    return _from_nx_graph(nx_graph)
+def _random_generator_subset(seq, m, rng):
+    """Return m unique elements from a repeated-node population."""
+    targets = set()
+    while len(targets) < m:
+        targets.add(rng.choice(seq))
+    return targets
 
 
 def _call_networkx_submodule_for_parity(submodule_path, name, G, /, *args, **kwargs):
@@ -9631,18 +9626,37 @@ def watts_strogatz_graph(n, k, p, seed=None, *, create_using=None, backend=None,
     if backend is not None and backend != "networkx":
         raise ImportError(f"'{backend}' backend is not installed.")
     del backend_kwargs  # in-tree implementation ignores backend kwargs
-    graph = _rust_watts_strogatz_graph(n, k, p, seed=_native_random_seed(seed))
-    if create_using is None:
-        return graph
-    return _copy_graph_into(
-        graph,
-        _checked_create_using(
-            create_using,
-            directed=False,
-            multigraph=False,
-            default=Graph,
-        ),
+    graph = _checked_create_using(
+        create_using,
+        directed=False,
+        multigraph=False,
+        default=Graph,
     )
+    if k > n:
+        raise NetworkXError("k>n, choose smaller k or larger n")
+    if k == n:
+        return complete_graph(n, create_using=graph)
+
+    graph = empty_graph(n, create_using=graph, default=Graph)
+    nodes = list(range(n))
+    for j in range(1, k // 2 + 1):
+        targets = nodes[j:] + nodes[:j]
+        graph.add_edges_from(zip(nodes, targets))
+
+    rng = _generator_random_state(seed)
+    for j in range(1, k // 2 + 1):
+        targets = nodes[j:] + nodes[:j]
+        for u, v in zip(nodes, targets):
+            if rng.random() < p:
+                w = rng.choice(nodes)
+                while w == u or graph.has_edge(u, w):
+                    w = rng.choice(nodes)
+                    if graph.degree(u) >= n - 1:
+                        break
+                else:
+                    graph.remove_edge(u, v)
+                    graph.add_edge(u, w)
+    return graph
 
 
 def barabasi_albert_graph(
@@ -9659,58 +9673,37 @@ def barabasi_albert_graph(
     if backend is not None and backend != "networkx":
         raise ImportError(f"'{backend}' backend is not installed.")
     del backend_kwargs  # in-tree implementation ignores backend kwargs
-    import random as _random
-    import networkx as nx
-    from franken_networkx.readwrite import _from_nx_graph
+    graph = _checked_create_using(
+        create_using,
+        directed=False,
+        multigraph=False,
+        default=Graph,
+    )
+    if m < 1 or m >= n:
+        raise NetworkXError(
+            f"Barabasi-Albert network must have m >= 1 and m < n, m = {m}, n = {n}"
+        )
 
-    if initial_graph is None and create_using is None:
-        # br-codrgen: seeded output diverges from nx; keeping native per
-        # the no-fallback design invariant. Exact-output parity awaits a
-        # Rust-side RNG port.
-        return _rust_barabasi_albert_graph(n, m, seed=_native_random_seed(seed))
-
-    if create_using is None and initial_graph is not None:
-        if m < 1 or m >= n:
-            raise NetworkXError(
-                f"Barabasi-Albert network must have m >= 1 and m < n, m = {m}, n = {n}"
-            )
+    if initial_graph is None:
+        graph = star_graph(m, create_using=graph)
+    else:
         if len(initial_graph) < m or len(initial_graph) > n:
             raise NetworkXError(
                 f"Barabasi-Albert initial graph needs between m={m} and n={n} nodes"
             )
+        graph = _copy_graph_into(initial_graph, graph)
 
-        graph = Graph()
-        graph.graph.update(dict(initial_graph.graph))
-        for node, node_attrs in initial_graph.nodes(data=True):
-            graph.add_node(node, **dict(node_attrs))
-        for u, v, edge_attrs in initial_graph.edges(data=True):
-            graph.add_edge(u, v, **dict(edge_attrs))
-        rng = _random.Random(seed)
-        repeated_nodes = [
-            node for node, degree_value in graph.degree for _ in range(degree_value)
-        ]
-        source = len(graph)
-        while source < n:
-            targets = set()
-            while len(targets) < m:
-                targets.add(rng.choice(repeated_nodes))
-            graph.add_edges_from((source, target) for target in targets)
-            repeated_nodes.extend(targets)
-            repeated_nodes.extend([source] * m)
-            source += 1
-        return graph
-
-    # create_using with initial_graph: build BA graph then convert.
-    graph = barabasi_albert_graph(n, m, seed=seed, initial_graph=initial_graph)
-    if create_using is not None:
-        result = create_using
-        if hasattr(result, "clear"):
-            result.clear()
-        for node, attrs in graph.nodes(data=True):
-            result.add_node(node, **attrs)
-        for u, v, attrs in graph.edges(data=True):
-            result.add_edge(u, v, **attrs)
-        return result
+    rng = _generator_random_state(seed)
+    repeated_nodes = [
+        node for node, degree_value in graph.degree for _ in range(degree_value)
+    ]
+    source = len(graph)
+    while source < n:
+        targets = _random_generator_subset(repeated_nodes, m, rng)
+        graph.add_edges_from((source, target) for target in targets)
+        repeated_nodes.extend(targets)
+        repeated_nodes.extend([source] * m)
+        source += 1
     return graph
 
 

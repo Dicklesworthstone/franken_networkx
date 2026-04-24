@@ -16,11 +16,16 @@ import franken_networkx as fnx
 
 
 def _graph_signature(graph):
+    def edge_endpoints(u, v):
+        endpoints = (repr(u), repr(v))
+        if graph.is_directed():
+            return endpoints
+        return tuple(sorted(endpoints))
+
     if graph.is_multigraph():
         edges = [
             (
-                repr(u),
-                repr(v),
+                *edge_endpoints(u, v),
                 repr(key),
                 tuple(sorted((repr(k), repr(vv)) for k, vv in data.items())),
             )
@@ -29,8 +34,7 @@ def _graph_signature(graph):
     else:
         edges = [
             (
-                repr(u),
-                repr(v),
+                *edge_endpoints(u, v),
                 tuple(sorted((repr(k), repr(vv)) for k, vv in data.items())),
             )
             for u, v, data in graph.edges(data=True)
@@ -234,6 +238,4 @@ GENERATOR_CASES = [
 
 @pytest.mark.parametrize(("case_name", "factory"), GENERATOR_CASES)
 def test_seeded_random_generators_match_networkx_matrix(case_name, factory):
-    if case_name in {"watts_rewired", "barabasi_seeded"}:
-        pytest.xfail("franken_networkx-codrgen-review: seeded random output parity")
     _assert_same_outcome(lambda: factory(fnx), lambda: factory(nx))
