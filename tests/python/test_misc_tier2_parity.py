@@ -1,3 +1,5 @@
+import inspect
+
 import networkx as nx
 import pytest
 
@@ -6,6 +8,87 @@ import franken_networkx as fnx
 
 def normalize_cycles(cycles):
     return sorted(sorted(cycle) for cycle in cycles)
+
+
+def minimum_cycle_basis_port_case(case):
+    graph = fnx.Graph()
+    expected = nx.Graph()
+
+    for node in case.get("nodes", ()):
+        graph.add_node(node)
+        expected.add_node(node)
+
+    for edge in case["edges"]:
+        if len(edge) == 2:
+            u, v = edge
+            attrs = {}
+        else:
+            u, v, attrs = edge
+        graph.add_edge(u, v, **attrs)
+        expected.add_edge(u, v, **attrs)
+
+    return graph, expected, case.get("weight")
+
+
+MINIMUM_CYCLE_BASIS_PORT_CASES = [
+    pytest.param(
+        {"nodes": [], "edges": []},
+        id="empty",
+    ),
+    pytest.param(
+        {"edges": [(0, 1), (1, 2), (2, 3)]},
+        id="tree",
+    ),
+    pytest.param(
+        {"edges": [(0, 1), (1, 2), (2, 0)]},
+        id="triangle",
+    ),
+    pytest.param(
+        {
+            "edges": [
+                ("a", "b", {"weight": 1}),
+                ("b", "c", {"weight": 1}),
+                ("c", "d", {"weight": 1}),
+                ("d", "a", {"weight": 1}),
+                ("a", "c", {"weight": 2}),
+            ],
+            "weight": "weight",
+        },
+        id="weighted-square-diagonal",
+    ),
+    pytest.param(
+        {
+            "nodes": ["iso"],
+            "edges": [(0, 1), (1, 2), (2, 0), (2, 3), (3, 4), (4, 2)],
+        },
+        id="disconnected-components-and-isolate",
+    ),
+    pytest.param(
+        {
+            "edges": [
+                ("a", "b", {"weight": 7}),
+                ("b", "c"),
+                ("c", "a", {"weight": 2}),
+            ],
+            "weight": "weight",
+        },
+        id="missing-weight-defaults-to-one",
+    ),
+    pytest.param(
+        {"edges": [("loop", "loop")]},
+        id="self-loop",
+    ),
+]
+
+
+def test_minimum_cycle_basis_signature_inventory_matches_networkx():
+    nx_signature = inspect.signature(nx.minimum_cycle_basis)
+    fnx_signature = inspect.signature(fnx.minimum_cycle_basis)
+
+    assert list(fnx_signature.parameters) == ["G", "weight"]
+    assert fnx_signature.parameters["weight"].default is None
+    assert nx_signature.parameters["G"].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+    assert nx_signature.parameters["weight"].default is None
 
 
 def test_chordless_cycles_returns_iterator_and_matches_networkx():
@@ -97,6 +180,33 @@ def test_minimum_cycle_basis_weighted_order_matches_networkx():
         expected,
         weight="weight",
     )
+
+
+@pytest.mark.parametrize("case", MINIMUM_CYCLE_BASIS_PORT_CASES)
+def test_minimum_cycle_basis_port_fixture_matrix_matches_networkx(case):
+    graph, expected, weight = minimum_cycle_basis_port_case(case)
+
+    assert fnx.minimum_cycle_basis(graph, weight=weight) == nx.minimum_cycle_basis(
+        expected,
+        weight=weight,
+    )
+
+
+def test_minimum_cycle_basis_graph_family_rejections_match_networkx():
+    digraph = fnx.DiGraph()
+    digraph.add_edge(0, 1)
+    multigraph = fnx.MultiGraph()
+    multigraph.add_edge(0, 1)
+
+    with pytest.raises(fnx.NetworkXNotImplemented, match="not implemented for directed type"):
+        fnx.minimum_cycle_basis(digraph)
+    with pytest.raises(nx.NetworkXNotImplemented, match="not implemented for directed type"):
+        nx.minimum_cycle_basis(nx.DiGraph([(0, 1)]))
+
+    with pytest.raises(fnx.NetworkXNotImplemented, match="not implemented for multigraph type"):
+        fnx.minimum_cycle_basis(multigraph)
+    with pytest.raises(nx.NetworkXNotImplemented, match="not implemented for multigraph type"):
+        nx.minimum_cycle_basis(nx.MultiGraph([(0, 1)]))
 
 
 def test_equitable_color_matches_networkx_on_cycle():
