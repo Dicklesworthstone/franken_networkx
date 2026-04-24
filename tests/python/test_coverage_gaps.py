@@ -327,6 +327,28 @@ class TestPlanarity:
             frozenset(edge) for edge in counterexample.edges()
         } == {frozenset(edge) for edge in expected_counterexample.edges()}
 
+    def test_check_planarity_signature_matches_networkx(self):
+        assert str(inspect.signature(fnx.check_planarity)) == str(
+            inspect.signature(nx.check_planarity)
+        )
+        assert str(inspect.signature(fnx.check_planarity_recursive)) == str(
+            inspect.signature(nx.algorithms.planarity.check_planarity_recursive)
+        )
+
+    @pytest.mark.parametrize(
+        "actual_func",
+        [fnx.check_planarity, fnx.check_planarity_recursive],
+    )
+    def test_check_planarity_backend_keyword_contract(self, actual_func):
+        is_planar, certificate = actual_func(fnx.cycle_graph(4), backend="networkx")
+
+        assert is_planar
+        assert isinstance(certificate, nx.PlanarEmbedding)
+        with pytest.raises(ImportError):
+            actual_func(fnx.cycle_graph(4), backend="missing")
+        with pytest.raises(TypeError):
+            actual_func(fnx.cycle_graph(4), unexpected=True)
+
     def test_get_counterexample_signature_matches_networkx(self):
         assert str(inspect.signature(fnx.get_counterexample)) == str(
             inspect.signature(nx.algorithms.planarity.get_counterexample)

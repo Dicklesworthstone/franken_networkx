@@ -12767,7 +12767,7 @@ def _check_planarity_certificate(G, counterexample=False, recursive=False):
     return nx_planarity.check_planarity(graph, counterexample=counterexample)
 
 
-def check_planarity(G, counterexample=False):
+def check_planarity(G, counterexample=False, *, backend=None, **backend_kwargs):
     """Check if *G* is planar and return a NetworkX-style certificate tuple.
 
     Parameters
@@ -12781,11 +12781,15 @@ def check_planarity(G, counterexample=False):
     -------
     (bool, certificate)
     """
+    _validate_backend_dispatch_keywords("check_planarity", backend, backend_kwargs)
     return _check_planarity_certificate(G, counterexample=counterexample)
 
 
-def check_planarity_recursive(G, counterexample=False):
+def check_planarity_recursive(G, counterexample=False, *, backend=None, **backend_kwargs):
     """Check if *G* is planar using NetworkX's recursive planarity routine."""
+    _validate_backend_dispatch_keywords(
+        "check_planarity_recursive", backend, backend_kwargs
+    )
     return _check_planarity_certificate(
         G,
         counterexample=counterexample,
