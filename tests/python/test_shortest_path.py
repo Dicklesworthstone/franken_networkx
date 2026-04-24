@@ -106,6 +106,45 @@ class TestShortestPath:
         G_fnx, G_nx = path_graph
         assert fnx.shortest_path_length(G_fnx, "a", "e") == nx.shortest_path_length(G_nx, "a", "e")
 
+    def test_weighted_path_lengths_preserve_integer_result_type(self, fnx, nx):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", weight=2)
+            graph.add_edge("b", "c", weight=3)
+
+        for fnx_call, nx_call in (
+            (
+                lambda: fnx.shortest_path_length(G_fnx, "a", "c", weight="weight"),
+                lambda: nx.shortest_path_length(G_nx, "a", "c", weight="weight"),
+            ),
+            (
+                lambda: fnx.dijkstra_path_length(G_fnx, "a", "c", weight="weight"),
+                lambda: nx.dijkstra_path_length(G_nx, "a", "c", weight="weight"),
+            ),
+            (
+                lambda: fnx.bellman_ford_path_length(G_fnx, "a", "c", weight="weight"),
+                lambda: nx.bellman_ford_path_length(G_nx, "a", "c", weight="weight"),
+            ),
+        ):
+            fnx_result = fnx_call()
+            nx_result = nx_call()
+            assert fnx_result == nx_result
+            assert fnx_result.__class__ is nx_result.__class__
+
+    def test_weighted_path_lengths_preserve_float_result_type(self, fnx, nx):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge("a", "b", weight=2.0)
+            graph.add_edge("b", "c", weight=3.0)
+
+        fnx_result = fnx.shortest_path_length(G_fnx, "a", "c", weight="weight")
+        nx_result = nx.shortest_path_length(G_nx, "a", "c", weight="weight")
+
+        assert fnx_result == nx_result
+        assert fnx_result.__class__ is nx_result.__class__
+
     @pytest.mark.parametrize(
         ("kwargs", "exc_type", "message"),
         [
