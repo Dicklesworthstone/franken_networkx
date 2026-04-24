@@ -609,3 +609,63 @@ class TestPandasEdgelist:
 
         H = fnx.from_pandas_edgelist(df, source="src", target="dst")
         assert H.has_edge(0, 1)
+
+
+class TestCrossClassConstructor:
+    """Regression for franken_networkx-xmginit: fnx.Graph(MultiGraph)
+    used to drop all edges because the Rust __new__ copies nodes for
+    cross-class instantiations but not edges.
+    """
+
+    def test_graph_from_multigraph_collapses_parallel_edges(self):
+        MG = fnx.MultiGraph()
+        MG.add_edges_from([(0, 1), (0, 1), (1, 2)])
+        G = fnx.Graph(MG)
+        assert sorted(G.edges()) == [(0, 1), (1, 2)]
+
+    def test_graph_from_multigraph_last_attr_wins(self):
+        MG = fnx.MultiGraph()
+        MG.add_edge(0, 1, key="a", w=1.0)
+        MG.add_edge(0, 1, key="b", w=2.0)
+        G = fnx.Graph(MG)
+        assert dict(G.edges[0, 1]) == {"w": 2.0}
+
+    def test_digraph_from_multidigraph_collapses(self):
+        MD = fnx.MultiDiGraph()
+        MD.add_edges_from([(0, 1), (0, 1), (1, 2)])
+        D = fnx.DiGraph(MD)
+        assert sorted(D.edges()) == [(0, 1), (1, 2)]
+
+    def test_multigraph_from_multigraph_preserves_keys(self):
+        src = fnx.MultiGraph()
+        src.add_edge(0, 1, key="a", w=1.0)
+        src.add_edge(0, 1, key="b", w=2.0)
+        dst = fnx.MultiGraph(src)
+        # Ordering of parallel edges isn't fixed by nx's contract — compare
+        # as a set so either emission order is acceptable.
+        actual = {
+            (frozenset((u, v)), k, tuple(sorted(d.items())))
+            for u, v, k, d in dst.edges(keys=True, data=True)
+        }
+        assert actual == {
+            (frozenset((0, 1)), "a", (("w", 1.0),)),
+            (frozenset((0, 1)), "b", (("w", 2.0),)),
+        }
+
+    def test_multigraph_from_simple_graph(self):
+        src = fnx.Graph()
+        src.add_edges_from([(0, 1), (1, 2)])
+        dst = fnx.MultiGraph(src)
+        assert dst.number_of_edges() == 2
+
+    def test_graph_from_non_parallel_multigraph(self):
+        MG = fnx.MultiGraph()
+        MG.add_edges_from([(0, 1), (1, 2)])
+        G = fnx.Graph(MG)
+        assert sorted(G.edges()) == [(0, 1), (1, 2)]
+
+    def test_graph_from_graph_unchanged(self):
+        src = fnx.Graph()
+        src.add_edges_from([(0, 1), (1, 2)])
+        dst = fnx.Graph(src)
+        assert sorted(dst.edges()) == [(0, 1), (1, 2)]

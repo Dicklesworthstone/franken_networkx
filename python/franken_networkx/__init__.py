@@ -893,6 +893,31 @@ def _init_absorbing_dict_of_dicts(raw_init, is_multigraph):
         # has already absorbed edge-list and Graph-instance inputs.
         if isinstance(incoming_graph_data, dict):
             _decode_dict_of_dicts_into(self, incoming_graph_data, is_multigraph)
+            return
+        # Cross-class instantiation (br-xmginit):
+        #   fnx.Graph(MultiGraph) silently returned an empty graph because
+        #   Rust ``__new__`` copies nodes for cross-class cases but drops
+        #   edges only when collapsing Multi* -> simple (the other
+        #   direction and all same-class cases round-trip correctly at
+        #   the Rust layer).
+        src_is_graph = hasattr(incoming_graph_data, "nodes") \
+            and hasattr(incoming_graph_data, "edges") \
+            and callable(getattr(incoming_graph_data, "is_multigraph", None))
+        if not src_is_graph:
+            return
+        if not incoming_graph_data.is_multigraph() or is_multigraph:
+            # Only the Multi* -> simple case needs manual collapse.
+            return
+        # Collapse parallels with last-wins attrs (matches
+        # nx.convert.from_dict_of_dicts collapse semantics).
+        collapsed = {}
+        for u, v, d in incoming_graph_data.edges(data=True):
+            key = (u, v) if incoming_graph_data.is_directed() \
+                else tuple(sorted((u, v), key=repr))
+            collapsed[key] = dict(d)
+        self.add_edges_from(
+            (u, v, attrs) for (u, v), attrs in collapsed.items()
+        )
 
     return __init__
 
