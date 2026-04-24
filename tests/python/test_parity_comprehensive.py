@@ -745,9 +745,11 @@ class TestGenerators:
         assert fnx.is_connected(G)
 
     def test_interval_graph(self):
+        # br-ivgnode: nodes are the interval tuples themselves
+        # (matching nx.interval_graph's contract).
         G = fnx.interval_graph([(0, 2), (1, 3), (4, 6)])
-        assert G.has_edge(0, 1)
-        assert not G.has_edge(0, 2)
+        assert G.has_edge((0, 2), (1, 3))
+        assert not G.has_edge((0, 2), (4, 6))
 
     def test_dorogovtsev(self):
         G = fnx.dorogovtsev_goltsev_mendes_graph(2)

@@ -26023,17 +26023,36 @@ def duplication_divergence_graph(n, p, seed=None):
 
 
 def interval_graph(intervals):
-    """Interval graph: nodes are intervals, edges for overlaps."""
-    G = Graph()
+    """Interval graph: nodes are the interval tuples themselves.
+
+    br-ivgnode: nx.interval_graph uses the input interval (a, b) tuples
+    as the node labels. fnx previously indexed nodes by 0..n-1, so
+    ``G.nodes[(1, 3)]`` worked on nx but raised KeyError on fnx and
+    edge iteration yielded integer pairs instead of tuple pairs —
+    silently breaking any caller that relied on the interval-as-label
+    convention. Validate + store interval tuples as nodes.
+    """
     intervals = list(intervals)
-    for i, iv in enumerate(intervals):
-        G.add_node(i)
-    for i in range(len(intervals)):
-        for j in range(i + 1, len(intervals)):
-            a1, b1 = intervals[i]
-            a2, b2 = intervals[j]
+    # Validate — nx raises TypeError for non-iterable length-2 interval
+    # (it reshapes via tuple() then checks length).
+    tuples = []
+    seen = set()
+    for iv in intervals:
+        iv_t = tuple(iv)
+        if len(iv_t) != 2:
+            raise TypeError("Each interval must have length 2")
+        if iv_t[0] > iv_t[1]:
+            raise ValueError(f"Interval must have lower bound first: {iv_t}")
+        tuples.append(iv_t)
+    G = Graph()
+    G.add_nodes_from(tuples)
+    n = len(tuples)
+    for i in range(n):
+        a1, b1 = tuples[i]
+        for j in range(i + 1, n):
+            a2, b2 = tuples[j]
             if a1 <= b2 and a2 <= b1:
-                G.add_edge(i, j)
+                G.add_edge(tuples[i], tuples[j])
     return G
 
 
