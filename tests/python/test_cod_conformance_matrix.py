@@ -111,7 +111,9 @@ def _graph_property_fixtures():
 
 
 @pytest.mark.parametrize("fixture_index", range(9))
-@pytest.mark.parametrize("function_name", ["density", "diameter", "radius"])
+@pytest.mark.parametrize(
+    "function_name", ["density", "diameter", "radius", "center", "periphery"]
+)
 def test_graph_properties_match_networkx_matrix(fixture_index, function_name):
     fnx_graph, nx_graph = _graph_property_fixtures()[fixture_index]
     _assert_same_outcome(

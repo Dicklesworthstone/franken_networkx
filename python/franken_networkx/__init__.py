@@ -3053,7 +3053,14 @@ def center(G, e=None, usebounds=False, weight=None):
     list
         List of nodes in the center.
     """
-    if e is not None or usebounds or weight is not None:
+    # Delegate cases where the native path does not yet preserve nx contracts.
+    if (
+        e is not None
+        or usebounds
+        or weight is not None
+        or len(G) == 0
+        or G.is_directed()
+    ):
         return _call_networkx_for_parity(
             "center", G, e=e, usebounds=usebounds, weight=weight
         )
@@ -3079,7 +3086,14 @@ def periphery(G, e=None, usebounds=False, weight=None):
     list
         List of nodes in the periphery.
     """
-    if e is not None or usebounds or weight is not None:
+    # Delegate cases where the native path does not yet preserve nx contracts.
+    if (
+        e is not None
+        or usebounds
+        or weight is not None
+        or len(G) == 0
+        or G.is_directed()
+    ):
         return _call_networkx_for_parity(
             "periphery", G, e=e, usebounds=usebounds, weight=weight
         )
