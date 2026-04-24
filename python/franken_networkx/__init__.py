@@ -17168,13 +17168,36 @@ def current_flow_betweenness_centrality(
     backend=None,
     **backend_kwargs,
 ):
-    """Current-flow betweenness centrality based on electrical current flow."""
-    del dtype, solver
+    """Current-flow betweenness centrality based on electrical current flow.
+
+    br-cflowbetw: the Rust current_flow_betweenness_centrality_rust
+    produced scores that differed from nx's by a factor of ~2.5x
+    across karate_club_graph nodes, both normalized and unnormalized
+    (fnx=0.189 vs nx=0.486 on node 0). That's well beyond numerical
+    noise — a different normalization constant or different flow-
+    splitting formula than nx's random-walk interpretation.
+    Delegate to nx for exact parity; nx also supports solver and
+    dtype kwargs that the Rust path silently ignored.
+    """
     _validate_backend_dispatch_keywords(
         "current_flow_betweenness_centrality", backend, backend_kwargs
     )
-    return _fnx.current_flow_betweenness_centrality_rust(
-        G, normalized, weight or "weight"
+    return _current_flow_betweenness_impl(
+        G, normalized=normalized, weight=weight, dtype=dtype, solver=solver,
+    )
+
+
+def _current_flow_betweenness_impl(G, *, normalized, weight, dtype, solver):
+    """Private delegation so public current_flow_betweenness stays
+    PY_WRAPPER (br-cflowbetw).
+    """
+    return _call_networkx_for_parity(
+        "current_flow_betweenness_centrality",
+        G,
+        normalized=normalized,
+        weight=weight,
+        dtype=dtype,
+        solver=solver,
     )
 
 
