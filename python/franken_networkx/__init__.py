@@ -5397,9 +5397,19 @@ def _union_with_rename_via_parity(G, H, rename):
 
 # Algorithm functions — transitive closure/reduction
 from franken_networkx._fnx import (
-    transitive_closure,
-    transitive_reduction,
+    transitive_closure as _raw_transitive_closure,
+    transitive_reduction as _raw_transitive_reduction,
 )
+
+
+def transitive_closure(G, reflexive=False):
+    """br-isokw: ``G`` matches nx; Rust binding used ``g``."""
+    return _raw_transitive_closure(G, reflexive=reflexive)
+
+
+def transitive_reduction(G):
+    """br-isokw: ``G`` matches nx; Rust binding used ``g``."""
+    return _raw_transitive_reduction(G)
 
 
 def degree_histogram(G):
@@ -5843,11 +5853,16 @@ from franken_networkx._fnx import (
     dag_longest_path as _raw_dag_longest_path,
     dag_longest_path_length as _raw_dag_longest_path_length,
     descendants as _raw_descendants,
-    is_directed_acyclic_graph,
+    is_directed_acyclic_graph as _raw_is_directed_acyclic_graph,
     lexicographic_topological_sort as _raw_lexicographic_topological_sort,
     topological_sort as _raw_topological_sort,
     topological_generations as _raw_topological_generations,
 )
+
+
+def is_directed_acyclic_graph(G):
+    """br-isokw: ``G`` matches nx; Rust binding used ``g``."""
+    return _raw_is_directed_acyclic_graph(G)
 
 
 def _ancestors_descendants_missing_node_msg(G, source):
