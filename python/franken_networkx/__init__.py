@@ -663,7 +663,14 @@ class _MultiGraphEdgeView:
         self._graph = graph
 
     def __iter__(self):
-        return iter(self())
+        # br-multiiterkeys: nx.MultiEdgeView default iteration yields
+        # 3-tuples ``(u, v, key)`` (as opposed to the ``G.edges()`` call
+        # form which defaults to 2-tuples). fnx's __iter__ called
+        # self() (keys=False) and yielded 2-tuples, so Set comparisons
+        # and direct iteration consumers (including downstream nx
+        # algorithms) got a different edge count than nx on multigraphs
+        # with parallel edges.
+        return iter(self(keys=True))
 
     def __len__(self):
         return self._graph.number_of_edges()
@@ -792,7 +799,11 @@ class _MultiDiGraphEdgeView:
         self._graph = graph
 
     def __iter__(self):
-        return iter(self())
+        # br-multiiterkeys: see _MultiGraphEdgeView — default iteration
+        # yields 3-tuples ``(u, v, key)`` matching nx.MultiEdgeView's
+        # default iter contract; the ``G.edges()`` call form still
+        # defaults to 2-tuples via the keys=False default.
+        return iter(self(keys=True))
 
     def __len__(self):
         return self._graph.number_of_edges()
@@ -1907,6 +1918,68 @@ _EDGE_VIEW_TYPE.__eq__ = _view_set_eq
 _EDGE_VIEW_TYPE.__ne__ = _view_set_ne
 _EDGE_VIEW_TYPE.isdisjoint = _view_set_isdisjoint
 _EDGE_VIEW_TYPE.__hash__ = None  # unhashable once we define __eq__
+
+# br-evsetcmp: EdgeView also missed Set subset/superset comparisons
+# (same fix family as NodeView — br-nvsetcmp below). nx.EdgeView
+# inherits collections.abc.Set, so ``{(0,1)} <= G.edges`` works.
+# Apply the same Set-style comparisons to both undirected and
+# directed Rust EdgeView types.
+def _ev_set_le(self, other):
+    try:
+        self_len = len(self)
+    except TypeError:
+        return NotImplemented
+    if not hasattr(other, "__contains__") or not hasattr(other, "__iter__"):
+        return NotImplemented
+    try:
+        if self_len > len(other):
+            return False
+    except TypeError:
+        pass
+    return all(item in other for item in self)
+
+
+def _ev_set_ge(self, other):
+    if not hasattr(other, "__iter__"):
+        return NotImplemented
+    try:
+        if len(self) < len(other):
+            return False
+    except TypeError:
+        pass
+    return all(item in self for item in other)
+
+
+def _ev_set_lt(self, other):
+    try:
+        if len(self) >= len(other):
+            return False
+    except TypeError:
+        return NotImplemented
+    return _ev_set_le(self, other)
+
+
+def _ev_set_gt(self, other):
+    try:
+        if len(self) <= len(other):
+            return False
+    except TypeError:
+        return NotImplemented
+    return _ev_set_ge(self, other)
+
+
+for _ev_type in (
+    _EDGE_VIEW_TYPE,
+    _DIEDGE_VIEW_TYPE,
+    _DiGraphEdgeView,
+    _MultiGraphEdgeView,
+    _MultiDiGraphEdgeView,
+):
+    _ev_type.__le__ = _ev_set_le
+    _ev_type.__ge__ = _ev_set_ge
+    _ev_type.__lt__ = _ev_set_lt
+    _ev_type.__gt__ = _ev_set_gt
+    Set.register(_ev_type)
 _MULTIGRAPH_NODE_VIEW_TYPE.__call__ = _node_view_call_with_attr_support(
     _MULTIGRAPH_NODE_VIEW_CALL
 )
@@ -1989,6 +2062,71 @@ for _node_view_type in (
     _node_view_type.__rand__ = _nv_rand
     _node_view_type.__ror__ = _nv_ror
     _node_view_type.__rxor__ = _nv_rxor
+
+
+# br-nvsetcmp: nx.NodeView inherits from collections.abc.Set and
+# therefore supports ``G.nodes <= {0,1,2}``, ``G.nodes >= other``,
+# and the strict variants ``<`` ``>``. fnx's Rust-native NodeView
+# only inherits Mapping, so Set-style comparisons raised TypeError
+# ("not supported between NodeView and set"). Also register as a
+# virtual subclass of collections.abc.Set so isinstance(nv, Set)
+# is True (third-party code in nx.algorithms sometimes branches on
+# that).
+def _nv_set_le(self, other):
+    try:
+        it_len = len(self)
+    except TypeError:
+        return NotImplemented
+    if not hasattr(other, "__contains__") or not hasattr(other, "__iter__"):
+        return NotImplemented
+    try:
+        if it_len > len(other):
+            return False
+    except TypeError:
+        pass
+    return all(item in other for item in self)
+
+
+def _nv_set_ge(self, other):
+    if not hasattr(other, "__iter__"):
+        return NotImplemented
+    try:
+        if len(self) < len(other):
+            return False
+    except TypeError:
+        pass
+    return all(item in self for item in other)
+
+
+def _nv_set_lt(self, other):
+    try:
+        if len(self) >= len(other):
+            return False
+    except TypeError:
+        return NotImplemented
+    return _nv_set_le(self, other)
+
+
+def _nv_set_gt(self, other):
+    try:
+        if len(self) <= len(other):
+            return False
+    except TypeError:
+        return NotImplemented
+    return _nv_set_ge(self, other)
+
+
+for _node_view_type in (
+    type(Graph().nodes),
+    type(DiGraph().nodes),
+    _MULTIGRAPH_NODE_VIEW_TYPE,
+    _MULTIDIGRAPH_NODE_VIEW_TYPE,
+):
+    _node_view_type.__le__ = _nv_set_le
+    _node_view_type.__ge__ = _nv_set_ge
+    _node_view_type.__lt__ = _nv_set_lt
+    _node_view_type.__gt__ = _nv_set_gt
+    Set.register(_node_view_type)
 
 
 # NodeView update support lives on _PrivateNodeFacade (below) rather
