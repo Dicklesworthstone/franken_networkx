@@ -3211,6 +3211,20 @@ def node_connectivity(G, s=None, t=None, flow_func=None):
             t=t,
             flow_func=flow_func,
         )
+    # Multigraphs with parallel edges bump the min-degree bound above
+    # the simple-graph κ = n−1 ceiling (a node with k parallel edges to a
+    # neighbour contributes k to its degree). networkx uses that bound
+    # when every node pair is adjacent, so on e.g. K3 with parallel edges
+    # it returns the higher min-degree value; the Rust path collapses
+    # parallel edges and returns the simple-graph answer. Delegate
+    # multigraph inputs to networkx to preserve parity.
+    if G.is_multigraph():
+        return _call_networkx_for_parity(
+            "node_connectivity",
+            G,
+            s=s,
+            t=t,
+        )
     return _raw_node_connectivity(G, s=s, t=t)
 
 
@@ -3244,6 +3258,18 @@ def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None):
             flow_func=flow_func,
             cutoff=cutoff,
         )
+    # Multigraphs: the Rust implementation collapses parallel edges and
+    # returns the simple-graph edge-connectivity (and as a float), whereas
+    # networkx counts parallel edges and returns an int. Delegate to keep
+    # parity with nx on MultiGraph / MultiDiGraph inputs.
+    if G.is_multigraph():
+        return _call_networkx_for_parity(
+            "edge_connectivity",
+            G,
+            s=s,
+            t=t,
+            cutoff=cutoff,
+        )
     # edge_connectivity is a structural graph property — it counts edges,
     # not flow capacity. The Rust dispatcher incorrectly honours any
     # ``capacity`` edge attribute and returns the weighted max-flow
@@ -3268,7 +3294,13 @@ def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None):
                 for u, v, d in G.edges(data=True)
             )
         G = scrubbed
-    return _raw_edge_connectivity(G, s=s, t=t, cutoff=cutoff)
+    # Rust returns a float via the max-flow pipeline; networkx returns an
+    # int because edge_connectivity is a cardinality. Coerce to int when
+    # the value is exactly integral (it always is for unit capacities).
+    result = _raw_edge_connectivity(G, s=s, t=t, cutoff=cutoff)
+    if isinstance(result, float) and result.is_integer():
+        return int(result)
+    return result
 
 
 def local_edge_connectivity(
@@ -5267,14 +5299,27 @@ def condensation(G, scc=None):
         cond_dg.graph["mapping"] = mapping
         return cond_dg
 
-    cond_dg, mapping = _condensation_raw(G)
-    # Build members: reverse the mapping to get {scc_idx: set of nodes}
+    # Match NetworkX's labeling: number SCCs in the order returned by
+    # strongly_connected_components (which is reverse topological order,
+    # sinks first). The Rust _condensation_raw uses a different internal
+    # numbering, so rebuild on top of the public SCC iterator to stay
+    # bit-compatible with nx.condensation's node labels and edge tuples.
+    components = [set(component) for component in strongly_connected_components(G)]
+    mapping = {}
     members = {}
-    for node, scc_idx in mapping.items():
-        members.setdefault(scc_idx, set()).add(node)
-    # Set 'members' attribute on each node
-    for scc_idx, member_set in members.items():
-        cond_dg.nodes[scc_idx]["members"] = member_set
+    for idx, component in enumerate(components):
+        members[idx] = component
+        for node in component:
+            mapping[node] = idx
+    cond_dg = DiGraph()
+    cond_dg.add_nodes_from(range(len(components)))
+    for idx, member_set in members.items():
+        cond_dg.nodes[idx]["members"] = member_set
+    for u, v in G.edges():
+        cu = mapping[u]
+        cv = mapping[v]
+        if cu != cv:
+            cond_dg.add_edge(cu, cv)
     cond_dg.graph["mapping"] = mapping
     return cond_dg
 

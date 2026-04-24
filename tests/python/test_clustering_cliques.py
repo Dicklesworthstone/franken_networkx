@@ -799,16 +799,16 @@ class TestMakeCliqueBipartiteParity:
 
 class TestChordalGraphCliques:
     def test_triangle(self, triangle):
-        cliques = fnx.chordal_graph_cliques(triangle)
+        cliques = list(fnx.chordal_graph_cliques(triangle))
         assert len(cliques) == 1
         assert set(cliques[0]) == {"a", "b", "c"}
 
     def test_path(self, path3):
-        cliques = fnx.chordal_graph_cliques(path3)
+        cliques = list(fnx.chordal_graph_cliques(path3))
         assert len(cliques) == 2
 
     def test_k4(self, k4):
-        cliques = fnx.chordal_graph_cliques(k4)
+        cliques = list(fnx.chordal_graph_cliques(k4))
         # K4 is chordal, one maximal clique
         assert len(cliques) == 1
 
