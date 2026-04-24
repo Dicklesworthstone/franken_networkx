@@ -2062,6 +2062,45 @@ def test_simple_graph_node_views_satisfy_mapping_protocol(fnx_cls, nx_cls):
     assert "missing" not in graph.nodes
 
 
+def _missing_key_arg(accessor, key):
+    with pytest.raises(KeyError) as exc:
+        accessor(key)
+    return exc.value.args[0]
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+@pytest.mark.parametrize("missing_node", [99, "xx", (99, 99)])
+def test_graph_view_missing_key_errors_preserve_original_key(
+    fnx_cls, nx_cls, missing_node
+):
+    graph, expected = _view_utility_graph_pair(fnx_cls, nx_cls)
+    accessors = [
+        ("graph", lambda target, key: target[key]),
+        ("adj", lambda target, key: target.adj[key]),
+        ("nodes", lambda target, key: target.nodes[key]),
+    ]
+    if graph.is_directed():
+        accessors.extend(
+            [
+                ("succ", lambda target, key: target.succ[key]),
+                ("pred", lambda target, key: target.pred[key]),
+            ]
+        )
+
+    for label, accessor in accessors:
+        assert _missing_key_arg(lambda key: accessor(graph, key), missing_node) == (
+            _missing_key_arg(lambda key: accessor(expected, key), missing_node)
+        ), label
+
+
 @pytest.mark.parametrize(
     ("fnx_cls", "nx_cls", "missing_node"),
     [

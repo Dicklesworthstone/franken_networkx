@@ -108,7 +108,7 @@ impl NodeView {
         let g = self.graph.borrow(py);
         let canonical = node_key_to_string(py, n)?;
         if !g.inner.has_node(&canonical) {
-            return Err(PyKeyError::new_err(format!("{}", n.repr()?)));
+            return Err(crate::missing_key_error(n));
         }
         Ok(g.node_py_attrs
             .get(&canonical)
@@ -740,7 +740,7 @@ impl AdjacencyView {
         let g = self.graph.borrow(py);
         let canonical = node_key_to_string(py, n)?;
         if !g.inner.has_node(&canonical) {
-            return Err(PyKeyError::new_err(format!("{}", n.repr()?)));
+            return Err(crate::missing_key_error(n));
         }
         let neighbors = g.inner.neighbors(&canonical).unwrap_or_default();
         let result = PyDict::new(py);

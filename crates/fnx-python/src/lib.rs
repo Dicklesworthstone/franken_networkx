@@ -78,6 +78,10 @@ fn node_key_to_string(_py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<Strin
     Ok(repr.to_string())
 }
 
+pub(crate) fn missing_key_error(key: &Bound<'_, PyAny>) -> PyErr {
+    PyKeyError::new_err((key.clone().unbind(),))
+}
+
 pub(crate) fn edge_key_lookup_string(_py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String> {
     if let Ok(s) = key.extract::<String>() {
         return Ok(format!("str:{s}"));
@@ -1029,7 +1033,7 @@ impl PyMultiGraph {
     fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
         let canonical = node_key_to_string(py, n)?;
         if !self.inner.has_node(&canonical) {
-            return Err(PyKeyError::new_err(format!("{}", n.repr()?)));
+            return Err(missing_key_error(n));
         }
         let result = PyDict::new(py);
         for neighbor in self.inner.neighbors(&canonical).unwrap_or_default() {
@@ -1682,7 +1686,7 @@ impl MultiGraphNodeView {
         let g = self.graph.borrow(py);
         let canonical = node_key_to_string(py, n)?;
         if !g.inner.has_node(&canonical) {
-            return Err(PyKeyError::new_err(format!("{}", n.repr()?)));
+            return Err(missing_key_error(n));
         }
         Ok(g.node_py_attrs.get(&canonical).map_or_else(
             || PyDict::new(py).into_any().unbind(),
@@ -1984,7 +1988,7 @@ impl MultiGraphDegreeView {
         let g = self.graph.borrow(py);
         let canonical = node_key_to_string(py, n)?;
         if !g.inner.has_node(&canonical) {
-            return Err(PyKeyError::new_err(format!("{}", n.repr()?)));
+            return Err(missing_key_error(n));
         }
         // For multigraphs, degree counts all parallel edges
         Ok(g.inner.degree(&canonical))
@@ -2607,7 +2611,7 @@ impl PyGraph {
     fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
         let canonical = node_key_to_string(py, n)?;
         if !self.inner.has_node(&canonical) {
-            return Err(PyKeyError::new_err(format!("{}", n.repr()?)));
+            return Err(missing_key_error(n));
         }
         let neighbors = self.inner.neighbors(&canonical).unwrap_or_default();
         let result = PyDict::new(py);

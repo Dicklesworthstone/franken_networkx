@@ -793,7 +793,7 @@ impl PyMultiDiGraph {
     fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
         let canonical = node_key_to_string(py, n)?;
         if !self.inner.has_node(&canonical) {
-            return Err(PyKeyError::new_err(format!("{}", n.repr()?)));
+            return Err(crate::missing_key_error(n));
         }
         let result = PyDict::new(py);
         for successor in self.inner.successors(&canonical).unwrap_or_default() {
@@ -1553,7 +1553,7 @@ impl MultiDiGraphNodeView {
         let g = self.graph.borrow(py);
         let canonical = node_key_to_string(py, n)?;
         if !g.inner.has_node(&canonical) {
-            return Err(PyKeyError::new_err(format!("{}", n.repr()?)));
+            return Err(crate::missing_key_error(n));
         }
         Ok(g.node_py_attrs.get(&canonical).map_or_else(
             || PyDict::new(py).into_any().unbind(),
@@ -1873,7 +1873,7 @@ impl MultiDiGraphDegreeView {
         let g = self.graph.borrow(py);
         let canonical = node_key_to_string(py, n)?;
         if !g.inner.has_node(&canonical) {
-            return Err(PyKeyError::new_err(format!("{}", n.repr()?)));
+            return Err(crate::missing_key_error(n));
         }
         Ok(match self.kind {
             DegreeKind::Total => g.inner.degree(&canonical),
@@ -2911,7 +2911,7 @@ impl PyDiGraph {
     fn __getitem__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
         let canonical = node_key_to_string(py, n)?;
         if !self.inner.has_node(&canonical) {
-            return Err(PyKeyError::new_err(format!("{}", n.repr()?)));
+            return Err(crate::missing_key_error(n));
         }
         let succs = self.inner.successors(&canonical).unwrap_or_default();
         let result = PyDict::new(py);
@@ -3263,7 +3263,7 @@ impl DiNodeView {
         let g = self.graph.borrow(py);
         let canonical = node_key_to_string(py, n)?;
         if !g.inner.has_node(&canonical) {
-            return Err(PyKeyError::new_err(format!("{}", n.repr()?)));
+            return Err(crate::missing_key_error(n));
         }
         Ok(g.node_py_attrs
             .get(&canonical)
@@ -3779,7 +3779,7 @@ impl DiAdjacencyView {
         let g = self.graph.borrow(py);
         let canonical = node_key_to_string(py, n)?;
         if !g.inner.has_node(&canonical) {
-            return Err(PyKeyError::new_err(format!("{}", n.repr()?)));
+            return Err(crate::missing_key_error(n));
         }
         let neighbors = match self.kind {
             AdjKind::Successors => g.inner.successors(&canonical).unwrap_or_default(),
