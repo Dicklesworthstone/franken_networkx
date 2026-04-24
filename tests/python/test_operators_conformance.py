@@ -75,6 +75,22 @@ def test_compose_overlap_H_attrs_win():
     assert r[0][1] == {"source": "H", "weight": 1.0, "extra": "new"}
 
 
+def test_compose_undirected_edge_order_matches_networkx():
+    """Edge tuple orientation/order should match nx for simple Graph output."""
+    g = fnx.Graph()
+    g.add_edge(0, 1, source="G")
+    h = fnx.Graph()
+    h.add_edge(1, 2, source="H")
+    ng = nx.Graph()
+    ng.add_edge(0, 1, source="G")
+    nh = nx.Graph()
+    nh.add_edge(1, 2, source="H")
+
+    assert list(fnx.compose(g, h).edges(data=True)) == list(
+        nx.compose(ng, nh).edges(data=True)
+    )
+
+
 def test_union_preserves_node_and_edge_attrs():
     g = fnx.Graph()
     g.add_node(0, color="red")
