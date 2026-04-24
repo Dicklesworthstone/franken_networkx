@@ -2437,6 +2437,19 @@ def test_graph_classes_support_copy_as_view_like_networkx(fnx_cls, nx_cls):
 
 @pytest.mark.parametrize(
     ("fnx_cls", "nx_cls"),
+    [(fnx.Graph, nx.Graph), (fnx.DiGraph, nx.DiGraph)],
+)
+def test_simple_graph_copy_preserves_edge_orientation(fnx_cls, nx_cls):
+    graph = fnx_cls()
+    expected = nx_cls()
+    graph.add_edges_from([(0, 1), (1, 2)])
+    expected.add_edges_from([(0, 1), (1, 2)])
+
+    assert list(graph.copy().edges()) == list(expected.copy().edges())
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
     [
         (fnx.Graph, nx.Graph),
         (fnx.DiGraph, nx.DiGraph),
@@ -3115,6 +3128,17 @@ def test_graph_classes_support_to_undirected_as_view_like_networkx(fnx_cls, nx_c
             nx_reciprocal_exc.value
         ).__name__
         assert str(fnx_reciprocal_exc.value) == str(nx_reciprocal_exc.value)
+
+
+def test_graph_to_undirected_preserves_undirected_edge_orientation():
+    graph = fnx.Graph()
+    expected = nx.Graph()
+    graph.add_edges_from([(0, 1), (1, 2)])
+    expected.add_edges_from([(0, 1), (1, 2)])
+
+    assert list(graph.to_undirected().edges()) == list(
+        expected.to_undirected().edges()
+    )
 
 
 @pytest.mark.parametrize(

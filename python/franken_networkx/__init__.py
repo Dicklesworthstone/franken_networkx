@@ -1085,6 +1085,34 @@ def _decode_dict_of_dicts_into(self, data, is_multigraph):
                     self[u][v].update(dict(inner))
 
 
+def _copy_constructor_graph_source(self, source, *, is_multigraph, attr):
+    """Populate constructor target from another graph in public edge order."""
+    self.clear()
+    self.graph.update(dict(getattr(source, "graph", {})))
+    if attr:
+        self.graph.update(attr)
+    self.add_nodes_from((node, dict(attrs)) for node, attrs in source.nodes(data=True))
+    if source.is_multigraph():
+        if is_multigraph:
+            self.add_edges_from(
+                (u, v, key, dict(attrs))
+                for u, v, key, attrs in source.edges(keys=True, data=True)
+            )
+        else:
+            self.add_edges_from(
+                (u, v, dict(attrs))
+                for u, v, _key, attrs in source.edges(keys=True, data=True)
+            )
+    elif is_multigraph:
+        self.add_edges_from(
+            (u, v, 0, dict(attrs)) for u, v, attrs in source.edges(data=True)
+        )
+    else:
+        self.add_edges_from(
+            (u, v, dict(attrs)) for u, v, attrs in source.edges(data=True)
+        )
+
+
 def _init_absorbing_dict_of_dicts(raw_init, is_multigraph):
     """Factory: wrap ``__init__`` so dict-of-dicts / dict-of-dict-of-dicts
     payloads are decoded — the Rust ``__new__`` already handles
@@ -1118,49 +1146,17 @@ def _init_absorbing_dict_of_dicts(raw_init, is_multigraph):
             and callable(getattr(incoming_graph_data, "is_multigraph", None))
         if not src_is_graph:
             return
-        src_is_fnx_native = type(incoming_graph_data).__module__.startswith(
-            "franken_networkx"
+        # br-copyedgeord: Rust __new__ copies fnx-native undirected
+        # graphs through canonical endpoint storage, which can flip
+        # original edge orientation. Rebuild all graph-object inputs
+        # through the public edge iterator so fnx.Graph(src) and
+        # fnx.MultiGraph(src) match nx insertion-order semantics.
+        _copy_constructor_graph_source(
+            self,
+            incoming_graph_data,
+            is_multigraph=is_multigraph,
+            attr=attr,
         )
-        src_is_multi = incoming_graph_data.is_multigraph()
-        # Rust __new__ behavior for fnx-native sources:
-        #   same-kind (Graph->Graph, Multi->Multi, DiGraph->DiGraph): edges OK
-        #   simple -> Multi*: edges absorbed by __new__ as key=0
-        #   Multi* -> simple: edges DROPPED (needs manual collapse)
-        # For foreign (nx) sources, __new__ only copies nodes — always
-        # manually populate edges.
-        if src_is_fnx_native:
-            if src_is_multi and not is_multigraph:
-                # Multi -> simple: collapse parallels (br-xmginit).
-                collapsed = {}
-                for u, v, d in incoming_graph_data.edges(data=True):
-                    key = (u, v) if incoming_graph_data.is_directed() \
-                        else tuple(sorted((u, v), key=repr))
-                    collapsed[key] = dict(d)
-                self.add_edges_from(
-                    (u, v, attrs) for (u, v), attrs in collapsed.items()
-                )
-            return
-        # Foreign source (nx.Graph / nx.DiGraph / nx.Multi*). br-nxgraph:
-        # __new__ only absorbed nodes; populate edges now.
-        if src_is_multi and not is_multigraph:
-            collapsed = {}
-            for u, v, d in incoming_graph_data.edges(data=True):
-                key = (u, v) if incoming_graph_data.is_directed() \
-                    else tuple(sorted((u, v), key=repr))
-                collapsed[key] = dict(d)
-            self.add_edges_from(
-                (u, v, attrs) for (u, v), attrs in collapsed.items()
-            )
-        elif is_multigraph and src_is_multi:
-            self.add_edges_from(
-                (u, v, k, dict(d))
-                for u, v, k, d in incoming_graph_data.edges(keys=True, data=True)
-            )
-        else:
-            self.add_edges_from(
-                (u, v, dict(d))
-                for u, v, d in incoming_graph_data.edges(data=True)
-            )
 
     return __init__
 
@@ -18747,14 +18743,12 @@ def _copy_with_view(copy_impl):
 
 
 def _copy_preserving_insertion_order(self, as_view=False):
-    """Insertion-order-preserving copy for MultiGraph / MultiDiGraph.
+    """Insertion-order-preserving copy for graph classes.
 
-    The Rust ``MultiGraph.copy`` / ``MultiDiGraph.copy`` re-hash nodes
-    during the bulk rebuild, which loses the original node insertion
-    order. Upstream NetworkX preserves it. Parity tests that iterate
-    ``edges(keys=True, data=True)`` on the copy compare tuples like
-    ``(u, v, key, data)`` positionally, so the (u, v) orientation must
-    match. Implement a pure-Python re-add in original node order.
+    The Rust clone path canonicalizes undirected endpoints in a few
+    constructor/copy paths. Upstream NetworkX preserves the public edge
+    orientation from insertion order, so rebuild via the Python edge
+    view.
     """
     if as_view is True:
         return _generic_filtered_graph_view(self)
@@ -18764,16 +18758,17 @@ def _copy_preserving_insertion_order(self, as_view=False):
     result.add_nodes_from(
         (node, deepcopy(attrs)) for node, attrs in self.nodes(data=True)
     )
-    # ``self.edges(keys=True, data=True)`` already yields edges in
-    # original insertion order on fnx, so re-using it keeps the (u, v)
-    # orientation aligned with upstream nx. Use ``add_edges_from`` with
-    # 4-tuples so an edge attribute literally named "key" doesn't
-    # collide with the positional ``key=`` parameter
-    # (franken_networkx-9x7r0).
-    result.add_edges_from(
-        (u, v, key, deepcopy(attrs))
-        for u, v, key, attrs in self.edges(keys=True, data=True)
-    )
+    if self.is_multigraph():
+        # Use 4-tuples so an edge attribute literally named "key" doesn't
+        # collide with add_edge's positional key parameter.
+        result.add_edges_from(
+            (u, v, key, deepcopy(attrs))
+            for u, v, key, attrs in self.edges(keys=True, data=True)
+        )
+    else:
+        result.add_edges_from(
+            (u, v, deepcopy(attrs)) for u, v, attrs in self.edges(data=True)
+        )
     return result
 
 
@@ -18891,24 +18886,21 @@ def _to_undirected_with_view(to_undirected_impl):
     def to_undirected(self, as_view=False):
         if as_view is True:
             return _generic_undirected_graph_view(self)
+        result = self.to_undirected_class()()
+        result.graph.update(deepcopy(self.graph))
+        result.add_nodes_from(
+            (node, deepcopy(attrs)) for node, attrs in self.nodes(data=True)
+        )
         if self.is_multigraph():
-            # Rust MultiGraph.to_undirected canonicalises endpoints and
-            # re-hashes nodes, which flips (u, v) orientation vs upstream
-            # nx. For parity, rebuild in original iteration order.
-            result = self.to_undirected_class()()
-            result.graph.update(deepcopy(self.graph))
-            result.add_nodes_from(
-                (node, deepcopy(attrs)) for node, attrs in self.nodes(data=True)
-            )
-            # Use 4-tuple form so an edge attribute named "key" doesn't
-            # collide with the positional ``key=`` parameter
-            # (franken_networkx-9x7r0).
             result.add_edges_from(
                 (u, v, key, deepcopy(attrs))
                 for u, v, key, attrs in self.edges(keys=True, data=True)
             )
-            return result
-        return to_undirected_impl(self)
+        else:
+            result.add_edges_from(
+                (u, v, deepcopy(attrs)) for u, v, attrs in self.edges(data=True)
+            )
+        return result
 
     return to_undirected
 
@@ -18973,8 +18965,8 @@ def _directed_to_undirected_with_view(to_undirected_impl):
     return to_undirected
 
 
-Graph.copy = _copy_with_view(_GRAPH_COPY)
-DiGraph.copy = _copy_with_view(_DIGRAPH_COPY)
+Graph.copy = _copy_preserving_insertion_order
+DiGraph.copy = _copy_preserving_insertion_order
 MultiGraph.copy = _copy_preserving_insertion_order
 MultiDiGraph.copy = _copy_preserving_insertion_order
 Graph.subgraph = _subgraph_with_view(_GRAPH_SUBGRAPH)

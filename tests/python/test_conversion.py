@@ -657,6 +657,7 @@ class TestCrossClassConstructor:
         src.add_edges_from([(0, 1), (1, 2)])
         dst = fnx.MultiGraph(src)
         assert dst.number_of_edges() == 2
+        assert list(dst.edges(keys=True)) == [(0, 1, 0), (1, 2, 0)]
 
     def test_graph_from_non_parallel_multigraph(self):
         MG = fnx.MultiGraph()
@@ -668,7 +669,7 @@ class TestCrossClassConstructor:
         src = fnx.Graph()
         src.add_edges_from([(0, 1), (1, 2)])
         dst = fnx.Graph(src)
-        assert sorted(dst.edges()) == [(0, 1), (1, 2)]
+        assert list(dst.edges()) == [(0, 1), (1, 2)]
 
 
 class TestCrossLibraryConstructor:
