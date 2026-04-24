@@ -6,29 +6,37 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 80 | 9% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 698 | 87% | Python-defined exports with no runtime NetworkX dependency detected |
+| RUST_NATIVE | 75 | 9% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 703 | 87% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
-| CLASS | 21 | 2% | public classes, exceptions, iterators |
+| CLASS | 22 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
-| **Total public exports** | **801** | | unique names from `franken_networkx.__all__` |
+| **Total public exports** | **802** | | unique names from `franken_networkx.__all__` |
 
 All declared public exports are classified. `--check` fails if this generated report drifts from the live module surface.
+
+## Duplicate `__all__` Entries
+
+The live module currently declares 1 duplicate name(s) in `__all__`. The matrix deduplicates them before counting the public surface.
+
+- `NetworkXNoCycle`
 
 ## Module Breakdown
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 636 |
-| `franken_networkx._fnx` | 80 |
+| `franken_networkx` | 640 |
+| `franken_networkx._fnx` | 75 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
-| `_fnx` | 12 |
+| `networkx.exception` | 12 |
 | `builtins` | 1 |
+| `networkx.algorithms.community.quality` | 1 |
+| `networkx.algorithms.tree.coding` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (80)
+## RUST_NATIVE exports (75)
 
 - `barycenter`
 - `bfs_layers`
@@ -45,8 +53,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `edge_boundary`
 - `efficiency`
 - `enumerate_all_cliques`
-- `fast_could_be_isomorphic`
-- `faster_could_be_isomorphic`
 - `global_efficiency`
 - `global_node_connectivity`
 - `graph_clique_number`
@@ -70,7 +76,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `is_perfect_matching`
 - `is_semieulerian`
 - `is_simple_path`
-- `is_strongly_connected`
 - `is_weakly_connected`
 - `isolates`
 - `kosaraju_strongly_connected_components`
@@ -88,7 +93,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `min_weight_matching`
 - `min_weighted_vertex_cover`
 - `minimum_branching`
-- `minimum_node_cut`
 - `minimum_spanning_arborescence`
 - `minimum_spanning_edges`
 - `node_boundary`
@@ -105,13 +109,12 @@ All declared public exports are classified. `--check` fails if this generated re
 - `random_spanning_tree`
 - `ring_of_cliques`
 - `sedgewick_maze_graph`
-- `spanner`
 - `transitive_closure`
 - `transitive_reduction`
 - `tree_broadcast_center`
 - `tree_broadcast_time`
 
-## PY_WRAPPER exports (698)
+## PY_WRAPPER exports (703)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -342,7 +345,9 @@ All declared public exports are classified. `--check` fails if this generated re
 - `eulerize`
 - `expected_degree_graph`
 - `extended_barabasi_albert_graph`
+- `fast_could_be_isomorphic`
 - `fast_gnp_random_graph`
+- `faster_could_be_isomorphic`
 - `fiedler_vector`
 - `find_asteroidal_triple`
 - `find_cliques`
@@ -475,6 +480,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `is_regular`
 - `is_regular_expander`
 - `is_semiconnected`
+- `is_strongly_connected`
 - `is_strongly_regular`
 - `is_tournament`
 - `is_tree`
@@ -544,6 +550,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `minimum_cut_value`
 - `minimum_cycle_basis`
 - `minimum_edge_cut`
+- `minimum_node_cut`
 - `minimum_spanning_tree`
 - `minimum_st_node_cut`
 - `mixing_dict`
@@ -715,6 +722,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `single_target_shortest_path_length`
 - `snap_aggregation`
 - `soft_random_geometric_graph`
+- `spanner`
 - `spectral_bisection`
 - `spectral_graph_forge`
 - `spectral_layout`
@@ -815,7 +823,7 @@ All declared public exports are classified. `--check` fails if this generated re
 ## NX_DELEGATED exports (0)
 
 
-## CLASS exports (21)
+## CLASS exports (22)
 
 - `ArborescenceIterator`
 - `DiGraph`
@@ -826,6 +834,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `MultiGraph`
 - `NetworkXAlgorithmError`
 - `NetworkXError`
+- `NetworkXException`
 - `NetworkXNoCycle`
 - `NetworkXNoPath`
 - `NetworkXNotImplemented`

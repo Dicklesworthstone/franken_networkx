@@ -2225,7 +2225,6 @@ from franken_networkx._fnx import (
     HasACycle,
     NetworkXAlgorithmError,
     NetworkXError,
-    NetworkXException,
     NetworkXNoCycle,
     NetworkXNoPath,
     NetworkXNotImplemented,
@@ -2237,6 +2236,16 @@ from franken_networkx._fnx import (
     NodeNotFound,
     PowerIterationFailedConvergence,
 )
+
+# br-nxexcbase: the Rust module doesn't expose the upstream-compatible
+# ``NetworkXException`` base class in the currently-built .so (a
+# rebuild-lag state that may persist across review rounds). Fall back
+# to ``NetworkXError`` — it's the closest Rust-side equivalent and lets
+# the import succeed so the rest of the module loads.
+try:
+    from franken_networkx._fnx import NetworkXException
+except ImportError:
+    NetworkXException = NetworkXError
 
 
 def _nx_exception_cls():
@@ -5018,7 +5027,11 @@ def modularity(G, communities, weight="weight", resolution=1):
     more than one community.
     """
     # Coerce to concrete Python sets for the partition check; keep the
-    # original sequence (order preserved) for the Rust call.
+    # original sequence (order preserved) for the Rust call. Now that
+    # the Rust exception hierarchy imports nx's classes directly
+    # (br-nxexcbases), `NotAPartition` is
+    # nx.algorithms.community.quality.NotAPartition and takes the
+    # (G, collection) positional pair, formatting the message itself.
     community_list = list(communities)
     node_set = set(G.nodes())
     seen: set = set()
@@ -5032,8 +5045,8 @@ def modularity(G, communities, weight="weight", resolution=1):
     # br-modzero: nx.community.modularity raises ZeroDivisionError on a
     # graph with zero edges (the 2m divisor is 0). fnx used to silently
     # return 0.0 from the Rust path — diverging from nx's runtime
-    # contract. Raise before delegating so drop-in callers who expected
-    # nx's error can `except ZeroDivisionError` as they always did.
+    # contract. Partition errors are checked first (above) so the
+    # precondition order matches nx.
     if G.number_of_edges() == 0:
         raise ZeroDivisionError("division by zero")
     return _raw_modularity(G, community_list, weight=weight, resolution=resolution)
@@ -5620,8 +5633,18 @@ def all_pairs_dijkstra(G, cutoff=None, weight="weight"):
 from franken_networkx._fnx import (
     strongly_connected_components as _raw_strongly_connected_components,
     number_strongly_connected_components,
-    is_strongly_connected,
+    is_strongly_connected as _raw_is_strongly_connected,
 )
+
+
+def is_strongly_connected(G):
+    """Return True if the directed graph ``G`` is strongly connected.
+
+    br-isokw: parameter name ``G`` matches nx; the Rust binding exposed
+    it as lowercase ``g`` so ``is_strongly_connected(G=digraph)``
+    kwarg-style drop-in calls broke.
+    """
+    return _raw_is_strongly_connected(G)
 
 
 def strongly_connected_components(G):
@@ -5914,13 +5937,23 @@ def dag_longest_path_length(G, weight="weight", default_weight=1):
 
 # Algorithm functions — graph isomorphism
 from franken_networkx._fnx import (
-    fast_could_be_isomorphic,
+    fast_could_be_isomorphic as _raw_fast_could_be_isomorphic,
     graph_edit_distance_common_rust as _graph_edit_distance_common_rust,
-    faster_could_be_isomorphic,
+    faster_could_be_isomorphic as _raw_faster_could_be_isomorphic,
     is_isomorphic as _is_isomorphic_rust,
     vf2pp_all_isomorphisms_rust as _vf2pp_all_isomorphisms_rust,
     vf2pp_isomorphism_rust as _vf2pp_isomorphism_rust,
 )
+
+
+def fast_could_be_isomorphic(G1, G2):
+    """br-isokw: ``G1, G2`` match nx; Rust binding used ``g1, g2``."""
+    return _raw_fast_could_be_isomorphic(G1, G2)
+
+
+def faster_could_be_isomorphic(G1, G2):
+    """br-isokw: ``G1, G2`` match nx."""
+    return _raw_faster_could_be_isomorphic(G1, G2)
 
 # Planarity
 from franken_networkx._fnx import is_planar as _raw_is_planar
@@ -6000,8 +6033,14 @@ from franken_networkx._fnx import (
     max_clique,
     maximum_independent_set,
     min_weighted_vertex_cover,
-    spanner,
+    spanner as _raw_spanner,
 )
+
+
+def spanner(G, stretch, weight=None, seed=None):
+    """br-isokw: ``G`` matches nx; Rust binding used ``g``."""
+    return _raw_spanner(G, stretch, weight=weight, seed=seed)
+
 
 # Algorithm functions — tree recognition
 from franken_networkx._fnx import (
@@ -8808,7 +8847,15 @@ def hits(
 
 
 def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
-    """Return the ego graph of node *n* within *radius* hops."""
+    """Return the ego graph of node *n* within *radius* hops.
+
+    br-egoedgeord: always compute the node set in Python and copy
+    edges in G's original insertion order. The Rust fast-path
+    ``_fnx.ego_graph_rust`` re-orients every edge with the ego node
+    first (so ``(2, 1), (2, 3)`` instead of ``(1, 2), (2, 3)`` on
+    ``fnx.path_graph(5)``), diverging from nx which preserves the
+    input graph's edge orientation.
+    """
     if distance is not None:
         # Weighted ego: include nodes within weighted distance <= radius.
         sp = dict(single_source_dijkstra_path_length(G, n, weight=distance))
@@ -8816,7 +8863,6 @@ def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
         nodes_within = set(sp.keys())
     elif undirected and G.is_directed():
         # Treat directed graph as undirected for BFS.
-        # Build undirected view and do BFS.
         seen = {n: 0}
         queue = [n]
         while queue:
@@ -8836,40 +8882,37 @@ def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
             queue = next_queue
         nodes_within = set(seen.keys())
     else:
-        nodes_within = None  # use Rust fast path
-
-    if nodes_within is not None:
-        graph = G.__class__()
-        graph.graph.update(dict(G.graph))
-        for node in nodes_within:
-            graph.add_node(node, **dict(G.nodes[node]))
-        for u, v, data in G.edges(data=True):
-            if u in nodes_within and v in nodes_within:
-                graph.add_edge(u, v, **data)
-        if not center and n in graph:
-            graph.remove_node(n)
-        return graph
-
-    raw_graph = _fnx.ego_graph_rust(G, n, radius=radius, undirected=undirected)
-    canonical_to_node = {str(node): node for node in G.nodes()}
+        # Plain BFS (directed or undirected) honouring radius.
+        seen = {n: 0}
+        queue = [n]
+        while queue:
+            next_queue = []
+            for u in queue:
+                depth = seen[u]
+                if depth >= radius:
+                    continue
+                neighbors = (
+                    G.successors(u) if G.is_directed() else G.neighbors(u)
+                )
+                for v in neighbors:
+                    if v not in seen:
+                        seen[v] = depth + 1
+                        next_queue.append(v)
+            queue = next_queue
+        nodes_within = set(seen.keys())
 
     graph = G.__class__()
     graph.graph.update(dict(G.graph))
-    for raw_node in raw_graph.nodes():
-        node = canonical_to_node.get(raw_node, raw_node)
+    for node in nodes_within:
         graph.add_node(node, **dict(G.nodes[node]))
-
     if G.is_multigraph():
-        for raw_u, raw_v, key in raw_graph.edges(keys=True):
-            u = canonical_to_node.get(raw_u, raw_u)
-            v = canonical_to_node.get(raw_v, raw_v)
-            graph.add_edges_from([(u, v, key, dict(G[u][v][key]))])
+        for u, v, key, data in G.edges(keys=True, data=True):
+            if u in nodes_within and v in nodes_within:
+                graph.add_edge(u, v, key=key, **data)
     else:
-        for raw_u, raw_v in raw_graph.edges():
-            u = canonical_to_node.get(raw_u, raw_u)
-            v = canonical_to_node.get(raw_v, raw_v)
-            graph.add_edge(u, v, **dict(G[u][v]))
-
+        for u, v, data in G.edges(data=True):
+            if u in nodes_within and v in nodes_within:
+                graph.add_edge(u, v, **data)
     if not center and n in graph:
         graph.remove_node(n)
     return graph
@@ -14565,14 +14608,18 @@ def directed_edge_swap(G, nswap=1, max_tries=100, seed=None):
 # ---------------------------------------------------------------------------
 
 
-def is_valid_degree_sequence_erdos_gallai(sequence):
+def is_valid_degree_sequence_erdos_gallai(deg_sequence):
     """Check if an integer sequence is a valid degree sequence (Erdos-Gallai).
+
+    br-isokw: parameter name ``deg_sequence`` matches nx exactly so
+    ``is_valid_degree_sequence_erdos_gallai(deg_sequence=[...])``
+    kwarg-style drop-in calls work.
 
     The Erdos-Gallai theorem: a non-increasing sequence d_1 >= ... >= d_n
     is graphical iff sum(d_i) is even and for each k:
     sum(d_i, i=1..k) <= k*(k-1) + sum(min(d_i, k), i=k+1..n).
     """
-    sequence = _make_list_of_ints(sequence)
+    sequence = _make_list_of_ints(deg_sequence)
     seq = sorted(sequence, reverse=True)
     n = len(seq)
     if sum(seq) % 2 != 0:
@@ -14585,13 +14632,15 @@ def is_valid_degree_sequence_erdos_gallai(sequence):
     return True
 
 
-def is_valid_degree_sequence_havel_hakimi(sequence):
+def is_valid_degree_sequence_havel_hakimi(deg_sequence):
     """Check if an integer sequence is a valid degree sequence (Havel-Hakimi).
+
+    br-isokw: parameter name ``deg_sequence`` matches nx.
 
     Repeatedly removes the largest element d, subtracts 1 from the next
     d largest elements. If any become negative, not graphical.
     """
-    sequence = _make_list_of_ints(sequence)
+    sequence = _make_list_of_ints(deg_sequence)
     seq = list(sequence)
     while True:
         seq.sort(reverse=True)
@@ -22726,11 +22775,13 @@ def gomory_hu_tree(G, capacity="capacity", flow_func=None):
     br-ghtree: the Rust fast-path (``_fnx.gomory_hu_tree_rust``)
     stringifies node identifiers (returning '0', '1' instead of the
     integer node keys) AND omits the cut-value ``weight`` edge
-    attribute that nx's tree carries. Both broke drop-in consumers
-    that pattern-match on node types or read
-    ``tree.edges[u,v]['weight']`` to get the min cut. Delegate to nx
-    for correctness; the algorithm is heavy enough that a native
-    port deserves its own session.
+    attribute nx's tree carries. The Python path below uses
+    ``_minimum_cut_raw`` (the Rust min-cut probe) inside a pure-Python
+    tree-construction loop — node types and cut-value weights are
+    preserved. Always run the Python path to sidestep the fast-path
+    stringification bug while still staying native (no nx fallback,
+    so test_gomory_hu_tree_flow_func_matches_networkx_without_fallback
+    keeps passing).
     """
     _validate_flow_func_selector(flow_func)
 
@@ -22739,9 +22790,33 @@ def gomory_hu_tree(G, capacity="capacity", flow_func=None):
     if len(G) == 0:
         raise NetworkXError("Empty Graph does not have a Gomory-Hu tree representation")
 
-    return _call_networkx_for_parity(
-        "gomory_hu_tree", G, capacity=capacity, flow_func=flow_func
-    )
+    tree = {}
+    labels = {}
+    iter_nodes = iter(G)
+    root = next(iter_nodes)
+    for node in iter_nodes:
+        tree[node] = root
+
+    for source in tree:
+        target = tree[source]
+        cut_value, partition = _minimum_cut_raw(G, source, target, capacity=capacity)
+        labels[(source, target)] = cut_value
+
+        for node in partition[0]:
+            if node != source and node in tree and tree[node] == target:
+                tree[node] = source
+                labels[(node, source)] = labels.get((node, target), cut_value)
+
+        if target != root and tree[target] in partition[0]:
+            labels[(source, tree[target])] = labels[(target, tree[target])]
+            labels[(target, source)] = cut_value
+            tree[source] = tree[target]
+            tree[target] = source
+
+    result = Graph()
+    result.add_nodes_from(G)
+    result.add_weighted_edges_from((u, v, labels[(u, v)]) for u, v in tree.items())
+    return result
 
 
 def visibility_graph(sequence):
