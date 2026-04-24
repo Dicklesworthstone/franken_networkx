@@ -799,3 +799,67 @@ class TestGeneratorSignatureParityWithNetworkX:
             f"{fn_name} signature drifted from upstream "
             f"(fnx={inspect.signature(fnx_fn)!r}, nx={inspect.signature(nx_fn)!r})"
         )
+
+
+# br-rrgval: random_regular_graph invalid-arg errors must be NetworkXError
+# with nx wording (not the Rust ValueError(FailClosed{...}) surface).
+# Note: fnx.NetworkXError is _fnx.NetworkXError and is NOT a subclass of
+# nx.NetworkXError (see queued bead nxexcbases). We match fnx's hierarchy
+# here and gate the cross-library `isinstance nx.NetworkXError` parity in
+# test_exception_hierarchy_parity where the queued bead lives.
+class TestRandomRegularInvalidArgs:
+    def test_d_ge_n_raises_networkx_error_matching_nx(self):
+        with pytest.raises(
+            fnx.NetworkXError,
+            match=r"the 0 <= d < n inequality must be satisfied",
+        ):
+            fnx.random_regular_graph(3, 0, seed=0)
+
+    def test_d_zero_n_zero_raises_networkx_error(self):
+        with pytest.raises(
+            fnx.NetworkXError,
+            match=r"the 0 <= d < n inequality must be satisfied",
+        ):
+            fnx.random_regular_graph(0, 0, seed=0)
+
+    def test_odd_n_times_d_raises_networkx_error(self):
+        # 0 <= 3 < 5 passes the first check; 3*5=15 is odd -> second.
+        with pytest.raises(fnx.NetworkXError, match=r"n \* d must be even"):
+            fnx.random_regular_graph(3, 5, seed=0)
+
+
+# br-badiacritic: nx uses Unicode "Barabási–Albert" in its error messages
+# for barabasi_albert_graph and dual_barabasi_albert_graph (but ASCII
+# "Barabasi-Albert" for extended_barabasi_albert_graph). fnx matches
+# character-for-character so `pytest.raises(..., match=...)` regex patterns
+# written against upstream work unchanged.
+class TestBarabasiAlbertErrorDiacritics:
+    def test_ba_m_ge_n_uses_diacritics(self):
+        with pytest.raises(
+            fnx.NetworkXError,
+            match=r"Barabási–Albert network must have m >= 1",
+        ):
+            fnx.barabasi_albert_graph(1, 1, seed=0)
+
+    def test_dual_ba_m1_uses_diacritics(self):
+        with pytest.raises(
+            fnx.NetworkXError,
+            match=r"Dual Barabási–Albert must have m1 >= 1",
+        ):
+            fnx.dual_barabasi_albert_graph(1, 1, 1, 0.5, seed=0)
+
+    def test_dual_ba_p_out_of_range_uses_diacritics(self):
+        with pytest.raises(
+            fnx.NetworkXError,
+            match=r"Dual Barabási–Albert network must have 0 <= p <= 1",
+        ):
+            fnx.dual_barabasi_albert_graph(5, 2, 3, 1.5, seed=0)
+
+    def test_extended_ba_stays_ascii(self):
+        # upstream keeps ASCII for extended_barabasi_albert_graph; ensure
+        # fnx mirrors that exact string (a common copy/paste trap).
+        with pytest.raises(
+            fnx.NetworkXError,
+            match=r"Extended Barabasi-Albert network needs m>=1",
+        ):
+            fnx.extended_barabasi_albert_graph(1, 1, 0.1, 0.1, seed=0)

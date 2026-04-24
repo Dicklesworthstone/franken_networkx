@@ -10246,7 +10246,7 @@ def barabasi_albert_graph(
     )
     if m < 1 or m >= n:
         raise NetworkXError(
-            f"Barabasi-Albert network must have m >= 1 and m < n, m = {m}, n = {n}"
+            f"Barabási–Albert network must have m >= 1 and m < n, m = {m}, n = {n}"
         )
 
     if initial_graph is None:
@@ -10254,7 +10254,7 @@ def barabasi_albert_graph(
     else:
         if len(initial_graph) < m or len(initial_graph) > n:
             raise NetworkXError(
-                f"Barabasi-Albert initial graph needs between m={m} and n={n} nodes"
+                f"Barabási–Albert initial graph needs between m={m} and n={n} nodes"
             )
         graph = _copy_graph_into(initial_graph, graph)
 
@@ -25968,15 +25968,15 @@ def dual_barabasi_albert_graph(
 
     if m1 < 1 or m1 >= n:
         raise NetworkXError(
-            f"Dual Barabasi-Albert must have m1 >= 1 and m1 < n, m1 = {m1}, n = {n}"
+            f"Dual Barabási–Albert must have m1 >= 1 and m1 < n, m1 = {m1}, n = {n}"
         )
     if m2 < 1 or m2 >= n:
         raise NetworkXError(
-            f"Dual Barabasi-Albert must have m2 >= 1 and m2 < n, m2 = {m2}, n = {n}"
+            f"Dual Barabási–Albert must have m2 >= 1 and m2 < n, m2 = {m2}, n = {n}"
         )
     if p < 0 or p > 1:
         raise NetworkXError(
-            f"Dual Barabasi-Albert network must have 0 <= p <= 1, p = {p}"
+            f"Dual Barabási–Albert network must have 0 <= p <= 1, p = {p}"
         )
 
     if p == 1:
@@ -26001,7 +26001,7 @@ def dual_barabasi_albert_graph(
     else:
         if len(initial_graph) < max(m1, m2) or len(initial_graph) > n:
             raise NetworkXError(
-                f"Barabasi-Albert initial graph must have between "
+                f"Barabási–Albert initial graph must have between "
                 f"max(m1, m2) = {max(m1, m2)} and n = {n} nodes"
             )
         graph = Graph()
@@ -26877,6 +26877,14 @@ def random_regular_graph(d, n, seed=None, *, create_using=None, backend=None, **
     # by test_native_random_generators_do_not_fallback_to_networkx.
     # Exact-output parity requires a Rust-side RNG port and is tracked
     # separately.
+    # br-rrgval: validate with nx-shaped NetworkXError *before* the Rust
+    # branch; without this, invalid (d, n) leak the Rust
+    # `ValueError("FailClosed { ... }")` instead of nx's NetworkXError.
+    if not 0 <= d < n:
+        raise NetworkXError("the 0 <= d < n inequality must be satisfied")
+    if (n * d) % 2 != 0:
+        raise NetworkXError("n * d must be even")
+
     if create_using is None:
         return _rust_random_regular_graph(d, n, seed=_native_random_seed(seed))
 
@@ -26887,10 +26895,6 @@ def random_regular_graph(d, n, seed=None, *, create_using=None, backend=None, **
         multigraph=False,
         default=Graph,
     )
-    if (n * d) % 2 != 0:
-        raise NetworkXError("n * d must be even")
-    if not 0 <= d < n:
-        raise NetworkXError("the 0 <= d < n inequality must be satisfied")
 
     graph = empty_graph(n, create_using=graph)
     if d == 0:
