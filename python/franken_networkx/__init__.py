@@ -6387,19 +6387,31 @@ from franken_networkx._fnx import (
 )
 
 
+def _coerce_nbunch(nbunch):
+    """br-nbunchseq: Rust bindings expect Sequence input for nbunch.
+    nx accepts any iterable (set, dict.keys(), generator, etc.). Coerce
+    to list so drop-in code with ``cut_size(G, S={0,1})`` works.
+    """
+    if nbunch is None:
+        return None
+    if isinstance(nbunch, (list, tuple)):
+        return nbunch
+    return list(nbunch)
+
+
 def cut_size(G, S, T=None, weight=None):
     """br-boundkw: ``G, S, T`` match nx; Rust binding used ``g, nbunch1, nbunch2``."""
-    return _raw_cut_size(G, S, T, weight=weight)
+    return _raw_cut_size(G, _coerce_nbunch(S), _coerce_nbunch(T), weight=weight)
 
 
 def normalized_cut_size(G, S, T=None, weight=None):
     """br-boundkw: ``G, S, T`` match nx."""
-    return _raw_normalized_cut_size(G, S, T, weight=weight)
+    return _raw_normalized_cut_size(G, _coerce_nbunch(S), _coerce_nbunch(T), weight=weight)
 
 
 def node_boundary(G, nbunch1, nbunch2=None):
     """br-boundkw: ``G`` matches nx; Rust binding used ``g``."""
-    return _raw_node_boundary(G, nbunch1, nbunch2)
+    return _raw_node_boundary(G, _coerce_nbunch(nbunch1), _coerce_nbunch(nbunch2))
 
 
 def edge_boundary(G, nbunch1, nbunch2=None, data=False, keys=False, default=None):
@@ -6412,7 +6424,7 @@ def edge_boundary(G, nbunch1, nbunch2=None, data=False, keys=False, default=None
     so the emitted tuples match exactly.
     """
     if data is False and not keys and default is None:
-        return _raw_edge_boundary(G, nbunch1, nbunch2)
+        return _raw_edge_boundary(G, _coerce_nbunch(nbunch1), _coerce_nbunch(nbunch2))
     return _call_networkx_for_parity(
         "edge_boundary",
         G,
