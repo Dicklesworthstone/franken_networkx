@@ -10623,6 +10623,11 @@ def binomial_graph(
 def gnp_random_graph(n, p, seed=None, directed=False, *, create_using=None, backend=None, **backend_kwargs):
     """Return a G(n,p) random graph."""
     _validate_backend_dispatch_keywords("gnp_random_graph", backend, backend_kwargs)
+    # br-gnpvalid: match nx's NetworkXError for negative n before the
+    # Rust binding surfaces OverflowError (Rust takes usize so negative
+    # n crashes with a Python type-conversion error).
+    if n < 0:
+        raise NetworkXError(f"Negative number of nodes not valid: {n}")
     if not directed and create_using is None and (seed is None or isinstance(seed, int)):
         return _rust_gnp_random_graph(n, p, seed=_native_random_seed(seed))
 
@@ -10748,7 +10753,14 @@ def barabasi_albert_graph(
 
 
 def balanced_tree(r, h, create_using=None):
-    """Return the perfectly balanced r-ary tree of height h."""
+    """Return the perfectly balanced r-ary tree of height h.
+
+    br-btneg: nx.balanced_tree(-1, 3) returns an empty Graph; fnx's
+    Rust binding raised OverflowError on negative r. Short-circuit to
+    an empty graph (matching nx's behavior) before the Rust call.
+    """
+    if r < 0 or h < 0:
+        return empty_graph(0, create_using=create_using)
     if create_using is None:
         return _rust_balanced_tree(r, h)
 
@@ -10770,7 +10782,14 @@ def full_rary_tree(r, n, create_using=None):
 
 
 def binomial_tree(n, create_using=None):
-    """Return the binomial tree of order n."""
+    """Return the binomial tree of order n.
+
+    br-btneg: nx.binomial_tree(-1) returns a 1-node graph (the seed of
+    the iterative doubling). fnx's Rust binding raised OverflowError
+    on negative n. Short-circuit to match nx.
+    """
+    if n < 0:
+        return empty_graph(1, create_using=create_using)
     if create_using is None:
         return _rust_binomial_tree(n)
 
@@ -28083,6 +28102,10 @@ def fast_gnp_random_graph(n, p, seed=None, directed=False, *, create_using=None,
     """Return a fast G(n,p) random graph (Batagelj-Brandes O(n+m) algorithm)."""
     _validate_backend_dispatch_keywords("fast_gnp_random_graph", backend, backend_kwargs)
     from franken_networkx._fnx import fast_gnp_random_graph as _rust_fast_gnp
+
+    # br-gnpvalid: see gnp_random_graph.
+    if n < 0:
+        raise NetworkXError(f"Negative number of nodes not valid: {n}")
 
     if create_using is None:
         return _rust_fast_gnp(
