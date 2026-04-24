@@ -2987,7 +2987,14 @@ def diameter(G, e=None, usebounds=False, weight=None):
     int or float
         Diameter of the graph.
     """
-    if e is not None or usebounds or weight is not None:
+    # Delegate cases where the native path does not yet preserve nx contracts.
+    if (
+        e is not None
+        or usebounds
+        or weight is not None
+        or len(G) == 0
+        or G.is_directed()
+    ):
         return _call_networkx_for_parity(
             "diameter", G, e=e, usebounds=usebounds, weight=weight
         )
@@ -3013,7 +3020,14 @@ def radius(G, e=None, usebounds=False, weight=None):
     int or float
         Radius of the graph.
     """
-    if e is not None or usebounds or weight is not None:
+    # Delegate cases where the native path does not yet preserve nx contracts.
+    if (
+        e is not None
+        or usebounds
+        or weight is not None
+        or len(G) == 0
+        or G.is_directed()
+    ):
         return _call_networkx_for_parity(
             "radius", G, e=e, usebounds=usebounds, weight=weight
         )

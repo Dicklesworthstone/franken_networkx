@@ -113,10 +113,6 @@ def _graph_property_fixtures():
 @pytest.mark.parametrize("fixture_index", range(9))
 @pytest.mark.parametrize("function_name", ["density", "diameter", "radius"])
 def test_graph_properties_match_networkx_matrix(fixture_index, function_name):
-    if function_name in {"diameter", "radius"} and fixture_index in {0, 6}:
-        pytest.xfail(
-            "franken_networkx-codprop-review: diameter/radius graph-property contract"
-        )
     fnx_graph, nx_graph = _graph_property_fixtures()[fixture_index]
     _assert_same_outcome(
         lambda: getattr(fnx, function_name)(fnx_graph),
