@@ -1,27 +1,26 @@
 """Type stubs for franken_networkx._fnx (Rust extension module)."""
 
-from typing import Any, Iterator, Optional, Union, Iterable, IO
 from os import PathLike
+from typing import Any, Iterator, Optional, Union, Iterable, IO
+
+from networkx.algorithms.community.quality import NotAPartition
+from networkx.algorithms.tree.coding import NotATree
+from networkx.exception import (
+    HasACycle,
+    NetworkXAlgorithmError,
+    NetworkXError,
+    NetworkXException,
+    NetworkXNoCycle,
+    NetworkXNoPath,
+    NetworkXNotImplemented,
+    NetworkXPointlessConcept,
+    NetworkXUnbounded,
+    NetworkXUnfeasible,
+    NodeNotFound,
+    PowerIterationFailedConvergence,
+)
 
 __version__: str
-
-# ---------------------------------------------------------------------------
-# Exceptions
-# ---------------------------------------------------------------------------
-
-class NetworkXError(Exception): ...
-class NetworkXPointlessConcept(NetworkXError): ...
-class NetworkXAlgorithmError(NetworkXError): ...
-class NetworkXUnfeasible(NetworkXError): ...
-class NetworkXNoPath(NetworkXUnfeasible): ...
-class NetworkXNoCycle(NetworkXUnfeasible): ...
-class NetworkXUnbounded(NetworkXError): ...
-class NetworkXNotImplemented(NetworkXError): ...
-class NotAPartition(NetworkXError): ...
-class NotATree(NetworkXError): ...
-class NodeNotFound(NetworkXError): ...
-class HasACycle(NetworkXError): ...
-class PowerIterationFailedConvergence(NetworkXError): ...
 
 # ---------------------------------------------------------------------------
 # View objects

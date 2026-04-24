@@ -47,19 +47,20 @@ impl<'py> PythonAllowThreadsExt for Python<'py> {
 // Exception hierarchy — mirrors NetworkX for drop-in compatibility.
 // ---------------------------------------------------------------------------
 
-pyo3::create_exception!(_fnx, NetworkXError, pyo3::exceptions::PyException);
-pyo3::create_exception!(_fnx, NetworkXPointlessConcept, NetworkXError);
-pyo3::create_exception!(_fnx, NetworkXAlgorithmError, NetworkXError);
-pyo3::create_exception!(_fnx, NetworkXUnfeasible, NetworkXError);
-pyo3::create_exception!(_fnx, NetworkXNoPath, NetworkXUnfeasible);
-pyo3::create_exception!(_fnx, NetworkXNoCycle, NetworkXUnfeasible);
-pyo3::create_exception!(_fnx, NetworkXUnbounded, NetworkXError);
-pyo3::create_exception!(_fnx, NetworkXNotImplemented, NetworkXError);
-pyo3::create_exception!(_fnx, NotAPartition, NetworkXError);
-pyo3::create_exception!(_fnx, NotATree, NetworkXError);
-pyo3::create_exception!(_fnx, NodeNotFound, NetworkXError);
-pyo3::create_exception!(_fnx, HasACycle, NetworkXError);
-pyo3::create_exception!(_fnx, PowerIterationFailedConvergence, NetworkXError);
+pyo3::import_exception!(networkx.exception, NetworkXException);
+pyo3::import_exception!(networkx.exception, NetworkXError);
+pyo3::import_exception!(networkx.exception, NetworkXPointlessConcept);
+pyo3::import_exception!(networkx.exception, NetworkXAlgorithmError);
+pyo3::import_exception!(networkx.exception, NetworkXUnfeasible);
+pyo3::import_exception!(networkx.exception, NetworkXNoPath);
+pyo3::import_exception!(networkx.exception, NetworkXNoCycle);
+pyo3::import_exception!(networkx.exception, NetworkXUnbounded);
+pyo3::import_exception!(networkx.exception, NetworkXNotImplemented);
+pyo3::import_exception!(networkx.algorithms.community.quality, NotAPartition);
+pyo3::import_exception!(networkx.algorithms.tree.coding, NotATree);
+pyo3::import_exception!(networkx.exception, NodeNotFound);
+pyo3::import_exception!(networkx.exception, HasACycle);
+pyo3::import_exception!(networkx.exception, PowerIterationFailedConvergence);
 
 // ---------------------------------------------------------------------------
 // NodeKey — bridge Python's dynamic node identifiers to Rust String keys.
@@ -3369,6 +3370,7 @@ fn _fnx(m: &Bound<'_, PyModule>) -> PyResult<()> {
     cgse::register_module(m)?;
 
     // Exception hierarchy
+    m.add("NetworkXException", m.py().get_type::<NetworkXException>())?;
     m.add("NetworkXError", m.py().get_type::<NetworkXError>())?;
     m.add(
         "NetworkXPointlessConcept",

@@ -2225,12 +2225,14 @@ from franken_networkx._fnx import (
     HasACycle,
     NetworkXAlgorithmError,
     NetworkXError,
+    NetworkXException,
     NetworkXNoCycle,
     NetworkXNoPath,
     NetworkXNotImplemented,
     NetworkXPointlessConcept,
     NetworkXUnbounded,
     NetworkXUnfeasible,
+    NotAPartition,
     NotATree,
     NodeNotFound,
     PowerIterationFailedConvergence,
@@ -2238,37 +2240,14 @@ from franken_networkx._fnx import (
 
 
 def _nx_exception_cls():
-    """Lazy accessor for networkx's base ``NetworkXException`` class.
+    """Return the upstream-compatible base ``NetworkXException`` class.
 
     A few wrapper sites (e.g. ``is_graphical`` method guard,
     ``non_randomness`` precondition checks) need to raise the exact
-    upstream base class so that both fnx's parity tests and code that
-    catches ``nx.NetworkXException`` work. The Rust binding does not
-    expose this base class — fall back to importing it from nx on
-    demand.
+    upstream base class so that both fnx's parity tests and code
+    catching ``nx.NetworkXException`` work.
     """
-    import networkx as _nx  # lazy to avoid import-time cost
-
-    return _nx.NetworkXException
-
-
-class NotAPartition(NetworkXError):
-    """Raised when a set of sets is not a partition of a graph's node set.
-
-    Python-side subclass of NetworkXError matching the upstream NetworkX
-    exception shape (see ``networkx.algorithms.community.quality.NotAPartition``).
-    The Rust binding does not currently expose this type, so define it
-    here so community-quality wrappers can raise a proper NetworkXError
-    subclass that is also ``isinstance``-compatible with the nx class.
-    """
-
-    def __init__(self, graph=None, communities=None):
-        if graph is None and communities is None:
-            super().__init__()
-        else:
-            super().__init__(f"{communities} is not a valid partition of the graph {graph}")
-        self.graph = graph
-        self.communities = communities
+    return NetworkXException
 
 
 class NetworkXTreewidthBoundExceeded(NetworkXError):
@@ -28225,6 +28204,8 @@ __all__ = [
     "HasACycle",
     "NetworkXAlgorithmError",
     "NetworkXError",
+    "NetworkXException",
+    "NetworkXNoCycle",
     "NetworkXNoPath",
     "NetworkXNotImplemented",
     "NetworkXPointlessConcept",

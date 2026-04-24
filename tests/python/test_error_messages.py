@@ -4,6 +4,7 @@ Every exception FrankenNetworkX raises should be indistinguishable from
 what NetworkX would raise in the same situation.
 """
 
+import networkx as nx
 import pytest
 
 try:
@@ -404,29 +405,30 @@ class TestNetworkXUnfeasible:
 class TestExceptionHierarchy:
     """Exception types must form the same inheritance tree as NetworkX."""
 
-    def test_no_path_is_unfeasible(self):
-        assert issubclass(fnx.NetworkXNoPath, fnx.NetworkXUnfeasible)
+    def test_exported_exceptions_are_networkx_classes(self):
+        pairs = [
+            ("NetworkXException", nx.NetworkXException),
+            ("NetworkXError", nx.NetworkXError),
+            ("NetworkXPointlessConcept", nx.NetworkXPointlessConcept),
+            ("NetworkXAlgorithmError", nx.NetworkXAlgorithmError),
+            ("NetworkXUnfeasible", nx.NetworkXUnfeasible),
+            ("NetworkXNoPath", nx.NetworkXNoPath),
+            ("NetworkXNoCycle", nx.NetworkXNoCycle),
+            ("NetworkXUnbounded", nx.NetworkXUnbounded),
+            ("NetworkXNotImplemented", nx.NetworkXNotImplemented),
+            ("NotAPartition", nx.community.quality.NotAPartition),
+            ("NotATree", nx.NotATree),
+            ("NodeNotFound", nx.NodeNotFound),
+            ("HasACycle", nx.HasACycle),
+            ("PowerIterationFailedConvergence", nx.PowerIterationFailedConvergence),
+        ]
 
-    def test_unfeasible_is_error(self):
-        assert issubclass(fnx.NetworkXUnfeasible, fnx.NetworkXError)
+        for name, nx_class in pairs:
+            assert getattr(fnx, name) is nx_class
 
-    def test_not_implemented_is_error(self):
-        assert issubclass(fnx.NetworkXNotImplemented, fnx.NetworkXError)
+    def test_native_raises_are_caught_by_networkx_handlers(self):
+        with pytest.raises(nx.NetworkXNoPath):
+            fnx.shortest_path(fnx.Graph([(0, 1), (2, 3)]), 0, 3)
 
-    def test_node_not_found_is_error(self):
-        assert issubclass(fnx.NodeNotFound, fnx.NetworkXError)
-
-    def test_has_a_cycle_is_error(self):
-        assert issubclass(fnx.HasACycle, fnx.NetworkXError)
-
-    def test_unbounded_is_error(self):
-        assert issubclass(fnx.NetworkXUnbounded, fnx.NetworkXError)
-
-    def test_pointless_concept_is_error(self):
-        assert issubclass(fnx.NetworkXPointlessConcept, fnx.NetworkXError)
-
-    def test_algorithm_error_is_error(self):
-        assert issubclass(fnx.NetworkXAlgorithmError, fnx.NetworkXError)
-
-    def test_not_a_tree_is_error(self):
-        assert issubclass(fnx.NotATree, fnx.NetworkXError)
+        with pytest.raises(nx.NetworkXNotImplemented):
+            list(fnx.bridges(fnx.DiGraph([(0, 1)])))
