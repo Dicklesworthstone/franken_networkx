@@ -53,6 +53,31 @@ def test_reverse_copy_false_returns_frozen_view(fnx_ctor, nx_ctor):
     # copy=False produces a frozen live view.
     assert fnx.is_frozen(fr)
     assert nx.is_frozen(nr)
+    assert isinstance(fr, fnx_ctor)
+    assert isinstance(nr, nx_ctor)
+
+
+@pytest.mark.parametrize(
+    ("fnx_ctor", "nx_ctor"),
+    [
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+)
+def test_global_reverse_copy_false_returns_typed_frozen_view(fnx_ctor, nx_ctor):
+    fg = fnx_ctor()
+    fg.add_edges_from([(1, 2), (2, 3)])
+    ng = nx_ctor()
+    ng.add_edges_from([(1, 2), (2, 3)])
+
+    fr = fnx.reverse(fg, copy=False)
+    nr = nx.reverse(ng, copy=False)
+
+    assert sorted(fr.edges()) == sorted(nr.edges())
+    assert fnx.is_frozen(fr)
+    assert nx.is_frozen(nr)
+    assert isinstance(fr, fnx_ctor)
+    assert isinstance(nr, nx_ctor)
 
 
 @pytest.mark.parametrize(
