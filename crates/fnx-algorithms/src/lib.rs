@@ -44121,9 +44121,9 @@ mod tests {
         assert_eq!(
             results,
             vec![
+                (("c".to_owned(), "c".to_owned()), "c".to_owned()),
+                (("c".to_owned(), "c".to_owned()), "c".to_owned()),
                 (("d".to_owned(), "c".to_owned()), "a".to_owned()),
-                (("c".to_owned(), "c".to_owned()), "c".to_owned()),
-                (("c".to_owned(), "c".to_owned()), "c".to_owned()),
                 (("c".to_owned(), "d".to_owned()), "a".to_owned()),
                 (("c".to_owned(), "b".to_owned()), "r".to_owned()),
             ]
