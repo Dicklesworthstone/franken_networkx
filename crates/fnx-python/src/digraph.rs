@@ -6,9 +6,9 @@
 //! - Additional methods: `predecessors`, `successors`, `in_degree`, `out_degree`.
 
 use crate::{
-    NetworkXError, NodeNotFound, PyGraph, compatibility_mode_from_py, compatibility_mode_name,
-    edge_key_lookup_string, node_key_to_string, py_dict_to_attr_map, runtime_policy_from_state,
-    runtime_policy_json, unwrap_infallible, PyObject,
+    NetworkXError, NodeNotFound, PyGraph, PyObject, compatibility_mode_from_py,
+    compatibility_mode_name, edge_key_lookup_string, node_key_to_string, py_dict_to_attr_map,
+    runtime_policy_from_state, runtime_policy_json, unwrap_infallible,
 };
 use fnx_classes::AttrMap;
 use fnx_classes::digraph::{DiGraph, MultiDiGraph};
@@ -986,20 +986,32 @@ impl PyMultiDiGraph {
                     .insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
             }
         }
-        for ((u, v, key), attrs) in &self.edge_py_attrs {
-            let rust_attrs = crate::py_dict_to_attr_map(attrs.bind(py))?;
-            let _ =
-                new_graph
-                    .inner
-                    .add_edge_with_key_and_attrs(u.clone(), v.clone(), *key, rust_attrs);
-            new_graph.edge_py_attrs.insert(
-                (u.clone(), v.clone(), *key),
-                attrs.bind(py).copy()?.unbind(),
+        // Copy edges in original insertion order (br-copyedgeord).
+        for snapshot in self.inner.edges_ordered() {
+            let (u, v, key) = (
+                snapshot.source.clone(),
+                snapshot.target.clone(),
+                snapshot.key,
             );
-            if let Some(py_key) = self.edge_py_keys.get(&(u.clone(), v.clone(), *key)) {
-                new_graph.remember_edge_key_object(py, u, v, *key, py_key);
+            let attrs_entry = self.edge_py_attrs.get(&(u.clone(), v.clone(), key));
+            let py_attrs = match attrs_entry {
+                Some(attrs) => attrs.bind(py).copy()?.unbind(),
+                None => PyDict::new(py).unbind(),
+            };
+            let rust_attrs = crate::py_dict_to_attr_map(py_attrs.bind(py))?;
+            let _ = new_graph.inner.add_edge_with_key_and_attrs(
+                u.clone(),
+                v.clone(),
+                key,
+                rust_attrs,
+            );
+            new_graph
+                .edge_py_attrs
+                .insert((u.clone(), v.clone(), key), py_attrs);
+            if let Some(py_key) = self.edge_py_keys.get(&(u.clone(), v.clone(), key)) {
+                new_graph.remember_edge_key_object(py, &u, &v, key, py_key);
             } else {
-                new_graph.remember_edge_key(py, u, v, *key, None);
+                new_graph.remember_edge_key(py, &u, &v, key, None);
             }
         }
         Ok(new_graph)
@@ -1582,7 +1594,11 @@ impl MultiDiGraphNodeView {
     /// Return a list of node keys (like dict.keys()).
     fn keys(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
         let g = self.graph.borrow(py);
-        Ok(g.inner.nodes_ordered().into_iter().map(|n| g.py_node_key(py, n)).collect())
+        Ok(g.inner
+            .nodes_ordered()
+            .into_iter()
+            .map(|n| g.py_node_key(py, n))
+            .collect())
     }
 
     /// Return a list of (node, attrs) pairs (like dict.items()).
@@ -1604,24 +1620,34 @@ impl MultiDiGraphNodeView {
     /// Return a list of attr dicts (like dict.values()).
     fn values(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
         let g = self.graph.borrow(py);
-        Ok(g.inner.nodes_ordered().into_iter().map(|n| {
-            g.node_py_attrs.get(n).map_or_else(
-                || PyDict::new(py).into_any().unbind(),
-                |d| d.clone_ref(py).into_any(),
-            )
-        }).collect())
+        Ok(g.inner
+            .nodes_ordered()
+            .into_iter()
+            .map(|n| {
+                g.node_py_attrs.get(n).map_or_else(
+                    || PyDict::new(py).into_any().unbind(),
+                    |d| d.clone_ref(py).into_any(),
+                )
+            })
+            .collect())
     }
 
     /// Return a view iterating over (node, data) pairs.
     #[pyo3(signature = (data=None, default=None))]
-    fn data(&self, py: Python<'_>, data: Option<&Bound<'_, PyAny>>, default: Option<PyObject>) -> PyResult<Vec<PyObject>> {
+    fn data(
+        &self,
+        py: Python<'_>,
+        data: Option<&Bound<'_, PyAny>>,
+        default: Option<PyObject>,
+    ) -> PyResult<Vec<PyObject>> {
         let g = self.graph.borrow(py);
         let mut result = Vec::new();
         for node in g.inner.nodes_ordered() {
             let py_node = g.py_node_key(py, node);
             let val = if let Some(d) = data {
                 if let Ok(attr_name) = d.extract::<String>() {
-                    g.node_py_attrs.get(node)
+                    g.node_py_attrs
+                        .get(node)
                         .and_then(|dict| dict.bind(py).get_item(attr_name.as_str()).ok().flatten())
                         .map_or_else(
                             || default.as_ref().map_or(py.None(), |d| d.clone_ref(py)),
@@ -1739,7 +1765,8 @@ impl MultiDiGraphEdgeView {
     }
 
     fn __contains__(&self, py: Python<'_>, edge: &Bound<'_, PyAny>) -> PyResult<bool> {
-        let tuple = edge.downcast::<PyTuple>()
+        let tuple = edge
+            .downcast::<PyTuple>()
             .map_err(|_| pyo3::exceptions::PyTypeError::new_err("edge must be a tuple"))?;
         let len = tuple.len();
         if len < 2 {
@@ -2580,14 +2607,19 @@ impl PyDiGraph {
                     .insert(canonical.clone(), attrs.bind(py).copy()?.unbind());
             }
         }
-        for ((u, v), attrs) in &self.edge_py_attrs {
-            let rust_attrs = py_dict_to_attr_map(attrs.bind(py))?;
+        // Copy edges in original insertion order (br-copyedgeord).
+        for snapshot in self.inner.edges_ordered() {
+            let (u, v) = (snapshot.left.clone(), snapshot.right.clone());
+            let attrs_entry = self.edge_py_attrs.get(&(u.clone(), v.clone()));
+            let py_attrs = match attrs_entry {
+                Some(attrs) => attrs.bind(py).copy()?.unbind(),
+                None => PyDict::new(py).unbind(),
+            };
+            let rust_attrs = py_dict_to_attr_map(py_attrs.bind(py))?;
             let _ = new_graph
                 .inner
                 .add_edge_with_attrs(u.clone(), v.clone(), rust_attrs);
-            new_graph
-                .edge_py_attrs
-                .insert((u.clone(), v.clone()), attrs.bind(py).copy()?.unbind());
+            new_graph.edge_py_attrs.insert((u, v), py_attrs);
         }
         Ok(new_graph)
     }
@@ -3315,31 +3347,43 @@ impl DiNodeView {
     /// Return a list of node keys (like dict.keys()).
     fn keys(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
         let g = self.graph.borrow(py);
-        Ok(g.inner.nodes_ordered().iter().map(|n| g.py_node_key(py, n)).collect())
+        Ok(g.inner
+            .nodes_ordered()
+            .iter()
+            .map(|n| g.py_node_key(py, n))
+            .collect())
     }
 
     /// Return a list of (node, attrs) pairs (like dict.items()).
     fn items(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
         let g = self.graph.borrow(py);
-        g.inner.nodes_ordered().iter().map(|n| {
-            let py_key = g.py_node_key(py, n);
-            let attrs = g.node_py_attrs.get(*n).map_or_else(
-                || PyDict::new(py).into_any().unbind(),
-                |d| d.clone_ref(py).into_any(),
-            );
-            tuple_object(py, &[py_key, attrs])
-        }).collect()
+        g.inner
+            .nodes_ordered()
+            .iter()
+            .map(|n| {
+                let py_key = g.py_node_key(py, n);
+                let attrs = g.node_py_attrs.get(*n).map_or_else(
+                    || PyDict::new(py).into_any().unbind(),
+                    |d| d.clone_ref(py).into_any(),
+                );
+                tuple_object(py, &[py_key, attrs])
+            })
+            .collect()
     }
 
     /// Return a list of attr dicts (like dict.values()).
     fn values(&self, py: Python<'_>) -> PyResult<Vec<PyObject>> {
         let g = self.graph.borrow(py);
-        Ok(g.inner.nodes_ordered().iter().map(|n| {
-            g.node_py_attrs.get(*n).map_or_else(
-                || PyDict::new(py).into_any().unbind(),
-                |d| d.clone_ref(py).into_any(),
-            )
-        }).collect())
+        Ok(g.inner
+            .nodes_ordered()
+            .iter()
+            .map(|n| {
+                g.node_py_attrs.get(*n).map_or_else(
+                    || PyDict::new(py).into_any().unbind(),
+                    |d| d.clone_ref(py).into_any(),
+                )
+            })
+            .collect())
     }
 
     /// Return a NodeDataView for iterating over (node, data) pairs.

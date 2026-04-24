@@ -1086,31 +1086,77 @@ def _decode_dict_of_dicts_into(self, data, is_multigraph):
 
 
 def _copy_constructor_graph_source(self, source, *, is_multigraph, attr):
-    """Populate constructor target from another graph in public edge order."""
+    """Populate constructor target from another graph in public edge order.
+
+    br-graphtodigraph: when target is directed and source is undirected,
+    nx expands each undirected edge into both directions (matching
+    ``source.to_directed()`` semantics). Previously we iterated
+    ``source.edges(data=True)`` which yields each undirected edge once,
+    so DiGraph(Graph) silently dropped half the directed edges —
+    number_of_edges() was N/2 of what nx returned, breaking
+    second_order_centrality and any other algorithm that depends on
+    the bidirected view.
+    """
     self.clear()
     self.graph.update(dict(getattr(source, "graph", {})))
     if attr:
         self.graph.update(attr)
     self.add_nodes_from((node, dict(attrs)) for node, attrs in source.nodes(data=True))
+    target_is_directed = self.is_directed()
+    source_is_directed = source.is_directed()
+    expand_undirected_to_directed = target_is_directed and not source_is_directed
+
     if source.is_multigraph():
         if is_multigraph:
-            self.add_edges_from(
-                (u, v, key, dict(attrs))
-                for u, v, key, attrs in source.edges(keys=True, data=True)
-            )
+            if expand_undirected_to_directed:
+                edges = []
+                for u, v, key, attrs in source.edges(keys=True, data=True):
+                    edges.append((u, v, key, dict(attrs)))
+                    if u != v:
+                        edges.append((v, u, key, dict(attrs)))
+                self.add_edges_from(edges)
+            else:
+                self.add_edges_from(
+                    (u, v, key, dict(attrs))
+                    for u, v, key, attrs in source.edges(keys=True, data=True)
+                )
+        else:
+            if expand_undirected_to_directed:
+                edges = []
+                for u, v, _key, attrs in source.edges(keys=True, data=True):
+                    edges.append((u, v, dict(attrs)))
+                    if u != v:
+                        edges.append((v, u, dict(attrs)))
+                self.add_edges_from(edges)
+            else:
+                self.add_edges_from(
+                    (u, v, dict(attrs))
+                    for u, v, _key, attrs in source.edges(keys=True, data=True)
+                )
+    elif is_multigraph:
+        if expand_undirected_to_directed:
+            edges = []
+            for u, v, attrs in source.edges(data=True):
+                edges.append((u, v, 0, dict(attrs)))
+                if u != v:
+                    edges.append((v, u, 0, dict(attrs)))
+            self.add_edges_from(edges)
         else:
             self.add_edges_from(
-                (u, v, dict(attrs))
-                for u, v, _key, attrs in source.edges(keys=True, data=True)
+                (u, v, 0, dict(attrs)) for u, v, attrs in source.edges(data=True)
             )
-    elif is_multigraph:
-        self.add_edges_from(
-            (u, v, 0, dict(attrs)) for u, v, attrs in source.edges(data=True)
-        )
     else:
-        self.add_edges_from(
-            (u, v, dict(attrs)) for u, v, attrs in source.edges(data=True)
-        )
+        if expand_undirected_to_directed:
+            edges = []
+            for u, v, attrs in source.edges(data=True):
+                edges.append((u, v, dict(attrs)))
+                if u != v:
+                    edges.append((v, u, dict(attrs)))
+            self.add_edges_from(edges)
+        else:
+            self.add_edges_from(
+                (u, v, dict(attrs)) for u, v, attrs in source.edges(data=True)
+            )
 
 
 def _init_absorbing_dict_of_dicts(raw_init, is_multigraph):
@@ -2511,6 +2557,21 @@ def dijkstra_path(G, source, target, weight="weight"):
         raise NetworkXNoPath(f"No path to {target}.") from exc
 
 
+def _path_length_preserving_weight_type(G, path, weight):
+    if weight is None:
+        return len(path) - 1
+
+    total = 0
+    if G.is_multigraph():
+        for node, neighbor in itertools.pairwise(path):
+            total += min(attrs.get(weight, 1) for attrs in G[node][neighbor].values())
+        return total
+
+    for node, neighbor in itertools.pairwise(path):
+        total += G[node][neighbor].get(weight, 1)
+    return total
+
+
 def bellman_ford_path(G, source, target, weight="weight"):
     if _should_delegate_bellman_ford_to_networkx(weight):
         return _call_networkx_for_parity(
@@ -2612,8 +2673,10 @@ def shortest_path_length(G, source=None, target=None, weight=None, method="dijks
     if source is not None and target is not None:
         if weight is not None and method == "bellman-ford":
             return bellman_ford_path_length(G, source, target, weight=weight)
+        if weight is not None:
+            return dijkstra_path_length(G, source, target, weight=weight)
         return _shortest_path_length_raw(G, source, target, weight=weight)
-    
+
     if source is not None:
         _validate_shortest_path_length_source_query(G, source, weight, method)
         if weight is not None:
@@ -6828,9 +6891,11 @@ def dijkstra_path_length(G, source, target, weight="weight"):
     if target not in G:
         raise NetworkXNoPath(f"Node {target} not reachable from {source}")
     try:
-        return _raw_dijkstra_path_length(G, source, target, weight=weight)
+        _raw_dijkstra_path_length(G, source, target, weight=weight)
     except NetworkXNoPath as exc:
         raise NetworkXNoPath(f"Node {target} not reachable from {source}") from exc
+    path = dijkstra_path(G, source, target, weight=weight)
+    return _path_length_preserving_weight_type(G, path, weight)
 
 
 def bellman_ford_path_length(G, source, target, weight="weight"):
@@ -6843,9 +6908,11 @@ def bellman_ford_path_length(G, source, target, weight="weight"):
     if target not in G:
         raise NetworkXNoPath(f"node {target} not reachable from {source}")
     try:
-        return _raw_bellman_ford_path_length(G, source, target, weight=weight)
+        _raw_bellman_ford_path_length(G, source, target, weight=weight)
     except NetworkXNoPath as exc:
         raise NetworkXNoPath(f"node {target} not reachable from {source}") from exc
+    path = bellman_ford_path(G, source, target, weight=weight)
+    return _path_length_preserving_weight_type(G, path, weight)
 
 
 def negative_edge_cycle(G, weight="weight", heuristic=True):
