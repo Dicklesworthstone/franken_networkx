@@ -1425,6 +1425,55 @@ def _make_edge_view_getitem_preserving_key(raw):
 _EDGE_VIEW_TYPE.__getitem__ = _make_edge_view_getitem_preserving_key(
     _EDGE_VIEW_TYPE.__getitem__
 )
+
+
+def _view_set_eq(self, other):
+    """br-vweqset: nx NodeView/EdgeView inherit from collections.abc.Set
+    so `G.edges == {(0,1),(1,2)}` returns True. The Rust-native fnx
+    views have no ABC inheritance; this wrapper mimics Set.__eq__
+    semantics — True when `other` is Set-like and contains the same
+    elements, False otherwise.
+    """
+    if self is other:
+        return True
+    try:
+        if len(self) != len(other):
+            return False
+    except TypeError:
+        return NotImplemented
+    try:
+        for item in self:
+            if item not in other:
+                return False
+        for item in other:
+            if item not in self:
+                return False
+    except TypeError:
+        return NotImplemented
+    return True
+
+
+def _view_set_ne(self, other):
+    eq = _view_set_eq(self, other)
+    if eq is NotImplemented:
+        return NotImplemented
+    return not eq
+
+
+def _view_set_isdisjoint(self, other):
+    return not any(item in other for item in self)
+
+
+# br-vweqset: nx's EdgeView inherits from Set and supports
+# `G.edges == {(0,1), (1,2)}` set-equality. fnx's EdgeView is a bare
+# Rust type with no ABC inheritance. Apply Set.__eq__ semantics to
+# EdgeView only. NodeView is a Mapping in nx — it does NOT compare
+# equal to a plain set of nodes (Mapping.__eq__ returns NotImplemented
+# and Set.__eq__ is False) — so we leave its __eq__ alone.
+_EDGE_VIEW_TYPE.__eq__ = _view_set_eq
+_EDGE_VIEW_TYPE.__ne__ = _view_set_ne
+_EDGE_VIEW_TYPE.isdisjoint = _view_set_isdisjoint
+_EDGE_VIEW_TYPE.__hash__ = None  # unhashable once we define __eq__
 _MULTIGRAPH_NODE_VIEW_TYPE.__call__ = _node_view_call_with_attr_support(
     _MULTIGRAPH_NODE_VIEW_CALL
 )

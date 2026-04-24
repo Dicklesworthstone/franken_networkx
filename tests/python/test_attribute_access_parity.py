@@ -775,3 +775,55 @@ class TestEdgeViewKeyErrorPreserved:
         with pytest.raises(KeyError) as exc_info:
             MG.edges[0, 1, "missing"]
         assert exc_info.value.args[0] == (0, 1, "missing")
+
+
+# ---------------------------------------------------------------------------
+# Regression: franken_networkx-vweqset — EdgeView Set.__eq__ semantics
+# ---------------------------------------------------------------------------
+
+
+class TestEdgeViewSetEquality:
+    """nx.EdgeView inherits from collections.abc.Set so
+    `G.edges == {(0,1), (1,2)}` returns True. fnx's EdgeView was a bare
+    Rust type with no ABC inheritance, so the same comparison returned
+    False. NodeView is intentionally left as Mapping-semantics (returns
+    False on set equality, matching nx's Mapping-first __eq__).
+    """
+
+    def test_edges_equal_set(self):
+        import networkx as nx
+
+        G = fnx.path_graph(3)
+        Gn = nx.path_graph(3)
+        assert (G.edges == {(0, 1), (1, 2)}) == (Gn.edges == {(0, 1), (1, 2)})
+        assert G.edges == {(0, 1), (1, 2)}
+
+    def test_edges_not_equal_different_set(self):
+        G = fnx.path_graph(3)
+        assert G.edges != {(0, 1)}
+        assert G.edges != {(5, 6)}
+
+    def test_edges_isdisjoint(self):
+        G = fnx.path_graph(3)
+        assert G.edges.isdisjoint({(5, 6)})
+        assert not G.edges.isdisjoint({(0, 1), (5, 6)})
+
+    def test_nodes_not_equal_plain_set_mirrors_nx_mapping(self):
+        """NodeView is a Mapping in nx, not a Set, so it does NOT compare
+        equal to a plain node set. The wrapper must preserve that
+        contract.
+        """
+        import networkx as nx
+
+        G = fnx.path_graph(3)
+        Gn = nx.path_graph(3)
+        assert (G.nodes == {0, 1, 2}) is False
+        assert (Gn.nodes == {0, 1, 2}) is False
+        # But set(nodes) does equal the set.
+        assert set(G.nodes) == {0, 1, 2}
+
+    def test_edges_unhashable(self):
+        """Once __eq__ is defined, __hash__ must be None (Python protocol)."""
+        G = fnx.path_graph(3)
+        with pytest.raises(TypeError):
+            hash(G.edges)

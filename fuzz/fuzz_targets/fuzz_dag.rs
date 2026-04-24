@@ -172,7 +172,7 @@ fuzz_target!(|input: DagInput| {
         DagInput::TopologicalSort(dag) => {
             assert_valid_topological_order(
                 &dag.graph,
-                fnx_algorithms::topological_sort(&dag.graph),
+                fnx_algorithms::topological_sort(&dag.graph).map(|result| result.order),
             );
         }
         DagInput::LexicographicTopologicalSort(dag) => {
@@ -184,7 +184,8 @@ fuzz_target!(|input: DagInput| {
         DagInput::TopologicalGenerations(dag) => {
             assert_valid_topological_generations(
                 &dag.graph,
-                fnx_algorithms::topological_generations(&dag.graph),
+                fnx_algorithms::topological_generations(&dag.graph)
+                    .map(|result| result.generations),
             );
         }
         DagInput::AllTopologicalSorts(dag) => {
