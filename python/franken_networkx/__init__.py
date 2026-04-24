@@ -2679,10 +2679,20 @@ from franken_networkx._fnx import (
     connected_components as _raw_connected_components,
     edge_connectivity as _raw_edge_connectivity,
     is_connected,
-    minimum_node_cut,
+    minimum_node_cut as _raw_minimum_node_cut,
     node_connectivity as _raw_node_connectivity,
     number_connected_components,
 )
+
+
+def minimum_node_cut(G, s=None, t=None, flow_func=None):
+    """Return the minimum node cut separating s from t.
+
+    br-mncutG: first parameter is ``G`` to match nx exactly — the Rust
+    binding exposed it as lowercase ``g``, breaking
+    ``minimum_node_cut(G=graph)`` kwarg-style drop-in calls.
+    """
+    return _raw_minimum_node_cut(G, s=s, t=t, flow_func=flow_func)
 
 
 def connected_components(G):
@@ -3511,20 +3521,29 @@ def boykov_kolmogorov(
     )
 
 
-def minimum_cut(G, source, sink, capacity="capacity", flow_func=None):
-    """Return the minimum cut value and node partition."""
+def minimum_cut(flowG, _s, _t, capacity="capacity", flow_func=None):
+    """Return the minimum cut value and node partition.
+
+    br-mincutsig: parameter names match nx.minimum_cut exactly so that
+    kwarg-style calls (``minimum_cut(g, _s=s, _t=t)``) work on both
+    libraries. Previously fnx used ``G, source, sink`` which broke
+    drop-in code written against upstream.
+    """
     _validate_flow_func_selector(flow_func)
-    value, partition = _minimum_cut_raw(G, source, sink, capacity=capacity)
-    all_int = _all_flow_caps_integral(G, capacity)
+    value, partition = _minimum_cut_raw(flowG, _s, _t, capacity=capacity)
+    all_int = _all_flow_caps_integral(flowG, capacity)
     return _coerce_flow_value(value, all_int), partition
 
 
-def minimum_cut_value(G, source, sink, capacity="capacity", flow_func=None):
-    """Return the minimum cut value between source and sink."""
+def minimum_cut_value(flowG, _s, _t, capacity="capacity", flow_func=None):
+    """Return the minimum cut value between source and sink.
+
+    br-mincutsig: see ``minimum_cut`` — parameter names follow nx.
+    """
     _validate_flow_func_selector(flow_func)
     return _coerce_flow_value(
-        _minimum_cut_value_raw(G, source, sink, capacity=capacity),
-        _all_flow_caps_integral(G, capacity),
+        _minimum_cut_value_raw(flowG, _s, _t, capacity=capacity),
+        _all_flow_caps_integral(flowG, capacity),
     )
 
 # Algorithm functions — distance measures
@@ -12223,6 +12242,14 @@ def stoer_wagner(G, weight="weight", heap=None):
     """
     from franken_networkx._fnx import stoer_wagner as _rust_stoer_wagner
 
+    # br-swmsg: match nx's three distinct error-message wordings for the
+    # preconditions (fewer-than-two-nodes vs disconnected) so drop-in
+    # code with regex pytest.raises(..., match=...) against upstream
+    # keeps working. The Rust path raises one generic message.
+    if len(G) < 2:
+        raise NetworkXError("graph has less than two nodes.")
+    if not is_connected(G):
+        raise NetworkXError("graph is not connected.")
     return _rust_stoer_wagner(G, weight=weight or "weight")
 
 
@@ -15399,15 +15426,30 @@ def omega(G, niter=5, nrand=10, seed=None, *, backend=None, **backend_kwargs):
 # ---------------------------------------------------------------------------
 
 
-def edge_disjoint_paths(G, s, t, flow_func=None, cutoff=None):
-    """Find edge-disjoint paths from s to t via max-flow decomposition."""
+def edge_disjoint_paths(
+    G, s, t, flow_func=None, cutoff=None, auxiliary=None, residual=None
+):
+    """Find edge-disjoint paths from s to t via max-flow decomposition.
+
+    br-disjointkw: accepts nx's ``auxiliary`` and ``residual`` kwargs at
+    the public surface so ``edge_disjoint_paths(G, s, t, residual=R)``
+    doesn't TypeError. The Rust path still computes the decomposition
+    without reusing a pre-built residual network; a future native
+    improvement can thread these through.
+    """
     paths = _fnx.edge_disjoint_paths_rust(G, s, t)
     for path in paths:
         yield path
 
 
-def node_disjoint_paths(G, s, t, flow_func=None, cutoff=None):
-    """Find node-disjoint paths from s to t via node-splitting."""
+def node_disjoint_paths(
+    G, s, t, flow_func=None, cutoff=None, auxiliary=None, residual=None
+):
+    """Find node-disjoint paths from s to t via node-splitting.
+
+    br-disjointkw: see ``edge_disjoint_paths`` — parity kwargs added at
+    the public surface.
+    """
     paths = _fnx.node_disjoint_paths_rust(G, s, t)
     for path in paths:
         yield path
@@ -22700,7 +22742,17 @@ def hnm_harary_graph(n, m, create_using=None):
 
 
 def gomory_hu_tree(G, capacity="capacity", flow_func=None):
-    """Return the Gomory-Hu tree of an undirected graph."""
+    """Return the Gomory-Hu tree of an undirected graph.
+
+    br-ghtree: the Rust fast-path (``_fnx.gomory_hu_tree_rust``)
+    stringifies node identifiers (returning '0', '1' instead of the
+    integer node keys) AND omits the cut-value ``weight`` edge
+    attribute that nx's tree carries. Both broke drop-in consumers
+    that pattern-match on node types or read
+    ``tree.edges[u,v]['weight']`` to get the min cut. Delegate to nx
+    for correctness; the algorithm is heavy enough that a native
+    port deserves its own session.
+    """
     _validate_flow_func_selector(flow_func)
 
     if G.is_directed():
@@ -22708,36 +22760,9 @@ def gomory_hu_tree(G, capacity="capacity", flow_func=None):
     if len(G) == 0:
         raise NetworkXError("Empty Graph does not have a Gomory-Hu tree representation")
 
-    if flow_func is None:
-        return _fnx.gomory_hu_tree_rust(G, capacity)
-
-    tree = {}
-    labels = {}
-    iter_nodes = iter(G)
-    root = next(iter_nodes)
-    for node in iter_nodes:
-        tree[node] = root
-
-    for source in tree:
-        target = tree[source]
-        cut_value, partition = _minimum_cut_raw(G, source, target, capacity=capacity)
-        labels[(source, target)] = cut_value
-
-        for node in partition[0]:
-            if node != source and node in tree and tree[node] == target:
-                tree[node] = source
-                labels[(node, source)] = labels.get((node, target), cut_value)
-
-        if target != root and tree[target] in partition[0]:
-            labels[(source, tree[target])] = labels[(target, tree[target])]
-            labels[(target, source)] = cut_value
-            tree[source] = tree[target]
-            tree[target] = source
-
-    result = Graph()
-    result.add_nodes_from(G)
-    result.add_weighted_edges_from((u, v, labels[(u, v)]) for u, v in tree.items())
-    return result
+    return _call_networkx_for_parity(
+        "gomory_hu_tree", G, capacity=capacity, flow_func=flow_func
+    )
 
 
 def visibility_graph(sequence):
@@ -25004,20 +25029,22 @@ def make_clique_bipartite(G, fpos=None, create_using=None, name=None):
     return B
 
 
-def k_components(G):
-    """Return k-connected component structure."""
-    result = {}
-    result[1] = [set(c) for c in connected_components(G)]
-    for k in range(2, G.number_of_nodes()):
-        comps = []
-        for comp in result.get(k - 1, result[1]):
-            sub = G.subgraph(comp)
-            if node_connectivity(sub) >= k:
-                comps.append(comp)
-        if not comps:
-            break
-        result[k] = comps
-    return result
+def k_components(G, flow_func=None):
+    """Return k-connected component structure.
+
+    br-kcompalgo: delegated to nx for correctness. The previous bespoke
+    Python implementation treated ``k_components`` as
+    ``{k: components_with_node_connectivity_at_least_k(G)}`` — it
+    filtered global connected components by the graph's overall
+    node-connectivity at each k. On karate_club that gives only
+    {1: [all 34 nodes]} because the graph has articulation points
+    (node_connectivity = 1). nx's algorithm is finer: it identifies
+    the maximum k-connected subgraphs via Moody-White recursion on
+    (k-1)-connected substructures. Reproducing that correctly in
+    Python is not in the round's scope; delegation is the right
+    default here. Also adds ``flow_func=`` parity.
+    """
+    return _call_networkx_for_parity("k_components", G, flow_func=flow_func)
 
 
 def k_factor(G, k):
