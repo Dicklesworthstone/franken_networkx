@@ -182,6 +182,7 @@ dependencies = [
  "arbitrary",
  "fnx-algorithms",
  "fnx-classes",
+ "fnx-generators",
  "fnx-python",
  "fnx-readwrite",
  "fnx-runtime",

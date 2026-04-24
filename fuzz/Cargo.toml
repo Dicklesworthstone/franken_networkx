@@ -13,6 +13,7 @@ arbitrary = { version = "1.4.2", features = ["derive"] }
 fnx-readwrite = { path = "../crates/fnx-readwrite" }
 fnx-classes = { path = "../crates/fnx-classes" }
 fnx-algorithms = { path = "../crates/fnx-algorithms" }
+fnx-generators = { path = "../crates/fnx-generators" }
 fnx_python = { package = "fnx-python", path = "../crates/fnx-python" }
 fnx-runtime = { path = "../crates/fnx-runtime" }
 
@@ -118,4 +119,9 @@ doc = false
 [[bin]]
 name = "fuzz_multigraph"
 path = "fuzz_targets/fuzz_multigraph.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_random_generators"
+path = "fuzz_targets/fuzz_random_generators.rs"
 doc = false

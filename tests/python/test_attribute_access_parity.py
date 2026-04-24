@@ -744,3 +744,34 @@ class TestDegreeNbunchFilter:
         G = fnx.path_graph(3)
         with pytest.raises((fnx.NodeNotFound, KeyError)):
             G.degree(99)
+
+
+# ---------------------------------------------------------------------------
+# Regression: franken_networkx-edgekey — EdgeView.__getitem__ preserves key type
+# ---------------------------------------------------------------------------
+
+
+class TestEdgeViewKeyErrorPreserved:
+    """G.edges[u, v] / G.edges[u, v, k] on a missing edge previously
+    raised KeyError with a stringified repr of the tuple. The Python
+    override preserves the original tuple.
+    """
+
+    def test_graph_edges_missing_preserves_tuple(self):
+        G = fnx.path_graph(3)
+        with pytest.raises(KeyError) as exc_info:
+            G.edges[5, 6]
+        assert exc_info.value.args[0] == (5, 6)
+        assert isinstance(exc_info.value.args[0], tuple)
+
+    def test_digraph_edges_missing_preserves_tuple(self):
+        D = fnx.DiGraph([(0, 1)])
+        with pytest.raises(KeyError) as exc_info:
+            D.edges[5, 6]
+        assert exc_info.value.args[0] == (5, 6)
+
+    def test_multigraph_edges_missing_triple_preserves_tuple(self):
+        MG = fnx.MultiGraph([(0, 1)])
+        with pytest.raises(KeyError) as exc_info:
+            MG.edges[0, 1, "missing"]
+        assert exc_info.value.args[0] == (0, 1, "missing")

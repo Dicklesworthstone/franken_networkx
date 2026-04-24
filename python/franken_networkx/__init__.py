@@ -1406,6 +1406,25 @@ _EDGE_VIEW_TYPE.data = _edge_view_data
 _DiGraphEdgeView.data = _edge_view_data
 _MultiGraphEdgeView.data = _multi_edge_view_data
 _MultiDiGraphEdgeView.data = _multi_edge_view_data
+
+
+def _make_edge_view_getitem_preserving_key(raw):
+    """br-edgekey: wrap EdgeView.__getitem__ so KeyError carries the
+    original edge tuple/key object rather than the Rust side's str repr.
+    """
+
+    def __getitem__(self, edge):
+        try:
+            return raw(self, edge)
+        except KeyError as exc:
+            raise KeyError(edge) from exc
+
+    return __getitem__
+
+
+_EDGE_VIEW_TYPE.__getitem__ = _make_edge_view_getitem_preserving_key(
+    _EDGE_VIEW_TYPE.__getitem__
+)
 _MULTIGRAPH_NODE_VIEW_TYPE.__call__ = _node_view_call_with_attr_support(
     _MULTIGRAPH_NODE_VIEW_CALL
 )

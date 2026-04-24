@@ -9,6 +9,7 @@ mod arbitrary_graph;
 
 use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
+use std::collections::{HashMap, HashSet};
 
 /// A directed acyclic graph generated via `Arbitrary`.
 ///
@@ -27,7 +28,10 @@ pub struct ArbitrarySmallDag {
     pub nodes: Vec<String>,
 }
 
-fn build_dag(u: &mut arbitrary::Unstructured<'_>, max_nodes: usize) -> arbitrary::Result<(fnx_classes::digraph::DiGraph, Vec<String>)> {
+fn build_dag(
+    u: &mut arbitrary::Unstructured<'_>,
+    max_nodes: usize,
+) -> arbitrary::Result<(fnx_classes::digraph::DiGraph, Vec<String>)> {
     use fnx_runtime::CompatibilityMode;
 
     let mode = if u.arbitrary()? {
@@ -107,21 +111,87 @@ enum DagInput {
     TransitiveReduction(ArbitraryDag),
 }
 
+fn assert_valid_topological_order(
+    graph: &fnx_classes::digraph::DiGraph,
+    order: Option<Vec<String>>,
+) {
+    let order = order.expect("generated DAG must have a topological order");
+    assert_eq!(order.len(), graph.node_count());
+
+    let mut seen = HashSet::new();
+    let mut positions = HashMap::new();
+    for (index, node) in order.iter().enumerate() {
+        assert!(graph.has_node(node));
+        assert!(seen.insert(node.as_str()));
+        positions.insert(node.as_str(), index);
+    }
+
+    for edge in graph.edges_ordered() {
+        let source_position = positions[edge.left.as_str()];
+        let target_position = positions[edge.right.as_str()];
+        assert!(
+            source_position < target_position,
+            "topological order violates edge {} -> {}",
+            edge.left,
+            edge.right
+        );
+    }
+}
+
+fn assert_valid_topological_generations(
+    graph: &fnx_classes::digraph::DiGraph,
+    generations: Option<Vec<Vec<String>>>,
+) {
+    let generations = generations.expect("generated DAG must have topological generations");
+    let mut positions = HashMap::new();
+    let mut seen = HashSet::new();
+
+    for (generation_index, generation) in generations.iter().enumerate() {
+        for node in generation {
+            assert!(graph.has_node(node));
+            assert!(seen.insert(node.as_str()));
+            positions.insert(node.as_str(), generation_index);
+        }
+    }
+
+    assert_eq!(seen.len(), graph.node_count());
+    for edge in graph.edges_ordered() {
+        let source_generation = positions[edge.left.as_str()];
+        let target_generation = positions[edge.right.as_str()];
+        assert!(
+            source_generation < target_generation,
+            "generation order violates edge {} -> {}",
+            edge.left,
+            edge.right
+        );
+    }
+}
+
 fuzz_target!(|input: DagInput| {
     match input {
         DagInput::TopologicalSort(dag) => {
-            let _ = fnx_algorithms::topological_sort(&dag.graph);
+            assert_valid_topological_order(
+                &dag.graph,
+                fnx_algorithms::topological_sort(&dag.graph),
+            );
         }
         DagInput::LexicographicTopologicalSort(dag) => {
-            let _ = fnx_algorithms::lexicographic_topological_sort(&dag.graph);
+            assert_valid_topological_order(
+                &dag.graph,
+                fnx_algorithms::lexicographic_topological_sort(&dag.graph),
+            );
         }
         DagInput::TopologicalGenerations(dag) => {
-            let _ = fnx_algorithms::topological_generations(&dag.graph);
+            assert_valid_topological_generations(
+                &dag.graph,
+                fnx_algorithms::topological_generations(&dag.graph),
+            );
         }
         DagInput::AllTopologicalSorts(dag) => {
             // Limit iteration to avoid combinatorial explosion
             let sorts = fnx_algorithms::all_topological_sorts(&dag.graph);
-            for (i, _sort) in sorts.into_iter().enumerate() {
+            for (i, sort) in sorts.into_iter().enumerate() {
+                assert_valid_topological_order(&dag.graph, Some(sort));
                 if i >= 100 {
                     break;
                 }
@@ -142,7 +212,8 @@ fuzz_target!(|input: DagInput| {
         DagInput::DescendantsAtDistance(dag) => {
             if !dag.nodes.is_empty() {
                 let node = &dag.nodes[0];
-                let _ = fnx_algorithms::descendants_at_distance_directed(&dag.graph, node.as_str(), 2);
+                let _ =
+                    fnx_algorithms::descendants_at_distance_directed(&dag.graph, node.as_str(), 2);
             }
         }
         DagInput::DagLongestPath(dag) => {
