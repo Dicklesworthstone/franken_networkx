@@ -4983,6 +4983,39 @@ def chordal_graph_cliques(G):
     return _raw_chordal_graph_cliques(G)
 
 
+# br-ringlabels: the Rust ring_of_cliques used string labels like
+# "0_0", "0_1", ... which broke drop-in parity — nx uses integer
+# labels 0..n*k-1 with clique-bridge edges specifically at
+# (i*k + 1, (i+1)*k % (n*k)). Shadow the Rust binding with a Python
+# wrapper that mirrors nx's labelling + validation messages.
+_rust_ring_of_cliques = ring_of_cliques  # keep reference in case anything internal needs it
+
+
+def ring_of_cliques(num_cliques, clique_size):
+    """Defines a ring of cliques graph.
+
+    br-ringlabels / br-ringvalid: match nx exactly — integer node
+    labels 0..num_cliques*clique_size-1 and nx's validation messages.
+    The Rust binding emitted string labels "i_j" and error messages
+    using ``num_cliques`` / ``clique_size`` parameter names that
+    diverged from nx's human-friendly wording.
+    """
+    import itertools as _itertools
+    if num_cliques < 2:
+        raise NetworkXError("A ring of cliques must have at least two cliques")
+    if clique_size < 2:
+        raise NetworkXError("The cliques must have at least two nodes")
+    G = Graph()
+    n_total = num_cliques * clique_size
+    for i in range(num_cliques):
+        edges = _itertools.combinations(
+            range(i * clique_size, i * clique_size + clique_size), 2
+        )
+        G.add_edges_from(edges)
+        G.add_edge(i * clique_size + 1, (i + 1) * clique_size % n_total)
+    return G
+
+
 def all_triangles(G, nbunch=None):
     """Yield unique triangles in an undirected graph."""
     if G.is_directed():
@@ -10977,16 +11010,17 @@ def binomial_tree(n, create_using=None):
 
 
 def complete_bipartite_graph(n1, n2, create_using=None):
-    """Return the complete bipartite graph K_(n1,n2)."""
+    """Return the complete bipartite graph K_(n1,n2).
+
+    br-bipartiteattr: the Rust fast path omitted the per-node
+    ``bipartite`` attribute and the ``G.graph['name']`` label that nx
+    sets. Downstream consumers (anything in ``networkx.algorithms.
+    bipartite`` that reads ``node['bipartite']``) silently got wrong
+    partitions. Always take the Python path so these parity-critical
+    attributes are set.
+    """
     n1_value, top = _nodes_or_number_local(n1)
     n2_value, bottom = _nodes_or_number_local(n2)
-
-    if (
-        create_using is None
-        and isinstance(n1_value, numbers.Integral)
-        and isinstance(n2_value, numbers.Integral)
-    ):
-        return _rust_complete_bipartite_graph(n1, n2)
 
     G = empty_graph(0, create_using)
     if G.is_directed():
@@ -21599,7 +21633,21 @@ def k_edge_augmentation(G, k, avail=None, weight=None, partial=False):
 def stochastic_block_model(
     sizes, p, nodelist=None, seed=None, directed=False, selfloops=False, sparse=True
 ):
-    """Stochastic block model graph."""
+    """Stochastic block model graph.
+
+    br-sbmrng: fnx's native fast path (Rust) and Python fallback both
+    diverged structurally from nx — the Rust binding produced ~25% of
+    nx's edge count for symmetric block matrices, and the Python
+    fallback iterated over node pairs in a different order than nx's
+    block-pair loop, so ``seed.random()`` calls were consumed in a
+    different sequence. Upshot: different edge sets for the same
+    (sizes, p, seed). nx's sparse-mode sampling uses geometric-skip
+    sampling (log-random, floor(log/log(1-p)) skip) which is
+    non-trivial to exactly re-implement. Validate arguments locally
+    with nx's messages, then delegate the whole generation to nx.
+    """
+    # Local validation to keep fnx's NetworkXError messages and get
+    # fast failures before paying the parity-helper round-trip.
     if len(sizes) != len(p):
         raise NetworkXError("'sizes' and 'p' do not match.")
     for row in p:
@@ -21620,51 +21668,17 @@ def stochastic_block_model(
         if len(nodelist) != len(set(nodelist)):
             raise NetworkXError("nodelist contains duplicate.")
 
-    use_native = nodelist is None and not directed and not selfloops
-    if nodelist is None:
-        nodelist = list(range(sum(sizes)))
-    else:
-        nodelist = list(nodelist)
-
-    size_cumsum = [sum(sizes[0:x]) for x in range(len(sizes) + 1)]
-    partition_nodes = [
-        nodelist[size_cumsum[idx] : size_cumsum[idx + 1]]
-        for idx in range(len(size_cumsum) - 1)
-    ]
-    partition = [set(nodes) for nodes in partition_nodes]
-
-    if use_native:
-        G = _rust_stochastic_block_model(sizes, p, seed=_native_random_seed(seed))
-        for block_id, nodes in enumerate(partition_nodes):
-            for node in nodes:
-                G.nodes[node]["block"] = block_id
-        G.graph["partition"] = partition
-        G.graph["name"] = "stochastic_block_model"
-        return G
-
-    import random as _random
-
-    rng = _random.Random(seed)
-    G = DiGraph() if directed else Graph()
-    bmap = {}
-    for bi, nodes in enumerate(partition_nodes):
-        for node in nodes:
-            G.add_node(node, block=bi)
-            bmap[node] = bi
-    G.graph["partition"] = partition
-    G.graph["name"] = "stochastic_block_model"
-    nodes = list(nodelist)
-    for i, u in enumerate(nodes):
-        s = i if not directed else 0
-        for j in range(s, len(nodes)):
-            v = nodes[j]
-            if u == v and not selfloops:
-                continue
-            if u == v and not directed:
-                continue
-            if rng.random() < p[bmap[u]][bmap[v]]:
-                G.add_edge(u, v)
-    return G
+    import networkx as _nx
+    nx_result = _nx.stochastic_block_model(
+        sizes, p,
+        nodelist=list(nodelist) if nodelist is not None else None,
+        seed=seed,
+        directed=directed,
+        selfloops=selfloops,
+        sparse=sparse,
+    )
+    from franken_networkx.readwrite import _from_nx_graph
+    return _from_nx_graph(nx_result)
 
 
 def planted_partition_graph(l, k, p_in, p_out, seed=None, directed=False):
@@ -24865,7 +24879,21 @@ def mycielskian(G):
 
 
 def mycielski_graph(n):
-    """Return the n-th Mycielski graph (starting from K2)."""
+    """Return the n-th Mycielski graph.
+
+    br-myciel01: nx.mycielski_graph(1) returns the single-vertex graph
+    (no edges) and nx.mycielski_graph(0) raises NetworkXError. fnx's
+    "start from K2 then iterate n-2 times" recipe produced K2 (2 nodes,
+    1 edge) for both n=0 and n=1, diverging from nx at the small-n
+    boundary. Add explicit n<=0 / n==1 handling so the sequence is:
+    n=0 -> error; n=1 -> 1 isolated vertex; n=2 -> K2; n>=3 -> iterate.
+    """
+    if n < 1:
+        raise NetworkXError("must satisfy n >= 1")
+    if n == 1:
+        G = Graph()
+        G.add_node(0)
+        return G
     G = complete_graph(2)
     for _ in range(n - 2):
         G = mycielskian(G)
