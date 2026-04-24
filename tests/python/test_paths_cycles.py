@@ -1,5 +1,7 @@
 """Conformance tests: paths and cycles algorithms — fnx vs nx oracle."""
 
+import inspect
+
 import pytest
 
 
@@ -37,6 +39,22 @@ class TestPathsCycles:
             nx.all_simple_paths(G_nx, "a", "c", cutoff=2)
         )
 
+    def test_all_simple_paths_signature_matches_networkx(self, fnx, nx):
+        assert str(inspect.signature(fnx.all_simple_paths)) == str(
+            inspect.signature(nx.all_simple_paths)
+        )
+
+    def test_all_simple_paths_backend_keyword_contract(self, fnx, nx, path_graph):
+        G_fnx, G_nx = path_graph
+
+        assert list(fnx.all_simple_paths(G_fnx, "a", "e", backend="networkx")) == list(
+            nx.all_simple_paths(G_nx, "a", "e")
+        )
+        with pytest.raises(ImportError):
+            list(fnx.all_simple_paths(G_fnx, "a", "e", backend="missing"))
+        with pytest.raises(TypeError):
+            list(fnx.all_simple_paths(G_fnx, "a", "e", unexpected=True))
+
     def test_all_simple_edge_paths_preserve_multigraph_keys(self, fnx, nx):
         for graph_type in ("MultiGraph", "MultiDiGraph"):
             G_fnx = getattr(fnx, graph_type)()
@@ -52,6 +70,22 @@ class TestPathsCycles:
             assert list(fnx.all_simple_edge_paths(G_fnx, "a", "c", cutoff=2)) == list(
                 nx.all_simple_edge_paths(G_nx, "a", "c", cutoff=2)
             )
+
+    def test_all_simple_edge_paths_signature_matches_networkx(self, fnx, nx):
+        assert str(inspect.signature(fnx.all_simple_edge_paths)) == str(
+            inspect.signature(nx.all_simple_edge_paths)
+        )
+
+    def test_all_simple_edge_paths_backend_keyword_contract(self, fnx, nx, path_graph):
+        G_fnx, G_nx = path_graph
+
+        assert list(
+            fnx.all_simple_edge_paths(G_fnx, "a", "e", backend="networkx")
+        ) == list(nx.all_simple_edge_paths(G_nx, "a", "e"))
+        with pytest.raises(ImportError):
+            list(fnx.all_simple_edge_paths(G_fnx, "a", "e", backend="missing"))
+        with pytest.raises(TypeError):
+            list(fnx.all_simple_edge_paths(G_fnx, "a", "e", unexpected=True))
 
     def test_cycle_basis_count(self, fnx, nx, cycle_graph):
         G_fnx, G_nx = cycle_graph

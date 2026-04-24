@@ -4597,11 +4597,14 @@ def all_shortest_paths(G, source, target, weight=None, method="dijkstra"):
     return _raw_all_shortest_paths(G, source, target, weight=weight, method=method)
 
 
-def all_simple_paths(G, source, target, cutoff=None):
+def all_simple_paths(
+    G, source, target, cutoff=None, *, backend=None, **backend_kwargs
+):
     """Return all simple paths from source to target.
 
     Delegates to the Rust implementation.
     """
+    _validate_backend_dispatch_keywords("all_simple_paths", backend, backend_kwargs)
     if G.is_multigraph():
         return _call_networkx_for_parity(
             "all_simple_paths", G, source, target, cutoff=cutoff
@@ -12817,7 +12820,9 @@ def get_counterexample_recursive(G, *, backend=None, **backend_kwargs):
     return certificate
 
 
-def all_simple_edge_paths(G, source, target, cutoff=None):
+def all_simple_edge_paths(
+    G, source, target, cutoff=None, *, backend=None, **backend_kwargs
+):
     """Yield all simple paths from source to target as edge lists.
 
     Parameters
@@ -12830,6 +12835,9 @@ def all_simple_edge_paths(G, source, target, cutoff=None):
     ------
     list of (u, v) tuples
     """
+    _validate_backend_dispatch_keywords(
+        "all_simple_edge_paths", backend, backend_kwargs
+    )
     if G.is_multigraph():
         yield from _call_networkx_for_parity(
             "all_simple_edge_paths", G, source, target, cutoff=cutoff
