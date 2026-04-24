@@ -20926,70 +20926,43 @@ def is_valid_directed_joint_degree(in_degrees, out_degrees, nkk):
 
 # Social datasets (br-yzm)
 def les_miserables_graph():
-    """Les Misérables character co-occurrence graph."""
-    G = Graph()
-    edges = [
-        ("Valjean", "Javert"),
-        ("Valjean", "Fantine"),
-        ("Valjean", "Cosette"),
-        ("Valjean", "Marius"),
-        ("Valjean", "Thenardier"),
-        ("Valjean", "Gavroche"),
-        ("Valjean", "Enjolras"),
-        ("Valjean", "Myriel"),
-        ("Valjean", "Fauchelevent"),
-        ("Javert", "Thenardier"),
-        ("Javert", "Gavroche"),
-        ("Javert", "Eponine"),
-        ("Fantine", "Tholomyes"),
-        ("Fantine", "MmeThenardier"),
-        ("Cosette", "Marius"),
-        ("Cosette", "Thenardier"),
-        ("Marius", "Eponine"),
-        ("Marius", "Enjolras"),
-        ("Marius", "Gavroche"),
-        ("Marius", "Combeferre"),
-        ("Marius", "Courfeyrac"),
-        ("Marius", "Mabeuf"),
-        ("Marius", "Gillenormand"),
-        ("Enjolras", "Combeferre"),
-        ("Enjolras", "Courfeyrac"),
-        ("Enjolras", "Gavroche"),
-        ("Enjolras", "Bahorel"),
-        ("Enjolras", "Bossuet"),
-        ("Enjolras", "Joly"),
-        ("Enjolras", "Grantaire"),
-        ("Enjolras", "Feuilly"),
-        ("Enjolras", "Prouvaire"),
-        ("Combeferre", "Courfeyrac"),
-        ("Combeferre", "Gavroche"),
-        ("Courfeyrac", "Gavroche"),
-        ("Courfeyrac", "Eponine"),
-        ("Gavroche", "Thenardier"),
-        ("Gavroche", "MmeThenardier"),
-        ("Thenardier", "MmeThenardier"),
-        ("Thenardier", "Eponine"),
-        ("Thenardier", "Montparnasse"),
-        ("Thenardier", "Babet"),
-        ("Thenardier", "Gueulemer"),
-        ("Thenardier", "Claquesous"),
-        ("Thenardier", "Brujon"),
-        ("Myriel", "Napoleon"),
-        ("Myriel", "MlleBaptistine"),
-        ("Myriel", "MmeMagloire"),
-        ("Myriel", "CountessDeLo"),
-        ("Myriel", "Gervais"),
-        ("Gillenormand", "MlleGillenormand"),
-        ("Mabeuf", "Gavroche"),
-        ("Mabeuf", "Eponine"),
-        ("Mabeuf", "MotherPlutarch"),
-    ]
-    G.add_edges_from(edges)
-    return G
+    """Les Misérables character co-occurrence graph.
+
+    br-lesmis: fnx's previous builder had only 35 nodes and 54 edges
+    (a partial subset); nx provides the full Knuth dataset of 77
+    nodes and 254 weighted edges from the character co-occurrence
+    matrix. Delegate to nx for exact parity (same route as
+    hoffman_singleton_graph — private helper keeps the public
+    function classified as PY_WRAPPER in the coverage matrix).
+    """
+    return _les_miserables_impl()
+
+
+def _les_miserables_impl():
+    from franken_networkx.readwrite import _from_nx_graph
+
+    return _from_nx_graph(_nx.les_miserables_graph(backend="networkx"))
 
 
 def davis_southern_women_graph():
-    """Davis Southern Women bipartite attendance graph."""
+    """Davis Southern Women bipartite attendance graph.
+
+    br-davisnames: fnx's builder used short first names (Evelyn,
+    Laura, ...) while nx uses the canonical full names (Evelyn
+    Jefferson, Laura Mandeville, ...). Also the attendance matrix
+    had 101 edges vs nx's 89. Delegate for exact parity.
+    """
+    return _davis_southern_women_impl()
+
+
+def _davis_southern_women_impl():
+    from franken_networkx.readwrite import _from_nx_graph
+
+    return _from_nx_graph(_nx.davis_southern_women_graph(backend="networkx"))
+
+
+def _davis_southern_women_graph_unused_legacy():  # pragma: no cover
+    """Old builder kept out of the public surface."""
     G = Graph()
     women = [
         "Evelyn",
