@@ -660,6 +660,77 @@ _MULTIGRAPH_COPY = MultiGraph.copy
 _MULTIDIGRAPH_COPY = MultiDiGraph.copy
 _MULTIGRAPH_ADD_EDGE = MultiGraph.add_edge
 _MULTIDIGRAPH_ADD_EDGE = MultiDiGraph.add_edge
+_GRAPH_ADD_NODE = Graph.add_node
+_DIGRAPH_ADD_NODE = DiGraph.add_node
+_MULTIGRAPH_ADD_NODE = MultiGraph.add_node
+_MULTIDIGRAPH_ADD_NODE = MultiDiGraph.add_node
+
+
+def _make_add_nodes_from(add_node):
+    """Build an ``add_nodes_from`` matching the NetworkX contract.
+
+    nx dispatches via hashability: if ``n`` is hashable, it is added as a
+    single node; if unhashable (the only reachable case is a 2-tuple whose
+    second element is a dict), it is unpacked as ``(node, attrs)``. The
+    Rust-level override (br-grid2d-adjacent bug found by review) unpacks
+    every 2-tuple, which silently drops the second element and collapses
+    tuple-labeled nodes like (0, 1), (0, 2) into [0].
+    """
+
+    def add_nodes_from(self, nodes_for_adding, **attr):
+        bound_add_node = add_node.__get__(self, type(self))
+        for n in nodes_for_adding:
+            try:
+                hash(n)
+                bound_add_node(n, **attr)
+            except TypeError:
+                node, ndict = n
+                merged = dict(attr)
+                merged.update(ndict)
+                bound_add_node(node, **merged)
+
+    return add_nodes_from
+
+
+Graph.add_nodes_from = _make_add_nodes_from(_GRAPH_ADD_NODE)
+DiGraph.add_nodes_from = _make_add_nodes_from(_DIGRAPH_ADD_NODE)
+MultiGraph.add_nodes_from = _make_add_nodes_from(_MULTIGRAPH_ADD_NODE)
+MultiDiGraph.add_nodes_from = _make_add_nodes_from(_MULTIDIGRAPH_ADD_NODE)
+
+
+def _graph_update(self, edges=None, nodes=None):
+    """Match nx.Graph.update duck-typing so ``G.update(H)`` where H is a
+    Graph-like object copies H's nodes, edges, and graph-level attrs into G.
+
+    The Rust-level update only understands an edge-bunch iterable, so
+    ``G.update(H)`` crashes with 'each edge must be a tuple'. nx detects a
+    graph-like edges argument by checking for ``edges.nodes`` and
+    ``edges.edges`` attributes (br-anftup adjacent find).
+    """
+    if edges is not None:
+        if nodes is not None:
+            self.add_nodes_from(nodes)
+            self.add_edges_from(edges)
+        else:
+            try:
+                graph_nodes = edges.nodes
+                graph_edges = edges.edges
+            except AttributeError:
+                self.add_edges_from(edges)
+            else:
+                self.add_nodes_from(graph_nodes.data())
+                self.add_edges_from(graph_edges.data())
+                self.graph.update(edges.graph)
+    elif nodes is not None:
+        self.add_nodes_from(nodes)
+    else:
+        raise NetworkXError("update needs nodes or edges input")
+
+
+Graph.update = _graph_update
+DiGraph.update = _graph_update
+MultiGraph.update = _graph_update
+MultiDiGraph.update = _graph_update
 
 
 def _multi_add_edge_auto_key(raw_add_edge):
@@ -3993,9 +4064,9 @@ from franken_networkx._fnx import (
     circular_ladder_graph as _rust_circular_ladder_graph,
     lollipop_graph as _rust_lollipop_graph,
     tadpole_graph as _rust_tadpole_graph,
-    turan_graph,
+    turan_graph as _rust_turan_graph,
     windmill_graph as _rust_windmill_graph,
-    hypercube_graph,
+    hypercube_graph as _rust_hypercube_graph,
     complete_bipartite_graph as _rust_complete_bipartite_graph,
     complete_multipartite_graph as _rust_complete_multipartite_graph,
     grid_2d_graph as _rust_grid_2d_graph,
@@ -4006,7 +4077,7 @@ from franken_networkx._fnx import (
     binomial_tree as _rust_binomial_tree,
     full_rary_tree as _rust_full_rary_tree,
     circulant_graph as _rust_circulant_graph,
-    kneser_graph,
+    kneser_graph as _rust_kneser_graph,
     paley_graph as _rust_paley_graph,
     chordal_cycle_graph as _rust_chordal_cycle_graph,
     sudoku_graph as _rust_sudoku_graph,
@@ -9089,13 +9160,9 @@ def grid_2d_graph(m, n, periodic=False, create_using=None):
     m_value, rows = _nodes_or_number_local(m)
     n_value, cols = _nodes_or_number_local(n)
 
-    if (
-        not periodic
-        and create_using is None
-        and isinstance(m_value, numbers.Integral)
-        and isinstance(n_value, numbers.Integral)
-    ):
-        return _rust_grid_2d_graph(m, n)
+    # The Rust native fast path (br-grid2d) emits node labels as strings like
+    # "0,0" instead of (0, 0) tuples. Stay on the Python fallback so node
+    # labels match NetworkX's documented contract.
 
     G = empty_graph(0, create_using)
     for i in rows:
@@ -9120,6 +9187,54 @@ def grid_2d_graph(m, n, periodic=False, create_using=None):
     if G.is_directed():
         G.add_edges_from((v, u) for u, v in list(G.edges()))
     return G
+
+
+def hypercube_graph(n):
+    """Return the n-dimensional hypercube graph Q_n.
+
+    Matches NetworkX's contract: nodes are tuples of n bits (0 or 1); two
+    nodes are adjacent when their tuples differ in exactly one coordinate.
+    The Rust fast path (br-hypcub) emits integer node labels 0..2^n-1 which
+    breaks drop-in parity for callers indexing by the tuple representation.
+    """
+    dim = [2] * int(n)
+    return grid_graph(dim=dim, periodic=True) if n > 1 else grid_graph(dim=dim)
+
+
+def kneser_graph(n, k):
+    """Return the Kneser graph K(n, k).
+
+    Matches NetworkX: nodes are sorted tuples of k-element subsets of
+    range(n); two nodes are adjacent when the subsets are disjoint. The Rust
+    fast path (br-kneser) emits string node labels like "0,1" which breaks
+    drop-in parity.
+    """
+    from itertools import combinations
+
+    G = empty_graph(0)
+    nodes = [tuple(sorted(c)) for c in combinations(range(n), k)]
+    G.add_nodes_from(nodes)
+    for i, a in enumerate(nodes):
+        sa = set(a)
+        for b in nodes[i + 1 :]:
+            if sa.isdisjoint(b):
+                G.add_edge(a, b)
+    return G
+
+
+def turan_graph(n, r):
+    """Return the Turán graph T(n, r).
+
+    Matches NetworkX's partition ordering: `r - (n % r)` partitions of size
+    `n // r` followed by `n % r` partitions of size `n // r + 1`. The Rust
+    fast path (br-turan5) uses a different partition-node assignment so
+    specific edge tuples diverge from upstream (e.g.,
+    `turan_graph(5, 2).has_edge(0, 2)` is True on nx, False on fnx).
+    """
+    if not 1 <= r <= n:
+        raise NetworkXError("Must satisfy 1 <= r <= n")
+    partitions = [n // r] * (r - (n % r)) + [n // r + 1] * (n % r)
+    return complete_multipartite_graph(*partitions)
 
 
 def barbell_graph(m1, m2, create_using=None):
