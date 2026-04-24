@@ -6034,6 +6034,10 @@ def transitive_closure(G, reflexive=False):
 
 def transitive_reduction(G):
     """br-isokw: ``G`` matches nx; Rust binding used ``g``."""
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
+    if not is_directed_acyclic_graph(G):
+        raise NetworkXError("Directed Acyclic Graph required for transitive_reduction")
     return _raw_transitive_reduction(G)
 
 
@@ -6632,45 +6636,18 @@ def dag_longest_path(G, weight="weight", default_weight=1, topo_order=None):
     list
         The longest path as a list of nodes.
     """
-    # br-daglongweight: the Rust _raw_dag_longest_path did not honour
-    # the ``weight`` edge attribute — it always returned the longest
-    # *edge-count* path. nx correctly uses weighted sums (default
-    # weight attr is ``"weight"`` with default_weight=1), so on a graph
-    # with edges (0→1, w=2), (1→2, w=3), (0→2, w=10) fnx returned
-    # [0, 1, 2] (5 unweighted-hop-sum) while nx returned [0, 2]
-    # (weight 10). Delegate the default case too — the existing non-
-    # default branches already delegated.
-    if _dag_has_weight_edge_attr(G, weight):
-        return _call_networkx_for_parity(
-            "dag_longest_path",
-            G,
-            weight=weight,
-            default_weight=default_weight,
-            topo_order=topo_order,
-        )
-    if weight != "weight" or default_weight != 1 or topo_order is not None:
-        return _call_networkx_for_parity(
-            "dag_longest_path",
-            G,
-            weight=weight,
-            default_weight=default_weight,
-            topo_order=topo_order,
-        )
-    # br-dagltie: on disconnected DAGs with multiple equal-length
-    # maxima, nx picks the longest path in insertion-order first
-    # component; the Rust fast-path can pick a later-inserted component.
-    # Delegate for disconnected DAGs to match nx's tie-break exactly;
-    # keep the Rust fast-path for the common (connected, unweighted)
-    # case.
-    if not is_weakly_connected(G):
-        return _call_networkx_for_parity(
-            "dag_longest_path",
-            G,
-            weight=weight,
-            default_weight=default_weight,
-            topo_order=topo_order,
-        )
-    return _raw_dag_longest_path(G)
+    # NetworkX's DAG longest-path contract is tie-break sensitive even
+    # for unweighted connected DAGs. The Rust fast path can choose a
+    # later equal-length branch and also raises the wrong exception on
+    # cyclic/empty graphs, so keep this surface on the oracle path until
+    # the native implementation carries the same ordering policy.
+    return _call_networkx_for_parity(
+        "dag_longest_path",
+        G,
+        weight=weight,
+        default_weight=default_weight,
+        topo_order=topo_order,
+    )
 
 
 def _dag_has_weight_edge_attr(G, weight):
@@ -6712,23 +6689,12 @@ def dag_longest_path_length(G, weight="weight", default_weight=1):
     """
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
-    # br-daglongweight: same as dag_longest_path — the Rust path
-    # ignored weights. Delegate when any edge carries the weight attr.
-    if _dag_has_weight_edge_attr(G, weight):
-        return _call_networkx_for_parity(
-            "dag_longest_path_length",
-            G,
-            weight=weight,
-            default_weight=default_weight,
-        )
-    if weight != "weight" or default_weight != 1:
-        return _call_networkx_for_parity(
-            "dag_longest_path_length",
-            G,
-            weight=weight,
-            default_weight=default_weight,
-        )
-    return _raw_dag_longest_path_length(G)
+    return _call_networkx_for_parity(
+        "dag_longest_path_length",
+        G,
+        weight=weight,
+        default_weight=default_weight,
+    )
 
 # Algorithm functions — graph isomorphism
 from franken_networkx._fnx import (
@@ -15786,13 +15752,19 @@ def triads_by_type(G):
     -------
     dict
         ``{triad_type: [list of triad subgraphs]}``
+
+    br-triadsempty: nx.triads_by_type only includes keys for types
+    that actually appear in the graph. fnx pre-populated all 16 triad
+    types with empty lists, so iterating items / checking membership
+    would diverge (fnx yields 16 entries; nx yields only non-empty
+    counts). Drop empty buckets to match nx's sparse output.
     """
     result = {t: [] for t in _TRIAD_TYPES}
     for triad in all_triads(G):
         ttype = triad_type(triad)
         if ttype in result:
             result[ttype].append(triad)
-    return result
+    return {t: triads for t, triads in result.items() if triads}
 
 
 # ---------------------------------------------------------------------------
