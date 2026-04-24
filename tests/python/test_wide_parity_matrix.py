@@ -396,15 +396,6 @@ CASES = [
 
 
 def _expected_divergence(case_name: str, fixture_name: str) -> str | None:
-    traversal_empty = {
-        "bfs_edges",
-        "dfs_edges",
-        "bfs_predecessors",
-        "bfs_successors",
-        "dfs_tree",
-        "dfs_preorder_nodes",
-        "dfs_postorder_nodes",
-    }
     link_prediction = {
         "jaccard_coefficient",
         "adamic_adar_index",
@@ -418,10 +409,6 @@ def _expected_divergence(case_name: str, fixture_name: str) -> str | None:
         "all_pairs_shortest_path_length",
     }
 
-    if fixture_name == "empty" and case_name in traversal_empty:
-        return "franken_networkx-zzcm1: traversal missing-source error contract"
-    if fixture_name == "single" and case_name == "bfs_successors":
-        return "franken_networkx-zzcm1: traversal singleton successor contract"
     if case_name in link_prediction and fixture_name in {"empty", "multigraph"}:
         return "franken_networkx-zzcm2: link prediction missing-node/multigraph contract"
     if case_name == "is_connected_dominating_set" and fixture_name in {

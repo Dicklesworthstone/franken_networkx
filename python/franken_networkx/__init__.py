@@ -3094,16 +3094,22 @@ def _py_dfs_edges(G, source=None, depth_limit=None, sort_neighbors=None):
 
 def bfs_edges(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
     """Iterate edges in BFS order from source."""
-    if sort_neighbors is not None:
-        return list(_py_bfs_edges(G, source, depth_limit, sort_neighbors, reverse=reverse))
-    return _bfs_edges_raw(G, source, reverse=reverse, depth_limit=depth_limit)
+    try:
+        if sort_neighbors is not None:
+            return list(_py_bfs_edges(G, source, depth_limit, sort_neighbors, reverse=reverse))
+        return _bfs_edges_raw(G, source, reverse=reverse, depth_limit=depth_limit)
+    except NodeNotFound as exc:
+        raise NetworkXError(str(exc)) from exc
 
 
 def dfs_edges(G, source=None, depth_limit=None, sort_neighbors=None):
     """Iterate edges in DFS order from source."""
-    if sort_neighbors is not None:
-        return list(_py_dfs_edges(G, source, depth_limit, sort_neighbors))
-    return _dfs_edges_raw(G, source=source, depth_limit=depth_limit)
+    try:
+        if sort_neighbors is not None:
+            return list(_py_dfs_edges(G, source, depth_limit, sort_neighbors))
+        return _dfs_edges_raw(G, source=source, depth_limit=depth_limit)
+    except NodeNotFound as exc:
+        raise NetworkXError(str(exc)) from exc
 
 
 _EDGE_TRAVERSAL_FORWARD = "forward"
@@ -3362,6 +3368,8 @@ def bfs_successors(G, source, depth_limit=None, sort_neighbors=None):
             current_children.append(child)
     if current_parent is not None:
         yield current_parent, current_children
+    else:
+        yield source, []
 
 
 def bfs_tree(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
@@ -3383,62 +3391,79 @@ def bfs_tree(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
 
 def dfs_predecessors(G, source=None, depth_limit=None, sort_neighbors=None):
     """Return (node, predecessor) dict from DFS."""
-    if sort_neighbors is not None:
-        preds = {}
-        for u, v in _py_dfs_edges(G, source, depth_limit, sort_neighbors):
-            preds[v] = u
-        return preds
-    return _dfs_predecessors_raw(G, source=source, depth_limit=depth_limit)
+    try:
+        if sort_neighbors is not None:
+            preds = {}
+            for u, v in _py_dfs_edges(G, source, depth_limit, sort_neighbors):
+                preds[v] = u
+            return preds
+        return _dfs_predecessors_raw(G, source=source, depth_limit=depth_limit)
+    except NodeNotFound as exc:
+        raise NetworkXError(str(exc)) from exc
 
 
 def dfs_successors(G, source=None, depth_limit=None, sort_neighbors=None):
     """Return (node, [successors]) dict from DFS."""
-    if sort_neighbors is not None:
-        from collections import defaultdict
+    try:
+        if sort_neighbors is not None:
+            from collections import defaultdict
 
-        succs = defaultdict(list)
-        for u, v in _py_dfs_edges(G, source, depth_limit, sort_neighbors):
-            succs[u].append(v)
-        return dict(succs)
-    return _dfs_successors_raw(G, source=source, depth_limit=depth_limit)
+            succs = defaultdict(list)
+            for u, v in _py_dfs_edges(G, source, depth_limit, sort_neighbors):
+                succs[u].append(v)
+            return dict(succs)
+        return _dfs_successors_raw(G, source=source, depth_limit=depth_limit)
+    except NodeNotFound as exc:
+        raise NetworkXError(str(exc)) from exc
 
 
 def dfs_preorder_nodes(G, source=None, depth_limit=None, sort_neighbors=None):
     """Yield nodes in DFS preorder from source."""
-    if sort_neighbors is not None:
-        for _, v, label in _py_dfs_labeled_edges(
-            G, source=source, depth_limit=depth_limit, sort_neighbors=sort_neighbors
-        ):
-            if label == "forward":
-                yield v
-        return
-    yield from _dfs_preorder_nodes_raw(G, source=source, depth_limit=depth_limit)
+    try:
+        if sort_neighbors is not None:
+            for _, v, label in _py_dfs_labeled_edges(
+                G, source=source, depth_limit=depth_limit, sort_neighbors=sort_neighbors
+            ):
+                if label == "forward":
+                    yield v
+            return
+        nodes = _dfs_preorder_nodes_raw(G, source=source, depth_limit=depth_limit)
+    except NodeNotFound as exc:
+        raise NetworkXError(str(exc)) from exc
+    yield from nodes
 
 
 def dfs_postorder_nodes(G, source=None, depth_limit=None, sort_neighbors=None):
     """Yield nodes in DFS postorder from source."""
-    if sort_neighbors is not None:
-        for _, v, label in _py_dfs_labeled_edges(
-            G, source=source, depth_limit=depth_limit, sort_neighbors=sort_neighbors
-        ):
-            if label == "reverse":
-                yield v
-        return
-    yield from _dfs_postorder_nodes_raw(G, source=source, depth_limit=depth_limit)
+    try:
+        if sort_neighbors is not None:
+            for _, v, label in _py_dfs_labeled_edges(
+                G, source=source, depth_limit=depth_limit, sort_neighbors=sort_neighbors
+            ):
+                if label == "reverse":
+                    yield v
+            return
+        nodes = _dfs_postorder_nodes_raw(G, source=source, depth_limit=depth_limit)
+    except NodeNotFound as exc:
+        raise NetworkXError(str(exc)) from exc
+    yield from nodes
 
 
 def dfs_tree(G, source=None, depth_limit=None, sort_neighbors=None):
     """Return DFS tree rooted at source."""
-    if sort_neighbors is not None:
-        T = DiGraph()
-        if source is None:
-            T.add_nodes_from(G)
-        else:
-            T.add_node(source)
-        for u, v in _py_dfs_edges(G, source, depth_limit, sort_neighbors):
-            T.add_edge(u, v)
-        return T
-    return _dfs_tree_raw(G, source=source, depth_limit=depth_limit)
+    try:
+        if sort_neighbors is not None:
+            T = DiGraph()
+            if source is None:
+                T.add_nodes_from(G)
+            else:
+                T.add_node(source)
+            for u, v in _py_dfs_edges(G, source, depth_limit, sort_neighbors):
+                T.add_edge(u, v)
+            return T
+        return _dfs_tree_raw(G, source=source, depth_limit=depth_limit)
+    except NodeNotFound as exc:
+        raise NetworkXError(str(exc)) from exc
 
 
 # Algorithm functions — reciprocity (wrapped to match NetworkX API)
