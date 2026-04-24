@@ -306,6 +306,14 @@ class AtlasView(Mapping):
     def __getitem__(self, node):
         return self._atlas()[node]
 
+    def copy(self):
+        """br-atlascp: nx.AtlasView has a dict-style copy(). nx internals
+        like ``to_dict_of_dicts`` do ``nbrdict.copy()`` on the adj value,
+        which crashed on fnx because AtlasView lacked the method. Return
+        a plain dict snapshot of the underlying mapping.
+        """
+        return {k: dict(v) if hasattr(v, "items") else v for k, v in self._atlas().items()}
+
 
 class AdjacencyView(Mapping):
     def __init__(self, atlas_getter):
@@ -920,30 +928,61 @@ def _init_absorbing_dict_of_dicts(raw_init, is_multigraph):
         if isinstance(incoming_graph_data, dict):
             _decode_dict_of_dicts_into(self, incoming_graph_data, is_multigraph)
             return
-        # Cross-class instantiation (br-xmginit):
-        #   fnx.Graph(MultiGraph) silently returned an empty graph because
-        #   Rust ``__new__`` copies nodes for cross-class cases but drops
-        #   edges only when collapsing Multi* -> simple (the other
-        #   direction and all same-class cases round-trip correctly at
-        #   the Rust layer).
+        # Cross-class / cross-library instantiation:
+        # - br-xmginit: fnx.Graph(fnx.MultiGraph) silently returned empty
+        #   (Multi* -> simple edges dropped)
+        # - br-nxgraph: fnx.Graph(nx.Graph) also silently returned empty
+        #   because the Rust __new__ only knows about fnx's own graph
+        #   types; it absorbs nodes from any iterable but not edges from
+        #   a foreign nx graph object.
         src_is_graph = hasattr(incoming_graph_data, "nodes") \
             and hasattr(incoming_graph_data, "edges") \
             and callable(getattr(incoming_graph_data, "is_multigraph", None))
         if not src_is_graph:
             return
-        if not incoming_graph_data.is_multigraph() or is_multigraph:
-            # Only the Multi* -> simple case needs manual collapse.
-            return
-        # Collapse parallels with last-wins attrs (matches
-        # nx.convert.from_dict_of_dicts collapse semantics).
-        collapsed = {}
-        for u, v, d in incoming_graph_data.edges(data=True):
-            key = (u, v) if incoming_graph_data.is_directed() \
-                else tuple(sorted((u, v), key=repr))
-            collapsed[key] = dict(d)
-        self.add_edges_from(
-            (u, v, attrs) for (u, v), attrs in collapsed.items()
+        src_is_fnx_native = type(incoming_graph_data).__module__.startswith(
+            "franken_networkx"
         )
+        src_is_multi = incoming_graph_data.is_multigraph()
+        # Rust __new__ behavior for fnx-native sources:
+        #   same-kind (Graph->Graph, Multi->Multi, DiGraph->DiGraph): edges OK
+        #   simple -> Multi*: edges absorbed by __new__ as key=0
+        #   Multi* -> simple: edges DROPPED (needs manual collapse)
+        # For foreign (nx) sources, __new__ only copies nodes — always
+        # manually populate edges.
+        if src_is_fnx_native:
+            if src_is_multi and not is_multigraph:
+                # Multi -> simple: collapse parallels (br-xmginit).
+                collapsed = {}
+                for u, v, d in incoming_graph_data.edges(data=True):
+                    key = (u, v) if incoming_graph_data.is_directed() \
+                        else tuple(sorted((u, v), key=repr))
+                    collapsed[key] = dict(d)
+                self.add_edges_from(
+                    (u, v, attrs) for (u, v), attrs in collapsed.items()
+                )
+            return
+        # Foreign source (nx.Graph / nx.DiGraph / nx.Multi*). br-nxgraph:
+        # __new__ only absorbed nodes; populate edges now.
+        if src_is_multi and not is_multigraph:
+            collapsed = {}
+            for u, v, d in incoming_graph_data.edges(data=True):
+                key = (u, v) if incoming_graph_data.is_directed() \
+                    else tuple(sorted((u, v), key=repr))
+                collapsed[key] = dict(d)
+            self.add_edges_from(
+                (u, v, attrs) for (u, v), attrs in collapsed.items()
+            )
+        elif is_multigraph and src_is_multi:
+            self.add_edges_from(
+                (u, v, k, dict(d))
+                for u, v, k, d in incoming_graph_data.edges(keys=True, data=True)
+            )
+        else:
+            self.add_edges_from(
+                (u, v, dict(d))
+                for u, v, d in incoming_graph_data.edges(data=True)
+            )
 
     return __init__
 

@@ -669,3 +669,42 @@ class TestCrossClassConstructor:
         src.add_edges_from([(0, 1), (1, 2)])
         dst = fnx.Graph(src)
         assert sorted(dst.edges()) == [(0, 1), (1, 2)]
+
+
+class TestCrossLibraryConstructor:
+    """Regression for franken_networkx-nxgraph: fnx.Graph(nx.path_graph(3))
+    silently returned an empty graph because the Rust __new__ only copies
+    nodes for foreign (nx) graph instances, not edges.
+    """
+
+    def test_fnx_graph_from_nx_graph(self):
+        import networkx as nx
+        r = fnx.Graph(nx.path_graph(3))
+        assert sorted(r.edges()) == [(0, 1), (1, 2)]
+
+    def test_fnx_digraph_from_nx_digraph(self):
+        import networkx as nx
+        r = fnx.DiGraph(nx.DiGraph([(0, 1), (1, 2)]))
+        assert sorted(r.edges()) == [(0, 1), (1, 2)]
+
+    def test_fnx_multigraph_from_nx_multigraph_preserves_parallels(self):
+        import networkx as nx
+        r = fnx.MultiGraph(nx.MultiGraph([(0, 1), (0, 1), (1, 2)]))
+        assert r.number_of_edges() == 3
+
+    def test_fnx_graph_from_nx_multigraph_collapses(self):
+        import networkx as nx
+        r = fnx.Graph(nx.MultiGraph([(0, 1), (0, 1), (1, 2)]))
+        assert sorted(r.edges()) == [(0, 1), (1, 2)]
+
+    def test_fnx_multigraph_from_nx_graph(self):
+        import networkx as nx
+        r = fnx.MultiGraph(nx.path_graph(3))
+        assert r.number_of_edges() == 2
+
+    def test_nx_internals_work_on_fnx(self):
+        """nx.to_dict_of_dicts uses AtlasView.copy() — br-atlascp adds it."""
+        import networkx as nx
+        assert nx.to_dict_of_dicts(fnx.path_graph(3)) == {
+            0: {1: {}}, 1: {0: {}, 2: {}}, 2: {1: {}},
+        }
