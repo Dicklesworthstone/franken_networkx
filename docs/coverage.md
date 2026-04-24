@@ -6,8 +6,8 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 49 | 6% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 729 | 90% | Python-defined exports with no runtime NetworkX dependency detected |
+| RUST_NATIVE | 48 | 5% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 730 | 91% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 22 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
@@ -25,8 +25,8 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 666 |
-| `franken_networkx._fnx` | 49 |
+| `franken_networkx` | 667 |
+| `franken_networkx._fnx` | 48 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
@@ -36,7 +36,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 | `networkx.algorithms.tree.coding` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (49)
+## RUST_NATIVE exports (48)
 
 - `bfs_layers`
 - `biconnected_component_edges`
@@ -77,7 +77,6 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `maximum_independent_set`
 - `min_weight_matching`
 - `min_weighted_vertex_cover`
-- `node_connected_component`
 - `number_connected_components`
 - `number_of_isolates`
 - `number_of_spanning_arborescences`
@@ -88,7 +87,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `tree_broadcast_center`
 - `tree_broadcast_time`
 
-## PY_WRAPPER exports (729)
+## PY_WRAPPER exports (730)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -567,6 +566,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `node_attribute_xy`
 - `node_boundary`
 - `node_clique_number`
+- `node_connected_component`
 - `node_connectivity`
 - `node_degree_xy`
 - `node_disjoint_paths`

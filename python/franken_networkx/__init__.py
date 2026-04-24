@@ -3156,7 +3156,13 @@ def degree_assortativity_coefficient(G, x="out", y="in", weight=None, nodes=None
     default (unweighted, all-nodes, out-in for directed) — delegate
     to nx whenever any kwarg is non-default.
     """
-    if x == "out" and y == "in" and weight is None and nodes is None:
+    # br-mgdegassort: the Rust fast path returned nan for MultiGraph
+    # inputs (it did not sum parallel-edge contributions). Route
+    # multigraphs through nx for a correct non-nan value.
+    if (
+        x == "out" and y == "in" and weight is None and nodes is None
+        and not G.is_multigraph()
+    ):
         return _raw_degree_assortativity_coefficient(G)
     return _call_networkx_for_parity(
         "degree_assortativity_coefficient",
@@ -3181,7 +3187,22 @@ def average_neighbor_degree(
     """Returns the average degree of the neighborhood of each node."""
     _validate_backend_dispatch_keywords("average_neighbor_degree", backend, backend_kwargs)
 
-    if not G.is_directed() and source == "out" and target == "out" and nodes is None and weight is None:
+    # br-mgavgnbd: the Rust fast path ignored parallel multi-edges, so
+    # sum(t_deg[nbr] for nbr in adj[n]) was computed against an
+    # adj-view that collapsed parallel edges but the degree was also
+    # collapsed, yielding wrong ratios on MultiGraph. nx's Python
+    # reference iterates unique neighbors via G.adj[n] but uses the
+    # multi-counting degree (G.degree) — fnx's Python fallback below
+    # already follows that contract, so just skip the Rust shortcut
+    # for multigraphs.
+    if (
+        not G.is_directed()
+        and not G.is_multigraph()
+        and source == "out"
+        and target == "out"
+        and nodes is None
+        and weight is None
+    ):
         return _raw_average_neighbor_degree(G)
 
     if G.is_directed():
@@ -6419,7 +6440,17 @@ from franken_networkx._fnx import is_chordal as _raw_is_chordal
 
 
 def is_chordal(G):
-    """br-isokw: ``G`` matches nx; Rust binding used ``g``."""
+    """br-isokw: ``G`` matches nx; Rust binding used ``g``.
+
+    br-chordaltype: nx.is_chordal is @not_implemented_for('directed',
+    'multigraph') and raises NetworkXNotImplemented; the Rust binding
+    accepted MultiGraph input and returned False. Gate on type
+    upfront so the contract matches.
+    """
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
     return _raw_is_chordal(G)
 
 
@@ -7559,14 +7590,37 @@ from franken_networkx._fnx import (
 
 
 def in_degree_centrality(G, *, backend=None, **backend_kwargs):
-    """Compute in-degree centrality for nodes in a directed graph."""
+    """Compute in-degree centrality for nodes in a directed graph.
+
+    br-midegcent: the Rust _raw_in_degree_centrality treated parallel
+    multi-edges as a single edge on MultiDiGraph inputs, so every node
+    got in-degree=1 after normalization instead of the correct
+    parallel-counted in-degree. Recompute from G.in_degree() (which
+    already counts multi-edges correctly) for multigraphs to match nx.
+    """
     _validate_backend_dispatch_keywords("in_degree_centrality", backend, backend_kwargs)
+    if G.is_multigraph():
+        n = len(G)
+        if n <= 1:
+            return {v: float("nan") if n == 0 else 0 for v in G}
+        scale = 1 / (n - 1)
+        return {v: d * scale for v, d in G.in_degree()}
     return _raw_in_degree_centrality(G)
 
 
 def out_degree_centrality(G, *, backend=None, **backend_kwargs):
-    """Compute out-degree centrality for nodes in a directed graph."""
+    """Compute out-degree centrality for nodes in a directed graph.
+
+    br-midegcent: same multigraph fix as in_degree_centrality — the
+    Rust path undercounted parallel edges on MultiDiGraph.
+    """
     _validate_backend_dispatch_keywords("out_degree_centrality", backend, backend_kwargs)
+    if G.is_multigraph():
+        n = len(G)
+        if n <= 1:
+            return {v: float("nan") if n == 0 else 0 for v in G}
+        scale = 1 / (n - 1)
+        return {v: d * scale for v, d in G.out_degree()}
     return _raw_out_degree_centrality(G)
 
 
@@ -7695,7 +7749,7 @@ def group_out_degree_centrality(G, S, *, backend=None, **backend_kwargs):
 
 # Component algorithms
 from franken_networkx._fnx import (
-    node_connected_component,
+    node_connected_component as _raw_node_connected_component,
     is_biconnected as _raw_is_biconnected,
     biconnected_components as _raw_biconnected_components,
     biconnected_component_edges,
@@ -7705,6 +7759,18 @@ from franken_networkx._fnx import (
     number_attracting_components as _raw_number_attracting_components,
     is_attracting_component as _raw_is_attracting_component,
 )
+
+
+def node_connected_component(G, n):
+    """Return the set of nodes in the connected component of ``n``.
+
+    br-nccset: nx.node_connected_component returns a set; the Rust
+    binding returned a list. Callers doing set ops on the result
+    (issubset / intersection / ``x in result`` on large outputs)
+    silently saw wrong performance/types. Coerce to set.
+    """
+    result = _raw_node_connected_component(G, n)
+    return set(result) if not isinstance(result, set) else result
 
 
 def is_biconnected(G):
