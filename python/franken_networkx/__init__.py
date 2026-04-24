@@ -2706,6 +2706,29 @@ def _should_delegate_dijkstra_to_networkx(G, weight):
     return _has_negative_edge_weight_for_dijkstra(G, weight)
 
 
+def _graph_has_nonunit_weight(G, weight):
+    """br-dijkignoreweight: the Rust single_source_dijkstra
+    (and its family) silently returns hop-count distances — not
+    weighted distances — when edges carry non-unit weight values.
+    This check detects that case so the single_source wrappers can
+    route to nx. Different from
+    _has_negative_edge_weight_for_dijkstra because we also need to
+    catch positive non-unit weights (the Rust path treats weight=1.5
+    as unweighted).
+    """
+    if not isinstance(weight, str):
+        return False
+    for _, _, attrs in G.edges(data=True):
+        if not isinstance(attrs, dict) or weight not in attrs:
+            continue
+        try:
+            if float(attrs[weight]) != 1.0:
+                return True
+        except (TypeError, ValueError):
+            return True
+    return False
+
+
 def _should_delegate_bellman_ford_to_networkx(weight):
     return callable(weight)
 
@@ -6365,11 +6388,13 @@ def average_node_connectivity(G, flow_func=None):
     return _raw_average_node_connectivity(G)
 
 def all_pairs_dijkstra(G, cutoff=None, weight="weight"):
+    # br-dijkignoreweight: Rust all_pairs_dijkstra inherits the
+    # single-source weight-ignoring bug; delegate any weighted call.
     if cutoff is not None:
         for node in G:
             yield (node, single_source_dijkstra(G, node, cutoff=cutoff, weight=weight))
         return
-    if _should_delegate_dijkstra_to_networkx(G, weight):
+    if _should_delegate_dijkstra_to_networkx(G, weight) or _graph_has_nonunit_weight(G, weight):
         yield from _call_networkx_for_parity("all_pairs_dijkstra", G, weight=weight)
         return
     for k, v in _raw_all_pairs_dijkstra(G, weight=weight).items():
@@ -7783,7 +7808,11 @@ def _sp_coerce_dist_to_int(dists):
 
 
 def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight"):
-    if _should_delegate_dijkstra_to_networkx(G, weight):
+    # br-dijkignoreweight: the Rust single_source_dijkstra silently
+    # returns hop-count distances on any weighted input (it ignores
+    # the weight attribute). Delegate to nx when any edge carries a
+    # non-unit weight so results are correct.
+    if _should_delegate_dijkstra_to_networkx(G, weight) or _graph_has_nonunit_weight(G, weight):
         return _call_networkx_for_parity(
             "single_source_dijkstra",
             G,
@@ -7806,7 +7835,8 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
 
 
 def single_source_dijkstra_path(G, source, cutoff=None, weight="weight"):
-    if _should_delegate_dijkstra_to_networkx(G, weight):
+    # br-dijkignoreweight: same as single_source_dijkstra.
+    if _should_delegate_dijkstra_to_networkx(G, weight) or _graph_has_nonunit_weight(G, weight):
         return _call_networkx_for_parity(
             "single_source_dijkstra_path", G, source, cutoff=cutoff, weight=weight
         )
@@ -7815,7 +7845,8 @@ def single_source_dijkstra_path(G, source, cutoff=None, weight="weight"):
 
 
 def single_source_dijkstra_path_length(G, source, cutoff=None, weight="weight"):
-    if _should_delegate_dijkstra_to_networkx(G, weight):
+    # br-dijkignoreweight: delegate weighted inputs to nx.
+    if _should_delegate_dijkstra_to_networkx(G, weight) or _graph_has_nonunit_weight(G, weight):
         return _call_networkx_for_parity(
             "single_source_dijkstra_path_length",
             G,
@@ -7860,6 +7891,7 @@ def single_source_bellman_ford_path_length(G, source, weight="weight"):
 
 
 def all_pairs_dijkstra_path(G, cutoff=None, weight="weight"):
+    # br-dijkignoreweight: same weight-ignoring bug in Rust path.
     if cutoff is not None:
         for node in G:
             yield (
@@ -7867,7 +7899,7 @@ def all_pairs_dijkstra_path(G, cutoff=None, weight="weight"):
                 single_source_dijkstra_path(G, node, cutoff=cutoff, weight=weight),
             )
         return
-    if _should_delegate_dijkstra_to_networkx(G, weight):
+    if _should_delegate_dijkstra_to_networkx(G, weight) or _graph_has_nonunit_weight(G, weight):
         yield from _call_networkx_for_parity(
             "all_pairs_dijkstra_path", G, weight=weight
         )
@@ -7877,6 +7909,7 @@ def all_pairs_dijkstra_path(G, cutoff=None, weight="weight"):
 
 
 def all_pairs_dijkstra_path_length(G, cutoff=None, weight="weight"):
+    # br-dijkignoreweight: Rust path ignores weights; delegate.
     if cutoff is not None:
         for node in G:
             yield (
@@ -7886,7 +7919,7 @@ def all_pairs_dijkstra_path_length(G, cutoff=None, weight="weight"):
                 ),
             )
         return
-    if _should_delegate_dijkstra_to_networkx(G, weight):
+    if _should_delegate_dijkstra_to_networkx(G, weight) or _graph_has_nonunit_weight(G, weight):
         yield from _call_networkx_for_parity(
             "all_pairs_dijkstra_path_length", G, weight=weight
         )
@@ -14835,7 +14868,14 @@ def multi_source_dijkstra(G, sources, target=None, cutoff=None, weight="weight")
     """Return shortest path lengths and paths from any source in *sources*."""
     if not sources:
         raise ValueError("sources must not be empty")
-    if callable(weight) or _should_delegate_dijkstra_to_networkx(G, weight):
+    # br-dijkignoreweight: the Rust multi_source_dijkstra inherits the
+    # same weight-ignoring bug as single_source_dijkstra. Delegate any
+    # weighted input to nx for correctness.
+    if (
+        callable(weight)
+        or _should_delegate_dijkstra_to_networkx(G, weight)
+        or _graph_has_nonunit_weight(G, weight)
+    ):
         return _call_networkx_for_parity(
             "multi_source_dijkstra",
             G,
@@ -18366,7 +18406,7 @@ def to_directed(G):
     return _generic_directed_graph_view(G)
 
 
-class _ReverseDirectedView:
+class _ReverseDirectedViewBase:
     adjlist_inner_dict_factory = dict
     adjlist_outer_dict_factory = dict
     edge_attr_dict_factory = dict
@@ -18718,6 +18758,21 @@ class _ReverseDirectedView:
         if name in _FILTERED_VIEW_MUTATORS:
             return _frozen
         raise AttributeError(name)
+
+
+class _ReverseDirectedView(_ReverseDirectedViewBase, DiGraph):
+    pass
+
+
+class _ReverseMultiDirectedView(_ReverseDirectedViewBase, MultiDiGraph):
+    pass
+
+
+def _reverse_directed_view_for(graph):
+    view_type = (
+        _ReverseMultiDirectedView if graph.is_multigraph() else _ReverseDirectedView
+    )
+    return view_type(graph)
 
 
 class _ReverseNeighborMap(Mapping):
@@ -20830,7 +20885,7 @@ class _ConversionGraphViewBase:
     def reverse(self, copy=True):
         if not self.is_directed():
             raise NetworkXError("Cannot reverse an undirected graph.")
-        reversed_view = _ReverseDirectedView(self)
+        reversed_view = _reverse_directed_view_for(self)
         if copy:
             return reversed_view.copy()
         return reversed_view
@@ -21002,7 +21057,7 @@ def reverse(G, copy=True):
         raise NetworkXError("Cannot reverse an undirected graph.")
     if copy:
         return G.reverse()
-    return _ReverseDirectedView(G)
+    return _reverse_directed_view_for(G)
 
 
 def nodes(G):
