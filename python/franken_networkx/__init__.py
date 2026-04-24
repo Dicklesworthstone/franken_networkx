@@ -14569,12 +14569,16 @@ _TRIAD_TYPES = [
 ]
 
 
-def triadic_census(G):
+def triadic_census(G, nodelist=None):
     """Count the frequency of each of the 16 triad types.
 
     Parameters
     ----------
     G : DiGraph
+    nodelist : optional list of nodes
+        Restrict the triad count to triads containing at least one
+        node from ``nodelist`` (nx parity — br-triadnode). When
+        ``nodelist`` is None, counts all triads in the graph.
 
     Returns
     -------
@@ -14583,7 +14587,11 @@ def triadic_census(G):
     """
     if not G.is_directed():
         raise NetworkXError("triadic_census requires a directed graph")
-    return _fnx.triadic_census_rust(G)
+    if nodelist is None:
+        return _fnx.triadic_census_rust(G)
+    # br-triadnode: delegate the nodelist-filtered form to nx; the Rust
+    # native doesn't yet accept a nodelist argument.
+    return _call_networkx_for_parity("triadic_census", G, nodelist=nodelist)
 
 
 def all_triads(G):
@@ -20659,8 +20667,14 @@ def davis_southern_women_graph():
 
 
 # Misc generators (br-fjh)
-def triad_graph(triad_type_str):
-    """Return canonical DiGraph for a MAN triad type."""
+def triad_graph(triad_name):
+    """Return canonical DiGraph for a MAN triad type.
+
+    br-triadkw: parameter name ``triad_name`` matches
+    networkx.algorithms.triads.triad_graph exactly; kwarg-style
+    drop-in calls now work.
+    """
+    triad_type_str = triad_name
     canonical = {
         "003": [],
         "012": [("a", "b")],
