@@ -6,8 +6,8 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 41 | 5% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 737 | 91% | Python-defined exports with no runtime NetworkX dependency detected |
+| RUST_NATIVE | 40 | 4% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 738 | 92% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 22 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
@@ -25,8 +25,8 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 674 |
-| `franken_networkx._fnx` | 41 |
+| `franken_networkx` | 675 |
+| `franken_networkx._fnx` | 40 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
@@ -36,7 +36,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 | `networkx.algorithms.tree.coding` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (41)
+## RUST_NATIVE exports (40)
 
 - `bfs_layers`
 - `biconnected_component_edges`
@@ -76,11 +76,10 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `number_of_spanning_trees`
 - `number_strongly_connected_components`
 - `number_weakly_connected_components`
-- `sedgewick_maze_graph`
 - `tree_broadcast_center`
 - `tree_broadcast_time`
 
-## PY_WRAPPER exports (737)
+## PY_WRAPPER exports (738)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -696,6 +695,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `schultz_index`
 - `score_sequence`
 - `second_order_centrality`
+- `sedgewick_maze_graph`
 - `selfloop_edges`
 - `set_edge_attributes`
 - `set_node_attributes`

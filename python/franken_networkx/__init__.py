@@ -4019,26 +4019,43 @@ def boykov_kolmogorov(
     )
 
 
-def minimum_cut(flowG, _s, _t, capacity="capacity", flow_func=None):
+def minimum_cut(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     """Return the minimum cut value and node partition.
 
     br-mincutsig: parameter names match nx.minimum_cut exactly so that
     kwarg-style calls (``minimum_cut(g, _s=s, _t=t)``) work on both
     libraries. Previously fnx used ``G, source, sink`` which broke
     drop-in code written against upstream.
+
+    ``**kwargs`` is accepted for networkx parity. nx only forwards
+    extra kwargs to a user-supplied ``flow_func``; with ``flow_func is
+    None`` passing any kwarg is a user error, so we raise with nx's
+    message instead of ``TypeError: unexpected keyword argument``.
     """
     _validate_flow_func_selector(flow_func)
+    if kwargs and flow_func is None:
+        raise NetworkXError(
+            "You have to explicitly set a flow_func if you need to pass "
+            "parameters via kwargs."
+        )
     value, partition = _minimum_cut_raw(flowG, _s, _t, capacity=capacity)
     all_int = _all_flow_caps_integral(flowG, capacity)
     return _coerce_flow_value(value, all_int), partition
 
 
-def minimum_cut_value(flowG, _s, _t, capacity="capacity", flow_func=None):
+def minimum_cut_value(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
     """Return the minimum cut value between source and sink.
 
-    br-mincutsig: see ``minimum_cut`` — parameter names follow nx.
+    br-mincutsig: see ``minimum_cut`` — parameter names follow nx. The
+    trailing ``**kwargs`` mirrors nx's contract of forwarding to
+    ``flow_func`` (and raising when none is supplied).
     """
     _validate_flow_func_selector(flow_func)
+    if kwargs and flow_func is None:
+        raise NetworkXError(
+            "You have to explicitly set a flow_func if you need to pass "
+            "parameters via kwargs."
+        )
     return _coerce_flow_value(
         _minimum_cut_value_raw(flowG, _s, _t, capacity=capacity),
         _all_flow_caps_integral(flowG, capacity),
@@ -5623,7 +5640,7 @@ from franken_networkx._fnx import (
     octahedral_graph as _rust_octahedral_graph,
     pappus_graph as _rust_pappus_graph,
     petersen_graph as _rust_petersen_graph,
-    sedgewick_maze_graph,
+    sedgewick_maze_graph as _rust_sedgewick_maze_graph,
     tetrahedral_graph as _rust_tetrahedral_graph,
     truncated_cube_graph as _rust_truncated_cube_graph,
     truncated_tetrahedron_graph as _rust_truncated_tetrahedron_graph,
@@ -10747,6 +10764,11 @@ def caveman_graph(l, k):
     Graph
     """
     G = Graph()
+    # Always materialise every node, even when a clique has size 1 and
+    # thus contributes no edges. Previously the k=1 case collapsed to an
+    # empty graph because the edge loop only added endpoints — nx adds
+    # the `l` singletons.
+    G.add_nodes_from(range(l * k))
     for i in range(l):
         base = i * k
         for u in range(k):
@@ -12101,6 +12123,27 @@ def tetrahedral_graph(create_using=None):
     graph = complete_graph(4, create_using=create_using)
     graph.graph["name"] = "Platonic Tetrahedral Graph"
     return graph
+
+
+def sedgewick_maze_graph(create_using=None):
+    """Return the small maze from Sedgewick's *Algorithms in C++*.
+
+    ``create_using`` matches networkx's public signature; when ``None``
+    (default) falls through to the Rust fast path for a plain Graph.
+    nx accepts DiGraph/MultiGraph/MultiDiGraph too — mirror that by
+    building the edge list directly rather than going through the
+    undirected-only helper.
+    """
+    if create_using is None:
+        return _rust_sedgewick_maze_graph()
+    G = empty_graph(0, create_using)
+    G.add_nodes_from(range(8))
+    G.add_edges_from([(0, 2), (0, 7), (0, 5)])
+    G.add_edges_from([(1, 7), (2, 6)])
+    G.add_edges_from([(3, 4), (3, 5)])
+    G.add_edges_from([(4, 5), (4, 7), (4, 6)])
+    G.graph["name"] = "Sedgewick Maze"
+    return G
 
 
 def desargues_graph(create_using=None):
@@ -17236,37 +17279,101 @@ def is_connected_dominating_set(G, nbunch):
 
 
 def is_kl_connected(G, k, l, low_memory=False):
-    """Test if G is (k,l)-connected."""
-    from itertools import combinations
+    """Return True iff *G* is locally (k, l)-connected.
 
-    nodes = list(G.nodes())
-    if len(nodes) <= k:
-        return True
-    for removed in combinations(nodes, k - 1):
-        remaining = [n for n in nodes if n not in set(removed)]
-        # number_connected_components dispatches on Rust graph types and
-        # rejects filtered subgraph views — materialise via .copy() so
-        # the induced subgraph is a concrete fnx.Graph.
-        if remaining and number_connected_components(
-            G.subgraph(remaining).copy()
-        ) > l:
-            return False
-    return True
-
-
-def kl_connected_subgraph(G, k, l, low_memory=False):
-    """Return maximal (k,l)-connected subgraph."""
-    H = G.copy()
-    changed = True
-    while changed:
-        changed = False
-        for node in list(H.nodes()):
-            test = H.copy()
-            test.remove_node(node)
-            if test.number_of_nodes() > 0 and not is_kl_connected(test, k, l):
-                H.remove_node(node)
-                changed = True
+    A graph is locally (k, l)-connected when, for every edge (u, v),
+    there are at least *l* edge-disjoint paths from u to v. The
+    previous fnx implementation tested a node-cut variant and reported
+    ``False`` on many graphs that are (k, l)-connected by nx's
+    definition (e.g. karate_club_graph at k=2, l=1).
+    """
+    graph_ok = True
+    for u, v in G.edges():
+        if low_memory:
+            # Restrict to the k-hop neighbourhood of the endpoints to
+            # bound memory, matching nx's low_memory branch.
+            verts = {u, v}
+            for _ in range(k):
+                verts = verts | {
+                    w for x in verts for w in G.neighbors(x)
+                }
+            G2 = G.subgraph(verts).copy()
+        else:
+            G2 = G.copy()
+        path = [u, v]
+        cnt = 0
+        accept = 0
+        while path:
+            cnt += 1
+            if cnt >= l:
+                accept = 1
                 break
+            prev = u
+            for w in path:
+                if w != prev:
+                    if G2.has_edge(prev, w):
+                        G2.remove_edge(prev, w)
+                    prev = w
+            try:
+                path = shortest_path(G2, u, v)
+            except NetworkXNoPath:
+                path = False
+        if accept == 0:
+            graph_ok = False
+            break
+    return graph_ok
+
+
+def kl_connected_subgraph(G, k, l, low_memory=False, same_as_graph=False):
+    """Return maximal locally (k, l)-connected subgraph.
+
+    Edges that don't have *l* edge-disjoint short paths are pruned,
+    matching networkx's algorithm. The previous fnx version removed
+    nodes (wrong granularity) driven by a buggy ``is_kl_connected``;
+    both now agree with nx.
+
+    ``same_as_graph`` matches networkx's signature. When True, returns
+    ``(H, H_is_same_as_G)``; otherwise returns only *H*.
+    """
+    H = G.copy()
+    graph_ok = True
+    deleted_some = True
+    while deleted_some:
+        deleted_some = False
+        for u, v in list(H.edges()):
+            if low_memory:
+                verts = {u, v}
+                for _ in range(k):
+                    verts = verts | {
+                        w for x in verts for w in G.neighbors(x)
+                    }
+                G2 = G.subgraph(verts).copy()
+            else:
+                G2 = G.copy()
+            path = [u, v]
+            cnt = 0
+            accept = 0
+            while path:
+                cnt += 1
+                if cnt >= l:
+                    accept = 1
+                    break
+                prev = u
+                for w in path:
+                    if w != prev:
+                        if G2.has_edge(prev, w):
+                            G2.remove_edge(prev, w)
+                        prev = w
+                try:
+                    path = shortest_path(G2, u, v)
+                except NetworkXNoPath:
+                    path = False
+            if accept == 0 and H.has_edge(u, v):
+                H.remove_edge(u, v)
+                deleted_some = True
+                graph_ok = False
+    if same_as_graph:
+        return (H, graph_ok)
     return H
 
 
@@ -18141,20 +18248,23 @@ def group_closeness_centrality(G, S, weight=None, *, backend=None, **backend_kwa
 
 
 def bfs_beam_edges(G, source, value, width=None):
-    """BFS with beam search: keep only top-width nodes per level."""
-    visited = {source}
-    frontier = [source]
-    while frontier:
-        if width is not None:
-            frontier = sorted(frontier, key=value, reverse=True)[:width]
-        next_frontier = []
-        for node in frontier:
-            for nbr in G.neighbors(node):
-                if nbr not in visited:
-                    visited.add(nbr)
-                    next_frontier.append(nbr)
-                    yield (node, nbr)
-        frontier = next_frontier
+    """BFS with beam search.
+
+    At each visited node, only the top-``width`` neighbours (ordered by
+    ``value`` descending) are enqueued for further exploration. Matches
+    networkx's implementation — the old fnx version filtered the whole
+    frontier instead, which let far more edges slip through and
+    diverged from nx by an order of magnitude on karate (32 vs 7).
+    """
+    if width is None:
+        width = len(G)
+
+    def successors(v):
+        return iter(
+            sorted(G.neighbors(v), key=value, reverse=True)[:width]
+        )
+
+    yield from generic_bfs_edges(G, source, successors)
 
 
 def bfs_labeled_edges(G, sources=None, sort_neighbors=None, *, source=None):
@@ -24302,9 +24412,20 @@ def join_trees(T1, T2, root1=None, root2=None):
     return G
 
 
-def random_unlabeled_tree(n, seed=None):
-    """Uniform random unlabeled tree (via Prüfer + canonical form)."""
-    return random_tree(n, seed=seed)
+def random_unlabeled_tree(n, number_of_trees=None, seed=None):
+    """Uniform random unlabeled tree (via Prüfer + canonical form).
+
+    ``number_of_trees`` matches networkx's public signature. When set,
+    returns a list of independently-sampled trees of size *n*.
+    """
+    if number_of_trees is None:
+        return random_tree(n, seed=seed)
+    rng = _generator_random_state(seed)
+    out = []
+    for _ in range(number_of_trees):
+        sub_seed = rng.randint(0, 2**31 - 1)
+        out.append(random_tree(n, seed=sub_seed))
+    return out
 
 
 def random_unlabeled_rooted_tree(n, number_of_trees=None, seed=None):
@@ -27065,19 +27186,33 @@ def k_factor(G, k, matching_weight="weight"):
     return H
 
 
-def spectral_graph_forge(G, alpha=0.8, seed=None):
+def spectral_graph_forge(G, alpha=0.8, transformation="identity", seed=None):
     """Graph with prescribed spectral properties.
 
     Creates a random graph that preserves the top eigenvalues of G's
-    modularity matrix, blended with random noise controlled by alpha.
+    adjacency (``transformation='identity'``) or modularity matrix
+    (``transformation='modularity'``), blended with random noise
+    controlled by alpha. Matches networkx's public signature.
     """
     import numpy as np
+
+    available = ("identity", "modularity")
+    if transformation not in available:
+        raise NetworkXError(
+            f"{transformation!r} is not a valid transformation. "
+            f"Transformations: {list(available)}"
+        )
 
     rng = np.random.RandomState(seed)
     nodes = list(G.nodes())
     n = len(nodes)
 
     A = to_numpy_array(G, nodelist=nodes)
+    if transformation == "modularity":
+        k = A.sum(axis=1)
+        m = A.sum() / 2.0
+        if m > 0:
+            A = A - np.outer(k, k) / (2 * m)
     # Eigendecomposition.
     eigenvalues, eigenvectors = np.linalg.eigh(A)
     # Sort by magnitude.
