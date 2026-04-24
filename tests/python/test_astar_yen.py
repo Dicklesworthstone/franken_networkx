@@ -62,7 +62,8 @@ class TestAstarPath:
         G = fnx.Graph()
         G.add_node(0)
         G.add_node(1)
-        with pytest.raises(ValueError):
+        # br-astarnop: fnx now raises NetworkXNoPath matching nx.
+        with pytest.raises(fnx.NetworkXNoPath):
             fnx.astar_path(G, 0, 1)
 
     def test_with_zero_heuristic(self, weighted_triangle):
@@ -168,7 +169,8 @@ class TestAstarPathLength:
         G = fnx.Graph()
         G.add_node(0)
         G.add_node(1)
-        with pytest.raises(ValueError):
+        # br-astarnop: fnx now raises NetworkXNoPath matching nx.
+        with pytest.raises(fnx.NetworkXNoPath):
             fnx.astar_path_length(G, 0, 1)
 
     def test_diamond(self, diamond):

@@ -6281,6 +6281,18 @@ from franken_networkx._fnx import (
 )
 
 
+def _translate_astar_no_path(exc, source, target):
+    """br-astarnop: the Rust astar_path binding surfaces
+    ``ValueError('No path between <s> and <t>.')`` on disconnected
+    inputs. nx raises ``NetworkXNoPath('Node <t> not reachable from
+    <s>')``. Normalize to nx's exact class + wording so drop-in
+    ``except nx.NetworkXNoPath`` keeps working.
+    """
+    if isinstance(exc, ValueError) and "No path" in str(exc):
+        return NetworkXNoPath(f"Node {target} not reachable from {source}")
+    return None
+
+
 def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=None):
     if _should_delegate_astar_to_networkx(weight, cutoff):
         return _call_networkx_for_parity(
@@ -6292,9 +6304,15 @@ def astar_path(G, source, target, heuristic=None, weight="weight", *, cutoff=Non
             weight=weight,
             cutoff=cutoff,
         )
-    return _raw_astar_path(
-        G, source, target, heuristic=heuristic, weight=weight
-    )
+    try:
+        return _raw_astar_path(
+            G, source, target, heuristic=heuristic, weight=weight
+        )
+    except ValueError as exc:
+        translated = _translate_astar_no_path(exc, source, target)
+        if translated is not None:
+            raise translated from exc
+        raise
 
 
 def astar_path_length(
@@ -6310,9 +6328,15 @@ def astar_path_length(
             weight=weight,
             cutoff=cutoff,
         )
-    return _raw_astar_path_length(
-        G, source, target, heuristic=heuristic, weight=weight
-    )
+    try:
+        return _raw_astar_path_length(
+            G, source, target, heuristic=heuristic, weight=weight
+        )
+    except ValueError as exc:
+        translated = _translate_astar_no_path(exc, source, target)
+        if translated is not None:
+            raise translated from exc
+        raise
 
 
 def shortest_simple_paths(G, source, target, weight=None):
