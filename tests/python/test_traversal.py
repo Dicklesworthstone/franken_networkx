@@ -250,10 +250,11 @@ class TestDAG:
         assert order.index(2) < order.index(3)
 
     def test_topological_sort_cycle_raises(self):
+        # br-zzcm7: matches nx which raises NetworkXUnfeasible (not HasACycle)
         D = fnx.DiGraph()
         D.add_edge(0, 1)
         D.add_edge(1, 0)
-        with pytest.raises(fnx.HasACycle):
+        with pytest.raises(fnx.NetworkXUnfeasible):
             list(fnx.topological_sort(D))
 
     def test_ancestors(self, dag):

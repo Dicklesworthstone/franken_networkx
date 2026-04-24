@@ -6,8 +6,8 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 94 | 11% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 684 | 85% | Python-defined exports with no runtime NetworkX dependency detected |
+| RUST_NATIVE | 91 | 11% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 687 | 85% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 21 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
@@ -19,8 +19,8 @@ All declared public exports are classified. `--check` fails if this generated re
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 622 |
-| `franken_networkx._fnx` | 94 |
+| `franken_networkx` | 625 |
+| `franken_networkx._fnx` | 91 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
@@ -28,7 +28,7 @@ All declared public exports are classified. `--check` fails if this generated re
 | `builtins` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (94)
+## RUST_NATIVE exports (91)
 
 - `ancestors`
 - `barycenter`
@@ -78,7 +78,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `isolates`
 - `kosaraju_strongly_connected_components`
 - `large_clique_size`
-- `lexicographic_topological_sort`
 - `local_efficiency`
 - `louvain_communities`
 - `max_clique`
@@ -115,8 +114,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `ring_of_cliques`
 - `sedgewick_maze_graph`
 - `spanner`
-- `topological_generations`
-- `topological_sort`
 - `transitive_closure`
 - `transitive_reduction`
 - `tree_broadcast_center`
@@ -125,7 +122,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `write_gml`
 - `write_graphml`
 
-## PY_WRAPPER exports (684)
+## PY_WRAPPER exports (687)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -529,6 +526,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `lattice_reference`
 - `les_miserables_graph`
 - `lexicographic_product`
+- `lexicographic_topological_sort`
 - `lexicographical_topological_sort`
 - `line_graph`
 - `load_centrality`
@@ -759,6 +757,8 @@ All declared public exports are classified. `--check` fails if this generated re
 - `to_scipy_sparse_array`
 - `to_sparse6_bytes`
 - `to_undirected`
+- `topological_generations`
+- `topological_sort`
 - `tournament_matrix`
 - `transitive_closure_dag`
 - `transitivity`

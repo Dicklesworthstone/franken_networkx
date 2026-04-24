@@ -347,15 +347,20 @@ class TestPointlessConceptNullGraph:
 # ---------------------------------------------------------------------------
 
 class TestHasACycle:
-    """HasACycle messages must indicate a cycle was found."""
+    """Cycle-detection error class parity with upstream NetworkX.
+
+    br-zzcm7: nx.topological_sort raises NetworkXUnfeasible on cyclic
+    input (NOT HasACycle — in nx's hierarchy HasACycle is a separate
+    sibling class, not a subclass of NetworkXUnfeasible). fnx now
+    matches.
+    """
 
     def test_topological_sort_cyclic_graph(self):
-        """Topological sort on cyclic graph must raise HasACycle."""
         DG = fnx.DiGraph()
         DG.add_edge("a", "b")
         DG.add_edge("b", "c")
         DG.add_edge("c", "a")  # Creates cycle
-        with pytest.raises(fnx.HasACycle):
+        with pytest.raises(fnx.NetworkXUnfeasible):
             list(fnx.topological_sort(DG))
 
 

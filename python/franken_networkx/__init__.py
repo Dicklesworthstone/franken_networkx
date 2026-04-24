@@ -4856,10 +4856,14 @@ from franken_networkx._fnx import (
 def strongly_connected_components(G):
     """Generate strongly connected components as sets of nodes.
 
-    Matches upstream's ``generator[set]`` contract (franken_networkx-v1nwd).
+    Matches upstream's ``generator[set]`` contract (franken_networkx-v1nwd)
+    and the nx emission order (br-zzcm7): sinks of the condensation first,
+    sources last. The Rust native yields the reverse (source-first) order,
+    so we materialize + reverse before yielding.
     """
-    for component in _raw_strongly_connected_components(G):
-        yield set(component)
+    components = [set(component) for component in _raw_strongly_connected_components(G)]
+    for component in reversed(components):
+        yield component
 
 
 # Algorithm functions — weakly connected components
@@ -4952,10 +4956,57 @@ from franken_networkx._fnx import (
     dag_longest_path_length as _raw_dag_longest_path_length,
     descendants,
     is_directed_acyclic_graph,
-    lexicographic_topological_sort,
-    topological_sort,
-    topological_generations,
+    lexicographic_topological_sort as _raw_lexicographic_topological_sort,
+    topological_sort as _raw_topological_sort,
+    topological_generations as _raw_topological_generations,
 )
+
+
+def topological_sort(G):
+    """Yield nodes in topological order.
+
+    Raises ``NetworkXUnfeasible`` on a cyclic graph to match nx's error
+    contract (br-zzcm7). The Rust native raises ``HasACycle``, which is a
+    separate class in nx's hierarchy and is not caught by
+    ``except nx.NetworkXUnfeasible``.
+    """
+    try:
+        yield from _raw_topological_sort(G)
+    except HasACycle as exc:
+        raise NetworkXUnfeasible(
+            "Graph contains a cycle or graph changed during iteration"
+        ) from exc
+
+
+def lexicographic_topological_sort(G, key=None):
+    """Yield nodes in lexicographic topological order.
+
+    Raises ``NetworkXUnfeasible`` on a cyclic graph for nx parity
+    (br-zzcm7).
+    """
+    try:
+        if key is None:
+            yield from _raw_lexicographic_topological_sort(G)
+        else:
+            yield from _raw_lexicographic_topological_sort(G, key)
+    except HasACycle as exc:
+        raise NetworkXUnfeasible(
+            "Graph contains a cycle or graph changed during iteration"
+        ) from exc
+
+
+def topological_generations(G):
+    """Yield per-generation sets of nodes in topological order.
+
+    Raises ``NetworkXUnfeasible`` on a cyclic graph for nx parity
+    (br-zzcm7).
+    """
+    try:
+        yield from _raw_topological_generations(G)
+    except HasACycle as exc:
+        raise NetworkXUnfeasible(
+            "Graph contains a cycle or graph changed during iteration"
+        ) from exc
 
 
 def dag_longest_path(G, weight="weight", default_weight=1, topo_order=None):
@@ -7300,7 +7351,16 @@ def local_bridges(G, with_span=True, weight=None):
     A local bridge is an edge (u, v) where u and v have no common neighbors.
     If ``with_span`` is True, yields ``(u, v, span)`` where span is the
     distance between u and v after virtually removing the edge.
+
+    Matches the upstream ``@not_implemented_for("directed", "multigraph")``
+    decorator (br-zzcm8) — directed and multigraph inputs raise
+    NetworkXNotImplemented instead of silently projecting to simple
+    graphs.
     """
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
     if not with_span and weight is None:
         from franken_networkx._fnx import local_bridges_rust
 

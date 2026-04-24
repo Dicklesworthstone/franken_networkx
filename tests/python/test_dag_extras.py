@@ -127,10 +127,11 @@ class TestLexicographicTopologicalSort:
         assert order == [0, 1, 2, 3, 4]
 
     def test_cycle_raises(self):
+        # br-zzcm7: matches nx which raises NetworkXUnfeasible (not HasACycle)
         D = fnx.DiGraph()
         D.add_edge(0, 1)
         D.add_edge(1, 0)
-        with pytest.raises(fnx.HasACycle):
+        with pytest.raises(fnx.NetworkXUnfeasible):
             list(fnx.lexicographic_topological_sort(D))
 
 
@@ -168,10 +169,11 @@ class TestTopologicalGenerations:
         assert gens[0] == [42]
 
     def test_cycle_raises(self):
+        # br-zzcm7: matches nx which raises NetworkXUnfeasible (not HasACycle)
         D = fnx.DiGraph()
         D.add_edge(0, 1)
         D.add_edge(1, 0)
-        with pytest.raises(fnx.HasACycle):
+        with pytest.raises(fnx.NetworkXUnfeasible):
             list(fnx.topological_generations(D))
 
 

@@ -288,7 +288,8 @@ class TestMultiDiGraphAlgorithms:
 
     def test_topological_sort_dag(self, mdg_dag):
         assert fnx.is_directed_acyclic_graph(mdg_dag)
-        topo = fnx.topological_sort(mdg_dag)
+        # br-zzcm7: topological_sort now returns a generator matching nx.
+        topo = list(fnx.topological_sort(mdg_dag))
         assert len(topo) == 4
         # 0 must come before 1,2; 1,2 must come before 3
         idx = {n: i for i, n in enumerate(topo)}
