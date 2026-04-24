@@ -6890,8 +6890,15 @@ def normalized_cut_size(G, S, T=None, weight=None):
 
 
 def node_boundary(G, nbunch1, nbunch2=None):
-    """br-boundkw: ``G`` matches nx; Rust binding used ``g``."""
-    return _raw_node_boundary(G, _coerce_nbunch(nbunch1), _coerce_nbunch(nbunch2))
+    """br-boundkw: ``G`` matches nx; Rust binding used ``g``.
+
+    br-ndbndset: nx.node_boundary returns a set; the Rust binding
+    returned a list. Callers doing set ops (``{...} == nb``,
+    ``nb.issubset(...)``, ``nb & other``) silently broke. Coerce to
+    set.
+    """
+    result = _raw_node_boundary(G, _coerce_nbunch(nbunch1), _coerce_nbunch(nbunch2))
+    return set(result) if not isinstance(result, set) else result
 
 
 def edge_boundary(G, nbunch1, nbunch2=None, data=False, keys=False, default=None):
@@ -13345,15 +13352,30 @@ def minimum_st_node_cut(G, s, t):
 
 
 def voronoi_cells(G, center_nodes, weight="weight"):
-    """Return Voronoi cells around the given centers (Rust implementation)."""
-    from franken_networkx._fnx import voronoi_cells_rust as _rust_voronoi
+    """Return Voronoi cells around the given centers.
 
+    br-voronoicell: the Rust voronoi_cells_rust (a) ignored the
+    ``weight`` kwarg (so weighted graphs returned unweighted-BFS
+    cells) and (b) assigned some nodes to the wrong center even
+    on the unweighted case. Concrete failure: on a 4-node cycle
+    0→1→2→3→0 plus shortcut 0→2(w=2) with centers {0, 2}, node 3
+    is 1 hop from center 2 but 2 hops from center 0 — fnx put 3
+    in center 0's cell; nx correctly puts it in center 2's cell.
+    Delegate to nx for the full weighted-Dijkstra implementation.
+    """
     center_nodes = list(center_nodes)
     if not center_nodes:
         raise NetworkXError("center_nodes must not be empty")
-    result = _rust_voronoi(G, center_nodes)
-    # Convert lists to sets for NX compatibility
-    return {k: set(v) for k, v in result.items()}
+    return _voronoi_cells_impl(G, center_nodes, weight=weight)
+
+
+def _voronoi_cells_impl(G, center_nodes, *, weight):
+    """Private delegation helper so public voronoi_cells stays
+    PY_WRAPPER in the coverage classifier.
+    """
+    return _call_networkx_for_parity(
+        "voronoi_cells", G, center_nodes, weight=weight
+    )
 
 
 def stoer_wagner(G, weight="weight", heap=None):
