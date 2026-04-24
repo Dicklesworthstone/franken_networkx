@@ -13552,7 +13552,30 @@ def stoer_wagner(G, weight="weight", heap=None):
         raise NetworkXError("graph has less than two nodes.")
     if not is_connected(G):
         raise NetworkXError("graph is not connected.")
-    return _rust_stoer_wagner(G, weight=weight or "weight")
+    if weight is None:
+        kwargs = {"weight": weight}
+        if heap is not None:
+            kwargs["heap"] = heap
+        return _call_networkx_for_parity("stoer_wagner", G, **kwargs)
+
+    cut_value, partition = _rust_stoer_wagner(G, weight=weight)
+    if _stoer_wagner_weights_all_integral(G, weight):
+        cut_value = (
+            int(cut_value)
+            if isinstance(cut_value, float) and cut_value.is_integer()
+            else cut_value
+        )
+    return cut_value, partition
+
+
+def _stoer_wagner_weights_all_integral(G, weight):
+    if not isinstance(weight, str):
+        return False
+    for _, _, attrs in G.edges(data=True):
+        value = attrs.get(weight, 1) if isinstance(attrs, dict) else 1
+        if not isinstance(value, numbers.Integral):
+            return False
+    return True
 
 
 def dedensify(G, threshold, prefix=None, copy=True):

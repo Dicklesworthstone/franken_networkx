@@ -216,6 +216,39 @@ def test_voronoi_cells_and_stoer_wagner_match_networkx():
     assert fnx.stoer_wagner(graph) == nx.stoer_wagner(nx.path_graph(5))
 
 
+def test_stoer_wagner_preserves_networkx_cut_value_type():
+    int_graph = fnx.Graph()
+    int_graph.add_weighted_edges_from([(0, 1, 2), (1, 2, 3), (0, 2, 4)])
+    nx_int_graph = nx.Graph()
+    nx_int_graph.add_weighted_edges_from([(0, 1, 2), (1, 2, 3), (0, 2, 4)])
+
+    fnx_int_cut, fnx_int_partition = fnx.stoer_wagner(int_graph)
+    nx_int_cut, nx_int_partition = nx.stoer_wagner(nx_int_graph)
+    assert (fnx_int_cut, fnx_int_partition) == (nx_int_cut, nx_int_partition)
+    assert fnx_int_cut.__class__ is nx_int_cut.__class__
+
+    float_graph = fnx.Graph()
+    float_graph.add_weighted_edges_from([(0, 1, 2.0), (1, 2, 3.0), (0, 2, 4.0)])
+    nx_float_graph = nx.Graph()
+    nx_float_graph.add_weighted_edges_from([(0, 1, 2.0), (1, 2, 3.0), (0, 2, 4.0)])
+
+    fnx_float_cut, _ = fnx.stoer_wagner(float_graph)
+    nx_float_cut, _ = nx.stoer_wagner(nx_float_graph)
+    assert fnx_float_cut == nx_float_cut
+    assert fnx_float_cut.__class__ is nx_float_cut.__class__
+
+
+def test_stoer_wagner_weight_none_matches_networkx():
+    graph = fnx.Graph()
+    graph.add_weighted_edges_from([(0, 1, 2), (1, 2, 3), (0, 2, 4)])
+    nx_graph = nx.Graph()
+    nx_graph.add_weighted_edges_from([(0, 1, 2), (1, 2, 3), (0, 2, 4)])
+
+    assert fnx.stoer_wagner(graph, weight=None) == nx.stoer_wagner(
+        nx_graph, weight=None
+    )
+
+
 def test_dedensify_and_quotient_graph_match_networkx():
     bipartite = fnx.complete_bipartite_graph(2, 4)
     dedensified, compressors = fnx.dedensify(bipartite, 2, prefix="aux")
