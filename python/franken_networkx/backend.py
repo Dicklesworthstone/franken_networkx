@@ -379,6 +379,28 @@ def _nx_to_fnx(G):
     return _from_nx_graph(G)
 
 
+def _convert_result_to_nx(value):
+    """Recursively convert fnx graphs to nx graphs inside common containers.
+
+    Returns non-graph values unchanged. Preserves container type for
+    list / tuple / set. For dict, converts values only (keys are left
+    alone since graph-typed keys are pathological).
+    """
+    if isinstance(value, (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph)):
+        return _fnx_to_nx(value)
+    if isinstance(value, dict):
+        return {k: _convert_result_to_nx(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_convert_result_to_nx(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_convert_result_to_nx(v) for v in value)
+    if isinstance(value, set):
+        # Graphs aren't hashable so a set of fnx graphs is unusual; recurse
+        # only if elements are themselves non-graph (sets of nodes etc.).
+        return value
+    return value
+
+
 def _fnx_to_nx(fg):
     """Convert a FrankenNetworkX graph to the matching NetworkX graph type.
 
@@ -456,12 +478,17 @@ class BackendInterface:
 
     @staticmethod
     def convert_to_nx(result, *, name=None):
-        """Convert a FrankenNetworkX result back to NetworkX types."""
-        if isinstance(
-            result, (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph)
-        ):
-            return _fnx_to_nx(result)
-        return result
+        """Convert a FrankenNetworkX result back to NetworkX types.
+
+        br-convnest: previously only unwrapped a top-level fnx graph.
+        If a dispatched algorithm returned a dict/list/tuple/set
+        containing fnx graphs (e.g. a dict of subgraphs), the inner
+        values stayed as fnx types — ``isinstance(g, nx.DiGraph)``
+        returned False on those results, breaking callers that rely
+        on the dispatcher's convert_to_nx contract. Recurse into
+        common containers so nested fnx graphs are converted too.
+        """
+        return _convert_result_to_nx(result)
 
     @staticmethod
     def can_run(name, args, kwargs):
