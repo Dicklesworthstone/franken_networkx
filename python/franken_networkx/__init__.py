@@ -2682,11 +2682,71 @@ def min_edge_cover(G, matching_algorithm=None):
 
 # Algorithm functions — flow
 from franken_networkx._fnx import (
-    maximum_flow,
-    maximum_flow_value,
+    maximum_flow as _raw_maximum_flow,
+    maximum_flow_value as _raw_maximum_flow_value,
     minimum_cut as _minimum_cut_raw,
     minimum_cut_value as _minimum_cut_value_raw,
 )
+
+
+def _all_flow_caps_integral(G, capacity):
+    """Return True when every edge in G has an integer capacity under
+    the given attr name (or the default 1). Used to decide whether the
+    flow result can be coerced back to int for nx-type parity
+    (br-flowt).
+    """
+    for _, _, data in G.edges(data=True):
+        val = data.get(capacity, 1) if isinstance(data, dict) else 1
+        if isinstance(val, bool) or not isinstance(val, int):
+            return False
+    return True
+
+
+def _coerce_flow_value(value, all_int):
+    if not all_int:
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
+
+
+def _coerce_flow_dict(flow_dict, all_int):
+    if not all_int:
+        return flow_dict
+    out = {}
+    for u, inner in flow_dict.items():
+        out[u] = {v: _coerce_flow_value(w, True) for v, w in inner.items()}
+    return out
+
+
+def maximum_flow(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
+    """Compute the maximum flow and flow dict between ``_s`` and ``_t``.
+
+    br-flowt: nx returns int when all capacities are ints; the Rust
+    native always returns float. Coerce back to int when inputs are
+    integer-typed so `isinstance(flow_value, int)` matches nx.
+    """
+    if flow_func is not None or kwargs:
+        return _call_networkx_for_parity(
+            "maximum_flow", flowG, _s, _t, capacity=capacity,
+            flow_func=flow_func, **kwargs,
+        )
+    flow_value, flow_dict = _raw_maximum_flow(flowG, _s, _t, capacity)
+    all_int = _all_flow_caps_integral(flowG, capacity)
+    return _coerce_flow_value(flow_value, all_int), _coerce_flow_dict(flow_dict, all_int)
+
+
+def maximum_flow_value(flowG, _s, _t, capacity="capacity", flow_func=None, **kwargs):
+    """Return just the max-flow value. nx-int parity when all caps int."""
+    if flow_func is not None or kwargs:
+        return _call_networkx_for_parity(
+            "maximum_flow_value", flowG, _s, _t, capacity=capacity,
+            flow_func=flow_func, **kwargs,
+        )
+    return _coerce_flow_value(
+        _raw_maximum_flow_value(flowG, _s, _t, capacity),
+        _all_flow_caps_integral(flowG, capacity),
+    )
 
 
 def _validate_flow_func_selector(flow_func):
@@ -2961,13 +3021,18 @@ def boykov_kolmogorov(
 def minimum_cut(G, source, sink, capacity="capacity", flow_func=None):
     """Return the minimum cut value and node partition."""
     _validate_flow_func_selector(flow_func)
-    return _minimum_cut_raw(G, source, sink, capacity=capacity)
+    value, partition = _minimum_cut_raw(G, source, sink, capacity=capacity)
+    all_int = _all_flow_caps_integral(G, capacity)
+    return _coerce_flow_value(value, all_int), partition
 
 
 def minimum_cut_value(G, source, sink, capacity="capacity", flow_func=None):
     """Return the minimum cut value between source and sink."""
     _validate_flow_func_selector(flow_func)
-    return _minimum_cut_value_raw(G, source, sink, capacity=capacity)
+    return _coerce_flow_value(
+        _minimum_cut_value_raw(G, source, sink, capacity=capacity),
+        _all_flow_caps_integral(G, capacity),
+    )
 
 # Algorithm functions — distance measures
 from franken_networkx._fnx import (
@@ -5584,9 +5649,24 @@ class _ApproximationNamespace:
 # Algorithm functions — cycles
 from franken_networkx._fnx import (
     find_cycle as _raw_find_cycle,
-    girth,
+    girth as _raw_girth,
     find_negative_cycle as _raw_find_negative_cycle,
 )
+
+
+def girth(G):
+    """Return the length of the shortest cycle in ``G``.
+
+    Matches nx contract (br-girthinf): acyclic graphs return
+    ``math.inf`` (float), not ``None``, so ``girth(G) < k`` works
+    without TypeError.
+    """
+    import math
+
+    value = _raw_girth(G)
+    if value is None:
+        return math.inf
+    return value
 
 
 def find_negative_cycle(G, source, weight="weight"):

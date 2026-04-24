@@ -6,8 +6,8 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 84 | 10% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 694 | 86% | Python-defined exports with no runtime NetworkX dependency detected |
+| RUST_NATIVE | 81 | 10% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 697 | 87% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 21 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
@@ -19,8 +19,8 @@ All declared public exports are classified. `--check` fails if this generated re
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 632 |
-| `franken_networkx._fnx` | 84 |
+| `franken_networkx` | 635 |
+| `franken_networkx._fnx` | 81 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
@@ -28,7 +28,7 @@ All declared public exports are classified. `--check` fails if this generated re
 | `builtins` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (84)
+## RUST_NATIVE exports (81)
 
 - `barycenter`
 - `bfs_layers`
@@ -47,7 +47,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `enumerate_all_cliques`
 - `fast_could_be_isomorphic`
 - `faster_could_be_isomorphic`
-- `girth`
 - `global_efficiency`
 - `global_node_connectivity`
 - `graph_clique_number`
@@ -84,8 +83,6 @@ All declared public exports are classified. `--check` fails if this generated re
 - `maximal_independent_set`
 - `maximal_matching`
 - `maximum_branching`
-- `maximum_flow`
-- `maximum_flow_value`
 - `maximum_independent_set`
 - `maximum_spanning_arborescence`
 - `maximum_spanning_edges`
@@ -115,7 +112,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `tree_broadcast_center`
 - `tree_broadcast_time`
 
-## PY_WRAPPER exports (694)
+## PY_WRAPPER exports (697)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -397,6 +394,7 @@ All declared public exports are classified. `--check` fails if this generated re
 - `geometric_soft_configuration_graph`
 - `get_edge_attributes`
 - `get_node_attributes`
+- `girth`
 - `girvan_newman`
 - `global_parameters`
 - `global_reaching_centrality`
@@ -534,6 +532,8 @@ All declared public exports are classified. `--check` fails if this generated re
 - `make_max_clique_graph`
 - `margulis_gabber_galil_graph`
 - `max_flow_min_cost`
+- `maximum_flow`
+- `maximum_flow_value`
 - `maximum_spanning_tree`
 - `maybe_regular_expander`
 - `maybe_regular_expander_graph`

@@ -54,7 +54,9 @@ class TestGirth:
         assert fnx.girth(square) == 4
 
     def test_tree_no_cycle(self, tree):
-        assert fnx.girth(tree) is None
+        # br-girthinf: nx returns math.inf (not None) for acyclic graphs
+        import math
+        assert fnx.girth(tree) == math.inf
 
     def test_multiple_cycles(self):
         """Triangle + square sharing an edge: girth should be 3."""
@@ -67,13 +69,15 @@ class TestGirth:
         assert fnx.girth(g) == 3
 
     def test_empty_graph(self):
+        import math
         g = fnx.Graph()
-        assert fnx.girth(g) is None
+        assert fnx.girth(g) == math.inf
 
     def test_single_node(self):
+        import math
         g = fnx.Graph()
         g.add_node("a")
-        assert fnx.girth(g) is None
+        assert fnx.girth(g) == math.inf
 
     def test_raises_on_directed(self):
         g = fnx.DiGraph()
