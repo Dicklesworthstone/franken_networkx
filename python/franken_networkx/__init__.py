@@ -3827,16 +3827,57 @@ from franken_networkx._fnx import (
     is_bipartite,
     is_forest as _raw_is_forest,
     is_tree as _raw_is_tree,
-    maximum_branching,
-    maximum_spanning_arborescence,
+    maximum_branching as _raw_maximum_branching,
+    maximum_spanning_arborescence as _raw_maximum_spanning_arborescence,
     number_of_spanning_trees,
-    minimum_spanning_edges,
-    minimum_branching,
-    minimum_spanning_arborescence,
+    minimum_spanning_edges as _raw_minimum_spanning_edges,
+    minimum_branching as _raw_minimum_branching,
+    minimum_spanning_arborescence as _raw_minimum_spanning_arborescence,
     minimum_spanning_tree as _raw_minimum_spanning_tree,
-    partition_spanning_tree,
-    random_spanning_tree,
+    partition_spanning_tree as _raw_partition_spanning_tree,
+    random_spanning_tree as _raw_random_spanning_tree,
 )
+
+
+def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, data=True, ignore_nan=False):
+    """br-isokw: ``G`` matches nx; Rust binding used ``g``."""
+    return _raw_minimum_spanning_edges(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan)
+
+
+def maximum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, data=True, ignore_nan=False):
+    """br-isokw: ``G`` matches nx."""
+    from franken_networkx._fnx import maximum_spanning_edges as _raw_mse
+    return _raw_mse(G, algorithm=algorithm, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan)
+
+
+def minimum_branching(G, attr="weight", default=1, preserve_attrs=False, partition=None):
+    """br-isokw: ``G`` matches nx; default aligned to int 1 (was 1.0)."""
+    return _raw_minimum_branching(G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition)
+
+
+def maximum_branching(G, attr="weight", default=1, preserve_attrs=False, partition=None):
+    """br-isokw: ``G`` matches nx; default aligned to int 1."""
+    return _raw_maximum_branching(G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition)
+
+
+def minimum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=False, partition=None):
+    """br-isokw: ``G`` matches nx; default aligned to int 1."""
+    return _raw_minimum_spanning_arborescence(G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition)
+
+
+def maximum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=False, partition=None):
+    """br-isokw: ``G`` matches nx; default aligned to int 1."""
+    return _raw_maximum_spanning_arborescence(G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition)
+
+
+def random_spanning_tree(G, weight=None, multiplicative=True, seed=None):
+    """br-isokw: ``G`` matches nx."""
+    return _raw_random_spanning_tree(G, weight=weight, multiplicative=multiplicative, seed=seed)
+
+
+def partition_spanning_tree(G, minimum=True, weight="weight", partition="partition", ignore_nan=False):
+    """br-isokw: ``G`` matches nx."""
+    return _raw_partition_spanning_tree(G, minimum=minimum, weight=weight, partition=partition, ignore_nan=ignore_nan)
 
 # Algorithm functions — Euler
 from franken_networkx._fnx import (
@@ -4601,9 +4642,9 @@ def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
 
 # Algorithm functions — maximum spanning tree
 from franken_networkx._fnx import (
-    maximum_spanning_edges,
     maximum_spanning_tree as _raw_maximum_spanning_tree,
 )
+# (maximum_spanning_edges wrapper defined earlier at the tree import site)
 
 
 def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=False):

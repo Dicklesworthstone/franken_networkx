@@ -6,8 +6,8 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 68 | 8% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 710 | 88% | Python-defined exports with no runtime NetworkX dependency detected |
+| RUST_NATIVE | 60 | 7% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 718 | 89% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 22 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
@@ -25,8 +25,8 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 647 |
-| `franken_networkx._fnx` | 68 |
+| `franken_networkx` | 655 |
+| `franken_networkx._fnx` | 60 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
@@ -36,7 +36,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 | `networkx.algorithms.tree.coding` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (68)
+## RUST_NATIVE exports (60)
 
 - `barycenter`
 - `bfs_layers`
@@ -81,15 +81,9 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `max_weight_matching`
 - `maximal_independent_set`
 - `maximal_matching`
-- `maximum_branching`
 - `maximum_independent_set`
-- `maximum_spanning_arborescence`
-- `maximum_spanning_edges`
 - `min_weight_matching`
 - `min_weighted_vertex_cover`
-- `minimum_branching`
-- `minimum_spanning_arborescence`
-- `minimum_spanning_edges`
 - `node_boundary`
 - `node_connected_component`
 - `normalized_cut_size`
@@ -100,14 +94,12 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `number_strongly_connected_components`
 - `number_weakly_connected_components`
 - `pappus_graph`
-- `partition_spanning_tree`
-- `random_spanning_tree`
 - `ring_of_cliques`
 - `sedgewick_maze_graph`
 - `tree_broadcast_center`
 - `tree_broadcast_time`
 
-## PY_WRAPPER exports (710)
+## PY_WRAPPER exports (718)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -536,19 +528,25 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `make_max_clique_graph`
 - `margulis_gabber_galil_graph`
 - `max_flow_min_cost`
+- `maximum_branching`
 - `maximum_flow`
 - `maximum_flow_value`
+- `maximum_spanning_arborescence`
+- `maximum_spanning_edges`
 - `maximum_spanning_tree`
 - `maybe_regular_expander`
 - `maybe_regular_expander_graph`
 - `min_cost_flow`
 - `min_cost_flow_cost`
 - `min_edge_cover`
+- `minimum_branching`
 - `minimum_cut`
 - `minimum_cut_value`
 - `minimum_cycle_basis`
 - `minimum_edge_cut`
 - `minimum_node_cut`
+- `minimum_spanning_arborescence`
+- `minimum_spanning_edges`
 - `minimum_spanning_tree`
 - `minimum_st_node_cut`
 - `mixing_dict`
@@ -618,6 +616,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `parse_pajek`
 - `parse_sparse6`
 - `partial_duplication_graph`
+- `partition_spanning_tree`
 - `path_graph`
 - `path_weight`
 - `percolation_centrality`
@@ -657,6 +656,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `random_regular_expander_graph`
 - `random_regular_graph`
 - `random_shell_graph`
+- `random_spanning_tree`
 - `random_tournament`
 - `random_tree`
 - `random_unlabeled_rooted_forest`
