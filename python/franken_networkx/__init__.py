@@ -6960,6 +6960,55 @@ from franken_networkx._fnx import (
     vf2pp_all_isomorphisms_rust as _vf2pp_all_isomorphisms_rust,
     vf2pp_isomorphism_rust as _vf2pp_isomorphism_rust,
 )
+from networkx.algorithms import isomorphism as _nx_isomorphism
+
+
+class GraphMatcher(_nx_isomorphism.GraphMatcher):
+    """VF2 graph matcher accepting FrankenNetworkX graph objects."""
+
+    def __init__(self, G1, G2, node_match=None, edge_match=None):
+        super().__init__(
+            _networkx_graph_for_parity(G1),
+            _networkx_graph_for_parity(G2),
+            node_match=node_match,
+            edge_match=edge_match,
+        )
+
+
+class DiGraphMatcher(_nx_isomorphism.DiGraphMatcher):
+    """VF2 directed-graph matcher accepting FrankenNetworkX graph objects."""
+
+    def __init__(self, G1, G2, node_match=None, edge_match=None):
+        super().__init__(
+            _networkx_graph_for_parity(G1),
+            _networkx_graph_for_parity(G2),
+            node_match=node_match,
+            edge_match=edge_match,
+        )
+
+
+class MultiGraphMatcher(_nx_isomorphism.MultiGraphMatcher):
+    """VF2 multigraph matcher accepting FrankenNetworkX graph objects."""
+
+    def __init__(self, G1, G2, node_match=None, edge_match=None):
+        super().__init__(
+            _networkx_graph_for_parity(G1),
+            _networkx_graph_for_parity(G2),
+            node_match=node_match,
+            edge_match=edge_match,
+        )
+
+
+class MultiDiGraphMatcher(_nx_isomorphism.MultiDiGraphMatcher):
+    """VF2 directed-multigraph matcher accepting FrankenNetworkX graph objects."""
+
+    def __init__(self, G1, G2, node_match=None, edge_match=None):
+        super().__init__(
+            _networkx_graph_for_parity(G1),
+            _networkx_graph_for_parity(G2),
+            node_match=node_match,
+            edge_match=edge_match,
+        )
 
 
 def fast_could_be_isomorphic(G1, G2):
@@ -31099,7 +31148,11 @@ __all__ = [
     "equitable_color",
     "chromatic_polynomial",
     "combinatorial_embedding_to_pos",
-    # Isomorphism VF2++
+    # Isomorphism VF2/VF2++
+    "GraphMatcher",
+    "DiGraphMatcher",
+    "MultiGraphMatcher",
+    "MultiDiGraphMatcher",
     "vf2pp_is_isomorphic",
     "vf2pp_isomorphism",
     "vf2pp_all_isomorphisms",

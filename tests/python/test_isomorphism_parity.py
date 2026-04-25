@@ -32,6 +32,87 @@ def _block_networkx_graph_edit(monkeypatch):
     monkeypatch.setattr(nx, "optimize_graph_edit_distance", fail_networkx)
 
 
+@pytest.mark.parametrize(
+    ("fnx_graph_cls", "nx_graph_cls", "fnx_matcher_cls", "nx_matcher_cls"),
+    [
+        (fnx.Graph, nx.Graph, fnx.GraphMatcher, nx.algorithms.isomorphism.GraphMatcher),
+        (
+            fnx.DiGraph,
+            nx.DiGraph,
+            fnx.DiGraphMatcher,
+            nx.algorithms.isomorphism.DiGraphMatcher,
+        ),
+        (
+            fnx.MultiGraph,
+            nx.MultiGraph,
+            fnx.MultiGraphMatcher,
+            nx.algorithms.isomorphism.MultiGraphMatcher,
+        ),
+        (
+            fnx.MultiDiGraph,
+            nx.MultiDiGraph,
+            fnx.MultiDiGraphMatcher,
+            nx.algorithms.isomorphism.MultiDiGraphMatcher,
+        ),
+    ],
+)
+def test_vf2_matcher_classes_match_networkx_api(
+    fnx_graph_cls,
+    nx_graph_cls,
+    fnx_matcher_cls,
+    nx_matcher_cls,
+):
+    graph = fnx_graph_cls()
+    graph.add_edges_from([(0, 1), (1, 2)])
+    graph.nodes[0]["color"] = "red"
+    graph.nodes[1]["color"] = "blue"
+    graph.nodes[2]["color"] = "green"
+
+    expected_graph = nx_graph_cls()
+    expected_graph.add_edges_from([(0, 1), (1, 2)])
+    expected_graph.nodes[0]["color"] = "red"
+    expected_graph.nodes[1]["color"] = "blue"
+    expected_graph.nodes[2]["color"] = "green"
+
+    target = fnx_graph_cls()
+    target.add_edges_from([("a", "b"), ("b", "c")])
+    target.nodes["a"]["color"] = "red"
+    target.nodes["b"]["color"] = "blue"
+    target.nodes["c"]["color"] = "green"
+
+    expected_target = nx_graph_cls()
+    expected_target.add_edges_from([("a", "b"), ("b", "c")])
+    expected_target.nodes["a"]["color"] = "red"
+    expected_target.nodes["b"]["color"] = "blue"
+    expected_target.nodes["c"]["color"] = "green"
+
+    def node_match(left, right):
+        return left == right
+
+    matcher = fnx_matcher_cls(graph, target, node_match=node_match)
+    expected = nx_matcher_cls(expected_graph, expected_target, node_match=node_match)
+
+    assert isinstance(matcher, nx_matcher_cls)
+    assert matcher.is_isomorphic() == expected.is_isomorphic()
+    assert {_mapping_signature(mapping) for mapping in matcher.isomorphisms_iter()} == {
+        _mapping_signature(mapping) for mapping in expected.isomorphisms_iter()
+    }
+    assert matcher.subgraph_is_isomorphic() == expected.subgraph_is_isomorphic()
+    assert {
+        _mapping_signature(mapping) for mapping in matcher.subgraph_isomorphisms_iter()
+    } == {
+        _mapping_signature(mapping) for mapping in expected.subgraph_isomorphisms_iter()
+    }
+    for method_name in (
+        "match",
+        "candidate_pairs_iter",
+        "semantic_feasibility",
+        "syntactic_feasibility",
+        "initialize",
+    ):
+        assert callable(getattr(matcher, method_name))
+
+
 def test_is_isomorphic_uses_rust_when_no_callbacks(monkeypatch):
     g1 = fnx.path_graph(4)
     g2 = fnx.path_graph(4)
@@ -342,6 +423,110 @@ def test_vf2pp_isomorphism_directed_matches_networkx():
     g2 = fnx.DiGraph([("a", "b"), ("b", "c")])
 
     assert fnx.vf2pp_isomorphism(g1, g2) == nx.vf2pp_isomorphism(_to_nx(g1), _to_nx(g2))
+
+
+def _mapping_signatures(mappings):
+    return {_mapping_signature(mapping) for mapping in mappings}
+
+
+@pytest.mark.parametrize(
+    ("fnx_matcher", "nx_matcher", "left", "right"),
+    [
+        (
+            fnx.GraphMatcher,
+            nx.algorithms.isomorphism.GraphMatcher,
+            fnx.path_graph(3),
+            fnx.relabel_nodes(fnx.path_graph(3), {0: "a", 1: "b", 2: "c"}),
+        ),
+        (
+            fnx.DiGraphMatcher,
+            nx.algorithms.isomorphism.DiGraphMatcher,
+            fnx.DiGraph([(0, 1), (1, 2)]),
+            fnx.DiGraph([("a", "b"), ("b", "c")]),
+        ),
+        (
+            fnx.MultiGraphMatcher,
+            nx.algorithms.isomorphism.MultiGraphMatcher,
+            fnx.MultiGraph([(0, 1), (0, 1), (1, 2)]),
+            fnx.MultiGraph([("a", "b"), ("a", "b"), ("b", "c")]),
+        ),
+        (
+            fnx.MultiDiGraphMatcher,
+            nx.algorithms.isomorphism.MultiDiGraphMatcher,
+            fnx.MultiDiGraph([(0, 1), (0, 1), (1, 2)]),
+            fnx.MultiDiGraph([("a", "b"), ("a", "b"), ("b", "c")]),
+        ),
+    ],
+)
+def test_vf2_matcher_wrappers_match_networkx(fnx_matcher, nx_matcher, left, right):
+    matcher = fnx_matcher(left, right)
+    expected = nx_matcher(_to_nx(left), _to_nx(right))
+
+    assert matcher.is_isomorphic() == expected.is_isomorphic()
+    assert _mapping_signatures(matcher.isomorphisms_iter()) == _mapping_signatures(
+        expected.isomorphisms_iter()
+    )
+    assert _mapping_signatures(fnx_matcher(left, right).match()) == _mapping_signatures(
+        nx_matcher(_to_nx(left), _to_nx(right)).match()
+    )
+
+    matcher.initialize()
+    expected.initialize()
+    actual_pair = next(matcher.candidate_pairs_iter())
+    expected_pair = next(expected.candidate_pairs_iter())
+    assert actual_pair == expected_pair
+    assert matcher.semantic_feasibility(*actual_pair) == expected.semantic_feasibility(
+        *expected_pair
+    )
+    assert matcher.syntactic_feasibility(*actual_pair) == expected.syntactic_feasibility(
+        *expected_pair
+    )
+
+
+def test_vf2_graph_matcher_callbacks_and_subgraph_api_match_networkx():
+    left = fnx.Graph()
+    left.add_node(0, color="red")
+    left.add_node(1, color="blue")
+    left.add_node(2, color="red")
+    left.add_node(3, color="blue")
+    left.add_edge(0, 1, weight=2)
+    left.add_edge(1, 2, weight=3)
+    left.add_edge(2, 3, weight=2)
+
+    right = fnx.Graph()
+    right.add_node("a", color="red")
+    right.add_node("b", color="blue")
+    right.add_node("c", color="red")
+    right.add_edge("a", "b", weight=2)
+    right.add_edge("b", "c", weight=3)
+
+    def node_match(left_attrs, right_attrs):
+        return left_attrs == right_attrs
+
+    def edge_match(left_attrs, right_attrs):
+        return left_attrs == right_attrs
+
+    matcher = fnx.GraphMatcher(
+        left,
+        right,
+        node_match=node_match,
+        edge_match=edge_match,
+    )
+    expected = nx.algorithms.isomorphism.GraphMatcher(
+        _to_nx(left),
+        _to_nx(right),
+        node_match=node_match,
+        edge_match=edge_match,
+    )
+
+    assert matcher.subgraph_is_isomorphic() == expected.subgraph_is_isomorphic()
+    assert matcher.subgraph_is_monomorphic() == expected.subgraph_is_monomorphic()
+    assert _mapping_signatures(matcher.subgraph_isomorphisms_iter()) == _mapping_signatures(
+        expected.subgraph_isomorphisms_iter()
+    )
+    assert _mapping_signatures(matcher.subgraph_monomorphisms_iter()) == _mapping_signatures(
+        expected.subgraph_monomorphisms_iter()
+    )
 
 
 def test_graph_edit_distance_matches_networkx_on_small_graphs():
