@@ -13883,26 +13883,35 @@ def all_pairs_node_connectivity(G, nbunch=None, flow_func=None):
     # (2,3),(3,0),(0,2)] — local_node_connectivity(3,0)=1 but the
     # bulk Rust helper emitted 2 for that entry. Delegate directed
     # inputs to networkx, where local_node_connectivity is correct.
-    if G.is_directed():
+    if G.is_directed() or flow_func is not None:
         return _call_networkx_for_parity(
             "all_pairs_node_connectivity",
             G,
             nbunch=nbunch,
             flow_func=flow_func,
         )
-    # flow_func parameter is accepted for API compatibility but ignored;
-    # the native implementation always uses the default max-flow algorithm.
     flat = _fnx.all_pairs_node_connectivity_rust(G)
-    result = {}
-    for (u, v), conn in flat.items():
-        result.setdefault(u, {})[v] = conn
-    if nbunch is not None:
+    if nbunch is None:
+        nodes = list(G)
+    else:
         wanted = set(nbunch)
-        return {
-            u: {v: conn for v, conn in nbrs.items() if v in wanted}
-            for u, nbrs in result.items()
-            if u in wanted
-        }
+        nodes = [node for node in G if node in wanted]
+        nodes.extend(node for node in wanted if node not in G)
+
+    result = {node: {} for node in nodes}
+    missing = object()
+    for left, right in itertools.combinations(nodes, 2):
+        if left not in G:
+            raise KeyError(left)
+        if right not in G:
+            raise KeyError(right)
+        conn = flat.get((left, right), missing)
+        if conn is missing:
+            conn = flat.get((right, left), missing)
+        if conn is missing:
+            raise KeyError(right)
+        result[left][right] = conn
+        result[right][left] = conn
     return result
 
 

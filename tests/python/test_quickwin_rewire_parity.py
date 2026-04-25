@@ -118,6 +118,72 @@ def test_all_pairs_node_connectivity_matches_nx():
     )
 
 
+def test_all_pairs_node_connectivity_preserves_networkx_iteration_order(monkeypatch):
+    graph = fnx.complete_graph(4)
+    expected = nx.complete_graph(4)
+    expected_result = nx.all_pairs_node_connectivity(expected)
+
+    monkeypatch.setattr(
+        nx,
+        "all_pairs_node_connectivity",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("NetworkX all_pairs_node_connectivity fallback used")
+        ),
+    )
+
+    actual = fnx.all_pairs_node_connectivity(graph)
+
+    assert actual == expected_result
+    assert list(actual) == list(expected_result)
+    assert {node: list(values) for node, values in actual.items()} == {
+        node: list(values) for node, values in expected_result.items()
+    }
+
+    reordered = fnx.Graph()
+    reordered.add_nodes_from([3, 1, 2, 0])
+    reordered.add_edges_from(
+        [
+            (3, 1),
+            (3, 2),
+            (3, 0),
+            (1, 2),
+            (1, 0),
+            (2, 0),
+        ]
+    )
+
+    subset = fnx.all_pairs_node_connectivity(reordered, nbunch=[3, 1])
+
+    assert list(subset) == [3, 1]
+    assert list(subset[3]) == [1]
+    assert list(subset[1]) == [3]
+
+
+def test_all_pairs_node_connectivity_honors_callable_flow_func(monkeypatch):
+    graph = fnx.path_graph(4)
+    sentinel = {"used": {"flow": 1}}
+    seen = {}
+
+    def flow_func(*args, **kwargs):
+        raise AssertionError("sentinel flow_func should be forwarded, not called here")
+
+    def fake_all_pairs_node_connectivity(converted, *args, **kwargs):
+        seen["graph_type"] = type(converted).__name__
+        seen["kwargs"] = kwargs
+        return sentinel
+
+    monkeypatch.setattr(nx, "all_pairs_node_connectivity", fake_all_pairs_node_connectivity)
+
+    assert (
+        fnx.all_pairs_node_connectivity(graph, nbunch=[0, 2], flow_func=flow_func)
+        == sentinel
+    )
+    assert seen["graph_type"] == "Graph"
+    assert seen["kwargs"]["nbunch"] == [0, 2]
+    assert seen["kwargs"]["flow_func"] is flow_func
+    assert seen["kwargs"]["backend"] == "networkx"
+
+
 def test_all_pairs_node_connectivity_validates_flow_func():
     graph = fnx.path_graph(4)
     expected = nx.path_graph(4)
