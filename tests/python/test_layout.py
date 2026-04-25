@@ -579,6 +579,42 @@ def test_spring_layout_matches_networkx_without_delegation():
         assert np.allclose(graph.nodes[node]["pos"], coords)
 
 
+@pytest.mark.parametrize(
+    "make_graphs",
+    [
+        pytest.param(lambda: (fnx.path_graph(6), nx.path_graph(6)), id="path-6"),
+        pytest.param(
+            lambda: (fnx.complete_graph(5), nx.complete_graph(5)),
+            id="complete-5",
+        ),
+        pytest.param(
+            lambda: (fnx.karate_club_graph(), nx.karate_club_graph()),
+            id="karate-club",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    ("fnx_layout", "nx_layout"),
+    [
+        pytest.param(fnx.spring_layout, nx.spring_layout, id="spring"),
+        pytest.param(
+            fnx.fruchterman_reingold_layout,
+            nx.fruchterman_reingold_layout,
+            id="fruchterman-reingold",
+        ),
+    ],
+)
+def test_force_directed_layout_seeded_numeric_parity(make_graphs, fnx_layout, nx_layout):
+    graph, expected_graph = make_graphs()
+
+    actual = _as_tuples(fnx_layout(graph, seed=42))
+    expected = _as_tuples(nx_layout(expected_graph, seed=42))
+
+    assert actual.keys() == expected.keys()
+    for node in actual:
+        assert np.allclose(actual[node], expected[node], atol=1e-6)
+
+
 def test_spring_layout_tuple_labels_match_networkx_without_delegation():
     mapping = {node: ("spring", node) for node in range(5)}
     graph = fnx.relabel_nodes(fnx.cycle_graph(5), mapping)
