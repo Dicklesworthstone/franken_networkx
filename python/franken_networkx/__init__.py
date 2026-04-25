@@ -14022,6 +14022,38 @@ def minimum_st_node_cut(G, s, t, flow_func=None, auxiliary=None, residual=None):
     return set(minimum_node_cut(G, s, t))
 
 
+def _call_networkx_connectivity_for_parity(name, G, /, *args, **kwargs):
+    import networkx as nx
+
+    try:
+        return getattr(nx.algorithms.connectivity, name)(
+            _networkx_graph_for_parity(G), *args, **kwargs
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
+def minimum_st_edge_cut(G, s, t, flow_func=None, auxiliary=None, residual=None):
+    """Return the minimum st edge cut as a set of edges."""
+    _validate_flow_func_selector(flow_func)
+    return _call_networkx_connectivity_for_parity(
+        "minimum_st_edge_cut", G, s, t,
+        flow_func=flow_func, auxiliary=auxiliary, residual=residual,
+    )
+
+
+def bridge_components(G):
+    """Yield 2-edge-connected components after removing bridges."""
+    return _call_networkx_connectivity_for_parity("bridge_components", G)
+
+
+def is_locally_k_edge_connected(G, s, t, k):
+    """Return True if there are k edge-disjoint paths between s and t in G."""
+    return _call_networkx_connectivity_for_parity(
+        "is_locally_k_edge_connected", G, s, t, k,
+    )
+
+
 def voronoi_cells(G, center_nodes, weight="weight"):
     """Return Voronoi cells around the given centers.
 
@@ -17337,6 +17369,37 @@ def fast_label_propagation_communities(G, *, weight=None, seed=None):
 def is_partition(G, communities):
     """Return True if ``communities`` is a partition of the nodes of ``G``."""
     return _call_networkx_community_for_parity("is_partition", G, communities)
+
+
+def leiden_communities(G, weight="weight", resolution=1, max_level=None, seed=None):
+    """Find communities in G using the Leiden algorithm."""
+    return _call_networkx_community_for_parity(
+        "leiden_communities", G,
+        weight=weight, resolution=resolution, max_level=max_level, seed=seed,
+    )
+
+
+def leiden_partitions(G, weight="weight", resolution=1, seed=None):
+    """Yield partitions of G during Leiden community detection."""
+    return _call_networkx_community_for_parity(
+        "leiden_partitions", G,
+        weight=weight, resolution=resolution, seed=seed,
+    )
+
+
+def edge_betweenness_partition(G, number_of_sets, *, weight=None):
+    """Partition G using edge betweenness centrality."""
+    return _call_networkx_community_for_parity(
+        "edge_betweenness_partition", G, number_of_sets, weight=weight,
+    )
+
+
+def greedy_source_expansion(G, *, source, cutoff=None, method="clauset"):
+    """Greedy local community expansion from a source node."""
+    return _call_networkx_community_for_parity(
+        "greedy_source_expansion", G,
+        source=source, cutoff=cutoff, method=method,
+    )
 
 
 def asyn_lpa_communities(G, weight=None, seed=None):
@@ -30998,9 +31061,13 @@ __all__ = [
     "fast_label_propagation_communities",
     "asyn_lpa_communities",
     "greedy_modularity_communities",
+    "greedy_source_expansion",
     "girvan_newman",
     "is_partition",
     "k_clique_communities",
+    "leiden_communities",
+    "leiden_partitions",
+    "edge_betweenness_partition",
     # Attribute helpers
     "set_node_attributes",
     "get_node_attributes",
@@ -31097,7 +31164,10 @@ __all__ = [
     "generalized_degree",
     "is_semiconnected",
     "all_pairs_node_connectivity",
+    "bridge_components",
+    "is_locally_k_edge_connected",
     "local_node_connectivity",
+    "minimum_st_edge_cut",
     "minimum_st_node_cut",
     "contracted_nodes",
     "contracted_edge",
