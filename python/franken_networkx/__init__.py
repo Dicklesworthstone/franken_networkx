@@ -6816,6 +6816,33 @@ def local_and_global_consistency(G, alpha=0.99, max_iter=30, label_name="label")
     )
 
 
+def random_uniform_k_out_graph(n, k, self_loops=True, with_replacement=True, seed=None):
+    """Return a random k-out digraph on n nodes."""
+    import networkx as nx
+
+    return nx.generators.directed.random_uniform_k_out_graph(
+        n, k, self_loops=self_loops, with_replacement=with_replacement, seed=seed,
+    )
+
+
+def reverse_cuthill_mckee_ordering(G, heuristic=None):
+    """Return the reverse Cuthill-McKee node ordering for bandwidth reduction."""
+    import networkx as nx
+
+    return nx.utils.reverse_cuthill_mckee_ordering(
+        _networkx_graph_for_parity(G), heuristic=heuristic,
+    )
+
+
+def flow_matrix_row(G, weight=None, dtype=float, solver="lu"):
+    """Yield rows of the current-flow matrix used for current-flow centrality."""
+    import networkx as nx
+
+    yield from nx.algorithms.centrality.flow_matrix.flow_matrix_row(
+        _networkx_graph_for_parity(G), weight=weight, dtype=dtype, solver=solver,
+    )
+
+
 def _ancestors_descendants_missing_node_msg(G, source):
     kind = "digraph" if G.is_directed() else "graph"
     return f"The node {source} is not in the {kind}."
@@ -31843,6 +31870,9 @@ __all__ = [
     "normalized_mutual_weight",
     "harmonic_function",
     "local_and_global_consistency",
+    "random_uniform_k_out_graph",
+    "reverse_cuthill_mckee_ordering",
+    "flow_matrix_row",
     "lexicographic_topological_sort",
     "topological_sort",
     "topological_generations",
