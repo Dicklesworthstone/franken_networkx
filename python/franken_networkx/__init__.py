@@ -14046,6 +14046,100 @@ def _call_networkx_connectivity_for_parity(name, G, /, *args, **kwargs):
         _raise_translated_networkx_exception(exc)
 
 
+def _call_networkx_approximation_for_parity(name, G, /, *args, **kwargs):
+    import networkx as nx
+
+    try:
+        return getattr(nx.algorithms.approximation, name)(
+            _networkx_graph_for_parity(G), *args, **kwargs
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
+def metric_closure(G, weight="weight"):
+    """Return the metric closure of an undirected graph."""
+    return _call_networkx_approximation_for_parity(
+        "metric_closure", G, weight=weight,
+    )
+
+
+def christofides(G, weight="weight", tree=None):
+    """Approximate the minimum-weight Hamiltonian cycle via Christofides' algorithm."""
+    return _call_networkx_approximation_for_parity(
+        "christofides", G, weight=weight, tree=tree,
+    )
+
+
+def greedy_tsp(G, weight="weight", source=None):
+    """Greedy nearest-neighbour heuristic for the traveling salesman problem."""
+    return _call_networkx_approximation_for_parity(
+        "greedy_tsp", G, weight=weight, source=source,
+    )
+
+
+def simulated_annealing_tsp(
+    G,
+    init_cycle,
+    weight="weight",
+    source=None,
+    temp=100,
+    move="1-1",
+    max_iterations=10,
+    N_inner=100,
+    alpha=0.01,
+    seed=None,
+):
+    """Simulated-annealing heuristic for the traveling salesman problem."""
+    return _call_networkx_approximation_for_parity(
+        "simulated_annealing_tsp", G, init_cycle,
+        weight=weight, source=source, temp=temp, move=move,
+        max_iterations=max_iterations, N_inner=N_inner, alpha=alpha, seed=seed,
+    )
+
+
+def threshold_accepting_tsp(
+    G,
+    init_cycle,
+    weight="weight",
+    source=None,
+    threshold=1,
+    move="1-1",
+    max_iterations=10,
+    N_inner=100,
+    alpha=0.1,
+    seed=None,
+):
+    """Threshold-accepting heuristic for the traveling salesman problem."""
+    return _call_networkx_approximation_for_parity(
+        "threshold_accepting_tsp", G, init_cycle,
+        weight=weight, source=source, threshold=threshold, move=move,
+        max_iterations=max_iterations, N_inner=N_inner, alpha=alpha, seed=seed,
+    )
+
+
+def asadpour_atsp(G, weight="weight", seed=None, source=None):
+    """Asadpour algorithm for the asymmetric traveling salesman problem."""
+    return _call_networkx_approximation_for_parity(
+        "asadpour_atsp", G, weight=weight, seed=seed, source=source,
+    )
+
+
+def traveling_salesman_problem(
+    G,
+    weight="weight",
+    nodes=None,
+    cycle=True,
+    method=None,
+    **kwargs,
+):
+    """Approximate solution to the TSP / route-inspection problem."""
+    return _call_networkx_approximation_for_parity(
+        "traveling_salesman_problem", G,
+        weight=weight, nodes=nodes, cycle=cycle, method=method, **kwargs,
+    )
+
+
 def minimum_st_edge_cut(G, s, t, flow_func=None, auxiliary=None, residual=None):
     """Return the minimum st edge cut as a set of edges."""
     _validate_flow_func_selector(flow_func)
@@ -31541,6 +31635,13 @@ __all__ = [
     "clique_removal",
     "large_clique_size",
     "spanner",
+    "asadpour_atsp",
+    "christofides",
+    "greedy_tsp",
+    "metric_closure",
+    "simulated_annealing_tsp",
+    "threshold_accepting_tsp",
+    "traveling_salesman_problem",
     # Algorithms — tree recognition
     "is_arborescence",
     "is_branching",
