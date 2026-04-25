@@ -7021,6 +7021,19 @@ class MultiDiGraphMatcher(_nx_isomorphism.MultiDiGraphMatcher):
         )
 
 
+class ISMAGS(_nx_isomorphism.ISMAGS):
+    """ISMAGS matcher accepting FrankenNetworkX graph objects."""
+
+    def __init__(self, graph, subgraph, node_match=None, edge_match=None, cache=None):
+        super().__init__(
+            _networkx_graph_for_parity(graph),
+            _networkx_graph_for_parity(subgraph),
+            node_match=node_match,
+            edge_match=edge_match,
+            cache=cache,
+        )
+
+
 def fast_could_be_isomorphic(G1, G2):
     """br-isokw: ``G1, G2`` match nx; Rust binding used ``g1, g2``."""
     return _raw_fast_could_be_isomorphic(G1, G2)
@@ -31163,6 +31176,7 @@ __all__ = [
     "DiGraphMatcher",
     "MultiGraphMatcher",
     "MultiDiGraphMatcher",
+    "ISMAGS",
     "categorical_node_match",
     "categorical_edge_match",
     "categorical_multiedge_match",

@@ -135,6 +135,70 @@ def test_isomorphism_match_helpers_match_networkx(
     assert matcher(*mismatching_attrs) == expected(*mismatching_attrs)
 
 
+def test_ismags_signature_and_full_isomorphism_match_networkx():
+    assert inspect.signature(fnx.ISMAGS) == inspect.signature(
+        nx.algorithms.isomorphism.ISMAGS
+    )
+
+    graph = fnx.Graph()
+    graph.add_node(0, color="red")
+    graph.add_node(1, color="blue")
+    graph.add_node(2, color="green")
+    graph.add_edge(0, 1, weight=2)
+    graph.add_edge(1, 2, weight=3)
+
+    target = fnx.Graph()
+    target.add_node("a", color="red")
+    target.add_node("b", color="blue")
+    target.add_node("c", color="green")
+    target.add_edge("a", "b", weight=2)
+    target.add_edge("b", "c", weight=3)
+
+    def node_match(left, right):
+        return left == right
+
+    def edge_match(left, right):
+        return left == right
+
+    matcher = fnx.ISMAGS(
+        graph,
+        target,
+        node_match=node_match,
+        edge_match=edge_match,
+    )
+    expected = nx.algorithms.isomorphism.ISMAGS(
+        _to_nx(graph),
+        _to_nx(target),
+        node_match=node_match,
+        edge_match=edge_match,
+    )
+
+    assert isinstance(matcher, nx.algorithms.isomorphism.ISMAGS)
+    for symmetry in (False, True):
+        assert matcher.is_isomorphic(symmetry=symmetry) == expected.is_isomorphic(
+            symmetry=symmetry
+        )
+    assert _mapping_signatures(matcher.isomorphisms_iter()) == _mapping_signatures(
+        expected.isomorphisms_iter()
+    )
+
+
+def test_ismags_subgraph_methods_match_networkx():
+    graph = fnx.path_graph(3)
+    subgraph = fnx.path_graph(2)
+
+    matcher = fnx.ISMAGS(graph, subgraph)
+    expected = nx.algorithms.isomorphism.ISMAGS(_to_nx(graph), _to_nx(subgraph))
+
+    assert matcher.subgraph_is_isomorphic() == expected.subgraph_is_isomorphic()
+    assert _mapping_signatures(matcher.subgraph_isomorphisms_iter()) == _mapping_signatures(
+        expected.subgraph_isomorphisms_iter()
+    )
+    assert _mapping_signatures(matcher.largest_common_subgraph()) == _mapping_signatures(
+        expected.largest_common_subgraph()
+    )
+
+
 @pytest.mark.parametrize(
     ("fnx_graph_cls", "nx_graph_cls", "fnx_matcher_cls", "nx_matcher_cls"),
     [
