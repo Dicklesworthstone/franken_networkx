@@ -1,4 +1,6 @@
+import inspect
 import networkx as nx
+import operator
 import pytest
 import re
 from builtins import ValueError as BuiltinValueError
@@ -30,6 +32,107 @@ def _block_networkx_graph_edit(monkeypatch):
     monkeypatch.setattr(nx, "optimal_edit_paths", fail_networkx)
     monkeypatch.setattr(nx, "optimize_edit_paths", fail_networkx)
     monkeypatch.setattr(nx, "optimize_graph_edit_distance", fail_networkx)
+
+
+_ISOMORPHISM_MATCH_HELPERS = [
+    "categorical_node_match",
+    "categorical_edge_match",
+    "categorical_multiedge_match",
+    "numerical_node_match",
+    "numerical_edge_match",
+    "numerical_multiedge_match",
+    "generic_node_match",
+    "generic_edge_match",
+    "generic_multiedge_match",
+]
+
+
+@pytest.mark.parametrize("helper_name", _ISOMORPHISM_MATCH_HELPERS)
+def test_isomorphism_match_helper_signatures_match_networkx(helper_name):
+    assert inspect.signature(getattr(fnx, helper_name)) == inspect.signature(
+        getattr(nx.algorithms.isomorphism, helper_name)
+    )
+
+
+@pytest.mark.parametrize(
+    ("helper_name", "factory_args", "matching_attrs", "mismatching_attrs"),
+    [
+        (
+            "categorical_node_match",
+            ("color", "red"),
+            ({"color": "red"}, {"color": "red"}),
+            ({"color": "red"}, {"color": "blue"}),
+        ),
+        (
+            "categorical_edge_match",
+            ("relation", "friend"),
+            ({"relation": "friend"}, {"relation": "friend"}),
+            ({"relation": "friend"}, {"relation": "blocked"}),
+        ),
+        (
+            "categorical_multiedge_match",
+            ("color", "red"),
+            (
+                {0: {"color": "red"}, 1: {"color": "blue"}},
+                {0: {"color": "blue"}, 1: {"color": "red"}},
+            ),
+            ({0: {"color": "red"}}, {0: {"color": "blue"}}),
+        ),
+        (
+            "numerical_node_match",
+            ("weight", 1.0),
+            ({"weight": 1.0}, {"weight": 1.000000001}),
+            ({"weight": 1.0}, {"weight": 1.1}),
+        ),
+        (
+            "numerical_edge_match",
+            ("weight", 1.0),
+            ({"weight": 3.0}, {"weight": 3.000000001}),
+            ({"weight": 3.0}, {"weight": 4.0}),
+        ),
+        (
+            "numerical_multiedge_match",
+            ("weight", 1.0),
+            (
+                {0: {"weight": 1.0}, 1: {"weight": 2.0}},
+                {0: {"weight": 2.0}, 1: {"weight": 1.0}},
+            ),
+            ({0: {"weight": 1.0}}, {0: {"weight": 2.0}}),
+        ),
+        (
+            "generic_node_match",
+            ("color", "red", operator.eq),
+            ({"color": "red"}, {"color": "red"}),
+            ({"color": "red"}, {"color": "blue"}),
+        ),
+        (
+            "generic_edge_match",
+            ("weight", 1, operator.eq),
+            ({"weight": 2}, {"weight": 2}),
+            ({"weight": 2}, {"weight": 3}),
+        ),
+        (
+            "generic_multiedge_match",
+            ("weight", 1, operator.eq),
+            (
+                {0: {"weight": 1}, 1: {"weight": 2}},
+                {0: {"weight": 2}, 1: {"weight": 1}},
+            ),
+            ({0: {"weight": 1}}, {0: {"weight": 2}}),
+        ),
+    ],
+)
+def test_isomorphism_match_helpers_match_networkx(
+    helper_name,
+    factory_args,
+    matching_attrs,
+    mismatching_attrs,
+):
+    matcher = getattr(fnx, helper_name)(*factory_args)
+    expected = getattr(nx.algorithms.isomorphism, helper_name)(*factory_args)
+
+    assert matcher(*matching_attrs) == expected(*matching_attrs)
+    assert matcher(*mismatching_attrs) == expected(*mismatching_attrs)
 
 
 @pytest.mark.parametrize(

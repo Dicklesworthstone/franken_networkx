@@ -6962,6 +6962,16 @@ from franken_networkx._fnx import (
 )
 from networkx.algorithms import isomorphism as _nx_isomorphism
 
+categorical_node_match = _nx_isomorphism.categorical_node_match
+categorical_edge_match = _nx_isomorphism.categorical_edge_match
+categorical_multiedge_match = _nx_isomorphism.categorical_multiedge_match
+numerical_node_match = _nx_isomorphism.numerical_node_match
+numerical_edge_match = _nx_isomorphism.numerical_edge_match
+numerical_multiedge_match = _nx_isomorphism.numerical_multiedge_match
+generic_node_match = _nx_isomorphism.generic_node_match
+generic_edge_match = _nx_isomorphism.generic_edge_match
+generic_multiedge_match = _nx_isomorphism.generic_multiedge_match
+
 
 class GraphMatcher(_nx_isomorphism.GraphMatcher):
     """VF2 graph matcher accepting FrankenNetworkX graph objects."""
@@ -31153,6 +31163,15 @@ __all__ = [
     "DiGraphMatcher",
     "MultiGraphMatcher",
     "MultiDiGraphMatcher",
+    "categorical_node_match",
+    "categorical_edge_match",
+    "categorical_multiedge_match",
+    "numerical_node_match",
+    "numerical_edge_match",
+    "numerical_multiedge_match",
+    "generic_node_match",
+    "generic_edge_match",
+    "generic_multiedge_match",
     "vf2pp_is_isomorphic",
     "vf2pp_isomorphism",
     "vf2pp_all_isomorphisms",
