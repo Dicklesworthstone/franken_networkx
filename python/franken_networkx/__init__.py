@@ -3328,6 +3328,22 @@ def local_edge_connectivity(
         cutoff=cutoff,
     )
 
+
+def local_node_connectivity(
+    G,
+    s,
+    t,
+    flow_func=None,
+    auxiliary=None,
+    residual=None,
+    cutoff=None,
+):
+    """Return the local node connectivity between ``s`` and ``t``."""
+    _validate_flow_func_selector(flow_func)
+    del auxiliary, residual
+    return node_connectivity(G, s=s, t=t, cutoff=cutoff)
+
+
 # Algorithm functions — centrality
 from franken_networkx._fnx import (
     average_neighbor_degree as _raw_average_neighbor_degree,
@@ -9084,7 +9100,7 @@ def _without_most_valuable_edges(G, most_valuable_edge):
     return new_components
 
 
-def k_clique_communities(G, k):
+def k_clique_communities(G, k, cliques=None):
     """Find k-clique communities using the clique percolation method.
 
     A k-clique community is the union of all cliques of size k that can
@@ -9096,6 +9112,9 @@ def k_clique_communities(G, k):
         The input graph.
     k : int
         Size of the smallest clique.
+    cliques : iterable of lists, optional
+        Pre-computed cliques. If provided, delegates to NetworkX which
+        handles the user-provided clique enumeration.
 
     Yields
     ------
@@ -9104,6 +9123,11 @@ def k_clique_communities(G, k):
     """
     if k < 2:
         raise ValueError("k must be >= 2")
+    if cliques is not None:
+        yield from _call_networkx_for_parity(
+            "k_clique_communities", G, k, cliques=cliques
+        )
+        return
     for community in _fnx.k_clique_communities_rust(G, k):
         yield community
 
@@ -13882,8 +13906,10 @@ def all_pairs_node_connectivity(G, nbunch=None, flow_func=None):
     return result
 
 
-def minimum_st_node_cut(G, s, t):
+def minimum_st_node_cut(G, s, t, flow_func=None, auxiliary=None, residual=None):
     """Return the minimum s-t node cut."""
+    _validate_flow_func_selector(flow_func)
+    del auxiliary, residual
     return set(minimum_node_cut(G, s, t))
 
 
@@ -17179,6 +17205,18 @@ def label_propagation_communities(G):
 
     communities = _fnx.label_propagation_communities(G)
     return {index: set(community) for index, community in enumerate(communities)}.values()
+
+
+def fast_label_propagation_communities(G, *, weight=None, seed=None):
+    """Generate community sets determined by fast label propagation."""
+    return _call_networkx_for_parity(
+        "fast_label_propagation_communities", G, weight=weight, seed=seed
+    )
+
+
+def is_partition(G, communities):
+    """Return True if ``communities`` is a partition of the nodes of ``G``."""
+    return _call_networkx_for_parity("is_partition", G, communities)
 
 
 def asyn_lpa_communities(G, weight=None, seed=None):
@@ -30761,9 +30799,11 @@ __all__ = [
     "louvain_communities",
     "modularity",
     "label_propagation_communities",
+    "fast_label_propagation_communities",
     "asyn_lpa_communities",
     "greedy_modularity_communities",
     "girvan_newman",
+    "is_partition",
     "k_clique_communities",
     # Attribute helpers
     "set_node_attributes",
@@ -30861,6 +30901,7 @@ __all__ = [
     "generalized_degree",
     "is_semiconnected",
     "all_pairs_node_connectivity",
+    "local_node_connectivity",
     "minimum_st_node_cut",
     "contracted_nodes",
     "contracted_edge",
