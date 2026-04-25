@@ -6,12 +6,12 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 40 | 4% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 738 | 92% | Python-defined exports with no runtime NetworkX dependency detected |
+| RUST_NATIVE | 39 | 4% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 741 | 92% | Python-defined exports with no runtime NetworkX dependency detected |
 | NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 22 | 2% | public classes, exceptions, iterators |
 | CONSTANT | 2 | 0% | public non-callable values |
-| **Total public exports** | **802** | | unique names from `franken_networkx.__all__` |
+| **Total public exports** | **804** | | unique names from `franken_networkx.__all__` |
 
 All declared public exports are classified. `--check` fails if this generated report drifts from the live module surface.
 
@@ -25,8 +25,8 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 675 |
-| `franken_networkx._fnx` | 40 |
+| `franken_networkx` | 678 |
+| `franken_networkx._fnx` | 39 |
 | `franken_networkx.readwrite` | 35 |
 | `franken_networkx.drawing.nx_pylab` | 21 |
 | `franken_networkx.drawing.layout` | 15 |
@@ -36,7 +36,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 | `networkx.algorithms.tree.coding` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (40)
+## RUST_NATIVE exports (39)
 
 - `bfs_layers`
 - `biconnected_component_edges`
@@ -54,7 +54,6 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `is_connected`
 - `is_dominating_set`
 - `is_empty`
-- `is_eulerian`
 - `is_k_regular`
 - `is_matching`
 - `is_maximal_matching`
@@ -79,7 +78,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `tree_broadcast_center`
 - `tree_broadcast_time`
 
-## PY_WRAPPER exports (738)
+## PY_WRAPPER exports (741)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -368,6 +367,8 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `geographical_threshold_graph`
 - `geometric_edges`
 - `geometric_soft_configuration_graph`
+- `get_counterexample`
+- `get_counterexample_recursive`
 - `get_edge_attributes`
 - `get_node_attributes`
 - `girth`
@@ -442,6 +443,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `is_directed_acyclic_graph`
 - `is_distance_regular`
 - `is_edge_cover`
+- `is_eulerian`
 - `is_forest`
 - `is_frozen`
 - `is_graphical`

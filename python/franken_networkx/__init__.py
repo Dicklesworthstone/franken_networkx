@@ -3700,7 +3700,7 @@ def min_edge_cover(G, matching_algorithm=None):
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if not G.edges() and G.number_of_nodes() > 0:
-        raise NetworkXException(
+        raise NetworkXError(
             "Graph has a node with no edge incident on it, "
             "so no edge cover exists."
         )
