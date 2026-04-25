@@ -24611,6 +24611,35 @@ def could_be_isomorphic(G1, G2, *, properties="dtc"):
     return True
 
 
+def _matcher_factory(nx_matcher_cls):
+    class _Matcher(nx_matcher_cls):
+        def __init__(self, G1, G2):
+            G1_nx = _networkx_graph_for_parity(G1)
+            G2_nx = _networkx_graph_for_parity(G2)
+            super().__init__(G1_nx, G2_nx)
+
+    _Matcher.__name__ = nx_matcher_cls.__name__
+    _Matcher.__qualname__ = nx_matcher_cls.__name__
+    _Matcher.__doc__ = nx_matcher_cls.__doc__
+    return _Matcher
+
+
+def _build_vf2_matcher_classes():
+    import networkx.algorithms.isomorphism as _nxi
+
+    return (
+        _matcher_factory(_nxi.GraphMatcher),
+        _matcher_factory(_nxi.DiGraphMatcher),
+        _matcher_factory(_nxi.MultiGraphMatcher),
+        _matcher_factory(_nxi.MultiDiGraphMatcher),
+    )
+
+
+GraphMatcher, DiGraphMatcher, MultiGraphMatcher, MultiDiGraphMatcher = (
+    _build_vf2_matcher_classes()
+)
+
+
 def is_isomorphic(G1, G2, node_match=None, edge_match=None):
     """Test graph isomorphism, preserving NetworkX callback semantics."""
     if node_match is None and edge_match is None:
@@ -24768,6 +24797,10 @@ _ISOMORPHISM_MODULE_EXPORTS = (
     "vf2pp_all_isomorphisms",
     "tree_isomorphism",
     "rooted_tree_isomorphism",
+    "GraphMatcher",
+    "DiGraphMatcher",
+    "MultiGraphMatcher",
+    "MultiDiGraphMatcher",
 )
 
 
