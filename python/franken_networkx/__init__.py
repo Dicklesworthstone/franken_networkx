@@ -6763,6 +6763,43 @@ def is_directed_acyclic_graph(G):
     return _raw_is_directed_acyclic_graph(G)
 
 
+def has_cycle(G):
+    """Return True if the directed graph G has at least one cycle."""
+    return _call_networkx_submodule_for_parity(
+        "algorithms.dag", "has_cycle", G,
+    )
+
+
+def colliders(G):
+    """Yield (parent1, child, parent2) collider triples in DAG G."""
+    return _call_networkx_submodule_for_parity(
+        "algorithms.dag", "colliders", G,
+    )
+
+
+def v_structures(G):
+    """Yield (parent1, child, parent2) v-structures (unmarried colliders) in DAG G."""
+    return _call_networkx_submodule_for_parity(
+        "algorithms.dag", "v_structures", G,
+    )
+
+
+def mutual_weight(G, u, v, weight=None):
+    """Return the mutual weight (Burt 1992) of edges between u and v in G."""
+    return _call_networkx_submodule_for_parity(
+        "algorithms.structuralholes", "mutual_weight", G,
+        u, v, weight=weight,
+    )
+
+
+def normalized_mutual_weight(G, u, v, norm=sum, weight=None):
+    """Return normalized mutual weight (Burt 1992) of edges between u and v in G."""
+    return _call_networkx_submodule_for_parity(
+        "algorithms.structuralholes", "normalized_mutual_weight", G,
+        u, v, norm=norm, weight=weight,
+    )
+
+
 def _ancestors_descendants_missing_node_msg(G, source):
     kind = "digraph" if G.is_directed() else "graph"
     return f"The node {source} is not in the {kind}."
@@ -31783,6 +31820,11 @@ __all__ = [
     "dag_longest_path_length",
     "descendants",
     "is_directed_acyclic_graph",
+    "has_cycle",
+    "colliders",
+    "v_structures",
+    "mutual_weight",
+    "normalized_mutual_weight",
     "lexicographic_topological_sort",
     "topological_sort",
     "topological_generations",
