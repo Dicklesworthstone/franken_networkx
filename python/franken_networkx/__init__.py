@@ -6843,6 +6843,62 @@ def flow_matrix_row(G, weight=None, dtype=float, solver="lu"):
     )
 
 
+def cuthill_mckee_ordering(G, heuristic=None):
+    """Return the Cuthill-McKee node ordering for bandwidth reduction."""
+    import networkx as nx
+
+    return nx.utils.cuthill_mckee_ordering(
+        _networkx_graph_for_parity(G), heuristic=heuristic,
+    )
+
+
+def connected_cuthill_mckee_ordering(G, heuristic=None):
+    """Return the Cuthill-McKee ordering for a connected graph."""
+    import networkx as nx
+
+    return nx.utils.rcm.connected_cuthill_mckee_ordering(
+        _networkx_graph_for_parity(G), heuristic=heuristic,
+    )
+
+
+def pseudo_peripheral_node(G):
+    """Return a pseudo-peripheral node of the graph (used for RCM seed)."""
+    import networkx as nx
+
+    return nx.utils.rcm.pseudo_peripheral_node(_networkx_graph_for_parity(G))
+
+
+def edges_equal(edges1, edges2, *, directed=False):
+    """Test that two edge collections are equal (order-insensitive)."""
+    import networkx as nx
+
+    return nx.utils.edges_equal(edges1, edges2, directed=directed)
+
+
+def graphs_equal(graph1, graph2):
+    """Test that two graphs are equal (nodes, edges, attributes)."""
+    import networkx as nx
+
+    return nx.utils.graphs_equal(
+        _networkx_graph_for_parity(graph1),
+        _networkx_graph_for_parity(graph2),
+    )
+
+
+def nodes_equal(nodes1, nodes2):
+    """Test that two node collections are equal (order-insensitive)."""
+    import networkx as nx
+
+    return nx.utils.nodes_equal(nodes1, nodes2)
+
+
+def make_list_of_ints(sequence):
+    """Coerce a sequence to a list of plain Python ints."""
+    import networkx as nx
+
+    return nx.utils.make_list_of_ints(sequence)
+
+
 def _ancestors_descendants_missing_node_msg(G, source):
     kind = "digraph" if G.is_directed() else "graph"
     return f"The node {source} is not in the {kind}."
@@ -31872,7 +31928,14 @@ __all__ = [
     "local_and_global_consistency",
     "random_uniform_k_out_graph",
     "reverse_cuthill_mckee_ordering",
+    "cuthill_mckee_ordering",
+    "connected_cuthill_mckee_ordering",
+    "pseudo_peripheral_node",
     "flow_matrix_row",
+    "edges_equal",
+    "graphs_equal",
+    "nodes_equal",
+    "make_list_of_ints",
     "lexicographic_topological_sort",
     "topological_sort",
     "topological_generations",
