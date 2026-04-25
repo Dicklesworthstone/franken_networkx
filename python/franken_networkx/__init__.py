@@ -9175,6 +9175,99 @@ def hopcroft_karp_matching(G, top_nodes=None):
     return result
 
 
+def _call_networkx_bipartite_for_parity(name, G, /, *args, **kwargs):
+    import networkx as nx
+
+    try:
+        return getattr(nx.algorithms.bipartite, name)(
+            _networkx_graph_for_parity(G), *args, **kwargs
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
+def eppstein_matching(G, top_nodes=None):
+    """Return maximum-cardinality bipartite matching via Eppstein's algorithm."""
+    return _call_networkx_bipartite_for_parity(
+        "eppstein_matching", G, top_nodes=top_nodes,
+    )
+
+
+def maximum_matching(G, top_nodes=None):
+    """Return a maximum cardinality matching of a bipartite graph G."""
+    return _call_networkx_bipartite_for_parity(
+        "maximum_matching", G, top_nodes=top_nodes,
+    )
+
+
+def minimum_weight_full_matching(G, top_nodes=None, weight="weight"):
+    """Return a minimum-weight full matching of a bipartite graph G."""
+    return _call_networkx_bipartite_for_parity(
+        "minimum_weight_full_matching", G, top_nodes=top_nodes, weight=weight,
+    )
+
+
+def to_vertex_cover(G, matching, top_nodes=None):
+    """Return a vertex cover dual of a maximum bipartite matching."""
+    return _call_networkx_bipartite_for_parity(
+        "to_vertex_cover", G, matching, top_nodes=top_nodes,
+    )
+
+
+def latapy_clustering(G, nodes=None, mode="dot"):
+    """Bipartite clustering coefficient (Latapy et al.)."""
+    return _call_networkx_bipartite_for_parity(
+        "latapy_clustering", G, nodes=nodes, mode=mode,
+    )
+
+
+def cc_dot(nu, nv):
+    """Latapy bipartite clustering kernel — dot variant."""
+    import networkx as nx
+
+    return nx.algorithms.bipartite.cluster.cc_dot(nu, nv)
+
+
+def cc_max(nu, nv):
+    """Latapy bipartite clustering kernel — max variant."""
+    import networkx as nx
+
+    return nx.algorithms.bipartite.cluster.cc_max(nu, nv)
+
+
+def cc_min(nu, nv):
+    """Latapy bipartite clustering kernel — min variant."""
+    import networkx as nx
+
+    return nx.algorithms.bipartite.cluster.cc_min(nu, nv)
+
+
+def robins_alexander_clustering(G):
+    """Robins-Alexander clustering for bipartite graph G."""
+    return _call_networkx_bipartite_for_parity("robins_alexander_clustering", G)
+
+
+def degrees(B, nodes, weight=None):
+    """Return ``(degX, degY)`` mappings for the two bipartite sets."""
+    return _call_networkx_bipartite_for_parity(
+        "degrees", B, nodes, weight=weight,
+    )
+
+
+def sets(G, top_nodes=None):
+    """Return the two node sets of a bipartite graph."""
+    return _call_networkx_bipartite_for_parity(
+        "sets", G, top_nodes=top_nodes,
+    )
+
+
+def node_redundancy(G, nodes=None):
+    """Return the redundancy coefficient for nodes in bipartite graph G."""
+    return _call_networkx_bipartite_for_parity(
+        "node_redundancy", G, nodes=nodes,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Community detection — additional algorithms
 # ---------------------------------------------------------------------------
@@ -31111,6 +31204,18 @@ __all__ = [
     "projected_graph",
     "bipartite_density",
     "hopcroft_karp_matching",
+    "cc_dot",
+    "cc_max",
+    "cc_min",
+    "degrees",
+    "eppstein_matching",
+    "latapy_clustering",
+    "maximum_matching",
+    "minimum_weight_full_matching",
+    "node_redundancy",
+    "robins_alexander_clustering",
+    "sets",
+    "to_vertex_cover",
     "core_number",
     "EdgePartition",
     "SpanningTreeIterator",
