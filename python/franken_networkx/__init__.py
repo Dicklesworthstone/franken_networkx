@@ -30,6 +30,7 @@ from itertools import combinations, count
 import math
 import numbers
 import sys
+import types as _types
 
 from franken_networkx import _fnx
 from franken_networkx._fnx import __version__
@@ -24741,6 +24742,49 @@ def _rooted_tree_isomorphism_via_parity(t1, root1, t2, root2):
     )
 
 
+_ISOMORPHISM_MODULE_EXPORTS = (
+    "GraphMatcher",
+    "DiGraphMatcher",
+    "MultiGraphMatcher",
+    "MultiDiGraphMatcher",
+    "ISMAGS",
+    "TimeRespectingGraphMatcher",
+    "TimeRespectingDiGraphMatcher",
+    "categorical_node_match",
+    "categorical_edge_match",
+    "categorical_multiedge_match",
+    "numerical_node_match",
+    "numerical_edge_match",
+    "numerical_multiedge_match",
+    "generic_node_match",
+    "generic_edge_match",
+    "generic_multiedge_match",
+    "is_isomorphic",
+    "could_be_isomorphic",
+    "fast_could_be_isomorphic",
+    "faster_could_be_isomorphic",
+    "vf2pp_is_isomorphic",
+    "vf2pp_isomorphism",
+    "vf2pp_all_isomorphisms",
+    "tree_isomorphism",
+    "rooted_tree_isomorphism",
+)
+
+
+def _build_isomorphism_module():
+    module = _types.ModuleType(f"{__name__}.isomorphism")
+    module.__doc__ = "FrankenNetworkX graph isomorphism API."
+    module.__package__ = __name__
+    module.__all__ = list(_ISOMORPHISM_MODULE_EXPORTS)
+    for export_name in _ISOMORPHISM_MODULE_EXPORTS:
+        setattr(module, export_name, globals()[export_name])
+    return module
+
+
+isomorphism = _build_isomorphism_module()
+sys.modules[f"{__name__}.isomorphism"] = isomorphism
+
+
 # Tree/Forest Utilities (br-xkr)
 def junction_tree(G):
     """Junction tree of a chordal graph."""
@@ -31203,6 +31247,7 @@ __all__ = [
     "ISMAGS",
     "TimeRespectingGraphMatcher",
     "TimeRespectingDiGraphMatcher",
+    "isomorphism",
     "categorical_node_match",
     "categorical_edge_match",
     "categorical_multiedge_match",

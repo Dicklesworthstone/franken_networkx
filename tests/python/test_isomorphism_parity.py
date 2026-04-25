@@ -254,6 +254,43 @@ def test_time_respecting_matchers_match_networkx(
     )
 
 
+def test_top_level_isomorphism_module_exports_franken_wrappers():
+    import franken_networkx.isomorphism as fnx_iso
+
+    expected_exports = (
+        "GraphMatcher",
+        "DiGraphMatcher",
+        "MultiGraphMatcher",
+        "MultiDiGraphMatcher",
+        "ISMAGS",
+        "TimeRespectingGraphMatcher",
+        "TimeRespectingDiGraphMatcher",
+        "categorical_node_match",
+        "numerical_edge_match",
+        "generic_multiedge_match",
+        "is_isomorphic",
+        "vf2pp_is_isomorphic",
+        "tree_isomorphism",
+        "rooted_tree_isomorphism",
+    )
+
+    assert fnx_iso is fnx.isomorphism
+    for export_name in expected_exports:
+        assert export_name in fnx_iso.__all__
+        assert getattr(fnx_iso, export_name) is getattr(fnx, export_name)
+
+    graph = fnx.path_graph(3)
+    target = fnx.relabel_nodes(graph, {0: "a", 1: "b", 2: "c"})
+    matcher = fnx_iso.GraphMatcher(graph, target)
+    expected = nx.algorithms.isomorphism.GraphMatcher(_to_nx(graph), _to_nx(target))
+
+    assert isinstance(matcher, nx.algorithms.isomorphism.GraphMatcher)
+    assert matcher.is_isomorphic() == expected.is_isomorphic()
+    assert _mapping_signatures(matcher.isomorphisms_iter()) == _mapping_signatures(
+        expected.isomorphisms_iter()
+    )
+
+
 @pytest.mark.parametrize(
     ("fnx_graph_cls", "nx_graph_cls", "fnx_matcher_cls", "nx_matcher_cls"),
     [
