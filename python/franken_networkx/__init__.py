@@ -6927,6 +6927,73 @@ def is_valid_tree_degree_sequence(degree_sequence):
     return nx.utils.is_valid_tree_degree_sequence(degree_sequence)
 
 
+def branching_weight(G, attr="weight", default=1):
+    """Return the total weight of a branching (sum of edge attrs)."""
+    import networkx as nx
+
+    return nx.algorithms.tree.branchings.branching_weight(
+        _networkx_graph_for_parity(G), attr=attr, default=default,
+    )
+
+
+def minimal_branching(
+    G,
+    /,
+    *,
+    attr="weight",
+    default=1,
+    preserve_attrs=False,
+    partition=None,
+):
+    """Return a minimal branching of G (Edmonds' algorithm, minimization variant)."""
+    import networkx as nx
+
+    return nx.algorithms.tree.branchings.minimal_branching(
+        _networkx_graph_for_parity(G),
+        attr=attr,
+        default=default,
+        preserve_attrs=preserve_attrs,
+        partition=partition,
+    )
+
+
+def boruvka_mst_edges(
+    G, minimum=True, weight="weight", keys=False, data=True, ignore_nan=False,
+):
+    """Yield MST edges using Boruvka's algorithm."""
+    import networkx as nx
+
+    yield from nx.algorithms.tree.mst.boruvka_mst_edges(
+        _networkx_graph_for_parity(G),
+        minimum=minimum, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan,
+    )
+
+
+def kruskal_mst_edges(
+    G, minimum, weight="weight", keys=True, data=True, ignore_nan=False, partition=None,
+):
+    """Yield MST edges using Kruskal's algorithm."""
+    import networkx as nx
+
+    yield from nx.algorithms.tree.mst.kruskal_mst_edges(
+        _networkx_graph_for_parity(G),
+        minimum, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan,
+        partition=partition,
+    )
+
+
+def prim_mst_edges(
+    G, minimum, weight="weight", keys=True, data=True, ignore_nan=False,
+):
+    """Yield MST edges using Prim's algorithm."""
+    import networkx as nx
+
+    yield from nx.algorithms.tree.mst.prim_mst_edges(
+        _networkx_graph_for_parity(G),
+        minimum, weight=weight, keys=keys, data=data, ignore_nan=ignore_nan,
+    )
+
+
 def _ancestors_descendants_missing_node_msg(G, source):
     kind = "digraph" if G.is_directed() else "graph"
     return f"The node {source} is not in the {kind}."
@@ -31968,6 +32035,11 @@ __all__ = [
     "zipf_rv",
     "cumulative_distribution",
     "is_valid_tree_degree_sequence",
+    "branching_weight",
+    "minimal_branching",
+    "boruvka_mst_edges",
+    "kruskal_mst_edges",
+    "prim_mst_edges",
     "lexicographic_topological_sort",
     "topological_sort",
     "topological_generations",
