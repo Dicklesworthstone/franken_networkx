@@ -3073,7 +3073,9 @@ from franken_networkx._fnx import (
 )
 
 
-def minimum_node_cut(G, s=None, t=None, flow_func=None):
+def minimum_node_cut(
+    G, s=None, t=None, flow_func=None, *, backend=None, **backend_kwargs
+):
     """Return the minimum node cut separating s from t.
 
     br-mncutG: first parameter is ``G`` to match nx exactly — the Rust
@@ -3084,6 +3086,7 @@ def minimum_node_cut(G, s=None, t=None, flow_func=None):
     ``list``. Coerce to set so ``isinstance(r, set)`` and set-ops on
     the returned cut behave identically to upstream.
     """
+    _validate_backend_dispatch_keywords("minimum_node_cut", backend, backend_kwargs)
     return set(_raw_minimum_node_cut(G, s=s, t=t, flow_func=flow_func))
 
 

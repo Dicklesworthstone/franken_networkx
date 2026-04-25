@@ -1,5 +1,7 @@
 """Conformance tests: connectivity algorithms — fnx vs nx oracle."""
 
+import inspect
+
 import pytest
 from conftest import assert_sets_equal
 from networkx.algorithms.connectivity import local_edge_connectivity as nx_local_edge_connectivity
@@ -65,6 +67,25 @@ class TestConnectivity:
         D_nx.add_edge(0, 1)
 
         assert_sets_equal(fnx.minimum_node_cut(D_fnx), nx.minimum_node_cut(D_nx))
+
+    def test_minimum_node_cut_return_type_and_signature_match_networkx(self, fnx, nx):
+        G_fnx = fnx.cycle_graph(5)
+        G_nx = nx.cycle_graph(5)
+
+        actual = fnx.minimum_node_cut(G_fnx)
+        expected = nx.minimum_node_cut(G_nx)
+
+        assert str(inspect.signature(fnx.minimum_node_cut)) == str(
+            inspect.signature(nx.minimum_node_cut)
+        )
+        assert isinstance(actual, set)
+        assert isinstance(expected, set)
+        assert actual == expected
+        assert fnx.minimum_node_cut(G_fnx, backend="networkx") == expected
+        with pytest.raises(ImportError):
+            fnx.minimum_node_cut(G_fnx, backend="missing")
+        with pytest.raises(TypeError):
+            fnx.minimum_node_cut(G_fnx, unexpected=True)
 
     def test_minimum_node_cut_directed_cycle_tiebreak(self, fnx, nx):
         D_fnx = fnx.DiGraph()
