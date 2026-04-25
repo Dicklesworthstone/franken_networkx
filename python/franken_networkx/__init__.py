@@ -3079,8 +3079,12 @@ def minimum_node_cut(G, s=None, t=None, flow_func=None):
     br-mncutG: first parameter is ``G`` to match nx exactly — the Rust
     binding exposed it as lowercase ``g``, breaking
     ``minimum_node_cut(G=graph)`` kwarg-style drop-in calls.
+
+    networkx returns the cut as a ``set``; the Rust helper yields a
+    ``list``. Coerce to set so ``isinstance(r, set)`` and set-ops on
+    the returned cut behave identically to upstream.
     """
-    return _raw_minimum_node_cut(G, s=s, t=t, flow_func=flow_func)
+    return set(_raw_minimum_node_cut(G, s=s, t=t, flow_func=flow_func))
 
 
 def connected_components(G):
