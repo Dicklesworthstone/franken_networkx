@@ -6899,6 +6899,34 @@ def make_list_of_ints(sequence):
     return nx.utils.make_list_of_ints(sequence)
 
 
+def powerlaw_sequence(n, exponent=2.0, seed=None):
+    """Return a power-law degree sequence of length n with the given exponent."""
+    import networkx as nx
+
+    return nx.utils.powerlaw_sequence(n, exponent=exponent, seed=seed)
+
+
+def zipf_rv(alpha, xmin=1, seed=None):
+    """Sample a Zipf-distributed random variate (alpha > 1)."""
+    import networkx as nx
+
+    return nx.utils.zipf_rv(alpha, xmin=xmin, seed=seed)
+
+
+def cumulative_distribution(distribution):
+    """Return the cumulative distribution from a discrete probability distribution."""
+    import networkx as nx
+
+    return nx.utils.cumulative_distribution(distribution)
+
+
+def is_valid_tree_degree_sequence(degree_sequence):
+    """Test whether ``degree_sequence`` is a valid tree degree sequence."""
+    import networkx as nx
+
+    return nx.utils.is_valid_tree_degree_sequence(degree_sequence)
+
+
 def _ancestors_descendants_missing_node_msg(G, source):
     kind = "digraph" if G.is_directed() else "graph"
     return f"The node {source} is not in the {kind}."
@@ -31936,6 +31964,10 @@ __all__ = [
     "graphs_equal",
     "nodes_equal",
     "make_list_of_ints",
+    "powerlaw_sequence",
+    "zipf_rv",
+    "cumulative_distribution",
+    "is_valid_tree_degree_sequence",
     "lexicographic_topological_sort",
     "topological_sort",
     "topological_generations",
