@@ -9434,9 +9434,10 @@ def path_weight(G, path, weight):
     return cost
 
 
-def add_path(G, nodes, **attr):
+def add_path(G_to_add_to, nodes_for_path, **attr):
     """Add a path of edges to *G*."""
-    node_list = list(nodes)
+    G = G_to_add_to
+    node_list = list(nodes_for_path)
     if not node_list:
         return
     G.add_node(node_list[0])
@@ -9444,9 +9445,10 @@ def add_path(G, nodes, **attr):
         G.add_edge(node_list[i], node_list[i + 1], **attr)
 
 
-def add_cycle(G, nodes, **attr):
+def add_cycle(G_to_add_to, nodes_for_cycle, **attr):
     """Add a cycle of edges to *G*."""
-    node_list = list(nodes)
+    G = G_to_add_to
+    node_list = list(nodes_for_cycle)
     if not node_list:
         return
     G.add_node(node_list[0])
@@ -9458,9 +9460,10 @@ def add_cycle(G, nodes, **attr):
     G.add_edge(node_list[-1], node_list[0], **attr)
 
 
-def add_star(G, nodes, **attr):
+def add_star(G_to_add_to, nodes_for_star, **attr):
     """Add a star of edges to *G* (first node is the center)."""
-    node_list = list(nodes)
+    G = G_to_add_to
+    node_list = list(nodes_for_star)
     if not node_list:
         return
     center = node_list[0]

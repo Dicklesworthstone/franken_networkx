@@ -917,6 +917,31 @@ def test_graph_helpers_match_networkx_without_fallback(
 
 
 @pytest.mark.parametrize(
+    ("helper_name", "graph_kw", "nodes_kw", "nodes"),
+    [
+        ("add_path", "G_to_add_to", "nodes_for_path", [0, 1, 2]),
+        ("add_cycle", "G_to_add_to", "nodes_for_cycle", [0, 1, 2]),
+        ("add_star", "G_to_add_to", "nodes_for_star", [0, 1, 2]),
+    ],
+)
+def test_graph_helpers_accept_networkx_keyword_names_without_fallback(
+    monkeypatch, helper_name, graph_kw, nodes_kw, nodes
+):
+    graph = fnx.Graph()
+    expected = nx.Graph()
+    attrs = {"weight": 5, "label": helper_name}
+
+    getattr(nx, helper_name)(**{graph_kw: expected, nodes_kw: nodes}, **attrs)
+    expected_snapshot = _graph_snapshot(expected)
+
+    _block_networkx_utilities(monkeypatch, helper_name)
+
+    getattr(fnx, helper_name)(**{graph_kw: graph, nodes_kw: nodes}, **attrs)
+
+    assert _graph_snapshot(graph) == expected_snapshot
+
+
+@pytest.mark.parametrize(
     ("fnx_cls", "nx_cls"),
     [
         (fnx.Graph, nx.Graph),
