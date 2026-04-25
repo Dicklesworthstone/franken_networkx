@@ -202,6 +202,61 @@ def test_ismags_subgraph_methods_match_networkx():
 @pytest.mark.parametrize(
     ("fnx_graph_cls", "nx_graph_cls", "fnx_matcher_cls", "nx_matcher_cls"),
     [
+        (
+            fnx.Graph,
+            nx.Graph,
+            fnx.TimeRespectingGraphMatcher,
+            nx.algorithms.isomorphism.TimeRespectingGraphMatcher,
+        ),
+        (
+            fnx.DiGraph,
+            nx.DiGraph,
+            fnx.TimeRespectingDiGraphMatcher,
+            nx.algorithms.isomorphism.TimeRespectingDiGraphMatcher,
+        ),
+    ],
+)
+def test_time_respecting_matchers_match_networkx(
+    fnx_graph_cls,
+    nx_graph_cls,
+    fnx_matcher_cls,
+    nx_matcher_cls,
+):
+    assert inspect.signature(fnx_matcher_cls) == inspect.signature(nx_matcher_cls)
+
+    graph = fnx_graph_cls()
+    graph.add_edge(0, 1, date=1)
+    graph.add_edge(1, 2, date=2)
+
+    target = fnx_graph_cls()
+    target.add_edge("a", "b", date=1)
+    target.add_edge("b", "c", date=2)
+
+    expected_graph = nx_graph_cls()
+    expected_graph.add_edge(0, 1, date=1)
+    expected_graph.add_edge(1, 2, date=2)
+
+    expected_target = nx_graph_cls()
+    expected_target.add_edge("a", "b", date=1)
+    expected_target.add_edge("b", "c", date=2)
+
+    matcher = fnx_matcher_cls(graph, target, "date", 1)
+    expected = nx_matcher_cls(expected_graph, expected_target, "date", 1)
+
+    assert isinstance(matcher, nx_matcher_cls)
+    assert matcher.is_isomorphic() == expected.is_isomorphic()
+    assert _mapping_signatures(matcher.isomorphisms_iter()) == _mapping_signatures(
+        expected.isomorphisms_iter()
+    )
+    assert matcher.subgraph_is_isomorphic() == expected.subgraph_is_isomorphic()
+    assert _mapping_signatures(matcher.subgraph_isomorphisms_iter()) == _mapping_signatures(
+        expected.subgraph_isomorphisms_iter()
+    )
+
+
+@pytest.mark.parametrize(
+    ("fnx_graph_cls", "nx_graph_cls", "fnx_matcher_cls", "nx_matcher_cls"),
+    [
         (fnx.Graph, nx.Graph, fnx.GraphMatcher, nx.algorithms.isomorphism.GraphMatcher),
         (
             fnx.DiGraph,

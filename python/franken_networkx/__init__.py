@@ -7034,6 +7034,30 @@ class ISMAGS(_nx_isomorphism.ISMAGS):
         )
 
 
+class TimeRespectingGraphMatcher(_nx_isomorphism.TimeRespectingGraphMatcher):
+    """Temporal graph matcher accepting FrankenNetworkX graph objects."""
+
+    def __init__(self, G1, G2, temporal_attribute_name, delta):
+        super().__init__(
+            _networkx_graph_for_parity(G1),
+            _networkx_graph_for_parity(G2),
+            temporal_attribute_name,
+            delta,
+        )
+
+
+class TimeRespectingDiGraphMatcher(_nx_isomorphism.TimeRespectingDiGraphMatcher):
+    """Temporal directed-graph matcher accepting FrankenNetworkX graph objects."""
+
+    def __init__(self, G1, G2, temporal_attribute_name, delta):
+        super().__init__(
+            _networkx_graph_for_parity(G1),
+            _networkx_graph_for_parity(G2),
+            temporal_attribute_name,
+            delta,
+        )
+
+
 def fast_could_be_isomorphic(G1, G2):
     """br-isokw: ``G1, G2`` match nx; Rust binding used ``g1, g2``."""
     return _raw_fast_could_be_isomorphic(G1, G2)
@@ -31177,6 +31201,8 @@ __all__ = [
     "MultiGraphMatcher",
     "MultiDiGraphMatcher",
     "ISMAGS",
+    "TimeRespectingGraphMatcher",
+    "TimeRespectingDiGraphMatcher",
     "categorical_node_match",
     "categorical_edge_match",
     "categorical_multiedge_match",
