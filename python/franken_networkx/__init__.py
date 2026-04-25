@@ -5947,6 +5947,19 @@ def _louvain_impl(G, *, weight, resolution, threshold, max_level, seed):
     )
 
 
+def louvain_partitions(G, weight="weight", resolution=1, threshold=1e-07, seed=None):
+    """Yield partitions for each level of the Louvain Community Detection Algorithm."""
+    return _call_networkx_submodule_for_parity(
+        "algorithms.community",
+        "louvain_partitions",
+        G,
+        weight=weight,
+        resolution=resolution,
+        threshold=threshold,
+        seed=seed,
+    )
+
+
 def modularity(G, communities, weight="weight", resolution=1):
     """Compute the modularity of a partition of ``G``.
 
@@ -31067,6 +31080,7 @@ __all__ = [
     "k_clique_communities",
     "leiden_communities",
     "leiden_partitions",
+    "louvain_partitions",
     "edge_betweenness_partition",
     # Attribute helpers
     "set_node_attributes",
