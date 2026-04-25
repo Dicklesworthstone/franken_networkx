@@ -14125,6 +14125,69 @@ def asadpour_atsp(G, weight="weight", seed=None, source=None):
     )
 
 
+def treewidth_min_degree(G):
+    """Approximate treewidth + tree decomposition via the min-degree heuristic."""
+    return _call_networkx_approximation_for_parity("treewidth_min_degree", G)
+
+
+def treewidth_min_fill_in(G):
+    """Approximate treewidth + tree decomposition via the min-fill-in heuristic."""
+    return _call_networkx_approximation_for_parity("treewidth_min_fill_in", G)
+
+
+def steiner_tree(G, terminal_nodes, weight="weight", method=None):
+    """Approximate the minimum Steiner tree spanning the given terminal nodes."""
+    return _call_networkx_approximation_for_parity(
+        "steiner_tree", G, terminal_nodes,
+        weight=weight, method=method,
+    )
+
+
+def min_edge_dominating_set(G):
+    """Return a minimum edge dominating set of G (approximation)."""
+    return _call_networkx_approximation_for_parity("min_edge_dominating_set", G)
+
+
+def min_maximal_matching(G):
+    """Return a 2-approximation for the minimum maximal matching of G."""
+    return _call_networkx_approximation_for_parity("min_maximal_matching", G)
+
+
+def min_weighted_dominating_set(G, weight=None):
+    """Return a minimum weighted dominating set of G (approximation)."""
+    return _call_networkx_approximation_for_parity(
+        "min_weighted_dominating_set", G, weight=weight,
+    )
+
+
+def one_exchange(G, initial_cut=None, seed=None, weight=None):
+    """One-exchange local search for max-cut on G."""
+    return _call_networkx_approximation_for_parity(
+        "one_exchange", G,
+        initial_cut=initial_cut, seed=seed, weight=weight,
+    )
+
+
+def randomized_partitioning(G, seed=None, p=0.5, weight=None):
+    """Randomized 1/2-approximation for max-cut on G."""
+    return _call_networkx_approximation_for_parity(
+        "randomized_partitioning", G,
+        seed=seed, p=p, weight=weight,
+    )
+
+
+def ramsey_R2(G):
+    """Compute the largest clique-independent set pair (Ramsey approximation)."""
+    return _call_networkx_approximation_for_parity("ramsey_R2", G)
+
+
+def densest_subgraph(G, iterations=1, *, method="fista"):
+    """Approximate the densest subgraph of G."""
+    return _call_networkx_approximation_for_parity(
+        "densest_subgraph", G, iterations=iterations, method=method,
+    )
+
+
 def traveling_salesman_problem(
     G,
     weight="weight",
@@ -31637,11 +31700,21 @@ __all__ = [
     "spanner",
     "asadpour_atsp",
     "christofides",
+    "densest_subgraph",
     "greedy_tsp",
     "metric_closure",
+    "min_edge_dominating_set",
+    "min_maximal_matching",
+    "min_weighted_dominating_set",
+    "one_exchange",
+    "ramsey_R2",
+    "randomized_partitioning",
     "simulated_annealing_tsp",
+    "steiner_tree",
     "threshold_accepting_tsp",
     "traveling_salesman_problem",
+    "treewidth_min_degree",
+    "treewidth_min_fill_in",
     # Algorithms — tree recognition
     "is_arborescence",
     "is_branching",
