@@ -17207,16 +17207,27 @@ def label_propagation_communities(G):
     return {index: set(community) for index, community in enumerate(communities)}.values()
 
 
+def _call_networkx_community_for_parity(name, G, /, *args, **kwargs):
+    import networkx as nx
+
+    try:
+        return getattr(nx.algorithms.community, name)(
+            _networkx_graph_for_parity(G), *args, **kwargs
+        )
+    except Exception as exc:
+        _raise_translated_networkx_exception(exc)
+
+
 def fast_label_propagation_communities(G, *, weight=None, seed=None):
     """Generate community sets determined by fast label propagation."""
-    return _call_networkx_for_parity(
+    return _call_networkx_community_for_parity(
         "fast_label_propagation_communities", G, weight=weight, seed=seed
     )
 
 
 def is_partition(G, communities):
     """Return True if ``communities`` is a partition of the nodes of ``G``."""
-    return _call_networkx_for_parity("is_partition", G, communities)
+    return _call_networkx_community_for_parity("is_partition", G, communities)
 
 
 def asyn_lpa_communities(G, weight=None, seed=None):
