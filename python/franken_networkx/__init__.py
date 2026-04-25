@@ -7087,6 +7087,89 @@ def frozen(*args, **kwargs):
     return nx.classes.function.frozen(*args, **kwargs)
 
 
+# Greedy coloring strategies (networkx.algorithms.coloring.greedy_coloring) —
+# users pass these as the ``strategy=`` kwarg to greedy_color. Re-exported
+# directly because the strategies themselves are pure callables that operate
+# on the (G, colors) protocol expected by greedy_color.
+def strategy_largest_first(G, colors):
+    """Greedy-color strategy: largest-degree first."""
+    import networkx as nx
+
+    return nx.algorithms.coloring.strategy_largest_first(
+        _networkx_graph_for_parity(G), colors,
+    )
+
+
+def strategy_random_sequential(G, colors, seed=None):
+    """Greedy-color strategy: random sequential ordering."""
+    import networkx as nx
+
+    return nx.algorithms.coloring.strategy_random_sequential(
+        _networkx_graph_for_parity(G), colors, seed=seed,
+    )
+
+
+def strategy_smallest_last(G, colors):
+    """Greedy-color strategy: smallest-last ordering."""
+    import networkx as nx
+
+    return nx.algorithms.coloring.strategy_smallest_last(
+        _networkx_graph_for_parity(G), colors,
+    )
+
+
+def strategy_independent_set(G, colors):
+    """Greedy-color strategy: independent-set growing."""
+    import networkx as nx
+
+    return nx.algorithms.coloring.strategy_independent_set(
+        _networkx_graph_for_parity(G), colors,
+    )
+
+
+def strategy_connected_sequential_bfs(G, colors):
+    """Greedy-color strategy: connected sequential (BFS traversal)."""
+    import networkx as nx
+
+    return nx.algorithms.coloring.strategy_connected_sequential_bfs(
+        _networkx_graph_for_parity(G), colors,
+    )
+
+
+def strategy_connected_sequential_dfs(G, colors):
+    """Greedy-color strategy: connected sequential (DFS traversal)."""
+    import networkx as nx
+
+    return nx.algorithms.coloring.strategy_connected_sequential_dfs(
+        _networkx_graph_for_parity(G), colors,
+    )
+
+
+def strategy_connected_sequential(G, colors, traversal="bfs"):
+    """Greedy-color strategy: connected sequential with selectable traversal."""
+    import networkx as nx
+
+    return nx.algorithms.coloring.strategy_connected_sequential(
+        _networkx_graph_for_parity(G), colors, traversal=traversal,
+    )
+
+
+def strategy_saturation_largest_first(G, colors):
+    """Greedy-color strategy: saturation-largest-first (DSATUR)."""
+    import networkx as nx
+
+    return nx.algorithms.coloring.strategy_saturation_largest_first(
+        _networkx_graph_for_parity(G), colors,
+    )
+
+
+def matching_dict_to_set(matching):
+    """Convert a matching dict {node: partner} to a set of frozenset({u, v}) edges."""
+    import networkx as nx
+
+    return nx.algorithms.matching.matching_dict_to_set(matching)
+
+
 def _ancestors_descendants_missing_node_msg(G, source):
     kind = "digraph" if G.is_directed() else "graph"
     return f"The node {source} is not in the {kind}."
@@ -32148,6 +32231,15 @@ __all__ = [
     "MinHeap",
     "PairingHeap",
     "frozen",
+    "strategy_largest_first",
+    "strategy_random_sequential",
+    "strategy_smallest_last",
+    "strategy_independent_set",
+    "strategy_connected_sequential_bfs",
+    "strategy_connected_sequential_dfs",
+    "strategy_connected_sequential",
+    "strategy_saturation_largest_first",
+    "matching_dict_to_set",
     "lexicographic_topological_sort",
     "topological_sort",
     "topological_generations",
