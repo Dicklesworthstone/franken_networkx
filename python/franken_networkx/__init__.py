@@ -6800,6 +6800,22 @@ def normalized_mutual_weight(G, u, v, norm=sum, weight=None):
     )
 
 
+def harmonic_function(G, max_iter=30, label_name="label"):
+    """Node classification by harmonic-function label propagation."""
+    return _call_networkx_submodule_for_parity(
+        "algorithms.node_classification", "harmonic_function", G,
+        max_iter=max_iter, label_name=label_name,
+    )
+
+
+def local_and_global_consistency(G, alpha=0.99, max_iter=30, label_name="label"):
+    """Node classification by local-and-global-consistency label propagation."""
+    return _call_networkx_submodule_for_parity(
+        "algorithms.node_classification", "local_and_global_consistency", G,
+        alpha=alpha, max_iter=max_iter, label_name=label_name,
+    )
+
+
 def _ancestors_descendants_missing_node_msg(G, source):
     kind = "digraph" if G.is_directed() else "graph"
     return f"The node {source} is not in the {kind}."
@@ -31825,6 +31841,8 @@ __all__ = [
     "v_structures",
     "mutual_weight",
     "normalized_mutual_weight",
+    "harmonic_function",
+    "local_and_global_consistency",
     "lexicographic_topological_sort",
     "topological_sort",
     "topological_generations",
