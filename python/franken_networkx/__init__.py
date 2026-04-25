@@ -7071,6 +7071,22 @@ def no_filter(*items):
     return nx.classes.filters.no_filter(*items)
 
 
+# Heap classes (networkx.utils.heaps) — used as default heap= kwarg by
+# algorithms like stoer_wagner. Re-exported directly from nx.
+from networkx.utils.heaps import (  # noqa: E402
+    BinaryHeap,
+    MinHeap,
+    PairingHeap,
+)
+
+
+def frozen(*args, **kwargs):
+    """No-op sentinel raised by methods on a frozen graph."""
+    import networkx as nx
+
+    return nx.classes.function.frozen(*args, **kwargs)
+
+
 def _ancestors_descendants_missing_node_msg(G, source):
     kind = "digraph" if G.is_directed() else "graph"
     return f"The node {source} is not in the {kind}."
@@ -32128,6 +32144,10 @@ __all__ = [
     "show_multiedges",
     "show_multidiedges",
     "no_filter",
+    "BinaryHeap",
+    "MinHeap",
+    "PairingHeap",
+    "frozen",
     "lexicographic_topological_sort",
     "topological_sort",
     "topological_generations",
