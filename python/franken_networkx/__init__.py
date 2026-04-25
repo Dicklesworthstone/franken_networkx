@@ -6994,6 +6994,83 @@ def prim_mst_edges(
     )
 
 
+def hide_nodes(nodes):
+    """Return a filter that hides the given nodes."""
+    import networkx as nx
+
+    return nx.classes.filters.hide_nodes(nodes)
+
+
+def hide_edges(edges):
+    """Return a filter that hides the given edges."""
+    import networkx as nx
+
+    return nx.classes.filters.hide_edges(edges)
+
+
+def hide_diedges(edges):
+    """Return a filter that hides the given directed edges."""
+    import networkx as nx
+
+    return nx.classes.filters.hide_diedges(edges)
+
+
+def hide_multiedges(edges):
+    """Return a filter that hides the given multi-edges (undirected)."""
+    import networkx as nx
+
+    return nx.classes.filters.hide_multiedges(edges)
+
+
+def hide_multidiedges(edges):
+    """Return a filter that hides the given multi-directed-edges."""
+    import networkx as nx
+
+    return nx.classes.filters.hide_multidiedges(edges)
+
+
+def show_nodes(nodes):
+    """Return a filter that shows only the given nodes."""
+    import networkx as nx
+
+    return nx.classes.filters.show_nodes(nodes)
+
+
+def show_edges(edges):
+    """Return a filter that shows only the given edges."""
+    import networkx as nx
+
+    return nx.classes.filters.show_edges(edges)
+
+
+def show_diedges(edges):
+    """Return a filter that shows only the given directed edges."""
+    import networkx as nx
+
+    return nx.classes.filters.show_diedges(edges)
+
+
+def show_multiedges(edges):
+    """Return a filter that shows only the given multi-edges (undirected)."""
+    import networkx as nx
+
+    return nx.classes.filters.show_multiedges(edges)
+
+
+def show_multidiedges(edges):
+    """Return a filter that shows only the given multi-directed-edges."""
+    import networkx as nx
+
+    return nx.classes.filters.show_multidiedges(edges)
+
+
+def no_filter(*items):
+    """The default no-op filter — returns True for any item."""
+    import networkx as nx
+
+    return nx.classes.filters.no_filter(*items)
+
+
 def _ancestors_descendants_missing_node_msg(G, source):
     kind = "digraph" if G.is_directed() else "graph"
     return f"The node {source} is not in the {kind}."
@@ -32040,6 +32117,17 @@ __all__ = [
     "boruvka_mst_edges",
     "kruskal_mst_edges",
     "prim_mst_edges",
+    "hide_nodes",
+    "hide_edges",
+    "hide_diedges",
+    "hide_multiedges",
+    "hide_multidiedges",
+    "show_nodes",
+    "show_edges",
+    "show_diedges",
+    "show_multiedges",
+    "show_multidiedges",
+    "no_filter",
     "lexicographic_topological_sort",
     "topological_sort",
     "topological_generations",
