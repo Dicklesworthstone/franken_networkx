@@ -5419,7 +5419,7 @@ def greedy_color(G, strategy="largest_first", interchange=False):
     dict
         Dictionary mapping nodes to colors (integers starting at 0).
     """
-    if interchange:
+    if interchange or callable(strategy):
         return _call_networkx_for_parity(
             "greedy_color",
             G,
