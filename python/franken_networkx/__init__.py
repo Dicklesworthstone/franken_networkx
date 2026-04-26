@@ -5762,29 +5762,37 @@ def bfs_tree(G, source, reverse=False, depth_limit=None, sort_neighbors=None):
 
 
 def dfs_predecessors(G, source=None, depth_limit=None, *, sort_neighbors=None):
-    """Return (node, predecessor) dict from DFS."""
+    """Return (node, predecessor) dict from DFS.
+
+    br-r37-c1-20swv: the Rust _dfs_predecessors_raw returned the dict
+    with keys in Rust-internal order rather than nx's DFS-discovery
+    order (e.g. fnx {'d':'c','e':'d','b':'a','c':'b'} vs nx
+    {'b':'a','c':'b','d':'c','e':'d'}). Build the dict by walking
+    dfs_edges so iteration order matches nx exactly. Values
+    (parent for each node) were already correct.
+    """
     try:
-        if sort_neighbors is not None:
-            preds = {}
-            for u, v in _py_dfs_edges(G, source, depth_limit, sort_neighbors):
-                preds[v] = u
-            return preds
-        return _dfs_predecessors_raw(G, source=source, depth_limit=depth_limit)
+        preds = {}
+        for u, v in dfs_edges(G, source=source, depth_limit=depth_limit, sort_neighbors=sort_neighbors):
+            preds[v] = u
+        return preds
     except NodeNotFound as exc:
         raise NetworkXError(str(exc)) from exc
 
 
 def dfs_successors(G, source=None, depth_limit=None, *, sort_neighbors=None):
-    """Return (node, [successors]) dict from DFS."""
-    try:
-        if sort_neighbors is not None:
-            from collections import defaultdict
+    """Return (node, [successors]) dict from DFS.
 
-            succs = defaultdict(list)
-            for u, v in _py_dfs_edges(G, source, depth_limit, sort_neighbors):
-                succs[u].append(v)
-            return dict(succs)
-        return _dfs_successors_raw(G, source=source, depth_limit=depth_limit)
+    br-r37-c1-20swv: same dict-key-order drift as
+    ``dfs_predecessors``. Build via dfs_edges walk so the dict's
+    iteration order matches nx's DFS-discovery contract.
+    """
+    try:
+        from collections import defaultdict
+        succs = defaultdict(list)
+        for u, v in dfs_edges(G, source=source, depth_limit=depth_limit, sort_neighbors=sort_neighbors):
+            succs[u].append(v)
+        return dict(succs)
     except NodeNotFound as exc:
         raise NetworkXError(str(exc)) from exc
 
