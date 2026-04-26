@@ -21122,20 +21122,24 @@ def moral_graph(G):
 
 
 def equivalence_classes(iterable, relation):
-    """Partition elements by an equivalence relation."""
+    """Partition elements by an equivalence relation.
+
+    br-r37-c1-8hshk: nx returns a ``set`` of frozensets (iterating in
+    hash order); the local implementation returned a ``list`` of
+    frozensets in input order. Drop-in code expecting the set return
+    type or hash-based iteration broke. Match nx exactly.
+    """
     elements = list(iterable)
-    classes = []
-    assigned = set()
-    for elem in elements:
-        if elem in assigned:
-            continue
-        cls = {elem}
-        for other in elements:
-            if other not in assigned and relation(elem, other):
-                cls.add(other)
-        classes.append(frozenset(cls))
-        assigned.update(cls)
-    return classes
+    blocks = []
+    for y in elements:
+        for block in blocks:
+            x = next(iter(block))
+            if relation(x, y):
+                block.add(y)
+                break
+        else:
+            blocks.append({y})
+    return {frozenset(block) for block in blocks}
 
 
 def _node_order_key_local(node):
