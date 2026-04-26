@@ -1493,6 +1493,39 @@ def _init_absorbing_dict_of_dicts(raw_init, is_multigraph):
         if isinstance(incoming_graph_data, dict):
             _decode_dict_of_dicts_into(self, incoming_graph_data, is_multigraph)
             return
+        # br-r37-c1-rxigp: numpy.ndarray / pandas.DataFrame are valid
+        # adjacency-matrix inputs in nx.to_networkx_graph; the Rust
+        # __new__ doesn't recognize them and silently absorbs them
+        # as a node-iterable (yielding an empty graph). Detect by duck
+        # type — avoid importing numpy/pandas eagerly at module import.
+        if (
+            type(incoming_graph_data).__module__.startswith("numpy")
+            and hasattr(incoming_graph_data, "shape")
+            and hasattr(incoming_graph_data, "ndim")
+        ):
+            self.clear()
+            tmp = from_numpy_array(
+                incoming_graph_data,
+                create_using=type(self),
+            )
+            _copy_constructor_graph_source(
+                self, tmp, is_multigraph=is_multigraph, attr=attr,
+            )
+            return
+        if (
+            type(incoming_graph_data).__module__.startswith("pandas")
+            and hasattr(incoming_graph_data, "iloc")
+            and hasattr(incoming_graph_data, "values")
+        ):
+            self.clear()
+            tmp = from_pandas_adjacency(
+                incoming_graph_data,
+                create_using=type(self),
+            )
+            _copy_constructor_graph_source(
+                self, tmp, is_multigraph=is_multigraph, attr=attr,
+            )
+            return
         # Cross-class / cross-library instantiation:
         # - br-xmginit: fnx.Graph(fnx.MultiGraph) silently returned empty
         #   (Multi* -> simple edges dropped)
