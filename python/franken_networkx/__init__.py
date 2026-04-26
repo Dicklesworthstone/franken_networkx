@@ -5987,7 +5987,12 @@ def all_pairs_shortest_path(G, cutoff=None, *, backend=None, **backend_kwargs):
     # Preserve graph node insertion order for the source axis.
     for source in G:
         if source in paths:
-            yield source, paths[source]
+            # br-r37-c1-5ur50: each per-source inner dict iterates in
+            # BFS-visit-from-source order matching nx (Rust dict yields
+            # in arbitrary internal order).
+            inner = paths[source]
+            ordered = {n: inner[n] for n in _bfs_visit_order(G, source) if n in inner}
+            yield source, ordered
 
 
 def all_pairs_shortest_path_length(G, cutoff=None, *, backend=None, **backend_kwargs):
@@ -6002,7 +6007,10 @@ def all_pairs_shortest_path_length(G, cutoff=None, *, backend=None, **backend_kw
     lengths = _raw_all_pairs_shortest_path_length(G, cutoff)
     for source in G:
         if source in lengths:
-            yield source, lengths[source]
+            inner = lengths[source]
+            # br-r37-c1-5ur50: BFS-visit-from-source order matching nx.
+            ordered = {n: inner[n] for n in _bfs_visit_order(G, source) if n in inner}
+            yield source, ordered
 
 # Algorithm functions — graph predicates & utilities
 from franken_networkx._fnx import (
