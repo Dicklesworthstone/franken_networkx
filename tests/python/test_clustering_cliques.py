@@ -844,10 +844,13 @@ class TestChordalGraphCliquesParity:
     @pytest.mark.parametrize(
         ("fnx_cls", "nx_cls", "case_name"),
         [
+            # br-r37-c1-xd6xi: MultiGraph cases now legitimately
+            # delegate to nx (so behaviour matches nx exactly,
+            # including the "not chordal" error on parallel-edge
+            # multigraphs). MultiGraph parametrisation moved to
+            # test_chordal_graph_cliques_multigraph_parity.py.
             (fnx.Graph, nx.Graph, "triangle_tail"),
-            (fnx.MultiGraph, nx.MultiGraph, "triangle_tail"),
             (fnx.Graph, nx.Graph, "cycle4"),
-            (fnx.MultiGraph, nx.MultiGraph, "cycle4"),
         ],
     )
     def test_matches_networkx_without_fallback(

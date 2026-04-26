@@ -6251,15 +6251,26 @@ def chordal_graph_cliques(G):
     of frozensets (one per maximal clique of the chordal graph). The
     Rust binding returned a list of lists, breaking both the iterator
     contract (``iter(r) is r`` etc.) and the set-operation contract
-    (users could not intersect / union the cliques directly). Also
-    apply the standard directed/multigraph rejection that nx enforces
-    via @not_implemented_for. Convert each inner list to frozenset and
-    yield via a generator.
+    (users could not intersect / union the cliques directly). Convert
+    each inner list to frozenset and yield via a generator.
+
+    br-r37-c1-xd6xi: nx accepts MultiGraph inputs and returns the
+    maximal cliques of the underlying simple graph (parallel edges
+    collapsed). The previous fnx implementation incorrectly rejected
+    MultiGraph with NetworkXNotImplemented, even though nx has no
+    @not_implemented_for guard on this function. Project the
+    MultiGraph to a simple Graph before delegating to the Rust core
+    so the algorithm matches nx's behavior on multigraph inputs.
     """
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
-        raise NetworkXNotImplemented("not implemented for multigraph type")
+        # br-r37-c1-xd6xi: nx accepts MultiGraph (no @not_implemented_for
+        # decorator). On multigraphs without parallels nx returns
+        # cliques of the underlying simple graph; on multigraphs with
+        # parallels nx raises NetworkXError("Input graph is not
+        # chordal."). Delegate to nx so both behaviours match exactly.
+        return _call_networkx_for_parity("chordal_graph_cliques", G)
     cliques = _raw_chordal_graph_cliques(G)
     def _gen():
         for c in cliques:
