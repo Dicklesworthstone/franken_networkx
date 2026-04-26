@@ -23186,17 +23186,18 @@ def from_nested_tuple(sequence, sensible_relabeling=False):
     return G
 
 
-def to_nested_tuple(T, root, canonical_form=False, _parent=None):
+def to_nested_tuple(T, root, canonical_form=False):
     """Convert rooted tree to nested tuple."""
-    children = [n for n in T.neighbors(root) if n != _parent]
-    if not children:
-        return ()
-    subtrees = []
-    for child in sorted(children, key=str):
-        subtrees.append(to_nested_tuple(T, child, canonical_form, _parent=root))
-    if canonical_form:
-        subtrees.sort()
-    return tuple(subtrees)
+    def _recurse(node, parent):
+        children = [n for n in T.neighbors(node) if n != parent]
+        if not children:
+            return ()
+        subtrees = [_recurse(child, node) for child in sorted(children, key=str)]
+        if canonical_form:
+            subtrees.sort()
+        return tuple(subtrees)
+
+    return _recurse(root, None)
 
 
 def attr_sparse_matrix(
@@ -23284,25 +23285,22 @@ def modularity_spectrum(G):
 # ---------------------------------------------------------------------------
 
 
-def find_minimal_d_separator(G, u, v):
-    """Find a minimal d-separating set between u and v in a DAG."""
-    u_set, v_set = (
-        set(u) if not isinstance(u, (int, str)) else {u},
-        set(v) if not isinstance(v, (int, str)) else {v},
+def find_minimal_d_separator(G, x, y, *, included=None, restricted=None):
+    """Find a minimal d-separating set between ``x`` and ``y`` in a DAG.
+
+    Parameters
+    ----------
+    G : DiGraph
+    x, y : node or set of nodes
+    included : set, optional
+        Nodes that must appear in the returned d-separator.
+    restricted : set, optional
+        Restrict the search to candidate nodes drawn only from this set.
+    """
+    return _call_networkx_for_parity(
+        "find_minimal_d_separator", G, x, y,
+        included=included, restricted=restricted,
     )
-    # Start with ancestors
-    all_anc = set()
-    for node in u_set | v_set:
-        all_anc.update(ancestors(G, node))
-    all_anc.update(u_set | v_set)
-    # Try removing each ancestor to find minimal separator
-    separator = all_anc - u_set - v_set
-    minimal = set(separator)
-    for node in list(separator):
-        test = minimal - {node}
-        if is_d_separator(G, u_set, v_set, test):
-            minimal = test
-    return minimal
 
 
 def is_valid_directed_joint_degree(in_degrees, out_degrees, nkk):
@@ -24058,8 +24056,11 @@ def planted_partition_graph(l, k, p_in, p_out, seed=None, directed=False):
     )
 
 
-def gaussian_random_partition_graph(n, s, v, p_in, p_out, seed=None, directed=False):
-    """Gaussian random partition graph."""
+def gaussian_random_partition_graph(n, s, v, p_in, p_out, directed=False, seed=None):
+    """Gaussian random partition graph.
+
+    Argument order matches networkx: ``(n, s, v, p_in, p_out, directed, seed)``.
+    """
     import random as _random
 
     rng = _random.Random(seed)
