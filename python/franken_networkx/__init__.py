@@ -13931,6 +13931,7 @@ def adjacency_data(G, attrs=None):
 
 def node_link_data(
     G,
+    *,
     source="source",
     target="target",
     name="id",
@@ -13938,7 +13939,14 @@ def node_link_data(
     edges="edges",
     nodes="nodes",
 ):
-    """Return node-link data suitable for JSON serialization."""
+    """Return node-link data suitable for JSON serialization.
+
+    All overrides for the ``source``/``target``/``name``/``key``/
+    ``edges``/``nodes`` field names are keyword-only, matching nx's
+    public signature. This locks out positional misuse like
+    ``node_link_data(G, "from_", "to_")`` which nx rejects with
+    ``TypeError: takes 1 positional argument but 3 were given``.
+    """
     internal_names = [source, target, name]
     if G.is_multigraph():
         internal_names.append(key)
@@ -14005,6 +14013,7 @@ def node_link_graph(
     data,
     directed=False,
     multigraph=True,
+    *,
     source="source",
     target="target",
     name="id",
@@ -14012,7 +14021,13 @@ def node_link_graph(
     edges="edges",
     nodes="nodes",
 ):
-    """Build a graph from node-link data."""
+    """Build a graph from node-link data.
+
+    Field-name overrides (``source`` / ``target`` / ``name`` / ``key``
+    / ``edges`` / ``nodes``) are keyword-only to match networkx's
+    public signature. ``directed``/``multigraph`` flags remain
+    positional for backwards compat with both libraries.
+    """
     multigraph = data.get("multigraph", multigraph)
     directed = data.get("directed", directed)
     graph = _json_graph_from_flags(directed=directed, multigraph=multigraph)
