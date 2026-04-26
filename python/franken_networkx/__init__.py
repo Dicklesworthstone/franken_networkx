@@ -4065,8 +4065,41 @@ from franken_networkx._fnx import (
     max_weight_matching as _raw_max_weight_matching,
     maximal_matching,
     min_edge_cover as _raw_min_edge_cover,
-    min_weight_matching,
+    min_weight_matching as _raw_min_weight_matching,
 )
+
+
+def min_weight_matching(G, weight="weight"):
+    """Compute a minimum-weight matching in the graph.
+
+    Returns a set of edges (2-tuples).
+
+    br-r37-c1-fs3bl: same family pattern as br-r37-c1-kpnc8
+    (max_weight_matching). The Rust binding returned matched pairs
+    with different tuple directions than nx — the matching choice
+    itself was correct (same nodes paired), but per-pair tuples
+    flipped (e.g. ``(d, e)`` vs ``(e, d)``). Drop-in code comparing
+    the result against a reference set broke. Delegate to nx so the
+    chosen matching and per-pair tuple direction match nx exactly.
+
+    Multigraph inputs project to a simple Graph (taking the
+    *minimum* weight per parallel edge) before delegation, mirroring
+    the max_weight_matching wrapper.
+    """
+    if G.is_multigraph():
+        projected = (DiGraph if G.is_directed() else Graph)()
+        projected.add_nodes_from(G.nodes(data=True))
+        for u, v, data in G.edges(data=True):
+            edge_weight = data.get(weight, 1)
+            if projected.has_edge(u, v):
+                if edge_weight < projected[u][v].get(weight, 1):
+                    projected[u][v][weight] = edge_weight
+            else:
+                projected.add_edge(u, v, **{weight: edge_weight})
+        target = projected
+    else:
+        target = G
+    return _call_networkx_for_parity("min_weight_matching", target, weight=weight)
 
 
 def max_weight_matching(G, maxcardinality=False, weight="weight"):
