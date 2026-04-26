@@ -401,6 +401,81 @@ def _convert_result_to_nx(value):
     return value
 
 
+def _topo_emit_edges_by_adj(fg):
+    """Yield ``(u, v)`` pairs in an order consistent with each node's
+    ``fg.adj[u]`` insertion order (br-r37-c1-sgnab).
+
+    Used by :func:`_fnx_to_nx` so the converted nx graph's per-node
+    adjacency order matches what nx would have built if the user had
+    called the same sequence of ``add_edge`` calls. Without this,
+    iterating ``fg.edges`` (which canonicalises endpoints) feeds nx
+    edges in the wrong order and silently flips adj[u] orientation
+    for any node whose first ``add_edge`` call had it as the second
+    argument.
+
+    The algorithm is a per-node-queue topological sort: an edge ``{u,
+    v}`` is emitted when both ``queues[u][0] == v`` and
+    ``queues[v][0] == u`` simultaneously — i.e. it's the next edge
+    expected by both endpoints. For directed graphs the constraint is
+    one-sided (``queues[u][0] == v`` only).
+    """
+    is_directed = fg.is_directed()
+    queues = {u: list(fg.adj[u]) for u in fg.nodes()}
+    nodes_order = list(fg.nodes())
+
+    if is_directed:
+        # Directed: emit each u's out-edges in adj order. No
+        # cross-node constraint.
+        for u in nodes_order:
+            for v in queues[u]:
+                yield (u, v)
+        return
+
+    # Self-loops appear only once in adj[u] (as 'u' itself); count
+    # accordingly when computing total edge budget.
+    total_edges = (
+        sum(len(q) for q in queues.values())
+        - sum(1 for u, q in queues.items() if u in q)
+    ) // 2 + sum(1 for u, q in queues.items() if u in q)
+    emitted_count = 0
+
+    while emitted_count < total_edges:
+        progress = False
+        for u in nodes_order:
+            if not queues[u]:
+                continue
+            v = queues[u][0]
+            if u == v:
+                # Self-loop — only appears once in queues[u].
+                yield (u, v)
+                queues[u].pop(0)
+                emitted_count += 1
+                progress = True
+                break
+            # Match: u is also at front of v's queue?
+            if queues[v] and queues[v][0] == u:
+                yield (u, v)
+                queues[u].pop(0)
+                queues[v].pop(0)
+                emitted_count += 1
+                progress = True
+                break
+        if not progress:
+            # Constraint cycle: shouldn't happen for valid adj lists.
+            # Fall back to draining whatever's at the front of each queue.
+            for u in nodes_order:
+                while queues[u]:
+                    v = queues[u].pop(0)
+                    if v != u and queues[v]:
+                        try:
+                            queues[v].remove(u)
+                        except ValueError:
+                            pass
+                    yield (u, v)
+                    emitted_count += 1
+            break
+
+
 def _fnx_to_nx(fg):
     """Convert a FrankenNetworkX graph to the matching NetworkX graph type.
 
@@ -410,6 +485,12 @@ def _fnx_to_nx(fg):
     ``u_of_edge`` / ``v_of_edge`` on edges) don't raise the
     ``multiple values for argument`` TypeError
     (franken_networkx-yr7kf, same class as -uphdr / -9x7r0).
+
+    br-r37-c1-sgnab: emit edges in an order that preserves per-node
+    adj insertion order so the converted graph's adj[u] matches what
+    a directly-constructed nx graph would have. Critical for any
+    delegated algorithm whose result depends on adj iteration
+    (greedy_color BFS strategies, ego_graph, BFS/DFS variants).
     """
     import networkx as nx
 
@@ -441,9 +522,14 @@ def _fnx_to_nx(fg):
                     for key, attrs in keyed_attrs.items()
                 )
     else:
-        G.add_edges_from(
-            (u, v, dict(fg.edges[u, v])) for u, v in fg.edges
-        )
+        # Use 3-tuple attrs form so attr names that collide with nx's
+        # positional ``u_of_edge`` / ``v_of_edge`` parameters don't
+        # raise ``multiple values for argument`` (franken_networkx-yr7kf).
+        edges_in_order = [
+            (u, v, dict(fg.edges[u, v]))
+            for u, v in _topo_emit_edges_by_adj(fg)
+        ]
+        G.add_edges_from(edges_in_order)
     G.graph.update(dict(fg.graph))
     return G
 
