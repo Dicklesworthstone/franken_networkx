@@ -5696,6 +5696,12 @@ def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
     Graph
         A minimum spanning tree or forest.
     """
+    # br-r37-c1-ow5fy: nx's @not_implemented_for('directed') raises
+    # NetworkXNotImplemented; the Rust binding silently returned a
+    # Graph result. MST is undefined on directed graphs (use
+    # minimum_spanning_arborescence). Surface the standard error.
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     # br-mstcallable: the Rust _raw_minimum_spanning_tree requires
     # ``weight`` to be a str; nx accepts a callable
     # ``weight(u, v, d) -> float`` (used to derive weights on the fly).
@@ -5752,6 +5758,10 @@ def maximum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
     Graph
         A maximum spanning tree or forest.
     """
+    # br-r37-c1-ow5fy: same directed-rejection guard as
+    # minimum_spanning_tree.
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
     # br-mstcallable / br-mstweightwrong: same MST-quality issue as
     # minimum_spanning_tree — the Rust path returns suboptimal trees
     # on weighted inputs. Route any weighted graph through nx.
