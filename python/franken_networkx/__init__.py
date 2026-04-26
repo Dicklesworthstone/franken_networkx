@@ -17484,10 +17484,16 @@ def johnson(G, weight="weight"):
     -------
     dict of dicts
         ``result[u][v]`` is the shortest path from u to v.
+
+    br-r37-c1-9l73c: the local
+    ``dict(all_pairs_bellman_ford_path(...))`` short-circuit
+    produced inner-dict keys in BF-tree-discovery order, which
+    differed from nx's johnson algorithm-specific Dijkstra-from-
+    node iteration order (e.g. inner[a] keys ['a','b','d','c'] vs
+    nx ['a','b','c','d']). Delegate to nx so the inner-dict
+    iteration order matches its contract exactly.
     """
-    if callable(weight):
-        return _call_networkx_for_parity("johnson", G, weight=weight)
-    return dict(all_pairs_bellman_ford_path(G, weight=weight))
+    return _call_networkx_for_parity("johnson", G, weight=weight)
 
 
 # ---------------------------------------------------------------------------
