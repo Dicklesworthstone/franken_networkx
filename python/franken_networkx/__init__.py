@@ -11529,11 +11529,16 @@ def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
     ``fnx.path_graph(5)``), diverging from nx which preserves the
     input graph's edge orientation.
     """
+    # br-r37-c1-fauol: track BFS visit order (insertion order in
+    # ``seen``) so the resulting ego graph's node order matches nx's
+    # BFS-from-source ordering. Previously we collapsed to a set and
+    # iterated arbitrary hash order.
     if distance is not None:
         # Weighted ego: include nodes within weighted distance <= radius.
         sp = dict(single_source_dijkstra_path_length(G, n, weight=distance))
         sp = {node: dist for node, dist in sp.items() if dist <= radius}
-        nodes_within = set(sp.keys())
+        ordered_nodes = list(sp.keys())  # already in distance order
+        nodes_within = set(ordered_nodes)
     elif undirected and G.is_directed():
         # Treat directed graph as undirected for BFS.
         seen = {n: 0}
@@ -11553,7 +11558,8 @@ def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
                         seen[v] = depth + 1
                         next_queue.append(v)
             queue = next_queue
-        nodes_within = set(seen.keys())
+        ordered_nodes = list(seen.keys())
+        nodes_within = set(ordered_nodes)
     else:
         # Plain BFS (directed or undirected) honouring radius.
         seen = {n: 0}
@@ -11572,11 +11578,17 @@ def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
                         seen[v] = depth + 1
                         next_queue.append(v)
             queue = next_queue
-        nodes_within = set(seen.keys())
+        ordered_nodes = list(seen.keys())
+        nodes_within = set(ordered_nodes)
+
+    # br-r37-c1-fauol: nx.ego_graph uses G.subgraph(sp).copy(), which
+    # iterates the result in G's original insertion order (filtered to
+    # nodes_within). Match that contract instead of BFS-visit order.
+    ordered_nodes = [node for node in G.nodes() if node in nodes_within]
 
     graph = G.__class__()
     graph.graph.update(dict(G.graph))
-    for node in nodes_within:
+    for node in ordered_nodes:
         graph.add_node(node, **dict(G.nodes[node]))
     if G.is_multigraph():
         for u, v, key, data in G.edges(keys=True, data=True):
