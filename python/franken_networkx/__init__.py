@@ -194,10 +194,10 @@ def _remove_edge_with_networkx_missing_edge_error(
 
 
 def _remove_node_with_networkx_missing_node_error(remove_node_impl, *, graph_kind="graph"):
-    def remove_node(self, node):
-        if node not in self:
-            raise NetworkXError(f"The node {node} is not in the {graph_kind}.")
-        return remove_node_impl(self, node)
+    def remove_node(self, n):
+        if n not in self:
+            raise NetworkXError(f"The node {n} is not in the {graph_kind}.")
+        return remove_node_impl(self, n)
 
     return remove_node
 
@@ -881,18 +881,25 @@ _MULTIDIGRAPH_COPY = MultiDiGraph.copy
 
 
 def _make_none_rejecting_add_edge(raw_add_edge, is_multigraph=False):
-    """br-nonenode: reject None endpoints to match nx's contract."""
+    """br-nonenode: reject None endpoints to match nx's contract.
+
+    Parameter names match nx exactly (br-r37-c1-wcdm3): simple Graph
+    uses (u_of_edge, v_of_edge); MultiGraph uses (u_for_edge,
+    v_for_edge). Drop-in code passing the documented kwarg form
+    (G.add_edge(u_of_edge=0, v_of_edge=1)) hit TypeError on fnx
+    until this fix.
+    """
 
     if is_multigraph:
-        def add_edge(self, u, v, key=None, **attr):
-            if u is None or v is None:
+        def add_edge(self, u_for_edge, v_for_edge, key=None, **attr):
+            if u_for_edge is None or v_for_edge is None:
                 raise ValueError("None cannot be a node")
-            return raw_add_edge(self, u, v, key=key, **attr)
+            return raw_add_edge(self, u_for_edge, v_for_edge, key=key, **attr)
     else:
-        def add_edge(self, u, v, **attr):
-            if u is None or v is None:
+        def add_edge(self, u_of_edge, v_of_edge, **attr):
+            if u_of_edge is None or v_of_edge is None:
                 raise ValueError("None cannot be a node")
-            return raw_add_edge(self, u, v, **attr)
+            return raw_add_edge(self, u_of_edge, v_of_edge, **attr)
 
     return add_edge
 
@@ -925,10 +932,10 @@ def _make_none_rejecting_add_node(raw_add_node):
     preserves drop-in semantics.
     """
 
-    def add_node(self, n, **attr):
-        if n is None:
+    def add_node(self, node_for_adding, **attr):
+        if node_for_adding is None:
             raise ValueError("None cannot be a node")
-        return raw_add_node(self, n, **attr)
+        return raw_add_node(self, node_for_adding, **attr)
 
     return add_node
 
@@ -1024,16 +1031,16 @@ def _multi_add_edge_auto_key(raw_add_edge):
     key=1, not max+1=3).
     """
 
-    def add_edge(self, u, v, key=None, **attr):
-        if key is None and self.has_edge(u, v):
-            existing = self[u][v]
+    def add_edge(self, u_for_edge, v_for_edge, key=None, **attr):
+        if key is None and self.has_edge(u_for_edge, v_for_edge):
+            existing = self[u_for_edge][v_for_edge]
             # nx.MultiGraph.new_edge_key contract:
             #   key = len(keydict); while key in keydict: key += 1
             candidate = len(existing)
             while candidate in existing:
                 candidate += 1
             key = candidate
-        return raw_add_edge(self, u, v, key=key, **attr)
+        return raw_add_edge(self, u_for_edge, v_for_edge, key=key, **attr)
 
     return add_edge
 
@@ -1132,31 +1139,42 @@ def _add_edges_from_materialized(raw):
     return add_edges_from
 
 
-def _remove_bunch_materialized(raw):
+def _remove_edges_from_materialized(raw):
     """br-rmvbunch: nx internals call
-    ``g.remove_edges_from(nx.selfloop_edges(g))`` and
-    ``g.remove_nodes_from(iterator_reading_g)``. The generator reads
-    self._adj while the remove_*_from call holds a mutable borrow —
-    Rust raises 'Already mutably borrowed'. Materialize the iterable
+    ``g.remove_edges_from(nx.selfloop_edges(g))``. The generator reads
+    self._adj while the remove_edges_from call holds a mutable borrow
+    — Rust raises 'Already mutably borrowed'. Materialize the iterable
     before the Rust call.
+
+    Parameter name matches nx (br-r37-c1-wcdm3): ``ebunch``.
     """
-    def remove_bunch(self, bunch):
-        materialized = list(bunch)
+    def remove_edges_from(self, ebunch):
+        materialized = list(ebunch)
         return raw(self, materialized)
 
-    return remove_bunch
+    return remove_edges_from
+
+
+def _remove_nodes_from_materialized(raw):
+    """Same materialisation guard as remove_edges_from, parameter name
+    aligned to nx's ``nodes`` (br-r37-c1-wcdm3)."""
+    def remove_nodes_from(self, nodes):
+        materialized = list(nodes)
+        return raw(self, materialized)
+
+    return remove_nodes_from
 
 
 Graph.add_edges_from = _add_edges_from_materialized(_GRAPH_RAW_ADD_EDGES_FROM)
 DiGraph.add_edges_from = _add_edges_from_materialized(_DIGRAPH_RAW_ADD_EDGES_FROM)
-Graph.remove_edges_from = _remove_bunch_materialized(_GRAPH_RAW_REMOVE_EDGES_FROM)
-DiGraph.remove_edges_from = _remove_bunch_materialized(_DIGRAPH_RAW_REMOVE_EDGES_FROM)
-MultiGraph.remove_edges_from = _remove_bunch_materialized(_MULTIGRAPH_RAW_REMOVE_EDGES_FROM)
-MultiDiGraph.remove_edges_from = _remove_bunch_materialized(_MULTIDIGRAPH_RAW_REMOVE_EDGES_FROM)
-Graph.remove_nodes_from = _remove_bunch_materialized(_GRAPH_RAW_REMOVE_NODES_FROM)
-DiGraph.remove_nodes_from = _remove_bunch_materialized(_DIGRAPH_RAW_REMOVE_NODES_FROM)
-MultiGraph.remove_nodes_from = _remove_bunch_materialized(_MULTIGRAPH_RAW_REMOVE_NODES_FROM)
-MultiDiGraph.remove_nodes_from = _remove_bunch_materialized(_MULTIDIGRAPH_RAW_REMOVE_NODES_FROM)
+Graph.remove_edges_from = _remove_edges_from_materialized(_GRAPH_RAW_REMOVE_EDGES_FROM)
+DiGraph.remove_edges_from = _remove_edges_from_materialized(_DIGRAPH_RAW_REMOVE_EDGES_FROM)
+MultiGraph.remove_edges_from = _remove_edges_from_materialized(_MULTIGRAPH_RAW_REMOVE_EDGES_FROM)
+MultiDiGraph.remove_edges_from = _remove_edges_from_materialized(_MULTIDIGRAPH_RAW_REMOVE_EDGES_FROM)
+Graph.remove_nodes_from = _remove_nodes_from_materialized(_GRAPH_RAW_REMOVE_NODES_FROM)
+DiGraph.remove_nodes_from = _remove_nodes_from_materialized(_DIGRAPH_RAW_REMOVE_NODES_FROM)
+MultiGraph.remove_nodes_from = _remove_nodes_from_materialized(_MULTIGRAPH_RAW_REMOVE_NODES_FROM)
+MultiDiGraph.remove_nodes_from = _remove_nodes_from_materialized(_MULTIDIGRAPH_RAW_REMOVE_NODES_FROM)
 
 
 # ---------------------------------------------------------------------------
@@ -1557,17 +1575,18 @@ MultiDiGraph.nbunch_iter = _graph_nbunch_iter
 def _add_weighted_edges_from_with_attr(cls):
     raw = cls.add_weighted_edges_from
 
-    def add_weighted_edges_from(self, ebunch, weight="weight", **attr):
+    def add_weighted_edges_from(self, ebunch_to_add, weight="weight", **attr):
         """Accept extra **attr that apply to every inserted edge (matches nx).
 
-        Upstream NetworkX's add_weighted_edges_from(ebunch, weight=...,
-        **attr) applies ``attr`` to every edge in addition to the weight.
-        The fnx Rust method only takes (ebunch, weight), so fall back to
-        per-edge add_edge when any trailing attrs are present.
+        Upstream NetworkX's add_weighted_edges_from(ebunch_to_add,
+        weight=..., **attr) applies ``attr`` to every edge in addition
+        to the weight. The fnx Rust method only takes (ebunch, weight),
+        so fall back to per-edge add_edge when any trailing attrs are
+        present. Parameter name matches nx (br-r37-c1-wcdm3).
         """
         if not attr:
-            return raw(self, ebunch, weight=weight)
-        for edge in ebunch:
+            return raw(self, ebunch_to_add, weight=weight)
+        for edge in ebunch_to_add:
             if len(edge) == 3:
                 u, v, w = edge
                 self.add_edge(u, v, **{weight: w}, **attr)
@@ -21868,17 +21887,32 @@ def _multidigraph_to_directed_copy(self):
     return result
 
 
+def _wraps_without_signature_poisoning(impl, wrapper):
+    """Copy ``__name__``, ``__qualname__``, ``__doc__``, and
+    ``__module__`` from the Rust impl onto the Python wrapper, but do
+    NOT set ``__wrapped__`` — that attribute would make
+    ``inspect.signature`` follow back to the empty Rust signature
+    (br-r37-c1-5npb6). Keeping the metadata aligned matters for
+    error-message formatting, which uses ``__qualname__``."""
+    for attr in ("__name__", "__qualname__", "__doc__", "__module__"):
+        try:
+            value = getattr(impl, attr)
+        except AttributeError:
+            continue
+        try:
+            setattr(wrapper, attr, value)
+        except (AttributeError, TypeError):
+            pass
+    return wrapper
+
+
 def _graph_to_directed_with_view(to_directed_impl):
-    # Don't @wraps the Rust impl: its signature is empty () and would
-    # poison inspect.signature on the Python wrapper via __wrapped__
-    # (br-r37-c1-5npb6). Keep the wrapper's own (self, as_view=False).
     def to_directed(self, as_view=False):
         if as_view is True:
             return _generic_directed_graph_view(self)
         return _graph_to_directed_copy(self)
 
-    to_directed.__doc__ = to_directed_impl.__doc__
-    return to_directed
+    return _wraps_without_signature_poisoning(to_directed_impl, to_directed)
 
 
 def _multigraph_to_directed_with_view(to_directed_impl):
@@ -21887,8 +21921,7 @@ def _multigraph_to_directed_with_view(to_directed_impl):
             return _generic_directed_graph_view(self)
         return _multigraph_to_directed_copy(self)
 
-    to_directed.__doc__ = to_directed_impl.__doc__
-    return to_directed
+    return _wraps_without_signature_poisoning(to_directed_impl, to_directed)
 
 
 def _digraph_to_directed_with_view(to_directed_impl):
@@ -21897,8 +21930,7 @@ def _digraph_to_directed_with_view(to_directed_impl):
             return _generic_directed_graph_view(self)
         return _digraph_to_directed_copy(self)
 
-    to_directed.__doc__ = to_directed_impl.__doc__
-    return to_directed
+    return _wraps_without_signature_poisoning(to_directed_impl, to_directed)
 
 
 def _multidigraph_to_directed_with_view(to_directed_impl):
@@ -21907,8 +21939,7 @@ def _multidigraph_to_directed_with_view(to_directed_impl):
             return _generic_directed_graph_view(self)
         return _multidigraph_to_directed_copy(self)
 
-    to_directed.__doc__ = to_directed_impl.__doc__
-    return to_directed
+    return _wraps_without_signature_poisoning(to_directed_impl, to_directed)
 
 
 def _to_directed_with_view(to_directed_impl):
@@ -21917,8 +21948,7 @@ def _to_directed_with_view(to_directed_impl):
             return _generic_directed_graph_view(self)
         return to_directed_impl(self)
 
-    to_directed.__doc__ = to_directed_impl.__doc__
-    return to_directed
+    return _wraps_without_signature_poisoning(to_directed_impl, to_directed)
 
 
 def _to_undirected_with_view(to_undirected_impl):
@@ -21941,8 +21971,7 @@ def _to_undirected_with_view(to_undirected_impl):
             )
         return result
 
-    to_undirected.__doc__ = to_undirected_impl.__doc__
-    return to_undirected
+    return _wraps_without_signature_poisoning(to_undirected_impl, to_undirected)
 
 
 def _directed_to_undirected_with_view(to_undirected_impl):
@@ -22001,8 +22030,7 @@ def _directed_to_undirected_with_view(to_undirected_impl):
             )
         return result
 
-    to_undirected.__doc__ = to_undirected_impl.__doc__
-    return to_undirected
+    return _wraps_without_signature_poisoning(to_undirected_impl, to_undirected)
 
 
 Graph.copy = _copy_preserving_insertion_order

@@ -400,10 +400,15 @@ def test_fnx_to_nx_handles_collision_node_attr(attr_name):
 
 @pytest.mark.parametrize("attr_name", ["node_for_adding", "u_of_edge", "v_of_edge"])
 def test_fnx_to_nx_handles_collision_edge_attr(attr_name):
+    """Set the attr via item-assignment (not kwargs), since nx and fnx
+    both raise TypeError if you try to pass it through add_edge's
+    ``**attr`` collecting-kwargs slot — the name collides with the
+    positional ``u_of_edge`` / ``v_of_edge`` params."""
     from franken_networkx.backend import _fnx_to_nx
 
     fg = fnx.Graph()
-    fg.add_edge("a", "b", **{attr_name: "sentinel"})
+    fg.add_edge("a", "b")
+    fg["a"]["b"][attr_name] = "sentinel"
     result = _fnx_to_nx(fg)
     assert dict(result["a"]["b"]) == {attr_name: "sentinel"}
 
