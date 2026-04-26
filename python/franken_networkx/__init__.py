@@ -21480,45 +21480,40 @@ def _private_aware_has_edge(raw_has_edge):
     return _private_aware_has_edge_multi(raw_has_edge)
 
 
-def _private_aware_get_edge_data(raw_get_edge_data):
-    def get_edge_data(self, u, v, *args, **kwargs):
+def _private_aware_get_edge_data_simple(raw_get_edge_data):
+    """get_edge_data wrapper for non-multigraph types — nx signature is
+    (u, v, default=None) (br-r37-c1-gyn8z)."""
+    def get_edge_data(self, u, v, default=None):
         if not _has_networkx_private_storage(self):
-            return raw_get_edge_data(self, u, v, *args, **kwargs)
-        default = kwargs.pop("default", None)
-        key = kwargs.pop("key", None)
-        if kwargs:
-            unexpected = next(iter(kwargs))
-            raise TypeError(f"get_edge_data() got an unexpected keyword argument '{unexpected}'")
-        if self.is_multigraph():
-            if len(args) > 2:
-                raise TypeError(
-                    f"get_edge_data() takes from 3 to 5 positional arguments but {len(args) + 3} were given"
-                )
-            if len(args) >= 1:
-                key = args[0]
-            if len(args) == 2:
-                default = args[1]
-        else:
-            if len(args) > 1:
-                raise TypeError(
-                    f"get_edge_data() takes from 3 to 4 positional arguments but {len(args) + 3} were given"
-                )
-            if args:
-                default = args[0]
-        # Graph/DiGraph has_edge takes (u, v) only; only multigraphs
-        # accept the key arg (br-r37-c1-classmethsig).
-        if self.is_multigraph():
-            if not self.has_edge(u, v, key):
-                return default
-        else:
-            if not self.has_edge(u, v):
-                return default
+            return raw_get_edge_data(self, u, v, default)
+        if not self.has_edge(u, v):
+            return default
+        return self.adj[u][v]
+
+    return get_edge_data
+
+
+def _private_aware_get_edge_data_multi(raw_get_edge_data):
+    """get_edge_data wrapper for multigraph types — nx signature is
+    (u, v, key=None, default=None) (br-r37-c1-gyn8z)."""
+    def get_edge_data(self, u, v, key=None, default=None):
+        if not _has_networkx_private_storage(self):
+            if key is None:
+                return raw_get_edge_data(self, u, v, default=default)
+            return raw_get_edge_data(self, u, v, key, default)
+        if not self.has_edge(u, v, key):
+            return default
         edge_data = self.adj[u][v]
-        if self.is_multigraph() and key is not None:
+        if key is not None:
             return edge_data[key]
         return edge_data
 
     return get_edge_data
+
+
+# Legacy alias retained for callers in the Rust binding tables.
+def _private_aware_get_edge_data(raw_get_edge_data):
+    return _private_aware_get_edge_data_multi(raw_get_edge_data)
 
 
 def _private_aware_number_of_nodes(raw_number_of_nodes):
@@ -21594,10 +21589,10 @@ Graph.has_edge = _private_aware_has_edge_simple(_GRAPH_PRIVATE_AWARE_HAS_EDGE)
 DiGraph.has_edge = _private_aware_has_edge_simple(_DIGRAPH_PRIVATE_AWARE_HAS_EDGE)
 MultiGraph.has_edge = _private_aware_has_edge_multi(_MULTIGRAPH_PRIVATE_AWARE_HAS_EDGE)
 MultiDiGraph.has_edge = _private_aware_has_edge_multi(_MULTIDIGRAPH_PRIVATE_AWARE_HAS_EDGE)
-Graph.get_edge_data = _private_aware_get_edge_data(_GRAPH_PRIVATE_AWARE_GET_EDGE_DATA)
-DiGraph.get_edge_data = _private_aware_get_edge_data(_DIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA)
-MultiGraph.get_edge_data = _private_aware_get_edge_data(_MULTIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA)
-MultiDiGraph.get_edge_data = _private_aware_get_edge_data(_MULTIDIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA)
+Graph.get_edge_data = _private_aware_get_edge_data_simple(_GRAPH_PRIVATE_AWARE_GET_EDGE_DATA)
+DiGraph.get_edge_data = _private_aware_get_edge_data_simple(_DIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA)
+MultiGraph.get_edge_data = _private_aware_get_edge_data_multi(_MULTIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA)
+MultiDiGraph.get_edge_data = _private_aware_get_edge_data_multi(_MULTIDIGRAPH_PRIVATE_AWARE_GET_EDGE_DATA)
 Graph.number_of_nodes = _private_aware_number_of_nodes(_GRAPH_PRIVATE_AWARE_NUMBER_OF_NODES)
 DiGraph.number_of_nodes = _private_aware_number_of_nodes(_DIGRAPH_PRIVATE_AWARE_NUMBER_OF_NODES)
 MultiGraph.number_of_nodes = _private_aware_number_of_nodes(_MULTIGRAPH_PRIVATE_AWARE_NUMBER_OF_NODES)
