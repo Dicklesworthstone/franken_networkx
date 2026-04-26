@@ -19932,7 +19932,11 @@ def communicability_betweenness_centrality(G, *, backend=None, **backend_kwargs)
         "communicability_betweenness_centrality", backend, backend_kwargs
     )
 
-    return _fnx.communicability_betweenness_centrality_rust(G, True)
+    raw = _fnx.communicability_betweenness_centrality_rust(G, True)
+    # br-r37-c1-pm78h: the Rust binding returns the dict in arbitrary
+    # internal order; nx iterates in node-insertion order. Reorder so
+    # ``for node, score in result.items():`` matches nx's contract.
+    return {node: raw[node] for node in G.nodes() if node in raw}
 
 
 def trophic_levels(G, weight="weight"):
