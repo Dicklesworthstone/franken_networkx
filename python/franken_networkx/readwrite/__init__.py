@@ -222,7 +222,21 @@ def _empty_like_nx_graph(graph, create_using=None):
 
 
 def _from_nx_graph(graph, create_using=None):
-    """Convert a NetworkX graph into the FrankenNetworkX Python surface."""
+    """Convert a NetworkX graph into the FrankenNetworkX Python surface.
+
+    br-r37-c1-4d97w: nx.G.edges() canonicalises each edge to a
+    discovery-order direction that doesn't match the nx graph's
+    per-node adj insertion order. Walking edges() and feeding them
+    to add_edges_from would produce an fnx graph whose adj[u] is in
+    edge-traversal order instead of nx's add_edge insertion order.
+    Use the existing per-node-queue topological emit helper (the
+    inverse of br-r37-c1-sgnab) so adj order is preserved across the
+    nx -> fnx conversion. Multigraph edges still need to walk
+    edges(keys=True, data=True) since the topo helper doesn't
+    distinguish parallel edges; keep the existing fast path there.
+    """
+    from franken_networkx.backend import _topo_emit_edges_by_adj
+
     result = _empty_like_nx_graph(graph, create_using=create_using)
 
     for key, value in graph.graph.items():
@@ -243,10 +257,11 @@ def _from_nx_graph(graph, create_using=None):
             for left, right, key, attrs in graph.edges(keys=True, data=True)
         )
     else:
-        result.add_edges_from(
-            (left, right, dict(attrs))
-            for left, right, attrs in graph.edges(data=True)
-        )
+        # Use the per-node-queue topological emit so adj order in the
+        # destination matches adj order in the source graph.
+        for u, v in _topo_emit_edges_by_adj(graph):
+            attrs = graph[u][v]
+            result.add_edge(u, v, **dict(attrs))
 
     return result
 
