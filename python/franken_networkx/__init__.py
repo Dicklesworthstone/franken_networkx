@@ -5045,10 +5045,18 @@ def cycle_basis(G, root=None):
     Matches upstream NetworkX: raises NetworkXNotImplemented on
     multigraph inputs before the basis computation runs, rather than
     silently returning ``[]``.
+
+    br-r37-c1-j5swc: nx emits cycle node lists in DFS-discovery order
+    through the chord-completion path (e.g. ['b','a','c']), but the
+    Rust binding returns cycles in canonical-node order
+    (e.g. ['a','b','c']). Delegate to nx so cycle node ordering matches
+    its algorithmic contract exactly.
     """
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
-    return _raw_cycle_basis(G, root) if root is not None else _raw_cycle_basis(G)
+    if root is not None:
+        return _call_networkx_for_parity("cycle_basis", G, root=root)
+    return _call_networkx_for_parity("cycle_basis", G)
 
 
 def all_shortest_paths(G, source, target, weight=None, method="dijkstra"):

@@ -41,8 +41,17 @@ def test_cycle_basis_multigraph_raises_networkx_not_implemented(fnx_ctor, nx_cto
 
 
 def test_cycle_basis_simple_graph_still_works():
+    """br-r37-c1-j5swc: cycle node ordering now matches nx's
+    DFS-discovery order through the chord-completion path, not
+    canonical/sorted order. The previous hardcoded [[0,1,2,3]]
+    assertion described the old canonical-output contract — assert
+    on the cycle's *node set* and basis cardinality so this stays
+    robust to nx's algorithm-specific ordering."""
     g = fnx.cycle_graph(4)
     basis = fnx.cycle_basis(g)
-    assert basis == [[0, 1, 2, 3]]
+    assert len(basis) == 1
+    assert set(basis[0]) == {0, 1, 2, 3}
     # root kwarg still routes through.
-    assert fnx.cycle_basis(g, 0) == [[0, 1, 2, 3]]
+    rooted = fnx.cycle_basis(g, 0)
+    assert len(rooted) == 1
+    assert set(rooted[0]) == {0, 1, 2, 3}
