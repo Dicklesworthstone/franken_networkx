@@ -7100,8 +7100,12 @@ def all_pairs_dijkstra(G, cutoff=None, weight="weight"):
     if _should_delegate_dijkstra_to_networkx(G, weight) or _graph_has_nonunit_weight(G, weight):
         yield from _call_networkx_for_parity("all_pairs_dijkstra", G, weight=weight)
         return
-    for k, v in _raw_all_pairs_dijkstra(G, weight=weight).items():
-        yield (k, tuple(v))
+    # br-r37-c1-sk5be: iterate outer keys in node-insertion order
+    # matching nx (Rust dict yields in arbitrary order).
+    raw = _raw_all_pairs_dijkstra(G, weight=weight)
+    for node in G.nodes():
+        if node in raw:
+            yield (node, tuple(raw[node]))
 
 # Algorithm functions — strongly connected components
 from franken_networkx._fnx import (
@@ -9319,8 +9323,12 @@ def all_pairs_bellman_ford_path(G, weight="weight"):
             "all_pairs_bellman_ford_path", G, weight=weight
         )
         return
-    for k, v in _raw_all_pairs_bellman_ford_path(G, weight=weight).items():
-        yield (k, v)
+    # br-r37-c1-sk5be: iterate outer keys in node-insertion order
+    # matching nx (Rust dict yields in arbitrary order).
+    raw = _raw_all_pairs_bellman_ford_path(G, weight=weight)
+    for node in G.nodes():
+        if node in raw:
+            yield (node, raw[node])
 
 
 def all_pairs_bellman_ford_path_length(G, weight="weight"):
@@ -9330,8 +9338,12 @@ def all_pairs_bellman_ford_path_length(G, weight="weight"):
             "all_pairs_bellman_ford_path_length", G, weight=weight
         )
         return
-    for k, v in _raw_all_pairs_bellman_ford_path_length(G, weight=weight).items():
-        yield (k, v)
+    # br-r37-c1-sk5be: iterate outer keys in node-insertion order
+    # matching nx (Rust dict yields in arbitrary order).
+    raw = _raw_all_pairs_bellman_ford_path_length(G, weight=weight)
+    for node in G.nodes():
+        if node in raw:
+            yield (node, raw[node])
 
 
 def floyd_warshall(G, weight="weight"):
