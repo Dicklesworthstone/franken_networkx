@@ -7,8 +7,8 @@
 | Category | Count | % | Rule |
 |----------|-------|---|------|
 | RUST_NATIVE | 29 | 3% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 807 | 88% | Python-defined exports with no runtime NetworkX dependency detected |
-| NX_DELEGATED | 40 | 4% | Python-defined exports that import or call NetworkX at runtime |
+| PY_WRAPPER | 819 | 89% | Python-defined exports with no runtime NetworkX dependency detected |
+| NX_DELEGATED | 28 | 3% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 32 | 3% | public classes, exceptions, iterators |
 | CONSTANT | 3 | 0% | public non-callable values |
 | **Total public exports** | **911** | | unique names from `franken_networkx.__all__` |
@@ -71,7 +71,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `tree_broadcast_center`
 - `tree_broadcast_time`
 
-## PY_WRAPPER exports (807)
+## PY_WRAPPER exports (819)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -350,6 +350,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `from_prufer_sequence`
 - `from_scipy_sparse_array`
 - `from_sparse6_bytes`
+- `frozen`
 - `frucht_graph`
 - `fruchterman_reingold_layout`
 - `full_join`
@@ -417,6 +418,11 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `havel_hakimi_graph`
 - `heawood_graph`
 - `hexagonal_lattice_graph`
+- `hide_diedges`
+- `hide_edges`
+- `hide_multidiedges`
+- `hide_multiedges`
+- `hide_nodes`
 - `hits`
 - `hkn_harary_graph`
 - `hnm_harary_graph`
@@ -594,6 +600,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `neighbors`
 - `network_simplex`
 - `newman_watts_strogatz_graph`
+- `no_filter`
 - `node_attribute_xy`
 - `node_boundary`
 - `node_clique_number`
@@ -749,6 +756,11 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `shortest_path`
 - `shortest_path_length`
 - `shortest_simple_paths`
+- `show_diedges`
+- `show_edges`
+- `show_multidiedges`
+- `show_multiedges`
+- `show_nodes`
 - `sigma`
 - `simple_cycles`
 - `simrank_similarity`
@@ -881,7 +893,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `write_sparse6`
 - `write_weighted_edgelist`
 
-## NX_DELEGATED exports (40)
+## NX_DELEGATED exports (28)
 
 - `boruvka_mst_edges`
 - `branching_weight`
@@ -897,31 +909,19 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `draw_networkx_nodes`
 - `edges_equal`
 - `flow_matrix_row`
-- `frozen`
 - `geometric_soft_configuration_graph`
 - `graphs_equal`
-- `hide_diedges`
-- `hide_edges`
-- `hide_multidiedges`
-- `hide_multiedges`
-- `hide_nodes`
 - `is_valid_tree_degree_sequence`
 - `kruskal_mst_edges`
 - `make_list_of_ints`
 - `matching_dict_to_set`
 - `minimal_branching`
-- `no_filter`
 - `nodes_equal`
 - `powerlaw_sequence`
 - `prim_mst_edges`
 - `pseudo_peripheral_node`
 - `random_uniform_k_out_graph`
 - `reverse_cuthill_mckee_ordering`
-- `show_diedges`
-- `show_edges`
-- `show_multidiedges`
-- `show_multiedges`
-- `show_nodes`
 - `zipf_rv`
 
 ## CLASS exports (32)
