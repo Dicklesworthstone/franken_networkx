@@ -808,8 +808,19 @@ def display(G, **kwds):
     return buffer.getvalue()
 
 
-def draw_bipartite(G, top_nodes, pos=None, **kwds):
-    """Draw a bipartite graph using a bipartite layout when positions are omitted."""
+def draw_bipartite(G, **kwargs):
+    """Draw a bipartite graph using a bipartite layout when positions are omitted.
+
+    Signature matches networkx.drawing.nx_pylab.draw_bipartite(G, **kwargs):
+    ``top_nodes`` and ``pos`` are pulled from kwargs. If ``top_nodes`` is
+    absent it is computed via ``bipartite_sets``.
+    """
+    pos = kwargs.pop("pos", None)
+    top_nodes = kwargs.pop("top_nodes", None)
     if pos is None:
+        if top_nodes is None:
+            from franken_networkx import bipartite_sets
+
+            top_nodes, _ = bipartite_sets(G)
         pos = bipartite_layout(G, top_nodes)
-    return draw(G, pos=pos, **kwds)
+    return draw(G, pos=pos, **kwargs)
