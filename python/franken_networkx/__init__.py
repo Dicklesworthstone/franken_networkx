@@ -17351,24 +17351,23 @@ def dijkstra_predecessor_and_distance(G, source, cutoff=None, weight="weight"):
     Returns
     -------
     (pred, dist) : tuple of dicts
-    """
-    if _should_delegate_dijkstra_to_networkx(G, weight):
-        return _call_networkx_for_parity(
-            "dijkstra_predecessor_and_distance",
-            G,
-            source,
-            cutoff=cutoff,
-            weight=weight,
-        )
-    if source not in G:
-        raise NodeNotFound(f"Node {source} is not found in the graph")
 
-    _, predecessors, _, distances = _single_source_dijkstra_path_basic_local(
-        G, source, weight, cutoff=cutoff
+    br-r37-c1-0l76i: nx populates the predecessor dict in
+    edge-relaxation insertion order during traversal (so pred[v]
+    appears in the dict at the moment a tentative shortest path is
+    found, not when the distance is finalized). The previous local
+    implementation built ``pred = {node: predecessors[node] for
+    node in distances}`` which forced pred-key order to match
+    distances-iteration order, drifting from nx (e.g. nx's pred for
+    weighted graph [(a,b,1),(b,c,2),(c,d,1),(a,d,5),(b,d,3)] is
+    {a:[], b:[a], d:[b,c], c:[b]} — d lands before c because (b,d)
+    is relaxed before c is popped). Delegate to nx so pred-dict
+    iteration matches nx's algorithm-discovery contract.
+    """
+    return _call_networkx_for_parity(
+        "dijkstra_predecessor_and_distance",
+        G, source, cutoff=cutoff, weight=weight,
     )
-    pred = {node: predecessors[node] for node in distances}
-    pred[source] = []
-    return pred, distances
 
 
 def multi_source_dijkstra(G, sources, target=None, cutoff=None, weight="weight"):
