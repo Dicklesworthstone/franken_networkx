@@ -38,18 +38,25 @@ def test_relaxed_caveman_graph_size():
     assert graph.number_of_edges() > 0
 
 
-def test_stochastic_block_model_default_uses_native_fast_path(monkeypatch):
-    called = {}
+def test_stochastic_block_model_default_delegates_to_networkx_for_parity(monkeypatch):
+    """br-r37-c1-kilv4: br-sbmrng made stochastic_block_model
+    delegate to nx for exact-output parity (the Rust native path
+    produced ~25% of nx's edge count for symmetric block matrices).
+    Verify the delegation is in effect — _rust_stochastic_block_model
+    must NOT be called.
+    """
+    def fail(*args, **kwargs):
+        raise AssertionError(
+            "_rust_stochastic_block_model should not be used: "
+            "br-sbmrng routes through nx for parity"
+        )
 
-    def fake(sizes, probs, seed=None):
-        called["args"] = (sizes, probs, seed)
-        return fnx.empty_graph(sum(sizes))
-
-    monkeypatch.setattr(fnx, "_rust_stochastic_block_model", fake)
+    monkeypatch.setattr(fnx, "_rust_stochastic_block_model", fail)
 
     graph = fnx.stochastic_block_model([2, 1], [[0.0, 1.0], [1.0, 0.0]], seed=7)
 
-    assert called["args"] == ([2, 1], [[0.0, 1.0], [1.0, 0.0]], 7)
+    # The result still carries the standard SBM metadata regardless
+    # of which backend produced it.
     assert graph.graph["partition"] == [{0, 1}, {2}]
     assert graph.graph["name"] == "stochastic_block_model"
     assert graph.nodes[0]["block"] == 0
