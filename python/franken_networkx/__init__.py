@@ -6945,12 +6945,25 @@ def transitive_closure(G, reflexive=False):
 
 
 def transitive_reduction(G):
-    """br-isokw: ``G`` matches nx; Rust binding used ``g``."""
+    """Return the transitive reduction of ``G``.
+
+    br-isokw: ``G`` matches nx; Rust binding used ``g``.
+
+    br-r37-c1-utmy6: the Rust binding's transitive_reduction produced
+    a graph whose edges() iteration order drifted from nx (e.g.
+    fnx [('a','c'),('a','b'),...] vs nx [('a','b'),('a','c'),...]).
+    Delegate to nx so edge iteration order matches its
+    topological-DFS reduction contract exactly.
+    """
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
     if not is_directed_acyclic_graph(G):
         raise NetworkXError("Directed Acyclic Graph required for transitive_reduction")
-    return _raw_transitive_reduction(G)
+    import networkx as _nx_mod
+    from franken_networkx.readwrite import _from_nx_graph
+    nx_result = _nx_mod.transitive_reduction(_networkx_graph_for_parity(G))
+    cls = type(G)()
+    return _from_nx_graph(nx_result, create_using=cls)
 
 
 def degree_histogram(G):
@@ -17163,17 +17176,29 @@ def transitive_closure_dag(G, topo_order=None):
     Returns
     -------
     DiGraph
+
+    br-r37-c1-utmy6: the previous transitive_closure (Rust) shortcut
+    produced a graph whose adj[node] iteration order drifted from nx
+    (nx appends new transitive edges in its BFS-from-each-source
+    discovery order, e.g. adj[a] = [b,c,e,d] when 'd' is reached
+    last via the longer (a→c→d) chain). Delegate to nx so the
+    output graph's adj iteration matches nx's contract.
     """
     if not G.is_directed():
         # br-r37-c1-1ewpw: nx's @not_implemented_for('undirected')
         # raises NetworkXNotImplemented; fnx silently ran. Surface the
         # standard message for drop-in parity.
         raise NetworkXNotImplemented("not implemented for undirected type")
-    if topo_order is None:
-        topo_order = topological_sort(G)
-
-    # Use transitive_closure from Rust backend (already implemented)
-    return transitive_closure(G)
+    import networkx as _nx_mod
+    from franken_networkx.readwrite import _from_nx_graph
+    kwargs = {}
+    if topo_order is not None:
+        kwargs["topo_order"] = topo_order
+    nx_result = _nx_mod.transitive_closure_dag(
+        _networkx_graph_for_parity(G), **kwargs,
+    )
+    cls = type(G)()
+    return _from_nx_graph(nx_result, create_using=cls)
 
 
 # ---------------------------------------------------------------------------
