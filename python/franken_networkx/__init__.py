@@ -3265,6 +3265,18 @@ def shortest_path(G, source=None, target=None, weight=None, method="dijkstra"):
         # endpoints are omitted (dispatches to all_pairs_*). The Rust native
         # path materializes the full dict-of-dicts; convert to match contract.
         return ((src, paths) for src, paths in result.items())
+    if source is not None and target is None and isinstance(result, dict):
+        # br-r37-c1-62jy2: nx returns the dict in distance-order (BFS
+        # for unweighted, Dijkstra for weighted) from source. Reorder.
+        try:
+            lengths = shortest_path_length(
+                G, source=source, target=None, weight=weight, method=method,
+            )
+            if isinstance(lengths, dict):
+                order = _reorder_by_distance(dict(lengths), G=G, source=source)
+                result = {k: result[k] for k in order if k in result}
+        except Exception:
+            pass
     return result
 
 
@@ -9204,6 +9216,21 @@ def _sp_coerce_dist_to_int(dists):
             for k, v in dists.items()}
 
 
+def _reorder_by_distance(dists, *, G=None, source=None):
+    """Return the keys of ``dists`` sorted by ascending distance, with
+    BFS-from-source-adj-iteration order as the tiebreak (matches nx's
+    Dijkstra/BF processing order). When G or source is None the tiebreak
+    falls back to dict-insertion order (br-r37-c1-62jy2)."""
+    if G is not None and source is not None and source in dists:
+        bfs_index = {n: i for i, n in enumerate(_bfs_visit_order(G, source))}
+        return sorted(
+            dists.keys(),
+            key=lambda k: (dists[k], bfs_index.get(k, float("inf"))),
+        )
+    # Stable sort by value preserves insertion order on ties.
+    return sorted(dists.keys(), key=lambda k: dists[k])
+
+
 def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight"):
     # br-dijkignoreweight: the Rust single_source_dijkstra silently
     # returns hop-count distances on any weighted input (it ignores
@@ -9228,6 +9255,11 @@ def single_source_dijkstra(G, source, target=None, cutoff=None, weight="weight")
         if target not in dists:
             raise NetworkXNoPath(f"No path to {target}.")
         return dists[target], paths[target]
+    # br-r37-c1-62jy2: reorder both dicts by ascending distance so
+    # iteration matches nx's Dijkstra processing order.
+    order = _reorder_by_distance(dists, G=G, source=source)
+    dists = {k: dists[k] for k in order}
+    paths = {k: paths[k] for k in order if k in paths}
     return dists, paths
 
 
@@ -9271,7 +9303,12 @@ def single_source_bellman_ford(G, source, target=None, weight="weight"):
             target=target,
             weight=weight,
         )
-    return _raw_single_source_bellman_ford(G, source, weight=weight)
+    dists, paths = _raw_single_source_bellman_ford(G, source, weight=weight)
+    # br-r37-c1-62jy2: reorder by ascending distance matching nx.
+    order = _reorder_by_distance(dists, G=G, source=source)
+    dists = {k: dists[k] for k in order}
+    paths = {k: paths[k] for k in order if k in paths}
+    return dists, paths
 
 
 def single_source_bellman_ford_path(G, source, weight="weight"):
@@ -9280,7 +9317,12 @@ def single_source_bellman_ford_path(G, source, weight="weight"):
         return _call_networkx_for_parity(
             "single_source_bellman_ford_path", G, source, weight=weight
         )
-    return _raw_single_source_bellman_ford_path(G, source, weight=weight)
+    paths = _raw_single_source_bellman_ford_path(G, source, weight=weight)
+    # br-r37-c1-62jy2: order by distance via the length variant
+    # (single Rust call, much cheaper than re-running BF in Python).
+    dists = _raw_single_source_bellman_ford_path_length(G, source, weight=weight)
+    order = _reorder_by_distance(dict(dists), G=G, source=source)
+    return {k: paths[k] for k in order if k in paths}
 
 
 def single_source_bellman_ford_path_length(G, source, weight="weight"):
@@ -9292,8 +9334,10 @@ def single_source_bellman_ford_path_length(G, source, weight="weight"):
     result = _raw_single_source_bellman_ford_path_length(G, source, weight=weight)
     # br-ssintfloat: preserve int distances when all edge weights are int.
     if _sp_edge_weights_all_int(G, weight):
-        return _sp_coerce_dist_to_int(dict(result))
-    return result
+        result = _sp_coerce_dist_to_int(dict(result))
+    # br-r37-c1-62jy2: reorder by ascending distance.
+    order = _reorder_by_distance(dict(result), G=G, source=source)
+    return {k: result[k] for k in order}
 
 
 def all_pairs_dijkstra_path(G, cutoff=None, weight="weight"):
