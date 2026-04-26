@@ -4751,6 +4751,34 @@ def maximum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
     )
 
 
+def _restore_branching_edge_attrs(result, source, attr_name, default, preserve_attrs):
+    """br-r37-c1-xy4xf: the Rust branching/arborescence binding coerces
+    weights to f64, so an int weight comes back as float. nx preserves
+    the original type. Walk each retained edge in the result and copy
+    its attrs from the source so weight types match nx exactly.
+
+    When ``preserve_attrs`` is False, only the named weight attribute
+    is copied (matching nx's contract: non-weight attrs are dropped).
+    """
+    from copy import deepcopy
+
+    for u, v in list(result.edges()):
+        result[u][v].clear()
+        if source.has_edge(u, v):
+            src_attrs = dict(source[u][v])
+            if preserve_attrs:
+                # Copy everything (preserving original types).
+                if attr_name not in src_attrs:
+                    src_attrs[attr_name] = default
+                result[u][v].update(deepcopy(src_attrs))
+            else:
+                # Only the weight attr — preserve its original type.
+                weight_value = src_attrs.get(attr_name, default)
+                result[u][v][attr_name] = weight_value
+        else:
+            result[u][v][attr_name] = default
+
+
 def minimum_branching(G, attr="weight", default=1, preserve_attrs=False, partition=None):
     """br-isokw: ``G`` matches nx; default aligned to int 1 (was 1.0).
 
@@ -4765,7 +4793,12 @@ def minimum_branching(G, attr="weight", default=1, preserve_attrs=False, partiti
             attr=attr, default=default,
             preserve_attrs=preserve_attrs, partition=partition,
         )
-    return _raw_minimum_branching(G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition)
+    result = _raw_minimum_branching(
+        G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
+    )
+    # br-r37-c1-xy4xf: restore original weight types from G.
+    _restore_branching_edge_attrs(result, G, attr, default, preserve_attrs)
+    return result
 
 
 def maximum_branching(G, attr="weight", default=1, preserve_attrs=False, partition=None):
@@ -4781,7 +4814,11 @@ def maximum_branching(G, attr="weight", default=1, preserve_attrs=False, partiti
             attr=attr, default=default,
             preserve_attrs=preserve_attrs, partition=partition,
         )
-    return _raw_maximum_branching(G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition)
+    result = _raw_maximum_branching(
+        G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
+    )
+    _restore_branching_edge_attrs(result, G, attr, default, preserve_attrs)
+    return result
 
 
 def minimum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=False, partition=None):
@@ -4793,7 +4830,11 @@ def minimum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=Fa
     """
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
-    return _raw_minimum_spanning_arborescence(G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition)
+    result = _raw_minimum_spanning_arborescence(
+        G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
+    )
+    _restore_branching_edge_attrs(result, G, attr, default, preserve_attrs)
+    return result
 
 
 def maximum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=False, partition=None):
@@ -4803,7 +4844,11 @@ def maximum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=Fa
     """
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
-    return _raw_maximum_spanning_arborescence(G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition)
+    result = _raw_maximum_spanning_arborescence(
+        G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition,
+    )
+    _restore_branching_edge_attrs(result, G, attr, default, preserve_attrs)
+    return result
 
 
 def random_spanning_tree(G, weight=None, *, multiplicative=True, seed=None):
