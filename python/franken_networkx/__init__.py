@@ -1924,6 +1924,9 @@ class _FilteredDegreeView:
     br-degnbnview: see _WeightAwareDegreeView.__call__ for context.
     Mirrors nx's DegreeView contract so bipartite.degrees and callers
     that mix iteration with key-indexing work transparently.
+
+    br-r37-c1-wu9dv: ``__name__`` set to 'DegreeView' so introspection
+    (``type(view).__name__``) matches nx exactly.
     """
 
     __slots__ = ("_raw", "_nodes", "_weight", "_parent")
@@ -1965,7 +1968,18 @@ class _FilteredDegreeView:
         raise TypeError("DegreeView not callable in this context")
 
     def __repr__(self):
-        return f"_FilteredDegreeView({self._nodes!r})"
+        # br-r37-c1-wu9dv: nx exposes this as DegreeView({n: deg, ...}) —
+        # drop-in code prints the full dict-style repr. Match it.
+        return f"DegreeView({dict(self)!r})"
+
+    def __str__(self):
+        # br-r37-c1-wu9dv: nx DegreeView.__str__ returns str(list(self)).
+        return str(list(self))
+
+
+# br-r37-c1-wu9dv: rename so ``type(view).__name__`` matches nx exactly.
+_FilteredDegreeView.__name__ = "DegreeView"
+_FilteredDegreeView.__qualname__ = "DegreeView"
 
 
 # Capture the raw Rust descriptors before overriding so our wrapper can
