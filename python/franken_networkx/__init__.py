@@ -216,19 +216,31 @@ class EdgeDataView:
     ``type(view).__name__`` checks match nx.
     """
 
-    def __init__(self, edge_view_call, view_self, *, data, default, nbunch_list):
+    def __init__(self, edge_view_call, view_self, *, data, default, nbunch_list, graph=None):
         self._call = edge_view_call
         self._view = view_self
         self._data = data
         self._default = default
         self._nbunch_list = nbunch_list
         self._nbset = set(nbunch_list) if nbunch_list is not None else None
+        self._graph = graph
 
     def _materialize(self):
         data = self._data
         default = self._default
         data_is_none = data is None
         rust_data = False if data_is_none else data
+        if self._nbunch_list is not None and self._graph is not None:
+            # br-r37-c1-dc14n: nx's edges(nbunch) iterates nbunch in
+            # user-given order and for each node yields edges (u, v)
+            # in adj[u] order, skipping edges where v has already
+            # been seen via this iteration. The Rust path returned
+            # edges in G.nodes()-order filtered by nbunch — mismatched
+            # iteration order. Replicate nx's algorithm explicitly so
+            # G.edges(nbunch) matches nx's contract on undirected
+            # graphs. (Directed/multigraph go through different
+            # EdgeView classes which already match nx.)
+            return self._materialize_via_adj_walk(data, default, data_is_none)
         result = self._call(
             self._view,
             data=rust_data,
@@ -237,10 +249,34 @@ class EdgeDataView:
         )
         if data_is_none:
             result = [edge + (default,) for edge in result]
-        if self._nbset is not None:
-            result = [self._reorder(e) for e in result]
-        else:
-            result = list(result)
+        return list(result)
+
+    def _materialize_via_adj_walk(self, data, default, data_is_none):
+        """Mirror nx's UndirectedEdgeView.__call__ when nbunch is set:
+        walk nbunch_list in user order, for each node iterate
+        adj[node] yielding (u, v) plus optional data, skipping
+        edges where the second endpoint has already been visited."""
+        graph = self._graph
+        seen = set()
+        result = []
+        for node in self._nbunch_list:
+            if node not in graph:
+                # nx skips missing nbunch nodes silently.
+                continue
+            seen.add(node)
+            adj_view = graph[node]
+            for nbr, edge_data in adj_view.items():
+                if nbr in seen:
+                    continue
+                if data is False:
+                    result.append((node, nbr))
+                elif data is True:
+                    result.append((node, nbr, dict(edge_data)))
+                elif data_is_none:
+                    result.append((node, nbr, default))
+                else:
+                    # data is a string attr name
+                    result.append((node, nbr, edge_data.get(data, default)))
         return result
 
     def _reorder(self, edge):
