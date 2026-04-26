@@ -25655,21 +25655,58 @@ def junction_tree(G):
     return JT
 
 
-def join_trees(T1, T2, root1=None, root2=None):
-    """Join two trees by adding edge between roots."""
-    G = Graph()
-    for n in T1.nodes():
-        G.add_node(("T1", n))
-    for u, v in T1.edges():
-        G.add_edge(("T1", u), ("T1", v))
-    for n in T2.nodes():
-        G.add_node(("T2", n))
-    for u, v in T2.edges():
-        G.add_edge(("T2", u), ("T2", v))
-    r1 = root1 if root1 is not None else list(T1.nodes())[0]
-    r2 = root2 if root2 is not None else list(T2.nodes())[0]
-    G.add_edge(("T1", r1), ("T2", r2))
-    return G
+def join_trees(rooted_trees, *, label_attribute=None, first_label=0):
+    """Join a list of rooted trees under a new root.
+
+    Matches networkx's public signature exactly:
+    ``join_trees(rooted_trees, *, label_attribute=None, first_label=0)``.
+
+    Parameters
+    ----------
+    rooted_trees : list of (tree, root) pairs
+        Each pair is a NetworkX-compatible tree and the node within
+        that tree to use as its root. Nodes are relabelled to integers
+        starting at ``first_label + 1``.
+    label_attribute : str, optional
+        When set, original node labels are stored under this attribute
+        on the returned tree.
+    first_label : int, optional (default=0)
+        Label assigned to the new synthetic root node.
+    """
+    from itertools import accumulate
+    from functools import partial
+
+    if not rooted_trees:
+        return empty_graph(1)
+
+    trees, roots = zip(*rooted_trees)
+
+    # Result has the same class as the first tree (matches nx).
+    R = type(trees[0])()
+
+    lengths = (len(tree) for tree in trees[:-1])
+    first_labels = list(accumulate(lengths, initial=first_label + 1))
+
+    new_roots = []
+    for tree, root, first_node in zip(trees, roots, first_labels):
+        new_root = first_node + list(tree.nodes()).index(root)
+        new_roots.append(new_root)
+
+    relabel = partial(
+        convert_node_labels_to_integers, label_attribute=label_attribute
+    )
+    new_trees = [
+        relabel(tree, first_label=fl)
+        for tree, fl in zip(trees, first_labels)
+    ]
+
+    for tree in new_trees:
+        R.update(tree)
+
+    R.add_node(first_label)
+    R.add_edges_from((first_label, root) for root in new_roots)
+
+    return R
 
 
 def random_unlabeled_tree(n, number_of_trees=None, seed=None):
