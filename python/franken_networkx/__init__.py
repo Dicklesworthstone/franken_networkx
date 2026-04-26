@@ -8309,8 +8309,20 @@ def _coerce_nbunch(nbunch):
 
 
 def cut_size(G, S, T=None, weight=None):
-    """br-boundkw: ``G, S, T`` match nx; Rust binding used ``g, nbunch1, nbunch2``."""
-    return _raw_cut_size(G, _coerce_nbunch(S), _coerce_nbunch(T), weight=weight)
+    """br-boundkw: ``G, S, T`` match nx; Rust binding used ``g, nbunch1, nbunch2``.
+
+    br-r37-c1-f47su: nx returns int when the result is integer (always
+    for unweighted, and when all relevant weights are int). The Rust
+    binding always returns float. Coerce to int when input weights
+    permit so isinstance(cut_size(G, S), int) checks match nx.
+    """
+    raw = _raw_cut_size(G, _coerce_nbunch(S), _coerce_nbunch(T), weight=weight)
+    if weight is None or _sp_edge_weights_all_int(G, weight):
+        # Result is necessarily an integer (edge count or sum of int
+        # weights); coerce safely.
+        if isinstance(raw, float) and raw.is_integer():
+            return int(raw)
+    return raw
 
 
 def normalized_cut_size(G, S, T=None, weight=None):
