@@ -4856,7 +4856,8 @@ def eulerian_path(G, source=None, keys=False):
     Parameters
     ----------
     G : graph
-        A graph with an Eulerian path.
+        A graph with an Eulerian path. Directed and undirected
+        (br-r37-c1-z4i7f).
     source : node, optional
         Starting node for path.
     keys : bool, optional
@@ -4867,6 +4868,13 @@ def eulerian_path(G, source=None, keys=False):
     edge
         Edges in the Eulerian path.
     """
+    # br-r37-c1-z4i7f: nx supports directed graphs; the Rust binding
+    # only handles undirected. Delegate the directed case to nx.
+    if G.is_directed():
+        yield from _call_networkx_for_parity(
+            "eulerian_path", G, source=source, keys=keys,
+        )
+        return
     if keys:
         yield from _call_networkx_for_parity("eulerian_path", G, source=source, keys=keys)
         return
