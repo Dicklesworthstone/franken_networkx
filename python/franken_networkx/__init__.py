@@ -6014,13 +6014,18 @@ def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
     # carries the weight attr on at least one edge — unweighted
     # graphs still hit the Rust fast path.
     if algorithm != "kruskal" or ignore_nan or not isinstance(weight, str) or _mst_has_weight_edge_attr(G, weight):
-        return _call_networkx_for_parity(
-            "minimum_spanning_tree",
-            G,
+        # br-r37-c1-rtak4: _call_networkx_for_parity returns an
+        # nx.Graph unchanged; rehydrate as fnx.Graph so downstream
+        # fnx.* calls (is_connected, is_tree, etc.) accept it.
+        import networkx as _nx_mod
+        from franken_networkx.readwrite import _from_nx_graph
+        nx_result = _nx_mod.minimum_spanning_tree(
+            _networkx_graph_for_parity(G),
             weight=weight,
             algorithm=algorithm,
             ignore_nan=ignore_nan,
         )
+        return _from_nx_graph(nx_result, create_using=type(G)())
     return _raw_minimum_spanning_tree(G, weight=weight)
 
 
@@ -6065,14 +6070,18 @@ def maximum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
     # br-mstcallable / br-mstweightwrong: same MST-quality issue as
     # minimum_spanning_tree — the Rust path returns suboptimal trees
     # on weighted inputs. Route any weighted graph through nx.
+    # br-r37-c1-rtak4: rehydrate the nx.Graph result as fnx.Graph
+    # (otherwise downstream fnx.* calls reject the foreign type).
     if algorithm != "kruskal" or ignore_nan or not isinstance(weight, str) or _mst_has_weight_edge_attr(G, weight):
-        return _call_networkx_for_parity(
-            "maximum_spanning_tree",
-            G,
+        import networkx as _nx_mod
+        from franken_networkx.readwrite import _from_nx_graph
+        nx_result = _nx_mod.maximum_spanning_tree(
+            _networkx_graph_for_parity(G),
             weight=weight,
             algorithm=algorithm,
             ignore_nan=ignore_nan,
         )
+        return _from_nx_graph(nx_result, create_using=type(G)())
     return _raw_maximum_spanning_tree(G, weight=weight)
 
 

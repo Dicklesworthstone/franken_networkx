@@ -285,8 +285,12 @@ class TestAverageNodeConnectivity:
 
 
 class TestIsKEdgeConnected:
-    def test_k0_always_true(self, path5):
-        assert fnx.is_k_edge_connected(path5, 0)
+    def test_k0_raises_value_error(self, path5):
+        """br-ikeck0: nx.is_k_edge_connected validates k>=1; fnx
+        matches that contract. (Earlier fnx vacuously returned True
+        for k=0, which the original test_k0_always_true asserted.)"""
+        with pytest.raises(ValueError, match="k must be positive"):
+            fnx.is_k_edge_connected(path5, 0)
 
     def test_k1_connected(self, path5):
         assert fnx.is_k_edge_connected(path5, 1)

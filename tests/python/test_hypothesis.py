@@ -916,13 +916,19 @@ class TestExpansionMetrics:
     @given(data=small_connected_graph(min_nodes=3, max_nodes=12))
     @settings(FAST, deadline=None)
     def test_is_k_edge_connected_monotonic(self, data):
-        """If graph is k-edge-connected, it's also (k-1)-edge-connected."""
+        """If graph is k-edge-connected, it's also (k-1)-edge-connected.
+
+        br-r37-c1-rtak4: start the lower-bound loop at j=1, not j=0,
+        because br-ikeck0 made is_k_edge_connected raise ValueError
+        for k<1 (matching nx). The monotonicity property only holds
+        for k>=1.
+        """
         G_fnx, _, n = data
         # Find the edge connectivity
         for k in range(1, n):
             if not fnx.is_k_edge_connected(G_fnx, k):
-                # All lower values should be True
-                for j in range(k):
+                # All lower values (k>=1) should be True
+                for j in range(1, k):
                     assert fnx.is_k_edge_connected(G_fnx, j)
                 break
 
