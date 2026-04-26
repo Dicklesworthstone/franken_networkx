@@ -3429,8 +3429,12 @@ def articulation_points(G):
     """Yield articulation points of ``G``.
 
     Matches upstream's generator contract (franken_networkx-v1nwd).
+
+    br-r37-c1-9kyjl: nx yields APs in DFS-discovery order; the Rust
+    binding emits them sorted/canonically. Delegate so iteration order
+    matches nx exactly.
     """
-    yield from _raw_articulation_points(G)
+    yield from _call_networkx_for_parity("articulation_points", G)
 
 
 def bridges(G, root=None):
@@ -9759,8 +9763,12 @@ def biconnected_component_edges(G):
     types.GeneratorType)`` matches and short-circuit callers like
     ``next(biconnected_component_edges(huge_graph))`` don't pay for
     full materialisation.
+
+    br-r37-c1-9kyjl: nx yields edges in DFS-traversal direction within
+    each component (e.g. ('b', 'a') instead of canonical ('a', 'b')).
+    Delegate so edge tuples match nx's algorithm-specific orientation.
     """
-    yield from _raw_biconnected_component_edges(G)
+    yield from _call_networkx_for_parity("biconnected_component_edges", G)
 
 
 def kosaraju_strongly_connected_components(G, source=None):
