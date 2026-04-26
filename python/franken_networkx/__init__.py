@@ -23783,7 +23783,11 @@ def square_clustering(G, nodes=None):
 def triangles(G, nodes=None):
     """Compute the number of triangles."""
     if nodes is None:
-        return _raw_triangles(G)
+        raw = _raw_triangles(G)
+        # br-r37-c1-k3khk: the Rust binding returns the dict with keys
+        # sorted; nx iterates in node-insertion order. Reorder so
+        # ``for node, count in triangles(G).items():`` matches nx.
+        return {node: raw[node] for node in G.nodes() if node in raw}
 
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
