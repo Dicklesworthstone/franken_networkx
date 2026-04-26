@@ -19852,7 +19852,12 @@ def second_order_centrality(G, weight="weight", *, backend=None, **backend_kwarg
         and weight == "weight"
         and not _graph_has_edge_attribute(G, "weight")
     ):
-        return _fnx.second_order_centrality_rust(G)
+        raw = _fnx.second_order_centrality_rust(G)
+        # br-r37-c1-f6epo: the Rust binding returns the dict in
+        # arbitrary internal order; nx iterates in node-insertion
+        # order. Reorder so ``for node, score in result.items():``
+        # matches nx's contract.
+        return {node: raw[node] for node in G.nodes() if node in raw}
 
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
