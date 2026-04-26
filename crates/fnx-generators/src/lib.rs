@@ -665,49 +665,24 @@ impl GraphGenerator {
 
         let mut rng = PythonRandom::new(seed);
         let (_, node_labels) = graph_with_n_nodes(self.mode, n);
+        // br-r37-c1-nzo8r: port nx's smarter stub-pairing algorithm.
+        // The naive "any duplicate/self-edge → throw away the whole
+        // attempt" loop fails for ~20% of seeds at d=4,n=10. nx tracks
+        // unmatched stubs in `potential_edges` and only restarts the
+        // outer attempt when `_suitable` proves no remaining edges can
+        // be placed. With this, convergence is essentially always 1
+        // outer attempt.
         let max_tries = 100;
 
         for _ in 0..max_tries {
-            // Create stubs: d copies of each node index
-            let mut stubs: Vec<usize> = Vec::with_capacity(n * d);
-            for i in 0..n {
-                for _ in 0..d {
-                    stubs.push(i);
+            if let Some(edge_pairs) = try_create_random_regular(&mut rng, n, d) {
+                let mut graph = Graph::new(self.mode);
+                for label in &node_labels {
+                    let _ = graph.add_node(label.clone());
                 }
-            }
-            // Fisher-Yates shuffle
-            for i in (1..stubs.len()).rev() {
-                let j = rng.randrange(i + 1);
-                stubs.swap(i, j);
-            }
-
-            // Pair consecutive stubs
-            let mut valid = true;
-            let mut graph = Graph::new(self.mode);
-            for label in &node_labels {
-                let _ = graph.add_node(label.clone());
-            }
-            let mut seen = std::collections::HashSet::new();
-
-            for pair in stubs.chunks_exact(2) {
-                let u = pair[0];
-                let v = pair[1];
-                if u == v {
-                    valid = false;
-                    break;
-                }
-                let edge = if u < v { (u, v) } else { (v, u) };
-                if !seen.insert(edge) {
-                    // Multi-edge — invalid
-                    valid = false;
-                    break;
-                }
-            }
-
-            if valid {
-                for pair in stubs.chunks_exact(2) {
+                for (u, v) in &edge_pairs {
                     let _ =
-                        graph.add_edge(node_labels[pair[0]].clone(), node_labels[pair[1]].clone());
+                        graph.add_edge(node_labels[*u].clone(), node_labels[*v].clone());
                 }
                 self.record(
                     "random_regular_graph",
@@ -1370,6 +1345,86 @@ impl PythonRandom {
         }
         result
     }
+}
+
+/// br-r37-c1-nzo8r: port of nx.generators.random_graphs._random_subset's
+/// inner `_try_creation` loop. Tracks unmatched stubs in `potential_edges`
+/// after each shuffle pass and only fully restarts when `_suitable` proves
+/// no remaining edge can be placed, instead of throwing away the entire
+/// attempt on the first duplicate or self-loop.
+fn try_create_random_regular(
+    rng: &mut PythonRandom,
+    n: usize,
+    d: usize,
+) -> Option<Vec<(usize, usize)>> {
+    use std::collections::{BTreeMap, HashSet};
+
+    let mut edges: HashSet<(usize, usize)> = HashSet::new();
+    let mut stubs: Vec<usize> = Vec::with_capacity(n * d);
+    for i in 0..n {
+        for _ in 0..d {
+            stubs.push(i);
+        }
+    }
+
+    while !stubs.is_empty() {
+        for i in (1..stubs.len()).rev() {
+            let j = rng.randrange(i + 1);
+            stubs.swap(i, j);
+        }
+
+        // BTreeMap keeps deterministic iteration order across runs.
+        let mut potential_edges: BTreeMap<usize, usize> = BTreeMap::new();
+        for pair in stubs.chunks_exact(2) {
+            let (mut s1, mut s2) = (pair[0], pair[1]);
+            if s1 > s2 {
+                std::mem::swap(&mut s1, &mut s2);
+            }
+            if s1 != s2 && !edges.contains(&(s1, s2)) {
+                edges.insert((s1, s2));
+            } else {
+                *potential_edges.entry(s1).or_insert(0) += 1;
+                *potential_edges.entry(s2).or_insert(0) += 1;
+            }
+        }
+
+        if !rrg_suitable(&edges, &potential_edges) {
+            return None;
+        }
+
+        stubs.clear();
+        for (&node, &potential) in &potential_edges {
+            for _ in 0..potential {
+                stubs.push(node);
+            }
+        }
+    }
+
+    Some(edges.into_iter().collect())
+}
+
+/// Checks whether the remaining unmatched stubs in `potential_edges` could
+/// possibly form at least one valid edge given the edges already placed.
+/// Returns false (= must restart) if every cross-pair is already an edge.
+/// Mirrors nx's `_suitable` predicate in random_regular_graph.
+fn rrg_suitable(
+    edges: &std::collections::HashSet<(usize, usize)>,
+    potential_edges: &std::collections::BTreeMap<usize, usize>,
+) -> bool {
+    if potential_edges.is_empty() {
+        return true;
+    }
+    let nodes: Vec<usize> = potential_edges.keys().copied().collect();
+    for i in 1..nodes.len() {
+        let s1 = nodes[i];
+        for &s2 in &nodes[..i] {
+            let (lo, hi) = if s1 < s2 { (s1, s2) } else { (s2, s1) };
+            if !edges.contains(&(lo, hi)) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 fn ring_lattice_edges(n: usize, half_k: usize) -> Vec<(usize, usize)> {

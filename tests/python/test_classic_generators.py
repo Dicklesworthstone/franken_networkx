@@ -828,6 +828,44 @@ class TestRandomRegularInvalidArgs:
             fnx.random_regular_graph(3, 5, seed=0)
 
 
+# br-r37-c1-nzo8r: pre-fix the Rust random_regular_graph used a naive
+# "any duplicate/self-edge throws away the whole attempt" loop that capped
+# at 100 attempts. For (d=4, n=10) ~20% of seeds in [0, 50) raised
+# ValueError(FailClosed{...}) — seeds 2,3,7,9,13,33,34,42,43,44 — while
+# nx.random_regular_graph succeeded for the same inputs because nx tracks
+# unmatched stubs in `potential_edges` and only restarts when no remaining
+# edge can be placed. The fix ports nx's smarter inner loop into the Rust
+# generator. This test guards against regression.
+class TestRandomRegularConvergence:
+    def test_converges_for_previously_failing_seeds(self):
+        # All ten seeds historically observed to FailClosed under the naive
+        # algorithm must now succeed and yield a valid 4-regular graph on
+        # 10 nodes.
+        for seed in (2, 3, 7, 9, 13, 33, 34, 42, 43, 44):
+            g = fnx.random_regular_graph(4, 10, seed=seed)
+            assert g.number_of_nodes() == 10
+            degrees = [g.degree(v) for v in g.nodes()]
+            assert all(deg == 4 for deg in degrees), (
+                f"seed={seed}: expected all degrees == 4, got {degrees}"
+            )
+            for u, v in g.edges():
+                assert u != v, f"seed={seed}: self-loop ({u},{v})"
+
+    def test_converges_for_500_seeds_at_d4_n10(self):
+        # Broad sweep: zero failures across a 500-seed window. Pre-fix the
+        # failure rate was ~20%.
+        failures = []
+        for seed in range(500):
+            try:
+                fnx.random_regular_graph(4, 10, seed=seed)
+            except Exception:  # pragma: no cover - regression sentinel
+                failures.append(seed)
+        assert not failures, (
+            f"random_regular_graph(4, 10) failed for {len(failures)} of 500 "
+            f"seeds: first 10 = {failures[:10]}"
+        )
+
+
 # br-badiacritic: nx uses Unicode "Barabási–Albert" in its error messages
 # for barabasi_albert_graph and dual_barabasi_albert_graph (but ASCII
 # "Barabasi-Albert" for extended_barabasi_albert_graph). fnx matches
