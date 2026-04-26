@@ -21869,57 +21869,59 @@ def _multidigraph_to_directed_copy(self):
 
 
 def _graph_to_directed_with_view(to_directed_impl):
-    @wraps(to_directed_impl)
+    # Don't @wraps the Rust impl: its signature is empty () and would
+    # poison inspect.signature on the Python wrapper via __wrapped__
+    # (br-r37-c1-5npb6). Keep the wrapper's own (self, as_view=False).
     def to_directed(self, as_view=False):
         if as_view is True:
             return _generic_directed_graph_view(self)
         return _graph_to_directed_copy(self)
 
+    to_directed.__doc__ = to_directed_impl.__doc__
     return to_directed
 
 
 def _multigraph_to_directed_with_view(to_directed_impl):
-    @wraps(to_directed_impl)
     def to_directed(self, as_view=False):
         if as_view is True:
             return _generic_directed_graph_view(self)
         return _multigraph_to_directed_copy(self)
 
+    to_directed.__doc__ = to_directed_impl.__doc__
     return to_directed
 
 
 def _digraph_to_directed_with_view(to_directed_impl):
-    @wraps(to_directed_impl)
     def to_directed(self, as_view=False):
         if as_view is True:
             return _generic_directed_graph_view(self)
         return _digraph_to_directed_copy(self)
 
+    to_directed.__doc__ = to_directed_impl.__doc__
     return to_directed
 
 
 def _multidigraph_to_directed_with_view(to_directed_impl):
-    @wraps(to_directed_impl)
     def to_directed(self, as_view=False):
         if as_view is True:
             return _generic_directed_graph_view(self)
         return _multidigraph_to_directed_copy(self)
 
+    to_directed.__doc__ = to_directed_impl.__doc__
     return to_directed
 
 
 def _to_directed_with_view(to_directed_impl):
-    @wraps(to_directed_impl)
     def to_directed(self, as_view=False):
         if as_view is True:
             return _generic_directed_graph_view(self)
         return to_directed_impl(self)
 
+    to_directed.__doc__ = to_directed_impl.__doc__
     return to_directed
 
 
 def _to_undirected_with_view(to_undirected_impl):
-    @wraps(to_undirected_impl)
     def to_undirected(self, as_view=False):
         if as_view is True:
             return _generic_undirected_graph_view(self)
@@ -21939,11 +21941,11 @@ def _to_undirected_with_view(to_undirected_impl):
             )
         return result
 
+    to_undirected.__doc__ = to_undirected_impl.__doc__
     return to_undirected
 
 
 def _directed_to_undirected_with_view(to_undirected_impl):
-    @wraps(to_undirected_impl)
     def to_undirected(self, reciprocal=False, as_view=False):
         if as_view is True:
             return _generic_undirected_graph_view(self)
@@ -21999,6 +22001,7 @@ def _directed_to_undirected_with_view(to_undirected_impl):
             )
         return result
 
+    to_undirected.__doc__ = to_undirected_impl.__doc__
     return to_undirected
 
 
