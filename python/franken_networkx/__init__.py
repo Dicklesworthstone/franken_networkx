@@ -12306,7 +12306,7 @@ def disjoint_union_all(graphs):
     return union_all(relabeled)
 
 
-def rescale_layout(pos, scale=1.0):
+def rescale_layout(pos, scale=1):
     """Rescale layout positions to fit within [-scale, scale].
 
     Parameters
