@@ -28089,9 +28089,44 @@ def general_random_intersection_graph(n, m, p, seed=None):
     )
 
 
-def geometric_soft_configuration_graph(beta=1, n=100, dim=2, pos=None, seed=None):
-    """Soft geometric configuration model."""
-    return random_geometric_graph(n, 0.3, dim=dim, seed=seed)
+def geometric_soft_configuration_graph(
+    *,
+    beta,
+    n=None,
+    gamma=None,
+    mean_degree=None,
+    kappas=None,
+    seed=None,
+):
+    """Random graph from the geometric soft configuration model
+    (the S^1 / hyperbolic H^2 model of Krioukov et al.).
+
+    Matches networkx's public signature exactly: ``beta`` is required
+    (keyword-only), and ``n`` / ``gamma`` / ``mean_degree`` / ``kappas``
+    drive the hidden-degree distribution. The previous fnx stub
+    silently re-routed to ``random_geometric_graph(n, 0.3)`` — a
+    completely different model — so any caller relying on the
+    documented contract got wrong results. Delegate to networkx so
+    the well-tested upstream algorithm is used end-to-end
+    (br-r37-c1-gsc-stub).
+    """
+    import networkx as nx
+
+    nx_graph = nx.geometric_soft_configuration_graph(
+        beta=beta,
+        n=n,
+        gamma=gamma,
+        mean_degree=mean_degree,
+        kappas=kappas,
+        seed=seed,
+        backend="networkx",
+    )
+    # Convert nx → fnx so the result is a fnx.Graph instance
+    fnx_graph = Graph()
+    fnx_graph.add_nodes_from(nx_graph.nodes(data=True))
+    fnx_graph.add_edges_from(nx_graph.edges(data=True))
+    fnx_graph.graph.update(dict(nx_graph.graph))
+    return fnx_graph
 
 
 _GRAPH_ATLAS_NUM_GRAPHS = 1253
