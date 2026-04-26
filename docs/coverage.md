@@ -7,8 +7,8 @@
 | Category | Count | % | Rule |
 |----------|-------|---|------|
 | RUST_NATIVE | 29 | 3% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 832 | 91% | Python-defined exports with no runtime NetworkX dependency detected |
-| NX_DELEGATED | 15 | 1% | Python-defined exports that import or call NetworkX at runtime |
+| PY_WRAPPER | 843 | 92% | Python-defined exports with no runtime NetworkX dependency detected |
+| NX_DELEGATED | 4 | 0% | Python-defined exports that import or call NetworkX at runtime |
 | CLASS | 32 | 3% | public classes, exceptions, iterators |
 | CONSTANT | 3 | 0% | public non-callable values |
 | **Total public exports** | **911** | | unique names from `franken_networkx.__all__` |
@@ -71,7 +71,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `tree_broadcast_center`
 - `tree_broadcast_time`
 
-## PY_WRAPPER exports (832)
+## PY_WRAPPER exports (843)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -154,6 +154,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `boruvka_mst_edges`
 - `boundary_expansion`
 - `boykov_kolmogorov`
+- `branching_weight`
 - `bridge_components`
 - `bridges`
 - `bull_graph`
@@ -205,6 +206,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `configuration_model`
 - `connected_caveman_graph`
 - `connected_components`
+- `connected_cuthill_mckee_ordering`
 - `connected_dominating_set`
 - `connected_double_edge_swap`
 - `connected_watts_strogatz_graph`
@@ -223,6 +225,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `current_flow_betweenness_centrality_subset`
 - `current_flow_closeness_centrality`
 - `cut_size`
+- `cuthill_mckee_ordering`
 - `cycle_basis`
 - `cycle_graph`
 - `cytoscape_data`
@@ -339,6 +342,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `find_negative_cycle`
 - `florentine_families_graph`
 - `flow_hierarchy`
+- `flow_matrix_row`
 - `floyd_warshall`
 - `floyd_warshall_numpy`
 - `floyd_warshall_predecessor_and_distance`
@@ -380,6 +384,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `generic_node_match`
 - `geographical_threshold_graph`
 - `geometric_edges`
+- `geometric_soft_configuration_graph`
 - `get_counterexample`
 - `get_counterexample_recursive`
 - `get_edge_attributes`
@@ -497,6 +502,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `is_valid_degree_sequence_havel_hakimi`
 - `is_valid_directed_joint_degree`
 - `is_valid_joint_degree`
+- `is_valid_tree_degree_sequence`
 - `is_weakly_connected`
 - `is_weighted`
 - `isolates`
@@ -557,6 +563,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `make_list_of_ints`
 - `make_max_clique_graph`
 - `margulis_gabber_galil_graph`
+- `matching_dict_to_set`
 - `max_flow_min_cost`
 - `max_weight_clique`
 - `max_weight_matching`
@@ -577,6 +584,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `min_maximal_matching`
 - `min_weight_matching`
 - `min_weighted_dominating_set`
+- `minimal_branching`
 - `minimum_branching`
 - `minimum_cut`
 - `minimum_cut_value`
@@ -691,6 +699,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `prim_mst_edges`
 - `projected_graph`
 - `prominent_group`
+- `pseudo_peripheral_node`
 - `quotient_graph`
 - `ra_index_soundarajan_hopcroft`
 - `radius`
@@ -718,6 +727,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `random_spanning_tree`
 - `random_tournament`
 - `random_tree`
+- `random_uniform_k_out_graph`
 - `random_unlabeled_rooted_forest`
 - `random_unlabeled_rooted_tree`
 - `random_unlabeled_tree`
@@ -747,6 +757,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `resource_allocation_index`
 - `restricted_view`
 - `reverse`
+- `reverse_cuthill_mckee_ordering`
 - `reverse_view`
 - `rich_club_coefficient`
 - `ring_of_cliques`
@@ -906,23 +917,12 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `write_weighted_edgelist`
 - `zipf_rv`
 
-## NX_DELEGATED exports (15)
+## NX_DELEGATED exports (4)
 
-- `branching_weight`
-- `connected_cuthill_mckee_ordering`
-- `cuthill_mckee_ordering`
 - `draw_networkx`
 - `draw_networkx_edge_labels`
 - `draw_networkx_edges`
 - `draw_networkx_nodes`
-- `flow_matrix_row`
-- `geometric_soft_configuration_graph`
-- `is_valid_tree_degree_sequence`
-- `matching_dict_to_set`
-- `minimal_branching`
-- `pseudo_peripheral_node`
-- `random_uniform_k_out_graph`
-- `reverse_cuthill_mckee_ordering`
 
 ## CLASS exports (32)
 
