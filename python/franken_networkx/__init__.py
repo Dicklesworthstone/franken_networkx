@@ -17965,7 +17965,11 @@ def triadic_census(G, nodelist=None):
     if not G.is_directed():
         raise NetworkXError("triadic_census requires a directed graph")
     if nodelist is None:
-        return _fnx.triadic_census_rust(G)
+        raw = _fnx.triadic_census_rust(G)
+        # br-r37-c1-v9m7b: nx returns the 16 triad types in canonical
+        # MAN-notation order (matching the _TRIAD_TYPES constant); the
+        # Rust binding yields them in arbitrary internal order. Reorder.
+        return {t: raw.get(t, 0) for t in _TRIAD_TYPES}
     # br-triadnode: delegate the nodelist-filtered form to nx; the Rust
     # native doesn't yet accept a nodelist argument.
     return _call_networkx_for_parity("triadic_census", G, nodelist=nodelist)
