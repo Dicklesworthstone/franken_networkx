@@ -4748,9 +4748,16 @@ def local_efficiency(G):
 
     br-effdir: nx.local_efficiency is ``@not_implemented_for('directed')``;
     fnx silently returned a float for DiGraphs. Reject directed input.
+
+    br-r37-c1-pb97z: nx raises ZeroDivisionError on the null graph
+    (mean of an empty per-node efficiency dict). The Rust impl silently
+    returned 0.0; surface the same exception so drop-in code that
+    catches ZeroDivisionError on empty inputs keeps working.
     """
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
+    if len(G) == 0:
+        raise ZeroDivisionError("division by zero")
     return _raw_local_efficiency(G)
 
 # Algorithm functions — broadcasting
@@ -7625,6 +7632,10 @@ def barycenter(G, weight=None, attr=None, sp=None):
     non-default kwarg is supplied; fast-path kept for the plain
     (G,) form.
     """
+    if len(G) == 0:
+        # Match nx (br-r37-c1-pb97z): the Rust impl silently returned
+        # []; nx raises NetworkXPointlessConcept('G has no nodes.').
+        raise NetworkXPointlessConcept("G has no nodes.")
     if weight is None and attr is None and sp is None:
         return _raw_barycenter(G)
     return _call_networkx_for_parity("barycenter", G, weight=weight, attr=attr, sp=sp)
@@ -11348,6 +11359,11 @@ def algebraic_connectivity(G, weight="weight", normalized=False, tol=1e-8, metho
     import numpy as np
 
     del tol, method, seed  # accepted for nx parity but not used
+
+    # br-r37-c1-pb97z: nx raises NetworkXError on null/single-node
+    # graphs; fnx silently returned 0.0. Match the documented contract.
+    if len(G) < 2:
+        raise NetworkXError("graph has less than two nodes.")
 
     if normalized:
         spectrum = np.sort(
