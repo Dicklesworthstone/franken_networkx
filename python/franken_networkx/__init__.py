@@ -25599,6 +25599,12 @@ def _sbm_impl(sizes, p, nodelist, seed, directed, selfloops, sparse):
     """br-sbmrng: private delegation helper so the public
     stochastic_block_model stays PY_WRAPPER in the coverage classifier
     instead of being flagged as NX_DELEGATED.
+
+    br-r37-c1-hkbd8: nx's stochastic_block_model uses set-iteration
+    on each partition block, so the resulting graph's nodes() order
+    is hash-based (not user nodelist order). Re-walk the explicit
+    nodelist when supplied so node iteration matches the caller's
+    intent.
     """
     nx_result = _nx.stochastic_block_model(
         sizes, p,
@@ -25609,7 +25615,27 @@ def _sbm_impl(sizes, p, nodelist, seed, directed, selfloops, sparse):
         sparse=sparse,
     )
     from franken_networkx.readwrite import _from_nx_graph
-    return _from_nx_graph(nx_result)
+    if nodelist is None:
+        return _from_nx_graph(nx_result)
+    # Build a fresh fnx graph that walks the user's nodelist in
+    # order, copying node attrs from the nx result. Edges and
+    # graph-level attrs are then copied across.
+    cls = MultiDiGraph if directed and nx_result.is_multigraph() else (
+        DiGraph if directed else (
+            MultiGraph if nx_result.is_multigraph() else Graph
+        )
+    )
+    result = cls()
+    result.graph.update(dict(nx_result.graph))
+    for node in nodelist:
+        result.add_node(node, **dict(nx_result.nodes[node]))
+    if result.is_multigraph():
+        for u, v, key, data in nx_result.edges(keys=True, data=True):
+            result.add_edge(u, v, key=key, **dict(data))
+    else:
+        for u, v, data in nx_result.edges(data=True):
+            result.add_edge(u, v, **dict(data))
+    return result
 
 
 def planted_partition_graph(l, k, p_in, p_out, seed=None, directed=False):
