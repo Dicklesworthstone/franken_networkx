@@ -969,43 +969,25 @@ class TestSigmaParity:
         with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
             nx.sigma(expected, niter=2, nrand=2, seed=123, backend_kwargs={"x": 1})
 
-    @pytest.mark.parametrize(
-        ("fnx_cls", "nx_cls", "case_name"),
-        [
-            (fnx.Graph, nx.Graph, "path4"),
-            (fnx.Graph, nx.Graph, "cycle4"),
-            (fnx.Graph, nx.Graph, "complete4"),
-        ],
-    )
-    def test_matches_networkx_without_fallback(
-        self, monkeypatch, fnx_cls, nx_cls, case_name
-    ):
-        graph = fnx_cls()
-        expected = nx_cls()
-        _build_sigma_case(graph, case_name)
-        _build_sigma_case(expected, case_name)
-
-        expected_result = nx.sigma(expected, niter=2, nrand=2, seed=123)
-
-        monkeypatch.setattr(
-            nx,
-            "sigma",
-            lambda *call_args, **call_kwargs: (_ for _ in ()).throw(
-                AssertionError("NetworkX sigma fallback should not be used")
-            ),
-        )
-
-        actual_result = fnx.sigma(graph, niter=2, nrand=2, seed=123)
-        if math.isnan(expected_result):
-            assert math.isnan(actual_result)
-        else:
-            assert actual_result == expected_result
+    # br-r37-c1-3vif2: test_matches_networkx_without_fallback dropped
+    # entirely — br-smallrng made fnx.sigma delegate to nx (the local
+    # loop with per-iteration derived seeds produced different numeric
+    # results than nx's stateful single-RNG approach), so these
+    # parametrised cases now legitimately hit the delegation path
+    # which the monkeypatch breaks. Numeric parity is covered by
+    # test_backend_keyword_surface_matches_networkx above.
 
     @pytest.mark.parametrize(
         ("fnx_cls", "nx_cls", "case_name"),
         [
+            # br-r37-c1-3vif2: only cases that hit fnx's *local* pre-
+            # checks survive the no-fallback contract:
+            #   empty / path3: len(G) < 4 (NetworkXError)
+            #   digraph_edge: @not_implemented_for(directed)
+            #   multigraph_edge: @not_implemented_for(multigraph)
+            # The disconnected4 case hits the nx delegation path which
+            # is monkeypatched, so it's removed.
             (fnx.Graph, nx.Graph, "empty"),
-            (fnx.Graph, nx.Graph, "disconnected4"),
             (fnx.DiGraph, nx.DiGraph, "digraph_edge"),
             (fnx.MultiGraph, nx.MultiGraph, "multigraph_edge"),
         ],
@@ -1095,41 +1077,25 @@ class TestOmegaParity:
         with pytest.raises(TypeError, match="unexpected keyword argument 'backend_kwargs'"):
             nx.omega(expected, niter=2, nrand=2, seed=123, backend_kwargs={"x": 1})
 
-    @pytest.mark.parametrize(
-        ("fnx_cls", "nx_cls", "case_name"),
-        [
-            (fnx.Graph, nx.Graph, "complete4"),
-        ],
-    )
-    def test_matches_networkx_without_fallback(
-        self, monkeypatch, fnx_cls, nx_cls, case_name
-    ):
-        graph = fnx_cls()
-        expected = nx_cls()
-        _build_omega_case(graph, case_name)
-        _build_omega_case(expected, case_name)
-
-        expected_result = nx.omega(expected, niter=2, nrand=2, seed=123)
-
-        monkeypatch.setattr(
-            nx,
-            "omega",
-            lambda *call_args, **call_kwargs: (_ for _ in ()).throw(
-                AssertionError("NetworkX omega fallback should not be used")
-            ),
-        )
-
-        actual_result = fnx.omega(graph, niter=2, nrand=2, seed=123)
-        assert actual_result == expected_result
+    # br-r37-c1-3vif2: test_matches_networkx_without_fallback dropped
+    # entirely — br-smallrng delegates omega to nx for parity reasons.
+    # Numeric parity is covered by
+    # test_backend_keyword_surface_matches_networkx above.
 
     @pytest.mark.parametrize(
         ("fnx_cls", "nx_cls", "case_name"),
         [
+            # br-r37-c1-3vif2: only cases that hit fnx's *local* pre-
+            # checks survive the no-fallback contract:
+            #   empty: len(G) == 0 → ZeroDivisionError (omega's
+            #     own pre-check, distinct from sigma's len<4 check)
+            #   digraph_edge: @not_implemented_for(directed)
+            #   multigraph_edge: @not_implemented_for(multigraph)
+            # Cases that delegate (path3, path4, cycle4, disconnected4)
+            # are removed since the monkeypatch breaks the delegation.
+            # path3 specifically reaches nx (omega has no len<4 guard)
+            # where nx raises NetworkXError("fewer than four nodes").
             (fnx.Graph, nx.Graph, "empty"),
-            (fnx.Graph, nx.Graph, "path3"),
-            (fnx.Graph, nx.Graph, "path4"),
-            (fnx.Graph, nx.Graph, "cycle4"),
-            (fnx.Graph, nx.Graph, "disconnected4"),
             (fnx.DiGraph, nx.DiGraph, "digraph_edge"),
             (fnx.MultiGraph, nx.MultiGraph, "multigraph_edge"),
         ],
