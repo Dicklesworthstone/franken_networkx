@@ -10192,16 +10192,22 @@ def complete_graph(n, create_using=None, *, backend=None, **backend_kwargs):
 
 
 def cycle_graph(n, create_using=None):
-    """Return the cycle graph C_n."""
-    n, nodes = _nodes_or_number_local(n)
-    if create_using is None and isinstance(n, numbers.Integral):
-        return _rust_cycle_graph(int(n))
+    """Return the cycle graph C_n.
 
+    br-r37-c1-o97vk: the _rust_cycle_graph fast path produced a graph
+    whose adj[n-1] was [0, n-2] but nx's contract is [n-2, 0] (the
+    closing edge appends 0 to adj[n-1] *after* the (n-2, n-1) edge).
+    The Python construction path already matches nx — route through
+    it always.
+    """
+    n, nodes = _nodes_or_number_local(n)
     graph = _classic_graph_from_create_using(create_using)
     _add_nodes_in_order(graph, nodes)
     if nodes:
         for u, v in itertools.pairwise(nodes):
             graph.add_edge(u, v)
+        # Closing edge: nx's pairwise(nodes, cyclic=True) yields the
+        # wrap-around for any nonempty list, including the n=1 self-loop.
         graph.add_edge(nodes[-1], nodes[0])
     return graph
 
@@ -13745,11 +13751,15 @@ def tadpole_graph(m, n, create_using=None):
 
 
 def wheel_graph(n, create_using=None):
-    """Return the wheel graph."""
-    n_value, nodes = _nodes_or_number_local(n)
-    if create_using is None and isinstance(n_value, numbers.Integral):
-        return _rust_wheel_graph(n_value)
+    """Return the wheel graph.
 
+    br-r37-c1-o97vk: the _rust_wheel_graph fast path produced a graph
+    whose adj of the rim's last node drifted from nx (e.g. wheel(5)
+    fnx adj[4] = [0, 1, 3] vs nx adj[4] = [0, 3, 1] — the closing rim
+    edge wraps differently). The Python construction path already
+    matches nx — route through it always.
+    """
+    n_value, nodes = _nodes_or_number_local(n)
     G = empty_graph(nodes, create_using)
     if G.is_directed():
         raise NetworkXError("Directed Graph not supported")
