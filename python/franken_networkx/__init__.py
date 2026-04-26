@@ -26597,45 +26597,82 @@ def optimal_edit_paths(
     )
 
 
-def optimize_edit_paths(G1, G2, **kwargs):
-    """Iterator yielding final edit paths from the local optimal-path wrapper."""
-    if kwargs.get("timeout") is not None:
-        raise NetworkXNotImplemented(
-            "timeout is not supported by local optimize_edit_paths",
+def optimize_edit_paths(
+    G1,
+    G2,
+    node_match=None,
+    edge_match=None,
+    node_subst_cost=None,
+    node_del_cost=None,
+    node_ins_cost=None,
+    edge_subst_cost=None,
+    edge_del_cost=None,
+    edge_ins_cost=None,
+    upper_bound=None,
+    strictly_decreasing=True,
+    roots=None,
+    timeout=None,
+):
+    """Iterator yielding final edit paths from the local optimal-path
+    wrapper.
+
+    Matches networkx's full positional + keyword surface so
+    ``inspect.signature`` introspection is identical (br-r37-c1-gedsig).
+    The native exact-paths search runs the full solver; ``timeout``
+    requires the iterative algorithm and is delegated to networkx.
+    """
+    if timeout is not None:
+        # Delegate the timeout path to nx so the cutoff actually fires.
+        yield from _call_networkx_for_parity(
+            "optimize_edit_paths",
+            G1,
+            G2,
+            node_match=node_match,
+            edge_match=edge_match,
+            node_subst_cost=node_subst_cost,
+            node_del_cost=node_del_cost,
+            node_ins_cost=node_ins_cost,
+            edge_subst_cost=edge_subst_cost,
+            edge_del_cost=edge_del_cost,
+            edge_ins_cost=edge_ins_cost,
+            upper_bound=upper_bound,
+            strictly_decreasing=strictly_decreasing,
+            roots=roots,
+            timeout=timeout,
         )
-    roots = kwargs.get("roots")
+        return
     if roots is None:
         paths, cost = optimal_edit_paths(
             G1,
             G2,
-            node_match=kwargs.get("node_match"),
-            edge_match=kwargs.get("edge_match"),
-            node_subst_cost=kwargs.get("node_subst_cost"),
-            node_del_cost=kwargs.get("node_del_cost"),
-            node_ins_cost=kwargs.get("node_ins_cost"),
-            edge_subst_cost=kwargs.get("edge_subst_cost"),
-            edge_del_cost=kwargs.get("edge_del_cost"),
-            edge_ins_cost=kwargs.get("edge_ins_cost"),
-            upper_bound=kwargs.get("upper_bound"),
+            node_match=node_match,
+            edge_match=edge_match,
+            node_subst_cost=node_subst_cost,
+            node_del_cost=node_del_cost,
+            node_ins_cost=node_ins_cost,
+            edge_subst_cost=edge_subst_cost,
+            edge_del_cost=edge_del_cost,
+            edge_ins_cost=edge_ins_cost,
+            upper_bound=upper_bound,
         )
     else:
         paths, cost = _graph_edit_exact_paths_python(
             G1,
             G2,
-            node_match=kwargs.get("node_match"),
-            edge_match=kwargs.get("edge_match"),
-            node_subst_cost=kwargs.get("node_subst_cost"),
-            node_del_cost=kwargs.get("node_del_cost"),
-            node_ins_cost=kwargs.get("node_ins_cost"),
-            edge_subst_cost=kwargs.get("edge_subst_cost"),
-            edge_del_cost=kwargs.get("edge_del_cost"),
-            edge_ins_cost=kwargs.get("edge_ins_cost"),
-            upper_bound=kwargs.get("upper_bound"),
+            node_match=node_match,
+            edge_match=edge_match,
+            node_subst_cost=node_subst_cost,
+            node_del_cost=node_del_cost,
+            node_ins_cost=node_ins_cost,
+            edge_subst_cost=edge_subst_cost,
+            edge_del_cost=edge_del_cost,
+            edge_ins_cost=edge_ins_cost,
+            upper_bound=upper_bound,
             roots=roots,
         )
     if cost is None:
         return
-    if kwargs.get("strictly_decreasing", True):
+    if strictly_decreasing:
         node_path, edge_path = paths[0]
         yield node_path, edge_path, cost
         return
@@ -27099,22 +27136,43 @@ def effective_graph_resistance(G, weight=None, invert_weight=True):
     return float(np.sum(1 / mu[1:]) * H.number_of_nodes())
 
 
-def graph_edit_distance(G1, G2, **kwargs):
-    """Return graph edit distance."""
+def graph_edit_distance(
+    G1,
+    G2,
+    node_match=None,
+    edge_match=None,
+    node_subst_cost=None,
+    node_del_cost=None,
+    node_ins_cost=None,
+    edge_subst_cost=None,
+    edge_del_cost=None,
+    edge_ins_cost=None,
+    roots=None,
+    upper_bound=None,
+    timeout=None,
+):
+    """Return the graph edit distance between *G1* and *G2*.
+
+    Matches networkx's full positional + keyword surface so
+    ``inspect.signature`` introspection is identical (br-r37-c1-gedsig).
+    The native fast path handles common small-graph cases;
+    ``timeout`` requires the iterative algorithm and is delegated to
+    networkx.
+    """
     handled, native_result = _native_graph_edit_distance_common_case(
         G1,
         G2,
-        node_match=kwargs.get("node_match"),
-        edge_match=kwargs.get("edge_match"),
-        node_subst_cost=kwargs.get("node_subst_cost"),
-        node_del_cost=kwargs.get("node_del_cost"),
-        node_ins_cost=kwargs.get("node_ins_cost"),
-        edge_subst_cost=kwargs.get("edge_subst_cost"),
-        edge_del_cost=kwargs.get("edge_del_cost"),
-        edge_ins_cost=kwargs.get("edge_ins_cost"),
-        upper_bound=kwargs.get("upper_bound"),
-        roots=kwargs.get("roots"),
-        timeout=kwargs.get("timeout"),
+        node_match=node_match,
+        edge_match=edge_match,
+        node_subst_cost=node_subst_cost,
+        node_del_cost=node_del_cost,
+        node_ins_cost=node_ins_cost,
+        edge_subst_cost=edge_subst_cost,
+        edge_del_cost=edge_del_cost,
+        edge_ins_cost=edge_ins_cost,
+        upper_bound=upper_bound,
+        roots=roots,
+        timeout=timeout,
     )
     if handled:
         if native_result is None:
@@ -27122,30 +27180,73 @@ def graph_edit_distance(G1, G2, **kwargs):
         _, cost = native_result
         return cost
 
-    if kwargs.get("timeout") is not None:
-        raise NetworkXNotImplemented(
-            "timeout is not supported by local graph_edit_distance",
+    if timeout is not None:
+        # The native exact-paths algorithm runs the full search; nx's
+        # timeout cutoff requires the iterative variant. Delegate.
+        return _call_networkx_for_parity(
+            "graph_edit_distance",
+            G1,
+            G2,
+            node_match=node_match,
+            edge_match=edge_match,
+            node_subst_cost=node_subst_cost,
+            node_del_cost=node_del_cost,
+            node_ins_cost=node_ins_cost,
+            edge_subst_cost=edge_subst_cost,
+            edge_del_cost=edge_del_cost,
+            edge_ins_cost=edge_ins_cost,
+            roots=roots,
+            upper_bound=upper_bound,
+            timeout=timeout,
         )
     _, cost = _graph_edit_exact_paths_python(
         G1,
         G2,
-        node_match=kwargs.get("node_match"),
-        edge_match=kwargs.get("edge_match"),
-        node_subst_cost=kwargs.get("node_subst_cost"),
-        node_del_cost=kwargs.get("node_del_cost"),
-        node_ins_cost=kwargs.get("node_ins_cost"),
-        edge_subst_cost=kwargs.get("edge_subst_cost"),
-        edge_del_cost=kwargs.get("edge_del_cost"),
-        edge_ins_cost=kwargs.get("edge_ins_cost"),
-        upper_bound=kwargs.get("upper_bound"),
-        roots=kwargs.get("roots"),
+        node_match=node_match,
+        edge_match=edge_match,
+        node_subst_cost=node_subst_cost,
+        node_del_cost=node_del_cost,
+        node_ins_cost=node_ins_cost,
+        edge_subst_cost=edge_subst_cost,
+        edge_del_cost=edge_del_cost,
+        edge_ins_cost=edge_ins_cost,
+        upper_bound=upper_bound,
+        roots=roots,
     )
     return cost
 
 
-def optimize_graph_edit_distance(G1, G2, **kwargs):
-    """Iterator yielding the final graph edit distance from the local wrapper."""
-    cost = graph_edit_distance(G1, G2, **kwargs)
+def optimize_graph_edit_distance(
+    G1,
+    G2,
+    node_match=None,
+    edge_match=None,
+    node_subst_cost=None,
+    node_del_cost=None,
+    node_ins_cost=None,
+    edge_subst_cost=None,
+    edge_del_cost=None,
+    edge_ins_cost=None,
+    upper_bound=None,
+):
+    """Iterator yielding successive graph edit distance estimates.
+
+    Matches networkx's signature; the local wrapper currently yields a
+    single final cost. (br-r37-c1-gedsig)
+    """
+    cost = graph_edit_distance(
+        G1,
+        G2,
+        node_match=node_match,
+        edge_match=edge_match,
+        node_subst_cost=node_subst_cost,
+        node_del_cost=node_del_cost,
+        node_ins_cost=node_ins_cost,
+        edge_subst_cost=edge_subst_cost,
+        edge_del_cost=edge_del_cost,
+        edge_ins_cost=edge_ins_cost,
+        upper_bound=upper_bound,
+    )
     if cost is not None:
         yield cost
 
