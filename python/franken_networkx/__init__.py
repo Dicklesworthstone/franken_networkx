@@ -19367,53 +19367,12 @@ def bfs_beam_edges(G, source, value, width=None):
     yield from generic_bfs_edges(G, source, successors)
 
 
-def bfs_labeled_edges(G, sources=None, sort_neighbors=None, *, source=None):
+def bfs_labeled_edges(G, sources):
     """BFS yielding NetworkX-style ``(u, v, label)`` triples.
 
-    The second positional argument is ``sources`` (iterable of sources),
-    matching networkx's signature. The legacy keyword-only ``source``
-    accepts a single node for callers that relied on the old fnx name.
+    Signature matches networkx: ``sources`` is required and may be a single
+    node or an iterable of nodes.
     """
-    if sources is None and source is not None:
-        sources = source
-    if sources is None:
-        raise TypeError(
-            "bfs_labeled_edges() missing required argument 'sources'"
-        )
-    if sort_neighbors is not None:
-        # Custom-sort path — only makes sense for a single source.
-        if isinstance(sources, (list, tuple, set, frozenset)):
-            try:
-                if len(sources) != 1:
-                    raise ValueError(
-                        "sort_neighbors is only supported with a single source"
-                    )
-            except TypeError:
-                pass
-            start = next(iter(sources))
-        else:
-            start = sources
-        visited = {start}
-        level = {start: 0}
-        queue = [start]
-        while queue:
-            next_queue = []
-            for node in queue:
-                nbrs = sort_neighbors(list(G.neighbors(node)))
-                for nbr in nbrs:
-                    if nbr not in visited:
-                        visited.add(nbr)
-                        level[nbr] = level[node] + 1
-                        next_queue.append(nbr)
-                        yield (node, nbr, "tree")
-                    elif level.get(nbr, 0) == level[node]:
-                        yield (node, nbr, "level")
-                    elif level.get(nbr, 0) > level[node]:
-                        yield (node, nbr, "forward")
-                    else:
-                        yield (node, nbr, "reverse")
-            queue = next_queue
-        return
     yield from _call_networkx_for_parity("bfs_labeled_edges", G, sources)
 
 
