@@ -3461,7 +3461,10 @@ def bridges(G, root=None):
             if len(G[u][v]) == 1:
                 yield (u, v)
         return
-    yield from _raw_bridges(G)
+    # br-r37-c1-h83lo: nx yields bridges in DFS-discovery order; the
+    # Rust binding emits them in canonical/alphabetical order.
+    # Delegate so iteration order matches nx.
+    yield from _call_networkx_for_parity("bridges", G)
 
 
 def is_tree(G, *, backend=None, **backend_kwargs):
