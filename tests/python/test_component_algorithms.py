@@ -78,15 +78,22 @@ class TestNodeConnectedComponent:
         assert sorted(comp) == ["a", "b", "c"]
 
     def test_disconnected(self, disconnected):
+        # br-nccset: nx.node_connected_component returns a ``set``;
+        # fnx mirrors that contract (used to return list).
         comp_a = fnx.node_connected_component(disconnected, "a")
+        assert isinstance(comp_a, set)
         assert sorted(comp_a) == ["a", "b"]
         comp_c = fnx.node_connected_component(disconnected, "c")
-        assert comp_c == ["c"]
+        assert isinstance(comp_c, set)
+        assert comp_c == {"c"}
 
     def test_single_node(self):
+        # br-nccset: nx returns set; fnx matches.
         g = fnx.Graph()
         g.add_node("x")
-        assert fnx.node_connected_component(g, "x") == ["x"]
+        result = fnx.node_connected_component(g, "x")
+        assert isinstance(result, set)
+        assert result == {"x"}
 
 
 # ---------------------------------------------------------------------------
