@@ -7679,9 +7679,22 @@ from franken_networkx._fnx import (
 # Algorithm functions — isolates
 from franken_networkx._fnx import (
     is_isolate as _raw_is_isolate,
-    isolates,
+    isolates as _raw_isolates,
     number_of_isolates,
 )
+
+
+def isolates(G):
+    """Yield isolated nodes (degree-0) of ``G``.
+
+    Lazy generator matching nx's iterator contract (br-r37-c1-lby4x).
+    The Rust binding returns a materialized list; wrapping with
+    ``yield from`` makes the returned object a true ``generator`` so
+    ``isinstance(result, types.GeneratorType)`` matches and short-circuit
+    callers like ``next(isolates(huge_graph))`` don't pay for the full
+    materialisation.
+    """
+    yield from _raw_isolates(G)
 
 
 def is_isolate(G, n):
