@@ -1389,7 +1389,41 @@ _MULTIGRAPH_INIT = MultiGraph.__init__
 _MULTIDIGRAPH_INIT = MultiDiGraph.__init__
 
 
-def _decode_dict_of_dicts_into(self, data, is_multigraph):
+def _multigraph_input_is_4level(data):
+    """Detect whether a dict-of-dicts payload is the 4-level multigraph
+    shape ``{u: {v: {key: attrs_dict, ...}, ...}, ...}`` versus the
+    3-level simple shape ``{u: {v: attrs_dict, ...}, ...}``.
+
+    nx's ``MultiGraph.__init__`` resolves this ambiguity by trying the
+    4-level interpretation first and falling back to 3-level on any
+    failure (see ``networkx/classes/multigraph.py``). We mirror that
+    preference structurally: any innermost non-dict value forces the
+    3-level interpretation; otherwise default to 4-level (which
+    handles empty-inner ``{u: {v: {}}}`` cases the same way nx does —
+    a no-op, no edge added).
+
+    br-r37-c1-14pu1: previously every multigraph dict-of-dicts payload
+    was treated as 4-level, so ``MultiGraph({1:{2:{'w':1}}})`` produced
+    edge ``(1,2,'w')`` (key='w', no attrs) instead of ``(1,2,0,{'w':1})``.
+    """
+    for nbrs in data.values():
+        if not isinstance(nbrs, dict):
+            # Mixed dict-of-list / dict-of-dict input — 4-level not
+            # applicable to non-dict entries; the decoder handles
+            # those branches separately.
+            continue
+        for inner in nbrs.values():
+            if not isinstance(inner, dict):
+                # 3-level edge attrs sit here; would not parse as
+                # {key: attrs}.
+                return False
+            for innermost in inner.values():
+                if not isinstance(innermost, dict):
+                    return False
+    return True
+
+
+def _decode_dict_of_dicts_into(self, data, is_multigraph, multigraph_input=None):
     """Populate ``self`` from an nx-style dict-of-dicts (or dict-of-list)
     payload.
 
@@ -1399,52 +1433,91 @@ def _decode_dict_of_dicts_into(self, data, is_multigraph):
         - ``{u: [v1, v2, ...], ...}``              (dict-of-list)
     - multigraph:
         - ``{u: {v: {key: attrs_dict, ...}, ...}, ...}``  (dict-of-dict-of-dict)
+        - ``{u: {v: attrs_dict, ...}, ...}``              (dict-of-dict, 3-level)
         - ``{u: [v1, v2, ...], ...}``                     (dict-of-list)
 
-    Mirrors ``nx.convert.from_dict_of_dicts`` semantics: a multigraph
-    payload that has an empty inner ``{}`` does NOT add v as a node
-    (add_edge is the only path that adds v); a simple-graph empty
-    inner does add v (via add_edge).
+    Mirrors ``nx.convert.from_dict_of_dicts`` semantics. For multigraph
+    inputs the 4-level (``multigraph_input=True``) vs 3-level
+    (``multigraph_input=False``) interpretation is selected by the
+    explicit caller-provided ``multigraph_input`` flag, or auto-detected
+    structurally when ``multigraph_input is None``.
 
     br-r37-c1-9m2vs: dict-of-list input was previously skipped via
     ``if not isinstance(nbrs, dict): continue``, silently dropping
-    every edge. Now we also accept any non-dict iterable of neighbour
-    nodes.
+    every edge.
+
+    br-r37-c1-14pu1: (a) auto-detect 3-level vs 4-level multigraph
+    dict-of-dicts and accept the explicit ``multigraph_input`` flag;
+    (b) for dict-of-list input into an undirected MultiGraph, dedupe
+    the symmetric adjacency representation by tracking already-
+    processed source nodes (matching ``nx.from_dict_of_lists``).
+    Otherwise ``MultiGraph({1:[2,3], 2:[1,3], 3:[1,2]})`` produced 6
+    edges instead of nx's 3.
     """
+    if is_multigraph and multigraph_input is None:
+        multigraph_input = _multigraph_input_is_4level(data)
+
+    # Pre-compute whether to dedupe dict-of-list input. nx's
+    # from_dict_of_lists only dedupes for undirected MultiGraph.
+    dedupe_dict_of_list = is_multigraph and not self.is_directed()
+    seen_sources = set() if dedupe_dict_of_list else None
+
     for u, nbrs in data.items():
         self.add_node(u)
         if isinstance(nbrs, dict):
             for v, inner in nbrs.items():
                 if is_multigraph:
-                    # Multigraph: inner is {key: attrs_dict}; only add v
-                    # (and the edge) when at least one key is present.
-                    if isinstance(inner, dict) and inner:
-                        for key, attrs in inner.items():
-                            self.add_edge(u, v, key=key)
-                            # Apply attrs without splatting (avoids 'key' collision).
-                            self[u][v][key].update(dict(attrs) if isinstance(attrs, dict) else {})
-                    # else: empty inner — do NOT add v (matches nx)
+                    if multigraph_input:
+                        # 4-level: inner is {key: attrs_dict}; only add
+                        # v (and the edge) when at least one key is
+                        # present.
+                        if isinstance(inner, dict) and inner:
+                            for key, attrs in inner.items():
+                                self.add_edge(u, v, key=key)
+                                self[u][v][key].update(
+                                    dict(attrs) if isinstance(attrs, dict) else {}
+                                )
+                        # else: empty inner — do NOT add v (matches nx)
+                    else:
+                        # 3-level: inner IS the edge-attr dict.
+                        self.add_edge(u, v)
+                        if isinstance(inner, dict):
+                            # Apply to the most recently added key
+                            # (auto-incremented). MultiGraph stores edge
+                            # data under the auto key; use the same key
+                            # the add_edge call returned.
+                            keys = list(self[u][v].keys())
+                            if keys:
+                                self[u][v][keys[-1]].update(dict(inner))
                 else:
                     # Simple graph: inner is the edge-attr dict.
                     self.add_edge(u, v)
                     if isinstance(inner, dict):
                         self[u][v].update(dict(inner))
+            if dedupe_dict_of_list:
+                seen_sources.add(u)
             continue
         # Non-dict value: treat as iterable of neighbour nodes
         # (nx.from_dict_of_lists semantic). Strings/bytes are valid
         # nodes themselves, so we don't iterate them character-by-
         # character.
         if isinstance(nbrs, (str, bytes)):
+            if dedupe_dict_of_list:
+                seen_sources.add(u)
             continue
         try:
             iterable = iter(nbrs)
         except TypeError:
+            if dedupe_dict_of_list:
+                seen_sources.add(u)
             continue
         for v in iterable:
-            if is_multigraph:
-                self.add_edge(u, v)
-            else:
-                self.add_edge(u, v)
+            if dedupe_dict_of_list and v in seen_sources:
+                # Edge (u,v) already added when v was the source.
+                continue
+            self.add_edge(u, v)
+        if dedupe_dict_of_list:
+            seen_sources.add(u)
 
 
 def _copy_constructor_graph_source(self, source, *, is_multigraph, attr):
@@ -1528,10 +1601,14 @@ def _init_absorbing_dict_of_dicts(raw_init, is_multigraph):
     inputs other than as a node-only iteration.
     """
 
-    def __init__(self, incoming_graph_data=None, **attr):
+    def __init__(self, incoming_graph_data=None, multigraph_input=None, **attr):
         # ``raw_init(self, incoming_graph_data)`` is a no-op on pyo3
         # classes where ``__new__`` consumed the data; call it with
         # no extra args just to exercise any future init logic.
+        # br-r37-c1-14pu1: accept ``multigraph_input`` explicitly so it
+        # reaches the dict decoder instead of being treated as a graph
+        # attribute. Non-multigraph classes also accept it for nx
+        # signature parity but ignore the value.
         raw_init(self)
         if attr:
             self.graph.update(attr)
@@ -1540,7 +1617,12 @@ def _init_absorbing_dict_of_dicts(raw_init, is_multigraph):
         # Only dict-of-dicts needs explicit Python decoding; __new__
         # has already absorbed edge-list and Graph-instance inputs.
         if isinstance(incoming_graph_data, dict):
-            _decode_dict_of_dicts_into(self, incoming_graph_data, is_multigraph)
+            _decode_dict_of_dicts_into(
+                self,
+                incoming_graph_data,
+                is_multigraph,
+                multigraph_input=multigraph_input if is_multigraph else None,
+            )
             return
         # br-r37-c1-rxigp: numpy.ndarray / pandas.DataFrame are valid
         # adjacency-matrix inputs in nx.to_networkx_graph; the Rust
