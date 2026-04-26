@@ -341,6 +341,72 @@ def _edge_view_call_with_nbunch_first(edge_view_call):
     return wrapped
 
 
+class NodeDataView:
+    """Live view over ``G.nodes(data=...)`` matching nx's NodeDataView
+    contract (br-r37-c1-j2vof).
+
+    The Rust NodeView's ``__call__(data=True)`` returns a NodeView
+    object (class name ``NodeView``); the data='attr' path used to
+    return a Python list. nx returns a ``NodeDataView`` in both cases.
+    This wrapper re-invokes the underlying Rust call (or rebuilds the
+    attr-projection list) on each access (iter / len / contains / repr)
+    so mutations are reflected and class-name introspection matches.
+    """
+
+    def __init__(self, node_view_call, view_self, *, data, default):
+        self._call = node_view_call
+        self._view = view_self
+        self._data = data
+        self._default = default
+
+    def _materialize(self):
+        data = self._data
+        default = self._default
+        if isinstance(data, bool):
+            # Rust path: returns a NodeView; iterate its content directly.
+            return list(self._call(self._view, data, default))
+        return [
+            (node, self._view[node].get(data, default))
+            for node in self._view
+        ]
+
+    def __iter__(self):
+        return iter(self._materialize())
+
+    def __len__(self):
+        return len(self._materialize())
+
+    def __contains__(self, item):
+        # Match nx: a bare node is considered in the view (data
+        # variant strips the data when checking containment).
+        if not isinstance(item, tuple):
+            return item in self._view
+        return item in self._materialize()
+
+    def __getitem__(self, key):
+        # nx NodeDataView supports view[node] -> attrs / value.
+        data = self._data
+        default = self._default
+        if isinstance(data, bool):
+            attrs = self._view[key]
+            return dict(attrs) if data else None
+        return self._view[key].get(data, default)
+
+    def __repr__(self):
+        if isinstance(self._data, bool) and not self._data:
+            return f"NodeDataView({self._materialize()!r}, data=False)"
+        if isinstance(self._data, bool):
+            return f"NodeDataView({dict(self._materialize())!r})"
+        return f"NodeDataView({dict(self._materialize())!r}, data={self._data!r})"
+
+    def __eq__(self, other):
+        if hasattr(other, "__iter__"):
+            return list(self._materialize()) == list(other)
+        return NotImplemented
+
+    __hash__ = None
+
+
 def _node_view_call_with_attr_support(node_view_call):
     _unset = object()
 
@@ -368,9 +434,16 @@ def _node_view_call_with_attr_support(node_view_call):
             data = False
         if default is _unset:
             default = None
-        if isinstance(data, bool):
-            return node_view_call(self, data, default)
-        return [(node, self[node].get(data, default)) for node in self]
+        # data=False with no kwargs returns the live Rust NodeView
+        # directly so the common ``for n in G.nodes:`` path stays fast
+        # and the class name remains 'NodeView' (matches nx).
+        if data is False:
+            return node_view_call(self, False, default)
+        # data=True or data='attr' return a NodeDataView wrapper
+        # (br-r37-c1-j2vof).
+        return NodeDataView(
+            node_view_call, self, data=data, default=default
+        )
 
     return wrapped
 
