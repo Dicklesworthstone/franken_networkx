@@ -28036,9 +28036,15 @@ def random_labeled_rooted_tree(n, seed=None):
     return random_tree(n, seed=seed)
 
 
-def random_labeled_rooted_forest(n, q=None, seed=None):
-    """Random labeled rooted forest."""
-    return random_unlabeled_rooted_forest(n, q=q, seed=seed)
+def random_labeled_rooted_forest(n, *, seed=None):
+    """Random labeled rooted forest with *n* nodes.
+
+    Matches networkx's public signature ``(n, *, seed=None)``. The
+    earlier fnx signature carried a stray ``q`` arg leaked from
+    ``random_unlabeled_rooted_forest``; nx has no such parameter
+    (br-r37-c1-rrf-tut).
+    """
+    return random_unlabeled_rooted_forest(n, seed=seed)
 
 
 def partial_duplication_graph(N, n, p, q, seed=None, *, create_using=None):
@@ -28785,22 +28791,23 @@ def spectral_graph_forge(G, alpha=0.8, transformation="identity", seed=None):
     return H
 
 
-def tutte_polynomial(G, x=None, y=None):
+def tutte_polynomial(G, *, x=None, y=None):
     """Compute the Tutte polynomial of ``G``.
 
-    br-tuttesig: nx.tutte_polynomial takes only ``(G, *, backend=,
-    **backend_kwargs)`` and returns a *symbolic* sympy polynomial in
-    the variables x, y. Calling ``fnx.tutte_polynomial(G)`` with the
-    nx contract used to raise ``TypeError: missing 2 required
-    positional arguments: 'x' and 'y'`` because fnx's Rust-era wrapper
-    required numeric arguments to evaluate the polynomial.
+    br-tuttesig / br-r37-c1-rrf-tut: nx.tutte_polynomial takes only
+    ``(G, *, backend=, **backend_kwargs)`` and returns a *symbolic*
+    sympy polynomial in the variables x, y. Calling
+    ``fnx.tutte_polynomial(G)`` with the nx contract used to raise
+    ``TypeError: missing 2 required positional arguments: 'x' and 'y'``
+    because fnx's Rust-era wrapper required numeric arguments to
+    evaluate the polynomial.
 
     To preserve both: keep the numeric evaluation path as a
     fnx-specific extension (when both ``x`` and ``y`` are supplied),
     and delegate to nx's sympy-backed reference when no evaluation
-    point is requested. This keeps drop-in code like
-    ``nx.tutte_polynomial(G)`` working and retains fnx's
-    sympy-free numeric evaluation for callers who pass x, y.
+    point is requested. ``x`` and ``y`` are now KEYWORD_ONLY so a
+    positional call like ``tutte_polynomial(G, 1, 1)`` rejects with
+    TypeError on both libraries.
     """
     if x is None and y is None:
         return _call_networkx_for_parity("tutte_polynomial", G)
@@ -28817,7 +28824,7 @@ def tutte_polynomial(G, x=None, y=None):
     if u == v:
         G1 = G.copy()
         G1.remove_edge(u, v)
-        return y * tutte_polynomial(G1, x, y)
+        return y * tutte_polynomial(G1, x=x, y=y)
     if G.has_edge(u, v):
         is_bridge_edge = False
         G_test = G.copy()
@@ -28826,12 +28833,12 @@ def tutte_polynomial(G, x=None, y=None):
             is_bridge_edge = True
         is_loop = u == v
         if is_bridge_edge:
-            return x * tutte_polynomial(G_test, x, y)
+            return x * tutte_polynomial(G_test, x=x, y=y)
         elif is_loop:
-            return y * tutte_polynomial(G_test, x, y)
+            return y * tutte_polynomial(G_test, x=x, y=y)
         else:
             G2 = contracted_nodes(G, u, v, self_loops=False)
-            return tutte_polynomial(G_test, x, y) + tutte_polynomial(G2, x, y)
+            return tutte_polynomial(G_test, x=x, y=y) + tutte_polynomial(G2, x=x, y=y)
     return 1
 
 
