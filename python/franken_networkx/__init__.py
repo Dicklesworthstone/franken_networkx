@@ -11509,7 +11509,11 @@ def core_number(G):
     """
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
-    return _raw_core_number(G)
+    raw = _raw_core_number(G)
+    # br-r37-c1-9fa26: the Rust binding returns the dict with keys
+    # sorted; nx iterates in node-insertion order. Reorder so
+    # ``for node, core in result.items():`` matches nx's contract.
+    return {node: raw[node] for node in G.nodes() if node in raw}
 
 
 def k_core(G, k=None, core_number=None):
