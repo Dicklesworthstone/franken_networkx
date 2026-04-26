@@ -19457,6 +19457,22 @@ def group_betweenness_centrality(
     )
 
     if not G.is_directed() and weight is None and not endpoints:
+        # Detect list-of-groups vs single group, mirroring the slow path
+        # below (br-r37-c1-q49py): nx returns a list of per-group scores
+        # when C is a list of groups, a scalar when C is a single group.
+        # The Rust fast path always returns a scalar, so iterate when C
+        # is a list of groups.
+        list_of_groups = not any(element in G for element in C)
+        if list_of_groups:
+            scores = []
+            for group in C:
+                value = _fnx.group_betweenness_centrality_rust(G, list(group))
+                if normalized:
+                    scores.append(value)
+                else:
+                    remaining = len(G) - len(set(group))
+                    scores.append(value * remaining * (remaining - 1) / 2)
+            return scores
         value = _fnx.group_betweenness_centrality_rust(G, list(C))
         if normalized:
             return value
