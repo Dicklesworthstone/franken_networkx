@@ -12818,32 +12818,24 @@ def spectral_ordering(
 ):
     """Return nodes ordered by the Fiedler vector (spectral bisection ordering).
 
-    Parameters
-    ----------
-    G : Graph
-    weight : str, optional
-    normalized : bool, optional
-    tol : float, optional
-        Accepted for nx signature parity; unused by the dense solver.
-    method : str, optional
-        Accepted for nx signature parity; the dense ``numpy.linalg.eigh``
-        solver ignores it.
-    seed : int or Random, optional
-        Accepted for nx signature parity; the dense solver is deterministic.
-
-    Returns
-    -------
-    list
-        Nodes sorted by Fiedler vector components.
+    br-r37-c1-xiqgr: the local fiedler_vector + argsort path picked
+    the eigenvector with whichever sign scipy's eigensolver returned,
+    which differed from nx's choice on many graphs (giving e.g.
+    [4,3,2,1,0] instead of nx's [0,1,2,3,4] on a path graph). The
+    Fiedler vector is sign-ambiguous so both are mathematically
+    valid, but drop-in code comparing the ordering to nx's reference
+    broke. Delegate to nx so the chosen sign + tie-break match
+    exactly.
     """
-    import numpy as np
-
-    fv = fiedler_vector(
-        G, weight=weight, normalized=normalized, tol=tol, method=method, seed=seed
+    return _call_networkx_for_parity(
+        "spectral_ordering",
+        G,
+        weight=weight,
+        normalized=normalized,
+        tol=tol,
+        method=method,
+        seed=seed,
     )
-    nodelist = list(G.nodes())
-    order = np.argsort(fv)
-    return [nodelist[i] for i in order]
 
 
 def _bellman_ford_weight_function(G, weight):
