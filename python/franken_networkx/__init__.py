@@ -7001,9 +7001,23 @@ def all_pairs_dijkstra(G, cutoff=None, weight="weight"):
 # Algorithm functions — strongly connected components
 from franken_networkx._fnx import (
     strongly_connected_components as _raw_strongly_connected_components,
-    number_strongly_connected_components,
+    number_strongly_connected_components as _raw_number_strongly_connected_components,
     is_strongly_connected as _raw_is_strongly_connected,
 )
+
+
+def number_strongly_connected_components(G):
+    """Number of strongly connected components in directed graph ``G``."""
+    try:
+        return _raw_number_strongly_connected_components(G)
+    except NetworkXNotImplemented as exc:
+        # br-r37-c1-4elbw: align Rust binding's custom message with
+        # nx's standard '@not_implemented_for' format.
+        if "not defined for undirected" in str(exc):
+            raise NetworkXNotImplemented(
+                "not implemented for undirected type"
+            ) from exc
+        raise
 
 
 def is_strongly_connected(G):
@@ -7037,7 +7051,16 @@ def strongly_connected_components(G):
     sources last. The Rust native yields the reverse (source-first) order,
     so we materialize + reverse before yielding.
     """
-    components = [set(component) for component in _raw_strongly_connected_components(G)]
+    try:
+        components = [set(component) for component in _raw_strongly_connected_components(G)]
+    except NetworkXNotImplemented as exc:
+        # br-r37-c1-4elbw: align Rust binding's custom message with
+        # nx's standard '@not_implemented_for' format.
+        if "not defined for undirected" in str(exc):
+            raise NetworkXNotImplemented(
+                "not implemented for undirected type"
+            ) from exc
+        raise
     for component in reversed(components):
         yield component
 
@@ -9190,6 +9213,15 @@ from franken_networkx._fnx import (
 )
 
 
+def _raise_not_impl_for_undirected_if_needed(exc):
+    """br-r37-c1-4elbw helper: translate Rust binding's custom
+    'X is not defined for undirected graphs.' message to nx's
+    standard 'not implemented for undirected type'."""
+    if "not defined for undirected" in str(exc):
+        return NetworkXNotImplemented("not implemented for undirected type")
+    return None
+
+
 def in_degree_centrality(G, *, backend=None, **backend_kwargs):
     """Compute in-degree centrality for nodes in a directed graph.
 
@@ -9206,7 +9238,13 @@ def in_degree_centrality(G, *, backend=None, **backend_kwargs):
             return {v: float("nan") if n == 0 else 0 for v in G}
         scale = 1 / (n - 1)
         return {v: d * scale for v, d in G.in_degree()}
-    return _raw_in_degree_centrality(G)
+    try:
+        return _raw_in_degree_centrality(G)
+    except NetworkXNotImplemented as exc:
+        translated = _raise_not_impl_for_undirected_if_needed(exc)
+        if translated is not None:
+            raise translated from exc
+        raise
 
 
 def out_degree_centrality(G, *, backend=None, **backend_kwargs):
@@ -9222,7 +9260,13 @@ def out_degree_centrality(G, *, backend=None, **backend_kwargs):
             return {v: float("nan") if n == 0 else 0 for v in G}
         scale = 1 / (n - 1)
         return {v: d * scale for v, d in G.out_degree()}
-    return _raw_out_degree_centrality(G)
+    try:
+        return _raw_out_degree_centrality(G)
+    except NetworkXNotImplemented as exc:
+        translated = _raise_not_impl_for_undirected_if_needed(exc)
+        if translated is not None:
+            raise translated from exc
+        raise
 
 
 def _average_path_weight(G, path, weight=None):
@@ -9385,7 +9429,15 @@ def kosaraju_strongly_connected_components(G, source=None):
     yielded first, followed by the remaining SCCs in the Rust emission
     order.
     """
-    sccs = [set(component) for component in _raw_kosaraju_strongly_connected_components(G)]
+    try:
+        sccs = [set(component) for component in _raw_kosaraju_strongly_connected_components(G)]
+    except NetworkXNotImplemented as exc:
+        # br-r37-c1-4elbw: align with nx's standard message.
+        if "not defined for undirected" in str(exc):
+            raise NetworkXNotImplemented(
+                "not implemented for undirected type"
+            ) from exc
+        raise
     if source is None:
         yield from sccs
         return
@@ -17595,6 +17647,12 @@ def flow_hierarchy(G, weight=None):
     float
         Value in [0, 1]. 1 means no edges are in cycles (DAG).
     """
+    if not G.is_directed():
+        # br-r37-c1-4elbw: nx raises NetworkXError with the exact text
+        # "G must be a digraph in flow_hierarchy". The Rust binding
+        # raised "flow_hierarchy requires a DiGraph", which broke
+        # drop-in code matching nx's wording.
+        raise NetworkXError("G must be a digraph in flow_hierarchy")
     return _fnx.flow_hierarchy_rust(G)
 
 
