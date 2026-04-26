@@ -4681,7 +4681,15 @@ def center(G, e=None, usebounds=False, weight=None):
         return _call_networkx_for_parity(
             "center", G, e=e, usebounds=usebounds, weight=weight
         )
-    return _raw_center(G)
+    # br-r37-c1-6qcaw: nx iterates the eccentricity dict (node-
+    # insertion order) and filters by min eccentricity. The Rust
+    # _raw_center returned nodes in a different order. Filter
+    # explicitly so nodes appear in G.nodes() insertion order.
+    ecc = eccentricity(G)
+    if not ecc:
+        return []
+    radius = min(ecc.values())
+    return [n for n in G.nodes() if ecc[n] == radius]
 
 
 def periphery(G, e=None, usebounds=False, weight=None):
@@ -4714,7 +4722,15 @@ def periphery(G, e=None, usebounds=False, weight=None):
         return _call_networkx_for_parity(
             "periphery", G, e=e, usebounds=usebounds, weight=weight
         )
-    return _raw_periphery(G)
+    # br-r37-c1-6qcaw: nx iterates the eccentricity dict (node-
+    # insertion order) and filters by max eccentricity. The Rust
+    # _raw_periphery returned nodes in a different order. Filter
+    # explicitly so nodes appear in G.nodes() insertion order.
+    ecc = eccentricity(G)
+    if not ecc:
+        return []
+    diameter = max(ecc.values())
+    return [n for n in G.nodes() if ecc[n] == diameter]
 
 
 def eccentricity(G, v=None, sp=None, weight=None):
