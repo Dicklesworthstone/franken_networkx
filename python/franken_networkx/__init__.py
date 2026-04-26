@@ -14898,7 +14898,9 @@ def voronoi_cells(G, center_nodes, weight="weight"):
     """
     center_nodes = list(center_nodes)
     if not center_nodes:
-        raise NetworkXError("center_nodes must not be empty")
+        # Match nx exactly (br-r37-c1-95ayv): ValueError, not
+        # NetworkXError; message is "sources must not be empty".
+        raise ValueError("sources must not be empty")
     return _voronoi_cells_impl(G, center_nodes, weight=weight)
 
 
