@@ -7891,11 +7891,19 @@ class _ApproximationNamespace:
 
     def __getattr__(self, name):
         nx_func = getattr(_nx.approximation, name)
+
+        # Preserve nx's exact signature on the wrapper so
+        # ``inspect.signature(fnx.approximation.X)`` matches upstream
+        # (br-r37-c1-approxsig). Earlier versions used a generic
+        # ``(G, *args, **kwargs)`` shape that hid every kwarg from
+        # introspection and let typos through silently.
+        import functools as _functools
+
+        @_functools.wraps(nx_func)
         def wrapper(G, *args, **kwargs):
             nx_G = _networkx_graph_for_parity(G)
             return nx_func(nx_G, *args, **kwargs)
-        wrapper.__name__ = name
-        wrapper.__doc__ = nx_func.__doc__
+
         return wrapper
 
     def __dir__(self):
