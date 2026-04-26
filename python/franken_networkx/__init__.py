@@ -3427,12 +3427,16 @@ def minimum_node_cut(
     binding exposed it as lowercase ``g``, breaking
     ``minimum_node_cut(G=graph)`` kwarg-style drop-in calls.
 
-    networkx returns the cut as a ``set``; the Rust helper yields a
-    ``list``. Coerce to set so ``isinstance(r, set)`` and set-ops on
-    the returned cut behave identically to upstream.
+    br-r37-c1-5jbv9: when multiple equally-small cuts exist, the Rust
+    binding picked a different (but equally valid) cut from nx — the
+    choice depends on internal adj-iteration / DFS-augmenting-path
+    traversal. Delegate to nx so the chosen cut matches its
+    ``connectivity_augmentation``-aware contract exactly.
     """
     _validate_backend_dispatch_keywords("minimum_node_cut", backend, backend_kwargs)
-    return set(_raw_minimum_node_cut(G, s=s, t=t, flow_func=flow_func))
+    return _call_networkx_for_parity(
+        "minimum_node_cut", G, s=s, t=t, flow_func=flow_func,
+    )
 
 
 def connected_components(G):
@@ -11325,11 +11329,18 @@ def local_bridges(G, with_span=True, weight=None):
 
 
 def minimum_edge_cut(G, s=None, t=None, flow_func=None):
-    """Return a minimum edge cut of *G*."""
-    if flow_func is not None:
-        return _call_networkx_for_parity(
-            "minimum_edge_cut", G, s=s, t=t, flow_func=flow_func
-        )
+    """Return a minimum edge cut of *G*.
+
+    br-r37-c1-5jbv9: when multiple equally-small cuts exist, the
+    local (s, t)-partition-derived cut and the all-pairs candidate
+    enumeration both depended on adj-iteration order, picking a
+    different (but equally valid) cut than nx. Delegate to nx so
+    the chosen cut and edge tuple direction match its
+    s_t_minimum_cut traversal contract exactly.
+    """
+    return _call_networkx_for_parity(
+        "minimum_edge_cut", G, s=s, t=t, flow_func=flow_func,
+    )
 
     def cut_edges_for_partition(source_partition, sink_partition):
         source_set = set(source_partition)
