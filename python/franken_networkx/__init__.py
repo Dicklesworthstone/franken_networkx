@@ -26918,8 +26918,23 @@ def neighbors(G, n):
     return iter(G.neighbors(n))
 
 
-def describe(G):
-    """Return detailed graph description."""
+def describe(G, describe_hook=None):
+    """Print a description of the graph G.
+
+    Parameters
+    ----------
+    G : graph
+        A NetworkX graph.
+    describe_hook : callable, optional (default=None)
+        A function that takes a graph as input and returns a dictionary of
+        additional properties to include in the description.
+
+    Notes
+    -----
+    Matches nx.describe's surface (br-r37-c1-pyx0a). The describe_hook
+    output is merged into the info dict in iteration order before
+    printing.
+    """
     info = {}
     if G.name != "":
         info["Name of Graph"] = G.name
@@ -26948,6 +26963,11 @@ def describe(G):
             )
         else:
             info["Number of connected components"] = number_connected_components(G)
+
+    if describe_hook is not None:
+        extra = describe_hook(G)
+        if extra:
+            info.update(extra)
 
     max_key_len = max(len(key) for key in info)
     for key, value in info.items():
