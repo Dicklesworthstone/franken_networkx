@@ -24131,6 +24131,10 @@ def lexicographical_topological_sort(G, key=None):
 
     Generator function so the returned object is a true generator
     matching nx's contract (br-r37-c1-682kr).
+
+    Raises ``NetworkXUnfeasible`` when ``G`` contains a cycle, matching
+    nx's contract (br-r37-c1-kw1ke). Previously fnx silently yielded a
+    partial order — the prefix of nodes that drain into the cycle.
     """
     import heapq
 
@@ -24141,9 +24145,12 @@ def lexicographical_topological_sort(G, key=None):
         in_deg[v] = in_deg.get(v, 0) + 1
     heap = [(key(n), n) for n in G.nodes() if in_deg[n] == 0]
     heapq.heapify(heap)
+    yielded = 0
+    total = G.number_of_nodes()
     while heap:
         _, node = heapq.heappop(heap)
         yield node
+        yielded += 1
         succs = (
             list(G.successors(node))
             if hasattr(G, "successors")
@@ -24153,6 +24160,10 @@ def lexicographical_topological_sort(G, key=None):
             in_deg[s] -= 1
             if in_deg[s] == 0:
                 heapq.heappush(heap, (key(s), s))
+    if yielded != total:
+        raise NetworkXUnfeasible(
+            "Graph contains a cycle or graph changed during iteration"
+        )
 
 
 # Structural decomposition (br-3r3, br-6t7)
