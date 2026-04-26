@@ -2,6 +2,7 @@
 
 import bz2
 from collections import defaultdict
+import functools
 import gzip
 from io import StringIO
 from os import PathLike
@@ -123,37 +124,31 @@ def _delegate_draw(name, G, *args, **kwargs):
     return fn(G, *args, **kwargs)
 
 
-def draw(G, pos=None, ax=None, **kwargs):
-    """Draw the graph G with matplotlib.
+def _wrap_nx_drawing(name):
+    """Build a thin delegator whose introspectable signature matches nx.
 
-    Delegates to ``networkx.draw``.
-    """
-    return _delegate_draw("draw", G, pos=pos, ax=ax, **kwargs)
+    nx exposes per-arg surfaces (e.g. draw_networkx_edges has 18 keyword
+    parameters). The previous wrappers used (G, *args, **kwargs), which
+    collapsed inspect.signature() output. functools.wraps copies nx's
+    __wrapped__/__signature__/__doc__/__name__ so introspection lines up
+    (br-r37-c1-hz9k5)."""
+    import networkx as nx
 
+    nx_func = getattr(nx, name)
 
-def draw_networkx(G, *args, **kwargs):
-    """Draw the graph using NetworkX's main drawing helper."""
-    return _delegate_draw("draw_networkx", G, *args, **kwargs)
+    @functools.wraps(nx_func)
+    def wrapper(G, *args, **kwargs):
+        return _delegate_draw(name, G, *args, **kwargs)
 
-
-def draw_networkx_nodes(G, pos, *args, **kwargs):
-    """Draw graph nodes only."""
-    return _delegate_draw("draw_networkx_nodes", G, pos, *args, **kwargs)
-
-
-def draw_networkx_edges(G, pos, *args, **kwargs):
-    """Draw graph edges only."""
-    return _delegate_draw("draw_networkx_edges", G, pos, *args, **kwargs)
+    return wrapper
 
 
-def draw_networkx_labels(G, pos, *args, **kwargs):
-    """Draw graph node labels."""
-    return _delegate_draw("draw_networkx_labels", G, pos, *args, **kwargs)
-
-
-def draw_networkx_edge_labels(G, pos, *args, **kwargs):
-    """Draw graph edge labels."""
-    return _delegate_draw("draw_networkx_edge_labels", G, pos, *args, **kwargs)
+draw = _wrap_nx_drawing("draw")
+draw_networkx = _wrap_nx_drawing("draw_networkx")
+draw_networkx_nodes = _wrap_nx_drawing("draw_networkx_nodes")
+draw_networkx_edges = _wrap_nx_drawing("draw_networkx_edges")
+draw_networkx_labels = _wrap_nx_drawing("draw_networkx_labels")
+draw_networkx_edge_labels = _wrap_nx_drawing("draw_networkx_edge_labels")
 
 
 def draw_spring(G, **kwargs):
