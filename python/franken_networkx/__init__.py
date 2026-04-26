@@ -13647,10 +13647,12 @@ def turan_graph(n, r):
 
 
 def barbell_graph(m1, m2, create_using=None):
-    """Return the barbell graph."""
-    if create_using is None:
-        return _rust_barbell_graph(m1, m2)
+    """Return the barbell graph.
 
+    br-r37-c1-iw2hz: drop the Rust fast path — it drifted adj order
+    on bar-vs-bell joining nodes (e.g. fnx adj[3] = [2,4] vs
+    nx [4,2]). Python construction below matches nx.
+    """
     if m1 < 2:
         raise NetworkXError("Invalid graph description, m1 should be >=2")
     if m2 < 0:
@@ -13691,10 +13693,11 @@ def circular_ladder_graph(n, create_using=None):
     — the rust primitive rejects those with ``n must be >= 3``,
     but upstream nx returns degenerate-but-valid graphs for
     n ∈ {0, 1, 2} (franken_networkx-uwa6w).
-    """
-    if create_using is None and n >= 3:
-        return _rust_circular_ladder_graph(n)
 
+    br-r37-c1-iw2hz: drop the Rust fast path — it drifted adj of
+    the wrap-around nodes (e.g. fnx adj[3] = [0,2,7] vs nx [2,7,0]).
+    The Python ladder_graph + closing-edges construction matches nx.
+    """
     G = ladder_graph(n, create_using)
     G.add_edge(0, n - 1)
     G.add_edge(n, 2 * n - 1)
@@ -13705,12 +13708,10 @@ def ladder_graph(n, create_using=None):
     """Return the ladder graph.
 
     Degenerate case ``n == 0`` is an empty graph (matches upstream
-    nx). The rust primitive raises on n=0, so special-case it
-    (franken_networkx-uwa6w).
+    nx). br-r37-c1-iw2hz: drop the Rust fast path — it drifted
+    adj[n-1] order from nx (e.g. fnx adj[4] = [0,5] vs nx [5,0]).
+    The Python construction below already matches nx.
     """
-    if create_using is None and n > 0:
-        return _rust_ladder_graph(n)
-
     G = empty_graph(2 * n, create_using)
     if G.is_directed():
         raise NetworkXError("Directed Graph not supported")
@@ -13727,14 +13728,10 @@ def lollipop_graph(m, n, create_using=None):
     if M < 2:
         raise NetworkXError("Invalid description: m should indicate at least 2 nodes")
 
+    # br-r37-c1-iw2hz: drop the Rust fast path — it drifted adj of
+    # the bell-vs-stick joining node (e.g. fnx adj[3] = [2,4] vs
+    # nx [4,2]). The Python construction below already matches nx.
     n_value, n_nodes = _nodes_or_number_local(n)
-    if (
-        create_using is None
-        and isinstance(m_value, numbers.Integral)
-        and isinstance(n_value, numbers.Integral)
-    ):
-        return _rust_lollipop_graph(m_value, n_value)
-
     if isinstance(m_value, numbers.Integral) and isinstance(n_value, numbers.Integral):
         n_nodes = list(range(M, M + n_value))
     N = len(n_nodes)
@@ -13834,9 +13831,11 @@ def house_graph(create_using=None):
 
 
 def house_x_graph(create_using=None):
-    """Return the house-X graph."""
-    if create_using is None:
-        return _rust_house_x_graph()
+    """Return the house-X graph.
+
+    br-r37-c1-iw2hz: always use the Python construction; the Rust
+    fast-path drifted adj order on multiple nodes.
+    """
     graph = house_graph(create_using=create_using)
     graph.add_edges_from([(0, 3), (1, 2)])
     graph.graph["name"] = "House-with-X-inside Graph"
@@ -13901,14 +13900,10 @@ def tetrahedral_graph(create_using=None):
 def sedgewick_maze_graph(create_using=None):
     """Return the small maze from Sedgewick's *Algorithms in C++*.
 
-    ``create_using`` matches networkx's public signature; when ``None``
-    (default) falls through to the Rust fast path for a plain Graph.
-    nx accepts DiGraph/MultiGraph/MultiDiGraph too — mirror that by
-    building the edge list directly rather than going through the
-    undirected-only helper.
+    ``create_using`` matches networkx's public signature; build the
+    edge list directly so nx's adj-order contract is preserved
+    (br-r37-c1-iw2hz: the Rust fast path drifted adj[0]/adj[4] order).
     """
-    if create_using is None:
-        return _rust_sedgewick_maze_graph()
     G = empty_graph(0, create_using)
     G.add_nodes_from(range(8))
     G.add_edges_from([(0, 2), (0, 7), (0, 5)])
@@ -13931,9 +13926,12 @@ def desargues_graph(create_using=None):
 
 
 def dodecahedral_graph(create_using=None):
-    """Return the dodecahedral graph."""
-    if create_using is None:
-        return _rust_dodecahedral_graph()
+    """Return the dodecahedral graph.
+
+    br-r37-c1-iw2hz: always use the LCF construction path; the Rust
+    fast-path produced adj orderings that drifted from nx (e.g.
+    adj[0] = [1,10,19] vs nx [1,19,10]).
+    """
     graph = LCF_graph(
         20,
         [10, 7, 4, -4, -7, 10, -4, 7, -7, 4],
@@ -13945,9 +13943,11 @@ def dodecahedral_graph(create_using=None):
 
 
 def heawood_graph(create_using=None):
-    """Return the Heawood graph."""
-    if create_using is None:
-        return _rust_heawood_graph()
+    """Return the Heawood graph.
+
+    br-r37-c1-iw2hz: always use the LCF construction path; the Rust
+    fast-path drifted adj order from nx.
+    """
     graph = LCF_graph(14, [5, -5], 7, create_using=create_using)
     graph.graph["name"] = "Heawood Graph"
     return graph
@@ -13976,9 +13976,12 @@ def octahedral_graph(create_using=None):
 
 
 def truncated_cube_graph(create_using=None):
-    """Return the truncated cube graph."""
-    if create_using is None:
-        return _rust_truncated_cube_graph()
+    """Return the truncated cube graph.
+
+    br-r37-c1-iw2hz: always use the Python adjlist path; the Rust
+    fast-path drifted adj[1] order from nx (fnx [0,14,11] vs
+    nx [0,11,14]).
+    """
     return _classic_named_graph_from_adjlist(
         {
             0: [1, 2, 4],
@@ -14011,9 +14014,11 @@ def truncated_cube_graph(create_using=None):
 
 
 def truncated_tetrahedron_graph(create_using=None):
-    """Return the truncated tetrahedron graph."""
-    if create_using is None:
-        return _rust_truncated_tetrahedron_graph()
+    """Return the truncated tetrahedron graph.
+
+    br-r37-c1-iw2hz: always use the Python construction; the Rust
+    fast-path drifted adj[2] order from nx.
+    """
     graph = path_graph(12, create_using=create_using)
     graph.add_edges_from([(0, 2), (0, 9), (1, 6), (3, 11), (4, 11), (5, 7), (8, 10)])
     graph.graph["name"] = "Truncated Tetrahedron Graph"
@@ -14043,9 +14048,11 @@ def chvatal_graph(create_using=None):
 
 
 def frucht_graph(create_using=None):
-    """Return the Frucht graph."""
-    if create_using is None:
-        return _rust_frucht_graph()
+    """Return the Frucht graph.
+
+    br-r37-c1-iw2hz: always use the Python construction path; the
+    Rust fast-path produced adj orderings that drifted from nx.
+    """
     graph = cycle_graph(7, create_using=create_using)
     graph.add_edges_from(
         [
@@ -14131,14 +14138,14 @@ def circulant_graph(n, offsets, create_using=None):
     br-circself: nx allows n=0 (empty graph) and produces self-loops
     when an offset is divisible by n (e.g. n=1 with offset=1, or n=2
     with offset=2). The Rust binding rejected n=0 entirely and silently
-    dropped self-loops, breaking parity with nx. Route those cases
-    through the Python path; the Rust fast path only handles the
-    strictly non-self-loop case (n>=2 and no offset divisible by n).
+    dropped self-loops, breaking parity with nx.
+
+    br-r37-c1-iw2hz: also drop the Rust fast path even for the strict
+    non-self-loop case — it drifted adj order from nx (e.g. for
+    circulant(7, [1,2]) fnx adj[0] = [1,2,5,6] vs nx [6,5,1,2]).
+    The Python construction matches nx exactly.
     """
     offsets_list = list(offsets)
-    if create_using is None and n >= 2 and all(j % n != 0 for j in offsets_list):
-        return _rust_circulant_graph(n, offsets_list)
-
     G = empty_graph(n, create_using)
     G.add_edges_from((i, (i - j) % n) for i in range(n) for j in offsets_list)
     G.add_edges_from((i, (i + j) % n) for i in range(n) for j in offsets_list)
