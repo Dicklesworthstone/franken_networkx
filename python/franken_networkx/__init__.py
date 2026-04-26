@@ -266,6 +266,10 @@ class EdgeDataView:
     def __repr__(self):
         return f"EdgeDataView({self._materialize()!r})"
 
+    def __str__(self):
+        # br-r37-c1-mpv5x: nx EdgeDataView.__str__ is str(list(self)).
+        return str(self._materialize())
+
     def __eq__(self, other):
         if hasattr(other, "__iter__"):
             return list(self._materialize()) == list(other)
@@ -398,6 +402,10 @@ class NodeDataView:
         if isinstance(self._data, bool):
             return f"NodeDataView({dict(self._materialize())!r})"
         return f"NodeDataView({dict(self._materialize())!r}, data={self._data!r})"
+
+    def __str__(self):
+        # br-r37-c1-mpv5x: nx NodeDataView.__str__ is str(list(self)).
+        return str(self._materialize())
 
     def __eq__(self, other):
         if hasattr(other, "__iter__"):
@@ -558,6 +566,11 @@ class AtlasView(Mapping):
         # Python falls back to ``<franken_networkx.AtlasView object at 0x...>``.
         return f"AtlasView({dict(self._atlas())!r})"
 
+    def __str__(self):
+        # br-r37-c1-mpv5x: nx.AtlasView.__str__ returns the bare dict
+        # ('{1: {}}'), not the wrapped repr.
+        return str(dict(self._atlas()))
+
     def copy(self):
         """br-atlascp: nx.AtlasView has a dict-style copy(). nx internals
         like ``to_dict_of_dicts`` do ``nbrdict.copy()`` on the adj value,
@@ -593,6 +606,10 @@ class AdjacencyView(Mapping):
         # br-r37-c1-k147g: print the underlying mapping like nx does.
         return f"AdjacencyView({self.copy()!r})"
 
+    def __str__(self):
+        # br-r37-c1-mpv5x: bare-dict str like nx.
+        return str(self.copy())
+
     def copy(self):
         """br-adjcp: nx.to_dict_of_dicts does ``nbrdict.copy()`` on the
         adjacency value; AdjacencyView (used for MultiGraph inner) had
@@ -624,6 +641,10 @@ class MultiAdjacencyView(Mapping):
     def __repr__(self):
         # br-r37-c1-k147g: print the underlying mapping like nx does.
         return f"MultiAdjacencyView({self.copy()!r})"
+
+    def __str__(self):
+        # br-r37-c1-mpv5x: bare-dict str like nx.
+        return str(self.copy())
 
     def copy(self):
         """br-adjcp: snapshot the multigraph adjacency as a plain
@@ -2179,6 +2200,12 @@ for _node_view_type in (
 # instead of (0, 1, ...)) or showed an opaque count (EdgeView shows
 # "EdgeView(2 edges)"). Override __repr__ to match nx's contract:
 # repr lists the actual node/edge content with original types.
+# br-r37-c1-mpv5x: nx __str__ on these views returns bare data
+# (no class wrapper); add explicit __str__ to match.
+def _view_str_list(self):
+    return str(list(self))
+
+
 def _node_view_repr(self):
     return f"NodeView({tuple(self)!r})"
 
@@ -2210,6 +2237,7 @@ for _nv_cls in (
     _MULTIDIGRAPH_NODE_VIEW_TYPE,
 ):
     _nv_cls.__repr__ = _node_view_repr
+    _nv_cls.__str__ = _view_str_list
 del _nv_cls
 
 for _ev_cls in (
@@ -2219,6 +2247,7 @@ for _ev_cls in (
     _MultiDiGraphEdgeView,
 ):
     _ev_cls.__repr__ = _edge_view_repr
+    _ev_cls.__str__ = _view_str_list
 del _ev_cls
 
 for _dv_cls in (
@@ -2228,6 +2257,7 @@ for _dv_cls in (
     type(MultiDiGraph().degree),
 ):
     _dv_cls.__repr__ = _degree_view_repr
+    _dv_cls.__str__ = _view_str_list
 del _dv_cls
 
 
@@ -22355,6 +22385,24 @@ def _directed_to_undirected_with_view(to_undirected_impl):
 for _G_cls in (Graph, DiGraph, MultiGraph, MultiDiGraph):
     _G_cls.__eq__ = object.__eq__
     _G_cls.__hash__ = object.__hash__
+del _G_cls
+
+
+# br-r37-c1-mpv5x: nx Graph.__str__ includes the graph name when set:
+# "Graph named 'foo' with N nodes and E edges". The Rust binding
+# returned the name-less form unconditionally.
+def _graph_str(self):
+    return "".join(
+        [
+            type(self).__name__,
+            f" named {self.name!r}" if self.name else "",
+            f" with {self.number_of_nodes()} nodes and {self.number_of_edges()} edges",
+        ]
+    )
+
+
+for _G_cls in (Graph, DiGraph, MultiGraph, MultiDiGraph):
+    _G_cls.__str__ = _graph_str
 del _G_cls
 
 Graph.copy = _copy_preserving_insertion_order
