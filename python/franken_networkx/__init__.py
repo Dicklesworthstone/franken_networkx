@@ -7346,19 +7346,31 @@ def jaccard_coefficient(G, ebunch=None):
 
     Matches nx: raises NodeNotFound on missing endpoints and
     NetworkXNotImplemented on MultiGraph inputs (br-7f0fn).
+
+    br-r37-c1-t3gkj: delegate to nx so pair order matches nx's
+    non_edges iteration order.
     """
     materialized = _link_prediction_validate_ebunch(G, ebunch)
     if materialized is None:
-        return _raw_jaccard_coefficient(G)
-    return _raw_jaccard_coefficient(G, materialized)
+        return _call_networkx_for_parity("jaccard_coefficient", G)
+    return _call_networkx_for_parity(
+        "jaccard_coefficient", G, ebunch=materialized,
+    )
 
 
 def adamic_adar_index(G, ebunch=None):
-    """Compute the Adamic-Adar index of all node pairs in ebunch."""
+    """Compute the Adamic-Adar index of all node pairs in ebunch.
+
+    br-r37-c1-t3gkj: delegate to nx so pair order matches nx's
+    non_edges iteration order and zero-score values are int 0 not
+    float -0.0.
+    """
     materialized = _link_prediction_validate_ebunch(G, ebunch)
     if materialized is None:
-        return _raw_adamic_adar_index(G)
-    return _raw_adamic_adar_index(G, materialized)
+        return _call_networkx_for_parity("adamic_adar_index", G)
+    return _call_networkx_for_parity(
+        "adamic_adar_index", G, ebunch=materialized,
+    )
 
 
 def preferential_attachment(G, ebunch=None):
@@ -7379,11 +7391,18 @@ def preferential_attachment(G, ebunch=None):
 
 
 def resource_allocation_index(G, ebunch=None):
-    """Compute the resource-allocation index of all node pairs in ebunch."""
+    """Compute the resource-allocation index of all node pairs in ebunch.
+
+    br-r37-c1-t3gkj: delegate to nx so pair order matches nx's
+    non_edges iteration order and zero-score values are int 0 not
+    float -0.0.
+    """
     materialized = _link_prediction_validate_ebunch(G, ebunch)
     if materialized is None:
-        return _raw_resource_allocation_index(G)
-    return _raw_resource_allocation_index(G, materialized)
+        return _call_networkx_for_parity("resource_allocation_index", G)
+    return _call_networkx_for_parity(
+        "resource_allocation_index", G, ebunch=materialized,
+    )
 
 # Algorithm functions — DAG
 from franken_networkx._fnx import (
