@@ -6792,10 +6792,27 @@ def compose(G, H):
 
 
 def intersection(G, H):
-    """Return a graph with the edges present in both G and H (same node set)."""
+    """Return a graph with the edges present in both G and H (same node set).
+
+    br-r37-c1-saf8a: nx implements intersection via Python set
+    intersection and ``add_nodes_from(set) / add_edges_from(set)``,
+    which produces a hash-based (but stable + deterministic) node and
+    edge iteration order. The Rust binding traversed internal
+    adjacency in a different order, drifting both the node order and
+    the edge tuple direction. Delegate to nx so the resulting graph's
+    ``nodes()`` / ``edges()`` iteration matches its contract exactly.
+    Sister ``difference`` / ``symmetric_difference`` ops were already
+    matching and remain on the Rust path.
+    """
+    import networkx as _nx_mod
+    from franken_networkx.readwrite import _from_nx_graph
+
+    nx_result = _nx_mod.intersection(
+        _networkx_graph_for_parity(G),
+        _networkx_graph_for_parity(H),
+    )
     cls = _operator_output_class(G, H)
-    raw = _raw_intersection(G, H)
-    return _rebuild_operator_output(raw, cls)
+    return _from_nx_graph(nx_result, create_using=cls())
 
 
 def difference(G, H):
