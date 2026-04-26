@@ -6,12 +6,12 @@
 
 | Category | Count | % | Rule |
 |----------|-------|---|------|
-| RUST_NATIVE | 39 | 4% | native extension exports from `franken_networkx._fnx` |
-| PY_WRAPPER | 741 | 92% | Python-defined exports with no runtime NetworkX dependency detected |
-| NX_DELEGATED | 0 | 0% | Python-defined exports that import or call NetworkX at runtime |
-| CLASS | 22 | 2% | public classes, exceptions, iterators |
-| CONSTANT | 2 | 0% | public non-callable values |
-| **Total public exports** | **804** | | unique names from `franken_networkx.__all__` |
+| RUST_NATIVE | 29 | 3% | native extension exports from `franken_networkx._fnx` |
+| PY_WRAPPER | 799 | 87% | Python-defined exports with no runtime NetworkX dependency detected |
+| NX_DELEGATED | 48 | 5% | Python-defined exports that import or call NetworkX at runtime |
+| CLASS | 32 | 3% | public classes, exceptions, iterators |
+| CONSTANT | 3 | 0% | public non-callable values |
+| **Total public exports** | **911** | | unique names from `franken_networkx.__all__` |
 
 All declared public exports are classified. `--check` fails if this generated report drifts from the live module surface.
 
@@ -25,27 +25,27 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 
 | Module | Count |
 |--------|-------|
-| `franken_networkx` | 678 |
-| `franken_networkx._fnx` | 39 |
+| `franken_networkx` | 782 |
 | `franken_networkx.readwrite` | 35 |
-| `franken_networkx.drawing.nx_pylab` | 21 |
+| `franken_networkx._fnx` | 29 |
 | `franken_networkx.drawing.layout` | 15 |
+| `franken_networkx.drawing.nx_pylab` | 15 |
 | `networkx.exception` | 12 |
-| `builtins` | 1 |
+| `networkx.algorithms.isomorphism.matchhelpers` | 9 |
+| `networkx.drawing.nx_pylab` | 6 |
+| `networkx.utils.heaps` | 3 |
+| `builtins` | 2 |
 | `networkx.algorithms.community.quality` | 1 |
 | `networkx.algorithms.tree.coding` | 1 |
 | `networkx.utils.configs` | 1 |
 
-## RUST_NATIVE exports (39)
+## RUST_NATIVE exports (29)
 
 - `bfs_layers`
-- `biconnected_component_edges`
 - `bidirectional_shortest_path`
 - `bipartite_sets`
 - `clique_removal`
-- `descendants_at_distance`
 - `dominance_frontiers`
-- `enumerate_all_cliques`
 - `global_node_connectivity`
 - `graph_clique_number`
 - `is_arborescence`
@@ -59,26 +59,19 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `is_maximal_matching`
 - `is_perfect_matching`
 - `is_semieulerian`
-- `is_weakly_connected`
-- `isolates`
 - `large_clique_size`
 - `max_clique`
-- `max_weight_matching`
 - `maximal_independent_set`
 - `maximal_matching`
 - `maximum_independent_set`
-- `min_weight_matching`
 - `min_weighted_vertex_cover`
 - `number_connected_components`
 - `number_of_isolates`
 - `number_of_spanning_arborescences`
-- `number_of_spanning_trees`
-- `number_strongly_connected_components`
-- `number_weakly_connected_components`
 - `tree_broadcast_center`
 - `tree_broadcast_time`
 
-## PY_WRAPPER exports (741)
+## PY_WRAPPER exports (799)
 
 - `LCF_graph`
 - `LFR_benchmark_graph`
@@ -115,6 +108,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `approximate_current_flow_betweenness_centrality`
 - `arf_layout`
 - `articulation_points`
+- `asadpour_atsp`
 - `astar_path`
 - `astar_path_length`
 - `asyn_fluidc`
@@ -150,6 +144,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `bfs_successors`
 - `bfs_tree`
 - `biadjacency_matrix`
+- `biconnected_component_edges`
 - `biconnected_components`
 - `bidirectional_dijkstra`
 - `binomial_graph`
@@ -158,10 +153,14 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `bipartite_layout`
 - `boundary_expansion`
 - `boykov_kolmogorov`
+- `bridge_components`
 - `bridges`
 - `bull_graph`
 - `capacity_scaling`
 - `cartesian_product`
+- `categorical_edge_match`
+- `categorical_multiedge_match`
+- `categorical_node_match`
 - `caveman_graph`
 - `cd_index`
 - `center`
@@ -172,6 +171,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `chordal_graph_cliques`
 - `chordal_graph_treewidth`
 - `chordless_cycles`
+- `christofides`
 - `chromatic_polynomial`
 - `chvatal_graph`
 - `circulant_graph`
@@ -181,6 +181,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `closeness_vitality`
 - `clustering`
 - `cn_soundarajan_hopcroft`
+- `colliders`
 - `color`
 - `combinatorial_embedding_to_pos`
 - `common_neighbor_centrality`
@@ -234,10 +235,13 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `degree_mixing_matrix`
 - `degree_pearson_correlation_coefficient`
 - `degree_sequence_tree`
+- `degrees`
 - `dense_gnm_random_graph`
+- `densest_subgraph`
 - `density`
 - `desargues_graph`
 - `descendants`
+- `descendants_at_distance`
 - `describe`
 - `dfs_edges`
 - `dfs_labeled_edges`
@@ -273,11 +277,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `draw_circular`
 - `draw_forceatlas2`
 - `draw_kamada_kawai`
-- `draw_networkx`
-- `draw_networkx_edge_labels`
-- `draw_networkx_edges`
 - `draw_networkx_labels`
-- `draw_networkx_nodes`
 - `draw_planar`
 - `draw_random`
 - `draw_shell`
@@ -288,6 +288,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `eccentricity`
 - `edge_betweenness_centrality`
 - `edge_betweenness_centrality_subset`
+- `edge_betweenness_partition`
 - `edge_bfs`
 - `edge_boundary`
 - `edge_connectivity`
@@ -307,6 +308,8 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `eigenvector_centrality`
 - `eigenvector_centrality_numpy`
 - `empty_graph`
+- `enumerate_all_cliques`
+- `eppstein_matching`
 - `equitable_color`
 - `equivalence_classes`
 - `erdos_renyi_graph`
@@ -318,6 +321,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `extended_barabasi_albert_graph`
 - `fast_could_be_isomorphic`
 - `fast_gnp_random_graph`
+- `fast_label_propagation_communities`
 - `faster_could_be_isomorphic`
 - `fiedler_vector`
 - `find_asteroidal_triple`
@@ -364,9 +368,11 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `generate_pajek`
 - `generate_random_paths`
 - `generic_bfs_edges`
+- `generic_edge_match`
+- `generic_multiedge_match`
+- `generic_node_match`
 - `geographical_threshold_graph`
 - `geometric_edges`
-- `geometric_soft_configuration_graph`
 - `get_counterexample`
 - `get_counterexample_recursive`
 - `get_edge_attributes`
@@ -390,6 +396,8 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `greedy_branching`
 - `greedy_color`
 - `greedy_modularity_communities`
+- `greedy_source_expansion`
+- `greedy_tsp`
 - `grid_2d_graph`
 - `grid_graph`
 - `group_betweenness_centrality`
@@ -401,7 +409,9 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `hamiltonian_path`
 - `harmonic_centrality`
 - `harmonic_diameter`
+- `harmonic_function`
 - `has_bridges`
+- `has_cycle`
 - `has_eulerian_path`
 - `has_path`
 - `havel_hakimi_graph`
@@ -451,9 +461,11 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `is_isomorphic`
 - `is_k_edge_connected`
 - `is_kl_connected`
+- `is_locally_k_edge_connected`
 - `is_minimal_d_separator`
 - `is_multigraphical`
 - `is_negatively_weighted`
+- `is_partition`
 - `is_path`
 - `is_perfect_graph`
 - `is_planar`
@@ -472,7 +484,9 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `is_valid_degree_sequence_havel_hakimi`
 - `is_valid_directed_joint_degree`
 - `is_valid_joint_degree`
+- `is_weakly_connected`
 - `is_weighted`
+- `isolates`
 - `jaccard_coefficient`
 - `johnson`
 - `join_trees`
@@ -505,36 +519,49 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `laplacian_centrality`
 - `laplacian_matrix`
 - `laplacian_spectrum`
+- `latapy_clustering`
 - `lattice_reference`
+- `leiden_communities`
+- `leiden_partitions`
 - `les_miserables_graph`
 - `lexicographic_product`
 - `lexicographic_topological_sort`
 - `lexicographical_topological_sort`
 - `line_graph`
 - `load_centrality`
+- `local_and_global_consistency`
 - `local_bridges`
 - `local_constraint`
 - `local_efficiency`
+- `local_node_connectivity`
 - `local_reaching_centrality`
 - `lollipop_graph`
 - `louvain_communities`
+- `louvain_partitions`
 - `lowest_common_ancestor`
 - `make_clique_bipartite`
 - `make_max_clique_graph`
 - `margulis_gabber_galil_graph`
 - `max_flow_min_cost`
 - `max_weight_clique`
+- `max_weight_matching`
 - `maximum_branching`
 - `maximum_flow`
 - `maximum_flow_value`
+- `maximum_matching`
 - `maximum_spanning_arborescence`
 - `maximum_spanning_edges`
 - `maximum_spanning_tree`
 - `maybe_regular_expander`
 - `maybe_regular_expander_graph`
+- `metric_closure`
 - `min_cost_flow`
 - `min_cost_flow_cost`
 - `min_edge_cover`
+- `min_edge_dominating_set`
+- `min_maximal_matching`
+- `min_weight_matching`
+- `min_weighted_dominating_set`
 - `minimum_branching`
 - `minimum_cut`
 - `minimum_cut_value`
@@ -544,7 +571,9 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `minimum_spanning_arborescence`
 - `minimum_spanning_edges`
 - `minimum_spanning_tree`
+- `minimum_st_edge_cut`
 - `minimum_st_node_cut`
+- `minimum_weight_full_matching`
 - `mixing_dict`
 - `mixing_expansion`
 - `modular_product`
@@ -557,6 +586,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `multi_source_dijkstra_path`
 - `multi_source_dijkstra_path_length`
 - `multipartite_layout`
+- `mutual_weight`
 - `mycielski_graph`
 - `mycielskian`
 - `navigable_small_world_graph`
@@ -574,6 +604,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `node_expansion`
 - `node_link_data`
 - `node_link_graph`
+- `node_redundancy`
 - `nodes`
 - `nodes_with_selfloops`
 - `non_edges`
@@ -583,6 +614,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `normalized_cut_size`
 - `normalized_laplacian_matrix`
 - `normalized_laplacian_spectrum`
+- `normalized_mutual_weight`
 - `null_graph`
 - `number_attracting_components`
 - `number_of_cliques`
@@ -590,10 +622,17 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `number_of_nodes`
 - `number_of_nonisomorphic_trees`
 - `number_of_selfloops`
+- `number_of_spanning_trees`
 - `number_of_walks`
+- `number_strongly_connected_components`
+- `number_weakly_connected_components`
 - `numeric_assortativity_coefficient`
+- `numerical_edge_match`
+- `numerical_multiedge_match`
+- `numerical_node_match`
 - `octahedral_graph`
 - `omega`
+- `one_exchange`
 - `onion_layers`
 - `optimal_edit_paths`
 - `optimize_edit_paths`
@@ -636,6 +675,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `quotient_graph`
 - `ra_index_soundarajan_hopcroft`
 - `radius`
+- `ramsey_R2`
 - `random_clustered_graph`
 - `random_cograph`
 - `random_degree_sequence_graph`
@@ -662,6 +702,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `random_unlabeled_rooted_forest`
 - `random_unlabeled_rooted_tree`
 - `random_unlabeled_tree`
+- `randomized_partitioning`
 - `read_adjlist`
 - `read_edgelist`
 - `read_gexf`
@@ -690,6 +731,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `reverse_view`
 - `rich_club_coefficient`
 - `ring_of_cliques`
+- `robins_alexander_clustering`
 - `rooted_product`
 - `rooted_tree_isomorphism`
 - `s_metric`
@@ -701,6 +743,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `selfloop_edges`
 - `set_edge_attributes`
 - `set_node_attributes`
+- `sets`
 - `shell_layout`
 - `shortest_augmenting_path`
 - `shortest_path`
@@ -709,6 +752,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `sigma`
 - `simple_cycles`
 - `simrank_similarity`
+- `simulated_annealing_tsp`
 - `single_source_all_shortest_paths`
 - `single_source_bellman_ford`
 - `single_source_bellman_ford_path`
@@ -731,6 +775,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `spring_layout`
 - `square_clustering`
 - `star_graph`
+- `steiner_tree`
 - `stochastic_block_model`
 - `stochastic_graph`
 - `stoer_wagner`
@@ -745,6 +790,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `tadpole_graph`
 - `tensor_product`
 - `tetrahedral_graph`
+- `threshold_accepting_tsp`
 - `thresholded_random_geometric_graph`
 - `to_dict_of_dicts`
 - `to_dict_of_lists`
@@ -762,6 +808,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `to_scipy_sparse_array`
 - `to_sparse6_bytes`
 - `to_undirected`
+- `to_vertex_cover`
 - `topological_generations`
 - `topological_sort`
 - `tournament_matrix`
@@ -769,10 +816,13 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `transitive_closure_dag`
 - `transitive_reduction`
 - `transitivity`
+- `traveling_salesman_problem`
 - `tree_all_pairs_lowest_common_ancestor`
 - `tree_data`
 - `tree_graph`
 - `tree_isomorphism`
+- `treewidth_min_degree`
+- `treewidth_min_fill_in`
 - `triad_graph`
 - `triad_type`
 - `triadic_census`
@@ -791,6 +841,7 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `uniform_random_intersection_graph`
 - `union`
 - `union_all`
+- `v_structures`
 - `vf2pp_all_isomorphisms`
 - `vf2pp_is_isomorphic`
 - `vf2pp_isomorphism`
@@ -822,18 +873,73 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `write_sparse6`
 - `write_weighted_edgelist`
 
-## NX_DELEGATED exports (0)
+## NX_DELEGATED exports (48)
 
+- `boruvka_mst_edges`
+- `branching_weight`
+- `cc_dot`
+- `cc_max`
+- `cc_min`
+- `connected_cuthill_mckee_ordering`
+- `cumulative_distribution`
+- `cuthill_mckee_ordering`
+- `draw_networkx`
+- `draw_networkx_edge_labels`
+- `draw_networkx_edges`
+- `draw_networkx_nodes`
+- `edges_equal`
+- `flow_matrix_row`
+- `frozen`
+- `geometric_soft_configuration_graph`
+- `graphs_equal`
+- `hide_diedges`
+- `hide_edges`
+- `hide_multidiedges`
+- `hide_multiedges`
+- `hide_nodes`
+- `is_valid_tree_degree_sequence`
+- `kruskal_mst_edges`
+- `make_list_of_ints`
+- `matching_dict_to_set`
+- `minimal_branching`
+- `no_filter`
+- `nodes_equal`
+- `powerlaw_sequence`
+- `prim_mst_edges`
+- `pseudo_peripheral_node`
+- `random_uniform_k_out_graph`
+- `reverse_cuthill_mckee_ordering`
+- `show_diedges`
+- `show_edges`
+- `show_multidiedges`
+- `show_multiedges`
+- `show_nodes`
+- `strategy_connected_sequential`
+- `strategy_connected_sequential_bfs`
+- `strategy_connected_sequential_dfs`
+- `strategy_independent_set`
+- `strategy_largest_first`
+- `strategy_random_sequential`
+- `strategy_saturation_largest_first`
+- `strategy_smallest_last`
+- `zipf_rv`
 
-## CLASS exports (22)
+## CLASS exports (32)
 
 - `ArborescenceIterator`
+- `BinaryHeap`
 - `DiGraph`
+- `DiGraphMatcher`
 - `EdgePartition`
 - `Graph`
+- `GraphMatcher`
 - `HasACycle`
+- `ISMAGS`
+- `MinHeap`
 - `MultiDiGraph`
+- `MultiDiGraphMatcher`
 - `MultiGraph`
+- `MultiGraphMatcher`
 - `NetworkXAlgorithmError`
 - `NetworkXError`
 - `NetworkXException`
@@ -847,10 +953,14 @@ The live module currently declares 1 duplicate name(s) in `__all__`. The matrix 
 - `NodeNotFound`
 - `NotAPartition`
 - `NotATree`
+- `PairingHeap`
 - `PowerIterationFailedConvergence`
 - `SpanningTreeIterator`
+- `TimeRespectingDiGraphMatcher`
+- `TimeRespectingGraphMatcher`
 
-## CONSTANT exports (2)
+## CONSTANT exports (3)
 
 - `__version__`
 - `config`
+- `isomorphism`
