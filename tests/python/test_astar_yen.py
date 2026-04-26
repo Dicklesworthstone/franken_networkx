@@ -252,14 +252,15 @@ class TestAstarPathLength:
 class TestShortestSimplePaths:
     def test_unweighted_order(self, weighted_triangle):
         # Unweighted: direct edge 0->2 (1 hop) < 0->1->2 (2 hops).
-        paths = fnx.shortest_simple_paths(weighted_triangle, 0, 2)
+        # shortest_simple_paths is a generator (br-r37-c1-682kr); materialise.
+        paths = list(fnx.shortest_simple_paths(weighted_triangle, 0, 2))
         assert len(paths) == 2
         assert paths[0] == [0, 2]
         assert paths[1] == [0, 1, 2]
 
     def test_weighted_order(self, weighted_triangle):
         # Weighted: 0->1->2 (weight 2) < 0->2 (weight 5).
-        paths = fnx.shortest_simple_paths(weighted_triangle, 0, 2, weight="weight")
+        paths = list(fnx.shortest_simple_paths(weighted_triangle, 0, 2, weight="weight"))
         assert len(paths) == 2
         assert paths[0] == [0, 1, 2]
         assert paths[1] == [0, 2]
@@ -306,7 +307,7 @@ class TestShortestSimplePaths:
                     list(fnx.shortest_simple_paths(G_fnx, 0, 2, weight=weight_arg))
 
     def test_diamond(self, diamond):
-        paths = fnx.shortest_simple_paths(diamond, 0, 3, weight="weight")
+        paths = list(fnx.shortest_simple_paths(diamond, 0, 3, weight="weight"))
         assert len(paths) == 2
         # 0->1->3 (weight 2) before 0->2->3 (weight 3).
         assert paths[0] == [0, 1, 3]
@@ -316,20 +317,20 @@ class TestShortestSimplePaths:
         G = fnx.Graph()
         G.add_node(0)
         G.add_node(1)
-        paths = fnx.shortest_simple_paths(G, 0, 1)
+        paths = list(fnx.shortest_simple_paths(G, 0, 1))
         assert paths == []
 
     def test_same_node(self):
         G = fnx.Graph()
         G.add_node(0)
-        paths = fnx.shortest_simple_paths(G, 0, 0)
+        paths = list(fnx.shortest_simple_paths(G, 0, 0))
         # Single node path
         assert len(paths) >= 1
         assert paths[0] == [0]
 
     def test_path5_all_paths(self, path5):
         # In a simple path graph there's only one path from 0 to 4.
-        paths = fnx.shortest_simple_paths(path5, 0, 4)
+        paths = list(fnx.shortest_simple_paths(path5, 0, 4))
         assert len(paths) == 1
         assert paths[0] == [0, 1, 2, 3, 4]
 
@@ -341,7 +342,7 @@ class TestShortestSimplePaths:
         G.add_edge(1, 3)
         G.add_edge(2, 3)
         G.add_edge(1, 2)
-        paths = fnx.shortest_simple_paths(G, 0, 3)
+        paths = list(fnx.shortest_simple_paths(G, 0, 3))
         # Should find multiple paths of varying lengths.
         assert len(paths) >= 2
         # All paths must start at 0 and end at 3.

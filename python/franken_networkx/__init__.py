@@ -22163,6 +22163,17 @@ def _directed_to_undirected_with_view(to_undirected_impl):
     return _wraps_without_signature_poisoning(to_undirected_impl, to_undirected)
 
 
+# br-r37-c1-xsrkr: nx Graph uses object's default identity-based
+# __eq__ and __hash__. The Rust binding implemented content-based
+# __eq__, which (a) made fnx.path_graph(3) == fnx.path_graph(3)
+# return True (False on nx) and (b) caused Python to set
+# __hash__ = None, breaking ``set([G1, G2])``. Override to match
+# nx's drop-in semantics on all four Graph classes.
+for _G_cls in (Graph, DiGraph, MultiGraph, MultiDiGraph):
+    _G_cls.__eq__ = object.__eq__
+    _G_cls.__hash__ = object.__hash__
+del _G_cls
+
 Graph.copy = _copy_preserving_insertion_order
 DiGraph.copy = _copy_preserving_insertion_order
 MultiGraph.copy = _copy_preserving_insertion_order
