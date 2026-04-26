@@ -223,6 +223,15 @@ class EdgeDataView:
         self._default = default
         self._nbunch_list = nbunch_list
         self._nbset = set(nbunch_list) if nbunch_list is not None else None
+        # br-r37-c1-dc14n: graph reference (when known) lets the
+        # adj-walk path compute edges in nx-matching adj order. Look
+        # up via the global EdgeView->Graph map populated by the
+        # _private_aware_edges property if not provided.
+        if graph is None:
+            try:
+                graph = _EDGE_VIEW_GRAPH_OWNER.get(id(view_self))
+            except (NameError, TypeError):
+                graph = None
         self._graph = graph
 
     def _materialize(self):
@@ -22551,9 +22560,27 @@ def _private_aware_edges(raw_edges):
     def edges(self):
         if _has_networkx_private_storage(self):
             return _AssignedPrivateEdgeView(self)
-        return raw_edges.__get__(self, type(self))
+        view = raw_edges.__get__(self, type(self))
+        # br-r37-c1-dc14n: register the graph in the per-process
+        # weakref map so EdgeDataView (created lazily when the user
+        # calls view(nbunch=...)) can recover the owning graph and
+        # iterate adj in nx-matching order. Keyed by id(view); the
+        # entry is overwritten each access.
+        try:
+            _EDGE_VIEW_GRAPH_OWNER[id(view)] = self
+        except TypeError:
+            # If the view is unhashable for some reason, fall through —
+            # EdgeDataView will skip the adj-walk and return raw output.
+            pass
+        return view
 
     return property(edges)
+
+
+# id(EdgeView) -> owning Graph (weak via plain dict; entries are
+# refreshed on every property access so stale ids self-flush). Used
+# by EdgeDataView._materialize_via_adj_walk for br-r37-c1-dc14n.
+_EDGE_VIEW_GRAPH_OWNER = {}
 
 
 def _private_aware_degree(raw_degree):
