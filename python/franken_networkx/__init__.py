@@ -272,7 +272,6 @@ class EdgeDataView:
             if node not in graph:
                 # nx skips missing nbunch nodes silently.
                 continue
-            seen.add(node)
             adj_view = graph[node]
             for nbr, edge_data in adj_view.items():
                 if nbr in seen:
@@ -286,6 +285,11 @@ class EdgeDataView:
                 else:
                     # data is a string attr name
                     result.append((node, nbr, edge_data.get(data, default)))
+            # br-r37-c1-6yimw: nx adds node to ``seen`` *after* the
+            # inner adj loop so self-loop edges (where nbr == node)
+            # are still emitted. The previous pre-loop ``seen.add``
+            # ate self-loops.
+            seen.add(node)
         return result
 
     def _reorder(self, edge):
@@ -20850,47 +20854,28 @@ def node_attribute_xy(G, attribute, nodes=None):
 
 
 def node_degree_xy(G, x="out", y="in", weight=None, nodes=None):
-    """Yield (degree_x, degree_y) for each edge."""
+    """Yield (degree_x, degree_y) for each edge.
+
+    br-r37-c1-6yimw: nx iterates ``xdeg(set(nodes))`` which yields
+    nodes in hash-set order (since the implementation calls
+    ``set(G)`` and iterates that). The previous fnx loop walked
+    ``present_nodes`` (G.nodes()-insertion order), drifting tuple
+    iteration order from nx. Replicate nx's exact algorithm.
+    """
     node_set = set(G) if nodes is None else set(nodes)
-    present_nodes = [node for node in G if node in node_set]
-
-    def directed_degree_map(mode):
-        result = {}
-        for node in present_nodes:
-            total = 0
-            neighbors = G.predecessors(node) if mode == "in" else G.successors(node)
-            for neighbor in neighbors:
-                if mode == "in":
-                    edge_bucket = G[neighbor][node]
-                else:
-                    edge_bucket = G[node][neighbor]
-                if G.is_multigraph():
-                    for attrs in edge_bucket.values():
-                        total += attrs.get(weight, 1) if weight is not None else 1
-                else:
-                    total += edge_bucket.get(weight, 1) if weight is not None else 1
-            result[node] = total
-        return result
-
     if G.is_directed():
-        xdeg = directed_degree_map(x)
-        ydeg = directed_degree_map(y)
-        for u in present_nodes:
-            for v in G.successors(u):
-                if v in node_set:
-                    yield (xdeg[u], ydeg[v])
-        return
+        direction = {"out": G.out_degree, "in": G.in_degree}
+        xdeg = direction[x]
+        ydeg = direction[y]
+    else:
+        xdeg = ydeg = G.degree
 
-    deg = {node: degree(G, node, weight=weight) for node in present_nodes}
-    for u in present_nodes:
-        for v in G.neighbors(u):
-            if v not in node_set:
-                continue
-            if G.is_multigraph():
-                for _key in G[u][v]:
-                    yield (deg[u], deg[v])
-            else:
-                yield (deg[u], deg[v])
+    for u, degu in xdeg(node_set, weight=weight):
+        # use G.edges to treat multigraphs correctly (each
+        # parallel edge yields a separate tuple).
+        neighbors = (nbr for _, nbr in G.edges(u) if nbr in node_set)
+        for _, degv in ydeg(neighbors, weight=weight):
+            yield degu, degv
 
 
 def number_of_walks(G, walk_length, *, backend=None, **backend_kwargs):
