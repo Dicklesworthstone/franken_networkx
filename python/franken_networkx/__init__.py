@@ -11639,8 +11639,20 @@ def edge_betweenness_centrality(
             weight=weight,
             seed=seed,
         )
-    # Use fast Rust implementation for standard case
-    return _raw_edge_betweenness_centrality(G)
+    # Use fast Rust implementation for standard case, then re-key the
+    # dict in G.edges() iteration order to match nx's contract.
+    # br-r37-c1-pi615: the Rust dict had keys in canonical (smaller-
+    # first) edge order, but nx returns keys in G.edges() traversal
+    # order with the tuple direction nx encountered. Values are
+    # identical — only the dict key shape needed alignment.
+    raw = _raw_edge_betweenness_centrality(G)
+    reordered = {}
+    for u, v in G.edges():
+        if (u, v) in raw:
+            reordered[(u, v)] = raw[(u, v)]
+        elif (v, u) in raw:
+            reordered[(u, v)] = raw[(v, u)]
+    return reordered
 
 
 def katz_centrality(
