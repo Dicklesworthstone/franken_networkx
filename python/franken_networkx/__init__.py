@@ -7013,7 +7013,20 @@ def is_strongly_connected(G):
     it as lowercase ``g`` so ``is_strongly_connected(G=digraph)``
     kwarg-style drop-in calls broke.
     """
-    return _raw_is_strongly_connected(G)
+    try:
+        return _raw_is_strongly_connected(G)
+    except NetworkXNotImplemented as exc:
+        # br-r37-c1-yf4tf: the Rust binding raises a custom message
+        # ('is_strongly_connected is not defined for undirected graphs.
+        # Use is_connected instead.'). nx's @not_implemented_for
+        # decorator uses the standard 'not implemented for <type> type'
+        # format. Translate so drop-in code matching the message text
+        # works on both libraries.
+        if "not defined for undirected" in str(exc):
+            raise NetworkXNotImplemented(
+                "not implemented for undirected type"
+            ) from exc
+        raise
 
 
 def strongly_connected_components(G):
@@ -7033,8 +7046,22 @@ def strongly_connected_components(G):
 from franken_networkx._fnx import (
     weakly_connected_components as _raw_weakly_connected_components,
     number_weakly_connected_components,
-    is_weakly_connected,
+    is_weakly_connected as _raw_is_weakly_connected,
 )
+
+
+def is_weakly_connected(G):
+    """Return True if the directed graph ``G`` is weakly connected."""
+    try:
+        return _raw_is_weakly_connected(G)
+    except NetworkXNotImplemented as exc:
+        # br-r37-c1-yf4tf: align Rust binding's custom message with
+        # nx's standard '@not_implemented_for' format.
+        if "not defined for undirected" in str(exc):
+            raise NetworkXNotImplemented(
+                "not implemented for undirected type"
+            ) from exc
+        raise
 
 
 def weakly_connected_components(G):
@@ -8711,7 +8738,16 @@ def immediate_dominators(G, start):
     Matches upstream ``nx.immediate_dominators`` contract: the returned
     dict does **not** include ``start`` itself (franken_networkx-y87ra).
     """
-    idom = _raw_immediate_dominators(G, start)
+    try:
+        idom = _raw_immediate_dominators(G, start)
+    except NetworkXNotImplemented as exc:
+        # br-r37-c1-yf4tf: align Rust binding's custom message with
+        # nx's standard '@not_implemented_for' format.
+        if "not defined for undirected" in str(exc):
+            raise NetworkXNotImplemented(
+                "not implemented for undirected type"
+            ) from exc
+        raise
     # Rust binding returns a dict that includes {start: start}; drop the
     # self-dominator entry to match nx's documented shape.
     idom.pop(start, None)
