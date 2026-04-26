@@ -1298,13 +1298,28 @@ def write_graphml_xml(
     path,
     encoding="utf-8",
     prettyprint=True,
+    infer_numeric_types=False,
     named_key_ids=False,
     edge_id_from_attribute=None,
 ):
-    """Write GraphML through the existing core implementation."""
+    """Write GraphML through the existing core implementation.
+
+    Parameter order matches networkx's ``write_graphml_xml`` exactly,
+    including ``infer_numeric_types`` (slot #5) which the previous
+    fnx wrapper omitted, breaking ``write_graphml_xml(G, path,
+    infer_numeric_types=True)`` drop-in calls (br-r37-c1-graphml-typeinfer).
+    """
     import franken_networkx as fnx
 
-    return fnx.write_graphml(G, path)
+    return fnx.write_graphml(
+        G,
+        path,
+        encoding=encoding,
+        prettyprint=prettyprint,
+        infer_numeric_types=infer_numeric_types,
+        named_key_ids=named_key_ids,
+        edge_id_from_attribute=edge_id_from_attribute,
+    )
 
 
 def write_graphml_lxml(
@@ -1312,13 +1327,27 @@ def write_graphml_lxml(
     path,
     encoding="utf-8",
     prettyprint=True,
+    infer_numeric_types=False,
     named_key_ids=False,
     edge_id_from_attribute=None,
 ):
-    """Write GraphML through the existing core implementation."""
+    """Write GraphML through the existing core implementation.
+
+    Parameter order matches networkx's ``write_graphml_lxml``
+    exactly, including ``infer_numeric_types`` (slot #5) which the
+    previous fnx wrapper omitted (br-r37-c1-graphml-typeinfer).
+    """
     import franken_networkx as fnx
 
-    return fnx.write_graphml(G, path)
+    return fnx.write_graphml(
+        G,
+        path,
+        encoding=encoding,
+        prettyprint=prettyprint,
+        infer_numeric_types=infer_numeric_types,
+        named_key_ids=named_key_ids,
+        edge_id_from_attribute=edge_id_from_attribute,
+    )
 
 
 def _validate_gexf_version(version):
