@@ -9279,8 +9279,13 @@ def all_pairs_dijkstra_path(G, cutoff=None, weight="weight"):
             "all_pairs_dijkstra_path", G, weight=weight
         )
         return
-    for k, v in _raw_all_pairs_dijkstra_path(G, weight=weight).items():
-        yield (k, v)
+    # br-r37-c1-3dxfn: iterate outer keys in node-insertion order so
+    # ``for source, paths in all_pairs_dijkstra_path(G): ...`` matches
+    # nx's iteration contract (Rust dict yields in arbitrary order).
+    raw = _raw_all_pairs_dijkstra_path(G, weight=weight)
+    for node in G.nodes():
+        if node in raw:
+            yield (node, raw[node])
 
 
 def all_pairs_dijkstra_path_length(G, cutoff=None, weight="weight"):
@@ -9299,8 +9304,12 @@ def all_pairs_dijkstra_path_length(G, cutoff=None, weight="weight"):
             "all_pairs_dijkstra_path_length", G, weight=weight
         )
         return
-    for k, v in _raw_all_pairs_dijkstra_path_length(G, weight=weight).items():
-        yield (k, v)
+    # br-r37-c1-3dxfn: iterate outer keys in node-insertion order
+    # matching nx (Rust dict yields in arbitrary order).
+    raw = _raw_all_pairs_dijkstra_path_length(G, weight=weight)
+    for node in G.nodes():
+        if node in raw:
+            yield (node, raw[node])
 
 
 def all_pairs_bellman_ford_path(G, weight="weight"):
