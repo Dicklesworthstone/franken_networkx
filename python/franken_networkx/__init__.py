@@ -4752,22 +4752,57 @@ def maximum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
 
 
 def minimum_branching(G, attr="weight", default=1, preserve_attrs=False, partition=None):
-    """br-isokw: ``G`` matches nx; default aligned to int 1 (was 1.0)."""
+    """br-isokw: ``G`` matches nx; default aligned to int 1 (was 1.0).
+
+    br-r37-c1-ugod2: nx accepts undirected graphs (returns an empty
+    Graph since branchings are tree-shaped; an undirected graph has
+    no branching with positive sum). Delegate the undirected case so
+    drop-in code works.
+    """
+    if not G.is_directed():
+        return _call_networkx_for_parity(
+            "minimum_branching", G,
+            attr=attr, default=default,
+            preserve_attrs=preserve_attrs, partition=partition,
+        )
     return _raw_minimum_branching(G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition)
 
 
 def maximum_branching(G, attr="weight", default=1, preserve_attrs=False, partition=None):
-    """br-isokw: ``G`` matches nx; default aligned to int 1."""
+    """br-isokw: ``G`` matches nx; default aligned to int 1.
+
+    br-r37-c1-ugod2: nx accepts undirected graphs (returns the
+    maximum-weight spanning result). Delegate to nx for undirected
+    so drop-in code works.
+    """
+    if not G.is_directed():
+        return _call_networkx_for_parity(
+            "maximum_branching", G,
+            attr=attr, default=default,
+            preserve_attrs=preserve_attrs, partition=partition,
+        )
     return _raw_maximum_branching(G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition)
 
 
 def minimum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=False, partition=None):
-    """br-isokw: ``G`` matches nx; default aligned to int 1."""
+    """br-isokw: ``G`` matches nx; default aligned to int 1.
+
+    br-r37-c1-ugod2: nx raises NetworkXNotImplemented('not implemented
+    for undirected type') for undirected input — translate the Rust
+    binding's custom message to match.
+    """
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
     return _raw_minimum_spanning_arborescence(G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition)
 
 
 def maximum_spanning_arborescence(G, attr="weight", default=1, preserve_attrs=False, partition=None):
-    """br-isokw: ``G`` matches nx; default aligned to int 1."""
+    """br-isokw: ``G`` matches nx; default aligned to int 1.
+
+    br-r37-c1-ugod2: same nx-message alignment as minimum_spanning_arborescence.
+    """
+    if not G.is_directed():
+        raise NetworkXNotImplemented("not implemented for undirected type")
     return _raw_maximum_spanning_arborescence(G, attr=attr, default=default, preserve_attrs=preserve_attrs, partition=partition)
 
 
