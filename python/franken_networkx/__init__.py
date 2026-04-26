@@ -17496,8 +17496,30 @@ def is_d_separator(G, x, y, z):
     return _rust_dsep(G, list(x), list(y), list(z))
 
 
-def is_minimal_d_separator(G, x, y, z):
-    """Check if *z* is a minimal d-separator of *x* and *y*."""
+def is_minimal_d_separator(G, x, y, z, *, included=None, restricted=None):
+    """Check if *z* is a minimal d-separator of *x* and *y*.
+
+    Matches networkx's keyword-only ``included`` and ``restricted``
+    constraints from PEP 3102 / nx's API:
+
+    - ``included``: subset of *z* that must remain in any minimal
+      d-separator (not removable when shrinking).
+    - ``restricted``: superset that *z* and any reduction must stay
+      within.
+
+    When either constraint is given fnx delegates to networkx for
+    correctness; the standalone path keeps the simple O(|z|) reducer.
+    """
+    if included is not None or restricted is not None:
+        return _call_networkx_for_parity(
+            "is_minimal_d_separator",
+            G,
+            x,
+            y,
+            z,
+            included=included,
+            restricted=restricted,
+        )
     if not is_d_separator(G, x, y, z):
         return False
     z = set(z)
