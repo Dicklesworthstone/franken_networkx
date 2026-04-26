@@ -202,6 +202,78 @@ def _remove_node_with_networkx_missing_node_error(remove_node_impl, *, graph_kin
     return remove_node
 
 
+class EdgeDataView:
+    """Live view over ``G.edges(data=..., nbunch=...)`` matching nx's
+    EdgeDataView contract (br-r37-c1-sf1ku).
+
+    The Rust EdgeView's ``__call__`` materialises a list eagerly. nx's
+    EdgeDataView is a true view over the graph — mutations after the
+    view is captured are reflected on iteration. This wrapper stores
+    the call site's resolved kwargs and re-invokes the underlying
+    edge_view_call on each access (iter / len / contains / repr) so
+    drop-in code that captures a view and iterates after mutating gets
+    nx's live semantics. Class name aligned to ``EdgeDataView`` so
+    ``type(view).__name__`` checks match nx.
+    """
+
+    def __init__(self, edge_view_call, view_self, *, data, default, nbunch_list):
+        self._call = edge_view_call
+        self._view = view_self
+        self._data = data
+        self._default = default
+        self._nbunch_list = nbunch_list
+        self._nbset = set(nbunch_list) if nbunch_list is not None else None
+
+    def _materialize(self):
+        data = self._data
+        default = self._default
+        data_is_none = data is None
+        rust_data = False if data_is_none else data
+        result = self._call(
+            self._view,
+            data=rust_data,
+            nbunch=self._nbunch_list,
+            default=default,
+        )
+        if data_is_none:
+            result = [edge + (default,) for edge in result]
+        if self._nbset is not None:
+            result = [self._reorder(e) for e in result]
+        else:
+            result = list(result)
+        return result
+
+    def _reorder(self, edge):
+        if not isinstance(edge, tuple) or len(edge) < 2:
+            return edge
+        u, v = edge[0], edge[1]
+        rest = edge[2:]
+        if u in self._nbset:
+            return edge
+        if v in self._nbset:
+            return (v, u) + rest
+        return edge
+
+    def __iter__(self):
+        return iter(self._materialize())
+
+    def __len__(self):
+        return len(self._materialize())
+
+    def __contains__(self, item):
+        return item in self._materialize()
+
+    def __repr__(self):
+        return f"EdgeDataView({self._materialize()!r})"
+
+    def __eq__(self, other):
+        if hasattr(other, "__iter__"):
+            return list(self._materialize()) == list(other)
+        return NotImplemented
+
+    __hash__ = None
+
+
 def _edge_view_call_with_nbunch_first(edge_view_call):
     _unset = object()
 
@@ -252,52 +324,19 @@ def _edge_view_call_with_nbunch_first(edge_view_call):
             # Materialize nbunch so we can both pass it to Rust and use
             # it to reorder the returned edge tuples below.
             nbunch_list = [n for n in nbunch]
-        # br-edgesnone: nx.Graph.edges(data=None, default=X) yields 3-tuples
-        # where the third element is the default for every edge. The Rust
-        # EdgeView treats data=None the same as data=False (yields
-        # 2-tuples), which breaks nx internals like eigenvector_centrality_numpy
-        # that pass weight=None. Detect this case and append the default.
-        data_is_none = data is None
-        rust_data = False if data_is_none else data
-        result = edge_view_call(self, data=rust_data, nbunch=nbunch_list if nbunch_list is not None else nbunch, default=default)
-        if data_is_none:
-            result = [edge + (default,) for edge in result]
-        # br-edgesu1: when a specific nbunch is given, nx yields edges
-        # with the queried node first, i.e. `G.edges(3) -> [(3, 2)]`
-        # not `[(2, 3)]`. The Rust EdgeView canonicalizes tuples to
-        # (min, max), which breaks nx internals that do
-        # `for _, nbr in G.edges(u)` (assuming the first element is u).
-        # Reorder tuples so the endpoint in nbunch comes first.
-        if nbunch_list is not None:
-            nbset = set(nbunch_list)
-
-            def _reorder(edge):
-                # edge may be (u, v), (u, v, k), (u, v, data), (u, v, k, data)
-                if not isinstance(edge, tuple) or len(edge) < 2:
-                    return edge
-                u, v = edge[0], edge[1]
-                rest = edge[2:]
-                if u in nbset:
-                    return edge
-                if v in nbset:
-                    return (v, u) + rest
-                return edge
-
-            result = [_reorder(e) for e in result]
-            return result if data is not False else list(result)
-        if data is not False:
-            return list(result)
-        return result
-        # br-evdvlst: when data is non-False, the Rust EdgeView iter yields
-        # 3-tuples but the view still has keys()/__getitem__ that return
-        # attrs dicts. That makes dict(G.edges(data='attr')) silently
-        # produce a bogus {(u, v, val): {attr: val}} mapping; nx errors
-        # out because its EdgeDataView has no keys(). Materialize the
-        # tuples into a plain list so dict() / sorted() / other protocol
-        # consumers see tuples-only, no keys() path.
-        if data is not False:
-            return list(result)
-        return result
+        # When data is non-False or nbunch is given, return a live
+        # EdgeDataView wrapper (br-r37-c1-sf1ku) instead of a list
+        # snapshot. The wrapper re-invokes edge_view_call on each access.
+        if nbunch_list is not None or data is not False:
+            return EdgeDataView(
+                edge_view_call,
+                self,
+                data=data,
+                default=default,
+                nbunch_list=nbunch_list,
+            )
+        # data=False, no nbunch — return the live Rust EdgeView directly.
+        return edge_view_call(self, data=False, nbunch=None, default=default)
 
     return wrapped
 
