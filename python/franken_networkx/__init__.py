@@ -12520,31 +12520,34 @@ def florentine_families_graph():
 
     A classic social network of marriage alliances among Renaissance
     Florentine families.
+
+    br-r37-c1-dgicx: replicate nx's exact add_edge sequence so node
+    insertion order, edge iteration order, and per-node adj order
+    match nx's contract. The previous canonical/alphabetical edge
+    list produced a different graph shape (same connectivity, but
+    iteration-order differs).
     """
     G = Graph()
-    edges = [
-        ("Acciaiuoli", "Medici"),
-        ("Albizzi", "Ginori"),
-        ("Albizzi", "Guadagni"),
-        ("Albizzi", "Medici"),
-        ("Barbadori", "Castellani"),
-        ("Barbadori", "Medici"),
-        ("Bischeri", "Guadagni"),
-        ("Bischeri", "Peruzzi"),
-        ("Bischeri", "Strozzi"),
-        ("Castellani", "Peruzzi"),
-        ("Castellani", "Strozzi"),
-        ("Guadagni", "Lamberteschi"),
-        ("Guadagni", "Tornabuoni"),
-        ("Medici", "Ridolfi"),
-        ("Medici", "Salviati"),
-        ("Medici", "Tornabuoni"),
-        ("Peruzzi", "Strozzi"),
-        ("Ridolfi", "Strozzi"),
-        ("Ridolfi", "Tornabuoni"),
-        ("Salviati", "Pazzi"),
-    ]
-    G.add_edges_from(edges)
+    G.add_edge("Acciaiuoli", "Medici")
+    G.add_edge("Castellani", "Peruzzi")
+    G.add_edge("Castellani", "Strozzi")
+    G.add_edge("Castellani", "Barbadori")
+    G.add_edge("Medici", "Barbadori")
+    G.add_edge("Medici", "Ridolfi")
+    G.add_edge("Medici", "Tornabuoni")
+    G.add_edge("Medici", "Albizzi")
+    G.add_edge("Medici", "Salviati")
+    G.add_edge("Salviati", "Pazzi")
+    G.add_edge("Peruzzi", "Strozzi")
+    G.add_edge("Peruzzi", "Bischeri")
+    G.add_edge("Strozzi", "Ridolfi")
+    G.add_edge("Strozzi", "Bischeri")
+    G.add_edge("Ridolfi", "Tornabuoni")
+    G.add_edge("Tornabuoni", "Guadagni")
+    G.add_edge("Albizzi", "Ginori")
+    G.add_edge("Albizzi", "Guadagni")
+    G.add_edge("Bischeri", "Guadagni")
+    G.add_edge("Guadagni", "Lamberteschi")
     return G
 
 
