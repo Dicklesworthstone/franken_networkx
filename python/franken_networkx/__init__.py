@@ -6307,6 +6307,29 @@ from franken_networkx._fnx import (
 )
 
 
+def _bfs_visit_order(G, source):
+    """Yield nodes in BFS-from-source order, visiting each layer's
+    neighbours in G.adj[u] iteration order. Matches nx's
+    ``single_source_shortest_path`` iteration contract
+    (br-r37-c1-tlrdu)."""
+    seen = {source}
+    yield source
+    frontier = [source]
+    while frontier:
+        next_frontier = []
+        for u in frontier:
+            try:
+                neighbours = G.adj[u]
+            except KeyError:
+                continue
+            for v in neighbours:
+                if v not in seen:
+                    seen.add(v)
+                    yield v
+                    next_frontier.append(v)
+        frontier = next_frontier
+
+
 def single_source_shortest_path(G, source, cutoff=None):
     """Return a dict of shortest paths from ``source`` to every reachable
     node. Matches NetworkX: raises NodeNotFound('Source {src} not in G')
@@ -6314,7 +6337,9 @@ def single_source_shortest_path(G, source, cutoff=None):
     """
     if source not in G:
         raise NodeNotFound(f"Source {source} not in G")
-    return _raw_single_source_shortest_path(G, source, cutoff)
+    raw = _raw_single_source_shortest_path(G, source, cutoff)
+    # br-r37-c1-tlrdu: reorder in BFS-visit-from-source order matching nx.
+    return {node: raw[node] for node in _bfs_visit_order(G, source) if node in raw}
 
 
 def single_source_shortest_path_length(G, source, cutoff=None):
@@ -6325,7 +6350,9 @@ def single_source_shortest_path_length(G, source, cutoff=None):
     """
     if source not in G:
         raise NodeNotFound(f"Source {source} is not in G")
-    return _raw_single_source_shortest_path_length(G, source, cutoff)
+    raw = _raw_single_source_shortest_path_length(G, source, cutoff)
+    # br-r37-c1-tlrdu: reorder in BFS-visit-from-source order matching nx.
+    return {node: raw[node] for node in _bfs_visit_order(G, source) if node in raw}
 
 # Algorithm functions — dominating set
 from franken_networkx._fnx import (
