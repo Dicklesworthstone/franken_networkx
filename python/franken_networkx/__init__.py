@@ -24820,18 +24820,21 @@ def k_truss(G, k):
 
     br-coremg: nx rejects multigraph / directed multigraph for
     k_truss; fnx's Rust path silently accepted and returned. Guard.
+
+    br-r37-c1-3qopf: the Rust k_truss_rust returned nodes in
+    canonical/sort order, but nx iterates them in input-graph node
+    order (e.g. fnx.k_truss(g,2).nodes() = ['a','b','c','d','e'] vs
+    nx ['c','d','a','b','e']). Delegate to nx so the resulting
+    subgraph's nodes/edges/adj iteration matches nx's contract.
     """
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
-    result = _fnx.k_truss_rust(G, k)
-    H = Graph()
-    for n in result["nodes"]:
-        H.add_node(n)
-    for u, v in result["edges"]:
-        H.add_edge(u, v)
-    return H
+    import networkx as _nx_mod
+    from franken_networkx.readwrite import _from_nx_graph
+    nx_result = _nx_mod.k_truss(_networkx_graph_for_parity(G), k)
+    return _from_nx_graph(nx_result, create_using=Graph())
 
 
 def onion_layers(G):
