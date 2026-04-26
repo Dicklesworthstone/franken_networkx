@@ -4058,11 +4058,49 @@ from franken_networkx._fnx import (
 
 # Algorithm functions — matching
 from franken_networkx._fnx import (
-    max_weight_matching,
+    max_weight_matching as _raw_max_weight_matching,
     maximal_matching,
     min_edge_cover as _raw_min_edge_cover,
     min_weight_matching,
 )
+
+
+def max_weight_matching(G, maxcardinality=False, weight="weight"):
+    """Compute a maximum-weight matching in the graph.
+
+    Returns a set of edges (2-tuples).
+
+    br-r37-c1-kpnc8: the Rust binding's matching returned tuples in a
+    different direction than nx (e.g. (u, v) where nx returns (v, u))
+    and on graphs with multiple equally-optimal matchings, picked a
+    different valid choice from nx's DFS-augmenting-path traversal.
+    Drop-in code that compared the matching against a reference set
+    of (u, v) pairs broke. Delegate to nx so the chosen matching and
+    the per-pair tuple direction match nx's contract exactly.
+
+    nx's max_weight_matching is ``@not_implemented_for("multigraph")``,
+    but the previous Rust binding accepted MultiGraph by collapsing
+    parallel edges. Preserve that capability by projecting the
+    MultiGraph to a simple Graph (taking the max ``weight`` per edge)
+    before delegating.
+    """
+    if G.is_multigraph():
+        projected = (DiGraph if G.is_directed() else Graph)()
+        projected.add_nodes_from(G.nodes(data=True))
+        for u, v, data in G.edges(data=True):
+            edge_weight = data.get(weight, 1)
+            if projected.has_edge(u, v):
+                if edge_weight > projected[u][v].get(weight, 1):
+                    projected[u][v][weight] = edge_weight
+            else:
+                projected.add_edge(u, v, **{weight: edge_weight})
+        target = projected
+    else:
+        target = G
+    return _call_networkx_for_parity(
+        "max_weight_matching", target,
+        maxcardinality=maxcardinality, weight=weight,
+    )
 
 
 def min_edge_cover(G, matching_algorithm=None):
